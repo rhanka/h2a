@@ -16,8 +16,9 @@ export function shellWords(command) {
     if (!closing) break;
     const body = command.slice(end + 1, end + 1 + closing.index);
     const header = command.slice(command.lastIndexOf('\n', match.index) + 1, end);
-    const shell = /(?:^|[;&|\s])(?:\S*\/)?(?:bash|sh|zsh)\b/.test(header);
-    const runtime = /(?:^|\s)(?:\S*\/)?(?:node|bun|deno|tsx)\b/.test(header);
+    const headerWords = shellWords(header.replace(match[0], '')).groups.flatMap(g => g.words).map(w => basename(w));
+    const shell = headerWords.some(w => ['bash', 'sh', 'zsh'].includes(w));
+    const runtime = headerWords.some(w => ['node', 'bun', 'deno', 'tsx'].includes(w));
     const marker = shell || runtime ? ` __H2A_INPUT_${embedded.length}__ ` : ' ';
     if (shell || runtime) embedded.push({ body, runtime });
     command = command.slice(0, match.index) + marker + command.slice(match.index + match[0].length, end) + '\n' +
@@ -29,6 +30,7 @@ export function shellWords(command) {
   for (let i = 0; i < command.length; i++) {
     const ch = command[i];
     if (escape) { word += ch; started = true; escape = false; continue; }
+    if (ch === '\\' && command[i + 1] === '\n' && quote !== "'") { i++; continue; }
     if (ch === '\\' && quote !== "'") { escape = true; started = true; continue; }
     if (quote !== "'" && (command.startsWith('$(', i) || ch === '`')) {
       const tick = ch === '`'; let j = i + (tick ? 1 : 2), depth = 1, innerQuote = '', escaped = false;
@@ -53,6 +55,7 @@ export function shellWords(command) {
       continue;
     }
     if (ch === '"' || ch === "'") { quote = ch; started = true; continue; }
+    if (ch === '#' && !started) { while (i < command.length && command[i] !== '\n') i++; group('\n'); continue; }
     if (ch === '$') { word += '__H2A_DYNAMIC__'; started = true; continue; }
     if (ch === '>' || ch === '&' && command[i + 1] === '>') {
       const fd = /^\d+$/.test(word) ? word : ''; if (fd) { word = ''; started = false; }
@@ -65,7 +68,9 @@ export function shellWords(command) {
       }
       words.push(op); continue;
     }
-    if (';|&\n()'.includes(ch)) {
+    const brace = '{}'.includes(ch) && !started && /^(?:\s|;|$)/.test(command[i + 1] ?? '');
+    if ('{}'.includes(ch) && !brace) uncertain = true; // unquoted expansion is not a command boundary
+    if (';|&\n()'.includes(ch) || brace) {
       let op = ch; if ('|&'.includes(ch) && command[i + 1] === ch) op += command[++i];
       group(op);
     } else if (/\s/.test(ch)) flush(); else { word += ch; started = true; }
@@ -159,11 +164,22 @@ function npmWorkspaces(root, words) {
 }
 export function classify(command, initialCwd, context, depth = 0) {
   if (depth > 5) return [{ action: 'shell.opaque', ref: '', repo: '', foreign: true, uncertain: true }];
-  const requests = [], parsed = shellWords(command); let cwd = initialCwd, pipeline;
-  const stack = [], directories = []; let variables = { ...context.toolEnv };
+  const requests = [], parsed = shellWords(command); let cwd = initialCwd, pipeline, groupIndex = -1, conditionalState = false;
+  const conditional = parsed.groups.some(g=>['&&','||'].includes(g.separator));
+  const stack = [], directories = []; let variables = { ...context.toolEnv }, oldpwd;
+  const opaque = (action = 'shell.syntax') => requests.push({ action, ref: '', repo: context.repo, code: 'UNVERIFIABLE' });
+  if (parsed.uncertain) opaque();
+  // Compound pipeline stages require a full shell AST. Never guess at their
+  // shared cwd/stack; simple pipeline stages are isolated below.
+  if (parsed.groups.some(g=>'{}()'.includes(g.separator) && g.separator) && parsed.groups.some(g=>g.separator==='|')) opaque();
   for (const group of parsed.groups) {
-    if (group.separator === '(' && !group.words.length) { stack.push({ cwd, variables: { ...variables } }); continue; }
-    if (group.separator === '|' && pipeline === undefined) pipeline = { cwd, variables: { ...variables } };
+    groupIndex++;
+    if (pipeline) { cwd=pipeline.cwd; variables={...pipeline.variables}; oldpwd=pipeline.oldpwd; directories.splice(0,directories.length,...pipeline.directories); }
+    if (group.separator === '(') {
+      if (group.words.some(w => !['!', 'time'].includes(w))) { opaque(); continue; }
+      stack.push({ cwd, variables: { ...variables }, oldpwd, directories: [...directories] }); continue;
+    }
+    if (group.separator === '|' && pipeline === undefined) pipeline = { cwd, variables: { ...variables }, oldpwd, directories: [...directories] };
     let words = [...group.words]; const env = { ...variables }, groupCwd = cwd;
     let envChdir = false;
     try {
@@ -195,7 +211,20 @@ export function classify(command, initialCwd, context, depth = 0) {
         }
         continue;
       }
-      if (['command', 'sudo', 'rtk', 'proxy', 'nohup', 'exec'].includes(words[0])) { words.shift(); continue; }
+      if (['command', 'builtin', 'sudo', 'rtk', 'proxy', 'nohup', 'exec', '!', 'time', 'nice', 'timeout', 'stdbuf', 'setsid'].includes(basename(words[0]))) {
+        const wrapper = basename(words.shift());
+        while (words[0]?.startsWith('-')) {
+          const flag = words.shift();
+          if (flag === '--') break;
+          const valueFlags = {nice:['-n','--adjustment'],timeout:['-s','--signal','-k','--kill-after'],stdbuf:['-i','-o','-e'],sudo:['-u','-g','-h','-p','-C','-T']};
+          const plainFlags = {command:['-p','-v','-V'],time:['-p'],nice:[],timeout:['--foreground','--preserve-status','-v','--verbose'],setsid:['-f','-w','--fork','--wait','-c','--ctty'],sudo:['-n','-E','-H']};
+          if ((valueFlags[wrapper] ?? []).includes(flag)) words.shift();
+          else if (!(plainFlags[wrapper] ?? []).includes(flag) && !(valueFlags[wrapper] ?? []).some(name=>flag.startsWith(name+(name.startsWith('--')?'=':'')) && flag!==name) &&
+            !(wrapper==='nice' && /^-\d+$/.test(flag))) opaque('shell.wrapper');
+        }
+        if (wrapper === 'timeout') words.shift();
+        continue;
+      }
       break;
     }
     for (const word of embeddedWords) for (const match of word.matchAll(/__H2A_(?:INPUT|SUB)_(\d+)__/g)) {
@@ -204,45 +233,70 @@ export function classify(command, initialCwd, context, depth = 0) {
         code: body.includes('workspace-scope') ? 'OWNER_ONLY' : 'UNVERIFIABLE' });
       else requests.push(...classify(body, cwd, { ...context, toolEnv: env }, depth + 1));
     }
-    if (!words.length) { Object.assign(variables, env); continue; }
+    if (!words.length) {
+      if (conditional && groupIndex>0 && JSON.stringify(variables)!==JSON.stringify(env)) conditionalState=true;
+      Object.assign(variables, env); continue;
+    }
     const exe = basename(words.shift() ?? '');
+    if (/__H2A_(DYNAMIC|SUB)/.test(exe) || ['if','then','elif','else','fi','for','select','while','until','do','done','case','esac','function',
+      'source','.','eval','export','readonly','declare','typeset','local','set','unset','shopt','alias','unalias','hash','enable'].includes(exe)) {
+      opaque(); continue;
+    }
     if (['cd', 'pushd', 'popd'].includes(exe)) {
-      const path = words.find(w => !w.startsWith('-'));
-      if (exe === 'popd') cwd = directories.pop() ?? context.workspace;
-      else { if (exe === 'pushd') directories.push(cwd); cwd = canonical(resolve(cwd, path ?? context.workspace)); }
+      if (conditional && groupIndex>0) conditionalState=true;
+      const path = words.find(w => w === '-' || !w.startsWith('-'));
+      const previous = cwd;
+      if (exe === 'popd' || exe === 'pushd' && path === undefined) {
+        const next = directories.pop();
+        if (!next) { opaque('shell.cwd'); continue; }
+        if (exe === 'pushd') directories.push(cwd);
+        cwd = next;
+      } else {
+        if (exe === 'pushd') directories.push(cwd);
+        const next = path === '-' ? oldpwd ?? env.OLDPWD : path ?? env.HOME ?? process.env.HOME;
+        if (!next || words.some(w => /^[-+]\d+$/.test(w)) || env.CDPATH) { opaque('shell.cwd'); continue; }
+        cwd = canonical(resolve(cwd, next));
+      }
+      oldpwd = previous;
       if (/__H2A_(DYNAMIC|SUB)/.test(cwd)) requests.push({ action: 'shell.cwd', code: 'UNVERIFIABLE', repo: context.repo, ref: cwd });
       continue;
     }
-    if (['bash', 'sh', 'zsh'].includes(exe) && words.some(w => /^-[a-z]*c$/.test(w))) {
-      const index = words.findIndex(w => /^-[a-z]*c$/.test(w));
+    if (['bash', 'sh', 'zsh'].includes(exe) && words.some(w => /^-[a-z]*c[a-z]*$/.test(w))) {
+      const index = words.findIndex(w => /^-[a-z]*c[a-z]*$/.test(w));
       requests.push(...classify(words[index + 1] ?? '', cwd, { ...context, toolEnv: env }, depth + 1)); continue;
     }
+    if (['bash', 'sh', 'zsh'].includes(exe) && !words.some(w => !w.startsWith('-'))) opaque('shell.stdin');
     const interpreter = ['node', 'tsx', 'ts-node', 'bash', 'sh', 'zsh', 'bun', 'deno', 'npx'].includes(exe);
     const launches = name => exe === name || interpreter && words.some(w => basename(w) === name);
     if (launches('workspace-scope-grant.mjs') || launches('workspace-scope-guard.mjs') && words.some(w => w.startsWith('--initialize-session'))) {
       requests.push({ action: 'owner.grant', code: 'OWNER_ONLY', ref: '', repo: '' }); continue;
     }
-    if (interpreter && words.some(w => ['-e', '--eval', '-p', '--print'].includes(w))) {
+    if (interpreter && words.some(w => /^(?:--(?:eval|print)(?:=|$)|-[ep])/.test(w))) {
       requests.push({ action: 'runtime.inline', repo: context.repo, ref: '',
         code: words.some(w => w.includes('workspace-scope') || context.ownerKey && w.includes(context.ownerKey)) ? 'OWNER_ONLY' : 'UNVERIFIABLE' });
     }
-    let target = cwd, additionalTargets = [], action, ref = '', remote, extraRemotes = [], checkVersions = false, privateVersion = false, revision, versionRefs;
+    let target = cwd, additionalTargets = [], action, ref = '', remote, extraRemotes = [], checkVersions = false, privateVersion = false, revision, versionRefs, ownerOnly = false, gitOptionsUncertain = false;
     if (exe === 'git') {
-      if (env.GIT_WORK_TREE) target = resolve(cwd, env.GIT_WORK_TREE);
-      else if (env.GIT_DIR) target = dirname(resolve(cwd, env.GIT_DIR));
+      let gitDir = env.GIT_DIR, workTree = env.GIT_WORK_TREE;
       let i = 0;
       for (; i < words.length; i++) {
         const word = words[i];
         if (word === '-C') { target = resolve(target, words[++i]); continue; }
         if (word.startsWith('-C') && word.length > 2) { target = resolve(target, word.slice(2)); continue; }
-        if (word === '--work-tree') { target = resolve(cwd, words[++i]); continue; }
-        if (word.startsWith('--work-tree=')) { target = resolve(cwd, word.slice(12)); continue; }
-        if (word === '--git-dir') { target = dirname(resolve(cwd, words[++i])); continue; }
-        if (word.startsWith('--git-dir=')) { target = dirname(resolve(cwd, word.slice(10))); continue; }
-        if (['-c', '--namespace', '--config-env', '--exec-path', '--super-prefix'].includes(word)) { i++; continue; }
+        if (word === '--work-tree') { workTree = words[++i]; continue; }
+        if (word.startsWith('--work-tree=')) { workTree = word.slice(12); continue; }
+        if (word === '--git-dir') { gitDir = words[++i]; continue; }
+        if (word.startsWith('--git-dir=')) { gitDir = word.slice(10); continue; }
+        if (word === '-c' || word.startsWith('--config-env')) gitOptionsUncertain = true;
+        if (['-c', '--namespace', '--config-env', '--exec-path', '--super-prefix', '--attr-source'].includes(word)) { i++; continue; }
         if (!word.startsWith('-')) break;
+        if (!/^(?:--(?:namespace|config-env|exec-path|super-prefix|attr-source)=|--(?:no-pager|paginate|bare|no-optional-locks)$)/.test(word)) opaque('git.options');
       }
-      const sub = words[i], args = words.slice(i + 1), pos = positional(args, ['--repo', '--receive-pack', '--exec', '-m', '--message']);
+      if (workTree) additionalTargets.push(canonical(resolve(target, workTree)));
+      if (gitDir) target = dirname(resolve(target, gitDir));
+      else if (workTree) target = resolve(target, workTree);
+      const sub = words[i], args = words.slice(i + 1), pos = positional(args, ['--repo', '--receive-pack', '--exec', '-m', '--message',
+        '--author', '--date', '-F', '--file', '-C', '-c', '--cleanup', '--trailer', '--fixup', '--squash', '--pathspec-from-file']);
       if (['push', 'merge', 'tag', 'rebase', 'commit', 'reset', 'checkout', 'switch', 'cherry-pick', 'revert', 'clean', 'stash', 'add', 'rm', 'mv', 'config', 'update-ref', 'pull', 'apply', 'am'].includes(sub) ||
         (sub === 'branch' && args.some(w => /^-[^-]*[DdMmCcf]/.test(w) || ['--delete', '--move', '--copy', '--force'].includes(w)))) action = `git.${sub}`;
       ref = pos.at(-1) ?? git(target, ['symbolic-ref', '--short', 'HEAD']) ?? '';
@@ -250,8 +304,15 @@ export function classify(command, initialCwd, context, depth = 0) {
       if (sub === 'config' && (args.some(w => /^(--get|--list|-l|-e)/.test(w)) || pos.length < 2)) action = undefined;
       checkVersions = ['push', 'commit', 'merge'].includes(sub);
       if (sub === 'merge') revision = pos.find(w => !/^(?:--|FETCH_HEAD$)/.test(w));
-      if (sub === 'commit') revision = args.some(w => /^-[a-z]*a/.test(w) || w === '--all') || pos.length ? undefined : ':INDEX';
+      // Every commit contains the index; path/--all commits additionally select
+      // worktree content. Option operands must never select the wrong tree.
+      if (sub === 'commit') { revision = ':INDEX'; versionRefs = [':INDEX', ...(args.includes('--all') || args.some(w => /^-[a-z]*a/.test(w)) || pos.length ? [undefined] : [])]; }
       if (sub === 'update-ref') requests.push({ action, code: 'OWNER_ONLY', repo: context.repo, ref });
+      if (sub === 'remote' && !['', 'show', 'get-url', '-v', '--verbose'].includes(args[0] ?? '') || sub === 'config' && action) opaque('git.config-mutation');
+      ownerOnly = sub === 'am' || sub === 'apply' && (args.includes('--apply') || !args.some(w=>['--check','--stat','--numstat','--summary'].includes(w)));
+      if (sub === 'clean' && !args.includes('--dry-run') && !args.includes('-n')) {
+        for (const path of pos.length ? pos : ['.']) requests.push({action:'file.rm',repo:context.repo,ref:canonical(resolve(target,path))});
+      }
       if (sub === 'push') {
         const branch = git(target, ['symbolic-ref', '--short', 'HEAD']);
         const destination = valueAfter(args, '--repo') ?? pos[0] ??
@@ -264,6 +325,12 @@ export function classify(command, initialCwd, context, depth = 0) {
         versionRefs = pos.length <= 1 ? ['HEAD'] : pos.slice(1).flatMap(p => p.replace(/^\+/, '') === ':' ?
           (git(target, ['for-each-ref', '--format=%(refname)', 'refs/heads/']) ?? '').split('\n').filter(Boolean) :
           [p.replace(/^\+/, '').split(':')[0]]).filter(Boolean);
+        if (args.some(w => ['--all','--branches','--tags','--mirror'].includes(w))) {
+          const namespaces = args.includes('--mirror') ? ['refs/'] : [
+            ...(args.some(w => ['--all','--branches'].includes(w)) ? ['refs/heads/'] : []), ...(args.includes('--tags') ? ['refs/tags/'] : [])];
+          versionRefs = (git(target, ['for-each-ref', '--format=%(refname)', ...namespaces]) ?? '').split('\n').filter(Boolean);
+        }
+        if (args.includes('--follow-tags')) versionRefs.push(...(git(target,['for-each-ref','--format=%(refname)','refs/tags/']) ?? '').split('\n').filter(Boolean));
         revision = 'HEAD';
       }
     } else if (exe === 'gh') {
@@ -323,9 +390,12 @@ export function classify(command, initialCwd, context, depth = 0) {
       words.some(w => /(?:^|[/])(?:release|publish|bump)(?:[-_.]|$)/i.test(w))) {
       action = 'script.release'; ref = words[0] ?? exe;
       if (words[0] && /[\/]/.test(words[0])) target = dirname(resolve(cwd, words[0]));
-    } else if (['rm', 'mv', 'cp', 'touch', 'mkdir', 'tee', 'chmod', 'chown', 'truncate', 'install'].includes(exe)) {
+    } else if (['rm', 'mv', 'cp', 'touch', 'mkdir', 'tee', 'chmod', 'chown', 'truncate', 'install', 'dd', 'ln'].includes(exe)) {
       const paths = words.filter(w => !w.startsWith('-'));
-      for (const path of exe === 'cp' || exe === 'install' ? paths.slice(-1) : paths) {
+      const destination = valueAfter(words,'--target-directory','-t');
+      const targets = exe === 'dd' ? words.filter(w => w.startsWith('of=')).map(w => w.slice(3)) :
+        ['cp','install','ln'].includes(exe) ? [destination ?? paths.at(-1)].filter(Boolean) : paths;
+      for (const path of targets) {
         const resolved = canonical(resolve(cwd, path));
         requests.push({ action: `file.${exe}`, repo: repository(dirname(resolved)).repo, ref: resolved, foreign: !inside(context.workspace, resolved) });
       }
@@ -339,8 +409,9 @@ export function classify(command, initialCwd, context, depth = 0) {
         /^(?:npm|pnpm|yarn|bun)\.version$/.test(action) && !privateVersion || action === 'script.release' ||
         action.endsWith('.run') && /release|publish|version|bump/.test(ref) || action.startsWith('gh.release.'),
       uncertain: parsed.uncertain || [target, remote, ...words.filter((w, i) => i === 0 || words[i - 1] !== '-m' && words[i - 1] !== '--message')].some(w => /__H2A_(DYNAMIC|SUB)/.test(w ?? '')) || Object.keys(env).some(k => /^(?:GIT_CONFIG|GIT_COMMON_DIR)/.test(k)) ||
-        exe === 'git' && words.some(w => w === '-c' || w.startsWith('--config-env') || (w === '--mirror' || w === '--all' && action === 'git.push')) };
+        gitOptionsUncertain || exe === 'git' && words.some(w => w === '--mirror' || w === '--all' && action === 'git.push') };
     requests.push(request);
+    if (ownerOnly) requests.push({...request,code:'OWNER_ONLY'});
     for (const path of additionalTargets) {
       const repo = repository(path);
       let release = request.release, checkVersions = request.checkVersions;
@@ -358,19 +429,28 @@ export function classify(command, initialCwd, context, depth = 0) {
     }
     } finally {
       if (envChdir) cwd = groupCwd;
-      if (group.separator === ')') { const previous = stack.pop(); cwd = previous?.cwd ?? initialCwd; variables = previous?.variables ?? variables; }
-      if (pipeline !== undefined && group.separator !== '|') { cwd = pipeline.cwd; variables = pipeline.variables; pipeline = undefined; }
+      if (group.separator === ')') {
+        const previous = stack.pop();
+        if (!previous) opaque();
+        else { cwd = previous.cwd; variables = previous.variables; oldpwd = previous.oldpwd; directories.splice(0,directories.length,...previous.directories); }
+      }
+      if (pipeline !== undefined && group.separator !== '|') {
+        cwd = pipeline.cwd; variables = pipeline.variables; oldpwd=pipeline.oldpwd; directories.splice(0,directories.length,...pipeline.directories); pipeline = undefined;
+      }
     }
   }
+  // A short-circuit can skip a later cwd/environment reset. The linear subset
+  // must never erase the prior foreign context by assuming that reset ran.
+  if (conditionalState) opaque('shell.conditional-state');
   return requests;
 }
 
-export function patchBump(path, patch) {
+export function patchBump(path, patch, cwd) {
   let old;
   try { old = JSON.parse(fs.readFileSync(path, 'utf8')); } catch { return false; }
   if (!old.name || !old.version || old.private === true) return false;
   const section = patch.split(/^\*\*\* (?:Update File|Add File|Delete File): /m)
-    .find(s => s.split('\n')[0] === path || resolve(dirname(path), s.split('\n')[0]) === path || s.split('\n')[0] === basename(path));
+    .find(s => canonical(resolve(cwd, s.split('\n')[0])) === path);
   const versions = [...(section ?? patch).matchAll(/^\+.*?"version"\s*:\s*"([^"]+)"/gm)];
   return versions.some(m => m[1] !== old.version);
 }

@@ -5049,7 +5049,7 @@ function mergeStopHooksFile(
     claudeDriveReceiveHookEntry(receive)
   ];
   const merged: Record<string, unknown> = scopeHost === 'agy' && scopeCommand ? {
-    ...existing, 'sentropic-h2a-workspace-scope': agyWorkspaceScopeDefinition(scopeCommand)
+    ...existing, 'sentropic-h2a-workspace-scope': agyWorkspaceScopeDefinition(scopeCommand, true)
   } : {
     ...existing,
     hooks: {

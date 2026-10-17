@@ -15,6 +15,7 @@
   test/host-plugin.test.js, test/native-host-shared-skills.test.js,
   docs/workspace-scope-guard.md, docs/specs/SPEC_EVOL_WORKSPACE_SCOPE_GUARD.md,
   docs/reviews/workspace-scope-guard/**, BRANCH.md.
+- [x] Direct CI blocker: scripts/test-inventory.json (host-plugin normative title).
 - [x] Forbidden: live host state, unrelated sources, dependency/version changes.
 
 ## Lot 1
@@ -44,3 +45,12 @@
 - [x] R6: quoted prose, own --all, native test runner flags, current PR resolution, branch reads, literal patch envelopes.
 - [x] R7: exact repo/action/ref/session in both refusal channels.
 - [ ] Fresh author-complementary h2a consensus: unavailable in confinement (no h2a MCP; no real-state access authorized).
+
+## Tour 3 — Independent review rev364-r2.md
+- [x] R1: agy global-hook cwd, native workspacePaths SessionStart binding, JSON startup output, multi-session --write installation; explicit Muse project installation only.
+- [x] R2: fail-closed shell grammar/state, wrappers, balanced cwd stacks, HOME/OLDPWD/directory stack, continuations, stdin/runtime paths and independent Git directory selectors.
+- [x] R3: protect hook configuration, installer metadata, helper code and journals; destination options, destructive Git commands and indirect/reflective JS capability access.
+- [x] R4: inspect index independently of commit operands, enumerate pushed refs, match full patch paths and honor native line ranges.
+- [x] R5: lex JS strings/comments separately and decode literals before shell classification; preserve legitimate commit messages.
+- [x] CI blocker: normative inventory follows the existing agy/Muse installation test, without removing its execution requirement.
+- [ ] Fresh h2a consensus remains unavailable; no independent verdict claimed for the new diff.

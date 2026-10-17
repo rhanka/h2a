@@ -42,8 +42,16 @@ export function convergeNativeHost(options: NativeConvergenceOptions) {
   // Include them in either shared-store pass so Gemini convergence cannot prune
   // the agy guard. Preserve every unrelated hook in the JSON document.
   const museScopeRoot = join(options.cwd ?? process.cwd(), '.muse');
+  const installMuseScope = host === 'muse' && options.explicitInstall === true;
   const museScopeArtifacts: NativeArtifact[] = [];
-  if (shared || host === 'muse') {
+  // User convergence keeps the installed helper code without touching a
+  // project selected implicitly by the caller's cwd.
+  if (shared || host === 'muse') for (const name of ['workspace-scope-guard.mjs', 'workspace-scope-shell.mjs', 'workspace-scope-state.mjs']) {
+    const source = snapshot(join(h2aPackageRoot, 'hooks', name));
+    if (!source) throw new Error('Missing scope hook: ' + name);
+    artifacts.push({ path: join(state, 'hooks', name), bytes: source.bytes, source: `h2a@${version}/hooks/${name}` });
+  }
+  if (shared || installMuseScope) {
     const hooksPath = join(host === 'muse' ? museScopeRoot : join(root, 'config'), 'hooks.json'), original = snapshot(hooksPath);
     const config = original ? JSON.parse(original.bytes.toString()) : {};
     if (!config || typeof config !== 'object' || Array.isArray(config) ||
@@ -51,16 +59,12 @@ export function convergeNativeHost(options: NativeConvergenceOptions) {
       throw new Error('Invalid native scope hooks configuration');
     const hooks = config.hooks ?? {};
     const command = [process.execPath, join(state, 'hooks/workspace-scope-guard.mjs'), '--host', host === 'muse' ? 'muse' : 'agy',
+      ...(shared ? ['--session-store', state] : []),
       ...(ownerKey ? ['--owner-key', ownerKey] : [])].map(shellQuote).join(' ');
     for (const [event, suffix] of host === 'muse' ? [['SessionStart', " --initialize-session true"], ['PreToolUse', '']] : []) {
       if (hooks[event] !== undefined && !Array.isArray(hooks[event])) throw new Error('Invalid native scope hook event');
       hooks[event] = [...(hooks[event] ?? []).filter((entry: unknown) => !JSON.stringify(entry).includes('workspace-scope-guard.mjs')),
         { matcher: '.*', hooks: [{ type: 'command', command: command + suffix, timeout: 15 }] }];
-    }
-    for (const name of ['workspace-scope-guard.mjs', 'workspace-scope-shell.mjs', 'workspace-scope-state.mjs']) {
-      const source = snapshot(join(h2aPackageRoot, 'hooks', name));
-      if (!source) throw new Error('Missing scope hook: ' + name);
-      artifacts.push({ path: join(state, 'hooks', name), bytes: source.bytes, source: `h2a@${version}/hooks/${name}` });
     }
     const scopeConfig = host === 'muse' ? { ...config, hooks } :
       { ...config, 'sentropic-h2a-workspace-scope': agyWorkspaceScopeDefinition(command, true) };
@@ -76,7 +80,7 @@ export function convergeNativeHost(options: NativeConvergenceOptions) {
     force: options.explicitInstall && options.force, prune: options.sourcesComplete !== false,
     ...(shared ? { manifestName: 'shared-owner.json' } : {}),
     configure: vibe?.configure ?? (current => { if (ownerKey) current.workspaceScope = { ownerKey }; }), finalize: vibe?.finish });
-  if (host === 'muse') {
+  if (installMuseScope) {
     const scope = convergeArtifacts({ state: join(museScopeRoot, '.h2a-scope-install'), root: museScopeRoot,
       host: 'muse-scope', version, artifacts: museScopeArtifacts, repair, dryRun, force: options.explicitInstall && options.force });
     for (const key of ['changed', 'adopted', 'conflicts', 'missing', 'planned'] as const) result.changes[key].push(...scope.changes[key]);
@@ -120,6 +124,7 @@ export function convergeNativeHost(options: NativeConvergenceOptions) {
   const reportedMcp = vibe ? { ...(vibe.mcp as Record<string, unknown>), planned: mcpDrift, changed: mcpWrote } : undefined;
   return { host, root, ok, installation: !ok ? 'conflict' : pending ? 'action necessary' : 'coherent',
     workspaceScope: { ...renderWorkspaceScope(host, options.cwd ?? process.cwd(), options.instance, ownerKey),
+      ...(host === 'muse' && !installMuseScope ? { supported: false, reason: 'User convergence does not install project hooks; install-skills --host muse from the workspace.' } : {}),
       ...(vibe ? { command: vibe.hooks.find(hook => hook.name === 'sentropic-h2a-workspace-scope')!.command,
         binding: 'native session at first pre_tool, profile journal' } :
         shared || host === 'muse' ? { binding: 'SessionStart', hooksPath: join(host === 'muse' ? museScopeRoot : join(root, 'config'), 'hooks.json') } : {}) },
