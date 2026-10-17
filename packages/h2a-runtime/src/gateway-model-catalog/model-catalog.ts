@@ -40,6 +40,7 @@ export const GATEWAY_MODEL_ALIASES: Readonly<Record<string, GatewayModelId>> =
     flash: GEMINI_3_8_FLASH,
     "flash-high": GEMINI_3_8_FLASH,
     "muse-spark-1.3": MUSE_SPARK_1_3,
+    "muse-spark-1.3-contributor": MUSE_SPARK_1_3_CONTRIBUTOR,
     "muse-spark": MUSE_SPARK_1_3,
     spark: MUSE_SPARK_1_3,
     "muse-wonder-1.0": MUSE_WONDER_1_0,
@@ -94,7 +95,7 @@ export const CLAUDE_GATEWAY_MODEL_MAP: Readonly<
     cloud: GEMINI_4_ARGON,
     cloudEffort: "high",
     muse: MUSE_WONDER_1_0,
-    museEffort: "high",
+    museEffort: "xhigh",
   },
   "opus-5.5/xhigh": {
     cloud: GEMINI_4_ARGON,
@@ -111,14 +112,14 @@ export const CLAUDE_GATEWAY_MODEL_MAP: Readonly<
   "opus-5.5/low": {
     cloud: GEMINI_3_8_FLASH,
     cloudEffort: "high",
-    muse: MUSE_SPARK_1_3,
+    muse: MUSE_SPARK_1_3_CONTRIBUTOR,
     museEffort: "medium",
   },
   "sonnet-5.5/high": {
     cloud: GEMINI_4_ARGON,
     cloudEffort: "high",
-    muse: MUSE_SPARK_1_3,
-    museEffort: "high",
+    muse: MUSE_SPARK_1_3_CONTRIBUTOR,
+    museEffort: "xhigh",
   },
   "sonnet-5.5/xhigh": {
     cloud: GEMINI_4_ARGON,
@@ -135,20 +136,20 @@ export const CLAUDE_GATEWAY_MODEL_MAP: Readonly<
   "sonnet-5.5/medium": {
     cloud: GEMINI_3_8_FLASH,
     cloudEffort: "high",
-    muse: MUSE_SPARK_1_3,
+    muse: MUSE_SPARK_1_3_CONTRIBUTOR,
     museEffort: "high",
   },
   "sonnet-5.5/low": {
     cloud: GEMINI_3_8_FLASH,
     cloudEffort: "medium",
-    muse: MUSE_SPARK_1_3,
+    muse: MUSE_SPARK_1_3_CONTRIBUTOR,
     museEffort: "medium",
   },
   "fable-5.1/base": {
     cloud: GEMINI_4_ARGON,
     cloudEffort: "high",
     muse: MUSE_WONDER_1_0,
-    museEffort: "high",
+    museEffort: "max",
   },
   "fable-5.1/medium": {
     cloud: GEMINI_4_ARGON,
@@ -160,25 +161,25 @@ export const CLAUDE_GATEWAY_MODEL_MAP: Readonly<
     cloud: GEMINI_4_ARGON,
     cloudEffort: "high",
     muse: MUSE_WONDER_1_0,
-    museEffort: "high",
+    museEffort: "max",
   },
   "fable-5.1/xhigh": {
     cloud: GEMINI_4_ARGON,
     cloudEffort: "high",
     muse: MUSE_WONDER_1_0,
-    museEffort: "high",
+    museEffort: "max",
   },
   "fable-5.1/max": {
     cloud: GEMINI_4_ARGON,
     cloudEffort: "high",
     muse: MUSE_WONDER_1_0,
-    museEffort: "high",
+    museEffort: "max",
   },
   "fable-5.1/low": {
     cloud: GEMINI_4_ARGON,
     cloudEffort: "high",
     muse: MUSE_WONDER_1_0,
-    museEffort: "high",
+    museEffort: "medium",
   },
 };
 
