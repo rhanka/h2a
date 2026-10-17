@@ -321,7 +321,8 @@ export class NotificationDispatcher {
       method: "notifications/h2a",
       params: { topic, sessionId, data }
     };
-    const key = digest(notification);
+    // Canonicalize the JSON-RPC wire form; optional presence fields may be undefined.
+    const key = digest(JSON.parse(JSON.stringify(notification)));
     let produced = this.produced.get(key);
     if (!produced) {
       produced = { key, sequence: ++this.producedSequence, notification, delivered: false, applicationAcknowledged: false };

@@ -8,6 +8,21 @@ import { tmpdir } from 'node:os';
 import { assessLegacyExclusion } from '../dist/runtime/upgrade/legacy-exclusion.js';
 import { verifyLegacyRoot, observeLegacyClosures } from '../dist/runtime/upgrade/legacy-observers.js';
 
+// The fixture's process namespace contains only this runner and children it
+// starts. Never enumerate or inspect a process belonging to the owner.
+const ownedPids = new Set([process.pid]);
+const originalSpawn = cp.spawn, originalReaddir = fs.readdirSync;
+cp.spawn = function (...args) {
+  const child = originalSpawn.apply(this, args);
+  child.once('spawn', () => ownedPids.add(child.pid));
+  return child;
+};
+fs.readdirSync = function (path, ...args) {
+  if (path === '/proc') return [...ownedPids].map(String);
+  return originalReaddir.call(this, path, ...args);
+};
+nodeTest.after(() => { cp.spawn = originalSpawn; fs.readdirSync = originalReaddir; });
+
 const test = (name, fn) => { if (!process.env.MH_L6_CASE || name === process.env.MH_L6_CASE) nodeTest(name, fn); };
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 
