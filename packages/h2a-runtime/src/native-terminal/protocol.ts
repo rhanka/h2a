@@ -4,6 +4,11 @@ import type {
 } from "./host.js";
 
 export const NATIVE_TERMINAL_PROTOCOL_VERSION = 1 as const;
+export const NATIVE_TERMINAL_CONTENT_CAPABILITY = "h2a.session-content/2" as const;
+/** F2 adapters must call this before any content operation. Legacy capture is never a fallback. */
+export function requireNativeContentCapability(ping: { content?: unknown }): void {
+  if (ping.content !== NATIVE_TERMINAL_CONTENT_CAPABILITY) throw new Error("unsupported_source");
+}
 export const NATIVE_TERMINAL_MAX_REPLAY_BYTES_PER_SESSION = 4 * 1024 * 1024;
 // JSON escaping can expand one replay byte to six wire bytes (for example NUL).
 export const NATIVE_TERMINAL_MAX_FRAME_BYTES = 32 * 1024 * 1024;
@@ -50,6 +55,7 @@ export type NativeTerminalOperation =
   | "list"
   | "state"
   | "read-output"
+  | "content-status" | "content-prepare" | "content-confirm" | "content-renew" | "content-flush" | "content-exclude" | "content-clear"
   | "attach-observer"
   | "acquire-controller"
   | "acquire-controller-if-no-recent-human"
@@ -88,6 +94,7 @@ export type NativeTerminalResponse =
   | NativeTerminalErrorResponse;
 
 export type NativeTerminalPing = Readonly<{
+  content?: string;
   launchFence?: boolean;
   generation: string;
   hostPid: number;
@@ -179,6 +186,7 @@ export function parseNativeTerminalRequest(value: unknown): NativeTerminalReques
     "list",
     "state",
     "read-output",
+    "content-status", "content-prepare", "content-confirm", "content-renew", "content-flush", "content-exclude", "content-clear",
     "attach-observer",
     "acquire-controller",
     "acquire-controller-if-no-recent-human",

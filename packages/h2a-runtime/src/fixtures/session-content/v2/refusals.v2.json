@@ -1,0 +1,133 @@
+{
+  "protocol": "h2a.session-content",
+  "protocolVersion": 2,
+  "kind": "refusals",
+  "cases": [
+    {
+      "name": "old-version",
+      "fixture": "capabilities.v2.json",
+      "mutation": {
+        "pointer": "/protocolVersion",
+        "value": 1
+      },
+      "expected": {
+        "code": "contract_refused",
+        "sourceContentReads": 0,
+        "contentSubscriptions": 0,
+        "serializedContentBytes": 0,
+        "exportBytes": 0,
+        "ingressBodyReads": 0,
+        "storedBytes": 0,
+        "importCommits": 0,
+        "nativeWrites": 0,
+        "processStarts": 0,
+        "keyboardAcquires": 0
+      }
+    },
+    {
+      "name": "unknown-field",
+      "fixture": "project-policy.v2.json",
+      "mutation": {
+        "pointer": "/unexpected",
+        "value": true
+      },
+      "expected": {
+        "code": "contract_refused",
+        "sourceContentReads": 0,
+        "contentSubscriptions": 0,
+        "serializedContentBytes": 0,
+        "exportBytes": 0,
+        "ingressBodyReads": 0,
+        "storedBytes": 0,
+        "importCommits": 0,
+        "nativeWrites": 0,
+        "processStarts": 0,
+        "keyboardAcquires": 0
+      }
+    },
+    {
+      "name": "wrong-owner",
+      "fixture": "project-policy.v2.json",
+      "mutation": {
+        "pointer": "/policy/owner/subject",
+        "value": "other"
+      },
+      "expected": {
+        "code": "contract_refused",
+        "sourceContentReads": 0,
+        "contentSubscriptions": 0,
+        "serializedContentBytes": 0,
+        "exportBytes": 0,
+        "ingressBodyReads": 0,
+        "storedBytes": 0,
+        "importCommits": 0,
+        "nativeWrites": 0,
+        "processStarts": 0,
+        "keyboardAcquires": 0
+      }
+    },
+    {
+      "name": "wrong-policy",
+      "fixture": "grant-activate.v2.json",
+      "mutation": {
+        "pointer": "/policyDigest",
+        "value": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      },
+      "expected": {
+        "code": "contract_refused",
+        "sourceContentReads": 0,
+        "contentSubscriptions": 0,
+        "serializedContentBytes": 0,
+        "exportBytes": 0,
+        "ingressBodyReads": 0,
+        "storedBytes": 0,
+        "importCommits": 0,
+        "nativeWrites": 0,
+        "processStarts": 0,
+        "keyboardAcquires": 0
+      }
+    },
+    {
+      "name": "unsupported-import",
+      "fixture": "import-request.v2.json",
+      "mutation": {
+        "pointer": "/mode",
+        "value": "resume"
+      },
+      "expected": {
+        "code": "contract_refused",
+        "sourceContentReads": 0,
+        "contentSubscriptions": 0,
+        "serializedContentBytes": 0,
+        "exportBytes": 0,
+        "ingressBodyReads": 0,
+        "storedBytes": 0,
+        "importCommits": 0,
+        "nativeWrites": 0,
+        "processStarts": 0,
+        "keyboardAcquires": 0
+      }
+    },
+    {
+      "name": "changed-snapshot",
+      "fixture": "archive-admission.v2.json",
+      "mutation": {
+        "pointer": "/admission/snapshotId",
+        "value": "other"
+      },
+      "expected": {
+        "code": "contract_refused",
+        "sourceContentReads": 0,
+        "contentSubscriptions": 0,
+        "serializedContentBytes": 0,
+        "exportBytes": 0,
+        "ingressBodyReads": 0,
+        "storedBytes": 0,
+        "importCommits": 0,
+        "nativeWrites": 0,
+        "processStarts": 0,
+        "keyboardAcquires": 0
+      }
+    }
+  ]
+}

@@ -874,5 +874,90 @@
   ],
   "packages/h2a-runtime/src/gateway-host/live-registration.test.ts": [
     "fixture commits launch no automatic Git maintenance in observed repositories"
+  ],
+  "packages/h2a-runtime/src/session-content-confirmation.test.ts": [
+    "session content confirmation should create and stage a native challenge using one clock sample without relaxing caller timestamp checks",
+    "session content confirmation should verify signed exact-target proof once and durably consume before returning",
+    "session content confirmation should reject forged signatures, token-selected keys and unsigned or unknown algorithms",
+    "session content confirmation should reject wrong identity, client, tenant, purpose and nonce without consuming",
+    "session content confirmation should reject missing expiry, stale authentication and incomplete MFA despite fresh issuance",
+    "session content confirmation should reject elapsed monotonic deadlines, unknown clock error and clock jumps",
+    "session content confirmation should refuse local denial and journal failure without returning permission",
+    "session content confirmation should cancel pending requests independently of quotas and reject foreign handles",
+    "session content confirmation should bound pending slots by verified owner and host and refill without refunding cancellations",
+    "session content confirmation should bind two outstanding challenges to distinct signed nonces in the same second",
+    "session content confirmation should reject caller mutation after staging and support pinned key rotation only",
+    "session content confirmation should bind pending quotas to the authenticated source rather than claimed source IDs",
+    "session content confirmation should share the sixteen-slot host limit and host creation bucket across authenticated owners",
+    "session content confirmation should reject duplicate JSON keys, invalid Unicode and noncanonical JWT encoding"
+  ],
+  "packages/h2a-runtime/src/session-content-auth.test.ts": [
+    "session content source authentication should keep a nonforgeable monotonic deadline for each authenticated retained-read response",
+    "session content source authentication should renew only the original source login and refuse renewal after observed revocation",
+    "session content source authentication should perform real pinned HTTPS PKCE and send access credentials only in their intended exchange",
+    "session content source authentication should reject mismatched and replayed callbacks before a token request",
+    "session content source authentication should refuse redirects, unavailable authority, untrusted TLS and oversized replies",
+    "session content source authentication should reject missing token expiry and never substitute an ID token for an API access token",
+    "session content source authentication should reject invalid source identity, nonce, authority bounds, operations and wire versions",
+    "session content source authentication should pin the original login reference across source reauthorization",
+    "session content source authentication should expire a source from request-send monotonic time and never from reply receipt",
+    "session content source authentication should invalidate every source dependent on an observed denied login, including sibling handles",
+    "session content source authentication should reject insecure or cross-issuer endpoints without opening a connection",
+    "session content source authentication should exchange a dedicated fresh confirmation with PKCE and verify its signed native nonce",
+    "session content source authentication should load only the pinned issuer JWKS with bounded refresh and no token-selected URL",
+    "session content source authentication should keep exchanging confirmations inside the pending bound and cancel their results",
+    "session content source authentication should reject a JWKS loader whose pinned issuer differs from the native verifier"
+  ],
+  "packages/h2a-runtime/src/session-content-fence.test.ts": [
+    "durable native content fence should retain denial and consumed proofs across native restarts",
+    "durable native content fence should let exclusion win against stale async acceptance and independent fence instances",
+    "durable native content fence should refuse corrupt or uncertain proof journals while keeping durable denial available"
+  ],
+  "packages/h2a-runtime/src/session-content-contract.test.ts": [
+    "session content capsule should refuse an oversized encoded fragment before allocating its decoded buffer",
+    "session content capsule should typecheck the exact pinned message fixture bytes rather than a drifting duplicate",
+    "session content capsule should expose a strict interoperable JSON Schema with ACK and history-state combinations",
+    "session content capsule should validate every positive fixture and refuse unknown nested fields and wire versions",
+    "session content capsule should pin all capsule bytes and reproduce canonical digest vectors",
+    "session content capsule should verify actual synthetic signed nonce bytes and reject forged or replayed proof",
+    "session content capsule should refuse digest substitutions, invalid bounds and partial archive receipts"
+  ],
+  "packages/h2a-runtime/src/native-terminal/protocol.test.ts": [
+    "should reject legacy and incompatible content hosts without changing native transport version"
+  ],
+  "packages/h2a-runtime/src/session-content-consent.test.ts": [
+    "should keep actual native PTY refusal at zero content bytes then export only the post-ACK sentinel",
+    "should refuse forged confirmation and let exclusion win while an activation ACK is pending",
+    "should refuse a mismatched ACK and discard queued bytes on lost source authority",
+    "should keep the old lease deadline until the exact renewal ACK commits",
+    "should export and import an exact synthetic checkpoint only after native confirmation and committed activation",
+    "should inherit only a natively committed future policy and require fresh inclusion after clearing exclusion",
+    "should run signed native confirmation through a real metadata SSE stream and pause on disconnection",
+    "should keep metadata revocation reachable while a source confirmation is pending",
+    "should refuse source and confirmation client conflation before any content capture",
+    "should refuse an older broader policy while a narrowing amendment is pending and after it commits",
+    "should apply a confirmed amendment to an already covered future child without another proof"
+  ],
+  "packages/h2a-runtime/src/session-content-export.test.ts": [
+    "should bound source and aggregate queues and invalidate reservations without legacy backfill",
+    "should count in-flight bytes until an exact reservation commits and pause on source overflow",
+    "should account the complete backing buffer until the last fragment commits"
+  ],
+  "packages/h2a-runtime/src/session-content-archive.test.ts": [
+    "should bind the complete archive to its original policy, snapshot, admission and retention",
+    "should reject traversal, alternate separators, executable configuration and colliding names",
+    "should share host archive slots and cumulative start budgets without queuing or cancellation refunds",
+    "should refuse aggregate worker-memory exhaustion before another allocation",
+    "should refuse an unqualified provider or unconsented required companion before reading transcript content"
+  ],
+  "packages/h2a-runtime/src/session-content-import.test.ts": [
+    "should round-trip a complete synthetic archive into an isolated data directory without execution",
+    "should refuse substituted policies or admissions before reading any file part",
+    "should abort corrupt, missing and conflicting parts without any committed import or staging residue",
+    "should recheck read revocation before commit and retain the original managed-copy expiry",
+    "should cancel an active import and refuse excess parts without leaving a committed directory",
+    "should release the import slot when cancellation interrupts a stalled part iterator",
+    "should read admitted data with the source offline and refuse revoked or expired managed reads",
+    "should refuse unsupported provider tuples before consuming any part"
   ]
 }

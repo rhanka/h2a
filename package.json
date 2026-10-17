@@ -8,8 +8,8 @@
     "apps/control-plane"
   ],
   "scripts": {
-    "build": "npm run build -w @sentropic/track && npm exec -w @sentropic/h2a-runtime --call \"node ../../scripts/clean-workspace-dist.mjs\" && tsc -b --force && node scripts/copy-vendored-engram-live.mjs",
-    "build:h2a": "tsc -b && node scripts/copy-vendored-engram-live.mjs",
+    "build": "npm run build -w @sentropic/track && npm exec -w @sentropic/h2a-runtime --call \"node ../../scripts/clean-workspace-dist.mjs\" && tsc -b --force && node scripts/copy-vendored-engram-live.mjs && node scripts/copy-session-content-capsule.mjs",
+    "build:h2a": "tsc -b && node scripts/copy-vendored-engram-live.mjs && node scripts/copy-session-content-capsule.mjs",
     "clean": "tsc -b --clean",
     "pack:h2a": "npm pack --dry-run --workspace @sentropic/h2a",
     "pack:h2a-cli": "npm pack --dry-run --workspace @sentropic/h2a-cli",

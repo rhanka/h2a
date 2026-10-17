@@ -11,7 +11,12 @@
       "types": "./dist/status-projection.d.ts",
       "import": "./dist/status-projection.js"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./session-content": {
+      "types": "./dist/session-content-api.d.ts",
+      "import": "./dist/session-content-api.js"
+    },
+    "./session-content/fixtures/*": "./dist/fixtures/session-content/v2/*"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1075.0",
@@ -54,6 +59,6 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "build": "node ../../scripts/clean-workspace-dist.mjs && tsc -b --force && node ../../scripts/copy-vendored-engram-live.mjs"
+    "build": "node ../../scripts/clean-workspace-dist.mjs && tsc -b --force && node ../../scripts/copy-vendored-engram-live.mjs && node ../../scripts/copy-session-content-capsule.mjs"
   }
 }

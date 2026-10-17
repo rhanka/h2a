@@ -1,0 +1,35 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": false,
+    "incremental": false
+  },
+  "include": [
+    "src/session-content-json.ts",
+    "src/session-content-confirmation.ts",
+    "src/session-content-confirmation.test.ts",
+    "src/session-content-auth.ts",
+    "src/session-content-auth.test.ts",
+    "src/session-content-fence.ts",
+    "src/session-content-fence.test.ts",
+    "src/session-content-contract.ts",
+    "src/session-content-contract.test.ts",
+    "src/native-terminal/protocol.test.ts",
+    "src/session-content-consent.ts",
+    "src/session-content-consent.test.ts",
+    "src/session-content-export.ts",
+    "src/session-content-export.test.ts",
+    "src/session-content-archive.ts",
+    "src/session-content-archive.test.ts",
+    "src/session-content-archive-worker.ts",
+    "src/session-content-import.ts",
+    "src/session-content-import.test.ts",
+    "src/session-content-history.ts",
+    "src/session-content-archive-export.ts",
+    "src/session-content-api.ts",
+    "src/session-content-types.ts",
+    "src/session-content-fixture-types.typecheck.ts"
+  ],
+  "exclude": []
+}

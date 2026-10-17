@@ -1,0 +1,37 @@
+import type { ConfirmationChallenge } from './session-content-confirmation.js';
+import type { Owner,Project,Source,Scope,Policy,Provider,Lease,Retention,Retained,Manifest,ArchiveAdmission,HistorySelector } from './session-content-contract.js';
+type Message<K extends string,T>={protocol:'h2a.session-content';protocolVersion:2;kind:K}&T;
+type Runtime={packageVersion:string;gitSha:string;packageIntegrity:string;hostBuildHash:string;exporterBuildHash:string};
+type Boundary={startAfterSeq:number;native:{provider:Provider;selections:HistorySelector[];boundaryId:string}|null};
+type Cursor={scopeDigest:string;connectionId:string;channel:'terminal.live'|'terminal.cache';rawSeq:number;byteOffset:number};
+type Part={byteOffset:number;byteLength:number;totalBytes:number;payloadB64:string;payloadHash:string;final:boolean};
+type Counters={sourceContentReads:number;contentSubscriptions:number;serializedContentBytes:number;exportBytes:number;ingressBodyReads:number;storedBytes:number;importCommits:number;nativeWrites:number;processStarts:number;keyboardAcquires:number};
+type Limits={segmentDecodedBytes:262144;segmentEncodedBytes:1048576;queueBytes:1048576;fileCount:10000;fileBytes:67108864;archiveBytes:268435456;hostQueueBytes:4194304;pendingConfirmationsPerOwnerSource:4;pendingConfirmationsPerHost:16;ownerChallengeStartsPerMinute:6;ownerChallengeBurst:4;hostChallengeStartsPerMinute:24;hostChallengeBurst:16;concurrentImportsPerWorkstation:1;concurrentExportsPerWorkstation:2;archiveStartsPer10MinutesPerHost:4;archiveStartBurst:3;archiveWorkerBufferBytesPerHost:8388608;queuedArchiveJobs:0};
+export interface ContentMessageMap {
+ capabilities:Message<'capabilities',{content:'h2a.session-content/2';archive:'h2a.session-archive/1';runtime:Runtime;terminal:true;native:Provider[];importMode:'isolated-data';resumable:false;limits:Limits}>;
+ 'oidc-context':Message<'oidc-context',{owner:Owner;tenantId:string;clientId:string;audience:string;authSessionRef:string;authSessionVersion:number;authSessionExpiresAt:number;tokenExpiresAt:number;acr:string;amr:string[];authTime:number;expiresAt:number;clientPolicyRevision:number;mfaEnrolled:true}>;
+ 'oidc-session':Message<'oidc-session',{authSessionRef:string;owner:Owner;tenantId:string;authenticatedAt:number;sessionExpiresAt:number;sessionVersion:number;status:'active'|'revoked'|'expired';credentialRefs:string[];revokedAt:number|null;revocationReason:string|null;tokenRefs:string[]}>;
+ 'oidc-policy':Message<'oidc-policy',{issuer:string;sourceClientId:string;sourceAudience:string;confirmationClientId:string;confirmationAudience:string;requiredAcr:'urn:sentropic:loa:passkey-fresh';requiredAmr:['hwk','user','mfa'];forceReauthEveryAuthorization:true;bindUvEventToAuthorization:true;singleUseUvEvent:true;sourceSessionBinding:'idp-login-record';requireUserVerification:true;denyWeakFallback:true;policyRevision:number;allowedSubject:string;tenantId:string;maxConfirmationSeconds:60;maxClockErrorMs:5000}>;
+ 'confirmation-challenge':Message<'confirmation-challenge',{challenge:ConfirmationChallenge;challengeDigest:string}>;
+ 'confirmation-proof':Message<'confirmation-proof',{challengeId:string;challengeDigest:string;idToken:string}>;
+ 'project-policy':Message<'project-policy',{policy:Policy;policyDigest:string;confirmation:{id:string;challengeId:string;proofDigest:string;authSessionRef:string;purpose:'share'|'amend';confirmedAt:number}}>;
+ 'source-open':Message<'source-open',{requestId:string;requestNonce:string;bindingId:string;sourceGeneration:string;sourceBootId:string;runtime:Runtime;capabilitiesDigest:string}>;
+ 'source-session':Message<'source-session',{requestId:string;requestNonce:string;sourceSessionId:string;sourceToken:string;owner:Owner;authSessionRef:string;authSessionVersion:number;authSessionExpiresAt:number;source:Source;connectionId:string;issuedAt:number;expiresAt:number;operations:['source-control','content-upload','source-ack']}>;
+ 'grant-activate':Message<'grant-activate',{requestId:string;requestNonce:string;connectionId:string;scope:Scope;policyDigest:string;lease:Lease}>;
+ 'grant-refresh':Message<'grant-refresh',{requestId:string;requestNonce:string;connectionId:string;previousScope:Scope;nextScope:Scope;policyDigest:string;lease:Lease;operation:'renew'|'amend'}>;
+ 'source-ack':Message<'source-ack',{requestId:string;requestDigest:string;connectionId:string;operation:'activate'|'renew'|'amend'|'revoke';status:'staged'|'applied'|'refused';scope:Scope;boundary:Boundary|null;lease:Lease|null;reason:string|null}>;
+ 'control-result':Message<'control-result',{requestId:string;requestDigest:string;sourceAckDigest:string;connectionId:string;status:'committed'|'refused';reason:string|null}>;
+ 'content-revoke':Message<'content-revoke',{requestId:string;connectionId:string;target:{kind:'project';project:Project;policyId:string}|{kind:'session';scope:Scope}|{kind:'retained';retainedId:string;originScopeDigest:string};effect:'capture'|'read'|'both';denyRevision:number;reason:'excluded'|'revoked'|'authority_invalidated'}>;
+ 'terminal-fragment':Message<'terminal-fragment',{scope:Scope;connectionId:string;leaseId:string;channel:'terminal.live'|'terminal.cache';rawSeq:number}&Part>;
+ 'terminal-gap':Message<'terminal-gap',{scope:Scope;connectionId:string;channel:'terminal.live'|'terminal.cache';fromSeq:number;toSeq:number;reason:'excluded'|'not-collected'|'partition'|'source-restarted'|'evicted'|'expired'|'incomplete-chunk';contiguousThroughSeq:number}>;
+ 'native-manifest':Manifest;
+ 'archive-admission':Message<'archive-admission',{admission:ArchiveAdmission}>;
+ 'native-part':Message<'native-part',{scope:Scope;connectionId:string;leaseId:string;snapshotId:string;fileSha256:string}&Part>;
+ 'ingest-ack':Message<'ingest-ack',{requestId:string;scopeDigest:string;connectionId:string;status:'accepted'|'duplicate'|'refused';coverage:{kind:'terminal';cursor:Cursor}|{kind:'native';snapshotId:string;fileSha256:string;acceptedThroughByteOffset:number};retained:Retained|null;archiveAdmission:ArchiveAdmission|null;reason:string|null}>;
+ 'history-read':Message<'history-read',{authorizationId:string;owner:Owner;authSessionRef:string;retained:Retained;coverage:{kind:'terminal';fromSeq:number;toSeq:number;objects:{id:string;sha256:string}[]}|{kind:'native';snapshotId:string;manifestHash:string;descriptorHash:string};readExpiresAt:number}>;
+ 'import-request':Message<'import-request',{requestId:string;authorizationId:string;retained:Retained;snapshotId:string;manifestHash:string;descriptorHash:string;provider:Provider;mode:'isolated-data'}>;
+ 'import-result':Message<'import-result',{requestId:string;snapshotId:string;manifestHash:string;descriptorHash:string;status:'imported'|'refused';reason:string|null;localImportId:string|null;expiresAt:number|null;resumable:false;processStarted:false;keyboardAcquired:false}>;
+ 'source-admission':Message<'source-admission',{method:'POST';path:string;sourceSessionId:string;connectionId:string;requestId:string;scopeDigest:string;leaseId:string;bodyBytes:number;bodyHash:string}>;
+ refusals:Message<'refusals',{cases:{name:string;fixture:string;mutation:{pointer:string;value:string|number|boolean|null};expected:{code:string}&Counters}[]}>;
+}
+export type ContentMessage=ContentMessageMap[keyof ContentMessageMap];
