@@ -96,6 +96,11 @@ const cases = [
     verifyImage(dest, manifest, expectedDigest);
     return Object.freeze({ manifestDigest: expectedDigest, imageDir: dest });
   }`, '', 'C2b should refuse a conflicting image already occupying the digest address'],
+  ['status', 'deferred-wiring', 'const deferred = !terminal && exclusion && exclusion.fenced === false;', 'const deferred = false;', 'F should report deferred while legacy exclusion stays unfenced'],
+  ['status', 'aborted-mapping', "ABORTED: 'failed'", "ABORTED: 'completed'", 'F should report completion and failure terminally'],
+  ['status', 'unknown-default', "? 'unchanged' : 'unknown'", "? 'unchanged' : 'unchanged'", 'F should report the durable selection once selected'],
+  ['status', 'selection-provenance', "if (durableRecord.value[key] !== store.installation[key]) throw new Error('foreign_installation_authority');", '', 'F should refuse a durable selection from another installation'],
+  ['status', 'reason-wiring', '`selection_deferred:${exclusion.reason}`', "'selection_deferred'", 'F should report deferred while legacy exclusion stays unfenced'],
 ];
 const files = group === 'launcher' ? ['packages/h2a/src/runtime/upgrade/managed-launcher.js'] :
   group === 'exclusion' ? ['packages/h2a/src/runtime/upgrade/legacy-exclusion.js', 'packages/h2a/dist/runtime/upgrade/legacy-exclusion.js'] :
@@ -105,11 +110,12 @@ const files = group === 'launcher' ? ['packages/h2a/src/runtime/upgrade/managed-
   group === 'adoption-execute' ? ['packages/h2a/src/runtime/upgrade/adoption-execute.js', 'packages/h2a/dist/runtime/upgrade/adoption-execute.js'] :
   group === 'unmanage' ? ['packages/h2a/src/runtime/upgrade/unmanage.js', 'packages/h2a/dist/runtime/upgrade/unmanage.js'] :
   group === 'adoption-image' ? ['packages/h2a/src/runtime/upgrade/adoption-image.js', 'packages/h2a/dist/runtime/upgrade/adoption-image.js'] :
+  group === 'status' ? ['packages/h2a/src/runtime/upgrade/status-report.js', 'packages/h2a/dist/runtime/upgrade/status-report.js'] :
   ['packages/h2a/src/runtime/upgrade/h4-store.js', 'packages/h2a/dist/runtime/upgrade/h4-store.js'];
 const originals = files.map(path => ({ path, bytes: fs.readFileSync(path) }));
 const selected = cases.filter(c => c[0] === group && (!process.env.MH_L6_MUTATION || c[1] === process.env.MH_L6_MUTATION));
 if (!selected.length) throw new Error('unknown_mutation_group');
-const testFile = { delegation: 'delegation', launcher: 'launcher', exclusion: 'exclusion', deferral: 'exclusion', bootstrap: 'bootstrap', adoption: 'adoption', 'launcher-install': 'launcher-install', 'adoption-execute': 'adoption', unmanage: 'unmanage', 'adoption-image': 'image-prepare' }[group] ?? 'selection';
+const testFile = { delegation: 'delegation', launcher: 'launcher', exclusion: 'exclusion', deferral: 'exclusion', bootstrap: 'bootstrap', adoption: 'adoption', 'launcher-install': 'launcher-install', 'adoption-execute': 'adoption', unmanage: 'unmanage', 'adoption-image': 'image-prepare', status: 'status' }[group] ?? 'selection';
 const file = `packages/h2a/test/mh-l6-${testFile}.test.js`;
 const results = [];
 for (const [, name, from, to, scenario] of selected) {

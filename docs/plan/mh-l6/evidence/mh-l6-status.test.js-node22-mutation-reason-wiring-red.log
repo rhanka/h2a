@@ -1,0 +1,41 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-status.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-0pz6EB
+case: F should report deferred while legacy exclusion stays unfenced
+TAP version 13
+# Subtest: F should report deferred while legacy exclusion stays unfenced
+not ok 1 - F should report deferred while legacy exclusion stays unfenced
+  ---
+  duration_ms: 62.116006
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-f1-dbW9MU/packages/h2a/test/mh-l6-status.test.js:10:67'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + 'selection_deferred'
+    - 'selection_deferred:legacy_installer_unfenced'
+                         ^
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'selection_deferred:legacy_installer_unfenced'
+  actual: 'selection_deferred'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-f1-dbW9MU/packages/h2a/test/mh-l6-status.test.js:96:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 180.218329
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-status.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

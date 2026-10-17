@@ -1,0 +1,41 @@
+# F — surface CLI/auto commune et activation M18
+
+Référence : spec §§8.9–8.10, U01/U02/U05/U06/U08, critères M18. La surface
+`upgrade` (manuelle et automatique partagent la lecture) expose le statut
+lisible, les codes d'erreur communs avec `--strict`, la reprise sur
+diagnostics, l'abandon avec compensation, l'autorité inter-transactions, et
+l'activation .7 seulement après la preuve H4 externe vérifiée de fermeture
+maintenue des admissions héritées.
+
+## F-1 — rapport `upgrade status` commun (livré)
+
+`composeUpgradeStatus({ store, upgradeId })` dans
+`packages/h2a/src/runtime/upgrade/status-report.js` : versions préparées
+(intention), sélection durable (journal, provenance vérifiée miroir du
+moteur — sélection étrangère refusée), chargées, identité et génération
+observées, phase, activation (`unchanged` avant sélection, `failed` après
+abandon, `completed` terminal, `deferred` dès qu'un verdict d'exclusion
+non clôturé est enregistré, `unknown` sinon) et raison. L'inconnu reste
+inconnu (null, jamais inventé). Lecture seule : rien forgé, arrêté, publié
+ni muté.
+
+| Commande ciblée | Node 22.22.1 | Node 24.21.0 |
+|---|---|---:|
+| `node scripts/mh-l6-test.mjs packages/h2a/test/mh-l6-status.test.js final-F-1` | 6/6, exit 0 | 6/6, exit 0 |
+| `node scripts/mh-l6-mutate.mjs status` (report, terminal, défaut, provenance, motif) | 5 rouges ERR_ASSERTION / 5 verts | 5 / 5 |
+| Skips / annulations / enfants restants | 0 / 0 / 0 | 0 / 0 / 0 |
+
+Le test a prouvé une impossibilité : le moteur n'autorise qu'une
+transaction vivante, donc préparé≠sélectionné est inatteignable en un seul
+store — remplacé par le refus de sélection étrangère (garde miroir tuée).
+Rouge initial : compositeur absent (`ERR_ASSERTION`, 1 test, exit 1),
+conservé. Audit : `node scripts/mh-l6-f1-audit.mjs
+/tmp/mh-l3-qualification-f1-*/source`, exit 0 ; 4 fichiers identiques,
+émission compilée liée par SHA, 6 tests et 5 paires/profil. Preuve :
+`proof-F-1.json`.
+
+| NOT covered restant | Gate |
+|---|---|
+| Codes/strict/reprise/abandon/compensation CLI, autorité inter-transactions, orchestration de la délégation, activation M18 après preuve externe | F-2 ; le rapport seul n'active rien |
+| Observateurs B2-3, npm réel D-2, autres entrées, smoke CI, gel .6 | B2-3/D-2/E2b3/E3b2b/E3c, M18 toujours ouvert |
+| Revue indépendante | Conducteur ; aucun consensus revendiqué |
