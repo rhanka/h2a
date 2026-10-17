@@ -1,0 +1,22 @@
+{
+  "protocol": "h2a.session-content",
+  "protocolVersion": 2,
+  "kind": "archive-admission",
+  "admission": {
+    "archive": "h2a.session-archive/1",
+    "snapshotId": "snapshot",
+    "manifestHash": "87acdbae31d06b3cbec4cc2ea3a1191dd585e84cc02ef659d28f9ea09478b2b9",
+    "policyDigest": "08fc651043cee52ad207235b626d686b342d1981be90cb75f2b387634a3f4165",
+    "channel": "nativeHistory",
+    "retention": {
+      "mode": "unbounded"
+    },
+    "retained": {
+      "retainedId": "retained",
+      "originScopeDigest": "1c9acfc3d78f2b40977bedbee13d5089d9b116784a5b51237e9d9288995117ac",
+      "acceptedAt": 1800000000000,
+      "expiresAt": null
+    },
+    "descriptorHash": "ef3b22ab1b55303956688e0f981816f2537be9ad0c18858e1b5c52897dea6e5d"
+  }
+}

@@ -1,0 +1,89 @@
+{
+  "synthetic": true,
+  "jwks": {
+    "keys": [
+      {
+        "kty": "RSA",
+        "n": "2Chi9B9WIwt5z6I3_AiO169g9eGOjSlZ-kPPgBE5kXy8w7Cv1hDXyEPq-IWEaK9bfLr3YGp2tDpLkxEa-Fk3RbGiuPNiMrcTfrRf2w4XktjT3Polv-AMcRuOnxwPqoRlgm8wEgt4ZtV5U_yJ2s9J8Mk12W6CfZuX9jz7tIbFxFnsXKdpkP2dqWR-Q5WSTedmDqsMcGkw7amMdAyZS7DuNODaqkHMj3E24DdgYTz8TpnPd7EINUINCPhNCusQwj4LW6hpyEk4N-VBGPXdHOeLSWt63YMc6DTe7Av3aMnxocdK-XtxCxG8W43eX-wg-6-88eJ2ludjRHOjLWWUDoVLPw",
+        "e": "AQAB",
+        "kid": "synthetic-fixture-only",
+        "alg": "RS256",
+        "use": "sig"
+      }
+    ]
+  },
+  "challenge": {
+    "id": "challenge",
+    "owner": {
+      "issuer": "https://synthetic-idp.invalid",
+      "subject": "synthetic-owner"
+    },
+    "project": {
+      "tenantId": "tenant",
+      "workspaceId": "workspace",
+      "workspaceIncarnation": "workspace-incarnation",
+      "projectId": "project"
+    },
+    "source": {
+      "workstationId": "workstation",
+      "bindingId": "binding",
+      "bindingVersion": 1,
+      "sourceId": "source",
+      "sourceGeneration": "generation",
+      "sourceBootId": "boot"
+    },
+    "clientId": "confirmation-client",
+    "purpose": "share",
+    "target": {
+      "kind": "policy",
+      "policyDigest": "08fc651043cee52ad207235b626d686b342d1981be90cb75f2b387634a3f4165"
+    },
+    "random": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE",
+    "issuedAt": 1800000000000,
+    "expiresAt": 1800000060000
+  },
+  "wallNow": 1800000000000,
+  "monotonicNow": 1000,
+  "measuredClockErrorMs": 0,
+  "valid": "eyJhbGciOiJSUzI1NiIsImtpZCI6InN5bnRoZXRpYy1maXh0dXJlLW9ubHkiLCJ0eXAiOiJKV1QifQ.eyJhY3IiOiJ1cm46c2VudHJvcGljOmxvYTpwYXNza2V5LWZyZXNoIiwiYW1yIjpbImh3ayIsInVzZXIiLCJtZmEiXSwiYXVkIjoiY29uZmlybWF0aW9uLWNsaWVudCIsImF1dGhfdGltZSI6MTgwMDAwMDAwMCwiZXhwIjoxODAwMDAwMDYwLCJpYXQiOjE4MDAwMDAwMDAsImlzcyI6Imh0dHBzOi8vc3ludGhldGljLWlkcC5pbnZhbGlkIiwibm9uY2UiOiJyQVFoT1NDOHhsdFRIOWt1SFZ6MFYtZ3VoLXBQeTRhQmUxd2hiZXVUS3lRIiwic3ViIjoic3ludGhldGljLW93bmVyIiwidGVuYW50SWQiOiJ0ZW5hbnQifQ.Cvvqm9bf9B31IJ1o64eRf0mvnTGPd_j0UrhZcLG0doYdiqNwdogIJ03n-oYcijjdaKMj3mk541Shz3D9_tu-6AfJ2SLyjk_XGPxLzVRv-6qqprtP0ca9FOiFjdAAh1W0BiwGzg28Kd2zyO9indG2nqNNLdT0W3s3Vyaq5cd2rv1JTtzXtsA9XWZg7NLmjFYjHOQ4uZQK60cOy2CcBv9nNjz9-z-vSmYQA3hNET7fZOtXdT1PhOqP0Moazt2h-1NrcefpGBLKNJg6xjDFHIgqPoP0w6Nzf-ck5cIva08q5cQQRneb-x6HVsEEcpRtRaIRD4lKrxnj-WfKUqnTiB4daQ",
+  "forged": "eyJhbGciOiJSUzI1NiIsImtpZCI6InN5bnRoZXRpYy1maXh0dXJlLW9ubHkiLCJ0eXAiOiJKV1QifQ.eyJhY3IiOiJ1cm46c2VudHJvcGljOmxvYTpwYXNza2V5LWZyZXNoIiwiYW1yIjpbImh3ayIsInVzZXIiLCJtZmEiXSwiYXVkIjoiY29uZmlybWF0aW9uLWNsaWVudCIsImF1dGhfdGltZSI6MTgwMDAwMDAwMCwiZXhwIjoxODAwMDAwMDYwLCJpYXQiOjE4MDAwMDAwMDAsImlzcyI6Imh0dHBzOi8vc3ludGhldGljLWlkcC5pbnZhbGlkIiwibm9uY2UiOiJyQVFoT1NDOHhsdFRIOWt1SFZ6MFYtZ3VoLXBQeTRhQmUxd2hiZXVUS3lRIiwic3ViIjoic3ludGhldGljLW93bmVyIiwidGVuYW50SWQiOiJ0ZW5hbnQifQ.Cvvqm9bf9B31IJ1o64eRf0mvnTGPd_j0UrhZcLG0doYdiqNwdogIJ03n-oYcijjdaKMj3mk541Shz3D9_tu-6AfJ2SLyjk_XGPxLzVRv-6qqprtP0ca9FOiFjdAAh1W0BiwGzg28Kd2zyO9indG2nqNNLdT0W3s3Vyaq5cd2rv1JTtzXtsA9XWZg7NLmjFYjHOQ4uZQK60cOy2CcBv9nNjz9-z-vSmYQA3hNET7fZOtXdT1PhOqP0Moazt2h-1NrcefpGBLKNJg6xjDFHIgqPoP0w6Nzf-ck5cIva08q5cQQRneb-x6HVsEEcpRtRaIRD4lKrxnj-WfKAAAAAAAAAA",
+  "claims": {
+    "iss": "https://synthetic-idp.invalid",
+    "sub": "synthetic-owner",
+    "tenantId": "tenant",
+    "aud": "confirmation-client",
+    "nonce": "rAQhOSC8xltTH9kuHVz0V-guh-pPy4aBe1whbeuTKyQ",
+    "acr": "urn:sentropic:loa:passkey-fresh",
+    "amr": [
+      "hwk",
+      "user",
+      "mfa"
+    ],
+    "iat": 1800000000,
+    "auth_time": 1800000000,
+    "exp": 1800000060
+  },
+  "expected": {
+    "validConsumption": 1,
+    "replayConsumption": 0,
+    "forgedConsumption": 0
+  },
+  "issuerRace": {
+    "attempts": [
+      "A",
+      "B"
+    ],
+    "preparedUnder": "S0",
+    "uvEvent": "uv-A",
+    "boundAttempt": "A",
+    "resumedUnder": "S1",
+    "concurrentCallbacks": [
+      "A",
+      "B",
+      "A"
+    ],
+    "expectedCodes": 1,
+    "secondAttemptRequires": "uv-B",
+    "qualification": "requires-real-idp"
+  }
+}

@@ -1,0 +1,67 @@
+{
+  "protocol": "h2a.session-content",
+  "protocolVersion": 2,
+  "kind": "source-ack",
+  "requestId": "activate",
+  "requestDigest": "52feeb3972c21527cc7cdfd087e765a45647814fb53b2cea005e014a6d372422",
+  "connectionId": "connection",
+  "operation": "activate",
+  "status": "staged",
+  "scope": {
+    "authorityEpoch": "epoch",
+    "owner": {
+      "issuer": "https://synthetic-idp.invalid",
+      "subject": "synthetic-owner"
+    },
+    "project": {
+      "tenantId": "tenant",
+      "workspaceId": "workspace",
+      "workspaceIncarnation": "workspace-incarnation",
+      "projectId": "project"
+    },
+    "source": {
+      "workstationId": "workstation",
+      "bindingId": "binding",
+      "bindingVersion": 1,
+      "sourceId": "source",
+      "sourceGeneration": "generation",
+      "sourceBootId": "boot"
+    },
+    "sessionId": "session",
+    "sessionIncarnation": "incarnation",
+    "policyId": "policy",
+    "policyRevision": 1,
+    "consentRevision": 1,
+    "exclusionRevision": 0,
+    "grantId": "grant",
+    "grantVersion": 1
+  },
+  "boundary": {
+    "startAfterSeq": 7,
+    "native": {
+      "provider": {
+        "provider": "claude",
+        "cliVersion": "synthetic-unqualified",
+        "formatVersion": "synthetic-jsonl/1",
+        "exporterVersion": "synthetic/1",
+        "importerVersion": "synthetic/1"
+      },
+      "selections": [
+        {
+          "lineageId": "lineage",
+          "checkpointId": null,
+          "fromRecord": null,
+          "toRecord": null
+        }
+      ],
+      "boundaryId": "opaque-metadata-boundary"
+    }
+  },
+  "lease": {
+    "id": "lease",
+    "requestNonce": "lease-nonce",
+    "issuedAt": 1800000000000,
+    "expiresAt": 1800000060000
+  },
+  "reason": null
+}

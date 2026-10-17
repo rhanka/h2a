@@ -1,0 +1,11 @@
+{
+  "protocol": "h2a.session-content",
+  "protocolVersion": 2,
+  "kind": "control-result",
+  "requestId": "activate",
+  "requestDigest": "52feeb3972c21527cc7cdfd087e765a45647814fb53b2cea005e014a6d372422",
+  "sourceAckDigest": "4061ce90b84bf2e4962b4da8f7078b29086cbb96bf85f4652fd77621e5951d56",
+  "connectionId": "connection",
+  "status": "committed",
+  "reason": null
+}

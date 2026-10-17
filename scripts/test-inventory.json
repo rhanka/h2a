@@ -924,8 +924,17 @@
     "session content source authentication should reject a JWKS loader whose pinned issuer differs from the native verifier"
   ],
   "packages/h2a-runtime/src/session-content-fence.test.ts": [
-    "should retain denial and consumed proofs across native restarts",
-    "should let exclusion win against stale async acceptance and independent fence instances",
-    "should refuse corrupt or uncertain proof journals while keeping durable denial available"
+    "durable native content fence should retain denial and consumed proofs across native restarts",
+    "durable native content fence should let exclusion win against stale async acceptance and independent fence instances",
+    "durable native content fence should refuse corrupt or uncertain proof journals while keeping durable denial available"
+  ],
+  "packages/h2a-runtime/src/session-content-contract.test.ts": [
+    "session content capsule should validate every positive fixture and refuse unknown nested fields and wire versions",
+    "session content capsule should pin all capsule bytes and reproduce canonical digest vectors",
+    "session content capsule should verify actual synthetic signed nonce bytes and reject forged or replayed proof",
+    "session content capsule should refuse digest substitutions, invalid bounds and partial archive receipts"
+  ],
+  "packages/h2a-runtime/src/native-terminal/protocol.test.ts": [
+    "should reject legacy and incompatible content hosts without changing native transport version"
   ]
 }

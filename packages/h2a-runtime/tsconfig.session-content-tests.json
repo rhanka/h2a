@@ -12,7 +12,10 @@
     "src/session-content-auth.ts",
     "src/session-content-auth.test.ts",
     "src/session-content-fence.ts",
-    "src/session-content-fence.test.ts"
+    "src/session-content-fence.test.ts",
+    "src/session-content-contract.ts",
+    "src/session-content-contract.test.ts",
+    "src/native-terminal/protocol.test.ts"
   ],
   "exclude": []
 }

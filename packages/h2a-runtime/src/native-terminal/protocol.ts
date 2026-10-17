@@ -4,6 +4,11 @@ import type {
 } from "./host.js";
 
 export const NATIVE_TERMINAL_PROTOCOL_VERSION = 1 as const;
+export const NATIVE_TERMINAL_CONTENT_CAPABILITY = "h2a.session-content/2" as const;
+/** F2 adapters must call this before any content operation. Legacy capture is never a fallback. */
+export function requireNativeContentCapability(ping: { content?: unknown }): void {
+  if (ping.content !== NATIVE_TERMINAL_CONTENT_CAPABILITY) throw new Error("unsupported_source");
+}
 export const NATIVE_TERMINAL_MAX_REPLAY_BYTES_PER_SESSION = 4 * 1024 * 1024;
 // JSON escaping can expand one replay byte to six wire bytes (for example NUL).
 export const NATIVE_TERMINAL_MAX_FRAME_BYTES = 32 * 1024 * 1024;

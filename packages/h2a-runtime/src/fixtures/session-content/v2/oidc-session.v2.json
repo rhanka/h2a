@@ -1,0 +1,23 @@
+{
+  "protocol": "h2a.session-content",
+  "protocolVersion": 2,
+  "kind": "oidc-session",
+  "authSessionRef": "login",
+  "owner": {
+    "issuer": "https://synthetic-idp.invalid",
+    "subject": "synthetic-owner"
+  },
+  "tenantId": "tenant",
+  "authenticatedAt": 1800000000000,
+  "sessionExpiresAt": 1800000300000,
+  "sessionVersion": 1,
+  "status": "active",
+  "credentialRefs": [
+    "synthetic-credential"
+  ],
+  "revokedAt": null,
+  "revocationReason": null,
+  "tokenRefs": [
+    "synthetic-token-reference"
+  ]
+}

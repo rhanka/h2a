@@ -1,0 +1,3030 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://h2a.invalid/session-content/2/schema.json",
+  "$defs": {
+    "Owner": {
+      "type": "object",
+      "properties": {
+        "issuer": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "subject": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "issuer",
+        "subject"
+      ],
+      "additionalProperties": false
+    },
+    "Project": {
+      "type": "object",
+      "properties": {
+        "tenantId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "workspaceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "workspaceIncarnation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "projectId": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "tenantId",
+        "workspaceId",
+        "workspaceIncarnation",
+        "projectId"
+      ],
+      "additionalProperties": false
+    },
+    "Source": {
+      "type": "object",
+      "properties": {
+        "workstationId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "bindingId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "bindingVersion": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "sourceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "sourceGeneration": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "sourceBootId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "workstationId",
+        "bindingId",
+        "bindingVersion",
+        "sourceId",
+        "sourceGeneration",
+        "sourceBootId"
+      ],
+      "additionalProperties": false
+    },
+    "Runtime": {
+      "type": "object",
+      "properties": {
+        "packageVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "gitSha": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$"
+        },
+        "packageIntegrity": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "hostBuildHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "exporterBuildHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "packageVersion",
+        "gitSha",
+        "packageIntegrity",
+        "hostBuildHash",
+        "exporterBuildHash"
+      ],
+      "additionalProperties": false
+    },
+    "Provider": {
+      "type": "object",
+      "properties": {
+        "provider": {
+          "const": "claude"
+        },
+        "cliVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "formatVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "exporterVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "importerVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "provider",
+        "cliVersion",
+        "formatVersion",
+        "exporterVersion",
+        "importerVersion"
+      ],
+      "additionalProperties": false
+    },
+    "Retention": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "mode": {
+              "const": "unbounded"
+            }
+          },
+          "required": [
+            "mode"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "mode": {
+              "const": "duration"
+            },
+            "durationSeconds": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "mode",
+            "durationSeconds"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "HistorySelector": {
+      "type": "object",
+      "properties": {
+        "lineageId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "checkpointId": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fromRecord": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "toRecord": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "lineageId",
+        "checkpointId",
+        "fromRecord",
+        "toRecord"
+      ],
+      "additionalProperties": false
+    },
+    "Range": {
+      "type": "object",
+      "properties": {
+        "lineageId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "checkpointId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "fromRecord": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "toRecord": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "inventoryHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "lineageId",
+        "checkpointId",
+        "fromRecord",
+        "toRecord",
+        "inventoryHash"
+      ],
+      "additionalProperties": false
+    },
+    "Lease": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "requestNonce": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "issuedAt": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "expiresAt": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "id",
+        "requestNonce",
+        "issuedAt",
+        "expiresAt"
+      ],
+      "additionalProperties": false
+    },
+    "Retained": {
+      "type": "object",
+      "properties": {
+        "retainedId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "originScopeDigest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "acceptedAt": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "expiresAt": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "retainedId",
+        "originScopeDigest",
+        "acceptedAt",
+        "expiresAt"
+      ],
+      "additionalProperties": false
+    },
+    "Cursor": {
+      "type": "object",
+      "properties": {
+        "scopeDigest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "connectionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "channel": {
+          "enum": [
+            "terminal.live",
+            "terminal.cache"
+          ]
+        },
+        "rawSeq": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "byteOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "scopeDigest",
+        "connectionId",
+        "channel",
+        "rawSeq",
+        "byteOffset"
+      ],
+      "additionalProperties": false
+    },
+    "Scope": {
+      "type": "object",
+      "properties": {
+        "authorityEpoch": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "owner": {
+          "$ref": "#/$defs/Owner"
+        },
+        "project": {
+          "$ref": "#/$defs/Project"
+        },
+        "source": {
+          "$ref": "#/$defs/Source"
+        },
+        "sessionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "sessionIncarnation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "policyId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "policyRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "consentRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "exclusionRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "grantId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "grantVersion": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "authorityEpoch",
+        "owner",
+        "project",
+        "source",
+        "sessionId",
+        "sessionIncarnation",
+        "policyId",
+        "policyRevision",
+        "consentRevision",
+        "exclusionRevision",
+        "grantId",
+        "grantVersion"
+      ],
+      "additionalProperties": false
+    },
+    "Boundary": {
+      "type": "object",
+      "properties": {
+        "startAfterSeq": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "native": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "provider": {
+                  "$ref": "#/$defs/Provider"
+                },
+                "selections": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/HistorySelector"
+                  },
+                  "minItems": 0,
+                  "maxItems": 256,
+                  "uniqueItems": true
+                },
+                "boundaryId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                }
+              },
+              "required": [
+                "provider",
+                "selections",
+                "boundaryId"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "startAfterSeq",
+        "native"
+      ],
+      "additionalProperties": false
+    },
+    "ArchiveAdmission": {
+      "type": "object",
+      "properties": {
+        "archive": {
+          "const": "h2a.session-archive/1"
+        },
+        "snapshotId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "manifestHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "policyDigest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "channel": {
+          "const": "nativeHistory"
+        },
+        "retention": {
+          "$ref": "#/$defs/Retention"
+        },
+        "retained": {
+          "$ref": "#/$defs/Retained"
+        },
+        "descriptorHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "archive",
+        "snapshotId",
+        "manifestHash",
+        "policyDigest",
+        "channel",
+        "retention",
+        "retained",
+        "descriptorHash"
+      ],
+      "additionalProperties": false
+    },
+    "ConfirmationTarget": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "policy"
+            },
+            "policyDigest": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "kind",
+            "policyDigest"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "action"
+            },
+            "scopeDigest": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "operation": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "operationId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "connectionId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "controllerEpoch": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "byteLength": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "payloadHash": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "kind",
+            "scopeDigest",
+            "operation",
+            "operationId",
+            "connectionId",
+            "controllerEpoch",
+            "byteLength",
+            "payloadHash"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ConfirmationChallenge": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "owner": {
+          "$ref": "#/$defs/Owner"
+        },
+        "project": {
+          "$ref": "#/$defs/Project"
+        },
+        "source": {
+          "$ref": "#/$defs/Source"
+        },
+        "clientId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "purpose": {
+          "enum": [
+            "share",
+            "amend",
+            "remote-action"
+          ]
+        },
+        "target": {
+          "$ref": "#/$defs/ConfirmationTarget"
+        },
+        "random": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{43}$"
+        },
+        "issuedAt": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "expiresAt": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "id",
+        "owner",
+        "project",
+        "source",
+        "clientId",
+        "purpose",
+        "target",
+        "random",
+        "issuedAt",
+        "expiresAt"
+      ],
+      "additionalProperties": false
+    },
+    "Policy": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "owner": {
+          "$ref": "#/$defs/Owner"
+        },
+        "project": {
+          "$ref": "#/$defs/Project"
+        },
+        "destination": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Source"
+          },
+          "minItems": 1,
+          "maxItems": 256,
+          "uniqueItems": true
+        },
+        "sessions": {
+          "type": "object",
+          "properties": {
+            "selected": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "minItems": 0,
+              "maxItems": 256,
+              "uniqueItems": true
+            },
+            "future": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "selected",
+            "future"
+          ],
+          "additionalProperties": false
+        },
+        "channels": {
+          "type": "object",
+          "properties": {
+            "terminalLive": {
+              "type": "boolean"
+            },
+            "terminalCache": {
+              "type": "boolean"
+            },
+            "nativeHistory": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "terminalLive",
+            "terminalCache",
+            "nativeHistory"
+          ],
+          "additionalProperties": false
+        },
+        "history": {
+          "type": "object",
+          "properties": {
+            "mode": {
+              "enum": [
+                "none",
+                "existing-at-activation",
+                "selected"
+              ]
+            },
+            "selected": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/HistorySelector"
+              },
+              "minItems": 0,
+              "maxItems": 256,
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "mode",
+            "selected"
+          ],
+          "additionalProperties": false
+        },
+        "retentionByChannel": {
+          "type": "object",
+          "properties": {
+            "terminalCache": {
+              "$ref": "#/$defs/Retention"
+            },
+            "nativeHistory": {
+              "$ref": "#/$defs/Retention"
+            }
+          },
+          "required": [
+            "terminalCache",
+            "nativeHistory"
+          ],
+          "additionalProperties": false
+        },
+        "exclusionRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "id",
+        "revision",
+        "owner",
+        "project",
+        "destination",
+        "sources",
+        "sessions",
+        "channels",
+        "history",
+        "retentionByChannel",
+        "exclusionRevision"
+      ],
+      "additionalProperties": false
+    },
+    "Limits": {
+      "type": "object",
+      "properties": {
+        "segmentDecodedBytes": {
+          "const": 262144
+        },
+        "segmentEncodedBytes": {
+          "const": 1048576
+        },
+        "queueBytes": {
+          "const": 1048576
+        },
+        "fileCount": {
+          "const": 10000
+        },
+        "fileBytes": {
+          "const": 67108864
+        },
+        "archiveBytes": {
+          "const": 268435456
+        },
+        "hostQueueBytes": {
+          "const": 4194304
+        },
+        "pendingConfirmationsPerOwnerSource": {
+          "const": 4
+        },
+        "pendingConfirmationsPerHost": {
+          "const": 16
+        },
+        "ownerChallengeStartsPerMinute": {
+          "const": 6
+        },
+        "ownerChallengeBurst": {
+          "const": 4
+        },
+        "hostChallengeStartsPerMinute": {
+          "const": 24
+        },
+        "hostChallengeBurst": {
+          "const": 16
+        },
+        "concurrentImportsPerWorkstation": {
+          "const": 1
+        },
+        "concurrentExportsPerWorkstation": {
+          "const": 2
+        },
+        "archiveStartsPer10MinutesPerHost": {
+          "const": 4
+        },
+        "archiveStartBurst": {
+          "const": 3
+        },
+        "archiveWorkerBufferBytesPerHost": {
+          "const": 8388608
+        },
+        "queuedArchiveJobs": {
+          "const": 0
+        }
+      },
+      "required": [
+        "segmentDecodedBytes",
+        "segmentEncodedBytes",
+        "queueBytes",
+        "fileCount",
+        "fileBytes",
+        "archiveBytes",
+        "hostQueueBytes",
+        "pendingConfirmationsPerOwnerSource",
+        "pendingConfirmationsPerHost",
+        "ownerChallengeStartsPerMinute",
+        "ownerChallengeBurst",
+        "hostChallengeStartsPerMinute",
+        "hostChallengeBurst",
+        "concurrentImportsPerWorkstation",
+        "concurrentExportsPerWorkstation",
+        "archiveStartsPer10MinutesPerHost",
+        "archiveStartBurst",
+        "archiveWorkerBufferBytesPerHost",
+        "queuedArchiveJobs"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "const": "h2a.session-content"
+        },
+        "protocolVersion": {
+          "const": 2
+        },
+        "kind": {
+          "const": "capabilities"
+        },
+        "content": {
+          "const": "h2a.session-content/2"
+        },
+        "archive": {
+          "const": "h2a.session-archive/1"
+        },
+        "runtime": {
+          "$ref": "#/$defs/Runtime"
+        },
+        "terminal": {
+          "const": true
+        },
+        "native": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Provider"
+          },
+          "minItems": 0,
+          "maxItems": 256,
+          "uniqueItems": true
+        },
+        "importMode": {
+          "const": "isolated-data"
+        },
+        "resumable": {
+          "const": false
+        },
+        "limits": {
+          "$ref": "#/$defs/Limits"
+        }
+      },
+      "required": [
+        "protocol",
+        "protocolVersion",
+        "kind",
+        "content",
+        "archive",
+        "runtime",
+        "terminal",
+        "native",
+        "importMode",
+        "resumable",
+        "limits"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "const": "h2a.session-content"
+        },
+        "protocolVersion": {
+          "const": 2
+        },
+        "kind": {
+          "const": "oidc-context"
+        },
+        "owner": {
+          "$ref": "#/$defs/Owner"
+        },
+        "tenantId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "clientId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "audience": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "authSessionRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "authSessionVersion": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "authSessionExpiresAt": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "tokenExpiresAt": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "acr": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "amr": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true
+        },
+        "authTime": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "expiresAt": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "clientPolicyRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "mfaEnrolled": {
+          "const": true
+        }
+      },
+      "required": [
+        "protocol",
+        "protocolVersion",
+        "kind",
+        "owner",
+        "tenantId",
+        "clientId",
+        "audience",
+        "authSessionRef",
+        "authSessionVersion",
+        "authSessionExpiresAt",
+        "tokenExpiresAt",
+        "acr",
+        "amr",
+        "authTime",
+        "expiresAt",
+        "clientPolicyRevision",
+        "mfaEnrolled"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "const": "h2a.session-content"
+        },
+        "protocolVersion": {
+          "const": 2
+        },
+        "kind": {
+          "const": "oidc-session"
+        },
+        "authSessionRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "owner": {
+          "$ref": "#/$defs/Owner"
+        },
+        "tenantId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "authenticatedAt": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "sessionExpiresAt": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "sessionVersion": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "status": {
+          "enum": [
+            "active",
+            "revoked",
+            "expired"
+          ]
+        },
+        "credentialRefs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "minItems": 0,
+          "maxItems": 256,
+          "uniqueItems": true
+        },
+        "revokedAt": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "revocationReason": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tokenRefs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "minItems": 0,
+          "maxItems": 256,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "protocol",
+        "protocolVersion",
+        "kind",
+        "authSessionRef",
+        "owner",
+        "tenantId",
+        "authenticatedAt",
+        "sessionExpiresAt",
+        "sessionVersion",
+        "status",
+        "credentialRefs",
+        "revokedAt",
+        "revocationReason",
+        "tokenRefs"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "const": "h2a.session-content"
+        },
+        "protocolVersion": {
+          "const": 2
+        },
+        "kind": {
+          "const": "oidc-policy"
+        },
+        "issuer": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "sourceClientId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "sourceAudience": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "confirmationClientId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "confirmationAudience": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "requiredAcr": {
+          "const": "urn:sentropic:loa:passkey-fresh"
+        },
+        "requiredAmr": {
+          "const": [
+            "hwk",
+            "user",
+            "mfa"
+          ]
+        },
+        "forceReauthEveryAuthorization": {
+          "const": true
+        },
+        "bindUvEventToAuthorization": {
+          "const": true
+        },
+        "singleUseUvEvent": {
+          "const": true
+        },
+        "sourceSessionBinding": {
+          "const": "idp-login-record"
+        },
+        "requireUserVerification": {
+          "const": true
+        },
+        "denyWeakFallback": {
+          "const": true
+        },
+        "policyRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "allowedSubject": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "tenantId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "maxConfirmationSeconds": {
+          "const": 60
+        },
+        "maxClockErrorMs": {
+          "const": 5000
+        }
+      },
+      "required": [
+        "protocol",
+        "protocolVersion",
+        "kind",
+        "issuer",
+        "sourceClientId",
+        "sourceAudience",
+        "confirmationClientId",
+        "confirmationAudience",
+        "requiredAcr",
+        "requiredAmr",
+        "forceReauthEveryAuthorization",
+        "bindUvEventToAuthorization",
+        "singleUseUvEvent",
+        "sourceSessionBinding",
+        "requireUserVerification",
+        "denyWeakFallback",
+        "policyRevision",
+        "allowedSubject",
+        "tenantId",
+        "maxConfirmationSeconds",
+        "maxClockErrorMs"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "const": "h2a.session-content"
+        },
+        "protocolVersion": {
+          "const": 2
+        },
+        "kind": {
+          "const": "confirmation-challenge"
+        },
+        "challenge": {
+          "$ref": "#/$defs/ConfirmationChallenge"
+        },
+        "challengeDigest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "protocol",
+        "protocolVersion",
+        "kind",
+        "challenge",
+        "challengeDigest"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "const": "h2a.session-content"
+        },
+        "protocolVersion": {
+          "const": 2
+        },
+        "kind": {
+          "const": "confirmation-proof"
+        },
+        "challengeId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "challengeDigest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "idToken": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 24576
+        }
+      },
+      "required": [
+        "protocol",
+        "protocolVersion",
+        "kind",
+        "challengeId",
+        "challengeDigest",
+        "idToken"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "const": "h2a.session-content"
+        },
+        "protocolVersion": {
+          "const": 2
+        },
+        "kind": {
+          "const": "project-policy"
+        },
+        "policy": {
+          "$ref": "#/$defs/Policy"
+        },
+        "policyDigest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "confirmation": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "challengeId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "proofDigest": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "authSessionRef": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "purpose": {
+              "enum": [
+                "share",
+                "amend"
+              ]
+            },
+            "confirmedAt": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "id",
+            "challengeId",
+            "proofDigest",
+            "authSessionRef",
+            "purpose",
+            "confirmedAt"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "protocol",
+        "protocolVersion",
+        "kind",
+        "policy",
+        "policyDigest",
+        "confirmation"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "const": "h2a.session-content"
+        },
+        "protocolVersion": {
+          "const": 2
+        },
+        "kind": {
+          "const": "source-open"
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "requestNonce": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "bindingId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "sourceGeneration": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "sourceBootId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "runtime": {
+          "$ref": "#/$defs/Runtime"
+        },
+        "capabilitiesDigest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "protocol",
+        "protocolVersion",
+        "kind",
+        "requestId",
+        "requestNonce",
+        "bindingId",
+        "sourceGeneration",
+        "sourceBootId",
+        "runtime",
+        "capabilitiesDigest"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "const": "h2a.session-content"
+        },
+        "protocolVersion": {
+          "const": 2
+        },
+        "kind": {
+          "const": "source-session"
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "requestNonce": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "sourceSessionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "sourceToken": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "owner": {
+          "$ref": "#/$defs/Owner"
+        },
+        "authSessionRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "authSessionVersion": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "authSessionExpiresAt": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "source": {
+          "$ref": "#/$defs/Source"
+        },
+        "connectionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "issuedAt": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "expiresAt": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "operations": {
+          "const": [
+            "source-control",
+            "content-upload",
+            "source-ack"
+          ]
+        }
+      },
+      "required": [
+        "protocol",
+        "protocolVersion",
+        "kind",
+        "requestId",
+        "requestNonce",
+        "sourceSessionId",
+        "sourceToken",
+        "owner",
+        "authSessionRef",
+        "authSessionVersion",
+        "authSessionExpiresAt",
+        "source",
+        "connectionId",
+        "issuedAt",
+        "expiresAt",
+        "operations"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "const": "h2a.session-content"
+        },
+        "protocolVersion": {
+          "const": 2
+        },
+        "kind": {
+          "const": "grant-activate"
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "requestNonce": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "connectionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "policyDigest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "lease": {
+          "$ref": "#/$defs/Lease"
+        }
+      },
+      "required": [
+        "protocol",
+        "protocolVersion",
+        "kind",
+        "requestId",
+        "requestNonce",
+        "connectionId",
+        "scope",
+        "policyDigest",
+        "lease"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "const": "h2a.session-content"
+        },
+        "protocolVersion": {
+          "const": 2
+        },
+        "kind": {
+          "const": "grant-refresh"
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "requestNonce": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "connectionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "previousScope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "nextScope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "policyDigest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "lease": {
+          "$ref": "#/$defs/Lease"
+        },
+        "operation": {
+          "enum": [
+            "renew",
+            "amend"
+          ]
+        }
+      },
+      "required": [
+        "protocol",
+        "protocolVersion",
+        "kind",
+        "requestId",
+        "requestNonce",
+        "connectionId",
+        "previousScope",
+        "nextScope",
+        "policyDigest",
+        "lease",
+        "operation"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "const": "h2a.session-content"
+        },
+        "protocolVersion": {
+          "const": 2
+        },
+        "kind": {
+          "const": "source-ack"
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "requestDigest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "connectionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "operation": {
+          "enum": [
+            "activate",
+            "renew",
+            "amend",
+            "revoke"
+          ]
+        },
+        "status": {
+          "enum": [
+            "staged",
+            "applied",
+            "refused"
+          ]
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "boundary": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/Boundary"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "lease": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/Lease"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reason": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "protocol",
+        "protocolVersion",
+        "kind",
+        "requestId",
+        "requestDigest",
+        "connectionId",
+        "operation",
+        "status",
+        "scope",
+        "boundary",
+        "lease",
+        "reason"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "const": "h2a.session-content"
+        },
+        "protocolVersion": {
+          "const": 2
+        },
+        "kind": {
+          "const": "control-result"
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "requestDigest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "sourceAckDigest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "connectionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "status": {
+          "enum": [
+            "committed",
+            "refused"
+          ]
+        },
+        "reason": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "protocol",
+        "protocolVersion",
+        "kind",
+        "requestId",
+        "requestDigest",
+        "sourceAckDigest",
+        "connectionId",
+        "status",
+        "reason"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "const": "h2a.session-content"
+        },
+        "protocolVersion": {
+          "const": 2
+        },
+        "kind": {
+          "const": "content-revoke"
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "connectionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "target": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "project"
+                },
+                "project": {
+                  "$ref": "#/$defs/Project"
+                },
+                "policyId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                }
+              },
+              "required": [
+                "kind",
+                "project",
+                "policyId"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "session"
+                },
+                "scope": {
+                  "$ref": "#/$defs/Scope"
+                }
+              },
+              "required": [
+                "kind",
+                "scope"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "retained"
+                },
+                "retainedId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "originScopeDigest": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              },
+              "required": [
+                "kind",
+                "retainedId",
+                "originScopeDigest"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "effect": {
+          "enum": [
+            "capture",
+            "read",
+            "both"
+          ]
+        },
+        "denyRevision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "reason": {
+          "enum": [
+            "excluded",
+            "revoked",
+            "authority_invalidated"
+          ]
+        }
+      },
+      "required": [
+        "protocol",
+        "protocolVersion",
+        "kind",
+        "requestId",
+        "connectionId",
+        "target",
+        "effect",
+        "denyRevision",
+        "reason"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "const": "h2a.session-content"
+        },
+        "protocolVersion": {
+          "const": 2
+        },
+        "kind": {
+          "const": "terminal-fragment"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "connectionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "leaseId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "channel": {
+          "enum": [
+            "terminal.live",
+            "terminal.cache"
+          ]
+        },
+        "rawSeq": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "byteOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "byteLength": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 262144
+        },
+        "totalBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "payloadB64": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]*$",
+          "maxLength": 1048576
+        },
+        "payloadHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "final": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "protocol",
+        "protocolVersion",
+        "kind",
+        "scope",
+        "connectionId",
+        "leaseId",
+        "channel",
+        "rawSeq",
+        "byteOffset",
+        "byteLength",
+        "totalBytes",
+        "payloadB64",
+        "payloadHash",
+        "final"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "const": "h2a.session-content"
+        },
+        "protocolVersion": {
+          "const": 2
+        },
+        "kind": {
+          "const": "terminal-gap"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "connectionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "channel": {
+          "enum": [
+            "terminal.live",
+            "terminal.cache"
+          ]
+        },
+        "fromSeq": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "toSeq": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "reason": {
+          "enum": [
+            "excluded",
+            "not-collected",
+            "partition",
+            "source-restarted",
+            "evicted",
+            "expired",
+            "incomplete-chunk"
+          ]
+        },
+        "contiguousThroughSeq": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "protocol",
+        "protocolVersion",
+        "kind",
+        "scope",
+        "connectionId",
+        "channel",
+        "fromSeq",
+        "toSeq",
+        "reason",
+        "contiguousThroughSeq"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "const": "h2a.session-content"
+        },
+        "protocolVersion": {
+          "const": 2
+        },
+        "kind": {
+          "const": "native-manifest"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "connectionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "leaseId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "archive": {
+          "const": "h2a.session-archive/1"
+        },
+        "snapshotId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "policyDigest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "provider": {
+          "$ref": "#/$defs/Provider"
+        },
+        "ranges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Range"
+          },
+          "minItems": 1,
+          "maxItems": 10000,
+          "uniqueItems": true
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "role": {
+                "enum": [
+                  "records",
+                  "artifact"
+                ]
+              },
+              "bytes": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 67108864
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              }
+            },
+            "required": [
+              "path",
+              "role",
+              "bytes",
+              "sha256"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 1,
+          "maxItems": 10000,
+          "uniqueItems": true
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "resumable": {
+          "const": false
+        },
+        "manifestHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "protocol",
+        "protocolVersion",
+        "kind",
+        "scope",
+        "connectionId",
+        "leaseId",
+        "archive",
+        "snapshotId",
+        "policyDigest",
+        "provider",
+        "ranges",
+        "files",
+        "complete",
+        "resumable",
+        "manifestHash"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "const": "h2a.session-content"
+        },
+        "protocolVersion": {
+          "const": 2
+        },
+        "kind": {
+          "const": "archive-admission"
+        },
+        "admission": {
+          "$ref": "#/$defs/ArchiveAdmission"
+        }
+      },
+      "required": [
+        "protocol",
+        "protocolVersion",
+        "kind",
+        "admission"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "const": "h2a.session-content"
+        },
+        "protocolVersion": {
+          "const": 2
+        },
+        "kind": {
+          "const": "native-part"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "connectionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "leaseId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "snapshotId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "fileSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "byteOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "byteLength": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 262144
+        },
+        "totalBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "payloadB64": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]*$",
+          "maxLength": 1048576
+        },
+        "payloadHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "final": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "protocol",
+        "protocolVersion",
+        "kind",
+        "scope",
+        "connectionId",
+        "leaseId",
+        "snapshotId",
+        "fileSha256",
+        "byteOffset",
+        "byteLength",
+        "totalBytes",
+        "payloadB64",
+        "payloadHash",
+        "final"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "const": "h2a.session-content"
+        },
+        "protocolVersion": {
+          "const": 2
+        },
+        "kind": {
+          "const": "ingest-ack"
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "scopeDigest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "connectionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "status": {
+          "enum": [
+            "accepted",
+            "duplicate",
+            "refused"
+          ]
+        },
+        "coverage": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "terminal"
+                },
+                "cursor": {
+                  "$ref": "#/$defs/Cursor"
+                }
+              },
+              "required": [
+                "kind",
+                "cursor"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "native"
+                },
+                "snapshotId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "fileSha256": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "acceptedThroughByteOffset": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "kind",
+                "snapshotId",
+                "fileSha256",
+                "acceptedThroughByteOffset"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "retained": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/Retained"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "archiveAdmission": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ArchiveAdmission"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reason": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "protocol",
+        "protocolVersion",
+        "kind",
+        "requestId",
+        "scopeDigest",
+        "connectionId",
+        "status",
+        "coverage",
+        "retained",
+        "archiveAdmission",
+        "reason"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "const": "h2a.session-content"
+        },
+        "protocolVersion": {
+          "const": 2
+        },
+        "kind": {
+          "const": "history-read"
+        },
+        "authorizationId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "owner": {
+          "$ref": "#/$defs/Owner"
+        },
+        "authSessionRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "retained": {
+          "$ref": "#/$defs/Retained"
+        },
+        "coverage": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "terminal"
+                },
+                "fromSeq": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "toSeq": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "objects": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 256
+                      },
+                      "sha256": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{64}$"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "sha256"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "minItems": 0,
+                  "maxItems": 10000,
+                  "uniqueItems": true
+                }
+              },
+              "required": [
+                "kind",
+                "fromSeq",
+                "toSeq",
+                "objects"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "native"
+                },
+                "snapshotId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "manifestHash": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "descriptorHash": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              },
+              "required": [
+                "kind",
+                "snapshotId",
+                "manifestHash",
+                "descriptorHash"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "readExpiresAt": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "protocol",
+        "protocolVersion",
+        "kind",
+        "authorizationId",
+        "owner",
+        "authSessionRef",
+        "retained",
+        "coverage",
+        "readExpiresAt"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "const": "h2a.session-content"
+        },
+        "protocolVersion": {
+          "const": 2
+        },
+        "kind": {
+          "const": "import-request"
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "authorizationId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "retained": {
+          "$ref": "#/$defs/Retained"
+        },
+        "snapshotId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "manifestHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "descriptorHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "provider": {
+          "$ref": "#/$defs/Provider"
+        },
+        "mode": {
+          "const": "isolated-data"
+        }
+      },
+      "required": [
+        "protocol",
+        "protocolVersion",
+        "kind",
+        "requestId",
+        "authorizationId",
+        "retained",
+        "snapshotId",
+        "manifestHash",
+        "descriptorHash",
+        "provider",
+        "mode"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "const": "h2a.session-content"
+        },
+        "protocolVersion": {
+          "const": 2
+        },
+        "kind": {
+          "const": "import-result"
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "snapshotId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "manifestHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "descriptorHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "status": {
+          "enum": [
+            "imported",
+            "refused"
+          ]
+        },
+        "reason": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "localImportId": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "expiresAt": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "resumable": {
+          "const": false
+        },
+        "processStarted": {
+          "const": false
+        },
+        "keyboardAcquired": {
+          "const": false
+        }
+      },
+      "required": [
+        "protocol",
+        "protocolVersion",
+        "kind",
+        "requestId",
+        "snapshotId",
+        "manifestHash",
+        "descriptorHash",
+        "status",
+        "reason",
+        "localImportId",
+        "expiresAt",
+        "resumable",
+        "processStarted",
+        "keyboardAcquired"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "const": "h2a.session-content"
+        },
+        "protocolVersion": {
+          "const": 2
+        },
+        "kind": {
+          "const": "source-admission"
+        },
+        "method": {
+          "const": "POST"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "pattern": "^/[^?#]*$"
+        },
+        "sourceSessionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "connectionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "scopeDigest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "leaseId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "bodyBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1048576
+        },
+        "bodyHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "protocol",
+        "protocolVersion",
+        "kind",
+        "method",
+        "path",
+        "sourceSessionId",
+        "connectionId",
+        "requestId",
+        "scopeDigest",
+        "leaseId",
+        "bodyBytes",
+        "bodyHash"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "const": "h2a.session-content"
+        },
+        "protocolVersion": {
+          "const": 2
+        },
+        "kind": {
+          "const": "refusals"
+        },
+        "cases": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "fixture": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "mutation": {
+                "type": "object",
+                "properties": {
+                  "pointer": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "value": {
+                    "oneOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 256
+                      },
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "pointer",
+                  "value"
+                ],
+                "additionalProperties": false
+              },
+              "expected": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "sourceContentReads": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "contentSubscriptions": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "serializedContentBytes": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "exportBytes": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "ingressBodyReads": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "storedBytes": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "importCommits": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "nativeWrites": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "processStarts": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "keyboardAcquires": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "code",
+                  "sourceContentReads",
+                  "contentSubscriptions",
+                  "serializedContentBytes",
+                  "exportBytes",
+                  "ingressBodyReads",
+                  "storedBytes",
+                  "importCommits",
+                  "nativeWrites",
+                  "processStarts",
+                  "keyboardAcquires"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "name",
+              "fixture",
+              "mutation",
+              "expected"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 1,
+          "maxItems": 256,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "protocol",
+        "protocolVersion",
+        "kind",
+        "cases"
+      ],
+      "additionalProperties": false
+    }
+  ]
+}

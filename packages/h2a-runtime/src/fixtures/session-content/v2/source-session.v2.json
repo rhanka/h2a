@@ -1,0 +1,32 @@
+{
+  "protocol": "h2a.session-content",
+  "protocolVersion": 2,
+  "kind": "source-session",
+  "requestId": "open",
+  "requestNonce": "open-nonce",
+  "sourceSessionId": "source-session",
+  "sourceToken": "synthetic-secret-not-authority",
+  "owner": {
+    "issuer": "https://synthetic-idp.invalid",
+    "subject": "synthetic-owner"
+  },
+  "authSessionRef": "login",
+  "authSessionVersion": 1,
+  "authSessionExpiresAt": 1800000300000,
+  "source": {
+    "workstationId": "workstation",
+    "bindingId": "binding",
+    "bindingVersion": 1,
+    "sourceId": "source",
+    "sourceGeneration": "generation",
+    "sourceBootId": "boot"
+  },
+  "connectionId": "connection",
+  "issuedAt": 1800000000000,
+  "expiresAt": 1800000060000,
+  "operations": [
+    "source-control",
+    "content-upload",
+    "source-ack"
+  ]
+}

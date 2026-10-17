@@ -1,0 +1,42 @@
+{
+  "protocol": "h2a.session-content",
+  "protocolVersion": 2,
+  "kind": "content-revoke",
+  "requestId": "revoke",
+  "connectionId": "connection",
+  "target": {
+    "kind": "session",
+    "scope": {
+      "authorityEpoch": "epoch",
+      "owner": {
+        "issuer": "https://synthetic-idp.invalid",
+        "subject": "synthetic-owner"
+      },
+      "project": {
+        "tenantId": "tenant",
+        "workspaceId": "workspace",
+        "workspaceIncarnation": "workspace-incarnation",
+        "projectId": "project"
+      },
+      "source": {
+        "workstationId": "workstation",
+        "bindingId": "binding",
+        "bindingVersion": 1,
+        "sourceId": "source",
+        "sourceGeneration": "generation",
+        "sourceBootId": "boot"
+      },
+      "sessionId": "session",
+      "sessionIncarnation": "incarnation",
+      "policyId": "policy",
+      "policyRevision": 1,
+      "consentRevision": 1,
+      "exclusionRevision": 0,
+      "grantId": "grant",
+      "grantVersion": 1
+    }
+  },
+  "effect": "capture",
+  "denyRevision": 1,
+  "reason": "excluded"
+}

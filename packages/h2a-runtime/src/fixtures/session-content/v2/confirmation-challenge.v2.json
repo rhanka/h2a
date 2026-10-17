@@ -1,0 +1,36 @@
+{
+  "protocol": "h2a.session-content",
+  "protocolVersion": 2,
+  "kind": "confirmation-challenge",
+  "challenge": {
+    "id": "challenge",
+    "owner": {
+      "issuer": "https://synthetic-idp.invalid",
+      "subject": "synthetic-owner"
+    },
+    "project": {
+      "tenantId": "tenant",
+      "workspaceId": "workspace",
+      "workspaceIncarnation": "workspace-incarnation",
+      "projectId": "project"
+    },
+    "source": {
+      "workstationId": "workstation",
+      "bindingId": "binding",
+      "bindingVersion": 1,
+      "sourceId": "source",
+      "sourceGeneration": "generation",
+      "sourceBootId": "boot"
+    },
+    "clientId": "confirmation-client",
+    "purpose": "share",
+    "target": {
+      "kind": "policy",
+      "policyDigest": "08fc651043cee52ad207235b626d686b342d1981be90cb75f2b387634a3f4165"
+    },
+    "random": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE",
+    "issuedAt": 1800000000000,
+    "expiresAt": 1800000060000
+  },
+  "challengeDigest": "ac04213920bcc65b531fd92e1d5cf457e82e87ea4fcb86817b5c216deb932b24"
+}
