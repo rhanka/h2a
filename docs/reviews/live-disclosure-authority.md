@@ -4,7 +4,7 @@ review-author:
   host: codex
   model: unknown
   effort: unknown
-target-ref: 197c6ee08
+target-ref: 4419dafd5ecb80373877d94ed9e40839a5437a59
 observed-failure: >-
   Exact author model/effort are not exposed in this session. The prescribed
   installed h2a/mesh reviewer launch is forbidden by the owner's confinement.
@@ -23,6 +23,8 @@ opaque clone identity, provider, exact source paths, output surfaces and an
 exclusive expiry bounded by the issuing proof. Activation, enrollment,
 sessions and read/MCP access never mint grants. No signing key is created here.
 
+An independent verified read gate is required before loading evidence and
+again at handoff; missing, denied, throwing or revoked read authority refuses.
 Every emission reloads host evidence, including warm-cache provenance, and
 rechecks both the issuing proof and the emission proof. All composed origins
 must fit one grant. Current declaration/policy/latest-state revisions, L4b
@@ -42,11 +44,12 @@ flushed temporary file, not a production host receipt backend.
 Behavioural RED evidence: initial auth 14 failures and initial disclosure 39
 failures. Additional real regression failures preceded fixes for final-policy
 latest-state replacement, async audit acceptance, throwing clock, revoked
-issuing proof with fresh emission proof, and grant start-time rollback.
+issuing proof with fresh emission proof, grant start-time rollback, and
+independent read authority missing from emission.
 Two TypeScript failures were also fixed; they are not behavioural RED proof.
 
-Targeted qualification: auth (14), disclosure (50), registration (23), all
-87 passing on Linux Node 22.22.1 and Node 24.18.0 with zero skips. The disclosure
+Targeted qualification: auth (14), disclosure (52), registration (23), all
+89 passing on Linux Node 22.22.1 and Node 24.18.0 with zero skips. The disclosure
 file compiles the consumer into a temporary installation and runs it in a
 separate Node process; absent L8 returns `policy-unavailable` before any
 evidence/transport port. Repository and explicit strict test typechecks pass.
