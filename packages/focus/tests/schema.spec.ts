@@ -321,7 +321,7 @@ describe("published JSON Schema parity with the TS validator (rev352-F3)", () =>
       "sections", "interactions", "provenance", "amendmentTrace",
     ]);
     expect(Object.keys(defsOf(doc)).sort()).toEqual(
-      ["amendmentStep", "amendmentTraceNode", "comprehensionEvidence", "diagramNode", "interaction", "optionNode", "optionSetNode", "outcomeNode", "proseNode", "provenance", "questionNode", "section"],
+      ["amendmentStep", "amendmentTraceNode", "comprehensionEvidence", "diagramNode", "glossaryEntry", "interaction", "optionNode", "optionSetNode", "outcomeNode", "proseNode", "provenance", "questionNode", "readability", "section"],
     );
     expect(defsOf(doc)["section"]!["oneOf"]).toEqual([
       { $ref: "#/$defs/proseNode" },
@@ -343,7 +343,7 @@ describe("published JSON Schema parity with the TS validator (rev352-F3)", () =>
     expect(rootProps["provenance"]).toEqual({ $ref: "#/$defs/provenance" });
     expect(rootProps["amendmentTrace"]).toEqual({ type: "array", items: { $ref: "#/$defs/amendmentStep" } });
 
-    checkClosedObjectDef(doc, "proseNode", ["kind", "id", "targetRef", "markdown"], ["kind", "id", "targetRef", "markdown"]);
+    checkClosedObjectDef(doc, "proseNode", ["kind", "id", "targetRef", "markdown"], ["kind", "id", "targetRef", "markdown", "questionId"]);
     expect(propsOf(doc, "proseNode")["kind"]).toEqual({ const: "prose" });
     expect(propsOf(doc, "proseNode")["id"]).toEqual({ type: "string" });
     expect(propsOf(doc, "proseNode")["targetRef"]).toEqual({ type: "string" });
@@ -391,14 +391,14 @@ describe("published JSON Schema parity with the TS validator (rev352-F3)", () =>
     expect(propsOf(doc, "amendmentStep")["at"]).toEqual({ type: "string" });
     expect(propsOf(doc, "amendmentStep")["author"]).toEqual({ type: "string" });
     expect(propsOf(doc, "amendmentStep")["summary"]).toEqual({ type: "string" });
-    checkClosedObjectDef(doc, "questionNode", ["kind", "id", "targetRef", "question", "state"], ["kind", "id", "targetRef", "question", "recommendedAnswer", "answer", "state"]);
-    checkClosedObjectDef(doc, "optionNode", ["kind", "id", "targetRef", "label", "annotation"], ["kind", "id", "targetRef", "label", "body", "annotation", "annotationComment"]);
-    checkClosedObjectDef(doc, "optionSetNode", ["kind", "id", "targetRef", "options"], ["kind", "id", "targetRef", "title", "options"]);
+    checkClosedObjectDef(doc, "questionNode", ["kind", "id", "targetRef", "question", "state"], ["kind", "id", "targetRef", "question", "recommendedAnswer", "answer", "state", "context", "readingTimeMinutes", "recommendedOptionId"]);
+    checkClosedObjectDef(doc, "optionNode", ["kind", "id", "targetRef", "label", "annotation"], ["kind", "id", "targetRef", "label", "body", "annotation", "annotationComment", "consequence"]);
+    checkClosedObjectDef(doc, "optionSetNode", ["kind", "id", "targetRef", "options"], ["kind", "id", "targetRef", "title", "options", "questionId"]);
     expect(propsOf(doc, "optionSetNode")["options"]).toEqual({
       type: "array",
       items: { $ref: "#/$defs/optionNode" },
     });
-    checkClosedObjectDef(doc, "outcomeNode", ["kind", "id", "targetRef", "modality", "statement"], ["kind", "id", "targetRef", "modality", "statement"]);
+    checkClosedObjectDef(doc, "outcomeNode", ["kind", "id", "targetRef", "modality", "statement"], ["kind", "id", "targetRef", "modality", "statement", "questionId"]);
     checkClosedObjectDef(doc, "amendmentTraceNode", ["kind", "id", "targetRef", "steps"], ["kind", "id", "targetRef", "steps"]);
     checkClosedObjectDef(doc, "diagramNode", ["kind", "id", "targetRef", "syntax", "source", "alt"], ["kind", "id", "targetRef", "syntax", "source", "alt"]);
     checkClosedObjectDef(doc, "interaction", ["name", "targetRef", "label", "enabled"], ["name", "targetRef", "label", "enabled"]);

@@ -17,6 +17,7 @@
  * Pure and dependency-free: no I/O, no clock, no mutation of the input.
  * Every recorded issue is a refusal — the schema is closed.
  */
+export { READABILITY_LIMITS, READABILITY_BUDGETS, validateDecisionDossierReadability } from "./readability.js";
 import type { DecisionDossierDocument } from "../model.js";
 /** Stable schema ID of the published DecisionDossierDocument asset. */
 export declare const DOSSIER_SCHEMA_ID = "urn:sentropic:focus:DecisionDossierDocument:1.0.0";
@@ -51,3 +52,7 @@ export declare const validateDecisionDossierSemantics: (doc: DecisionDossierDocu
 export declare const validateDecisionDossierDocument: (value: unknown) => ValidationResult<DecisionDossierDocument>;
 /** Parse or throw {@link DecisionDossierValidationError}. */
 export declare const assertDecisionDossierDocument: (value: unknown) => DecisionDossierDocument;
+/** Presentation requires the backward-compatible structure AND the readability gate. */
+export declare const validateDecisionDossierForPresentation: (value: unknown) => ValidationResult<DecisionDossierDocument>;
+/** Refuse before any presentation or host rendering hook runs. */
+export declare const assertDecisionDossierForPresentation: (value: unknown) => DecisionDossierDocument;

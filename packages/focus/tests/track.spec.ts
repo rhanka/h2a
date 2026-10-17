@@ -16,7 +16,9 @@
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
+import { copyFileSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 
 import {
   DecisionNotFoundError,
@@ -29,7 +31,10 @@ import { renderHtml, renderMd, renderTerminal } from "../src/index.js";
 import type { HtmlRenderHooks } from "../src/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const eventsPath = join(here, ".track", "events.jsonl");
+const fixtureDir = mkdtempSync(join(tmpdir(), "focus-read-fixture-"));
+const eventsPath = join(fixtureDir, "events.jsonl");
+copyFileSync(join(here, ".track", "events.jsonl"), eventsPath);
+afterAll(() => rmSync(fixtureDir, { recursive: true, force: true }));
 const DECISION_ID = "01JFOCUSDECISION00000000000";
 const READ_AT = "2026-06-21T12:00:00.000Z";
 const query = {
@@ -128,17 +133,12 @@ describe("readDecisionDossier (real @sentropic/track/read binding)", () => {
     }
   });
 
-  it("is renderable on all three surfaces (terminal/md/html) from the real read", () => {
-    const text = renderTerminal(doc);
-    expect(text).toContain("Should focus bind to @sentropic/track/read at L2?");
-    expect(text).toContain("Outcome [decision]:");
-
-    const md = renderMd(doc);
-    expect(md).toContain("# Should focus bind to @sentropic/track/read at L2?");
-
-    const html = renderHtml(doc, hooks);
-    expect(html.startsWith("<!--sanitized-->")).toBe(true);
-    expect(html).toContain("<h1>Should focus bind to @sentropic/track/read at L2?</h1>");
+  it("preserves legacy data but blocks its presentation until readability information exists", () => {
+    expect(doc.title).toContain("Should focus bind");
+    expect(doc.readability).toBeUndefined();
+    for (const render of [renderTerminal, renderMd, (value: typeof doc) => renderHtml(value, hooks)]) {
+      expect(() => render(doc)).toThrow(/owner request/);
+    }
   });
 
   it("throws DecisionNotFoundError for an unknown decision id", () => {

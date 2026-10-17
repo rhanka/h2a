@@ -6,8 +6,13 @@
  * (```mermaid / ```plantuml — no diagram adapter). Prose markdown is emitted verbatim
  * (or passed through an optional host `renderMarkdown` hook for normalization).
  */
+import { assertDecisionDossierForPresentation } from "../validation/index.js";
 const renderQuestion = (q) => {
     const lines = [`**Q:** ${q.question} _(${q.state})_`];
+    if (q.context !== undefined)
+        lines.push(q.context);
+    if (q.readingTimeMinutes !== undefined)
+        lines.push(`Reading time: ${q.readingTimeMinutes} min`);
     if (q.recommendedAnswer !== undefined) {
         lines.push(`- préco: ${q.recommendedAnswer}`);
     }
@@ -22,7 +27,7 @@ const renderOptionSet = (s) => {
         const mark = o.annotation === "none" ? "[ ]" : `[${o.annotation}]`;
         const comment = o.annotationComment !== undefined ? ` — ${o.annotationComment}` : "";
         const body = o.body !== undefined ? `\n  ${o.body}` : "";
-        return `- ${mark} **${o.label}**${comment}${body}`;
+        return `- ${mark} **${o.label}** — ${o.consequence ?? ""}${comment}${body}`;
     });
     return [head, ...opts].join("\n");
 };
@@ -59,10 +64,16 @@ const renderAffordances = (affordances) => {
 };
 /** Render a decision-dossier document to a Markdown string. */
 export const renderMd = (doc, hooks = {}) => {
+    assertDecisionDossierForPresentation(doc);
+    const r = doc.readability;
     const blocks = [
         `# ${doc.title}`,
         `> subject: ${doc.subject}  ·  ref: \`${doc.ref}\`  ·  cursor: \`${doc.cursor}\``,
     ];
+    blocks.push(`### Owner request\n\n${r.ownerRequestQuote.split("\n").map((line) => `> ${line}`).join("\n")}`);
+    blocks.push(`### Stakes\n\n${r.stakes}\n\nReading budget: ${r.readingBudgetMinutes} min (${r.stakesLevel} stakes)`);
+    if (r.glossary?.length)
+        blocks.push("### Glossary\n\n" + r.glossary.map((entry) => `- **${entry.term}**: ${entry.definition}`).join("\n"));
     for (const node of doc.sections) {
         blocks.push(renderNode(node, hooks));
     }
