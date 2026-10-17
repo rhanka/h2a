@@ -32,6 +32,7 @@ export async function lab(t) {
   }
   env.SPIKE_LEGACY_PARENT_DEATH = process.env.SPIKE_LEGACY_PARENT_DEATH ?? '0';
   env.SPIKE_DISABLE_EXIT_CHANNEL = process.env.SPIKE_DISABLE_EXIT_CHANNEL ?? '0';
+  env.SPIKE_STAGE_DELAY = process.env.SPIKE_STAGE_DELAY ?? '25';
   const source = fileURLToPath(new URL('native.c', import.meta.url));
   const headers = [process.env.SPIKE_NODE_INCLUDE, '/usr/include/node', resolve(dirname(process.execPath), '../include/node')]
     .find(path => path && existsSync(join(path, 'node_api.h')));
