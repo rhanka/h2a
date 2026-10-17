@@ -946,11 +946,27 @@
     "AFTER_F2_SENTINEL",
     "should refuse forged confirmation and let exclusion win while an activation ACK is pending",
     "should refuse a mismatched ACK and discard queued bytes on lost source authority",
-    "should keep the old lease deadline until the exact renewal ACK commits"
+    "should keep the old lease deadline until the exact renewal ACK commits",
+    "should export and import an exact synthetic checkpoint only after native confirmation and committed activation"
   ],
   "packages/h2a-runtime/src/session-content-export.test.ts": [
     "should bound source and aggregate queues and invalidate reservations without legacy backfill",
     "should count in-flight bytes until an exact reservation commits and pause on source overflow",
     "should account the complete backing buffer until the last fragment commits"
+  ],
+  "packages/h2a-runtime/src/session-content-archive.test.ts": [
+    "should bind the complete archive to its original policy, snapshot, admission and retention",
+    "should reject traversal, alternate separators, executable configuration and colliding names",
+    "should share host archive slots and cumulative start budgets without queuing or cancellation refunds",
+    "should refuse aggregate worker-memory exhaustion before another allocation",
+    "should refuse an unqualified provider or unconsented required companion before reading transcript content"
+  ],
+  "packages/h2a-runtime/src/session-content-import.test.ts": [
+    "should round-trip a complete synthetic archive into an isolated data directory without execution",
+    "should refuse substituted policies or admissions before reading any file part",
+    "should abort corrupt, missing and conflicting parts without any committed import or staging residue",
+    "should recheck read revocation before commit and retain the original managed-copy expiry",
+    "should cancel an active import and refuse excess parts without leaving a committed directory",
+    "should release the import slot when cancellation interrupts a stalled part iterator"
   ]
 }

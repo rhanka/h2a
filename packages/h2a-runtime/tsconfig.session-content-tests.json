@@ -19,7 +19,15 @@
     "src/session-content-consent.ts",
     "src/session-content-consent.test.ts",
     "src/session-content-export.ts",
-    "src/session-content-export.test.ts"
+    "src/session-content-export.test.ts",
+    "src/session-content-archive.ts",
+    "src/session-content-archive.test.ts",
+    "src/session-content-archive-worker.ts",
+    "src/session-content-import.ts",
+    "src/session-content-import.test.ts",
+    "src/session-content-history.ts",
+    "src/session-content-archive-export.ts",
+    "src/session-content-api.ts"
   ],
   "exclude": []
 }
