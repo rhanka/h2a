@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": false,
+    "incremental": false
+  },
+  "include": [
+    "src/session-content-json.ts",
+    "src/session-content-confirmation.ts",
+    "src/session-content-confirmation.test.ts"
+  ],
+  "exclude": []
+}
