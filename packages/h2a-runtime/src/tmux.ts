@@ -57,6 +57,10 @@ import {
 } from "./launch-context.js";
 import { SESSION_CLASS_ENV, type SessionClass } from "./session-class.js";
 import type { TunnelConfig } from "./config.js";
+import {
+  statusFromSpawnResult,
+  withClientTerminalReset,
+} from "./terminal-reset.js";
 
 const TMUX = "tmux";
 
@@ -2110,12 +2114,14 @@ export async function startH2aWindowVerified(
  * detaches (Ctrl-b d) or the session ends. Returns the tmux exit status.
  */
 export function attachLocalSession(name: string): number {
-  ensureScrollConfig();
-  const args = process.env.TMUX
-    ? ["switch-client", "-t", `=${name}`]
-    : ["attach-session", "-t", `=${name}`];
-  const r = spawnSync(TMUX, args, { stdio: "inherit" });
-  return r.status ?? 0;
+  return withClientTerminalReset(() => {
+    ensureScrollConfig();
+    const args = process.env.TMUX
+      ? ["switch-client", "-t", `=${name}`]
+      : ["attach-session", "-t", `=${name}`];
+    const r = spawnSync(TMUX, args, { stdio: "inherit" });
+    return statusFromSpawnResult(r);
+  });
 }
 
 export function currentTmuxSessionIs(name: string): boolean {
@@ -2128,8 +2134,10 @@ export function currentTmuxSessionIs(name: string): boolean {
 }
 
 export function runLocalCliForeground(command: string, args: string[]): number {
-  const r = spawnSync(command, args, { stdio: "inherit" });
-  return r.status ?? 0;
+  return withClientTerminalReset(() => {
+    const r = spawnSync(command, args, { stdio: "inherit" });
+    return statusFromSpawnResult(r);
+  });
 }
 
 /**
@@ -2576,14 +2584,38 @@ export function procReaderDeps(): ProcReaderDeps {
   };
 }
 
+export type AttachPodTmuxDeps = {
+  readonly spawnKubectl?: (
+    args: ReadonlyArray<string>,
+    env: NodeJS.ProcessEnv,
+  ) => { status: number | null; signal: NodeJS.Signals | null; error?: unknown };
+  readonly sleepOnce?: () => {
+    status: number | null;
+    signal: NodeJS.Signals | null;
+  };
+  readonly reset?: () => void;
+  readonly stderr?: Pick<NodeJS.WriteStream, "write">;
+};
+
 /**
  * Attach the real terminal straight into the Pod's tmux session via
  * `kubectl exec -it`. The local terminal talks to tmux directly (no WS proxy),
  * so scrollback + copy-to-local-clipboard (OSC52) work natively. Requires a
  * tmux-backed session (Pod started by the tmux-wrapping agent). Blocks until
- * detach/exit; returns the kubectl exit status.
+ * detach/exit; returns the kubectl exit status (128+n when killed by signal).
+ *
+ * rev351-1: each `kubectl` spawn is wrapped individually (not the whole
+ * reconnect loop) so a killed `kubectl exec` resets the client terminal BEFORE
+ * the diagnostic + sleep. A kubectl killed by signal stops the loop and
+ * reports 128+n — never 0 (clean detach) and never a silent reconnect, so
+ * Ctrl-C stops instead of looping. With no signal trapping the wrapper itself
+ * also dies promptly on SIGINT/SIGTERM (no blocking).
  */
-export function attachPodTmux(tunnel: TunnelConfig, sessionId: string): number {
+export function attachPodTmux(
+  tunnel: TunnelConfig,
+  sessionId: string,
+  deps: AttachPodTmuxDeps = {},
+): number {
   const env = { ...process.env };
   if (tunnel.kubeconfig) env.KUBECONFIG = expandHome(tunnel.kubeconfig);
   // The attach CLIENT must be UTF-8 or tmux transcodes accented output to "_"
@@ -2610,6 +2642,24 @@ export function attachPodTmux(tunnel: TunnelConfig, sessionId: string): number {
     "-s",
     POD_TMUX_SESSION,
   ];
+  const spawnKubectl =
+    deps.spawnKubectl ??
+    ((a, e) => spawnSync("kubectl", [...a], { stdio: "inherit", env: e }));
+  const sleepOnce =
+    deps.sleepOnce ?? (() => spawnSync("sleep", ["1"], { stdio: "ignore" }));
+  const stderr = deps.stderr ?? process.stderr;
+  const runReset = (run: () => { status: number | null; signal: unknown }): { status: number | null; signal: NodeJS.Signals | null; error?: unknown } => {
+    if (deps.reset !== undefined) {
+      return withClientTerminalReset(run, deps.reset) as unknown as {
+        status: number | null;
+        signal: NodeJS.Signals | null;
+      };
+    }
+    return withClientTerminalReset(run) as unknown as {
+      status: number | null;
+      signal: NodeJS.Signals | null;
+    };
+  };
   // Long-lived `kubectl exec` streams corrupt over time ("tls: bad record MAC"
   // / "next reader: local error" from the SPDY/WS executor): the terminal fills
   // with garbage and the client dies, dumping the user back to their local
@@ -2621,12 +2671,20 @@ export function attachPodTmux(tunnel: TunnelConfig, sessionId: string): number {
   let quickFailures = 0;
   for (;;) {
     const startedAt = Date.now();
-    const r = spawnSync("kubectl", args, { stdio: "inherit", env });
-    const status = r.status ?? 0;
+    const r = runReset(() => spawnKubectl(args, env));
+    if (r.signal) {
+      const status = statusFromSpawnResult(r);
+      stderr.write(
+        `[h2a] kubectl attach killed by ${String(r.signal)} (status ${status}) — not reconnecting. ` +
+          `Re-run \`h2a attach ${sessionId} --exec\` once ready.\n`,
+      );
+      return status;
+    }
+    const status = statusFromSpawnResult(r);
     if (status === 0) {
       // Clean detach (Ctrl-b d) or exit: the Pod session keeps running — tell
       // the user how to get back in.
-      process.stderr.write(
+      stderr.write(
         `[h2a] detached from ${sessionId} — re-attach: h2a attach ${sessionId} --exec\n`,
       );
       return 0;
@@ -2635,7 +2693,7 @@ export function attachPodTmux(tunnel: TunnelConfig, sessionId: string): number {
     if (ranMs < 3000) {
       quickFailures += 1;
       if (quickFailures >= 5) {
-        process.stderr.write(
+        stderr.write(
           `[h2a] exec attach keeps failing immediately (status ${status}) — the Pod may be gone. ` +
             `Re-run \`h2a attach ${sessionId} --exec\` once it's back.\n`,
         );
@@ -2644,10 +2702,15 @@ export function attachPodTmux(tunnel: TunnelConfig, sessionId: string): number {
     } else {
       quickFailures = 0; // a real session that ran a while then dropped
     }
-    process.stderr.write(
+    stderr.write(
       `[h2a] exec stream dropped (status ${status} — e.g. "tls: bad record MAC" on a long kubectl exec). ` +
         `Your Pod session is intact; reconnecting to its tmux… (Ctrl-C to stop)\n`,
     );
-    spawnSync("sleep", ["1"], { stdio: "ignore" });
+    const slept = runReset(sleepOnce);
+    if ((slept as { signal?: unknown }).signal) {
+      return statusFromSpawnResult(
+        slept as { status: number | null; signal: NodeJS.Signals | null },
+      );
+    }
   }
 }
