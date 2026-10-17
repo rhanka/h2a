@@ -54,4 +54,20 @@ if run_smoke; then echo "expected failure on KO doctor but passed" >&2; exit 1; 
 grep -q 'hard check KO' "$lab/out" || { echo "missing KO line" >&2; cat "$lab/out" >&2; exit 1; }
 if [ -f "$lab/calls" ]; then echo "python3 was invoked (forbidden)" >&2; exit 1; fi
 
+# Case 3: healthy doctor without a count field -> OK with `?`, never `undefined`.
+cat > "$lab/doctor-nocount.json" <<'EOF'
+{"checks":{"liveSessions":{"ok":true},"bus":{"ok":true}}}
+EOF
+write_stub "$lab/doctor-nocount.json" "$lab/mcp.json"
+if ! run_smoke; then echo "expected pass on count-less doctor but failed:" >&2; cat "$lab/out" >&2; exit 1; fi
+grep -q 'doctor OK (live sessions: ?)' "$lab/out" || { echo "missing ? line" >&2; cat "$lab/out" >&2; exit 1; }
+if grep -q 'undefined' "$lab/out"; then echo "leaked undefined in output" >&2; cat "$lab/out" >&2; exit 1; fi
+if [ -f "$lab/calls" ]; then echo "python3 was invoked (forbidden)" >&2; exit 1; fi
+
+# No fixed temp file may survive: the script must use mktemp, not /tmp/_doc.json.
+rm -f /tmp/_doc.json
+write_stub "$lab/doctor-ok.json" "$lab/mcp.json"
+if ! run_smoke; then echo "expected pass but failed:" >&2; cat "$lab/out" >&2; exit 1; fi
+if [ -e /tmp/_doc.json ]; then echo "fixed temp file /tmp/_doc.json was used" >&2; exit 1; fi
+
 echo 'smoke-live-bus tests: ok'
