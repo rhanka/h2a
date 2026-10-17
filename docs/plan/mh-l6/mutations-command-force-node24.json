@@ -1,0 +1,39 @@
+{
+  "node": "v24.21.0",
+  "files": [
+    {
+      "path": "packages/h2a/src/runtime/upgrade/launcher-install.js",
+      "sha256": "ea015f97de9225c443542b842748a2617eeb8ab0ccf9c04c4d04fcbbab54e6bf"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/upgrade/launcher-install.js",
+      "sha256": "0b2de8e0c5d7c38a8c128a12aeb3e76468bd145fa815fcb84b39d738cf9472b2"
+    }
+  ],
+  "results": [
+    {
+      "name": "forced-flag",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-command-gate.test.js-node24-mutation-forced-flag-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-command-gate.test.js-node24-mutation-forced-flag-green.log",
+      "restored": true
+    },
+    {
+      "name": "explicit-shape",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-command-gate.test.js-node24-mutation-explicit-shape-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-command-gate.test.js-node24-mutation-explicit-shape-green.log",
+      "restored": true
+    },
+    {
+      "name": "force-occupied",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-command-gate.test.js-node24-mutation-force-occupied-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-command-gate.test.js-node24-mutation-force-occupied-green.log",
+      "restored": true
+    },
+    {
+      "name": "force-foreign",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-command-gate.test.js-node24-mutation-force-foreign-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-command-gate.test.js-node24-mutation-force-foreign-green.log",
+      "restored": true
+    }
+  ]
+}
