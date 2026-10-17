@@ -1,0 +1,112 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-image-policy.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-uQJ5c4
+case: all cases in explicit file
+TAP version 13
+# Subtest: U12 should bind the image root SDK and its public subpath for an internal ESM dependency
+ok 1 - U12 should bind the image root SDK and its public subpath for an internal ESM dependency
+  ---
+  duration_ms: 1950.635898
+  type: 'test'
+  ...
+# Subtest: U12 should preserve require conditions when an internal dependency loads the image root SDK
+ok 2 - U12 should preserve require conditions when an internal dependency loads the image root SDK
+  ---
+  duration_ms: 103.567154
+  type: 'test'
+  ...
+# Subtest: U12 should refuse a forged external require base even when its package name matches the image root SDK
+ok 3 - U12 should refuse a forged external require base even when its package name matches the image root SDK
+  ---
+  duration_ms: 93.746735
+  type: 'test'
+  ...
+# Subtest: U12 should preserve root SDK export restrictions instead of loading a declared private file
+ok 4 - U12 should preserve root SDK export restrictions instead of loading a declared private file
+  ---
+  duration_ms: 89.952384
+  type: 'test'
+  ...
+# Subtest: U12 should load verified relative and package modules through the real ESM and CJS readers
+ok 5 - U12 should load verified relative and package modules through the real ESM and CJS readers
+  ---
+  duration_ms: 104.406975
+  type: 'test'
+  ...
+# Subtest: U12 should refuse a parent npm decoy after a verified ESM dependency disappears
+ok 6 - U12 should refuse a parent npm decoy after a verified ESM dependency disappears
+  ---
+  duration_ms: 89.692925
+  type: 'test'
+  ...
+# Subtest: U12 should refuse a NODE_PATH decoy through createRequire after its internal package disappears
+ok 7 - U12 should refuse a NODE_PATH decoy through createRequire after its internal package disappears
+  ---
+  duration_ms: 88.851522
+  type: 'test'
+  ...
+# Subtest: U12 should refuse an explicit out-of-image dynamic import before any decoy effect
+ok 8 - U12 should refuse an explicit out-of-image dynamic import before any decoy effect
+  ---
+  duration_ms: 89.106412
+  type: 'test'
+  ...
+# Subtest: U12 should recheck late module bytes and isolate the manifest snapshot from its caller
+ok 9 - U12 should recheck late module bytes and isolate the manifest snapshot from its caller
+  ---
+  duration_ms: 206.570047
+  type: 'test'
+  ...
+# Subtest: U12 should preserve a missing dependency as a local failure without using HOME packages
+ok 10 - U12 should preserve a missing dependency as a local failure without using HOME packages
+  ---
+  duration_ms: 331.742217
+  type: 'test'
+  ...
+# Subtest: U12 should refuse createRequire pointed at an external base by image code
+ok 11 - U12 should refuse createRequire pointed at an external base by image code
+  ---
+  duration_ms: 119.166609
+  type: 'test'
+  ...
+# Subtest: U10 should refuse selection before journaling when the runtime has no qualified image reader
+ok 12 - U10 should refuse selection before journaling when the runtime has no qualified image reader
+  ---
+  duration_ms: 1709.081959
+  type: 'test'
+  ...
+# Subtest: U12 should reject late module mode changes even when the bytes are unchanged
+ok 13 - U12 should reject late module mode changes even when the bytes are unchanged
+  ---
+  duration_ms: 467.115927
+  type: 'test'
+  ...
+# Subtest: U12 should reject altered package metadata before executing an otherwise unchanged module
+ok 14 - U12 should reject altered package metadata before executing an otherwise unchanged module
+  ---
+  duration_ms: 1408.66595
+  type: 'test'
+  ...
+# Subtest: U12 should refuse code added inside the image after its manifest was verified
+ok 15 - U12 should refuse code added inside the image after its manifest was verified
+  ---
+  duration_ms: 159.62771
+  type: 'test'
+  ...
+# Subtest: U10 should load the real node-pty probe and its ABI-qualified addon through the image reader
+ok 16 - U10 should load the real node-pty probe and its ABI-qualified addon through the image reader
+  ---
+  duration_ms: 1042.393333
+  type: 'test'
+  ...
+1..16
+# tests 16
+# suites 0
+# pass 16
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 8164.69764
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-image-policy.test.js"],"code":0,"signal":null,"tests":16,"invalid":false,"spawned":1,"leftovers":[]}

@@ -1,0 +1,89 @@
+{
+  "node": "v22.22.1",
+  "files": [
+    {
+      "path": "packages/h2a/src/runtime/upgrade/image-policy.js",
+      "sha256": "4b4846cb7b37465ade7bff3ea251f5140109678d679b8196bae13b83bf21e17a"
+    },
+    {
+      "path": "packages/h2a/src/runtime/upgrade/managed-launcher.js",
+      "sha256": "9047ee442c62afa34b1da0b57608f419f000af43c43526079763e584f1039941"
+    },
+    {
+      "path": "packages/h2a/src/runtime/upgrade/h4-store.js",
+      "sha256": "0ab3868d3979c5e095b9b71dfa6d212a996d9be01c6ec65c7c8b01bd69b6bdb9"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/upgrade/h4-store.js",
+      "sha256": "9e2a47c917b0928358457142816fc8242618ba883be78005fa3647e3f48e379d"
+    }
+  ],
+  "results": [
+    {
+      "name": "native-integrity",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node22-E3b2a-mutation-native-integrity-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node22-E3b2a-mutation-native-integrity-green.log",
+      "restored": true
+    },
+    {
+      "name": "esm-boundary",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node22-E3b2a-mutation-esm-boundary-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node22-E3b2a-mutation-esm-boundary-green.log",
+      "restored": true
+    },
+    {
+      "name": "cjs-boundary",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node22-E3b2a-mutation-cjs-boundary-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node22-E3b2a-mutation-cjs-boundary-green.log",
+      "restored": true
+    },
+    {
+      "name": "external-require-base",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node22-E3b2a-mutation-external-require-base-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node22-E3b2a-mutation-external-require-base-green.log",
+      "restored": true
+    },
+    {
+      "name": "module-integrity",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node22-E3b2a-mutation-module-integrity-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node22-E3b2a-mutation-module-integrity-green.log",
+      "restored": true
+    },
+    {
+      "name": "manifest-snapshot",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node22-E3b2a-mutation-manifest-snapshot-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node22-E3b2a-mutation-manifest-snapshot-green.log",
+      "restored": true
+    },
+    {
+      "name": "manifest-mode",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node22-E3b2a-mutation-manifest-mode-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node22-E3b2a-mutation-manifest-mode-green.log",
+      "restored": true
+    },
+    {
+      "name": "package-metadata",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node22-E3b2a-mutation-package-metadata-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node22-E3b2a-mutation-package-metadata-green.log",
+      "restored": true
+    },
+    {
+      "name": "unrecorded-code",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node22-E3b2a-mutation-unrecorded-code-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node22-E3b2a-mutation-unrecorded-code-green.log",
+      "restored": true
+    },
+    {
+      "name": "launcher-binding",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node22-E3b2a-mutation-launcher-binding-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node22-E3b2a-mutation-launcher-binding-green.log",
+      "restored": true
+    },
+    {
+      "name": "preselection-runtime",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node22-E3b2a-mutation-preselection-runtime-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-image-policy.test.js-node22-E3b2a-mutation-preselection-runtime-green.log",
+      "restored": true
+    }
+  ]
+}

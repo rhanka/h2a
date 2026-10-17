@@ -1,0 +1,48 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-publish-gate.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-2h73BM
+case: U10 should accept an independently verified exact bundled dependency cycle
+TAP version 13
+# Subtest: U10 should accept an independently verified exact bundled dependency cycle
+not ok 1 - U10 should accept an independently verified exact bundled dependency cycle
+  ---
+  duration_ms: 63.983054
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-publish-gate.test.js:9:96'
+  failureType: 'testCodeFailure'
+  error: |-
+    Got unwanted exception.
+    Actual message: "release_dependency_not_exact:fixture:requester=node_modules/@sentropic/h2a-runtime:wanted=1.2.3:target=undefined:observed=undefined"
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  actual:
+  error: 'release_dependency_not_exact:fixture:requester=node_modules/@sentropic/h2a-runtime:wanted=1.2.3:target=undefined:observed=undefined'
+  stack: |-
+    verifyPublishablePayload (file:///tmp/mh-l3-qualification-YeHHOv/source/scripts/check-publish-payload.mjs:33:85)
+    file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-publish-gate.test.js:30:56
+    getActual (node:assert:609:5)
+    Function.doesNotThrow (node:assert:777:32)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-publish-gate.test.js:30:24)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.start (node:internal/test_runner/test:944:17)
+    startSubtestAfterBootstrap (node:internal/test_runner/harness:296:17)
+  operator: 'doesNotThrow'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-publish-gate.test.js:30:24)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.start (node:internal/test_runner/test:944:17)
+    startSubtestAfterBootstrap (node:internal/test_runner/harness:296:17)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 268.923284
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-publish-gate.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

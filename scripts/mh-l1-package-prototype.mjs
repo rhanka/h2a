@@ -120,12 +120,15 @@ async function buildPayload(root, { buildId, managedRoot, releaseVersion, packag
   const coreVersion = records.get(corePath).version;
   const runtimeVersion = records.get(runtimePath).version;
   if (coreVersion !== runtimeVersion) throw new Error('prototype_core_runtime_mismatch');
+  if (release) for (const path of ['.claude-plugin/plugin.json', '.codex-plugin/plugin.json']) {
+    const filename = join(root, corePath, path), plugin = json(filename);
+    plugin.version = releaseVersion; write(filename, plugin);
+  }
   cpSync(join(repo, 'packages/h2a/src/runtime/mcp/transport/UPSTREAM.md'),
     join(root, corePath, 'dist/runtime/mcp/transport/UPSTREAM.md'));
   const version = release ? releaseVersion : '0.98.7-mh-l1.0';
   const pkg = { ...(release ? records.get('') : { name: '@sentropic/h2a-mh-l1-prototype', private: true,
     main: 'dist/index.js', bin: { h2a: 'dist/bin.js' } }), version, type: 'module',
-    ...(release ? { os: ['linux'], cpu: ['x64'] } : {}),
     engines: { node: release ? '^22.22.1 || ^24.0.0' : '>=22' },
     dependencies: Object.fromEntries([...top].sort(([a], [b]) => a.localeCompare(b)).map(([name, path]) => [name, records.get(path).version])),
     bundleDependencies: [...top.keys()].sort() };
