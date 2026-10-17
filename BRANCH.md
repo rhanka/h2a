@@ -349,7 +349,8 @@ Branch: `fix/presence-identity-liveness`. Base: `58f111b3` (origin/main at check
 - [x] E3b1: actual core/runtime npm payload construction, exact runtime and shrinkwrap, real .5/.6 staging probes, cross-Node SDK/PTY and durable image preparation. Node 22/24: 148 targeted tests and 37 killed/restored pairs each; proof-E3b.json. E3b2 still gates historical npm/CI bindings and off-profile diagnostics; no release verdict.
 - [x] E3b2a: npm diagnostic installability, plugin cohort versions, minimum libc guard, real tarball seam scan and nonempty source inventory. Node 22/24: 142 targeted tests and 44 killed/restored pairs per profile; proof-E3b2a.json. Common off-profile CLI and smoke/backfills remain open.
 - [x] B2-1: canonical legacy-exclusion verdict producer (`legacy_installer_unfenced` vs verified); 8 targeted tests and 8 killed/restored pairs per Node 22/24; proof-B2-1.json.
-- [ ] B2-2/C2b/D/E2b3/E3b2b/E3c/F: real legacy fencing observations, bootstrap/adoption/link installation, unmanage/npm, all-entry closed loading, release packaging/native freeze and common CLI/automatic/M18 integration.
+- [x] B2-2: exclusion verdict wired to qualified selection deferral with journal persistence; 11 tests, selection/delegation requalified, 12 killed/restored pairs per Node 22/24; proof-B2-2.json.
+- [ ] B2-3/C2b/D/E2b3/E3b2b/E3c/F: real legacy fencing observers, bootstrap/adoption/link installation, unmanage/npm, all-entry closed loading, release packaging/native freeze and common CLI/automatic/M18 integration.
 - [x] No installed h2a/dispatch, owner live state, main, .track, Python or full suite. Review selection cannot use the required installed dispatch under owner confinement; no consensus verdict claimed.
 - [ ] Independent conductor review and final MH-L6 acceptance remain required; A alone does not qualify U05/U06 or M18 end to end.
 
