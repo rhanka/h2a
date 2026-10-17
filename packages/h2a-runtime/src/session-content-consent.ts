@@ -9,8 +9,9 @@ import { ContentFence } from "./session-content-fence.js";
 import { ContentQueueBudget, SessionContentExport, type ContentReservation } from "./session-content-export.js";
 import { envelope, same, sha256, retentionDeadline, type Scope, type Policy, type Project, type Lease, type Retained } from "./session-content-contract.js";
 import { contentDigest } from "./session-content-json.js";
+import type { NativeHistoryProvider,HistoryBookmark } from "./session-content-history.js";
 interface Pending { epoch: number; projectRevision: number; sessionRevision: number; handle: object;
-  request: Record<string, unknown>; policy: Policy; scope: Scope; lease: Lease; deadline: number; challenge: ConfirmationChallenge }
+  request: Record<string, unknown>; policy: Policy; scope: Scope; lease: Lease; deadline: number; challenge: ConfirmationChallenge; bookmark?:HistoryBookmark }
 export class SessionContentConsent {
   private state: "off" | "pending" | "active" | "paused" | "denied" = "off";
   private rawSeq = 0;
@@ -19,6 +20,7 @@ export class SessionContentConsent {
   private pending: Pending | null = null;
   private active: Pending | null = null;
   private sending: AbortController | null = null;
+  private captureCancellation=new AbortController();
   private readonly queue: SessionContentExport;
   private readonly now: () => number;
   private readonly wall: () => number;
@@ -27,7 +29,7 @@ export class SessionContentConsent {
   readonly counters = { sourceContentReads:0, contentSubscriptions:0, serializedContentBytes:0, exportBytes:0, gaps:0 };
   constructor(private readonly config: { auth: SessionContentAuth; sourceSession: object; verifier: ConfirmationVerifier;
     fence: ContentFence; budget: ContentQueueBudget; sessionId: string; sessionIncarnation: string; project: Project;
-    monotonicNow?: () => number; wallNow?: () => number }) {
+    monotonicNow?: () => number; wallNow?: () => number; history?:NativeHistoryProvider }) {
     this.now = config.monotonicNow ?? (()=>performance.now()); this.wall = config.wallNow ?? Date.now;
     this.queue = new SessionContentExport(config.budget);
     this.projectKey = contentDigest("local-project",config.project);
@@ -39,6 +41,7 @@ export class SessionContentConsent {
       || this.config.auth.metadata(this.config.sourceSession).source.sourceGeneration!==generation) throw new Error("unsupported_source");
   }
   private pause(reason: "paused" | "denied" = "paused"): void {
+    this.captureCancellation.abort();
     this.sending?.abort(); this.sending=null;
     if(this.pending) this.config.verifier.cancel(this.pending.handle);
     this.epoch++; this.queue.clear(); this.pending = null; this.active = null; this.state = reason;
@@ -77,7 +80,7 @@ export class SessionContentConsent {
         || !policy.sources.some(source=>same(source,scope.source)) || scope.policyId!==policy.id || scope.policyRevision!==policy.revision
         || scope.exclusionRevision!==policy.exclusionRevision || !policy.sessions.selected.includes(scope.sessionId)) throw new Error("scope_refused");
       // Native history requires an independently qualified provider barrier, never legacy capture/mtime.
-      if (policy.channels.nativeHistory) throw new Error("unsupported_format");
+      if (policy.channels.nativeHistory && !this.config.history) throw new Error("unsupported_format");
       const input: Omit<ConfirmationChallenge,"issuedAt"|"expiresAt">={id:randomUUID(),owner:scope.owner,project:scope.project,source:scope.source,
         clientId:this.config.verifier.clientId,purpose:r.kind==="grant-activate"?"share":"amend",target:{kind:"policy",policyDigest:r.policyDigest as string},
         random:randomBytes(32).toString("base64url")};
@@ -93,14 +96,18 @@ export class SessionContentConsent {
       this.config.fence.consume(this.sessionKey,p.sessionRevision,id,proof);
     }});
     this.startAfterSeq=this.rawSeq;
+    if(p.policy.channels.nativeHistory){
+      try{p.bookmark=await this.config.history!.stage(p.policy);if(!this.fresh(p))throw new Error('excluded');}
+      catch(e){if(p.epoch===this.epoch)this.pause();throw e;}
+    }
     const ack=envelope("source-ack",{requestId:p.request.requestId,requestDigest:contentDigest("control",p.request),connectionId:p.request.connectionId,
-      operation:p.challenge.purpose==="share"?"activate":"amend",status:"staged",scope:p.scope,boundary:{startAfterSeq:this.rawSeq,native:null},lease:p.lease,reason:null});
+      operation:p.challenge.purpose==="share"?"activate":"amend",status:"staged",scope:p.scope,boundary:{startAfterSeq:this.startAfterSeq,native:p.bookmark?{provider:p.bookmark.provider,selections:p.bookmark.selections,boundaryId:p.bookmark.boundaryId}:null},lease:p.lease,reason:null});
     try {
       const result=await this.config.auth.commitAck(this.config.sourceSession,ack);
       if(!this.fresh(p) || result.kind!=="control-result" || result.status!=="committed" || result.reason!==null
         || result.requestId!==ack.requestId || result.requestDigest!==ack.requestDigest || result.sourceAckDigest!==contentDigest("ack",ack)
         || result.connectionId!==ack.connectionId) throw new Error("ack_refused");
-      this.queue.reset(this.epoch); this.active=p; this.pending=null; this.state="active";
+      this.queue.reset(this.epoch); this.captureCancellation=new AbortController(); this.active=p; this.pending=null; this.state="active";
     } catch(e) { if(p.epoch===this.epoch) this.pause(); throw e; }
   }
   async renew(proposalId: string): Promise<void> {
@@ -115,7 +122,7 @@ export class SessionContentConsent {
         || !same(r.previousScope,old.scope) || !same(r.nextScope,old.scope) || !same(resolved.policy,old.policy)
         || r.connectionId!==old.request.connectionId) throw new Error("renewal_refused");
       const ack=envelope("source-ack",{requestId:r.requestId,requestDigest:contentDigest("control",r),connectionId:r.connectionId,
-        operation:"renew",status:"staged",scope:old.scope,boundary:{startAfterSeq:this.startAfterSeq,native:null},lease:r.lease,reason:null});
+        operation:"renew",status:"staged",scope:old.scope,boundary:{startAfterSeq:this.startAfterSeq,native:old.bookmark?{provider:old.bookmark.provider,selections:old.bookmark.selections,boundaryId:old.bookmark.boundaryId}:null},lease:r.lease,reason:null});
       const response=await this.config.auth.commitAck(this.config.sourceSession,ack);
       if(!this.fresh(old) || epoch!==this.epoch || this.now()>=resolved.deadline || response.kind!=="control-result"
         || response.status!=="committed" || response.reason!==null || response.requestId!==r.requestId
@@ -123,6 +130,7 @@ export class SessionContentConsent {
         || response.connectionId!==r.connectionId) throw new Error("renewal_refused");
       // Fence old reservations and bytes before switching the lease, preserving the raw boundary.
       this.sending?.abort(); this.sending=null; this.epoch++; this.queue.reset(this.epoch);
+      this.captureCancellation.abort();this.captureCancellation=new AbortController();
       this.active={...old,epoch:this.epoch,request:r,lease:r.lease as Lease,deadline:resolved.deadline};
     } catch(e) { if(epoch===this.epoch) this.pause(); throw e; }
   }
@@ -145,6 +153,12 @@ export class SessionContentConsent {
     this.counters.serializedContentBytes+=reservation.bytes.length; return result;
   }
   commit(reservation: ContentReservation): void { if(this.status().state!=="active") return; this.queue.commit(reservation); }
+  nativeHistory():{policy:Policy;scope:Scope;lease:Lease;connectionId:string;provider:NativeHistoryProvider;bookmark:HistoryBookmark;signal:AbortSignal;deadline:number;valid:()=>boolean}{
+    const p=this.active;
+    if(!p||this.status().state!=='active'||!p.policy.channels.nativeHistory||!p.bookmark||!this.config.history)throw new Error('history_scope_refused');
+    return {policy:structuredClone(p.policy),scope:structuredClone(p.scope),lease:{...p.lease},connectionId:p.request.connectionId as string,
+      provider:this.config.history,bookmark:p.bookmark,signal:this.captureCancellation.signal,deadline:p.deadline,valid:()=>this.fresh(p)};
+  }
   async flush(channel: "terminal.live" | "terminal.cache"): Promise<boolean> {
     if(this.sending) throw new Error("resource_busy");
     const reservation=this.reserve(); if(!reservation) return false;

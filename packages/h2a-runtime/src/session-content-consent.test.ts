@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { generateKeyPairSync, sign } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync, appendFileSync, readdirSync } from "node:fs";
 import { createServer, type Server } from "node:https";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,6 +19,10 @@ import { NativeTerminalHost, readProcessStartTime } from "./native-terminal/host
 import { startNativeTerminalHostServer, type NativeTerminalHostServer } from "./native-terminal/server.js";
 import { NativeTerminalClient } from "./native-terminal/client.js";
 import { nodePtySpawner, type PtyHandle } from "./pty.js";
+import { NativeHistoryProvider } from "./session-content-history.js";
+import { SessionContentArchiveExport } from "./session-content-archive-export.js";
+import { SessionContentImport,type ArchivePart,type ArchiveBundle } from "./session-content-import.js";
+import { ArchiveBudget } from "./session-content-archive.js";
 const fixture=(name:string)=>JSON.parse(readFileSync(new URL(name+'.v2.json',capsuleDirectory),'utf8'));
 const {privateKey,publicKey}=generateKeyPairSync('rsa',{modulusLength:2048});
 const jwk={...publicKey.export({format:'jwk'}),kid:'test-only',alg:'RS256',use:'sig'};
@@ -26,6 +30,7 @@ let root:string,server:Server,origin:string,ca:string;
 let policy=fixture('project-policy').policy, scope=fixture('grant-activate').scope;
 let mode='valid',stored:Buffer[]=[],bodyReads=0,acks=0;
 let ackBarrier: (()=>Promise<void>) | undefined;
+let archiveCopy:ArchiveBundle|undefined;
 beforeAll(async()=>{
   root=mkdtempSync(join(tmpdir(),'f2-consent-'));
   execFileSync('openssl',['req','-x509','-newkey','rsa:2048','-nodes','-days','1','-keyout',join(root,'key'),'-out',join(root,'cert'),'-subj','/CN=localhost','-addext','subjectAltName=IP:127.0.0.1'],{stdio:'ignore'});
@@ -33,6 +38,8 @@ beforeAll(async()=>{
   server=createServer({key:readFileSync(join(root,'key')),cert:ca},(req,res)=>{
     res.setHeader('Content-Type','application/json');
     const end=(data:unknown)=>res.end(JSON.stringify(data));
+    if(req.url?.includes('/history/authorizations/')&&archiveCopy){const a=archiveCopy.admission;end(envelope('history-read',{authorizationId:'read',owner:archiveCopy.policy.owner,authSessionRef:'login',retained:a.retained,coverage:{kind:'native',snapshotId:a.snapshotId,manifestHash:a.manifestHash,descriptorHash:a.descriptorHash},readExpiresAt:Date.now()+60000}));return;}
+    if(req.url?.includes('/history/admissions/')&&archiveCopy){end(envelope('archive-admission',{admission:archiveCopy.admission}));return;}
     if(req.url?.includes('/grants/')) {
       const now=Date.now(),nonce=req.headers['x-h2a-request-nonce'];
       const renew=req.url.endsWith('/renew');
@@ -68,16 +75,16 @@ beforeAll(async()=>{
   if(!address||typeof address==='string')throw Error('listener');origin='https://127.0.0.1:'+address.port;
 });
 afterAll(async()=>{server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()));rmSync(root,{recursive:true,force:true});});
-async function setup(monotonicNow?:()=>number){
+async function setup(monotonicNow?:()=>number,history?:NativeHistoryProvider){
   mode='valid';stored=[];bodyReads=0;acks=0;ackBarrier=undefined;
   policy=fixture('project-policy').policy;policy.owner.issuer=origin;policy.destination=origin;policy.channels.nativeHistory=false;policy.history={mode:'none',selected:[]};
   scope=fixture('grant-activate').scope;scope.owner.issuer=origin;scope.sessionIncarnation='11111111-1111-4111-8111-111111111111';
-  const auth=new SessionContentAuth({issuer:origin,authorizeUrl:origin+'/authorize',tokenUrl:origin+'/token',clientId:'source-client',audience:'source-audience',redirectUri:'http://127.0.0.1:3210/callback',sourceServer:origin,owner:policy.owner,source:scope.source,runtime:fixture('capabilities').runtime,capabilitiesDigest:'a'.repeat(64),ca,...(monotonicNow?{monotonicNow}:{})});
+  const auth=new SessionContentAuth({issuer:origin,authorizeUrl:origin+'/authorize',tokenUrl:origin+'/token',clientId:'source-client',audience:'source-audience',redirectUri:'http://127.0.0.1:3210/callback',sourceServer:origin,owner:policy.owner,source:scope.source,runtime:fixture('capabilities').runtime,capabilitiesDigest:'a'.repeat(64),ca,measuredClockErrorMs:0,...(monotonicNow?{monotonicNow}:{})});
   const begin=auth.beginLogin(),login=await auth.completeLogin(begin.handle,{code:'code',state:new URL(begin.url).searchParams.get('state')!}),sourceSession=await auth.openSource(login);
   const fenceRoot=mkdtempSync(join(root,'fence-'));
   const verifier=new ConfirmationVerifier({issuer:origin,clientId:'confirmation-client',tenantId:scope.project.tenantId,subject:scope.owner.subject,source:scope.source,keys:[jwk],measuredClockErrorMs:0,budget:new ConfirmationBudget()});
-  const consent=new SessionContentConsent({auth,sourceSession,verifier,fence:new ContentFence(fenceRoot),budget:new ContentQueueBudget(),sessionId:scope.sessionId,sessionIncarnation:scope.sessionIncarnation,project:scope.project,...(monotonicNow?{monotonicNow}:{})});
-  return {consent,auth,sourceSession};
+  const consent=new SessionContentConsent({auth,sourceSession,verifier,fence:new ContentFence(fenceRoot),budget:new ContentQueueBudget(),sessionId:scope.sessionId,sessionIncarnation:scope.sessionIncarnation,project:scope.project,...(monotonicNow?{monotonicNow}:{}),...(history?{history}:{})});
+  return {consent,auth,sourceSession,login};
 }
 function proof(challenge:ConfirmationChallenge){
   const now=Math.floor(Date.now()/1000),h=Buffer.from(JSON.stringify({alg:'RS256',kid:jwk.kid})).toString('base64url');
@@ -133,4 +140,23 @@ it('should keep the old lease deadline until the exact renewal ACK commits',asyn
   let release!:()=>void,arrived!:()=>void;const seen=new Promise<void>(r=>{arrived=r;});ackBarrier=()=>{arrived();return new Promise<void>(r=>{release=r;});};
   const renewed=consent.renew('renew');await seen;mono=80000;consent.onRaw('EXPIRED');release();await expect(renewed).rejects.toThrow();
   expect(consent.status().state).toBe('paused');expect(consent.reserve()).toBeNull();expect(bodyReads).toBe(0);
+});
+it('should export and import an exact synthetic checkpoint only after native confirmation and committed activation',async()=>{
+  const work=mkdtempSync(join(root,'history-')),sourceFile=join(work,'source.jsonl'),bytes=Buffer.from('{"type":"user","text":"inert history"}\n');writeFileSync(sourceFile,bytes);
+  const provider=fixture('native-manifest').provider,history=new NativeHistoryProvider({project:fixture('project-policy').policy.project,provider,qualifiedProviders:[provider],catalog:[{lineageId:'lineage',checkpointId:'checkpoint',companions:[],files:[{path:'records/history.jsonl',localPath:sourceFile,role:'records'}]}]});
+  const {consent,auth,login}=await setup(undefined,history),budget=new ArchiveBudget(),exporter=new SessionContentArchiveExport({workRoot:work,budget});
+  policy.channels.nativeHistory=true;policy.history=fixture('project-policy').policy.history;
+  let egress=0;const received:ArchivePart[]=[];
+  const sink=async(_manifest:unknown,parts:AsyncIterable<ArchivePart>)=>{for await(const p of parts){received.push(p);egress+=p.byteLength;}};
+  await expect(exporter.export(consent,sink)).rejects.toThrow();const ch=await consent.prepare('proposal');await expect(exporter.export(consent,sink)).rejects.toThrow();expect(egress).toBe(0);
+  await consent.confirm(proof(ch));const manifest=await exporter.export(consent,sink);expect(egress).toBe(bytes.length);expect(manifest.complete).toBe(true);
+  const retained={retainedId:'retained-export',originScopeDigest:contentDigest('scope',manifest.scope),acceptedAt:Date.now(),expiresAt:null};
+  const base={archive:'h2a.session-archive/1' as const,snapshotId:manifest.snapshotId,manifestHash:manifest.manifestHash,policyDigest:manifest.policyDigest,channel:'nativeHistory' as const,retention:policy.retentionByChannel.nativeHistory,retained};
+  archiveCopy={policy:structuredClone(policy),manifest,admission:{...base,descriptorHash:contentDigest('archive-admission',base)}};
+  const managedRoot=mkdtempSync(join(root,'roundtrip-')),importer=new SessionContentImport({managedRoot,auth,login,budget,qualifiedProviders:[provider]});
+  const result=await importer.import(envelope('import-request',{requestId:'import-export',authorizationId:'read',retained,snapshotId:manifest.snapshotId,manifestHash:manifest.manifestHash,descriptorHash:archiveCopy.admission.descriptorHash,provider,mode:'isolated-data' as const}),archiveCopy,(async function*(){yield*received;})());
+  expect(result).toMatchObject({status:'imported',processStarted:false,keyboardAcquired:false,resumable:false});expect(readFileSync(join(managedRoot,result.localImportId as string,'records/history.jsonl'))).toEqual(bytes);
+  // An append after the metadata bookmark cannot silently produce another complete checkpoint.
+  appendFileSync(sourceFile,'{"type":"user","text":"late"}\n');let sent=false;
+  await expect(exporter.export(consent,async()=>{sent=true;})).rejects.toThrow();expect(sent).toBe(false);expect(readdirSync(work).some(n=>n.startsWith('.export-'))).toBe(false);
 });
