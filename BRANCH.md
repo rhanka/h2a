@@ -780,9 +780,10 @@ on the repaired lane. Targeted local files only; remote CI owns integration.
 Confinement, temporary state, owned PIDs, no Python and no installed h2a remain
 mandatory. No Track writes, merge, release or new package-version bump.
 
-Main advanced during qualification to `2fabf3a30` (#327), which already includes
-the 0.98.8 package bump. The second rebase inherits those manifests unchanged;
-no release/bump commit is introduced by this lane. CI prerequisites now include
+Main advanced during qualification to `2fabf3a30` (#327), then `fceab4a95`
+(#363, restores the 0.98.7 release train). The renewed rebases preserve those
+upstream changes; final manifests remain 0.98.7 and no release/bump commit is
+introduced by this lane. CI prerequisites now include
 full pinned Git history, private XDG cache/data, actual Node toolcache headers,
 and closed-image-aware native test instrumentation. Owner reports retain every
 job log, regression receipts and explicit coverage gaps.
