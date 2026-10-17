@@ -1,4 +1,7 @@
-import { LAUNCH_ALIAS_ROUTE_MAPPINGS, modelProfiles } from "@sentropic/llm-mesh";
+import {
+  LAUNCH_ALIAS_ROUTE_MAPPINGS,
+  modelProfiles,
+} from "@sentropic/cluster-mesh/llm-mesh";
 import { describe, expect, it } from "vitest";
 
 import {
