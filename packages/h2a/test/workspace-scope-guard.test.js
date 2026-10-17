@@ -308,3 +308,13 @@ test('literal Codex patch envelopes preserve ordinary own edits and scope foreig
   assert.equal(own.status, 0, own.stderr);
   denied(f.invoke({ tool_name: 'functions.exec', tool_input: code(f.foreign) }));
 });
+
+test('own monorepo workspace builds and release prose remain ordinary work', t => {
+  const f = fixture(t);
+  fs.mkdirSync(join(f.own, 'packages/tool'), { recursive: true });
+  fs.writeFileSync(join(f.own, 'packages/tool/package.json'), '{"name":"@fixture/tool","private":true,"scripts":{"build":"echo release"}}');
+  fs.writeFileSync(join(f.own, 'package.json'), '{"name":"published-fixture","version":"1.0.0","workspaces":["packages/*"],"scripts":{"build":"npm run build -w @fixture/tool"}}');
+  for (const command of ['npm run build', 'echo release', 'echo scripts/release.mjs']) {
+    const r = f.invoke(command); assert.equal(r.status, 0, command + ': ' + r.stderr);
+  }
+});
