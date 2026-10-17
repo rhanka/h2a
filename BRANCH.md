@@ -9,6 +9,8 @@
   no installed h2a, owner state, Python, Track writes or provider calls.
 - [x] Lot A: registered Ed25519 host proof, live audience, current declaration,
   host-local tenant, expiry, operations and revocation; default denial.
+- [x] Lot A evidence: 14 behavioural failures before implementation, then
+  14/14 pass; no session or enrollment fallback.
 - [ ] Lot B: explicit grants, exact paths/surfaces, mandatory L4b policy,
   before-handoff revalidation, opaque audit receipts, no snapshot archive.
 - [ ] Lot C: G4 fails with policy-unavailable until an actual L8 contract
