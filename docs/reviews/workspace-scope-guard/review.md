@@ -1,6 +1,6 @@
 ---
 status: selection-failed
-target-ref: a1ac9df43eb91abb3e685d478420d0147c45ced5
+target-ref: c156ef882c85b77fbae40a275812476f1d6b8ae9
 observed-failure: No h2a MCP is available in this confined session; the exact author model and effort are not supplied. Owner forbids reaching real host h2a state. No eligible review legs can be dispatched.
 ---
 
@@ -25,3 +25,7 @@ workspace builds and release prose false positives (targeted red 0/1, final 97/0
 
 Private npm package/query controls: targeted red 0/2, mixed private/published
 workspace regression red 0/1; final targeted verification 100 passed, no skips.
+
+Helper execution/inspection controls: targeted red 0/2; final targeted verification
+102 passed, 0 failed, 0 skipped. SessionStart binding cannot be minted through a
+classified manual invocation of the initializer.
