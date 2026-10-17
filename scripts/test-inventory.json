@@ -887,6 +887,22 @@
     "session content confirmation should bind two outstanding challenges to distinct signed nonces in the same second",
     "session content confirmation should reject caller mutation after staging and support pinned key rotation only",
     "session content confirmation should bind pending quotas to the authenticated source rather than claimed source IDs",
+    "session content confirmation should share the sixteen-slot host limit and host creation bucket across authenticated owners",
     "session content confirmation should reject duplicate JSON keys, invalid Unicode and noncanonical JWT encoding"
+  ],
+  "packages/h2a-runtime/src/session-content-auth.test.ts": [
+    "session content source authentication should perform real pinned HTTPS PKCE and send access credentials only in their intended exchange",
+    "session content source authentication should reject mismatched and replayed callbacks before a token request",
+    "session content source authentication should refuse redirects, unavailable authority, untrusted TLS and oversized replies",
+    "session content source authentication should reject missing token expiry and never substitute an ID token for an API access token",
+    "session content source authentication should reject invalid source identity, nonce, authority bounds, operations and wire versions",
+    "session content source authentication should pin the original login reference across source reauthorization",
+    "session content source authentication should expire a source from request-send monotonic time and never from reply receipt",
+    "session content source authentication should invalidate every source dependent on an observed denied login, including sibling handles",
+    "session content source authentication should reject insecure or cross-issuer endpoints without opening a connection",
+    "session content source authentication should exchange a dedicated fresh confirmation with PKCE and verify its signed native nonce",
+    "session content source authentication should load only the pinned issuer JWKS with bounded refresh and no token-selected URL",
+    "session content source authentication should keep exchanging confirmations inside the pending bound and cancel their results",
+    "session content source authentication should reject a JWKS loader whose pinned issuer differs from the native verifier"
   ]
 }

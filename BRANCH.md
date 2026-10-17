@@ -723,7 +723,8 @@ the root concurrency defect is fixed without introducing a persistent global loc
 
 ## Lots
 - [x] A1: strict native confirmation JWT verifier and pending limits; session-content-confirmation.test.ts.
-- [ ] A2: pinned HTTPS PKCE/source exchange, bounded lease/session binding; session-content-auth.test.ts, sentropic/auth-token.test.ts, sentropic/enroll-flow.test.ts.
+- [x] A2/local: pinned HTTPS PKCE/source-open, dedicated confirmation exchange, issuer-bound JWKS, conservative deadlines and dependent-login invalidation; session-content-auth.test.ts plus confirmation and existing enrollment/token suites.
+- [ ] A2/integration: production native trusted-auth wiring, grant/renewal/SSE and durable host denial fence; source-open alone does not authorize capture.
 - [ ] A acceptance: deployed source/login revocation and concurrent IdP ceremony witnesses; identify exact real Claude provider tuple.
 - [ ] B: freeze/ship capsule, all schemas/vectors/type harness, stable digests, Sentropic consumer and packed artifact.
 - [ ] C: native default-off fence, raw admission, consent/exclusion, bounded stream/cache; real PTY zero-byte refusal and positive stream.
