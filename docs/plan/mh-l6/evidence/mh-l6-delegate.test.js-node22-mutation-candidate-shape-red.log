@@ -1,0 +1,50 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-delegate.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-b9cOpf
+case: F should refuse an invalid delegation envelope instead of guessing
+TAP version 13
+# Subtest: F should refuse an invalid delegation envelope instead of guessing
+not ok 1 - F should refuse an invalid delegation envelope instead of guessing
+  ---
+  duration_ms: 415.399703
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-f2c6-5vyWA0/packages/h2a/test/mh-l6-delegate.test.js:8:67'
+  failureType: 'testCodeFailure'
+  error: |-
+    The input did not match the regular expression /upgrade_delegate_invalid/. Input:
+    
+    'Error: invalid_json'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual:
+  error: 'invalid_json'
+  stack: |-
+    emit (file:///tmp/mh-l3-qualification-f2c6-5vyWA0/packages/h2a/dist/runtime/handover/wire.js:26:19)
+    canonicalBytes (file:///tmp/mh-l3-qualification-f2c6-5vyWA0/packages/h2a/dist/runtime/handover/wire.js:49:24)
+    validate (file:///tmp/mh-l3-qualification-f2c6-5vyWA0/packages/h2a/dist/runtime/handover/formats.js:72:5)
+    UpgradeStore.delegate (file:///tmp/mh-l3-qualification-f2c6-5vyWA0/packages/h2a/dist/runtime/upgrade/h4-store.js:292:9)
+    delegateUpgrade (file:///tmp/mh-l3-qualification-f2c6-5vyWA0/packages/h2a/dist/runtime/upgrade/upgrade-delegate.js:32:25)
+    file:///tmp/mh-l3-qualification-f2c6-5vyWA0/packages/h2a/test/mh-l6-delegate.test.js:79:25
+    getActual (node:assert:609:5)
+    Function.throws (node:assert:757:24)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-f2c6-5vyWA0/packages/h2a/test/mh-l6-delegate.test.js:79:12)
+    async Test.run (node:internal/test_runner/test:1054:7)
+  operator: 'throws'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-f2c6-5vyWA0/packages/h2a/test/mh-l6-delegate.test.js:79:12)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 530.305903
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-delegate.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}
