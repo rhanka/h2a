@@ -2,7 +2,25 @@
 
 ## 0.98.7 — 2026-10-17
 
-Changes merged into `main` since `v0.98.6`:
+Changes merged since `v0.98.7-rc.1` on npm `next`:
+
+- **Claude subscription seat (#327):** enroll through OAuth, a point-in-time
+  import from the official CLI store, or piped token input. Route enrolled seats
+  through the common mesh model and the PATH-resolved official Claude CLI, with
+  isolated execution, identity-proven cleanup and static secret-safe errors.
+- **Live indexing (#342, #343):** add authenticated, paginated GitHub PR page
+  transport and retain scoped Git roots in a private object store. Fence
+  declaration and retention publication by acquisition generation.
+- **Readable decision dossiers (#357, #358):** require identifiable titles,
+  self-contained owner questions, explicit options and recommendations. Gate
+  presentation on request, context, stakes and consequences; publish mailbox
+  envelopes atomically.
+- **Opus and Sonnet through agy (#359):** support explicit Claude 5.5 model
+  selection, typed quota failures without automatic retry or fallback, and fresh
+  completion artifacts with applied-model and provider observations.
+- **CI budgets (#360):** budget integration jobs and report slow suites.
+
+Earlier changes merged since `v0.98.6`, included in `v0.98.7-rc.1`:
 
 - **Presence, identity and MCP send (#341):** recover heartbeat publication and
   bounded identity retries after transient storage failures. Require a live MCP
@@ -37,6 +55,8 @@ The four published packages (`@sentropic/track`, `@sentropic/h2a-runtime`,
 `@sentropic/h2a`, `@sentropic/h2a-cli`), internal pins, lockfile, plugin manifests
 and artifact-smoke version literal are aligned at `0.98.7`.
 
-This PR prepares the stable version in Git; it creates no tag and publishes
-nothing. After merge and green CI, the conductor tags `v0.98.7-rc.1` on the
-merged commit as described in [the release procedure](docs/release.md).
+The stable `0.98.7` has not been published; `0.98.7-rc.1` is already on npm
+`next`. This correction creates no tag and publishes nothing. Stable publication
+requires a successful RC from the same Git tree, as described in
+[the release procedure](docs/release.md). Version `0.98.8` remains reserved for
+the single-MCP and registry lane.
