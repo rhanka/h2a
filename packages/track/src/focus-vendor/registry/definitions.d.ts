@@ -117,8 +117,12 @@ export declare const validateFocusEntryDescriptor: (value: unknown) => Definitio
  */
 export declare const validateFocusParameters: (value: unknown) => DefinitionResult<FocusParameters>;
 export interface PresentationGate {
-    /** True only when a UI entry is both selected AND qualified by the host. */
-    readonly uiSelectedAndQualified: boolean;
+    /** True when the host registry holds a UI entry for Focus. */
+    readonly uiRegistered: boolean;
+    /** True when the host selected that UI entry for this session. */
+    readonly uiSelected: boolean;
+    /** True when the host qualified the selected UI entry. */
+    readonly uiQualified: boolean;
     /** True only when the host supplies an HTML sanitization hook. */
     readonly htmlSanitizerAvailable: boolean;
 }
@@ -140,6 +144,11 @@ export declare const resolveFocusPresentation: (params: FocusParameters, gate: P
 /**
  * Read the package-owned registry manifest (`registry/entries.v1.json`).
  * Called explicitly by the host; importing this module alone reads nothing.
+ *
+ * The compiled snapshot vendored into `@sentropic/track`
+ * (`packages/track/src/focus-vendor/`) ships no adjacent manifest, so the
+ * package-relative path misses there: fall back to the publisher-owned
+ * manifest through the installed `@sentropic/focus` package.
  */
 export declare const loadFocusSkillDescriptor: () => unknown;
 /** Recompute every asset/schema digest over the supplied bytes. */

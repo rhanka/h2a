@@ -10,8 +10,9 @@
  *      an enabled snapshot interaction all refuse);
  *   2. semantics — unique node IDs, interaction targets resolvable to the
  *      dossier ref, a section id/targetRef or a nested option id/targetRef,
- *      a nonempty provenance source binding, and comprehension evidence whose
- *      dossier hash still matches the snapshot hash.
+ *      an opaque provenance source binding (any string, per the published
+ *      schema), and comprehension evidence whose dossier hash still matches
+ *      the snapshot hash.
  *
  * Pure and dependency-free: no I/O, no clock, no mutation of the input.
  * Every recorded issue is a refusal — the schema is closed.
