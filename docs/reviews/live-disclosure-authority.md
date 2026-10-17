@@ -4,7 +4,7 @@ review-author:
   host: codex
   model: unknown
   effort: unknown
-target-ref: 8f4b1fb4881387e8deee822466ca5cb741159c45
+target-ref: 89cd186c13550854cf7b083b48a1fff03d88762b
 observed-failure: >-
   Exact author model/effort are not exposed in this session. The prescribed
   installed h2a/mesh reviewer launch is forbidden by the owner's confinement.
@@ -49,6 +49,9 @@ provider routing. Its lease must fence all relevant writers, including
 reentrant audit callbacks, until synchronous send returns. The send method
 must be bound to the snapshot's provider; later unguarded routing is forbidden.
 
+The authority also binds the snapshot to the exact caller and issuing proof
+IDs; another proof from the same owner cannot replace either. Two additional
+regressions observed 2 failures / 172 tests before this guard, then passed.
 The authority validates only copied snapshot data, records emit-attempt after
 all final refusals, checks local reentrant grant revocation and immediately
 hands the same frozen texts to the leased send method. It never calls mutable
@@ -85,16 +88,17 @@ old IDs. No snapshot archive or content cache is introduced.
 ## Verification
 
 Three targeted files only: gateway-host/live-auth.test.ts (15),
-live-disclosure.test.ts (132), live-registration.test.ts (23).
-Linux Node 22.22.1 and 24.18.0: **170/170 each, zero skipped**, exit 0.
+live-disclosure.test.ts (134), live-registration.test.ts (23).
+Linux Node 22.22.1 and 24.18.0: **172/172 each, zero skipped**, exit 0.
 verifyRuntimeExecution accepts both reports with zero proof failures. The
 previous four same-named secret cases now have unique parameterized names;
 this fixes the observed execution-not-proven CI failures without changing gates.
 
-Replaying the new tests on the pre-fix rebased source produces **65 behavioural
+Replaying the new tests on the pre-fix rebased source produces **67 behavioural
 failures, 105 passes, zero skips** (exit 1). This includes every reported race,
 missing exclusion, evidence mismatch, refusal/audit and revoke regression.
-The baseline execution proof additionally rejects three duplicate identities.
+The first-tour CI execution proof also rejected three duplicate identities;
+those names are fixed in the final test file, including the baseline replay.
 Strict explicit test typecheck and npm run typecheck exit 0; git diff --check
 exits 0. Compiler annotation errors were fixed separately and are not RED proof.
 The G4 test compiles into a disposable directory and probes a separate Node
