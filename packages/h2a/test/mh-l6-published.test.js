@@ -117,3 +117,22 @@ test('U10 should durably publish the image directory entry before returning and 
     assert.equal(fs.existsSync(next), false); assert.equal(fs.existsSync(f.destination), true);
   } finally { fs.fsyncSync = original; }
 });
+
+test('U10 should reject unsupported platform and architecture before creating an image directory', t => {
+  const f = fixture(t);
+  for (const [field, value] of [['platform', 'darwin'], ['arch', 'arm64']]) {
+    const original = Object.getOwnPropertyDescriptor(process, field);
+    try { Object.defineProperty(process, field, { value, configurable: true });
+      assert.throws(() => preparePublishedImage(f.root, f.destination), /image_loader_unqualified/);
+      assert.equal(fs.existsSync(f.destination), false);
+    } finally { Object.defineProperty(process, field, original); }
+  }
+});
+test('U10 should reject a libc below the pinned native baseline before any image preparation', t => {
+  const f = fixture(t), original = process.report.getReport;
+  try {
+    process.report.getReport = () => ({ header: { glibcVersionRuntime: '2.30' } });
+    assert.throws(() => preparePublishedImage(f.root, f.destination), /image_loader_unqualified/);
+    assert.equal(fs.existsSync(f.destination), false);
+  } finally { process.report.getReport = original; }
+});
