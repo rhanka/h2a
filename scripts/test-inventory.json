@@ -990,7 +990,8 @@
   "packages/h2a-runtime/src/session-content-archive-export.test.ts": [
     "should export more than 128 MiB within the unchanged 256 MiB archive budget",
     "should freeze existing lineage selectors without reading or hashing their content",
-    "should export the inclusive selected record range across ordered files and ignore artifact record counts"
+    "should export the inclusive selected record range across ordered files and ignore artifact record counts",
+    "should preserve exact UTF-8 source bytes including an initial BOM in exported records"
   ],
   "packages/h2a-runtime/src/native-terminal/content-errors.test.ts": [
     "should preserve typed content refusals on IPC while hiding arbitrary error text"
