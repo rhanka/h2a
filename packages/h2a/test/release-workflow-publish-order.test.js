@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { spawnSync } from "node:child_process";
 import test from "node:test";
 import YAML from "yaml";
 
@@ -87,3 +90,32 @@ test("release workflow supports a backfill dispatch for an existing tag", () => 
   const sanity = publish.steps.find((step) => step.name === "Version sanity gate (tag vs package.json)");
   assert.match(sanity.run, /git merge-base --is-ancestor "\$release_sha" origin\/main/);
 });
+
+for (const name of ['h2a-runtime', 'h2a']) {
+  test(`release executes the closed ${name} tarball publication and preserves backfill and retry guards`, t => {
+    const root = mkdtempSync(join(tmpdir(), 'mh-l6-publish-step-'));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const bin = join(root, 'bin'), target = join(root, 'h2a-closed', name, 'artifacts', `sentropic-${name}-0.98.7.tgz`);
+    mkdirSync(bin); mkdirSync(join(root, 'packages', name), { recursive: true }); mkdirSync(join(root, 'h2a-closed', name, 'artifacts'), { recursive: true });
+    writeFileSync(target, 'private tar sentinel'); writeFileSync(join(root, 'packages', name, 'package.json'), JSON.stringify({ version: '0.98.7' }));
+    const marker = join(root, 'published'), log = join(root, 'calls');
+    writeFileSync(join(bin, 'npm'), '#!' + process.execPath + '\n' + `
+      const fs=require('node:fs'),args=process.argv.slice(2);
+      if(args[0]==='view'&&args[2]==='version')process.exit(fs.existsSync(process.env.PROBE_PUBLISHED)?0:1);
+      if(args[0]==='view'&&args[2]==='dist-tags.latest'){console.log('0.99.0');process.exit(0);}
+      if(args[0]!=='publish'||JSON.stringify(args.slice(1))!==JSON.stringify([process.env.PROBE_TAR,'--access','public','--tag','backfill'])||!fs.existsSync(process.env.PROBE_TAR)){console.error('wrong publication target '+JSON.stringify(args));process.exit(42);}
+      fs.appendFileSync(process.env.PROBE_LOG,JSON.stringify(args)+'\\n');
+      if(process.env.PROBE_FAIL==='1')process.exit(43);
+      fs.writeFileSync(process.env.PROBE_PUBLISHED,'visible');
+    `, { mode: 0o755 });
+    const step = publishStep('@sentropic/' + name), body = step.slice(step.indexOf('run: |') + 6).split('\n').slice(1).map(line => line.replace(/^          /, '')).join('\n');
+    const env = { ...process.env, PATH: bin + ':' + process.env.PATH, RUNNER_TEMP: root, PROBE_PUBLISHED: marker, PROBE_LOG: log, PROBE_TAR: target };
+    const run = options => spawnSync('/bin/bash', ['-e', '-c', body], { cwd: root, env: { ...env, ...options }, encoding: 'utf8', timeout: 10000 });
+    const published = run(); assert.equal(published.status, 0, published.stderr); assert.match(published.stdout, /backfill/);
+    assert.equal(readFileSync(log, 'utf8').trim().split('\n').length, 1);
+    const repeated = run(); assert.equal(repeated.status, 0, repeated.stderr); assert.match(repeated.stdout, /already on registry; skipping/);
+    assert.equal(readFileSync(log, 'utf8').trim().split('\n').length, 1);
+    rmSync(marker); const failed = run({ PROBE_FAIL: '1' }); assert.equal(failed.status, 1); assert.match(failed.stderr, /npm publish failed/);
+    t.diagnostic(`actual release shell for ${name}: exact closed tar selected; backfill, retry and failed publish observed with private npm stub`);
+  });
+}
