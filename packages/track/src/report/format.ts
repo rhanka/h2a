@@ -559,7 +559,7 @@ export interface ReportViewTable {
    * box-drawn table the owner validated for DÉCISIONS, `prose` = `lines` instead of rows.
    */
   render?: 'padded' | 'drawn' | 'prose' | 'pipe'
-  /** Structured links are escaped with their cell, never concatenated after cell sanitization. */
+  /** Machine link destinations stay intact; their owner-visible labels are redacted and escaped. */
   links?: readonly { row: number; column: string; label: string; destination: string }[]
   /** Prose sections (RECOMMANDATION) carry ordered lines rather than a grid. */
   lines?: readonly string[]
@@ -875,7 +875,7 @@ export function redactOwnerTable(table: ReportViewTable): ReportViewTable {
       Object.entries(row).map(([key, value]) => [key, ownerColumns.has(key) ? redactOwnerText(value) : value]),
     )),
     ...(table.lines === undefined ? {} : { lines: table.lines.map(redactOwnerText) }),
-    ...(table.links === undefined ? {} : { links: table.links.map(link => ({ ...link, label: redactOwnerText(link.label), destination: redactOwnerText(link.destination) })) }),
+    ...(table.links === undefined ? {} : { links: table.links.map(link => ({ ...link, label: redactOwnerText(link.label) })) }),
   }
 }
 
@@ -1700,7 +1700,7 @@ export function renderReportView(view: ReportView, format: Format): string {
 function reportCellLink(label: string, ref: string, format: Format): string {
   const trimmed = ref.trim()
   if (format !== 'md' || /^(?!https?:)[a-z][a-z\d+.-]*:/iu.test(trimmed)) {
-    return `${displayCell(label, format)} : ${displayCell(cleanDisplayText(trimmed), format)}`
+    return `${displayCell(label, format)} : ${displayCell(redactOwnerText(cleanDisplayText(trimmed)), format)}`
   }
   // Preserve valid percent escapes, encoding raw bytes and Markdown destination delimiters once.
   const destination = trimmed.split(/(%[a-f\d]{2})/giu).map((part, index) => index % 2 === 1 ? part : encodeURI(part))
