@@ -23,7 +23,7 @@
   errors were corrected; these are not behavioural RED evidence.
 - [x] Qualification: exact auth/disclosure/registration files, 89/89 on
   Node 22.22.1 and 24.18.0, zero skips; repository and test typechecks pass.
-- [ ] Lot D: English conventional commits, own-branch push and PR; CI job
+- [x] Lot D: English conventional commits, own-branch push and PR #367; CI job
   outcomes and remaining qualification limits in the requested owner report.
 - [x] Feedback: #342/#343 deliver declarations/GitHub/retention, not L7a
   verified authority or L8 policy. The old unverified registration guard stays.
