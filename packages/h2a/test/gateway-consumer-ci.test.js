@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
   bindingForEvent,
+  checkMergeParents,
   classify,
   mainEligibility,
   validateInput,
@@ -13,6 +16,17 @@ import {
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, "..", "..", "..");
+
+// Merge-parent tests never touch the real checkout: fresh temp HOME,
+// temp XDG_RUNTIME_DIR and temp git repos only (this file runs in its
+// own node:test process, so the reassignment below is contained here).
+process.env.HOME = mkdtempSync(join(tmpdir(), "h2a-test-home-"));
+process.env.XDG_RUNTIME_DIR = mkdtempSync(join(tmpdir(), "h2a-test-runtime-"));
+process.env.GIT_AUTHOR_NAME = "h2a-test";
+process.env.GIT_AUTHOR_EMAIL = "h2a-test@example.invalid";
+process.env.GIT_COMMITTER_NAME = "h2a-test";
+process.env.GIT_COMMITTER_EMAIL = "h2a-test@example.invalid";
+process.env.GIT_CONFIG_NOSYSTEM = "1";
 
 const HEX64 = "a".repeat(64);
 const HEX64B = "b".repeat(64);
@@ -373,6 +387,78 @@ test("schema binds candidate phases to candidate and published phases to publish
   ];
   assert.equal(binds(candidates, "candidate"), true);
   assert.equal(binds(published, "published"), true);
+});
+
+function makeMergeRepo() {
+  const dir = mkdtempSync(join(tmpdir(), "h2a-merge-parents-"));
+  const git = (args) =>
+    execFileSync("git", args, { cwd: dir, encoding: "utf8" }).trim();
+  git(["init", "-q"]);
+  git(["commit", "--allow-empty", "-m", "base"]);
+  const base = git(["rev-parse", "HEAD"]);
+  git(["checkout", "-qb", "side"]);
+  git(["commit", "--allow-empty", "-m", "head"]);
+  const head = git(["rev-parse", "HEAD"]);
+  git(["checkout", "-q", base]);
+  git(["merge", "--no-ff", "-m", "merge", "side"]);
+  const merge = git(["rev-parse", "HEAD"]);
+  return { dir, base, head, merge };
+}
+
+test("checkMergeParents accepts base and head in either order", () => {
+  const { dir, base, head, merge } = makeMergeRepo();
+  const fwd = checkMergeParents({
+    mergeSha: merge,
+    baseSha: base,
+    headSha: head,
+    cwd: dir,
+  });
+  assert.deepEqual(new Set(fwd.parents), new Set([base, head]));
+  const rev = checkMergeParents({
+    mergeSha: merge,
+    baseSha: head,
+    headSha: base,
+    cwd: dir,
+  });
+  assert.deepEqual(new Set(rev.parents), new Set([base, head]));
+});
+
+test("checkMergeParents refuses a non-merge commit", () => {
+  const { dir, base } = makeMergeRepo();
+  assert.throws(
+    () =>
+      checkMergeParents({
+        mergeSha: base,
+        baseSha: base,
+        headSha: "0".repeat(40),
+        cwd: dir,
+      }),
+    /parents/,
+  );
+});
+
+test("checkMergeParents refuses unexpected SHAs", () => {
+  const { dir, base, head, merge } = makeMergeRepo();
+  assert.throws(
+    () =>
+      checkMergeParents({
+        mergeSha: merge,
+        baseSha: base,
+        headSha: "1".repeat(40),
+        cwd: dir,
+      }),
+    /not base/,
+  );
+  assert.throws(
+    () =>
+      checkMergeParents({
+        mergeSha: head,
+        baseSha: base,
+        headSha: head,
+        cwd: dir,
+      }),
+    /parents/,
+  );
 });
 
 test("scoped mode requires selectors; aggregate forbids them", () => {
