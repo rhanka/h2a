@@ -272,9 +272,10 @@ function main() {
   const RUN_TIMEOUT_MS = Number(process.env.H2A_TEST_TIMEOUT_MS) || 600000;
   // The expanded closed-package/Node-ABI qualification is still doing useful
   // work at ten minutes (owned-child progress identifies the active files).
-  // Keep the other suites at ten minutes and leave ten minutes of the CI job's
-  // 25-minute budget for build, Vitest, native host and consumer verification.
-  const NODE_TIMEOUT_MS = Number(process.env.H2A_TEST_TIMEOUT_MS) || 900000;
+  // The long backend campaign now overlaps the remaining Node phases; it keeps
+  // all 10,000 mutations/domain. This outer leak backstop is twenty minutes;
+  // individual case deadlines and the CI job's 25-minute budget are unchanged.
+  const NODE_TIMEOUT_MS = Number(process.env.H2A_TEST_TIMEOUT_MS) || 1200000;
 
   // Defense-in-depth: create a throwaway temp dir for H2A_ROOT so that any test
   // that runs a writing verb (connect/register/mcp-serve) without --root AND with

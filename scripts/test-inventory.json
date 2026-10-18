@@ -991,7 +991,9 @@
     "daemon startup qualification completes alone before the same runner executes every remaining file",
     "a failed standalone daemon suite remains failed while every remaining file still executes",
     "bounded daemon and handover qualifications each finish alone before the parallel package phase",
-    "bulk package and backend campaigns wait for bounded protocol qualification and all execute together"
+    "bulk package and backend campaigns wait for bounded protocol qualification and all execute together",
+    "the long backend overlaps remaining suites while bulk packages retain their protocol barrier",
+    "a failed overlapping backend remains failed and every remaining suite still executes"
   ],
   "packages/h2a/test/native-cleanse-oracle.test.js": [
     "L0 contracts: only the committed state and exact failure signature are accepted",
