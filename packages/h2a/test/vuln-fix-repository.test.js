@@ -149,6 +149,48 @@ test('should fail targeted verification when a command succeeds without evidence
   await f.repo.cleanup();
 });
 
+test('should fail the strict gate on vitest todo output despite exit 0', async () => {
+  const repo = Object.create(Repository.prototype);
+  repo.spec = { tests: [{ command: 'node', args: ['--test', 'fixture.test.js'] }] };
+  repo.workspace = '/fixture';
+  repo.file = () => '/fixture/fixture.test.js';
+  repo.execute = async () => ({ code: 0, stdout: 'Test Files 1 passed (1)\nTests 1 passed | 1 todo (2)\n', stderr: '', signal: null });
+  const results = await repo.tests('after');
+  assert.equal(results[0].ok, false);
+  await assert.rejects((async () => {
+    repo.execute = async () => ({ code: 0, stdout: 'Test Files 1 passed (1)\nTests 1 passed | 1 todo (2)\n', stderr: '', signal: null });
+    await repo.tests('before');
+  })(), /verification/);
+});
+
+test('should mask credentials in verification outputs and failure summaries', async () => {
+  const repo = Object.create(Repository.prototype);
+  repo.spec = { tests: [{ command: 'node', args: ['--test', 'fixture.test.js'] }] };
+  repo.workspace = '/fixture';
+  repo.file = () => '/fixture/fixture.test.js';
+  const raw = 'repo-fake-credential-987654321';
+  repo.execute = async () => ({ code: 0, stdout: `# tests 1\n# pass 1\nAuthorization: Bearer ${raw}\n`, stderr: '', signal: null });
+  const results = await repo.tests('after');
+  assert.equal(results[0].ok, true);
+  assert.ok(!JSON.stringify(results).includes(raw));
+  repo.execute = async () => ({ code: 0, stdout: `no test evidence; Authorization: Bearer ${raw}\n`, stderr: '', signal: null });
+  await assert.rejects(repo.tests('before'), error => !JSON.stringify([error.checks, error.message]).includes(raw));
+});
+
+test('should force full dev/optional/peer coverage on install and compatible fix', async () => {
+  const repo = Object.create(Repository.prototype);
+  repo.locks = ['package-lock.json'];
+  repo.workspace = '/fixture';
+  const seen = [];
+  repo.execute = async (cmd, args, opts) => { seen.push([cmd, args]); return { code: 0, stdout: 'ok', stderr: '' }; };
+  await repo.install();
+  await repo.generateFix();
+  assert.equal(seen.length, 2);
+  for (const [, args] of seen) {
+    for (const flag of ['--include=dev', '--include=optional', '--include=peer']) assert.ok(args.includes(flag), `npm misses ${flag}`);
+  }
+});
+
 test('should give a read-only reviewer pinned baseline, candidate, diff and verification artifacts', async t => {
   const f = await fixture(t);
   await f.repo.prepare(); await f.repo.begin('2026-10-17'); await f.repo.generateFix();

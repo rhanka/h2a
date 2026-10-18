@@ -16,6 +16,22 @@ test('should settle timeout even when a descendant would keep inherited pipes op
   assert.equal(child.stdout.destroyed, true);
 });
 
+test('should force full dependency coverage and mask credentials in supply-chain checks', async () => {
+  const seen = [];
+  const raw = 'supply-fake-credential-135792468';
+  const execute = async (cmd, args) => {
+    seen.push([cmd, args]);
+    return { code: 1, stdout: `registry failure Authorization: Bearer ${raw}`, stderr: '' };
+  };
+  const repo = { locks: ['package-lock.json'], workspace: '/fixture', execute };
+  const results = await supplyChain(repo, new Date('2026-10-20T00:00:00Z'));
+  assert.equal(results.ok, false);
+  for (const [, args] of seen.filter(([, entry]) => entry[0] !== 'view')) {
+    for (const flag of ['--include=dev', '--include=optional', '--include=peer']) assert.ok(args.includes(flag), `npm misses ${flag}`);
+  }
+  assert.ok(!JSON.stringify(results).includes(raw));
+});
+
 test('should preserve process quarantine through detection and supply-chain aggregation', async () => {
   const failure = Object.assign(new Error('timeout'), { quarantine: true });
   const execute = async () => { throw failure; };

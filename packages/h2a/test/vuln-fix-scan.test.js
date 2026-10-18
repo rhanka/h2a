@@ -51,6 +51,25 @@ test('should hydrate OSV batch IDs and preserve alias overlap with npm evidence'
   assert.ok(result.findings.every(x => x.aliases.includes('GHSA-aaaa-bbbb-cccc')));
 });
 
+test('should force full dev/optional/peer coverage on npm audit detection', async () => {
+  const seen = [];
+  await scanLocks({ root: '/fixture', locks: ['package-lock.json'], readLock: () => lock, osv: false,
+    command: async (cmd, args) => { seen.push([cmd, args]); return { code: 0, stdout: '{"vulnerabilities":{}}', stderr: '' }; } });
+  assert.equal(seen[0][0], 'npm');
+  for (const flag of ['--include=prod', '--include=dev', '--include=optional', '--include=peer']) {
+    assert.ok(seen[0][1].includes(flag), `npm audit misses ${flag}`);
+  }
+});
+
+test('should redact secrets from scan error aggregates', async () => {
+  const secret = 'Bearer scan-secret-0123456789';
+  const result = await scanLocks({ root: '/fixture', locks: ['package-lock.json'], readLock: () => lock, osv: false,
+    command: async () => { throw new Error(`network failure Authorization: ${secret}`); } });
+  assert.equal(result.complete, false);
+  assert.ok(!JSON.stringify(result.errors).includes(secret));
+  assert.ok(!JSON.stringify(result.errors).includes('scan-secret-0123456789'));
+});
+
 test('should distinguish valid audit exit 1 from network or schema failure', async () => {
   for (const output of [{ code: 2, stdout: JSON.stringify(audit) }, { code: 1, stdout: '{}' },
     { code: 1, stdout: '{"error":{"code":"ENETWORK"}}' }]) {
