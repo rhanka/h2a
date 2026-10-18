@@ -16,6 +16,23 @@ const registry = new OwnershipRegistry({ directory, generation: '22222222-2222-4
   processIdentity: currentIdentity(), lockDirectory: writerDirectory(root) });
 const token = registry.claim({ attachmentId: actor, presenceSessionId: actor, expectedInstance: actor });
 const ledger = new OperationLedger(registry), journal = new LaunchJournal({ root, registry, token, ledger });
+const timings = {};
+function measure(object, names) {
+  for (const name of names) {
+    const original = object[name];
+    object[name] = function (...args) {
+      const started = performance.now();
+      try { return Reflect.apply(original, this, args); }
+      finally {
+        const row = timings[name] ??= { calls: 0, milliseconds: 0 };
+        row.calls++; row.milliseconds += performance.now() - started;
+      }
+    };
+  }
+}
+measure(store, ['registerInstance', 'putInboxMessage', 'appendNegotiationEvent']);
+measure(payloads, ['persistOutput', 'readPayload', 'sweepExpired']);
+measure(journal, ['launch']);
 const ack = join(root, '..', `ack-${actor}.jsonl`), timestamp = new Date().toISOString();
 process.stdout.write('ready\n');
 await new Promise(resolve => process.stdin.once('data', resolve));
@@ -58,6 +75,7 @@ for (let n = 0; n < count; n++) {
       launchPath: journal.path(request.name), presenceSequence: n, blockageSequence: n };
   })();
   fs.appendFileSync(ack, JSON.stringify({ ...row, lockAcquisitions: lockAcquisitions() - acquiredBefore }) + '\n');
-  if (n % 100 === 0) process.stdout.write(JSON.stringify({ actor, completed: n + 1 }) + '\n');
+  if (n % 100 === 0) process.stdout.write(JSON.stringify({ actor, completed: n + 1, timings }) + '\n');
 }
+process.stdout.write(JSON.stringify({ actor, completed: count, timings }) + '\n');
 process.stdin.destroy();
