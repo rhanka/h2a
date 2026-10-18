@@ -440,83 +440,68 @@ inventory in `.h2a/build/seat_model_inventory.md` (untracked).
       resolve local selections across linked sets; browser coverage at 320px and 390px.
 - [x] Regression proofs: all five reviewer findings reproduced red, then CLI/browser 32/32 green;
       readability 69/69 green; isolated temporary state and no skipped tests.
+# Velocity estimator — feat/velocity-estimator
 
 ## Objective
-- [x] Enforce workspace ownership in shipped development hooks.
+- [ ] Implement h2a-owned lots of spec v2, SHA-256 `4388546e0c488212efdfb3402595ed14a33c568ae3fa1d3a3287a61569858ccb`.
+- [x] Two independent GO-CODE reviews (cfveloa-last.md / cfvelos-last.md) name that exact digest.
+- [x] Base: origin/main `7ebbcf266e1988c18624d0158936949a214f9fd8`, including report PR #374.
 
 ## Scope / Guardrails
-- [x] Own worktree only; no live h2a state, installed binary or full local suite.
-- [x] No version bump, attribution or main mutation.
+- [x] Temporary test lanes, exact files only; no full suite, installed h2a, owner state, native host, foreign processes or Python.
+- [x] Engram owns the ontology; h2a consumes its immutable artifact. Separate mergedAt / installedAt; installation unknown until target proof.
+- [x] One draft PR, conventional English subjects, zero attribution trailers; push only this branch, fast-forward unless owner-authorized rebase needs force-with-lease.
 
 ## Branch Scope Boundaries
-- [x] Allowed: packages/h2a/hooks/**, targeted scope tests, hosts/plugin.ts,
-  hosts/vibe-equipment.ts, hosts/vibe-discovery.ts, hosts/native-convergence.ts,
-  hosts/native-files.ts, hosts/native-toml.ts, hosts/native-inspection.ts, cli.ts, plugin manifests,
-  test/native-host-convergence.test.js, test/native-host-review-regressions.test.js,
-  test/host-plugin.test.js, test/native-host-shared-skills.test.js,
-  docs/workspace-scope-guard.md, docs/specs/SPEC_EVOL_WORKSPACE_SCOPE_GUARD.md,
-  docs/reviews/workspace-scope-guard/**, BRANCH.md.
-- [x] Direct CI blocker: scripts/test-inventory.json (host-plugin normative title).
-- [x] Forbidden: live host state, unrelated sources, dependency/version changes.
+- [x] Allowed: exact h2a implementation/test/artifact/skill/release paths in spec §6, this plan and review evidence.
+- [x] Allowed L0-D: reviewed spec in docs/specs; packages/agent-stats/tests/fixtures/velocity/{github-sample,engram-enriched,engram-older,skipped-check-anomalies}.json.
+- [x] Allowed L0-C bootstrap: scripts/velocity-test-lane.mjs; packages/h2a/test/velocity-test-lane.test.js.
+- [x] Conditional: knowledge/contracts/** only from reviewed engram publication; L1 onward only after L0-C passes.
+- [x] Forbidden: engram edits, .track writes, installed/plugin-cache edits, release/publish/deploy, model routing, unrelated cleanup, Makefile/docker-compose/.cursor changes.
 
-## Lot 1
-- [x] Classifier, signed grants, typed audit and owner command.
-- [x] Red/green: workspace-scope-guard.test.js.
+## L0-D — documentary reference
+- [x] Copy reviewed spec byte-identically; freeze both 20-PR memberships, union 23, 285 Astra checks, engram 60/121 and skipped-check anomalies.
+- [x] Explicit retrospective evidence, late collection and unattested historical availability; no prospective backtest claim.
+- [x] Record/verify all fixture digests; documentary gate: two spec reviews plus fixture integrity, no behaviour RED for copied facts.
 
-## Lot 2
-- [x] Host plumbing and targeted workspace-scope-hosts.test.js.
+## L0-C — contract and execution bootstrap
+- [ ] gr-conductor: publish profiles/repo-knowledge/1/{profile,timing.schema,engram-mapping,manifest}.json and validator at a full immutable engram commit; DS/Engram compatibility review and T-V00-C RED/GREEN.
+- [ ] h2a: copy upstream bytes and pin publication; offline velocity-contract.test.ts reproduces upstream verdicts.
+- [ ] h2a: T-V00-I RED/GREEN in velocity-test-lane.test.js, private environments, candidate sources/fixtures/goldens, checkout builds, exact selectors and skip accounting.
+- [ ] Gate: published artifact + offline pin + isolated runner; no placeholder permits L1.
 
-## Lot 3
-- [x] Documentation, review outcome, push, PR and individual CI reporting.
+## L1 — measured reference
+- [ ] Spec §6 L1 exact source paths; velocity-observations.test.ts / velocity-github.test.ts, T-V01..06 RED/GREEN; bounded live manifest, both bootstrap scenarios.
+
+## L2 — execution evidence
+- [ ] Spec §6 L2 exact files, T-V07..12/T-V36; producer launch → sink → normalized observations and review-wave lifecycle.
+- [ ] Gate: controlled prospective pilot/wave plus agent-stats.test.ts / agent-stats-h2a-evidence.test.ts, no historical attribution invented.
+
+## L3 — deterministic comparables
+- [ ] Spec §6 L3 exact files and forecast/estimate/matching tests, T-V13..17/T-V37; exact decimal weights and separate round coverage.
+
+## L4 — dependency/capacity scenarios
+- [ ] velocity/{schedule,plan-input}.ts and velocity-schedule.test.ts, T-V18..22; whole-graph trials and explicit gates, real one/two-lane mini-plan.
+
+## L5 — knowledge/planning/report consumption
+- [ ] Spec §6 L5 exact code/artifacts/three source skills; T-V23..27, clean consumer/cold planning UAT and exact Track collateral files.
+
+## L6 — actuals/calibration
+- [ ] velocity/{actuals,calibration}.ts, CLI and exact tests; T-V28..32/T-V38, immutable chronological feedback; shadow until prospective calibration.
+
+## L7 — packaged command and target receipt
+- [ ] Spec §6 L7 exact vendor/CLI/golden/workflow/attestation paths and targeted tests; T-V33..35/T-V39.
+- [ ] Gate: clean temporary tarball executable; producer → existing attestation → target actual; public-contract wrapper; no workstation milestone from CI proof.
 
 ## Feedback Loop
-- [x] Independent security/coverage design reviews: pin launch identity, inspect
-  remote destinations and committed bumps, preserve private packages.
-- [x] h2a consensus unavailable: no h2a MCP in confinement; do not reach live host.
+- [x] Upstream blocker: engram local HEAD `8f19554cea3a4397fd66a90c7e9fd5ea54c81626` contains no planned contract; GitHub main contents endpoint returns HTTP 404 on 2026-10-18. Asked owner for publication SHA/path; no substitute created.
+- [x] Handoff gr-conductor: reviewed immutable artifact/validator publication and DS/Engram evidence; then h2a imports and runs offline T-V00-C. L1..L7 await this gate.
+- [x] Harness plan template and Makefile recorder absent; required checkbox sections written directly; no installed h2a or Track writer invoked.
+- [ ] Record code review target/outcome; harness/review requires installed h2a/mesh dispatch, prohibited by confinement; no invented consensus.
+- [ ] Final French report: per lot, pushed commits, exact RED/GREEN command/output/exit/skips, first measured output, CI, non-coverage/deviations.
 
-- [x] Preserve read-only npm version and private package versioning; published siblings still require release authority.
-- [x] Restrict helper execution and manual session initialization while preserving source inspection.
-
-## Tour 2 — Independent review #364
-- [x] R1: agy native payloads and SessionStart/PreToolUse; Muse project hooks verified against the public Meta CLI; six-host enforcement/grant/version matrix.
-- [x] R2: scoped shell cwd/environment, executable heredocs/substitutions, git/gh options, package script aliases.
-- [x] R3: shell redirections before every executable/builtin; runtime/helper protection; static Codex envelopes and dynamic refusal.
-- [x] R4: root-relative manifests, pinned session baseline, path commits, matching refspecs, MultiEdit and separate foreign/release grants.
-- [x] R5: startup-pinned plugin key, normalized grant options/repositories, Vibe native-session journal and refreshed explicit trust.
-- [x] R6: quoted prose, own --all, native test runner flags, current PR resolution, branch reads, literal patch envelopes.
-- [x] R7: exact repo/action/ref/session in both refusal channels.
-- [ ] Fresh author-complementary h2a consensus: unavailable in confinement (no h2a MCP; no real-state access authorized).
-
-## Tour 3 — Independent review rev364-r2.md
-- [x] R1: agy global-hook cwd, native workspacePaths SessionStart binding, JSON startup output, multi-session --write installation; explicit Muse project installation only.
-- [x] R2: fail-closed shell grammar/state, wrappers, balanced cwd stacks, HOME/OLDPWD/directory stack, continuations, stdin/runtime paths and independent Git directory selectors.
-- [x] R3: protect hook configuration, installer metadata, helper code and journals; destination options, destructive Git commands and indirect/reflective JS capability access.
-- [x] R4: inspect index independently of commit operands, enumerate pushed refs, match full patch paths and honor native line ranges.
-- [x] R5: lex JS strings/comments separately and decode literals before shell classification; preserve legitimate commit messages.
-- [x] CI blocker: normative inventory follows the existing agy/Muse installation test, without removing its execution requirement.
-- [ ] Fresh h2a consensus remains unavailable; no independent verdict claimed for the new diff.
-
-## Tour 4 — Fail closed on uncertainty (conductor decision)
-- [x] Remove heredoc preprocessing and executable substitution/shell-script interpretation; refuse opaque protected intent with a typed request for the plain explicit form or owner grant.
-- [x] Check dynamic sensitive argv before action selection; cover runtime stdin/eval, independent Git directories, symlinks, file destination options and Git mutation forms from rev364-r3.md.
-- [x] Preserve explicit own copy/move/mkdir operations, conditional own cwd alternatives, plain protected actions and valid JavaScript escapes; reject duplicate command members using the shared lexer.
-- [x] Compare complete proposed/base manifests, preserve baseline publication across private toggles, and inspect the union of explicit pushed refs and tags; bind sessions before recording baselines.
-- [x] Targeted regression proof: 76 T4 tests on original HEAD (7 pass, 69 fail, 0 skipped), then 76 pass, 0 fail, 0 skipped after correction.
-- [x] Centralize symlink uncertainty before canonicalization, including env/npm selectors and dangling effective copy destinations: three additional red/green regressions.
-- [ ] Full native sessions, remote mutations and independent h2a consensus remain outside confinement qualification; full repository suite is reserved for the conductor.
-
-# L2-s — PR 348 Dernier tour
-
-- Owner scope: rev348-r3.md, minimal correction, rebase onto origin/main,
-  own-branch lease push and per-job CI in the owner report.
-- Rebased onto df5652b18; only BRANCH.md conflicted. Both branch records
-  were retained, including the complete workspace scope guard record.
-- The sole finding is still externally blocked: Sentropic PR 681 is OPEN;
-  registry latest is llm-mesh 0.26.1 / cluster-mesh 0.18.0. An isolated
-  install of those published packages fails all three API availability
-  assertions (3 failed, 0 skipped). No green-after or closure is claimed.
-- Keep the fail-closed import guard and dependency lock unchanged. Do not
-  merge with this reserve. L1 must publish its import API, then h2a can pin
-  compatible published versions and qualify all ten cli/token imports.
-- Targeted post-rebase enrollment/dispatch/regression suites: 6 files,
-  118 passed, 0 skipped. Full local suite and native/installed h2a forbidden.
+## Fixture integrity
+- [x] engram-enriched.json: SHA-256 `37a9c54032d3b56dd0c78f0aab886da260502a7805b2c898e7fa7377b2596ab7`, 15317 bytes.
+- [x] engram-older.json: SHA-256 `be8e2abc21fec7a775b9db26329915ff1be7e275abec790dead565eedeceb97f`, 28540 bytes.
+- [x] github-sample.json: SHA-256 `5f46c9f98fc97e0efd9caa7bfdb39a9cca3088a7c7fb6204b119d1724ce1452a`, 171533 bytes.
+- [x] skipped-check-anomalies.json: SHA-256 `c2f53819003af26509f0df38fb4c2b7eb4c4a7edfb53ed154c6d43ec56022a65`, 8439 bytes.
