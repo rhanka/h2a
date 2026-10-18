@@ -1,6 +1,8 @@
 import { BUCKETS } from './buckets.js'
-import type { DecisionRow, Report, ReportRow } from './build.js'
+import type { DecisionRow, Report, ReportItemFacts, ReportRow } from './build.js'
 import type { WpLeaf, WpNode } from './rollup.js'
+import { resolveStageStatusLabels } from './stage-status-lexicon.js'
+import { STATUS_HEALTH, type StatusCode } from './stage-status.js'
 import {
   buildDirectives,
   decisionNeedsFocus,
@@ -134,10 +136,12 @@ interface DecisionPresentation {
  * readable, but only a dossier that satisfies the native validator is actionable.
  */
 function classifyDecisions(decisions: readonly DecisionRow[]): DecisionPresentation {
+  // Amendment D12 — `deferred` is pending, not settled, in every renderer.
+  const answerable = (decision: DecisionRow): boolean => decision.outcome === 'pending' || decision.outcome === 'deferred'
   return {
     structured: decisions.filter((decision) => decision.structured === true),
-    legacyPending: decisions.filter((decision) => decision.structured !== true && decision.outcome === 'pending'),
-    legacySettled: decisions.filter((decision) => decision.structured !== true && decision.outcome !== 'pending'),
+    legacyPending: decisions.filter((decision) => decision.structured !== true && answerable(decision)),
+    legacySettled: decisions.filter((decision) => decision.structured !== true && !answerable(decision)),
   }
 }
 
@@ -330,7 +334,7 @@ export function formatActionReport(report: Report, format: Format): string {
   const dropped = report.buckets.DROPPED
   const allDecisions = report.decisions ?? []
   const { structured, legacyPending, legacySettled } = classifyDecisions(allDecisions)
-  const pendingDecisions = structured.filter((d) => d.outcome === 'pending')
+  const pendingDecisions = structured.filter((d) => d.outcome === 'pending' || d.outcome === 'deferred')
 
   lines.push(h('SYNTHÈSE'))
   lines.push(...table(['fait', 'à-faire', 'attendus', 'dropped', 'décisions pending'], [[String(done.length), String(todo.length), String(awaited.length), String(dropped.length), String(pendingDecisions.length)]]))
@@ -614,6 +618,29 @@ export interface ReportCoverage {
    * declared rather than silent.
    */
   aggregated: readonly string[]
+  /**
+   * Amendment D11 (additive) — rendered À-FAIRE items sitting outside every
+   * workpackage (no strict WP root), flagged `outside-wp` in their row.
+   * Absent/zero ⇒ the legacy line, byte-identical.
+   */
+  outsideWp?: number
+}
+
+/**
+ * Amendment D9 — a withdrawal notice served as an identifiable À-FAIRE item
+ * under its actual container/WP: title, container, recorded reason (absent ⇒
+ * the renderer declares the absence), and the answerable dossiers that still
+ * reference it.
+ */
+export interface WithdrawalNotice {
+  id: string
+  title: string
+  /** Nearest role-container id, if any (the actual container/WP). */
+  containerId?: string
+  /** Recorded withdrawal reason; undefined ⇒ declared absent, never invented. */
+  reason?: string
+  /** Pending, structured, answerable native dossier ids targeting the item. */
+  dossierIds: string[]
 }
 
 /**
@@ -1105,6 +1132,24 @@ export interface ConductorMeta {
   /** Item ids with a `realization.transition → done` inside `periodWindow`; absent preserves legacy FAIT. */
   deliveredItemIds?: ReadonlySet<string>
   /**
+   * Amendment D3/D11 (additive) — per-item stage/status + strict-WP facts for
+   * the À-FAIRE cells. Absent ⇒ the cells honestly state `—` (unstated
+   * without journal context); direct presenter callers keep their compact
+   * contract.
+   */
+  itemFacts?: Readonly<Record<string, ReportItemFacts>>
+  /**
+   * Amendment D9 (additive) — withdrawal notices to serve as identifiable
+   * À-FAIRE items under their actual container/WP. Absent/empty ⇒ validated
+   * membership, byte-identical.
+   */
+  withdrawnNotices?: readonly WithdrawalNotice[]
+  /**
+   * Amendment D9 (additive) — withdrawals left out of the served tables, each
+   * with its reason, so silence stays a declared act.
+   */
+  withdrawnOmitted?: readonly ReportOmission[]
+  /**
    * The caller's clock, injected at ITS boundary so this module stays clockless and byte-reproducible
    * (same pattern as `workspace-activity --now`). Present ⇒ the window's upper bound is `now`.
    */
@@ -1116,6 +1161,12 @@ export interface ConductorMeta {
   subWp?: boolean
   /** A read-only workpackage projection, present only for `report --scope`. */
   scopeProjection?: ReportScopeProjection
+  /**
+   * Amendment D10 (additive) — open `--lang <bcp47>` label selection for the
+   * new stage/status cells. Absent ⇒ French (the validated renderer stays
+   * French; full localisation is a separate WP). Codes never change.
+   */
+  lang?: string
 }
 
 /** Additive machine-readable scope boundary for a scoped conductor report. */
@@ -1211,12 +1262,17 @@ export function buildWpConductorView(
   //      cell, or FAIT if it produced something). It leaves the report and is counted among omissions.
   // 24 — a pending dossier with no stored options cannot be answered either. It is not dressed up as a
   //      choice: it appears in À-FAIRE as the work of making it answerable.
-  const structuredPending = structuredDecisions.filter((d) => d.outcome === 'pending')
-  const settledDecisions = decisions.filter((d) => d.outcome !== 'pending')
+  // Amendment D12 — a `deferred` dossier is NOT settled: it stays answerable
+  // (numbered, listed, resolvable) and states explicitly that its answer is
+  // postponed. The withdrawn view's private deferred→pending mapping is gone
+  // with that view; the validated path answers the same journal the same way.
+  const isAnswerable = (d: DecisionRow): boolean => d.outcome === 'pending' || d.outcome === 'deferred'
+  const structuredPending = structuredDecisions.filter(isAnswerable)
+  const settledDecisions = decisions.filter((d) => !isAnswerable(d))
   const decisionRef = new Map<string, string>()
   structuredPending.forEach((d, i) => decisionRef.set(d.id, `D${i + 1}`))
   legacyPending.forEach((d, i) => decisionRef.set(d.id, `Q${i + 1}`))
-  const isPending = new Set(decisions.filter((d) => d.outcome === 'pending').map((d) => d.id))
+  const isPending = new Set(decisions.filter(isAnswerable).map((d) => d.id))
 
   // ---- handles (criteria 10b/10c) -----------------------------------------------------------------
   // Handles are POSITIONAL WITHIN THIS REPORT (`[row.item]`), assigned AFTER À-FAIRE is ordered. Leg A
@@ -1322,6 +1378,8 @@ export function buildWpConductorView(
   interface TodoDraft {
     wp: string
     progress: string
+    /** Container node ids merged into this draft (the branch), for D9 notice attachment. */
+    nodeIds: string[]
     items: TodoItem[]
     blocked: string
     /** Fixed only for the rows whose next action is NOT a per-row investigation (criterion 20). */
@@ -1331,6 +1389,30 @@ export function buildWpConductorView(
     gateDetail: string
     gateStep: string
     order: string
+  }
+
+  // Amendment D3/D11 — per-item stage/status + strict-WP facts for the two
+  // new columns, through the existing lexicon (the validated renderer stays
+  // French). Codes stay the identity; only the owner-facing cells are
+  // labelled. Without journal context the cells honestly state `—`.
+  const frLabels = resolveStageStatusLabels(meta.lang ?? 'fr').labels
+  const stageCell = (id: string, handle: string): string => {
+    const facts = meta.itemFacts?.[id]
+    if (facts === undefined) return `[${handle}] —`
+    return `[${handle}] ${frLabels.stage[facts.stage]}`
+  }
+  const statusCell = (id: string, handle: string): string => {
+    const facts = meta.itemFacts?.[id]
+    if (facts === undefined) return `[${handle}] —`
+    const health = STATUS_HEALTH[facts.status as StatusCode]
+    const label = frLabels.status[facts.status as StatusCode]
+    return `[${handle}] ${health === undefined ? '—' : health} ${label}`
+  }
+  // An item with no strict WP root renders the visible machine flag
+  // `outside-wp` — but only when facts are present (unknown ≠ outside).
+  const isOutsideWp = (id: string): boolean => {
+    const facts = meta.itemFacts?.[id]
+    return facts !== undefined && facts.wpStrictRootId === undefined
   }
 
   const wpTodoDrafts: TodoDraft[] = rowNodes
@@ -1364,6 +1446,7 @@ export function buildWpConductorView(
       return {
         wp: wpName(n),
         progress: pctStr(n.pct),
+        nodeIds: branchOf(n).map((b) => b.id),
         items,
         blocked: blockedCell(attached),
         gatedOnDecision: gated,
@@ -1391,6 +1474,7 @@ export function buildWpConductorView(
     horsWpDrafts.push({
       wp: 'hors WP · dossiers à structurer',
       progress: 'n/a',
+      nodeIds: [],
       // A dossier with no stored options says nothing by its title alone. Its prose context is recorded:
       // show it as an EXCERPT — never as options, which is what `unstructured` forbids (criterion 16).
       items: toStructure.map((d) => {
@@ -1417,6 +1501,7 @@ export function buildWpConductorView(
     horsWpDrafts.push({
       wp: 'hors WP · items',
       progress: 'n/a',
+      nodeIds: [],
       items: outsideOpen.map((r) => ({
         id: r.id,
         title: clean(r.title),
@@ -1431,13 +1516,74 @@ export function buildWpConductorView(
     })
   }
 
-  const orderedDrafts = [...wpTodoDrafts, ...horsWpDrafts].sort((a, b) =>
+  // Amendment D9 — withdrawal notices join À-FAIRE as identifiable items
+  // under their actual container/WP. An item already rendered (an AWAITED
+  // withdrawal with a live gate) is NOT duplicated: its status comes from
+  // the shared derivation. Notices never touch legacy bucket/tally rules and
+  // are never counted a second time in active/delivered totals.
+  const renderedIds = new Set(
+    [...wpTodoDrafts, ...horsWpDrafts].flatMap((draft) => draft.items.map((item) => item.id)),
+  )
+  const containerLabel = (containerId: string): string | undefined => {
+    const walk = (nodes: readonly WpNode[]): WpNode | undefined => {
+      for (const node of nodes) {
+        if (node.id === containerId) return node
+        const found = walk(node.children)
+        if (found !== undefined) return found
+      }
+      return undefined
+    }
+    const node = walk(tree)
+    return node === undefined ? undefined : wpName(node)
+  }
+  const noticeDrafts: TodoDraft[] = []
+  for (const notice of meta.withdrawnNotices ?? []) {
+    if (renderedIds.has(notice.id)) continue
+    const item: TodoItem = {
+      id: notice.id,
+      title: clean(notice.title),
+      excerpt: notice.reason === undefined ? 'retiré — motif non enregistré' : `retiré : ${notice.reason}`,
+    }
+    const host = [...wpTodoDrafts, ...horsWpDrafts, ...noticeDrafts].find((draft) =>
+      notice.containerId !== undefined && draft.nodeIds.includes(notice.containerId),
+    )
+    if (host !== undefined) {
+      host.items.push(item)
+    } else {
+      const refs = notice.dossierIds
+        .map((dossierId) => decisionRef.get(dossierId))
+        .filter((ref): ref is string => ref !== undefined)
+      noticeDrafts.push({
+        wp: (notice.containerId !== undefined ? containerLabel(notice.containerId) : undefined) ?? 'hors WP · retraits',
+        progress: 'n/a',
+        nodeIds: [],
+        items: [item],
+        // Criterion 19 — a recorded answerable dossier is a reference, never `—`.
+        blocked: refs.length > 0 ? compactRefs(refs) : NO_GATE,
+        // D9 — no action is owed on a withdrawal; stating so must not imply open work.
+        fixedNextAction: NO_ACTION,
+        gatedOnDecision: false,
+        directiveIds: '',
+        gateDetail: '',
+        gateStep: '',
+        order: '09997',
+      })
+    }
+    renderedIds.add(notice.id)
+  }
+
+  const orderedDrafts = [...wpTodoDrafts, ...horsWpDrafts, ...noticeDrafts].sort((a, b) =>
     a.order === b.order ? a.wp.localeCompare(b.wp) : a.order.localeCompare(b.order),
   )
 
   // Handles are assigned HERE, once the order is final: `[row.item]`, both 1-based (criterion 10b/10c).
   // `prochaine action` is decided here too, because whether a row is FOCUS depends on that same order
   // (criterion 20: the per-row investigation is bounded to the five rows the ordering line names).
+  // Amendment D3/D11 — the two new columns annotate identifiable tracked
+  // items: one stage/status line per item, handle-prefixed like the `à faire`
+  // lines so the mapping survives wrapping; `outside-wp` flags strict
+  // non-attachment in the item line itself.
+  const outsideIds = new Set<string>()
   const orderedTodo: Record<string, string>[] = orderedDrafts.map((draft, rowIndex) => {
     const cells = draft.items.map((item, itemIndex) => {
       const handle = `${rowIndex + 1}.${itemIndex + 1}`
@@ -1449,9 +1595,13 @@ export function buildWpConductorView(
       // Criterion 27 — one idea per line: the item on its line, and its recorded excerpt as a
       // SUBORDINATE clause on its own, never a paragraph appended to the title.
       const note = item.note === undefined ? '' : ` (${item.note})`
+      const outside = isOutsideWp(item.id) ? ' (outside-wp)' : ''
+      if (outside !== '') outsideIds.add(item.id)
       const excerpt = item.excerpt === undefined ? '' : `\n↳ extrait : ${item.excerpt}`
-      return `[${handle}] ${item.title}${note}${excerpt}`
+      return `[${handle}] ${item.title}${note}${outside}${excerpt}`
     })
+    const stageLines = draft.items.map((item, itemIndex) => stageCell(item.id, `${rowIndex + 1}.${itemIndex + 1}`))
+    const statusLines = draft.items.map((item, itemIndex) => statusCell(item.id, `${rowIndex + 1}.${itemIndex + 1}`))
     const nextAction =
       draft.fixedNextAction ??
       (draft.items.length === 0
@@ -1462,6 +1612,8 @@ export function buildWpConductorView(
     return {
       wp: draft.wp,
       progress: draft.progress,
+      stage: stageLines.join('\n'),
+      status: statusLines.join('\n'),
       todo: cells.join('\n'),
       blocked: draft.blocked,
       nextAction,
@@ -1477,7 +1629,7 @@ export function buildWpConductorView(
 
   const todoRows = orderedTodo.length > 0
     ? orderedTodo
-    : [{ wp: '—', progress: 'n/a', todo: 'aucun WP ouvert', blocked: NO_GATE, nextAction: NO_ACTION, directiveIds: '' }]
+    : [{ wp: '—', progress: 'n/a', stage: '—', status: '—', todo: 'aucun WP ouvert', blocked: NO_GATE, nextAction: NO_ACTION, directiveIds: '' }]
 
   // ---- DÉCISIONS ----------------------------------------------------------------------------------
   // Criterion 23 — pending, answerable dossiers ONLY. Nothing else.
@@ -1504,7 +1656,9 @@ export function buildWpConductorView(
     const alternatives = options.length > 0 ? altLines.join('\n') : 'non enregistrées'
     let preco = precoLines.join('\n')
     if (preco.trim() === '') preco = '—'
-    decisionRows.push({ n: ref, subject: shortDecisionSubject(d.title), alternatives, preco })
+    // Amendment D12 — whether an answer is needed now is stated explicitly.
+    const deferredMark = d.outcome === 'deferred' ? ' (reporté — réponse ajournée, pas abandonnée)' : ''
+    decisionRows.push({ n: ref, subject: `${shortDecisionSubject(d.title)}${deferredMark}`, alternatives, preco })
   }
   if (decisionRows.length === 0) {
     decisionRows.push({
@@ -1576,6 +1730,8 @@ export function buildWpConductorView(
       label: shortDecisionSubject(d.title),
       reason: 'décision déjà tranchée (visible dans bloqué ou FAIT, plus rien à y répondre)',
     })),
+    // Amendment D9 — withdrawals left out of the served tables stay declared, each with its reason.
+    ...(meta.withdrawnOmitted ?? []),
   ]
 
   // ---- coverage (criteria 17/18) --------------------------------------------------------------------
@@ -1586,12 +1742,17 @@ export function buildWpConductorView(
   // structurally in the rendered lists above, whatever the compression ratio.
   // An unscoped directive always TARGETS a dossier already counted in `decisions`, so counting it again
   // would inflate the denominator against itself.
-  const projectedRows = wpNodes.length + outsideRollup.length + decisions.length
+  // Amendment D9/D11 — the explicit additions live INSIDE the legacy
+  // equation (`rendered = projected − omitted` stays true: notice rows are
+  // rendered, withdrawal omissions are omissions) and stay separately visible
+  // in the line (`hors WP` count, per-reason omission detail).
+  const projectedRows = wpNodes.length + outsideRollup.length + decisions.length + noticeDrafts.length + (meta.withdrawnOmitted ?? []).length
   const coverage: ReportCoverage = {
     projected: projectedRows,
     rendered: projectedRows - omitted.length,
     omitted,
     aggregated,
+    ...(outsideIds.size > 0 ? { outsideWp: outsideIds.size } : {}),
   }
 
   const header: ReportHeader = {
@@ -1634,6 +1795,8 @@ export function buildWpConductorView(
         columns: [
           { id: 'wp', label: 'WP' },
           { id: 'progress', label: 'av.' },
+          { id: 'stage', label: 'étape' },
+          { id: 'status', label: 'statut' },
           { id: 'todo', label: 'à faire' },
           { id: 'blocked', label: 'bloqué' },
           { id: 'nextAction', label: 'prochaine action' },
@@ -1696,7 +1859,10 @@ export function coverageLine(coverage: ReportCoverage): string {
     coverage.aggregated.length > 0
       ? ` · ${coverage.aggregated.length} sous-WP agrégés dans leur parent`
       : ''
-  const head = `couverture : ${coverage.projected} lignes projetées · ${coverage.rendered} rendues${merged}`
+  // Amendment D11 — strict-WP orphans are counted in the header coverage line.
+  const outside =
+    (coverage.outsideWp ?? 0) > 0 ? ` · ${coverage.outsideWp} hors WP (outside-wp)` : ''
+  const head = `couverture : ${coverage.projected} lignes projetées · ${coverage.rendered} rendues${merged}${outside}`
   if (coverage.omitted.length === 0) return `${head} · aucune omission`
   const byReason = new Map<string, number>()
   for (const omission of coverage.omitted) byReason.set(omission.reason, (byReason.get(omission.reason) ?? 0) + 1)

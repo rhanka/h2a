@@ -465,7 +465,7 @@ const REPORT_USAGE = `usage: track report [--status-table] [--scope <container-i
 
 --scope selects one exact role-container by its id, durable assigned code, or current derived label. The selected container and all descendants are rendered through the same four-section report; unknown or ambiguous selectors fail loudly.
 
---resolve <handle> resolves a report handle (a positional [n.m] row handle, or a D#/Q# dossier number) back to its item id. With --status-table, use the DEMANDES # number instead of [n.m]. It is the one command the report documents for acting on a row without printing a ULID in a column. Handles are positional and per-report: resolve them against the same log and baseline the report was rendered from.
+--resolve <handle> resolves a report handle (a positional [n.m] row handle, or a D#/Q# dossier number) back to its item id. It is the one command the report documents for acting on a row without printing a ULID in a column. Handles are positional and per-report: resolve them against the same log and baseline the report was rendered from.
 
 Rebind the exact rendering context with --scope/--period/--since/--until/--now/--sub-wp (a status-table resolve without a selector uses last-week, like the report). The report header prints the bound command. --expect-events <n> and --expect-head <sha> pin the journal revision the report was rendered from; a moved journal is refused rather than resolved against the wrong rows.
 
@@ -1270,7 +1270,10 @@ function cmdReport(args: string[], ctx: Ctx): number {
     if (width < 40 || width > 240) throw new DomainError('--width must be an integer in [40,240]')
   }
   if (scope !== undefined && inline) throw new DomainError('--scope preserves the validated report shape and rejects --inline/--width')
-  if (scope !== undefined && format === 'md' && !statusTable) {
+  // Amendment D1 — one projection: `--scope` keeps the owner text report and
+  // JSON projection contract on every route (the withdrawn view's scoped
+  // Markdown went with that view).
+  if (scope !== undefined && format === 'md') {
     throw new DomainError('--scope currently supports the owner text report and JSON projection only')
   }
   // Every format is a deterministic read over the folded log. The default human view is

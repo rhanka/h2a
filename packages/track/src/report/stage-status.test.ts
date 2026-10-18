@@ -313,6 +313,25 @@ describe('legacy French stage values are read-compatible and rejected on write',
     }
   })
 
+  it('rejects invalid report assertions on write without touching the log', () => {
+    const id = item()
+    const before = store.readAll().length
+    const invalid = [
+      null,
+      [],
+      { status: 'purple' },
+      { stage: { value: 'merged' } },
+      { stage: { value: 'mergé' } },
+      { proposal: 2 },
+      { unknown: true },
+      { decisionExpectations: { question: 'Q' } },
+    ]
+    for (const report of invalid) {
+      expect(() => track.setReportStatus(id, report as never)).toThrow()
+    }
+    expect(store.readAll()).toHaveLength(before)
+  })
+
   it('new writes reject French stage values', () => {
     const id = item()
     for (const legacy of ['mergé', 'déployé', 'PR']) {

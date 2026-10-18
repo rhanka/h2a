@@ -46,6 +46,9 @@ const DEMANDS = {
 
 /** Same structure in every language: one demand promoted to one item, one answerable dossier. */
 function seed(request: string): { itemId: string; decisionId: string } {
+  // An (empty) WP root keeps the conductor forest non-empty so the served
+  // report carries the view; the item itself stays parentless (outside-wp).
+  track.createItem({ kind: 'chore', title: 'WP', workspace: 'ws', role: 'workpackage' })
   const demand = track.raiseDemand({
     type: 'feature', workspace: 'ws', raw: { text: request }, source: { kind: 'human' }, handler: 'h',
   })
@@ -79,39 +82,29 @@ function cli(args: string[]): { code: number; out: string; err: string } {
 
 describe('the deterministic layer is language-neutral', () => {
   it.each(['es', 'ja', 'ar'] as const)('identical structure in %s yields identical machine facts', (lang) => {
+    // Amendment D1 — the single validated report serves every language; the
+    // machine facts below are identical whatever the demand prose says.
     const { itemId, decisionId } = seed(DEMANDS[lang])
     const parsed = JSON.parse(
       cli(['report', '--status-table', '--commit', 'c1', '--format', 'json']).out,
     ) as {
-      statusTable: {
-        rows: Array<{
-          id: string
-          request: string
-          requestSource: string
-          stage: string
-          statusCode: string
-          dossierRefs: string[]
-          wpId?: string
-        }>
+      buckets: Record<string, Array<{ id: string; stage?: string; status?: string; wpId?: string }>>
+      view: {
+        handles: Array<{ handle: string; id: string }>
+        tables: Array<{ id: string; rows: Array<Record<string, string>> }>
       }
-      view: { handles: Array<{ handle: string; id: string }>; tables: Array<{ id: string }> }
     }
-    const row = parsed.statusTable.rows.find((candidate) => candidate.id === itemId)!
-    // The request text is the demand text verbatim; everything structural is identical.
-    expect(row.request).toBe(DEMANDS[lang])
-    expect(row).toMatchObject({
-      requestSource: 'demand',
-      stage: 'pr',
-      statusCode: 'decision-awaited',
-      dossierRefs: ['https://example.test/dossier/native'],
-    })
+    const rows = Object.values(parsed.buckets).flat()
+    const row = rows.find((candidate) => candidate.id === itemId)!
+    expect(row).toMatchObject({ stage: 'pr', status: 'decision-awaited' })
     // Attachment rides on ancestry, not language: no WP ancestor here, identically.
     expect(row.wpId).toBeUndefined()
     // Dossier matching uses original ids/data, never translations.
     expect(parsed.view.handles.some((handle) => handle.id === decisionId)).toBe(true)
-    // Lot 2 still serves the transitional DEMANDES tables (withdrawn in lot 4);
-    // what matters here is that every language yields the same set and order.
-    expect(parsed.view.tables.map((table) => table.id)).toEqual(['requests', 'decisions', 'recommendation'])
+    const decisions = parsed.view.tables.find((table) => table.id === 'decisions')!
+    expect(JSON.stringify(decisions)).toContain('Share ?')
+    // Same set and order in every language.
+    expect(parsed.view.tables.map((table) => table.id)).toEqual(['done', 'todo', 'decisions', 'recommendation'])
   })
 
   it('an unprepared language renders codes in the new surface with no closed enum', () => {
@@ -128,12 +121,16 @@ describe('the deterministic layer is language-neutral', () => {
     seed(DEMANDS.ja)
     const base = ['report', '--status-table', '--commit', 'c1', '--now', '2026-10-18T12:00:00.000Z', '--format', 'json']
     const fr = JSON.parse(cli(base).out) as {
-      statusTable: { rows: Array<Record<string, unknown>> }
+      buckets: Record<string, Array<Record<string, unknown>>>
       view: { handles: unknown; header: { period: unknown; progress: unknown } }
     }
     const ja = JSON.parse(cli([...base, '--lang', 'ja']).out) as typeof fr
-    expect(ja.statusTable.rows.map((row) => row['id'])).toEqual(fr.statusTable.rows.map((row) => row['id']))
-    expect(ja.statusTable.rows.map((row) => row['statusCode'])).toEqual(fr.statusTable.rows.map((row) => row['statusCode']))
+    const ids = (report: typeof fr): unknown[] =>
+      Object.values(report.buckets).flat().map((row) => row['id'])
+    const statuses = (report: typeof fr): unknown[] =>
+      Object.values(report.buckets).flat().map((row) => row['status'])
+    expect(ids(ja)).toEqual(ids(fr))
+    expect(statuses(ja)).toEqual(statuses(fr))
     expect(ja.view.handles).toEqual(fr.view.handles)
     expect(ja.view.header.period).toEqual(fr.view.header.period)
     expect(ja.view.header.progress).toEqual(fr.view.header.progress)
