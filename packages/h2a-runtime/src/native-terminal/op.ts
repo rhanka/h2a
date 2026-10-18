@@ -805,7 +805,7 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
     case "list": {
       const inventory = await inventoryFor(parsed);
       emit({ sessions: inventory.sessions, complete: inventory.complete,
-        hosts: inventory.hosts.map(({ socketPath, reason, absent }) => ({ socketPath, reachable: !absent && reason === undefined, ...(absent ? { absent } : {}), ...(reason ? { reason } : {}) })) });
+        hosts: inventory.hosts.map(({ client: _client, ...host }) => ({ ...host, reachable: !host.absent && host.reason === undefined })) });
       return 0;
     }
     case "state": {

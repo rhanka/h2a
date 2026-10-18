@@ -240,6 +240,9 @@ export async function runNativeTerminalOwnerProcess(argv: ReadonlyArray<string>)
       if (command === "abandon") {
         const blockingSessions = componentStatus().blockingSessions;
         if (blockingSessions > 0) return { status: "deferred", blockingSessions };
+        // Seal admission in this same synchronous turn as the empty decision.
+        // The asynchronous close and frontend broadcast are not a barrier.
+        draining = true;
         setImmediate(() => stop(undefined, false));
         return { status: "withdrawing", blockingSessions: 0 };
       }
@@ -356,6 +359,7 @@ export async function runNativeTerminalOwnerProcess(argv: ReadonlyArray<string>)
       }
       try {
         const request = decodeOwnerFrame(inner);
+        if (draining && request.operation === "create") throw new Error("terminal owner is draining: not accepting new sessions");
         const result = executeNativeTerminalHostRequest(host, context, request);
         sendFwd(conn, { kind: "response", connId, reqId, ok: true, result });
       } catch (error) {
