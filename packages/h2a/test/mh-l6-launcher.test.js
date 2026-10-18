@@ -11,6 +11,23 @@ const { buildManagedLauncher } = await import('../../../scripts/build-managed-la
   if (e.code !== 'ERR_MODULE_NOT_FOUND') throw e; return {};
 });
 const test = (name, fn) => { if (!process.env.MH_L6_CASE || name === process.env.MH_L6_CASE) nodeTest(name, fn); };
+// Deliver the Worker's real queued messages immediately before its real exit,
+// in the same turn. This preserves Node's message-before-exit contract while
+// exposing a listener registered too late, without fabricating either event.
+function flushWorkerMessagesAtExit(worker) {
+  const original = worker.emit, remove = worker.removeAllListeners, messages = [];
+  worker.emit = function (event, ...args) {
+    if (event === 'message') { messages.push(args); return true; }
+    return Reflect.apply(original, this, [event, ...args]);
+  };
+  worker.removeAllListeners = function (...args) {
+    // Node drains its public port immediately before removing these listeners,
+    // then emits exit in the same stack. Keep delivery before that teardown.
+    if (args[0] === 'message') for (const message of messages.splice(0))
+      Reflect.apply(original, this, ['message', ...message]);
+    return Reflect.apply(remove, this, args);
+  };
+}
 async function fixture(t, entrySource) {
   assert.equal(typeof buildManagedLauncher, 'function', 'standalone same-process launcher required');
   const f = installationFixture(); t.after(() => f.close());
@@ -167,12 +184,12 @@ else {
 });
 
 for (const method of ['spawn', 'fork', 'worker']) test('U12 should preserve verified internal execution through ' + method + ' with explicit child options', async t => {
-  const source = `import {spawnSync,fork} from 'node:child_process';import {Worker,isMainThread,parentPort} from 'node:worker_threads';
+  const source = `${flushWorkerMessagesAtExit}\nimport {spawnSync,fork} from 'node:child_process';import {Worker,isMainThread,parentPort} from 'node:worker_threads';
 if(process.argv.includes('--image-child')||!isMainThread){const c=globalThis[Symbol.for('sentropic.h2a.image-context/v1')];const result={verified:Boolean(c),root:c?.root,nodePath:process.env.NODE_PATH??null,pid:process.pid};if(!isMainThread)parentPort.postMessage(result);else process.stdout.write(JSON.stringify(result)+'\\n');}
 else{const method=process.argv[2];let result;
 if(method==='spawn'){const r=spawnSync(process.execPath,['--max-old-space-size=128','--',process.argv[1],'--image-child'],{encoding:'utf8'});if(r.status!==0)throw Error(r.stderr);result=JSON.parse(r.stdout);}
 if(method==='fork'){const c=fork(process.argv[1],['--image-child'],{silent:true,execArgv:[]});let out='',err='';c.stdout.on('data',b=>out+=b);c.stderr.on('data',b=>err+=b);const code=await new Promise((r,j)=>{c.on('error',j);c.on('close',r);});if(code!==0)throw Error(err);result=JSON.parse(out);}
-if(method==='worker'){const c=new Worker(new URL(import.meta.url),{execArgv:[]});result=await new Promise((r,j)=>{c.once('message',r);c.once('error',j);});await new Promise(r=>c.once('exit',r));}
+if(method==='worker'){const c=new Worker(new URL(import.meta.url),{execArgv:[]});flushWorkerMessagesAtExit(c);const exited=new Promise(r=>c.once('exit',r));result=await new Promise((r,j)=>{c.once('message',r);c.once('error',j);});if(await exited!==0)throw Error('worker_exit_failed');}
 process.stdout.write(JSON.stringify({result,parent:process.pid})+'\\n');}`;
   const f=await fixture(t,source), r=f.run([method]);
   assert.equal(r.status,0,r.stderr);assert.equal(r.json.result.verified,true);assert.equal(r.json.result.root,f.target.root);
@@ -226,6 +243,6 @@ if(process.argv.includes('--image-child'))process.stdout.write(JSON.stringify({e
 });
 
 test('U12 should preserve a guarded Worker when the launcher has a qualified memory option',async t=>{
-  const source=`import{Worker,isMainThread,parentPort,resourceLimits}from'node:worker_threads';if(isMainThread){const c=new Worker(new URL(import.meta.url));const result=await new Promise((r,j)=>{c.once('message',r);c.once('error',j);});await new Promise(r=>c.once('exit',r));process.stdout.write(JSON.stringify(result)+'\\n');}else parentPort.postMessage({verified:Boolean(globalThis[Symbol.for('sentropic.h2a.image-context/v1')]),limit:resourceLimits.maxOldGenerationSizeMb});`;
+  const source=`${flushWorkerMessagesAtExit}\nimport{Worker,isMainThread,parentPort,resourceLimits}from'node:worker_threads';if(isMainThread){const c=new Worker(new URL(import.meta.url));flushWorkerMessagesAtExit(c);const exited=new Promise(r=>c.once('exit',r));const result=await new Promise((r,j)=>{c.once('message',r);c.once('error',j);});if(await exited!==0)throw Error('worker_exit_failed');process.stdout.write(JSON.stringify(result)+'\\n');}else parentPort.postMessage({verified:Boolean(globalThis[Symbol.for('sentropic.h2a.image-context/v1')]),limit:resourceLimits.maxOldGenerationSizeMb});`;
   const f=await fixture(t,source),r=f.run([],{},['--max-old-space-size=128']);assert.equal(r.status,0,r.stderr);assert.equal(r.json.verified,true);assert.equal(r.json.limit,128);
 });
