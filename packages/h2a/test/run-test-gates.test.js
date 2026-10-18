@@ -32,6 +32,7 @@ import { configContractFailures } from '../../../scripts/test-config-contract.mj
 import { readInventory, inventoryFailures, verifyExecutionReport, readTrainRequirements } from '../../../scripts/test-execution-evidence.mjs'
 import { declarationFailures } from '../../../scripts/test-inventory.mjs'
 import { observeNodeTrackEntry } from './helpers/node-track-observation-lab.js'
+import { parse as parseYaml } from 'yaml'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(HERE, '..', '..', '..')
@@ -476,44 +477,88 @@ test('the real STEPS list invokes the exact production commands', () => {
   )
 })
 
-test('CI exposes an independent, stable npm-test-trust-root job', () => {
-  assert.match(CI_WORKFLOW, /^  pull_request:\n    branches: \[main\]$/m)
-  const job = workflowJobBlock(CI_WORKFLOW, 'npm-test-trust-root')
+function assertM17CiGraph(source) {
+  const jobs = parseYaml(source).jobs
+  assert.match(source, /^  pull_request:\n    branches: \[main\]$/m)
+  const job = workflowJobBlock(source, 'npm-test-trust-root')
 
   assert.match(job, /^    name: npm-test-trust-root$/m)
   assert.match(job, /uses: actions\/checkout@v4/)
   assert.match(job, /uses: actions\/setup-node@v4/)
   assert.match(job, /^          node-version: "22"$/m)
-  assert.doesNotMatch(job, /^    needs:/m, 'the trust root must not inherit another job verdict')
+  // A dependency verdict alone cannot replace independent execution evidence.
+  // The direct guard still runs outside the production runner; the complete
+  // same-run companion evidence is mandatory in its production invocation.
 
-  // R3 P1: every runner path creates/exports/cleans a private TMPDIR admitted
-  // by both confinement guards (restart-lab TMPDIR != /tmp, native-isolation
-  // $HOME/.cache-tmp/h2a-test/run-* qualification root) while keeping the
-  // confinement assertion; the production commands stay pinned exactly.
-  assert.match(job, /mktemp -d "\$HOME\/\.cache-tmp\/h2a-test\/run-XXXXXX"/);
-  assert.match(job, /H2A_TEST_QUALIFICATION_ROOT=\$DIR/);
-  assert.match(job, /GITHUB_ENV/);
-  assert.match(job, /Clean the disposable TMPDIR/);
-  // R5 P2: exact command comparison — a substring search lets
-  // `echo node scripts/run-test-gates.mjs` and the removal of `npm ci` /
-  // oracle install pass. The single-line `run:` steps are pinned in order;
-  // any inert prefix, dropped step or reordered entrypoint fails here.
-  const runs = [...job.matchAll(/^[ ]+(?:- )?run: ([^\n]+)$/gm)]
-    .map(match => match[1])
-    .filter(line => line !== '|');
+  const commands = [...job.matchAll(/^\s+(?:- )?run:\s*(.+)$/gm)].map((match) => match[1])
   assert.deepEqual(
-    runs,
+    commands,
     [
       'npm ci',
       'npm install --global @openai/codex@0.145.0 @anthropic-ai/claude-code@2.1.296',
       'node --test packages/h2a/test/run-test-gates.test.js',
-      'node scripts/ci-m17-temp.mjs setup',
+      'test "$M17_RESULT" = success',
       'node scripts/run-test-gates.mjs',
-      'node scripts/ci-m17-temp.mjs cleanup',
-      'if [ -n "${TMPDIR:-}" ]; then rm -rf "$TMPDIR"; fi',
     ],
-    'IDs and substrings alone are not evidence: replacing a production command with an inert echo, or dropping npm ci / oracle install, must fail',
-  );
+    'the dedicated job must verify the runner and then execute its real entrypoint',
+  )
+  for (const id of ['build-and-test', 'npm-test-trust-root']) {
+    const block = workflowJobBlock(source, id)
+    assert.deepEqual(jobs[id].needs, ['m17-qualification'])
+    assert.equal(jobs[id].if, '${{ always() }}')
+    const gates = jobs[id].steps.filter(step => step.name === 'Require both complete M17 qualifications')
+    assert.deepEqual(gates, [{ name: 'Require both complete M17 qualifications',
+      env: { M17_RESULT: '${{ needs.m17-qualification.result }}' }, run: 'test "$M17_RESULT" = success' }])
+    assert.match(block, /^    needs: \[m17-qualification\]$/m)
+    assert.match(block, /^    if: \$\{\{ always\(\) \}\}$/m,
+      'failed producers must yield FAILED required consumers, never skipped-green')
+    assert.match(block, /M17_RESULT: \$\{\{ needs\.m17-qualification\.result \}\}\n\s+run: test "\$M17_RESULT" = success/)
+    assert.doesNotMatch(block, /continue-on-error:|if:.*(?:success\(\)|!cancelled)/)
+    const node = id === 'build-and-test' ? '${{ matrix.node }}' : '22'
+    assert.ok(block.includes('name: m17-${{ github.run_id }}-${{ github.run_attempt }}-node' + node))
+    assert.match(block, /uses: actions\/download-artifact@v4/)
+    assert.match(block, /path: tmp\/m17-import/)
+    assert.match(block, /H2A_TEST_CI_M17_REPORT: \$\{\{ github.workspace \}\}\/tmp\/m17-import\/proof.json/)
+  }
+  const producer = workflowJobBlock(source, 'm17-qualification')
+  for (const step of jobs['m17-qualification'].steps) {
+    if (step.name === 'Remove the private M17 data volume') continue
+    assert.equal(step.if, undefined, 'producer preparation, run, seal and upload must use success()')
+    assert.equal(step['continue-on-error'], undefined)
+  }
+  assert.match(producer, /^    timeout-minutes: 25$/m)
+  assert.match(producer, /node: \["22", "24"\]/)
+  assert.doesNotMatch(producer, /continue-on-error:/)
+  assert.deepEqual([...producer.matchAll(/^\s+(?:- )?run:\s*(.+)$/gm)].map(match => match[1]), [
+    'npm ci', 'npm run build', 'node scripts/ci-m17-temp.mjs setup', 'node scripts/ci-m17-proof.mjs run',
+    'node scripts/ci-m17-temp.mjs cleanup', 'node scripts/ci-m17-proof.mjs finalize',
+  ])
+  assert.match(producer, /- name: Remove the private M17 data volume\n\s+if: \$\{\{ always\(\) && env\.H2A_TEST_M17_TMPDIR != '' \}\}\n\s+run: node scripts\/ci-m17-temp\.mjs cleanup/)
+  const upload = producer.slice(producer.indexOf('      - uses: actions/upload-artifact@v4'))
+  assert.ok(upload.startsWith('      - uses: actions/upload-artifact@v4'))
+  assert.doesNotMatch(upload, /\bif:/, 'acceptance artifact upload uses default success(), never always()')
+  assert.match(upload, /name: m17-\$\{\{ github.run_id \}\}-\$\{\{ github.run_attempt \}\}-node\$\{\{ matrix.node \}\}/)
+  assert.match(upload, /path: tmp\/m17-export\/proof.json/)
+  assert.match(upload, /if-no-files-found: error/)
+}
+test('CI exposes an independent, stable npm-test-trust-root job with a closed M17 companion proof', () => {
+  assertM17CiGraph(CI_WORKFLOW)
+})
+test('CI companion negative controls reject skipped-green dependencies and stale or optional evidence', () => {
+  for (const [before, after] of [
+    ['    if: ${{ always() }}', '    if: ${{ success() }}'],
+    ['needs: [m17-qualification]', 'needs: []'],
+    ['run: test "$M17_RESULT" = success', 'run: true'],
+    ['needs.m17-qualification.result', 'needs.m17-qualification.outputs.optional'],
+    ['m17-${{ github.run_id }}-${{ github.run_attempt }}-node', 'm17-last-success-node'],
+    ['H2A_TEST_CI_M17_REPORT:', 'OPTIONAL_M17_REPORT:'],
+    ['if-no-files-found: error', 'if-no-files-found: warn'],
+    ['      - name: Require both complete M17 qualifications\n', '      - name: Require both complete M17 qualifications\n        if: false\n'],
+    ['      - uses: actions/upload-artifact@v4', '      - if: ${{ always() }}\n        uses: actions/upload-artifact@v4'],
+  ]) {
+    assert.ok(CI_WORKFLOW.includes(before))
+    assert.throws(() => assertM17CiGraph(CI_WORKFLOW.replace(before, after)), before)
+  }
 })
 
 test('the runner test is not discovered through the runner it verifies', () => {
