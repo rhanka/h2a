@@ -1,24 +1,48 @@
 {
+  "increment": "H1",
+  "formats": [
+    1,
+    2
+  ],
+  "capabilities": [
+    "embedded-offline",
+    "evidence-citations",
+    "evidence-search",
+    "evidence-download",
+    "evidence-annexes"
+  ],
+  "rendererVersion": "0.98.7",
+  "validatorVersion": "0.5.0",
   "sources": {
     "package.json": "9eab064b6c127c2ffcf8ca134367d26a36447ffa7c240ee74abd5c1caa10342a",
     "package-lock.json": "9086066f9ed787cfe507c821a7e0182437619e61ad4da3388eb80e994ca7b822",
     "dossier.template.json": "628fd48769dc1426a6a6f860d1ad28c59db9a3dbda6f2a0c612978b8cfa81412",
     "ecosystem.json": "f28ebf603131cbb0388dfb04f09db4991110af5e40c18873056aad9bd974f2df",
-    "../../../scripts/build-focus-dossier.mjs": "ebf21d18cb5f3a98868eda46b30a503dfc3b14c63ad29d7d01979bed2f3f8885",
+    "dossier.evidence.template.json": "644ea4d5a2bcc1994223569ae6836cc190a7c668b9fda91f5ab780205fa8892d",
+    "../../focus/schemas/decision-dossier-document.v2.schema.json": "7c6fd7c889b8553d7ba96d1e54e2de377c1efdbea30d39ed377cd60f5176ed86",
+    "../../focus/src/validation/evidence-bytes.ts": "eb3ce3007c91f5b5f0e9d1b9c9dae9d3d3fc68a3b5ec9f1b95448cd76a441f3b",
+    "../../focus/src/validation/evidence-shape.ts": "31bef44120c835e595bc9c15229f94bf157c71081fdf992b0659a33a775e7cc4",
+    "../../focus/src/validation/evidence-sources.ts": "cc8cdc3cfe4ea24680db853bf3e0fe102e247f17a37a2d7805bb42fbaf785812",
+    "../../focus/src/validation/evidence.ts": "4ed0466516ff36fa237fefcd93a3d3612b34da512ecd8d0761571991646c69ab",
+    "../../focus/src/render/evidence.ts": "364dcc44b62f6ad92472ec7ccc162b2f950099b4d40e594f5f74dc6be589f361",
+    "../../../scripts/build-focus-dossier.mjs": "8fb86e7b75d9f5c78420022ff11eef8ecaf30a3d10770ac96d59dea9c7bd83e5",
     "../../focus/schemas/decision-dossier-document.v1.schema.json": "725bc07e7c6b6ad51a1f720cc9fb02649d8f31bc54e71c61c350fd20058c8852",
-    "../../focus/src/validation/index.ts": "d398ec6798e266daef8c5a5a494352131ae7a606af6c060cb49aa8eb1b4e7427",
-    "../../focus/src/validation/readability.ts": "aee8cc558aa53b6d3e3ab73a45c49621b54b5271115cc613281bd0dd09eec482",
-    "../../focus/src/model.ts": "a641b2c8736c998a10d54706dfcd5b6e078c47bf1d51b8c5d02cd9f8b3e1b568",
+    "../../focus/src/validation/index.ts": "5e3eb64cae95ae2e1e0c032b99a85aa375ba4ba0a3e439b316b580a654d39ed0",
+    "../../focus/src/validation/readability.ts": "9dd84820ea083ad05743d3e471694ba15068135b6d9cad41f05d0abe94ed8f08",
+    "../../focus/src/model.ts": "fa94553d28a1d53875a5ae2cc594cbe4aa90f36337323e49e35aad7a45e2d599",
     "../../focus/src/render/presentation.ts": "dddcfef2ba184a4b386a59e2bb8ff300a76a729cf529fee251ceeb8ff3227372",
     "../../focus/LICENSE": "cbed2af93b9617fadad7651b98326b96a789a6059126966459230d89742f6c0d",
-    "src/App.svelte": "8b71b6c562b14c0cff982c15d404c5e4d2654a6cc5905b89c9b9c099ea54a447",
+    "src/App.svelte": "da7daeab415eede23e9121dc4724db79bf9e8701c3eea3993f5b76baf61731e9",
     "src/Canvas.svelte": "4cdc0b74d72ac483eb4717dba6de375efc444509c52e1167d97a573c3247df7d",
     "src/EcosystemNode.svelte": "360e822fb4c3f7ff0686c7e973dd4052d06a25a9d1ea9c49c2f979c99adf3774",
+    "src/Evidence.svelte": "7eb2d9bde15a8b10646b34c4769ff89be70c2be87eba0b0bd665812f060b0fe4",
+    "src/SourceViewer.svelte": "e04bb21144b9a6d0d91c31315c9b7a9c5f2989b2f3d2a7c48da27b6b5d895d9b",
+    "src/evidence-search.js": "ba531b0680e85c2fcac108de34ccce8d1638bf3a89650804fd716cda9e31f2ff",
     "src/interim-nodes.js": "789e144c2f1e6ca1468c9bd5bca570c59439dc3beffd53de6d22fd79ec8eaca3",
     "src/main.js": "063a974c2976843388d221e6a539f229a16426f34dc298ab1f2a9e6f2cb2542a",
-    "src/style.css": "28dd36cf22b0457f9c78c0bedaa4551a88f280f8b9d0e3e2f656c48ff99dcf16",
+    "src/style.css": "cbb2c0d869863249740e210830196449789cdd19fc1285163713445b736366c5",
     "src/themes.js": "d11b2016ea27678bfa2a35986389c189147cc86a1bb99de41d3f454e79d50caf"
   },
-  "html": "819d88d2c51e627c4c0bab3ee39274cbc39ec5befef728a0c1d61639557378c5",
-  "validator": "e0e0f0e71f35c404c2726a177ac9dd6de7d8365ff6252f0f27f3e2f198af489f"
+  "html": "8b1d84cad97fdb89b92e68007c70fe94b19a447c4765d552d1a5ae327fa9b63c",
+  "validator": "c5b3afcebd966458c3721842d4dbacbff4605206bb5296b593d0d160efad2ea4"
 }
