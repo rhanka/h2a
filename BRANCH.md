@@ -31,10 +31,34 @@ Source: revptyams-last.md
 ## Work and evidence
 
 - [x] Amendments recorded before the fixture/B5 changes; original spec remains unchanged.
-- [ ] B4 complete file gates, raw keepalive non-test count visible.
-- [ ] Reopened B2 inventory fixture: full RED/green with isolated historical build.
+- [x] B4 complete file gates, raw keepalive non-test count visible.
+- [x] Reopened B2 inventory fixture: full RED/green with isolated historical build.
 - [ ] B5: legacy drain, Bash/readline, scripted real attach; enrolled real CLI list requested from conductor.
 - [ ] Linux Node 22/24 + trust-root CI and macOS ARM64 Node 22/24 outcomes.
+
+## Continuation evidence
+
+- B4 builds: `rtk npm run build -w @sentropic/h2a-runtime` and `rtk npm run build -w @sentropic/h2a`, exit 0; logs `tmp/pty-b4-build-{runtime,cli}.log`.
+- B4 installed-artifact RED: four complete-file failures (58 tests: 54 pass, 4 fail, 0 skip), missing CLI facade dependency in the disposable candidate. The qualification now packs and installs the actual built runtime/CLI/Track tarballs in one temporary prefix, attesting all versions. Intermediate ETARGET for unreleased Track was a failed setup, never a green gate.
+- B4 after that repair, also after B5 supervisor changes: `rtk node tmp/pty-run.mjs node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=4 packages/h2a-runtime/src/native-terminal/upgrade-pty-contract.test.ts packages/h2a-runtime/src/native-terminal/upgrade.functional.test.ts packages/h2a-runtime/src/native-terminal/journal.test.ts packages/h2a-runtime/src/native-terminal/supervisor.test.ts`: 4 files, 58 pass, 0 fail, 0 skip, exit 0 (`tmp/pty-b4-post-b5.log`).
+- Node B4: `rtk node tmp/pty-run.mjs node --test packages/h2a/test/upgrade.test.js packages/h2a/test/upgrade-swap.test.js packages/h2a/test/upgrade-boot-worker.test.js packages/h2a/test/cli-contract.test.js`: 167 tests, 166 pass, 0 fail, 0 cancelled, 1 skip (the exact approved keepalive non-test), 0 TODO, exit 0 (`tmp/pty-b4-post-b5-node.log`).
+- Inventory root: all three original Linux CI jobs run the same failing fixture. Its missing owner exit receipt and incomplete teardown produce suite errors, followed by execution-proof refusals. No trust-root, inventory allowlist or ci.yml change is proposed.
+- Inventory RED on af46490d8: full file, isolated historical build `89bbd9af1033153b6654c272e126d91e0fa42683^`, 37 tests, 23 pass, 14 fail, 0 skip, exit 1 (`tmp/pty-inventory-red-clean.log`). This short-root diagnostic additionally exposes two MCP workspace refusals under /tmp. A second baseline resolves imports from the original file directory and uses the ordinary repo .q fixture root, so MCP's durable-workspace refusal is preserved without changing its assertions.
+- Inotify allocation fails with EMFILE in this environment; the original watcher is emulated by a polling-only temporary preload for baseline observation. Product and isolation helper stay untouched. The first mixed build/test diagnostic is invalid and is not used as RED evidence. Final fixture observation polls receipts directly; its deadline follows B2's 10-second frontend-channel close plus bounded journal flush.
+- Failed baseline campaigns left private descendants. They were stopped only from their recorded private proc receipts and verified pinned identities, never by a process-name pattern. Final fixture cleanup uses the unchanged helper in a finally block, including on assertion failure.
+- B5 initial legacy RED: 4 fail, 0 pass, 0 skip, exit 1 (`tmp/pty-b5-legacy-red.log`); after implementation 22/22 with fleet/op unit suites, zero skips. A further pinned ensure-host regression: 1 fail, 3 pass, 0 skip (`tmp/pty-b5-pinned-red.log`), then fixed for both explicit and selected endpoints.
+- B5 Bash/readline and the three scripted D21 cuts already pass on the B4 base (4 pass). The scripted qualification exchanges 32 numbered inputs per cut through real attach and preserves actual CLI/owner births. With no enrolled real CLI, the fifth case FAILS explicitly; it is never skipped or counted green (`tmp/pty-b5-agent-red.log`). The conductor's enrollment list/configuration has been requested; Phase B qualification cannot be claimed until supplied.
+- Inventory of v1 pre-B fused hosts exposes loadedVersion=unknown because those hosts never advertised their build; the observer never substitutes its own version. B owners/frontend versions are reported from their actual handshake.
+- No Phase L, PTY transfer, guardian-v2 backend, second standing owner, or real-state access. No full local suite. Full CI remains the conductor/integration lane.
+
+## Final inventory proof before rebase
+
+- Baseline af46490d8 complete file in the repository temporary fixture root: `rtk env H2A_TEST_REQUIRE_LEGACY_HOST=1 node --input-type=module` launches `node --import ./tmp/pty-watch-fallback.mjs --test --test-force-exit tmp/pty-inventory-baseline.test.mjs` with the historical build; original assertions/code, only import paths and repo constant resolved from the original directory. Output: 37 tests, 23 pass, 14 fail, 0 cancelled, 0 skip, 0 TODO, exit 1 (`tmp/pty-inventory-red-reporoot.log`).
+- A complete intermediate run exposed a disappeared-descendant proc-open race during cleanup: 36 pass, 1 fail, 0 skip. Retry is limited to ENOENT/ESRCH while pinning; all other failures remain errors and the helper still requires every private writer gone.
+- Final command: `rtk node tmp/pty-run.mjs node --test packages/h2a/test/native-inventory-absence.test.js`. Output: 37 tests, 37 pass, 0 fail, 0 cancelled, 0 skip, 0 TODO, exit 0, 358700.255211ms (`tmp/pty-inventory-final2.log`). No force-exit or polling preload in this green command.
+- The fixture now observes owner-process.js as well as explicit historical process.js; closes its clients, ends only sessions on its own endpoints, observes actual owner exit within B2's shutdown bound, and always reaps its private descendants through the unchanged isolation helper. All historical scenarios and inventory/identity/refusal assertions are unchanged.
+- B5's complete four-file Linux run: 27 pass, 1 fail, 0 skip, exit 1; the sole failure explicitly reports no conductor-enrolled real CLI (`tmp/pty-b5-gate.log`). The added routing regression and explicit-socket admission checks pass. B5 implementation/qualification remains pending, never claimed complete.
+- origin/main advanced to 7ebbcf266 (#374) during qualification. Rebase required before push; no PTY file overlaps in the new base. Dedicated macOS CI stays the BM/B3/B4 gate until the B5 enrollment is available.
 
 # Inherited branch notes
 
