@@ -4,6 +4,7 @@ import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, read
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { buildNativePrototype } from './mh-l0-native-prototype.mjs';
 import { createManifest } from '../packages/h2a/src/runtime/handover/image.js';
 import { digest } from '../packages/h2a/src/runtime/handover/wire.js';
@@ -45,6 +46,10 @@ export async function buildReleasePayload(root, { buildId, managedRoot, version 
   if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version) || !['@sentropic/h2a', '@sentropic/h2a-runtime'].includes(packageName)) {
     throw new Error('release_identity_invalid');
   }
+  // Closed snapshots remove workspace lifecycle scripts. Preserve main's
+  // portable-dossier prepack check before any payload tree is constructed.
+  execFileSync(process.execPath, [join(repo, 'scripts/build-focus-dossier.mjs'), '--check'],
+    { cwd: repo, encoding: 'utf8', timeout: 30000 });
   const { errors } = validateFocusArtifact();
   if (errors.length) throw new Error('release_focus_artifact_invalid:' + errors.join(';'));
   if (json(join(repo, 'packages/h2a/package.json')).version !== json(join(repo, 'packages/h2a-runtime/package.json')).version) {
