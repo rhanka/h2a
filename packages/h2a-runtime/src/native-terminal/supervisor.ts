@@ -3,6 +3,9 @@ import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { requestNativeTerminalOwnerControl } from "./owner-protocol.js";
+import { knownNativeTerminalSocketPaths } from "./socket-path.js";
+import { proveNativeTerminalEndpointAbsent } from "./server.js";
 
 import { NativeTerminalClient } from "./client.js";
 import { HOST_FAULT_COUNTERS, recordHostFault } from "./fault-counters.js";
@@ -67,6 +70,59 @@ export class NativeTerminalContainmentError extends Error {
     this.outcomeStatus = details.outcomeStatus;
     this.refusalCause = details.refusalCause;
   }
+}
+
+/** Upgrade inventory never ensures a host: absence is proved, unknown defers. */
+export async function inspectNativeTerminalFrontendUpgrade(): Promise<{
+  state: "active" | "absent" | "deferred";
+  owners: Array<{ socketPath: string; ownerPid: number; status: any }>;
+  components: any[];
+  legacyHosts: Array<{ socketPath: string; hostPid: number }>;
+  reason?: string;
+}> {
+  const owners: Array<{ socketPath: string; ownerPid: number; status: any }> = [], components: any[] = [];
+  const legacyHosts: Array<{ socketPath: string; hostPid: number }> = [];
+  let reason: string | undefined;
+  for (const socketPath of knownNativeTerminalSocketPaths()) {
+    let client: NativeTerminalClient | undefined;
+    try {
+      client = await NativeTerminalClient.connect(socketPath);
+      const ping = await client.ping();
+      if (!(ping as any).owner) {
+        legacyHosts.push({ socketPath, hostPid: ping.hostPid });
+        continue;
+      }
+      const status = await requestNativeTerminalOwnerControl(socketPath, ping.hostPid, "status");
+      owners.push({ socketPath, ownerPid: ping.hostPid, status });
+      components.push(...status.components);
+    } catch (error) {
+      try { if (await proveNativeTerminalEndpointAbsent(socketPath, error)) continue; } catch { /* unknown */ }
+      reason = error instanceof Error ? error.message : String(error);
+    } finally { client?.close(); }
+  }
+  return { state: reason ? "deferred" : owners.length || legacyHosts.length ? "active" : "absent", owners, components, legacyHosts,
+    ...(reason ? { reason } : {}) };
+}
+
+/** Called by both upgrade entry points through performAutoUpgrade. */
+export async function switchNativeTerminalUpgradeFrontends(plan: Awaited<ReturnType<typeof inspectNativeTerminalFrontendUpgrade>>,
+  frontendModule: string, rollbackModule: string): Promise<{ status: "switched" | "deferred" | "absent"; components: unknown[]; owners: unknown[] }> {
+  if (plan.state === "absent") return { status: "absent", components: [], owners: [] };
+  if (plan.state !== "active") return { status: "deferred", components: plan.components, owners: plan.owners };
+  const owners = [];
+  let deferred = plan.legacyHosts.length > 0;
+  for (const owner of plan.owners) {
+    try {
+      const result = await requestNativeTerminalOwnerControl(owner.socketPath, owner.ownerPid, "replace-frontend", { frontendModule, rollbackModule });
+      if (result.status !== "switched") deferred = true;
+      owners.push({ socketPath: owner.socketPath, ...result });
+    } catch (error) {
+      deferred = true;
+      owners.push({ socketPath: owner.socketPath, status: "deferred", reason: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  for (const legacy of plan.legacyHosts) owners.push({ socketPath: legacy.socketPath, status: "deferred", owner: { pid: legacy.hostPid, version: "unknown" }, reason: "legacy fused host drains in place" });
+  return { status: deferred ? "deferred" : "switched", components: plan.components, owners };
 }
 
 /**

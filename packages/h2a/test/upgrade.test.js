@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
+import { setupNativeTestEnvironment } from "./helpers/native-isolation.js";
+setupNativeTestEnvironment(after);
 
 import {
   cmdUpgrade,
@@ -631,4 +633,36 @@ test("isQuietUpgradeOutcome: only benign no-op skips are quiet; M-2 and R2 stale
   for (const loud of ["upgraded", "failed", "deferred-propagation", "blocked-undecidable", "skipped-locked-stale"]) {
     assert.equal(isQuietUpgradeOutcome(loud), false, `${loud} must surface at boot`);
   }
+});
+
+
+test('should take the same PTY-safe path for manual upgrade and boot auto-upgrade', () => {
+  const prefix=mkdtempSync(join(tmpdir(),'pty-common-'));
+  try {
+    for (const entry of ['manual','boot-core']) {
+      let prepared=0;
+      const {runtime,calls}=stagedFake({prefix,runtime:{preparePtyUpgrade:()=>{prepared++;return {state:'deferred',owners:[],components:[],reason:'unknown PTY ownership'};}}});
+      if(entry==='manual') {
+        let output=''; const rc=cmdUpgrade({'skip-hosts':'true'},{stdout:{write:c=>{output+=c;}},stderr:{write(){}}},runtime);
+        assert.equal(rc,1);assert.equal(JSON.parse(output).outcome,'pty-deferred');
+      } else {
+        const result=performAutoUpgrade(CUR,{runtime,prefix});
+        assert.equal(result.outcome,'pty-deferred');
+        assert.equal(result.pty.status,'deferred');
+      }
+      assert.equal(prepared,1,entry+' uses the common PTY preparation step');
+      assert.equal(calls.swap,0,'unknown ownership defers the swap before mutation');
+    }
+  } finally {rmSync(prefix,{recursive:true,force:true});}
+});
+
+
+test('should leave ordinary upgrades available on platforms without a Phase B PTY substrate', () => {
+  const descriptor=Object.getOwnPropertyDescriptor(process,'platform'),prefix=mkdtempSync(join(tmpdir(),'pty-unsupported-'));
+  try {
+    Object.defineProperty(process,'platform',{value:'win32'});
+    const result=defaultUpgradeRuntime.preparePtyUpgrade(prefix);
+    assert.equal(result.state,'unsupported');assert.deepEqual(result.owners,[]);
+    assert.match(result.reason,/unsupported/);
+  } finally {Object.defineProperty(process,'platform',descriptor);rmSync(prefix,{recursive:true,force:true});}
 });

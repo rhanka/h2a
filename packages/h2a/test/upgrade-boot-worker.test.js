@@ -12,7 +12,9 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
+import { setupNativeTestEnvironment } from "./helpers/native-isolation.js";
+setupNativeTestEnvironment(after);
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { MCP_UPGRADE_WORKER_SOURCE } from "../dist/index.js";
@@ -91,4 +93,11 @@ test("boot worker: a missing isQuietUpgradeOutcome fails OPEN (message shown, al
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+
+test('boot worker should never hide a PTY deferral in its quiet outcome set', () => {
+  const root=mkdtempSync(join(tmpdir(),'pty-boot-'));
+  try {const r=runWorker(stubModule('pty-deferred'),'auto',root);assert.equal(r.status,0,r.stderr);assert.match(r.stderr,/worker-test-pty-deferred/);}
+  finally {rmSync(root,{recursive:true,force:true});}
 });

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { unlinkSync } from "node:fs";
+import { statSync, unlinkSync } from "node:fs";
 import { connect, createServer, type Server, type Socket } from "node:net";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -83,7 +83,7 @@ function encodeFwdFrame(message: Record<string, unknown>): string {
   return frame;
 }
 
-type FwdConnectionRole = "frontend" | "keeper";
+type FwdConnectionRole = "frontend" | "keeper" | "control";
 
 type FwdConnection = {
   socket: Socket;
@@ -92,6 +92,7 @@ type FwdConnection = {
   peerPid: number | undefined;
   /** Owner-side lease contexts, one per client connection of this peer. */
   contexts: Map<string, NativeTerminalLeaseContext>;
+  component?: Record<string, unknown>;
 };
 
 function forwardSocketPath(publicSocketPath: string): string {
@@ -200,6 +201,11 @@ export async function runNativeTerminalOwnerProcess(argv: ReadonlyArray<string>)
     let frontendSpawnChild: ChildProcess | undefined;
     const spawnAttempts: number[] = [];
     const fwdConns = new Set<FwdConnection>();
+    const ownerCodeStat = statSync(codePath);
+    const ownerComponent = { pid: process.pid, startTime, version: getRuntimeVersion(), codePath,
+      codeIdentity: { dev: ownerCodeStat.dev, ino: ownerCodeStat.ino } };
+    let upgradeState: "idle" | "switching" = "idle";
+    let pendingFrontend: { token: string; resolve(conn: FwdConnection | undefined): void } | undefined;
 
     const frontends = (): FwdConnection[] => [...fwdConns].filter((conn) => conn.role === "frontend");
     const keepers = (): FwdConnection[] => [...fwdConns].filter((conn) => conn.role === "keeper");
@@ -210,6 +216,49 @@ export async function runNativeTerminalOwnerProcess(argv: ReadonlyArray<string>)
       } catch {
         try { conn.socket.destroy(); } catch { /* already gone */ }
       }
+    };
+
+    const componentStatus = () => ({ ownerProtocolVersion: OWNER_PROTOCOL_VERSION, owner: ownerComponent,
+      frontend: frontends().at(-1)?.component ?? null, components: [ownerComponent, ...[...fwdConns].flatMap(conn => conn.component ? [conn.component] : [])],
+      upgradeState, draining, blockingSessions: host.list().filter(session => session.status !== "exited").length });
+    const tryFrontend = (frontendModule: string): Promise<FwdConnection | undefined> => new Promise(resolve => {
+      if (!isAbsolute(frontendModule) || keepers().length === 0) return resolve(undefined);
+      try { if (!statSync(frontendModule).isFile()) return resolve(undefined); } catch { return resolve(undefined); }
+      const token = randomUUID();
+      const finish = (conn: FwdConnection | undefined) => {
+        clearTimeout(timeout);
+        if (pendingFrontend?.token === token) pendingFrontend = undefined;
+        if (!conn) for (const keeper of keepers()) sendFwd(keeper, { kind: "cancel-frontend", upgradeToken: token });
+        resolve(conn);
+      };
+      const timeout = setTimeout(() => finish(undefined), 5000);
+      pendingFrontend = { token, resolve: finish };
+      sendFwd(keepers()[0]!, { kind: "spawn-frontend", frontendModule, upgradeToken: token });
+    });
+    const control = async (command: unknown, params: Record<string, unknown>): Promise<unknown> => {
+      if (command === "status") return componentStatus();
+      if (command === "abandon") {
+        const blockingSessions = componentStatus().blockingSessions;
+        if (blockingSessions > 0) return { status: "deferred", blockingSessions };
+        setImmediate(() => stop(undefined, false));
+        return { status: "withdrawing", blockingSessions: 0 };
+      }
+      if (command === "replace-frontend") {
+        if (upgradeState !== "idle" || draining || shutdown !== undefined) return { status: "deferred", reason: "owner busy or draining", ...componentStatus() };
+        if (typeof params.frontendModule !== "string" || typeof params.rollbackModule !== "string") throw new TypeError("frontend upgrade requires candidate and retained rollback modules");
+        upgradeState = "switching";
+        const previous = frontends();
+        try {
+          const candidate = await tryFrontend(params.frontendModule);
+          const selected = candidate ?? await tryFrontend(params.rollbackModule);
+          if (selected === undefined) return { status: "deferred", reason: "frontend handshake and rollback failed", ...componentStatus() };
+          const module = candidate ? params.frontendModule : params.rollbackModule;
+          for (const keeper of keepers()) sendFwd(keeper, { kind: "select-frontend-module", frontendModule: module });
+          for (const old of previous) if (old !== selected) sendFwd(old, { kind: "retire" });
+          return { ...componentStatus(), status: candidate ? "switched" : "rolled-back", frontend: selected.component };
+        } finally { upgradeState = "idle"; }
+      }
+      throw new TypeError("unknown owner control command");
     };
 
     const releaseConnContexts = (conn: FwdConnection): void => {
@@ -235,12 +284,19 @@ export async function runNativeTerminalOwnerProcess(argv: ReadonlyArray<string>)
 
     const onFwdFrame = (conn: FwdConnection, frame: Record<string, unknown>): void => {
       if (conn.role === undefined) {
-        if (frame.kind !== "hello" || (frame.role !== "frontend" && frame.role !== "keeper")) {
+        if (frame.kind !== "hello" || (frame.role !== "frontend" && frame.role !== "keeper" && frame.role !== "control") ||
+            (frame.ownerProtocolVersion !== undefined && frame.ownerProtocolVersion !== OWNER_PROTOCOL_VERSION)) {
           writeHostLogLine("terminal owner forward channel violated hello order; closing");
           try { conn.socket.destroy(); } catch { /* already gone */ }
           return;
         }
         conn.role = frame.role;
+        if (conn.role !== "control") conn.component = {
+          pid: frame.frontendPid ?? frame.keeperPid,
+          version: frame.frontendVersion ?? frame.keeperVersion ?? "unknown",
+          codePath: frame.frontendCodePath ?? frame.keeperCodePath ?? "unknown",
+          codeIdentity: frame.codeIdentity ?? null,
+        };
         conn.peerPid = typeof frame.frontendPid === "number"
           ? frame.frontendPid
           : typeof frame.keeperPid === "number"
@@ -256,13 +312,25 @@ export async function runNativeTerminalOwnerProcess(argv: ReadonlyArray<string>)
             startupResolve();
             startupResolve = undefined;
           }
+          if (typeof frame.upgradeToken === "string" && pendingFrontend?.token === frame.upgradeToken) pendingFrontend.resolve(conn);
         }
         if (startupResolve !== undefined && frontends().length > 0 && keepers().length > 0) {
           startupResolve(); startupResolve = undefined;
         }
         return;
       }
-      if (conn.role === "keeper") return;
+      if (conn.role === "keeper") {
+        if (frame.kind === "frontend-spawn-failed" && frame.upgradeToken === pendingFrontend?.token) pendingFrontend?.resolve(undefined);
+        return;
+      }
+      if (conn.role === "control") {
+        if (frame.kind !== "control") return;
+        void control(frame.command, isRecord(frame.params) ? frame.params : {}).then(
+          result => sendFwd(conn, { kind: "control-result", ok: true, result }),
+          error => sendFwd(conn, { kind: "control-result", ok: false, message: boundedMessage(error) }),
+        );
+        return;
+      }
       if (frame.kind === "closed") {
         const connId = frame.connId;
         if (typeof connId === "string") {
@@ -442,8 +510,8 @@ export async function runNativeTerminalOwnerProcess(argv: ReadonlyArray<string>)
     if (startupRaced === "timeout" && startupResolve !== undefined) {
       throw new Error("terminal owner started no frontend in time");
     }
-
     const endpointIdentity = await inspectPrivateNativeTerminalSocket(options.socketPath);
+
     process.stdout.write(`${JSON.stringify({
       kind: "h2a.native-terminal.ready",
       version: 1,
@@ -463,8 +531,10 @@ export async function runNativeTerminalOwnerProcess(argv: ReadonlyArray<string>)
         else fallbackBindFrontend();
         return;
       }
-      writeHostLogLine("terminal owner has no frontend; stopping sessions and exiting");
-      void stop("frontend-absent", true);
+      // Frontend availability is repairable independently of PTY lifetime.
+      // Exhausted/rejected frontends defer service; they never kill sessions.
+      if (keepers().length > 0) orderKeeperSpawn();
+      else fallbackBindFrontend();
     }, 1_000);
     absenceWatch.unref?.();
 
@@ -605,6 +675,7 @@ export async function runNativeTerminalKeeper(argv: ReadonlyArray<string>): Prom
   let channel: Socket | undefined;
   let buffer = "";
   let frontend: ChildProcess | undefined;
+  const upgradeChildren = new Map<string, ChildProcess>();
   let stopping = false;
 
   const exit = (code: number): void => {
@@ -613,26 +684,32 @@ export async function runNativeTerminalKeeper(argv: ReadonlyArray<string>): Prom
     process.exit(code);
   };
 
-  const spawnFrontend = (): void => {
-    if (stopping || frontend !== undefined) return;
+  const spawnFrontend = (frontendModule = args.frontendModule, upgradeToken?: string): void => {
+    if (stopping || (upgradeToken === undefined && frontend !== undefined)) return;
     const child = spawn(process.execPath, [
-      args.frontendModule,
+      frontendModule,
       "--listen-fd",
       "3",
       "--owner-socket",
       args.ownerSocket,
+      ...(upgradeToken === undefined ? [] : ["--upgrade-token", upgradeToken]),
     ], {
-      cwd: dirname(args.frontendModule),
+      cwd: dirname(frontendModule),
       env: process.env,
       stdio: ["ignore", "ignore", "inherit", 3],
     });
     frontend = child;
+    if (upgradeToken !== undefined) upgradeChildren.set(upgradeToken, child);
     child.on("error", (error) => {
       writeHostLogLine(`terminal keeper failed to spawn frontend: ${String(error)}`);
       frontend = undefined;
-      channel?.write(encodeFwdFrame({ kind: "frontend-spawn-failed", message: boundedMessage(error) }));
+      channel?.write(encodeFwdFrame({ kind: "frontend-spawn-failed", upgradeToken, message: boundedMessage(error) }));
     });
     child.on("exit", (code, signal) => {
+      if (upgradeToken !== undefined) {
+        upgradeChildren.delete(upgradeToken);
+        channel?.write(encodeFwdFrame({ kind: "frontend-spawn-failed", upgradeToken, message: `frontend exited ${code ?? signal}` }));
+      }
       if (frontend !== child) return;
       frontend = undefined;
       if (stopping) return;
@@ -694,12 +771,22 @@ export async function runNativeTerminalKeeper(argv: ReadonlyArray<string>): Prom
         return;
       }
       if (frame.kind === "spawn-frontend") {
-        spawnFrontend();
+        spawnFrontend(typeof frame.frontendModule === "string" ? frame.frontendModule : args.frontendModule,
+          typeof frame.upgradeToken === "string" ? frame.upgradeToken : undefined);
+      }
+      if (frame.kind === "cancel-frontend" && typeof frame.upgradeToken === "string") {
+        upgradeChildren.get(frame.upgradeToken)?.kill("SIGTERM");
+        upgradeChildren.delete(frame.upgradeToken);
+      }
+      if (frame.kind === "select-frontend-module" && typeof frame.frontendModule === "string" && isAbsolute(frame.frontendModule)) {
+        args.frontendModule = frame.frontendModule;
       }
     }
   });
   try {
-    channel.write(encodeFwdFrame({ kind: "hello", role: "keeper", keeperPid: process.pid }));
+    const codePath = fileURLToPath(import.meta.url), identity = statSync(codePath);
+    channel.write(encodeFwdFrame({ kind: "hello", role: "keeper", keeperPid: process.pid, ownerProtocolVersion: OWNER_PROTOCOL_VERSION,
+      keeperVersion: getRuntimeVersion(), keeperCodePath: codePath, codeIdentity: { dev: identity.dev, ino: identity.ino } }));
   } catch {
     exit(1);
   }

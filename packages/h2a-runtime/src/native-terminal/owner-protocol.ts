@@ -1,7 +1,60 @@
 import {
   NATIVE_TERMINAL_MAX_IDENTIFIER_CHARS,
+  NATIVE_TERMINAL_MAX_FRAME_BYTES,
   type NativeTerminalOperation,
 } from "./protocol.js";
+import { createConnection } from "node:net";
+import { dirname, join } from "node:path";
+
+export class OwnerProtocolCompatibilityError extends Error {
+  constructor(detail = "unsupported owner-protocol version") {
+    super(detail); this.name = "OwnerProtocolCompatibilityError";
+  }
+}
+
+/** Private control transport. It addresses an already-probed owner; it never
+ * starts, signals or replaces that owner. A lost response is a partial result. */
+export function requestNativeTerminalOwnerControl(
+  socketPath: string, ownerPid: number, command: string,
+  params: Readonly<Record<string, unknown>> = {},
+  options: { timeoutMs?: number; expectedVersion?: number } = {},
+): Promise<any> {
+  if (!Number.isSafeInteger(ownerPid) || ownerPid <= 0) return Promise.reject(new TypeError("invalid terminal owner pid"));
+  const timeoutMs = options.timeoutMs ?? 12000;
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) return Promise.reject(new TypeError("invalid owner control timeout"));
+  return new Promise((resolve, reject) => {
+    const channel = createConnection(join(dirname(socketPath), `.fwd-${ownerPid}.sock`));
+    channel.setEncoding("utf8");
+    let buffer = "", settled = false, hello = false;
+    const finish = (error?: Error, value?: unknown) => {
+      if (settled) return; settled = true; clearTimeout(timer); channel.destroy();
+      if (error) reject(error); else resolve(value);
+    };
+    const timer = setTimeout(() => finish(new Error("terminal frontend upgrade interrupted: owner control timed out; inspect component state")), timeoutMs);
+    channel.on("error", error => finish(error));
+    channel.on("close", () => finish(new Error("terminal frontend upgrade interrupted: owner control closed; inspect component state")));
+    channel.on("data", chunk => {
+      buffer += chunk;
+      if (Buffer.byteLength(buffer) > NATIVE_TERMINAL_MAX_FRAME_BYTES) return finish(new Error("owner control response exceeds frame limit"));
+      for (;;) {
+        const end = buffer.indexOf("\n"); if (end < 0) return;
+        const line = buffer.slice(0, end); buffer = buffer.slice(end + 1);
+        let frame; try { frame = JSON.parse(line); } catch { return finish(new Error("invalid owner control frame")); }
+        if (!hello) {
+          if (frame.kind !== "hello" || frame.ownerPid !== ownerPid || frame.ownerProtocolVersion !== (options.expectedVersion ?? OWNER_PROTOCOL_VERSION)) {
+            return finish(new OwnerProtocolCompatibilityError());
+          }
+          hello = true;
+          channel.write(JSON.stringify({ kind: "hello", role: "control", ownerProtocolVersion: OWNER_PROTOCOL_VERSION }) + "\n");
+          channel.write(JSON.stringify({ kind: "control", command, params }) + "\n");
+        } else if (frame.kind === "control-result") {
+          if (frame.ok) finish(undefined, frame.result);
+          else finish(new Error(typeof frame.message === "string" ? frame.message : "owner control failed"));
+        }
+      }
+    });
+  });
+}
 
 /**
  * Internal owner/frontend protocol version (lot B1, decision D16).
