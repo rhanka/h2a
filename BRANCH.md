@@ -52,6 +52,18 @@ it is a failed setup, not regression evidence. The five-file command above
 was rerun after the completed build, including the final natural-exit and
 CLI inventory assertions. Logs/JSON are in `tmp/pty-admission-*.{log,json}`.
 
+Additional targeted checks (no production changes after the first green):
+
+```sh
+rtk node tmp/pty-am2-run.mjs pty-admission-upgrade-neighbors node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/upgrade-pty-contract.test.ts packages/h2a-runtime/src/native-terminal/upgrade.functional.test.ts packages/h2a-runtime/src/native-terminal/journal.test.ts packages/h2a-runtime/src/native-terminal/server.test.ts
+# 4 files, 85/85 passed, zero skips; exit 0.
+rtk node tmp/pty-am2-run.mjs pty-admission-node-upgrades node --test packages/h2a/test/upgrade.test.js packages/h2a/test/upgrade-swap.test.js packages/h2a/test/upgrade-boot-worker.test.js
+# 62/62 passed, zero skips/TODO/cancellations; exit 0.
+rtk node tmp/pty-am2-run.mjs pty-admission-marker-final node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/legacy-drain.functional.test.ts
+# 8/8 passed, zero skips; exit 0. Require a known birth for both fixture hosts
+# and use the exact marker fields (hostPid/startTime/generation/dev/ino).
+```
+
 Review: `tmp/pty-admission-review.md` is `selection-failed`; exact author
 model/effort are unavailable and installed h2a/mesh dispatch is prohibited by
 the owner. No peer dispatch or independent consensus is claimed.
