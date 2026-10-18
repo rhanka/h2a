@@ -9,7 +9,7 @@ export function redactSecretsText(value) {
     .replace(/(Bearer\s+)[A-Za-z0-9\-._~+/=]{8,}/gi, '$1[REDACTED]')
     .replace(/(Basic\s+)[A-Za-z0-9+/=]{8,}/gi, '$1[REDACTED]')
     .replace(/\b(gh[pousr]_[A-Za-z0-9]{8,}|github_pat_[A-Za-z0-9_]{8,}|npm_[A-Za-z0-9]{8,}|xox[bpas]-[A-Za-z0-9-]{8,}|AKIA[0-9A-Z]{16}|glpat-[A-Za-z0-9_-]{8,}|dop_v1_[a-f0-9]{32,})\b/g, '[REDACTED]')
-    .replace(/((?:password|passwd|pwd|secret|token|api[-_]?key|access[-_]?token|auth[-_]?token)\s*[:=]\s*['"]?)([^'"\s;}]+)/gi, '$1[REDACTED]')
+    .replace(/((?:["']?(?:password|passwd|pwd|secret|token|api[-_]?key|access[-_]?token|refresh[-_]?token|auth[-_]?token|client[-_]?secret|authorization)["']?\s*[:=]\s*)['"]?)([^'"\s;,}\]]+)/gi, '$1[REDACTED]')
     .replace(/(https?:\/\/[^/\s@]+:)([^@\s/]+)(@)/g, '$1[REDACTED]$3');
 }
 
