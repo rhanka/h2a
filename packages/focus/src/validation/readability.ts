@@ -29,6 +29,8 @@ const CHOICE_PATTERN = /\beither\b[\s\S]{0,160}?\bor\b|\bsoit\b[\s\S]{0,160}?\bs
 const SUBOPTION_PATTERN = /(?:^|[\n\r\u2028\u2029])\s*(?:[-*+•‣>]|\d+[.)]|[a-z][.)])\s+\S|\([a-z]\)[\s\S]*\([a-z]\)|\b(?:sub[- ]?options?|sous[- ]?options?)\b/i;
 const LINE_BREAK = /[\n\r\u2028\u2029]/;
 const blank = (text: string | undefined): boolean => !text?.trim();
+const asRecord = (value: unknown): Record<string, unknown> =>
+  value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 const minutesFor = (texts: readonly (string | undefined)[]): number =>
   (texts.join(" ").match(/\S+/gu)?.length ?? 0) / READABILITY_LIMITS.wordsPerMinute;
 
@@ -141,7 +143,18 @@ export const validateDecisionDossierReadability = (doc: DecisionDossierDocument)
         break;
       case "diagram":
         visible(section.alt, `${path}.alt`);
-        visible(section.source, `${path}.source`);
+        // Keep the fallback's code guard, but count only the representation displayed.
+        if (section.scene === undefined) visible(section.source, `${path}.source`);
+        else checkCodes(section.source, `${path}.source`);
+        // The interim renderer reads these generic@1 texts instead of the source fallback.
+        for (const [family, field] of [["entities", "name"], ["relations", "label"]] as const) {
+          for (const [id, member] of Object.entries(asRecord(section.scene?.[family]))) {
+            const attribute = asRecord(asRecord(asRecord(member).attributes)[field]);
+            if (attribute.kind === "text" && typeof attribute.value === "string") {
+              visible(attribute.value, `${path}.scene.${family}.${id}.attributes.${field}.value`);
+            }
+          }
+        }
         break;
       case "amendmentTrace":
         checkSteps(section.steps, `${path}.steps`);

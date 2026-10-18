@@ -129,6 +129,9 @@ export interface DiagramNode extends FocusNodeBase {
   readonly syntax: DiagramSyntax;
   readonly source: string;
   readonly alt: string;
+  /** diagram-core SemanticDocument, generic@1, without views/geometry/layout hints.
+   * Kept as plain JSON until the private DS package publishes its schema. */
+  readonly scene?: Readonly<Record<string, unknown>>;
 }
 
 /** The node families needed to render a decision-dossier. */

@@ -43,7 +43,9 @@ const BIN = join(REPO_ROOT, "packages", "h2a", "dist", "bin.js");
 // Updated for the interim direct Vibe MCP entry (owner 16/10, derogation spec-astra-v9 O7.2):
 // host setup usage line documents Vibe --write (interim direct) / --remove (migration)
 // instead of refusing every --write (+77 bytes, cli.ts renderCliHelp only).
-const CORE_HELP_SHA256 = "c4d7949e207d2989345c9c62dca935ad0adeabfbc11f13e72db50b40373d3dee";
+// Portable Focus adds exactly two usage lines (+183 bytes). Removing just those
+// lines restores the previous 13,944-byte stream and SHA-256 byte-for-byte.
+const CORE_HELP_SHA256 = "3fefc5a849eccc8aea7e2bd39efdd8efb3fe685a1e56598097d2902181eb7cdc";
 const RUNTIME_MISSING =
   "ce verbe requiert le runtime h2a (sessions / k8s / tunnel).\n" +
   "  Répare l'installation lockstep : npm i -g @sentropic/h2a@latest\n";
@@ -142,7 +144,8 @@ function assertCoreHelp(result) {
   // + 52 for the vibe plugin surface (post_agent hook note replacing the poll-only listing),
   // + 77 for the interim direct Vibe MCP entry (owner 16/10, derogation O7.2):
   // the host setup usage line now documents Vibe --write/--remove instead of refusing every --write.
-  assert.equal(Buffer.byteLength(result.stdout), 13944);
+  // + 183 for h2a focus build/template; existing help and dispatch stay identical.
+  assert.equal(Buffer.byteLength(result.stdout), 14127);
 }
 
 function assertMissingRuntime(result, firstToken) {

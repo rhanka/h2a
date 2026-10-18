@@ -42,7 +42,13 @@
     "schema",
     "focus-app",
     "hooks",
-    "scripts"
+    "scripts",
+    "focus-kit/renderer.html",
+    "focus-kit/renderer-manifest.json",
+    "focus-kit/validator.mjs",
+    "focus-kit/dossier.template.json",
+    "focus-kit/dossier.schema.json",
+    "focus-kit/ecosystem.json"
   ],
   "publishConfig": {
     "access": "public"
@@ -52,7 +58,7 @@
   },
   "scripts": {
     "build": "node ../../scripts/clean-workspace-dist.mjs && tsc -b --force && node ../../scripts/copy-vendored-engram-live.mjs",
-    "prepack": "node ../../scripts/check-focus-app.mjs && chmod +x dist/bin.js"
+    "prepack": "node ../../scripts/check-focus-app.mjs && node ../../scripts/build-focus-dossier.mjs --check && chmod +x dist/bin.js"
   },
   "dependencies": {
     "@hono/mcp": "^0.3.0",

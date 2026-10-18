@@ -1,5 +1,11 @@
 # Decision <subject> — <decision object>
 
+Default delivery: Focus design-system portable HTML, never a claude.ai artifact.
+Create `dossier.json` with `h2a focus template -o dossier.json`; replace every example, then
+run `h2a focus build dossier.json -o dossier.html`. Include a relevant ecosystem diagram
+(`ecosystem:overview`, `ecosystem:models`, `ecosystem:knowledge`, `ecosystem:interfaces`).
+Use the following as the content checklist for the document sections, not an alternative renderer.
+
 > Title: one short line, plain words, no slogan/thesis. HTML `<title>` identical to visible title;
 > small type (at most 1.25rem), thin band, never a hero.
 > Reading budget: <total minutes, proportional to stakes>; <number of questions>.
