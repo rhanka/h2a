@@ -112,20 +112,23 @@ function servingHost(socketPath: string): NativeTerminalHost {
 }
 
 async function waitForOwnerReady(child: ChildProcess): Promise<void> {
-  let output = "";
   const deadline = Date.now() + 30_000;
-  const chunks: string[] = [];
+  const outChunks: string[] = [];
+  const errChunks: string[] = [];
   child.stdout?.on("data", (chunk: Buffer) => {
-    chunks.push(chunk.toString("utf8"));
+    outChunks.push(chunk.toString("utf8"));
+  });
+  child.stderr?.on("data", (chunk: Buffer) => {
+    errChunks.push(chunk.toString("utf8"));
   });
   for (;;) {
-    output = chunks.join("");
+    const output = outChunks.join("");
     if (output.split("\n").some((line) => line.includes("h2a.native-terminal.ready"))) return;
     if (child.exitCode !== null || child.signalCode !== null) {
-      throw new Error(`owner exited before ready: ${child.exitCode ?? child.signalCode}; output: ${output.slice(-2000)}`);
+      throw new Error(`owner exited before ready: ${child.exitCode ?? child.signalCode}; stdout: ${output.slice(-2000)}; stderr: ${errChunks.join("").slice(-2000)}`);
     }
     if (Date.now() > deadline) {
-      throw new Error(`owner did not become ready; output: ${output.slice(-2000)}`);
+      throw new Error(`owner did not become ready; stdout: ${output.slice(-2000)}; stderr: ${errChunks.join("").slice(-2000)}`);
     }
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
@@ -161,10 +164,25 @@ describe("darwin publication substrate", () => {
   it("should publish, lock and attribute a socket", async () => {
     const { socketPath } = await endpoint();
     writeEmptyRegistry();
+    // The lock assertion runs UNDER the publication lock (readFrame is read
+    // there): after publication the lock is released and its filesystem
+    // pathname unlinked, like the Linux abstract lock vanishing on close.
+    const readUnderLock = () => {
+      const lockId = join(dirname(socketPath), ".h2a-native-terminal.lock-id");
+      const secret = readFileSync(lockId, "utf8").trim();
+      expect(secret.length).toBeGreaterThan(0);
+      const lockPath = darwinSocketPublicationLockPath(socketPath, secret);
+      if (process.platform === "darwin") {
+        expect(lstatSync(lockPath).isSocket()).toBe(true);
+      } else {
+        expect(() => lstatSync(lockPath)).toThrowError(expect.objectContaining({ code: "ENOENT" }));
+      }
+      return readProcessFrame();
+    };
     const server = await startNativeTerminalHostServer({
       socketPath,
       host: servingHost(socketPath),
-      readFrame: readProcessFrame,
+      readFrame: readUnderLock,
     });
     try {
       const client = await NativeTerminalClient.connect(socketPath);
@@ -178,17 +196,6 @@ describe("darwin publication substrate", () => {
       expect(typeof owner.bootId).toBe("string");
       expect(typeof owner.pidNamespace).toBe("string");
       expect(typeof owner.startTime).toBe("number");
-      const lockId = join(dirname(socketPath), ".h2a-native-terminal.lock-id");
-      const secret = readFileSync(lockId, "utf8").trim();
-      expect(secret.length).toBeGreaterThan(0);
-      // The darwin filesystem lock holds a real socket file; on Linux the
-      // same derivation names a pathname nobody binds (abstract lock there).
-      const lockPath = darwinSocketPublicationLockPath(socketPath, secret);
-      if (process.platform === "darwin") {
-        expect(lstatSync(lockPath).isSocket()).toBe(true);
-      } else {
-        expect(() => lstatSync(lockPath)).toThrowError(expect.objectContaining({ code: "ENOENT" }));
-      }
     } finally {
       await server.close();
     }
@@ -262,8 +269,9 @@ describe("darwin publication substrate", () => {
   it("should attribute a ps-visible live host and refuse without observations", async () => {
     const { directory, socketPath } = await endpoint();
     // A real live process whose fabricated argv carries this endpoint: the
-    // scan must correlate it and defer to the injected probe. kill(0) and the
-    // start-time read below are real; only the argv row is fabricated.
+    // scan must correlate it and defer to the injected probe. kill(0) and
+    // the start-time read below are real; only the argv row is fabricated.
+    // A second real socket decides serving: bound (accepting) versus absent.
     const sleeper = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000);"], {
       env: process.env,
       stdio: "ignore",
@@ -278,13 +286,32 @@ describe("darwin publication substrate", () => {
       };
       const expectedStart = readProcessStartTime(sleeper.pid!);
       expect(expectedStart).toBeDefined();
-      expect(findDarwinActiveHostServingSocket(socketPath, [row], () => "alive")).toEqual({
-        state: "live",
-        pid: sleeper.pid!,
-        startTime: expectedStart,
+      const { createServer } = await import("node:net");
+      const acceptor = createServer((socket) => socket.destroy());
+      await new Promise<void>((resolve, reject) => {
+        acceptor.once("error", reject);
+        acceptor.listen(socketPath, () => {
+          acceptor.removeListener("error", reject);
+          resolve();
+        });
       });
-      // The same candidate probed dead is not a host: absent.
-      expect(findDarwinActiveHostServingSocket(socketPath, [row], () => "dead")).toEqual({
+      try {
+        // Named, alive, and serving: live.
+        expect(await findDarwinActiveHostServingSocket(socketPath, [row], () => "alive")).toEqual({
+          state: "live",
+          pid: sleeper.pid!,
+          startTime: expectedStart,
+        });
+        // The same candidate probed dead is not a host: absent.
+        expect(await findDarwinActiveHostServingSocket(socketPath, [row], () => "dead")).toEqual({
+          state: "absent",
+        });
+      } finally {
+        await new Promise<void>((resolve) => acceptor.close(() => resolve()));
+      }
+      // Named and alive but serving nothing: not live (this is the
+      // reclaiming tree itself, which must publish, never refuse itself).
+      expect(await findDarwinActiveHostServingSocket(socketPath, [row], () => "alive")).toEqual({
         state: "absent",
       });
     } finally {
@@ -295,13 +322,13 @@ describe("darwin publication substrate", () => {
       }
     }
     // No observations, no proof: unknown, never absent.
-    expect(findDarwinActiveHostServingSocket(socketPath, undefined, () => "dead")).toEqual({
+    expect(await findDarwinActiveHostServingSocket(socketPath, undefined, () => "dead")).toEqual({
       state: "unknown",
       reason: "darwin process table is unreadable",
     });
     // Whitespace targets cannot be attributed exactly: unknown, never absent.
     const spaced = join(directory, "with space.sock");
-    expect(findDarwinActiveHostServingSocket(spaced, [], () => "dead")).toEqual({
+    expect(await findDarwinActiveHostServingSocket(spaced, [], () => "dead")).toEqual({
       state: "unknown",
       reason: "darwin argv scan cannot attribute socket paths containing whitespace",
     });
@@ -310,15 +337,21 @@ describe("darwin publication substrate", () => {
   it("should attribute a pathname-less live host", async () => {
     const { child, socketPath } = await spawnOwner();
     try {
-      // The published name is gone but the owner still serves: a second
-      // publisher must see the live owner through its argv, not the name.
+      // The published name is gone but the owner still serves with a live
+      // owner record. On Linux the fd attribution names the holder
+      // (H2A_ENDPOINT_LIVE_OWNER); on darwin the scan sees argv without
+      // serving and the refusal comes downstream as unproven owner death —
+      // still a coded refusal, never a second publication (the spec's
+      // "or refuse" clause).
       rmSync(socketPath, { force: true });
       writeEmptyRegistry();
       await expect(startNativeTerminalHostServer({
         socketPath,
         host: servingHost(socketPath),
         readFrame: readProcessFrame,
-      })).rejects.toMatchObject({ code: "H2A_ENDPOINT_LIVE_OWNER" });
+      })).rejects.toMatchObject(process.platform === "darwin"
+        ? { code: "H2A_ENDPOINT_OWNER_UNPROVEN", exitCode: 3 }
+        : { code: "H2A_ENDPOINT_LIVE_OWNER", exitCode: 3 });
     } finally {
       if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
     }

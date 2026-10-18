@@ -973,12 +973,35 @@ type ActiveHostScan =
  * `ps` joins argv with spaces (DECLARED LIMIT): a socket path containing
  * whitespace cannot be attributed exactly, so such a target is unknown
  * (refuse), never absent. Exported for the darwin gate.
+ *
+ * A candidate is live only with SERVING corroboration (a completed connect
+ * handshake right now): argv plus aliveness alone also matches the
+ * reclaiming tree itself — an owner naming its endpoint before anything is
+ * bound — which must publish, never refuse itself. This is the darwin side
+ * of the Linux rule that an argv match without a held socket is skipped:
+ * serving (or, downstream, a live owner record) proves holdership. A
+ * pathname-less live tree with a live owner record is therefore refused
+ * downstream (`H2A_ENDPOINT_OWNER_UNPROVEN`), not here.
  */
-export function findDarwinActiveHostServingSocket(
+export function probeServingNow(socketPath: string): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    const probe = createConnection(socketPath);
+    const timer = setTimeout(() => finish(false), 500);
+    const finish = (serving: boolean) => {
+      clearTimeout(timer);
+      probe.destroy();
+      resolve(serving);
+    };
+    probe.once("connect", () => finish(true));
+    probe.once("error", () => finish(false));
+  });
+}
+
+export async function findDarwinActiveHostServingSocket(
   socketPath: string,
   table: DarwinProcessTableRow[] | undefined,
   ownerProbe: NativeTerminalOwnerHostProbe = defaultOwnerHostProbe,
-): ActiveHostScan {
+): Promise<ActiveHostScan> {
   if (/\s/.test(socketPath)) {
     return { state: "unknown", reason: "darwin argv scan cannot attribute socket paths containing whitespace" };
   }
@@ -1041,7 +1064,13 @@ export function findDarwinActiveHostServingSocket(
     }
     const probe = ownerProbe({ pid: row.pid, startTime });
     if (probe === "alive") {
-      return { state: "live", pid: row.pid, startTime };
+      // Serving corroboration (see the function header): without it this
+      // candidate may be the reclaiming tree itself, naming an endpoint
+      // nothing serves yet.
+      if (await probeServingNow(socketPath)) {
+        return { state: "live", pid: row.pid, startTime };
+      }
+      continue;
     }
     if (probe === "unresolvable") {
       return { state: "unknown", reason: `host pid ${row.pid} liveness probe is unresolvable` };
@@ -1050,11 +1079,11 @@ export function findDarwinActiveHostServingSocket(
   return { state: "absent" };
 }
 
-function findActiveHostServingSocket(
+async function findActiveHostServingSocket(
   socketPath: string,
   procRoot = process.env.H2A_TEST_PROC_ROOT ?? "/proc",
   ownerProbe: NativeTerminalOwnerHostProbe = defaultOwnerHostProbe,
-): ActiveHostScan {
+): Promise<ActiveHostScan> {
   if (process.env.H2A_TEST_PROC_UNAVAILABLE) {
     return { state: "unknown", reason: "simulated /proc observation unavailable" };
   }
@@ -1331,7 +1360,7 @@ async function proveEndpointAbsentUnderLock(
   // candidate must never unlink or republish over it.
   // Seam symmetry (F4): the scan liveness probe is the INJECTED ownerProbe so
   // the "zero probes for stale-boot sources" assertions observe this path too.
-  const activeScan = findActiveHostServingSocket(socketPath, undefined, ownerProbe);
+  const activeScan = await findActiveHostServingSocket(socketPath, undefined, ownerProbe);
   if (activeScan.state === "live") throw new NativeTerminalPublicationRefusal("H2A_ENDPOINT_LIVE_OWNER");
   if (activeScan.state === "unknown") {
     // The frozen literal carries the sense (T8); the scan's own reason (e.g.
