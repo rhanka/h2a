@@ -1,3 +1,43 @@
+# PTY Phase B — PR #375, continuation 2026-10-18
+
+Owner scope: apply the approved amendments, close B4, repair the three Linux CI jobs, implement B5, then stop. No Phase L or second standing PTY owner. Start: af46490d8, origin/main 46b82b427 (already ancestor; no rebase needed). Temporary test roots only; targeted files only; no installed h2a, owner state, Python or foreign processes.
+
+## Approved amendments (verbatim)
+
+The two AMENDEMENTS-GO reviews below are accepted by the owner. Their fixture addition applies to the reopened B2 regression and the Linux B4 gate. The single keepalive exception is limited to B4 Linux; all other gate cases require zero skips, TODOs or cancellations.
+
+Source: revptyama-last.md
+
+> Par exception à D27/§5, le gate **B4 Linux uniquement** distingue comme non-test préexistant `packages/h2a/test/cli-contract.test.js :: keepalive emits a action envelope on the happy path`. La commande complète reste exécutée sans filtrage ; son ignore reste affiché dans les comptes bruts. Tous les autres cas requis doivent réussir, sans ignore, TODO ni annulation. Cette exception cesse à sa réactivation ; elle ne modifie ni DEC-034 ni les autres gates.
+
+> Ajouter `packages/h2a/test/native-inventory-absence.test.js` à l’allow-list et au gate Linux B4, uniquement pour adapter l’observation et le nettoyage au split B2. Après les assertions, terminer les seules sessions créées par la fixture, observer la fin du propriétaire effectif et garantir le nettoyage de ses descendants privés, y compris sur échec. Préserver les scénarios historiques et toutes les assertions d’inventaire, d’identité et de refus. Utiliser le helper d’isolation sans le modifier. Exiger une preuve rouge puis verte du fichier complet, avec le build historique temporaire provisionné et zéro ignore.
+
+> Ajouter `packages/h2a-runtime/src/native-terminal/publication-refusal.ts` à BM, exclusivement pour le refus `H2A_PUBLICATION_LOCK_PATH_UNUSABLE`, son diagnostic stable et le code de sortie 3. Les refus existants et les gates BM restent inchangés.
+
+> Ajouter `packages/h2a-runtime/src/native-terminal/owner-process.ts` à BM, uniquement pour admettre Darwin dans `assertOwnerFrontendSupported` et adapter le diagnostic associé. L’admission repose sur le substrat et les preuves exigés par BM ; Linux reste inchangé, les autres plateformes restent refusées. Aucune modification du cycle de vie owner/frontend n’est autorisée par cet ajout.
+
+> jusqu’à BM
+
+Source: revptyams-last.md
+
+> Par exception à §5/D27, seul `keepalive emits a action envelope on the happy path`, dans `packages/h2a/test/cli-contract.test.js`, est déclaré non-test pour B4 Linux. Les quatre fichiers restent exécutés intégralement ; les comptes bruts sont publiés ; tout autre ignore, TODO, échec ou annulation bloque le gate. Le contrat et l’implémentation de `keepalive` restent hors du chantier PTY.
+
+> Réouvrir la régression B2 avant B5 : ajouter `packages/h2a/test/native-inventory-absence.test.js` à son allow-list et à son ensemble Linux. Adapter exclusivement l’observation des sorties et le nettoyage aux propriétaires B : terminer les seules sessions créées par la fixture, puis attendre la sortie effective du propriétaire drainé. Conserver les démarrages historiques explicites en `process.js`, les assertions d’inventaire et le helper d’isolation inchangés. Preuve ciblée avant/après ; fichier entier vert, zéro ignore, avec le build historique isolé requis.
+
+> Ajouter à l’allow-list BM `packages/h2a-runtime/src/native-terminal/publication-refusal.ts`, exclusivement pour `H2A_PUBLICATION_LOCK_PATH_UNUSABLE`, son diagnostic et son refus avec code de sortie 3. Conserver tous les refus existants ; vérifier le dépassement du budget du chemin du verrou et les régressions Linux.
+
+> Ajouter à l’allow-list BM `packages/h2a-runtime/src/native-terminal/owner-process.ts`, uniquement pour admettre `darwin` dans `assertOwnerFrontendSupported` après le port du substrat BM, et adapter le diagnostic associé. Toute autre plateforme reste refusée. Aucune modification de lifecycle, drain, confinement ou transfert n’est autorisée par cet ajout. Les gates BM restent exigées.
+
+## Work and evidence
+
+- [x] Amendments recorded before the fixture/B5 changes; original spec remains unchanged.
+- [ ] B4 complete file gates, raw keepalive non-test count visible.
+- [ ] Reopened B2 inventory fixture: full RED/green with isolated historical build.
+- [ ] B5: legacy drain, Bash/readline, scripted real attach; enrolled real CLI list requested from conductor.
+- [ ] Linux Node 22/24 + trust-root CI and macOS ARM64 Node 22/24 outcomes.
+
+# Inherited branch notes
+
 # Dossier diagrams — h2a lots
 
 ## Objective
