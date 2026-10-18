@@ -67,7 +67,8 @@ globalThis.setImmediate = (callback, ...args) => {
     children.push(child); let out = "", err = "";
     child.stdout!.on("data", b => { out += b; }); child.stderr!.on("data", b => { err += b; });
     await until(() => ({ out, err, code: child.exitCode }), value => value.out.includes("h2a.native-terminal.ready"), "host ready");
-    return { child, client: await connect(index), birth: readProcessStartTime(child.pid!) };
+    const birth = readProcessStartTime(child.pid!); expect(birth).toBeDefined();
+    return { child, client: await connect(index), birth };
   }
   // process.js intentionally keeps the unfenced fused-host v1 dispatch. It
   // must never be retroactively treated as a cooperative B owner.
@@ -159,7 +160,9 @@ it("should defer retirement when a v1 creation races an empty pre-B inventory", 
 
 it("should never treat a client marker as an admission fence on established or fresh v1 connections", async () => {
   const f = await fixture();
-  writeFileSync(f.paths[1] + ".draining", JSON.stringify({ hostPid: f.legacy.child.pid, generation: "drain-1", ...statSync(f.paths[1]!) }), { mode: 0o600 });
+  const { dev, ino } = statSync(f.paths[1]!);
+  writeFileSync(f.paths[1] + ".draining", JSON.stringify({ hostPid: f.legacy.child.pid,
+    startTime: f.legacy.birth, generation: "drain-1", dev, ino }), { mode: 0o600 });
   f.deferred(await f.defer());
   // Preserve the inherited adversarial counterexample: both creations still
   // succeed. This proves why pre-B admission/B5 remain OPEN, not qualified.
