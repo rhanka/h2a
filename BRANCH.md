@@ -543,6 +543,8 @@ their conservative behavior. Quota accounting and payload reads remain fresh.
 Short-lease recovery fixtures control expiry
 after their actual children are ready; all 32 PIDs and 20 recoveries remain
 required. The copied late PTY preload retains its original module imports.
+Worker fixtures observe the real exit before awaiting its message; a
+same-turn drain reproduces the former lost-exit race, with code zero required.
 
 The fourth rebase retains Focus 0.5.0 as the fifth artifact in the common
 closed candidate producer, alongside the four 0.98.7 lockstep packages. Its
