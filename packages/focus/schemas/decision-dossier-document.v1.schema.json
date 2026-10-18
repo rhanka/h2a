@@ -141,7 +141,11 @@
         "targetRef": { "type": "string" },
         "syntax": { "enum": ["mermaid", "plantuml"] },
         "source": { "type": "string" },
-        "alt": { "type": "string" }
+        "alt": { "type": "string" },
+        "scene": {
+          "type": "object",
+          "description": "diagram-core SemanticDocument, profile generic@1, without views, geometry or layout hints. Opaque JSON until the design-system publishes its authoritative schema; no Focus-specific scene model."
+        }
       }
     },
     "interaction": {
