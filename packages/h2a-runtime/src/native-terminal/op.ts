@@ -194,6 +194,11 @@ async function selectLaunchClient(fenced: boolean): Promise<{ client: NativeTerm
   const client = await launchClient(historical);
   const ping = await client.ping();
   if (!fenced || paths.length === 1) return { client, socketPath: historical };
+  // A B endpoint certifies admission itself. Fleet inventory can prove the
+  // compatible endpoint absent; probing must not start an idle PTY owner.
+  if (ping.launchFence === true && (ping as typeof ping & { owner?: { pid: number } }).owner?.pid === ping.hostPid) {
+    return { client, socketPath: historical };
+  }
   const compatible = paths[1]!;
   // Initialize the second known endpoint so admission obtains a complete
   // inventory even when the historical host already provides the fence.

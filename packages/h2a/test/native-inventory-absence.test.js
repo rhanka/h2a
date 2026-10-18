@@ -106,8 +106,7 @@ async function fixture(body, qualRoot = nativeQualificationRoot) {
     }`);
   env.NODE_OPTIONS = `--import=${pathToFileURL(exitObserver).href}`;
   async function waitForHostExit(pid) {
-    // B2 permits 10s to close frontend channels, then a bounded journal flush.
-    const file = join(exitEvents, `${pid}.json`), deadline = Date.now() + 12_000;
+    const file = join(exitEvents, `${pid}.json`), deadline = Date.now() + 3_000;
     // The receipt is written by the effective owner on exit. Polling avoids
     // consuming an inotify instance for each teardown in parallel CI jobs.
     for (;;) {
@@ -116,7 +115,7 @@ async function fixture(body, qualRoot = nativeQualificationRoot) {
         assert.equal(receipt.pid, pid);
         return receipt;
       }
-      assert.ok(Date.now() < deadline, `fixture host pid=${pid} did not emit exit within the owner shutdown bound (12000ms)`);
+      assert.ok(Date.now() < deadline, `fixture host pid=${pid} did not emit exit within 3000ms`);
       await new Promise(resolve => setTimeout(resolve, 10));
     }
   }
@@ -258,11 +257,13 @@ let text='';process.stdin.on('data',bytes=>{for(const c of bytes.toString().repl
       }
       // Detached B owners drain rather than destroying their sessions on
       // host-stop. Sessions have ended above; require their actual exit now.
-      for (const path of paths) {
+      const stopped = await Promise.allSettled(paths.map(async path => {
         const result = await run(["host-stop", "--socket", path]);
         assert.ok(result.status === 0 || /ENOENT|ECONNREFUSED/.test(result.stderr), result.stderr);
         if (result.payload?.hostPid !== undefined) await waitForHostExit(result.payload.hostPid);
-      }
+      }));
+      const failures = stopped.filter(result => result.status === "rejected").map(result => result.reason);
+      if (failures.length) throw new AggregateError(failures, "private inventory hosts did not stop cleanly");
     } finally {
       for (const client of clients) client.close();
       // Includes setup/assertion/cleanup failure: the read-only helper knows
