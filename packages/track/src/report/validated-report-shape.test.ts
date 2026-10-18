@@ -20,6 +20,7 @@ import type { DecisionRow, ReportRow } from './build.js'
 import {
   auditNextActions,
   buildWpConductorView,
+  describeRowNextActions,
   DETERMINISTIC_NEXT_ACTIONS,
   formatWpConductor,
   handleTokenRegex,
@@ -311,26 +312,38 @@ describe('criteria 8/20 — the renderer stops serving a gate class as a recomme
   })
 
   it('exposes the mechanical half of criterion 20 as a check the agent must run before serving', () => {
+    // Amendment D10/D14 — the audit consumes structured descriptors (machine
+    // instruction states, origin, focus, gate step codes), never rendered
+    // words. Every outcome assertion below is retained.
     seed()
-    const clauses = STEP_CODES.map((code) => stepActionFr(code))
-    const rows = section(view(), 'todo').rows.map((row) => row['nextAction']!)
+    const rows = describeRowNextActions(section(view(), 'todo').rows)
 
     // On the deterministic render the check is NOT vacuous: it reports the rows still owed.
-    const before = auditNextActions(rows, clauses)
+    const before = auditNextActions(rows)
     expect(before.uninstructed).toBeGreaterThan(0)
     expect(before.ok).toBe(true) // markers are honest, not violations
 
     // A report that reintroduced the template fails on both counts.
-    const templated = ['action (subagent): Rédiger la spécification', 'action (subagent): Rédiger la spécification', 'action (subagent): Rédiger la spécification']
-    const after = auditNextActions(templated, clauses)
+    const templated = [0, 1, 2].map(() => ({
+      focus: true,
+      instruction: 'investigated' as const,
+      action: 'action (subagent): Rédiger la spécification',
+      actionOrigin: 'gate-class' as const,
+      gateSteps: ['amend-spec' as const],
+    }))
+    const after = auditNextActions(templated)
     expect(after.ok).toBe(false)
     expect(after.repeated).toEqual(['action (subagent): Rédiger la spécification'])
     expect(after.gateClauses).toEqual(['action (subagent): Rédiger la spécification'])
 
     // A properly instructed report passes with nothing owed.
     const instructed = auditNextActions(
-      ['Ajouter le préflight /v1/models dans run.ts', 'Trancher la question du fallback dans DEC-118'],
-      clauses,
+      ['Ajouter le préflight /v1/models dans run.ts', 'Trancher la question du fallback dans DEC-118'].map((action) => ({
+        focus: true,
+        instruction: 'investigated' as const,
+        action,
+        actionOrigin: 'investigated' as const,
+      })),
     )
     expect(instructed).toEqual({ uninstructed: 0, repeated: [], gateClauses: [], ok: true })
   })

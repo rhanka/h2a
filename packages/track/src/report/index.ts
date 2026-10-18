@@ -12,6 +12,7 @@ export {
 export {
   auditNextActions,
   coverageLine,
+  describeRowNextActions,
   DETERMINISTIC_NEXT_ACTIONS,
   formatReport,
   formatRows,
@@ -22,6 +23,9 @@ export {
   type ConductorMeta,
   type Format,
   type NextActionAudit,
+  type NextActionAuditDescriptor,
+  type NextActionInstruction,
+  type NextActionOrigin,
   type ReportCoverage,
   type ReportHandle,
   type ReportHeader,
@@ -29,6 +33,21 @@ export {
   type ReportPeriod,
   type WpTotals,
 } from './format.js'
+// Amendment D10 — the per-language stage/status lexicon (codes stay the identity).
+export {
+  CODE_LABELS,
+  resolveStageStatusLabels,
+  STAGE_STATUS_LEXICON,
+  type ResolvedStageStatusLabels,
+  type StageStatusLabels,
+} from './stage-status-lexicon.js'
+export {
+  deriveItemStageStatus,
+  STATUS_HEALTH,
+  type ItemStageStatus,
+  type StageCode,
+  type StatusCode,
+} from './stage-status.js'
 // Workpackages §2 — the %-by-WP rollup forest (pure).
 export { computeWpTree, tally, type WpLeaf, type WpNode } from './rollup.js'
 // Scope §A/§B — status(level) projection (spec|plan|wp|lot|task), additive read-only.

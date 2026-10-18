@@ -42,12 +42,15 @@ describe('owner status table regression fixtures', () => {
     expect(report('text')).toContain('Proposition : Corriger la résolution')
   })
 
-  it.each(['0.98.7', 'v0.98.7', 'Release 0.98.7', 'Version 0.98.7 (PR #42)', 'PR #42'])('flags the version/reference-only subject %s', title => {
-    const id = item(title)
-    expect(rows()[0].issues).toContain('version-only-subject')
-    expect(report('md')).toContain('NON CONFORME : finalité propriétaire manquante')
-    set(id, { ownerRequest: 'Je veux retrouver mes agents (PR #42)', status: 'progressing' })
+  // Amendment D10 — the lexical version/reference word-list detector is
+  // retired: no test infers purpose from words, in any language. Provenance
+  // is structural (`requestSource`: report-event, demand, or legacy-title).
+  it('tracks request provenance structurally without classifying prose', () => {
+    const id = item('0.98.7')
+    expect(rows()[0]).toMatchObject({ request: '0.98.7', requestSource: 'legacy-title' })
     expect(rows()[0].issues).not.toContain('version-only-subject')
+    set(id, { ownerRequest: 'Je veux retrouver mes agents (PR #42)', status: 'progressing' })
+    expect(rows()[0]).toMatchObject({ request: 'Je veux retrouver mes agents (PR #42)', requestSource: 'report-event' })
   })
 
   it('persists an additive event, replays after restart, and replaces stale report fields', () => {
