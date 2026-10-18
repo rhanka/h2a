@@ -237,7 +237,7 @@ conserve argv, cwd, exit et sortie intégrale dans
 | `node --test packages/h2a/test/focus-build.test.js` | 33/33, exit 0 ; refus et écriture partielle préservent le précédent HTML | `run-cznj92` |
 | `node --test packages/h2a/focus-kit/test/evidence-browser.test.mjs` | 5/5, exit 0 ; package installé hors ligne, clavier/touch, 320/390/1440px | `run-3k7fBu` |
 | `node --test packages/h2a/focus-kit/test/browser.test.mjs` | 6/6, exit 0 ; usages v1 conservés | `run-D3OFSt` |
-| `node --test packages/h2a/focus-kit/test/evidence-performance-browser.test.mjs` | 1/1, exit 0 ; budgets inchangés, 30 ouvertures/taille et 30 citations/recherches | `run-CMDhRx` |
+| `node --test packages/h2a/focus-kit/test/evidence-performance-browser.test.mjs` | 1/1, exit 0 ; budgets inchangés, 30 ouvertures/taille et 30 citations/recherches | `run-SotS9b` |
 | `node scripts/build-focus-dossier.mjs --check` | exit 0 ; sources et assets vérifiés | `run-TBVvPX` |
 | `npm run build:h2a` | exit 0 ; tsc -b, mirror OK | `run-uf3JGf` |
 | `node scripts/check-focus-vendor.mjs` | exit 0 ; byte-identical après synchronisation finale | `run-1ixBQb` |
@@ -249,11 +249,12 @@ L'échec de packaging sur l'ancien digest a été corrigé par les générateurs
 du registre/vendor ; le second passage passe les dix tests.
 
 G5a sur les assets corrigés : [mesures brutes](dossier-diagrams/review377-metrics.json).
-Grand HTML : environ 30,9 Mo, 31 sources ; p95 ouverture 1 708,3 ms,
-citation 187,4 ms, recherche 71,0 ms. RSS crête 729 686 016 octets,
-croissance retenue 38 854 656 octets ; DOM toujours borné à 80 lignes.
-Les politiques/corpus/budgets figés sont identiques à la qualification précédente.
-Total de ce tour : **195 tests ciblés**, sans suite complète locale.
+Grand HTML : environ 30,9 Mo, 31 sources ; p95 ouverture 1 139,9 ms,
+citation 82,0 ms, recherche 60,1 ms. RSS crête 730 886 144 octets,
+croissance retenue 37 888 000 octets ; DOM toujours borné à 80 lignes.
+Corpus, hashes HTML et budgets numériques identiques ; seul le hash de commentaire
+du générateur change dans les métadonnées de politique (section CI ci-dessous).
+Total après correction de préparation CI : **196 tests ciblés**, sans suite complète locale.
 
 NON couvert : H2/H3, CDN et géométrie DS, mémoire multi-navigateurs,
 vérité métier du dossier CI/CD ; pas de nouvelle revue indépendante de code.
@@ -262,3 +263,28 @@ La sélection `harness/review` reste impossible sous le confinement propriétair
 Les deux revues fournies portent sur la base, pas sur ces corrections.
 Écarts à la spec : aucun ; P3 fourni traité en complément des P1/P2.
 La suite complète reste réservée à la CI d'intégration.
+
+## Correction du checkout CI après rv377
+
+Le [job Focus sur 8ab58b378](https://github.com/rhanka/h2a/actions/runs/39174592970/job/117814559735)
+passe les tests fonctionnels, puis échoue avant G5a : le checkout à profondeur
+un ne contient plus le blob figé de node-track-observation-lab.js, modifié dans
+ce tour. Le cache Git local conservait ce blob ; aucun dépassement de budget
+ni skip n'est invoqué pour expliquer le refus.
+
+La préparation CI récupère seulement `manifest.reference`, le commit exact
+du corpus (`7ebbcf266e1988c18624d0158936949a214f9fd8`), à profondeur un,
+sans changer l'arbre testé. Le nouveau témoin clone réellement le checkout
+superficiel et exécute la commande de préparation déclarée par le workflow,
+puis reconstitue toutes les sources et vérifie leurs 22 945 971 octets.
+
+| Commande | RED → GREEN |
+| --- | --- |
+| `rtk node tmp/diag377-run.mjs node --test packages/h2a/focus-kit/test/evidence-corpus-checkout.test.mjs` | 0/1, blob `616919d6…` absent (`run-iunwUR`) → 1/1, 1 731 blobs et octets d'origine vérifiés (`run-cNXpow`), exit 0, zéro skip |
+
+Le corpus et tous les seuils numériques restent identiques. Seul le hash de
+générateur dans les métadonnées de politique est actualisé pour son commentaire
+de préparation corrigé ; aucun comportement de génération n'est modifié.
+G5a repasse 1/1, exit 0, zéro skip (`run-SotS9b`) et les mesures brutes sont
+rattachées à ce hash précis. Vérification supplémentaire : seule cette empreinte
+de commentaire diffère dans la politique ; les hashes des corpus/HTML sont identiques.
