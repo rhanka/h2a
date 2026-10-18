@@ -538,7 +538,11 @@ retain 600s. Real child ordering, phase exclusion and failed-child propagation
 have twelve mandatory regression cases. Payload writes cadence automatic expiry
 maintenance with a monotone thirty-second interval; quota pressure and explicit
 sweeps remain immediate, TTL reads unchanged. Quota/live-data refusal controls
-and the full 10,000-mutation-per-domain backend stress remain required.
+and the full 10,000-mutation-per-domain backend stress remain required. Fresh
+quota and expiry scans reuse the already joined directory prefix instead of
+normalizing it per entry; each file still receives its original stat check.
+Closed release construction also runs main’s portable Focus dossier freshness
+check before creating its payload, preserving the inherited prepack guard.
 Inherited native-host qualification now checks exact same-argument polling
 plus explicit changed-argument refusal, retaining one launch/brief as required
 by the H4 contract. Ephemeral daemon cleanup waits for its recorded PID and
