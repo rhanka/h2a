@@ -6,8 +6,10 @@ export {
   type DecisionRow,
   type QueryFilter,
   type Report,
+  type ReportItemFacts,
   type ReportOptions,
   type ReportRow,
+  type WithdrawalCandidate,
 } from './build.js'
 export {
   auditNextActions,
@@ -32,6 +34,7 @@ export {
   type ReportHeader,
   type ReportOmission,
   type ReportPeriod,
+  type WithdrawalNotice,
   type WpTotals,
 } from './format.js'
 // Amendment D10 — the per-language stage/status lexicon (codes stay the identity).

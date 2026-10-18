@@ -3,13 +3,14 @@
 // the adapter supplying `baselineCommit` (CLI from git HEAD, MCP from a tool argument). This is what
 // makes CLI≡MCP parity STRUCTURAL (one layer), not coincidental.
 
-import { assertReportFormat, buildWpConductorView, formatActionReport, formatReport, formatRows, formatWpConductor, formatWpConductorInline, reportPeriod, reportPeriodPayload, wpTotals, type Format, type InlineOptions, type ReportPeriodPayload, type ReportScopeProjection } from '../report/format.js'
+import { assertReportFormat, buildWpConductorView, formatActionReport, formatReport, formatRows, formatWpConductor, formatWpConductorInline, reportPeriod, reportPeriodPayload, wpTotals, type Format, type InlineOptions, type ReportOmission, type ReportPeriodPayload, type ReportScopeProjection, type WithdrawalNotice } from '../report/format.js'
 import type { ConductorMeta } from '../report/format.js'
+import { BUCKETS } from '../report/buckets.js'
 import type { QueryFilter, Report, ReportOptions } from '../report/build.js'
 import type { StatusLevel } from '../report/status-by-level.js'
 import type { WpNode } from '../report/rollup.js'
+import { fold } from '../state/fold.js'
 import type { ReportSnapshot, TrackReader } from './contract.js'
-import { buildStatusTable, buildStatusTableView, renderStatusTable } from '../report/status-table.js'
 
 /** A CLI-resolved selector. Dates are already absolute instants; refs are full commit ids when applicable. */
 export interface ReportPeriodSelection {
@@ -99,6 +100,12 @@ function conductorMeta(
   scopeProjection?: ReportScopeProjection,
   period?: ReportPeriodProjection,
   windowedDeliveries = false,
+  extras?: {
+    itemFacts?: ConductorMeta['itemFacts']
+    withdrawnNotices?: ConductorMeta['withdrawnNotices']
+    withdrawnOmitted?: ConductorMeta['withdrawnOmitted']
+    lang?: string
+  },
 ): ConductorMeta {
   const window = snapshot.logWindow
   const revision = snapshot.cursor
@@ -112,6 +119,92 @@ function conductorMeta(
     ...(scopeProjection !== undefined ? { scopeProjection } : {}),
     ...(period !== undefined ? { periodWindow: period.payload } : {}),
     ...(windowedDeliveries ? { deliveredItemIds: period?.deliveredItemIds ?? new Set<string>() } : {}),
+    ...(extras?.itemFacts !== undefined ? { itemFacts: extras.itemFacts } : {}),
+    ...(extras?.withdrawnNotices !== undefined && extras.withdrawnNotices.length > 0
+      ? { withdrawnNotices: extras.withdrawnNotices }
+      : {}),
+    ...(extras?.withdrawnOmitted !== undefined && extras.withdrawnOmitted.length > 0
+      ? { withdrawnOmitted: extras.withdrawnOmitted }
+      : {}),
+    ...(extras?.lang !== undefined ? { lang: extras.lang } : {}),
+  }
+}
+
+/**
+ * Amendment D9 — split the report's withdrawal candidates into served
+ * notices and declared omissions. Relevant ⟺ withdrawn or decided inside the
+ * selected window, or still carrying a live gate; deduplicated by item id. A
+ * withdrawal with neither stays in history, out of the served tables. Scoped
+ * reports keep only the candidates inside the scoped buckets.
+ */
+function withdrawalServing(
+  snapshot: ReportSnapshot,
+  report: Report,
+  selection: ReportPeriodSelection | undefined,
+  now: string | undefined,
+  baselineCommit: string,
+): { itemFacts: ConductorMeta['itemFacts']; withdrawnNotices?: WithdrawalNotice[]; withdrawnOmitted?: ReportOmission[] } {
+  const itemFacts = report.itemFacts
+  const candidates = report.withdrawals ?? []
+  if (candidates.length === 0) return { itemFacts }
+  const state = fold(snapshot.events)
+  const inScope = new Set<string>()
+  for (const bucket of BUCKETS) for (const row of report.buckets[bucket]) inScope.add(row.id)
+  const fromMs = selection?.from === undefined ? Number.NEGATIVE_INFINITY : Date.parse(selection.from)
+  const toMs = selection?.to === undefined || now === undefined
+    ? Number.POSITIVE_INFINITY
+    : Math.max(Date.parse(selection.to), Date.parse(now))
+  const inWindow = (at: string): boolean => {
+    const ms = Date.parse(at)
+    return ms >= fromMs && ms <= toMs
+  }
+  const transitionsInWindow = new Set<string>()
+  const settlementsInWindow = new Map<string, number>()
+  snapshot.events.forEach((event) => {
+    if (!inWindow(event.at)) return
+    if (event.type === 'realization.transition') {
+      const to = (event.payload as { to?: string }).to
+      if (to === 'cancelled' || to === 'rejected') transitionsInWindow.add(event.aggregateId)
+    }
+    if (event.type === 'decision.outcome') {
+      const to = (event.payload as { to?: string }).to
+      if (to === 'go' || to === 'no-go' || to === 'deferred') {
+        const decision = state.decisions.get(event.aggregateId)
+        for (const targetId of decision?.targets ?? []) {
+          settlementsInWindow.set(targetId, (settlementsInWindow.get(targetId) ?? 0) + 1)
+        }
+      }
+    }
+  })
+  const notices: WithdrawalNotice[] = []
+  const omitted: ReportOmission[] = []
+  const seen = new Set<string>()
+  for (const candidate of candidates) {
+    if (seen.has(candidate.id) || !inScope.has(candidate.id)) continue
+    seen.add(candidate.id)
+    const relevant =
+      transitionsInWindow.has(candidate.id) ||
+      (settlementsInWindow.get(candidate.id) ?? 0) > 0 ||
+      candidate.hasLiveGate
+    if (relevant) {
+      notices.push({
+        id: candidate.id,
+        title: candidate.title,
+        ...(candidate.containerId !== undefined ? { containerId: candidate.containerId } : {}),
+        ...(candidate.reason !== undefined ? { reason: candidate.reason } : {}),
+        dossierIds: candidate.dossierIds,
+      })
+    } else {
+      omitted.push({
+        label: candidate.title,
+        reason: 'retiré hors fenêtre, sans gate actif ni décision liée en fenêtre',
+      })
+    }
+  }
+  return {
+    itemFacts,
+    ...(notices.length > 0 ? { withdrawnNotices: notices } : {}),
+    ...(omitted.length > 0 ? { withdrawnOmitted: omitted } : {}),
   }
 }
 
@@ -189,22 +282,28 @@ export function reportText(
   subWp?: boolean,
   scopeSelector?: string,
   periodSelection?: ReportPeriodSelection,
+  // Amendment D1 — `--status-table` selects the same validated report (same
+  // set and order in every format); the flag is accepted, not a second
+  // projection. The rolling default comes from the CLI boundary (lot 3).
   statusTable = false,
   // Amendment D10 — open `--lang <bcp47>` label selection for the new
   // stage/status surface. Absent ⇒ established rendering, byte-identical.
   lang?: string,
 ): string {
   assertReportFormat(format)
+  void statusTable
   const snapshot = reader.reportSnapshot(options)
   const globalReport = snapshot.report
   const scoped = scopeSelector === undefined ? undefined : projectReportScope(globalReport, scopeSelector)
   const report = scoped?.report ?? globalReport
   const projection = periodProjection(snapshot, periodSelection, now)
-  const meta = conductorMeta(options, snapshot, now, subWp, scoped?.scope, projection, periodSelection !== undefined)
+  // Amendment D3/D9/D11 — per-item conductor facts + withdrawal serving ride
+  // the same meta the conductor renders from, so `--status-table` and the
+  // validated route over an identical period are byte-identical.
+  const serving = withdrawalServing(snapshot, report, periodSelection, now, options.baselineCommit)
+  const meta = conductorMeta(options, snapshot, now, subWp, scoped?.scope, projection, periodSelection !== undefined, { ...serving, ...(lang !== undefined ? { lang } : {}) })
   const period = reportPeriod(meta)
   const payload = reportPeriodPayload(meta)
-
-  if (statusTable) return renderStatusTable(buildStatusTable(snapshot.events, report, options), report, format, meta, lang)
 
   if (options.wpTree && report.wpTree !== undefined) {
     if (format === 'json') {
@@ -300,6 +399,9 @@ export function resolveHandle(
   options: ReportOptions,
   handle: string,
   scopeSelector?: string,
+  // Amendment D1/D13 — accepted as an alias resolving to the exact same
+  // report context (the withdrawn `#` numbering is gone; handles are `[n.m]`
+  // on the single validated view).
   statusTable = false,
   ctx: ResolveContext = {},
 ): string {
@@ -322,10 +424,12 @@ export function resolveHandle(
   const projection = ctx.periodSelection === undefined
     ? undefined
     : periodProjection(snapshot, ctx.periodSelection, ctx.now)
+  void statusTable
+  const serving = withdrawalServing(snapshot, report, ctx.periodSelection, ctx.now, options.baselineCommit)
   const meta = conductorMeta(
-    options, snapshot, ctx.now, ctx.subWp, scoped?.scope, projection, ctx.periodSelection !== undefined,
+    options, snapshot, ctx.now, ctx.subWp, scoped?.scope, projection, ctx.periodSelection !== undefined, serving,
   )
-  const view = statusTable ? buildStatusTableView(buildStatusTable(snapshot.events, report, options), report, meta) : buildWpConductorView(
+  const view = buildWpConductorView(
     report.wpTree ?? [], report.decisions ?? [], report.outsideRollup,
     scoped === undefined ? 'global' : `${scoped.scope.label} (sous-arbre)`,
     meta,

@@ -19,10 +19,10 @@ WP2 · Beta    1/1 (100%)   b-done
 
 À-FAIRE
 ordre = priorité ; les cinq premiers sont le focus
-WP            av.   à faire        bloqué   prochaine action
-───────────   ───   ────────────   ──────   ────────────────────────────────────────
-WP1 · Alpha   50%   [1.1] a-todo   spec     à instruire : ouvrir l’item et nommer le
-                    [1.2] s-todo            geste
+WP            av.   étape     statut    à faire        bloqué   prochaine action
+───────────   ───   ───────   ───────   ────────────   ──────   ────────────────────────────────────────
+WP1 · Alpha   50%   [1.1] —   [1.1] —   [1.1] a-todo   spec     à instruire : ouvrir l’item et nommer le
+                    [1.2] —   [1.2] —   [1.2] s-todo            geste
 
 DÉCISIONS
 ┌───┬─────────────────────────────────────────┬──────────────────┬───────┐
