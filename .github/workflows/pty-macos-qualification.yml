@@ -27,6 +27,8 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           cache: npm
+      - name: Require macOS ARM64
+        run: node -e 'console.log(`${process.platform}/${process.arch}`); if(process.platform!=="darwin" || process.arch!=="arm64") process.exit(1)'
       - run: npm ci
       # The darwin tests spawn the built owner/frontend processes from dist.
       - run: npm run build
@@ -41,11 +43,21 @@ jobs:
             packages/h2a-runtime/src/native-terminal/client.test.ts \
             packages/h2a-runtime/src/native-terminal/op.test.ts \
             packages/h2a-runtime/src/native-terminal/replay-buffer.test.ts \
-            packages/h2a-runtime/src/native-terminal/frontend-swap.functional.test.ts 2>&1 | tee /tmp/darwin-pty.log
+            packages/h2a-runtime/src/native-terminal/frontend-swap.functional.test.ts \
+            packages/h2a-runtime/src/native-terminal/upgrade-pty-contract.test.ts \
+            packages/h2a-runtime/src/native-terminal/supervisor.test.ts 2>&1 | tee /tmp/darwin-pty.log
+      - name: Run the portable upgrade file set
+        run: |
+          set -euo pipefail
+          node --test --test-reporter=tap \
+            packages/h2a/test/upgrade.test.js \
+            packages/h2a/test/upgrade-swap.test.js \
+            packages/h2a/test/upgrade-boot-worker.test.js 2>&1 | tee -a /tmp/darwin-pty.log
       - name: Enforce skipped 0 in the darwin set
         run: |
           set -euo pipefail
-          if grep -E "[1-9][0-9]* skipped" /tmp/darwin-pty.log; then
+          node -e 'const r=require("./tmp/h2a-runtime-vitest-report.json"); if(r.numPendingTests!==0 || r.numTodoTests!==0 || r.numFailedTests!==0) process.exit(1)'
+          if grep -E "[1-9][0-9]* skipped|^# skipped [1-9][0-9]*|# SKIP" /tmp/darwin-pty.log; then
             echo "darwin set must have skipped: 0"
             exit 1
           fi
