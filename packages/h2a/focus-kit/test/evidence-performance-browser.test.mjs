@@ -26,6 +26,7 @@ test('qualifies H1 small and real large corpus latency, bounded DOM and owned-pr
     policySha256: digest(policyBytes), node: process.version, cpu: cpus()[0].model, ramBytes: totalmem(), ...result };
   writeFileSync(join(root, 'metrics.json'), JSON.stringify(report, null, 2));
   console.log(`Raw samples/artifact/policy hashes: ${join(root, 'metrics.json')}`);
+  assert.equal(result.instrumentationError, undefined, 'Missing live-process instrumentation fails after retaining raw measurements');
   assert.equal(result.browser, policy.calibration.chromium, 'Pinned Chromium');
   assert.ok(result.artifacts.large.sources > 25);
   assert.ok(result.artifacts.large.htmlBytes > 30_000_000, 'Fully embedded artifact around 32 MB');

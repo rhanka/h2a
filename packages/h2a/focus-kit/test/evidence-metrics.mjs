@@ -6,13 +6,21 @@ import { portable, isolatedEnvironment } from './evidence-harness.mjs';
 import { digest } from './evidence-fixtures.mjs';
 
 /** Only descend from the exact Chromium PID spawned here, never enumerate host processes. */
+export function residentBytes(status, readStatm) {
+  const match = /^VmRSS:\s+(\d+) kB$/m.exec(status);
+  if (match) return Number(match[1]) * 1024;
+  if (/^State:\s+Z\b/m.test(status)) return 0;
+  // exit_mm can remove VmRSS before exit_notify changes the task state to Z.
+  // statm is an independent observation of the same PID's empty address space.
+  const fields = readStatm().trim().split(/\s+/);
+  assert.ok(fields.length === 7 && fields.every(v => v === '0'), 'RSS instrumentation absent for owned process with no confirmed empty address space');
+  return 0;
+}
 function ownedRss(pid) {
   const status = readFileSync(`/proc/${pid}/status`, 'utf8');
-  const match = /^VmRSS:\s+(\d+) kB$/m.exec(status);
-  if (/^State:\s+Z\b/m.test(status)) return 0; // Exited owned child: no resident pages remain.
-  assert.ok(match, `RSS instrumentation absent for owned PID ${pid}`);
+  let bytes = residentBytes(status, () => readFileSync(`/proc/${pid}/statm`, 'utf8'));
+  if (bytes === 0) return 0;
   const children = readFileSync(`/proc/${pid}/task/${pid}/children`, 'utf8').trim().split(/\s+/).filter(Boolean).map(Number);
-  let bytes = Number(match[1]) * 1024;
   for (const child of children) try { bytes += ownedRss(child); } catch (error) { if (error.code !== 'ENOENT' && error.code !== 'ESRCH') throw error; }
   return bytes;
 }
@@ -24,10 +32,11 @@ export async function measure(root, documents, { coldRuns, taskRuns, onSample = 
   assert.equal(process.platform, 'linux', 'Whole Chromium tree RSS qualification requires Linux /proc');
   const server = await chromium.launchServer({ headless: true, env: isolatedEnvironment(root) });
   const browser = await chromium.connect(server.wsEndpoint()), pid = server.process().pid;
-  let peak = ownedRss(pid), instrumentationError;
-  const timer = setInterval(() => { try { peak = Math.max(peak, ownedRss(pid)); } catch (e) { instrumentationError = e; } }, 20);
+  let peak = 0, timer, instrumentationError;
   const result = { browser: browser.version(), artifacts: {}, metrics: {} };
   try {
+    peak = ownedRss(pid);
+    timer = setInterval(() => { try { peak = Math.max(peak, ownedRss(pid)); } catch (e) { instrumentationError = e; } }, 20);
     for (const [name, doc] of Object.entries(documents)) {
       const artifact = portable(root, doc), htmlBytes = artifact.html.length;
       result.artifacts[name] = { inputSha256: digest(readFileSync(artifact.input)), htmlSha256: digest(artifact.html), htmlBytes,
@@ -77,7 +86,7 @@ export async function measure(root, documents, { coldRuns, taskRuns, onSample = 
         await context.close(); onSample({ name, sample: i + 1, coldMs: stats.cold.at(-1) });
       }
     }
-    if (instrumentationError) throw instrumentationError;
+    if (instrumentationError) result.instrumentationError = { message: instrumentationError.message };
     return result;
   } finally { clearInterval(timer); await browser.close(); await server.close(); }
 }
