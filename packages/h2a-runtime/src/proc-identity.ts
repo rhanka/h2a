@@ -41,6 +41,7 @@
  * stay distinguishable from a value, so a caller can fail closed on it.
  */
 
+import { execFileSync } from "node:child_process";
 import { readFileSync, readlinkSync } from "node:fs";
 
 /**
@@ -48,7 +49,16 @@ import { readFileSync, readlinkSync } from "node:fs";
  * `/proc/self/ns/pid` magic symlink (`pid:[4026531836]`). Stable for the life
  * of the namespace and identical for every process in it.
  */
+/**
+ * macOS has no pid namespaces: there is a single pid space per boot. The
+ * sentinel records that fact, not an inode — it is never a real inode number
+ * (inodes are never 0), so a Linux row (real inode) in a darwin reader's
+ * frame, or vice versa, always classifies foreign-frame (fail closed).
+ */
+export const DARWIN_PID_NAMESPACE_SENTINEL = "0";
+
 export function readPidNamespaceId(): string | undefined {
+  if (process.platform === "darwin") return DARWIN_PID_NAMESPACE_SENTINEL;
   if (process.platform !== "linux") return undefined;
   try {
     const link = readlinkSync("/proc/self/ns/pid");
@@ -65,6 +75,7 @@ export function readPidNamespaceId(): string | undefined {
  * to.
  */
 export function readBootId(): string | undefined {
+  if (process.platform === "darwin") return readDarwinBootId();
   if (process.platform !== "linux") return undefined;
   try {
     const raw = readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim();
@@ -105,6 +116,7 @@ export function readBootId(): string | undefined {
  * "cannot prove", never as "prove me dead".
  */
 export function readProcessStartTime(pid: number): number | undefined {
+  if (process.platform === "darwin") return readDarwinProcessStartTime(pid);
   if (process.platform !== "linux") return undefined;
   try {
     const raw = readFileSync(`/proc/${pid}/stat`, "utf8");
@@ -144,6 +156,7 @@ const MACHINE_ID_PATHS = ["/etc/machine-id", "/var/lib/dbus/machine-id"] as cons
  * for what that leaves out of model).
  */
 export function readMachineId(): string | undefined {
+  if (process.platform === "darwin") return readDarwinMachineId();
   if (process.platform !== "linux") return undefined;
   for (const path of MACHINE_ID_PATHS) {
     try {
@@ -205,6 +218,7 @@ export function readNetNamespaceId(): string | undefined {
  * host.ts's uptime sanity check: no proof ever compares this number.
  */
 export function readSelfProcessStartTime(): number | undefined {
+  if (process.platform === "darwin") return readDarwinProcessStartTime(process.pid);
   if (process.platform !== "linux") return undefined;
   try {
     const raw = readFileSync("/proc/self/stat", "utf8");
@@ -223,6 +237,10 @@ export function readSelfProcessStartTime(): number | undefined {
  * malformed or unreadable uptime leaves the boot instant unknown.
  */
 export function readBootTimeMs(): number | undefined {
+  if (process.platform === "darwin") {
+    const epoch = readDarwinProcessStartTime(1);
+    return epoch !== undefined && epoch > 0 ? Date.now() - epoch * 1000 : undefined;
+  }
   if (process.platform !== "linux") return undefined;
   try {
     const raw = readFileSync("/proc/uptime", "utf8").trim();
@@ -290,4 +308,210 @@ export function classifyDurableProcFrame(
     return "foreign-frame";
   }
   return recorded.bootId === current.bootId ? "current" : "stale-boot";
+}
+
+/**
+ * macOS product substrate (lot BM): the same proofs as above, read through
+ * `/bin/ps` and `ioreg` instead of `/proc`, because the product must publish,
+ * attribute and reap on darwin with equivalent fail-closed semantics.
+ *
+ * Every reader keeps the module contract: a synchronous value or undefined —
+ * never a throw — so callers fail closed on "unavailable" exactly like the
+ * Linux readers. `ps` is at the fixed path `/bin/ps` (never a PATH lookup)
+ * with `LC_ALL=C` so the `lstart` month names parse deterministically.
+ */
+
+export type DarwinPsRunner = (args: ReadonlyArray<string>) => string;
+
+function defaultDarwinPsRunner(args: ReadonlyArray<string>): string {
+  return execFileSync("/bin/ps", [...args], {
+    encoding: "utf8",
+    timeout: 15_000,
+    env: { ...process.env, LC_ALL: "C" },
+  });
+}
+
+const PS_MONTHS: Readonly<Record<string, number>> = {
+  Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
+  Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11,
+};
+
+/**
+ * Parse `ps -o lstart=` output (`Mon Oct 19 10:23:45 2026`) into epoch
+ * SECONDS. Pure (fixture-testable): the readers below only fetch the string.
+ * Returns undefined on any unparseable input — never a guessed time.
+ */
+export function parsePsLstart(output: string): number | undefined {
+  const match = /^[A-Za-z]{3}\s+([A-Za-z]{3})\s+(\d{1,2})\s+(\d{2}):(\d{2}):(\d{2})\s+(\d{4})\s*$/.exec(output.trim());
+  if (!match) return undefined;
+  const month = PS_MONTHS[match[1]!];
+  const day = Number(match[2]);
+  const hour = Number(match[3]);
+  const minute = Number(match[4]);
+  const second = Number(match[5]);
+  const year = Number(match[6]);
+  if (month === undefined || !Number.isInteger(day) || day < 1 || day > 31 ||
+    hour > 23 || minute > 59 || second > 61 || year < 1970 || year > 3000) {
+    return undefined;
+  }
+  return Math.floor(Date.UTC(year, month, day, hour, minute, second) / 1000);
+}
+
+/**
+ * The pid-recycling discriminant on darwin: process start as epoch seconds.
+ * One-second resolution (DECLARED LIMIT): a pid recycled within the same
+ * second is indistinguishable from the original process — the documented
+ * benign error, same class as `defaultOwnerHostProbe`'s coincident-start-time
+ * case on Linux. Units never cross platforms: darwin records and compares
+ * only against darwin reads on the same machine.
+ */
+export function readDarwinProcessStartTime(
+  pid: number,
+  run: DarwinPsRunner = defaultDarwinPsRunner,
+): number | undefined {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return undefined;
+  let output: string;
+  try {
+    output = run(["-p", String(pid), "-o", "lstart="]);
+  } catch {
+    return undefined;
+  }
+  return parsePsLstart(output);
+}
+
+/**
+ * Deterministic boot identity from the start of pid 1 (launchd, alive since
+ * boot): same boot ⇒ same value, any reboot ⇒ a different value (reboots
+ * span longer than the one-second resolution). Encoded UUID-shaped so the
+ * shared frame validator accepts it unchanged — the fixed
+ * `00000000-0000-4000-8000` prefix marks it as a darwin boot-instant
+ * encoding, never a kernel boot_id. A VM snapshot-restore that reverts the
+ * clock is the documented residual (same class as the CRIU case the module
+ * header already declares for Linux).
+ */
+export function darwinBootIdFromEpochSeconds(epochSeconds: number): string {
+  const hex = Math.floor(epochSeconds).toString(16).padStart(12, "0").slice(-12);
+  return `00000000-0000-4000-8000-${hex}`;
+}
+
+export function readDarwinBootId(
+  run: DarwinPsRunner = defaultDarwinPsRunner,
+): string | undefined {
+  const epoch = readDarwinProcessStartTime(1, run);
+  if (epoch === undefined || epoch <= 0) return undefined;
+  return darwinBootIdFromEpochSeconds(epoch);
+}
+
+/** Parse `ioreg -rd1 -c IOPlatformExpertDevice` for the hardware UUID. Pure. */
+export function parseIoPlatformUuid(output: string): string | undefined {
+  const match = /"IOPlatformUUID"\s*=\s*"([^"]+)"/.exec(output);
+  if (!match) return undefined;
+  const normalized = match[1]!.toLowerCase().replace(/-/g, "");
+  if (!/^[0-9a-f]{32}$/.test(normalized) || /^0+$/.test(normalized)) return undefined;
+  return normalized;
+}
+
+const IOREG_CANDIDATES = ["/usr/sbin/ioreg", "/usr/bin/ioreg"] as const;
+
+/**
+ * This machine's stable identity on darwin: the hardware platform UUID,
+ * normalized to the 32-lowercase-hex shape the shared validator already
+ * accepts (no validator change). Fixed paths only, never a PATH lookup.
+ */
+export function readDarwinMachineId(): string | undefined {
+  for (const binary of IOREG_CANDIDATES) {
+    try {
+      const output = execFileSync(binary, ["-rd1", "-c", "IOPlatformExpertDevice"], {
+        encoding: "utf8",
+        timeout: 15_000,
+        env: { ...process.env, LC_ALL: "C" },
+      });
+      const identity = parseIoPlatformUuid(output);
+      if (identity !== undefined) return identity;
+    } catch {
+      // Try the next fixed location; none working means no identity.
+    }
+  }
+  return undefined;
+}
+
+export type DarwinProcessTableRow = Readonly<{
+  pid: number;
+  pgid: number;
+  /** First `ps STAT` letter (R/S/Z/T…), the only part the census compares. */
+  stat: string;
+  /** Full command line as one string (space-joined: see the whitespace limit). */
+  args: string;
+}>;
+
+/**
+ * Parse `ps -axo pid,pgid,stat,args`. Pure. Any non-empty non-header line
+ * that does not parse poisons the WHOLE table (returns undefined): a census
+ * or scan that silently dropped a row could miss a live member or a live
+ * host, and "unavailable" must stay fail-closed, never a partial view.
+ */
+export function parseDarwinProcessTable(output: string): DarwinProcessTableRow[] | undefined {
+  const rows: DarwinProcessTableRow[] = [];
+  const lines = output.split("\n");
+  for (const line of lines.slice(1)) {
+    if (line.trim() === "") continue;
+    const match = /^\s*(\d+)\s+(\d+)\s+(\S+)\s*(.*)$/.exec(line);
+    if (!match) return undefined;
+    const pid = Number(match[1]);
+    const pgid = Number(match[2]);
+    const stat = match[3]!;
+    if (!Number.isSafeInteger(pid) || pid < 0 || !Number.isSafeInteger(pgid) || pgid < 0 || stat === "") {
+      return undefined;
+    }
+    rows.push({ pid, pgid, stat: stat.slice(0, 1), args: match[4] ?? "" });
+  }
+  return rows;
+}
+
+export function readDarwinProcessTable(
+  run: DarwinPsRunner = defaultDarwinPsRunner,
+): DarwinProcessTableRow[] | undefined {
+  let output: string;
+  try {
+    output = run(["-axo", "pid,pgid,stat,args"]);
+  } catch {
+    return undefined;
+  }
+  return parseDarwinProcessTable(output);
+}
+
+/**
+ * The session-token membership read on darwin. macOS `ps` exposes no
+ * documented per-process environ keyword, so the BSD-tolerant spellings are
+ * attempted in order and every output line is scanned for the token
+ * assignment; no spelling yielding it means "unreadable" (undefined), which
+ * the reaper treats as membership-unprovable (refuse-and-leak), never as
+ * token-verified. The literal names the same variable `host.ts`
+ * `H2A_SESSION_TOKEN_ENV_VAR` defines (an import would cycle host ↔
+ * proc-identity); a drift breaks loudly toward refusal, never toward a
+ * false membership proof.
+ */
+export function readDarwinProcessSessionToken(
+  pid: number,
+  run: DarwinPsRunner = defaultDarwinPsRunner,
+): string | undefined {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return undefined;
+  const spellings: ReadonlyArray<ReadonlyArray<string>> = [
+    ["-p", String(pid), "-E"],
+    ["-p", String(pid), "e"],
+    ["eww", "-p", String(pid)],
+  ];
+  for (const args of spellings) {
+    let output: string;
+    try {
+      output = run(args);
+    } catch {
+      continue;
+    }
+    for (const line of output.split("\n")) {
+      const match = /(?:^|\s)H2A_SESSION_TOKEN=([^\s]+)/.exec(line);
+      if (match?.[1]) return match[1];
+    }
+  }
+  return undefined;
 }

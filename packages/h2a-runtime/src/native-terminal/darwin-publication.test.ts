@@ -1,7 +1,7 @@
 import type { ChildProcess } from "node:child_process";
 import { execFileSync } from "node:child_process";
 import { once } from "node:events";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -15,8 +15,13 @@ setupNativeTestEnvironment(afterAll);
 import { NativeTerminalClient } from "./client.js";
 import { NativeTerminalHost } from "./host.js";
 import { resolveRegistryPath } from "../registry.js";
-import { readProcessFrame } from "../proc-identity.js";
-import { proveNativeTerminalEndpointAbsent, startNativeTerminalHostServer } from "./server.js";
+import { readProcessFrame, readProcessStartTime } from "../proc-identity.js";
+import {
+  darwinSocketPublicationLockPath,
+  findDarwinActiveHostServingSocket,
+  proveNativeTerminalEndpointAbsent,
+  startNativeTerminalHostServer,
+} from "./server.js";
 
 // Lot BM RED: darwin product-substrate proofs. Every test executes on both
 // platforms with real assertions in each branch (the repo execution-proof
@@ -174,7 +179,16 @@ describe("darwin publication substrate", () => {
       expect(typeof owner.pidNamespace).toBe("string");
       expect(typeof owner.startTime).toBe("number");
       const lockId = join(dirname(socketPath), ".h2a-native-terminal.lock-id");
-      expect(readFileSync(lockId, "utf8").trim().length).toBeGreaterThan(0);
+      const secret = readFileSync(lockId, "utf8").trim();
+      expect(secret.length).toBeGreaterThan(0);
+      // The darwin filesystem lock holds a real socket file; on Linux the
+      // same derivation names a pathname nobody binds (abstract lock there).
+      const lockPath = darwinSocketPublicationLockPath(socketPath, secret);
+      if (process.platform === "darwin") {
+        expect(lstatSync(lockPath).isSocket()).toBe(true);
+      } else {
+        expect(() => lstatSync(lockPath)).toThrowError(expect.objectContaining({ code: "ENOENT" }));
+      }
     } finally {
       await server.close();
     }
@@ -220,7 +234,78 @@ describe("darwin publication substrate", () => {
       { code: "ENOENT" },
       readProcessFrame,
     )).resolves.toBe(true);
+    // Unreadable observation is unknown (refuse), never absent — even with a
+    // live publisher that the scan can no longer see.
+    const held = await endpoint();
+    writeEmptyRegistry();
+    const heldServer = await startNativeTerminalHostServer({
+      socketPath: held.socketPath,
+      host: servingHost(held.socketPath),
+      readFrame: readProcessFrame,
+    });
+    try {
+      process.env.H2A_TEST_PROC_UNAVAILABLE = "1";
+      try {
+        await expect(proveNativeTerminalEndpointAbsent(
+          held.socketPath,
+          { code: "ECONNREFUSED" },
+          readProcessFrame,
+        )).rejects.toMatchObject({ code: "H2A_ENDPOINT_SCAN_UNKNOWN" });
+      } finally {
+        delete process.env.H2A_TEST_PROC_UNAVAILABLE;
+      }
+    } finally {
+      await heldServer.close();
+    }
   }, TEST_TIMEOUT);
+
+  it("should attribute a ps-visible live host and refuse without observations", async () => {
+    const { directory, socketPath } = await endpoint();
+    // A real live process whose fabricated argv carries this endpoint: the
+    // scan must correlate it and defer to the injected probe. kill(0) and the
+    // start-time read below are real; only the argv row is fabricated.
+    const sleeper = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000);"], {
+      env: process.env,
+      stdio: "ignore",
+    });
+    children.add(sleeper);
+    try {
+      const row = {
+        pid: sleeper.pid!,
+        pgid: sleeper.pid!,
+        stat: "S",
+        args: `${process.execPath} /opt/h2a/dist/native-terminal/owner-process.js --socket ${socketPath} --generation g`,
+      };
+      const expectedStart = readProcessStartTime(sleeper.pid!);
+      expect(expectedStart).toBeDefined();
+      expect(findDarwinActiveHostServingSocket(socketPath, [row], () => "alive")).toEqual({
+        state: "live",
+        pid: sleeper.pid!,
+        startTime: expectedStart,
+      });
+      // The same candidate probed dead is not a host: absent.
+      expect(findDarwinActiveHostServingSocket(socketPath, [row], () => "dead")).toEqual({
+        state: "absent",
+      });
+    } finally {
+      try {
+        sleeper.kill("SIGKILL");
+      } catch {
+        // Already gone.
+      }
+    }
+    // No observations, no proof: unknown, never absent.
+    expect(findDarwinActiveHostServingSocket(socketPath, undefined, () => "dead")).toEqual({
+      state: "unknown",
+      reason: "darwin process table is unreadable",
+    });
+    // Whitespace targets cannot be attributed exactly: unknown, never absent.
+    const spaced = join(directory, "with space.sock");
+    expect(findDarwinActiveHostServingSocket(spaced, [], () => "dead")).toEqual({
+      state: "unknown",
+      reason: "darwin argv scan cannot attribute socket paths containing whitespace",
+    });
+  });
 
   it("should attribute a pathname-less live host", async () => {
     const { child, socketPath } = await spawnOwner();

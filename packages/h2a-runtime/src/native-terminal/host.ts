@@ -22,7 +22,14 @@ import {
 } from "../registry.js";
 // The pid-namespace/boot/machine anchor a durable row is only re-provable
 // within — the SAME definition the row was written with (see proc-identity.ts).
-import { readBootId, readMachineId, readPidNamespaceId, readProcessStartTime } from "../proc-identity.js";
+import {
+  readBootId,
+  readDarwinProcessSessionToken,
+  readDarwinProcessTable,
+  readMachineId,
+  readPidNamespaceId,
+  readProcessStartTime,
+} from "../proc-identity.js";
 export { readProcessStartTime };
 import {
   TerminalReplayBuffer,
@@ -85,6 +92,14 @@ export const posixProcessGroupReaper: NativeTerminalProcessGroupReaper = {
     }
   },
   describeGroup(pgid) {
+    if (process.platform === "darwin") {
+      const table = readDarwinProcessTable();
+      if (table === undefined) return "diagnostic scan failed: darwin process table is unreadable";
+      const members = table
+        .filter((row) => row.pgid === pgid)
+        .map((row) => `${row.pid}(state=${row.stat})`);
+      return members.length > 0 ? members.join(", ") : "no members found (race with exit?)";
+    }
     if (process.platform !== "linux") {
       return "diagnostic unavailable on this platform";
     }
@@ -172,6 +187,11 @@ export const H2A_SESSION_TOKEN_ENV_VAR = "H2A_SESSION_TOKEN";
  * failure.
  */
 function listProcessGroupMemberPids(pgid: number, procRoot = "/proc"): number[] {
+  if (process.platform === "darwin") {
+    const table = readDarwinProcessTable();
+    if (table === undefined) return [];
+    return table.filter((row) => row.pgid === pgid).map((row) => row.pid);
+  }
   if (process.platform !== "linux") return [];
   let names: string[];
   try {
@@ -202,6 +222,7 @@ function listProcessGroupMemberPids(pgid: number, procRoot = "/proc"): number[] 
  * a non-Linux platform — same "never guess" contract as `readProcessStartTime`.
  */
 function readProcessSessionToken(pid: number, procRoot = "/proc"): string | undefined {
+  if (process.platform === "darwin") return readDarwinProcessSessionToken(pid);
   if (process.platform !== "linux") return undefined;
   try {
     const raw = readFileSync(join(procRoot, String(pid), "environ"), "utf8");
@@ -381,6 +402,20 @@ function censusProcessGroup(
   pgid: number,
   procRoot: string,
 ): Map<number, string> | undefined {
+  if (process.platform === "darwin") {
+    // `ps` reports per-process state: a `Z` row is a reaped-but-uncollected
+    // process with no live threads by definition, so no thread-group
+    // refinement applies. An unreadable table is unknown (fail closed), and
+    // `parseDarwinProcessTable` already poisons partially-parsed output.
+    const table = readDarwinProcessTable();
+    if (table === undefined) return undefined;
+    const members = new Map<number, string>();
+    for (const row of table) {
+      if (row.pgid !== pgid) continue;
+      members.set(row.pid, row.stat);
+    }
+    return members;
+  }
   if (process.platform !== "linux") return undefined;
   if (procMountHidesProcesses(procRoot) !== false) return undefined;
   let names: string[];

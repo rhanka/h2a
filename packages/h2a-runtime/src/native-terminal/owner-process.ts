@@ -29,23 +29,25 @@ import {
 import { parseNativeTerminalHostArgs } from "./process.js";
 
 /**
- * Phase B (lot B2): typed refusal for the owner/frontend split on any
- * platform without the Linux product substrate. Lot BM ports darwin; until
- * then the split fails closed here instead of reaching the abstract-socket
- * publication lock. Pinned by `supervisor.test.ts` (darwin-only case).
+ * Phase B (lot B2): typed refusal for the owner/frontend split on a platform
+ * with no product substrate. Lot BM ported darwin (filesystem publication
+ * lock, ps-based attribution, bash-guardian containment), so darwin is
+ * admitted; platforms with no substrate at all still fail closed here.
+ * (Historical class name kept: renaming would churn frontend-process.ts,
+ * which no lot covers.) Pinned by `supervisor.test.ts` (darwin-only case).
  */
 export class OwnerFrontendDarwinRefusal extends Error {
   readonly exitCode = 3;
   constructor() {
     super(
-      "native terminal owner/frontend split requires Linux socket publication (macOS substrate lands in lot BM)",
+      "native terminal owner/frontend split requires Linux or macOS socket publication substrate",
     );
     this.name = "OwnerFrontendDarwinRefusal";
   }
 }
 
 export function assertOwnerFrontendSupported(platform: string = process.platform): void {
-  if (platform !== "linux") throw new OwnerFrontendDarwinRefusal();
+  if (platform !== "linux" && platform !== "darwin") throw new OwnerFrontendDarwinRefusal();
 }
 
 const OWNER_STARTUP_TIMEOUT_MS = 10_000;
