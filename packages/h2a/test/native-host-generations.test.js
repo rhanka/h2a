@@ -325,12 +325,18 @@ let text=''; process.stdin.on('data', bytes=>{
   context.diagnostic(`MCP real launch: ${JSON.stringify(first)}`);
   assert.equal(first.state, "started", JSON.stringify(first));
   assert.equal(first.session.socketPath, compatible.socketPath);
-  mcp.child.stdin.end(JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call",
+  // H4 binds the initial arguments in both the memo and MCP cache. A real
+  // same-argument poll must return the exact result; a changed brief conflicts.
+  mcp.child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call",
+    params: { name: "h2a_run", arguments: request } }) + "\n");
+  mcp.child.stdin.end(JSON.stringify({ jsonrpc: "2.0", id: 3, method: "tools/call",
     params: { name: "h2a_run", arguments: { ...request, prompt: "must never deliver twice" } } }) + "\n");
   const result = await mcp.closed;
   assert.equal(result.status, 0, result.stderr);
   const secondResult = JSON.parse(responses().find(response => response.id === 2).result.content[0].text);
   assert.deepEqual(secondResult, first);
+  const conflictingResult = JSON.parse(responses().find(response => response.id === 3).result.content[0].text);
+  assert.deepEqual(conflictingResult, { error: "launch_arguments_conflict" });
   assert.deepEqual(readFileSync(delivered, "utf8").trim().split("\n").map(line => JSON.parse(line)), [request.prompt]);
   const second = await NativeTerminalClient.connect(compatible.socketPath);
   try {
