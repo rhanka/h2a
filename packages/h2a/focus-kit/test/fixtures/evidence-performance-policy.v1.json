@@ -12,7 +12,7 @@
   "corpusSha256": "5ddd436738d4b59c3805a5cf574fc62a4ade053630a452b10e7206510ed33ad4",
   "generatorSha256": "6b26f0459936393bf955231e8fc76c2b618d9cd0611851ff3587bccd42b975ce",
   "fixtureSha256": "0f3fc61f2c2fb0b46ef68d404ae251ad56ed5faac92fbe4d7c07c5605510d350",
-  "measurementSha256": "f44ff4030795f12dfdaddf1e9bb87139d904c95bce33ba9914d90cdddf33f8c4",
+  "measurementSha256": "50e094c112324232d353dfac7295828ed8d53d21c337f5bc4055aa9b7bbc92df",
   "libraries": {
     "playwright": "1.63.0",
     "svelte": "5.56.4",
