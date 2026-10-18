@@ -1,5 +1,82 @@
 # PTY Phase B — PR #375, continuation 2026-10-18
 
+## Correction des revues rv375a / rv375s — 2026-10-18
+
+Départ `af2dd0df6`, branche `feat/pty-b-handover`. `origin/main` reste
+ancêtre après fetch : aucun rebase nécessaire. Aucun accès à l'hôte réel,
+binaire h2a installé, état propriétaire ou processus étranger. Tests ciblés
+uniquement, racines temporaires HOME/XDG/runtime ; aucun skip ajouté.
+
+| Constat | Correction | Preuve rouge → verte |
+|---|---|---|
+| P1 frontend de secours fatal | Après un premier frontend, un échec avant hello conserve owner et CLI ; la fatalité initiale reste en place. | `upgrade-pty-contract.test.ts` : sortie owner 3 → owner inchangé et nouvelle réponse CLI par son canal privé. Registre produit utilisé. |
+| P1 attribution après remplacement | Le frontend attend le hello owner avant publication et attribue `.owner` à son PID/naissance stables. Échec de publication : fermeture du canal ouvert. Retrait explicite après drainage sous exclusion, sans autoriser un autre publisher vivant. | Même fichier : « second owner started » sur l'ancienne tête → refus 3, connexion existante toujours utilisable, attribution à l'owner. |
+| P1 verrou Darwin | Réclamation sérialisée par un répertoire exclusif ; socket lié depuis un nom privé unique. `close` ne peut supprimer le nom d'un successeur. | `darwin-publication.test.ts` : deux détenteurs et pathname supprimé → exclusion et successeur intact. Huit cas verts, dont garde abandonnée refusée. |
+| P2 upgrade déjà installé | Résultat agrégé `deferred`, incluant les hôtes pré-B, même si tous les frontends B correspondent déjà au candidat. | `upgrade-swap.test.js` : `already-current` → `pty-deferred`, résultat des deux générations présent. |
+| P2 fichier B5 manquant | Fichier nommé ajouté, avec vrai attach, Bash/readline, resize, nouvelle version frontend, trois coupures D21, cohortes strictes. Ajout au workflow macOS. | Quatre scénarios locaux verts ; absence de cohorte = échec explicite, jamais skip. B5 reste non qualifié. |
+
+Limite conservatoire Darwin : si un processus meurt pendant qu'il détient
+le répertoire `.recovery`, les suivants refusent après délai ; aucune reprise
+automatique de cette garde par âge ou sonde n'est autorisée. Le socket de
+verrou libéré reste périmé jusqu'à la prochaine récupération sérialisée.
+Cela privilégie l'exclusion ; la récupération automatique de la garde
+abandonnée n'est pas couverte. Les propriétaires pré-B restent `deferred`,
+avec admissions historiques non clôturées : aucun amendement B5 implicite.
+
+Commandes et sorties observées, wrapper `tmp/pty-am2-run.mjs` inchangé :
+
+```sh
+rtk env H2A_TEST_PTY_DIST=/home/antoinefa/src/h2a/tmp/worktrees/ptycode/tmp/pty-r375-baseline-dist node tmp/pty-am2-run.mjs pty-r375-owner-red-final node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/upgrade-pty-contract.test.ts
+# 12 passed, 2 failed, 0 skipped ; exit 1. Copie jetable du dist courant avec
+# owner/frontend/server de af2dd0df6 transpilés par TypeScript, sans autre changement.
+rtk node tmp/pty-am2-run.mjs pty-r375-darwin-red-valid node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/darwin-publication.test.ts
+# Ancien code Darwin : 5 passed, 2 failed, 0 skipped ; exit 1.
+rtk node tmp/pty-am2-run.mjs pty-r375-upgrade-red-valid node --test packages/h2a/test/upgrade-swap.test.js
+# 20 passed, 1 failed, 0 skipped/TODO/cancelled ; exit 1.
+rtk npm run build -w @sentropic/h2a-runtime
+rtk npm run build -w @sentropic/h2a
+# exit 0 chacun ; vendor-engram-live mirror OK.
+rtk node tmp/pty-am2-run.mjs pty-r375-green-final node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/upgrade-pty-contract.test.ts packages/h2a-runtime/src/native-terminal/darwin-publication.test.ts packages/h2a-runtime/src/native-terminal/legacy-drain.functional.test.ts packages/h2a-runtime/src/native-terminal/fleet.test.ts packages/h2a-runtime/src/native-terminal/op.test.ts
+# 5 files, 51 passed, 0 failed/skipped/TODO/cancelled ; exit 0, Node 22.22.1.
+rtk env PATH=/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin:/usr/local/bin:/usr/bin:/bin node tmp/pty-am2-run.mjs pty-r375-node24-final node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/upgrade-pty-contract.test.ts packages/h2a-runtime/src/native-terminal/darwin-publication.test.ts packages/h2a-runtime/src/native-terminal/legacy-drain.functional.test.ts packages/h2a-runtime/src/native-terminal/fleet.test.ts packages/h2a-runtime/src/native-terminal/op.test.ts
+# 5 files, 51 passed, 0 failed/skipped/TODO/cancelled ; exit 0, Node 24.22.0.
+rtk node tmp/pty-am2-run.mjs pty-r375-node-green-final node --test packages/h2a/test/upgrade.test.js packages/h2a/test/upgrade-swap.test.js packages/h2a/test/upgrade-boot-worker.test.js
+# 63 passed, 0 failed/skipped/TODO/cancelled ; exit 0, Node 22.
+rtk env PATH=/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin:/usr/local/bin:/usr/bin:/bin node tmp/pty-am2-run.mjs pty-r375-upgrade24 node --test packages/h2a/test/upgrade.test.js packages/h2a/test/upgrade-swap.test.js packages/h2a/test/upgrade-boot-worker.test.js
+# 63 passed, 0 failed/skipped/TODO/cancelled ; exit 0, Node 24.
+rtk node tmp/pty-am2-run.mjs pty-r375-neighbors node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/server.test.ts packages/h2a-runtime/src/native-terminal/frontend-swap.functional.test.ts packages/h2a-runtime/src/native-terminal/darwin-publication.test.ts packages/h2a-runtime/src/native-terminal/darwin-identity.test.ts
+# 4 files, 57 passed, 0 failed/skipped/TODO/cancelled ; exit 0.
+rtk node tmp/pty-am2-run.mjs pty-r375-b5-final22 node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/phase-b-agent-qualification.functional.test.ts packages/h2a-runtime/src/native-terminal/legacy-drain.functional.test.ts packages/h2a-runtime/src/native-terminal/fleet.test.ts packages/h2a-runtime/src/native-terminal/op.test.ts
+# 33 passed, 1 failed (cohorte absente), 0 skipped/TODO/cancelled ; exit 1.
+rtk env PATH=/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin:/usr/local/bin:/usr/bin:/bin node tmp/pty-am2-run.mjs pty-r375-b5-final24 node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/phase-b-agent-qualification.functional.test.ts packages/h2a-runtime/src/native-terminal/legacy-drain.functional.test.ts packages/h2a-runtime/src/native-terminal/fleet.test.ts packages/h2a-runtime/src/native-terminal/op.test.ts
+# 33 passed, 1 failed (cohorte absente), 0 skipped/TODO/cancelled ; exit 1.
+```
+
+Les premiers montages de contention et de paquet déjà installé ont échoué
+sur le montage, puis ont été corrigés avant la preuve rouge valide ci-dessus.
+Un essai runtime a croisé un nettoyage de dist : ses erreurs d'import ne
+comptent pas comme preuve ; les commandes finales suivent les builds achevés.
+
+Contrat `H2A_TEST_PHASE_B_CLIS` : tableau JSON non vide fixé par le conducteur.
+Chaque entrée exige `name`, `binary` absolu exécutable, `version` (stdout exact
+de `versionArgs`), `seat`, `platforms` (ex. `linux/x64`, `darwin/arm64`), `args`,
+`env`, `homeFiles` (contenus de fichiers relatifs au HOME privé), `ready`,
+`receivedInputFile` relatif à la racine privée du scénario ; trois `turns`
+`{input,output}` contenant respectivement `numbered:001`, `002`, `003` ;
+`resize:{input,output}` lisant `37 109` et `exit:{input,code}`. `{DIR}` et
+`{HOME}` sont substitués dans args/env/config ; les racines HOME/XDG ne sont
+jamais remplaçables. Le reçu doit porter les octets réellement consommés par
+le CLI, pas une copie du proxy. Modèles simulés autorisés, binaire réel requis.
+Chaque membre exécute les trois coupures et doit réussir version, réponses,
+identités PID/naissance owner/CLI, séquences exactes, resize et sortie.
+Le scénario timeout observe effectivement une erreur de timeout du client.
+
+Restent ouverts : cohorte réelle, vert B5 Linux puis macOS ARM64 Node 22/24,
+barrière d'admission pré-B. Aucun lot L. La CI ne peut être déclarée verte
+sans cohorte : le fichier obligatoire échoue volontairement sur son absence.
+Nouvelle revue harness : `selection-failed` (identité auteur exacte non
+disponible et dispatch h2a installé interdit) ; aucun consensus inventé.
+
 Owner scope: apply the approved amendments, close B4, repair the three Linux CI jobs, implement B5, then stop. No Phase L or second standing PTY owner. Start: af46490d8, origin/main initially 46b82b427; subsequently rebased without conflicts onto 7ebbcf266 before publication. Temporary test roots only; targeted files only; no installed h2a, owner state, Python or foreign processes.
 
 ## Admission/drain barrier correction — 2026-10-18
