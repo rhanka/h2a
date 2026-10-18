@@ -1,8 +1,8 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createLlmMeshFacade,
@@ -38,12 +38,7 @@ vi.mock("node:fs", async (importOriginal) => {
   return { ...actual, existsSync: vi.fn(actual.existsSync) };
 });
 
-const SCRATCH = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "..",
-  ".test-scratch",
-  "accounts",
-);
+const SCRATCH = mkdtempSync(join(tmpdir(), "h2a-seat-accounts-"));
 
 beforeEach(() => mkdirSync(SCRATCH, { recursive: true }));
 
