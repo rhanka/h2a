@@ -43,7 +43,9 @@ const BIN = join(REPO_ROOT, "packages", "h2a", "dist", "bin.js");
 // Updated for the interim direct Vibe MCP entry (owner 16/10, derogation spec-astra-v9 O7.2):
 // host setup usage line documents Vibe --write (interim direct) / --remove (migration)
 // instead of refusing every --write (+77 bytes, cli.ts renderCliHelp only).
-const CORE_HELP_SHA256 = "8af2d78eed68a3d4caeb6dfb41bdd1b218d20084dbeba7345af3bf3cb4737f35";
+// Portable Focus adds exactly two usage lines (+183 bytes); removing them
+// restores the previous lane help stream and SHA-256 byte-for-byte.
+const CORE_HELP_SHA256 = "4de27063c0528810c29e148ef0c55606080602784b6500be23e74672ee22747f";
 
 const RUNTIME_MISSING =
   "ce verbe requiert le runtime h2a (sessions / k8s / tunnel).\n" +
