@@ -543,12 +543,13 @@ CI follow-up: the public Node test API preserves both expensive package files'
 priority (the CLI lexically reorders files), with both execution reporters,
 all reported CPUs and progress limited to its own children. Cold daemon
 attachments, M21 handover and MH-L4 source precheck finish in dedicated phases.
-Other bounded protocol cases run before a separate bulk filesystem pool,
-whose first workers include M17 and both packages; deadlines and G0/G1 assertions stay
-intact. CI shows useful work continuing at 600s: the expanded Node gate now
-has a 900s outer backstop within the unchanged 25-minute job, while other suites
+M17 then overlaps the remaining protocol and bulk phases with one reserved
+worker; the bulk installation pool still waits for the other protocols.
+Individual deadlines and G0/G1 assertions stay intact. CI shows useful work
+continuing at 900s, with only the late-started M17 still active: the expanded
+Node gate has a 1200s outer backstop within the unchanged 25-minute job, while other suites
 retain 600s. Real child ordering, phase exclusion and failed-child propagation
-have nine mandatory regression cases. Payload writes cadence automatic expiry
+have eleven mandatory regression cases. Payload writes cadence automatic expiry
 maintenance with a monotone thirty-second interval; quota pressure and explicit
 sweeps remain immediate, TTL reads unchanged. Quota/live-data refusal controls
 and the full 10,000-mutation-per-domain backend stress remain required.
