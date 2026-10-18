@@ -132,7 +132,6 @@ export function deriveItemStageStatus(
 ): ItemStageStatus {
   const lastReopen = lastReopeningIndex(events, item.id)
   const reopened = lastReopen >= 0
-  const lastReopenAt = item.reopenings?.at(-1)?.at
 
   // A stored report is VOID after a reopening until requalified: only an
   // assertion recorded after the reopening still speaks (P6).
@@ -186,6 +185,14 @@ export function deriveItemStageStatus(
 
   // ---- qualification witnesses (D6, P6) --------------------------------------
   const criteria = [...state.criteria.values()].filter((criterion) => criterion.itemId === item.id)
+  // Timestamps can tie. The fold picks latest runs in journal order; use
+  // that same order to require every supporting run after the reopening.
+  const latestRunIndexes = new Map<string, number>()
+  events.forEach((event, index) => {
+    if (event.type === 'acceptance.run') {
+      latestRunIndexes.set((event.payload as { evidenceId: string }).evidenceId, index)
+    }
+  })
   const acceptanceWitness =
     acceptance === 'pass' &&
     criteria.every((criterion) => {
@@ -194,7 +201,7 @@ export function deriveItemStageStatus(
         .map((entry) => entry.latestRun)
       if (criterion.waiver !== undefined) return true // a recorded waiver is a conformity decision, not a gap
       return runs.length > 0 && runs.every((run) =>
-        run !== undefined && run.result === 'pass' && (lastReopenAt === undefined || run.at >= lastReopenAt),
+        run !== undefined && run.result === 'pass' && (latestRunIndexes.get(run.evidenceId) ?? -1) > lastReopen,
       )
     })
   const storedWitness =

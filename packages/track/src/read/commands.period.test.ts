@@ -346,7 +346,7 @@ describe('the presenter refuses a reversed period window', () => {
   })
 
   it('rejects reversed bounds through the inline presenter too', () => {
-    expect(() => formatWpConductorInline([], [], [], 'global', reversed)).toThrow(
+    expect(() => formatWpConductorInline([], [], {}, [], reversed)).toThrow(
       /must not end before it begins/,
     )
   })

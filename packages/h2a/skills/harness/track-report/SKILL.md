@@ -60,6 +60,21 @@ Run the two structured audits before serving: `describeRowNextActions` plus
 Presence and identity only: a green audit never certifies prose quality, and
 the owner judges whether the sentence is right.
 
+Audit the **served** data. Each À-FAIRE row carries machine `instruction`
+(`to-instruct`, `not-instructed`, `structure-dossier`, `none-owed`, or
+`investigated`) and `gateSteps` codes; translation must preserve those fields.
+After investigating, set `instruction: investigated` and
+`actionOrigin: investigated` beside the concrete `nextAction`. A gate-class
+action keeps `actionOrigin: gate-class` in every language. Text alone never
+certifies an instruction.
+
+For each red item, add exactly one entry to the served view's `proposals`:
+`{ itemId, proposal, proposalState: 'investigated' }`. Carry that exact proposal
+in its row's `nextAction` and in RECOMMANDATION, in the requested language.
+`proposalState: 'to-instruct'`, missing metadata, or absence from either served
+section fails the audit. A stored `item.report-updated` proposal is a source
+to investigate, never proof that the current report contains a fresh proposal.
+
 `track` supplies complete, deterministic facts and already renders the four sections the owner
 validated. The agent already in the conversation supplies the contextual synthesis on top of them. Do not
 call a model, adapter, gateway, or network-backed report path. Every command below is a local, read-only
