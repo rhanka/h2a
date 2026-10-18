@@ -3,6 +3,28 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { evidenceFixture, source, digest } from './evidence-fixtures.mjs';
 import { withBrowser } from './evidence-harness.mjs';
+import { installedEvidence } from './distribution-fixture.mjs';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { chromium } from 'playwright';
+import { isolatedEnvironment } from './evidence-harness.mjs';
+
+test('opens evidence from a fresh built-package install with no checkout imports or network', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'focus-package-browser-')); let browser;
+  try {
+    const installed = installedEvidence(root);
+    browser = await chromium.launch({ headless: true, env: isolatedEnvironment(root) });
+    const context = await browser.newContext({ offline: true }), page = await context.newPage(), requests = [];
+    page.on('request', r => { if (/^https?:/.test(r.url())) requests.push(r.url()); });
+    await page.goto(installed.url);
+    await page.locator('.dossier-section').first().getByRole('button', { name: 'Preuve distante', exact: true }).click();
+    const target = page.getByRole('region', { name: 'Source consultée', exact: true }).locator('[data-line="12"]');
+    assert.match(await target.innerText(), /fin distante/);
+    assert.deepEqual(requests, []);
+    console.log('H4-H1 installed package: offline citation opened with exact original lines');
+  } finally { await browser?.close(); rmSync(root, { recursive: true, force: true }); }
+});
 
 test('consults complete evidence offline with bounded lines, inert text and focus return on keyboard and touch', async () => {
   const doc = evidenceFixture(20_000, 31);
@@ -29,6 +51,7 @@ test('consults complete evidence offline with bounded lines, inert text and focu
       await search.fill('preuve'); await search.fill('fin distante');
       await page.waitForFunction(() => document.querySelector('[data-search-status]')?.textContent === '1 résultat(s)', null, { timeout: 1500 });
       assert.equal(await panel.locator('[data-search-status]').innerText(), '1 résultat(s)');
+      assert.equal(await search.evaluate(e => e === document.activeElement), true, 'Search results must preserve keyboard input focus');
       await search.fill('absent-complet');
       await page.waitForFunction(() => document.querySelector('[data-search-status]')?.textContent === '0 résultat(s)', null, { timeout: 1500 });
       const download = page.waitForEvent('download');
@@ -48,6 +71,7 @@ test('consults complete evidence offline with bounded lines, inert text and focu
       assert.equal(await panel.getByAltText('Capture de référence').count(), 1);
       await panel.getByRole('button', { name: 'Retour au contexte' }).click();
       await evidence.getByText('Détail des pièces', { exact: true }).click();
+      await evidence.getByText('Texte de soutien.', { exact: true }).waitFor({ timeout: 1500 });
       assert.equal(await evidence.getByText('Texte de soutien.', { exact: true }).count(), 1);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       assert.deepEqual(errors, []); assert.deepEqual(network, []);
