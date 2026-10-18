@@ -50,6 +50,11 @@ test('consults complete evidence offline with bounded lines, inert text and focu
       const panel = page.getByRole('region', { name: 'Source consultée', exact: true });
       await panel.locator('[data-line="20000"]').waitFor({ timeout: 1500 });
       assert.match(await panel.locator('[data-line="20000"]').innerText(), /fin distante/);
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      const range = await panel.locator('[data-line="20000"]').boundingBox();
+      const viewport = await panel.locator('.source-scroll').boundingBox();
+      assert.ok(range.y >= Math.max(0, viewport.y) && range.y + range.height <= Math.min(900, viewport.y + viewport.height),
+        `${width}px: cited line must be inside the viewport, got ${JSON.stringify(range)}`);
       assert.ok(await panel.locator('.source-line').count() <= 80);
       const search = panel.getByRole('searchbox', { name: 'Rechercher dans toute la source' });
       await search.fill('preuve'); await search.fill('fin distante');
@@ -89,5 +94,74 @@ test('consults complete evidence offline with bounded lines, inert text and focu
       console.log(`${width}px: offline range/search/download/back, bounded DOM and inert text OK`);
       await context.close();
     }
+  });
+});
+
+test('should preserve a newer citation when an earlier complete-source search finishes', async () => {
+  await withBrowser(evidenceFixture(200_000), async ({ browser, url }) => {
+    const page = await browser.newPage({ offline: true });
+    await page.goto(url);
+    const opener = page.locator('.dossier-section').first().getByRole('button', { name: 'Preuve distante', exact: true });
+    await opener.click();
+    const panel = page.getByRole('region', { name: 'Source consultée', exact: true });
+    await page.waitForFunction(() => document.querySelector('[data-search-status]')?.textContent === '0 résultat(s)');
+    // Hold cooperative timer tasks, navigate while the search is pending, then
+    // release every task. The witness does not rely on CPU speed or a sleep.
+    await page.evaluate(() => {
+      const timer = window.setTimeout;
+      window.heldSearchTasks = [];
+      window.setTimeout = (callback, delay, ...args) => delay === 0
+        ? window.heldSearchTasks.push(() => callback(...args)) : timer(callback, delay, ...args);
+      window.releaseSearch = () => {
+        window.setTimeout = timer;
+        for (const task of window.heldSearchTasks.splice(0)) timer(task, 0);
+      };
+    });
+    const search = panel.getByRole('searchbox', { name: 'Rechercher dans toute la source' });
+    await search.fill('preuve');
+    assert.equal(await panel.locator('[data-search-status]').innerText(), 'Recherche en cours…');
+    assert.ok(await page.evaluate(() => heldSearchTasks.length > 0), 'Search must actually be pending');
+    await opener.click();
+    await page.evaluate(() => window.releaseSearch());
+    await page.waitForFunction(() => document.querySelector('[data-search-status]')?.textContent === '199999 résultat(s)', null, { timeout: 1500 });
+    assert.equal(await search.inputValue(), 'preuve');
+    assert.match(await panel.innerText(), /plage citée : 200000–200001/);
+    assert.equal(await panel.locator('[data-line="200000"]').count(), 1,
+      `The completed older search must not replace the newer cited range: ${JSON.stringify(await panel.evaluate(el => ({ top: el.querySelector('.source-scroll').scrollTop,
+        first: el.querySelector('[data-line]')?.dataset.line, last: [...el.querySelectorAll('[data-line]')].at(-1)?.dataset.line })))}`);
+    await page.close();
+  });
+});
+
+test('should return focus and scroll to the latest dossier citation on keyboard and touch', async () => {
+  await withBrowser(evidenceFixture(), async ({ browser, url }) => {
+    for (const width of [390, 1440]) {
+      const context = await browser.newContext({ offline: true, viewport: { width, height: 900 }, isMobile: width < 600, hasTouch: width < 600 });
+      const page = await context.newPage(); await page.goto(url);
+      await page.locator('.dossier-section').first().getByRole('button', { name: 'Preuve distante', exact: true }).click();
+      const latest = page.locator('.dossier-section').getByRole('button', { name: 'Capture', exact: true });
+      await latest.evaluate(el => { el.scrollIntoView({ block: 'center' }); el.focus(); });
+      const scroll = await page.evaluate(() => window.scrollY);
+      if (width < 600) await latest.tap(); else await page.keyboard.press('Enter');
+      const panel = page.getByRole('region', { name: 'Source consultée', exact: true });
+      await panel.getByAltText('Capture de référence').waitFor();
+      await panel.getByRole('button', { name: 'Retour au contexte' }).click();
+      assert.equal(await latest.evaluate(el => el === document.activeElement), true, `${width}px: latest citation opener must regain focus`);
+      assert.ok(Math.abs(await page.evaluate(() => window.scrollY) - scroll) <= 1, `${width}px: latest dossier scroll must be restored`);
+      await context.close();
+    }
+  });
+});
+
+test('should resolve annex return references within the rendered dossier when an id collides with app', async () => {
+  const doc = evidenceFixture(); doc.sections[0].id = 'app'; doc.annexes[0].backRefs = ['app'];
+  await withBrowser(doc, async ({ browser, url }) => {
+    const page = await browser.newPage({ offline: true }); await page.goto(url);
+    const annex = page.getByRole('region', { name: 'Pièces justificatives', exact: true }).locator('details').filter({ hasText: 'Détail des pièces' });
+    await annex.locator('summary').click();
+    await annex.getByRole('button', { name: 'Retour : Contexte', exact: true }).click();
+    assert.equal(await page.locator('.dossier-section').first().evaluate(el => el === document.activeElement), true,
+      'A dossier id must not resolve to a renderer container with the same DOM id');
+    await page.close();
   });
 });

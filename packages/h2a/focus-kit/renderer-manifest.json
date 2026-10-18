@@ -35,14 +35,14 @@
     "src/App.svelte": "d67bedc574a2c882b45a4e43617b38fe35812fb238dfd11973bed4ab6930096b",
     "src/Canvas.svelte": "4cdc0b74d72ac483eb4717dba6de375efc444509c52e1167d97a573c3247df7d",
     "src/EcosystemNode.svelte": "360e822fb4c3f7ff0686c7e973dd4052d06a25a9d1ea9c49c2f979c99adf3774",
-    "src/Evidence.svelte": "2930e14a722fe9dea4b37fcfb3efa96877e27fb30fe9d17f315468dd4810158c",
-    "src/SourceViewer.svelte": "e04bb21144b9a6d0d91c31315c9b7a9c5f2989b2f3d2a7c48da27b6b5d895d9b",
+    "src/Evidence.svelte": "b08af4a85ca01a1a8c5912508b506e45a8ea59d69791476e122475bfcf0a29b3",
+    "src/SourceViewer.svelte": "f9744714fcca71ef9d29faab6d2e3ca9de6759dd2d36154a8a8615695c62844e",
     "src/evidence-search.js": "ba531b0680e85c2fcac108de34ccce8d1638bf3a89650804fd716cda9e31f2ff",
     "src/interim-nodes.js": "789e144c2f1e6ca1468c9bd5bca570c59439dc3beffd53de6d22fd79ec8eaca3",
     "src/main.js": "063a974c2976843388d221e6a539f229a16426f34dc298ab1f2a9e6f2cb2542a",
     "src/style.css": "cbb2c0d869863249740e210830196449789cdd19fc1285163713445b736366c5",
     "src/themes.js": "d11b2016ea27678bfa2a35986389c189147cc86a1bb99de41d3f454e79d50caf"
   },
-  "html": "19f01d62147ca4d76ece60c3b50c7638c703f4b08aeb68fc90148d827ea09f4d",
+  "html": "6a6e62aa90c4df44625539a763cdf6839de6ae6094bd1bb0b0dfd32ede77d305",
   "validator": "c5b3afcebd966458c3721842d4dbacbff4605206bb5296b593d0d160efad2ea4"
 }
