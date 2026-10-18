@@ -113,7 +113,13 @@ test("T-guard: dist, the npm pack tarball and package exports cannot load the se
   for (const entry of manifest.files) {
     assert.equal(resolve(root, "packages/h2a", "test", seamName).startsWith(resolve(root, "packages/h2a", entry) + "/"), false, entry);
   }
-  assert.deepEqual(Object.keys(manifest.exports), [".", "./agy-claude"]);
+  assert.deepEqual(Object.keys(manifest.exports), [".", "./agy-claude", "./registry/manifest", "./registry/definitions"]);
+  assert.deepEqual(manifest.exports["./registry/manifest"], {
+    types: "./dist/registry/manifest.d.ts", import: "./dist/registry/manifest.js"
+  });
+  assert.deepEqual(manifest.exports["./registry/definitions"], {
+    types: "./dist/registry/definitions.d.ts", import: "./dist/registry/definitions.js"
+  });
   assert.deepEqual(manifest.exports["./agy-claude"], {
     types: "./dist/runtime/agy-claude.d.ts",
     import: "./dist/runtime/agy-claude.js"
