@@ -82,9 +82,9 @@ absente sur un processus vivant échoue. Le skill `h2a:debug` a guidé le diagno
 | `rtk git diff --check -- . ':(exclude)packages/h2a/focus-kit/renderer.html'` | exit 0 ; le JS généré contient une chaîne littérale de whitespace Svelte, non réécrite à la main |
 
 Mesures finales/hashes : [metrics.json](dossier-diagrams/metrics.json).
-Grand artifact : 31 sources, environ 31,3 Mo HTML, 23,2 Mo de preuves.
-P95 : ouverture 1011,5 ms, citation 82,2 ms, recherche 59,8 ms ; RSS crête large
-731,9 Mo, croissance retenue 28,4 Mo. Maximum 80 lignes, moins de 400 éléments
+Grand artifact : 31 sources, environ 30,9 Mo HTML, 22,9 Mo de preuves.
+P95 : ouverture 1124,5 ms, citation 81,2 ms, recherche 60,3 ms ; RSS crête large
+728,6 Mo, croissance retenue 29,7 Mo. Maximum 80 lignes, moins de 400 éléments
 de preuve. Node 22.22.1, Chromium 153.0.8010.12, Playwright 1.63.0.
 
 ## CI, écarts et NON couvert
@@ -139,3 +139,22 @@ pièce runtime manquante n'est ignorée et aucun accès réseau n'est ajouté.
 Mêmes commandes ciblées : distribution **1/1**, navigateur **2/2**, exit 0,
 zéro skip ; `190 platform tarballs, zero registry metadata entries`.
 Sorties finales : run-3Z4iin et run-cWTbRb.
+
+## Corpus technique reproductible en CI
+
+Le troisième job [portable-focus](https://github.com/rhanka/h2a/actions/runs/39167209665/job/117792536870)
+sur `a08664688` passe l'installation isolée et tous les tests navigateur, puis
+refuse le corpus : un ancien fichier de configuration suivi par Git est absent
+après le bootstrap CI. Cette absence n'a jamais été comptée comme skip ou GREEN.
+
+Le corpus est désormais borné à **1 731 fichiers techniques** (sources,
+documentation et workflows). Leurs blobs Git et SHA-256 sont figés ; le générateur
+lit les objets Git en batch, sans lire des configurations de machine ou des
+fichiers modifiés par le bootstrap. Un blob absent ou un digest incorrect échoue.
+Les blobs inchangés appartiennent à l'arbre du checkout, sans fetch d'historique.
+
+Calibration répétée, hashes de corpus/générateur actualisés, puis qualification
+30/30 répétée avec des **budgets numériques strictement identiques**. Commande :
+`rtk node --test packages/h2a/focus-kit/test/evidence-performance-browser.test.mjs`.
+Sortie : **1/1 pass, exit 0, zéro skip**, run-BttLAh ; mesures finales dans
+`dossier-diagrams/metrics.json`. Les anciennes preuves restent dans l'historique.

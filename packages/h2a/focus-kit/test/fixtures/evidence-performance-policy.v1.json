@@ -3,14 +3,14 @@
   "frozenAt": "2026-10-18",
   "calibration": {
     "command": "node calibration script: measure(coldRuns:3, taskRuns:5)",
-    "sha256": "d276193c4910fb4f5c23710ee9e9365cf0ff6d754bc7427e44eebdc0681fc0b7",
+    "sha256": "8165bb8d729d52d1ffcdb4fa3ebc018eef663c14638c11d6b75f5f3bf7282aeb",
     "node": "v22.22.1",
     "chromium": "153.0.8010.12",
     "cpu": "AMD RYZEN AI MAX+ 395 w/ Radeon 8060S",
     "ramBytes": 61736112128
   },
-  "corpusSha256": "5ddd436738d4b59c3805a5cf574fc62a4ade053630a452b10e7206510ed33ad4",
-  "generatorSha256": "6b26f0459936393bf955231e8fc76c2b618d9cd0611851ff3587bccd42b975ce",
+  "corpusSha256": "7889dc63dbf8cf304ea88ac79a1cbe9c8d86c59a8427ae8cb5e20882e5c1957e",
+  "generatorSha256": "52d2f5a18e93dbe576a383638a2c585415986b1057525962ec996c52f845ec02",
   "fixtureSha256": "0f3fc61f2c2fb0b46ef68d404ae251ad56ed5faac92fbe4d7c07c5605510d350",
   "measurementSha256": "50e094c112324232d353dfac7295828ed8d53d21c337f5bc4055aa9b7bbc92df",
   "libraries": {
@@ -75,16 +75,16 @@
   "calibrationArtifacts": {
     "legacy": {
       "inputSha256": "de3e21bdbec1b00c16fecf2fccb39100f0443c7c4c44357e39125b4269e8f210",
-      "htmlSha256": "324a8eae1833106021cf979eced1d64f708a039a727436b700c6e28b6cb9e5a6",
-      "htmlBytes": 341918,
+      "htmlSha256": "3b4bab25e97b74e27815705bb3f994b6c237b884a554e5e28e049ac477a0b2a0",
+      "htmlBytes": 341931,
       "evidenceBytes": 0,
       "sources": 0,
       "lines": []
     },
     "small": {
       "inputSha256": "d2810cdf7e9486ac4d8ff5d39f322d2df5d92ecc4f87bce6a62d1e2b7c7c4f1f",
-      "htmlSha256": "1d193daee492e084cf33b82b28417dc06c9816c68657fc1411f037a6a75ad3db",
-      "htmlBytes": 343962,
+      "htmlSha256": "cc8f2d53e0a4b4763ac1280c14377dbbfb9e59a513b21a42b0f7474b2c7cdd65",
+      "htmlBytes": 343975,
       "evidenceBytes": 404,
       "sources": 3,
       "lines": [
@@ -99,10 +99,10 @@
       ]
     },
     "large": {
-      "inputSha256": "44570c227bbd36804265aab5741c987d07d0d720e09e0ec5618c101b43e20a3f",
-      "htmlSha256": "44405eb6d03aa0b5a096955947d0d3bfa4e650ad54228ec0144edfb4c16c1b59",
-      "htmlBytes": 31295812,
-      "evidenceBytes": 23206468,
+      "inputSha256": "710e5e388de544972a6d2e440c16bc4d05fa5baa056f9b5c633c2db9fe72026a",
+      "htmlSha256": "ac1a27714e86c6d0fc66632166ceba0dc030a9f2cde2a0be0b070d8da8ba7827",
+      "htmlBytes": 30948510,
+      "evidenceBytes": 22945971,
       "sources": 31,
       "lines": [
         {
@@ -111,126 +111,126 @@
         },
         {
           "id": "repository-0",
-          "lines": 12931
+          "lines": 10978
         },
         {
           "id": "repository-1",
-          "lines": 11713
+          "lines": 15234
         },
         {
           "id": "repository-2",
-          "lines": 18884
+          "lines": 12296
         },
         {
           "id": "repository-3",
-          "lines": 14515
+          "lines": 14745
         },
         {
           "id": "repository-4",
-          "lines": 13188
+          "lines": 11642
         },
         {
           "id": "repository-5",
-          "lines": 9798
+          "lines": 13160
         },
         {
           "id": "repository-6",
-          "lines": 10127
+          "lines": 11128
         },
         {
           "id": "repository-7",
-          "lines": 10690
+          "lines": 9595
         },
         {
           "id": "repository-8",
-          "lines": 13571
+          "lines": 12028
         },
         {
           "id": "repository-9",
-          "lines": 12552
+          "lines": 10762
         },
         {
           "id": "repository-10",
-          "lines": 11336
+          "lines": 17456
         },
         {
           "id": "repository-11",
-          "lines": 12101
+          "lines": 10814
         },
         {
           "id": "repository-12",
-          "lines": 10804
+          "lines": 12838
         },
         {
           "id": "repository-13",
-          "lines": 11741
+          "lines": 13343
         },
         {
           "id": "repository-14",
-          "lines": 17409
+          "lines": 12693
         },
         {
           "id": "repository-15",
-          "lines": 29629
+          "lines": 18684
         },
         {
           "id": "repository-16",
-          "lines": 17689
+          "lines": 16608
         },
         {
           "id": "repository-17",
-          "lines": 18381
+          "lines": 24155
         },
         {
           "id": "repository-18",
-          "lines": 10844
+          "lines": 13535
         },
         {
           "id": "repository-19",
-          "lines": 13822
+          "lines": 19800
         },
         {
           "id": "repository-20",
-          "lines": 19634
+          "lines": 10886
         },
         {
           "id": "repository-21",
-          "lines": 11581
+          "lines": 15562
         },
         {
           "id": "repository-22",
-          "lines": 14421
+          "lines": 20055
         },
         {
           "id": "repository-23",
-          "lines": 19864
+          "lines": 14575
         },
         {
           "id": "repository-24",
-          "lines": 14108
+          "lines": 11656
         },
         {
           "id": "repository-25",
-          "lines": 11453
+          "lines": 12753
         },
         {
           "id": "repository-26",
-          "lines": 14107
+          "lines": 15965
         },
         {
           "id": "repository-27",
-          "lines": 13322
+          "lines": 17584
         },
         {
           "id": "repository-28",
-          "lines": 15976
+          "lines": 13431
         }
       ]
     },
     "doubled": {
       "inputSha256": "62ab023ba5f1cc1c5048a3bbc535c80e4b68c968f098a58060008704467a5efe",
-      "htmlSha256": "b5cc9309952a514d1c4eee233adb6c64d4f6b6b354fc9ef275a2cec8b5f2b869",
-      "htmlBytes": 1935577,
+      "htmlSha256": "5f8a1d45a25e124e10d7589ecb087898080f7f162dc852a04e5efbf0bce49410",
+      "htmlBytes": 1935590,
       "evidenceBytes": 1189403,
       "sources": 31,
       "lines": [
@@ -357,5 +357,5 @@
       ]
     }
   },
-  "headroom": "Rounded budgets from exploratory maxima (~135ms small,1000ms large,82ms citation,90ms search,730MB peak) allow runner variation; frozen before qualification, never relaxed on failure."
+  "headroom": "Rounded budgets from exploratory maxima (~135ms small,1000ms large,82ms citation,90ms search,730MB peak) allow runner variation; frozen before qualification, never relaxed on failure. Corpus repair: allowlisted technical source blobs only, recalibrated at identical numeric budgets before qualification."
 }
