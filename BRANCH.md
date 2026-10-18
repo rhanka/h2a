@@ -552,6 +552,10 @@ have nine mandatory regression cases. Payload writes cadence automatic expiry
 maintenance with a monotone thirty-second interval; quota pressure and explicit
 sweeps remain immediate, TTL reads unchanged. Quota/live-data refusal controls
 and the full 10,000-mutation-per-domain backend stress remain required.
+The expiry sweep reuses parsed live metadata only after a fresh inode, size,
+mtime and ctime check; expired records are reread before deletion. External
+replacements, in-place edits with restored mtime and corrupt metadata retain
+their conservative behavior. Quota accounting and payload reads remain fresh.
 Short-lease recovery fixtures control expiry
 after their actual children are ready; all 32 PIDs and 20 recoveries remain
 required. The copied late PTY preload retains its original module imports.
