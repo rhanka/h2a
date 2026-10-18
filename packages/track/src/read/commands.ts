@@ -3,13 +3,14 @@
 // the adapter supplying `baselineCommit` (CLI from git HEAD, MCP from a tool argument). This is what
 // makes CLI≡MCP parity STRUCTURAL (one layer), not coincidental.
 
-import { assertReportFormat, buildWpConductorView, formatActionReport, formatReport, formatRows, formatWpConductor, formatWpConductorInline, reportPeriod, reportPeriodPayload, wpTotals, type Format, type InlineOptions, type ReportPeriodPayload, type ReportScopeProjection } from '../report/format.js'
+import { assertReportFormat, buildWpConductorView, formatActionReport, formatReport, formatRows, formatWpConductor, formatWpConductorInline, reportPeriod, reportPeriodPayload, wpTotals, type Format, type InlineOptions, type ReportOmission, type ReportPeriodPayload, type ReportScopeProjection, type WithdrawalNotice } from '../report/format.js'
 import type { ConductorMeta } from '../report/format.js'
+import { BUCKETS } from '../report/buckets.js'
 import type { QueryFilter, Report, ReportOptions } from '../report/build.js'
 import type { StatusLevel } from '../report/status-by-level.js'
 import type { WpNode } from '../report/rollup.js'
+import { fold } from '../state/fold.js'
 import type { ReportSnapshot, TrackReader } from './contract.js'
-import { buildStatusTable, buildStatusTableView, renderStatusTable } from '../report/status-table.js'
 
 /** A CLI-resolved selector. Dates are already absolute instants; refs are full commit ids when applicable. */
 export interface ReportPeriodSelection {
@@ -77,14 +78,14 @@ function periodProjection(
 /**
  * `report` rendered exactly as the CLI renders it (SPEC §7).
  *
- * Default for text/md (0.19.1): a directive action report — WP/table conductor when a WP forest exists,
- * deterministic action/decision fallback otherwise. Use `--flat` to force the deprecated legacy bucket dump.
+ * Default for text/md: the four-section conductor, including outside-WP work
+ * when the forest is empty. Use `--flat` to force the deprecated legacy bucket dump.
  * JSON stays the flat structured contract unless `--wp` is explicit.
  *
  * The conductor renders deterministic FAIT / À-FAIRE / ACTIONS DÉRIVÉES tables for `text`/`md`.
  * For `json` the contract is UNCHANGED from 0.19.0: the additive `{...report, wpTotals}` flat structure
  * (so existing machine consumers keep working), PLUS an OPTIONAL `view` field carrying the conductor view
- * model (for presentation skills). If no WP forest exists, text/md falls back to the deterministic action view.
+ * model (for presentation skills), also when no WP containers exist.
  */
 /**
  * Criterion 21 — the window bounds the LOG carries, plus the caller's clock when it injected one. This
@@ -99,11 +100,18 @@ function conductorMeta(
   scopeProjection?: ReportScopeProjection,
   period?: ReportPeriodProjection,
   windowedDeliveries = false,
+  extras?: {
+    itemFacts?: ConductorMeta['itemFacts']
+    withdrawnNotices?: ConductorMeta['withdrawnNotices']
+    withdrawnOmitted?: ConductorMeta['withdrawnOmitted']
+    lang?: string
+  },
 ): ConductorMeta {
   const window = snapshot.logWindow
   const revision = snapshot.cursor
   return {
     baselineCommit: options.baselineCommit,
+    ...(options.requireAccepted === true ? { requireAccepted: true } : {}),
     ...(window.from !== undefined ? { logFrom: window.from } : {}),
     ...(window.to !== undefined ? { logTo: window.to } : {}),
     journalRevision: { events: revision.count, head: revision.head },
@@ -112,6 +120,88 @@ function conductorMeta(
     ...(scopeProjection !== undefined ? { scopeProjection } : {}),
     ...(period !== undefined ? { periodWindow: period.payload } : {}),
     ...(windowedDeliveries ? { deliveredItemIds: period?.deliveredItemIds ?? new Set<string>() } : {}),
+    ...(extras?.itemFacts !== undefined ? { itemFacts: extras.itemFacts } : {}),
+    ...(extras?.withdrawnNotices !== undefined && extras.withdrawnNotices.length > 0
+      ? { withdrawnNotices: extras.withdrawnNotices }
+      : {}),
+    ...(extras?.withdrawnOmitted !== undefined && extras.withdrawnOmitted.length > 0
+      ? { withdrawnOmitted: extras.withdrawnOmitted }
+      : {}),
+    ...(extras?.lang !== undefined ? { lang: extras.lang } : {}),
+  }
+}
+
+/**
+ * Amendment D9 — split the report's withdrawal candidates into served
+ * notices and declared omissions. Relevant ⟺ withdrawn or decided inside the
+ * selected window, or still carrying a live gate; deduplicated by item id. A
+ * withdrawal with neither stays in history, out of the served tables. Scoped
+ * reports keep only the candidates inside the scoped buckets.
+ */
+function withdrawalServing(
+  snapshot: ReportSnapshot,
+  report: Report,
+  period: ReportPeriodPayload,
+): { itemFacts: ConductorMeta['itemFacts']; withdrawnNotices?: WithdrawalNotice[]; withdrawnOmitted?: ReportOmission[] } {
+  const itemFacts = report.itemFacts
+  const candidates = report.withdrawals ?? []
+  if (candidates.length === 0) return { itemFacts }
+  const state = fold(snapshot.events)
+  const inScope = new Set<string>()
+  for (const bucket of BUCKETS) for (const row of report.buckets[bucket]) inScope.add(row.id)
+  const fromMs = period.from === undefined ? Number.NEGATIVE_INFINITY : Date.parse(period.from)
+  const toMs = period.to === undefined ? Number.POSITIVE_INFINITY : Date.parse(period.to)
+  const inWindow = (at: string): boolean => {
+    const ms = Date.parse(at)
+    return ms >= fromMs && ms <= toMs
+  }
+  const transitionsInWindow = new Set<string>()
+  const settlementsInWindow = new Map<string, number>()
+  snapshot.events.forEach((event) => {
+    if (!inWindow(event.at)) return
+    if (event.type === 'realization.transition') {
+      const to = (event.payload as { to?: string }).to
+      if (to === 'cancelled' || to === 'rejected') transitionsInWindow.add(event.aggregateId)
+    }
+    if (event.type === 'decision.outcome') {
+      const to = (event.payload as { to?: string }).to
+      if (to === 'go' || to === 'no-go') {
+        const decision = state.decisions.get(event.aggregateId)
+        for (const targetId of decision?.targets ?? []) {
+          settlementsInWindow.set(targetId, (settlementsInWindow.get(targetId) ?? 0) + 1)
+        }
+      }
+    }
+  })
+  const notices: WithdrawalNotice[] = []
+  const omitted: ReportOmission[] = []
+  const seen = new Set<string>()
+  for (const candidate of candidates) {
+    if (seen.has(candidate.id) || !inScope.has(candidate.id)) continue
+    seen.add(candidate.id)
+    const relevant =
+      transitionsInWindow.has(candidate.id) ||
+      (settlementsInWindow.get(candidate.id) ?? 0) > 0 ||
+      candidate.hasLiveGate
+    if (relevant) {
+      notices.push({
+        id: candidate.id,
+        title: candidate.title,
+        ...(candidate.containerId !== undefined ? { containerId: candidate.containerId } : {}),
+        ...(candidate.reason !== undefined ? { reason: candidate.reason } : {}),
+        dossierIds: candidate.dossierIds,
+      })
+    } else {
+      omitted.push({
+        label: candidate.title,
+        reason: 'retiré hors fenêtre, sans gate actif ni décision liée en fenêtre',
+      })
+    }
+  }
+  return {
+    itemFacts,
+    ...(notices.length > 0 ? { withdrawnNotices: notices } : {}),
+    ...(omitted.length > 0 ? { withdrawnOmitted: omitted } : {}),
   }
 }
 
@@ -170,6 +260,11 @@ export function projectReportScope(report: Report, selector: string): ScopedRepo
       buckets,
       ...(decisions !== undefined ? { decisions } : {}),
       wpTree: [selected],
+      // Amendment D3/D9/D11 — the per-item conductor facts and withdrawal
+      // candidates travel with the scoped projection (additive); relevance is
+      // still filtered to the scoped buckets by the serving step.
+      ...(report.itemFacts !== undefined ? { itemFacts: report.itemFacts } : {}),
+      ...(report.withdrawals !== undefined ? { withdrawals: report.withdrawals } : {}),
     },
     scope: {
       selector: exactCodeMatches.includes(selected) ? selector : needle,
@@ -189,41 +284,48 @@ export function reportText(
   subWp?: boolean,
   scopeSelector?: string,
   periodSelection?: ReportPeriodSelection,
+  // Amendment D1 — `--status-table` selects the same validated report (same
+  // set and order in every format); the flag is accepted, not a second
+  // projection. The rolling default comes from the CLI boundary (lot 3).
   statusTable = false,
+  // Amendment D10 — open `--lang <bcp47>` label selection for the new
+  // stage/status surface. Absent ⇒ established rendering, byte-identical.
+  lang?: string,
 ): string {
   assertReportFormat(format)
-  const snapshot = reader.reportSnapshot(options)
+  const snapshot = reader.reportSnapshot(statusTable ? { ...options, wpTree: true, decisions: true } : options)
   const globalReport = snapshot.report
   const scoped = scopeSelector === undefined ? undefined : projectReportScope(globalReport, scopeSelector)
   const report = scoped?.report ?? globalReport
   const projection = periodProjection(snapshot, periodSelection, now)
-  const meta = conductorMeta(options, snapshot, now, subWp, scoped?.scope, projection, periodSelection !== undefined)
+  // Amendment D3/D9/D11 — per-item conductor facts + withdrawal serving ride
+  // the same meta the conductor renders from, so `--status-table` and the
+  // validated route over an identical period are byte-identical.
+  const serving = withdrawalServing(snapshot, report, projection.payload)
+  const meta = conductorMeta(options, snapshot, now, subWp, scoped?.scope, projection, periodSelection !== undefined, { ...serving, ...(lang !== undefined ? { lang } : {}) })
   const period = reportPeriod(meta)
   const payload = reportPeriodPayload(meta)
 
-  if (statusTable) return renderStatusTable(buildStatusTable(snapshot.events, report, options), report, format, meta)
-
-  if (options.wpTree && report.wpTree !== undefined) {
+  if ((options.wpTree && report.wpTree !== undefined) || statusTable) {
+    const tree = report.wpTree ?? []
     if (format === 'json') {
       // Machine contract preserved (0.19.0 shape) + additive optional `view` for skill rendering. WP-codes
       // A3: `--active-roster` is a HUMAN-render option only — JSON ALWAYS carries the full forest (every node
       // + its `terminal` flag) so a machine consumer filters terminal roots itself.
-      const view = report.wpTree.length > 0
-        ? buildWpConductorView(
-            report.wpTree,
-            report.decisions ?? [],
-            report.outsideRollup,
-            scoped === undefined ? 'global' : `${scoped.scope.label} (sous-arbre)`,
-            meta,
-          )
-        : undefined
-      return `${JSON.stringify({ ...report, period: payload, wpTotals: wpTotals(report.wpTree, report.outsideRollup), ...(view !== undefined ? { view } : {}) }, null, 2)}\n`
+      const view = buildWpConductorView(
+        tree,
+        report.decisions ?? [],
+        report.outsideRollup,
+        scoped === undefined ? 'global' : `${scoped.scope.label} (sous-arbre)`,
+        meta,
+      )
+      return `${JSON.stringify({ ...report, period: payload, wpTotals: wpTotals(tree, report.outsideRollup), view }, null, 2)}\n`
     }
     // text/md: the rendered conductor tables when there is an actual WP forest. WP-codes A3 (DESIGN §A3) —
     // `--active-roster` OMITS terminal (DROPPED) ROOTS from the rendered roster. The ordinals were assigned in
     // `computeWpTree` over ALL roots, so the survivors keep their `WP<n>`/code (a gap appears) — no re-pack.
-    const roster = options.activeRoster === true ? report.wpTree.filter((n) => n.terminal !== true) : report.wpTree
-    if (roster.length > 0) {
+    const roster = options.activeRoster === true ? tree.filter((n) => n.terminal !== true) : tree
+    if (roster.length > 0 || options.activeRoster !== true) {
       return formatWpConductor(
         roster, format, report.decisions, report.outsideRollup,
         options.activeRoster === true ? 'roster actif (terminal exclu)' : scoped === undefined ? 'global' : `${scoped.scope.label} (sous-arbre)`,
@@ -274,13 +376,58 @@ export function reportInline(
  * dossier. Without it a report the owner can read is a report they cannot act on; with it, no ULID has to
  * appear in a column to keep a row dispatchable.
  */
-export function resolveHandle(reader: TrackReader, options: ReportOptions, handle: string, scopeSelector?: string, statusTable = false): string {
+/**
+ * Amendment D4/D13 — the exact rendering context a `--resolve` rebinds so a
+ * handle resolves against the same period, sub-WP expansion, scope, baseline
+ * and journal revision the report was rendered from. Handles are positional:
+ * resolving without the captured context can point at the wrong row.
+ */
+export interface ResolveContext {
+  periodSelection?: ReportPeriodSelection
+  now?: string
+  subWp?: boolean
+  /**
+   * Journal revision the report was rendered from. When present, each defined
+   * part must match the current snapshot cursor — a moved journal is refused
+   * rather than resolved against the wrong rows.
+   */
+  expectedRevision?: { events?: number; head?: string | null }
+}
+
+export function resolveHandle(
+  reader: TrackReader,
+  options: ReportOptions,
+  handle: string,
+  scopeSelector?: string,
+  // Amendment D1/D13 — accepted as an alias resolving to the exact same
+  // report context (the withdrawn `#` numbering is gone; handles are `[n.m]`
+  // on the single validated view).
+  statusTable = false,
+  ctx: ResolveContext = {},
+): string {
   const snapshot = reader.reportSnapshot({ ...options, decisions: true, wpTree: true })
+  if (ctx.expectedRevision !== undefined) {
+    const cursor = snapshot.cursor
+    const expected = ctx.expectedRevision
+    const moved =
+      (expected.events !== undefined && expected.events !== cursor.count) ||
+      (expected.head !== undefined && expected.head !== cursor.head)
+    if (moved) {
+      throw new Error(
+        `journal revision changed since the report was rendered (report: ${expected.events ?? '?'} events, head ${expected.head ?? 'none'}; now: ${cursor.count} events, head ${cursor.head ?? 'none'}) — re-render, then resolve against the same log and baseline`,
+      )
+    }
+  }
   const globalReport = snapshot.report
   const scoped = scopeSelector === undefined ? undefined : projectReportScope(globalReport, scopeSelector)
   const report = scoped?.report ?? globalReport
-  const meta = conductorMeta(options, snapshot, undefined, undefined, scoped?.scope)
-  const view = statusTable ? buildStatusTableView(buildStatusTable(snapshot.events, report, options), report, meta) : buildWpConductorView(
+  const projection = periodProjection(snapshot, ctx.periodSelection, ctx.now)
+  void statusTable
+  const serving = withdrawalServing(snapshot, report, projection.payload)
+  const meta = conductorMeta(
+    options, snapshot, ctx.now, ctx.subWp, scoped?.scope, projection, ctx.periodSelection !== undefined, serving,
+  )
+  const view = buildWpConductorView(
     report.wpTree ?? [], report.decisions ?? [], report.outsideRollup,
     scoped === undefined ? 'global' : `${scoped.scope.label} (sous-arbre)`,
     meta,

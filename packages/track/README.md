@@ -90,11 +90,14 @@ See [`INTENTION.md`](./INTENTION.md) for the full model, boundaries, and rationa
 MIT — see [`LICENSE`](./LICENSE).
 # Owner status table
 
-`track report --status-table --format md` renders exactly `# · Ta demande · Étape · Statut · Où ça en
-est / prochaine action`, most urgent first, and retains DÉCISIONS and decision expectations. Scope it
-with `--scope <container-id|code|label>`; text and JSON are also supported. The default report is unchanged.
+`track report --status-table --format md` selects the validated four-section report: À-FAIRE carries
+`WP · av. · étape · statut · à faire · bloqué · prochaine action`, most urgent first, and DÉCISIONS keeps
+its decision expectations. Over an identical period it renders byte-identical sections to the validated
+route; without a selector it covers a rolling `last-week` window (`--period last-day` for one day).
+Scope it with `--scope <container-id|code|label>`; text and JSON are also supported. The default report
+is unchanged. Stage/status labels follow `--lang <bcp47>` (exact, then primary subtag, else neutral codes).
 
 `track item report-set <item-id> --json '<object>'` records stage, status, proposal and decision
 expectations in an additive event. It replaces all prior report metadata; `{}` clears only metadata.
-See [the report skill](skills/track-report/SKILL.md) for the normalized vocabulary, evidence rules,
-four colors, mandatory red proposals and blue decision dossiers. Legacy missing information is flagged.
+See [the report skill](../h2a/skills/harness/track-report/SKILL.md) for the normalized vocabulary,
+evidence rules, mandatory red proposals and blue decision dossiers. Legacy missing information is flagged.

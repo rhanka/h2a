@@ -102,7 +102,7 @@ const USAGE = `usage: track <command>
   accept waive <criterionId> --reason <r>
   consolidate --items <id,id> --commit <mergeCommit> [--client-token <t>]
   priority assess <itemId> --ubv <n> --tc <n> --rr <n> --js <n>
-  report [--status-table] [--scope <container-id|code|label>] [--since <sha|YYYY-MM-DD> [--until <sha|YYYY-MM-DD>]|--period <today|week|month|all>] [--decisions] [--require-accepted] [--active-roster] [--wp|--flat] [--inline] [--width <n>] [--level <spec|plan|wp|lot|task>] [--raw] [--resolve <handle>] [--sub-wp] [--format json|text|md] [--commit <sha>] [--now <iso>]
+  report [--status-table] [--scope <container-id|code|label>] [--since <sha|YYYY-MM-DD> [--until <sha|YYYY-MM-DD>]|--period <today|week|month|all|last-week|last-day>] [--decisions] [--require-accepted] [--active-roster] [--wp|--flat] [--inline] [--width <n>] [--level <spec|plan|wp|lot|task>] [--raw] [--resolve <handle>] [--sub-wp] [--lang <bcp47>] [--format json|text|md] [--commit <sha>] [--now <iso>]
   snapshot [--require-accepted] [--format json|text|md] [--commit <sha>]
   export-graph [--repo-key <repo:key>] [--source-id <id>] [--observed-at <iso>]
   query [--kind <k>] [--role <workpackage|spec-phase|stream>] [--workspace <w>] [--bucket <AWAITED|DROPPED|DONE|TO-DO>] [--realization <r>] [--acceptance <a>] [--format json|text|md] [--commit <sha>]
@@ -229,6 +229,18 @@ function localDayEnd(value: Date): Date {
 function namedReportPeriod(raw: string, now: string): ReportPeriodSelection {
   const clock = new Date(now)
   if (Number.isNaN(clock.getTime())) throw new DomainError('--now must be an ISO timestamp')
+  // Amendment D4 — rolling windows: exact instant bounds off the single
+  // captured report time (no calendar rounding), printed with time and offset.
+  if (raw === 'last-week' || raw === 'last-day') {
+    const spanMs = raw === 'last-week' ? 7 * 86_400_000 : 86_400_000
+    return {
+      requested: raw,
+      from: new Date(clock.getTime() - spanMs).toISOString(),
+      to: clock.toISOString(),
+      fromRef: null,
+      toRef: null,
+    }
+  }
   if (raw === 'all') return { requested: raw, fromRef: null, toRef: null }
   let from: Date
   let to: Date
@@ -247,13 +259,18 @@ function namedReportPeriod(raw: string, now: string): ReportPeriodSelection {
   return { requested: raw, from: from.toISOString(), to: to.toISOString(), fromRef: null, toRef: null }
 }
 
-function resolveReportPeriod(flags: Flags, cwd: string, now: string): ReportPeriodSelection | undefined {
+function resolveReportPeriod(flags: Flags, cwd: string, now: string, defaultNamed?: string): ReportPeriodSelection | undefined {
   const since = opt(flags, 'since')
   const until = opt(flags, 'until')
-  const named = opt(flags, 'period')
+  // Amendment D4 — a status-table request without an explicit selector uses
+  // `last-week`; an explicit user period always wins.
+  const explicitPeriod = opt(flags, 'period')
+  const named = explicitPeriod ?? (since !== undefined || until !== undefined ? undefined : defaultNamed)
   if (since !== undefined && named !== undefined) throw new DomainError('--since and --period are mutually exclusive')
   if (until !== undefined && since === undefined) throw new DomainError('--until requires --since')
-  if (named !== undefined) return namedReportPeriod(oneOf(named, ['today', 'week', 'month', 'all'], '--period'), now)
+  if (named !== undefined) {
+    return namedReportPeriod(oneOf(named, ['today', 'week', 'month', 'all', 'last-week', 'last-day'], '--period'), now)
+  }
   if (since === undefined) return undefined
   const lower = resolveReportBoundary(cwd, since, '--since')
   const upper = until === undefined ? undefined : resolveReportBoundary(cwd, until, '--until')
@@ -442,19 +459,23 @@ function extractTrackDirFlag(argv: string[]): { trackDirFlag?: string; rest: str
   return trackDirFlag !== undefined ? { trackDirFlag, rest } : { rest }
 }
 
-const REPORT_USAGE = `usage: track report [--status-table] [--scope <container-id|code|label>] [--since <sha|YYYY-MM-DD> [--until <sha|YYYY-MM-DD>] | --period <today|week|month|all>] [--raw] [--wp] [--flat] [--inline|--width <40..240>] [--decisions] [--active-roster] [--require-accepted] [--resolve <handle>] [--commit <sha>] [--now <iso>] [--sub-wp] [--format json|text|md] [--track-dir <directory-containing-events.jsonl>]
+const REPORT_USAGE = `usage: track report [--status-table] [--scope <container-id|code|label>] [--since <sha|YYYY-MM-DD> [--until <sha|YYYY-MM-DD>] | --period <today|week|month|all|last-week|last-day>] [--raw] [--wp] [--flat] [--inline|--width <40..240>] [--decisions] [--active-roster] [--require-accepted] [--resolve <handle>] [--commit <sha>] [--now <iso>] [--sub-wp] [--lang <bcp47>] [--format json|text|md] [--track-dir <directory-containing-events.jsonl>]
 
---status-table renders owner requests with exactly five columns, stage evidence, four status colors and flagged missing proposals/decision expectations. It preserves DÉCISIONS and supports scoped Markdown. Historical missing status is orange with an explicit verification action.
+--status-table selects the validated four-section report: À-FAIRE carries WP · av. · étape · statut · à faire · bloqué · prochaine action over a rolling last-week window by default (an explicit period always wins). Stage/status are neutral codes over recorded evidence; missing information is flagged, never colored. It preserves DÉCISIONS and supports scoped Markdown.
 
 --scope selects one exact role-container by its id, durable assigned code, or current derived label. The selected container and all descendants are rendered through the same four-section report; unknown or ambiguous selectors fail loudly.
 
---resolve <handle> resolves a report handle (a positional [n.m] row handle, or a D#/Q# dossier number) back to its item id. With --status-table, use the DEMANDES # number instead of [n.m]. It is the one command the report documents for acting on a row without printing a ULID in a column. Handles are positional and per-report: resolve them against the same log and baseline the report was rendered from.
+--resolve <handle> resolves a report handle (a positional [n.m] row handle, or a D#/Q# dossier number) back to its item id. It is the one command the report documents for acting on a row without printing a ULID in a column. Handles are positional and per-report: resolve them against the same log and baseline the report was rendered from.
+
+Rebind the exact rendering context with --scope/--period/--since/--until/--now/--sub-wp (a status-table resolve without a selector uses last-week, like the report). The report header prints the bound command. --expect-events <n> and --expect-head <sha> pin the journal revision the report was rendered from; a moved journal is refused rather than resolved against the wrong rows.
 
 --sub-wp lists sub-WP rows beside their parent. Without it, sub-levels are aggregated into their parent on a long window (>= 14 days) and listed on a short one — the WP is the reading unit of a long report.
 
 --now <iso> pins the clock used by a named period and, without a selector, the whole-log upper bound. Without it, whole-log and --since reports stop at the journal head.
 
---since accepts a local YYYY-MM-DD date or a git commit (using its committer date); --until closes a --since range. --period today|week|month|all is the named alternative. --since and --period are mutually exclusive. A selected period changes FAIT only: À-FAIRE remains the full current open-work projection.
+--since accepts a local YYYY-MM-DD date or a git commit (using its committer date); --until closes a --since range. --period today|week|month|all|last-week|last-day is the named alternative ('week' stays the current calendar week; last-week/last-day are rolling 7 days/24 h off a single captured report time). --since and --period are mutually exclusive. A selected period changes FAIT only: À-FAIRE remains the full current open-work projection. A status-table request without an explicit selector uses last-week; an explicit user period always wins.
+
+--lang <bcp47> selects the human labels of the new stage/status surface from a per-language lexicon (any tag is accepted; an unprepared language renders the neutral codes). It changes no ids, order, period, percentages, handles, or selectable options. Machine codes, ids and evidence locators stay intact.
 
 --track-dir is a global override and may appear before or after the command. It selects the directory that contains events.jsonl; it is especially useful for a read-only fixture. TRACK_DIR is the environment equivalent.
 `
@@ -1149,7 +1170,7 @@ function cmdReport(args: string[], ctx: Ctx): number {
   const { io } = ctx
   const { positional, flags } = parseFlags(args)
   if (positional.length > 0) throw new DomainError(`unexpected report argument(s): ${positional.join(' ')}`)
-  for (const name of ['commit', 'format', 'level', 'width', 'resolve', 'now', 'scope', 'since', 'until', 'period']) assertValueFlag(flags, name)
+  for (const name of ['commit', 'format', 'level', 'width', 'resolve', 'now', 'scope', 'since', 'until', 'period', 'lang']) assertValueFlag(flags, name)
   const scope = opt(flags, 'scope')
   const statusTable = assertBooleanFlag(flags, 'status-table')
   if (statusTable && ['flat', 'inline', 'width', 'raw', 'level', 'active-roster'].some(k => flags[k] !== undefined)) {
@@ -1157,7 +1178,19 @@ function cmdReport(args: string[], ctx: Ctx): number {
   }
   // Criterion 10b — the one documented command that turns a short report handle back into an item.
   if (opt(flags, 'resolve') !== undefined) {
-    assertOnlyFlags(flags, ['resolve', 'scope', 'commit', 'require-accepted', 'status-table'])
+    // Amendment D4/D13 — `--resolve` rebinds the exact rendering context
+    // (period, clock, sub-WP, scope, baseline) and refuses a journal revision
+    // that moved since the report was rendered.
+    assertOnlyFlags(flags, ['resolve', 'scope', 'commit', 'require-accepted', 'status-table', 'since', 'until', 'period', 'now', 'sub-wp', 'expect-events', 'expect-head'])
+    for (const name of ['now', 'since', 'until', 'period', 'expect-head']) assertValueFlag(flags, name)
+    const resolveClock = opt(flags, 'now') ?? new Date().toISOString()
+    if (Number.isNaN(new Date(resolveClock).getTime())) throw new DomainError('--now must be an ISO timestamp')
+    const resolvePeriod = resolveReportPeriod(flags, io.cwd, resolveClock, statusTable ? 'last-week' : undefined)
+    const expectEventsRaw = opt(flags, 'expect-events')
+    if (expectEventsRaw !== undefined && !/^\d+$/u.test(expectEventsRaw)) {
+      throw new DomainError('--expect-events must be a non-negative integer')
+    }
+    const expectHead = opt(flags, 'expect-head')
     io.out(
       resolveHandle(
         new TrackReader(ctx.eventsPath),
@@ -1168,6 +1201,19 @@ function cmdReport(args: string[], ctx: Ctx): number {
         req(flags, 'resolve'),
         scope,
         statusTable,
+        {
+          ...(resolvePeriod !== undefined ? { periodSelection: resolvePeriod } : {}),
+          ...(opt(flags, 'now') !== undefined ? { now: opt(flags, 'now')! } : {}),
+          ...(assertBooleanFlag(flags, 'sub-wp') ? { subWp: true as const } : {}),
+          ...(expectEventsRaw !== undefined || expectHead !== undefined
+            ? {
+              expectedRevision: {
+                ...(expectEventsRaw !== undefined ? { events: Number(expectEventsRaw) } : {}),
+                ...(expectHead !== undefined ? { head: expectHead } : {}),
+              },
+            }
+            : {}),
+        },
       ),
     )
     return 0
@@ -1197,7 +1243,7 @@ function cmdReport(args: string[], ctx: Ctx): number {
   }
   assertOnlyFlags(flags, [
     'commit', 'require-accepted', 'decisions', 'active-roster', 'wp', 'flat', 'inline', 'width', 'format', 'now',
-    'sub-wp', 'scope', 'since', 'until', 'period', 'status-table',
+    'sub-wp', 'scope', 'since', 'until', 'period', 'status-table', 'lang',
   ])
   const rawFormat = opt(flags, 'format')
   if (rawFormat !== undefined && !['json', 'text', 'md'].includes(rawFormat)) {
@@ -1224,7 +1270,10 @@ function cmdReport(args: string[], ctx: Ctx): number {
     if (width < 40 || width > 240) throw new DomainError('--width must be an integer in [40,240]')
   }
   if (scope !== undefined && inline) throw new DomainError('--scope preserves the validated report shape and rejects --inline/--width')
-  if (scope !== undefined && format === 'md' && !statusTable) {
+  // Amendment D1 — one projection: `--scope` keeps the owner text report and
+  // JSON projection contract on every route (the withdrawn view's scoped
+  // Markdown went with that view).
+  if (scope !== undefined && format === 'md') {
     throw new DomainError('--scope currently supports the owner text report and JSON projection only')
   }
   // Every format is a deterministic read over the folded log. The default human view is
@@ -1249,15 +1298,22 @@ function cmdReport(args: string[], ctx: Ctx): number {
     throw new DomainError('--now must be an ISO timestamp')
   }
   const periodClock = nowArg ?? new Date().toISOString()
-  const period = resolveReportPeriod(flags, io.cwd, periodClock)
+  const period = resolveReportPeriod(flags, io.cwd, periodClock, statusTable ? 'last-week' : undefined)
   // Criterion 25 — the EXPLICIT owner request for sub-WP rows. Without it the reading unit follows the
   // window: the WP on a long one, the sub-level on a short one.
   const subWp = assertBooleanFlag(flags, 'sub-wp')
+  // Amendment D10 — open `--lang <bcp47>` label selection for the new
+  // stage/status surface. Any tag is accepted (an unprepared language renders
+  // the neutral codes); only the shape is validated here.
+  const lang = opt(flags, 'lang')
+  if (lang !== undefined && !/^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/u.test(lang)) {
+    throw new DomainError('--lang must be a BCP47 tag (e.g. fr, es-MX, ja, ar)')
+  }
   const reader = new TrackReader(ctx.eventsPath)
   if (inline) {
     io.out(reportInline(reader, options, width === undefined ? {} : { width }, nowArg, period))
   } else {
-    io.out(reportText(reader, options, format, nowArg, subWp, scope, period, statusTable))
+    io.out(reportText(reader, options, format, nowArg, subWp, scope, period, statusTable, lang))
   }
   return 0
 }

@@ -1,0 +1,993 @@
+{
+  "about": "Synthetic fixture plus authored contextual reports. Mechanical presence is tested; semantic and independent cold-agent acceptance remain pending.",
+  "fixture": {
+    "events": 55,
+    "head": "sha256:44f138a8a9445eeda256bb853c8528124c8887cf350f16bd9f6d1688c65cb7f6",
+    "now": "2026-10-18T12:00:00.000Z",
+    "old": "2026-09-20T10:00:00.000Z"
+  },
+  "machine": {
+    "period": {
+      "requested": "last-week",
+      "from": "2026-10-11T12:00:00.000Z",
+      "to": "2026-10-18T12:00:00.000Z",
+      "fromRef": null,
+      "toRef": null,
+      "eventsInWindow": 38,
+      "eventsTotal": 55
+    },
+    "handles": [
+      {
+        "handle": "1.1",
+        "kind": "item",
+        "id": "01M57000000000000000000092",
+        "title": "Offline recovery policy",
+        "wpLabel": "hors WP"
+      },
+      {
+        "handle": "2.1",
+        "kind": "item",
+        "id": "01M57000000000000000000007",
+        "title": "old open work",
+        "wpLabel": "WP1"
+      },
+      {
+        "handle": "2.2",
+        "kind": "item",
+        "id": "01M57000000000000000000019",
+        "title": "old withdrawal with live gate",
+        "wpLabel": "WP1"
+      },
+      {
+        "handle": "2.3",
+        "kind": "item",
+        "id": "01M57000000000000000000041",
+        "title": "red lane work",
+        "wpLabel": "WP1"
+      },
+      {
+        "handle": "2.4",
+        "kind": "item",
+        "id": "01M57000000000000000000049",
+        "title": "blue choice work",
+        "wpLabel": "WP1"
+      },
+      {
+        "handle": "2.5",
+        "kind": "item",
+        "id": "01M57000000000000000000029",
+        "title": "fresh sub-WP work",
+        "wpLabel": "WP1"
+      },
+      {
+        "handle": "2.6",
+        "kind": "item",
+        "id": "01M57000000000000000000079",
+        "title": "fresh withdrawal",
+        "wpLabel": "WP1"
+      },
+      {
+        "handle": "3.1",
+        "kind": "item",
+        "id": "01M57000000000000000000057",
+        "title": "never-qualified work",
+        "wpLabel": "WP2"
+      },
+      {
+        "handle": "4.1",
+        "kind": "item",
+        "id": "01M57000000000000000000029",
+        "title": "fresh sub-WP work",
+        "wpLabel": "WP1.1"
+      },
+      {
+        "handle": "5.1",
+        "kind": "item",
+        "id": "01M57000000000000000000064",
+        "title": "phase-only leaf",
+        "wpLabel": "WP3"
+      },
+      {
+        "handle": "6.1",
+        "kind": "item",
+        "id": "01M57000000000000000000068",
+        "title": "stream-only leaf",
+        "wpLabel": "S1"
+      },
+      {
+        "handle": "7.1",
+        "kind": "item",
+        "id": "01M57000000000000000000022",
+        "title": "old external prerequisite",
+        "wpLabel": "hors WP"
+      },
+      {
+        "handle": "7.2",
+        "kind": "item",
+        "id": "01M57000000000000000000044",
+        "title": "other lane prerequisite",
+        "wpLabel": "hors WP"
+      },
+      {
+        "handle": "7.3",
+        "kind": "item",
+        "id": "01M57000000000000000000060",
+        "title": "parentless leaf",
+        "wpLabel": "hors WP"
+      },
+      {
+        "handle": "7.4",
+        "kind": "item",
+        "id": "01M57000000000000000000073",
+        "title": "first half",
+        "wpLabel": "hors WP"
+      },
+      {
+        "handle": "7.5",
+        "kind": "item",
+        "id": "01M57000000000000000000074",
+        "title": "second half",
+        "wpLabel": "hors WP"
+      },
+      {
+        "handle": "D1",
+        "kind": "decision",
+        "id": "01M57000000000000000000052",
+        "title": "Share the UAT connector ?"
+      },
+      {
+        "handle": "Q1",
+        "kind": "decision",
+        "id": "01M57000000000000000000092",
+        "title": "Offline recovery policy"
+      }
+    ],
+    "progress": "2/15 (13%)",
+    "codes": [
+      {
+        "id": "01M57000000000000000000019",
+        "stage": "spec",
+        "status": "withdrawn",
+        "requestSource": {
+          "provenance": "legacy-title",
+          "text": "old withdrawal with live gate"
+        }
+      },
+      {
+        "id": "01M57000000000000000000041",
+        "stage": "dev",
+        "status": "blocked",
+        "requestSource": {
+          "provenance": "legacy-title",
+          "text": "red lane work"
+        }
+      },
+      {
+        "id": "01M57000000000000000000049",
+        "stage": "dev",
+        "status": "decision-awaited",
+        "requestSource": {
+          "provenance": "legacy-title",
+          "text": "blue choice work"
+        }
+      },
+      {
+        "id": "01M57000000000000000000026",
+        "stage": "spec",
+        "status": "withdrawn",
+        "requestSource": {
+          "provenance": "legacy-title",
+          "text": "irrelevant old withdrawal"
+        }
+      },
+      {
+        "id": "01M57000000000000000000079",
+        "stage": "spec",
+        "status": "withdrawn",
+        "requestSource": {
+          "provenance": "legacy-title",
+          "text": "fresh withdrawal"
+        }
+      },
+      {
+        "id": "01M57000000000000000000010",
+        "stage": "dev",
+        "status": "unforeseen",
+        "requestSource": {
+          "provenance": "legacy-title",
+          "text": "old delivery"
+        }
+      },
+      {
+        "id": "01M57000000000000000000032",
+        "stage": "deployed",
+        "status": "progressing",
+        "requestSource": {
+          "provenance": "legacy-title",
+          "text": "deployed member"
+        }
+      },
+      {
+        "id": "01M57000000000000000000007",
+        "stage": "dev",
+        "status": "not-qualified",
+        "requestSource": {
+          "provenance": "legacy-title",
+          "text": "old open work"
+        }
+      },
+      {
+        "id": "01M57000000000000000000022",
+        "stage": "spec",
+        "status": "not-qualified",
+        "requestSource": {
+          "provenance": "legacy-title",
+          "text": "old external prerequisite"
+        }
+      },
+      {
+        "id": "01M57000000000000000000029",
+        "stage": "dev",
+        "status": "not-qualified",
+        "requestSource": {
+          "provenance": "legacy-title",
+          "text": "fresh sub-WP work"
+        }
+      },
+      {
+        "id": "01M57000000000000000000044",
+        "stage": "spec",
+        "status": "not-qualified",
+        "requestSource": {
+          "provenance": "legacy-title",
+          "text": "other lane prerequisite"
+        }
+      },
+      {
+        "id": "01M57000000000000000000057",
+        "stage": "dev",
+        "status": "not-qualified",
+        "requestSource": {
+          "provenance": "legacy-title",
+          "text": "never-qualified work"
+        }
+      },
+      {
+        "id": "01M57000000000000000000060",
+        "stage": "spec",
+        "status": "not-qualified",
+        "requestSource": {
+          "provenance": "legacy-title",
+          "text": "parentless leaf"
+        }
+      },
+      {
+        "id": "01M57000000000000000000064",
+        "stage": "spec",
+        "status": "not-qualified",
+        "requestSource": {
+          "provenance": "legacy-title",
+          "text": "phase-only leaf"
+        }
+      },
+      {
+        "id": "01M57000000000000000000068",
+        "stage": "spec",
+        "status": "not-qualified",
+        "requestSource": {
+          "provenance": "legacy-title",
+          "text": "stream-only leaf"
+        }
+      },
+      {
+        "id": "01M57000000000000000000073",
+        "stage": "spec",
+        "status": "not-qualified",
+        "requestSource": {
+          "provenance": "demand-raw",
+          "text": "Quiero reanudar mi sesión sin perder el último mensaje",
+          "demandId": "01M57000000000000000000070"
+        }
+      },
+      {
+        "id": "01M57000000000000000000074",
+        "stage": "spec",
+        "status": "not-qualified",
+        "requestSource": {
+          "provenance": "demand-raw",
+          "text": "Quiero reanudar mi sesión sin perder el último mensaje",
+          "demandId": "01M57000000000000000000070"
+        }
+      }
+    ]
+  },
+  "cases": [
+    {
+      "name": "weekly",
+      "args": [],
+      "period": {
+        "requested": "last-week",
+        "from": "2026-10-11T12:00:00.000Z",
+        "to": "2026-10-18T12:00:00.000Z",
+        "fromRef": null,
+        "toRef": null,
+        "eventsInWindow": 38,
+        "eventsTotal": 55
+      },
+      "handleResolved": "2.3",
+      "coverage": {
+        "projected": 14,
+        "rendered": 12,
+        "omitted": [
+          {
+            "label": "Keep the fresh scope ?",
+            "reason": "décision déjà tranchée (visible dans bloqué ou FAIT, plus rien à y répondre)"
+          },
+          {
+            "label": "irrelevant old withdrawal",
+            "reason": "retiré hors fenêtre, sans gate actif ni décision liée en fenêtre"
+          }
+        ],
+        "aggregated": [],
+        "outsideWp": 7
+      }
+    },
+    {
+      "name": "daily",
+      "args": [
+        "--period",
+        "last-day"
+      ],
+      "period": {
+        "requested": "last-day",
+        "from": "2026-10-17T12:00:00.000Z",
+        "to": "2026-10-18T12:00:00.000Z",
+        "fromRef": null,
+        "toRef": null,
+        "eventsInWindow": 38,
+        "eventsTotal": 55
+      },
+      "handleResolved": "2.3",
+      "coverage": {
+        "projected": 14,
+        "rendered": 12,
+        "omitted": [
+          {
+            "label": "Keep the fresh scope ?",
+            "reason": "décision déjà tranchée (visible dans bloqué ou FAIT, plus rien à y répondre)"
+          },
+          {
+            "label": "irrelevant old withdrawal",
+            "reason": "retiré hors fenêtre, sans gate actif ni décision liée en fenêtre"
+          }
+        ],
+        "aggregated": [],
+        "outsideWp": 7
+      }
+    },
+    {
+      "name": "long",
+      "args": [
+        "--since",
+        "2026-09-01",
+        "--until",
+        "2026-10-18"
+      ],
+      "period": {
+        "requested": "2026-09-01..2026-10-18",
+        "from": "2026-09-01T04:00:00.000Z",
+        "to": "2026-10-19T03:59:59.999Z",
+        "fromRef": null,
+        "toRef": null,
+        "eventsInWindow": 55,
+        "eventsTotal": 55
+      },
+      "handleResolved": "2.3",
+      "coverage": {
+        "projected": 13,
+        "rendered": 12,
+        "omitted": [
+          {
+            "label": "Keep the fresh scope ?",
+            "reason": "décision déjà tranchée (visible dans bloqué ou FAIT, plus rien à y répondre)"
+          }
+        ],
+        "aggregated": [
+          "WP1.1 · UAT Alpha.1"
+        ],
+        "outsideWp": 7
+      }
+    },
+    {
+      "name": "expanded",
+      "args": [
+        "--since",
+        "2026-09-01",
+        "--until",
+        "2026-10-18",
+        "--sub-wp"
+      ],
+      "period": {
+        "requested": "2026-09-01..2026-10-18",
+        "from": "2026-09-01T04:00:00.000Z",
+        "to": "2026-10-19T03:59:59.999Z",
+        "fromRef": null,
+        "toRef": null,
+        "eventsInWindow": 55,
+        "eventsTotal": 55
+      },
+      "handleResolved": "2.3",
+      "coverage": {
+        "projected": 13,
+        "rendered": 12,
+        "omitted": [
+          {
+            "label": "Keep the fresh scope ?",
+            "reason": "décision déjà tranchée (visible dans bloqué ou FAIT, plus rien à y répondre)"
+          }
+        ],
+        "aggregated": [],
+        "outsideWp": 7
+      }
+    },
+    {
+      "name": "empty",
+      "args": [
+        "--now",
+        "2026-11-10T12:00:00.000Z"
+      ],
+      "period": {
+        "requested": "last-week",
+        "from": "2026-11-03T12:00:00.000Z",
+        "to": "2026-11-10T12:00:00.000Z",
+        "fromRef": null,
+        "toRef": null,
+        "eventsInWindow": 0,
+        "eventsTotal": 55
+      },
+      "handleResolved": "2.3",
+      "coverage": {
+        "projected": 15,
+        "rendered": 12,
+        "omitted": [
+          {
+            "label": "Keep the fresh scope ?",
+            "reason": "décision déjà tranchée (visible dans bloqué ou FAIT, plus rien à y répondre)"
+          },
+          {
+            "label": "irrelevant old withdrawal",
+            "reason": "retiré hors fenêtre, sans gate actif ni décision liée en fenêtre"
+          },
+          {
+            "label": "fresh withdrawal",
+            "reason": "retiré hors fenêtre, sans gate actif ni décision liée en fenêtre"
+          }
+        ],
+        "aggregated": [],
+        "outsideWp": 7
+      }
+    },
+    {
+      "name": "all",
+      "args": [
+        "--period",
+        "all"
+      ],
+      "period": {
+        "requested": "all",
+        "from": "2026-09-20T10:00:00.000Z",
+        "to": "2026-10-18T12:00:00.000Z",
+        "fromRef": null,
+        "toRef": null,
+        "eventsInWindow": 55,
+        "eventsTotal": 55
+      },
+      "handleResolved": "2.3",
+      "coverage": {
+        "projected": 13,
+        "rendered": 12,
+        "omitted": [
+          {
+            "label": "Keep the fresh scope ?",
+            "reason": "décision déjà tranchée (visible dans bloqué ou FAIT, plus rien à y répondre)"
+          }
+        ],
+        "aggregated": [
+          "WP1.1 · UAT Alpha.1"
+        ],
+        "outsideWp": 7
+      }
+    }
+  ],
+  "rawActionAudit": {
+    "uninstructed": 4,
+    "repeated": [],
+    "gateClauses": [],
+    "ok": true
+  },
+  "audits": {
+    "actionFr": {
+      "uninstructed": 0,
+      "repeated": [],
+      "gateClauses": [],
+      "ok": true
+    }
+  },
+  "languages": {
+    "fr": {
+      "lang": "fr",
+      "artifact": "track-report-stage-status.md",
+      "sections": [
+        "FAIT",
+        "À-FAIRE",
+        "DÉCISIONS",
+        "RECOMMANDATION"
+      ],
+      "machineDigest": "feaaad577bf3acd3e34f8641e8610ff2f89f852022ab7476c8cb88ecd96eebcf",
+      "actions": [
+        {
+          "focus": true,
+          "instruction": "investigated",
+          "action": "Enregistrer les options conserver/abandonner le point de reprise hors ligne et leurs conséquences.",
+          "actionOrigin": "investigated",
+          "gateSteps": [
+            "focus-decision"
+          ]
+        },
+        {
+          "focus": true,
+          "instruction": "investigated",
+          "action": "Rejouer le contrôle de reprise après redémarrage de la lane dépendante ; conserver le journal du résultat.",
+          "actionOrigin": "investigated",
+          "gateSteps": [
+            "focus-decision",
+            "resolve-external-blocker"
+          ]
+        },
+        {
+          "focus": true,
+          "instruction": "investigated",
+          "action": "Définir le cas « interrompre puis reprendre sans perdre le dernier message » et enregistrer son résultat.",
+          "actionOrigin": "investigated",
+          "gateSteps": [
+            "finish-increment"
+          ]
+        },
+        {
+          "focus": true,
+          "instruction": "investigated",
+          "action": "Exécuter le cas de reconnexion avec le même identifiant de session et comparer le dernier message.",
+          "actionOrigin": "investigated",
+          "gateSteps": [
+            "finish-increment"
+          ]
+        },
+        {
+          "focus": true,
+          "instruction": "investigated",
+          "action": "Écrire le résultat attendu de cette phase pour une reprise après interruption.",
+          "actionOrigin": "investigated",
+          "gateSteps": [
+            "amend-spec"
+          ]
+        },
+        {
+          "focus": false,
+          "instruction": "investigated",
+          "action": "Documenter quel point de reprise ce flux doit conserver avant de le rattacher à un WP.",
+          "actionOrigin": "investigated",
+          "gateSteps": [
+            "amend-spec"
+          ]
+        },
+        {
+          "focus": false,
+          "instruction": "investigated",
+          "action": "Vérifier le livrable des deux prérequis et proposer le WP de rattachement des demandes isolées.",
+          "actionOrigin": "investigated",
+          "gateSteps": []
+        }
+      ],
+      "proposals": [
+        {
+          "id": "01M57000000000000000000041",
+          "status": "blocked",
+          "proposal": "Rejouer le contrôle de reprise après redémarrage de la lane dépendante ; conserver le journal du résultat.",
+          "proposalState": "investigated",
+          "inNextAction": true,
+          "inRecommendation": true,
+          "gateClauses": [
+            "action (subagent): Lever le blocage puis reprendre (réf 01M57000000000000000000024)"
+          ]
+        },
+        {
+          "id": "01M57000000000000000000049",
+          "status": "decision-awaited",
+          "gateClauses": [
+            "action (subagent): Lever le blocage puis reprendre (réf 01M57000000000000000000024)"
+          ],
+          "dossierRefs": [
+            "D1"
+          ]
+        }
+      ],
+      "decisionRefs": [
+        "D1"
+      ],
+      "replyLines": [
+        "Réponds « vas y » pour les travaux sans décision, ou « D1 A » pour autoriser le partage."
+      ],
+      "audits": {
+        "actions": {
+          "uninstructed": 0,
+          "repeated": [],
+          "gateClauses": [],
+          "ok": true
+        },
+        "proposals": {
+          "missingProposals": [],
+          "orphanBlue": [],
+          "ok": true
+        }
+      }
+    },
+    "es": {
+      "lang": "es",
+      "artifact": "track-report-stage-status.es.md",
+      "sections": [
+        "HECHO",
+        "POR HACER",
+        "DECISIONES",
+        "RECOMENDACIÓN"
+      ],
+      "machineDigest": "feaaad577bf3acd3e34f8641e8610ff2f89f852022ab7476c8cb88ecd96eebcf",
+      "actions": [
+        {
+          "focus": true,
+          "instruction": "investigated",
+          "action": "Registrar las opciones conservar/descartar el punto sin conexión y sus consecuencias.",
+          "actionOrigin": "investigated",
+          "gateSteps": [
+            "focus-decision"
+          ]
+        },
+        {
+          "focus": true,
+          "instruction": "investigated",
+          "action": "Repetir la comprobación de reanudación tras reiniciar la ejecución dependiente y guardar su resultado.",
+          "actionOrigin": "investigated",
+          "gateSteps": [
+            "focus-decision",
+            "resolve-external-blocker"
+          ]
+        },
+        {
+          "focus": true,
+          "instruction": "investigated",
+          "action": "Definir el caso « interrumpir y reanudar sin perder el último mensaje » y registrar su resultado.",
+          "actionOrigin": "investigated",
+          "gateSteps": [
+            "finish-increment"
+          ]
+        },
+        {
+          "focus": true,
+          "instruction": "investigated",
+          "action": "Ejecutar la reconexión con el mismo identificador de sesión y comparar el último mensaje.",
+          "actionOrigin": "investigated",
+          "gateSteps": [
+            "finish-increment"
+          ]
+        },
+        {
+          "focus": true,
+          "instruction": "investigated",
+          "action": "Escribir el resultado esperado de esta fase al reanudar después de una interrupción.",
+          "actionOrigin": "investigated",
+          "gateSteps": [
+            "amend-spec"
+          ]
+        },
+        {
+          "focus": false,
+          "instruction": "investigated",
+          "action": "Documentar qué punto de reanudación conserva este flujo antes de vincularlo a un WP.",
+          "actionOrigin": "investigated",
+          "gateSteps": [
+            "amend-spec"
+          ]
+        },
+        {
+          "focus": false,
+          "instruction": "investigated",
+          "action": "Comprobar los dos requisitos y proponer el WP de las solicitudes aisladas.",
+          "actionOrigin": "investigated",
+          "gateSteps": []
+        }
+      ],
+      "proposals": [
+        {
+          "id": "01M57000000000000000000041",
+          "status": "blocked",
+          "proposal": "Repetir la comprobación de reanudación tras reiniciar la ejecución dependiente y guardar su resultado.",
+          "proposalState": "investigated",
+          "inNextAction": true,
+          "inRecommendation": true,
+          "gateClauses": [
+            "action (subagent): Lever le blocage puis reprendre (réf 01M57000000000000000000024)"
+          ]
+        },
+        {
+          "id": "01M57000000000000000000049",
+          "status": "decision-awaited",
+          "gateClauses": [
+            "action (subagent): Lever le blocage puis reprendre (réf 01M57000000000000000000024)"
+          ],
+          "dossierRefs": [
+            "D1"
+          ]
+        }
+      ],
+      "decisionRefs": [
+        "D1"
+      ],
+      "replyLines": [
+        "Responde « vas y » para el trabajo sin decisión o « D1 A » para autorizar la conexión compartida."
+      ],
+      "audits": {
+        "actions": {
+          "uninstructed": 0,
+          "repeated": [],
+          "gateClauses": [],
+          "ok": true
+        },
+        "proposals": {
+          "missingProposals": [],
+          "orphanBlue": [],
+          "ok": true
+        }
+      }
+    },
+    "ja": {
+      "lang": "ja",
+      "artifact": "track-report-stage-status.ja.md",
+      "sections": [
+        "完了",
+        "今後の作業",
+        "意思決定",
+        "推奨事項"
+      ],
+      "machineDigest": "feaaad577bf3acd3e34f8641e8610ff2f89f852022ab7476c8cb88ecd96eebcf",
+      "actions": [
+        {
+          "focus": true,
+          "instruction": "investigated",
+          "action": "オフラインの再開地点を保持する案と破棄する案、その影響を記録する。",
+          "actionOrigin": "investigated",
+          "gateSteps": [
+            "focus-decision"
+          ]
+        },
+        {
+          "focus": true,
+          "instruction": "investigated",
+          "action": "依存する実行経路を再起動してから再開確認を実行し、結果のログを保存する。",
+          "actionOrigin": "investigated",
+          "gateSteps": [
+            "focus-decision",
+            "resolve-external-blocker"
+          ]
+        },
+        {
+          "focus": true,
+          "instruction": "investigated",
+          "action": "「中断後、最後のメッセージを失わず再開する」ケースを定義し、結果を記録する。",
+          "actionOrigin": "investigated",
+          "gateSteps": [
+            "finish-increment"
+          ]
+        },
+        {
+          "focus": true,
+          "instruction": "investigated",
+          "action": "同じセッションIDで再接続を実行し、最後のメッセージを比較する。",
+          "actionOrigin": "investigated",
+          "gateSteps": [
+            "finish-increment"
+          ]
+        },
+        {
+          "focus": true,
+          "instruction": "investigated",
+          "action": "中断後の再開について、このフェーズが満たす期待結果を書く。",
+          "actionOrigin": "investigated",
+          "gateSteps": [
+            "amend-spec"
+          ]
+        },
+        {
+          "focus": false,
+          "instruction": "investigated",
+          "action": "このストリームが保持する再開地点を記述してから、WPへの関連付けを提案する。",
+          "actionOrigin": "investigated",
+          "gateSteps": [
+            "amend-spec"
+          ]
+        },
+        {
+          "focus": false,
+          "instruction": "investigated",
+          "action": "二つの前提作業の成果を確認し、独立した要求の所属WPを提案する。",
+          "actionOrigin": "investigated",
+          "gateSteps": []
+        }
+      ],
+      "proposals": [
+        {
+          "id": "01M57000000000000000000041",
+          "status": "blocked",
+          "proposal": "依存する実行経路を再起動してから再開確認を実行し、結果のログを保存する。",
+          "proposalState": "investigated",
+          "inNextAction": true,
+          "inRecommendation": true,
+          "gateClauses": [
+            "action (subagent): Lever le blocage puis reprendre (réf 01M57000000000000000000024)"
+          ]
+        },
+        {
+          "id": "01M57000000000000000000049",
+          "status": "decision-awaited",
+          "gateClauses": [
+            "action (subagent): Lever le blocage puis reprendre (réf 01M57000000000000000000024)"
+          ],
+          "dossierRefs": [
+            "D1"
+          ]
+        }
+      ],
+      "decisionRefs": [
+        "D1"
+      ],
+      "replyLines": [
+        "意思決定を要しない作業には「vas y」、接続共有の承認には「D1 A」と回答する。"
+      ],
+      "audits": {
+        "actions": {
+          "uninstructed": 0,
+          "repeated": [],
+          "gateClauses": [],
+          "ok": true
+        },
+        "proposals": {
+          "missingProposals": [],
+          "orphanBlue": [],
+          "ok": true
+        }
+      }
+    },
+    "pt": {
+      "lang": "pt",
+      "artifact": "track-report-stage-status.pt.md",
+      "sections": [
+        "CONCLUÍDO",
+        "A FAZER",
+        "DECISÕES",
+        "RECOMENDAÇÃO"
+      ],
+      "machineDigest": "feaaad577bf3acd3e34f8641e8610ff2f89f852022ab7476c8cb88ecd96eebcf",
+      "actions": [
+        {
+          "focus": true,
+          "instruction": "investigated",
+          "action": "Registrar as opções preservar/descartar o ponto sem conexão e suas consequências.",
+          "actionOrigin": "investigated",
+          "gateSteps": [
+            "focus-decision"
+          ]
+        },
+        {
+          "focus": true,
+          "instruction": "investigated",
+          "action": "Repetir a verificação da retomada após reiniciar a execução dependente e guardar o resultado.",
+          "actionOrigin": "investigated",
+          "gateSteps": [
+            "focus-decision",
+            "resolve-external-blocker"
+          ]
+        },
+        {
+          "focus": true,
+          "instruction": "investigated",
+          "action": "Definir o caso « interromper e retomar sem perder a última mensagem » e registrar o resultado.",
+          "actionOrigin": "investigated",
+          "gateSteps": [
+            "finish-increment"
+          ]
+        },
+        {
+          "focus": true,
+          "instruction": "investigated",
+          "action": "Executar a reconexão com o mesmo identificador de sessão e comparar a última mensagem.",
+          "actionOrigin": "investigated",
+          "gateSteps": [
+            "finish-increment"
+          ]
+        },
+        {
+          "focus": true,
+          "instruction": "investigated",
+          "action": "Escrever o resultado esperado desta fase ao retomar após uma interrupção.",
+          "actionOrigin": "investigated",
+          "gateSteps": [
+            "amend-spec"
+          ]
+        },
+        {
+          "focus": false,
+          "instruction": "investigated",
+          "action": "Documentar qual ponto de retomada este fluxo preserva antes de vinculá-lo a um WP.",
+          "actionOrigin": "investigated",
+          "gateSteps": [
+            "amend-spec"
+          ]
+        },
+        {
+          "focus": false,
+          "instruction": "investigated",
+          "action": "Verificar os dois requisitos e propor o WP das solicitações isoladas.",
+          "actionOrigin": "investigated",
+          "gateSteps": []
+        }
+      ],
+      "proposals": [
+        {
+          "id": "01M57000000000000000000041",
+          "status": "blocked",
+          "proposal": "Repetir a verificação da retomada após reiniciar a execução dependente e guardar o resultado.",
+          "proposalState": "investigated",
+          "inNextAction": true,
+          "inRecommendation": true,
+          "gateClauses": [
+            "action (subagent): Lever le blocage puis reprendre (réf 01M57000000000000000000024)"
+          ]
+        },
+        {
+          "id": "01M57000000000000000000049",
+          "status": "decision-awaited",
+          "gateClauses": [
+            "action (subagent): Lever le blocage puis reprendre (réf 01M57000000000000000000024)"
+          ],
+          "dossierRefs": [
+            "D1"
+          ]
+        }
+      ],
+      "decisionRefs": [
+        "D1"
+      ],
+      "replyLines": [
+        "Responda « vas y » para o trabalho sem decisão ou « D1 A » para autorizar a conexão compartilhada."
+      ],
+      "audits": {
+        "actions": {
+          "uninstructed": 0,
+          "repeated": [],
+          "gateClauses": [],
+          "ok": true
+        },
+        "proposals": {
+          "missingProposals": [],
+          "orphanBlue": [],
+          "ok": true
+        }
+      }
+    }
+  },
+  "journalMutations": 0,
+  "translatedPlaceholder": {
+    "uninstructed": 1,
+    "repeated": [],
+    "gateClauses": [],
+    "ok": true
+  }
+}
