@@ -33,6 +33,7 @@ jobs:
       # The darwin tests spawn the built owner/frontend processes from dist.
       - run: npm run build
       - name: Run the darwin substrate file set
+        id: substrate
         run: |
           set -euo pipefail
           npx --no-install vitest run --config packages/h2a-runtime/vitest.config.ts \
@@ -50,6 +51,7 @@ jobs:
             packages/h2a-runtime/src/native-terminal/fleet.test.ts \
             packages/h2a-runtime/src/native-terminal/supervisor.test.ts 2>&1 | tee /tmp/darwin-pty.log
       - name: Run the portable upgrade file set
+        if: ${{ !cancelled() && steps.substrate.outcome != 'skipped' }}
         run: |
           set -euo pipefail
           node --test --test-reporter=tap \
@@ -57,6 +59,7 @@ jobs:
             packages/h2a/test/upgrade-swap.test.js \
             packages/h2a/test/upgrade-boot-worker.test.js 2>&1 | tee -a /tmp/darwin-pty.log
       - name: Enforce skipped 0 in the darwin set
+        if: ${{ !cancelled() && steps.substrate.outcome != 'skipped' }}
         run: |
           set -euo pipefail
           node -e 'const r=require("./tmp/h2a-runtime-vitest-report.json"); if(r.numPendingTests!==0 || r.numTodoTests!==0 || r.numFailedTests!==0) process.exit(1)'
