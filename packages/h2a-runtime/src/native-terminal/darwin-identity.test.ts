@@ -13,6 +13,24 @@ setupNativeTestEnvironment(afterAll);
 
 import { NativeTerminalClient } from "./client.js";
 import { defaultOwnerHostProbe, readProcessStartTime } from "./host.js";
+import { LINUX_PTY_GUARDIAN_SCRIPT, nodePtySpawner } from "../pty.js";
+
+it("should preserve CLI stderr while scrubbing every guardian descriptor on Darwin", async () => {
+  // Execute the exact Darwin branch under a real PTY on both platforms.
+  const script = LINUX_PTY_GUARDIAN_SCRIPT.replace("if [ -d /proc/$$/fd ]; then", "if false; then")
+    .replace("h2a_expected_parent=$1", "h2a_expected_parent=$PPID");
+  const pty = nodePtySpawner({command:"/bin/bash",args:["--noprofile","--norc","-c",script,"fd-proof",String(process.pid),
+    "/bin/bash","--noprofile","--norc","-c","printf 'B5_STDOUT\\n'; printf 'B5_STDERR\\n' >&2"],
+    cwd:process.env.TMPDIR!,env:process.env as Record<string,string>,cols:80,rows:24});
+  let output="";pty.onData(chunk=>{output+=chunk;});
+  let timer: NodeJS.Timeout | undefined, finished=false;
+  try {
+    const exit=await new Promise<{exitCode:number}>((resolve,reject)=>{
+      pty.onExit(exit=>{finished=true;resolve(exit);}); timer=setTimeout(()=>reject(new Error(`guardian still running: ${output}`)),5000);
+    });
+    expect(exit.exitCode).toBe(0); expect(output).toContain("B5_STDOUT");expect(output).toContain("B5_STDERR");
+  } finally {clearTimeout(timer);if(!finished)try{pty.kill("SIGKILL");}catch{/* already exited */}}
+});
 
 // Lot BM RED: darwin identity + legacy containment proofs. Same platform
 // contract as darwin-publication.test.ts: every test executes on both
