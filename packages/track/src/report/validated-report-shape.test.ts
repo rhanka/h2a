@@ -796,7 +796,8 @@ describe('the skill instructs the shape this renderer emits', () => {
     expect(s).toContain('by **opening the\nitem**')
     expect(s).toContain('bounded to the focus rows')
     expect(s).toContain('you must replace every one of')
-    expect(s).toContain('auditNextActions(values, gateClauses)')
+    expect(s).toContain('describeRowNextActions')
+    expect(s).toContain('auditNextActions(descriptors)')
     expect(s).toContain('a substantive action repeats\non three or more rows, or equals a gate clause')
     expect(s).toContain('whether the sentence is *right*. The owner judges\nthat, and no green test substitutes for it.')
   })
@@ -848,13 +849,46 @@ describe('the skill instructs the shape this renderer emits', () => {
     expect(s).toContain('**Every omission names its reason**')
   })
 
-  it('states the five À-FAIRE columns, the ordering line, and the `bloqué` rule', () => {
+  it('states the seven À-FAIRE columns, the ordering line, and the `bloqué` rule', () => {
     const s = skill()
-    expect(s).toContain('`WP · av. · à faire · bloqué · prochaine action`')
+    expect(s).toContain('`WP · av. · étape · statut · à faire · bloqué · prochaine action`')
+    expect(s).not.toContain('`WP · av. · à faire · bloqué · prochaine action`')
     expect(s).toContain('There is no\n`cible action` column')
     expect(s).toContain('ordre = priorité ; les cinq premiers sont le focus')
     expect(s).toContain('An empty `bloqué` means no blockage is recorded.')
     expect(s).toContain('A recorded gate rendered `—` is a failure')
+    expect(s).not.toContain('takes precedence')
+  })
+
+  it('the served route is `--status-table` over a rolling window, in the user language', () => {
+    const s = skill()
+    expect(s).toContain('`--status-table` selects the validated four-section')
+    expect(s).toContain('rolling `last-week`')
+    expect(s).toContain('`--period last-day`')
+    expect(s).toContain('An explicit `--period` or `--since`/`--until`\nselector wins')
+    expect(s).toContain('never invent a period')
+    expect(s).toContain('`--lang <bcp47>`')
+    expect(s).toContain('never a silent French fallback')
+    expect(s).toContain('Quote machine tokens literally')
+    expect(s).toContain("in the user's language")
+  })
+
+  it('one row, one WP, one dossier — stage/status codes audited before serving', () => {
+    const s = skill()
+    expect(s).toContain('## One row, one WP, one dossier')
+    expect(s).toContain('exactly one strict WP attachment')
+    expect(s).toContain('`hors WP · items`')
+    expect(s).toContain('exactly one investigated proposal')
+    expect(s).toContain('exactly one\nmatching `D` number')
+    expect(s).toContain('A deferred dossier is not settled')
+    expect(s).toContain('`spec | dev | pr | merged | deployed`')
+    expect(s).toContain('a live gate overrides a stored\ngreen')
+    expect(s).toContain('nothing is\ngreen without a conformity witness')
+    expect(s).toContain('never silence, never absence')
+    expect(s).toContain('carry no health colour')
+    expect(s).toContain('auditStatusProposals')
+    expect(s).toContain('describeStatusProposals')
+    expect(s).toContain('a green audit never certifies prose quality')
   })
 
   it('keeps the anti-fabrication clauses criteria 16, 17 and 15b restate', () => {
