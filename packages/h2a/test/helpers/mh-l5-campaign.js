@@ -17,7 +17,7 @@ import { createPayloadStore } from '../../dist/runtime/mcp/payload-store.js';
 function campaignDirectory() {
   const configured=process.env.H2A_TEST_M17_TMPDIR;
   const parent=configured??tmpdir();
-  if(configured){
+  if(configured!==undefined){
     try{
       const info=fs.lstatSync(parent);
       if(fs.realpathSync(parent)!==parent||!info.isDirectory()||info.uid!==process.getuid()||(info.mode&0o777)!==0o700)
