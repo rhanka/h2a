@@ -7,7 +7,7 @@ import { availableParallelism } from 'node:os';
 import { createWriteStream } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { basename } from 'node:path';
-import { Duplex, Readable } from 'node:stream';
+import { Duplex, Readable, PassThrough } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { run } from 'node:test';
 import { spec } from 'node:test/reporters';
@@ -53,20 +53,54 @@ const progress = setInterval(() => process.stderr.write(`[node-test-progress] ${
 // their internal concurrent admissions and every deadline remain unchanged.
 const standalone = ['mcp-central-attachments.test.js', 'mh-l3-transfer.test.js', 'mh-l4-central.test.js']
   .flatMap(name => files.filter(file => basename(file) === name));
-// Bulk filesystem campaigns must not consume the bounded protocol fixtures'
-// startup budgets. Start the longest backend campaign with the package pair,
-// so its 10,000 mutations per domain are not postponed until the pool's tail.
-const bulkNames = ['mh-l5-concurrency.test.js', 'mh-l6-package.test.js', 'mh-l6-runtime-package.test.js',
+// Bulk filesystem installs must not consume the bounded protocol fixtures'
+// startup budgets. The long backend has a separate reserved worker after the
+// standalone cold qualifications, rather than waiting for every protocol file.
+const backend = files.filter(file => basename(file) === 'mh-l5-concurrency.test.js');
+const bulkNames = ['mh-l6-package.test.js', 'mh-l6-runtime-package.test.js',
   'drive-consent-index.test.js', 'candidate-artifacts.test.js', 'mh-l1-package.test.js',
   'mh-l6-components.test.js', 'mh-l6-entry.test.js', 'mh-l6-native.test.js', 'mh-l6-native-copy.test.js'];
 const bulk = bulkNames.flatMap(name => files.filter(file => basename(file) === name));
-const remaining = files.filter(file => !standalone.includes(file) && !bulk.includes(file));
-const phases = [...standalone.map(file => [file]), remaining, bulk].filter(group => group.length);
+const remaining = files.filter(file => !standalone.includes(file) && !bulk.includes(file) && !backend.includes(file));
+async function* execute(group, workers = concurrency) {
+  if (!group.length) return;
+  yield* run({ files: group, isolation: 'process', concurrency: workers,
+    execArgv: ['--import', fileURLToPath(new URL('../packages/h2a/test/helpers/native-isolation.js', import.meta.url))] });
+}
+async function* merge(sources) {
+  const output = new PassThrough({ objectMode: true });
+  let pendingSources = sources.length;
+  for (const source of sources) {
+    source.once('error', error => output.destroy(error));
+    source.once('end', () => { if (--pendingSources === 0) output.end(); });
+    source.pipe(output, { end: false });
+  }
+  try { yield* output; }
+  finally { for (const source of sources) source.destroy(); }
+}
+async function* schedule() {
+  for (const file of standalone) yield* execute([file]);
+  if (!backend.length || concurrency === 1) {
+    yield* execute(backend); yield* execute(remaining); yield* execute(bulk);
+    return;
+  }
+  // M17's shared lock serializes its eight actors. Reserve one file worker
+  // for that long campaign while the other CPUs qualify remaining protocols.
+  // Bulk installs still wait for those protocols. Both streams keep the exact
+  // original filenames/cases and flow through both production reporters.
+  let backendDone = false;
+  const campaign = Readable.from((async function* () {
+    try { yield* execute(backend, 1); }
+    finally { backendDone = true; }
+  })());
+  const other = Readable.from((async function* () {
+    yield* execute(remaining, backendDone ? concurrency : concurrency - 1);
+    yield* execute(bulk, backendDone ? concurrency : concurrency - 1);
+  })());
+  yield* merge([campaign, other]);
+}
 const events = Readable.from((async function* () {
-  for (const group of phases) {
-    const source = run({ files: group, isolation: 'process', concurrency,
-      execArgv: ['--import', fileURLToPath(new URL('../packages/h2a/test/helpers/native-isolation.js', import.meta.url))] });
-    for await (const event of source) {
+    for await (const event of schedule()) {
       const { type, data } = event;
       if (type === 'test:summary' && !data.success) process.exitCode = 1;
       // Ordered spec output may buffer failures behind another file.
@@ -75,7 +109,6 @@ const events = Readable.from((async function* () {
       }
       yield event;
     }
-  }
 })());
 try {
   await Promise.all([
