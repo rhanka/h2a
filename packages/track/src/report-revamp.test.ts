@@ -156,10 +156,12 @@ describe('report-revamp — `--wp` structured view only (no flat bucket dump)', 
     expect(text).not.toMatch(/^TO-DO \(/m)
   })
 
-  it('the no-WP default fallback never labels rule-derived actions as decisions', () => {
+  it('the no-WP report keeps actions separate from decisions in the four canonical sections', () => {
     t.createItem({ kind: 'feature', title: 'orphan action', workspace: 'ws' })
     const text = reportText(new TrackReader(eventsPath), { ...base, wpTree: true }, 'text')
-    expect(text).toContain('ACTIONS DÉRIVÉES')
+    for (const section of ['FAIT', 'À-FAIRE', 'DÉCISIONS', 'RECOMMANDATION']) expect(text).toContain(section)
+    expect(text).toContain('orphan action (outside-wp)')
+    expect(text).not.toContain('ACTIONS DÉRIVÉES')
     expect(text).not.toContain('DÉCISIONS/ACTIONS')
   })
 

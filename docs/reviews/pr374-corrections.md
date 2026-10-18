@@ -42,6 +42,7 @@ ne sont pas comptées comme preuves rouges.
 | `npm run build` | `vendor-engram-live mirror OK`, code 0 |
 | `npm run typecheck` | code 0 |
 | `npm run typecheck -w @sentropic/track` | code 0 |
+| `node ../../node_modules/vitest/vitest.mjs run src/report-revamp.test.ts` depuis `packages/track` | ancien contrat sans WP : `1 failed / 25 passed`, puis `26 passed (26)`, codes 1 → 0, zéro saut |
 
 Commande verte ciblée, exécutée depuis `packages/track` :
 
@@ -68,7 +69,8 @@ zéro saut. Dont 29 cas dans le fichier des régressions de revue.
   `packages/track`, contre le golden réellement suivi.
 - Adaptations déclarées de tests protégés : commande imprimée désormais
   complète (`commands.scope`, `validated-report-shape`), certificat de
-  proposition sur le servi (`audit`, `owner-report-contract`). Les assertions
+  proposition sur le servi (`audit`, `owner-report-contract`), ancien fallback
+  sans WP remplacé par les quatre sections (`report-revamp`, D1/D11). Les assertions
   de résultat sont conservées ou renforcées. Quatre erreurs de types de tests
   ont été corrigées : options du présentateur inline et accès potentiellement
   absents ; elles ne sont pas comptées comme régressions rouge/verte.
