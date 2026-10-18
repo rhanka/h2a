@@ -19,6 +19,7 @@
  */
 
 import { validateDecisionDossierReadability } from "./readability.js";
+import { checkEvidence } from './evidence.js';
 export { READABILITY_LIMITS, READABILITY_BUDGETS, validateDecisionDossierReadability } from "./readability.js";
 
 import type {
@@ -26,6 +27,7 @@ import type {
   AmendmentStep,
   ComprehensionEvidence,
   DecisionDossierDocument,
+  DecisionDossierDocumentV1,
   DiagramSyntax,
   DossierReadability,
   FocusNode,
@@ -446,9 +448,9 @@ const checkReadability = (
 };
 
 /** Structural layer: closed shape check against the published schema. */
-export const validateDecisionDossierStructure = (
+const validateLegacyStructure = (
   value: unknown,
-): ValidationResult<DecisionDossierDocument> => {
+): ValidationResult<DecisionDossierDocumentV1> => {
   const issues: ValidationIssue[] = [];
   const doc = checkClosedObject(value, "$", [...TOP_ALLOWED], [...TOP_REQUIRED], [...TOP_STRINGS], issues);
   if (doc === undefined) return { ok: false, issues };
@@ -546,6 +548,15 @@ export const validateDecisionDossierStructure = (
       ...(readability !== undefined ? { readability } : {}),
     },
   };
+};
+
+/** Absence means historical v1; unknown explicit versions always refuse. */
+export const validateDecisionDossierStructure = (value: unknown): ValidationResult<DecisionDossierDocument> => {
+  if (isRecord(value) && Object.hasOwn(value, 'schemaVersion')) {
+    if (value.schemaVersion !== 2) return { ok: false, issues: [issue('$.schemaVersion', 'unsupported_version', 'Supported explicit version: 2; omit schemaVersion for legacy v1')] };
+    return checkEvidence(value, validateLegacyStructure);
+  }
+  return validateLegacyStructure(value);
 };
 
 /** Semantic layer on a structurally valid dossier. Empty means valid. */
