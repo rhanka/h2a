@@ -17,20 +17,20 @@
 - [x] Conditional: systemd files rendered only; operator installs/enables outside confinement.
 
 ## Lot 1 — Detection
-- [ ] Discover lock domains; npm HIGH/CRITICAL, hydrated OSV, custom source interface.
-- [ ] Prove incomplete scans cannot become clean and private packages stay local.
+- [x] Discover lock domains; npm HIGH/CRITICAL, hydrated OSV, custom source interface.
+- [x] Prove incomplete scans cannot become clean and private packages stay local.
 
 ## Lot 2 — Controller
-- [ ] Durable claims, round robin, isolated worktrees, pinned verification and draft PRs.
-- [ ] Lock-only, no majors, two independent complementary reviews before ready.
-- [ ] Fake-runner coverage for restart, concurrent lock, dry run and failure gates.
+- [x] Durable claims, round robin, isolated worktrees, pinned verification and draft PRs.
+- [x] Lock-only, no majors, two independent complementary reviews before ready.
+- [x] Fake-runner coverage for restart, concurrent lock, dry run and failure gates.
 
 ## Lot 3 — Operator surface
-- [ ] Local runner adapter, command, skill, inventory configuration, timer rendering.
-- [ ] Stable report, summary and explicit activation/coverage limits.
+- [x] Local runner adapter, command, skill, inventory configuration, timer rendering.
+- [x] Stable report, summary and explicit activation/coverage limits.
 
 ## Lot 4 — Delivery
-- [ ] Reconcile two independent design reviews and record actual consensus availability.
+- [x] Reconcile two independent design reviews and record actual consensus availability.
 - [ ] Targeted verification, push, English PR, each CI result and French report.
 
 Harness consensus review is selection-failed: the required installed h2a/mesh
