@@ -1,7 +1,7 @@
 // @ts-ignore Shared, read-only isolation helper.
 import { setupNativeTestEnvironment, spawnIsolatedNative as spawn } from "../../../h2a/test/helpers/native-isolation.js";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
-import { appendFileSync, chmodSync, accessSync, constants, mkdirSync, mkdtempSync, readFileSync, writeFileSync, existsSync, rmSync } from "node:fs";
+import { statSync, cpSync, symlinkSync, appendFileSync, chmodSync, accessSync, constants, mkdirSync, mkdtempSync, readFileSync, writeFileSync, existsSync, rmSync } from "node:fs";
 import { createConnection, createServer, type Socket } from "node:net";
 import { once } from "node:events";
 import { PassThrough } from "node:stream";
@@ -10,6 +10,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { NativeTerminalClient } from "./client.js";
 import { readProcessStartTime } from "./host.js";
 import { runAttach } from "./op.js";
+import { requestNativeTerminalOwnerControl } from "./owner-protocol.js";
 setupNativeTestEnvironment(afterAll);
 
 const cleanups: Array<() => Promise<void>> = [];
@@ -65,10 +66,14 @@ ChildProcess.prototype.spawn=function(options){const result=original.call(this,o
     rmSync(directory, { recursive: true, force: true });
   });
   await until(() => ready || errors, () => ready.includes("h2a.native-terminal.ready"), "owner ready");
+  let writeTimeouts = 0;
   async function connect(path = socketPath, requestTimeoutMs = 1000) {
-    const client = await NativeTerminalClient.connect(path, { requestTimeoutMs }); clients.push(client); return client;
+    const client = await NativeTerminalClient.connect(path, { requestTimeoutMs });
+    const write = client.write.bind(client);
+    client.write = async (...args) => { try { await write(...args); } catch(error) { if(/timed out/.test(String(error))) writeTimeouts++; throw error; } };
+    clients.push(client); return client;
   }
-  const admin = await connect();
+  const admin = await connect(), listenerInode = statSync(socketPath).ino;
   const bytesPath = join(directory, "bytes"), infoPath = join(directory, "info"), sizePath = join(directory, "size");
   writeFileSync(bytesPath, "");
   const program = `const fs=require('node:fs');process.stdin.setRawMode(true);process.stdin.resume();
@@ -106,6 +111,17 @@ process.stdin.on('data',b=>{fs.appendFileSync(${JSON.stringify(bytesPath)},b);pr
   const cliBirth = readProcessStartTime(cliPid), ownerBirth = readProcessStartTime(owner.pid!);
   expect(cliBirth).toBeDefined(); expect(ownerBirth).toBeDefined();
   appendFileSync(receipts,JSON.stringify({pid:cliPid,birth:cliBirth})+"\n");
+  const dist = fileURLToPath(new URL("../../dist/",import.meta.url));
+  const next = join(directory,"next"); cpSync(dist,join(next,"dist"),{recursive:true});
+  writeFileSync(join(next,"package.json"),JSON.stringify({name:"@sentropic/h2a-runtime",version:"999.0.0",type:"module"}));
+  symlinkSync(fileURLToPath(new URL("../../../../node_modules/",import.meta.url)),join(next,"node_modules"),"dir");
+  let upgradeResult: Promise<any> | undefined;
+  const upgrade = () => {
+    upgradeResult ??= requestNativeTerminalOwnerControl(socketPath,owner.pid!,"replace-frontend",{
+      frontendModule:join(next,"dist/native-terminal/frontend-process.js"),rollbackModule:join(dist,"native-terminal/frontend-process.js"),
+    });
+    void upgradeResult.catch(()=>{}); return upgradeResult;
+  };
   let frontendPid = (await admin.ping() as any).frontend.pid as number;
   const killFrontend = () => process.kill(frontendPid, "SIGKILL");
   const receivedPath = launch && launch !== "bash" ? resolve(directory,launch.receivedInputFile) : bytesPath;
@@ -128,12 +144,12 @@ process.stdin.on('data',b=>{fs.appendFileSync(${JSON.stringify(bytesPath)},b);pr
         if (request.operation === "write") {
           observedIdentities.push(request.params.writeIdentity);
           const fault = armed; armed = undefined;
-          if (fault === "before") { killFrontend(); down.destroy(); up.destroy(); continue; }
+          if (fault === "before") { void upgrade(); down.destroy(); up.destroy(); continue; }
           if (fault === "after" || fault === "timeout") {
             droppedId = request.id;
             if (fault === "after") {
               // Observe execution at the CLI before severing the response path.
-              void until(async () => launch && launch !== "bash" ? (await admin.readOutput("cli",0)).chunks.map(chunk=>chunk.data).join("").replaceAll("\r","") : bytes(), text => text.includes(launch && launch !== "bash" ? launch.turns[1].output : request.params.data), "executed cut write").then(() => { killFrontend(); down.destroy(); up.destroy(); });
+              void until(async () => launch && launch !== "bash" ? (await admin.readOutput("cli",0)).chunks.map(chunk=>chunk.data).join("").replaceAll("\r","") : bytes(), text => text.includes(launch && launch !== "bash" ? launch.turns[1].output : request.params.data), "executed cut write").then(() => { void upgrade(); down.destroy(); up.destroy(); });
             }
           }
         }
@@ -148,7 +164,7 @@ process.stdin.on('data',b=>{fs.appendFileSync(${JSON.stringify(bytesPath)},b);pr
         if (JSON.parse(line).id !== droppedId) down.write(line + "\n");
         else if (cut === "timeout") {
           up.removeAllListeners("close");
-          killFrontend();
+          void upgrade();
           // Keep the downstream socket open so the write reaches its real client timeout.
         }
       }
@@ -177,7 +193,7 @@ process.stdin.on('data',b=>{fs.appendFileSync(${JSON.stringify(bytesPath)},b);pr
     }, p => Boolean(p && p.frontend.pid !== frontendPid), "replacement frontend").then(p => { frontendPid = p.frontend.pid; return p; });
   }
   return { admin, connect, state, bytes, infoPath, sizePath, input, output, stdout, attach, resize: () => resize?.(),
-    cliPid, cliBirth, owner, ownerBirth, killFrontend, replacement, observedIdentities, connected: () => connected, arm: () => { armed = cut; } };
+    cliPid, cliBirth, owner, ownerBirth, killFrontend, replacement, observedIdentities, listenerInode, socketPath, writeTimeouts:()=>writeTimeouts, upgrade, upgraded: async () => { expect((await upgradeResult).status).toBe("switched"); }, connected: () => connected, arm: () => { armed = cut; } };
 }
 
 
@@ -231,7 +247,9 @@ async function conversation(cut: Exclude<Cut,undefined>, cli?: EnrolledCli) {
     await until(()=>f.output.join(""),text=>text.includes(turn.output),"CLI response");
     if(index===1) {
       await until(f.connected,n=>n>=2,"attach recovery after D21 cut");
-      await f.replacement();
+      await f.upgraded(); expect((await f.replacement()).frontend.version).toBe("999.0.0");
+      expect(statSync(f.socketPath).ino).toBe(f.listenerInode);
+      if(cut==="timeout") expect(f.writeTimeouts()).toBeGreaterThanOrEqual(1);
       const attempts = f.observedIdentities.filter((id:any)=>id.seq===2);
       expect(attempts.length).toBeGreaterThanOrEqual(cut==="before" ? 2 : 1);
       for (const attempt of attempts) expect(attempt).toEqual(attempts[0]);
@@ -259,7 +277,8 @@ describe("Phase B agent qualification (B5)", () => {
     await until(()=>f.output.join(""),text=>/bash-[^\n]*[$#] /.test(text)||text.includes("B5> "),"interactive Bash/readline prompt");
     f.input.write("printf 'B5-BEFORE\\n'\n");
     await until(()=>f.output.join(""),text=>text.replaceAll("\r","").replace(/\x1b\[[0-9;?]*[A-Za-z]/g,"").includes("\nB5-BEFORE\n"),"Bash before replacement");
-    await identities(f); f.killFrontend(); await f.replacement();
+    await identities(f); expect((await f.upgrade()).status).toBe("switched"); expect((await f.replacement()).frontend.version).toBe("999.0.0");
+    expect(statSync(f.socketPath).ino).toBe(f.listenerInode);
     await until(f.connected,n=>n>=2,"Bash attach recovery");
     f.stdout.columns=109;f.stdout.rows=37;f.resize();
     f.input.write("printf 'B5-BAD\\n'\x01\x0bprintf 'B5-AFTER\\n'; printf 'SIZE:'; stty size\n");
