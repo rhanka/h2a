@@ -9,6 +9,9 @@
  */
 
 import { createRequire } from "node:module";
+import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { evidenceFixture } from '../../h2a/focus-kit/test/evidence-fixtures.mjs';
 
 import { describe, expect, it } from "vitest";
 
@@ -29,6 +32,22 @@ const schemaDoc = require("../schemas/decision-dossier-document.v1.schema.json")
 
 const clone = (doc: DecisionDossierDocument): unknown =>
   JSON.parse(JSON.stringify(doc)) as unknown;
+
+describe('evidence schema version boundary', () => {
+  it('should ship a separate closed v2 schema while preserving the original v1 bytes', () => {
+    const v2 = require('../schemas/decision-dossier-document.v2.schema.json');
+    expect(v2.$id).toBe('urn:sentropic:focus:DecisionDossierDocument:2.0.0');
+    expect(v2.properties.schemaVersion.const).toBe(2);
+    expect(v2.additionalProperties).toBe(false);
+    expect(v2.required).toEqual(expect.arrayContaining(['sources','citations','annexes','evidenceGroups','schemaVersion']));
+    expect(createHash('sha256').update(readFileSync(new URL('../schemas/decision-dossier-document.v1.schema.json', import.meta.url))).digest('hex'))
+      .toBe('725bc07e7c6b6ad51a1f720cc9fb02649d8f31bc54e71c61c350fd20058c8852');
+  });
+  it('should reject new evidence through the frozen old validator rather than dropping it', async () => {
+    const old = await import('./fixtures/validator.v1.mjs');
+    expect(old.validateDecisionDossierDocument(evidenceFixture()).ok).toBe(false);
+  });
+});
 
 describe("DecisionDossierDocument schema asset identity", () => {
   it("publishes the stable schema ID under draft 2020-12", () => {
