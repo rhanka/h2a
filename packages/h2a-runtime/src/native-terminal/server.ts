@@ -5,6 +5,7 @@ import { createConnection, createServer, type Server, type Socket } from "node:n
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 
 import { writeHostLogLine } from "./crash-safe-log.js";
+import { OWNER_WRITE_IDENTITY_CAPABILITY, extractWriteIdentity } from "./owner-protocol.js";
 import { HOST_FAULT_COUNTERS, recordHostFault } from "./fault-counters.js";
 import {
   NativeTerminalHost,
@@ -151,6 +152,7 @@ function controllerLease(value: unknown): NativeTerminalControllerLease {
     ),
     controllerId: requiredIdentifier(lease.controllerId, "controller lease id"),
     epoch: requiredInteger(lease.epoch, "controller lease epoch"),
+    ...(lease.resumeToken !== undefined ? { resumeToken: requiredIdentifier(lease.resumeToken, "controller resume token") } : {}),
   };
 }
 
@@ -159,7 +161,8 @@ function sameLease(left: NativeTerminalControllerLease, right: NativeTerminalCon
     && left.generation === right.generation
     && left.incarnation === right.incarnation
     && left.controllerId === right.controllerId
-    && left.epoch === right.epoch;
+    && left.epoch === right.epoch
+    && left.resumeToken === right.resumeToken;
 }
 
 /**
@@ -212,7 +215,7 @@ function createOptions(params: unknown): NativeTerminalCreateOptions {
 function releaseConnectionLeases(host: NativeTerminalHost, context: NativeTerminalLeaseContext): void {
   for (const lease of context.leases.values()) {
     try {
-      host.releaseController(lease);
+      host.disconnectController(lease);
     } catch {
       // Exit/stop already fences the lease. Disconnect cleanup is idempotent.
     }
@@ -243,6 +246,7 @@ function dispatch(host: NativeTerminalHost, context: NativeTerminalLeaseContext,
     case "ping":
       return {
         launchFence: true,
+        capabilities: [OWNER_WRITE_IDENTITY_CAPABILITY],
         generation: host.generation,
         hostPid: process.pid,
         protocolVersion: NATIVE_TERMINAL_PROTOCOL_VERSION,
@@ -271,6 +275,9 @@ function dispatch(host: NativeTerminalHost, context: NativeTerminalLeaseContext,
       if (record.takeover !== undefined && typeof record.takeover !== "boolean") {
         throw new TypeError("terminal controller takeover must be a boolean");
       }
+      if (record.writeIdentity !== undefined && typeof record.writeIdentity !== "boolean") {
+        throw new TypeError("terminal write identity option must be a boolean");
+      }
       const lease = host.acquireController(
         requiredIdentifier(record.id, "session id"),
         requiredIdentifier(record.controllerId, "controller id"),
@@ -279,6 +286,8 @@ function dispatch(host: NativeTerminalHost, context: NativeTerminalLeaseContext,
           ...(record.takeover !== undefined ? { takeover: record.takeover as boolean } : {}),
           ...(record.pid !== undefined ? { pid: requiredInteger(record.pid, "controller pid") } : {}),
           ...(record.tty !== undefined ? { tty: requiredString(record.tty, "controller tty") } : {}),
+          ...(record.writeIdentity !== undefined ? { writeIdentity: record.writeIdentity as boolean } : {}),
+          ...(record.resumeLease !== undefined ? { resumeLease: controllerLease(record.resumeLease) } : {}),
         },
       );
       context.leases.set(lease.id, lease);
@@ -303,8 +312,7 @@ function dispatch(host: NativeTerminalHost, context: NativeTerminalLeaseContext,
     case "write": {
       const record = requiredRecord(params, "params");
       const lease = ownedLease(context, record);
-      host.write(lease, requiredString(record.data, "terminal input"));
-      return null;
+      return host.write(lease, requiredString(record.data, "terminal input"), extractWriteIdentity(record)) ?? null;
     }
     case "resize": {
       const record = requiredRecord(params, "params");

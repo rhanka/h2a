@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { extractAppliedFrontier, type OwnerWriteIdentity } from "./owner-protocol.js";
 import { createConnection, type Socket } from "node:net";
 
 import type {
@@ -190,8 +191,14 @@ export class NativeTerminalClient {
     return this.#request("release-controller", { lease }) as Promise<NativeTerminalControllerState>;
   }
 
-  async write(lease: NativeTerminalControllerLease, data: string): Promise<void> {
-    await this.#request("write", { lease, data });
+  async write(lease: NativeTerminalControllerLease, data: string, options: { writeIdentity?: OwnerWriteIdentity } = {}): Promise<void> {
+    const result = await this.#request("write", { lease, data, ...options });
+    if (options.writeIdentity !== undefined) {
+      const frontier = extractAppliedFrontier({ appliedFrontier: result });
+      if (!frontier || frontier.controllerId !== lease.controllerId || frontier.epoch !== lease.epoch || frontier.frontier < options.writeIdentity.seq) {
+        throw new TypeError("invalid terminal write ACK frontier");
+      }
+    }
   }
 
   async resize(lease: NativeTerminalControllerLease, cols: number, rows: number): Promise<void> {
