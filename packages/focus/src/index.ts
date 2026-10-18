@@ -51,3 +51,4 @@ export { renderTerminal } from "./render/terminal.js";
 export type { TerminalRenderOptions } from "./render/terminal.js";
 export { renderMd } from "./render/md.js";
 export { renderHtml } from "./render/html.js";
+export { evidenceVolume } from './render/evidence.js';
