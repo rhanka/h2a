@@ -915,7 +915,8 @@
     "bounded daemon and handover qualifications each finish alone before the parallel package phase",
     "bulk package and backend campaigns wait for bounded protocol qualification and all execute together",
     "the long backend overlaps remaining suites while bulk packages retain their protocol barrier",
-    "a failed overlapping backend remains failed and every remaining suite still executes"
+    "a failed overlapping backend remains failed and every remaining suite still executes",
+    "the 36-process identity startup qualification finishes before the backend campaign starts"
   ],
   "packages/h2a/test/mh-l6-package.test.js": [
     "U10 U12 should publish @sentropic/h2a with exact lockstep and install twice offline without a compiler",
@@ -925,5 +926,12 @@
   "packages/h2a/test/mh-l6-runtime-package.test.js": [
     "U10 U12 should publish @sentropic/h2a-runtime with exact lockstep and install twice offline without a compiler",
     "U10 should install @sentropic/h2a-runtime for off-profile diagnostics while refusing H4 preparation"
+  ],
+  "packages/h2a/test/mh-l5-temp-volume.test.js": [
+    "M17 refuses a missing configured volume instead of falling back to another filesystem",
+    "M17 refuses a symlink configured volume before creating backend state",
+    "M17 refuses a configured volume writable by another user",
+    "M17 refuses a regular file configured as its temporary volume",
+    "M17 executes every real actor on its configured private volume and removes its state"
   ]
 }
