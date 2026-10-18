@@ -1,10 +1,33 @@
 import type { NativeTerminalClient } from "./client.js";
 import type { NativeTerminalSessionState } from "./host.js";
+import { NATIVE_TERMINAL_PROTOCOL_VERSION, type NativeTerminalPing } from "./protocol.js";
+
+type NativeTerminalHostDetails = {
+  generation: string;
+  loadedVersion: string;
+  frontendVersion?: string;
+  admission?: "unfenced";
+  retirement?: "deferred";
+};
+
+/** A launch fence/owner tag does not establish an admission drain barrier.
+ * In particular, an unmodified pre-B peer cannot be retired automatically. */
+export function describeNativeTerminalHost(ping: NativeTerminalPing): NativeTerminalHostDetails {
+  if (ping.protocolVersion !== NATIVE_TERMINAL_PROTOCOL_VERSION) throw new Error("unsupported native terminal client protocol");
+  if (!Number.isSafeInteger(ping.hostPid) || ping.hostPid <= 0 || typeof ping.generation !== "string" || !ping.generation.trim()) {
+    throw new Error("invalid native terminal host identity");
+  }
+  const { owner, frontend } = ping as NativeTerminalPing & { owner?: { pid?: number; version?: string }; frontend?: { version?: string } };
+  if (owner && owner.pid !== ping.hostPid) throw new Error("native terminal owner identity mismatch");
+  return { generation: ping.generation, loadedVersion: owner?.version || "unknown",
+    ...(frontend?.version ? { frontendVersion: frontend.version } : {}),
+    ...(!owner ? { admission: "unfenced" as const, retirement: "deferred" as const } : {}) };
+}
 
 export type NativeInventory = {
   complete: boolean;
   sessions: Array<NativeTerminalSessionState & { socketPath: string }>;
-  hosts: Array<{ socketPath: string; client?: NativeTerminalClient; absent?: true; reason?: string }>;
+  hosts: Array<{ socketPath: string; client?: NativeTerminalClient; absent?: true; reason?: string } & Partial<NativeTerminalHostDetails>>;
 };
 
 /** Every endpoint contributes separately; duplicate names are evidence. */
@@ -17,8 +40,9 @@ export async function collectNativeInventory(
   for (const socketPath of endpoints) {
     try {
       const client = await connect(socketPath);
+      const details = describeNativeTerminalHost(await client.ping());
       const sessions = await client.list();
-      inventory.hosts.push({ socketPath, client });
+      inventory.hosts.push({ socketPath, client, ...details });
       inventory.sessions.push(...sessions.map(session => ({ ...session, socketPath })));
     } catch (error) {
       try {

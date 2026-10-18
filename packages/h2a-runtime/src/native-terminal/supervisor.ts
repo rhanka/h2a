@@ -8,6 +8,7 @@ import { knownNativeTerminalSocketPaths } from "./socket-path.js";
 import { proveNativeTerminalEndpointAbsent } from "./server.js";
 
 import { NativeTerminalClient } from "./client.js";
+import { describeNativeTerminalHost } from "./fleet.js";
 import { HOST_FAULT_COUNTERS, recordHostFault } from "./fault-counters.js";
 import {
   defaultOwnerHostProbe,
@@ -88,6 +89,7 @@ export async function inspectNativeTerminalFrontendUpgrade(): Promise<{
     try {
       client = await NativeTerminalClient.connect(socketPath);
       const ping = await client.ping();
+      describeNativeTerminalHost(ping);
       if (!(ping as any).owner) {
         legacyHosts.push({ socketPath, hostPid: ping.hostPid });
         continue;
@@ -121,7 +123,11 @@ export async function switchNativeTerminalUpgradeFrontends(plan: Awaited<ReturnT
       owners.push({ socketPath: owner.socketPath, status: "deferred", reason: error instanceof Error ? error.message : String(error) });
     }
   }
-  for (const legacy of plan.legacyHosts) owners.push({ socketPath: legacy.socketPath, status: "deferred", owner: { pid: legacy.hostPid, version: "unknown" }, reason: "legacy fused host drains in place" });
+  // No list-empty observation, client marker or owner tag closes admission on
+  // already-established v1 connections. Never signal or unlink a pre-B host.
+  for (const legacy of plan.legacyHosts) owners.push({ socketPath: legacy.socketPath, status: "deferred",
+    owner: { pid: legacy.hostPid, version: "unknown" }, admission: "unfenced", retirement: "deferred",
+    reason: "pre-B host has no atomic admission fence; automatic retirement is deferred" });
   return { status: deferred ? "deferred" : "switched", components: plan.components, owners };
 }
 

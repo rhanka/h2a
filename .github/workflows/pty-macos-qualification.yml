@@ -45,6 +45,8 @@ jobs:
             packages/h2a-runtime/src/native-terminal/replay-buffer.test.ts \
             packages/h2a-runtime/src/native-terminal/frontend-swap.functional.test.ts \
             packages/h2a-runtime/src/native-terminal/upgrade-pty-contract.test.ts \
+            packages/h2a-runtime/src/native-terminal/legacy-drain.functional.test.ts \
+            packages/h2a-runtime/src/native-terminal/fleet.test.ts \
             packages/h2a-runtime/src/native-terminal/supervisor.test.ts 2>&1 | tee /tmp/darwin-pty.log
       - name: Run the portable upgrade file set
         run: |
