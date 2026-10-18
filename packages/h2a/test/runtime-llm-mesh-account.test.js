@@ -7,7 +7,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 const ROOT = process.cwd();
-const RUNTIME_BIN = join(ROOT, "packages/h2a-runtime/dist/index.js");
+const RUNTIME_BIN = process.env.H2A_RUNTIME_TEST_BIN ?? join(ROOT, "packages/h2a-runtime/dist/index.js");
 const runtimeBuilt = existsSync(RUNTIME_BIN);
 
 function runWithEnv(args, env = {}) {
@@ -27,8 +27,8 @@ function run(...args) {
 
 test(
   "llm-mesh account exposes enrollment, inventory, and removal",
-  { skip: runtimeBuilt ? false : "packages/h2a-runtime/dist absent (run npx tsc -b)" },
   () => {
+    assert.equal(runtimeBuilt, true, "compile the checkout runtime before executing this test");
     // Every spawn below runs under temp HOME/XDG_RUNTIME_DIR/H2A_ROOT:
     // nothing here may read or disturb the owner's real mesh store.
     const isoBase = mkdtempSync(join(tmpdir(), "h2a-account-iso-"));
@@ -60,15 +60,15 @@ test(
 
       const badCli = runIso("llm-mesh", "account", "enroll", "codex", "--cli");
       assert.notEqual(badCli.status, 0, badCli.output);
-      assert.match(badCli.output, /--cli\/--from cli is only valid for providers with a local CLI import \(muse, claude-code\)/);
+      assert.match(badCli.output, /L1 seat consumer import unavailable; requires importSeatBundle/);
 
       const claudeCliNoStore = runIso("llm-mesh", "account", "enroll", "claude-code", "--cli");
       assert.notEqual(claudeCliNoStore.status, 0, claudeCliNoStore.output);
-      assert.match(claudeCliNoStore.output, /Claude CLI store not found/);
+      assert.match(claudeCliNoStore.output, /L1 seat consumer import unavailable; requires importSeatBundle/);
 
       const badImport = runIso("llm-mesh", "account", "enroll", "codex", "--token");
       assert.notEqual(badImport.status, 0, badImport.output);
-      assert.match(badImport.output, /--token\/--from token is only valid for claude-code/);
+      assert.match(badImport.output, /L1 seat consumer import unavailable; requires importSeatBundle/);
 
       const badBoth = runIso("llm-mesh", "account", "enroll", "claude-code", "--cli", "--token");
       assert.notEqual(badBoth.status, 0, badBoth.output);
@@ -84,7 +84,7 @@ test(
 
       const badFromProvider = runIso("llm-mesh", "account", "enroll", "codex", "--from", "token");
       assert.notEqual(badFromProvider.status, 0, badFromProvider.output);
-      assert.match(badFromProvider.output, /--token\/--from token is only valid for claude-code/);
+      assert.match(badFromProvider.output, /L1 seat consumer import unavailable; requires importSeatBundle/);
 
       // m4 canaries: rejected values are never echoed back.
       const fromCanary = "canary-from-9f8e7d6c5b4a";
@@ -139,13 +139,13 @@ test(
       const cliFirstCanary = "canary-cli-first-9e8d7c6b5a4f";
       const badCliFirst = runIso("llm-mesh", "account", "enroll", "--cli", cliFirstCanary);
       assert.notEqual(badCliFirst.status, 0, badCliFirst.output);
-      assert.match(badCliFirst.output, /provider has no CLI-store import/);
+      assert.match(badCliFirst.output, /unsupported provider/);
       assert.doesNotMatch(badCliFirst.output, new RegExp(cliFirstCanary));
 
       const fromCliCanary = "canary-from-cli-6a5b4c3d2e1f";
       const badFromCli = runIso("llm-mesh", "account", "enroll", "--from", "cli", fromCliCanary);
       assert.notEqual(badFromCli.status, 0, badFromCli.output);
-      assert.match(badFromCli.output, /provider has no CLI-store import/);
+      assert.match(badFromCli.output, /unsupported provider/);
       assert.doesNotMatch(badFromCli.output, new RegExp(fromCliCanary));
 
       // m1: unsupported provider positional value is refused with a static message,
@@ -159,20 +159,20 @@ test(
       const tokenFirstCanary = "canary-token-first-7c8b9d0e1f2a";
       const badTokenFirst = runIso("llm-mesh", "account", "enroll", "--token", tokenFirstCanary);
       assert.notEqual(badTokenFirst.status, 0, badTokenFirst.output);
-      assert.match(badTokenFirst.output, /--token\/--from token is only valid for claude-code/);
+      assert.match(badTokenFirst.output, /unsupported provider/);
       assert.doesNotMatch(badTokenFirst.output, new RegExp(tokenFirstCanary));
 
       // m2 (r8): option-first ordering keeps working — `--cli muse` selects
-      // the muse CLI-store import (provider recognized, not swallowed as a
-      // --cli value). In the isolated temp HOME the store is absent, so the
-      // failure is the static store error, never a missing provider argument.
+      // the consumer import (provider recognized, not swallowed as a
+      // --cli value). The older facade refuses before any profile read,
+      // never with a missing provider argument.
       // The negative marker has no `'provider'` suffix on purpose: the static
       // commander message is the bare `error: missing required argument`, so
       // a regression swallowing `muse` as the --cli value fails this line.
       const optionFirst = runIso("llm-mesh", "account", "enroll", "--cli", "muse");
       assert.notEqual(optionFirst.status, 0, optionFirst.output);
       assert.doesNotMatch(optionFirst.output, /missing required argument/);
-      assert.match(optionFirst.output, /Muse CLI auth file is not readable/);
+      assert.match(optionFirst.output, /L1 seat consumer import unavailable; requires importSeatBundle/);
       assert.doesNotMatch(optionFirst.output, /\[value\]/);
       // Help invites no argv value for --cli/--token (booleans, stdin only).
       assert.doesNotMatch(canonical.output, /--cli \[value\]/);
@@ -206,7 +206,6 @@ test(
 
 test(
   "enroll root error boundary never echoes argv secrets in any form",
-  { skip: runtimeBuilt ? false : "packages/h2a-runtime/dist absent (run npx tsc -b)" },
   () => {
     // Property-style canary: one random secret injected in 34 fixed argv
     // forms across the enroll command tree (multi-line values ending a line
@@ -277,7 +276,7 @@ test(
     const UNKNOWN_COMMAND = "error: unknown command\n";
     const TOO_MANY = "error: too many arguments\n";
     const UNSUPPORTED =
-      "[h2a] llm-mesh account: unsupported provider. Supported: cloud-code, codex, muse (OAuth; --cli imports the CLI store), mistral-vibe (alias: vibe), claude-code (OAuth; --cli imports the CLI store; --token imports a secret-manager credential)\n";
+      "[h2a] llm-mesh account: unsupported provider. Supported: cloud-code (agy), codex, muse, mistral-vibe (vibe), claude-code (claude); oauth is the default, cli/token import consumer seats\n";
     const EXCESS_PROVIDER =
       "[h2a] llm-mesh account: too many arguments (expected provider only; never pass secrets in argv)\n";
     const FROM_ENUM = "[h2a] llm-mesh account: --from must be one of oauth, cli, token\n";
@@ -310,7 +309,6 @@ test(
 
 test(
   "llm-mesh account list and remove execute against an isolated facade store",
-  { skip: runtimeBuilt ? false : "packages/h2a-runtime/dist absent (run npx tsc -b)" },
   () => {
     const isolatedHome = mkdtempSync(join(tmpdir(), "h2a-account-admin-"));
     const isolatedEnv = {
@@ -348,7 +346,6 @@ test(
 
 test(
   "llm-mesh account failures never expose keyring paths or credentials",
-  { skip: runtimeBuilt ? false : "packages/h2a-runtime/dist absent (run npx tsc -b)" },
   () => {
     const isolatedHome = mkdtempSync(join(tmpdir(), "h2a-account-errors-"));
     const notDirectory = join(isolatedHome, "private-credential-store");
@@ -385,7 +382,6 @@ test(
 
 test(
   "delegate no longer exposes account pinning",
-  { skip: runtimeBuilt ? false : "packages/h2a-runtime/dist absent (run npx tsc -b)" },
   () => {
     const help = run("delegate", "--help");
     assert.equal(help.status, 0, help.output);

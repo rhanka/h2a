@@ -16,6 +16,7 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { Command, Help } from "commander";
+import { resolveSeatEnrollmentProvider } from "./cli-seat-codecs.js";
 import { agyClaudeQuotaError, assertAgyClaudeBuildAllowed, detectAgyClaudeQuotaExhaustion, isAgyClaudeModel, normalizeAgyEffort, readAgyClaudeQuotaStatus, resolveAgyModel, writeAgyClaudeQuotaStatus } from "./agy-claude.js";
 
 import {
@@ -436,6 +437,7 @@ import {
 } from "./protocol-local.js";
 import {
   enrollViaFacade,
+  enrollSeatConsumerViaFacade,
   formatLlmMeshAccountError,
   formatLlmMeshAccountList,
   listAccountsViaFacade,
@@ -10724,23 +10726,24 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .description(
       "Enroll through the sentropic-owned OAuth state machine " +
         "(cloud-code, codex, muse OAuth device flow, mistral-vibe browser sign-in — alias: vibe, or claude-code). " +
-        "--from oauth|cli|token selects the source (default oauth): cli imports from the provider's official CLI store (muse, claude-code), " +
-        "token imports a serialized credential from a secret manager via stdin pipe or masked prompt (claude-code only). " +
-        "--cli / --token are the same modes as booleans",
+        "--from oauth|cli|token selects the source (default oauth): cli reads a private L1 parser profile selected by --seat-profile; " +
+        "token reads a consumer SeatBundle via bounded stdin or masked input for all five CLIs. " +
+        "--cli / --token are the same modes as booleans. Seat aliases: agy/cloud-code, claude/claude-code, vibe/mistral-vibe",
     )
     .option("--config-ref <ref>", "sentropic configuration reference for OAuth")
     .option(
       "--from <mode>",
-      "enrollment source: oauth (default), cli (provider official CLI store) or token (secret-manager credential)",
+      "enrollment source: oauth (default), cli (private L1 seat profile) or token (consumer SeatBundle on stdin)",
     )
     .option(
       "--cli",
-      "import credentials from the provider's local CLI store (muse, claude-code) instead of the OAuth flow. Takes no value",
+      "import a consumer seat from the explicitly selected --seat-profile. Takes no value",
     )
     .option(
       "--token",
-      "import a serialized credential from a secret manager into llm-mesh (claude-code only): pipe it on stdin, or enter it at the masked prompt. Takes no value; never argv, never logged",
+      "import a consumer SeatBundle for any of the five CLIs via bounded stdin or masked input; never argv",
     )
+    .option("--seat-profile <path>", "private L1 CliSeatProfileInput file for --from cli; no ambient store fallback")
     .allowExcessArguments(true)
     .action(
       async (
@@ -10748,6 +10751,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         opts: {
           configRef?: string;
           from?: string;
+          seatProfile?: string;
           cli?: boolean;
           token?: boolean;
         },
@@ -10765,8 +10769,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           process.exitCode = 1;
           return;
         }
-        // "vibe" is the CLI-friendly alias of the mistral-vibe transport.
-        const normalized = provider === "vibe" ? "mistral-vibe" : provider;
+        // Seat names and enrollment providers share the five-CLI codec map.
+        const normalized = ["agy", "claude", "vibe"].includes(provider) ? resolveSeatEnrollmentProvider(provider) : provider;
         if (normalized === "muse-code") {
           // Owner decision 2026-10-10: muse-code is no longer a user entry —
           // muse enrolls via the OAuth device flow by default, --cli selects
@@ -10799,21 +10803,6 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           process.exitCode = 1;
           return;
         }
-        if ((opts.cli || opts.from === "cli") && normalized !== "muse" && normalized !== "claude-code") {
-          process.stderr.write(
-            "[h2a] llm-mesh account: provider has no CLI-store import; " +
-              "--cli/--from cli is only valid for providers with a local CLI import (muse, claude-code)\n",
-          );
-          process.exitCode = 1;
-          return;
-        }
-        if ((opts.token || opts.from === "token") && normalized !== "claude-code") {
-          process.stderr.write(
-            `[h2a] llm-mesh account: --token/--from token is only valid for claude-code\n`,
-          );
-          process.exitCode = 1;
-          return;
-        }
         if (
           normalized !== "cloud-code" &&
           normalized !== "codex" &&
@@ -10823,18 +10812,16 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         ) {
           process.stderr.write(
             "[h2a] llm-mesh account: unsupported provider. " +
-              "Supported: cloud-code, codex, muse (OAuth; --cli imports the CLI store), mistral-vibe (alias: vibe), claude-code (OAuth; --cli imports the CLI store; --token imports a secret-manager credential)\n",
+              "Supported: cloud-code (agy), codex, muse, mistral-vibe (vibe), claude-code (claude); oauth is the default, cli/token import consumer seats\n",
           );
           process.exitCode = 1;
           return;
         }
         try {
-          const account = await enrollViaFacade(normalized, {
-            ...(opts.configRef ? { configRef: opts.configRef } : {}),
-            ...(opts.from ? { from: opts.from as "oauth" | "cli" | "token" } : {}),
-            ...(opts.cli ? { cliImport: true } : {}),
-            ...(opts.token ? { tokenImport: true } : {}),
-          });
+          const source = opts.from ?? (opts.cli ? "cli" : opts.token ? "token" : "oauth");
+          const account = source === "oauth"
+            ? await enrollViaFacade(normalized, { ...(opts.configRef ? { configRef: opts.configRef } : {}), from: "oauth" })
+            : await enrollSeatConsumerViaFacade(normalized, { from: source as "cli" | "token", ...(opts.seatProfile ? { seatProfile: opts.seatProfile } : {}) });
           process.stdout.write(
             `[h2a] llm-mesh account: enrolled ${account.provider}; ` +
               "account inventory remains in Sentropic\n",
@@ -11303,6 +11290,13 @@ export { main as dispatchH2a };
 /** @deprecated Compatibility for older h2a cores; new cores require dispatchH2a. */
 export { main as dispatch };
 export { ensureCentralMcp } from "./central-mcp.js";
+
+/** Offline five-CLI seat contract and run-scoped materialization. */
+export * from "./cli-seat-fixtures.js";
+export * from "./cli-seat-codecs.js";
+export * from "./cli-seat-materialization.js";
+export { enrollSeatConsumerViaFacade } from "./llm-mesh-accounts.js";
+export type { LlmMeshSeatImporter, SeatConsumerProfileInput, SeatConsumerParsers, SeatConsumerEnrollmentOptions } from "./llm-mesh-accounts.js";
 
 /**
  * h2a-facing surface: the read-only remote-agents projection consumed by the
