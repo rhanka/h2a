@@ -371,7 +371,31 @@ describe.skipIf(process.platform !== "linux")("native terminal upgrade (scenario
     expect(tarball, "the candidate pack contains no tarball").toBeDefined();
     candidatePrefix = createPrivateTestDirectory("upgrade-candidate-");
     prefixes.add(candidatePrefix);
-    await npmInstall([join(packDir, tarball!)], candidatePrefix, cache);
+    // Runtime facades import the CLI, whose Track dependency is released in
+    // the same train. Install the actual built tarballs together, without
+    // depending on unpublished registry versions or symlinking source code.
+    const candidateTarballs = [join(packDir, tarball!)];
+    const companionVersions = new Map<string, string>();
+    for (const name of ["track", "h2a"]) {
+      const companionDir = fileURLToPath(new URL(`../../../${name}/`, import.meta.url));
+      const companionPack = spawn(npmCommand, npmArgs(["pack", "--pack-destination", packDir]), {
+        cwd: companionDir, env: { ...process.env, PATH: buildToolPath },
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      children.add(companionPack);
+      const packed = captureOutput(companionPack);
+      const [code] = await once(companionPack, "exit");
+      expect(code, packed.stderr).toBe(0);
+      const manifest = JSON.parse(readFileSync(join(companionDir, "package.json"), "utf8"));
+      const companionTarball = join(packDir, `sentropic-${name}-${manifest.version}.tgz`);
+      expect(existsSync(companionTarball)).toBe(true);
+      candidateTarballs.push(companionTarball);
+      companionVersions.set(name, manifest.version);
+    }
+    await npmInstall(candidateTarballs, candidatePrefix, cache);
+    for (const [name, version] of companionVersions) {
+      expect(JSON.parse(readFileSync(join(candidatePrefix, `node_modules/@sentropic/${name}/package.json`), "utf8")).version).toBe(version);
+    }
     candidateRoot = join(candidatePrefix, "node_modules", "@sentropic", "h2a-runtime", "dist");
     candidateEntry = join(candidateRoot, "native-terminal", "process.js");
 
