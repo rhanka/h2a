@@ -111,7 +111,7 @@ test('bulk package and backend campaigns wait for bounded protocol qualification
   const root = fs.mkdtempSync(join(tmpdir(), 'node-bulk-phase-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const started = join(root, 'started.jsonl'), finished = join(root, 'protocol-finished'), report = join(root, 'evidence.json');
-  const names = ['protocol.test.js', 'mh-l6-package.test.js', 'mh-l6-runtime-package.test.js', 'mh-l5-concurrency.test.js', 'candidate-artifacts.test.js'];
+  const names = ['protocol.test.js', 'mh-l6-package.test.js', 'mh-l6-runtime-package.test.js', 'drive-consent-index.test.js', 'candidate-artifacts.test.js'];
   const files = names.map(name => join(root, name));
   for (const [index, file] of files.entries()) fs.writeFileSync(file, `
     const {test}=require('node:test'),fs=require('node:fs'),assert=require('node:assert/strict');
@@ -132,4 +132,45 @@ test('bulk package and backend campaigns wait for bounded protocol qualification
   assert.equal(evidence.success,true);
   assert.equal(evidence.numPassedTests,5);
   for(const file of files)assert.ok(evidence.testResults.some(row=>row.name===file&&row.assertionResults.some(a=>a.status==='passed')));
+});
+
+function overlappingCampaign(t, failing = false) {
+  const root=fs.mkdtempSync(join(tmpdir(),'node-overlap-'));
+  t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+  const report=join(root,'evidence.json'), marker=name=>join(root,name);
+  const names=['mh-l5-concurrency.test.js','protocol.test.js','mh-l6-package.test.js'];
+  const files=names.map(name=>join(root,name));
+  const wait=`async function wait(path){const end=Date.now()+2000;while(!fs.existsSync(path)){if(Date.now()>end)throw Error('campaign and remaining suites were serialized');await new Promise(r=>setTimeout(r,5));}}`;
+  fs.writeFileSync(files[0],`const {test}=require('node:test'),fs=require('node:fs');${wait}
+    test('actual backend case',async()=>{fs.writeFileSync(${JSON.stringify(marker('backend'))},'started');
+      ${failing ? "throw Error('intentional backend failure');" : `await wait(${JSON.stringify(marker('bulk-finished'))});`}
+    });`);
+  fs.writeFileSync(files[1],`const {test}=require('node:test'),fs=require('node:fs');${wait}
+    test('actual remaining case',async()=>{await wait(${JSON.stringify(marker('backend'))});fs.writeFileSync(${JSON.stringify(marker('protocol-finished'))},'done');});`);
+  fs.writeFileSync(files[2],`const {test}=require('node:test'),fs=require('node:fs'),assert=require('node:assert/strict');
+    test('actual bulk case',()=>{assert.equal(fs.readFileSync(${JSON.stringify(marker('protocol-finished'))},'utf8'),'done');fs.writeFileSync(${JSON.stringify(marker('bulk-finished'))},'done');});`);
+  const env={...process.env};delete env.NODE_TEST_CONTEXT;
+  const result=spawnSync(process.execPath,[resolve('scripts/run-node-tests.mjs'),'--test','--test-concurrency=2',
+    '--test-reporter=spec',`--test-reporter=${resolve('scripts/node-evidence-reporter.mjs')}`,
+    '--test-reporter-destination=stdout',`--test-reporter-destination=${report}`,...files],{env,encoding:'utf8',timeout:15_000});
+  return {result,files,evidence:JSON.parse(fs.readFileSync(report,'utf8'))};
+}
+
+test('the long backend overlaps remaining suites while bulk packages retain their protocol barrier',t=>{
+  const {result,files,evidence}=overlappingCampaign(t);
+  assert.equal(result.status,0,result.stdout+result.stderr);
+  assert.equal(evidence.success,true);
+  assert.equal(evidence.numPassedTests,3);
+  assert.equal(evidence.testResults.length,3);
+  for(const file of files)assert.ok(evidence.testResults.some(row=>row.name===file&&row.assertionResults.some(a=>a.status==='passed')));
+});
+
+test('a failed overlapping backend remains failed and every remaining suite still executes',t=>{
+  const {result,files,evidence}=overlappingCampaign(t,true);
+  assert.equal(result.status,1,result.stdout+result.stderr);
+  assert.equal(evidence.success,false);
+  assert.equal(evidence.numFailedTests,1);
+  assert.equal(evidence.numPassedTests,2);
+  assert.equal(evidence.testResults.length,3);
+  for(const file of files)assert.ok(evidence.testResults.some(row=>row.name===file));
 });
