@@ -892,5 +892,13 @@
     "stable refuses an RC proof missing focus or carrying a wrong focus version",
     "publish sanity refuses legacy four-package preparation and stale focus versions before publication",
     "five-package prepare hands the independent focus version to the publication sanity gate"
-  ]
+  ],
+  "packages/h2a/test/vuln-fix-cli.test.js": [],
+  "packages/h2a/test/vuln-fix-controller.test.js": [],
+  "packages/h2a/test/vuln-fix-policy.test.js": [],
+  "packages/h2a/test/vuln-fix-process.test.js": [],
+  "packages/h2a/test/vuln-fix-repository.test.js": [],
+  "packages/h2a/test/vuln-fix-scan.test.js": [],
+  "packages/h2a/test/vuln-fix-seats.test.js": [],
+  "packages/h2a-runtime/src/vuln-seat.test.ts": []
 }
