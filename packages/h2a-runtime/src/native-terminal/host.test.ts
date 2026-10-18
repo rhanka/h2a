@@ -1563,7 +1563,7 @@ describe("NativeTerminalHost", () => {
     });
   });
 
-  it.skipIf(process.platform !== "linux")(
+  if (process.platform === "linux") it(
     "PGID_GUARD_PROVES_THE_GROUP_GONE_WHEN_THE_ROW_WAS_WRITTEN_BEFORE_THIS_BOOT",
     async () => {
       // A `pgidBootId` that differs from this reader's is POSITIVE proof that
@@ -1628,7 +1628,7 @@ describe("NativeTerminalHost", () => {
     },
   );
 
-  it.skipIf(process.platform !== "linux")(
+  if (process.platform === "linux") it(
     "PGID_GUARD_GRANTS_NO_STALE_BOOT_PROOF_ACROSS_A_PID_NAMESPACE",
     async () => {
       // Same foreign boot id, but the row also comes from another pid
@@ -1728,7 +1728,7 @@ describe("NativeTerminalHost", () => {
   const FOREIGN_BOOT_ID = "00000000-0000-4000-8000-000000000000";
   const FOREIGN_MACHINE_ID = "0123456789abcdef0123456789abcdef";
 
-  it.skipIf(process.platform !== "linux")(
+  if (process.platform === "linux") it(
     "PGID_GUARD_GRANTS_NO_STALE_BOOT_PROOF_TO_A_ROW_WRITTEN_BY_ANOTHER_MACHINE",
     async () => {
       // A registry shared by two machines (a networked `$HOME`): machine A's
@@ -1774,7 +1774,7 @@ describe("NativeTerminalHost", () => {
     },
   );
 
-  it.skipIf(process.platform !== "linux")(
+  if (process.platform === "linux") it(
     "PGID_GUARD_GRANTS_NO_STALE_BOOT_PROOF_WHEN_EITHER_SIDE_HAS_NO_MACHINE_ID",
     async () => {
       // "Same machine" must be KNOWN on both sides: a row written before the
@@ -1816,7 +1816,7 @@ describe("NativeTerminalHost", () => {
     },
   );
 
-  it.skipIf(process.platform !== "linux")(
+  if (process.platform === "linux") it(
     "PGID_GUARD_GRANTS_NO_STALE_BOOT_PROOF_WITHOUT_A_KNOWN_BOOT_ID_ON_BOTH_SIDES",
     async () => {
       // The boot half of the same rule: a different boot is a proof only when
@@ -1857,7 +1857,7 @@ describe("NativeTerminalHost", () => {
     },
   );
 
-  it.skipIf(process.platform !== "linux")(
+  if (process.platform === "linux") it(
     "PGID_GUARD_IGNORES_THE_MACHINE_ID_WITHIN_ONE_BOOT",
     async () => {
       // The machine id gates ONLY the boot proof. Within one boot id the kernel
@@ -2125,7 +2125,7 @@ describe("NativeTerminalHost", () => {
     expect(groupIsOnlyZombies(4_700, otherTree)).toBe(false);
   });
 
-  it.skipIf(!HAS_CC)(
+  if (process.platform === "linux") it(
     "REAL_PROC_CENSUS_REFUSES_A_REAL_MULTITHREADED_PROCESS_WHOSE_LEADER_THREAD_EXITED",
     async () => {
       // The fixture above pins the parsing rule; this one pins it against a REAL

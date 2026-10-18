@@ -188,7 +188,7 @@ describe("frontend replacement through real attach and a real CLI", () => {
     const lease = await f.admin.acquireController("cli", "quota"); await f.admin.write(lease, "x".repeat(300));
     await until(f.bytes, s => s.length === 300, "large fixture output");
     f.killFrontend(); await f.replacement(); const c = await f.connect();
-    const replay = await c.readOutput("cli", 0); expect(replay.gap).toBeDefined();
+    const replay = await c.readOutput("cli", 0); expect(replay.gap).not.toBeNull();
     expect(Buffer.byteLength(replay.chunks.map(chunk => chunk.data).join(""))).toBeLessThanOrEqual(128);
     await expect(c.create({ id: "extra", command: "fixture", args: [], cwd: process.env.TMPDIR!, env: {}, cols: 80, rows: 24 })).rejects.toThrow(/session.*limit|maximum|capacity|quota/i);
   }, 15000);
