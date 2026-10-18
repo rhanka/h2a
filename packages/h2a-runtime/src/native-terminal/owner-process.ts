@@ -468,7 +468,10 @@ export async function runNativeTerminalOwnerProcess(argv: ReadonlyArray<string>)
     const startupWait = new Promise<void>((resolve) => {
       startupResolve = resolve;
     });
-    const startupTimeout = delay(OWNER_STARTUP_TIMEOUT_MS);
+    let startupTimer: NodeJS.Timeout | undefined;
+    const startupTimeout = new Promise<void>((resolve) => {
+      startupTimer = setTimeout(resolve, OWNER_STARTUP_TIMEOUT_MS);
+    });
 
     const noteSpawnAttempt = (): boolean => {
       const now = Date.now();
@@ -499,14 +502,18 @@ export async function runNativeTerminalOwnerProcess(argv: ReadonlyArray<string>)
       });
     };
 
-    if (noteSpawnAttempt()) {
-      trackSpawnedFrontend(spawnBindFrontend());
+    let startupRaced: "ready" | "timeout";
+    try {
+      if (noteSpawnAttempt()) {
+        trackSpawnedFrontend(spawnBindFrontend());
+      }
+      startupRaced = await Promise.race([
+        startupWait.then(() => "ready" as const),
+        startupTimeout.then(() => "timeout" as const),
+      ]);
+    } finally {
+      clearTimeout(startupTimer);
     }
-
-    const startupRaced = await Promise.race([
-      startupWait.then(() => "ready" as const),
-      startupTimeout.then(() => "timeout" as const),
-    ]);
     if (startupRaced === "timeout" && startupResolve !== undefined) {
       throw new Error("terminal owner started no frontend in time");
     }

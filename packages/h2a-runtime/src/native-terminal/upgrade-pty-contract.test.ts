@@ -19,9 +19,11 @@ async function until<T>(read: () => T | Promise<T>, accept: (value: T) => boolea
   for (;;) { const value = await read(); if (accept(value)) return value; if (Date.now() >= deadline) throw new Error(`waiting for ${label}: ${JSON.stringify(value)}`); await delay(10); }
 }
 
-async function fixture(prefixLayout = false, legacy = false, listenerFault = false) {
+async function fixture(prefixLayout = false, legacy = false, listenerFault = false, standardEndpoint = false) {
   const directory = mkdtempSync(join(process.env.TMPDIR!, "u-"));
-  const socketPath = join(directory, "h"), receipts = join(directory, "pids");
+  const socketPath = standardEndpoint ? join(directory, "h2a-nt/native-terminal.sock") : join(directory, "h");
+  const receipts = join(directory, "pids");
+  if (standardEndpoint) mkdirSync(dirname(socketPath), { recursive: true, mode: 0o700 });
   const faultTrigger = join(directory, "listener-fault");
   const dist = fileURLToPath(new URL("../../dist/", import.meta.url));
   const observer = join(directory, "observer.mjs");
@@ -96,10 +98,40 @@ const listen=Server.prototype.listen;Server.prototype.listen=function(...args){
     await until(() => c.readOutput("cli", 0), replay => replay.chunks.map(chunk => chunk.data).join("").replace(/\r\n/g, "\n").includes(text), "CLI output replay");
     expect(readProcessStartTime(cliPid)).toBe(cliBirth); expect(readProcessStartTime(owner.pid!)).toBe(ownerBirth);
   }
-  return { owner, ownerBirth, socketPath, client, connect, control, exchange, oldDir, nextDir, badDir, module, directory, prefix, packageDir, seedCli, faultTrigger };
+  return { owner, ownerBirth, socketPath, client, connect, control, exchange, oldDir, nextDir, badDir, module, directory, prefix, packageDir, seedCli, faultTrigger, observer, ownerErrors: () => errors };
 }
 
 describe("PTY upgrade contract", () => {
+  it("should finish an empty owner shutdown without exhausting the frontend close deadline", async () => {
+    const f = await fixture();
+    const lease = await f.client.acquireController("cli", "natural-exit");
+    await f.client.write(lease, "EXIT\n");
+    await until(() => f.client.state("cli"), state => state.status === "exited", "natural CLI exit");
+    f.client.close();
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`empty owner still alive after 3000ms: ${f.ownerErrors()}`)), 3000);
+      f.owner.once("exit", code => { clearTimeout(timer); if (code === 0) resolve(); else reject(new Error(`owner exited with ${code}`)); });
+      f.owner.kill("SIGTERM");
+    });
+  }, 20000);
+
+  it("should keep the same sole owner when a fenced launcher probes after a frontend upgrade", async () => {
+    const f = await fixture(false, false, false, true);
+    await f.exchange("single-owner-before\n");
+    expect((await f.control("replace-frontend", { frontendModule: f.module(f.nextDir), rollbackModule: f.module(f.oldDir) })).status).toBe("switched");
+    const child = spawn(process.execPath, [join(f.oldDir, "dist/native-terminal/op.js"), "ensure-host", "--fenced", "true"], {
+      env: { ...process.env, XDG_RUNTIME_DIR: f.directory, H2A_NATIVE_SOCKET: "",
+        NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import=${pathToFileURL(f.observer).href}` },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    cleanups.push(async () => { if (child.exitCode === null && child.signalCode === null) { const exited = once(child, "exit"); child.kill("SIGKILL"); await exited; } });
+    let output = "", errors = ""; child.stdout!.on("data", b => { output += b; }); child.stderr!.on("data", b => { errors += b; });
+    const [code] = await once(child, "close"); expect(code, errors).toBe(0);
+    expect(JSON.parse(output)).toMatchObject({ hostPid: f.owner.pid, socketPath: f.socketPath });
+    expect(existsSync(join(dirname(f.socketPath), "native-terminal.lf1.sock"))).toBe(false);
+    await f.exchange("single-owner-after\n");
+  }, 20000);
+
   it("should preserve the published inode and CLI when a frontend listener fails", async () => {
     const f = await fixture(false, false, true); await f.exchange("listener-before\n");
     const before = await f.control("status"), inode = statSync(f.socketPath);
