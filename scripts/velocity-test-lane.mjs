@@ -92,6 +92,67 @@ export function createLane({ sourceRoot = repository, selection, inheritedEnv = 
   } catch (error) { fs.rmSync(path, { recursive: true, force: true }); throw error; }
 }
 
-export function commandPlan() { return []; }
-export function checkReport() { return { passed: 0, excluded: 0 }; }
-export function executeLane() { return { passed: 0, excluded: 0 }; }
+export function commandPlan(lane) {
+  const { checkout, selection } = lane;
+  const command = (args, cwd = checkout) => ({ command: 'rtk', args, cwd });
+  const commands = [command(['npm', 'ci', '--ignore-scripts', '--no-audit', '--no-fund'])];
+  if (selection.package === 'h2a' || selection.publicContract) {
+    commands.push(command(['npm', 'run', 'build', '-w', '@sentropic/agent-stats']),
+      command(['npm', 'run', 'build', '-w', '@sentropic/track']), command(['npm', 'run', 'build:h2a']));
+    if (selection.publicContract) commands.push(command(['bash', 'scripts/check-public-contract.sh']));
+    else commands.push(command(['node', '--import', './' + guard, '--test', '--test-reporter=spec', '--test-reporter-destination=stdout',
+      '--test-reporter=./scripts/node-evidence-reporter.mjs', '--test-reporter-destination=' + join(lane.path, 'tests.json'),
+      ...selection.files.map(file => 'packages/h2a/' + file)]));
+  } else commands.push(command(['npx', '--no-install', 'vitest', 'run', '--config', 'vitest.config.ts', ...selection.files,
+    '--reporter=default', '--reporter=json', '--outputFile=' + join(lane.path, 'tests.json')], join(checkout, 'packages', selection.package)));
+  return commands;
+}
+
+export function checkReport(report, requiredFiles, declaredNonTests) {
+  const failures = verifyExecutionReport(report, requiredFiles, { declaredNonTests });
+  if (failures.length) throw Error('test execution failed:\n' + failures.join('\n'));
+  return { passed: report.numPassedTests, excluded: report.numPendingTests + report.numTodoTests };
+}
+
+export function executeLane(lane, { run = spawnSync } = {}) {
+  const steps = [];
+  for (const [index, command] of commandPlan(lane).entries()) {
+    const last = index === commandPlan(lane).length - 1;
+    if (last && (lane.selection.package === 'h2a' || lane.selection.publicContract)) {
+      for (const entry of ['agent-stats/dist/index.js', 'h2a/dist/bin.js', 'h2a-runtime/dist/index.js']) {
+        if (!fs.existsSync(join(lane.checkout, 'packages', entry))) throw Error('missing checkout build: ' + entry);
+      }
+    }
+    const { result, command: actual } = invoke(command, { cwd: command.cwd, env: lane.env, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 }, run);
+    const step = { ...actual, exit: result.status, signal: result.signal ?? null };
+    steps.push(step);
+    fs.writeFileSync(join(lane.path, `command-${index}.log`), (result.stdout ?? '') + (result.stderr ?? ''));
+    fs.writeFileSync(join(lane.path, 'commands.json'), JSON.stringify(steps, null, 2));
+    process.stdout.write(JSON.stringify(step) + '\n');
+    if (result.status !== 0) {
+      process.stdout.write((result.stdout ?? '') + (result.stderr ?? ''));
+      throw Error(`${last ? 'test' : 'build/bootstrap'} command failed: exit ${result.status ?? result.error?.code ?? result.signal}`);
+    }
+  }
+  if (lane.selection.publicContract) return { passed: null, excluded: 0, gate: 'public-contract' };
+  const reportFile = join(lane.path, 'tests.json');
+  if (!fs.existsSync(reportFile)) throw Error('missing test execution report');
+  const report = JSON.parse(fs.readFileSync(reportFile, 'utf8'));
+  const required = lane.selection.files.map(file => join(lane.checkout, 'packages', lane.selection.package, file));
+  const policy = JSON.parse(fs.readFileSync(join(lane.checkout, 'scripts/test-non-tests-0986.json'), 'utf8'));
+  const nonTests = policy.entries.map(entry => ({ ...entry, file: join(lane.checkout, entry.file) }));
+  const counts = checkReport(report, required, nonTests);
+  fs.writeFileSync(join(lane.path, 'result.json'), JSON.stringify({ ...counts, requiredFiles: required, sourceRevision: lane.sourceRevision, sourceDigest: lane.sourceDigest }));
+  return counts;
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  let lane;
+  try {
+    const selection = selectFiles(process.argv.slice(2));
+    lane = createLane({ selection });
+    process.stdout.write(`LANE=${lane.path}\nSOURCE=${lane.sourceRevision} DIGEST=${lane.sourceDigest}\n`);
+    const result = executeLane(lane);
+    process.stdout.write(JSON.stringify(result) + '\n');
+  } catch (error) { process.stderr.write(String(error.message) + '\n'); process.exitCode = 1; }
+}

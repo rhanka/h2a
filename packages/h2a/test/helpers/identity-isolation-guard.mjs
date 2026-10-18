@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import child from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
+import { resolve } from 'node:path';
 const lane = process.env.IDLOCK_LANE;
 if (!lane) throw new Error('isolated lane required');
 const owned = new Set([process.pid]);
@@ -10,6 +11,7 @@ const ownedFile=lane+'/owned-pids.txt';rawAppend(ownedFile,process.pid+'\n');
 const isOwned=pid=>owned.has(pid)||rawRead(ownedFile,'utf8').split('\n').includes(String(pid));
 const check = (path, write = false) => {
   if (typeof path !== 'string') return;
+  path = resolve(path);
   if (/^\/run\/user\/|\/h2a-workspace|\/\.config\/sentropic\/h2a|\/\.local\/state\/h2a|\/h2a-nt/.test(path)) throw new Error('forbidden h2a state');
   const pid = path.match(/^\/proc\/(\d+)(?:\/|$)/);
   if (pid && !isOwned(Number(pid[1]))) throw new Error('unowned process');
