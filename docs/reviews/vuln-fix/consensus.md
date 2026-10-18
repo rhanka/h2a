@@ -4,7 +4,7 @@ review-author:
   host: codex
   model: unknown
   effort: unknown
-target-ref: feat/daily-vuln-fix
+target-ref: d9363a6176419b2350d51246d073bbd0bfe786bf
 observed-failure: Exact author model/effort unavailable; no installed h2a MCP callable in confinement; real native host/state and installed binary are forbidden by owner.
 legs: []
 ---

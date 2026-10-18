@@ -30,3 +30,5 @@ hook execution/provider identity, live advisory service reliability, real
 GitHub mutation during job execution, provenance builder allowlists, real user
 timer activation, OS/vendored/non-npm coverage without custom scanners. Full
 repository testing is reserved for the integration conductor/CI.
+
+Final source validation after rebasing onto upstream main: the seven explicitly named vuln-fix Node files passed 44 tests (0 failures/skips), the native runner passed 6 tests, and dispatch-characterization-goldens.test.js passed 9 tests (0 failures/skips) in temporary XDG state. The final build returned exit 0. The initially unparseable plan scope was corrected to canonical backtick path buckets; harness check scope then reported pass, violations=0.
