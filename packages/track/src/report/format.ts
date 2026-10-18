@@ -1209,8 +1209,9 @@ export function handleCommandFor(meta: ConductorMeta): string {
       parts.push(`--period ${requested}`)
     } else {
       const [since, until] = requested.split('..')
-      parts.push(`--since ${shellArgument(since!)}`)
-      if (until !== undefined) parts.push(`--until ${shellArgument(until)}`)
+      // Freeze symbolic commit bounds so moving HEAD cannot reassign a handle.
+      parts.push(`--since ${shellArgument(meta.periodWindow!.fromRef ?? since!)}`)
+      if (until !== undefined) parts.push(`--until ${shellArgument(meta.periodWindow!.toRef ?? until)}`)
     }
   }
   if (meta.subWp === true) parts.push('--sub-wp')
