@@ -382,6 +382,21 @@ function collectDarwinTestProcessIds(root: string): Set<number> {
   return owned;
 }
 
+function recordedDarwinTestBirth(root: string, pid: number): number | undefined {
+  const path = join(root, `darwin-${pid}.json`);
+  let receipt;
+  try { receipt = JSON.parse(readFileSync(path, "utf8")); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") return undefined;
+    // Discover a newly spawned descendant only when it has no receipt yet.
+    if (!collectDarwinTestProcessIds(root).has(pid)) return undefined;
+    receipt = JSON.parse(readFileSync(path, "utf8"));
+  }
+  if (receipt.pid !== pid || !Number.isFinite(receipt.birth)) return undefined;
+  const birth = rawDarwinBirth(pid);
+  return birth === receipt.birth ? birth : undefined;
+}
+
 const PS_MONTHS: Readonly<Record<string, number>> = {
   Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
   Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11,
@@ -422,7 +437,7 @@ export function readDarwinProcessStartTime(
 ): number | undefined {
   if (!Number.isSafeInteger(pid) || pid <= 0) return undefined;
   if (run === defaultDarwinPsRunner) {
-    try { const root = darwinTestProcessRoot(); if (root && !collectDarwinTestProcessIds(root).has(pid)) return undefined; }
+    try { const root = darwinTestProcessRoot(); if (root) return recordedDarwinTestBirth(root, pid); }
     catch { return undefined; }
   }
   let output: string;
@@ -569,7 +584,7 @@ export function readDarwinProcessSessionToken(
 ): string | undefined {
   if (!Number.isSafeInteger(pid) || pid <= 0) return undefined;
   if (run === defaultDarwinPsRunner) {
-    try { const root = darwinTestProcessRoot(); if (root && !collectDarwinTestProcessIds(root).has(pid)) return undefined; }
+    try { const root = darwinTestProcessRoot(); if (root && recordedDarwinTestBirth(root, pid) === undefined) return undefined; }
     catch { return undefined; }
   }
   const spellings: ReadonlyArray<ReadonlyArray<string>> = [
