@@ -163,6 +163,23 @@ test('should fail the strict gate on vitest todo output despite exit 0', async (
   })(), /verification/);
 });
 
+test('should accept the node 24 spec reporter summary as executed evidence', async () => {
+  const repo = Object.create(Repository.prototype);
+  repo.spec = { tests: [{ command: 'node', args: ['--test', 'fixture.test.js'] }] };
+  repo.workspace = '/fixture';
+  repo.file = () => '/fixture/fixture.test.js';
+  const summary = ['✔ fixture (0.937833ms)', 'ℹ tests 1', 'ℹ suites 0', 'ℹ pass 1', 'ℹ fail 0',
+    'ℹ cancelled 0', 'ℹ skipped 0', 'ℹ todo 0', 'ℹ duration_ms 85.48267'].join('\n') + '\n';
+  repo.execute = async () => ({ code: 0, stdout: summary, stderr: '', signal: null });
+  assert.equal((await repo.tests('after'))[0].ok, true);
+  for (const skipped of ['ℹ skipped 1', 'ℹ todo 2', 'ℹ cancelled 1']) {
+    repo.execute = async () => ({ code: 0, stdout: summary.replace('ℹ skipped 0', skipped).replace('ℹ todo 0', skipped), stderr: '', signal: null });
+    assert.equal((await repo.tests('after'))[0].ok, false, skipped);
+  }
+  repo.execute = async () => ({ code: 0, stdout: summary.replace('ℹ tests 1', 'ℹ tests 0').replace('ℹ pass 1', 'ℹ pass 0'), stderr: '', signal: null });
+  assert.equal((await repo.tests('after'))[0].ok, false);
+});
+
 test('should mask credentials in verification outputs and failure summaries', async () => {
   const repo = Object.create(Repository.prototype);
   repo.spec = { tests: [{ command: 'node', args: ['--test', 'fixture.test.js'] }] };

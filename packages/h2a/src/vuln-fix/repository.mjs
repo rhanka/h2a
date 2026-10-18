@@ -90,8 +90,8 @@ export class Repository {
         for (const path of check.args.filter(x => /\.(?:test|spec)\.[cm]?[jt]sx?$/.test(x))) this.file(path);
         const output = redactOutput(await this.execute(check.command, check.args, { cwd: this.workspace, env }));
         const diagnostic = (output.stdout + output.stderr).replace(/\x1b\[[0-9;]*m/g, '');
-        const skipped = /(?:# (?:skipped|cancelled|todo) [1-9]\d*|[1-9]\d* skipped|[1-9]\d*\s+todo\b|\btodo\s+[1-9]\d*|^(?:not )?ok .*# (?:SKIP|TODO)\b|No test files found|tests?\s+0\b)/im.test(diagnostic);
-        const executed = /(?:# tests [1-9]\d*|Tests\s+[1-9]\d*\s+(?:passed|failed))/i.test(diagnostic);
+        const skipped = /(?:[#ℹ]\s*(?:skipped|cancelled|todo)\s+[1-9]\d*|[1-9]\d* skipped|[1-9]\d*\s+todo\b|\btodo\s+[1-9]\d*|^(?:not )?ok .*# (?:SKIP|TODO)\b|No test files found|tests?\s+0\b)/im.test(diagnostic);
+        const executed = /(?:[#ℹ]\s*tests\s+[1-9]\d*|[#ℹ]\s*pass\s+[1-9]\d*|Tests\s+[1-9]\d*\s+(?:passed|failed))/i.test(diagnostic);
         const expectedRed = phase === 'before' && check.redBefore === true;
         const ok = executed && !skipped && (expectedRed ? output.code !== 0 : output.code === 0);
         results.push({ command: check.command, args: check.args, ...output, expectedRed, ok });
