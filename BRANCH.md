@@ -9,29 +9,46 @@
 - [x] Tests use temporary state and targeted files only; no silent skips.
 
 ## Branch Scope Boundaries
-- [x] Allowed: packages/h2a/src/vuln-fix/**, packages/h2a/src/bin.ts, packages/h2a/src/cli.ts, packages/h2a/src/cli-contract.ts, packages/h2a/src/cli-command-map.ts.
-- [x] Allowed: packages/h2a-runtime/src/vuln-seat.ts, packages/h2a-runtime/src/vuln-seat.test.ts, packages/h2a-runtime/src/index.ts.
-- [x] Allowed: packages/h2a/test/vuln-fix*.test.js, packages/h2a/test/cli-contract.test.js, packages/h2a/skills/vuln-fix/**.
-- [x] Allowed: docs/vuln-fix.md, docs/specs/SPEC_EVOL_DAILY_VULN_FIX.md, docs/reviews/vuln-fix/**, docs/contracts/golden/cli-verbs.json, scripts/test-inventory.json, BRANCH.md.
-- [x] Forbidden: owner host/state, installed dist, unrelated code, dependency/version bumps, workflow/infra changes.
-- [x] Conditional: systemd files rendered only; operator installs/enables outside confinement.
+- [x] **Allowed Paths (implementation scope)**
+  - [x] `packages/h2a/src/vuln-fix/**`
+  - [x] `packages/h2a/src/bin.ts`
+  - [x] `packages/h2a/src/cli.ts`
+  - [x] `packages/h2a/src/cli-contract.ts`
+  - [x] `packages/h2a/src/cli-command-map.ts`
+  - [x] `packages/h2a-runtime/src/vuln-seat.ts`
+  - [x] `packages/h2a-runtime/src/vuln-seat.test.ts`
+  - [x] `packages/h2a-runtime/src/index.ts`
+  - [x] `packages/h2a/test/vuln-fix*.test.js`
+  - [x] `packages/h2a/test/cli-contract.test.js`
+  - [x] `packages/h2a/skills/vuln-fix/**`
+  - [x] `docs/vuln-fix.md`
+  - [x] `docs/specs/SPEC_EVOL_DAILY_VULN_FIX.md`
+  - [x] `docs/reviews/vuln-fix/**`
+  - [x] `docs/contracts/golden/cli-verbs.json`
+  - [x] `scripts/test-inventory.json`
+  - [x] `BRANCH.md`
+- [x] **Forbidden Paths**
+  - [x] `.github/**`, `package.json`, `package-lock.json`, `.track/**`; owner host/state, installed dist and main.
+- [x] **Conditional Paths**
+  - [x] Systemd units rendered only to an explicitly selected directory; operator activates outside confinement.
 
-## Lot 1 — Detection
-- [x] Discover lock domains; npm HIGH/CRITICAL, hydrated OSV, custom source interface.
-- [x] Prove incomplete scans cannot become clean and private packages stay local.
+## Plan / TODO
+- [x] **Lot 1 — Detection**
+  - [x] Discover lock domains; npm HIGH/CRITICAL, hydrated OSV, custom source interface.
+  - [x] Prove incomplete scans cannot become clean and private packages stay local.
 
-## Lot 2 — Controller
-- [x] Durable claims, round robin, isolated worktrees, pinned verification and draft PRs.
-- [x] Lock-only, no majors, two independent complementary reviews before ready.
-- [x] Fake-runner coverage for restart, concurrent lock, dry run and failure gates.
+- [x] **Lot 2 — Controller**
+  - [x] Durable claims, round robin, isolated worktrees, pinned verification and draft PRs.
+  - [x] Lock-only, no majors, two independent complementary reviews before ready.
+  - [x] Fake-runner coverage for restart, concurrent lock, dry run and failure gates.
 
-## Lot 3 — Operator surface
-- [x] Local runner adapter, command, skill, inventory configuration, timer rendering.
-- [x] Stable report, summary and explicit activation/coverage limits.
+- [x] **Lot 3 — Operator surface**
+  - [x] Local runner adapter, command, skill, inventory configuration, timer rendering.
+  - [x] Stable report, summary and explicit activation/coverage limits.
 
-## Lot 4 — Delivery
-- [x] Reconcile two independent design reviews and record actual consensus availability.
-- [ ] Targeted verification, push, English PR, each CI result and French report.
+- [ ] **Lot 4 — Delivery**
+  - [x] Reconcile two independent design reviews and record actual consensus availability.
+  - [ ] Targeted verification, push, English PR, each CI result and French report.
 
 Harness consensus review is selection-failed: the required installed h2a/mesh
 access is forbidden by the owner's confinement. No peer consensus claimed.
