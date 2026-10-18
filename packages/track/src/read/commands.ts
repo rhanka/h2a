@@ -263,6 +263,11 @@ export function projectReportScope(report: Report, selector: string): ScopedRepo
       buckets,
       ...(decisions !== undefined ? { decisions } : {}),
       wpTree: [selected],
+      // Amendment D3/D9/D11 — the per-item conductor facts and withdrawal
+      // candidates travel with the scoped projection (additive); relevance is
+      // still filtered to the scoped buckets by the serving step.
+      ...(report.itemFacts !== undefined ? { itemFacts: report.itemFacts } : {}),
+      ...(report.withdrawals !== undefined ? { withdrawals: report.withdrawals } : {}),
     },
     scope: {
       selector: exactCodeMatches.includes(selected) ? selector : needle,

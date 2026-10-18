@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { EventStore } from '../events/store.js'
 import { Track } from '../track.js'
-import { auditFindings, type AuditFinding } from './audit.js'
+import { auditFindings, auditStatusProposals, type AuditFinding, type StatusProposalRow } from './audit.js'
 
 // Lot 2 (DESIGN R4) — `track audit` = a SEPARATE deterministic AuditFinding[] producer (NOT inlined in
 // buildDirectives). Findings: orphan (action), empty-wp, duplicate, cross-workspace-subtree (INFO),
@@ -112,5 +112,72 @@ describe('auditFindings — deterministic structural findings', () => {
   it('an empty state yields no findings', () => {
     const t = trackAt()
     expect(auditFindings(t.state())).toEqual([])
+  })
+})
+
+describe('auditStatusProposals — red carries a proposal, blue carries its dossier (D7)', () => {
+  const decisions = ['D1', 'D2']
+  const red = (over: Partial<StatusProposalRow> = {}): StatusProposalRow => ({
+    id: 'red-1',
+    status: 'blocked',
+    proposal: 'Re-route the lane around the outage, then replay the gate.',
+    gateClauses: ['action (subagent): Débloquer la piste'],
+    dossierRefs: [],
+    ...over,
+  })
+  const blue = (over: Partial<StatusProposalRow> = {}): StatusProposalRow => ({
+    id: 'blue-1',
+    status: 'decision-awaited',
+    dossierRefs: ['D1'],
+    ...over,
+  })
+
+  it('passes a report whose red rows carry investigated proposals and whose blue rows match DÉCISIONS', () => {
+    expect(auditStatusProposals([red(), blue()], decisions)).toEqual({
+      missingProposals: [],
+      orphanBlue: [],
+      ok: true,
+    })
+  })
+
+  it('fails a red row without a recorded proposal, never inventing one', () => {
+    const { proposal: _unrecorded, ...withoutProposal } = red()
+    void _unrecorded
+    const audit = auditStatusProposals([withoutProposal], decisions)
+    expect(audit.missingProposals).toEqual(['red-1'])
+    expect(audit.ok).toBe(false)
+    // No fabrication: the audit echoes ids and recorded text only.
+    expect(JSON.stringify(audit)).not.toContain('Re-route')
+  })
+
+  it('a gate-clause proposal is not an investigated proposal', () => {
+    const audit = auditStatusProposals(
+      [red({ proposal: 'action (subagent): Débloquer la piste' })],
+      decisions,
+    )
+    expect(audit.missingProposals).toEqual(['red-1'])
+    expect(audit.ok).toBe(false)
+  })
+
+  it('a slogan repeated across red rows is not an investigated proposal', () => {
+    const slogan = 'Handle the red rows quickly'
+    const audit = auditStatusProposals(
+      [red({ id: 'a', proposal: slogan }), red({ id: 'b', proposal: slogan }), red({ id: 'c', proposal: slogan })],
+      decisions,
+    )
+    expect(audit.missingProposals).toEqual(['a', 'b', 'c'])
+    expect(audit.ok).toBe(false)
+  })
+
+  it('fails a blue row with no matching DÉCISIONS entry', () => {
+    const audit = auditStatusProposals([blue({ dossierRefs: ['D9'] })], decisions)
+    expect(audit.orphanBlue).toEqual(['blue-1'])
+    expect(audit.ok).toBe(false)
+  })
+
+  it('a blue row with no dossier reference at all is orphan', () => {
+    const audit = auditStatusProposals([blue({ dossierRefs: [] })], decisions)
+    expect(audit.orphanBlue).toEqual(['blue-1'])
+    expect(audit.ok).toBe(false)
   })
 })
