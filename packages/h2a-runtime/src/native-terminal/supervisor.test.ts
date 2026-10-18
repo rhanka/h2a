@@ -142,6 +142,21 @@ function deadSocketPath(): string {
   return join(scratch, "nothing-listens-here.sock");
 }
 
+// Phase B (lot B2): the owner/frontend split has no macOS product substrate
+// until lot BM. This case is defined only on darwin: on Linux it is not run
+// (never run-and-skipped, D27).
+if (process.platform === "darwin") {
+  it("should fail closed with a typed publication error on darwin until lot BM", async () => {
+    const { OwnerFrontendDarwinRefusal, assertOwnerFrontendSupported } = await import(
+      "./owner-process.js"
+    );
+    expect(() => assertOwnerFrontendSupported("darwin")).toThrowError(
+      OwnerFrontendDarwinRefusal,
+    );
+    expect(() => assertOwnerFrontendSupported("linux")).not.toThrow();
+  });
+}
+
 describe.skipIf(process.platform !== "linux")(
   "NativeTerminalHostSupervisor takeover reconcile",
   () => {

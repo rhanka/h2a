@@ -212,7 +212,11 @@ function defaultSpawnHost(options: {
   maxSessions: number;
   registryPath?: string;
 }): ChildProcess {
-  const entry = fileURLToPath(new URL("./process.js", import.meta.url));
+  // Phase B (lot B2): the supervisor spawns the PTY owner. The owner holds
+  // sessions and the listening socket; it spawns and respawns its own
+  // frontend. The supervisor never signals the owner except through the
+  // pre-existing never-healthy/losing-contender teardown below (D4).
+  const entry = fileURLToPath(new URL("./owner-process.js", import.meta.url));
   const child = spawn(process.execPath, [
     entry,
     "--socket",
