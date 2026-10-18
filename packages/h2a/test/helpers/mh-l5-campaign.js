@@ -14,8 +14,21 @@ import { verifyJournalChain } from '../../dist/journal.js';
 import { readState } from '../../dist/runtime/handover/state.js';
 import { createPayloadStore } from '../../dist/runtime/mcp/payload-store.js';
 
+function campaignDirectory() {
+  const configured=process.env.H2A_TEST_M17_TMPDIR;
+  const parent=configured??tmpdir();
+  if(configured){
+    try{
+      const info=fs.lstatSync(parent);
+      if(fs.realpathSync(parent)!==parent||!info.isDirectory()||info.uid!==process.getuid()||(info.mode&0o777)!==0o700)
+        throw Error('not a private owned directory');
+    }catch(error){throw Error('m17_temp_volume_invalid',{cause:error});}
+  }
+  return fs.mkdtempSync(join(parent,'mh-l5-concurrency-'));
+}
+
 export async function runCampaign(count) {
-  const dir = fs.mkdtempSync(join(tmpdir(), 'mh-l5-concurrency-')), root = join(dir, 'store'), directory = join(dir, 'state');
+  const dir = campaignDirectory(), root = join(dir, 'store'), directory = join(dir, 'state');
   for (const path of [root, directory]) fs.mkdirSync(path, { mode: 0o700 });
   const workers = [], roles = Array.from({ length: 8 }, (_, n) => `backend${n + 1}`);
   // Backend stress only, not the eight protocol surfaces required by §10.8.
@@ -72,7 +85,8 @@ export async function runCampaign(count) {
       launches: acknowledged.length, payloads: acknowledged.reduce((sum, row) => sum + row.payloadMutations, 0) };
     assert.ok(Object.values(counts).every(n => n >= total));
     const result = { domains: counts, acknowledged: acknowledged.length, duplicates: 0, actors: roles,
-      coverage: 'backend-only', minimumLockAcquisitionsPerIteration: Math.min(...acknowledged.map(row => row.lockAcquisitions)) };
+      coverage: 'backend-only', minimumLockAcquisitionsPerIteration: Math.min(...acknowledged.map(row => row.lockAcquisitions)),
+      storage: { type: fs.statfsSync(dir).type, configured: Boolean(process.env.H2A_TEST_M17_TMPDIR) } };
     console.log(JSON.stringify(result)); return result;
   } finally {
     for (const w of workers) if (w.child.exitCode === null && w.child.signalCode === null) { w.child.kill('SIGTERM'); await w.closed; }

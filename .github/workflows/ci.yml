@@ -161,6 +161,8 @@ jobs:
           echo "TMP=$DIR" >> "$GITHUB_ENV"
           echo "TEMP=$DIR" >> "$GITHUB_ENV"
           echo "H2A_TEST_QUALIFICATION_ROOT=$DIR" >> "$GITHUB_ENV"
+      - name: Prepare the private M17 data volume
+        run: node scripts/ci-m17-temp.mjs setup
       - run: npm test
       - name: Exercise the native multi-session terminal host
         run: >-
@@ -207,6 +209,9 @@ jobs:
         if: always()
         shell: bash
         run: if [ -n "${TMPDIR:-}" ]; then rm -rf "$TMPDIR"; fi
+      - name: Remove the private M17 data volume
+        if: ${{ always() && env.H2A_TEST_M17_TMPDIR != '' }}
+        run: node scripts/ci-m17-temp.mjs cleanup
 
   # Stable, independently requireable trust root for `npm test`.
   #
@@ -242,9 +247,14 @@ jobs:
           echo "H2A_TEST_QUALIFICATION_ROOT=$DIR" >> "$GITHUB_ENV"
       - name: Verify npm test wiring independently
         run: node --test packages/h2a/test/run-test-gates.test.js
+      - name: Prepare the private M17 data volume
+        run: node scripts/ci-m17-temp.mjs setup
       - name: Execute the production test entrypoint directly
         run: node scripts/run-test-gates.mjs
       - name: Clean the disposable TMPDIR
         if: always()
         shell: bash
         run: if [ -n "${TMPDIR:-}" ]; then rm -rf "$TMPDIR"; fi
+      - name: Remove the private M17 data volume
+        if: ${{ always() && env.H2A_TEST_M17_TMPDIR != '' }}
+        run: node scripts/ci-m17-temp.mjs cleanup
