@@ -1,4 +1,4 @@
-import { isAbsolute } from 'node:path';
+import { isAbsolute, relative, resolve } from 'node:path';
 
 const profiles = new Set(['claude', 'codex', 'agy', 'muse', 'vibe']);
 const efforts = new Set(['low', 'medium', 'high', 'xhigh']);
@@ -11,6 +11,9 @@ export function validateConfig(config) {
   for (const repo of config.repositories) {
     if (!isAbsolute(repo.path ?? '') || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo.github ?? '') || !repo.github.startsWith('rhanka/')) throw new Error('absolute repo path and rhanka/repository required');
     if (repos.has(repo.github) || paths.has(repo.path)) throw new Error('duplicate repository');
+    const overlap = relative(resolve(repo.path), resolve(config.stateDir));
+    const reverse = relative(resolve(config.stateDir), resolve(repo.path));
+    if (!overlap.startsWith('..') || !reverse.startsWith('..')) throw new Error('controller state must be outside repository roots');
     repos.add(repo.github); paths.add(repo.path);
     if (!Array.isArray(repo.tests) || !repo.tests.length) throw new Error('explicit targeted test commands required');
     for (const check of repo.tests) {

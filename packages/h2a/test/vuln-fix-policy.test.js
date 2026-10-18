@@ -3,6 +3,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
 import { validateConfig, validateLockChange, selectSeats } from '../src/vuln-fix/policy.mjs';
 import { acquire, readState, writeJson } from '../src/vuln-fix/state.mjs';
 
@@ -42,16 +44,16 @@ test('should reject unsafe configuration and full-suite test commands', () => {
   assert.throws(() => validateConfig({ ...config, repositories: [config.repositories[0], config.repositories[0]] }), /duplicate/);
 });
 
-test('should serialize controllers and persist state without resetting claims', () => {
+test('should serialize controllers and persist state without resetting claims', async () => {
   const root = mkdtempSync(join(tmpdir(), 'vuln-state-'));
   try {
-    const release = acquire(root);
-    assert.throws(() => acquire(root), /locked/);
+    const release = await acquire(root);
+    await assert.rejects(acquire(root), /locked/);
     writeJson(join(root, 'state.json'), { version: 1, cursor: 2, attempts: { 'repo/2026-10-17': { status: 'claimed' } }, uses: {} });
-    release();
+    await release();
     assert.equal(readState(root).cursor, 2);
     assert.equal(readState(root).attempts['repo/2026-10-17'].status, 'claimed');
-    acquire(root)();
+    await (await acquire(root))();
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -72,4 +74,22 @@ test('should refuse broad test selectors appended alongside a targeted test file
   const config = { stateDir: '/state', seats, repositories: [{ path: '/repo', github: 'rhanka/fixture',
     tests: [{ command: 'npx', args: ['--no-install', 'vitest', 'run', 'one.test.js', 'test'] }] }] };
   assert.throws(() => validateConfig(config), /targeted/);
+});
+
+test('should release the controller lock after its own process crashes without clearing daily claims', async t => {
+  const root = mkdtempSync(join(tmpdir(), 'vuln-crash-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const module = new URL('../src/vuln-fix/state.mjs', import.meta.url).href;
+  const source = `import {acquire} from ${JSON.stringify(module)}; await acquire(${JSON.stringify(root)}); process.stdout.write('locked'); process.stdin.resume();`;
+  const child = spawn(process.execPath, ['--input-type=module', '-e', source], { stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, XDG_RUNTIME_DIR: root } });
+  await once(child.stdout, 'data');
+  const closed = once(child, 'close'); child.kill('SIGKILL'); await closed;
+  let release;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try { release = await acquire(root); break; } catch (error) {
+      if (attempt === 4) throw error;
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+  }
+  await release();
 });
