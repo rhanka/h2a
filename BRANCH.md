@@ -534,6 +534,12 @@ M17 now runs unchanged in mandatory Node 22/24 companion jobs. Same-run,
 same-attempt, same-checkout, exact-Node proofs are sealed after real cleanup.
 Consumers fail closed on producer failure and on any missing or invalid proof;
 full discovery and the unchanged combined inventory verifier remain required.
+A later Node 24 campaign still exceeded 1350s; no further timeout increase is
+introduced. Unused flock output pipes are removed without changing FD 3, the
+qualified tool, status checks, five-second lock deadline or any assertion. An
+eight-contender diagnostic measures the allocation cost; only complete final
+CI campaigns establish acceptance. No quota/expiry observation is removed.
+
 The standalone producer has a measured 1350s infrastructure backstop inside
 its fixed 25-minute job; the normal Node suite remains at 1200s. Node22 reached
 1201/1250 at the former 1200s cap; Node24 completed. Product deadlines and
