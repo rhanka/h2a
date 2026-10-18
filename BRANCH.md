@@ -530,8 +530,12 @@ invalid private-volume configuration fails rather than falling back. The real
 10,000 mutations per domain, eight actors, lock deadlines and assertions are
 unchanged. This is concurrency evidence, not disk power-loss qualification.
 The owned empty mount is verified, unmounted and removed at job cleanup.
-M17 then overlaps the remaining protocol and bulk phases with one reserved
-worker; the bulk installation pool still waits for the other protocols.
+M17 now runs unchanged in mandatory Node 22/24 companion jobs. Same-run,
+same-attempt, same-checkout, exact-Node proofs are sealed after real cleanup.
+Consumers fail closed on producer failure and on any missing or invalid proof;
+full discovery and the unchanged combined inventory verifier remain required.
+Default local npm test still runs M17; the bulk pool waits for other protocols.
+See docs/specs/SPEC_VOL_M17_CI_PARTITION.md for decisions and review limits.
 Individual deadlines and G0/G1 assertions stay intact. CI shows useful work
 continuing at 900s, with only the late-started M17 still active: the expanded
 Node gate has a 1200s outer backstop within the unchanged 25-minute job, while other suites
