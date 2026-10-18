@@ -4,9 +4,9 @@
   import { searchSource } from './evidence-search.js';
   let { source, locator, onback } = $props();
   let lines = $derived(source.mediaType.startsWith('image/') ? [] : evidenceLines(evidenceText(decodeEvidence(source.data))));
-  let start = $state(Math.max(0, (locator?.start ?? 1) - 9)), jump = $state(locator?.start ?? 1);
+  let start = $state(0), jump = $state(1);
   let query = $state(''), matches = $state([]), searching = $state(false), serial = 0, matchIndex = $state(0);
-  let scroller, target, heading;
+  let scroller = $state(null), target = $state(null), heading;
   onMount(() => heading.focus());
   const windowSize = 80, lineHeight = 24;
   async function go(line) {
