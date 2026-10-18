@@ -329,13 +329,17 @@ const checkSectionNode = (
     case "diagram": {
       const node = checkClosedObject(
         value, path,
-        ["kind", "id", "targetRef", "syntax", "source", "alt"],
+        ["kind", "id", "targetRef", "syntax", "source", "alt", "scene"],
         ["kind", "id", "targetRef", "syntax", "source", "alt"],
         ["id", "targetRef", "source", "alt"],
         issues,
       );
       if (node === undefined) return undefined;
       checkEnum(node["syntax"], `${path}.syntax`, ["mermaid", "plantuml"], issues);
+      // Opaque diagram-core JSON; its authoritative schema will be pinned when published.
+      if (node["scene"] !== undefined && !isRecord(node["scene"])) {
+        issues.push(issue(`${path}.scene`, "invalid_type", "expected a diagram-core SemanticDocument object"));
+      }
       if (issues.length !== start) return undefined;
       return {
         kind: "diagram",
@@ -344,6 +348,7 @@ const checkSectionNode = (
         syntax: node["syntax"] as DiagramSyntax,
         source: node["source"] as string,
         alt: node["alt"] as string,
+        ...(node["scene"] === undefined ? {} : { scene: node["scene"] as Record<string, unknown> }),
       };
     }
   }
