@@ -146,6 +146,31 @@ const mutate = (change: (doc: any) => void): DecisionDossierDocument => {
 const refusalCodes = (doc: DecisionDossierDocument): string[] =>
   validateDecisionDossierReadability(doc).map((issue) => issue.code);
 
+describe("semantic diagram reading budget", () => {
+  const withDiagram = () => mutate((d) => {
+    d.readability.stakesLevel = "low";
+    d.readability.readingBudgetMinutes = 2;
+    d.sections[1].readingTimeMinutes = 0.8;
+    d.sections.push({ kind: "diagram", id: "diagram", targetRef: "diagram", syntax: "mermaid", alt: "Workflow",
+      source: 'flowchart LR\nnode["Clear name"]\n%% ' + "Invisible fallback syntax ".repeat(200),
+      scene: { entities: { "entity:node": { attributes: { name: { kind: "text", value: "Clear name" } } } }, relations: {} },
+    });
+  });
+  it("counts scene labels once and excludes fallback syntax and comments", () => {
+    expect(refusalCodes(withDiagram())).toEqual([]);
+  });
+  it("still refuses excessive visible scene text", () => {
+    const doc = withDiagram();
+    (doc.sections.at(-1) as any).scene.entities["entity:node"].attributes.name.value = "Visible explanation ".repeat(200);
+    expect(refusalCodes(doc)).toContain("reading_budget_exceeded");
+  });
+  it("still checks opaque codes in the fallback", () => {
+    const doc = withDiagram();
+    (doc.sections.at(-1) as any).source += "\n%% Apply MH-L3";
+    expect(refusalCodes(doc)).toContain("undefined_code");
+  });
+});
+
 describe("presentation cannot bypass the public readability gate", () => {
   it("exposes the gate through the published validation module", () => {
     expect(publicValidation).toHaveProperty("validateDecisionDossierForPresentation");

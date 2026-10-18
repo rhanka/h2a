@@ -139,7 +139,11 @@ export const validateDecisionDossierReadability = (doc) => {
                 break;
             case "diagram":
                 visible(section.alt, `${path}.alt`);
-                visible(section.source, `${path}.source`);
+                // Keep the fallback's code guard, but count only the representation displayed.
+                if (section.scene === undefined)
+                    visible(section.source, `${path}.source`);
+                else
+                    checkCodes(section.source, `${path}.source`);
                 // The interim renderer reads these generic@1 texts instead of the source fallback.
                 for (const [family, field] of [["entities", "name"], ["relations", "label"]]) {
                     for (const [id, member] of Object.entries(asRecord(section.scene?.[family]))) {
