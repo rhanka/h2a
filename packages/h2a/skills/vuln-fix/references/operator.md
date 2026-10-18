@@ -152,7 +152,7 @@ attestation remain outside this delivery.
 ## Code review handoff
 
 status: selection-failed
-target-ref: e551f3e (independent merge contract and reporting code)
+target-ref: 245a694bb2e3004e9769718cb0f47f121f46892a (final code, including Node 24 reporter correction)
 review-author-host: codex
 review-author-model: unknown (exact runtime model identifier unavailable)
 review-author-effort: unknown
