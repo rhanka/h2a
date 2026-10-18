@@ -37,6 +37,9 @@ import {
   parseDarwinProcessTable,
   parseIoPlatformUuid,
   parsePsLstart,
+  readDarwinBootId,
+  readDarwinBootTimeMs,
+  readDarwinProcessTable,
   readDarwinProcessSessionToken,
   readDarwinProcessStartTime,
 } from "../proc-identity.js";
@@ -2992,4 +2995,36 @@ describe("darwin observation parsing", () => {
     expect(readDarwinProcessSessionToken(42, run)).toBe("abc123");
     expect(readDarwinProcessSessionToken(42, () => "")).toBeUndefined();
   });
+});
+
+
+describe('darwin confinement and kernel boot identity', () => {
+  it('should obtain boot identity from sysctl without inspecting launchd', () => {
+    const uuid='c9f0fc27-129b-4cb2-9e1f-462cb1d481cb';
+    const run=(args:ReadonlyArray<string>)=>{expect(args).toEqual(['-n','kern.bootsessionuuid']);return uuid;};
+    expect(readDarwinBootId(run)).toBe(uuid);
+    expect(readDarwinBootId(()=> 'unreadable')).toBeUndefined();
+  });
+  it('should obtain the absolute boot time from sysctl without inspecting another process', () => {
+    expect(readDarwinBootTimeMs(args=>{expect(args).toEqual(['-n','kern.boottime']);return '{ sec = 1729231200, usec = 123456 }';})).toBe(1729231200123.456);
+    expect(readDarwinBootTimeMs(()=> 'broken')).toBeUndefined();
+  });
+  it('should census only fixture-owned process ids when the private test view is active', () => {
+    expect(process.env.H2A_TEST_OWNED_PROC_ROOT).toBeDefined();
+    const rows=readDarwinProcessTable(args=>{
+      expect(args).not.toContain('-axo');expect(args).toContain('-p');
+      return 'PID PGID STAT COMMAND\n'+process.pid+' '+process.pid+' R owned-fixture';
+    });
+    expect(rows).toEqual([{pid:process.pid,pgid:process.pid,stat:'R',args:'owned-fixture'}]);
+  });
+});
+
+
+it('should keep the same Darwin process birth when reader time zones differ', () => {
+    const previous=process.env.TZ;
+    try {
+      process.env.TZ='Pacific/Honolulu';const first=readDarwinProcessStartTime(process.pid);
+      process.env.TZ='UTC';const second=readDarwinProcessStartTime(process.pid);
+      expect(first).toBeDefined();expect(second).toBe(first);
+    } finally {if(previous===undefined)delete process.env.TZ;else process.env.TZ=previous;}
 });
