@@ -56,5 +56,39 @@ export function readState(directory) {
     !object(state.attempts) || !object(state.uses) || Object.values(state.uses).some(x => !Number.isSafeInteger(x) || x < 0) ||
     Object.values(state.attempts).some(x => !object(x) || typeof x.status !== 'string') ||
     (state.quarantines !== undefined && !object(state.quarantines))) throw new Error('invalid controller state; manual reconciliation required');
+  if (state.candidates !== undefined) {
+    if (!object(state.candidates)) throw new Error('invalid durable candidates; reconciliation required');
+    for (const [key, candidate] of Object.entries(state.candidates)) {
+      validateCandidate(candidate);
+      if (key !== candidate.pr) throw new Error('durable candidate key mismatch');
+    }
+  }
   return state;
+}
+
+export function validateCandidate(candidate) {
+  const sha = value => typeof value === 'string' && /^[a-f0-9]{40}$/.test(value);
+  const statuses = ['ready', 'waiting-checks', 'waiting-age', 'waiting-admission', 'needs-revalidation',
+    'blocked-review', 'quarantine', 'merge-pending', 'merged'];
+  if (candidate?.version !== 1 || !/^rhanka\/[A-Za-z0-9_.-]+$/.test(candidate.repository ?? '') ||
+    !new RegExp(`^https://github\\.com/${candidate.repository.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/pull/[1-9][0-9]*$`).test(candidate.pr ?? '') ||
+    !/^security\/daily-vuln-[A-Za-z0-9._-]+$/.test(candidate.branch ?? '') ||
+    !sha(candidate.base) || !sha(candidate.sha) || candidate.base === candidate.sha || !statuses.includes(candidate.status) ||
+    !candidate.author || !Array.isArray(candidate.reviewers) || candidate.reviewers.length !== 2 ||
+    !Array.isArray(candidate.targets) || !candidate.targets.length ||
+    !Array.isArray(candidate.tests) || !candidate.tests.length ||
+    !Array.isArray(candidate.requiredChecks) || !candidate.requiredChecks.length ||
+    candidate.requiredChecks.some(x => typeof x !== 'string' || !x.trim()) ||
+    new Set(candidate.requiredChecks).size !== candidate.requiredChecks.length ||
+    !['guard', 'tests', 'verification'].every(key => /^[a-f0-9]{64}$/.test(candidate.proofDigests?.[key] ?? ''))) {
+    throw new Error('invalid durable candidate; explicit ownership and proof metadata required');
+  }
+  if (candidate.mergeIntent && (typeof candidate.mergeIntent.id !== 'string' || !candidate.mergeIntent.id ||
+    candidate.mergeIntent.expectedHead !== candidate.sha || candidate.mergeIntent.expectedBase !== candidate.base ||
+    candidate.mergeIntent.method !== 'merge' || !Number.isFinite(Date.parse(candidate.mergeIntent.createdAt)))) {
+    throw new Error('invalid durable merge intent');
+  }
+  if (candidate.status === 'merge-pending' && !candidate.mergeIntent) throw new Error('merge intent missing');
+  if (candidate.status === 'merged' && !sha(candidate.mergeSha)) throw new Error('merge result missing');
+  return candidate;
 }
