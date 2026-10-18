@@ -2,6 +2,19 @@
 
 ## Correction des revues rv375a / rv375s — 2026-10-18
 
+Complément D21 : sur macOS Node 24, remplacer avant la fin du délai pouvait
+produire un reset et contourner la coupure « timeout » (assertion conservée :
+0 timeout observé au lieu de ≥1). Le proxy retient maintenant seulement l'ACK
+sélectionné, sert les autres réponses, observe le vrai timeout d'écriture,
+puis remplace le frontend avant de restituer l'erreur au chemin attach.
+L'assertion timeout, les octets exacts et toutes les identités restent exigés.
+
+```sh
+rtk node tmp/pty-am2-run.mjs pty-r375-b5-timeout22 node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/phase-b-agent-qualification.functional.test.ts
+rtk env PATH=/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin:/usr/local/bin:/usr/bin:/bin node tmp/pty-am2-run.mjs pty-r375-b5-timeout24 node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/phase-b-agent-qualification.functional.test.ts
+# Chacun : 4 passed, 1 failed (cohorte absente), 0 skipped ; exit 1.
+```
+
 Complément CI/BM (`32467f6`) : l'invite Bash manquait sur macOS car le
 scrub des FD redirigeait durablement stderr vers `/dev/null`. La redirection
 temporaire autour de `eval exec` alloue un FD de sauvegarde que la boucle

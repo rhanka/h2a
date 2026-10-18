@@ -70,7 +70,19 @@ ChildProcess.prototype.spawn=function(options){const result=original.call(this,o
   async function connect(path = socketPath, requestTimeoutMs = 1000) {
     const client = await NativeTerminalClient.connect(path, { requestTimeoutMs });
     const write = client.write.bind(client);
-    client.write = async (...args) => { try { await write(...args); } catch(error) { if(/timed out/.test(String(error))) writeTimeouts++; throw error; } };
+    client.write = async (...args) => {
+      try { await write(...args); }
+      catch(error) {
+        if(/timed out/.test(String(error))) {
+          writeTimeouts++;
+          // Replace only after the actual timeout. An earlier Darwin reset
+          // would turn this into the connection-close cut instead of D21's
+          // timeout cut; ordinary control responses must keep flowing first.
+          if(cut==="timeout") await upgrade();
+        }
+        throw error;
+      }
+    };
     clients.push(client); return client;
   }
   const admin = await connect(), listenerInode = statSync(socketPath).ino;
@@ -168,11 +180,6 @@ process.stdin.on('data',b=>{fs.appendFileSync(${JSON.stringify(bytesPath)},b);pr
         const end = output.indexOf("\n"); if (end < 0) break;
         const line = output.slice(0, end); output = output.slice(end + 1);
         if (JSON.parse(line).id !== droppedId) down.write(line + "\n");
-        else if (cut === "timeout") {
-          up.removeAllListeners("close");
-          void upgrade();
-          // Keep the downstream socket open so the write reaches its real client timeout.
-        }
       }
     });
   });
