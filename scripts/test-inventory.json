@@ -1047,5 +1047,8 @@
     "M17 refuses a regular file configured as its temporary volume",
     "M17 executes every real actor on its configured private volume and removes its state",
     "M17 refuses an explicitly empty volume instead of creating state in the working directory"
+  ],
+  "packages/h2a/test/closed-focus-preflight.test.js": [
+    "closed release refuses a stale portable Focus renderer before constructing any payload"
   ]
 }
