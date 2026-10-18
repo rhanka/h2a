@@ -4,7 +4,7 @@
   import SourceViewer from './SourceViewer.svelte';
   import { evidenceVolume } from '../../../focus/src/render/evidence.ts';
   let { dossier } = $props();
-  let active = $state(null), locator = $state(null), opener, scroll;
+  let active = $state(null), locator = $state(null), visit = $state(0), opener, scroll;
   const expanded = new SvelteSet();
   const volume = $derived(evidenceVolume(dossier));
   export function openCitation(id) {
@@ -12,8 +12,10 @@
     openSource(citation.sourceId, citation.locator);
   }
   function openSource(id, range = null) {
-    if (!active) { opener = document.activeElement; scroll = window.scrollY; }
-    locator = range; active = dossier.sources.find(s => s.id === id);
+    opener = document.activeElement; scroll = window.scrollY;
+    locator = range;
+    if (active?.id !== id) active = dossier.sources.find(s => s.id === id);
+    visit++;
   }
   async function back() {
     active = null; locator = null; await tick();
@@ -29,7 +31,8 @@
     }
   }
   function returnTo(ref) {
-    const target = referenceTarget(ref), element = target?.id === null ? document.querySelector('main') : document.getElementById(target?.id);
+    const target = referenceTarget(ref), element = target?.id === null ? document.querySelector('main')
+      : [...document.querySelectorAll('main .dossier-section, main .option-card')].find(el => el.id === target?.id);
     if (!element) throw new Error(`Unresolved annex back reference: ${ref}`);
     if (!element.matches('button, a, input')) element.tabIndex = -1;
     element.focus(); element.scrollIntoView({ block: 'start' });
@@ -38,7 +41,7 @@
 <section aria-label="Pièces justificatives" class="evidence-index">
   <h2>Pièces justificatives</h2>
   <p>{volume.sources} sources · {volume.bytes} octets · consultation estimée : {volume.consultationMinutes} minute(s), à six octets par mot, hors budget de décision.</p>
-  {#if active}{#key active.id}<SourceViewer source={active} {locator} onback={back} />{/key}{/if}
+  {#if active}{#key active.id}<SourceViewer source={active} {locator} {visit} onback={back} />{/key}{/if}
   <ul>{#each dossier.citations as citation}<li><button onclick={() => openCitation(citation.id)}>{citation.label}</button> — {citation.sourceId}</li>{/each}</ul>
   <details open><summary>Catalogue des sources</summary><ul>{#each dossier.sources as source}<li><button onclick={() => openSource(source.id)}>Consulter {source.title}</button> · {source.size} octets</li>{/each}</ul></details>
   {#each dossier.evidenceGroups as group}<article><p>{group.summary}</p>
