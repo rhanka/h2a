@@ -1,169 +1,150 @@
-# Daily vulnerability fix job
+# Daily vulnerability remediation — operator activation sheet
 
-`h2a vuln-fix run --config /absolute/config.json [--dry-run]` scans upstream main,
-attempts one compatible lock-only remediation per affected repository per UTC
-day through local seats, opens a draft PR and gates ready on two independent
-reviews. It never merges. No Dependabot alert, CI image or API credit is needed.
+Owner decisions: A · Partager la maintenance; Tous les dépôts prêts;
+Fix + revue autonome; Dans gh (2026-10-18).
+See [the activation contract](../../../../../docs/specs/SPEC_EVOL_DAILY_VULN_FIX.md)
+for L0 execution sheets, exact paths, dependencies and gates.
 
-The initial local adapter supports qualified Claude and Codex headless lanes.
-AGY, Muse and Vibe are represented in the seat interface but unavailable until
-their native headless/tool restrictions are qualified. Requested model/effort
-are recorded; effective provider identity is not attested.
+## Current delivery
 
-## Configuration
+The existing daily command scans npm locks, makes compatible lock-only drafts
+and gathers local review receipts. Its legacy local runner is not qualified
+for activation: it inherits ambient identity, admits tasks separately, lacks
+the D10 process boundary and has no qualified Muse headless lane. Configuring
+three names is not a seat pool. The independent L5 gate/reconciliation code
+does not supply a production executor, quota authority or scheduler.
 
-Keep the configuration and state outside the candidate repositories, owned by
-the operator. Each repo must have an exact canonical root, an origin matching
-its configured `rhanka/repo`, ignored `tmp/worktrees/`, npm v2/v3 locks and an
-explicit list of targeted Node/Vitest test files. Include h2a, sentropic and all
-other applicable local rhanka repositories in this list; no hidden global
-inventory or privileged owner-state discovery is performed.
+Do not activate the legacy route. No timer/workflow is installed or enabled.
+The older manual-merge/systemd recommendation is superseded; GitHub placement
+must be derived from the unresolved OQ1 principles and recorded by h-cond.
+Rendering legacy units does not qualify or select them.
 
-```json
-{
-  "version": 1,
-  "stateDir": "/home/antoinefa/.cache/h2a-vuln-fix",
-  "repositories": [{
-    "path": "/home/antoinefa/src/h2a",
-    "github": "rhanka/h2a",
-    "osv": true,
-    "tests": [{"command":"node","args":["--test","packages/h2a/test/audit-security-debt.test.js"]}],
-    "scanners": []
-  }],
-  "seats": [
-    {"id":"codex-a","profile":"codex","model":"EXACT_APPROVED_MODEL_A","effort":"high",
-     "admission":{"command":"/absolute/trusted-seat-authority","args":[]}},
-    {"id":"claude-b","profile":"claude","model":"EXACT_APPROVED_MODEL_B","effort":"high",
-     "admission":{"command":"/absolute/trusted-seat-authority","args":[]}},
-    {"id":"claude-c","profile":"claude","model":"EXACT_APPROVED_MODEL_C","effort":"high",
-     "admission":{"command":"/absolute/trusted-seat-authority","args":[]}}
-  ]
-}
-```
+## Readiness per repository
 
-Replace the explicit model/example authority values with qualified local seat
-configuration. Add sentropic, radar-immobilier, graphify and other owned repos
-with their actual targeted tests; paths/tests are not inferred from repo names.
-Two complementary reviewer host/model pairs must exist for an author. The
-cursor skips infeasible authors, so full author rotation needs at least two
-qualified models on each of the two local hosts. One model on Codex and two on
-Claude can operate, with Codex remaining the only eligible author.
+All ready repositories are in scope, independently. Each conductor supplies:
 
-`tests` accepts `node --test file.test.js`, `vitest run file.spec.ts`, or
-`npx --no-install vitest run file.spec.ts`; every selector must be an explicit
-relative test file. No broad directories, globs, bare npm test or full suites.
-Use `redBefore: true` only for a regression that must fail on the baseline and
-pass on the candidate. Otherwise baseline tests must pass; the vulnerability
-audit itself supplies dependency red/green. Both test phases use temporary
-XDG/H2A state; skips, TODOs and missing execution evidence block readiness.
+- Canonical root and exact rhanka/repo fetch + push remote, ignored repo-local
+  tmp/worktrees, state outside candidates, no checkout credential residue.
+- Every tracked npm lock domain and represented manifest; installable baseline
+  with scripts disabled. Fixtures/overrides/peers resolved or visibly not-ready.
+- Exact targeted test commands supported by the validator: node --test file,
+  vitest run file, or npx --no-install vitest run file. A needed Make/container
+  adapter is a prerequisite in its owning repo with exact source/test sheet.
+- Sharing consent for npm audit/OSV and private source with each work provider.
+  OSV receives public npm package identities; other sources configured or
+  explicitly absent. Unknown severity/incomplete coverage stays visible.
+- Intended merge/publication/deployment effects and their responsible owner;
+  branch rules/check names and merge-commit support; limited controller writer.
 
-Every tracked `package-lock.json` / `npm-shrinkwrap.json` is audited in its own
-domain, including root workspaces and independent nested components. An
-unrepresented manifest or ambiguous lock pair fails coverage explicitly.
-Do not hide intentional fixtures: give them a qualified lock/scanner or resolve
-their component inventory in a separate repository setup change.
+Ordinary tests must execute GREEN → GREEN. Only a named applicable regression
+has redBefore:true; baseline execution/skip failure is never a useful RED.
+Candidate tests, skipped/TODO/missing checks and incomplete scans block merge.
+Initial delivery retains seven-day maturation, integrity/signature/provenance,
+no majors/new packages/manifest changes. Young fixes wait; no urgency exception.
 
-OSV receives only public npm registry resolved package identities. Private,
-local and workspace dependencies are not sent to OSV. `osv:false` explicitly
-disables that sharing and remains a reported coverage gap. npm audit uses each
-repository's registry policy; configure its sharing before admitting that repo.
-Optional trusted `scanners` entries have `name`, `command`, `args`; they run
-without a shell at the repository workspace and return a JSON array of findings
-with `id` and `severity` (`high`, `critical`, `unknown` cause triage). Other
-fields can include aliases, component/path, affected version and source facts.
-Scanner errors or invalid JSON are incomplete, never clean. OSV batch IDs are
-hydrated; unknown severity stays visible and blocks a false clean result.
+h2a tracks three package-lock domains (root, apps/focus,
+packages/h2a/focus-kit); installs/consent/delivery qualification remains open.
+sentropic, radar-immobilier and graphify/engram remain conductor inventories;
+no repository is admitted merely by naming it.
 
-## Seat authority interface
+## Seats and shared authority
 
-`LocalSeats` is the single seam for future CI seats. Today it launches through
-h2a-runtime's existing native launch argument/stdin builder, without tmux/native
-host access. A trusted admission executable reads one JSON object on stdin:
-`action` (`status` or atomic `reserve`), `units:1`, `seat`, `profile`, `model`,
-`purpose:vulnerability-remediation`, exact `workspace`, `scopeBundleSha256`.
-It returns JSON with `available`, `guardQualified`, `remainingUnits` (integer),
-`reservePercent` (>20 and <=100), and:
+The lab operator supplies non-secret seat references, owner/provider, explicit
+test-cli/test-gateway/vulnerability-remediation usages, author/reviewer roles,
+exact allowed models/efforts, entitlement/billing, expiry/generation, custody
+reference and qualification/capacity state. These fields are currently unknown.
 
-```json
-{"scope":{"workspace":"/exact/worktree","host":"codex","plugin":"h2a@sentropic",
- "bundleSha256":"SHA256_OF_QUALIFIED_SHIPPED_SCOPE_BUNDLE","qualifiedAt":"UTC_ISO_TIMESTAMP"},
- "reserved":true,"reservationId":"DURABLE_UNIQUE_RESERVATION"}
-```
+Claude is never a work sub-contractor but remains required as a tested provider.
+The first proposed pool is one Muse author plus two distinct Codex reviewers.
+Missing/unqualified legs block before inference. Requested model and served
+model are distinct; aliases do not attest the latter. OQ3 must qualify exact
+binaries/model ids and the technical mapping of max without silent downgrade.
 
-`reserved`/`reservationId` are required for reserve. Qualification must be fresh
-(24h), tied to that exact workspace and the shipped hooks+helpers digest. The
-authority must verify installed native hooks and quota; **echoing the request
-or a static successful stub is not qualification**. Unknown quota means no
-inference. Reserve must atomically account across all consumers on that CLI;
-the job also pessimistically caps/reserves ten units per CLI and UTC day.
-Unspent reservations are not automatically refunded. Future CI custody
-implements this interface without introducing credit fallback.
+L1 publication must expose consumer import + cli/token parsers. Current public
+llm-mesh 0.27.0 / cluster-mesh 0.19.1 still lack the parsers. Do not replace the
+consumer import with renewable product OAuth or pretend an injected fake facade
+is the published-boundary proof. OAuth/explicit private CLI manifest/bounded
+masked or stdin consumer SeatBundle enrolment are operator acts only; no secret
+in argv, conversations, model tools or reports.
 
-Claude gets pinned SessionStart/PreToolUse hooks and restricted tools, with
-shell/MCP tools disabled. Codex explicitly enables the authority-qualified
-`h2a@sentropic` plugin, requires its exact-workspace scope receipt, and uses its
-native read-only/workspace-write sandbox with network disabled. Qualification
-of actual native execution remains external; config inspection alone is not a
-live qualification. Neither local runner is the future hostile-code CI custody
-sandbox; credentials/provider routing are owned by the seat authority.
+One real authority reserves the whole author + two-review cycle atomically.
+Purpose is vulnerability-remediation, never CI. Two Codex maintenance units
+compete with other maintenance; preserve six CI + two enrolment, global cap
+10/CLI/UTC day, all provider windows >20%, unknown quota = no inference.
+Receipt binds exact workspace, guard digest, seat/generation and freshness
+under 24h for each author/review tree. A JSON echo/static guardQualified flag
+is not authority. No second ledger, vault or refresh service belongs here.
 
-## Verification and reports
+Admission → materialised private profile → executed identity must be one chain.
+Access-only/mesh consumers never refresh or fall back on 401/expiry.
+Serialized native delegation, if required, reuses #348 family tickets and
+central drain/capture/seal/save/later-run-verify/delivery before next use.
+L3-R real N → N+1 → next-consumption and lost-dispatch recovery are mandatory.
 
-Baseline/candidate SHAs, findings and targeted command outputs are retained in
-`<stateDir>/reports/<UTC-day>-<run-id>.json`; `latest.json` is stable.
-Dry runs use `latest-dry-run.json`. Stdout emits one summary line, exit 0 for a
-successful job, 2 for failed/blocked results, 1 for usage/configuration failures.
-Report files are private (0600); do not publish raw private reports to a PR.
+## Role boundaries
 
-The controller generates compatible updates with `npm audit fix
---package-lock-only --ignore-scripts`, never force. It rejects non-lock changes,
-major changes per occurrence, ambiguous versions, new packages and registry or
-install-script changes. Candidate checks include `npm ci --ignore-scripts`,
-`npm audit signatures`, registry integrity/signature/provenance presence and
-seven-day maturation. Missing provenance/unsupported evidence leaves draft;
-provider/builder allowlist attestation is not implemented in this local lane.
-Targeted tests and all configured detection sources must be green for ready.
+Controller publication/merge code executes no candidate code and holds only
+repository-limited publishing rights. Trusted native authentication receives
+only its admitted projection, never writer/dispatch authority. Model-visible
+tools/MCP children and candidate installers/tests receive no provider, refresh,
+credit, publishing, control endpoint or inherited descriptor capability.
 
-Each reviewer gets its own fixed-SHA worktree and trusted diff, before/after
-locks and verification artifacts, without the other review. A strict receipt
-must approve the same SHA with no blocking findings. Local/remote heads are
-checked before ready. GitHub has no ready-with-expected-SHA atomic primitive;
-the final remote check is immediate but not a remote CAS. Manual merge remains
-the conductor's responsibility.
+A private HOME/env allowlist is insufficient for same-UID file/process access.
+The selected shared runner adapter must prove env/file/process/FD/socket
+canary denial with positive controls, real targeted test execution and cleanup.
+No production boundary is selected or qualified by this delivery.
 
-Open automation PRs block new attempts until the conductor resolves them;
-their existence does not create a green verification result. No auto rebase,
-merge, major follow-up PR or human-branch mutation occurs.
+## Pending PRs and merge contract
 
-## Daily timer
+Ownership requires durable repository + PR + branch + expected base/head and
+evidence, not a security/ branch prefix. Foreign/ambiguous PRs stay operator
+handoffs. Store metadata outside worktrees; never adopt/duplicate a foreign PR.
 
-On Linux with Node, npm, gh, git, util-linux `flock` and qualified native CLIs:
+The independent reconciliation seam observes head/base, reviews, checks and
+fresh lock/trust/scan/test evidence at merge time. Only a selected adapter can
+execute a protected merge commit; it must enforce expected head/base and branch
+rules at effect time. No production adapter is configured by this delivery.
+Missing evidence blocks; no admin bypass or squash.
 
-```sh
-h2a vuln-fix run --config /absolute/config.json --dry-run
-h2a vuln-fix timer --config /absolute/config.json --directory /absolute/rendered-units --node /absolute/node --cli /absolute/reviewed/h2a/dist/bin.js
-install -m 600 /absolute/rendered-units/h2a-vuln-fix.service /absolute/rendered-units/h2a-vuln-fix.timer ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now h2a-vuln-fix.timer
-systemctl --user list-timers h2a-vuln-fix.timer
-```
+waiting-checks, waiting-age and waiting-admission retain reasons and next
+wake-up. Unchanged head/base reuses completed SHA-bound review receipts,
+without a new author, quota reservation or charge. Changed proof/head/base
+needs revalidation. Save intent before dispatch. After lost acknowledgement,
+observe remote result before retrying; unknown outcome stays merge-pending.
+Duplicate completion events cannot create a second effect. Disabled admissions
+stop merges as well as inference; observation/reporting can continue.
 
-The persistent timer fires at 03:00 in the machine's timezone, with up to 15m
-jitter. Ensure the user manager runs overnight; lingering is an operator/system
-policy. No image or CI scheduler is installed. Rendering never enables a unit.
-Keep the absolute reviewed release path alive until the timer is updated.
+## Deployment and acceptance handoff
 
-`flock` releases the controller lock on exit/crash/reboot; never delete its
-inode to bypass a live lock. Daily claims are fsynced before inference, so a
-crash consumes that day's attempt. A failed/ambiguous push or PR-create response
-requires the conductor to reconcile that exact remote branch before retrying.
-Timeout/output overflow quarantines the repository and retains worktrees:
-only the spawned direct process is signalled, and unknown descendant cleanup
-is not reported as success. The systemd unit stops its own cgroup. Resolve own
-service/processes/worktrees and preserve the incident evidence before manually
-removing the repository's quarantine entry. Never reset claims/usage for retries.
+Before proposing #371 merge: resolve all first-activation L0 sheets, qualify
+L1 or V3 native prerequisites, L2 identity + L3 quota/separation + L3-R lifecycle,
+derive OQ1 placement, run G3 positive audit/test/review/merge qualification on
+the integrated candidate and prepare scheduler/continuation artefacts.
+Conductor obtains exact-final-SHA Sol 6.1 xhigh + Astra max code reviews and
+full-suite CI integration (G5). The standing merge NO GO needs its existing
+owner authority lifted; GO-CODE alone does not lift it.
 
-Initial coverage excludes OS/container layers, vendored/generated artifacts,
-non-npm ecosystems without custom scanners, unsupported native CLIs, effective
-model attestation and live CI custody. Reports expose these gaps. Real seat
-qualification and real timer activation must be performed outside confinement.
+After release only: operator deploys reviewed private config/artefacts and
+enables exactly one selected scheduler/admission owner. Observe its first
+scheduled production run (G4), then real admitted autonomous merges and
+delivery (G6). Qualification on a controlled fixture is path proof, never a
+real CVE repair. Never introduce a vulnerability into a real repository.
+
+Stop: close admissions and the selected scheduler, drain own tasks, retain
+claims/counters/proofs/custody intent. Resume: reconcile remote PR/merge state
+and seat lifecycle first. Never erase counters or unlink a live lock.
+The selected placement must document one operator stop act and bounded
+retry/check/age wake-ups before activation. No runnable stop/enable command
+can be supplied before that placement exists.
+
+Reports expose detection → candidate → merge → delivery, all ready repos,
+blocked reasons/responsible owner, ageing/next wake-up and maintenance
+capacity/fairness. An open PR is unfixed. Scan-only cannot claim ready-to-fix
+without an admitted cycle/boundary. Starvation of the last repo stays visible.
+
+L7 remains due independently: ten provider/usage receipts, all 100 ordered
+Linux native pair/scenario receipts and actual rotation of two no-Claude
+authors. Synthetic tables/imports are not live binary/gateway/lifecycle proof.
+macOS/Windows remain separate unqualified scopes. Non-npm ecosystems,
+majors/new packages, urgent age exceptions, rollback and served-model
+attestation remain outside this delivery.
