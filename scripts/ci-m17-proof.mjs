@@ -44,7 +44,10 @@ if (process.argv[2] === 'run') {
   child.stderr.on('data', bytes => process.stderr.write(bytes));
   closed = new Promise((done, reject) => { child.once('error', reject); child.once('close', (code, signal) => done({ code, signal })); });
   const result = await Promise.race([closed, new Promise((_, reject) => {
-    timer = setTimeout(() => reject(Error('M17 exceeded its unchanged 1200-second backstop')), 1_200_000);
+    // Node 22 reached 1201/1250 iterations at the former 1200s backstop.
+    // This producer has its own 25-minute job: reserve 150s for preparation,
+    // owned-process cleanup and artifact publication. No case/lock SLO changes.
+    timer = setTimeout(() => reject(Error('M17 exceeded its 1350-second producer backstop')), 1_350_000);
   })]);
   clearTimeout(timer);
   const rows = ownedRows();
