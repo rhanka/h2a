@@ -906,24 +906,87 @@ export interface NextActionAudit {
 }
 
 /**
+ * Amendment D10 — the machine-only instruction state of one À-FAIRE row. The
+ * audit consumes these states (plus origin/kind, focus and gate step codes),
+ * never rendered words: no extraction, classification or detection may
+ * pattern-match a natural language, in any language. A translated placeholder
+ * stays `uninstructed`; a translated gate-class action stays a violation
+ * because its kind/step code is unchanged.
+ */
+export type NextActionInstruction =
+  | 'to-instruct'
+  | 'not-instructed'
+  | 'structure-dossier'
+  | 'none-owed'
+  | 'investigated'
+
+/** Where an instructed action's text comes from: an investigated gesture, or a repeated gate class. */
+export type NextActionOrigin = 'investigated' | 'gate-class'
+
+export interface NextActionAuditDescriptor {
+  /** The row is a focus row. */
+  focus: boolean
+  /** Machine-only instruction state — never the rendered words. */
+  instruction: NextActionInstruction
+  /**
+   * The investigated substantive action, when the row was instructed. Opaque
+   * data: compared for equality only, never classified. A plain string alone
+   * (no `actionOrigin`) certifies nothing.
+   */
+  action?: string
+  /** Origin of the action text, tagged by the serving layer. */
+  actionOrigin?: NextActionOrigin
+  /** Machine gate step codes backing the row (never rendered words). */
+  gateSteps?: readonly string[]
+}
+
+/**
  * Criterion 20, made checkable. The owner's judgement — is the sentence RIGHT — is out of reach of any
  * test; these two mechanical failures are not. A contextual report passes when every focus row has been
  * instructed AND no substantive action repeats more than twice or equals a gate clause.
  *
  * The renderer's own markers are counted as `uninstructed`, never as violations: they are the honest
  * statement that the work is still owed, which is exactly what the report must say until it is done.
+ * An `investigated` row without action text AND origin is uncertified — neither a plain string nor
+ * missing audit metadata can certify an investigated action — so it still counts as owed.
  */
-export function auditNextActions(values: readonly string[], gateClauses: readonly string[]): NextActionAudit {
-  const marker = new Set<string>(DETERMINISTIC_NEXT_ACTIONS)
-  const substantive = values.filter((value) => !marker.has(value))
+export function auditNextActions(descriptors: readonly NextActionAuditDescriptor[]): NextActionAudit {
+  const certified = descriptors.filter(
+    (descriptor) =>
+      descriptor.instruction === 'investigated' &&
+      descriptor.action !== undefined &&
+      descriptor.actionOrigin !== undefined,
+  )
   const counts = new Map<string, number>()
-  for (const value of substantive) counts.set(value, (counts.get(value) ?? 0) + 1)
+  for (const descriptor of certified) counts.set(descriptor.action!, (counts.get(descriptor.action!) ?? 0) + 1)
   const repeated = [...counts.entries()].filter(([, n]) => n > 2).map(([value]) => value)
-  const bare = (value: string): string => value.replace(/^(?:action|engagement|décision) \([^)]*\)\s*:\s*/u, '')
-  const gates = new Set(gateClauses)
-  const hits = substantive.filter((value) => gates.has(bare(value)))
-  const uninstructed = values.filter((value) => value === NEXT_ACTION_TO_INSTRUCT).length
-  return { uninstructed, repeated, gateClauses: [...new Set(hits)], ok: repeated.length === 0 && hits.length === 0 }
+  const hits = certified.filter((descriptor) => descriptor.actionOrigin === 'gate-class')
+  const uninstructed = descriptors.length - certified.length - descriptors.filter(
+    (descriptor) =>
+      descriptor.instruction === 'not-instructed' ||
+      descriptor.instruction === 'structure-dossier' ||
+      descriptor.instruction === 'none-owed',
+  ).length
+  return { uninstructed, repeated, gateClauses: [...new Set(hits.map((descriptor) => descriptor.action!))], ok: repeated.length === 0 && hits.length === 0 }
+}
+
+/**
+ * Amendment D10 — describe rendered À-FAIRE rows as audit descriptors. The
+ * renderer's markers map to their machine states; any other text maps to an
+ * UNCERTIFIED `investigated` row (action without origin): a translated
+ * placeholder still fails the serving audit, exactly as required, because no
+ * translated words are recognised here.
+ */
+export function describeRowNextActions(rows: readonly Record<string, string>[]): NextActionAuditDescriptor[] {
+  return rows.map((row) => {
+    const focus = row['focus'] === 'true'
+    const next = row['nextAction'] ?? ''
+    if (next === NEXT_ACTION_TO_INSTRUCT) return { focus, instruction: 'to-instruct' as const }
+    if (next === NEXT_ACTION_NOT_INSTRUCTED) return { focus, instruction: 'not-instructed' as const }
+    if (next === NEXT_ACTION_STRUCTURE_DOSSIER) return { focus, instruction: 'structure-dossier' as const }
+    if (next === NO_ACTION) return { focus, instruction: 'none-owed' as const }
+    return { focus, instruction: 'investigated' as const, action: next }
+  })
 }
 
 /** `2026-07-29T11:02:03.000Z` → `2026-07-29`. UTC, so the header is TZ-independent and reproducible. */

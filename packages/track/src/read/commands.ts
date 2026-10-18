@@ -190,6 +190,9 @@ export function reportText(
   scopeSelector?: string,
   periodSelection?: ReportPeriodSelection,
   statusTable = false,
+  // Amendment D10 — open `--lang <bcp47>` label selection for the new
+  // stage/status surface. Absent ⇒ established rendering, byte-identical.
+  lang?: string,
 ): string {
   assertReportFormat(format)
   const snapshot = reader.reportSnapshot(options)
@@ -201,7 +204,7 @@ export function reportText(
   const period = reportPeriod(meta)
   const payload = reportPeriodPayload(meta)
 
-  if (statusTable) return renderStatusTable(buildStatusTable(snapshot.events, report, options), report, format, meta)
+  if (statusTable) return renderStatusTable(buildStatusTable(snapshot.events, report, options), report, format, meta, lang)
 
   if (options.wpTree && report.wpTree !== undefined) {
     if (format === 'json') {

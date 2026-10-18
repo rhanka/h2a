@@ -1,0 +1,91 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`stage/status lexicon — codes are the identity > freezes the shipped lexicon surface 1`] = `
+{
+  "ar": {
+    "stage": {
+      "deployed": "deployed",
+      "dev": "dev",
+      "merged": "merged",
+      "pr": "pr",
+      "spec": "spec",
+    },
+    "status": {
+      "blocked": "محظور",
+      "decision-awaited": "بانتظار القرار",
+      "not-qualified": "غير مؤهل",
+      "progressing": "قيد التقدم",
+      "unforeseen": "غير متوقع",
+      "withdrawn": "مسحوب",
+    },
+  },
+  "en": {
+    "stage": {
+      "deployed": "deployed",
+      "dev": "dev",
+      "merged": "merged",
+      "pr": "pr",
+      "spec": "spec",
+    },
+    "status": {
+      "blocked": "blocked",
+      "decision-awaited": "awaiting decision",
+      "not-qualified": "not qualified",
+      "progressing": "progressing",
+      "unforeseen": "unforeseen",
+      "withdrawn": "withdrawn",
+    },
+  },
+  "es": {
+    "stage": {
+      "deployed": "deployed",
+      "dev": "dev",
+      "merged": "merged",
+      "pr": "pr",
+      "spec": "spec",
+    },
+    "status": {
+      "blocked": "bloqueado",
+      "decision-awaited": "decisión pendiente",
+      "not-qualified": "no calificado",
+      "progressing": "en progreso",
+      "unforeseen": "imprevisto",
+      "withdrawn": "retirado",
+    },
+  },
+  "fr": {
+    "stage": {
+      "deployed": "deployed",
+      "dev": "dev",
+      "merged": "merged",
+      "pr": "pr",
+      "spec": "spec",
+    },
+    "status": {
+      "blocked": "bloqué",
+      "decision-awaited": "décision attendue",
+      "not-qualified": "non qualifié",
+      "progressing": "en progression",
+      "unforeseen": "imprévu",
+      "withdrawn": "retiré",
+    },
+  },
+  "ja": {
+    "stage": {
+      "deployed": "deployed",
+      "dev": "dev",
+      "merged": "merged",
+      "pr": "pr",
+      "spec": "spec",
+    },
+    "status": {
+      "blocked": "ブロック中",
+      "decision-awaited": "意思決定待ち",
+      "not-qualified": "未評価",
+      "progressing": "進行中",
+      "unforeseen": "想定外",
+      "withdrawn": "取下げ",
+    },
+  },
+}
+`;
