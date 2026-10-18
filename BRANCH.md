@@ -2,6 +2,68 @@
 
 Owner scope: apply the approved amendments, close B4, repair the three Linux CI jobs, implement B5, then stop. No Phase L or second standing PTY owner. Start: af46490d8, origin/main initially 46b82b427; subsequently rebased without conflicts onto 7ebbcf266 before publication. Temporary test roots only; targeted files only; no installed h2a, owner state, Python or foreign processes.
 
+## Admission/drain barrier correction — 2026-10-18
+
+Current owner scope starts at `508f3eddc`: resolve the admission/retirement
+race within the spec and approved amendments; do not run enrolled real-CLI
+B5 qualification. `origin/main=7ebbcf266` remains an ancestor after fetch,
+so no rebase is needed. This correction reopens B2's owner lifecycle and
+uses B5's named legacy/fleet files; BM's existing workflow runs the portable
+regressions on macOS ARM64 Node 22/24. No new wire operation or host/session
+semantics, installation dependency, fixture helper, or Phase L code changes.
+
+- Root cause: the B owner delegated admission refusal to frontends. An older
+  frontend can still forward a v1 create after drain. `abandon` also deferred
+  closing admission until a later `setImmediate`, after acknowledging an empty
+  owner. The tests demonstrate both creates being accepted (`ok: true`).
+- Fix: the owner rejects creates itself once draining; its empty `abandon`
+  decision seals admission synchronously before acknowledging withdrawal.
+  Existing leases, reads and writes continue while live sessions drain.
+- Pre-B has no retroactive drain command. Keep those hosts and installs
+  reachable, identify admission as `unfenced` and retirement as `deferred`,
+  including when empty. Never signal/unlink them or mint a client drain marker.
+  Preserve the adversarial counterexample: existing and fresh v1 connections
+  still create successfully despite a marker. This is evidence of the open
+  criterion, **not** proof that pre-B admission is closed.
+- Fleet/CLI inventory reports both generations and loaded component versions;
+  a pre-B version stays `unknown`. Unknown client protocols refuse inventory
+  and upgrade classification before any retirement decision.
+
+Exact targeted commands and observed results (temporary HOME/XDG/runtime
+roots created by the unchanged `tmp/pty-am2-run.mjs` wrapper):
+
+```sh
+rtk node tmp/pty-am2-run.mjs pty-admission-legacy-red node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/legacy-drain.functional.test.ts
+# 6 failed, 0 passed, 0 skipped; exit 1 (initial six conservative-contract tests).
+rtk node tmp/pty-am2-run.mjs pty-admission-owner-red node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/legacy-drain.functional.test.ts
+# 8 failed, 0 passed, 0 skipped; exit 1, including the two actual owner-side races.
+rtk node tmp/pty-am2-run.mjs pty-admission-fleet-red node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/fleet.test.ts
+# 8 passed, 3 failed, 0 skipped; exit 1.
+rtk npm run build -w @sentropic/h2a-runtime
+rtk npm run build -w @sentropic/h2a
+# Both exit 0; vendor-engram-live mirror OK.
+rtk node tmp/pty-am2-run.mjs pty-admission-final-retry node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/legacy-drain.functional.test.ts packages/h2a-runtime/src/native-terminal/fleet.test.ts packages/h2a-runtime/src/native-terminal/op.test.ts packages/h2a-runtime/src/native-terminal/supervisor.test.ts packages/h2a-runtime/src/native-terminal/owner-frontend.functional.test.ts
+# 5 files passed, 52 tests passed, 0 failed/skipped/TODO/cancelled; exit 0, Node 22.22.1.
+```
+
+The first four-file green was 45/45. A subsequent run overlapped the CLI
+build's dist cleanup and had four import failures before test execution;
+it is a failed setup, not regression evidence. The five-file command above
+was rerun after the completed build, including the final natural-exit and
+CLI inventory assertions. Logs/JSON are in `tmp/pty-admission-*.{log,json}`.
+
+Review: `tmp/pty-admission-review.md` is `selection-failed`; exact author
+model/effort are unavailable and installed h2a/mesh dispatch is prohibited by
+the owner. No peer dispatch or independent consensus is claimed.
+
+Remaining acceptance: Phase B/B5 remains **unqualified** on both platforms.
+The conductor owns the nonempty enrolled CLI cohort and the full four-file
+B5 gate. The PTY owner/conductor must provide a reviewed, enforceable pre-B
+admission barrier (including established v1 connections and concurrent
+creates) before any automatic historical retirement can be enabled. This
+patch implements the approved conservative deferral, not a waiver of that
+criterion. No full local suite or real-CLI B5 qualification was run.
+
 ## Owner-approved continuation — 2026-10-18 (092bcaecb)
 
 Only the intersection of rvptyam2a-last.md and rvptyam2s-last.md is authorized. Both exact amendment wordings are preserved below. Apply the stricter combined requirements: 26 declarations (23 Node + 3 runtime; 3 skipped + 23 TODO); no retirement without an atomic admission fence on every existing/new connection; explicit nonempty conductor enrollment with binary/version/seat/platform/isolated configuration; all four complete B5 files, no skip/TODO/cancellation; Linux Node 22/24 then macOS ARM64 Node 22/24 after BM. The B4 Linux keepalive exception does not extend to B5.
