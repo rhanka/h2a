@@ -1,7 +1,11 @@
-# Live Git read-side exploratory timing (L9-H) — `unverified`
+# Live Git read-side exploratory timing (L9-H) — `unverified`, NOT MEASURABLE
 
 Prototype run, NOT installed qualification. Everything below is `unverified`:
 no installed reader, no cluster-mesh verification, no operator-level T0.
+
+Verdict (fixed harness): **not measurable: native readers absent
+(cluster-mesh L9-S, G3/G4/G5)**. T1 is an explicit `reader-absent` state;
+no timing below is presented as a native service measurement.
 
 ## Corpus and fixture
 
@@ -13,24 +17,49 @@ no installed reader, no cluster-mesh verification, no operator-level T0.
   to the frozen pins; the engram history was restored from the checksummed
   snapshot pack (`a7f51a4f…`, 6132 objects). All 53 native Git controls
   re-verified (status/bytes/sha256) before timing.
-- Harness: `scripts/bench-live.mjs` (prototype `bench-live/1`).
-  Expected answers were hashed BEFORE timing and hidden from the timed path
-  (`expectationsFrozenAt < timingStartedAt`, `operatorReceivedExpected: false`).
-  Evidence JSON carries hashes/counts/OIDs only — no source content.
-- T0 is the currently available workflow; this prototype times its native
-  Git component on authorized local data. Human document/memory search
-  overhead is declared unmeasured, never reduced to bare Git alone.
-  T1 is the native service with what is available (authorization pre-check
-  plus the same Git controls). Existing planned readers are explicitly
+- Harness: `scripts/bench-live.mjs` (prototype `bench-live/1`, fixed round:
+  Sol 6.1 findings 1–5).
+  Expectations were hashed BEFORE timing (`expectationsFrozenAt` is the real
+  `frozenAt` recorded before timing, strictly earlier than `timingStartedAt`
+  by the bootstrap work — no synthetic offset) and never reach the timed
+  path: the timed runner receives only case ids and Git commands, and the
+  frozen expectations (reasons, `oracle.expected` stdout/contains/status) are
+  compared AFTER timing (`operatorReceivedExpected: false`,
+  `timedInputContainsExpected: false`).
+  Evidence JSON carries hashes/counts/OIDs only — no source content. Reason
+  text never enters the evidence: sha256 of the reason plus its category
+  (`documented`/`inconnu`) only (`contentHashesOnly: true`).
+- T0 and T1 both run the same native Git controls on authorized local data
+  (counterbalanced order). T1 is an explicit `reader-absent` diagnostic
+  second run (`t1State: reader-absent`, `nativeAdditions.measured: false`):
+  the T0/T1 delta compares the Git component with itself (self-comparison).
+  Human document/memory search overhead is declared unmeasured, never
+  reduced to bare Git alone. Existing planned readers are explicitly
   `reader-absent` (unmeasured), kept separate from native additions.
 
 ## Result (20/20 retained, no case removed)
 
-`median(1 − T1ᵢ/T0ᵢ) = −0.21%` over all 20 first investigations at constant
-quality (every T1 outcome matched its frozen expectation, including the
-explicit non-success states). Fixed threshold `≥ 30%` was NOT retuned:
-**continuation: NO**. Per-case timings are millisecond Git-component noise
-(±30% swings on 1–11 ms bases), not operator workflow timing.
+Historical prototype number (run at `77f8d66f0`): `median(1 − T1ᵢ/T0ᵢ) =
+−0.21%` over all 20 first investigations. Stated plainly: **that −0.21%
+median compares the Git component with itself and measures nothing about
+the service** — both arms executed the same `runOracleBatch` Git controls,
+and no native reader (cluster-mesh L9-S, G3/G4/G5) exists in this
+prototype. It is kept here as a diagnostic self-comparison only and feeds
+no decision.
+
+Fixed-harness reading: non-success states (`capability-absent`,
+`capture-absent`, `policy-unavailable`, `reader-absent`, `failed`, `denied`,
+`refused`) never enter the median or the decision — their gains are null
+and excluded while every case stays in the list and counts — and a
+non-success outcome can never count as success (`matchedExpectation` is
+false for every non-success state, `countsAsSaving` false). The median and
+quality reported by the harness are diagnostic values over SUCCESS cases
+only. Fixed threshold `≥ 30%` was NOT retuned and is not applied: with T1
+`reader-absent` there is no service timing to judge, so the verdict is
+**not measurable: native readers absent (cluster-mesh L9-S, G3/G4/G5)** —
+never a continuation YES/NO. Per-case timings below are millisecond
+Git-component noise (±30% swings on 1–11 ms bases), not operator workflow
+timing.
 
 | No. | Order | State | T0 first | T1 first | Gain | Saving |
 |---|---|---|---|---|---|---|
@@ -55,12 +84,16 @@ explicit non-success states). Fixed threshold `≥ 30%` was NOT retuned:
 | 19 | T0/T1 | verified | 6.5 ms | 5.9 ms | +9.40% | yes |
 | 20 | T1/T0 | `policy-unavailable` (G4, 0 bytes) | 1.3 ms | 1.4 ms | −7.72% | no |
 
-Resources (separate): bootstrap 6.2 ms, CPU 92.1 ms, RSS 70.3 MiB,
-storage 1.77 MiB, 216 Git child processes, wall 333 ms.
-Warm repeats tracked separately per case; first answers score the median.
-Zero errors; zero failed/slow/denied cases dropped (none occurred; the
-harness retains them with recovery costs by construction, covered by
-`live-read-side.test.ts` case 19/20 mechanics).
+Resources (`parentProcessOnly`): bootstrap 6.2 ms, CPU 92.1 ms, RSS
+70.3 MiB, storage 1.77 MiB, 216 Git child processes, wall 333 ms. CPU/RSS
+are the parent Node process only — child Git process resources are not
+collected (`spawnSync` returns no rusage). Warm repeats tracked separately
+per case; first answers score the diagnostic median. Zero failed/slow/denied
+cases dropped (none occurred beyond the retained non-success states; the
+harness retains them with classification costs by construction, covered by
+`live-read-side.test.ts`).
+Classification timing (`classificationMs`, alias `recoveryMs`) is result
+classification only — no recovery workflow exists or is measured here.
 
 G4 (case 20) stays closed: the typed `policy-unavailable` refusal fired
 before any content was retained (0 bytes emitted, `countsAsSaving: false`).
@@ -76,3 +109,7 @@ No model call, no network, no execution lot; G5 optional and absent.
   only remaining input to a real continuation decision, with installed
   readers and all applicable engineering/privacy gates.
 - Execution pilot (`≥ 20%` additional gain): not authorized, not run.
+- Fresh real-corpus re-run with the fixed harness: the pinned manifest and
+  engram snapshot pack live outside this repository, so no new real-corpus
+  numbers are claimed here; the fixed harness is re-verified on the
+  synthetic corpus (`live-read-side.test.ts`, 19/19 green, temp dirs only).
