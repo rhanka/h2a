@@ -28,7 +28,7 @@ async function fixture(t, { regression = false } = {}) {
     GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null',
     GIT_AUTHOR_NAME: 'Qualification', GIT_AUTHOR_EMAIL: 'fixture@example.invalid',
     GIT_COMMITTER_NAME: 'Qualification', GIT_COMMITTER_EMAIL: 'fixture@example.invalid' };
-  const execute = (cmd, args, options = {}) => command(cmd, args, { ...options, env });
+  const execute = (cmd, args, options = {}) => command(cmd === 'node' ? process.execPath : cmd, args, { ...options, env });
   const git = (args, cwd = path, input) => checked('git', args, { cwd, input }, execute);
   await git(['init', '--bare', remote], root);
   await git(['init', '-b', 'main']);
@@ -169,6 +169,16 @@ test('should accept an applicable named assertion RED separately from ordinary t
   const f = await fixture(t, { regression: true });
   assert.equal(f.observation.evidence.testsBefore[0].code, 1);
   assert.equal(f.observation.evidence.testsAfter[0].code, 0);
+  assert.equal((await f.run()).status, 'merged');
+});
+
+test('should accept an applicable assertion RED from the Node 24 spec reporter', async t => {
+  const f = await fixture(t, { regression: true });
+  f.observation.evidence.testsBefore[0].stdout = [
+    '✖ qualified dependency behavior (1.1ms)', 'ℹ tests 1', 'ℹ suites 0', 'ℹ pass 0', 'ℹ fail 1',
+    'ℹ cancelled 0', 'ℹ skipped 0', 'ℹ todo 0', 'ℹ duration_ms 2.5',
+    'AssertionError [ERR_ASSERTION]: controlled version regression',
+  ].join('\n');
   assert.equal((await f.run()).status, 'merged');
 });
 
