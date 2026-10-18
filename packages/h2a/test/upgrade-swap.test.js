@@ -191,10 +191,9 @@ test("B-1/R1: a live holder whose start-time comes from a different source is ne
   const holder = spawn(process.execPath, [LOCK_CHILD, prefix], { encoding: "utf8" });
   try {
     assert.equal(await firstLinePromise(holder), true, "the live holder acquired");
-    // Rewrite the on-disk record's start to a foreign source (simulate a macOS
-    // `ps:`-sourced holder), keeping the same LIVE pid/host/boot/ns.
+    // Use the other source on each platform, keeping the LIVE pid/host/boot/ns.
     const rec = JSON.parse(readFileSync(lockPath(prefix), "utf8"));
-    rec.start = "ps:Mon Sep 24 08:44:00 2026";
+    rec.start = rec.start?.startsWith("ps:") ? "proc:1" : "ps:Mon Sep 24 08:44:00 2026";
     writeFileSync(lockPath(prefix), JSON.stringify(rec), "utf8");
     const b = rt.acquirePrefixLock(prefix);
     assert.equal(b.acquired, false, "a live holder with a cross-source start-time must not be reclaimed");
