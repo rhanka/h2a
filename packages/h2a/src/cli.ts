@@ -7694,6 +7694,14 @@ export function runCli(
 ): number | Promise<number> {
   const { command, flags } = parseFlags(argv);
 
+  if (command === "vuln-fix") {
+    if (argv.length === 2 && ["--help", "-h", "help"].includes(argv[1]!)) {
+      streams.stdout.write("h2a vuln-fix run --config /absolute/config.json [--dry-run]\nh2a vuln-fix timer --config /absolute/config.json --directory /absolute/units\nDaily HIGH/CRITICAL remediation through seats; never merges.\n");
+      return 0;
+    }
+    return import('./vuln-fix/cli.mjs').then(module => module.runVulnFixCli([...argv], streams));
+  }
+
   if (streams.stderr === process.stderr && process.stderr.isTTY) {
     for (const notice of captureHostOperatorNotices()) streams.stderr.write(`${notice}\n`);
   }

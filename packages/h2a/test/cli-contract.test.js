@@ -335,6 +335,8 @@ function buildHappyArgv(verb, ctx) {
   switch (verb) {
     case "--help":
       return ["--help"];
+    case "vuln-fix":
+      return ["vuln-fix", "--help"];
     case "explain":
       return ["explain"];
     case "hosts":
@@ -1541,7 +1543,8 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
     "--help",
     // 2026-07-25: public-contract addition. This branch was written against a
     // 97-verb main; PR #30 landed `keys prove-control` first, then `explain`,
-    // and `loop enable-auto-tick` raised the reconciled count to 100. Kept in exact sync with
+    // and `loop enable-auto-tick` raised the reconciled count to 100, then
+    // PR #371 added `vuln-fix` (100 -> 101). Kept in exact sync with
     // docs/contracts/golden/cli-verbs.json — by `scripts/check-public-contract.sh`
     // (which diffs the golden against the built H2A_CLI_VERB_CONTRACTS) and by
     // the count guard in test/cli-command-map.test.js, which additionally covers
@@ -1644,7 +1647,9 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
     "conductor claim",
     "conductor release",
     "conductor-launch-check",
-    "conductor-launch"
+    "conductor-launch",
+    // PR #371: daily vulnerability remediation verb (100 -> 101).
+    "vuln-fix"
   ];
   assert.deepEqual([...declared].sort(), [...expected].sort());
   for (const c of H2A_CLI_VERB_CONTRACTS) {
