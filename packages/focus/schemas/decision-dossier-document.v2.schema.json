@@ -647,7 +647,52 @@
           "type": "string",
           "minLength": 1
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "mediaType": {
+                "enum": [
+                  "image/png",
+                  "image/jpeg"
+                ]
+              }
+            },
+            "required": [
+              "mediaType"
+            ]
+          },
+          "then": {
+            "required": [
+              "width",
+              "height",
+              "alt"
+            ]
+          },
+          "else": {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "width"
+                  ]
+                },
+                {
+                  "required": [
+                    "height"
+                  ]
+                },
+                {
+                  "required": [
+                    "alt"
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ]
     },
     "evidenceCitation": {
       "type": "object",
