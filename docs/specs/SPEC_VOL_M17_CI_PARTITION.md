@@ -22,7 +22,7 @@ not acceptance. Qualification of the new topology remains pending CI.
 
 D1. Use the third option as a reversible correction within the authorized CI
 work. Run the original M17 test file, assertions, eight actors, all mutations,
-and the 1200-second process backstop in Node 22/24 companion jobs.
+and a separately budgeted producer backstop in Node 22/24 companion jobs.
 
 D2. Keep default `npm test` complete. Explicit GitHub import mode alone may
 partition M17, after complete discovery and validation of a closed envelope.
@@ -46,6 +46,18 @@ non-successful producer result. This prevents dependency skips from satisfying
 branch protection. They also validate actual proof; a dependency verdict alone
 is insufficient. The direct trust-root wiring test remains outside the runner.
 YAML graph controls reject skipped/optional dependencies and stale artifacts.
+
+D6. Measured follow-up: the isolated Node 24 case passed with complete proof
+and cleanup; Node 22 reached 1201/1250 iterations per actor near 1190 seconds,
+then hit the 1200-second orchestration backstop. Give this producer alone
+1350 seconds under its unchanged 25-minute job. With 37 seconds of measured
+setup, about 113 seconds remain for cleanup/upload. The case has no individual
+timeout; product deadlines, all assertions and counts remain unchanged. Both
+independent reviews accepted this bounded infrastructure adjustment subject
+to an actual complete Node 22 qualification. It is not a runtime optimization.
+The controlled-clock producer fixture first records 1200000 (44/45), then
+1350000 (45/45 after adjustment), and exercises actual TERM/KILL cleanup of
+eight owned children without publishing any acceptance artifact.
 
 ## Independent reviews and reconciliation
 
