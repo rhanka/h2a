@@ -940,6 +940,30 @@ export async function proveNativeTerminalEndpointAbsent(
     signal => proveEndpointAbsentUnderLock(socketPath, signal, readPublicationFrame(readFrame), ownerProbe));
 }
 
+/** B2 drain cleanup after the publishing frontend was replaced. The emptied
+ * owner has closed every listener holder; it may remove only this inode, under
+ * the same exclusion and positive absence proof as a new publisher. */
+export async function withdrawDrainedNativeTerminalEndpoint(socketPath: string, expected: NativeTerminalSocketIdentity): Promise<void> {
+  await withSocketPublicationLock(socketPath, async signal => {
+    let socket: NativeTerminalSocketIdentity;
+    try { socket = await inspectPrivateNativeTerminalSocket(socketPath); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return; throw error; }
+    if (!sameNativeTerminalSocket(socket, expected)) throw new Error("drained terminal endpoint identity changed");
+    if (!await proveEndpointAbsentUnderLock(socketPath, signal, readPublicationFrame(readProcessFrame))) {
+      throw new NativeTerminalPublicationRefusal("H2A_STALE_SOCKET_UNPROVEN");
+    }
+    // No await separates the final identity check and either unlink.
+    const ownerPath = `${socketPath}.owner`;
+    let sidecar: NativeTerminalSocketIdentity | undefined;
+    try {
+      const info = lstatSync(ownerPath), owner = JSON.parse(readFileSync(ownerPath, "utf8"));
+      if (info.isFile() && info.uid === process.getuid?.() && (info.mode & 0o777) === 0o600 && sameNativeTerminalSocket(owner, expected)) sidecar = info;
+    } catch { /* unreadable sidecar is never deletion authority */ }
+    unlinkOwnedPath(socketPath, expected);
+    if (sidecar) unlinkOwnedPath(ownerPath, sidecar);
+  });
+}
+
 function canonicalizePath(targetPath: string): string | undefined {
   const resolved = resolve(targetPath);
   try {
