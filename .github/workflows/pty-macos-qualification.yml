@@ -33,9 +33,15 @@ jobs:
       - name: Run the darwin substrate file set
         run: |
           set -euo pipefail
-          npx --no-install vitest run \
+          npx --no-install vitest run --config packages/h2a-runtime/vitest.config.ts \
             packages/h2a-runtime/src/native-terminal/darwin-publication.test.ts \
-            packages/h2a-runtime/src/native-terminal/darwin-identity.test.ts 2>&1 | tee /tmp/darwin-pty.log
+            packages/h2a-runtime/src/native-terminal/darwin-identity.test.ts \
+            packages/h2a-runtime/src/native-terminal/write-ack.test.ts \
+            packages/h2a-runtime/src/native-terminal/host.test.ts \
+            packages/h2a-runtime/src/native-terminal/client.test.ts \
+            packages/h2a-runtime/src/native-terminal/op.test.ts \
+            packages/h2a-runtime/src/native-terminal/replay-buffer.test.ts \
+            packages/h2a-runtime/src/native-terminal/frontend-swap.functional.test.ts 2>&1 | tee /tmp/darwin-pty.log
       - name: Enforce skipped 0 in the darwin set
         run: |
           set -euo pipefail
