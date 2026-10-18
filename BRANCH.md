@@ -467,7 +467,7 @@ inventory in `.h2a/build/seat_model_inventory.md` (untracked).
 ## L0-C — contract and execution bootstrap
 - [ ] gr-conductor: publish profiles/repo-knowledge/1/{profile,timing.schema,engram-mapping,manifest}.json and validator at a full immutable engram commit; DS/Engram compatibility review and T-V00-C RED/GREEN.
 - [ ] h2a: copy upstream bytes and pin publication; offline velocity-contract.test.ts reproduces upstream verdicts.
-- [ ] h2a: T-V00-I RED/GREEN in velocity-test-lane.test.js, private environments, candidate sources/fixtures/goldens, checkout builds, exact selectors and skip accounting.
+- [x] h2a: T-V00-I RED/GREEN in velocity-test-lane.test.js, private environments, candidate sources/fixtures/goldens, checkout builds, exact selectors and skip accounting.
 - [ ] Gate: published artifact + offline pin + isolated runner; no placeholder permits L1.
 
 ## L1 — measured reference
@@ -505,6 +505,9 @@ inventory in `.h2a/build/seat_model_inventory.md` (untracked).
 - [x] Execution specifications cover builds, missing fixtures, exact non-tests, source-only child launches and CI without RTK.
 
 - [x] Bootstrap copies candidate source/fixtures/goldens into private lanes and removes inherited identity/provider hints; no stale dist copied.
+
+- [x] T-V00-I GREEN: real checkout dependency/bootstrap builds and exact Node file 28/28, zero exclusions/skips; package Vitest agent-stats.test.ts 16/16, zero exclusions/skips.
+- [x] Bootstrap corrections: docs copy restricted to contract goldens; Track built before build:h2a; relative writes normalized by the existing guard; optional RTK direct fallback for CI. Each observed regression has RED/GREEN evidence.
 
 ## Fixture integrity
 - [x] engram-enriched.json: SHA-256 `37a9c54032d3b56dd0c78f0aab886da260502a7805b2c898e7fa7377b2596ab7`, 15317 bytes.
