@@ -77,6 +77,21 @@ describe('track install-skills — discovery (all skills under skills/)', () => 
     }
   })
 
+  it('the bundle holds no track-report skill: the single canonical one lives in the harness', () => {
+    // A shadow track-report skill in this bundle once overrode the validated
+    // report contract on hosts. Exactly one skill of that name may exist: the
+    // harness one. This fails while packages/track/skills/track-report/ exists.
+    expect(runCli(['install-skills', '--host', 'claude'], io)).toBe(0)
+    const installed = readdirSync(join(home, '.claude', 'skills'), { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name)
+    expect(installed).not.toContain('track-report')
+    expect(existsSync(join(__dirname, '..', '..', 'skills', 'track-report'))).toBe(false)
+    expect(existsSync(join(
+      __dirname, '..', '..', '..', 'h2a', 'skills', 'harness', 'track-report', 'SKILL.md',
+    ))).toBe(true)
+  })
+
   it('the installed set matches the in-repo skills/ bundle exactly', () => {
     // Anchor on the package root the same way the installer does: this test file lives in src/cli,
     // two dirs below the package root where `skills/` sits.
