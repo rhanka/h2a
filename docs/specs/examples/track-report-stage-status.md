@@ -1,112 +1,64 @@
-# Track report with stage and status — served example
-
-This is the enriched example of the stage/status amendment
-(`docs/specs/2026-07-29-track-report-period.md`, criteria 28–41). It shows the
-served route — `track report --status-table` — over a synthetic journal, with
-the seven-column À-FAIRE, neutral stage/status codes, withdrawal notices and
-demand lineage. It is separate from the older artefacts: `track-report-contextual.md`
-stays the form reference for the four sections, and `track-report-raw.txt`
-stays byte-identical (its header included).
-
-Served command (weekly default, French):
-
-```bash
-track report --status-table --format md
-```
-
-```text
-# TRACK REPORT — global · 2/15 (13%)
-*période : 2026-10-11T12:39:49.467Z → 2026-10-18T12:39:49.467Z (7 derniers jours glissants ; 37/54 événements)*
-*baseline d’acceptance : 672aef97ac3a*
-*couverture : 13 lignes projetées · 11 rendues · 7 hors WP (outside-wp) · 2 omises : 1 décision déjà tranchée (visible dans bloqué ou FAIT, plus rien à y répondre) · 1 retiré hors fenêtre, sans gate actif ni décision liée en fenêtre*
-*sources : projection déterministe du journal (track report --wp --decisions) ; révision du journal : 54 événements ; tête : sha256:c221e5b35c6a4024d2cc3f6f6e719525291452ea8de0ad0c934ada16eb709122*
+<!-- Synthetic contextual report; language=fr. Human semantic acceptance pending. -->
+<!-- Historical references track-report-contextual.md and track-report-raw.txt are unchanged. -->
+**2026-10-11T12:00:00.000Z → 2026-10-18T12:00:00.000Z** · c-new · 2/15 (13%)
+coverage: 14 → 12 · outside-wp: 7
 
 ## FAIT
-scope            avancement     dernières actions
-──────────────   ────────────   ─────────────────
-global           2/15 \(13%\)   deployed member
 
-WP2 · UAT Beta   2/3 \(67%\)    deployed member
+| scope | avancement | dernières actions |
+| --- | --- | --- |
+| global | 2/15 (13%) | La livraison enregistrée permet la reprise dans l’environnement référencé ; le lien de déploiement et la recette à c-new en sont les appuis. |
+| WP2 · UAT Beta | 2/3 (67%) | La livraison enregistrée permet la reprise dans l’environnement référencé ; le lien de déploiement et la recette à c-new en sont les appuis. |
 
 ## À-FAIRE
-*ordre = priorité ; les cinq premiers sont le focus*
-WP                    av.   étape        statut                 à faire                                                         bloqué            prochaine action
-───────────────────   ───   ──────────   ────────────────────   ─────────────────────────────────────────────────────────────   ───────────────   ────────────────────────────────────────
-WP1 · UAT Alpha       0%    [1.1] dev    [1.1] — non qualifié   [1.1] old open work                                             D1 · dépendance   à instruire : ouvrir l’item et nommer le
-                            [1.2] spec   [1.2] — retiré         [1.2] old withdrawal with live gate                                               geste
-                            [1.3] dev    [1.3] 🔴 bloqué        [1.3] red lane work
-                            [1.4] dev    [1.4] 🔵 décision      [1.4] blue choice work
-                            [1.5] dev    attendue               [1.5] fresh sub\-WP work
-                            [1.6] spec   [1.5] — non qualifié   [1.6] fresh withdrawal
-                                         [1.6] — retiré         ↳ extrait : retiré : Cut the scope: duplicate of the old lane
 
-WP2 · UAT Beta        67%   [2.1] dev    [2.1] — non qualifié   [2.1] never\-qualified work                                     —                 à instruire : ouvrir l’item et nommer le
-                                                                                                                                                  geste
-
-WP1.1 · UAT Alpha.1   0%    [3.1] dev    [3.1] — non qualifié   [3.1] fresh sub\-WP work                                        —                 à instruire : ouvrir l’item et nommer le
-                                                                                                                                                  geste
-
-WP3 · phase only      0%    [4.1] spec   [4.1] — non qualifié   [4.1] phase\-only leaf \(outside\-wp\)                          spec              à instruire : ouvrir l’item et nommer le
-                                                                                                                                                  geste
-
-S1 · stream only      0%    [5.1] spec   [5.1] — non qualifié   [5.1] stream\-only leaf \(outside\-wp\)                         spec              à instruire : ouvrir l’item et nommer le
-                                                                                                                                                  geste
-
-hors WP · items       n/a   [6.1] spec   [6.1] — non qualifié   [6.1] old external prerequisite \(outside\-wp\)                 —                 non instruite
-                            [6.2] spec   [6.2] — non qualifié   [6.2] other lane prerequisite \(outside\-wp\)
-                            [6.3] spec   [6.3] — non qualifié   [6.3] parentless leaf \(outside\-wp\)
-                            [6.4] spec   [6.4] — non qualifié   [6.4] second half \(outside\-wp\)
-                            [6.5] spec   [6.5] — non qualifié   [6.5] first half \(outside\-wp\)
+| WP | av. | étape | statut | à faire | bloqué | prochaine action |
+| --- | --- | --- | --- | --- | --- | --- |
+| hors WP ; rattachement à instruire | n/a | [1.1] — | [1.1] — | [1.1] Rendre le choix hors ligne répondable (outside-wp; hors WP ; rattachement à instruire) | options non enregistrées | Enregistrer les options conserver/abandonner le point de reprise hors ligne et leurs conséquences. |
+| WP1 · UAT Alpha | 0% | [2.1] dev<br>[2.2] spec<br>[2.3] dev<br>[2.4] dev<br>[2.5] dev<br>[2.6] spec | [2.1] — non qualifié<br>[2.2] — retiré<br>[2.3] 🔴 bloqué<br>[2.4] 🔵 décision attendue<br>[2.5] — non qualifié<br>[2.6] — retiré | [2.1] Reprendre une session interrompue<br>[2.2] Retrait ancien avec dépendance active — motif non enregistré<br>[2.3] Rétablir la lane de reprise<br>[2.4] Choisir le partage de connexion<br>[2.5] Reprendre après une reconnexion<br>[2.6] Retrait : périmètre déjà couvert par la lane ancienne | D1 · dépendance | Rejouer le contrôle de reprise après redémarrage de la lane dépendante ; conserver le journal du résultat. |
+| WP2 · UAT Beta | 67% | [3.1] dev | [3.1] — non qualifié | [3.1] Qualifier la reprise sans perte | — | Définir le cas « interrompre puis reprendre sans perdre le dernier message » et enregistrer son résultat. |
+| WP1.1 · UAT Alpha.1 | 0% | [4.1] dev | [4.1] — non qualifié | [4.1] Reprendre après une reconnexion | — | Exécuter le cas de reconnexion avec le même identifiant de session et comparer le dernier message. |
+| WP3 · phase only | 0% | [5.1] spec | [5.1] — non qualifié | [5.1] Définir le résultat de la phase (outside-wp; hors WP ; rattachement à instruire) | spec | Écrire le résultat attendu de cette phase pour une reprise après interruption. |
+| S1 · stream only | 0% | [6.1] spec | [6.1] — non qualifié | [6.1] Définir le résultat du flux (outside-wp; hors WP ; rattachement à instruire) | spec | Documenter quel point de reprise ce flux doit conserver avant de le rattacher à un WP. |
+| hors WP ; rattachement à instruire | n/a | [7.1] spec<br>[7.2] spec<br>[7.3] spec<br>[7.4] spec<br>[7.5] spec | [7.1] — non qualifié<br>[7.2] — non qualifié<br>[7.3] — non qualifié<br>[7.4] — non qualifié<br>[7.5] — non qualifié | [7.1] Préparer le prérequis historique (outside-wp; hors WP ; rattachement à instruire)<br>[7.2] Préparer le prérequis de la lane (outside-wp; hors WP ; rattachement à instruire)<br>[7.3] Rattacher la reprise isolée à son WP (outside-wp; hors WP ; rattachement à instruire)<br>[7.4] Préserver le point de reprise (outside-wp; hors WP ; rattachement à instruire)<br>« Quiero reanudar mi sesión sin perder el último mensaje » (demand-raw)<br>[7.5] Restaurer la session (outside-wp; hors WP ; rattachement à instruire)<br>« Quiero reanudar mi sesión sin perder el último mensaje » (demand-raw) | — | Vérifier le livrable des deux prérequis et proposer le WP de rattachement des demandes isolées. |
 
 ## DÉCISIONS
-```
-┌────┬───────────────────────────┬─────────────────────────────┬───────┐
-│ #  │ sujet                     │ alternatives                │ préco │
-├────┼───────────────────────────┼─────────────────────────────┼───────┤
-│ D1 │ Share the UAT connector ? │ A Share — One connection    │   A   │
-│    │                           │ B Isolate — Two connections │       │
-└────┴───────────────────────────┴─────────────────────────────┴───────┘
-```
+
+| # | sujet | alternatives | préco |
+| --- | --- | --- | --- |
+| D1 | Partager la connexion utilisée pour reprendre une session ? | A Partager — une connexion<br>B Isoler — deux connexions | A<br> |
+
+[D1](https://example.test/dossier/share)
 
 ## RECOMMANDATION
-Sans décision : WP2, WP1.1, WP3 peuvent démarrer — le geste concret reste à instruire par ligne.
-D1 A → débloque WP1.
-Réponds « vas y » (les lanes sans décision) ou « D1 A » (tout débloquer).
+
+Sans réponse : qualifier la conservation du dernier message, vérifier la reconnexion et instruire les demandes isolées. Le retrait ancien garde sa dépendance ; son motif manque.
+
+Rejouer le contrôle de reprise après redémarrage de la lane dépendante ; conserver le journal du résultat.
+
+D1 A : partage une connexion et libère le choix de reprise ; D1 B : isole les connexions, avec deux connexions à maintenir. Préconisation A : moins de connexions.
+
+Réponds « vas y » pour les travaux sans décision, ou « D1 A » pour autoriser le partage.
+
+
+```text
+track report --period last-week --now 2026-10-18T12:00:00.000Z --commit c-new --expect-events 55 --expect-head sha256:44f138a8a9445eeda256bb853c8528124c8887cf350f16bd9f6d1688c65cb7f6 --resolve <handle>
+1.1	01M57000000000000000000092
+2.1	01M57000000000000000000007
+2.2	01M57000000000000000000019
+2.3	01M57000000000000000000041
+2.4	01M57000000000000000000049
+2.5	01M57000000000000000000029
+2.6	01M57000000000000000000079
+3.1	01M57000000000000000000057
+4.1	01M57000000000000000000029
+5.1	01M57000000000000000000064
+6.1	01M57000000000000000000068
+7.1	01M57000000000000000000022
+7.2	01M57000000000000000000044
+7.3	01M57000000000000000000060
+7.4	01M57000000000000000000073
+7.5	01M57000000000000000000074
+D1	01M57000000000000000000052
+Q1	01M57000000000000000000092
 ```
-
-Reading notes (what this example proves):
-
-- The window is rolling by default (`7 derniers jours glissants`, 37/54
-  events); bounds come from the journal and the clock, never invented.
-- À-FAIRE carries the seven columns; stage cells hold neutral codes (`dev`,
-  `spec`) and status cells neutral states with health colour only where a
-  conformity witness exists (`🔴 bloqué`, `🔵 décision attendue`).
-  `— non qualifié` and `— retiré` carry no colour.
-- The old delivery (2026-09-20) is out of the rolling week, so FAIT shows
-  only the in-window `deployed member`; the long explicit period
-  (`--since 2026-09-01 --until 2026-10-18`) shows both.
-- `old withdrawal with live gate` stays served; `fresh withdrawal` keeps its
-  recorded reason (`retiré : Cut the scope: duplicate of the old lane`); the
-  irrelevant old withdrawal is omitted with its reason, counted in the
-  header.
-- `hors WP · items` gathers the parentless leaf, the phase/stream-only
-  leaves and the two demand halves — flagged `(outside-wp)`, never silent.
-- FAIT cells carry titles and excerpts only. Finality prose (criterion 26)
-  is agent synthesis over inputs 1–3, not renderer output: the renderer
-  deliberately hands no title list to paste.
-- On this 7-day window the sub-WP row (`WP1.1`) is listed beside its parent
-  and the shared item answers two handles (`1.5`, `3.1`); on a long window
-  (`--since 2026-09-01 --until 2026-10-18`) sub-levels aggregate into their
-  parent and the header declares it (`1 sous-WP agrégés dans leur parent`).
-
-## Historical recipe warning (kept outside the raw file)
-
-The reference renderer for a reproduction attempt of the historical raw
-artefact is the pre-amendment validated five-column route at
-`7670fbed6870fb7e5b985a1315ff55776b362fd8` (without `--status-table`), with
-the journal at the recipe's `d01368f` and `--now 2026-07-29T12:00:00Z`. The
-seven-column renderer above is not a byte-reproduction target for that
-historical artefact. Exact reproduction is `unverified`: `d01368f` is absent
-from this clone, and no run with that journal was made. Do not treat a
-header's journal baseline as proof of a renderer revision or claim byte
-reproduction from the form-only test.
