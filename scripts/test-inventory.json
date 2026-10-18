@@ -932,6 +932,7 @@
     "M17 refuses a symlink configured volume before creating backend state",
     "M17 refuses a configured volume writable by another user",
     "M17 refuses a regular file configured as its temporary volume",
-    "M17 executes every real actor on its configured private volume and removes its state"
+    "M17 executes every real actor on its configured private volume and removes its state",
+    "M17 refuses an explicitly empty volume instead of creating state in the working directory"
   ]
 }
