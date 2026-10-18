@@ -2999,6 +2999,24 @@ describe("darwin observation parsing", () => {
 
 
 describe('darwin confinement and kernel boot identity', () => {
+  it('should validate a recorded Darwin birth without depending on unrelated process receipts', () => {
+    const birth = readDarwinProcessStartTime(process.pid);
+    expect(birth).toBeDefined();
+    const root = join(scratch, 'darwin-owned');
+    mkdirSync(root, { mode: 0o700 });
+    writeFileSync(join(root, `darwin-${process.pid}.json`), JSON.stringify({ pid: process.pid, birth }));
+    writeFileSync(join(root, `darwin-${process.pid + 10000000}.json`), 'invalid unrelated receipt');
+    const previousOwned = process.env.H2A_TEST_OWNED_PROC_ROOT, previousRoot = process.env.H2A_TEST_PROC_ROOT;
+    try {
+      process.env.H2A_TEST_OWNED_PROC_ROOT = root; process.env.H2A_TEST_PROC_ROOT = root;
+      expect(readDarwinProcessStartTime(process.pid)).toBe(birth);
+      writeFileSync(join(root, `darwin-${process.pid}.json`), JSON.stringify({ pid: process.pid, birth: birth! + 1 }));
+      expect(readDarwinProcessStartTime(process.pid)).toBeUndefined();
+    } finally {
+      if (previousOwned === undefined) delete process.env.H2A_TEST_OWNED_PROC_ROOT; else process.env.H2A_TEST_OWNED_PROC_ROOT = previousOwned;
+      if (previousRoot === undefined) delete process.env.H2A_TEST_PROC_ROOT; else process.env.H2A_TEST_PROC_ROOT = previousRoot;
+    }
+  });
   it('should obtain boot identity from sysctl without inspecting launchd', () => {
     const uuid='c9f0fc27-129b-4cb2-9e1f-462cb1d481cb';
     const run=(args:ReadonlyArray<string>)=>{expect(args).toEqual(['-n','kern.bootsessionuuid']);return uuid;};
