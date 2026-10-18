@@ -295,8 +295,17 @@ function main() {
   }
   const legacyHost = provisionLegacyHostDir();
 
+  // Resolve npm's configured cache before HOME isolation, while its prepared
+  // tarballs and any npmrc/environment override still have their original meaning.
+  const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  const cache = spawnSync(npm, ['config', 'get', 'cache'], { cwd: REPO_ROOT,
+    env: process.env, encoding: 'utf8', shell: process.platform === 'win32' });
+  if (cache.status !== 0 || !cache.stdout?.trim()) {
+    throw new Error(`run-tests: cannot resolve the prepared npm cache: ${cache.stderr ?? cache.error ?? ''}`);
+  }
   const testEnv = {
     ...process.env,
+    npm_config_cache: resolve(REPO_ROOT, cache.stdout.trim()),
     HOME: join(testRoot, "home"),
     XDG_RUNTIME_DIR: join(testRoot, "run"),
     XDG_CONFIG_HOME: join(testRoot, "home/.config"),
