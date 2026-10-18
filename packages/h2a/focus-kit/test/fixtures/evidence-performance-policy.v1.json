@@ -3,7 +3,7 @@
   "frozenAt": "2026-10-18",
   "calibration": {
     "command": "node calibration script: measure(coldRuns:3, taskRuns:5)",
-    "sha256": "8165bb8d729d52d1ffcdb4fa3ebc018eef663c14638c11d6b75f5f3bf7282aeb",
+    "sha256": "4a879cb8e2fcd4664ddb7510cd1c5e97dac2abae68b3fd59f8e91de1b6aa28a3",
     "node": "v22.22.1",
     "chromium": "153.0.8010.12",
     "cpu": "AMD RYZEN AI MAX+ 395 w/ Radeon 8060S",
@@ -12,7 +12,7 @@
   "corpusSha256": "7889dc63dbf8cf304ea88ac79a1cbe9c8d86c59a8427ae8cb5e20882e5c1957e",
   "generatorSha256": "52d2f5a18e93dbe576a383638a2c585415986b1057525962ec996c52f845ec02",
   "fixtureSha256": "0f3fc61f2c2fb0b46ef68d404ae251ad56ed5faac92fbe4d7c07c5605510d350",
-  "measurementSha256": "50e094c112324232d353dfac7295828ed8d53d21c337f5bc4055aa9b7bbc92df",
+  "measurementSha256": "0ad56bd76d31782ca2228b2f3812dd34be5e226d852fec14c270cb9204dbdac1",
   "libraries": {
     "playwright": "1.63.0",
     "svelte": "5.56.4",
@@ -34,7 +34,7 @@
       "dark"
     ]
   },
-  "method": "Linux summed VmRSS of the exact launched Chromium PID and its descendants at 20ms; zombie/exited children have zero resident pages; CDP Runtime.getHeapUsage after HeapProfiler.collectGarbage. Counts shared pages per process, includes browser/GPU/workers; no cross-browser parity claim.",
+  "method": "Linux summed VmRSS of the exact launched Chromium PID and its descendants at 20ms; zombie/exited children have zero resident pages; CDP Runtime.getHeapUsage after HeapProfiler.collectGarbage. Counts shared pages per process, includes browser/GPU/workers; no cross-browser parity claim. If VmRSS disappears before zombie state, the same PID statm must independently report all seven counters zero; any live/nonzero, malformed or unavailable measurement fails. Raw measurements are retained before asserting monitoring failures.",
   "repetitions": {
     "cold": 30,
     "tasks": 30
