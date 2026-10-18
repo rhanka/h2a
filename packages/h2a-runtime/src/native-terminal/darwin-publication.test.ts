@@ -6,7 +6,8 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { afterAll, afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
+import * as net from "node:net";
 // @ts-ignore Shared JS qualification helper; tests are outside the production build.
 import { setupNativeTestEnvironment, spawnIsolatedNative as spawn } from "../../../h2a/test/helpers/native-isolation.js";
 
@@ -18,6 +19,7 @@ import { resolveRegistryPath } from "../registry.js";
 import { readProcessFrame, readProcessStartTime } from "../proc-identity.js";
 import {
   darwinSocketPublicationLockPath,
+  acquireDarwinSocketPublicationLock,
   findDarwinActiveHostServingSocket,
   proveNativeTerminalEndpointAbsent,
   startNativeTerminalHostServer,
@@ -169,6 +171,70 @@ async function spawnOwner(): Promise<{ child: ChildProcess; socketPath: string; 
 }
 
 describe("darwin publication substrate", () => {
+  it("should serialize contenders recovering the same stale Darwin lock", async () => {
+    const { socketPath } = await endpoint(), secret = "contention";
+    const lockPath = darwinSocketPublicationLockPath(socketPath, secret);
+    const seed = spawn(process.execPath, ["--input-type=module", "-e", "import {createServer} from 'node:net';createServer().listen(process.argv[1],()=>console.log('ready'));", lockPath], {env:process.env,stdio:["ignore","pipe","pipe"]});
+    children.add(seed);
+    await once(seed.stdout!, "data");
+    const exited = once(seed,"exit"); seed.kill("SIGKILL"); await exited;
+    expect(lstatSync(lockPath).isSocket()).toBe(true);
+    const original = net.Socket.prototype.emit;
+    let probes = 0;
+    const spy = vi.spyOn(net.Socket.prototype,"emit").mockImplementation(function(this: net.Socket, event: string, ...values: any[]) {
+      const socket = this, emit = original;
+      if (event === "error" && (values[0] as NodeJS.ErrnoException)?.path === lockPath) {
+        const ordinal = ++probes;
+        if (ordinal <= 2) {
+          // Both old contenders observe the same dead socket; deliver B's
+          // observation only after A has replaced it and entered its section.
+          setTimeout(()=>emit.call(socket,event,...values),ordinal===1?50:200);
+          return true;
+        }
+      }
+      return emit.call(socket,event,...values);
+    });
+    const signal = AbortSignal.timeout(3000);
+    const held: net.Server[] = [];
+    let secondAcquired = false;
+    try {
+      const first = acquireDarwinSocketPublicationLock(socketPath,secret,signal).then(lock=>{held.push(lock);return lock;});
+      const second = acquireDarwinSocketPublicationLock(socketPath,secret,signal).then(lock=>{held.push(lock);secondAcquired=true;return lock;});
+      await first;
+      await new Promise(resolve=>setTimeout(resolve,350));
+      expect(secondAcquired).toBe(false);
+      await new Promise<void>(resolve=>held[0]!.close(()=>resolve()));
+      const next = await second;
+      expect(lstatSync(lockPath).isSocket()).toBe(true);
+      await new Promise<void>(resolve=>next.close(()=>resolve()));
+    } finally {
+      spy.mockRestore();
+      for(const lock of held) if(lock.listening) await new Promise<void>(resolve=>lock.close(()=>resolve()));
+    }
+  }, 10000);
+
+  it("should leave a successor pathname intact when an old Darwin holder closes late", async () => {
+    const {socketPath}=await endpoint(),secret="late-release";
+    const lockPath=darwinSocketPublicationLockPath(socketPath,secret);
+    const old=await acquireDarwinSocketPublicationLock(socketPath,secret);
+    rmSync(lockPath);
+    const next=await acquireDarwinSocketPublicationLock(socketPath,secret);
+    const identity=lstatSync(lockPath);
+    try {
+      await new Promise<void>(resolve=>old.close(()=>resolve()));
+      expect(lstatSync(lockPath).ino).toBe(identity.ino);
+      const probe=net.createConnection(lockPath);await once(probe,"connect");probe.destroy();
+    } finally {await new Promise<void>(resolve=>next.close(()=>resolve()));}
+  }, 10000);
+
+  it("should refuse rather than steal an abandoned Darwin recovery guard", async () => {
+    const {socketPath}=await endpoint(),secret="guard";
+    const guardPath=darwinSocketPublicationLockPath(socketPath,secret)+".recovery";
+    mkdirSync(guardPath,{mode:0o700}); const identity=lstatSync(guardPath);
+    await expect(acquireDarwinSocketPublicationLock(socketPath,secret,AbortSignal.timeout(100))).rejects.toMatchObject({name:"TimeoutError"});
+    expect(lstatSync(guardPath).ino).toBe(identity.ino);
+  });
+
   it("should publish, lock and attribute a socket", async () => {
     const { socketPath } = await endpoint();
     writeEmptyRegistry();

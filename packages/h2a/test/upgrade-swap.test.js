@@ -580,3 +580,24 @@ test('should refuse a colliding backup destination without deleting its retained
     assert.equal(rt.readGlobalPkgVersion(prefix),'1.0.0');
   } finally {crypto.randomUUID=original;syncBuiltinESMExports();rmSync(prefix,{recursive:true,force:true});}
 });
+
+
+test('should retain a deferred legacy result when the installed frontend is already current', () => {
+  const prefix=freshPrefix(), current=globalPkgDir(prefix);
+  try {
+    writeSelfContainedPkg(current,'1.0.0');
+    const frontendModule=join(current,'node_modules/@sentropic/h2a-runtime/dist/native-terminal/frontend-process.js');
+    mkdirSync(dirname(frontendModule),{recursive:true});writeFileSync(frontendModule,'export {};');
+    const codeIdentity={dev:statSync(frontendModule).dev,ino:statSync(frontendModule).ino};
+    const loaded={pid:process.pid,version:'1.0.0',codePath:frontendModule,codeIdentity};
+    const plan={state:'active',owners:[{socketPath:join(prefix,'b.sock'),status:{ownerProtocolVersion:1,owner:loaded,frontend:loaded}}],
+      components:[loaded],legacyHosts:[{socketPath:join(prefix,'lf1.sock'),hostPid:process.pid}]};
+    const result=performAutoUpgrade('1.0.0',{prefix,runtime:{...rt,fetchLatest:()=> '1.0.0',preparePtyUpgrade:()=>plan,
+      switchPtyFrontend:()=>{throw new Error('no replacement needed');}}});
+    assert.equal(result.outcome,'pty-deferred');
+    assert.equal(result.pty.status,'deferred');
+    assert.equal(result.pty.owners.length,2);
+    assert.equal(result.pty.owners.find(owner=>owner.socketPath===plan.legacyHosts[0].socketPath)?.status,'deferred');
+    assert.equal(result.pty.owners.find(owner=>owner.socketPath===plan.owners[0].socketPath)?.status,'switched');
+  } finally {rmSync(prefix,{recursive:true,force:true});}
+});

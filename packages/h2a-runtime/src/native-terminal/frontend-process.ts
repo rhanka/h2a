@@ -6,6 +6,7 @@ import { connect, createServer, type Server, type Socket } from "node:net";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import { readProcessStartTime } from "../proc-identity.js";
 import { writeHostLogLine } from "./crash-safe-log.js";
 import {
   NATIVE_TERMINAL_MAX_FRAME_BYTES,
@@ -311,36 +312,8 @@ export async function runNativeTerminalFrontend(argv: ReadonlyArray<string>): Pr
     throw new Error("unreachable");
   };
 
-  if (args.socketPath !== undefined) {
-    published = await publishNativeTerminalListener({
-      socketPath: args.socketPath,
-      onListenerFailure,
-      serve: serveEvents,
-    });
-    // The keeper holds a raw copy of the listener from birth: same inode
-    // across every later frontend replacement (D3), never the frontend
-    // alone (D24).
-    await ensureKeeper(nativeTerminalListenFd(published.server));
-  } else {
-    const server = createServer();
-    adoptedServer = server;
-    serving = serveNativeTerminalConnections(server, serveEvents, { startPaused: true });
-    await new Promise<void>((resolve, reject) => {
-      server.once("error", reject);
-      server.listen({ fd: args.listenFd! }, () => {
-        server.removeListener("error", reject);
-        resolve();
-      });
-    }).catch((error: unknown) => {
-      fail(`terminal frontend could not adopt its listener: ${error instanceof Error ? error.message : String(error)}`, 3);
-    });
-    server.on("error", (error) => {
-      // The keeper-held listener stays alive; only this generation ends.
-      // Sessions survive in the owner; the keeper seats a replacement.
-      writeHostLogLine(`terminal frontend adopted-listener error: ${String(error)}; exiting`);
-      process.exit(1);
-    });
-  }
+  let helloReady: (() => void) | undefined;
+  const initialHello = new Promise<void>(resolve => { helloReady = resolve; });
 
   channel = await connectForward();
   channel.on("error", () => {});
@@ -385,6 +358,7 @@ export async function runNativeTerminalFrontend(argv: ReadonlyArray<string>): Pr
           draining: frame.draining === true,
         };
         draining = hello.draining;
+        helloReady?.(); helloReady = undefined;
         if (published !== undefined) published.resume();
         else serving?.resume();
         continue;
@@ -421,6 +395,52 @@ export async function runNativeTerminalFrontend(argv: ReadonlyArray<string>): Pr
       }
     }
   });
+  try {
+    let helloTimer: NodeJS.Timeout | undefined;
+    try {
+      await Promise.race([initialHello, new Promise<never>((_resolve, reject) => {
+        helloTimer = setTimeout(() => reject(new Error("terminal owner hello timed out")), 5000);
+      })]);
+    } finally { clearTimeout(helloTimer); }
+    if (args.socketPath !== undefined) {
+      published = await publishNativeTerminalListener({
+        socketPath: args.socketPath,
+        processOwner: { pid: hello!.ownerPid, startTime: readProcessStartTime(hello!.ownerPid) },
+        onListenerFailure,
+        serve: serveEvents,
+      });
+      // The keeper holds a raw copy of the listener from birth: same inode
+      // across every later frontend replacement (D3), never the frontend
+      // alone (D24).
+      await ensureKeeper(nativeTerminalListenFd(published.server));
+    } else {
+      const server = createServer();
+      adoptedServer = server;
+      serving = serveNativeTerminalConnections(server, serveEvents, { startPaused: true });
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen({ fd: args.listenFd! }, () => {
+          server.removeListener("error", reject);
+          resolve();
+        });
+      }).catch((error: unknown) => {
+        fail(`terminal frontend could not adopt its listener: ${error instanceof Error ? error.message : String(error)}`, 3);
+      });
+      server.on("error", (error) => {
+        // The keeper-held listener stays alive; only this generation ends.
+        // Sessions survive in the owner; the keeper seats a replacement.
+        writeHostLogLine(`terminal frontend adopted-listener error: ${String(error)}; exiting`);
+        process.exit(1);
+      });
+    }
+
+  } catch (error) {
+    shuttingDown = true;
+    channel.destroy();
+    throw error;
+  }
+  if (published !== undefined) published.resume();
+  else serving?.resume();
   try {
     channel.write(`${JSON.stringify({
       kind: "hello",
