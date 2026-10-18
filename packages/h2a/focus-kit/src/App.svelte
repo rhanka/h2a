@@ -3,10 +3,15 @@
   import { SvelteMap } from 'svelte/reactivity';
   import { lightTheme, darkTheme } from './themes.js';
   import Canvas from './Canvas.svelte';
+  import { preparePresentation } from '../../../focus/src/render/presentation.ts';
   let { document: dossier } = $props();
   let dark = $state(matchMedia('(prefers-color-scheme: dark)').matches);
   const selections = new SvelteMap();
   let questions = $derived(dossier.sections.filter(s => s.kind === 'question'));
+  let sections = $derived(preparePresentation(dossier).sections);
+  let optionSets = $derived(sections.filter(s => s.kind === 'optionSet'));
+  const optionLabel = (questionId, optionId) => optionSets.filter(s => s.questionId === questionId)
+    .flatMap(s => s.options).find(o => o.id === optionId)?.label;
   const recommended = (set, option) => questions.find(q => q.id === set.questionId)?.recommendedOptionId === option.id;
   let steps = $derived([...dossier.amendmentTrace, ...dossier.sections.filter(s => s.kind === 'amendmentTrace').flatMap(s => s.steps)]);
 </script>
@@ -23,7 +28,7 @@
         {#if dossier.readability.glossary?.length}
           <aside aria-label="Glossaire"><h2>En mots simples</h2><dl>{#each dossier.readability.glossary as entry}<dt>{entry.term}</dt><dd>{entry.definition}</dd>{/each}</dl></aside>
         {/if}
-        {#each dossier.sections as section}
+        {#each sections as section}
           <section id={section.id} class="dossier-section">
             {#if section.kind === 'prose'}
               <p class="prose">{section.markdown}</p>
@@ -47,7 +52,7 @@
                   </button>
                 {/each}
               </div>
-              <p class="selection" aria-live="polite">{selections.get(section.questionId) ? `Sélection locale : ${section.options.find(o => o.id === selections.get(section.questionId))?.label}. Communiquez ce choix au présentateur pour l’enregistrer.` : 'Sélectionnez une option pour préparer votre réponse.'}</p>
+              <p class="selection" aria-live="polite">{selections.get(section.questionId) ? `Sélection locale : ${optionLabel(section.questionId, selections.get(section.questionId))}. Communiquez ce choix au présentateur pour l’enregistrer.` : 'Sélectionnez une option pour préparer votre réponse.'}</p>
             {:else if section.kind === 'diagram'}
               <Canvas document={section.scene} {dark} alt={section.alt} />
             {:else if section.kind === 'outcome'}

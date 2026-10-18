@@ -10,6 +10,7 @@ const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 const inputs = ['package.json', 'package-lock.json', 'dossier.template.json', 'ecosystem.json',
   '../../../scripts/build-focus-dossier.mjs', '../../focus/schemas/decision-dossier-document.v1.schema.json',
   '../../focus/src/validation/index.ts', '../../focus/src/validation/readability.ts', '../../focus/src/model.ts',
+  '../../focus/src/render/presentation.ts',
   '../../focus/LICENSE',
   ...readdirSync(join(kit, 'src')).sort().map(n => `src/${n}`)];
 const sources = () => Object.fromEntries(inputs.map(n => [n, digest(readFileSync(join(kit, n)))]));

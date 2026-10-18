@@ -175,7 +175,55 @@ test('uses supplied diagram-core semantics instead of the Mermaid fallback or ec
   const result = run(root, 'build', input, '-o', output)
   assert.equal(result.status, 0, result.stderr)
   const payload = JSON.parse(readFileSync(output, 'utf8').match(/<script type="application\/json" data-focus-document>([\s\S]*?)<\/script>/)[1])
-  assert.deepEqual(payload.document.sections.find(s => s.kind === 'diagram').scene, scene)
+  const diagram = payload.document.sections.find(s => s.kind === 'diagram')
+  assert.deepEqual(diagram.scene, scene)
+  assert.equal(diagram.syntax, 'mermaid')
+  assert.match(diagram.source, /^flowchart LR\n/)
+  for (const entity of Object.values(scene.entities)) assert.ok(diagram.source.includes(entity.attributes.name.value))
+  assert.doesNotMatch(diagram.source, /ecosystem:overview/)
+  writeFileSync(input, JSON.stringify(payload.document))
+  assert.equal(run(root, 'build', input, '-o', output).status, 0)
+}))
+
+test('refuses nested layout hints and malformed semantic records without replacing output', async t => {
+  const changes = {
+    'schema version hint': s => { s.schemaVersion.geometry = {} },
+    'entity geometry': s => { s.entities['entity:coordinator'].attributes.geometry = {} },
+    'name placement': s => { s.entities['entity:coordinator'].attributes.name.side = 'left' },
+    'relation waypoints': s => { s.relations['relation:requests'].attributes.waypoints = [] },
+    'relation attributes string': s => { s.relations['relation:requests'].attributes = 'invalid' },
+    'relation attributes array': s => { s.relations['relation:requests'].attributes = [] },
+    'relation attributes null': s => { s.relations['relation:requests'].attributes = null },
+    'missing relation attributes': s => { delete s.relations['relation:requests'].attributes },
+    'label placement': s => { s.relations['relation:requests'].attributes.label.side = 'left' },
+    'endpoint side': s => { s.relations['relation:requests'].endpoints[0].side = 'left' },
+    'null endpoint': s => { s.relations['relation:requests'].endpoints[0] = null },
+    'containment attributes': s => { Object.values(s.relations).find(r => r.type === 'contains').attributes.label = { kind: 'text', value: 'Hidden' } },
+  }
+  for (const [name, change] of Object.entries(changes)) {
+    await t.test(name, () => isolated(root => {
+      const doc = fixture(), scene = JSON.parse(readFileSync(join(kit, '../../focus/tests/diagram-core-generic.fixture.json'), 'utf8'))
+      change(scene); doc.sections.find(s => s.kind === 'diagram').scene = scene
+      const input = join(root, 'bad.json'), output = join(root, 'decision.html')
+      writeFileSync(input, JSON.stringify(doc)); writeFileSync(output, 'previous dossier')
+      const result = run(root, 'build', input, '-o', output)
+      assert.equal(result.status, 1, `${name}: ${result.stderr}`)
+      assert.match(result.stderr, /Unsupported diagram-core document/, name)
+      assert.equal(readFileSync(output, 'utf8'), 'previous dossier', name)
+    }))
+  }
+})
+
+test('budgets two ecosystem diagrams by their displayed labels instead of Mermaid syntax and comments', () => isolated((root) => {
+  const doc = fixture()
+  doc.readability.stakesLevel = 'low'; doc.readability.readingBudgetMinutes = 2
+  doc.sections = doc.sections.filter(s => s.kind !== 'prose')
+  doc.sections.find(s => s.kind === 'question').readingTimeMinutes = 0.8
+  doc.sections.push({ ...doc.sections.find(s => s.kind === 'diagram'), id: 'second-diagram', targetRef: 'second-diagram' })
+  const input = join(root, 'dossier.json'), output = join(root, 'decision.html')
+  writeFileSync(input, JSON.stringify(doc))
+  const result = run(root, 'build', input, '-o', output)
+  assert.equal(result.status, 0, result.stderr)
 }))
 
 test('checks diagram-core visible text through the readability gate before replacing output', () => isolated((root) => {
