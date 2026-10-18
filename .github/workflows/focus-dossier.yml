@@ -31,6 +31,8 @@ jobs:
         run: node --test packages/h2a/focus-kit/test/browser.test.mjs
       - name: H1 evidence tasks and fresh installed-package opening
         run: node --test packages/h2a/focus-kit/test/evidence-browser.test.mjs
+      - name: Strict memory observation including exiting owned processes
+        run: node --test packages/h2a/focus-kit/test/evidence-memory.test.mjs
       - name: Frozen H1 evidence reactivity and memory policy
         env:
           TMPDIR: ${{ runner.temp }}
