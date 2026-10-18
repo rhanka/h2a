@@ -181,3 +181,17 @@ ferme aussi le navigateur possédé.
 Les liens d'annexe résolvent les références vers la section, l'option ou le
 dossier effectivement rendu ; le focus suit ce contexte. Le test couvre aussi
 de vrais taps sur téléphone, et les budgets numériques sont strictement inchangés.
+
+## Témoins de méthode H4 conservés
+
+| Commande exacte | Résultat |
+| --- | --- |
+| `rtk node --test packages/h2a/test/install-skills-hosts.test.js` | 17/17 pass, exit 0, zéro skip ; run-6yuT1o |
+| `rtk node --test packages/h2a/test/native-host-shared-skills.test.js` | 3/3 pass, exit 0, zéro skip ; run-xm7WQG |
+| `rtk npm exec --offline -- vitest run --config vitest.config.ts src/cli/present-decision-skill.test.ts` (cwd packages/track) | RED 1 échec / 13, run-lRHA0J : instructions 879 mots > 850 ; puis 13/13 pass, exit 0, run-Lg4kMk et vérification finale après condensation |
+
+Les instructions H1 tiennent dans le budget existant : 835 mots pour la méthode,
+moins de 300 pour l'audit, avec les clauses propriétaires conservées. Aucun seuil
+de lecture n'a été modifié. La fermeture du package isolé repasse 1/1 après ce
+changement de texte, run-3vnWZe. Total des fichiers ciblés : **300 tests**, zéro skip.
+Les sorties par job CI et l'artifact de mesures sont liés dans la PR draft #377.
