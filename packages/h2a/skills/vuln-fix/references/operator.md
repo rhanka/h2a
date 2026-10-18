@@ -148,3 +148,15 @@ authors. Synthetic tables/imports are not live binary/gateway/lifecycle proof.
 macOS/Windows remain separate unqualified scopes. Non-npm ecosystems,
 majors/new packages, urgent age exceptions, rollback and served-model
 attestation remain outside this delivery.
+
+## Code review handoff
+
+status: selection-failed
+target-ref: e551f3e (independent merge contract and reporting code)
+review-author-host: codex
+review-author-model: unknown (exact runtime model identifier unavailable)
+review-author-effort: unknown
+observed-failure: Installed h2a/native-state access is forbidden by the owner;
+the harness review skill requires dispatch through installed h2a MCP.
+No review leg was launched and no code consensus is claimed. The conductor
+must obtain Sol 6.1 xhigh + Astra max on the exact final PR SHA for G5.
