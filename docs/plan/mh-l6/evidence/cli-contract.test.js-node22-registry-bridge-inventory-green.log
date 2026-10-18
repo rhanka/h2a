@@ -1,0 +1,702 @@
+command: /usr/bin/node --import /home/antoinefa/src/h2a/tmp/worktrees/r5r6/packages/h2a/test/helpers/native-isolation.js --test --test-reporter=tap --test-reporter=/home/antoinefa/src/h2a/tmp/worktrees/r5r6/scripts/node-evidence-reporter.mjs --test-reporter-destination=stdout --test-reporter-destination=/tmp/mh-l6-test-7mFV8Y/node-report.json packages/h2a/test/cli-contract.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-7mFV8Y
+case: all cases in explicit file
+TAP version 13
+# Subtest: H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)
+ok 1 - H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)
+  ---
+  duration_ms: 2.136782
+  type: 'test'
+  ...
+# Subtest: central status emits a resource envelope on the happy path
+ok 2 - central status emits a resource envelope on the happy path
+  ---
+  duration_ms: 10.905758
+  type: 'test'
+  ...
+# Subtest: central stop emits a resource envelope on the happy path
+ok 3 - central stop emits a resource envelope on the happy path
+  ---
+  duration_ms: 7.139548
+  type: 'test'
+  ...
+# Subtest: --help emits a text envelope on the happy path
+ok 4 - --help emits a text envelope on the happy path
+  ---
+  duration_ms: 2.446485
+  type: 'test'
+  ...
+# Subtest: explain emits a text envelope on the happy path
+ok 5 - explain emits a text envelope on the happy path
+  ---
+  duration_ms: 5.344149
+  type: 'test'
+  ...
+# Subtest: hosts emits a list envelope on the happy path
+ok 6 - hosts emits a list envelope on the happy path
+  ---
+  duration_ms: 2.160386
+  type: 'test'
+  ...
+# Subtest: mcp-tools emits a list envelope on the happy path
+ok 7 - mcp-tools emits a list envelope on the happy path
+  ---
+  duration_ms: 2.064827
+  type: 'test'
+  ...
+# Subtest: report-context emits a resource envelope on the happy path
+ok 8 - report-context emits a resource envelope on the happy path
+  ---
+  duration_ms: 2.620032
+  type: 'test'
+  ...
+# Subtest: init emits a action envelope on the happy path
+ok 9 - init emits a action envelope on the happy path
+  ---
+  duration_ms: 2.64048
+  type: 'test'
+  ...
+# Subtest: register emits a action envelope on the happy path
+ok 10 - register emits a action envelope on the happy path
+  ---
+  duration_ms: 2.907512
+  type: 'test'
+  ...
+# Subtest: discover emits a list envelope on the happy path
+ok 11 - discover emits a list envelope on the happy path
+  ---
+  duration_ms: 2.54473
+  type: 'test'
+  ...
+# Subtest: send emits a action envelope on the happy path
+ok 12 - send emits a action envelope on the happy path
+  ---
+  duration_ms: 5.240775
+  type: 'test'
+  ...
+# Subtest: loop create emits a resource envelope on the happy path
+ok 13 - loop create emits a resource envelope on the happy path
+  ---
+  duration_ms: 2.870403
+  type: 'test'
+  ...
+# Subtest: loop enable-auto-tick emits a resource envelope on the happy path
+ok 14 - loop enable-auto-tick emits a resource envelope on the happy path
+  ---
+  duration_ms: 2.999095
+  type: 'test'
+  ...
+# Subtest: loop list emits a list envelope on the happy path
+ok 15 - loop list emits a list envelope on the happy path
+  ---
+  duration_ms: 2.229657
+  type: 'test'
+  ...
+# Subtest: loop status emits a resource envelope on the happy path
+ok 16 - loop status emits a resource envelope on the happy path
+  ---
+  duration_ms: 2.302254
+  type: 'test'
+  ...
+# Subtest: loop agents emits a list envelope on the happy path
+ok 17 - loop agents emits a list envelope on the happy path
+  ---
+  duration_ms: 2.100955
+  type: 'test'
+  ...
+# Subtest: loop attach emits a action envelope on the happy path
+ok 18 - loop attach emits a action envelope on the happy path
+  ---
+  duration_ms: 2.212996
+  type: 'test'
+  ...
+# Subtest: loop logs emits a resource envelope on the happy path
+ok 19 - loop logs emits a resource envelope on the happy path
+  ---
+  duration_ms: 2.294088
+  type: 'test'
+  ...
+# Subtest: loop tick emits a resource envelope on the happy path
+ok 20 - loop tick emits a resource envelope on the happy path
+  ---
+  duration_ms: 69.68268
+  type: 'test'
+  ...
+# Subtest: loop watch emits a stream envelope on the happy path
+ok 21 - loop watch emits a stream envelope on the happy path
+  ---
+  duration_ms: 5.840053
+  type: 'test'
+  ...
+# Subtest: canevas list emits a resource envelope on the happy path
+ok 22 - canevas list emits a resource envelope on the happy path
+  ---
+  duration_ms: 2.96482
+  type: 'test'
+  ...
+# Subtest: canevas serve emits a stream envelope on the happy path
+ok 23 - canevas serve emits a stream envelope on the happy path
+  ---
+  duration_ms: 21.362539
+  type: 'test'
+  ...
+# Subtest: focus serve emits a stream envelope on the happy path
+ok 24 - focus serve emits a stream envelope on the happy path
+  ---
+  duration_ms: 31.981808
+  type: 'test'
+  ...
+# {"event":"drive-consent.full-verification","durationMs":0.008927000000085172,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: focus web emits a stream envelope on the happy path
+ok 25 - focus web emits a stream envelope on the happy path
+  ---
+  duration_ms: 30.398568
+  type: 'test'
+  ...
+# Subtest: subagent register emits a action envelope on the happy path
+ok 26 - subagent register emits a action envelope on the happy path
+  ---
+  duration_ms: 2.865614
+  type: 'test'
+  ...
+# Subtest: subagent list emits a list envelope on the happy path
+ok 27 - subagent list emits a list envelope on the happy path
+  ---
+  duration_ms: 1.972303
+  type: 'test'
+  ...
+# Subtest: subagent route emits a action envelope on the happy path
+ok 28 - subagent route emits a action envelope on the happy path
+  ---
+  duration_ms: 2.070086
+  type: 'test'
+  ...
+# Subtest: subagent inbox emits a list envelope on the happy path
+ok 29 - subagent inbox emits a list envelope on the happy path
+  ---
+  duration_ms: 2.071429
+  type: 'test'
+  ...
+# Subtest: subagent audit emits a list envelope on the happy path
+ok 30 - subagent audit emits a list envelope on the happy path
+  ---
+  duration_ms: 2.086026
+  type: 'test'
+  ...
+# Subtest: subagent revoke emits a action envelope on the happy path
+ok 31 - subagent revoke emits a action envelope on the happy path
+  ---
+  duration_ms: 2.034158
+  type: 'test'
+  ...
+# Subtest: negotiate open emits a resource envelope on the happy path
+ok 32 - negotiate open emits a resource envelope on the happy path
+  ---
+  duration_ms: 1.951293
+  type: 'test'
+  ...
+# Subtest: negotiate status emits a resource envelope on the happy path
+ok 33 - negotiate status emits a resource envelope on the happy path
+  ---
+  duration_ms: 2.525904
+  type: 'test'
+  ...
+# Subtest: negotiate event emits a resource envelope on the happy path
+ok 34 - negotiate event emits a resource envelope on the happy path
+  ---
+  duration_ms: 2.117446
+  type: 'test'
+  ...
+# Subtest: negotiate offer emits a resource envelope on the happy path
+ok 35 - negotiate offer emits a resource envelope on the happy path
+  ---
+  duration_ms: 1.998451
+  type: 'test'
+  ...
+# Subtest: negotiate counter emits a resource envelope on the happy path
+ok 36 - negotiate counter emits a resource envelope on the happy path
+  ---
+  duration_ms: 2.000375
+  type: 'test'
+  ...
+# Subtest: negotiate sign emits a resource envelope on the happy path
+ok 37 - negotiate sign emits a resource envelope on the happy path
+  ---
+  duration_ms: 2.155708
+  type: 'test'
+  ...
+# Subtest: negotiate stabilize emits a action envelope on the happy path
+ok 38 - negotiate stabilize emits a action envelope on the happy path
+  ---
+  duration_ms: 5.362443
+  type: 'test'
+  ...
+# Subtest: negotiate journal emits a list envelope on the happy path
+ok 39 - negotiate journal emits a list envelope on the happy path
+  ---
+  duration_ms: 2.080997
+  type: 'test'
+  ...
+# Subtest: declare-interest emits a resource envelope on the happy path
+ok 40 - declare-interest emits a resource envelope on the happy path
+  ---
+  duration_ms: 2.542065
+  type: 'test'
+  ...
+# Subtest: conflict-posture emits a resource envelope on the happy path
+ok 41 - conflict-posture emits a resource envelope on the happy path
+  ---
+  duration_ms: 2.086367
+  type: 'test'
+  ...
+# Subtest: dossier emits a resource envelope on the happy path
+ok 42 - dossier emits a resource envelope on the happy path
+  ---
+  duration_ms: 2.169153
+  type: 'test'
+  ...
+# Subtest: confiance emits a resource envelope on the happy path
+ok 43 - confiance emits a resource envelope on the happy path
+  ---
+  duration_ms: 2.35339
+  type: 'test'
+  ...
+# Subtest: attest-comprehension emits a resource envelope on the happy path
+ok 44 - attest-comprehension emits a resource envelope on the happy path
+  ---
+  duration_ms: 2.561221
+  type: 'test'
+  ...
+# Subtest: comprehension list emits a list envelope on the happy path
+ok 45 - comprehension list emits a list envelope on the happy path
+  ---
+  duration_ms: 4.764378
+  type: 'test'
+  ...
+# Subtest: comprehension verify emits a resource envelope on the happy path
+ok 46 - comprehension verify emits a resource envelope on the happy path
+  ---
+  duration_ms: 2.384208
+  type: 'test'
+  ...
+# Subtest: inbox put emits a action envelope on the happy path
+ok 47 - inbox put emits a action envelope on the happy path
+  ---
+  duration_ms: 1.885048
+  type: 'test'
+  ...
+# Subtest: inbox read emits a list envelope on the happy path
+ok 48 - inbox read emits a list envelope on the happy path
+  ---
+  duration_ms: 2.033478
+  type: 'test'
+  ...
+# Subtest: inbox pop emits a resource envelope on the happy path
+ok 49 - inbox pop emits a resource envelope on the happy path
+  ---
+  duration_ms: 2.067762
+  type: 'test'
+  ...
+# Subtest: outbox put emits a action envelope on the happy path
+ok 50 - outbox put emits a action envelope on the happy path
+  ---
+  duration_ms: 1.825415
+  type: 'test'
+  ...
+# Subtest: outbox read emits a list envelope on the happy path
+ok 51 - outbox read emits a list envelope on the happy path
+  ---
+  duration_ms: 1.852737
+  type: 'test'
+  ...
+# Subtest: store index-launch emits a action envelope on the happy path
+ok 52 - store index-launch emits a action envelope on the happy path
+  ---
+  duration_ms: 2.712335
+  type: 'test'
+  ...
+# Subtest: store migrate emits a action envelope on the happy path
+ok 53 - store migrate emits a action envelope on the happy path
+  ---
+  duration_ms: 1.953798
+  type: 'test'
+  ...
+# Subtest: mcp-serve emits a stream envelope on the happy path
+ok 54 - mcp-serve emits a stream envelope on the happy path
+  ---
+  duration_ms: 29.864723
+  type: 'test'
+  ...
+# Subtest: track-mcp emits a stream envelope on the happy path
+ok 55 - track-mcp emits a stream envelope on the happy path
+  ---
+  duration_ms: 323.432452
+  type: 'test'
+  ...
+# Subtest: upgrade emits a action envelope on the happy path
+ok 56 - upgrade emits a action envelope on the happy path
+  ---
+  duration_ms: 3.89935
+  type: 'test'
+  ...
+# Subtest: drive emits a action envelope on the happy path
+ok 57 - drive emits a action envelope on the happy path
+  ---
+  duration_ms: 2.864802
+  type: 'test'
+  ...
+# Subtest: drive receive emits a action envelope on the happy path
+ok 58 - drive receive emits a action envelope on the happy path
+  ---
+  duration_ms: 3.505899
+  type: 'test'
+  ...
+# Subtest: drive serve emits a stream envelope on the happy path
+ok 59 - drive serve emits a stream envelope on the happy path
+  ---
+  duration_ms: 27.928138
+  type: 'test'
+  ...
+# Subtest: sysml verify emits a resource envelope on the happy path
+ok 60 - sysml verify emits a resource envelope on the happy path
+  ---
+  duration_ms: 1.955861
+  type: 'test'
+  ...
+# Subtest: drumbeat record emits a action envelope on the happy path
+ok 61 - drumbeat record emits a action envelope on the happy path
+  ---
+  duration_ms: 2.796994
+  type: 'test'
+  ...
+# Subtest: drumbeat scan emits a resource envelope on the happy path
+ok 62 - drumbeat scan emits a resource envelope on the happy path
+  ---
+  duration_ms: 2.549118
+  type: 'test'
+  ...
+# Subtest: drumbeat clear emits a action envelope on the happy path
+ok 63 - drumbeat clear emits a action envelope on the happy path
+  ---
+  duration_ms: 2.065818
+  type: 'test'
+  ...
+# Subtest: drumbeat escalations emits a list envelope on the happy path
+ok 64 - drumbeat escalations emits a list envelope on the happy path
+  ---
+  duration_ms: 1.932538
+  type: 'test'
+  ...
+# Subtest: drumbeat relance-inbox emits a action envelope on the happy path
+ok 65 - drumbeat relance-inbox emits a action envelope on the happy path
+  ---
+  duration_ms: 2.645269
+  type: 'test'
+  ...
+# Subtest: drumbeat watch emits a stream envelope on the happy path
+ok 66 - drumbeat watch emits a stream envelope on the happy path
+  ---
+  duration_ms: 2.007569
+  type: 'test'
+  ...
+# Subtest: host setup emits a resource envelope on the happy path
+ok 67 - host setup emits a resource envelope on the happy path
+  ---
+  duration_ms: 2.824967
+  type: 'test'
+  ...
+# Subtest: host plugin emits a resource envelope on the happy path
+ok 68 - host plugin emits a resource envelope on the happy path
+  ---
+  duration_ms: 3.100686
+  type: 'test'
+  ...
+# Subtest: host status emits a action envelope on the happy path
+ok 69 - host status emits a action envelope on the happy path
+  ---
+  duration_ms: 45.29697
+  type: 'test'
+  ...
+# Subtest: registry catalog emits a list envelope on the happy path
+ok 70 - registry catalog emits a list envelope on the happy path
+  ---
+  duration_ms: 4.007944
+  type: 'test'
+  ...
+# Subtest: registry bootstrap emits a action envelope on the happy path
+ok 71 - registry bootstrap emits a action envelope on the happy path
+  ---
+  duration_ms: 2.277577
+  type: 'test'
+  ...
+# Subtest: registry-bridge serve emits a stream envelope on the happy path
+not ok 72 - registry-bridge serve emits a stream envelope on the happy path
+  ---
+  duration_ms: 287.475511
+  type: 'test'
+  location: '/home/antoinefa/src/h2a/tmp/worktrees/r5r6/packages/h2a/test/cli-contract.test.js:1745:5'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    null !== 1
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 1
+  actual: ~
+  operator: 'strictEqual'
+  stack: |-
+    happyRegistryBridgeServe (file:///home/antoinefa/src/h2a/tmp/worktrees/r5r6/packages/h2a/test/cli-contract.test.js:1298:54)
+    async TestContext.<anonymous> (file:///home/antoinefa/src/h2a/tmp/worktrees/r5r6/packages/h2a/test/cli-contract.test.js:1746:7)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: hosted-lock emits a action envelope on the happy path
+ok 73 - hosted-lock emits a action envelope on the happy path
+  ---
+  duration_ms: 3.335107
+  type: 'test'
+  ...
+# Subtest: connect emits a action envelope on the happy path
+ok 74 - connect emits a action envelope on the happy path
+  ---
+  duration_ms: 2.291874
+  type: 'test'
+  ...
+# Subtest: doctor emits a action envelope on the happy path
+ok 75 - doctor emits a action envelope on the happy path
+  ---
+  duration_ms: 22.879566
+  type: 'test'
+  ...
+# Subtest: status emits a action envelope on the happy path
+ok 76 - status emits a action envelope on the happy path
+  ---
+  duration_ms: 2.190382
+  type: 'test'
+  ...
+# Subtest: sessions emits a list envelope on the happy path
+ok 77 - sessions emits a list envelope on the happy path
+  ---
+  duration_ms: 1.81695
+  type: 'test'
+  ...
+# Subtest: keys generate emits a action envelope on the happy path
+ok 78 - keys generate emits a action envelope on the happy path
+  ---
+  duration_ms: 2.936488
+  type: 'test'
+  ...
+# Subtest: keys add emits a action envelope on the happy path
+ok 79 - keys add emits a action envelope on the happy path
+  ---
+  duration_ms: 2.133867
+  type: 'test'
+  ...
+# Subtest: keys list emits a list envelope on the happy path
+ok 80 - keys list emits a list envelope on the happy path
+  ---
+  duration_ms: 1.887673
+  type: 'test'
+  ...
+# Subtest: keys revoke emits a action envelope on the happy path
+ok 81 - keys revoke emits a action envelope on the happy path
+  ---
+  duration_ms: 2.402091
+  type: 'test'
+  ...
+# Subtest: keys prove-control emits a action envelope on the happy path
+ok 82 - keys prove-control emits a action envelope on the happy path
+  ---
+  duration_ms: 26.646385
+  type: 'test'
+  ...
+# Subtest: nhi report emits a resource envelope on the happy path
+ok 83 - nhi report emits a resource envelope on the happy path
+  ---
+  duration_ms: 2.855335
+  type: 'test'
+  ...
+# Subtest: nhi inventory emits a resource envelope on the happy path
+ok 84 - nhi inventory emits a resource envelope on the happy path
+  ---
+  duration_ms: 2.340886
+  type: 'test'
+  ...
+# Subtest: nhi export emits a resource envelope on the happy path
+ok 85 - nhi export emits a resource envelope on the happy path
+  ---
+  duration_ms: 2.009863
+  type: 'test'
+  ...
+# Subtest: nhi attest emits a resource envelope on the happy path
+ok 86 - nhi attest emits a resource envelope on the happy path
+  ---
+  duration_ms: 2.206473
+  type: 'test'
+  ...
+# Subtest: nhi offboard emits a action envelope on the happy path
+ok 87 - nhi offboard emits a action envelope on the happy path
+  ---
+  duration_ms: 2.603821
+  type: 'test'
+  ...
+# Subtest: org validate emits a action envelope on the happy path
+ok 88 - org validate emits a action envelope on the happy path
+  ---
+  duration_ms: 2.688991
+  type: 'test'
+  ...
+# Subtest: org show emits a resource envelope on the happy path
+ok 89 - org show emits a resource envelope on the happy path
+  ---
+  duration_ms: 1.898604
+  type: 'test'
+  ...
+# Subtest: org diff emits a resource envelope on the happy path
+ok 90 - org diff emits a resource envelope on the happy path
+  ---
+  duration_ms: 1.997941
+  type: 'test'
+  ...
+# Subtest: org provision emits a action envelope on the happy path
+ok 91 - org provision emits a action envelope on the happy path
+  ---
+  duration_ms: 2.115592
+  type: 'test'
+  ...
+# Subtest: coach propose emits a resource envelope on the happy path
+ok 92 - coach propose emits a resource envelope on the happy path
+  ---
+  duration_ms: 2.020163
+  type: 'test'
+  ...
+# Subtest: coach ratify emits a resource envelope on the happy path
+ok 93 - coach ratify emits a resource envelope on the happy path
+  ---
+  duration_ms: 2.066079
+  type: 'test'
+  ...
+# Subtest: blockage raise emits a action envelope on the happy path
+ok 94 - blockage raise emits a action envelope on the happy path
+  ---
+  duration_ms: 2.255766
+  type: 'test'
+  ...
+# Subtest: blockage list emits a list envelope on the happy path
+ok 95 - blockage list emits a list envelope on the happy path
+  ---
+  duration_ms: 1.776735
+  type: 'test'
+  ...
+# Subtest: blockage resolve emits a action envelope on the happy path
+ok 96 - blockage resolve emits a action envelope on the happy path
+  ---
+  duration_ms: 2.79486
+  type: 'test'
+  ...
+# Subtest: install-skills emits a action envelope on the happy path
+ok 97 - install-skills emits a action envelope on the happy path
+  ---
+  duration_ms: 7.812725
+  type: 'test'
+  ...
+# Subtest: harness emits a text envelope on the happy path
+ok 98 - harness emits a text envelope on the happy path
+  ---
+  duration_ms: 2.635391
+  type: 'test'
+  ...
+# Subtest: keepalive emits a action envelope on the happy path
+ok 99 - keepalive emits a action envelope on the happy path # SKIP keepalive: DEC-034 declares an "action" ({ok:true} JSON) envelope but the verb only writes plain-text "h2a keepalive: refreshed …" lines (nothing at all without a live tmux pane) — needs a DEC-034 amendment; blocking dependency and target date in docs/plan/reenable-cli-contract-happy-paths.md §4
+  ---
+  duration_ms: 2.195883
+  type: 'test'
+  ...
+# Subtest: thread emits a list envelope on the happy path
+ok 100 - thread emits a list envelope on the happy path
+  ---
+  duration_ms: 2.431998
+  type: 'test'
+  ...
+# Subtest: conductor emits a resource envelope on the happy path
+ok 101 - conductor emits a resource envelope on the happy path
+  ---
+  duration_ms: 6.19507
+  type: 'test'
+  ...
+# Subtest: conductor claim emits a resource envelope on the happy path
+ok 102 - conductor claim emits a resource envelope on the happy path
+  ---
+  duration_ms: 2.462786
+  type: 'test'
+  ...
+# Subtest: conductor release emits a resource envelope on the happy path
+ok 103 - conductor release emits a resource envelope on the happy path
+  ---
+  duration_ms: 2.057412
+  type: 'test'
+  ...
+# Subtest: conductor-launch-check emits a resource envelope on the happy path
+ok 104 - conductor-launch-check emits a resource envelope on the happy path
+  ---
+  duration_ms: 5.592417
+  type: 'test'
+  ...
+# Subtest: conductor-launch emits a resource envelope on the happy path
+ok 105 - conductor-launch emits a resource envelope on the happy path
+  ---
+  duration_ms: 6.046692
+  type: 'test'
+  ...
+# Subtest: deploy k8s-sidecar emits a resource envelope on the happy path
+ok 106 - deploy k8s-sidecar emits a resource envelope on the happy path
+  ---
+  duration_ms: 3.36852
+  type: 'test'
+  ...
+# Subtest: deploy k8s-tenant emits a resource envelope on the happy path
+ok 107 - deploy k8s-tenant emits a resource envelope on the happy path
+  ---
+  duration_ms: 2.442337
+  type: 'test'
+  ...
+# Subtest: negotiate stabilize on a missing negotiation exits 2 (DEC-034 state error)
+ok 108 - negotiate stabilize on a missing negotiation exits 2 (DEC-034 state error)
+  ---
+  duration_ms: 0.919801
+  type: 'test'
+  ...
+# Subtest: inbox pop on a missing envelope exits 2 (DEC-034 state error)
+ok 109 - inbox pop on a missing envelope exits 2 (DEC-034 state error)
+  ---
+  duration_ms: 0.779728
+  type: 'test'
+  ...
+# Subtest: register with malformed JSON exits 1 (DEC-034 user error)
+ok 110 - register with malformed JSON exits 1 (DEC-034 user error)
+  ---
+  duration_ms: 0.959736
+  type: 'test'
+  ...
+# Subtest: negotiate sign with an unreadable private-key file exits 3 (DEC-034 I/O error)
+ok 111 - negotiate sign with an unreadable private-key file exits 3 (DEC-034 I/O error)
+  ---
+  duration_ms: 0.938827
+  type: 'test'
+  ...
+1..111
+# tests 111
+# suites 0
+# pass 109
+# fail 1
+# cancelled 0
+# skipped 1
+# todo 0
+# duration_ms 1503.804523
+
+Execution inventory failures: ["the report records suite or unhandled errors","/home/antoinefa/src/h2a/tmp/worktrees/r5r6/packages/h2a/test/cli-contract.test.js: suite did not pass","/home/antoinefa/src/h2a/tmp/worktrees/r5r6/packages/h2a/test/cli-contract.test.js :: registry-bridge serve emits a stream envelope on the happy path: failed assertion","/home/antoinefa/src/h2a/tmp/worktrees/r5r6/packages/h2a/test/cli-contract.test.js :: registry-bridge serve emits a stream envelope on the happy path: normative test absent or not passed"]
+
+receipt: {"command":["/usr/bin/node","--import","/home/antoinefa/src/h2a/tmp/worktrees/r5r6/packages/h2a/test/helpers/native-isolation.js","--test","--test-reporter=tap","--test-reporter=/home/antoinefa/src/h2a/tmp/worktrees/r5r6/scripts/node-evidence-reporter.mjs","--test-reporter-destination=stdout","--test-reporter-destination=/tmp/mh-l6-test-7mFV8Y/node-report.json","packages/h2a/test/cli-contract.test.js"],"code":1,"signal":null,"tests":111,"invalid":true,"spawned":5,"leftovers":[]}
