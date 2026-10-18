@@ -565,7 +565,8 @@
   "packages/h2a/test/mcp-notifications.test.js": [],
   "packages/h2a/test/mcp-payload-store.test.js": [
     "writes below quota avoid expiry metadata scans while pressure reclaims only expired bytes",
-    "automatic expiry maintenance advances monotonically and explicit sweeps stay immediate"
+    "automatic expiry maintenance advances monotonically and explicit sweeps stay immediate",
+    "repeated sweeps reuse unchanged live expiry metadata and revalidate external replacements"
   ],
   "packages/h2a/test/mcp-phase-trace-unit.test.js": [],
   "packages/h2a/test/mcp-phase-trace.test.js": [],
