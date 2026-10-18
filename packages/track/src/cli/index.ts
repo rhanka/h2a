@@ -102,7 +102,7 @@ const USAGE = `usage: track <command>
   accept waive <criterionId> --reason <r>
   consolidate --items <id,id> --commit <mergeCommit> [--client-token <t>]
   priority assess <itemId> --ubv <n> --tc <n> --rr <n> --js <n>
-  report [--status-table] [--scope <container-id|code|label>] [--since <sha|YYYY-MM-DD> [--until <sha|YYYY-MM-DD>]|--period <today|week|month|all>] [--decisions] [--require-accepted] [--active-roster] [--wp|--flat] [--inline] [--width <n>] [--level <spec|plan|wp|lot|task>] [--raw] [--resolve <handle>] [--sub-wp] [--format json|text|md] [--commit <sha>] [--now <iso>]
+  report [--status-table] [--scope <container-id|code|label>] [--since <sha|YYYY-MM-DD> [--until <sha|YYYY-MM-DD>]|--period <today|week|month|all>] [--decisions] [--require-accepted] [--active-roster] [--wp|--flat] [--inline] [--width <n>] [--level <spec|plan|wp|lot|task>] [--raw] [--resolve <handle>] [--sub-wp] [--lang <bcp47>] [--format json|text|md] [--commit <sha>] [--now <iso>]
   snapshot [--require-accepted] [--format json|text|md] [--commit <sha>]
   export-graph [--repo-key <repo:key>] [--source-id <id>] [--observed-at <iso>]
   query [--kind <k>] [--role <workpackage|spec-phase|stream>] [--workspace <w>] [--bucket <AWAITED|DROPPED|DONE|TO-DO>] [--realization <r>] [--acceptance <a>] [--format json|text|md] [--commit <sha>]
@@ -442,7 +442,7 @@ function extractTrackDirFlag(argv: string[]): { trackDirFlag?: string; rest: str
   return trackDirFlag !== undefined ? { trackDirFlag, rest } : { rest }
 }
 
-const REPORT_USAGE = `usage: track report [--status-table] [--scope <container-id|code|label>] [--since <sha|YYYY-MM-DD> [--until <sha|YYYY-MM-DD>] | --period <today|week|month|all>] [--raw] [--wp] [--flat] [--inline|--width <40..240>] [--decisions] [--active-roster] [--require-accepted] [--resolve <handle>] [--commit <sha>] [--now <iso>] [--sub-wp] [--format json|text|md] [--track-dir <directory-containing-events.jsonl>]
+const REPORT_USAGE = `usage: track report [--status-table] [--scope <container-id|code|label>] [--since <sha|YYYY-MM-DD> [--until <sha|YYYY-MM-DD>] | --period <today|week|month|all>] [--raw] [--wp] [--flat] [--inline|--width <40..240>] [--decisions] [--active-roster] [--require-accepted] [--resolve <handle>] [--commit <sha>] [--now <iso>] [--sub-wp] [--lang <bcp47>] [--format json|text|md] [--track-dir <directory-containing-events.jsonl>]
 
 --status-table renders owner requests with exactly five columns, stage evidence, four status colors and flagged missing proposals/decision expectations. It preserves DÉCISIONS and supports scoped Markdown. Historical missing status is orange with an explicit verification action.
 
@@ -455,6 +455,8 @@ const REPORT_USAGE = `usage: track report [--status-table] [--scope <container-i
 --now <iso> pins the clock used by a named period and, without a selector, the whole-log upper bound. Without it, whole-log and --since reports stop at the journal head.
 
 --since accepts a local YYYY-MM-DD date or a git commit (using its committer date); --until closes a --since range. --period today|week|month|all is the named alternative. --since and --period are mutually exclusive. A selected period changes FAIT only: À-FAIRE remains the full current open-work projection.
+
+--lang <bcp47> selects the human labels of the new stage/status surface from a per-language lexicon (any tag is accepted; an unprepared language renders the neutral codes). It changes no ids, order, period, percentages, handles, or selectable options. Machine codes, ids and evidence locators stay intact.
 
 --track-dir is a global override and may appear before or after the command. It selects the directory that contains events.jsonl; it is especially useful for a read-only fixture. TRACK_DIR is the environment equivalent.
 `
@@ -1149,7 +1151,7 @@ function cmdReport(args: string[], ctx: Ctx): number {
   const { io } = ctx
   const { positional, flags } = parseFlags(args)
   if (positional.length > 0) throw new DomainError(`unexpected report argument(s): ${positional.join(' ')}`)
-  for (const name of ['commit', 'format', 'level', 'width', 'resolve', 'now', 'scope', 'since', 'until', 'period']) assertValueFlag(flags, name)
+  for (const name of ['commit', 'format', 'level', 'width', 'resolve', 'now', 'scope', 'since', 'until', 'period', 'lang']) assertValueFlag(flags, name)
   const scope = opt(flags, 'scope')
   const statusTable = assertBooleanFlag(flags, 'status-table')
   if (statusTable && ['flat', 'inline', 'width', 'raw', 'level', 'active-roster'].some(k => flags[k] !== undefined)) {
@@ -1197,7 +1199,7 @@ function cmdReport(args: string[], ctx: Ctx): number {
   }
   assertOnlyFlags(flags, [
     'commit', 'require-accepted', 'decisions', 'active-roster', 'wp', 'flat', 'inline', 'width', 'format', 'now',
-    'sub-wp', 'scope', 'since', 'until', 'period', 'status-table',
+    'sub-wp', 'scope', 'since', 'until', 'period', 'status-table', 'lang',
   ])
   const rawFormat = opt(flags, 'format')
   if (rawFormat !== undefined && !['json', 'text', 'md'].includes(rawFormat)) {
@@ -1253,11 +1255,18 @@ function cmdReport(args: string[], ctx: Ctx): number {
   // Criterion 25 — the EXPLICIT owner request for sub-WP rows. Without it the reading unit follows the
   // window: the WP on a long one, the sub-level on a short one.
   const subWp = assertBooleanFlag(flags, 'sub-wp')
+  // Amendment D10 — open `--lang <bcp47>` label selection for the new
+  // stage/status surface. Any tag is accepted (an unprepared language renders
+  // the neutral codes); only the shape is validated here.
+  const lang = opt(flags, 'lang')
+  if (lang !== undefined && !/^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/u.test(lang)) {
+    throw new DomainError('--lang must be a BCP47 tag (e.g. fr, es-MX, ja, ar)')
+  }
   const reader = new TrackReader(ctx.eventsPath)
   if (inline) {
     io.out(reportInline(reader, options, width === undefined ? {} : { width }, nowArg, period))
   } else {
-    io.out(reportText(reader, options, format, nowArg, subWp, scope, period, statusTable))
+    io.out(reportText(reader, options, format, nowArg, subWp, scope, period, statusTable, lang))
   }
   return 0
 }

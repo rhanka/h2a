@@ -9,6 +9,7 @@ import { effectiveOpenBlockersForItem } from './blocker-status.js'
 import { canonicalLeafUrgency } from './directive.js'
 import { buildWpConductorView, redactOwnerTable, renderReportView, reportPeriodPayload, type Format, type ConductorMeta, type ReportView } from './format.js'
 import { deriveItemStageStatus, STATUS_HEALTH, type StatusCode } from './stage-status.js'
+import { resolveStageStatusLabels } from './stage-status-lexicon.js'
 
 // Amendment D2 — the transitional view consumes the shared derivation; it no
 // longer computes its own stage/status. Colours stay the four health states;
@@ -18,12 +19,6 @@ const COLUMNS = [
   { id: 'n', label: '#' }, { id: 'request', label: 'Ta demande' }, { id: 'stage', label: 'Étape' },
   { id: 'status', label: 'Statut' }, { id: 'action', label: 'Où ça en est / prochaine action' },
 ] as const
-
-/** References may support a purpose, but cannot BE that purpose. No invented replacement prose. */
-export function versionOnlySubject(value: string): boolean {
-  return value.replace(/https?:\/\/\S+/giu, '').replace(/\bv?\d+\.\d+(?:\.\d+)?(?:-[\w.]+)?\b/giu, '')
-    .replace(/\b(?:version|release|publication|PR)\b/giu, '').replace(/#\d+/gu, '').replace(/[\s()[\]{}.,:;—–\-·/]/gu, '') === ''
-}
 
 function nativeExpectations(d: DecisionState): DecisionExpectations | undefined {
   const artifact = d.dossier.artifacts?.filter(a => a.kind === 'rendered-view').at(-1)
@@ -86,7 +81,9 @@ export function buildStatusTable(events: readonly TrackEvent[], report: Report, 
     const demand = item.demandId === undefined ? undefined : state.demands.get(item.demandId)
     const request = info.ownerRequest ?? demand?.raw.text ?? item.title
     const requestSource = info.ownerRequest ? 'report-event' : demand ? 'demand' : 'legacy-title'
-    if (versionOnlySubject(request)) issues.push('version-only-subject')
+    // Amendment D10 — no natural-language classification of the request, in
+    // any language. The `versionOnlySubject` word-list detector is deleted,
+    // not replaced by detectors in other languages.
     // Amendment D2 — stage and status come from the shared derivation (D6's
     // single precedence table). This view flags; it never recomputes.
     const derived = deriveItemStageStatus(state, events, item, options.baselineCommit)
@@ -153,7 +150,6 @@ export function buildStatusTable(events: readonly TrackEvent[], report: Report, 
 function issueText(issue: string): string {
   const labels: Record<string, string> = {
     'missing-proposal': 'proposition obligatoire', 'unanswerable-decision-gate': 'dossier sans attendus actionnables : structurer avant de demander un GO',
-    'version-only-subject': 'finalité propriétaire manquante',
     'missing-decision-expectations': 'question, options avec conséquences, budget ≤2 min et lien du dossier requis',
     'unrecorded-status': 'statut de conformité non renseigné', 'invalid-report-event': 'événement de rapport invalide',
     'status-contradicts-live-gate': 'statut déclaré contredit par un blocage actif',
@@ -166,7 +162,7 @@ function issueText(issue: string): string {
 }
 
 /** Keep the existing DÉCISIONS/attendus and recommendation, replacing only the activity tables. */
-export function buildStatusTableView(statusTable: StatusTable, report: Report, meta: ConductorMeta): ReportView {
+export function buildStatusTableView(statusTable: StatusTable, report: Report, meta: ConductorMeta, lang?: string): ReportView {
   // Deferred decisions still await settlement. Keep legacy rendering unchanged outside this opt-in view.
   const decisionsForView = (report.decisions ?? []).map(d => d.outcome === 'deferred' ? { ...d, outcome: 'pending' as const } : d)
   const view = buildWpConductorView(report.wpTree ?? [], decisionsForView, report.outsideRollup, meta.scopeProjection?.label ?? 'global', meta)
@@ -184,9 +180,24 @@ export function buildStatusTableView(statusTable: StatusTable, report: Report, m
       ...view.tables.find(t => t.id === 'recommendation')!.lines!.filter(line => /^D\d+ /u.test(line)),
     ],
   }
+  // Amendment D10 — with an explicit `--lang`, the transitional stage/status
+  // CELLS render through the per-language lexicon. The row codes
+  // (`stage`, `statusCode`) stay language-neutral identities; only the
+  // owner-facing cells are labelled. Without `--lang` the cells are
+  // byte-identical to the established rendering.
+  const labels = lang === undefined ? undefined : resolveStageStatusLabels(lang).labels
+  const cellFor = (row: StatusTableRow, column: string): string => {
+    if (labels !== undefined && column === 'stage') return labels.stage[row.stage]
+    if (labels !== undefined && column === 'status') {
+      const health = STATUS_HEALTH[row.statusCode]
+      const label = labels.status[row.statusCode]
+      return health === undefined ? label : `${health} ${label}`
+    }
+    return row[column as keyof StatusTableRow] as unknown as string
+  }
   const requests = redactOwnerTable({
     id: 'requests', title: 'DEMANDES', render: 'pipe', columns: COLUMNS,
-    rows: statusTable.rows.map(row => Object.fromEntries(COLUMNS.map(c => [c.id, row[c.id]]))),
+    rows: statusTable.rows.map(row => Object.fromEntries(COLUMNS.map(c => [c.id, cellFor(row, c.id)]))),
     lines: [`ordre : ${statusTable.order} ; ${statusTable.rows.length} demandes, aucune omission.`],
     links: statusTable.rows.flatMap((row, index) => row.dossierRefs.map(destination => ({ row: index, column: 'action', label: 'dossier', destination }))),
   })
@@ -200,8 +211,8 @@ export function buildStatusTableView(statusTable: StatusTable, report: Report, m
   }, tables: [requests, decisions, redactOwnerTable(recommendation)] }
 }
 
-export function renderStatusTable(statusTable: StatusTable, report: Report, format: Format, meta: ConductorMeta): string {
-  const view = buildStatusTableView(statusTable, report, meta)
+export function renderStatusTable(statusTable: StatusTable, report: Report, format: Format, meta: ConductorMeta, lang?: string): string {
+  const view = buildStatusTableView(statusTable, report, meta, lang)
   // Amendment D4 — the full `period` payload is present in every format and
   // every mode (the withdrawn view dropped it; the validated contract keeps it).
   if (format === 'json') return `${JSON.stringify({ ...report, period: reportPeriodPayload(meta), statusTable, view }, null, 2)}\n`
