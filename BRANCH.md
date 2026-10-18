@@ -8,14 +8,15 @@
 - [x] Named test files only; disposable HOME/XDG/TMP; no Python or owner state.
 - [x] Allowed: packages/focus/{src,tests,schemas,skills,registry,package.json}; packages/h2a/{src/focus-build.ts,focus-kit,test/focus-build.test.js,test/distribution-increments.test.js,package.json}; scripts/{build-focus-dossier,focus-vendor-lib,vendor-focus,check-focus-vendor}.mjs; generated packages/track/src/focus-vendor; packages/track/skills/present-decision; docs/focus; docs/reviews/dossier-diagrams.md; .github/workflows/focus-dossier.yml; BRANCH.md.
 - [x] Forbidden: other repos, main, installed h2a, native host, owner state, unrelated processes, workflow changes outside Focus qualification.
+- [x] BRDG-EX2: frozen corpus/calibration manifests and old-validator fixture are generated qualification artifacts; their commits may exceed 150 lines.
 - [x] BRDG-EX1: generated schemas/vendor/renderer/locks may exceed the harness 150-line limit; regenerate reproducibly, rollback by regeneration from prior sources. No Makefile exists; selective git commits replace make commit.
 
 ## Lots
-- [ ] H1a contract: model, byte integrity, closed validation, version schema; tests/evidence.spec.ts, schema.spec.ts.
-- [ ] H1b reading/export: summaries counted, raw bytes separately accounted; readability.spec.ts, render.spec.ts.
-- [ ] H1c build: atomic output, explicit evidence template, metadata; test/focus-build.test.js.
-- [ ] H1d renderer: offline citation/search/download/back and bounded DOM; evidence-browser.test.mjs.
-- [ ] H1e qualification: frozen numeric small/large policy and real corpus; evidence-performance-browser.test.mjs.
+- [x] H1a contract: model, byte integrity, closed validation, version schema; tests/evidence.spec.ts, schema.spec.ts.
+- [x] H1b reading/export: summaries counted, raw bytes separately accounted; readability.spec.ts, render.spec.ts.
+- [x] H1c build: atomic output, explicit evidence template, metadata; test/focus-build.test.js.
+- [x] H1d renderer: offline citation/search/download/back and bounded DOM; evidence-browser.test.mjs.
+- [x] H1e qualification: frozen numeric small/large policy and real corpus; evidence-performance-browser.test.mjs.
 - [ ] H2 blocked: npm E404 for @sentropic/diagram-core and @sentropic/diagram-canvas 0.1.0; DS2 exact tarballs required.
 - [ ] H3 blocked: H2 + DS4/DS5 renderer/control exports; no Focus toolbar substitute.
 - [ ] H4-H1: regenerated assets/vendor, capability manifest, skills/docs, fresh tarball template/build/open; packaging.spec.ts, distribution-increments.test.js.

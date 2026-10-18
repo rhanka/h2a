@@ -24,3 +24,13 @@ Fix failures. Missing evidence, criteria or review means
   ecosystem canvas, light/dark, phone pinch zoom; no claude.ai artifact. Dossier with diagram before the native question tool;
   never a bare text question. If unavailable, explain and leave the decision pending.
   Local selections; no fabricated `comprehension[]` or relay as decider.
+# Evidence and diagrams (H1 increment)
+
+- [ ] Sources retain their original bytes, digest, size and frozen provenance;
+      every typed citation and backlink resolves in the generated portable.
+- [ ] Summaries, material risks and choices stay in the primary decision path;
+      raw evidence and annex consultation are accounted separately.
+- [ ] Evidence works offline: distant lines, search, raw download and focus return.
+- [ ] The capability manifest identifies H1. DS geometry/CDN and linked in-canvas
+      case/event/phase/group controls await H2/H3; zoom/fit does not qualify them.
+
