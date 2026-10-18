@@ -293,8 +293,8 @@ export async function cmdRegistryBridge(
       const first = candidate.diagnostics[0] as { code: string; message: string };
       return refuse(first.code, first.message);
     }
-    const { H2A_CLI_MCP_TOOL_NAMES } = await import("../mcp.js");
-    if (JSON.stringify(candidate.plan.orderedCapabilities) !== JSON.stringify([...H2A_CLI_MCP_TOOL_NAMES])) {
+    const { H2A_CLI_MCP_TOOL_DESCRIPTORS } = await import("../runtime/mcp/tools.js");
+    if (JSON.stringify(candidate.plan.orderedCapabilities) !== JSON.stringify(H2A_CLI_MCP_TOOL_DESCRIPTORS.map(tool => tool.name))) {
       return refuse("invalid_parameters", "lock selection does not equal the served surface; subset locks need a filtered server (not covered in this increment)");
     }
   } catch (error) {

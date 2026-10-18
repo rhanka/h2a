@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { runCli } from "../dist/index.js";
+import { cmdRegistryBridge } from "../dist/registry/cli-registry.js";
 
 function withTempDir(fn) {
   const dir = mkdtempSync(join(tmpdir(), "h2a-r5-cli-"));
@@ -119,6 +120,48 @@ test("R5 CLI: bridge serve without a lock fails typed and serves nothing", async
     assert.match(io.text().stderr, /missing_lock/);
     assert.ok(!io.text().stdout.includes("tools/list"));
     assert.deepEqual(treeFiles(dir), []);
+  });
+});
+
+test("R5 CLI: a complete publisher tuple reaches the delegate with the exact served surface", async () => {
+  await withTempDir(async dir => {
+    const config = join(dir, "host.json"), lock = join(dir, "lock.json"), bootstrap = streams();
+    assert.equal(await runCli(["registry", "bootstrap", "install", "--host", "claude", "--config", config,
+      "--lock", lock], bootstrap, {}), 0, bootstrap.text().stderr);
+    const before = readFileSync(lock), io = streams(); let calls = 0;
+    const code = await cmdRegistryBridge(["serve", "--host", "claude", "--profile", "default",
+      "--lock", lock, "--root", dir], io, { delegateServe: async flags => {
+      calls++;
+      assert.equal(flags.host, "claude"); assert.equal(flags.root, dir);
+      assert.equal(flags.lock, undefined); assert.equal(flags.profile, undefined);
+      return 0;
+    } });
+    assert.equal(code, 0, io.text().stderr); assert.equal(calls, 1);
+    assert.deepEqual(readFileSync(lock), before, "serving never rewrites the lock");
+  });
+});
+
+test("R5 CLI: bridge refuses subset, reordered and digest-altered locks before delegation", async () => {
+  await withTempDir(async dir => {
+    const config = join(dir, "host.json"), lock = join(dir, "lock.json");
+    assert.equal(await runCli(["registry", "bootstrap", "install", "--host", "claude", "--config", config,
+      "--lock", lock], streams(), {}), 0);
+    const original = JSON.parse(readFileSync(lock, "utf8"));
+    for (const kind of ["subset", "reordered", "digest"]) {
+      const changed = structuredClone(original);
+      if (kind === "subset") { changed.selection.pop(); delete changed.entries["sentropic.track"]; }
+      if (kind === "reordered") changed.selection.reverse();
+      if (kind === "digest") changed.entries["sentropic.h2a"].digest = "sha256:" + "0".repeat(64);
+      writeFileSync(lock, JSON.stringify(changed));
+      const before = readFileSync(lock), io = streams(); let calls = 0;
+      const code = await cmdRegistryBridge(["serve", "--host", "claude", "--profile", "default", "--lock", lock],
+        io, { delegateServe: async () => { calls++; return 0; } });
+      assert.equal(code, 2, kind); assert.equal(calls, 0, kind);
+      const refusal = JSON.parse(io.text().stdout);
+      assert.equal(refusal.jsonrpc, "2.0"); assert.equal(refusal.error.code, -32000);
+      assert.match(refusal.error.message, kind === "digest" ? /integrity_mismatch/ : /invalid_parameters/);
+      assert.deepEqual(readFileSync(lock), before, kind + " refusal must not rewrite the lock");
+    }
   });
 });
 
