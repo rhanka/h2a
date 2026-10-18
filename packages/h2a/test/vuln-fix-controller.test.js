@@ -55,7 +55,8 @@ test('should reserve before inference and ready only after two blind reviews on 
 test('should dry-run scans without admission, inference, publication or durable claims', async t => {
   const f = fixture(t);
   const report = await runDaily(f.config, { ...f.options, dryRun: true });
-  assert.equal(report.repositories[0].status, 'would-attempt');
+  assert.equal(report.repositories[0].status, 'scanned');
+  assert.equal(report.repositories[0].fixState, 'fix-blocked');
   assert.deepEqual(f.calls, ['prepare', 'cleanup']);
   assert.throws(() => readFileSync(join(f.root, 'state.json')));
   assert.match(readFileSync(join(f.root, 'latest-dry-run.json'), 'utf8'), /dry-run/);
@@ -184,4 +185,25 @@ test('should reserve a shared CLI budget rather than count each model as a separ
   const report = await runDaily(f.config, f.options);
   assert.equal(report.repositories[0].status, 'failed');
   assert.ok(!f.calls.some(x => x.startsWith('author:')));
+});
+
+test('should report a scan as fix-blocked when dry-run has no admissible cycle', async t => {
+  const f = fixture(t);
+  f.config.seats = [];
+  const report = await runDaily(f.config, { ...f.options, dryRun: true });
+  assert.equal(report.repositories[0].status, 'scanned');
+  assert.equal(report.repositories[0].fixState, 'fix-blocked');
+  assert.match(report.repositories[0].reason, /admitted cycle/);
+  assert.deepEqual(f.calls, ['prepare', 'cleanup']);
+  assert.throws(() => readFileSync(join(f.root, 'state.json')));
+});
+
+test('should stop new inference when admissions are explicitly closed', async t => {
+  const f = fixture(t);
+  f.config.admissionsOpen = false;
+  const report = await runDaily(f.config, f.options);
+  assert.equal(report.repositories[0].status, 'waiting-admission');
+  assert.ok(!f.calls.some(x => x.startsWith('admit:') || x.startsWith('author:')));
+  assert.equal(report.ok, false);
+  assert.throws(() => readFileSync(join(f.root, 'state.json')));
 });

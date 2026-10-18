@@ -1,10 +1,54 @@
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { acquire, readState, writeJson } from './state.mjs';
+import { acquire, readState, validateCandidate, writeJson } from './state.mjs';
 import { pair, selectSeats, validateConfig } from './policy.mjs';
 import { Repository } from './repository.mjs';
 import { LocalSeats } from './seats.mjs';
 import { redactDeep, redactSecretsText } from './redact.mjs';
+import { evaluateMergeEvidence } from './verify.mjs';
+
+/** Independent L5 seam: caller holds the existing controller lock and fsyncs
+ * checkpoint into its existing state. No production adapter/placement is
+ * selected here. This operation never admits inference or modifies uses. */
+export async function reconcileCandidate(candidate, adapter, checkpoint,
+  { now = new Date(), admissionsOpen = false, retryMs = 300_000 } = {}) {
+  validateCandidate(candidate);
+  if (!Number.isFinite(now.getTime()) || !Number.isSafeInteger(retryMs) || retryMs < 1000 || retryMs > 3_600_000) throw new Error('bounded reconciliation clock/retry required');
+  if (candidate.status === 'merged') return candidate;
+  const persist = async update => {
+    const next = { ...candidate, reason: undefined, nextAttemptAt: undefined, ...update, observedAt: now.toISOString() };
+    validateCandidate(next);
+    await checkpoint(next);
+    candidate = next;
+    return next;
+  };
+  const retryAt = () => new Date(now.getTime() + retryMs).toISOString();
+  let observation;
+  try { observation = await adapter.observe(candidate); }
+  catch (error) { return persist({ status: candidate.mergeIntent ? 'merge-pending' : 'waiting-admission',
+    reason: redactSecretsText(`remote observation unavailable: ${error.message}`), nextAttemptAt: retryAt() }); }
+  const ownership = observation?.ownership;
+  if (!ownership || ['repository', 'pr', 'branch', 'base', 'sha'].some(key => ownership[key] !== candidate[key])) {
+    return persist(evaluateMergeEvidence(candidate, observation, now));
+  }
+  if (observation.mergeState === 'merged') {
+    if (!/^[a-f0-9]{40}$/.test(observation.mergeSha ?? '')) return persist({ status: 'quarantine', reason: 'remote merged state lacks merge SHA' });
+    return persist({ status: 'merged', mergeSha: observation.mergeSha });
+  }
+  if (candidate.mergeIntent && observation.mergeState !== 'not-started') return persist({ status: 'merge-pending', reason: 'prior merge outcome still ambiguous', nextAttemptAt: retryAt() });
+  if (admissionsOpen !== true) return persist({ status: 'waiting-admission', reason: 'admissions disabled', nextAttemptAt: retryAt() });
+  const verdict = evaluateMergeEvidence(candidate, observation, now);
+  if (verdict.status !== 'ready') return persist({ ...verdict,
+    ...(['waiting-checks', 'waiting-admission'].includes(verdict.status) ? { nextAttemptAt: retryAt() } : {}) });
+  if (observation.mergeState !== 'not-started') return persist({ status: 'needs-revalidation', reason: 'remote merge state unproven' });
+  const intent = candidate.mergeIntent ?? { id: randomUUID(), expectedHead: candidate.sha, expectedBase: candidate.base, method: 'merge', createdAt: now.toISOString() };
+  await persist({ status: 'merge-pending', mergeIntent: intent, reason: 'protected merge dispatched', nextAttemptAt: retryAt() });
+  try { await adapter.merge(candidate, { expectedHead: candidate.sha, expectedBase: candidate.base, method: 'merge', intentId: intent.id }); }
+  catch (error) { return persist({ status: 'merge-pending', reason: redactSecretsText(`merge acknowledgement uncertain: ${error.message}`), nextAttemptAt: retryAt() }); }
+  // Do not accept an API acknowledgement as evidence of the remote effect.
+  return reconcileCandidate(candidate, { ...adapter, merge: async () => { throw new Error('merge effect unconfirmed'); } }, checkpoint,
+    { now, admissionsOpen: false, retryMs });
+}
 
 export async function runDaily(config, { dryRun = false, now = () => new Date(),
   runner = new LocalSeats(), repository = spec => new Repository(spec) } = {}) {
@@ -34,9 +78,30 @@ export async function runDaily(config, { dryRun = false, now = () => new Date(),
       };
       try {
         if (state.quarantines[spec.github]) throw new Error('repository quarantined after ambiguous process cleanup; conductor reconciliation required');
+        const candidates = Object.values(state.candidates ?? {}).filter(candidate => candidate.repository === spec.github);
+        if (candidates.length) {
+          item.candidates = [];
+          for (const candidate of candidates) {
+            const reconciled = dryRun ? candidate : await reconcileCandidate(candidate, {
+              observe: saved => {
+                if (typeof repo.observeCandidate !== 'function') throw new Error('selected merge observation adapter unavailable');
+                return repo.observeCandidate(saved);
+              },
+              merge: (saved, expected) => {
+                if (typeof repo.mergeCandidate !== 'function') throw new Error('selected protected merge executor unavailable');
+                return repo.mergeCandidate(saved, expected);
+              },
+            }, saved => { state.candidates[saved.pr] = saved; save(); }, { now: now(), admissionsOpen: config.admissionsOpen === true });
+            item.candidates.push(reconciled);
+          }
+          item.blocked = item.candidates.some(candidate => candidate.status !== 'merged');
+          if (item.blocked) item.reason = 'owned candidate remains unfixed; see durable candidate reasons and next wake-up';
+          saveReport();
+        }
         item.baseline = await repo.prepare();
         item.before = await repo.scan();
         if (!item.before.complete) throw new Error(`incomplete detection: ${item.before.errors.join('; ')}`);
+        if (item.blocked) { checkpoint({ status: 'fix-blocked' }); continue; }
         if (!item.before.findings.length) { checkpoint({ status: 'clean' }); continue; }
         const existing = await repo.existingPr();
         if (existing) { checkpoint({ status: 'existing-pr', pr: existing.url, sha: existing.headRefOid,
@@ -44,7 +109,10 @@ export async function runDaily(config, { dryRun = false, now = () => new Date(),
         if (state.attempts[key]) { checkpoint({ status: 'already-attempted', attempt: state.attempts[key] }); continue; }
         const ambiguous = Object.values(state.attempts).find(x => x.repository === spec.github && x.published && !x.pr);
         if (ambiguous) throw new Error(`prior publication requires reconciliation: ${ambiguous.branch}`);
-        if (dryRun) { checkpoint({ status: 'would-attempt' }); continue; }
+        if (dryRun) { checkpoint({ status: 'scanned', fixState: 'fix-blocked', blocked: true,
+          reason: 'dry-run has no admitted cycle or qualified execution boundary' }); continue; }
+        if (config.admissionsOpen === false) { checkpoint({ status: 'waiting-admission', blocked: true,
+          reason: 'admissions disabled; detection continues without new work' }); continue; }
         const available = [], unavailable = [], capacity = {};
         for (const seat of config.seats) {
           try {
