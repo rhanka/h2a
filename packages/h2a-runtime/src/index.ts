@@ -466,6 +466,7 @@ import {
 const KNOWN_PROFILE_HELP = `${CLI_PROFILES.join(", ")} (aliases: claude-code, antigravity, gemini-cli, mistralcli, muse-code, mistral-vibe)`;
 
 export const packageName = "@sentropic/h2a-runtime";
+export { runVulnerabilitySeatTask } from './vuln-seat.js';
 export const H2A_RUNTIME_CLI_API_VERSION = 1;
 
 export { run } from "./run.js";
