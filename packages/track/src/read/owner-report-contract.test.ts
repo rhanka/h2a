@@ -369,12 +369,19 @@ describe('rendering cutover — --status-table selects the validated report (D1,
 
   it('the served report passes the red-proposal audit when red carries a proposal and blue matches', () => {
     const t = cutoverTrack()
-    seedCutover(t)
+    const { blockedMember } = seedCutover(t)
     const reader = new TrackReader(eventsPath)
     const snapshot = reader.reportSnapshot({ baselineCommit: 'c1', decisions: true, wpTree: true })
     const view = JSON.parse(
       cli(['report', '--status-table', '--commit', 'c1', '--now', NOW, '--format', 'json']).out,
     ).view
+    // Stored text alone does not certify investigation. The serving layer
+    // instructs the action and carries its proposal in both served sections.
+    const proposal = 'Unblock the lane, then replay.'
+    const row = view.tables.find((table: any) => table.id === 'todo').rows.find((row: any) => row.todo.includes('blocked work'))
+    Object.assign(row, { nextAction: proposal, instruction: 'investigated', actionOrigin: 'investigated' })
+    view.tables.find((table: any) => table.id === 'recommendation').lines.push(proposal)
+    view.proposals = [{ itemId: blockedMember, proposal, proposalState: 'investigated' }]
     const described = describeStatusProposals(t.state(), snapshot.report, view)
     expect(auditStatusProposals(described.rows, described.decisionRefs)).toEqual({
       missingProposals: [],

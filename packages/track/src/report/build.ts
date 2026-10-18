@@ -25,6 +25,13 @@ export interface ReportRowDetail {
   acceptanceLabel: string
 }
 
+/** Immutable demand text, or an explicitly identified legacy title (P3). */
+export interface RequestSource {
+  provenance: 'demand-raw' | 'legacy-title'
+  text: string
+  demandId?: DemandId
+}
+
 export interface ReportRow {
   id: ItemId
   title: string
@@ -76,6 +83,7 @@ export interface ReportRow {
    * the folded log and the item carries one.
    */
   demandId?: DemandId
+  requestSource?: RequestSource
 }
 
 export interface DecisionRow {
@@ -126,6 +134,7 @@ export interface ReportItemFacts {
    * presentation reads.
    */
   wpStrictRootId?: ItemId
+  requestSource?: RequestSource
 }
 
 /**
@@ -252,6 +261,10 @@ function toRow(
   // Amendment D11 (additive) — strict WP root alongside the legacy
   // presentation fields; demand lineage for 1→N promotion tracing.
   const strictRootId = events === undefined ? undefined : wpRootId(state.items, item.id)
+  const demand = item.demandId === undefined ? undefined : state.demands.get(item.demandId)
+  const requestSource: RequestSource = demand === undefined
+    ? { provenance: 'legacy-title', text: item.title }
+    : { provenance: 'demand-raw', text: demand.raw.text, demandId: demand.id }
   return {
     id: item.id,
     title: item.title,
@@ -272,6 +285,7 @@ function toRow(
     ...(derived !== undefined ? { status: derived.status } : {}),
     ...(strictRootId !== undefined ? { wpStrictRootId: strictRootId } : {}),
     ...(events !== undefined && item.demandId !== undefined ? { demandId: item.demandId } : {}),
+    ...(events !== undefined ? { requestSource } : {}),
     detail: {
       ...(summary !== undefined ? { summary } : {}),
       acceptanceLabel: ACCEPTANCE_FR[acceptance],
@@ -282,7 +296,7 @@ function toRow(
 /**
  * Amendment D9 (additive) — the currently withdrawn/rejected requests with
  * their recorded reason. The reason is read from a linked settled decision
- * (selected option summary, else recommendation rationale); absent ⇒
+ * (selected option summary only); absent ⇒
  * undefined, and the renderer declares the absence instead of inventing one.
  * A later reopening means the item is no longer withdrawn, so it never
  * appears here.
@@ -297,8 +311,8 @@ function withdrawalCandidates(state: State, config: ReportConfig): WithdrawalCan
       .sort((a, b) => (a.id < b.id ? -1 : 1))
     let reason: string | undefined
     for (const decision of linkedSettled) {
-      const selected = decision.dossier.options.find((o) => o.id === decision.dossier.recommendation?.optionId)
-      reason = selected?.summary ?? decision.dossier.recommendation?.rationale
+      const selected = decision.dossier.options.find((o) => o.id === decision.dossier.selectedOptionId)
+      reason = selected?.summary
       if (reason !== undefined) break
     }
     const dossierIds = [...state.decisions.values()]
@@ -372,6 +386,7 @@ export function buildReport(
           ...(row.stageEvidence !== undefined ? { stageEvidence: row.stageEvidence } : {}),
           status: row.status,
           ...(row.wpStrictRootId !== undefined ? { wpStrictRootId: row.wpStrictRootId } : {}),
+          ...(row.requestSource !== undefined ? { requestSource: row.requestSource } : {}),
         }
       }
     }

@@ -5,9 +5,8 @@
 // `reparent`, so the audit can never hint its own fix (the reuse is the guard).
 
 import { isRoleContainer, type ItemId, type ItemState } from '../model/item.js'
-import { assertItemReportStatus } from '../model/report-status.js'
 import type { State } from '../state/fold.js'
-import type { Report, ReportRow } from './build.js'
+import type { Report } from './build.js'
 import { assertSafeCommandHint } from './directive.js'
 import { wpRootId } from './rollup.js'
 import type { StatusCode } from './stage-status.js'
@@ -166,6 +165,10 @@ export interface StatusProposalRow {
    * only (gate-clause echo, cross-row repetition), never classified.
    */
   proposal?: string
+  /** Investigation and presence belong to the served report, never a stored assertion. */
+  proposalState?: 'investigated' | 'to-instruct'
+  inNextAction?: boolean
+  inRecommendation?: boolean
   /** Machine gate-class phrases backing the row (the row's `gateStep`, never rendered words). */
   gateClauses?: readonly string[]
   /** Dossier refs the row cites (`D#`/`Q#` handle tokens, never prose). */
@@ -181,8 +184,9 @@ export interface StatusProposalAudit {
 }
 
 /**
- * The mechanical half of D7. A proposal is *investigated* iff it is recorded,
- * non-empty, not an exact echo of the row's own gate clause, and not a slogan
+ * The mechanical half of D7. A proposal must be tagged as investigated on
+ * the served report and present in both its action and recommendation. It
+ * must be non-empty, not an exact echo of the row's own gate clause, and not a slogan
  * repeated verbatim across three or more rows. A generic instruction to
  * "handle red rows" fails exactly here when it parrots the gate class or the
  * other red rows. Anything subtler is prose quality — out of mechanical
@@ -202,6 +206,7 @@ export function auditStatusProposals(
       if (row.status !== 'blocked') return false
       const proposal = row.proposal?.trim() ?? ''
       if (proposal === '') return true
+      if (row.proposalState !== 'investigated' || row.inNextAction !== true || row.inRecommendation !== true) return true
       if ((row.gateClauses ?? []).includes(row.proposal!)) return true
       return (counts.get(row.proposal!) ?? 0) > 2
     })
@@ -218,14 +223,16 @@ export function auditStatusProposals(
 
 /** The served view surface the proposal audit reads: handles, todo rows, decision numbers. */
 export interface StatusProposalView {
-  handles: Array<{ handle: string; id: string; kind: string }>
-  tables: Array<{ id: string; rows: Array<Record<string, string>> }>
+  handles: readonly { handle: string; id: string; kind: string }[]
+  tables: readonly { id: string; rows: readonly Record<string, string>[]; lines?: readonly string[] }[]
+  /** Filled by the contextual serving layer after investigating each red item. */
+  proposals?: readonly { itemId: string; proposal: string; proposalState: 'investigated' | 'to-instruct' }[]
 }
 
 /**
  * Describe a served report (folded state + bucket rows + rendered view) as
  * red/blue audit rows. Row status comes from the derived report codes;
- * proposals from the recorded `item.report-updated` assertions; gate clauses
+ * proposals and their instruction state from the served view; gate clauses
  * from the rows' machine-only `gateStep`; dossier refs from the `D#`/`Q#`
  * handle tokens the blocked cells cite. No natural language is matched, in
  * any language.
@@ -235,6 +242,9 @@ export function describeStatusProposals(
   report: Report,
   view: StatusProposalView,
 ): { rows: StatusProposalRow[]; decisionRefs: string[] } {
+  // Kept in the public signature for callers migrating from stored proposals.
+  // Historical assertions cannot certify a current investigation.
+  void state
   const todo = view.tables.find((table) => table.id === 'todo')
   // Item handles are positional `[row.item]` (1-based): the row part locates
   // the view row carrying the machine-only `gateStep` and the `bloqué` cell.
@@ -248,20 +258,37 @@ export function describeStatusProposals(
   }
   const gateSteps = new Map<string, string>()
   const blockedCells = new Map<string, string>()
+  const actionCells = new Map<string, string>()
   for (const [id, rowIndex] of rowIndexById) {
     const row = todo?.rows[rowIndex]
     if (row === undefined) continue
     if (row['gateStep'] !== undefined && row['gateStep'] !== '') gateSteps.set(id, row['gateStep'])
     if (row['blocked'] !== undefined) blockedCells.set(id, row['blocked'])
+    if (row['instruction'] === 'investigated' && row['actionOrigin'] === 'investigated' && row['nextAction'] !== undefined) {
+      actionCells.set(id, row['nextAction'])
+    }
   }
+  const recommendation = view.tables.find(table => table.id === 'recommendation')
+  const recommendationTexts = [
+    ...(recommendation?.lines ?? []),
+    ...(recommendation?.rows ?? []).flatMap(row => Object.values(row)),
+  ]
   const rows: StatusProposalRow[] = []
   for (const bucket of ['AWAITED', 'DROPPED', 'DONE', 'TO-DO'] as const) {
     for (const row of report.buckets[bucket] ?? []) {
       if (row.status !== 'blocked' && row.status !== 'decision-awaited') continue
+      const proposals = view.proposals?.filter(proposal => proposal.itemId === row.id) ?? []
+      // D7 requires exactly one proposal per red item, even on grouped WP rows.
+      const served = proposals.length === 1 ? proposals[0] : undefined
       rows.push({
         id: row.id,
         status: row.status,
-        ...(recordedProposal(state, row) !== undefined ? { proposal: recordedProposal(state, row)! } : {}),
+        ...(served === undefined ? {} : {
+          proposal: served.proposal,
+          proposalState: served.proposalState,
+          inNextAction: served.proposal.trim() !== '' && (actionCells.get(row.id) ?? '').includes(served.proposal),
+          inRecommendation: served.proposal.trim() !== '' && recommendationTexts.some(text => text.includes(served.proposal)),
+        }),
         ...(gateSteps.get(row.id) !== undefined ? { gateClauses: [gateSteps.get(row.id)!] } : {}),
         ...(row.status === 'decision-awaited'
           ? { dossierRefs: dossierRefsOf(blockedCells.get(row.id) ?? '') }
@@ -272,19 +299,6 @@ export function describeStatusProposals(
   const decisions = view.tables.find((table) => table.id === 'decisions')
   const decisionRefs = (decisions?.rows ?? []).map((row) => row['n']).filter((ref) => ref !== undefined)
   return { rows, decisionRefs }
-}
-
-/** The recorded proposal, if the stored assertion is valid; invalid stored reports assert nothing. */
-function recordedProposal(state: State, row: ReportRow): string | undefined {
-  const stored = state.items.get(row.id)?.report
-  if (stored === undefined) return undefined
-  try {
-    assertItemReportStatus(stored)
-  } catch {
-    return undefined
-  }
-  const proposal = stored.proposal?.trim() ?? ''
-  return proposal === '' ? undefined : stored.proposal
 }
 
 /** `D#`/`Q#` handle tokens cited by a blocked cell (handle grammar, never prose). */

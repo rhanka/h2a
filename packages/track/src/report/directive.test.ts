@@ -209,7 +209,7 @@ describe('directive selector — routing a decision wait (DESIGN §2.A)', () => 
     const [directive] = buildDirectives([], [{
       id: decisionId, title: 'standalone', workspace: 'ws', decisionKind: 'orientation', realization: 'to-do', outcome: 'pending',
     }])
-    expect(directive.commandHint).toBe(`track focus ${decisionId} --workspace ws`)
+    expect(directive!.commandHint).toBe(`track focus ${decisionId} --workspace ws`)
   })
 })
 
@@ -385,7 +385,7 @@ describe('view — additive directives + dispatchQueue (DESIGN §4)', () => {
     expect(specRow['blocked']).toBe('spec')
     expect(specRow['gateDetail']).toBe('À spécifier avant de démarrer')
 
-    const wipRow = todo.rows.find((row) => row['todo'].includes('active work'))!
+    const wipRow = todo.rows.find((row) => row['todo']?.includes('active work'))!
     expect(wipRow['blocked']).toBe('—') // criterion 19 — empty means NO blockage is recorded
     expect(wipRow['gateDetail']).toBe('')
 

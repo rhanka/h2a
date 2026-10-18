@@ -270,7 +270,7 @@ describe('criteria 5/6 — À-FAIRE has seven columns, ordered by priority, and 
 describe('criteria 7/19 — `bloqué` points at the answer, and is empty ONLY when nothing is recorded', () => {
   it('names the D-number of the dossier that unblocks, never a restated question', () => {
     seed()
-    const gated = section(view(), 'todo').rows.find((row) => row['todo'].includes('travail bloqué'))!
+    const gated = section(view(), 'todo').rows.find((row) => row['todo']?.includes('travail bloqué'))!
     expect(gated['blocked']).toBe('D1')
     expect(gated['blocked']).not.toContain('En attente d’une décision')
     expect(gated['blocked']).not.toContain('?')
@@ -471,7 +471,8 @@ describe('criteria 10b/10c — the identifier is relocated, not removed', () => 
     // The block is machine-facing in both supported owner renderings; Markdown fences it without escaping.
     for (const [format, rendered] of [['text', text()], ['md', md()]] as const) {
       const block = rendered.slice(rendered.indexOf('RÉSOLUTION DES HANDLES'))
-      expect(block, format).toContain('track report --resolve <handle>')
+      expect(block, format).toContain(`track report --now ${NOW} --commit c1 --expect-events`)
+      expect(block, format).toContain('--resolve <handle>')
       for (const handle of v.handles) expect(block, format).toContain(`${handle.handle}\t${handle.id}`)
       expect(block, format).not.toMatch(/\\[[\]<>]/u)
     }

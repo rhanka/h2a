@@ -9,6 +9,7 @@ export {
   type ReportItemFacts,
   type ReportOptions,
   type ReportRow,
+  type RequestSource,
   type WithdrawalCandidate,
 } from './build.js'
 export {
