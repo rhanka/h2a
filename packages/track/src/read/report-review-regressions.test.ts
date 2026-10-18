@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -73,6 +74,47 @@ describe('PR 374 correction regressions', () => {
     expect(view.header.handleCommand).toContain('--commit 0123456789abcdef0123456789abcdef01234567')
     expect(view.header.handleCommand).toContain('--expect-head ')
     expect(resolvePrinted(view, id)().out).toContain(id)
+  })
+
+  it.each(['since', 'until'] as const)('R1 keeps the printed --%s commit bound when HEAD moves', bound => {
+    const git = (args: string[], at = instant) => execFileSync('git', [
+      '-c', `core.hooksPath=${join(dir, 'hooks')}`, '-c', 'commit.gpgsign=false', ...args,
+    ], {
+      cwd: dir, encoding: 'utf8',
+      env: { ...process.env, GIT_AUTHOR_DATE: at, GIT_COMMITTER_DATE: at },
+    }).trim()
+    git(['init', '-q'])
+    git(['config', 'user.name', 'Report regression'])
+    git(['config', 'user.email', 'report@example.test'])
+    git(['commit', '--allow-empty', '-q', '-m', 'initial boundary'],
+      bound === 'since' ? instant : '2026-10-16T12:00:00.000Z')
+    const ref = git(['rev-parse', 'HEAD'])
+    const parent = wp()
+    const first = item(parent)
+    const second = item(parent)
+    const [a, b] = bound === 'since' ? [first, second] : [second, first]
+    instant = '2026-10-10T12:00:00.000Z'
+    track.setRealization(a, 'cancelled')
+    instant = NOW
+    track.setRealization(b, 'cancelled')
+    const selector = bound === 'since' ? ['--since', 'HEAD'] : ['--since', '2026-10-01', '--until', 'HEAD']
+    const result = cli(['report', '--status-table', '--commit', 'c1', '--now', NOW, '--format', 'json', ...selector])
+    expect(result.code, result.err).toBe(0)
+    const { view, period } = JSON.parse(result.out)
+    expect(period[bound === 'since' ? 'fromRef' : 'toRef']).toBe(ref)
+    expect(view.handles.find((h: any) => h.id === a).handle).toBe('1.1')
+    const replay = resolvePrinted(view, a)
+    const original = replay()
+    expect(original.code, original.err).toBe(0)
+    expect(original.out).toContain(a)
+
+    // Only git moves: the report clock, baseline and journal revision stay fixed.
+    git(['commit', '--allow-empty', '-q', '-m', 'move boundary'],
+      bound === 'since' ? '2026-10-16T12:00:00.000Z' : '2026-10-20T12:00:00.000Z')
+    const moved = replay()
+    expect(moved.code, moved.err).toBe(0)
+    expect(moved.out).toBe(original.out)
+    expect(view.header.handleCommand).toContain(`--${bound} ${ref}`)
   })
 
   it.each(['non instruite', 'no instruida', '未指示', 'غير موجّهة'])('R2 preserves machine instruction metadata for %s', nextAction => {
