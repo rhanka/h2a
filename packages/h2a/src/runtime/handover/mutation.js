@@ -45,7 +45,7 @@ export function mutationLock(directory, fn) {
     if (!info.isFile() || info.uid !== process.getuid() || (info.mode & 0o777) !== 0o600) throw new Error('private_lock_required');
     const tool = resolveMutationFlock();
     const result = spawnSync(tool, ['--exclusive', '--timeout', '5', '3'],
-      { stdio: ['ignore', 'pipe', 'pipe', fd], env: {} });
+      { stdio: ['ignore', 'ignore', 'ignore', fd], env: {} });
     if (result.status !== 0) throw new Error('mutation_lock_unavailable', { cause: result.error });
     held.add(path);
     const value = fn();
