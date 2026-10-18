@@ -1,11 +1,16 @@
 import { acceptanceStatus } from '../accept/status.js'
-import type { ActorId } from '../events/types.js'
+import type { ActorId, TrackEvent } from '../events/types.js'
 import type { AcceptanceStatus } from '../model/acceptance.js'
+import type { ReportStage, ReportStatus } from '../model/report-status.js'
 import { isStructuredDossier, type DecisionKind, type DossierArtifact, type Option, type Outcome } from '../model/decision.js'
 import { isRoleContainer, type ItemId, type ItemKind, type ItemRole, type ItemState, type Realization } from '../model/item.js'
 import type { State } from '../state/fold.js'
 import { BUCKETS, bucketOf, type Bucket, type ReportConfig } from './buckets.js'
-import { bodyExcerpt, computeWpTree, type WpNode } from './rollup.js'
+import { bodyExcerpt, computeWpTree, wpRootId, type WpNode } from './rollup.js'
+import { deriveItemStageStatus } from './stage-status.js'
+import { effectiveOpenBlockersForItem } from './blocker-status.js'
+import { isSettled } from '../model/decision.js'
+import type { DemandId } from '../model/demand.js'
 
 /**
  * focus-wp-enrichment (additive) — a short per-item DETAIL block for the focus card. It carries what a
@@ -18,6 +23,13 @@ export interface ReportRowDetail {
   summary?: string
   /** The item's acceptance/recette state rendered `en clair` in FR (the report locale) — render-ready. */
   acceptanceLabel: string
+}
+
+/** Immutable demand text, or an explicitly identified legacy title (P3). */
+export interface RequestSource {
+  provenance: 'demand-raw' | 'legacy-title'
+  text: string
+  demandId?: DemandId
 }
 
 export interface ReportRow {
@@ -47,6 +59,31 @@ export interface ReportRow {
   wpLabel?: string
   /** focus-wp-enrichment (additive) — the per-item detail block (body excerpt + recette state en clair). */
   detail: ReportRowDetail
+  /**
+   * Amendment D2/D3 (additive) — the derived neutral stage/status codes for
+   * this item (see `report/stage-status.ts`). Present iff the report was built
+   * with the folded event log (`ReportOptions.events`); absent otherwise, so a
+   * log-less projection keeps its established shape byte-identically.
+   */
+  stage?: ReportStage
+  /** Recorded evidence locator proving the stage; drop-when-absent. */
+  stageEvidence?: string
+  /** Derived neutral status code (`withdrawn` included); present with `stage`. */
+  status?: ReportStatus
+  /**
+   * Amendment D11 (additive) — the strict WP root: the highest ancestor whose
+   * role is exactly `workpackage` (`wpRootId`). Absent ⇒ the item sits outside
+   * every WP, however its legacy `wpId`/`wpLabel` presentation reads. Present
+   * iff the report was built with the folded log.
+   */
+  wpStrictRootId?: ItemId
+  /**
+   * Amendment D11 (additive) — the owner demand this item was promoted from
+   * (`item.demandId`, promotion 1→N). Present iff the report was built with
+   * the folded log and the item carries one.
+   */
+  demandId?: DemandId
+  requestSource?: RequestSource
 }
 
 export interface DecisionRow {
@@ -81,6 +118,45 @@ export interface DecisionRow {
   artifacts?: DossierArtifact[]
 }
 
+/**
+ * Amendment D3/D11 (additive) — the per-item facts the À-FAIRE conductor
+ * needs and bucket rows cannot carry (leaves, not rows, drive that table).
+ * Keyed by item id; a plain record so it survives JSON. Present iff the
+ * report was built with the folded log.
+ */
+export interface ReportItemFacts {
+  stage: ReportStage
+  stageEvidence?: string
+  status: ReportStatus
+  /**
+   * Strict WP root (highest ancestor whose role is exactly `workpackage`);
+   * absent ⇒ the item sits outside every WP, however its legacy `wpId`
+   * presentation reads.
+   */
+  wpStrictRootId?: ItemId
+  requestSource?: RequestSource
+}
+
+/**
+ * Amendment D9 (additive) — a currently withdrawn or rejected request with
+ * everything the served report needs to show it as an identifiable À-FAIRE
+ * notice under its actual container/WP: title, container, recorded reason
+ * (absent ⇒ the renderer declares the absence), live-gate signal and the
+ * answerable dossiers that still reference it.
+ */
+export interface WithdrawalCandidate {
+  id: ItemId
+  title: string
+  /** Nearest role-container id, if any (the actual container/WP). */
+  containerId?: ItemId
+  /** Recorded withdrawal reason; undefined ⇒ declared absent, never invented. */
+  reason?: string
+  /** An effective live gate or answerable dossier still references this withdrawal. */
+  hasLiveGate: boolean
+  /** Pending, structured, answerable native dossiers targeting the item. */
+  dossierIds: string[]
+}
+
 export interface Report {
   buckets: Record<Bucket, ReportRow[]>
   decisions?: DecisionRow[]
@@ -92,11 +168,22 @@ export interface Report {
    * global total reconcile with the flat buckets instead of silently losing work.
    */
   outsideRollup?: ReportRow[]
+  /** Amendment D3/D11 (additive) — per-item conductor facts; present iff built with the folded log. */
+  itemFacts?: Readonly<Record<ItemId, ReportItemFacts>>
+  /** Amendment D9 (additive) — current withdrawals; present iff built with the folded log. */
+  withdrawals?: WithdrawalCandidate[]
 }
 
 export interface ReportOptions {
   baselineCommit: string
   requireAccepted?: boolean
+  /**
+   * Amendment D2 (additive, optional) — the complete folded event log, in
+   * stream order. Present ⇒ every row carries the derived neutral
+   * stage/status codes; absent ⇒ rows keep their established shape (the
+   * query path and log-less projections are unaffected).
+   */
+  events?: readonly TrackEvent[]
   decisions?: boolean
   /** Include the WP rollup forest on `report.wpTree` (Workpackages §2). Absent ⇒ unchanged behavior. */
   wpTree?: boolean
@@ -156,11 +243,28 @@ function owningWpId(items: Map<ItemId, ItemState>, itemId: ItemId): ItemId | und
   return undefined
 }
 
-function toRow(state: State, item: ItemState, config: ReportConfig, labels: Map<ItemId, string>): ReportRow {
+function toRow(
+  state: State,
+  item: ItemState,
+  config: ReportConfig,
+  labels: Map<ItemId, string>,
+  events?: readonly TrackEvent[],
+): ReportRow {
   const acceptance = acceptanceStatus(state, item.id, config.baselineCommit)
   const wpId = owningWpId(state.items, item.id)
   const wpLabel = wpId !== undefined ? labels.get(wpId) : undefined
   const summary = bodyExcerpt(item.body)
+  // Amendment D2 (additive) — derived neutral stage/status codes + recorded
+  // stage evidence, iff the folded log was supplied. Never a second engine:
+  // the single `deriveItemStageStatus` table every route shares.
+  const derived = events === undefined ? undefined : deriveItemStageStatus(state, events, item, config.baselineCommit)
+  // Amendment D11 (additive) — strict WP root alongside the legacy
+  // presentation fields; demand lineage for 1→N promotion tracing.
+  const strictRootId = events === undefined ? undefined : wpRootId(state.items, item.id)
+  const demand = item.demandId === undefined ? undefined : state.demands.get(item.demandId)
+  const requestSource: RequestSource = demand === undefined
+    ? { provenance: 'legacy-title', text: item.title }
+    : { provenance: 'demand-raw', text: demand.raw.text, demandId: demand.id }
   return {
     id: item.id,
     title: item.title,
@@ -176,11 +280,55 @@ function toRow(state: State, item: ItemState, config: ReportConfig, labels: Map<
     // focus-wp-enrichment (additive) — WP attribution for EVERY bucket + a render-ready detail block.
     ...(wpId !== undefined ? { wpId } : {}),
     ...(wpLabel !== undefined ? { wpLabel } : {}),
+    ...(derived !== undefined ? { stage: derived.stage } : {}),
+    ...(derived?.stageEvidence !== undefined ? { stageEvidence: derived.stageEvidence } : {}),
+    ...(derived !== undefined ? { status: derived.status } : {}),
+    ...(strictRootId !== undefined ? { wpStrictRootId: strictRootId } : {}),
+    ...(events !== undefined && item.demandId !== undefined ? { demandId: item.demandId } : {}),
+    ...(events !== undefined ? { requestSource } : {}),
     detail: {
       ...(summary !== undefined ? { summary } : {}),
       acceptanceLabel: ACCEPTANCE_FR[acceptance],
     },
   }
+}
+
+/**
+ * Amendment D9 (additive) — the currently withdrawn/rejected requests with
+ * their recorded reason. The reason is read from a linked settled decision
+ * (selected option summary only); absent ⇒
+ * undefined, and the renderer declares the absence instead of inventing one.
+ * A later reopening means the item is no longer withdrawn, so it never
+ * appears here.
+ */
+function withdrawalCandidates(state: State, config: ReportConfig): WithdrawalCandidate[] {
+  const candidates: WithdrawalCandidate[] = []
+  for (const item of state.items.values()) {
+    if (isRoleContainer(item)) continue
+    if (item.realization !== 'cancelled' && item.realization !== 'rejected') continue
+    const linkedSettled = [...state.decisions.values()]
+      .filter((d) => d.targets.includes(item.id) && isSettled(d.outcome))
+      .sort((a, b) => (a.id < b.id ? -1 : 1))
+    let reason: string | undefined
+    for (const decision of linkedSettled) {
+      const selected = decision.dossier.options.find((o) => o.id === decision.dossier.selectedOptionId)
+      reason = selected?.summary
+      if (reason !== undefined) break
+    }
+    const dossierIds = [...state.decisions.values()]
+      .filter((d) => d.targets.includes(item.id) && !isSettled(d.outcome) && isStructuredDossier(d.dossier))
+      .map((d) => d.id)
+    candidates.push({
+      id: item.id,
+      title: item.title,
+      ...(owningWpId(state.items, item.id) !== undefined ? { containerId: owningWpId(state.items, item.id)! } : {}),
+      ...(reason !== undefined ? { reason } : {}),
+      hasLiveGate:
+        effectiveOpenBlockersForItem(state, item.id, config.baselineCommit).length > 0 || dossierIds.length > 0,
+      dossierIds,
+    })
+  }
+  return candidates
 }
 
 // Active prioritization scheme: higher score first; un-prioritized items after; stable by id.
@@ -219,12 +367,33 @@ export function buildReport(
     // flat buckets entirely so it can never be mis-counted as a TO-DO leaf (the false-% bug the design
     // warns about). The container forest is surfaced separately on `report.wpTree`.
     if (isRoleContainer(item)) continue
-    const row = toRow(state, item, config, labels)
+    const row = toRow(state, item, config, labels, options.events)
     buckets[row.bucket].push(row)
   }
   for (const bucket of BUCKETS) buckets[bucket].sort((a, b) => byPriority(a, b, compareIds))
 
   const report: Report = { buckets }
+  // Amendment D3/D9/D11 (additive) — per-item conductor facts + current
+  // withdrawals, iff built with the folded log. Log-less projections
+  // (query, role-filter) keep their established shape byte-identically.
+  if (options.events !== undefined) {
+    const itemFacts: Record<ItemId, ReportItemFacts> = {}
+    for (const bucket of BUCKETS) {
+      for (const row of buckets[bucket]) {
+        if (row.stage === undefined || row.status === undefined) continue
+        itemFacts[row.id] = {
+          stage: row.stage,
+          ...(row.stageEvidence !== undefined ? { stageEvidence: row.stageEvidence } : {}),
+          status: row.status,
+          ...(row.wpStrictRootId !== undefined ? { wpStrictRootId: row.wpStrictRootId } : {}),
+          ...(row.requestSource !== undefined ? { requestSource: row.requestSource } : {}),
+        }
+      }
+    }
+    report.itemFacts = itemFacts
+    const withdrawals = withdrawalCandidates(state, config)
+    if (withdrawals.length > 0) report.withdrawals = withdrawals
+  }
   if (options.wpTree) {
     const represented = new Set<ItemId>()
     const collectLeaves = (nodes: readonly WpNode[]): void => {

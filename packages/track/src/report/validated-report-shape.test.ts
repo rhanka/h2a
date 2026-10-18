@@ -20,6 +20,7 @@ import type { DecisionRow, ReportRow } from './build.js'
 import {
   auditNextActions,
   buildWpConductorView,
+  describeRowNextActions,
   DETERMINISTIC_NEXT_ACTIONS,
   formatWpConductor,
   handleTokenRegex,
@@ -240,12 +241,14 @@ describe('criteria 3/4 — FAIT names the last recorded actions, and declares it
   })
 })
 
-describe('criteria 5/6 — À-FAIRE has five columns, ordered by priority, and says so', () => {
-  it('has exactly `WP · av. · à faire · bloqué · prochaine action` and no `cible action`', () => {
+describe('criteria 5/6 — À-FAIRE has seven columns, ordered by priority, and says so', () => {
+  it('has exactly `WP · av. · stage · status · à faire · bloqué · prochaine action` and no `cible action`', () => {
+    // Amendment D3 (declared diff: the single regenerated golden traces here)
+    // — À-FAIRE gains exactly the two columns `stage` and `status`.
     seed()
     const todo = section(view(), 'todo')
-    expect(todo.columns.map((c) => c.id)).toEqual(['wp', 'progress', 'todo', 'blocked', 'nextAction'])
-    expect(todo.columns.map((c) => c.label)).toEqual(['WP', 'av.', 'à faire', 'bloqué', 'prochaine action'])
+    expect(todo.columns.map((c) => c.id)).toEqual(['wp', 'progress', 'stage', 'status', 'todo', 'blocked', 'nextAction'])
+    expect(todo.columns.map((c) => c.label)).toEqual(['WP', 'av.', 'étape', 'statut', 'à faire', 'bloqué', 'prochaine action'])
     expect(todo.columns.map((c) => c.id)).not.toContain('actionTarget')
     for (const rendered of [text(), md()]) expect(rendered).not.toContain('cible action')
   })
@@ -267,7 +270,7 @@ describe('criteria 5/6 — À-FAIRE has five columns, ordered by priority, and s
 describe('criteria 7/19 — `bloqué` points at the answer, and is empty ONLY when nothing is recorded', () => {
   it('names the D-number of the dossier that unblocks, never a restated question', () => {
     seed()
-    const gated = section(view(), 'todo').rows.find((row) => row['todo'].includes('travail bloqué'))!
+    const gated = section(view(), 'todo').rows.find((row) => row['todo']?.includes('travail bloqué'))!
     expect(gated['blocked']).toBe('D1')
     expect(gated['blocked']).not.toContain('En attente d’une décision')
     expect(gated['blocked']).not.toContain('?')
@@ -311,26 +314,38 @@ describe('criteria 8/20 — the renderer stops serving a gate class as a recomme
   })
 
   it('exposes the mechanical half of criterion 20 as a check the agent must run before serving', () => {
+    // Amendment D10/D14 — the audit consumes structured descriptors (machine
+    // instruction states, origin, focus, gate step codes), never rendered
+    // words. Every outcome assertion below is retained.
     seed()
-    const clauses = STEP_CODES.map((code) => stepActionFr(code))
-    const rows = section(view(), 'todo').rows.map((row) => row['nextAction']!)
+    const rows = describeRowNextActions(section(view(), 'todo').rows)
 
     // On the deterministic render the check is NOT vacuous: it reports the rows still owed.
-    const before = auditNextActions(rows, clauses)
+    const before = auditNextActions(rows)
     expect(before.uninstructed).toBeGreaterThan(0)
     expect(before.ok).toBe(true) // markers are honest, not violations
 
     // A report that reintroduced the template fails on both counts.
-    const templated = ['action (subagent): Rédiger la spécification', 'action (subagent): Rédiger la spécification', 'action (subagent): Rédiger la spécification']
-    const after = auditNextActions(templated, clauses)
+    const templated = [0, 1, 2].map(() => ({
+      focus: true,
+      instruction: 'investigated' as const,
+      action: 'action (subagent): Rédiger la spécification',
+      actionOrigin: 'gate-class' as const,
+      gateSteps: ['amend-spec' as const],
+    }))
+    const after = auditNextActions(templated)
     expect(after.ok).toBe(false)
     expect(after.repeated).toEqual(['action (subagent): Rédiger la spécification'])
     expect(after.gateClauses).toEqual(['action (subagent): Rédiger la spécification'])
 
     // A properly instructed report passes with nothing owed.
     const instructed = auditNextActions(
-      ['Ajouter le préflight /v1/models dans run.ts', 'Trancher la question du fallback dans DEC-118'],
-      clauses,
+      ['Ajouter le préflight /v1/models dans run.ts', 'Trancher la question du fallback dans DEC-118'].map((action) => ({
+        focus: true,
+        instruction: 'investigated' as const,
+        action,
+        actionOrigin: 'investigated' as const,
+      })),
     )
     expect(instructed).toEqual({ uninstructed: 0, repeated: [], gateClauses: [], ok: true })
   })
@@ -456,7 +471,8 @@ describe('criteria 10b/10c — the identifier is relocated, not removed', () => 
     // The block is machine-facing in both supported owner renderings; Markdown fences it without escaping.
     for (const [format, rendered] of [['text', text()], ['md', md()]] as const) {
       const block = rendered.slice(rendered.indexOf('RÉSOLUTION DES HANDLES'))
-      expect(block, format).toContain('track report --resolve <handle>')
+      expect(block, format).toContain(`track report --now ${NOW} --commit c1 --expect-events`)
+      expect(block, format).toContain('--resolve <handle>')
       for (const handle of v.handles) expect(block, format).toContain(`${handle.handle}\t${handle.id}`)
       expect(block, format).not.toMatch(/\\[[\]<>]/u)
     }
@@ -781,7 +797,8 @@ describe('the skill instructs the shape this renderer emits', () => {
     expect(s).toContain('by **opening the\nitem**')
     expect(s).toContain('bounded to the focus rows')
     expect(s).toContain('you must replace every one of')
-    expect(s).toContain('auditNextActions(values, gateClauses)')
+    expect(s).toContain('describeRowNextActions')
+    expect(s).toContain('auditNextActions(descriptors)')
     expect(s).toContain('a substantive action repeats\non three or more rows, or equals a gate clause')
     expect(s).toContain('whether the sentence is *right*. The owner judges\nthat, and no green test substitutes for it.')
   })
@@ -833,13 +850,46 @@ describe('the skill instructs the shape this renderer emits', () => {
     expect(s).toContain('**Every omission names its reason**')
   })
 
-  it('states the five À-FAIRE columns, the ordering line, and the `bloqué` rule', () => {
+  it('states the seven À-FAIRE columns, the ordering line, and the `bloqué` rule', () => {
     const s = skill()
-    expect(s).toContain('`WP · av. · à faire · bloqué · prochaine action`')
+    expect(s).toContain('`WP · av. · étape · statut · à faire · bloqué · prochaine action`')
+    expect(s).not.toContain('`WP · av. · à faire · bloqué · prochaine action`')
     expect(s).toContain('There is no\n`cible action` column')
     expect(s).toContain('ordre = priorité ; les cinq premiers sont le focus')
     expect(s).toContain('An empty `bloqué` means no blockage is recorded.')
     expect(s).toContain('A recorded gate rendered `—` is a failure')
+    expect(s).not.toContain('takes precedence')
+  })
+
+  it('the served route is `--status-table` over a rolling window, in the user language', () => {
+    const s = skill()
+    expect(s).toContain('`--status-table` selects the validated four-section')
+    expect(s).toContain('rolling `last-week`')
+    expect(s).toContain('`--period last-day`')
+    expect(s).toContain('An explicit `--period` or `--since`/`--until`\nselector wins')
+    expect(s).toContain('never invent a period')
+    expect(s).toContain('`--lang <bcp47>`')
+    expect(s).toContain('never a silent French fallback')
+    expect(s).toContain('Quote machine tokens literally')
+    expect(s).toContain("in the user's language")
+  })
+
+  it('one row, one WP, one dossier — stage/status codes audited before serving', () => {
+    const s = skill()
+    expect(s).toContain('## One row, one WP, one dossier')
+    expect(s).toContain('exactly one strict WP attachment')
+    expect(s).toContain('`hors WP · items`')
+    expect(s).toContain('exactly one investigated proposal')
+    expect(s).toContain('exactly one\nmatching `D` number')
+    expect(s).toContain('A deferred dossier is not settled')
+    expect(s).toContain('`spec | dev | pr | merged | deployed`')
+    expect(s).toContain('a live gate overrides a stored\ngreen')
+    expect(s).toContain('nothing is\ngreen without a conformity witness')
+    expect(s).toContain('never silence, never absence')
+    expect(s).toContain('carry no health colour')
+    expect(s).toContain('auditStatusProposals')
+    expect(s).toContain('describeStatusProposals')
+    expect(s).toContain('a green audit never certifies prose quality')
   })
 
   it('keeps the anti-fabrication clauses criteria 16, 17 and 15b restate', () => {

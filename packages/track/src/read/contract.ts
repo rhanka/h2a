@@ -658,7 +658,9 @@ export class TrackReader {
     const first = events[0]?.at
     const last = events.at(-1)
     return {
-      report: buildReport(fold(events), options),
+      // Amendment D2 — the folded log travels with the options so every row
+      // carries the derived neutral stage/status codes (additive).
+      report: buildReport(fold(events), { ...options, events }),
       logWindow: {
         ...(first !== undefined ? { from: first } : {}),
         ...(last?.at !== undefined ? { to: last.at } : {}),
