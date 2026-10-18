@@ -2,6 +2,28 @@
 
 Owner scope: apply the approved amendments, close B4, repair the three Linux CI jobs, implement B5, then stop. No Phase L or second standing PTY owner. Start: af46490d8, origin/main initially 46b82b427; subsequently rebased without conflicts onto 7ebbcf266 before publication. Temporary test roots only; targeted files only; no installed h2a, owner state, Python or foreign processes.
 
+## Owner-approved continuation — 2026-10-18 (092bcaecb)
+
+Only the intersection of rvptyam2a-last.md and rvptyam2s-last.md is authorized. Both exact amendment wordings are preserved below. Apply the stricter combined requirements: 26 declarations (23 Node + 3 runtime; 3 skipped + 23 TODO); no retirement without an atomic admission fence on every existing/new connection; explicit nonempty conductor enrollment with binary/version/seat/platform/isolated configuration; all four complete B5 files, no skip/TODO/cancellation; Linux Node 22/24 then macOS ARM64 Node 22/24 after BM. The B4 Linux keepalive exception does not extend to B5.
+
+Source: rvptyam2a-last.md
+
+> Ajouter `scripts/test-non-tests-0986.json` et `packages/h2a/test/gate-execution-evidence.test.js` au périmètre B4, exclusivement pour retirer l’identité supervisor désignée dans le diff et synchroniser les comptes : **26 entrées, 23 Node, 3 runtime**. Conserver les contrôles de disparition, changement de statut et ignore non déclaré.
+
+> Un hôte pré-B sans fermeture effective de toutes les admissions reste accessible et inventorié ; son retrait automatique est explicitement différé. Un marqueur client ou une observation ponctuelle de liste vide ne l’autorise pas. Les critères B5 d’admission et de retrait restent ouverts jusqu’à preuve couvrant les connexions v1 déjà établies et les créations concurrentes.
+
+> Avant exécution, le conducteur fixe une cohorte non vide de vrais CLI, leurs versions, sièges et plateformes. Tous les membres enrôlés et les quatre fichiers B5 doivent réussir ; absence, indisponibilité, ignore, TODO ou annulation empêchent le verdict vert. La qualification nomme exactement les CLI et plateformes prouvés. L’exception keepalive reste limitée à B4 Linux.
+
+Source: rvptyam2s-last.md
+
+> Ajouter à l’allow-list B4 `scripts/test-non-tests-0986.json` et `packages/h2a/test/gate-execution-evidence.test.js`, exclusivement pour retirer l’entrée supervisor désignée par le diff et synchroniser les comptes : **26 entrées, 23 Node + 3 runtime, 3 skipped, 23 TODO**. Conserver les contrôles de disparition, d’activation et d’ignores non déclarés.
+
+> Pour un propriétaire pré-B sans gel atomique d’admission couvrant toutes les connexions, y compris v1 déjà ouvertes, le retrait automatique reste `deferred`. Conserver les sessions, leur endpoint et les installations nécessaires. Une observation `list` vide n’autorise aucun signal d’arrêt. Le critère B5 interdisant les créations après drainage reste obligatoire et bloquant.
+
+> Avant le gate, le conducteur consigne une liste **non vide** de CLI/sièges réellement enrôlés, leurs binaires, versions et configurations isolées dans `H2A_TEST_PHASE_B_CLIS`. Exécuter chaque entrée dans le fichier B5 nommé. Zéro entrée signifie qualification incomplète avec échec explicite. Qualifier Linux d’abord ; qualifier macOS ARM64 après BM. Chaque verdict exige les quatre fichiers B5 complets, tous les cas requis réussis, zéro ignore, TODO ou annulation. Aucun lot L ne démarre avant le vert B5 de sa plateforme.
+
+The rejected marker-only contract and the unsafe draft monitor are not accepted. Pre-B admission and retirement criteria remain OPEN until an atomic barrier or a new reviewed contract exists; an empty list or owner handshake is never permission to signal. Real CLI availability is not inferred from synthetic seat fixtures. No Phase L work.
+
 ## Approved amendments (verbatim)
 
 The two AMENDEMENTS-GO reviews below are accepted by the owner. Their fixture addition applies to the reopened B2 regression and the Linux B4 gate. The single keepalive exception is limited to B4 Linux; all other gate cases require zero skips, TODOs or cancellations.
