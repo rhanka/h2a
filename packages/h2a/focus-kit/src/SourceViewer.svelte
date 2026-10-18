@@ -9,17 +9,17 @@
   let scroller = $state(null), target = $state(null), heading;
   onMount(() => heading.focus());
   const windowSize = 80, lineHeight = 24;
-  async function go(line) {
+  async function go(line, focus = true) {
     const n = Math.min(lines.length, Math.max(1, Number(line) || 1));
     start = Math.max(0, n - 9); jump = n;
     await tick(); scroller.scrollTop = (n - 1) * lineHeight;
-    await tick(); target?.focus({ preventScroll: true });
+    await tick(); if (focus) target?.focus({ preventScroll: true });
   }
   $effect(() => { if (lines.length) go(locator?.start ?? 1); });
   $effect(() => {
     const needle = query, input = lines, token = ++serial;
     matches = []; searching = true; matchIndex = 0;
-    searchSource(input, needle, () => serial === token, found => { matches = found; searching = false; if (found.length) go(found[0]); });
+    searchSource(input, needle, () => serial === token, found => { matches = found; searching = false; if (found.length) go(found[0], false); });
     return () => { serial++; };
   });
   function download() {
