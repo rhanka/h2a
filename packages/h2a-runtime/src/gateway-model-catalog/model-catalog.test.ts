@@ -43,6 +43,15 @@ describe("gateway model catalog (H0 #662)", () => {
     expect(resolveGatewayModelAlias("nope")).toBeUndefined();
   });
 
+  it("ignores Object.prototype keys (no prototype pollution)", () => {
+    expect(resolveGatewayModelAlias("constructor")).toBeUndefined();
+    expect(resolveGatewayModelAlias("__proto__")).toBeUndefined();
+    expect(resolveGatewayModelAlias("CONSTRUCTOR")).toBeUndefined();
+    expect(claudeGatewaySlot("constructor")).toBeUndefined();
+    expect(claudeGatewaySlot("__proto__")).toBeUndefined();
+    expect(claudeGatewaySlot("CONSTRUCTOR")).toBeUndefined();
+  });
+
   it("keeps the exact wonder-full spelling (no invented contributor id)", () => {
     expect(GATEWAY_MODEL_ALIASES["wonder-full"]).toBe("muse-wonder-full-1.0");
     expect(GATEWAY_MODEL_IDS).not.toContain("muse-wonder-full-1.1");

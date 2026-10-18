@@ -60,7 +60,9 @@ export function resolveGatewayModelAlias(
   value: string,
 ): GatewayModelId | undefined {
   const key = value.trim().toLowerCase();
-  return GATEWAY_MODEL_ALIASES[key];
+  return Object.hasOwn(GATEWAY_MODEL_ALIASES, key)
+    ? GATEWAY_MODEL_ALIASES[key]
+    : undefined;
 }
 
 /**
@@ -186,5 +188,8 @@ export const CLAUDE_GATEWAY_MODEL_MAP: Readonly<
 export function claudeGatewaySlot(
   family: string,
 ): ClaudeGatewaySlot | undefined {
-  return CLAUDE_GATEWAY_MODEL_MAP[family.trim().toLowerCase()];
+  const key = family.trim().toLowerCase();
+  return Object.hasOwn(CLAUDE_GATEWAY_MODEL_MAP, key)
+    ? CLAUDE_GATEWAY_MODEL_MAP[key]
+    : undefined;
 }
