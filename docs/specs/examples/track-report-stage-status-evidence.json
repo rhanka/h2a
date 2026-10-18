@@ -1,0 +1,288 @@
+{
+ "about": "Machine record for the stage/status served example (track-report-stage-status.md). Captured from the served route (track report --status-table --format json, weekly default, fr) over the synthetic UAT-6 journal (54 events). ULIDs differ on every recipe run; codes, counts, handle structure, lineage and audit verdicts are the stable assertions.",
+ "fixture": {
+  "recipe": "track-report-stage-status-uat.md, recipe section (CLI init + domain-API builder for the old phase and the demand trio, CLI for the rest)",
+  "journal": {
+   "events": 54,
+   "head": "sha256:c221e5b35c6a4024d2cc3f6f6e719525291452ea8de0ad0c934ada16eb709122"
+  },
+  "oldPhase": "2026-09-20T10:00:00.000Z",
+  "nowPhase": "2026-10-18 (wall clock at build)"
+ },
+ "served": {
+  "route": "track report --status-table --format json",
+  "period": {
+   "requested": "last-week",
+   "from": "2026-10-11T12:39:56.021Z",
+   "to": "2026-10-18T12:39:56.021Z",
+   "fromRef": null,
+   "toRef": null,
+   "eventsInWindow": 37,
+   "eventsTotal": 54
+  },
+  "coverage": {
+   "projected": 13,
+   "rendered": 11,
+   "omitted": [
+    {
+     "label": "Keep the fresh scope ?",
+     "reason": "décision déjà tranchée (visible dans bloqué ou FAIT, plus rien à y répondre)"
+    },
+    {
+     "label": "irrelevant old withdrawal",
+     "reason": "retiré hors fenêtre, sans gate actif ni décision liée en fenêtre"
+    }
+   ],
+   "aggregated": [],
+   "outsideWp": 7
+  }
+ },
+ "rows": [
+  {
+   "handle": "1.1",
+   "id": "01M57G7PE3APEWY78NG5PDT3CJ",
+   "title": "old open work",
+   "stage": "dev",
+   "status": "not-qualified",
+   "stageEvidence": null,
+   "wpStrictRootId": "01M57G7PDRXWD1ESYTNB1HEJ5C",
+   "demandId": null
+  },
+  {
+   "handle": "1.2",
+   "id": "01M57G7PEKBTPQGKYJ504XQJ3A",
+   "title": "old withdrawal with live gate",
+   "stage": "spec",
+   "status": "withdrawn",
+   "stageEvidence": null,
+   "wpStrictRootId": "01M57G7PDRXWD1ESYTNB1HEJ5C",
+   "demandId": null
+  },
+  {
+   "handle": "1.3",
+   "id": "01M57G7PFN1HD2ND1XG2H9KJ1P",
+   "title": "red lane work",
+   "stage": "dev",
+   "status": "blocked",
+   "stageEvidence": null,
+   "wpStrictRootId": "01M57G7PDRXWD1ESYTNB1HEJ5C",
+   "demandId": null
+  },
+  {
+   "handle": "1.4",
+   "id": "01M57G7PG280AJG2S2Z80VD4NB",
+   "title": "blue choice work",
+   "stage": "dev",
+   "status": "decision-awaited",
+   "stageEvidence": null,
+   "wpStrictRootId": "01M57G7PDRXWD1ESYTNB1HEJ5C",
+   "demandId": null
+  },
+  {
+   "handle": "1.5",
+   "id": "01M57G7PF2EM89SN0565CNA384",
+   "title": "fresh sub-WP work",
+   "stage": "dev",
+   "status": "not-qualified",
+   "stageEvidence": null,
+   "wpStrictRootId": "01M57G7PDRXWD1ESYTNB1HEJ5C",
+   "demandId": null
+  },
+  {
+   "handle": "1.6",
+   "id": "01M57G7PH8R92350FR3KSP63H1",
+   "title": "fresh withdrawal",
+   "stage": "spec",
+   "status": "withdrawn",
+   "stageEvidence": null,
+   "wpStrictRootId": "01M57G7PDRXWD1ESYTNB1HEJ5C",
+   "demandId": null
+  },
+  {
+   "handle": "2.1",
+   "id": "01M57G7PGBV5TGD5VVYH2WR5FD",
+   "title": "never-qualified work",
+   "stage": "dev",
+   "status": "not-qualified",
+   "stageEvidence": null,
+   "wpStrictRootId": "01M57G7PDYRG0F5G7FTYTGW0MZ",
+   "demandId": null
+  },
+  {
+   "handle": "3.1",
+   "id": "01M57G7PF2EM89SN0565CNA384",
+   "title": "fresh sub-WP work",
+   "stage": "dev",
+   "status": "not-qualified",
+   "stageEvidence": null,
+   "wpStrictRootId": "01M57G7PDRXWD1ESYTNB1HEJ5C",
+   "demandId": null
+  },
+  {
+   "handle": "4.1",
+   "id": "01M57G7PGPQGE1K5W234DQ4HNM",
+   "title": "phase-only leaf",
+   "stage": "spec",
+   "status": "not-qualified",
+   "stageEvidence": null,
+   "wpStrictRootId": null,
+   "demandId": null
+  },
+  {
+   "handle": "5.1",
+   "id": "01M57G7PGWBC1RXWK43W23HMB9",
+   "title": "stream-only leaf",
+   "stage": "spec",
+   "status": "not-qualified",
+   "stageEvidence": null,
+   "wpStrictRootId": null,
+   "demandId": null
+  },
+  {
+   "handle": "6.1",
+   "id": "01M57G7PER0EYFD4A9QGTF8TEK",
+   "title": "old external prerequisite",
+   "stage": "spec",
+   "status": "not-qualified",
+   "stageEvidence": null,
+   "wpStrictRootId": null,
+   "demandId": null
+  },
+  {
+   "handle": "6.2",
+   "id": "01M57G7PFSYJ36WJRNGT4F625Q",
+   "title": "other lane prerequisite",
+   "stage": "spec",
+   "status": "not-qualified",
+   "stageEvidence": null,
+   "wpStrictRootId": null,
+   "demandId": null
+  },
+  {
+   "handle": "6.3",
+   "id": "01M57G7PGH50X3ST0GB39K9RX0",
+   "title": "parentless leaf",
+   "stage": "spec",
+   "status": "not-qualified",
+   "stageEvidence": null,
+   "wpStrictRootId": null,
+   "demandId": null
+  },
+  {
+   "handle": "6.4",
+   "id": "01M57G7PH5H1XNF07B6H86ZQVE",
+   "title": "second half",
+   "stage": "spec",
+   "status": "not-qualified",
+   "stageEvidence": null,
+   "wpStrictRootId": null,
+   "demandId": "01M57G7PGZTNYQSCJA73V8ZJE5"
+  },
+  {
+   "handle": "6.5",
+   "id": "01M57G7PH5H2DSMWPANRPXKGC8",
+   "title": "first half",
+   "stage": "spec",
+   "status": "not-qualified",
+   "stageEvidence": null,
+   "wpStrictRootId": null,
+   "demandId": "01M57G7PGZTNYQSCJA73V8ZJE5"
+  }
+ ],
+ "decisions": [
+  {
+   "handle": "D1",
+   "kind": "decision",
+   "id": "01M57G7PG8YN0TQN7CM4M5MP76",
+   "title": "Share the UAT connector ?"
+  }
+ ],
+ "fait": [
+  {
+   "title": "old delivery",
+   "stage": "dev",
+   "status": "unforeseen",
+   "stageEvidence": null,
+   "note": "done + pass run at c-old, stale at the journal head: no silent green"
+  },
+  {
+   "title": "deployed member",
+   "stage": "deployed",
+   "status": "unforeseen",
+   "stageEvidence": "https://example.test/env/prod",
+   "note": "recorded delivery link; acceptance stale at the head, flagged not-qualified-green"
+  }
+ ],
+ "withdrawals": [
+  {
+   "id": "01M57G7PEKBTPQGKYJ504XQJ3A",
+   "title": "old withdrawal with live gate",
+   "containerId": "01M57G7PDRXWD1ESYTNB1HEJ5C",
+   "hasLiveGate": true,
+   "dossierIds": []
+  },
+  {
+   "id": "01M57G7PEYVZCFWBQKPAAEHXY0",
+   "title": "irrelevant old withdrawal",
+   "containerId": "01M57G7PDYRG0F5G7FTYTGW0MZ",
+   "hasLiveGate": false,
+   "dossierIds": []
+  },
+  {
+   "id": "01M57G7PH8R92350FR3KSP63H1",
+   "title": "fresh withdrawal",
+   "containerId": "01M57G7PDRXWD1ESYTNB1HEJ5C",
+   "reason": "Cut the scope: duplicate of the old lane",
+   "hasLiveGate": false,
+   "dossierIds": []
+  }
+ ],
+ "audits": {
+  "actionFr": {
+   "uninstructed": 5,
+   "repeated": [],
+   "gateClauses": [],
+   "ok": true
+  },
+  "actionEs": {
+   "uninstructed": 5,
+   "repeated": [],
+   "gateClauses": [],
+   "ok": true
+  },
+  "proposalHonest": {
+   "missingProposals": [],
+   "orphanBlue": [],
+   "ok": true
+  },
+  "proposalTranslatedPlaceholder": {
+   "uninstructed": 1,
+   "repeated": [],
+   "gateClauses": [],
+   "ok": true,
+   "note": "uncertified: still owed, must not be served as conforming"
+  },
+  "proposalMissing": {
+   "missingProposals": [
+    "<red-lane-work-id>"
+   ],
+   "orphanBlue": [],
+   "ok": false
+  }
+ },
+ "languages": {
+  "columns": "wp,progress,stage,status,todo,blocked,nextAction",
+  "invariant": "ids, order, period, handles and machine codes identical in fr/es/ja/pt",
+  "fr": "[1.3] 🔴 bloqué",
+  "es": "[1.3] 🔴 bloqueado",
+  "ja": "[1.3] 🔴 ブロック中",
+  "pt": "[1.3] 🔴 blocked (unprepared: neutral codes, never silent French)",
+  "rendererProse": "RECOMMANDATION and fixed lines stay renderer French; the served synthesis is agent work in the user language (full renderer localisation is a separate WP)"
+ },
+ "journalMutations": 0,
+ "notes": [
+  "Short-window sub-WP listing: fresh sub-WP work answers two handles (1.5 under WP1, 3.1 under WP1.1); pre-existing validated behavior, recorded not failed.",
+  "pr/merged stage codes are unit-covered; this journal carries recorded evidence for deployed only.",
+  "No unstructured pending dossier is creatable through current writes (structured dossier mandatory at creation); that case stays unit-covered (report-revamp legacy test)."
+ ]
+}

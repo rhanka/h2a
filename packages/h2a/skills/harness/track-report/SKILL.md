@@ -5,19 +5,60 @@ description: Use when the owner asks for a human contextual track report, status
 
 # harness/track-report
 
-## Owner status table (owner evolution, 2026-10-17)
+## The served route: `--status-table`, rolling window, user language
 
-For an owner status report, use `node "$track_bin" report --status-table --format md` (or `text`/`json`)
-after the bootstrap below. Follow `packages/track/skills/track-report/SKILL.md`, the canonical new table
-contract: exactly `# · Ta demande · Étape · Statut · Où ça en est / prochaine action`. This owner-requested
-view takes precedence over the older FAIT/À-FAIRE column rules below; the older four-section route remains
-the compatibility default. Preserve DÉCISIONS and its decision expectations: question, options with each
-consequence, readable in two minutes, dossier link, then the owner's actual answer. Versions are supporting
-references in parentheses, never the purpose. Stages are spec/dev/PR/mergé/déployé with recorded evidence;
-colors are only 🟢 conforming progress, 🟠 unforeseen issue, 🔴 blocked with mandatory proposal, 🔵 owner
-decision awaited. Waiting on another lane and suspension belong in the action cell, with no new color.
-Use the three deterministic reads below as supporting evidence; the new view never fabricates missing
-status, merge or deployment proof. Incomplete red/blue rows and version-only subjects are visibly flagged.
+For an owner status report, serve the validated report below with
+`node "$track_bin" report --status-table --format md` (or `text`/`json`)
+after the bootstrap. `--status-table` selects the validated four-section
+route, never a separate table builder: over an identical period it renders
+byte-identical sections, with DÉCISIONS and its decision expectations kept:
+question, options with each consequence, readable in two minutes, dossier
+link, then the owner's actual answer. Versions are supporting references in
+parentheses, never the purpose.
+
+The served window is rolling by default: `--status-table` without a selector
+covers the last seven days (rolling `last-week`). `--period last-day`
+restricts to the last day. An explicit `--period` or `--since`/`--until`
+selector wins over the rolling default. Bounds always come from the journal
+and the clock (`--now` pins the clock); never invent a period, a delivery, or
+evidence. What the log does not record stays unrecorded: a missing stage,
+merge or deployment proof is flagged, never fabricated.
+
+The served synthesis is written in the user's language. `--lang <bcp47>`
+selects the stage/status labels: exact match, then primary subtag, else the
+neutral codes — never a silent French fallback. Quote machine tokens literally
+— stage/status codes, `D1 A`-style replies, `[n.m]` handles, the
+`ordre = priorité` line and renderer-emitted fixed lines — and write every
+human sentence, including the meaning of those fixed lines, in the user's language.
+A translated placeholder is still a placeholder: it fails the serving audit
+below. Waiting on another lane and suspension belong in the action cell, with
+no new color.
+
+## One row, one WP, one dossier — audited before serving
+
+Every served À-FAIRE row carries exactly one strict WP attachment: the row's
+WP cell names one WP, or `hors WP · items` with the outside-WP flag when no
+strict ancestry exists — never silence, never two WPs. Every red row carries
+exactly one investigated proposal; every blue-gated row carries exactly one
+matching `D` number. A deferred dossier is not settled: it stays, with its
+current answer need stated.
+
+Stage and status are neutral codes over recorded evidence, never words to
+guess: stage is one of `spec | dev | pr | merged | deployed`, status one of
+`progressing | unforeseen | blocked | decision-awaited | not-qualified |
+withdrawn`. Gates decide before stored marks: a live gate overrides a stored
+green; nothing is
+green without a conformity witness; `unforeseen` is a recorded reopening or
+regression, or stale acceptance — never silence, never absence;
+`not-qualified` and `withdrawn` carry no health colour. A withdrawal kept in
+the served tables keeps its reason, or declares it missing.
+
+Run the two structured audits before serving: `describeRowNextActions` plus
+`auditNextActions(descriptors)` for the focus actions, and
+`auditStatusProposals` plus `describeStatusProposals` (both in
+`packages/track/src/report/audit.ts`) for red proposals and blue dossiers.
+Presence and identity only: a green audit never certifies prose quality, and
+the owner judges whether the sentence is right.
 
 `track` supplies complete, deterministic facts and already renders the four sections the owner
 validated. The agent already in the conversation supplies the contextual synthesis on top of them. Do not
@@ -126,7 +167,8 @@ bucket counters.
 
 **There is always a window, and it always has bounds.** "The whole log" *is* a window: first recorded
 event → journal head. With no selector, a self-evident header example is
-`période : <date du premier événement> → <date du dernier événement> (intégralité du journal, borne haute = dernier événement)`.
+`période : <date du premier événement> → <date du dernier événement> (intégralité du journal, borne haute = dernier événement)` —
+an example in the renderer's language, restated in the user's language in the served synthesis.
 The phrase `aucune fenêtre` is wrong — it described the absence of a flag, not the absence of a period.
 
 Scope the report to a measured period rather than filtering it by hand:
@@ -185,7 +227,7 @@ upward, nothing is lost — and the header declares how many (`8 sous-WP agrég�
 re-expand them. They come back on a short window, or on the owner's explicit request
 (`track report --sub-wp`).
 
-**À-FAIRE** — exactly five columns: `WP · av. · à faire · bloqué · prochaine action`. There is no
+**À-FAIRE** — exactly seven columns: `WP · av. · étape · statut · à faire · bloqué · prochaine action`. There is no
 `cible action` column; a DONE item carrying acceptance debt is named inside `à faire` with its bucket.
 Print the line `ordre = priorité ; les cinq premiers sont le focus` under the heading.
 
@@ -254,8 +296,9 @@ The renderer marks them `à instruire : ouvrir l'item et nommer le geste`; you m
 those markers before serving the report. Every other row keeps `non instruite`, which says plainly that
 the action has not been instructed — that is honest, and it is what you leave there.
 
-Checkable, and to be run before serving: `auditNextActions(values, gateClauses)` from
-`@sentropic/track` returns `{ uninstructed, repeated, gateClauses, ok }`. `uninstructed > 0` means focus
+Checkable, and to be run before serving: `describeRowNextActions(rows)` from
+`@sentropic/track` turns the served rows into audit descriptors, and
+`auditNextActions(descriptors)` returns `{ uninstructed, repeated, gateClauses, ok }`. `uninstructed > 0` means focus
 rows still carry the renderer's marker — finish them. `ok === false` means a substantive action repeats
 on three or more rows, or equals a gate clause: in both cases it names a class, not a gesture. Not
 checkable, and the part that actually failed the UAT: whether the sentence is *right*. The owner judges
@@ -312,7 +355,8 @@ owner statement in this report request/current conversation, or (2) an explicitl
 session artifact that maps this exact item, WP, or directive to an executor (and, if claimed, model/effort).
 It excludes project memory, repository documents, installed configuration, defaults, prior conventions, and
 inference. Context may enrich executor prose only; it never overrides emitted order, gates, or facts. When
-the report needs model/effort but that narrow context is absent, write exactly:
+the report needs model/effort but that narrow context is absent, write that meaning in
+the user's language — the French reference wording is
 `exécuteur: contexte owner requis (modèle/effort non présents dans le journal)`.
 
 Do not call an absent `facts.wsjf` subjective "priority". A `priority-missing` directive means the log has

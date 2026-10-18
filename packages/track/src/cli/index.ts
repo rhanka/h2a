@@ -102,7 +102,7 @@ const USAGE = `usage: track <command>
   accept waive <criterionId> --reason <r>
   consolidate --items <id,id> --commit <mergeCommit> [--client-token <t>]
   priority assess <itemId> --ubv <n> --tc <n> --rr <n> --js <n>
-  report [--status-table] [--scope <container-id|code|label>] [--since <sha|YYYY-MM-DD> [--until <sha|YYYY-MM-DD>]|--period <today|week|month|all>] [--decisions] [--require-accepted] [--active-roster] [--wp|--flat] [--inline] [--width <n>] [--level <spec|plan|wp|lot|task>] [--raw] [--resolve <handle>] [--sub-wp] [--lang <bcp47>] [--format json|text|md] [--commit <sha>] [--now <iso>]
+  report [--status-table] [--scope <container-id|code|label>] [--since <sha|YYYY-MM-DD> [--until <sha|YYYY-MM-DD>]|--period <today|week|month|all|last-week|last-day>] [--decisions] [--require-accepted] [--active-roster] [--wp|--flat] [--inline] [--width <n>] [--level <spec|plan|wp|lot|task>] [--raw] [--resolve <handle>] [--sub-wp] [--lang <bcp47>] [--format json|text|md] [--commit <sha>] [--now <iso>]
   snapshot [--require-accepted] [--format json|text|md] [--commit <sha>]
   export-graph [--repo-key <repo:key>] [--source-id <id>] [--observed-at <iso>]
   query [--kind <k>] [--role <workpackage|spec-phase|stream>] [--workspace <w>] [--bucket <AWAITED|DROPPED|DONE|TO-DO>] [--realization <r>] [--acceptance <a>] [--format json|text|md] [--commit <sha>]
@@ -459,9 +459,9 @@ function extractTrackDirFlag(argv: string[]): { trackDirFlag?: string; rest: str
   return trackDirFlag !== undefined ? { trackDirFlag, rest } : { rest }
 }
 
-const REPORT_USAGE = `usage: track report [--status-table] [--scope <container-id|code|label>] [--since <sha|YYYY-MM-DD> [--until <sha|YYYY-MM-DD>] | --period <today|week|month|all>] [--raw] [--wp] [--flat] [--inline|--width <40..240>] [--decisions] [--active-roster] [--require-accepted] [--resolve <handle>] [--commit <sha>] [--now <iso>] [--sub-wp] [--lang <bcp47>] [--format json|text|md] [--track-dir <directory-containing-events.jsonl>]
+const REPORT_USAGE = `usage: track report [--status-table] [--scope <container-id|code|label>] [--since <sha|YYYY-MM-DD> [--until <sha|YYYY-MM-DD>] | --period <today|week|month|all|last-week|last-day>] [--raw] [--wp] [--flat] [--inline|--width <40..240>] [--decisions] [--active-roster] [--require-accepted] [--resolve <handle>] [--commit <sha>] [--now <iso>] [--sub-wp] [--lang <bcp47>] [--format json|text|md] [--track-dir <directory-containing-events.jsonl>]
 
---status-table renders owner requests with exactly five columns, stage evidence, four status colors and flagged missing proposals/decision expectations. It preserves DÉCISIONS and supports scoped Markdown. Historical missing status is orange with an explicit verification action.
+--status-table selects the validated four-section report: À-FAIRE carries WP · av. · étape · statut · à faire · bloqué · prochaine action over a rolling last-week window by default (an explicit period always wins). Stage/status are neutral codes over recorded evidence; missing information is flagged, never colored. It preserves DÉCISIONS and supports scoped Markdown.
 
 --scope selects one exact role-container by its id, durable assigned code, or current derived label. The selected container and all descendants are rendered through the same four-section report; unknown or ambiguous selectors fail loudly.
 
