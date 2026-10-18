@@ -7,7 +7,7 @@ const require = createRequire(import.meta.url);
 
 const LINUX_PARENT_DEATH_SIGNAL = "SIGUSR2";
 const LINUX_FORCE_KILL_SIGNAL = "SIGUSR1";
-const LINUX_PTY_GUARDIAN_SCRIPT = [
+export const LINUX_PTY_GUARDIAN_SCRIPT = [
   "h2a_expected_parent=$1",
   "shift",
   '[ "$PPID" -eq "$h2a_expected_parent" ] || { builtin kill -KILL -- "-$$"; exit 127; }',
@@ -27,13 +27,15 @@ const LINUX_PTY_GUARDIAN_SCRIPT = [
   '  for h2a_fd in /proc/$$/fd/*; do',
   '    h2a_fd_num="${h2a_fd##*/}"',
   '    if [ "$h2a_fd_num" -ge 3 ] 2>/dev/null; then',
-  '      eval "exec ${h2a_fd_num}>&-" 2>/dev/null || :',
+  // Redirecting stderr around exec allocates a saved descriptor. The sweep
+  // can close that descriptor, leaving CLI stderr permanently on /dev/null.
+  '      eval "exec ${h2a_fd_num}>&-" || :',
   "    fi",
   "  done",
   "else",
   "  h2a_fd_num=3",
   '  while [ "$h2a_fd_num" -le 1024 ]; do',
-  '    eval "exec ${h2a_fd_num}>&-" 2>/dev/null || :',
+  '    eval "exec ${h2a_fd_num}>&-" || :',
   "    h2a_fd_num=$((h2a_fd_num + 1))",
   "  done",
   "fi",
