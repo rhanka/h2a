@@ -3,8 +3,12 @@
 ## M17 / §10.8 — campagne simultanée obligatoire
 
 Responsable : conducteur MH-L8 (réalisation du harnais et qualification release).
-État : **à réaliser ; bloque la qualification release .7**.
+État : **à réaliser ; bloque la qualification release 0.98.8**.
 Dépendance : surfaces CLI et preuve H4 de fermeture des admissions de MH-L6.
+
+La cible de livraison de la lane est reportée à **0.98.8** par l'owner.
+Les preuves historiques .7 restent des preuves de leurs SHA et artefacts réels ;
+elles ne qualifient pas une future release .8. Aucun bump package n'est fait ici.
 
 Rattachement explicite autorisé par la demande owner de fermeture Argon du
 16 octobre 2026 : « montrer avec preuves exactement ce qui reste pour MH-L8
@@ -14,7 +18,7 @@ intégralement exigé. Ce rattachement ne qualifie pas M17 et ne réduit pas son
 critère d'acceptation. Le socle MH-L5 livre seulement la concurrence backend.
 
 - [ ] Un fichier de test ciblé lance **simultanément sur le même store** huit
-  vrais processus : central .7 HTTP, pair de conformité G1 préparatoire en
+  vrais processus : central HTTP du candidat, pair de conformité G1 préparatoire en
   lecture seule, quatre workers MCP stdio, boucle janitor `reapAllDeadPresence`
   et sous-commandes CLI. Le pair lit réellement ; il ne prend aucune mutation
   ni collecte préparatoire en charge. Un neuvième acteur hérité .5/.6 exerce
@@ -35,7 +39,7 @@ critère d'acceptation. Le socle MH-L5 livre seulement la concurrence backend.
   présence reprise, janitor incapable de supprimer un snapshot remplacé,
   refus préalable tant que le writer hérité peut muter, aucun nettoyage
   préparatoire ni migration de schéma par le pair.
-- [ ] Sur les SHA et artefacts .7 convergés, Node 22/24 : commandes et sorties
+- [ ] Sur les SHA et artefacts convergés de la cible 0.98.8, Node 22/24 : commandes et sorties
   conservées, zéro skip/TODO/annulation/enfant restant ; régressions rouges par
   assertion sans chaque garde, puis vertes après restauration. Aucun accès à
   l'état réel de l'owner ; uniquement HOME/XDG/store créés par `mkdtemp`.
