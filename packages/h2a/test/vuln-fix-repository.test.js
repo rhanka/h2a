@@ -163,6 +163,20 @@ test('should fail the strict gate on vitest todo output despite exit 0', async (
   })(), /verification/);
 });
 
+test('should never read a test name as a todo counter', async () => {
+  const repo = Object.create(Repository.prototype);
+  repo.spec = { tests: [{ command: 'node', args: ['--test', 'fixture.test.js'] }] };
+  repo.workspace = '/fixture';
+  repo.file = () => '/fixture/fixture.test.js';
+  const tap = ['TAP version 13', '# Subtest: handles todo 1 correctly', 'ok 1 - handles todo 1 correctly',
+    '  ---', '  duration_ms: 1', '  ...', '# tests 1', '# suites 0', '# pass 1', '# fail 0',
+    '# cancelled 0', '# skipped 0', '# todo 0', '# duration_ms 100'].join('\n') + '\n';
+  repo.execute = async () => ({ code: 0, stdout: tap, stderr: '', signal: null });
+  assert.equal((await repo.tests('after'))[0].ok, true);
+  repo.execute = async () => ({ code: 0, stdout: tap.replace('# todo 0', '# todo 2'), stderr: '', signal: null });
+  assert.equal((await repo.tests('after'))[0].ok, false);
+});
+
 test('should accept the node 24 spec reporter summary as executed evidence', async () => {
   const repo = Object.create(Repository.prototype);
   repo.spec = { tests: [{ command: 'node', args: ['--test', 'fixture.test.js'] }] };
