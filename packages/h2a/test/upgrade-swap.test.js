@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,6 +16,8 @@ import test from "node:test";
 
 import { defaultUpgradeRuntime, performAutoUpgrade, H2A_CLI_PACKAGE } from "../dist/index.js";
 import { me } from "../dist/runtime/local-files/succession-lock.js";
+
+import * as ptyUpgrade from "../dist/runtime/upgrade/index.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const LOCK_CHILD = join(HERE, "upgrade-lock-child.mjs");
@@ -471,4 +473,66 @@ test("POSITIVE CONTROL (real fs): a staged native that cannot load leaves the re
   } finally {
     rmSync(prefix, { recursive: true, force: true });
   }
+});
+
+// Phase B / D28: a pin has an independent lifetime from all component PIDs.
+function retainedFixture(prefix, name) {
+  const installDir = globalPkgDir(prefix) + '.h2a-prev-' + name;
+  const frontendModule = join(installDir, 'dist/native-terminal/frontend-process.js');
+  mkdirSync(dirname(frontendModule), {recursive:true}); writeFileSync(frontendModule, 'export {};');
+  const codeIdentity = {dev:statSync(frontendModule).dev,ino:statSync(frontendModule).ino};
+  const target = {installDir,frontendModule,codeIdentity,ownerProtocolVersion:1};
+  const qualification = {ownerProtocolVersion:1,codePath:frontendModule,codeIdentity};
+  return {target,qualification};
+}
+
+test('should retain the previous install while a live owner or frontend still runs from it', () => {
+  const prefix=freshPrefix(), lock=rt.acquirePrefixLock(prefix);
+  try {
+    const {target}=retainedFixture(prefix,'1.0.0-2147483646-live');
+    ptyUpgrade.recordPtyInstallReferences(prefix,lock,target.installDir,[{...me(),token:'test-component',at:Date.now()}]);
+    ptyUpgrade.sweepPtyRetainedInstalls(prefix,lock);
+    assert.equal(existsSync(target.frontendModule),true);
+    ptyUpgrade.recordPtyInstallReferences(prefix,lock,target.installDir,[]);
+    ptyUpgrade.sweepPtyRetainedInstalls(prefix,lock);
+    assert.equal(existsSync(target.installDir),false,'positive no-reference proof permits an unpinned residue to be reaped');
+  } finally {lock.release();rmSync(prefix,{recursive:true,force:true});}
+});
+
+test('should keep a rollback pin after all old component references disappear and a sweep runs', () => {
+  const prefix=freshPrefix(), lock=rt.acquirePrefixLock(prefix);
+  try {
+    const {target,qualification}=retainedFixture(prefix,'1.0.0-2147483646-idle');
+    ptyUpgrade.recordPtyInstallReferences(prefix,lock,target.installDir,[]);
+    ptyUpgrade.pinPtyRollbackFrontend(prefix,lock,target,qualification);
+    ptyUpgrade.sweepPtyRetainedInstalls(prefix,lock);
+    assert.equal(existsSync(target.frontendModule),true);
+    assert.deepEqual(ptyUpgrade.readPtyRollbackFrontend(prefix,1),target);
+  } finally {lock.release();rmSync(prefix,{recursive:true,force:true});}
+});
+
+test('should release a rollback pin only after a qualified replacement is pinned or B is fully abandoned', () => {
+  const prefix=freshPrefix(), lock=rt.acquirePrefixLock(prefix);
+  try {
+    const old=retainedFixture(prefix,'1.0.0-2147483646-old'), next=retainedFixture(prefix,'1.0.1-2147483646-next');
+    ptyUpgrade.recordPtyInstallReferences(prefix,lock,old.target.installDir,[]);
+    ptyUpgrade.recordPtyInstallReferences(prefix,lock,next.target.installDir,[]);
+    ptyUpgrade.pinPtyRollbackFrontend(prefix,lock,old.target,old.qualification);
+    assert.throws(()=>ptyUpgrade.pinPtyRollbackFrontend(prefix,lock,next.target,{...next.qualification,ownerProtocolVersion:99}));
+    assert.deepEqual(ptyUpgrade.readPtyRollbackFrontend(prefix,1),old.target);
+    ptyUpgrade.pinPtyRollbackFrontend(prefix,lock,next.target,next.qualification);
+    ptyUpgrade.sweepPtyRetainedInstalls(prefix,lock);
+    assert.equal(existsSync(old.target.installDir),false);
+    assert.equal(existsSync(next.target.installDir),true);
+  } finally {lock.release();rmSync(prefix,{recursive:true,force:true});}
+});
+
+test('should keep retained installs when pin or reference metadata is unreadable', () => {
+  const prefix=freshPrefix(), lock=rt.acquirePrefixLock(prefix);
+  try {
+    const {target}=retainedFixture(prefix,'1.0.0-2147483646-unknown');
+    writeFileSync(join(prefix,'.h2a-pty-retention.json'),'{broken');
+    ptyUpgrade.sweepPtyRetainedInstalls(prefix,lock);
+    assert.equal(existsSync(target.frontendModule),true);
+  } finally {lock.release();rmSync(prefix,{recursive:true,force:true});}
 });
