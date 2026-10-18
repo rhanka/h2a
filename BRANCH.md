@@ -1,3 +1,26 @@
+# L9-H exploratory read-side timing — 2026-10-17 amendment (20 real investigations)
+
+- [x] Scope: Δ-L9-S/L9-H h2a lot on `feat/live-read-side-timing`, from origin/main.
+  Allowed only: `packages/h2a-runtime/src/gateway-host/live-read-side.test.ts`,
+  `scripts/bench-live.mjs`, `packages/h2a-runtime/src/gateway-host/live-supervisor-fixture.ts`,
+  `docs/evidence/live-git-qualification.md`, plus these BRANCH.md notes.
+- [x] RED: `live-read-side.test.ts` failed before implementation
+  (`Cannot find module './live-supervisor-fixture.js'`); GREEN 13/13 after.
+  Targeted file only; temp dirs only; no model call, no network, no Python.
+- [x] Harness `scripts/bench-live.mjs`: pinned manifest (sha256) or path arg,
+  expectations hashed before timing and hidden from operators, counterbalanced
+  T0/T1 order, all cases retained with recovery costs, first/warm + CPU/RSS/
+  processes/errors, `median(1 − T1/T0)` over the whole population, existing
+  readers (`reader-absent`) separate from native additions, JSON evidence with
+  hashes only and zero source content. G4 stays closed (`policy-unavailable`,
+  0 bytes, never a saving); `inconnu` reasons never invented.
+- [x] Exploratory run (prototype, `unverified`, NOT installed qualification):
+  fixtures rebuilt under `$TMPDIR` (F_* pins byte-identical, 53/53 native
+  controls re-verified), 20/20 retained, constant quality, median −0.21%,
+  continuation NO against the fixed 30% threshold (not retuned).
+- [ ] NOT covered: installed qualification, cluster-mesh L9-S readers, L8/G4
+  policy, operator-level T0/T1 timing, G5, execution pilot.
+
 # Live disclosure authority — owner decision 2026-10-17
 
 - [x] Scope: Δ-L7a on `feat/live-disclosure-authority`, based on origin/main.
