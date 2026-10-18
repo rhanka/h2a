@@ -229,6 +229,18 @@ function localDayEnd(value: Date): Date {
 function namedReportPeriod(raw: string, now: string): ReportPeriodSelection {
   const clock = new Date(now)
   if (Number.isNaN(clock.getTime())) throw new DomainError('--now must be an ISO timestamp')
+  // Amendment D4 — rolling windows: exact instant bounds off the single
+  // captured report time (no calendar rounding), printed with time and offset.
+  if (raw === 'last-week' || raw === 'last-day') {
+    const spanMs = raw === 'last-week' ? 7 * 86_400_000 : 86_400_000
+    return {
+      requested: raw,
+      from: new Date(clock.getTime() - spanMs).toISOString(),
+      to: clock.toISOString(),
+      fromRef: null,
+      toRef: null,
+    }
+  }
   if (raw === 'all') return { requested: raw, fromRef: null, toRef: null }
   let from: Date
   let to: Date
@@ -247,13 +259,18 @@ function namedReportPeriod(raw: string, now: string): ReportPeriodSelection {
   return { requested: raw, from: from.toISOString(), to: to.toISOString(), fromRef: null, toRef: null }
 }
 
-function resolveReportPeriod(flags: Flags, cwd: string, now: string): ReportPeriodSelection | undefined {
+function resolveReportPeriod(flags: Flags, cwd: string, now: string, defaultNamed?: string): ReportPeriodSelection | undefined {
   const since = opt(flags, 'since')
   const until = opt(flags, 'until')
-  const named = opt(flags, 'period')
+  // Amendment D4 — a status-table request without an explicit selector uses
+  // `last-week`; an explicit user period always wins.
+  const explicitPeriod = opt(flags, 'period')
+  const named = explicitPeriod ?? (since !== undefined || until !== undefined ? undefined : defaultNamed)
   if (since !== undefined && named !== undefined) throw new DomainError('--since and --period are mutually exclusive')
   if (until !== undefined && since === undefined) throw new DomainError('--until requires --since')
-  if (named !== undefined) return namedReportPeriod(oneOf(named, ['today', 'week', 'month', 'all'], '--period'), now)
+  if (named !== undefined) {
+    return namedReportPeriod(oneOf(named, ['today', 'week', 'month', 'all', 'last-week', 'last-day'], '--period'), now)
+  }
   if (since === undefined) return undefined
   const lower = resolveReportBoundary(cwd, since, '--since')
   const upper = until === undefined ? undefined : resolveReportBoundary(cwd, until, '--until')
@@ -450,11 +467,13 @@ const REPORT_USAGE = `usage: track report [--status-table] [--scope <container-i
 
 --resolve <handle> resolves a report handle (a positional [n.m] row handle, or a D#/Q# dossier number) back to its item id. With --status-table, use the DEMANDES # number instead of [n.m]. It is the one command the report documents for acting on a row without printing a ULID in a column. Handles are positional and per-report: resolve them against the same log and baseline the report was rendered from.
 
+Rebind the exact rendering context with --scope/--period/--since/--until/--now/--sub-wp (a status-table resolve without a selector uses last-week, like the report). The report header prints the bound command. --expect-events <n> and --expect-head <sha> pin the journal revision the report was rendered from; a moved journal is refused rather than resolved against the wrong rows.
+
 --sub-wp lists sub-WP rows beside their parent. Without it, sub-levels are aggregated into their parent on a long window (>= 14 days) and listed on a short one — the WP is the reading unit of a long report.
 
 --now <iso> pins the clock used by a named period and, without a selector, the whole-log upper bound. Without it, whole-log and --since reports stop at the journal head.
 
---since accepts a local YYYY-MM-DD date or a git commit (using its committer date); --until closes a --since range. --period today|week|month|all is the named alternative. --since and --period are mutually exclusive. A selected period changes FAIT only: À-FAIRE remains the full current open-work projection.
+--since accepts a local YYYY-MM-DD date or a git commit (using its committer date); --until closes a --since range. --period today|week|month|all|last-week|last-day is the named alternative ('week' stays the current calendar week; last-week/last-day are rolling 7 days/24 h off a single captured report time). --since and --period are mutually exclusive. A selected period changes FAIT only: À-FAIRE remains the full current open-work projection. A status-table request without an explicit selector uses last-week; an explicit user period always wins.
 
 --lang <bcp47> selects the human labels of the new stage/status surface from a per-language lexicon (any tag is accepted; an unprepared language renders the neutral codes). It changes no ids, order, period, percentages, handles, or selectable options. Machine codes, ids and evidence locators stay intact.
 
@@ -1159,7 +1178,19 @@ function cmdReport(args: string[], ctx: Ctx): number {
   }
   // Criterion 10b — the one documented command that turns a short report handle back into an item.
   if (opt(flags, 'resolve') !== undefined) {
-    assertOnlyFlags(flags, ['resolve', 'scope', 'commit', 'require-accepted', 'status-table'])
+    // Amendment D4/D13 — `--resolve` rebinds the exact rendering context
+    // (period, clock, sub-WP, scope, baseline) and refuses a journal revision
+    // that moved since the report was rendered.
+    assertOnlyFlags(flags, ['resolve', 'scope', 'commit', 'require-accepted', 'status-table', 'since', 'until', 'period', 'now', 'sub-wp', 'expect-events', 'expect-head'])
+    for (const name of ['now', 'since', 'until', 'period', 'expect-head']) assertValueFlag(flags, name)
+    const resolveClock = opt(flags, 'now') ?? new Date().toISOString()
+    if (Number.isNaN(new Date(resolveClock).getTime())) throw new DomainError('--now must be an ISO timestamp')
+    const resolvePeriod = resolveReportPeriod(flags, io.cwd, resolveClock, statusTable ? 'last-week' : undefined)
+    const expectEventsRaw = opt(flags, 'expect-events')
+    if (expectEventsRaw !== undefined && !/^\d+$/u.test(expectEventsRaw)) {
+      throw new DomainError('--expect-events must be a non-negative integer')
+    }
+    const expectHead = opt(flags, 'expect-head')
     io.out(
       resolveHandle(
         new TrackReader(ctx.eventsPath),
@@ -1170,6 +1201,19 @@ function cmdReport(args: string[], ctx: Ctx): number {
         req(flags, 'resolve'),
         scope,
         statusTable,
+        {
+          ...(resolvePeriod !== undefined ? { periodSelection: resolvePeriod } : {}),
+          ...(opt(flags, 'now') !== undefined ? { now: opt(flags, 'now')! } : {}),
+          ...(assertBooleanFlag(flags, 'sub-wp') ? { subWp: true as const } : {}),
+          ...(expectEventsRaw !== undefined || expectHead !== undefined
+            ? {
+              expectedRevision: {
+                ...(expectEventsRaw !== undefined ? { events: Number(expectEventsRaw) } : {}),
+                ...(expectHead !== undefined ? { head: expectHead } : {}),
+              },
+            }
+            : {}),
+        },
       ),
     )
     return 0
@@ -1251,7 +1295,7 @@ function cmdReport(args: string[], ctx: Ctx): number {
     throw new DomainError('--now must be an ISO timestamp')
   }
   const periodClock = nowArg ?? new Date().toISOString()
-  const period = resolveReportPeriod(flags, io.cwd, periodClock)
+  const period = resolveReportPeriod(flags, io.cwd, periodClock, statusTable ? 'last-week' : undefined)
   // Criterion 25 — the EXPLICIT owner request for sub-WP rows. Without it the reading unit follows the
   // window: the WP on a long one, the sub-level on a short one.
   const subWp = assertBooleanFlag(flags, 'sub-wp')

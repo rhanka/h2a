@@ -277,12 +277,54 @@ export function reportInline(
  * dossier. Without it a report the owner can read is a report they cannot act on; with it, no ULID has to
  * appear in a column to keep a row dispatchable.
  */
-export function resolveHandle(reader: TrackReader, options: ReportOptions, handle: string, scopeSelector?: string, statusTable = false): string {
+/**
+ * Amendment D4/D13 — the exact rendering context a `--resolve` rebinds so a
+ * handle resolves against the same period, sub-WP expansion, scope, baseline
+ * and journal revision the report was rendered from. Handles are positional:
+ * resolving without the captured context can point at the wrong row.
+ */
+export interface ResolveContext {
+  periodSelection?: ReportPeriodSelection
+  now?: string
+  subWp?: boolean
+  /**
+   * Journal revision the report was rendered from. When present, each defined
+   * part must match the current snapshot cursor — a moved journal is refused
+   * rather than resolved against the wrong rows.
+   */
+  expectedRevision?: { events?: number; head?: string | null }
+}
+
+export function resolveHandle(
+  reader: TrackReader,
+  options: ReportOptions,
+  handle: string,
+  scopeSelector?: string,
+  statusTable = false,
+  ctx: ResolveContext = {},
+): string {
   const snapshot = reader.reportSnapshot({ ...options, decisions: true, wpTree: true })
+  if (ctx.expectedRevision !== undefined) {
+    const cursor = snapshot.cursor
+    const expected = ctx.expectedRevision
+    const moved =
+      (expected.events !== undefined && expected.events !== cursor.count) ||
+      (expected.head !== undefined && expected.head !== cursor.head)
+    if (moved) {
+      throw new Error(
+        `journal revision changed since the report was rendered (report: ${expected.events ?? '?'} events, head ${expected.head ?? 'none'}; now: ${cursor.count} events, head ${cursor.head ?? 'none'}) — re-render, then resolve against the same log and baseline`,
+      )
+    }
+  }
   const globalReport = snapshot.report
   const scoped = scopeSelector === undefined ? undefined : projectReportScope(globalReport, scopeSelector)
   const report = scoped?.report ?? globalReport
-  const meta = conductorMeta(options, snapshot, undefined, undefined, scoped?.scope)
+  const projection = ctx.periodSelection === undefined
+    ? undefined
+    : periodProjection(snapshot, ctx.periodSelection, ctx.now)
+  const meta = conductorMeta(
+    options, snapshot, ctx.now, ctx.subWp, scoped?.scope, projection, ctx.periodSelection !== undefined,
+  )
   const view = statusTable ? buildStatusTableView(buildStatusTable(snapshot.events, report, options), report, meta) : buildWpConductorView(
     report.wpTree ?? [], report.decisions ?? [], report.outsideRollup,
     scoped === undefined ? 'global' : `${scoped.scope.label} (sous-arbre)`,
