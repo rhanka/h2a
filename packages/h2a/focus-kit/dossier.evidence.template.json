@@ -1,0 +1,206 @@
+{
+  "ref": "decision:dossier-format",
+  "subject": "Présentation des dossiers de décision",
+  "title": "Décision dossiers — format de présentation",
+  "hash": "draft:replace-with-source-hash",
+  "cursor": "draft:1",
+  "readability": {
+    "ownerRequestQuote": "Chaque dossier de décision doit utiliser Focus et montrer notre écosystème.",
+    "stakes": "Le propriétaire doit comprendre les choix et leurs effets sans dépendre d'un service en ligne.",
+    "stakesLevel": "medium",
+    "readingBudgetMinutes": 4,
+    "glossary": [
+      {
+        "term": "JUDGMENT",
+        "definition": "Appréciation du présentateur, distincte d'un fait vérifié."
+      }
+    ]
+  },
+  "sections": [
+    {
+      "kind": "prose",
+      "id": "context",
+      "targetRef": "context",
+      "markdown": "Exemple à remplacer avant présentation. Demande illustrative datée du 17 octobre 2026, source : ce modèle. Les dossiers doivent rester lisibles sur téléphone et transmissibles en un fichier.",
+      "citationRefs": [
+        "late"
+      ]
+    },
+    {
+      "kind": "question",
+      "id": "format",
+      "targetRef": "format",
+      "question": "Quel format adopter pour les prochains dossiers ?",
+      "context": "Un fichier portable garde les schémas et les options disponibles hors connexion. Une page hébergée simplifie les mises à jour mais demande une connexion.",
+      "recommendedAnswer": "Le fichier portable répond à la demande de partage et de lecture hors connexion.",
+      "recommendedOptionId": "portable",
+      "readingTimeMinutes": 1,
+      "state": "open"
+    },
+    {
+      "kind": "optionSet",
+      "id": "formats",
+      "targetRef": "formats",
+      "questionId": "format",
+      "title": "Formats possibles",
+      "options": [
+        {
+          "kind": "option",
+          "id": "portable",
+          "targetRef": "portable",
+          "label": "Fichier portable",
+          "body": "Coût : une compilation par version. Retour : régénérer le fichier précédent.",
+          "consequence": "Lecture hors connexion ; chaque révision demande un nouveau fichier.",
+          "annotation": "none",
+          "citationRefs": [
+            "picture"
+          ]
+        },
+        {
+          "kind": "option",
+          "id": "hosted",
+          "targetRef": "hosted",
+          "label": "Page hébergée",
+          "body": "Coût : maintenir un hébergement. Retour : exporter une copie locale.",
+          "consequence": "Une adresse toujours à jour ; la lecture dépend du service et du réseau.",
+          "annotation": "none"
+        }
+      ]
+    },
+    {
+      "kind": "diagram",
+      "id": "ecosystem",
+      "targetRef": "ecosystem",
+      "syntax": "mermaid",
+      "source": "ecosystem:overview",
+      "alt": "Les applications composent coordination, modèles, mémoire et composants visuels."
+    },
+    {
+      "kind": "prose",
+      "id": "rationale",
+      "targetRef": "rationale",
+      "questionId": "format",
+      "markdown": "[JUDGMENT] Le fichier portable respecte mieux la demande. Objection : les copies vieillissent ; une publication centrale gagnerait si la mise à jour instantanée devenait prioritaire. Risque : dans six mois, des copies obsolètes circulent. Intérêt du présentateur : compiler est simple ; intérêt du propriétaire : lire partout. Critère attendu : ouvrir le dossier hors connexion sur téléphone. Répondre avec le nom du format choisi."
+    }
+  ],
+  "interactions": [],
+  "provenance": {
+    "source": "example:replace-with-dated-owner-request",
+    "readAt": "2026-10-17T00:00:00Z"
+  },
+  "amendmentTrace": [],
+  "schemaVersion": 2,
+  "sources": [
+    {
+      "id": "long",
+      "title": "Source long",
+      "origin": {
+        "uri": "urn:fixture:long"
+      },
+      "mediaType": "text/plain",
+      "encoding": "base64",
+      "data": "TGlnbmUgMSBjYWbDqSDigJQgcHJldXZlDQpMaWduZSAyIGNhZsOpIOKAlCBwcmV1dmUNCkxpZ25lIDMgY2Fmw6kg4oCUIHByZXV2ZQ0KTGlnbmUgNCBjYWbDqSDigJQgcHJldXZlDQpMaWduZSA1IGNhZsOpIOKAlCBwcmV1dmUNCkxpZ25lIDYgY2Fmw6kg4oCUIHByZXV2ZQ0KTGlnbmUgNyBjYWbDqSDigJQgcHJldXZlDQpMaWduZSA4IGNhZsOpIOKAlCBwcmV1dmUNCkxpZ25lIDkgY2Fmw6kg4oCUIHByZXV2ZQ0KTGlnbmUgMTAgY2Fmw6kg4oCUIHByZXV2ZQ0KTGlnbmUgMTEgY2Fmw6kg4oCUIHByZXV2ZQ0KTGlnbmUgMTIgY2Fmw6kg4oCUIGZpbiBkaXN0YW50ZQ0K",
+      "sha256": "2a60d45cf315062d8a5b595fcb067a42af563a810733bc7bb520e99ade7809a1",
+      "size": 321
+    },
+    {
+      "id": "capture",
+      "title": "Source capture",
+      "origin": {
+        "uri": "urn:fixture:capture"
+      },
+      "mediaType": "image/png",
+      "encoding": "base64",
+      "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aPioAAAAASUVORK5CYII=",
+      "sha256": "f4b555ad4009f54a1a37dc29e7ccf9f8f4cfe22410ba7769061c0328cdb6db67",
+      "size": 68,
+      "width": 1,
+      "height": 1,
+      "alt": "Capture de référence"
+    },
+    {
+      "id": "other-0",
+      "title": "Source other-0",
+      "origin": {
+        "uri": "urn:fixture:other-0"
+      },
+      "mediaType": "text/plain",
+      "encoding": "base64",
+      "data": "U3VwcG9ydGluZyB0ZXh0",
+      "sha256": "91fdf167a5d80db26e8053dcdd871756f3d74ef4f3ac60e44700fec273683a77",
+      "size": 15
+    }
+  ],
+  "citations": [
+    {
+      "id": "late",
+      "sourceId": "long",
+      "label": "Preuve distante",
+      "locator": {
+        "kind": "lines",
+        "start": 12,
+        "end": 13
+      }
+    },
+    {
+      "id": "picture",
+      "sourceId": "capture",
+      "label": "Capture",
+      "locator": {
+        "kind": "image",
+        "caption": "État observé"
+      }
+    }
+  ],
+  "evidenceGroups": [
+    {
+      "id": "claim",
+      "summary": "Les pièces étayent la proposition.",
+      "citationRefs": [
+        "late",
+        "picture"
+      ],
+      "sourceRefs": [
+        "long"
+      ]
+    }
+  ],
+  "annexes": [
+    {
+      "id": "detail",
+      "title": "Détail des pièces",
+      "summary": "Démonstration consultable séparément.",
+      "blocks": [
+        {
+          "kind": "text",
+          "text": "Texte de soutien."
+        },
+        {
+          "kind": "code",
+          "language": "yaml",
+          "text": "step: test"
+        },
+        {
+          "kind": "table",
+          "columns": [
+            "État"
+          ],
+          "rows": [
+            [
+              "Mesuré"
+            ]
+          ]
+        },
+        {
+          "kind": "references",
+          "citationRefs": [
+            "late"
+          ]
+        }
+      ],
+      "backRefs": [
+        "context"
+      ]
+    }
+  ]
+}
