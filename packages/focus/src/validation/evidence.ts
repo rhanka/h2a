@@ -37,8 +37,7 @@ export function checkEvidence(value: Record<string, unknown>, legacy: (v: unknow
       const p = `$.citations[${i}]`, c = record(raw, p, ['id','sourceId','label','locator']);
       for (const key of ['id','sourceId','label']) text(c[key], `${p}.${key}`);
       register(c.id as string, `${p}.id`);
-      const source = sourceMap.get(c.sourceId as string);
-      if (!source) fail(`${p}.sourceId`, 'unresolved_source', `Unknown source ${c.sourceId}`);
+      const source = sourceMap.get(c.sourceId as string) ?? fail(`${p}.sourceId`, 'unresolved_source', `Unknown source ${c.sourceId}`);
       const loc = c.locator as Record<string, unknown>;
       if (loc?.kind === 'lines') {
         record(loc, `${p}.locator`, ['kind','start','end']);

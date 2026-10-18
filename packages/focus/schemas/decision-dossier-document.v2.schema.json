@@ -1,0 +1,880 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:sentropic:focus:DecisionDossierDocument:2.0.0",
+  "title": "DecisionDossierDocument v2 — embedded evidence",
+  "description": "Breaking evidence envelope. Original bytes, digests, line ranges and reference integrity are additionally checked by the exported runtime validator. Absence of schemaVersion selects unchanged legacy v1.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "ref",
+    "subject",
+    "title",
+    "hash",
+    "cursor",
+    "sections",
+    "interactions",
+    "provenance",
+    "amendmentTrace",
+    "schemaVersion",
+    "sources",
+    "citations",
+    "evidenceGroups",
+    "annexes"
+  ],
+  "properties": {
+    "ref": {
+      "type": "string"
+    },
+    "subject": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "hash": {
+      "type": "string"
+    },
+    "cursor": {
+      "type": "string"
+    },
+    "sections": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/section"
+      }
+    },
+    "interactions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/interaction"
+      }
+    },
+    "provenance": {
+      "$ref": "#/$defs/provenance"
+    },
+    "amendmentTrace": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/amendmentStep"
+      }
+    },
+    "readability": {
+      "$ref": "#/$defs/readability"
+    },
+    "schemaVersion": {
+      "const": 2
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/evidenceSource"
+      }
+    },
+    "citations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/evidenceCitation"
+      }
+    },
+    "evidenceGroups": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/evidenceGroup"
+      }
+    },
+    "annexes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/evidenceAnnex"
+      }
+    }
+  },
+  "$defs": {
+    "readability": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ownerRequestQuote": {
+          "type": "string"
+        },
+        "noOwnerRequest": {
+          "type": "boolean"
+        },
+        "stakes": {
+          "type": "string"
+        },
+        "stakesLevel": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ]
+        },
+        "readingBudgetMinutes": {
+          "type": "number"
+        },
+        "glossary": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/glossaryEntry"
+          }
+        }
+      }
+    },
+    "glossaryEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "term",
+        "definition"
+      ],
+      "properties": {
+        "term": {
+          "type": "string"
+        },
+        "definition": {
+          "type": "string"
+        }
+      }
+    },
+    "section": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/proseNode"
+        },
+        {
+          "$ref": "#/$defs/questionNode"
+        },
+        {
+          "$ref": "#/$defs/optionSetNode"
+        },
+        {
+          "$ref": "#/$defs/outcomeNode"
+        },
+        {
+          "$ref": "#/$defs/amendmentTraceNode"
+        },
+        {
+          "$ref": "#/$defs/diagramNode"
+        }
+      ]
+    },
+    "proseNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id",
+        "targetRef",
+        "markdown"
+      ],
+      "properties": {
+        "kind": {
+          "const": "prose"
+        },
+        "id": {
+          "type": "string"
+        },
+        "targetRef": {
+          "type": "string"
+        },
+        "markdown": {
+          "type": "string"
+        },
+        "questionId": {
+          "type": "string"
+        },
+        "citationRefs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "questionNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id",
+        "targetRef",
+        "question",
+        "state"
+      ],
+      "properties": {
+        "kind": {
+          "const": "question"
+        },
+        "id": {
+          "type": "string"
+        },
+        "targetRef": {
+          "type": "string"
+        },
+        "question": {
+          "type": "string"
+        },
+        "recommendedAnswer": {
+          "type": "string"
+        },
+        "answer": {
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "open",
+            "answered",
+            "validated"
+          ]
+        },
+        "context": {
+          "type": "string"
+        },
+        "readingTimeMinutes": {
+          "type": "number"
+        },
+        "recommendedOptionId": {
+          "type": "string"
+        },
+        "citationRefs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "optionNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id",
+        "targetRef",
+        "label",
+        "annotation"
+      ],
+      "properties": {
+        "kind": {
+          "const": "option"
+        },
+        "id": {
+          "type": "string"
+        },
+        "targetRef": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "body": {
+          "type": "string"
+        },
+        "annotation": {
+          "enum": [
+            "none",
+            "accept",
+            "reject",
+            "comment"
+          ]
+        },
+        "annotationComment": {
+          "type": "string"
+        },
+        "consequence": {
+          "type": "string"
+        },
+        "citationRefs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "optionSetNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id",
+        "targetRef",
+        "options"
+      ],
+      "properties": {
+        "kind": {
+          "const": "optionSet"
+        },
+        "id": {
+          "type": "string"
+        },
+        "targetRef": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/optionNode"
+          }
+        },
+        "questionId": {
+          "type": "string"
+        },
+        "citationRefs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "outcomeNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id",
+        "targetRef",
+        "modality",
+        "statement"
+      ],
+      "properties": {
+        "kind": {
+          "const": "outcome"
+        },
+        "id": {
+          "type": "string"
+        },
+        "targetRef": {
+          "type": "string"
+        },
+        "modality": {
+          "enum": [
+            "decision",
+            "orientation",
+            "amendment",
+            "comment"
+          ]
+        },
+        "statement": {
+          "type": "string"
+        },
+        "questionId": {
+          "type": "string"
+        },
+        "citationRefs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "amendmentTraceNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id",
+        "targetRef",
+        "steps"
+      ],
+      "properties": {
+        "kind": {
+          "const": "amendmentTrace"
+        },
+        "id": {
+          "type": "string"
+        },
+        "targetRef": {
+          "type": "string"
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/amendmentStep"
+          }
+        },
+        "citationRefs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "diagramNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id",
+        "targetRef",
+        "syntax",
+        "source",
+        "alt"
+      ],
+      "properties": {
+        "kind": {
+          "const": "diagram"
+        },
+        "id": {
+          "type": "string"
+        },
+        "targetRef": {
+          "type": "string"
+        },
+        "syntax": {
+          "enum": [
+            "mermaid",
+            "plantuml"
+          ]
+        },
+        "source": {
+          "type": "string"
+        },
+        "alt": {
+          "type": "string"
+        },
+        "scene": {
+          "type": "object",
+          "description": "diagram-core SemanticDocument, profile generic@1, without views, geometry or layout hints. Opaque JSON until the design-system publishes its authoritative schema; no Focus-specific scene model."
+        },
+        "citationRefs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "interaction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "targetRef",
+        "label",
+        "enabled"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "targetRef": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "enabled": {
+          "const": false
+        }
+      }
+    },
+    "comprehensionEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "subject",
+        "dossierHash"
+      ],
+      "properties": {
+        "subject": {
+          "type": "string"
+        },
+        "dossierHash": {
+          "type": "string"
+        },
+        "signature": {
+          "type": "string"
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "readAt"
+      ],
+      "properties": {
+        "source": {
+          "type": "string"
+        },
+        "readAt": {
+          "type": "string"
+        },
+        "comprehensionEvidence": {
+          "$ref": "#/$defs/comprehensionEvidence"
+        }
+      }
+    },
+    "amendmentStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "at",
+        "author",
+        "summary"
+      ],
+      "properties": {
+        "at": {
+          "type": "string"
+        },
+        "author": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        }
+      }
+    },
+    "evidenceSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "origin",
+        "mediaType",
+        "encoding",
+        "data",
+        "sha256",
+        "size"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "origin": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "uri"
+              ],
+              "properties": {
+                "uri": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "repo",
+                "revision",
+                "path"
+              ],
+              "properties": {
+                "repo": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "revision": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "path": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          ]
+        },
+        "mediaType": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^text/[a-z0-9.+-]+$"
+            },
+            {
+              "enum": [
+                "application/json",
+                "application/yaml",
+                "application/x-yaml",
+                "application/x-ndjson",
+                "image/png",
+                "image/jpeg"
+              ]
+            }
+          ]
+        },
+        "encoding": {
+          "const": "base64"
+        },
+        "data": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "alt": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "evidenceCitation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "sourceId",
+        "label",
+        "locator"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sourceId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "locator": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "start",
+                "end"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "lines"
+                },
+                "start": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "end": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "caption"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "image"
+                },
+                "caption": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "evidenceGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "summary",
+        "citationRefs",
+        "sourceRefs"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "citationRefs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "sourceRefs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "evidenceAnnex": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "summary",
+        "backRefs",
+        "blocks"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "backRefs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "blocks": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "text"
+                ],
+                "properties": {
+                  "kind": {
+                    "const": "text"
+                  },
+                  "text": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "text"
+                ],
+                "properties": {
+                  "kind": {
+                    "const": "code"
+                  },
+                  "text": {
+                    "type": "string"
+                  },
+                  "language": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "columns",
+                  "rows"
+                ],
+                "properties": {
+                  "kind": {
+                    "const": "table"
+                  },
+                  "columns": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "minItems": 1
+                  },
+                  "rows": {
+                    "type": "array",
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "citationRefs"
+                ],
+                "properties": {
+                  "kind": {
+                    "const": "references"
+                  },
+                  "citationRefs": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}
