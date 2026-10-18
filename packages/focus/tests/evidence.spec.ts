@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { evidenceFixture } from '../../h2a/focus-kit/test/evidence-fixtures.mjs';
+import { evidenceFixture, source } from '../../h2a/focus-kit/test/evidence-fixtures.mjs';
 import { validateDecisionDossierDocument as validate } from '../src/validation/index.js';
 
 describe('versioned evidence contract', () => {
+  it('should validate large contiguous base64 payloads and SHA-256 block boundaries without throwing', () => {
+    const doc = evidenceFixture();
+    for (const length of [0, 1, 55, 56, 63, 64, 65, 24 * 1024 * 1024]) doc.sources.push(source(`bytes-${length}`, Buffer.alloc(length, 97)));
+    expect(() => validate(doc)).not.toThrow();
+    expect(validate(doc).ok).toBe(true);
+  });
   it('should accept more than 25 complete sources and distant CRLF Unicode citations', () => {
     const doc = evidenceFixture(20_000, 31);
     const result = validate(doc);
