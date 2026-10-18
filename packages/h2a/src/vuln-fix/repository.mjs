@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { checked, command } from './process.mjs';
 import { safeDirectory, writeJson } from './state.mjs';
-import { scanLocks } from './scan.mjs';
+import { npmTreeIncludes, scanLocks } from './scan.mjs';
+import { redactDeep, redactOutput, redactSecretsText } from './redact.mjs';
 import { validateLockChange } from './policy.mjs';
 import { supplyChain } from './verify.mjs';
 
@@ -72,7 +73,7 @@ export class Repository {
   async install() {
     const outputs = [];
     for (const file of this.locks) {
-      const output = await this.execute('npm', ['ci', '--ignore-scripts'], { cwd: join(this.workspace, dirname(file)) });
+      const output = redactOutput(await this.execute('npm', ['ci', '--ignore-scripts', ...npmTreeIncludes], { cwd: join(this.workspace, dirname(file)) }));
       outputs.push({ lockfile: file, ...output });
       if (output.code !== 0) throw new Error(`baseline npm ci failed: ${file}`);
     }
@@ -87,9 +88,9 @@ export class Repository {
     try {
       for (const check of this.spec.tests) {
         for (const path of check.args.filter(x => /\.(?:test|spec)\.[cm]?[jt]sx?$/.test(x))) this.file(path);
-        const output = await this.execute(check.command, check.args, { cwd: this.workspace, env });
+        const output = redactOutput(await this.execute(check.command, check.args, { cwd: this.workspace, env }));
         const diagnostic = (output.stdout + output.stderr).replace(/\x1b\[[0-9;]*m/g, '');
-        const skipped = /(?:# (?:skipped|cancelled|todo) [1-9]\d*|[1-9]\d* skipped|^(?:not )?ok .*# (?:SKIP|TODO)\b|No test files found|tests?\s+0\b)/im.test(diagnostic);
+        const skipped = /(?:# (?:skipped|cancelled|todo) [1-9]\d*|[1-9]\d* skipped|[1-9]\d*\s+todo\b|\btodo\s+[1-9]\d*|^(?:not )?ok .*# (?:SKIP|TODO)\b|No test files found|tests?\s+0\b)/im.test(diagnostic);
         const executed = /(?:# tests [1-9]\d*|Tests\s+[1-9]\d*\s+(?:passed|failed))/i.test(diagnostic);
         const expectedRed = phase === 'before' && check.redBefore === true;
         const ok = executed && !skipped && (expectedRed ? output.code !== 0 : output.code === 0);
@@ -97,7 +98,7 @@ export class Repository {
       }
     } finally { rmSync(sandbox, { recursive: true, force: true }); }
     if (phase === 'before' && results.some(x => !x.ok)) {
-      const error = new Error('baseline targeted verification failed or silently skipped: ' + JSON.stringify(results).slice(-2000));
+      const error = new Error(redactSecretsText('baseline targeted verification failed or silently skipped: ' + JSON.stringify(redactDeep(results)).slice(-2000)));
       error.checks = results;
       throw error;
     }
@@ -111,7 +112,7 @@ export class Repository {
   async generateFix() {
     const outputs = [];
     for (const file of this.locks) {
-      const output = await this.execute('npm', ['audit', 'fix', '--package-lock-only', '--ignore-scripts'], { cwd: join(this.workspace, dirname(file)) });
+      const output = redactOutput(await this.execute('npm', ['audit', 'fix', '--package-lock-only', '--ignore-scripts', ...npmTreeIncludes], { cwd: join(this.workspace, dirname(file)) }));
       if (![0, 1].includes(output.code)) throw new Error(`compatible lock fix failed: ${file}`);
       outputs.push({ lockfile: file, ...output });
     }
@@ -166,8 +167,8 @@ export class Repository {
     const workspace = await this.worktree(sha, `review-${index}`);
     const artifacts = safeDirectory(join(workspace, '.h2a/vuln-fix-review'));
     const diff = await this.git(['diff', '--no-ext-diff', '--no-textconv', this.baseline, sha, '--']);
-    writeFileSync(join(artifacts, 'diff.patch'), diff + '\n', { mode: 0o600 });
-    writeJson(join(artifacts, 'evidence.json'), { baseline: this.baseline, sha, ...evidence });
+    writeFileSync(join(artifacts, 'diff.patch'), redactSecretsText(diff) + '\n', { mode: 0o600 });
+    writeJson(join(artifacts, 'evidence.json'), redactDeep({ baseline: this.baseline, sha, ...evidence }));
     writeJson(join(artifacts, 'locks-before.json'), Object.fromEntries([...this.originalLocks].map(([path, text]) => [path, JSON.parse(text)])));
     writeJson(join(artifacts, 'locks-after.json'), Object.fromEntries(this.locks.map(path => [path, JSON.parse(readFileSync(this.file(path), 'utf8'))])));
     return workspace;

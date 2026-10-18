@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { redactSecretsText } from './redact.mjs';
 
 // Never use a shell. Bound scanner/test output and time; kill only our child.
 export function command(executable, args, { cwd, input, timeout = 300_000, env = process.env, spawner = spawn } = {}) {
@@ -28,7 +29,7 @@ export function command(executable, args, { cwd, input, timeout = 300_000, env =
 
 export async function checked(executable, args, options, execute = command) {
   const result = await execute(executable, args, options);
-  if (result.code !== 0) throw new Error(`${executable} ${args[0]} failed (${result.code}): ${result.stderr.slice(-2000)}`);
+  if (result.code !== 0) throw new Error(redactSecretsText(`${executable} ${args[0]} failed (${result.code}): ${result.stderr.slice(-2000)}`));
   return result.stdout.trim();
 }
 

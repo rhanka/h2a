@@ -166,6 +166,19 @@ test('should keep an existing unverified draft visibly blocked on later nights',
   assert.match(report.summary, /blocked=1/);
 });
 
+test('should mask credentials in persisted reports and failure summaries', async t => {
+  const raw = 'controller-fake-credential-246813579';
+  const f = fixture(t, { repo: {
+    tests: async () => [{ ok: true, code: 0, stdout: `evidence Authorization: Bearer ${raw}\n`, stderr: '' }],
+    install: async () => [{ lockfile: 'package-lock.json', code: 0, stdout: `note token=${raw}`, stderr: '' }],
+  } });
+  const report = await runDaily(f.config, f.options);
+  assert.equal(report.repositories[0].status, 'ready');
+  const persisted = readFileSync(join(f.root, 'latest.json'), 'utf8');
+  assert.ok(!persisted.includes(raw));
+  assert.ok(!JSON.stringify(report.failures).includes(raw));
+});
+
 test('should reserve a shared CLI budget rather than count each model as a separate daily budget', async t => {
   const f = fixture(t, { runner: { available: async () => ({ available: true, guardQualified: true, reservePercent: 50, remainingUnits: 1 }) } });
   const report = await runDaily(f.config, f.options);
