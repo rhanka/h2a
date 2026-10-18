@@ -8,11 +8,14 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
+import { createRequire, syncBuiltinESMExports } from "node:module";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import test from "node:test";
+import test, { after } from "node:test";
+import { setupNativeTestEnvironment } from "./helpers/native-isolation.js";
+setupNativeTestEnvironment(after);
 
 import { defaultUpgradeRuntime, performAutoUpgrade, H2A_CLI_PACKAGE } from "../dist/index.js";
 import { me } from "../dist/runtime/local-files/succession-lock.js";
@@ -282,7 +285,7 @@ test("Lemma C GATE: a LOCK replaced by a live owner during the retire window is 
 // Opt-in LOAD test (statistical, time/load-dependent). Not in the default suite —
 // run with H2A_LOCK_STRESS=1. Establishes frequency under real concurrency; the
 // deterministic gate above is the regression guard.
-test("B3 LOAD (opt-in): N processes racing a killed-holder lock → exactly one reclaims", { skip: !process.env.H2A_LOCK_STRESS, timeout: 120_000 }, async t => {
+if (process.env.H2A_LOCK_STRESS) test("B3 LOAD (opt-in): N processes racing a killed-holder lock → exactly one reclaims", { timeout: 120_000 }, async t => {
   for (let i = 0; i < 30; i++) {
     const prefix = freshPrefix();
     try {
@@ -364,7 +367,7 @@ test("swapPackageDir: happy path replaces the self-contained dir and clears the 
   }
 });
 
-test("B2 SAME-FS GATE: a cross-device staging is refused with no mutation", { skip: !existsSync("/dev/shm") }, () => {
+if (process.platform === "linux") test("B2 SAME-FS GATE: a cross-device staging is refused with no mutation", () => {
   const prefix = freshPrefix();
   const shmStaging = mkdtempSync(join("/dev/shm", "h2a-upg-shm-"));
   try {
@@ -422,10 +425,12 @@ test("POSITIVE CONTROL (real fs): performAutoUpgrade swaps the real self-contain
   const prefix = freshPrefix();
   try {
     writeSelfContainedPkg(globalPkgDir(prefix), "0.97.7");
-    // Fake only the network/npm steps; stage a REAL self-contained tree that the
-    // real swap/native-verify/lock/verify then operate on.
+    // This filesystem fixture has no PTY host. Keep that new I/O seam explicit;
+    // the real PTY probe/switch is exercised by upgrade-pty-contract.test.ts.
+    // Stage a REAL tree for swap/native verification/lock/version validation.
     const runtime = {
       ...rt,
+      preparePtyUpgrade: () => ({ state: "absent", owners: [], components: [], legacyHosts: [] }),
       fetchLatest: () => "0.97.8",
       now: () => Date.now(),
       readCache: () => undefined,
@@ -531,8 +536,48 @@ test('should keep retained installs when pin or reference metadata is unreadable
   const prefix=freshPrefix(), lock=rt.acquirePrefixLock(prefix);
   try {
     const {target}=retainedFixture(prefix,'1.0.0-2147483646-unknown');
-    writeFileSync(join(prefix,'.h2a-pty-retention.json'),'{broken');
-    ptyUpgrade.sweepPtyRetainedInstalls(prefix,lock);
-    assert.equal(existsSync(target.frontendModule),true);
+    const info=statSync(target.installDir);
+    const installs={[target.installDir]:{identity:{dev:info.dev,ino:info.ino},components:[]}};
+    for(const bytes of ['{broken',JSON.stringify({version:1,pins:[],installs}),JSON.stringify({version:1,pins:{},installs,unknownReferences:0})]) {
+      writeFileSync(join(prefix,'.h2a-pty-retention.json'),bytes);
+      ptyUpgrade.sweepPtyRetainedInstalls(prefix,lock);
+      assert.equal(existsSync(target.frontendModule),true,'invalid metadata is not absence of a rollback pin');
+    }
   } finally {lock.release();rmSync(prefix,{recursive:true,force:true});}
+});
+
+
+test('should recover a rollback pin by code identity after a crash between install rename and retention relocation', () => {
+  const prefix=freshPrefix(), lock=rt.acquirePrefixLock(prefix);
+  try {
+    const current=globalPkgDir(prefix), stage=stagedPkgDir(join(prefix,'.stage'));
+    for(const [dir,version] of [[current,'1.0.0'],[stage,'1.0.1']]) {
+      writeSelfContainedPkg(dir,version);mkdirSync(join(dir,'dist/native-terminal'),{recursive:true});writeFileSync(join(dir,'dist/native-terminal/frontend-process.js'),'export const version='+JSON.stringify(version)+';');
+    }
+    const frontendModule=join(current,'dist/native-terminal/frontend-process.js');
+    const codeIdentity={dev:statSync(frontendModule).dev,ino:statSync(frontendModule).ino};
+    ptyUpgrade.recordPtyInstallReferences(prefix,lock,current,[]);
+    ptyUpgrade.pinPtyRollbackFrontend(prefix,lock,{installDir:current,frontendModule,ownerProtocolVersion:1,codeIdentity},{ownerProtocolVersion:1,codePath:frontendModule,codeIdentity});
+    const swap=rt.swapPackageDir(prefix,stage,'1.0.1');assert.equal(swap.ok,true);
+    // No relocation callback: this is the interrupted interval.
+    const pin=ptyUpgrade.readPtyRollbackFrontend(prefix,1);
+    assert.equal(pin.frontendModule,join(swap.prevDir,'dist/native-terminal/frontend-process.js'));
+    assert.equal(statSync(pin.frontendModule).ino,codeIdentity.ino);
+    ptyUpgrade.recordPtyInstallReferences(prefix,lock,swap.prevDir,[]);
+    ptyUpgrade.sweepPtyRetainedInstalls(prefix,lock);
+    assert.equal(existsSync(pin.frontendModule),true,'the identity pin protects its relocated install from every sweep');
+  } finally {lock.release();rmSync(prefix,{recursive:true,force:true});}
+});
+
+test('should refuse a colliding backup destination without deleting its retained frontend', () => {
+  const prefix=freshPrefix(), crypto=createRequire(import.meta.url)('node:crypto'), original=crypto.randomUUID;
+  try {
+    writeSelfContainedPkg(globalPkgDir(prefix),'1.0.0');
+    const occupied=retainedFixture(prefix,'1.0.0-'+process.pid+'-aaaaaaaa');
+    const stage=stagedPkgDir(join(prefix,'.stage'));writeSelfContainedPkg(stage,'1.0.1');
+    crypto.randomUUID=()=> 'aaaaaaaa-0000-0000-0000-000000000000';syncBuiltinESMExports();
+    const result=rt.swapPackageDir(prefix,stage,'1.0.1');
+    assert.equal(result.ok,false);assert.equal(existsSync(occupied.target.frontendModule),true);
+    assert.equal(rt.readGlobalPkgVersion(prefix),'1.0.0');
+  } finally {crypto.randomUUID=original;syncBuiltinESMExports();rmSync(prefix,{recursive:true,force:true});}
 });

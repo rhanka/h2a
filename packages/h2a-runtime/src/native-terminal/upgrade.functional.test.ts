@@ -1,6 +1,7 @@
 import type { ChildProcess } from "node:child_process";
 import { once } from "node:events";
-import { mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { createRequire } from "node:module";
 import { lstat, rm, stat } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { dirname, join } from "node:path";
@@ -130,11 +131,27 @@ async function npmInstall(args: string[], prefix: string, cache: string): Promis
     cache,
     "--no-audit",
     "--no-fund",
+    // Qualification consumes shipped native binaries; it must never invoke
+    // node-gyp/Python as an implicit fallback in a dependency install script.
+    "--ignore-scripts",
   ]), { env: { ...process.env, PATH: buildToolPath }, stdio: ["ignore", "ignore", "pipe"] });
   children.add(install);
   const output = captureOutput(install);
   const [code] = await once(install, "exit");
   expect(code, `npm install ${args.join(" ")} failed: ${output.stderr}`).toBe(0);
+  // Phase B still uses the already-present node-pty binary. Linux's npm
+  // tarball has no binary and its install script invokes node-gyp/Python.
+  // Provision ONLY the exact dependency version's existing validated binding;
+  // clean native compilation/distribution is the separate L2 gate, not this
+  // installed-JS artifact qualification. Missing/mismatched bindings fail.
+  const workspacePty = dirname(dirname(createRequire(import.meta.url).resolve("node-pty")));
+  const installedPty = join(prefix, "node_modules/node-pty");
+  const dependencyVersion = (root: string) => JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version;
+  expect(dependencyVersion(installedPty), "qualification cannot substitute a different node-pty ABI").toBe(dependencyVersion(workspacePty));
+  const binary = ["build/Release/pty.node", "build/Debug/pty.node", `prebuilds/${process.platform}-${process.arch}/pty.node`].find(path => existsSync(join(workspacePty, path)));
+  expect(binary, "an already-built native binding is required; Python fallback is forbidden").toBeDefined();
+  mkdirSync(join(installedPty, "build/Release"), { recursive: true });
+  copyFileSync(join(workspacePty, binary!), join(installedPty, "build/Release/pty.node"));
 }
 
 type LeaseSnapshot = Readonly<{ token: string; heartbeatAt: string; expiresAt: string }>;
@@ -370,6 +387,42 @@ describe.skipIf(process.platform !== "linux")("native terminal upgrade (scenario
     expect(distServer, "the published dist must not carry this train's refusals").not.toContain("H2A_ENDPOINT_LIVE_OWNER");
     await stat(candidateEntry);
   }, 600_000);
+
+  it("should ship the phase B owner and preserve D21 input across an installed frontend replacement", async () => {
+    const root = createPrivateTestDirectory("u9b-"); directories.add(root);
+    const socketPath = join(root, "h"), registryPath = join(root, "registry.json"), received = join(root, "received");
+    const owner = await spawnHostProcess({ entry: join(candidateRoot!, "native-terminal/owner-process.js"), socketPath, registryPath, generation: "artifact-B" });
+    const client = await NativeTerminalClient.connect(socketPath);
+    let next: NativeTerminalClient | undefined;
+    try {
+      const state = await client.create({ id: "artifact", command: process.execPath, args: ["-e", `const fs=require('node:fs');process.stdin.setRawMode(true);process.stdin.resume();fs.writeFileSync(${JSON.stringify(received)},'');process.stdout.write('ready');process.stdin.on('data',b=>{fs.appendFileSync(${JSON.stringify(received)},b);if(b.toString().includes('finish'))process.exit(19);});`], cwd: root, env: { ...process.env } as Record<string,string>, cols: 80, rows: 24 });
+      await eventually(() => client.readOutput("artifact", 0), replay => replay.chunks.some(chunk => chunk.data.includes("ready")));
+      const lease = await client.acquireController("artifact", "artifact-controller", "human", { writeIdentity: true });
+      const identity = (seq: number) => ({ sessionId: lease.id, incarnation: lease.incarnation, controllerEpoch: lease.epoch, seq });
+      await client.write(lease, "before", { writeIdentity: identity(1) });
+      const ping = await client.ping() as any;
+      process.kill(ping.frontend.pid, "SIGKILL");
+      next = await eventually(async () => {
+        let candidate: NativeTerminalClient | undefined;
+        try {
+          candidate = await NativeTerminalClient.connect(socketPath);
+          const current = await candidate.ping() as any;
+          if (current.frontend.pid !== ping.frontend.pid) return candidate;
+        } catch { /* replacement is still starting */ }
+        candidate?.close(); return undefined;
+      }, value => value !== undefined);
+      const resumed = await next!.acquireController("artifact", "artifact-controller", "human", { writeIdentity: true, resumeLease: lease });
+      expect(resumed.epoch).toBe(lease.epoch); expect((await next!.state("artifact")).pid).toBe(state.pid);
+      await next!.write(resumed, "before", { writeIdentity: identity(1) });
+      await next!.write(resumed, "finish", { writeIdentity: identity(2) });
+      expect((await eventually(() => next!.state("artifact"), current => current.status === "exited")).exit?.exitCode).toBe(19);
+      expect(readFileSync(received, "utf8")).toBe("beforefinish");
+      const protocol = await import(pathToFileURL(join(candidateRoot!, "native-terminal/owner-protocol.js")).href);
+      const exited = once(owner.child, "exit");
+      expect((await protocol.requestNativeTerminalOwnerControl(socketPath, owner.child.pid!, "abandon")).status).toBe("withdrawing");
+      await exited;
+    } finally { client.close(); next?.close(); }
+  }, 90_000);
 
   it("should refuse double publication over a live 0.98.4 host, then take over after its ordered stop", async () => {
     const root = createPrivateTestDirectory("u9i-");
