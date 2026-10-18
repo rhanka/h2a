@@ -71,10 +71,12 @@ function workflowJobBlock(source, id) {
     : fromJob.slice(0, marker.length + nextJob)
 }
 
-test('CI budgets leave headroom above the measured fifteen-minute integration run', () => {
+test('CI budgets leave headroom above the measured 0.98.8-lane integration run', () => {
+  // Lane suites complete in 21-23m (main: 14-16m); 25m killed four of eight
+  // executions with no test failure. See docs/ci-job-budget.md.
   for (const id of ['build-and-test', 'npm-test-trust-root']) {
     const job = workflowJobBlock(CI_WORKFLOW, id)
-    assert.match(job, /^    timeout-minutes: 25$/m)
+    assert.match(job, /^    timeout-minutes: 35$/m)
   }
 })
 
