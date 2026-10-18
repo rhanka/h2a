@@ -1,6 +1,6 @@
 import type { ChildProcess } from "node:child_process";
 import { once } from "node:events";
-import { readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
@@ -425,6 +425,28 @@ describe.skipIf(process.platform !== "linux")("owner/frontend split", () => {
       }
     },
   );
+
+  it("should withdraw the endpoint after a replacement frontend and a natural CLI drain", async () => {
+    const owner = await spawnOwner();
+    const original = await NativeTerminalClient.connect(owner.socketPath);
+    let replacement: NativeTerminalClient | undefined;
+    try {
+      await original.create({ ...shellFixture("withdraw", owner.directory), args: ["-c", "printf 'ready\\n'; read -r line; exit 19"] });
+      await readUntil(original, "withdraw", "ready");
+      const frontend = await waitForFrontendPid(owner.socketPath);
+      process.kill(frontend, "SIGKILL");
+      await waitForFrontendPid(owner.socketPath, frontend);
+      replacement = await NativeTerminalClient.connect(owner.socketPath);
+      const lease = await replacement.acquireController("withdraw", "drain-controller");
+      const exited = once(owner.child, "exit");
+      owner.child.kill("SIGTERM");
+      await replacement.write(lease, "finish\n");
+      const [code] = await exited;
+      expect(code).toBe(0);
+      expect(existsSync(owner.socketPath)).toBe(false);
+      expect(existsSync(owner.socketPath + ".owner")).toBe(false);
+    } finally { original.close(); replacement?.close(); }
+  }, TEST_TIMEOUT);
 
   it(
     "should report owner and frontend loaded versions and code identities separately",
