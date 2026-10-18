@@ -18,6 +18,7 @@
  * Every recorded issue is a refusal — the schema is closed.
  */
 import { validateDecisionDossierReadability } from "./readability.js";
+import { checkEvidence } from './evidence.js';
 export { READABILITY_LIMITS, READABILITY_BUDGETS, validateDecisionDossierReadability } from "./readability.js";
 /** Stable schema ID of the published DecisionDossierDocument asset. */
 export const DOSSIER_SCHEMA_ID = "urn:sentropic:focus:DecisionDossierDocument:1.0.0";
@@ -314,7 +315,7 @@ const checkReadability = (value, path, issues) => {
     };
 };
 /** Structural layer: closed shape check against the published schema. */
-export const validateDecisionDossierStructure = (value) => {
+const validateLegacyStructure = (value) => {
     const issues = [];
     const doc = checkClosedObject(value, "$", [...TOP_ALLOWED], [...TOP_REQUIRED], [...TOP_STRINGS], issues);
     if (doc === undefined)
@@ -403,6 +404,15 @@ export const validateDecisionDossierStructure = (value) => {
             ...(readability !== undefined ? { readability } : {}),
         },
     };
+};
+/** Absence means historical v1; unknown explicit versions always refuse. */
+export const validateDecisionDossierStructure = (value) => {
+    if (isRecord(value) && Object.hasOwn(value, 'schemaVersion')) {
+        if (value.schemaVersion !== 2)
+            return { ok: false, issues: [issue('$.schemaVersion', 'unsupported_version', 'Supported explicit version: 2; omit schemaVersion for legacy v1')] };
+        return checkEvidence(value, validateLegacyStructure);
+    }
+    return validateLegacyStructure(value);
 };
 /** Semantic layer on a structurally valid dossier. Empty means valid. */
 export const validateDecisionDossierSemantics = (doc) => {

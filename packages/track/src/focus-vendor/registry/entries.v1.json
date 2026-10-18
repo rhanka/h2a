@@ -8,7 +8,7 @@
       "id": "sentropic.focus",
       "name": "focus",
       "description": "Prepare and review readable decision dossiers that trace the owner's request, expose real stakes and offer short explicit choices. Read-only snapshots; no decisions, signatures, amendments or Track writes.",
-      "entryVersion": "1.0.0",
+      "entryVersion": "2.0.0",
       "publisher": {
         "packageName": "@sentropic/focus",
         "packageVersion": "0.5.0"
@@ -76,13 +76,19 @@
           "role": "skill-instructions",
           "path": "skills/focus/SKILL.md",
           "mediaType": "text/markdown",
-          "sha256": "13c59df2ee270ecf20ed0e104dc3e7244c43a4e31f604363a87088970cdffc07"
+          "sha256": "f57943004de8c015afc1ff8f3e33ffcd2c0ffb8b50e3d6555662ddf4034029da"
         },
         {
           "role": "document-schema",
           "path": "schemas/decision-dossier-document.v1.schema.json",
           "mediaType": "application/schema+json",
           "sha256": "725bc07e7c6b6ad51a1f720cc9fb02649d8f31bc54e71c61c350fd20058c8852"
+        },
+        {
+          "role": "document-schema",
+          "path": "schemas/decision-dossier-document.v2.schema.json",
+          "mediaType": "application/schema+json",
+          "sha256": "7c6fd7c889b8553d7ba96d1e54e2de377c1efdbea30d39ed377cd60f5176ed86"
         }
       ],
       "skill": {
@@ -106,8 +112,8 @@
             "permissions": [
               "track.dossier.read"
             ],
-            "inputSchemaRef": "urn:sentropic:focus:DecisionDossierDocument:1.0.0",
-            "outputSchemaRef": "urn:sentropic:focus:DecisionDossierDocument:1.0.0"
+            "inputSchemaRef": "urn:sentropic:focus:DecisionDossierDocument:2.0.0",
+            "outputSchemaRef": "urn:sentropic:focus:DecisionDossierDocument:2.0.0"
           }
         ],
         "tools": [],
@@ -118,6 +124,13 @@
             "version": "1.0.0",
             "assetPath": "schemas/decision-dossier-document.v1.schema.json",
             "sha256": "725bc07e7c6b6ad51a1f720cc9fb02649d8f31bc54e71c61c350fd20058c8852"
+          },
+          {
+            "name": "DecisionDossierDocument",
+            "schemaId": "urn:sentropic:focus:DecisionDossierDocument:2.0.0",
+            "version": "2.0.0",
+            "assetPath": "schemas/decision-dossier-document.v2.schema.json",
+            "sha256": "7c6fd7c889b8553d7ba96d1e54e2de377c1efdbea30d39ed377cd60f5176ed86"
           }
         ],
         "dependencies": []

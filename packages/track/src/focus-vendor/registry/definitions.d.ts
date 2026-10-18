@@ -13,7 +13,7 @@
 /** Canonical registry ID of the Focus skill. */
 export declare const FOCUS_SKILL_ID = "sentropic.focus";
 /** Public entry version of the first Focus registry release. */
-export declare const FOCUS_ENTRY_VERSION = "1.0.0";
+export declare const FOCUS_ENTRY_VERSION = "2.0.0";
 /** Entry-contract version this descriptor conforms to. */
 export declare const FOCUS_CONTRACT_VERSION = "1.1.4";
 /** Parameter-schema version of the Focus entry (contract §5.4). */
