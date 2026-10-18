@@ -36,7 +36,7 @@ import {
   unlinkSync,
   writeFileSync
 } from "node:fs";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 
 /** Announced recovery window: a ref is readable for 24h after it is written. */
 export const PAYLOAD_TTL_MS = 24 * 60 * 60 * 1000;
@@ -119,9 +119,13 @@ function metaPath(dir: string, ref: string): string {
 
 function dirBytes(dir: string): number {
   let total = 0;
+  // readdir returns basenames, never separators or dot/parent entries. The
+  // directory is already joined; retain a fresh stat for every quota entry
+  // without normalizing that same directory once per file.
+  const prefix = dir + sep;
   for (const entry of readdirSync(dir)) {
     try {
-      total += statSync(join(dir, entry)).size;
+      total += statSync(prefix + entry).size;
     } catch {
       /* a racing unlink is not a measurement failure */
     }
@@ -135,6 +139,7 @@ function dirBytes(dir: string): number {
  */
 export function createPayloadStore(root: string, scope: string = root): PayloadStore {
   const dir = join(root, "mcp-payloads");
+  const prefix = dir + sep;
   let lastSweepAt = Number.NEGATIVE_INFINITY;
   // Derived parsing cache only. Every sweep checks current inode/size/times;
   // expired records are always read again before deletion. No quota or read
@@ -165,7 +170,7 @@ export function createPayloadStore(root: string, scope: string = root): PayloadS
       const ref = entry.slice(0, -".json".length);
       if (!REF_RE.test(ref)) continue;
       try {
-        const path = join(dir, entry), stamp = metadataStamp(path);
+        const path = prefix + entry, stamp = metadataStamp(path);
         if (!stamp) continue;
         const cached = liveExpiries.get(ref);
         if (cached?.stamp === stamp && cached.expiresAt > now) {
