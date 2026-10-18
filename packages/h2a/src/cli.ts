@@ -420,8 +420,6 @@ export function renderCliHelp(): string {
     "  h2a --help",
     "  h2a explain",
     "  h2a hosts",
-    "  h2a vuln-fix run --config <absolute-path> [--dry-run]",
-    "  h2a vuln-fix timer --config <absolute-path> --directory <absolute-path>",
     "  h2a mcp-tools",
     "  h2a init [--root <path>]",
     "  h2a register --json <json> [--root <path>]",
