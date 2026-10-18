@@ -73,10 +73,45 @@ function linuxBashPath(): string {
   );
 }
 
+/**
+ * Lot BM darwin floor: macOS ships no `setpriv --pdeathsig` and no
+ * parent-death signal at all, so the guardian runs directly under bash.
+ * Parent-death containment rests on PTY master-close semantics instead: when
+ * the owning host dies, the kernel closes the master and the slave side
+ * receives SIGHUP, which the guardian script's unchanged `trap h2a_force
+ * HUP` turns into a whole-group kill. No new script, no weakened Linux path.
+ */
+function darwinBashPath(): string {
+  for (const candidate of ["/bin/bash", "/opt/homebrew/bin/bash", "/usr/local/bin/bash"]) {
+    try {
+      accessSync(candidate, fsConstants.X_OK);
+      return candidate;
+    } catch {
+      // Try the next fixed system path. Never resolve this boundary through PATH.
+    }
+  }
+  throw new Error(
+    "native terminal PTY crash containment requires bash on darwin",
+  );
+}
+
 function guardedSpawnCommand(options: Parameters<PtySpawner>[0]): {
   command: string;
   args: string[];
 } {
+  if (process.platform === "darwin") {
+    return {
+      command: darwinBashPath(),
+      args: [
+        "-c",
+        LINUX_PTY_GUARDIAN_SCRIPT,
+        "h2a-pty-guardian",
+        String(process.pid),
+        options.command,
+        ...options.args,
+      ],
+    };
+  }
   if (process.platform !== "linux") {
     return { command: options.command, args: [...options.args] };
   }
@@ -119,6 +154,16 @@ export function nativePtyRequirements():
     try {
       linuxSetprivPath();
       linuxBashPath();
+    } catch (error) {
+      return {
+        ok: false,
+        reason: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+  if (process.platform === "darwin") {
+    try {
+      darwinBashPath();
     } catch (error) {
       return {
         ok: false,

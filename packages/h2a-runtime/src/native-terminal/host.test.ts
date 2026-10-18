@@ -30,6 +30,16 @@ import {
   type NativeTerminalProcFrame,
   type NativeTerminalProcessGroupReaper,
 } from "./host.js";
+import {
+  classifyDurableProcFrame,
+  DARWIN_PID_NAMESPACE_SENTINEL,
+  darwinBootIdFromEpochSeconds,
+  parseDarwinProcessTable,
+  parseIoPlatformUuid,
+  parsePsLstart,
+  readDarwinProcessSessionToken,
+  readDarwinProcessStartTime,
+} from "../proc-identity.js";
 import type { NativeTerminalStopSignal } from "./protocol.js";
 import { HOST_FAULT_COUNTERS, hostFaultCounters } from "./fault-counters.js";
 import { hostLogSinkDiagnostics } from "./crash-safe-log.js";
@@ -2893,5 +2903,93 @@ describe("NativeTerminalHost", () => {
 
     host.write(current, "current");
     expect(ptys.get("alpha")!.write).toHaveBeenCalledWith("current");
+  });
+});
+
+// Lot BM: darwin observation parsing. Pure fixture tests — deterministic on
+// every platform, so they run in the Linux set too and pin the parsers the
+// macOS substrate proofs rely on.
+describe("darwin observation parsing", () => {
+  it("should parse ps lstart output into epoch seconds", () => {
+    expect(parsePsLstart("Mon Oct 19 10:23:45 2026\n")).toBe(
+      Math.floor(Date.UTC(2026, 9, 19, 10, 23, 45) / 1000),
+    );
+    expect(parsePsLstart("Tue Oct  6 03:04:05 2026")).toBe(
+      Math.floor(Date.UTC(2026, 9, 6, 3, 4, 5) / 1000),
+    );
+    for (const bad of ["", "garbage", "Mon Foo 19 10:23:45 2026", "Mon Oct 32 10:23:45 2026",
+      "Mon Oct 19 25:23:45 2026", "Mon Oct 19 10:23:45 1969", "Oct 19 10:23:45 2026"]) {
+      expect(parsePsLstart(bad)).toBeUndefined();
+    }
+  });
+
+  it("should normalize an ioreg hardware UUID to the frame shape", () => {
+    const output = `+-o IOPlatformExpertDevice  <class IOPlatformExpertDevice>
+  |   "IOPlatformUUID" = "A1B2C3D4-E5F6-4711-8899-AABBCCDDEEFF"
+`;
+    expect(parseIoPlatformUuid(output)).toBe("a1b2c3d4e5f647118899aabbccddeeff");
+    expect(parseIoPlatformUuid("no uuid here")).toBeUndefined();
+    expect(parseIoPlatformUuid(`"IOPlatformUUID" = "00000000-0000-0000-0000-000000000000"`)).toBeUndefined();
+    expect(parseIoPlatformUuid(`"IOPlatformUUID" = "not-a-uuid"`)).toBeUndefined();
+  });
+
+  it("should encode the darwin boot instant deterministically in frame shape", () => {
+    const first = darwinBootIdFromEpochSeconds(1_791_000_000);
+    const second = darwinBootIdFromEpochSeconds(1_791_000_000);
+    expect(first).toBe(second);
+    expect(first).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    expect(darwinBootIdFromEpochSeconds(1_791_000_001)).not.toBe(first);
+  });
+
+  it("should classify darwin frames without touching the shared validator", () => {
+    expect(DARWIN_PID_NAMESPACE_SENTINEL).toBe("0");
+    const machineId = "a".repeat(32);
+    const boot = darwinBootIdFromEpochSeconds(1_791_000_000);
+    const darwin = { machineId, bootId: boot, pidNamespace: "0" };
+    expect(classifyDurableProcFrame(darwin, darwin)).toBe("current");
+    expect(classifyDurableProcFrame({ ...darwin, bootId: darwinBootIdFromEpochSeconds(1) }, darwin))
+      .toBe("stale-boot");
+    // A Linux row (real namespace inode) never validates in a darwin frame.
+    expect(classifyDurableProcFrame({ ...darwin, pidNamespace: "4026531836" }, darwin))
+      .toBe("foreign-frame");
+    expect(classifyDurableProcFrame(darwin, { ...darwin, pidNamespace: "4026531836" }))
+      .toBe("foreign-frame");
+  });
+
+  it("should parse the ps process table and poison partial output", () => {
+    const output = [
+      "  PID  PGID STAT COMMAND",
+      "    1     0 Ss   /sbin/launchd",
+      "  123   123 Ss   /bin/bash -c sleep 60",
+      "  124   123 S    sleep 60",
+      "  125   125 Z    (defunct)",
+      "",
+    ].join("\n");
+    const table = parseDarwinProcessTable(output);
+    expect(table).toEqual([
+      { pid: 1, pgid: 0, stat: "S", args: "/sbin/launchd" },
+      { pid: 123, pgid: 123, stat: "S", args: "/bin/bash -c sleep 60" },
+      { pid: 124, pgid: 123, stat: "S", args: "sleep 60" },
+      { pid: 125, pgid: 125, stat: "Z", args: "(defunct)" },
+    ]);
+    expect(parseDarwinProcessTable("PID PGID STAT COMMAND\nnot a row")).toBeUndefined();
+    expect(parseDarwinProcessTable("PID PGID STAT COMMAND\n")).toEqual([]);
+  });
+
+  it("should read start times and tokens through the injected ps runner", () => {
+    const run = (args: ReadonlyArray<string>): string => {
+      if (args.includes("lstart=")) return "Mon Oct 19 10:23:45 2026\n";
+      if (args.includes("-E")) throw Object.assign(new Error("unsupported"), { code: 1 });
+      if (args.includes("e")) return "  PID TTY TIME CMD\n  42 ?? 0:00.01 node H2A_SESSION_TOKEN=abc123\n";
+      throw new Error(`unexpected ps invocation: ${args.join(" ")}`);
+    };
+    expect(readDarwinProcessStartTime(42, run)).toBe(
+      Math.floor(Date.UTC(2026, 9, 19, 10, 23, 45) / 1000),
+    );
+    expect(readDarwinProcessStartTime(42, () => { throw new Error("no ps"); })).toBeUndefined();
+    expect(readDarwinProcessStartTime(-1, run)).toBeUndefined();
+    // The first spelling fails, the second carries the token.
+    expect(readDarwinProcessSessionToken(42, run)).toBe("abc123");
+    expect(readDarwinProcessSessionToken(42, () => "")).toBeUndefined();
   });
 });

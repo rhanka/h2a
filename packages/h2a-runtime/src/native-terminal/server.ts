@@ -43,7 +43,9 @@ import {
 import { listNativeTerminalPgidEntries, loadRegistry } from "../registry.js";
 import {
   classifyDurableProcFrame,
+  readDarwinProcessTable,
   readProcessFrame,
+  type DarwinProcessTableRow,
   type DurableProcFrame,
   type ReadProcessFrame,
 } from "../proc-identity.js";
@@ -593,9 +595,9 @@ export function serveNativeTerminalConnections(
 
 
 async function socketPublicationLockSecret(socketPath: string, signal?: AbortSignal): Promise<string> {
-  if (process.platform !== "linux" || process.getuid === undefined) {
+  if ((process.platform !== "linux" && process.platform !== "darwin") || process.getuid === undefined) {
     throw new Error(
-      "native terminal socket publication requires Linux abstract Unix sockets",
+      "native terminal socket publication requires Linux abstract Unix sockets or a macOS filesystem lock",
     );
   }
   const directory = dirname(socketPath);
@@ -643,8 +645,103 @@ async function socketPublicationLockSecret(socketPath: string, signal?: AbortSig
   return secret;
 }
 
+/**
+ * The darwin publication-lock pathname: the same lock-id secret and the same
+ * per-socket hash as the Linux abstract address, but bound in the private
+ * socket directory because darwin has no abstract namespace. Exported for
+ * the darwin gate, which asserts the lock lives on the filesystem.
+ */
+export function darwinSocketPublicationLockPath(socketPath: string, secret: string): string {
+  const name = `.h2a-l${createHash("sha256")
+    .update(`${process.getuid?.() ?? "unknown"}:${socketPath}:${secret}`)
+    .digest("hex")
+    .slice(0, 12)}.sock`;
+  const path = join(dirname(socketPath), name);
+  try {
+    assertNativeTerminalSocketPathWithinLimit(path, "terminal socket publication lock path");
+  } catch {
+    throw new NativeTerminalPublicationRefusal("H2A_PUBLICATION_LOCK_PATH_UNUSABLE");
+  }
+  return path;
+}
+
+function probeLockSocket(lockPath: string, signal?: AbortSignal): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    const probe = createConnection(lockPath);
+    const finish = (live: boolean) => {
+      signal?.removeEventListener("abort", cancel);
+      probe.destroy();
+      resolve(live);
+    };
+    const cancel = () => finish(false);
+    if (signal !== undefined) {
+      if (signal.aborted) return finish(false);
+      signal.addEventListener("abort", cancel, { once: true });
+    }
+    probe.once("connect", () => finish(true));
+    probe.once("error", () => finish(false));
+  });
+}
+
+/**
+ * Filesystem mutual exclusion for darwin (no abstract sockets): bind a
+ * lock socket at the derived pathname and hold it open. A stale pathname
+ * (previous holder dead without unlinking) refuses connects, so only a
+ * completed handshake means a live holder — exactly the stale-safe pattern
+ * `bindForwardServer` in owner-process.js already uses. The kernel backlog
+ * completes the handshake even though the lock server destroys every
+ * accepted connection without reading. On release (`close`) the pathname is
+ * unlinked best-effort; a leftover is reclaimed by the next contender's
+ * refused-connect path, never mistaken for a live holder.
+ */
+async function acquireDarwinSocketPublicationLock(
+  socketPath: string,
+  secret: string,
+  signal?: AbortSignal,
+): Promise<Server> {
+  const lockPath = darwinSocketPublicationLockPath(socketPath, secret);
+  const deadline = Date.now() + SOCKET_PUBLICATION_LOCK_TIMEOUT_MS;
+  for (;;) {
+    signal?.throwIfAborted();
+    const lock = createServer((socket) => socket.destroy());
+    const unlinkOnRelease = () => unlinkIfPresent(lockPath);
+    try {
+      await abortable(new Promise<void>((resolve, reject) => {
+        lock.once("error", reject);
+        lock.listen(lockPath, () => {
+          lock.removeListener("error", reject);
+          resolve();
+        });
+      }), signal);
+      lock.once("close", unlinkOnRelease);
+      try {
+        await abortable(chmod(lockPath, 0o600), signal);
+      } catch {
+        // Best-effort: the private directory already restricts access and the
+        // bound socket holds mutual exclusion regardless of its mode.
+      }
+      return lock;
+    } catch (error) {
+      lock.close();
+      if ((error as NodeJS.ErrnoException).code !== "EADDRINUSE") throw error;
+      if (await probeLockSocket(lockPath, signal)) {
+        if (Date.now() >= deadline) throw error;
+        await abortable(new Promise((resolve) =>
+          setTimeout(resolve, SOCKET_PUBLICATION_LOCK_RETRY_MS)
+        ), signal);
+        continue;
+      }
+      unlinkIfPresent(lockPath);
+      if (Date.now() >= deadline) throw error;
+    }
+  }
+}
+
 async function acquireSocketPublicationLock(socketPath: string, signal?: AbortSignal): Promise<Server> {
   const secret = await socketPublicationLockSecret(socketPath, signal);
+  if (process.platform === "darwin") {
+    return acquireDarwinSocketPublicationLock(socketPath, secret, signal);
+  }
   const address = `\0h2a-terminal-lock-${createHash("sha256")
     .update(`${process.getuid?.() ?? "unknown"}:${socketPath}:${secret}`)
     .digest("hex")}`;
@@ -856,6 +953,103 @@ type ActiveHostScan =
   | { state: "live"; pid: number; startTime: number }
   | { state: "unknown"; reason: string };
 
+/**
+ * The darwin active-host scan (lot BM): the same candidate grammar as the
+ * Linux `/proc` cmdline stage — a `--socket <candidate>` argument plus a
+ * host marker — read from `ps` instead of `/proc/<pid>/cmdline`, then the
+ * same canonical/basename/staged-name correlation and the same injected
+ * liveness probe per candidate.
+ *
+ * What darwin cannot see (DECLARED LIMITS): per-process file descriptors and
+ * the bound-socket table, so a process holding the endpoint WITHOUT matching
+ * argv is invisible to this scan. That is safe, not silent: every adopted
+ * holder (frontend, keeper) belongs to an owner process whose own argv always
+ * carries `--socket <endpoint>`, so a live serving tree always has at least
+ * one visible member — the scan needs only one to refuse. The residual race
+ * (owner dead, adopted holder not yet exited, connects already refusing)
+ * resolves the same way on Linux and darwin: the holder exits on its dead
+ * owner channel and the next attempt publishes.
+ *
+ * `ps` joins argv with spaces (DECLARED LIMIT): a socket path containing
+ * whitespace cannot be attributed exactly, so such a target is unknown
+ * (refuse), never absent. Exported for the darwin gate.
+ */
+export function findDarwinActiveHostServingSocket(
+  socketPath: string,
+  table: DarwinProcessTableRow[] | undefined,
+  ownerProbe: NativeTerminalOwnerHostProbe = defaultOwnerHostProbe,
+): ActiveHostScan {
+  if (/\s/.test(socketPath)) {
+    return { state: "unknown", reason: "darwin argv scan cannot attribute socket paths containing whitespace" };
+  }
+  if (table === undefined) {
+    return { state: "unknown", reason: "darwin process table is unreadable" };
+  }
+  const targetCanonical = canonicalizePath(socketPath);
+  if (!targetCanonical) {
+    return {
+      state: "unknown",
+      reason: `cannot canonicalize target socket path: ${socketPath}`,
+    };
+  }
+  let targetSocket: NativeTerminalSocketIdentity | undefined;
+  try { targetSocket = statSync(targetCanonical); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+
+  for (const row of table) {
+    if (row.pid === process.pid) continue;
+    const tokens = row.args.split(/\s+/).filter(Boolean);
+    const idx = tokens.indexOf("--socket");
+    if (idx === -1 || idx + 1 >= tokens.length) continue;
+    const candidateSocket = tokens[idx + 1]!;
+    const isHost = row.args.includes("process.js")
+      || (row.args.includes("native-terminal") && !row.args.includes("op.js"));
+    if (!isHost) continue;
+
+    let sameCandidateSocket = false;
+    if (targetSocket) {
+      try { sameCandidateSocket = sameNativeTerminalSocket(statSync(candidateSocket), targetSocket); }
+      catch { /* An absent published name supplies no direct inode evidence. */ }
+    }
+    if (!sameCandidateSocket && basename(resolve(candidateSocket)) !== basename(targetCanonical)) continue;
+    const candidateCanonical = canonicalizePath(candidateSocket);
+    const candidateAliased = candidateCanonical !== undefined && candidateCanonical !== resolve(candidateSocket);
+    const couldServeTarget = candidateCanonical === undefined
+      || candidateCanonical === targetCanonical || sameCandidateSocket || candidateAliased;
+    if (!couldServeTarget) continue;
+
+    let isStagingCandidate = false;
+    try {
+      const dirEntries = readdirSync(dirname(candidateSocket));
+      isStagingCandidate = dirEntries.some((name) => isStagedSocketName(name, candidateSocket, row.pid));
+    } catch {
+      // Staging-directory inspection is optional, as on Linux.
+    }
+    if (isStagingCandidate) continue;
+
+    try {
+      process.kill(row.pid, 0);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ESRCH" || (error as NodeJS.ErrnoException).code === "ENOENT") {
+        continue;
+      }
+      // EPERM or anything else: the process exists (we may not signal it).
+    }
+    const startTime = readProcessStartTime(row.pid);
+    if (startTime === undefined) {
+      return { state: "unknown", reason: `cannot read start time for host pid ${row.pid}` };
+    }
+    const probe = ownerProbe({ pid: row.pid, startTime });
+    if (probe === "alive") {
+      return { state: "live", pid: row.pid, startTime };
+    }
+    if (probe === "unresolvable") {
+      return { state: "unknown", reason: `host pid ${row.pid} liveness probe is unresolvable` };
+    }
+  }
+  return { state: "absent" };
+}
+
 function findActiveHostServingSocket(
   socketPath: string,
   procRoot = process.env.H2A_TEST_PROC_ROOT ?? "/proc",
@@ -863,6 +1057,9 @@ function findActiveHostServingSocket(
 ): ActiveHostScan {
   if (process.env.H2A_TEST_PROC_UNAVAILABLE) {
     return { state: "unknown", reason: "simulated /proc observation unavailable" };
+  }
+  if (process.platform === "darwin") {
+    return findDarwinActiveHostServingSocket(socketPath, readDarwinProcessTable(), ownerProbe);
   }
   if (process.platform !== "linux") {
     return { state: "unknown", reason: "platform does not support /proc host observation" };
