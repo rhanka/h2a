@@ -420,6 +420,8 @@ export function renderCliHelp(): string {
     "  h2a --help",
     "  h2a explain",
     "  h2a hosts",
+    "  h2a vuln-fix run --config <absolute-path> [--dry-run]",
+    "  h2a vuln-fix timer --config <absolute-path> --directory <absolute-path>",
     "  h2a mcp-tools",
     "  h2a init [--root <path>]",
     "  h2a register --json <json> [--root <path>]",
@@ -7693,6 +7695,14 @@ export function runCli(
   options: H2ACliOptions = {}
 ): number | Promise<number> {
   const { command, flags } = parseFlags(argv);
+
+  if (command === "vuln-fix") {
+    if (argv.length === 2 && ["--help", "-h", "help"].includes(argv[1]!)) {
+      streams.stdout.write("h2a vuln-fix run --config /absolute/config.json [--dry-run]\nh2a vuln-fix timer --config /absolute/config.json --directory /absolute/units\nDaily HIGH/CRITICAL remediation through seats; never merges.\n");
+      return 0;
+    }
+    return import('./vuln-fix/cli.mjs').then(module => module.runVulnFixCli([...argv], streams));
+  }
 
   if (streams.stderr === process.stderr && process.stderr.isTTY) {
     for (const notice of captureHostOperatorNotices()) streams.stderr.write(`${notice}\n`);

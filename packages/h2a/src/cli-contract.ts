@@ -61,6 +61,14 @@ export interface H2ACliVerbContract {
 }
 
 export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
+  {
+    verb: "vuln-fix",
+    outputShape: "text",
+    exitCodes: [0, 1, 2],
+    requiredFlags: [],
+    optionalFlags: ["config", "dry-run", "directory", "node", "cli", "help"],
+    description: "Daily multi-source vulnerability remediation: admitted seats, draft PR, two independent reviews, no automatic merge; render a systemd user timer."
+  },
   // --- meta / help ---
   {
     verb: "--help",

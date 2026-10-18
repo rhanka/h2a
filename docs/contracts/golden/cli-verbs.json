@@ -98,5 +98,6 @@
   "sysml verify",
   "thread",
   "track-mcp",
-  "upgrade"
+  "upgrade",
+  "vuln-fix"
 ]
