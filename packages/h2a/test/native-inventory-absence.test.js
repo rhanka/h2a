@@ -1,8 +1,8 @@
-import { assertIsolatedEnvironment, assertIsolatedNativeOperation, assertPrivateQualificationPath, createPrivateTestDirectory, nativeQualificationRoot, spawnIsolatedNative as spawn, waitForPrivateNativeProcesses } from "./helpers/native-isolation.js";
+import { assertIsolatedEnvironment, assertIsolatedNativeOperation, assertPrivateQualificationPath, createPrivateTestDirectory, nativeQualificationRoot, pinPrivateNativeProcess, spawnIsolatedNative as spawn, stopPrivateNativeProcesses, waitForPrivateNativeProcesses } from "./helpers/native-isolation.js";
 import assert from "node:assert/strict";
 
 import { once } from "node:events";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, unlinkSync, watch, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
@@ -92,12 +92,12 @@ async function fixture(body, qualRoot = nativeQualificationRoot) {
     TMUX_TMPDIR: root };
   // The ordinary launcher detaches its host, so the test has no ChildProcess
   // handle for it. Record that fixture host's real Node exit event and observe
-  // it through filesystem events; a host-stop response only acknowledges TERM.
+  // its effective exit; a host-stop response only acknowledges TERM.
   const exitEvents = join(root, "host-exits"), exitObserver = join(root, "host-exit.mjs");
   mkdirSync(exitEvents, { mode: 0o700 });
   writeFileSync(exitObserver, `import { writeFileSync, renameSync } from 'node:fs';
     import { basename, join } from 'node:path';
-    if (basename(process.argv[1] ?? '') === 'process.js') {
+    if (['process.js', 'owner-process.js'].includes(basename(process.argv[1] ?? ''))) {
       process.once('exit', code => {
         const file = join(${JSON.stringify(exitEvents)}, process.pid + '.json');
         writeFileSync(file + '.tmp', JSON.stringify({pid: process.pid, code, timestamp: Date.now()}));
@@ -105,34 +105,35 @@ async function fixture(body, qualRoot = nativeQualificationRoot) {
       });
     }`);
   env.NODE_OPTIONS = `--import=${pathToFileURL(exitObserver).href}`;
-  function waitForHostExit(pid) {
-    const file = join(exitEvents, `${pid}.json`);
-    return new Promise((resolve, reject) => {
-      let finished = false;
-      const finish = (error, receipt) => {
-        if (finished) return;
-        finished = true;
-        clearTimeout(deadline);
-        observer.close();
-        if (error) reject(error); else resolve(receipt);
-      };
-      const check = () => {
-        if (!existsSync(file)) return;
-        try {
-          const receipt = JSON.parse(readFileSync(file, "utf8"));
-          assert.equal(receipt.pid, pid);
-          finish(undefined, receipt);
-        } catch (error) { finish(error); }
-      };
-      const observer = watch(exitEvents, check);
-      observer.once("error", finish);
-      const deadline = setTimeout(() => finish(new Error(`fixture host pid=${pid} did not emit exit within 3000ms`)), 3_000);
-      check();
-    });
+  async function waitForHostExit(pid) {
+    // B2 permits 10s to close frontend channels, then a bounded journal flush.
+    const file = join(exitEvents, `${pid}.json`), deadline = Date.now() + 12_000;
+    // The receipt is written by the effective owner on exit. Polling avoids
+    // consuming an inotify instance for each teardown in parallel CI jobs.
+    for (;;) {
+      if (existsSync(file)) {
+        const receipt = JSON.parse(readFileSync(file, "utf8"));
+        assert.equal(receipt.pid, pid);
+        return receipt;
+      }
+      assert.ok(Date.now() < deadline, `fixture host pid=${pid} did not emit exit within the owner shutdown bound (12000ms)`);
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
   }
   assertIsolatedNativeOperation(env, qualRoot);
   const paths = [join(root, "h2a-nt/native-terminal.sock"), join(root, "h2a-nt/native-terminal.lf1.sock")];
-  const hosts = [], clients = [];
+  const hosts = [], clients = [], pins = [];
+  const cleanupEnv = { ...env };
+  cleanupEnv.H2A_NATIVE_SOCKET = join(root, "h2a-nt/native-terminal.sock");
+  function pinOwner(pid) {
+    // A fixture child can exit between reading the owner's children list and
+    // opening its proc directory. Retry that vanished-child observation only;
+    // the final helper check still requires every private writer to be gone.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try { pins.push(pinPrivateNativeProcess(pid, cleanupEnv)); return; }
+      catch (error) { if (!["ENOENT", "ESRCH"].includes(error.code)) throw error; }
+    }
+  }
   async function run(args, source = false, entry = join(terminal, "op.js"), input) {
     assertIsolatedNativeOperation(env, qualRoot);
     const child = spawn(process.execPath, source ? ["--input-type=module", "-e", args] : [entry, ...args],
@@ -159,7 +160,9 @@ async function fixture(body, qualRoot = nativeQualificationRoot) {
     });
     const client = await NativeTerminalClient.connect(socketPath);
     clients.push(client);
-    return { child, client, ping: await client.ping(), socketPath };
+    const ping = await client.ping();
+    pinOwner(ping.hostPid);
+    return { child, client, ping, socketPath };
   }
   async function launch(name) {
     const result = await run(`import {startNativeSession} from ${JSON.stringify(native)};
@@ -174,6 +177,7 @@ async function fixture(body, qualRoot = nativeQualificationRoot) {
         if (!existsSync(path)) continue;
         const client = await NativeTerminalClient.connect(path);
         clients.push(client);
+        pinOwner((await client.ping()).hostPid);
       }
     }
     return result;
@@ -221,27 +225,55 @@ let text='';process.stdin.on('data',bytes=>{for(const c of bytes.toString().repl
   }
   try { await body({ root, home, workspace, env, paths, hosts, clients, run, start, launch, installCli, mcpLaunch }); }
   finally {
-    for (const child of hosts) {
-      if (child.exitCode !== null || child.signalCode !== null) continue;
-      child.kill("SIGCONT");
-      const exited = once(child, "exit"); child.kill("SIGTERM"); await exited;
-    }
-    // Detached hosts were started only by launch() inside this private fixture.
-    for (const path of paths) {
-      const result = await run(["host-stop", "--socket", path]);
-      assert.ok(result.status === 0 || /ENOENT|ECONNREFUSED/.test(result.stderr), result.stderr);
-      if (result.payload?.hostPid !== undefined) {
-        const started = Date.now();
-        const receipt = await waitForHostExit(result.payload.hostPid);
-        if (Date.now() - started >= 1_000) console.error("fixture host exit receipt", JSON.stringify({
-          ...receipt, afterStopResponseMs: Date.now() - started,
-        }));
+    try {
+      // Every client and host below was created/adopted only inside this
+      // private fixture. Resume a deliberately stopped host before cleanup.
+      for (const child of hosts) {
+        if (child.exitCode === null && child.signalCode === null) child.kill("SIGCONT");
       }
+      // CLI/MCP paths can start detached hosts without going through launch().
+      // Discover only the two endpoint names inside this fixture's directory.
+      for (const path of paths) {
+        const client = await NativeTerminalClient.connect(path).catch(() => undefined);
+        if (client) clients.push(client);
+      }
+      for (const client of clients) {
+        let sessions;
+        try { sessions = await client.list(); }
+        catch { continue; } // The fixture also exercises dead/unlinked hosts.
+        pinOwner((await client.ping()).hostPid);
+        for (const session of sessions.filter(session => session.status !== "exited")) {
+          const lease = await client.acquireController(session.id, "inventory-fixture-cleanup");
+          await client.stop(lease);
+          const deadline = Date.now() + 1_000;
+          while ((await client.state(session.id)).status !== "exited" && Date.now() < deadline)
+            await new Promise(resolve => setTimeout(resolve, 10));
+          if ((await client.state(session.id)).status !== "exited") await client.stop(lease, "SIGKILL");
+        }
+      }
+      for (const client of clients) client.close();
+      for (const child of hosts) {
+        if (child.exitCode !== null || child.signalCode !== null) continue;
+        const exited = once(child, "exit"); child.kill("SIGTERM"); await exited;
+      }
+      // Detached B owners drain rather than destroying their sessions on
+      // host-stop. Sessions have ended above; require their actual exit now.
+      for (const path of paths) {
+        const result = await run(["host-stop", "--socket", path]);
+        assert.ok(result.status === 0 || /ENOENT|ECONNREFUSED/.test(result.stderr), result.stderr);
+        if (result.payload?.hostPid !== undefined) await waitForHostExit(result.payload.hostPid);
+      }
+    } finally {
+      for (const client of clients) client.close();
+      // Includes setup/assertion/cleanup failure: the read-only helper knows
+      // our spawned descendants and pins their identity before signalling.
+      try {
+        await stopPrivateNativeProcesses(cleanupEnv);
+        await waitForPrivateNativeProcesses(cleanupEnv);
+      } finally { for (const release of pins.reverse()) release(); }
+      rmSync(root, { recursive: true, force: true });
+      rmSync(workspace, { recursive: true, force: true });
     }
-    for (const client of clients) client.close();
-    await waitForPrivateNativeProcesses(env);
-    rmSync(root, { recursive: true, force: true });
-    rmSync(workspace, { recursive: true, force: true });
   }
 }
 
