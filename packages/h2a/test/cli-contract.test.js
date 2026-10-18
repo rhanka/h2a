@@ -335,6 +335,8 @@ function buildHappyArgv(verb, ctx) {
   switch (verb) {
     case "--help":
       return ["--help"];
+    case "vuln-fix":
+      return ["vuln-fix", "--help"];
     case "explain":
       return ["explain"];
     case "hosts":
