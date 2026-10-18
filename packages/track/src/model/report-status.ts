@@ -1,9 +1,56 @@
 import { DomainError } from './item.js'
 
-export const REPORT_STAGES = ['spec', 'dev', 'PR', 'mergé', 'déployé'] as const
+/**
+ * Neutral stage codes (D2) — the identity carried by JSON, never localised
+ * words. The 2026-10-17 French values (`mergé`/`déployé`) and `PR` are legacy
+ * aliases: normalised on read (`normalizeReportStage`, fold-time), rejected on
+ * new writes (`assertItemReportStatus`). Historical events are never rewritten.
+ */
+export const REPORT_STAGES = ['spec', 'dev', 'pr', 'merged', 'deployed'] as const
 export type ReportStage = typeof REPORT_STAGES[number]
-export const REPORT_STATUSES = ['progressing', 'unforeseen', 'blocked', 'decision-awaited'] as const
+export const REPORT_STATUSES = ['progressing', 'unforeseen', 'blocked', 'decision-awaited', 'not-qualified', 'withdrawn'] as const
 export type ReportStatus = typeof REPORT_STATUSES[number]
+
+/** Legacy stored stage values mapped to their neutral code (read path only). */
+const LEGACY_STAGE_ALIASES: Record<string, ReportStage> = {
+  PR: 'pr',
+  'mergé': 'merged',
+  'déployé': 'deployed',
+}
+
+/**
+ * Map a stored stage value to its neutral code. Returns `undefined` for an
+ * unknown value (the caller then ignores the stored stage rather than
+ * inventing one). Neutral codes map to themselves.
+ */
+export function normalizeReportStage(value: unknown): ReportStage | undefined {
+  if (typeof value !== 'string') return undefined
+  if ((REPORT_STAGES as readonly string[]).includes(value)) return value as ReportStage
+  return LEGACY_STAGE_ALIASES[value]
+}
+
+/**
+ * Read-path tolerance for a stored report assertion (fold + derivation).
+ * Historical 2026-10-17 French stage values read as neutral codes; the
+ * events themselves are never rewritten. Unknown stage values are dropped
+ * (the caller ignores the stored stage rather than inventing one). This is
+ * the READ path — new writes still go through `assertItemReportStatus`, which
+ * rejects the legacy values.
+ */
+export function normalizeStoredReport(value: unknown): ItemReportStatus {
+  const source = value as Partial<ItemReportStatus> & { stage?: { value?: unknown; evidence?: string } }
+  const stored = source.stage
+  if (stored === undefined || typeof stored !== 'object' || stored === null) {
+    return { ...(value as ItemReportStatus) }
+  }
+  const normalized = normalizeReportStage(stored.value)
+  if (normalized === undefined) {
+    const { stage: _dropped, ...rest } = value as ItemReportStatus & { stage?: unknown }
+    void _dropped
+    return { ...rest }
+  }
+  return { ...(value as ItemReportStatus), stage: { ...stored, value: normalized } }
+}
 
 export interface DecisionExpectations {
   /** Exact question and consequences, not option identifiers alone. */
@@ -62,7 +109,7 @@ export function assertItemReportStatus(value: unknown): asserts value is ItemRep
     keys(value["stage"], ['value', 'evidence'])
     if (!REPORT_STAGES.includes(value["stage"]["value"] as ReportStage)) fail('invalid stage')
     if (value["stage"]["evidence"] !== undefined && !text(value["stage"]["evidence"])) fail('stage evidence must be non-empty')
-    if (['PR', 'mergé', 'déployé'].includes(String(value["stage"]["value"])) && !text(value["stage"]["evidence"])) fail('PR/mergé/déployé requires evidence')
+    if (['pr', 'merged', 'deployed'].includes(String(value["stage"]["value"])) && !text(value["stage"]["evidence"])) fail('pr/merged/deployed requires evidence')
   }
   if (value["decisionExpectations"] !== undefined) assertDecisionExpectations(value["decisionExpectations"])
   // Incomplete red/blue declarations are retained so the renderer can flag and route their repair.
