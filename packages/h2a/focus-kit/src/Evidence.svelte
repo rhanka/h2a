@@ -19,6 +19,21 @@
     active = null; locator = null; await tick();
     opener?.focus({ preventScroll: true }); window.scrollTo(0, scroll);
   }
+  function referenceTarget(ref) {
+    if (ref === dossier.ref) return { id: null, label: 'dossier' };
+    for (const section of dossier.sections) {
+      const option = section.kind === 'optionSet' && section.options.find(o => o.id === ref || o.targetRef === ref);
+      if (option) return { id: option.id, label: option.label };
+      if (section.id === ref || section.targetRef === ref) return { id: section.id,
+        label: section.question ?? section.title ?? section.alt ?? (section.kind === 'outcome' ? 'Conclusion' : section.kind === 'amendmentTrace' ? 'Historique' : 'Contexte') };
+    }
+  }
+  function returnTo(ref) {
+    const target = referenceTarget(ref), element = target?.id === null ? document.querySelector('main') : document.getElementById(target?.id);
+    if (!element) throw new Error(`Unresolved annex back reference: ${ref}`);
+    if (!element.matches('button, a, input')) element.tabIndex = -1;
+    element.focus(); element.scrollIntoView({ block: 'start' });
+  }
 </script>
 <section aria-label="Pièces justificatives" class="evidence-index">
   <h2>Pièces justificatives</h2>
@@ -38,7 +53,7 @@
       {:else if block.kind === 'table'}<div class="evidence-table"><table><thead><tr>{#each block.columns as column}<th>{column}</th>{/each}</tr></thead><tbody>{#each block.rows as row}<tr>{#each row as cell}<td>{cell}</td>{/each}</tr>{/each}</tbody></table></div>
       {:else if block.kind === 'references'}{#each block.citationRefs as id}<button onclick={() => openCitation(id)}>{dossier.citations.find(c => c.id === id).label}</button>{/each}{/if}
     {/each}
-    {#each annex.backRefs as id}<a href={`#${encodeURIComponent(id)}`}>Retour : {id}</a>{/each}
+    {#each annex.backRefs as id}<button onclick={() => returnTo(id)}>Retour : {referenceTarget(id).label}</button>{/each}
     {/if}
   </details>{/each}
 </section>

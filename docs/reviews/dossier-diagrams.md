@@ -83,8 +83,8 @@ absente sur un processus vivant échoue. Le skill `h2a:debug` a guidé le diagno
 
 Mesures finales/hashes : [metrics.json](dossier-diagrams/metrics.json).
 Grand artifact : 31 sources, environ 30,9 Mo HTML, 22,9 Mo de preuves.
-P95 : ouverture 1124,5 ms, citation 81,2 ms, recherche 60,3 ms ; RSS crête large
-728,6 Mo, croissance retenue 29,7 Mo. Maximum 80 lignes, moins de 400 éléments
+P95 : ouverture 1062,7 ms, citation 82,8 ms, recherche 60,0 ms ; RSS crête large
+723,4 Mo, croissance retenue 28,4 Mo. Maximum 80 lignes, moins de 400 éléments
 de preuve. Node 22.22.1, Chromium 153.0.8010.12, Playwright 1.63.0.
 
 ## CI, écarts et NON couvert
@@ -160,3 +160,24 @@ Sortie : **1/1 pass, exit 0, zéro skip**, run-BttLAh ; mesures finales dans
 `dossier-diagrams/metrics.json`. Les anciennes preuves restent dans l'historique.
 Le job Focus conserve aussi le JSON brut de ses propres mesures, avec les hashes
 d'entrée/HTML/politique, dans l'artifact `focus-evidence-metrics-<SHA>` de la CI.
+
+## Derniers témoins : mémoire et retour d'annexe
+
+Le [job Focus sur ef0228a41](https://github.com/rhanka/h2a/actions/runs/39167686130)
+passe tous ses gates. Le passage suivant expose une course de mesure, sans
+dépassement numérique : VmRSS peut disparaître avant l'état zombie. Le même PID
+doit alors confirmer sept compteurs `statm` nuls. Un processus encore résident,
+une mesure malformée ou indisponible restent des échecs. Un défaut de monitoring
+conserve désormais les données brutes avant le refus, et l'échec d'initialisation
+ferme aussi le navigateur possédé.
+
+| Commande | RED → GREEN |
+| --- | --- |
+| `rtk node --test packages/h2a/focus-kit/test/evidence-memory.test.mjs` | 2 échecs / 6, run-JBmAL5 → 6/6, exit 0, run-XH8avc |
+| `rtk node --test packages/h2a/focus-kit/test/evidence-browser.test.mjs` | 1 échec / 2 sur targetRef d'annexe, run-rOcwrR → 2/2, exit 0, run-D3eUjh |
+| `rtk node --test packages/h2a/focus-kit/test/evidence-performance-browser.test.mjs` | Qualification finale 30/30, 1/1 pass, exit 0, run-rJThZ9 |
+| `rtk node scripts/build-focus-dossier.mjs --check` | exit 0, sources et portable vérifiés, run-x3BV2y |
+
+Les liens d'annexe résolvent les références vers la section, l'option ou le
+dossier effectivement rendu ; le focus suit ce contexte. Le test couvre aussi
+de vrais taps sur téléphone, et les budgets numériques sont strictement inchangés.
