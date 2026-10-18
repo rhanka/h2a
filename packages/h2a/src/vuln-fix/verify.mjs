@@ -12,7 +12,7 @@ function testExecuted(result, expected, before) {
   if (before && expected.redBefore === true) {
     const assertion = expected.regression?.assertion;
     const escaped = typeof assertion === 'string' ? assertion.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : '';
-    const namedFailure = escaped && new RegExp(`^\\s*(?:not ok\\s+\\d+\\s*-?\\s*${escaped}|FAIL\\s+.+\\s*>\\s*${escaped})\\s*$`, 'm').test(output);
+    const namedFailure = escaped && new RegExp(`^\\s*(?:not ok\\s+\\d+\\s*-?\\s*${escaped}|FAIL\\s+.+\\s*>\\s*${escaped}|✖\\s+${escaped}(?:\\s+\\([0-9.]+ms\\))?)\\s*$`, 'm').test(output);
     const oneFailure = /^\s*[#ℹ]\s*fail\s+1\s*$/m.test(output) || /^\s*Tests\s+1\s+failed\b/m.test(output);
     return result.code !== 0 && result.failureKind === 'assertion' &&
       typeof expected.regression?.id === 'string' && expected.regression.id.length > 0 &&
