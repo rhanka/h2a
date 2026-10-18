@@ -61,8 +61,9 @@ test('portable Focus works offline on desktop and phone, including touch pinch a
     });
     assert.equal(result.status, 0, result.stderr);
     browser = await chromium.launch({ headless: true, env: { ...process.env, XDG_RUNTIME_DIR: root } });
-    for (const mobile of [false, true]) {
-      const context = await browser.newContext({ offline: true, viewport: mobile ? { width: 390, height: 844 } : { width: 1366, height: 1000 },
+    for (const width of [1366, 390, 320]) {
+      const mobile = width < 600;
+      const context = await browser.newContext({ offline: true, viewport: { width, height: mobile ? 844 : 1000 },
         isMobile: mobile, hasTouch: mobile, colorScheme: 'light' });
       const page = await context.newPage(), errors = [], network = [];
       page.on('pageerror', error => { errors.push(error.message); console.error(error.message); });
@@ -105,8 +106,61 @@ test('portable Focus works offline on desktop and phone, including touch pinch a
       }
       assert.deepEqual(errors, [], 'no browser runtime errors');
       assert.deepEqual(network, [], 'no network requests');
-      console.log(`${mobile ? 'phone 390px + touch pinch' : 'desktop'}: cards, keyboard, themes, 1px, offline OK`);
+      console.log(`${mobile ? `phone ${width}px + touch pinch` : 'desktop'}: cards, keyboard, themes, 1px, offline OK`);
       await context.close();
     }
+  } finally { await browser?.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test('presents all option sets with their question and resolves labels across sets', async t => {
+  const root = mkdtempSync(join(tmpdir(), 'focus-options-browser-'));
+  let browser;
+  try {
+    const doc = JSON.parse(readFileSync(new URL('../dossier.template.json', import.meta.url), 'utf8'));
+    const question = doc.sections.find(s => s.kind === 'question');
+    const set = doc.sections.find(s => s.kind === 'optionSet');
+    question.recommendedAnswer = 'Ce choix facilite le partage et la lecture hors connexion.';
+    const secondQuestion = { ...question, id: 'timing', targetRef: 'timing', question: 'Quand préparer le dossier ?',
+      recommendedOptionId: 'today', recommendedAnswer: "Aujourd’hui, pour préparer la réunion." };
+    const secondSet = { ...set, id: 'timing-options', targetRef: 'timing-options', questionId: 'timing', title: 'Calendrier',
+      options: [{ ...set.options[0], id: 'today', targetRef: 'today', label: 'Aujourd’hui' },
+        { ...set.options[1], id: 'later', targetRef: 'later', label: 'Demain' }] };
+    const firstSet = { ...set, options: [set.options[0]] };
+    const splitSet = { ...set, id: 'other-formats', targetRef: 'other-formats', options: [set.options[1]] };
+    doc.sections = [question, secondQuestion, secondSet, firstSet, splitSet, doc.sections.find(s => s.kind === 'diagram')];
+    const input = join(root, 'dossier.json'), output = join(root, 'decision.html');
+    writeFileSync(input, JSON.stringify(doc));
+    const result = spawnSync(process.execPath, [fileURLToPath(new URL('../../dist/bin.js', import.meta.url)), 'focus', 'build', input, '-o', output], {
+      encoding: 'utf8', cwd: root, env: { ...process.env, HOME: root, XDG_RUNTIME_DIR: root,
+        XDG_CONFIG_HOME: root, XDG_STATE_HOME: root, H2A_ROOT: join(root, 'h2a') },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    browser = await chromium.launch({ headless: true, env: { ...process.env, XDG_RUNTIME_DIR: root } });
+    const context = await browser.newContext({ offline: true, viewport: { width: 320, height: 568 }, isMobile: true, hasTouch: true });
+    const page = await context.newPage(), errors = [];
+    page.on('pageerror', e => errors.push(e.message));
+    await page.goto(pathToFileURL(output).href);
+    await page.locator('.svelte-flow__node').first().waitFor();
+    await t.test('selection in one set is named in all sets of the same question', async () => {
+      for (const label of ['Fichier portable', 'Page hébergée']) {
+        await page.getByRole('button', { name: new RegExp(label) }).click();
+        for (const id of ['formats', 'other-formats']) {
+          assert.match(await page.locator(`#${id} .selection`).innerText(), new RegExp(`Sélection locale : ${label}\\.`));
+        }
+        assert.match(await page.locator('#timing-options .selection').innerText(), /Sélectionnez une option/);
+      }
+    });
+    await t.test('linked sets follow their question once regardless of input order', async () => {
+      assert.deepEqual(await page.locator('.dossier-section').evaluateAll(nodes => nodes.slice(0, 5).map(n => n.id)),
+        ['format', 'formats', 'other-formats', 'timing', 'timing-options']);
+      assert.equal(await page.locator('#formats').count(), 1);
+      assert.equal(await page.locator('#other-formats').count(), 1);
+    });
+    await t.test('recommendation names its option once before the reason', async () => {
+      assert.match(await page.locator('#format .recommendation').innerText(), /Fichier portable — Ce choix/);
+      assert.equal((await page.locator('#timing .recommendation').innerText()).match(/Aujourd’hui/g).length, 1);
+    });
+    assert.deepEqual(errors, []);
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   } finally { await browser?.close(); rmSync(root, { recursive: true, force: true }); }
 });

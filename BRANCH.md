@@ -22,3 +22,9 @@
 - [x] Final rebase includes #364; only BRANCH.md conflicted; Focus scope retained.
 - [x] Direct delivery dependencies: regenerate Focus registry digests and Track focus-vendor
       after changing canonical schema/validation. Red vendor drift and packed digest proofs recorded.
+- [x] Last round #368: close nested semantic records; regenerate authoritative Mermaid fallback;
+      budget displayed scene labels once while retaining opaque-code checks.
+- [x] Last round #368: reuse canonical question/option grouping and recommendation naming;
+      resolve local selections across linked sets; browser coverage at 320px and 390px.
+- [x] Regression proofs: all five reviewer findings reproduced red, then CLI/browser 32/32 green;
+      readability 69/69 green; isolated temporary state and no skipped tests.

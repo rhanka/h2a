@@ -4,13 +4,14 @@
     "package-lock.json": "9086066f9ed787cfe507c821a7e0182437619e61ad4da3388eb80e994ca7b822",
     "dossier.template.json": "628fd48769dc1426a6a6f860d1ad28c59db9a3dbda6f2a0c612978b8cfa81412",
     "ecosystem.json": "f28ebf603131cbb0388dfb04f09db4991110af5e40c18873056aad9bd974f2df",
-    "../../../scripts/build-focus-dossier.mjs": "a9474021be133b2618de270bb02a962883955bf9420f3c7d1f2cb449f5e92692",
+    "../../../scripts/build-focus-dossier.mjs": "ebf21d18cb5f3a98868eda46b30a503dfc3b14c63ad29d7d01979bed2f3f8885",
     "../../focus/schemas/decision-dossier-document.v1.schema.json": "725bc07e7c6b6ad51a1f720cc9fb02649d8f31bc54e71c61c350fd20058c8852",
     "../../focus/src/validation/index.ts": "d398ec6798e266daef8c5a5a494352131ae7a606af6c060cb49aa8eb1b4e7427",
-    "../../focus/src/validation/readability.ts": "d6640b9befb67726fedc4ec0406feae0716fc4f491289cdce7362889f2e9eb84",
+    "../../focus/src/validation/readability.ts": "aee8cc558aa53b6d3e3ab73a45c49621b54b5271115cc613281bd0dd09eec482",
     "../../focus/src/model.ts": "a641b2c8736c998a10d54706dfcd5b6e078c47bf1d51b8c5d02cd9f8b3e1b568",
+    "../../focus/src/render/presentation.ts": "dddcfef2ba184a4b386a59e2bb8ff300a76a729cf529fee251ceeb8ff3227372",
     "../../focus/LICENSE": "cbed2af93b9617fadad7651b98326b96a789a6059126966459230d89742f6c0d",
-    "src/App.svelte": "5ffb7aafed54c78ce0acb56c805e2b089767b6935818f82ae597c7a2e5c13a85",
+    "src/App.svelte": "8b71b6c562b14c0cff982c15d404c5e4d2654a6cc5905b89c9b9c099ea54a447",
     "src/Canvas.svelte": "4cdc0b74d72ac483eb4717dba6de375efc444509c52e1167d97a573c3247df7d",
     "src/EcosystemNode.svelte": "360e822fb4c3f7ff0686c7e973dd4052d06a25a9d1ea9c49c2f979c99adf3774",
     "src/interim-nodes.js": "789e144c2f1e6ca1468c9bd5bca570c59439dc3beffd53de6d22fd79ec8eaca3",
@@ -18,6 +19,6 @@
     "src/style.css": "28dd36cf22b0457f9c78c0bedaa4551a88f280f8b9d0e3e2f656c48ff99dcf16",
     "src/themes.js": "d11b2016ea27678bfa2a35986389c189147cc86a1bb99de41d3f454e79d50caf"
   },
-  "html": "9db844acf744cea7b8d15f738f70dc71920beb9a5a3caabfbc544a2a403f383a",
-  "validator": "8697ecd2df9d88b744a752f18c7df578761e8c55e12f7d6bd1cd32c6b0aea409"
+  "html": "819d88d2c51e627c4c0bab3ee39274cbc39ec5befef728a0c1d61639557378c5",
+  "validator": "e0e0f0e71f35c404c2726a177ac9dd6de7d8365ff6252f0f27f3e2f198af489f"
 }

@@ -163,7 +163,8 @@ var validateDecisionDossierReadability = (doc) => {
         break;
       case "diagram":
         visible(section.alt, `${path}.alt`);
-        visible(section.source, `${path}.source`);
+        if (section.scene === void 0) visible(section.source, `${path}.source`);
+        else checkCodes(section.source, `${path}.source`);
         for (const [family, field] of [["entities", "name"], ["relations", "label"]]) {
           for (const [id, member] of Object.entries(asRecord(section.scene?.[family]))) {
             const attribute = asRecord(asRecord(asRecord(member).attributes)[field]);

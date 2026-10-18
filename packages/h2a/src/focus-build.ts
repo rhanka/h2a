@@ -16,7 +16,10 @@ const escapeHtml = (value: string): string => value.replace(/[&<>"']/g, c => ({ 
  * The authoritative DS schema will be pinned when published. Keep the boundary plain JSON. */
 function semanticSource(document: Record<string, any>): string {
   const fail = (): never => { throw new Error('Unsupported diagram-core document: expected generic@1 nodes/containers, links and a containment tree without views, geometry or layout hints'); };
-  if (!document.documentId?.startsWith('document:') || document.schemaVersion?.major !== 1 || document.schemaVersion?.minor !== 1 ||
+  const closedRecord = (value: unknown, keys: readonly string[]): value is Record<string, any> =>
+    value !== null && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).every(key => keys.includes(key));
+  if (typeof document.documentId !== 'string' || !document.documentId.startsWith('document:') ||
+      !closedRecord(document.schemaVersion, ['major', 'minor']) || document.schemaVersion.major !== 1 || document.schemaVersion.minor !== 1 ||
       !Number.isInteger(document.revision) || document.revision < 0 || JSON.stringify(document.profileRefs) !== '["generic@1"]' ||
       Object.keys(document).some(k => !['documentId', 'schemaVersion', 'revision', 'profileRefs', 'typeDefinitions', 'entities', 'relations', 'ports', 'resources', 'extensions'].includes(k))) fail();
   for (const key of ['typeDefinitions', 'entities', 'relations', 'ports', 'resources']) {
@@ -30,16 +33,19 @@ function semanticSource(document: Record<string, any>): string {
   const ids = new Map(entities.map(([id], i) => [id, `node${i}`]));
   const lines = ['flowchart LR'];
   for (const [id, entity] of entities) {
-    if (!id.startsWith('entity:') || entity.id !== id || entity.profile !== 'generic@1' || !['node', 'container'].includes(entity.type) ||
-        entity.attributes?.name?.kind !== 'text' || typeof entity.attributes.name.value !== 'string' ||
-        Object.keys(entity).some(k => !['id', 'profile', 'type', 'attributes'].includes(k))) fail();
+    if (!id.startsWith('entity:') || !closedRecord(entity, ['id', 'profile', 'type', 'attributes']) ||
+        entity.id !== id || entity.profile !== 'generic@1' || !['node', 'container'].includes(entity.type) ||
+        !closedRecord(entity.attributes, ['name']) || !closedRecord(entity.attributes.name, ['kind', 'value']) ||
+        entity.attributes.name.kind !== 'text' || typeof entity.attributes.name.value !== 'string') fail();
     lines.push(`${ids.get(id)}[${JSON.stringify(entity.attributes.name.value)}]`);
   }
   const parents = new Map<string, string>();
   for (const [id, relation] of relations) {
-    if (!id.startsWith('relation:') || relation.id !== id || relation.profile !== 'generic@1' || !['link', 'contains'].includes(relation.type) ||
+    if (!id.startsWith('relation:') || !closedRecord(relation, ['id', 'profile', 'type', 'endpoints', 'attributes']) ||
+        relation.id !== id || relation.profile !== 'generic@1' || !['link', 'contains'].includes(relation.type) ||
         !Array.isArray(relation.endpoints) || relation.endpoints.length !== 2 ||
-        Object.keys(relation).some(k => !['id', 'profile', 'type', 'endpoints', 'attributes'].includes(k))) fail();
+        relation.endpoints.some((e: unknown) => !closedRecord(e, ['role', 'target'])) ||
+        !closedRecord(relation.attributes, relation.type === 'link' ? ['label'] : [])) fail();
     const roles = relation.type === 'link' ? ['source', 'target'] : ['parent', 'child'];
     const endpoints = roles.map(role => relation.endpoints.find((e: any) => e.role === role)?.target);
     if (endpoints.some(target => !ids.has(target))) fail();
@@ -49,7 +55,7 @@ function semanticSource(document: Record<string, any>): string {
       parents.set(child, parent);
     } else {
       const label = relation.attributes?.label;
-      if (label !== undefined && (label.kind !== 'text' || typeof label.value !== 'string')) fail();
+      if (label !== undefined && (!closedRecord(label, ['kind', 'value']) || label.kind !== 'text' || typeof label.value !== 'string')) fail();
       lines.push(`${ids.get(endpoints[0])} -->|${label?.value.replace(/\|/g, '&#124;') || ' '}| ${ids.get(endpoints[1])}`);
     }
   }
@@ -101,14 +107,13 @@ export function buildFocusDossier(input: unknown): string {
     diagramCount++;
     // Supplied semantics are authoritative; source remains a backward-compatible text fallback.
     if (section.scene !== undefined) {
-      semanticSource(section.scene);
-      return section;
+      return { ...section, syntax: 'mermaid' as const, source: semanticSource(section.scene) };
     }
     if (section.syntax !== 'mermaid') throw new Error('Unsupported diagram syntax: use mermaid flowcharts or ecosystem references');
     if (section.source.startsWith('ecosystem:')) {
       const name = section.source.slice('ecosystem:'.length);
       if (!Object.hasOwn(catalog.scenes, name)) throw new Error(`Unknown ecosystem scene: ${name}`);
-      // Catalog explanations remain in the text fallback and its readability budget.
+      // Catalog explanations remain available in the text fallback.
       const entry = catalog.scenes[name];
       return { ...section, scene: entry.document, source: semanticSource(entry.document) + '\n' + entry.description.split('\n').map((line: string) => `%% ${line}`).join('\n') };
     }
