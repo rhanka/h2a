@@ -497,6 +497,10 @@ export async function runNativeTerminalOwnerProcess(argv: ReadonlyArray<string>)
       child.on("exit", (code) => {
         if (frontendSpawnChild !== child) return;
         frontendSpawnChild = undefined;
+        if (everHadFrontend) {
+          writeHostLogLine(`terminal owner recovery frontend exited before hello (${code}); preserving owner and sessions`);
+          return;
+        }
         // An owner-spawned frontend died before its hello: most often a
         // publication refusal (second owner) or a lost endpoint race.
         // Propagate fail-closed instead of lingering half-born.

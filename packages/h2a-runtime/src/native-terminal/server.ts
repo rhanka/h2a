@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { closeSync, constants, fstatSync, lstatSync, openSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync, unlinkSync } from "node:fs";
+import { closeSync, constants, fstatSync, linkSync, lstatSync, mkdirSync, rmdirSync, openSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync, unlinkSync } from "node:fs";
 import { chmod, link, lstat, mkdir, open, readFile, rename, unlink, writeFile, type FileHandle } from "node:fs/promises";
 import { createConnection, createServer, type Server, type Socket } from "node:net";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
@@ -674,7 +674,7 @@ export function darwinSocketPublicationLockPath(socketPath: string, secret: stri
 }
 
 function probeLockSocket(lockPath: string, signal?: AbortSignal): Promise<boolean> {
-  return new Promise<boolean>((resolve) => {
+  return new Promise<boolean>((resolve, reject) => {
     const probe = createConnection(lockPath);
     const finish = (live: boolean) => {
       signal?.removeEventListener("abort", cancel);
@@ -687,61 +687,74 @@ function probeLockSocket(lockPath: string, signal?: AbortSignal): Promise<boolea
       signal.addEventListener("abort", cancel, { once: true });
     }
     probe.once("connect", () => finish(true));
-    probe.once("error", () => finish(false));
+    probe.once("error", error => {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "ENOENT" || code === "ECONNREFUSED") finish(false);
+      else { signal?.removeEventListener("abort", cancel); probe.destroy(); reject(error); }
+    });
   });
 }
 
 /**
- * Filesystem mutual exclusion for darwin (no abstract sockets): bind a
- * lock socket at the derived pathname and hold it open. A stale pathname
- * (previous holder dead without unlinking) refuses connects, so only a
- * completed handshake means a live holder — exactly the stale-safe pattern
- * `bindForwardServer` in owner-process.js already uses. The kernel backlog
- * completes the handshake even though the lock server destroys every
- * accepted connection without reading. On release (`close`) the pathname is
- * unlinked best-effort; a leftover is reclaimed by the next contender's
- * refused-connect path, never mistaken for a live holder.
+ * Serialize Darwin stale-lock recovery with an exclusive directory. A crashed
+ * recovery leaves that guard in place: later contenders time out, never steal
+ * it by age. Bind at a unique name, then hard-link the lock pathname, so Node's
+ * implicit unlink on close can only remove this holder's private staged name.
+ * Release leaves a stale public lock for the next serialized recovery.
  */
-async function acquireDarwinSocketPublicationLock(
+export async function acquireDarwinSocketPublicationLock(
   socketPath: string,
   secret: string,
   signal?: AbortSignal,
 ): Promise<Server> {
   const lockPath = darwinSocketPublicationLockPath(socketPath, secret);
+  const guardPath = lockPath + ".recovery";
   const deadline = Date.now() + SOCKET_PUBLICATION_LOCK_TIMEOUT_MS;
+  const retry = async (): Promise<void> => {
+    if (Date.now() >= deadline) throw new NativeTerminalPublicationRefusal("H2A_PUBLICATION_LOCK_TIMEOUT");
+    await abortable(new Promise(resolve => setTimeout(resolve, SOCKET_PUBLICATION_LOCK_RETRY_MS)), signal);
+  };
   for (;;) {
     signal?.throwIfAborted();
-    const lock = createServer((socket) => socket.destroy());
-    const unlinkOnRelease = () => unlinkIfPresent(lockPath);
-    try {
-      await abortable(new Promise<void>((resolve, reject) => {
-        lock.once("error", reject);
-        lock.listen(lockPath, () => {
-          lock.removeListener("error", reject);
-          resolve();
-        });
-      }), signal);
-      lock.once("close", unlinkOnRelease);
-      try {
-        await abortable(chmod(lockPath, 0o600), signal);
-      } catch {
-        // Best-effort: the private directory already restricts access and the
-        // bound socket holds mutual exclusion regardless of its mode.
-      }
-      return lock;
-    } catch (error) {
-      lock.close();
-      if ((error as NodeJS.ErrnoException).code !== "EADDRINUSE") throw error;
-      if (await probeLockSocket(lockPath, signal)) {
-        if (Date.now() >= deadline) throw error;
-        await abortable(new Promise((resolve) =>
-          setTimeout(resolve, SOCKET_PUBLICATION_LOCK_RETRY_MS)
-        ), signal);
-        continue;
-      }
-      unlinkIfPresent(lockPath);
-      if (Date.now() >= deadline) throw error;
+    try { mkdirSync(guardPath, { mode: 0o700 }); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      await retry(); continue;
     }
+    const guard = lstatSync(guardPath);
+    let lock: Server | undefined;
+    let stagedPath: string | undefined;
+    try {
+      if (!await probeLockSocket(lockPath, signal)) {
+        signal?.throwIfAborted();
+        // Every contender must hold this guard throughout probe/unlink/bind.
+        unlinkIfPresent(lockPath);
+        stagedPath = join(dirname(lockPath), ".lk-" + randomUUID().slice(0, 12));
+        const candidate = createServer(socket => socket.destroy());
+        lock = candidate;
+        await abortable(new Promise<void>((resolve, reject) => {
+          candidate.once("error", reject);
+          candidate.listen(stagedPath!, () => {
+            candidate.removeListener("error", reject);
+            if (signal?.aborted) { candidate.close(); reject(signal.reason); }
+            else resolve();
+          });
+        }), signal);
+        await abortable(chmod(stagedPath, 0o600), signal);
+        // Publish synchronously: cancellation cannot install a late shared name.
+        signal?.throwIfAborted();
+        linkSync(stagedPath, lockPath);
+        return candidate;
+      }
+    } catch (error) {
+      lock?.close();
+      if (stagedPath !== undefined) unlinkIfPresent(stagedPath);
+      throw error;
+    } finally {
+      // Only this acquisition created the guard; never recover a rival's guard.
+      if (sameNativeTerminalSocket(lstatSync(guardPath), guard)) rmdirSync(guardPath);
+    }
+    await retry();
   }
 }
 
@@ -819,14 +832,15 @@ function unlinkOwnedPath(path: string, owned: NativeTerminalSocketIdentity): voi
   }
 }
 
-function rollbackEndpoint(socketPath: string, owned: NativeTerminalSocketIdentity): void {
+function rollbackEndpoint(socketPath: string, owned: NativeTerminalSocketIdentity,
+  processOwner = { pid: process.pid, startTime: readProcessStartTime(process.pid) }): void {
   unlinkOwnedPath(socketPath, owned);
   const ownerPath = `${socketPath}.owner`;
   try {
     const identity = lstatSync(ownerPath);
     if (!identity.isFile() || identity.uid !== process.getuid?.() || (identity.mode & 0o777) !== 0o600) return;
     const owner = JSON.parse(readFileSync(ownerPath, "utf8")) as EndpointOwner;
-    if (owner.pid === process.pid && owner.startTime === readProcessStartTime(process.pid)
+    if (owner.pid === processOwner.pid && owner.startTime === processOwner.startTime
       && sameNativeTerminalSocket(owner, owned)) unlinkOwnedPath(ownerPath, identity);
   } catch { /* Unknown sidecar ownership is never cleanup authority. */ }
 }
@@ -949,7 +963,8 @@ export async function withdrawDrainedNativeTerminalEndpoint(socketPath: string, 
     try { socket = await inspectPrivateNativeTerminalSocket(socketPath); }
     catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return; throw error; }
     if (!sameNativeTerminalSocket(socket, expected)) throw new Error("drained terminal endpoint identity changed");
-    if (!await proveEndpointAbsentUnderLock(socketPath, signal, readPublicationFrame(readProcessFrame))) {
+    if (!await proveEndpointAbsentUnderLock(socketPath, signal, readPublicationFrame(readProcessFrame), defaultOwnerHostProbe,
+      { pid: process.pid, startTime: readProcessStartTime(process.pid) })) {
       throw new NativeTerminalPublicationRefusal("H2A_STALE_SOCKET_UNPROVEN");
     }
     // No await separates the final identity check and either unlink.
@@ -1381,6 +1396,8 @@ async function proveEndpointAbsentUnderLock(
   signal: AbortSignal | undefined,
   currentFrame: DurableProcFrame,
   ownerProbe: NativeTerminalOwnerHostProbe = defaultOwnerHostProbe,
+  // Only the sealed, drained owner may relinquish its own current attribution.
+  retiringOwner?: { pid: number; startTime: number | undefined },
 ): Promise<boolean> {
   signal?.throwIfAborted();
   let socket: NativeTerminalSocketIdentity | undefined;
@@ -1459,7 +1476,8 @@ async function proveEndpointAbsentUnderLock(
     currentOwners.push({ pid: row.ownerHostPid, ...(row.ownerHostStartTime !== undefined ? { startTime: row.ownerHostStartTime } : {}) });
   }
   const uniqueOwners = [...new Map(currentOwners.map(owner => [`${owner.pid}:${owner.startTime}`, owner])).values()];
-  const ownersDead = uniqueOwners.every(owner => owner.startTime !== undefined && ownerProbe(owner) === "dead");
+  const ownersDead = uniqueOwners.every(owner => owner.startTime !== undefined &&
+    ((retiringOwner?.pid === owner.pid && retiringOwner.startTime === owner.startTime) || ownerProbe(owner) === "dead"));
   const sidecarProvesDeath = sidecarVerdict === "stale-boot" || (sidecarVerdict === "current" && ownersDead);
   // Even a run of refusals cannot prove a new, unattributed holder dead.
   if (!await repeatedlyRefusesConnection(socketPath, socket !== undefined, signal)) return false;
@@ -1760,6 +1778,8 @@ export async function publishNativeTerminalListener(options: {
   signal?: AbortSignal;
   readFrame?: ReadProcessFrame;
   ownerProbe?: NativeTerminalOwnerHostProbe;
+  /** Stable owner of the endpoint when the publishing process is replaceable. */
+  processOwner?: { pid: number; startTime: number | undefined };
   onListenerFailure?: (failure: NativeTerminalListenerFailure) => void;
   /**
    * Session teardown for paths that own sessions (the fused host passes
@@ -1886,14 +1906,14 @@ export async function publishNativeTerminalListener(options: {
           const frame = readPublicationFrame(options.readFrame ?? readProcessFrame);
           const published = await publishSocket(stagedPath, options.socketPath, signal,
             frame, options.ownerProbe ?? defaultOwnerHostProbe);
-          await recordEndpointOwner(options.socketPath, published, undefined, signal,
+          await recordEndpointOwner(options.socketPath, published, options.processOwner, signal,
             frame);
           return published;
         } catch (pubError) {
           // A link may have committed without resolving its promise. Invalidate
           // its source first, then remove only this listener's published inode.
           unlinkOwnedPath(stagedPath, ownedSocket!);
-          rollbackEndpoint(options.socketPath, ownedSocket!);
+          rollbackEndpoint(options.socketPath, ownedSocket!, options.processOwner);
           throw pubError;
         }
       },
@@ -1908,7 +1928,7 @@ export async function publishNativeTerminalListener(options: {
       const closed = new Promise<void>((resolve) => server.close(() => resolve()));
       if (ownedSocket !== undefined) {
         unlinkOwnedPath(stagedPath, ownedSocket);
-        rollbackEndpoint(options.socketPath, ownedSocket);
+        rollbackEndpoint(options.socketPath, ownedSocket, options.processOwner);
       }
       await abortable(closed, AbortSignal.timeout(SOCKET_PUBLICATION_CLEANUP_TIMEOUT_MS));
     } finally { closeDirectory(); }
@@ -1936,7 +1956,7 @@ export async function publishNativeTerminalListener(options: {
       }), AbortSignal.timeout(SOCKET_PUBLICATION_CLEANUP_TIMEOUT_MS));
       await withSocketPublicationLock(options.socketPath, async () => {
         try {
-          rollbackEndpoint(options.socketPath, ownedSocket!);
+          rollbackEndpoint(options.socketPath, ownedSocket!, options.processOwner);
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
         }
