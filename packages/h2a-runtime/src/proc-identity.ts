@@ -42,7 +42,9 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { readFileSync, readlinkSync } from "node:fs";
+import { lstatSync, readdirSync, readFileSync, readlinkSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { isAbsolute, join } from "node:path";
 
 /**
  * Inode number of this process's pid namespace, read from the
@@ -238,8 +240,7 @@ export function readSelfProcessStartTime(): number | undefined {
  */
 export function readBootTimeMs(): number | undefined {
   if (process.platform === "darwin") {
-    const epoch = readDarwinProcessStartTime(1);
-    return epoch !== undefined && epoch > 0 ? Date.now() - epoch * 1000 : undefined;
+    return readDarwinBootTimeMs();
   }
   if (process.platform !== "linux") return undefined;
   try {
@@ -327,8 +328,58 @@ function defaultDarwinPsRunner(args: ReadonlyArray<string>): string {
   return execFileSync("/bin/ps", [...args], {
     encoding: "utf8",
     timeout: 15_000,
-    env: { ...process.env, LC_ALL: "C" },
+    env: { ...process.env, LC_ALL: "C", TZ: "UTC" },
   });
+}
+
+// The shared test helper is intentionally read-only and has no Darwin /proc
+// directory pins. Preserve its private-root boundary here: register only self
+// and descendants discovered through a known parent's child selector, then
+// query ps by those explicit PIDs. No qualification process census uses -axo.
+function darwinTestProcessRoot(): string | undefined {
+  const root = process.env.H2A_TEST_OWNED_PROC_ROOT;
+  if (root === undefined) return undefined;
+  if (root !== process.env.H2A_TEST_PROC_ROOT || !isAbsolute(root)) throw new Error("invalid private Darwin process view");
+  const info = lstatSync(root);
+  if (!info.isDirectory() || info.isSymbolicLink() || info.uid !== process.getuid?.() || (info.mode & 0o777) !== 0o700) throw new Error("unsafe private Darwin process view");
+  return root;
+}
+function recordDarwinTestProcess(root: string, pid: number, birth: number): void {
+  const receipt = join(root, `darwin-${pid}.json`);
+  const temporary = `${receipt}.${randomUUID()}.tmp`;
+  try { writeFileSync(temporary, JSON.stringify({ pid, birth }), { mode: 0o600, flag: "wx" }); renameSync(temporary, receipt); }
+  finally { try { unlinkSync(temporary); } catch { /* renamed */ } }
+}
+function rawDarwinBirth(pid: number): number | undefined {
+  try { return parsePsLstart(defaultDarwinPsRunner(["-p", String(pid), "-o", "lstart="])); }
+  catch { return undefined; }
+}
+function collectDarwinTestProcessIds(root: string): Set<number> {
+  const selfBirth = rawDarwinBirth(process.pid);
+  if (selfBirth === undefined) throw new Error("private Darwin observer birth unavailable");
+  recordDarwinTestProcess(root, process.pid, selfBirth);
+  const pending: number[] = [];
+  for (const name of readdirSync(root).filter(name => /^darwin-\d+\.json$/.test(name))) {
+    const receipt = JSON.parse(readFileSync(join(root, name), "utf8"));
+    if (!Number.isSafeInteger(receipt.pid) || receipt.pid <= 0 || !Number.isFinite(receipt.birth)) throw new Error("invalid private Darwin launch receipt");
+    try { process.kill(receipt.pid, 0); } catch (error) { if ((error as NodeJS.ErrnoException).code === "ESRCH") continue; throw error; }
+    if (rawDarwinBirth(receipt.pid) === receipt.birth) pending.push(receipt.pid);
+  }
+  const owned = new Set<number>();
+  for (const pid of pending) {
+    if (owned.has(pid)) continue;
+    owned.add(pid);
+    let children: string;
+    try { children = execFileSync("/usr/bin/pgrep", ["-P", String(pid)], { encoding: "utf8", timeout: 15000, env: { ...process.env, LC_ALL: "C" } }); }
+    catch (error) { if ((error as { status?: number }).status === 1) continue; throw error; }
+    for (const value of children.trim().split(/\s+/).filter(Boolean)) {
+      if (!/^[1-9]\d*$/.test(value)) throw new Error("unreadable private Darwin child list");
+      const child = Number(value), birth = rawDarwinBirth(child);
+      if (birth === undefined) continue; // the selected child already exited
+      recordDarwinTestProcess(root, child, birth); pending.push(child);
+    }
+  }
+  return owned;
 }
 
 const PS_MONTHS: Readonly<Record<string, number>> = {
@@ -370,6 +421,10 @@ export function readDarwinProcessStartTime(
   run: DarwinPsRunner = defaultDarwinPsRunner,
 ): number | undefined {
   if (!Number.isSafeInteger(pid) || pid <= 0) return undefined;
+  if (run === defaultDarwinPsRunner) {
+    try { const root = darwinTestProcessRoot(); if (root && !collectDarwinTestProcessIds(root).has(pid)) return undefined; }
+    catch { return undefined; }
+  }
   let output: string;
   try {
     output = run(["-p", String(pid), "-o", "lstart="]);
@@ -395,11 +450,22 @@ export function darwinBootIdFromEpochSeconds(epochSeconds: number): string {
 }
 
 export function readDarwinBootId(
-  run: DarwinPsRunner = defaultDarwinPsRunner,
+  run: DarwinPsRunner = defaultDarwinSysctlRunner,
 ): string | undefined {
-  const epoch = readDarwinProcessStartTime(1, run);
-  if (epoch === undefined || epoch <= 0) return undefined;
-  return darwinBootIdFromEpochSeconds(epoch);
+  try {
+    const id = run(["-n", "kern.bootsessionuuid"]).trim().toLowerCase();
+    return /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(id) ? id : undefined;
+  } catch { return undefined; }
+}
+function defaultDarwinSysctlRunner(args: ReadonlyArray<string>): string {
+  return execFileSync("/usr/sbin/sysctl", [...args], { encoding: "utf8", timeout: 15000, env: { ...process.env, LC_ALL: "C" } });
+}
+export function readDarwinBootTimeMs(run: DarwinPsRunner = defaultDarwinSysctlRunner): number | undefined {
+  try {
+    const match = /sec\s*=\s*(\d+)\s*,\s*usec\s*=\s*(\d+)/.exec(run(["-n", "kern.boottime"]));
+    if (!match || Number(match[1]) <= 0 || Number(match[2]) >= 1000000) return undefined;
+    return Number(match[1]) * 1000 + Number(match[2]) / 1000;
+  } catch { return undefined; }
 }
 
 /** Parse `ioreg -rd1 -c IOPlatformExpertDevice` for the hardware UUID. Pure. */
@@ -472,12 +538,18 @@ export function readDarwinProcessTable(
   run: DarwinPsRunner = defaultDarwinPsRunner,
 ): DarwinProcessTableRow[] | undefined {
   let output: string;
+  let owned: Set<number> | undefined;
   try {
-    output = run(["-axo", "pid,pgid,stat,args"]);
+    const root = darwinTestProcessRoot();
+    if (root) {
+      owned = collectDarwinTestProcessIds(root);
+      output = run(["-ww", "-p", [...owned].join(","), "-o", "pid,pgid,stat,args"]);
+    } else output = run(["-axo", "pid,pgid,stat,args"]);
   } catch {
     return undefined;
   }
-  return parseDarwinProcessTable(output);
+  const rows = parseDarwinProcessTable(output);
+  return rows && (owned === undefined || rows.every(row => owned!.has(row.pid))) ? rows : undefined;
 }
 
 /**
@@ -496,6 +568,10 @@ export function readDarwinProcessSessionToken(
   run: DarwinPsRunner = defaultDarwinPsRunner,
 ): string | undefined {
   if (!Number.isSafeInteger(pid) || pid <= 0) return undefined;
+  if (run === defaultDarwinPsRunner) {
+    try { const root = darwinTestProcessRoot(); if (root && !collectDarwinTestProcessIds(root).has(pid)) return undefined; }
+    catch { return undefined; }
+  }
   const spellings: ReadonlyArray<ReadonlyArray<string>> = [
     ["-p", String(pid), "-E"],
     ["-p", String(pid), "e"],
@@ -514,4 +590,15 @@ export function readDarwinProcessSessionToken(
     }
   }
   return undefined;
+}
+
+// Each newly executed runtime registers itself before its parent may disappear.
+// Normal product execution has no test view and performs no receipt writes.
+if (process.platform === "darwin") {
+  const root = darwinTestProcessRoot();
+  if (root) {
+    const birth = rawDarwinBirth(process.pid);
+    if (birth === undefined) throw new Error("private Darwin process birth unavailable");
+    recordDarwinTestProcess(root, process.pid, birth);
+  }
 }

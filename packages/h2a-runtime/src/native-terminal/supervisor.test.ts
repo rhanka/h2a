@@ -159,7 +159,7 @@ if (process.platform === "darwin") {
   });
 }
 
-describe.skipIf(process.platform !== "linux")(
+if (process.platform === "linux") describe(
   "NativeTerminalHostSupervisor takeover reconcile",
   () => {
     it("should await the winner when a live-owner refusal exits before its health handshake", async () => {
