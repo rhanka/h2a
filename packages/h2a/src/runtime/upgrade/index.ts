@@ -553,7 +553,12 @@ function finishCurrentPtyUpgrade(prefix: string, lock: PrefixLockLease, runtime:
     if (!frontend || !pin || !runtime.switchPtyFrontend) throw new Error("compatible frontend or rollback target unavailable");
     const candidate = statSync(frontend);
     if (plan.owners.every(owner => owner.status.frontend?.codeIdentity?.dev === candidate.dev && owner.status.frontend?.codeIdentity?.ino === candidate.ino)) {
-      return { status: "switched", owners: plan.owners.map(owner => ({ socketPath: owner.socketPath, ...owner.status })), components: plan.components };
+      const currentOwners = plan.owners.map(owner => ({ socketPath: owner.socketPath, ...owner.status, status: "switched" }));
+      if (plan.legacyHosts?.length) {
+        const deferred = legacyPtyUpgradeResult(plan);
+        return { ...deferred, owners: [...currentOwners, ...deferred.owners] };
+      }
+      return { status: "switched", owners: currentOwners, components: plan.components };
     }
     return runtime.switchPtyFrontend(plan, frontend, pin.frontendModule);
   } catch (error) {

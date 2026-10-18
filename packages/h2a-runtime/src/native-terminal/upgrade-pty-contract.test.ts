@@ -19,17 +19,18 @@ async function until<T>(read: () => T | Promise<T>, accept: (value: T) => boolea
   for (;;) { const value = await read(); if (accept(value)) return value; if (Date.now() >= deadline) throw new Error(`waiting for ${label}: ${JSON.stringify(value)}`); await delay(10); }
 }
 
-async function fixture(prefixLayout = false, legacy = false, listenerFault = false, standardEndpoint = false) {
+async function fixture(prefixLayout = false, legacy = false, listenerFault = false, standardEndpoint = false, productRegistry = false) {
   const directory = mkdtempSync(join(process.env.TMPDIR!, "u-"));
   const socketPath = standardEndpoint ? join(directory, "h2a-nt/native-terminal.sock") : join(directory, "h");
   const receipts = join(directory, "pids");
   if (standardEndpoint) mkdirSync(dirname(socketPath), { recursive: true, mode: 0o700 });
   const faultTrigger = join(directory, "listener-fault");
-  const dist = fileURLToPath(new URL("../../dist/", import.meta.url));
-  const observer = join(directory, "observer.mjs");
+  const dist = process.env.H2A_TEST_PTY_DIST ?? fileURLToPath(new URL("../../dist/", import.meta.url));
+  const observer = join(directory, "observer.mjs"), exits = join(directory, "exits");
   writeFileSync(observer, `import {appendFileSync} from 'node:fs';import {ChildProcess} from 'node:child_process';
 import {readProcessStartTime} from ${JSON.stringify(pathToFileURL(join(dist, "proc-identity.js")).href)};
 const record=pid=>appendFileSync(${JSON.stringify(receipts)},JSON.stringify({pid,birth:readProcessStartTime(pid)})+'\\n');record(process.pid);
+process.on('exit',code=>appendFileSync(${JSON.stringify(exits)},JSON.stringify({pid:process.pid,code,entry:process.argv[1]})+'\\n'));
 const original=ChildProcess.prototype.spawn;ChildProcess.prototype.spawn=function(options){const r=original.call(this,options);if(this.pid)record(this.pid);return r;};`);
   if (listenerFault) writeFileSync(observer, readFileSync(observer, "utf8") + `
 import {Server} from 'node:net';import {existsSync,unlinkSync} from 'node:fs';
@@ -64,7 +65,7 @@ const listen=Server.prototype.listen;Server.prototype.listen=function(...args){
   writeFileSync(badProtocol, readFileSync(badProtocol, "utf8").replace("OWNER_PROTOCOL_VERSION = 1", "OWNER_PROTOCOL_VERSION = 99"));
   const module = (root: string) => join(root, "dist/native-terminal/frontend-process.js");
   const owner = spawn(process.execPath, [join(oldDir, `dist/native-terminal/${legacy ? "process" : "owner-process"}.js`), "--socket", socketPath,
-    "--generation", "upgrade-contract", "--registry-path", join(directory, "registry.json")], {
+    "--generation", "upgrade-contract", ...(productRegistry ? [] : ["--registry-path", join(directory, "registry.json")])], {
     env: { ...process.env, NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import=${pathToFileURL(observer).href}` }, stdio: ["ignore", "pipe", "pipe"],
   });
   let output = "", errors = "";
@@ -98,10 +99,63 @@ const listen=Server.prototype.listen;Server.prototype.listen=function(...args){
     await until(() => c.readOutput("cli", 0), replay => replay.chunks.map(chunk => chunk.data).join("").replace(/\r\n/g, "\n").includes(text), "CLI output replay");
     expect(readProcessStartTime(cliPid)).toBe(cliBirth); expect(readProcessStartTime(owner.pid!)).toBe(ownerBirth);
   }
-  return { owner, ownerBirth, socketPath, client, connect, control, exchange, oldDir, nextDir, badDir, module, directory, prefix, packageDir, seedCli, faultTrigger, observer, ownerErrors: () => errors };
+  return { owner, ownerBirth, socketPath, client, connect, control, exchange, oldDir, nextDir, badDir, module, directory, prefix, packageDir, seedCli, faultTrigger, observer, ownerErrors: () => errors, exits };
 }
 
 describe("PTY upgrade contract", () => {
+  it("should keep a loaded owner and its CLI alive when a keeperless fallback refuses publication", async () => {
+    const f = await fixture(false, false, false, false, true);
+    await f.exchange("fallback-before\n");
+    const status = await f.control("status");
+    const keeper = status.components.find((c: any) => c.pid !== f.owner.pid && c.pid !== status.frontend.pid);
+    expect(keeper).toBeDefined();
+    process.kill(status.frontend.pid, "SIGSTOP");
+    process.kill(keeper.pid, "SIGKILL");
+    process.kill(status.frontend.pid, "SIGKILL");
+    await until(() => existsSync(f.exits) ? readFileSync(f.exits, "utf8") : "", text => text.includes('"code":3'), "fallback publication refusal");
+    await delay(100);
+    expect(f.owner.exitCode).toBeNull(); expect(f.owner.signalCode).toBeNull();
+    expect(readProcessStartTime(f.owner.pid!)).toBe(f.ownerBirth);
+    expect((await f.control("status")).owner.pid).toBe(f.owner.pid);
+    // The private owner channel still serves its CLI while publication is refused.
+    const { createConnection } = await import("node:net");
+    const peer = createConnection(join(dirname(f.socketPath), `.fwd-${f.owner.pid}.sock`));
+    let buffer = "";
+    peer.setEncoding("utf8"); peer.on("data", chunk => { buffer += chunk; }); peer.on("error", () => {});
+    try {
+      await once(peer, "connect");
+      peer.write(JSON.stringify({kind:"hello",role:"frontend",ownerProtocolVersion:1})+"\n");
+      const request = (operation: string, params: any) => {
+        const reqId = String(Math.random());
+        peer.write(JSON.stringify({kind:"request",connId:"survival",reqId,frame:JSON.stringify({version:1,id:reqId,operation,params})})+"\n");
+        return until(() => buffer.split("\n").filter(Boolean).map(line=>JSON.parse(line)).find(frame=>frame.reqId===reqId), Boolean, operation);
+      };
+      const lease = await request("acquire-controller", {id:"cli",controllerId:"survival"});
+      expect(lease.ok).toBe(true);
+      expect((await request("write", {lease:lease.result,data:"fallback-after\n"})).ok).toBe(true);
+      await until(() => request("read-output", {id:"cli",afterSeq:0}), reply => JSON.stringify(reply).includes("fallback-after"), "CLI answers after refused recovery");
+    } finally { peer.destroy(); }
+  }, 20000);
+
+  it("should refuse a second owner after replacement and loss of the public pathname", async () => {
+    const f = await fixture();
+    const lease = await f.client.acquireController("cli", "finish"); await f.client.write(lease, "EXIT\n");
+    await until(() => f.client.state("cli"), state => state.status === "exited", "empty owner");
+    expect((await f.control("replace-frontend", {frontendModule:f.module(f.nextDir),rollbackModule:f.module(f.oldDir)})).status).toBe("switched");
+    const held = await f.connect(); expect((await held.ping()).hostPid).toBe(f.owner.pid);
+    rmSync(f.socketPath);
+    const child = spawn(process.execPath, [join(f.oldDir,"dist/native-terminal/owner-process.js"),"--socket",f.socketPath,"--generation","second","--registry-path",join(f.directory,"second.json")], {
+      env:{...process.env,NODE_OPTIONS:`${process.env.NODE_OPTIONS ?? ""} --import=${pathToFileURL(f.observer).href}`},stdio:["ignore","pipe","pipe"],
+    });
+    cleanups.push(async()=>{if(child.exitCode===null&&child.signalCode===null){const exit=once(child,"exit");child.kill("SIGKILL");await exit;}});
+    let errors=""; child.stderr!.on("data", chunk=>{errors+=chunk;});
+    const closed = once(child,"close").then(([code]) => code);
+    const started = new Promise<string>(resolve => child.stdout!.on("data", data => { if(String(data).includes("h2a.native-terminal.ready")) resolve("second owner started"); }));
+    expect(await Promise.race([closed, started]),errors).toBe(3);
+    expect((await held.ping()).hostPid).toBe(f.owner.pid);
+    expect(JSON.parse(readFileSync(f.socketPath+".owner","utf8")).pid).toBe(f.owner.pid);
+  }, 20000);
+
   it("should finish an empty owner shutdown without exhausting the frontend close deadline", async () => {
     const f = await fixture();
     const lease = await f.client.acquireController("cli", "natural-exit");
