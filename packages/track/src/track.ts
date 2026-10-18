@@ -1472,7 +1472,10 @@ export class Track {
 
   /** Bucketed backlog report over non-decision items (SPEC §7). */
   report(options: ReportOptions): Report {
-    return buildReport(this.state(), options)
+    // Amendment D2 — same folded log as the reader snapshot, so the facade
+    // and the reader carry identical additive stage/status codes (parity).
+    const events = this.store.readAll()
+    return buildReport(fold(events), { ...options, events })
   }
 
   /** Flat, filtered query over the report rows (SPEC §6). */

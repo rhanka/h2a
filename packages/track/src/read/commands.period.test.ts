@@ -235,6 +235,25 @@ describe('report period — CLI boundary', () => {
     expect(html.err).toContain('--format must be one of: json|text|md')
   })
 
+  it('carries the complete top-level period block on the status-table JSON route', () => {
+    // Amendment D4 — the full `period` payload is present in every format and
+    // every mode (the withdrawn DEMANDES view dropped it).
+    seed()
+    const result = cli(['report', '--status-table', '--commit', 'c1', '--now', NOW, '--format', 'json'])
+    expect(result.code, result.err).toBe(0)
+    const parsed = JSON.parse(result.out) as { period: Record<string, unknown> }
+    expect(parsed.period).toMatchObject({
+      requested: null,
+      to: NOW,
+      fromRef: null,
+      toRef: null,
+      eventsInWindow: expect.any(Number),
+      eventsTotal: expect.any(Number),
+    })
+    expect(parsed.period['eventsInWindow']).toBe(parsed.period['eventsTotal'])
+    expect(parsed.period['eventsTotal']).toBeGreaterThan(0)
+  })
+
   it('resolves SHA bounds by their committer timestamps and returns their full refs', () => {
     seed()
     execFileSync('git', ['init', '-q'], { cwd: dir })
