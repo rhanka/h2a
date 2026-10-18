@@ -71,6 +71,24 @@ Chaque membre exécute les trois coupures et doit réussir version, réponses,
 identités PID/naissance owner/CLI, séquences exactes, resize et sortie.
 Le scénario timeout observe effectivement une erreur de timeout du client.
 
+Complément B5 après le premier retour CI macOS : l'invite Bash ne paraît
+pas sur le runner ARM64. Le lancement Bash interactif désactive explicitement
+le job control (`+m`), puisque le guardian maintient un seul groupe de
+confinement ; les assertions readline, resize et sortie restent intégrales.
+Un petit lanceur `exec` écrit le PID réel du CLI avant exec, dont le PID et
+la naissance sont ensuite comparés ; `state.pid` est celui du guardian et
+ne constitue pas à lui seul une identité CLI. Le modèle simulé écrit toujours
+le reçu exact des octets. Les runs complets du fichier, commandes ci-dessous,
+ont quatre scénarios réussis et un échec de cohorte absente, zéro skip,
+sur chaque version Node ; la confirmation de cette correction sur macOS
+reste à lire dans la CI du dernier SHA.
+
+```sh
+rtk node tmp/pty-am2-run.mjs pty-r375-b5-cli-pid22-valid node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/phase-b-agent-qualification.functional.test.ts
+rtk env PATH=/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin:/usr/local/bin:/usr/bin:/bin node tmp/pty-am2-run.mjs pty-r375-b5-cli-pid24-valid node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/phase-b-agent-qualification.functional.test.ts
+# Pour chacun : 4 passed, 1 failed (cohorte absente), 0 skipped ; exit 1.
+```
+
 Restent ouverts : cohorte réelle, vert B5 Linux puis macOS ARM64 Node 22/24,
 barrière d'admission pré-B. Aucun lot L. La CI ne peut être déclarée verte
 sans cohorte : le fichier obligatoire échoue volontairement sur son absence.
