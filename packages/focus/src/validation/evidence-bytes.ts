@@ -33,10 +33,12 @@ export function sha256(bytes: Uint8Array): string {
   return h.map(v => (v >>> 0).toString(16).padStart(8, '0')).join('');
 }
 export function decodeEvidence(data: string): Uint8Array {
-  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(data)) throw new Error('Invalid base64');
+  if (data.length % 4 || /[^A-Za-z0-9+/]/.test(data.replace(/={1,2}$/, ''))) throw new Error('Invalid base64');
   const binary = atob(data);
   if (btoa(binary) !== data) throw new Error('Non-canonical base64');
-  return Uint8Array.from(binary, c => c.charCodeAt(0));
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < bytes.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
 }
 export const evidenceText = (bytes: Uint8Array): string => new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
 export const evidenceLines = (text: string): string[] => text.split(/\r\n|\n|\r/);
