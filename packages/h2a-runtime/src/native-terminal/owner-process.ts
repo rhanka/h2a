@@ -18,9 +18,10 @@ import {
   createNativeTerminalLeaseContext,
   executeNativeTerminalHostRequest,
   releaseNativeTerminalLeases,
+  withdrawDrainedNativeTerminalEndpoint,
   type NativeTerminalLeaseContext,
 } from "./server.js";
-import { assertNativeTerminalSocketPathWithinLimit } from "./socket-path.js";
+import { assertNativeTerminalSocketPathWithinLimit, inspectPrivateNativeTerminalSocket } from "./socket-path.js";
 import { NativeTerminalPublicationRefusal } from "./publication-refusal.js";
 import {
   OWNER_PROTOCOL_VERSION,
@@ -251,10 +252,13 @@ export async function runNativeTerminalOwnerProcess(argv: ReadonlyArray<string>)
           // Hand lifecycle to the forward channel from here on: the
           // spawn-time child handle only matters before the first hello.
           frontendSpawnChild = undefined;
-          if (startupResolve !== undefined) {
+          if (startupResolve !== undefined && keepers().length > 0) {
             startupResolve();
             startupResolve = undefined;
           }
+        }
+        if (startupResolve !== undefined && frontends().length > 0 && keepers().length > 0) {
+          startupResolve(); startupResolve = undefined;
         }
         return;
       }
@@ -439,6 +443,7 @@ export async function runNativeTerminalOwnerProcess(argv: ReadonlyArray<string>)
       throw new Error("terminal owner started no frontend in time");
     }
 
+    const endpointIdentity = await inspectPrivateNativeTerminalSocket(options.socketPath);
     process.stdout.write(`${JSON.stringify({
       kind: "h2a.native-terminal.ready",
       version: 1,
@@ -505,12 +510,14 @@ export async function runNativeTerminalOwnerProcess(argv: ReadonlyArray<string>)
         // Withdraw service: frontends close (rolling back publication on
         // the orderly path) and exit; keepers stop once frontend-less.
         broadcast({ kind: "shutdown" });
+        for (const keeper of keepers()) sendFwd(keeper, { kind: "stop" });
         await waitForFwdClose([...fwdConns].map((conn) => conn.socket), SHUTDOWN_CLOSE_WAIT_MS);
         for (const conn of [...fwdConns]) {
           try { conn.socket.destroy(); } catch { /* already gone */ }
         }
         await new Promise<void>((resolve) => fwdServer.close(() => resolve()));
         try { unlinkSync(fwdPath); } catch { /* already gone */ }
+        await withdrawDrainedNativeTerminalEndpoint(runtime.socketPath, endpointIdentity);
       })();
       void shutdown.then(
         async () => {

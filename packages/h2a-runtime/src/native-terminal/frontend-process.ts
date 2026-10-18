@@ -190,7 +190,7 @@ export async function runNativeTerminalFrontend(argv: ReadonlyArray<string>): Pr
   const onListenerFailure = (failure: NativeTerminalListenerFailure): void => {
     writeHostLogLine(`terminal frontend listener failure: ${failure.kind}`);
     const exitCode = failure.kind === "unknown" ? 3 : 0;
-    void closeServing(true).finally(() => process.exit(exitCode));
+    void closeServing(false).finally(() => process.exit(exitCode));
   };
 
   // Paused until the owner's hello arrives: queued connections wait in
