@@ -128,3 +128,14 @@ accès réseau ni fallback n'a été ajouté pour le contourner.
 
 Cette correction concerne le témoin de distribution ; les sources du renderer,
 le corpus et les budgets mesurés sont identiques à la qualification retenue.
+
+Le second passage CI [portable-focus](https://github.com/rhanka/h2a/actions/runs/39167019714/job/117791975564)
+sur `13a7c3911` révèle un faux prérequis : la préparation copiait encore les
+tarballs du dépôt complet, dont un outil de développement musl absent du runner
+glibc. Le cache est maintenant dérivé de la fermeture runtime du consommateur,
+avec le même filtrage os/cpu/libc que l'installation de la plateforme ; aucune
+pièce runtime manquante n'est ignorée et aucun accès réseau n'est ajouté.
+
+Mêmes commandes ciblées : distribution **1/1**, navigateur **2/2**, exit 0,
+zéro skip ; `190 platform tarballs, zero registry metadata entries`.
+Sorties finales : run-3Z4iin et run-cWTbRb.
