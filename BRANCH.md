@@ -497,7 +497,7 @@ inventory in `.h2a/build/seat_model_inventory.md` (untracked).
 - [x] Upstream blocker: engram local HEAD `8f19554cea3a4397fd66a90c7e9fd5ea54c81626` contains no planned contract; GitHub main contents endpoint returns HTTP 404 on 2026-10-18. Asked owner for publication SHA/path; no substitute created.
 - [x] Handoff gr-conductor: reviewed immutable artifact/validator publication and DS/Engram evidence; then h2a imports and runs offline T-V00-C. L1..L7 await this gate.
 - [x] Harness plan template and Makefile recorder absent; required checkbox sections written directly; no installed h2a or Track writer invoked.
-- [ ] Record code review target/outcome; harness/review requires installed h2a/mesh dispatch, prohibited by confinement; no invented consensus.
+- [x] Record code review target/outcome in docs/reviews/velocity-estimator.md; selection-failed because exact author metadata and installed h2a/mesh dispatch are unavailable/forbidden; no consensus claimed.
 - [ ] Final French report: per lot, pushed commits, exact RED/GREEN command/output/exit/skips, first measured output, CI, non-coverage/deviations.
 
 - [x] T-V00-I final named-file baseline: 28 failed, 0 passed, 0 skipped; initial 25-test baseline also retained. Test-first commits stage the contract before the implementation.
