@@ -18,6 +18,7 @@ export {
   formatRows,
   formatWpConductor,
   formatWpTree,
+  handleCommandFor,
   resolutionLines,
   wpTotals,
   type ConductorMeta,

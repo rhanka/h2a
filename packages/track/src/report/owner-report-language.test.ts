@@ -126,7 +126,7 @@ describe('the deterministic layer is language-neutral', () => {
 
   it('changing only the output language changes no ids, order, period, percentages, handles or options', () => {
     seed(DEMANDS.ja)
-    const base = ['report', '--status-table', '--commit', 'c1', '--format', 'json']
+    const base = ['report', '--status-table', '--commit', 'c1', '--now', '2026-10-18T12:00:00.000Z', '--format', 'json']
     const fr = JSON.parse(cli(base).out) as {
       statusTable: { rows: Array<Record<string, unknown>> }
       view: { handles: unknown; header: { period: unknown; progress: unknown } }

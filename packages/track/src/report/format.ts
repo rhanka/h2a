@@ -1000,6 +1000,19 @@ function isoDate(value: string | undefined): string | undefined {
 export function reportPeriod(meta: ConductorMeta): ReportPeriod {
   if (meta.periodWindow !== undefined) {
     const period = meta.periodWindow
+    // Amendment D4 — rolling windows are instant bounds: resolved AND printed
+    // with time and offset (no calendar rounding). Calendar selectors keep
+    // their pinned date labels.
+    if (period.requested === 'last-week' || period.requested === 'last-day') {
+      const span = period.requested === 'last-week' ? '7 derniers jours glissants' : '24 dernières heures glissantes'
+      const from = isoDate(period.from)
+      const to = isoDate(period.to)
+      const label =
+        period.from === undefined || period.to === undefined
+          ? 'période : journal vide (aucun événement enregistré)'
+          : `période : ${period.from} → ${period.to} (${span} ; ${period.eventsInWindow}/${period.eventsTotal} événements)`
+      return { ...(from !== undefined ? { from } : {}), ...(to !== undefined ? { to } : {}), toSource: 'unknown', label }
+    }
     const from = isoDate(period.from)
     const to = isoDate(period.to)
     if (period.requested === null) {
@@ -1116,6 +1129,33 @@ export interface ReportScopeProjection {
 
 function shellArgument(value: string): string {
   return /^[A-Za-z0-9_./:-]+$/u.test(value) ? value : `'${value.replace(/'/gu, "'\"'\"'")}'`
+}
+
+/** Named period selectors rebindable with a single `--period` flag. */
+const NAMED_PERIODS = ['today', 'week', 'month', 'all', 'last-week', 'last-day']
+
+/**
+ * Amendment D4/D13 — the resolution command bound to the exact rendering
+ * context: scope, period and sub-WP expansion travel with the handle, so a
+ * reply quoting a handle without its context is refused rather than
+ * mis-resolved. No context ⇒ the established bare command, byte-identical.
+ */
+export function handleCommandFor(meta: ConductorMeta): string {
+  const parts = ['track report']
+  if (meta.scopeProjection !== undefined) parts.push(`--scope ${shellArgument(meta.scopeProjection.selector)}`)
+  const requested = meta.periodWindow?.requested ?? null
+  if (requested !== null) {
+    if (NAMED_PERIODS.includes(requested)) {
+      parts.push(`--period ${requested}`)
+    } else {
+      const [since, until] = requested.split('..')
+      parts.push(`--since ${shellArgument(since!)}`)
+      if (until !== undefined) parts.push(`--until ${shellArgument(until)}`)
+    }
+  }
+  if (meta.subWp === true) parts.push('--sub-wp')
+  parts.push('--resolve <handle>')
+  return parts.join(' ')
 }
 
 export function buildWpConductorView(
@@ -1574,9 +1614,7 @@ export function buildWpConductorView(
           ]),
     ],
     coverage,
-    handleCommand: meta.scopeProjection === undefined
-      ? 'track report --resolve <handle>'
-      : `track report --scope ${shellArgument(meta.scopeProjection.selector)} --resolve <handle>`,
+    handleCommand: handleCommandFor(meta),
   }
 
   const tables: ReportViewTable[] = [
