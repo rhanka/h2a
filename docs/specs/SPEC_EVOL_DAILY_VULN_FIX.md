@@ -108,6 +108,14 @@ enforces the selected executor's protected operation at effect time, never
 bypassing repository rules. No production adapter is supplied here.
 A temporary-remote adapter proves the independent contract only.
 
+The daily controller calls this seam through repository.observeCandidate and
+repository.mergeCandidate before scanning or checking the daily claim. The
+production Repository implements neither operation until L4 resolves its
+placement. Missing adapter yields durable waiting-admission, never a merge.
+Legacy attempts are not adopted into candidates: L2/L3/L4 integration must
+create exact owned-candidate records from admitted executions and immutable
+evidence. No production autonomous merge path is claimed here.
+
 Failures persist bounded retry; head/base/proof change requires revalidation;
 blocked reviews stay blocked. Pending checks/age persist with a next wake-up.
 Disabled admissions suspend merge. Intent is durable before merge. Uncertain
@@ -128,6 +136,57 @@ provenance failure, non-lock/major/new-package changes, disabled admissions,
 foreign/ambiguous ownership. Guard refusals are not baseline exploits.
 
 ## Remaining gates
+
+L6 independent reporting/stop sheet (before its RED): h2a maintainer,
+same integrated base, packages/h2a/src/vuln-fix/controller.mjs and existing
+packages/h2a/test/vuln-fix-controller.test.js. Command:
+rtk node --test packages/h2a/test/vuln-fix-controller.test.js.
+Expected RED: dry-run without an admitted cycle reports would-attempt, and
+explicitly closed admissions still launch an author. GREEN distinguishes
+scanned/fix-blocked and stops inference while retaining scans and accounting.
+This is reporting/control progress, not L6 repository or activation closure.
+
+## Targeted execution evidence (2026-10-18)
+
+Commands run from this checkout root. Each named Node test file is targeted;
+no full local suite, real seat, live native host, timer or workflow activation.
+All recorded runs have skipped=0, cancelled=0 and todo=0.
+
+| Lot / command | Observed RED | Observed GREEN |
+|---|---|---|
+| L5: rtk node --test packages/h2a/test/vuln-fix-merge.test.js | Initial 4 tests: pass 0 / fail 4, exit 1; "placement-independent merge reconciliation must exist", actual undefined | Same positive scenarios: pass 4 / fail 0, exit 0 |
+| L5 regression: same command, 8 tests | pass 5 / fail 3, exit 1; unrelated assertion and low baseline wrongly merged; controller left candidate ready instead of merged | pass 8 / fail 0, exit 0 |
+| L5 observation guards: same command, 50 tests | pass 46 / fail 4, exit 1; null review/package/check threw TypeError; string role bypassed permission validation | pass 50 / fail 0, exit 0 |
+| L6: rtk node --test packages/h2a/test/vuln-fix-controller.test.js | pass 15 / fail 2, exit 1; actual would-attempt vs scanned; actual ready vs waiting-admission | pass 17 / fail 0, exit 0 |
+| Integration: rtk node --test packages/h2a/test/vuln-fix-repository.test.js | No new regression claimed | pass 11 / fail 0, exit 0 |
+| Integration: rtk node --test packages/h2a/test/vuln-fix-scan.test.js | No new regression claimed | pass 9 / fail 0, exit 0 |
+| Integration: rtk node --test packages/h2a/test/vuln-fix-cli.test.js | No new regression claimed | pass 4 / fail 0, exit 0 |
+| Integrated masking: rtk node --test packages/h2a/test/vuln-fix-redact.test.js | Historical regressions, no new baseline failure claimed | pass 10 / fail 0, exit 0 |
+
+Positive merge tests create a real temporary bare Git remote, execute actual
+targeted baseline/candidate Node tests, and create exactly one two-parent
+merge using an atomic expected-head/expected-base ref transaction. Audit and
+provenance are controlled synthetic fixture evidence, not a real CVE or
+registry attestation. Restart reloads persisted state under the existing
+flock; usage counters cross UTC unchanged. No inference operation exists in
+the reconciliation adapter. These results do not close live G3.
+
+Published-boundary inspection installed llm-mesh 0.27.0 / cluster-mesh 0.19.1
+with --ignore-scripts --package-lock=false --no-audit --no-fund under
+/tmp/h2a-vulnfix-proof-wr6Y5wze/published. Both public enrollment entrypoints
+reported parseCliSeatProfile=undefined and parseTokenSeatEnvelope=undefined.
+This is an API blocker observation, not a delivered L1 RED/GREEN test.
+
+Read-only sentropic #681 source inventory at 7293130ee3f6 (no edits here):
+packages/llm-mesh/src/enrollment/cli-seat-import.ts, enrollment/index.ts,
+service/facade.ts, service/external-seat-authority.ts; tests/enrollment/
+cli-seat-import.test.ts, seat-bundle.test.ts, tests/service/facade.test.ts,
+seat-projection-delivery.test.ts under that package. Delivery route:
+api/src/routes/namespaces/llm-seat-delivery.ts with
+api/tests/api/llm-seat-delivery.test.ts. Cluster public-surface test:
+packages/cluster-mesh/tests/integrations/llm-surface.spec.ts. Its conductor
+still resolves checkout, publication/exports and literal targeted commands;
+this inventory is not execution authorization in another repository.
 
 G0 partial. G1 placement and G2 live identity/quota/custody/separation open.
 G3 requires integrated qualification + selected continuation artefacts.
