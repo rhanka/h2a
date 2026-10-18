@@ -110,3 +110,15 @@ campaigns per PR: the Node 22 result is shared by two consumers. This proves
 the same test on the same code, but no longer measures M17 under contention
 from other suites or on the same machine as those suites. Run provenance is
 not protection against maliciously changed source in the tested commit.
+
+The subsequent lane Node 24 campaign exceeded 1350s at 1201/1250, while the
+other three same-head campaigns reconciled completely. The limit remains
+1350s. An eight-contender diagnostic of 4000 real OFD flock acquisitions per
+sample found avoidable unused-output pipe allocation (median 795.6ms with
+pipes versus 729.2ms with ignored outputs, one slower ignore sample). The
+mutation primitive now ignores both outputs it never consumed; FD 3, trusted
+tool resolution, exclusive locking, five-second acquisition deadline, status
+checks and release are identical. This is a measured resource optimization,
+not proof that the complete backend meets the CI budget. Full current-head
+CI reconciliation and cleanup remain mandatory. Quota/expiry traversal,
+stamp-tuple and cache-epoch variants were measured and not retained.
