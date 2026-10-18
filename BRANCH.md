@@ -21,6 +21,49 @@
 - [ ] NOT covered: installed qualification, cluster-mesh L9-S readers, L8/G4
   policy, operator-level T0/T1 timing, G5, execution pilot.
 
+# L9-H FINAL MINIMAL ROUND — Sol 6.1 xhigh review, five findings (2026-10-18)
+
+- [x] Scope: same four allowed files plus these notes. No other file touched;
+  no merge of main (rebase only if needed); push own branch fast-forward
+  (`--force-with-lease` only for a rebase); PR stays draft.
+- [x] [P1-1] `scripts/bench-live.mjs`: T1 is an explicit `reader-absent`
+  state — diagnostic Git-component second run (`runOracleBatchTimed`,
+  ids/commands only), never presented as a native service
+  (`T1-git-component-self-comparison-only-reader-absent-NOT-a-native-service`).
+  `nativeAdditions.measured: false`; verdict `not-measurable` with reason
+  "not measurable: native readers absent (cluster-mesh L9-S, G3/G4/G5)".
+  Evidence doc states plainly the −0.21% median compares the Git component
+  with itself and measures nothing about the service.
+- [x] [P1-2] Non-success states excluded from gain computation (gain null)
+  while all 20 cases stay in the list and counts; `matchedExpectation` false
+  for every non-success state (never counted as success); median/quality over
+  SUCCESS only (diagnostic). Classification timing labelled
+  `result-classification-only` (no recovery workflow measured).
+- [x] [P2-3] Timed runner receives only case ids/commands
+  (`runOracleBatchTimed`); frozen expectations (reasons, `oracle.expected`
+  stdout/contains/status) compared AFTER timing (`verifyOracleOutputs`).
+  Real `frozenAt` reused as `expectationsFrozenAt` (synthetic offset removed).
+- [x] [P2-4] `reasonValueSha256` (sha256 of the reason) plus category
+  (`reasonState`: documented/inconnu/null), never the text;
+  `contentHashesOnly: true` holds; no reason text in the evidence.
+- [x] [P2-5] CPU/RSS labelled explicitly `parentProcessOnly` (parent Node
+  process; child Git resources not collected) in JSON and evidence doc.
+- [x] RED-before/GREEN-after (final test file, targeted file only, temp dirs
+  only): old `bench-live.mjs` + new tests → 10 failed / 9 passed (19);
+  fixed `bench-live.mjs` + new tests → 19/19 passed
+  (`npx vitest run packages/h2a-runtime/src/gateway-host/live-read-side.test.ts`).
+  One test assertion relaxed during green (reason-less cases carry
+  `reasonState: null`, category only when a reason exists).
+- [x] Exploratory measurement re-run: fixed harness re-verified on the
+  synthetic corpus via the targeted test (19/19, temp dirs only). Fresh
+  real-corpus re-run NOT covered (pinned manifest + engram snapshot pack
+  live outside this repository); historical −0.21% table kept as diagnostic
+  self-comparison with corrected meaning; decision wording updated to
+  not-measurable in the evidence doc.
+- [ ] NOT covered (unchanged): installed qualification, cluster-mesh L9-S
+  readers, L8/G4 policy, operator-level T0/T1 timing, G5, execution pilot,
+  fresh real-corpus numbers with the fixed harness.
+
 # Live disclosure authority — owner decision 2026-10-17
 
 - [x] Scope: Δ-L7a on `feat/live-disclosure-authority`, based on origin/main.

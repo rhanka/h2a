@@ -333,22 +333,46 @@ describe("counterbalanced first investigations retain all twenty cases and recov
   it("separates existing reader gains from native additions", () => {
     expect(evidence.existingReaders.state).toBe("reader-absent");
     expect(evidence.existingReaders.measured).toBe(false);
-    expect(evidence.nativeAdditions.measured).toBe(true);
+    expect(evidence.nativeAdditions.measured).toBe(false);
+    expect(evidence.nativeAdditions.state).toBe("reader-absent");
     expect(evidence.nativeAdditions.gains).toHaveLength(READ_SIDE_CASE_COUNT);
     expect(evidence.existingReaders.note).not.toContain("measured gain");
+    expect(evidence.t1State).toBe("reader-absent");
   });
 
-  it("computes median(1 - T1/T0) over all twenty cases against the fixed threshold", () => {
+  it("computes a diagnostic Git self-comparison median over SUCCESS cases only (non-success excluded, all retained)", () => {
     expect(evidence.threshold).toBe(READ_SIDE_CONTINUATION_THRESHOLD);
     expect(evidence.threshold).toBe(0.3);
-    const gains = (evidence.cases as Array<{ gain: number | null }>).map((c) => c.gain);
-    expect(gains.every((g) => typeof g === "number")).toBe(true);
-    expect(evidence.medianGain).toBe(medianGain(evidence.cases.map((c: { t0FirstMs: number; t1TotalMs: number }) => ({ t0Ms: c.t0FirstMs, t1Ms: c.t1TotalMs }))));
-    expect(evidence.medianGain).toBe(median((gains as number[]).filter((g) => Number.isFinite(g))));
-    expect(evidence.qualityMet).toBe(false);
+    // All twenty cases stay in the list and counts: nothing removed.
+    expect(evidence.cases).toHaveLength(READ_SIDE_CASE_COUNT);
+    expect(evidence.caseCount).toBe(READ_SIDE_CASE_COUNT);
+    const successCases = (evidence.cases as Array<{ state: string; gain: number | null }>).filter(
+      (c) => !isNonSuccessState(c.state),
+    );
+    expect(successCases.length).toBeGreaterThan(0);
+    expect(successCases.length).toBeLessThan(READ_SIDE_CASE_COUNT);
+    const successGains = successCases.map((c) => c.gain);
+    expect(successGains.every((g) => typeof g === "number" && Number.isFinite(g))).toBe(true);
+    // Non-success states never enter the gain computation (gain null, excluded).
+    for (const entry of evidence.cases as Array<{ state: string; gain: unknown }>) {
+      if (isNonSuccessState(entry.state)) expect(entry.gain).toBeNull();
+    }
+    expect(evidence.medianGain).toBe(median(successGains as number[]));
+    expect(evidence.medianGain).toBe(
+      medianGain(successCases.map((c: { t0FirstMs: number; t1TotalMs: number }) => ({ t0Ms: (c as unknown as { t0FirstMs: number }).t0FirstMs, t1Ms: (c as unknown as { t1TotalMs: number }).t1TotalMs }))),
+    );
+    expect(evidence.medianGainScope).toContain("SUCCESS");
+    // Quality over SUCCESS only: the retained failed case must not decide it.
+    expect(evidence.qualityMet).toBe(true);
+    expect(evidence.qualityScope).toContain("SUCCESS");
+    // …while quality over ALL cases (including retained non-success) stays false,
+    // proving non-success outcomes are present but excluded from the decision.
     expect(qualityMet(evidence.cases.map((c: { matchedExpectation: boolean }) => c.matchedExpectation))).toBe(false);
+    // No continuation decision can be measured without a native reader.
     expect(evidence.continuation.decision).toBe(false);
-    expect(continuationDecided(evidence.medianGain, false).decision).toBe(false);
+    expect(evidence.continuation.measurable).toBe(false);
+    expect(evidence.continuation.verdict).toBe("not-measurable");
+    expect(continuationDecided(0.9, false).decision).toBe(false);
   });
 
   it("keeps G3/G5 capacité absente explicit and undocumented reasons « inconnu » without fabrication", () => {
@@ -362,12 +386,23 @@ describe("counterbalanced first investigations retain all twenty cases and recov
       expect(entry.missingCapabilities.length).toBeGreaterThan(0);
     }
     for (const id of [14, 15]) {
-      const entry = evidence.cases.find((c: { id: number }) => c.id === id) as { reasonState: string; reasonValue: string };
+      const entry = evidence.cases.find((c: { id: number }) => c.id === id) as {
+        reasonState: string;
+        reasonValueSha256: string;
+      };
       expect(entry.reasonState).toBe("inconnu");
-      expect(entry.reasonValue).toBe("inconnu");
+      expect(entry.reasonValueSha256).toBe(sha256("inconnu"));
+      expect("reasonValue" in (entry as Record<string, unknown>)).toBe(false);
     }
-    const documented = evidence.cases.find((c: { id: number }) => c.id === 16) as { reasonState: string };
+    const documented = evidence.cases.find((c: { id: number }) => c.id === 16) as {
+      reasonState: string;
+      reasonValueSha256: string;
+    };
     expect(documented.reasonState).toBe("documented");
+    expect(documented.reasonValueSha256).toBe(sha256("synthetic relocation note"));
+    // Reason text never enters the evidence despite contentHashesOnly:true.
+    expect(evidence.contentHashesOnly).toBe(true);
+    expect(evidenceRaw.includes("synthetic relocation note")).toBe(false);
   });
 
   it("reports first-answer, warm, CPU/RSS/process evidence without source content or external transmission", () => {
@@ -383,7 +418,10 @@ describe("counterbalanced first investigations retain all twenty cases and recov
     }
     expect(typeof evidence.resources.bootstrapMs).toBe("number");
     expect(typeof evidence.resources.processCount).toBe("number");
-    expect(typeof evidence.resources.rssBytes).toBe("number");
+    expect(typeof evidence.resources.cpuMsParentProcessOnly).toBe("number");
+    expect(typeof evidence.resources.rssBytesParentProcessOnly).toBe("number");
+    expect(evidence.resources.resourceScope).toContain("parentProcessOnly");
+    expect(evidenceRaw).toContain("parentProcessOnly");
     expect(evidence.network).toBe(false);
     expect(evidence.modelCalls).toBe(0);
   });
@@ -394,6 +432,93 @@ describe("counterbalanced first investigations retain all twenty cases and recov
     }
     const refused = evidence.cases.find((c: { id: number }) => c.id === 20) as { t1FirstMs: number; t0FirstMs: number; gain: number };
     void refused;
+  });
+});
+
+describe("sol-6.1 review findings 1-4 (red-before/green-after)", () => {
+  it("[P1-1] T1 is an explicit reader-absent state and no timing is presented as a native service", () => {
+    expect(evidence.t1State).toBe("reader-absent");
+    for (const entry of evidence.cases as Array<{ t1ReaderState: unknown }>) {
+      expect(entry.t1ReaderState).toBe("reader-absent");
+    }
+    expect(evidence.nativeAdditions.measured).toBe(false);
+    expect(evidence.nativeAdditions.state).toBe("reader-absent");
+    const armsText = (evidence.arms as string[]).join(" ");
+    expect(armsText).toContain("reader-absent");
+    expect(armsText).not.toContain("T1-native-read-side");
+    expect(evidenceRaw).not.toContain("T1-native-read-side");
+    expect(evidence.baseline.note).toContain("self-comparison");
+    expect(evidence.baseline.note).toContain("measures nothing about a native service");
+    expect(evidence.nativeAdditions.note).toContain("NOT a native service measurement");
+  });
+
+  it("[P1-1] the verdict is not-measurable (native readers absent), never continuation YES/NO", () => {
+    expect(evidence.continuation.decision).toBe(false);
+    expect(evidence.continuation.measurable).toBe(false);
+    expect(evidence.continuation.verdict).toBe("not-measurable");
+    expect((evidence.continuation.reasons as string[])[0]).toContain(
+      "not measurable: native readers absent (cluster-mesh L9-S, G3/G4/G5)",
+    );
+  });
+
+  it("[P1-2] non-success states never enter the median or the decision and never count as success", () => {
+    expect(evidence.cases).toHaveLength(READ_SIDE_CASE_COUNT);
+    expect(evidence.successCaseCount).toBe(
+      (evidence.cases as Array<{ state: string }>).filter((c) => !isNonSuccessState(c.state)).length,
+    );
+    for (const entry of evidence.cases as Array<{ state: string; matchedExpectation: unknown; countsAsSaving: unknown; gain: unknown }>) {
+      if (isNonSuccessState(entry.state)) {
+        expect(entry.matchedExpectation).toBe(false);
+        expect(entry.countsAsSaving).toBe(false);
+        expect(entry.gain).toBeNull();
+      }
+    }
+    // Case 19 stays retained as failed with its error (kept in list and counts).
+    const failed = evidence.cases.find((c: { id: number }) => c.id === 19) as { state: string; error: unknown; gain: unknown };
+    expect(failed.state).toBe("failed");
+    expect(typeof failed.error).toBe("string");
+    expect(failed.gain).toBeNull();
+  });
+
+  it("[P1-2] the recovery timing is labelled result-classification-only (no recovery workflow measured)", () => {
+    for (const entry of evidence.cases as Array<{
+      classificationMs: unknown;
+      classificationScope: string;
+      recoveryScope: string;
+      recoveryMs: unknown;
+    }>) {
+      expect(typeof entry.classificationMs).toBe("number");
+      expect((entry.classificationMs as number) >= 0).toBe(true);
+      expect(entry.classificationScope).toContain("result-classification-only");
+      expect(entry.classificationScope).toContain("no-recovery-workflow-measured");
+      expect(entry.recoveryScope).toBe("result-classification-only");
+      expect(typeof entry.recoveryMs).toBe("number");
+    }
+  });
+
+  it("[P2-3] expectations never reach the timed path and the real frozenAt is used", () => {
+    expect(evidence.operatorReceivedExpected).toBe(false);
+    expect(evidence.timedInputContainsExpected).toBe(false);
+    expect(evidence.expectationsFrozenAt).toBeLessThan(evidence.timingStartedAt);
+    // The old synthetic `timingStartedAt - 1` always differed by exactly 1 ms;
+    // the real frozenAt predates timing by the bootstrap work (strictly more).
+    expect(evidence.timingStartedAt - evidence.expectationsFrozenAt).toBeGreaterThan(1);
+    const benchSource = readFileSync(BENCH, "utf8");
+    expect(benchSource).toContain("runOracleBatchTimed");
+    expect(benchSource).not.toContain("timingStartedAt - 1");
+    expect(benchSource).toContain("expectationsFrozenAt = frozenAt");
+  });
+
+  it("[P2-4] reason text never enters the evidence: sha256 plus category only", () => {
+    expect(evidence.contentHashesOnly).toBe(true);
+    for (const entry of evidence.cases as Array<Record<string, unknown>>) {
+      expect("reasonValue" in entry).toBe(false);
+      expect(typeof entry["reasonValueSha256"]).toBe("string");
+      expect((entry["reasonValueSha256"] as string)).toMatch(/^[0-9a-f]{64}$/);
+      // Category only (documented/inconnu) when a reason exists, else null — never text.
+      expect(entry["reasonState"] === null || typeof entry["reasonState"] === "string").toBe(true);
+    }
+    expect(evidenceRaw.includes("synthetic relocation note")).toBe(false);
   });
 });
 
