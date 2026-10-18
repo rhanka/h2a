@@ -1,4 +1,49 @@
-# Daily vulnerability remediation
+# Daily vulnerability remediation — activation v2
+
+## Current scope (2026-10-18; supersedes the historical contract below)
+
+- Owner: A · Partager la maintenance; Tous les dépôts prêts;
+  Fix + revue autonome; Dans gh. No activation or main mutation.
+- Spec digest: 624146043693f553cd50cd4c6f3f618242f1066866511eba09f76009dcc58593;
+  two supplied final-spec GO-CODE reviews. Final code review remains open.
+- Rebase: origin/main 7ebbcf266e1988c18624d0158936949a214f9fd8, including #348.
+  Only BRANCH.md conflicted; both histories retained.
+- Actual implementation paths: packages/h2a/src/vuln-fix/controller.mjs,
+  state.mjs, verify.mjs, scan.mjs; test/vuln-fix-merge.test.js (new),
+  test/vuln-fix-controller.test.js; contract and operator reference.
+- No runtime/pin/lock/workflow/Track changes. Other-repository lots are
+  inventoried only. Source/build/runtime state remains isolated from the host.
+
+## Activation lots
+
+- [x] L0 documentary inventory and execution sheets; G0 remains partial for
+  unresolved external interfaces/placement, not declared globally green.
+- [x] L5 independent exact-SHA gate, durable intent/result and reconciliation
+  before scan/daily claims, no inference/accounting repetition.
+- [x] L5 temporary-remote positive merge, checks/age restart, lost ack,
+  concurrency, changed head/base and fail-closed evidence/permission guards.
+- [x] L6 independent scan/fix-blocked reporting and explicit admissions stop.
+- [ ] L1 published import API; L2 qualified identity/Muse/permissions pool;
+  L3 shared authority/confinement; L3-R renewal/delivery/next consumption.
+- [ ] L4 OQ1 placement derivation and production adapters/scheduler; L5 live
+  integration/new owned-candidate creation; L6 repository/live qualification.
+- [ ] L7 five-provider live usages/scenarios/author rotation (not first activation).
+- [ ] G3/G5: real chain proof, exact-final-SHA code reviews, conductor full CI.
+- [ ] G4/G6 activation/production acceptance: conductor/operator after release.
+
+## Evidence
+
+- L5 initial RED: 0/4 pass; GREEN: 4/4. Further regression RED: 5/8 pass;
+  GREEN: 8/8. Observation/permission RED: 46/50 pass; GREEN: 50/50.
+- L6 controller RED: 15/17 pass; GREEN: 17/17.
+- Targeted repository 11/11, scan 9/9, CLI 4/4, redaction 10/10.
+  All skip/cancel/TODO counts zero. Exact commands/output excerpts are in
+  docs/specs/SPEC_EVOL_DAILY_VULN_FIX.md. No full local suite.
+- Review selection-failed: no installed h2a access, exact author model/effort
+  unavailable. No dispatched leg or consensus invented. G5 remains open.
+- Pending delivery: own-branch lease push, final-SHA CI results in owner report.
+
+# Historical #371 implementation record
 
 ## Objective
 - [ ] Ship daily vulnerability detection/remediation through local seats, command, skill and timer.
