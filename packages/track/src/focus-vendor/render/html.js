@@ -8,6 +8,7 @@
  * emission. The renderer core owns structure only; hosts own sanitization/styling.
  */
 import { preparePresentation } from "./presentation.js";
+import { evidenceIndex } from './evidence.js';
 /** Minimal HTML text escaping for attribute/text content the renderer itself emits. */
 const escapeHtml = (value) => value
     .replace(/&/g, "&amp;")
@@ -94,6 +95,7 @@ export const renderHtml = (doc, hooks) => {
         sections +
         amendment +
         affordances +
+        (evidenceIndex(doc) ? `<section class="focus-evidence"><pre>${escapeHtml(evidenceIndex(doc))}</pre></section>` : '') +
         "</article>";
     return hooks.sanitizeHtml(html);
 };
