@@ -30,6 +30,7 @@ import {
   type NativeTerminalErrorResponse,
   type NativeTerminalRequest,
   type NativeTerminalResponse,
+  type NativeTerminalStopSignal,
 } from "./protocol.js";
 import {
   NATIVE_TERMINAL_SOCKET_MAX_PATH_BYTES,
@@ -50,6 +51,7 @@ import {
 import { NativeTerminalPublicationRefusal } from "./publication-refusal.js";
 
 type ConnectionContext = {
+  readonly id: string;
   readonly socket: Socket;
   readonly leases: Map<string, NativeTerminalControllerLease>;
   readonly responseBudget: ResponseQueueBudget;
@@ -158,7 +160,21 @@ function sameLease(left: NativeTerminalControllerLease, right: NativeTerminalCon
     && left.epoch === right.epoch;
 }
 
-function ownedLease(context: ConnectionContext, params: unknown): NativeTerminalControllerLease {
+/**
+ * Phase B (lot B2): the request-execution half of a connection. The fused
+ * host (process.ts) and the split owner (owner-process.ts) both execute
+ * against this context; the split frontend (frontend-process.ts) only
+ * forwards, so per-client lease binding stays in this one dispatch.
+ */
+export type NativeTerminalLeaseContext = {
+  readonly leases: Map<string, NativeTerminalControllerLease>;
+};
+
+export function createNativeTerminalLeaseContext(): NativeTerminalLeaseContext {
+  return { leases: new Map<string, NativeTerminalControllerLease>() };
+}
+
+function ownedLease(context: NativeTerminalLeaseContext, params: unknown): NativeTerminalControllerLease {
   const lease = controllerLease(requiredRecord(params, "params").lease);
   const owned = context.leases.get(lease.id);
   if (!owned || !sameLease(owned, lease)) {
@@ -191,7 +207,7 @@ function createOptions(params: unknown): NativeTerminalCreateOptions {
   };
 }
 
-function releaseConnectionLeases(host: NativeTerminalHost, context: ConnectionContext): void {
+function releaseConnectionLeases(host: NativeTerminalHost, context: NativeTerminalLeaseContext): void {
   for (const lease of context.leases.values()) {
     try {
       host.releaseController(lease);
@@ -202,7 +218,24 @@ function releaseConnectionLeases(host: NativeTerminalHost, context: ConnectionCo
   context.leases.clear();
 }
 
-function dispatch(host: NativeTerminalHost, context: ConnectionContext, request: NativeTerminalRequest): unknown {
+/** Phase B (lot B2): owner-side execution of one forwarded request. */
+export function executeNativeTerminalHostRequest(
+  host: NativeTerminalHost,
+  context: NativeTerminalLeaseContext,
+  request: NativeTerminalRequest,
+): unknown {
+  return dispatch(host, context, request);
+}
+
+/** Phase B (lot B2): owner-side release of leases held through one context. */
+export function releaseNativeTerminalLeases(
+  host: NativeTerminalHost,
+  context: NativeTerminalLeaseContext,
+): void {
+  releaseConnectionLeases(host, context);
+}
+
+function dispatch(host: NativeTerminalHost, context: NativeTerminalLeaseContext, request: NativeTerminalRequest): unknown {
   const params = request.params;
   switch (request.operation) {
     case "ping":
@@ -412,7 +445,11 @@ function writeError(context: ConnectionContext, id: unknown, code: NativeTermina
   return writeResponse(context, response);
 }
 
-function consumeFrames(host: NativeTerminalHost, context: ConnectionContext, chunk: string): void {
+async function consumeFrames(
+  context: ConnectionContext,
+  chunk: string,
+  execute: (request: NativeTerminalRequest) => unknown | Promise<unknown>,
+): Promise<void> {
   context.buffer += chunk;
   for (;;) {
     const newline = context.buffer.indexOf("\n");
@@ -446,7 +483,7 @@ function consumeFrames(host: NativeTerminalHost, context: ConnectionContext, chu
         version: NATIVE_TERMINAL_PROTOCOL_VERSION,
         id: request.id,
         ok: true,
-        result: dispatch(host, context, request),
+        result: await execute(request),
       };
       if (!writeResponse(context, response)) return;
     } catch (error) {
@@ -458,6 +495,100 @@ function consumeFrames(host: NativeTerminalHost, context: ConnectionContext, chu
     recordHostFault(HOST_FAULT_COUNTERS.hostClientFrameDestroys);
     context.socket.destroy();
   }
+}
+
+/**
+ * Phase B (lot B2): per-connection serving shared by the fused host and the
+ * split frontend. Framing, budgets, lease-context tracking and disconnect
+ * cleanup behave identically on both paths; only `execute` differs (local
+ * host dispatch vs forward-to-owner). `closed` releases whatever `execute`
+ * granted through the connection's leases.
+ */
+export type NativeTerminalServedConnection = Readonly<{
+  id: string;
+  leases: Map<string, NativeTerminalControllerLease>;
+}>;
+
+export type NativeTerminalConnectionEvents = {
+  execute(
+    connection: NativeTerminalServedConnection,
+    request: NativeTerminalRequest,
+  ): unknown | Promise<unknown>;
+  closed(connection: NativeTerminalServedConnection): void;
+  accepted?(): void;
+};
+
+export type NativeTerminalConnectionServing = {
+  resume(): void;
+  close(): void;
+};
+
+export function serveNativeTerminalConnections(
+  server: Server,
+  events: NativeTerminalConnectionEvents,
+  options: { startPaused?: boolean } = {},
+): NativeTerminalConnectionServing {
+  const sockets = new Set<Socket>();
+  const responseBudget: ResponseQueueBudget = { pendingBytes: 0 };
+  let readyForRequests = options.startPaused !== true;
+  const attach = (socket: Socket): void => {
+    events.accepted?.();
+    if (sockets.size >= NATIVE_TERMINAL_MAX_CONNECTIONS) {
+      socket.destroy();
+      return;
+    }
+    // A visible socket is not yet a completed publication: its durable owner
+    // record and publication lock must finish before health/PTY admission.
+    if (!readyForRequests) socket.pause();
+    const context: ConnectionContext = {
+      id: randomUUID(),
+      socket,
+      leases: new Map(),
+      responseBudget,
+      buffer: "",
+      pendingResponseBytes: 0,
+      pendingResponses: 0,
+    };
+    sockets.add(socket);
+    socket.setEncoding("utf8");
+    socket.setNoDelay(true);
+    socket.on("error", () => {
+      // R7.5 named exemption: expected, potentially high-volume transport
+      // errors. Count per connection instead of producing a log per event.
+      recordHostFault(HOST_FAULT_COUNTERS.hostSocketConnectionErrors);
+    });
+    socket.on("data", (chunk: string) => {
+      void consumeFrames(context, chunk, (request) =>
+        events.execute(
+          { id: context.id, leases: context.leases },
+          request,
+        ),
+      ).catch(() => {
+        // R7.5 named exemption: a bad client costs only this connection;
+        // count frame destroys instead of logging every malformed stream.
+        recordHostFault(HOST_FAULT_COUNTERS.hostClientFrameDestroys);
+        socket.destroy();
+      });
+    });
+    socket.on("close", () => {
+      releaseAllPendingResponses(context);
+      try {
+        events.closed({ id: context.id, leases: context.leases });
+      } finally {
+        sockets.delete(socket);
+      }
+    });
+  };
+  server.on("connection", (socket) => attach(socket));
+  return {
+    resume(): void {
+      readyForRequests = true;
+      for (const socket of sockets) socket.resume();
+    },
+    close(): void {
+      for (const socket of sockets) socket.destroy();
+    },
+  };
 }
 
 
@@ -1268,6 +1399,21 @@ export type NativeTerminalHostServer = Readonly<{
 }>;
 
 /**
+ * Phase B (lot B2): the OS file descriptor of a bound listener. The split
+ * frontend reads it once to hand a copy to its keeper subprocess via spawn
+ * stdio (the keeper never wraps it, so it never polls or reads). The
+ * descriptor number is a Node internal (`_handle.fd`); it is validated
+ * here and fails closed instead of propagating an unknown shape.
+ */
+export function nativeTerminalListenFd(server: Server): number {
+  const fd = (server as unknown as { _handle?: { fd?: unknown } })._handle?.fd;
+  if (typeof fd !== "number" || !Number.isSafeInteger(fd) || fd < 0) {
+    throw new Error("terminal listener has no usable file descriptor");
+  }
+  return fd;
+}
+
+/**
  * Listener failure classification (R7). A listener error that is neither
  * recoverable nor provably-unusable is UNKNOWN: the host must not pretend to
  * serve on a listener whose failure it cannot name.
@@ -1324,64 +1470,63 @@ export async function startNativeTerminalHostServer(options: {
   } finally { clearTimeout(timer); }
 }
 
-async function initializeNativeTerminalHostServer(options: {
+/**
+ * Phase B (lot B2): staged publication of a listener with caller-chosen
+ * serving. The fused host (process.ts) and the split frontend
+ * (frontend-process.ts) share this path, so publication proofs, the owner
+ * record, the R7 listener taxonomy and pre-publication socket handling
+ * behave identically on both. Only the request executor differs (local
+ * host dispatch vs forward-to-owner).
+ */
+export type NativeTerminalPublishedListener = Readonly<{
   socketPath: string;
-  host: NativeTerminalHost;
-  signal: AbortSignal;
+  server: Server;
+  close(closeOptions?: { stopSessions?: boolean; signal?: string }): Promise<void>;
+  /**
+   * Serving starts paused: connections accepted before the caller is
+   * ready wait instead of failing. The fused host resumes once
+   * publication completes; the split frontend resumes once its owner
+   * channel is up.
+   */
+  resume(): void;
+  /**
+   * Stop serving without withdrawing the endpoint (no rollback). Used
+   * when the serving generation ends but the endpoint stays published
+   * for its replacement.
+   */
+  stopServing(): void;
+}>;
+
+export async function publishNativeTerminalListener(options: {
+  socketPath: string;
+  signal?: AbortSignal;
   readFrame?: ReadProcessFrame;
   ownerProbe?: NativeTerminalOwnerHostProbe;
   onListenerFailure?: (failure: NativeTerminalListenerFailure) => void;
-}): Promise<NativeTerminalHostServer> {
+  /**
+   * Session teardown for paths that own sessions (the fused host passes
+   * `host.stopAll`). The split frontend passes nothing: its sessions live
+   * in the owner and survive frontend death by design.
+   */
+  stopSessions?: (signal: NativeTerminalStopSignal) => void;
+  /** Request serving attached to the listener from its first accept. */
+  serve: NativeTerminalConnectionEvents;
+}): Promise<NativeTerminalPublishedListener> {
   options.signal?.throwIfAborted();
   if (!isAbsolute(options.socketPath)) throw new Error("terminal host socket path must be absolute");
   await abortable(ensurePrivateSocketDirectory(options.socketPath), options.signal);
 
-  const sockets = new Set<Socket>();
-  const responseBudget: ResponseQueueBudget = { pendingBytes: 0 };
-  let readyForRequests = false;
   let listenerExhaustionEvents: number[] = [];
-  const server: Server = createServer((socket) => {
-    // A successful accept breaks the consecutive failure series (R7 v5).
-    listenerExhaustionEvents = [];
-    if (sockets.size >= NATIVE_TERMINAL_MAX_CONNECTIONS) {
-      socket.destroy();
-      return;
-    }
-    // A visible socket is not yet a completed publication: its durable owner
-    // record and publication lock must finish before health/PTY admission.
-    if (!readyForRequests) socket.pause();
-    const context: ConnectionContext = {
-      socket,
-      leases: new Map(),
-      responseBudget,
-      buffer: "",
-      pendingResponseBytes: 0,
-      pendingResponses: 0,
-    };
-    sockets.add(socket);
-    socket.setEncoding("utf8");
-    socket.setNoDelay(true);
-    socket.on("error", () => {
-      // R7.5 named exemption: expected, potentially high-volume transport
-      // errors. Count per connection instead of producing a log per event.
-      recordHostFault(HOST_FAULT_COUNTERS.hostSocketConnectionErrors);
-    });
-    socket.on("data", (chunk: string) => {
-      try {
-        consumeFrames(options.host, context, chunk);
-      } catch {
-        // R7.5 named exemption: a bad client costs only this connection;
-        // count frame destroys instead of logging every malformed stream.
-        recordHostFault(HOST_FAULT_COUNTERS.hostClientFrameDestroys);
-        socket.destroy();
-      }
-    });
-    socket.on("close", () => {
-      releaseAllPendingResponses(context);
-      releaseConnectionLeases(options.host, context);
-      sockets.delete(socket);
-    });
-  });
+  const server: Server = createServer();
+  const serving = serveNativeTerminalConnections(server, {
+    execute: options.serve.execute,
+    closed: options.serve.closed,
+    accepted: () => {
+      // A successful accept breaks the consecutive failure series (R7 v5).
+      listenerExhaustionEvents = [];
+      options.serve.accepted?.();
+    },
+  }, { startPaused: true });
   // bind(2) retains this literal path in /proc/net/unix. Resolve its directory
   // before binding so it agrees with the retained directory FD even if an
   // ancestor symlink is later removed. Keep the published path and grammar.
@@ -1501,7 +1646,7 @@ async function initializeNativeTerminalHostServer(options: {
     }
   } catch (error) {
     try {
-      for (const socket of sockets) socket.destroy();
+      serving.close();
       const closed = new Promise<void>((resolve) => server.close(() => resolve()));
       if (ownedSocket !== undefined) {
         unlinkOwnedPath(stagedPath, ownedSocket);
@@ -1511,8 +1656,6 @@ async function initializeNativeTerminalHostServer(options: {
     } finally { closeDirectory(); }
     throw error;
   }
-  readyForRequests = true;
-  for (const socket of sockets) socket.resume();
   let closing: Promise<void> | undefined;
 
   const doClose = (closeOptions: { stopSessions?: boolean; signal?: string } = {}): Promise<void> => {
@@ -1524,12 +1667,12 @@ async function initializeNativeTerminalHostServer(options: {
           if (!isNativeTerminalStopSignal(signal)) {
             throw new TypeError("invalid terminal host shutdown signal");
           }
-          options.host.stopAll(signal);
+          options.stopSessions?.(signal);
         } catch (error) {
           stopError = error;
         }
       }
-      for (const socket of sockets) socket.destroy();
+      serving.close();
       await abortable(new Promise<void>((resolve, reject) => {
         server.close((error) => error ? reject(error) : resolve());
       }), AbortSignal.timeout(SOCKET_PUBLICATION_CLEANUP_TIMEOUT_MS));
@@ -1550,5 +1693,27 @@ async function initializeNativeTerminalHostServer(options: {
     socketPath: options.socketPath,
     server,
     close: doClose,
+    resume: () => serving.resume(),
+    stopServing: () => serving.close(),
   });
+}
+
+async function initializeNativeTerminalHostServer(options: {
+  socketPath: string;
+  host: NativeTerminalHost;
+  signal: AbortSignal;
+  readFrame?: ReadProcessFrame;
+  ownerProbe?: NativeTerminalOwnerHostProbe;
+  onListenerFailure?: (failure: NativeTerminalListenerFailure) => void;
+}): Promise<NativeTerminalHostServer> {
+  const published = await publishNativeTerminalListener({
+    ...options,
+    stopSessions: (signal) => options.host.stopAll(signal),
+    serve: {
+      execute: (connection, request) => dispatch(options.host, connection, request),
+      closed: (connection) => releaseConnectionLeases(options.host, connection),
+    },
+  });
+  published.resume();
+  return published;
 }
