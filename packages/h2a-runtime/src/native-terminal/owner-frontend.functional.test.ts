@@ -1,11 +1,11 @@
 import type { ChildProcess } from "node:child_process";
 import { once } from "node:events";
-import { readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 // @ts-ignore Shared JS qualification helper; tests are outside the production build.
 import { setupNativeTestEnvironment, spawnIsolatedNative as spawn } from "../../../h2a/test/helpers/native-isolation.js";
@@ -17,6 +17,41 @@ import { readProcessStartTime } from "./host.js";
 
 const OWNER_ENTRY = fileURLToPath(new URL("../../dist/native-terminal/owner-process.js", import.meta.url));
 const TEST_TIMEOUT = 90_000;
+
+// Each Node child records its own PID and birth in this private fixture.
+// Cleanup uses these launch receipts, never a process census or name matching.
+const receiptPath = join(process.env.TMPDIR!, "owner-frontend-children.jsonl");
+const observerPath = receiptPath + ".mjs";
+const identityModule = pathToFileURL(fileURLToPath(new URL("../../dist/proc-identity.js", import.meta.url))).href;
+writeFileSync(observerPath, `import { appendFileSync } from "node:fs";
+import { readProcessStartTime } from ${JSON.stringify(identityModule)};
+import { ChildProcess } from "node:child_process";
+const record = pid => appendFileSync(${JSON.stringify(receiptPath)}, JSON.stringify({pid,birth:readProcessStartTime(pid)})+"\\n");
+record(process.pid);
+const original = ChildProcess.prototype.spawn;
+ChildProcess.prototype.spawn = function(options) {
+  const result = original.call(this, options);
+  if (this.pid) record(this.pid);
+  return result;
+};`);
+const previousNodeOptions = process.env.NODE_OPTIONS;
+process.env.NODE_OPTIONS = `${previousNodeOptions ?? ""} --import=${pathToFileURL(observerPath).href}`;
+afterAll(() => {
+  if (previousNodeOptions === undefined) delete process.env.NODE_OPTIONS;
+  else process.env.NODE_OPTIONS = previousNodeOptions;
+});
+
+function stopRecordedChildren(): void {
+  let rows: string;
+  try { rows = readFileSync(receiptPath, "utf8"); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return; throw error; }
+  for (const line of rows.trim().split("\n").filter(Boolean)) {
+    const {pid, birth} = JSON.parse(line);
+    if (pid === process.pid || birth === undefined || readProcessStartTime(pid) !== birth) continue;
+    try { process.kill(pid, "SIGKILL"); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
+  }
+}
 
 const children = new Set<ChildProcess>();
 const directories = new Set<string>();
@@ -40,42 +75,6 @@ function descendantPids(pid: number, seen = new Set<number>()): number[] {
   return out;
 }
 
-function reapTestProcesses(owned: Set<string>): void {
-  // Descendants may already be reparented (drained owners exit on their
-  // own), so the tree walk is not enough: sweep for processes whose
-  // command line names one of this test's private directories. Only PIDs
-  // attributable to this test are ever signaled.
-  let entries: string[];
-  try {
-    entries = readdirSync("/proc");
-  } catch {
-    return;
-  }
-  for (const entry of entries) {
-    if (!/^\d+$/.test(entry)) continue;
-    const pid = Number(entry);
-    if (pid === process.pid) continue;
-    let cmdline: string;
-    try {
-      cmdline = readFileSync(`/proc/${pid}/cmdline`, "utf8");
-    } catch {
-      continue;
-    }
-    let mine = false;
-    for (const directory of owned) {
-      if (directory !== "" && cmdline.includes(directory)) {
-        mine = true;
-        break;
-      }
-    }
-    if (!mine) continue;
-    try {
-      process.kill(pid, "SIGKILL");
-    } catch {
-      // Already gone.
-    }
-  }
-}
 
 afterEach(async () => {
   for (const child of children) {
@@ -103,9 +102,7 @@ afterEach(async () => {
     }
   }
   children.clear();
-  // Reparented grandchildren (frontends, keepers of drained owners) are
-  // no longer under a tracked child: sweep them by private directory.
-  reapTestProcesses(directories);
+  stopRecordedChildren();
   await new Promise((resolve) => setTimeout(resolve, 500));
   for (const directory of directories) {
     rmSync(directory, { recursive: true, force: true });

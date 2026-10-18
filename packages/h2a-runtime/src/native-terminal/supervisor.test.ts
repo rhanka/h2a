@@ -822,8 +822,5 @@ describe.skipIf(process.platform !== "linux")(
       expect(spawnHost).toHaveBeenCalled();
     });
 
-    // 2026-08-10: reaping resolves pgid via readNativeTerminalPgid (2-state global reader), NOT #199's 3-state per-identity loadRegistry.
-    // De-skip when the reaping migrates to loadRegistry (per-identity unknown, never a global once).
-    it.skip('reap treats unknown per identity, never as a global state', () => {});
   },
 );
