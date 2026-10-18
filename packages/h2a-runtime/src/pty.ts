@@ -1,6 +1,7 @@
 import type * as nodePty from "node-pty";
-import { accessSync, constants as fsConstants } from "node:fs";
+import { accessSync, chmodSync, constants as fsConstants } from "node:fs";
 import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 
 const require = createRequire(import.meta.url);
 
@@ -208,10 +209,45 @@ export type PtySpawner = (options: {
   rows: number;
 }) => PtyHandle;
 
+/**
+ * Lot BM darwin repair: node-pty spawns sessions through its `spawn-helper`
+ * binary, which the published prebuilds ship WITHOUT the executable bit, so
+ * `posix_spawn` fails with EACCES on macOS ("posix_spawnp failed."). Restore
+ * the bit best-effort before spawning — a no-op syscall where it is already
+ * set, and a preserved real spawn error where the install is read-only or
+ * the helper is absent (nothing is masked: a still-failing spawn throws).
+ * Mirrors node-pty's own helper lookup order without importing its internals.
+ */
+function ensureDarwinSpawnHelperExecutable(): void {
+  let packageDir: string;
+  try {
+    packageDir = dirname(dirname(require.resolve("node-pty")));
+  } catch {
+    return;
+  }
+  const candidates = [
+    join(packageDir, "build", "Release", "spawn-helper"),
+    join(packageDir, "build", "Debug", "spawn-helper"),
+    join(packageDir, "prebuilds", `darwin-${process.arch}`, "spawn-helper"),
+  ];
+  for (const candidate of candidates) {
+    try {
+      accessSync(candidate, fsConstants.X_OK);
+    } catch {
+      try {
+        chmodSync(candidate, 0o755);
+      } catch {
+        // Read-only install or absent helper: the spawn below reports it.
+      }
+    }
+  }
+}
+
 export const nodePtySpawner: PtySpawner = (options) => {
   // Lazy load node-pty so test environments without the native binary still
   // import this module — they substitute a stub spawner.
 
+  if (process.platform === "darwin") ensureDarwinSpawnHelperExecutable();
   const pty: typeof nodePty = require("node-pty");
   const guarded = guardedSpawnCommand(options);
   const proc = pty.spawn(guarded.command, guarded.args, {
