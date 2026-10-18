@@ -1,0 +1,361 @@
+{
+  "version": 1,
+  "frozenAt": "2026-10-18",
+  "calibration": {
+    "command": "node calibration script: measure(coldRuns:3, taskRuns:5)",
+    "sha256": "d276193c4910fb4f5c23710ee9e9365cf0ff6d754bc7427e44eebdc0681fc0b7",
+    "node": "v22.22.1",
+    "chromium": "153.0.8010.12",
+    "cpu": "AMD RYZEN AI MAX+ 395 w/ Radeon 8060S",
+    "ramBytes": 61736112128
+  },
+  "corpusSha256": "5ddd436738d4b59c3805a5cf574fc62a4ade053630a452b10e7206510ed33ad4",
+  "generatorSha256": "6b26f0459936393bf955231e8fc76c2b618d9cd0611851ff3587bccd42b975ce",
+  "fixtureSha256": "0f3fc61f2c2fb0b46ef68d404ae251ad56ed5faac92fbe4d7c07c5605510d350",
+  "measurementSha256": "f44ff4030795f12dfdaddf1e9bb87139d904c95bce33ba9914d90cdddf33f8c4",
+  "libraries": {
+    "playwright": "1.63.0",
+    "svelte": "5.56.4",
+    "vite": "7.3.6"
+  },
+  "profile": {
+    "viewport": [
+      1440,
+      900
+    ],
+    "usabilityViewports": [
+      320,
+      390,
+      1440
+    ],
+    "font": "system-ui, sans-serif; source: monospace 14px/24px",
+    "themes": [
+      "light",
+      "dark"
+    ]
+  },
+  "method": "Linux summed VmRSS of the exact launched Chromium PID and its descendants at 20ms; zombie/exited children have zero resident pages; CDP Runtime.getHeapUsage after HeapProfiler.collectGarbage. Counts shared pages per process, includes browser/GPU/workers; no cross-browser parity claim.",
+  "repetitions": {
+    "cold": 30,
+    "tasks": 30
+  },
+  "budgets": {
+    "cold": {
+      "legacy": {
+        "p95": 500,
+        "max": 1000
+      },
+      "small": {
+        "p95": 500,
+        "max": 1000
+      },
+      "large": {
+        "p95": 2500,
+        "max": 4000
+      },
+      "doubled": {
+        "p95": 500,
+        "max": 1000
+      }
+    },
+    "citation": {
+      "p95": 300,
+      "max": 500
+    },
+    "search": {
+      "p95": 400,
+      "max": 750
+    },
+    "domLines": 80,
+    "domNodes": 400,
+    "peakRssBytes": 2147483648,
+    "retainedRssGrowthBytes": 134217728,
+    "retainedHeapGrowthBytes": 16777216
+  },
+  "calibrationArtifacts": {
+    "legacy": {
+      "inputSha256": "de3e21bdbec1b00c16fecf2fccb39100f0443c7c4c44357e39125b4269e8f210",
+      "htmlSha256": "324a8eae1833106021cf979eced1d64f708a039a727436b700c6e28b6cb9e5a6",
+      "htmlBytes": 341918,
+      "evidenceBytes": 0,
+      "sources": 0,
+      "lines": []
+    },
+    "small": {
+      "inputSha256": "d2810cdf7e9486ac4d8ff5d39f322d2df5d92ecc4f87bce6a62d1e2b7c7c4f1f",
+      "htmlSha256": "1d193daee492e084cf33b82b28417dc06c9816c68657fc1411f037a6a75ad3db",
+      "htmlBytes": 343962,
+      "evidenceBytes": 404,
+      "sources": 3,
+      "lines": [
+        {
+          "id": "long",
+          "lines": 13
+        },
+        {
+          "id": "other-0",
+          "lines": 1
+        }
+      ]
+    },
+    "large": {
+      "inputSha256": "44570c227bbd36804265aab5741c987d07d0d720e09e0ec5618c101b43e20a3f",
+      "htmlSha256": "44405eb6d03aa0b5a096955947d0d3bfa4e650ad54228ec0144edfb4c16c1b59",
+      "htmlBytes": 31295812,
+      "evidenceBytes": 23206468,
+      "sources": 31,
+      "lines": [
+        {
+          "id": "long",
+          "lines": 20001
+        },
+        {
+          "id": "repository-0",
+          "lines": 12931
+        },
+        {
+          "id": "repository-1",
+          "lines": 11713
+        },
+        {
+          "id": "repository-2",
+          "lines": 18884
+        },
+        {
+          "id": "repository-3",
+          "lines": 14515
+        },
+        {
+          "id": "repository-4",
+          "lines": 13188
+        },
+        {
+          "id": "repository-5",
+          "lines": 9798
+        },
+        {
+          "id": "repository-6",
+          "lines": 10127
+        },
+        {
+          "id": "repository-7",
+          "lines": 10690
+        },
+        {
+          "id": "repository-8",
+          "lines": 13571
+        },
+        {
+          "id": "repository-9",
+          "lines": 12552
+        },
+        {
+          "id": "repository-10",
+          "lines": 11336
+        },
+        {
+          "id": "repository-11",
+          "lines": 12101
+        },
+        {
+          "id": "repository-12",
+          "lines": 10804
+        },
+        {
+          "id": "repository-13",
+          "lines": 11741
+        },
+        {
+          "id": "repository-14",
+          "lines": 17409
+        },
+        {
+          "id": "repository-15",
+          "lines": 29629
+        },
+        {
+          "id": "repository-16",
+          "lines": 17689
+        },
+        {
+          "id": "repository-17",
+          "lines": 18381
+        },
+        {
+          "id": "repository-18",
+          "lines": 10844
+        },
+        {
+          "id": "repository-19",
+          "lines": 13822
+        },
+        {
+          "id": "repository-20",
+          "lines": 19634
+        },
+        {
+          "id": "repository-21",
+          "lines": 11581
+        },
+        {
+          "id": "repository-22",
+          "lines": 14421
+        },
+        {
+          "id": "repository-23",
+          "lines": 19864
+        },
+        {
+          "id": "repository-24",
+          "lines": 14108
+        },
+        {
+          "id": "repository-25",
+          "lines": 11453
+        },
+        {
+          "id": "repository-26",
+          "lines": 14107
+        },
+        {
+          "id": "repository-27",
+          "lines": 13322
+        },
+        {
+          "id": "repository-28",
+          "lines": 15976
+        }
+      ]
+    },
+    "doubled": {
+      "inputSha256": "62ab023ba5f1cc1c5048a3bbc535c80e4b68c968f098a58060008704467a5efe",
+      "htmlSha256": "b5cc9309952a514d1c4eee233adb6c64d4f6b6b354fc9ef275a2cec8b5f2b869",
+      "htmlBytes": 1935577,
+      "evidenceBytes": 1189403,
+      "sources": 31,
+      "lines": [
+        {
+          "id": "long",
+          "lines": 40001
+        },
+        {
+          "id": "other-0",
+          "lines": 1
+        },
+        {
+          "id": "other-1",
+          "lines": 1
+        },
+        {
+          "id": "other-2",
+          "lines": 1
+        },
+        {
+          "id": "other-3",
+          "lines": 1
+        },
+        {
+          "id": "other-4",
+          "lines": 1
+        },
+        {
+          "id": "other-5",
+          "lines": 1
+        },
+        {
+          "id": "other-6",
+          "lines": 1
+        },
+        {
+          "id": "other-7",
+          "lines": 1
+        },
+        {
+          "id": "other-8",
+          "lines": 1
+        },
+        {
+          "id": "other-9",
+          "lines": 1
+        },
+        {
+          "id": "other-10",
+          "lines": 1
+        },
+        {
+          "id": "other-11",
+          "lines": 1
+        },
+        {
+          "id": "other-12",
+          "lines": 1
+        },
+        {
+          "id": "other-13",
+          "lines": 1
+        },
+        {
+          "id": "other-14",
+          "lines": 1
+        },
+        {
+          "id": "other-15",
+          "lines": 1
+        },
+        {
+          "id": "other-16",
+          "lines": 1
+        },
+        {
+          "id": "other-17",
+          "lines": 1
+        },
+        {
+          "id": "other-18",
+          "lines": 1
+        },
+        {
+          "id": "other-19",
+          "lines": 1
+        },
+        {
+          "id": "other-20",
+          "lines": 1
+        },
+        {
+          "id": "other-21",
+          "lines": 1
+        },
+        {
+          "id": "other-22",
+          "lines": 1
+        },
+        {
+          "id": "other-23",
+          "lines": 1
+        },
+        {
+          "id": "other-24",
+          "lines": 1
+        },
+        {
+          "id": "other-25",
+          "lines": 1
+        },
+        {
+          "id": "other-26",
+          "lines": 1
+        },
+        {
+          "id": "other-27",
+          "lines": 1
+        },
+        {
+          "id": "other-28",
+          "lines": 1
+        }
+      ]
+    }
+  },
+  "headroom": "Rounded budgets from exploratory maxima (~135ms small,1000ms large,82ms citation,90ms search,730MB peak) allow runner variation; frozen before qualification, never relaxed on failure."
+}
