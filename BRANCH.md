@@ -534,6 +534,11 @@ M17 now runs unchanged in mandatory Node 22/24 companion jobs. Same-run,
 same-attempt, same-checkout, exact-Node proofs are sealed after real cleanup.
 Consumers fail closed on producer failure and on any missing or invalid proof;
 full discovery and the unchanged combined inventory verifier remain required.
+The standalone producer has a measured 1350s infrastructure backstop inside
+its fixed 25-minute job; the normal Node suite remains at 1200s. Node22 reached
+1201/1250 at the former 1200s cap; Node24 completed. Product deadlines and
+all mutations/assertions stay intact. Controlled-clock teardown covers eight
+real owned children and cannot publish acceptance on timeout.
 Default local npm test still runs M17; the bulk pool waits for other protocols.
 See docs/specs/SPEC_VOL_M17_CI_PARTITION.md for decisions and review limits.
 Individual deadlines and G0/G1 assertions stay intact. CI shows useful work
