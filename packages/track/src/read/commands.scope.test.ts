@@ -145,12 +145,13 @@ describe('report --scope', () => {
     const rendered = out.join('')
     expect(code).toBe(0)
     const printed = rendered.match(/^commande : (?<command>.+)$/mu)?.groups?.['command']
-    expect(printed).toBe('track report --scope WP1 --resolve <handle>')
+    const cursor = new TrackReader(eventsPath).reportSnapshot(options).cursor
+    expect(printed).toBe(`track report --scope WP1 --now 2026-07-29T00:00:00.000Z --commit c1 --expect-events ${cursor.count} --expect-head ${cursor.head} --resolve <handle>`)
 
     const resolved: string[] = []
     const [binary, ...printedArgs] = printed!.replace('<handle>', '[1.1]').split(' ')
     expect(binary).toBe('track')
-    const resolveCode = runCli([...printedArgs, '--commit', 'c1'], {
+    const resolveCode = runCli(printedArgs, {
       cwd: dir,
       out: (line) => resolved.push(line),
       err: () => undefined,
@@ -203,6 +204,6 @@ describe('report --scope', () => {
     const projection = projectReportScope(reader.report(options), ' PADDED ')
 
     expect(projection.scope).toMatchObject({ id: padded, selector: ' PADDED ' })
-    expect(reportText(reader, options, 'text', NOW, false, ' PADDED ')).toContain("track report --scope ' PADDED ' --resolve <handle>")
+    expect(reportText(reader, options, 'text', NOW, false, ' PADDED ')).toContain(`track report --scope ' PADDED ' --now ${NOW} --commit c1 --expect-events`)
   })
 })

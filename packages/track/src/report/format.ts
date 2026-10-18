@@ -3,6 +3,7 @@ import type { DecisionRow, Report, ReportItemFacts, ReportRow } from './build.js
 import type { WpLeaf, WpNode } from './rollup.js'
 import { resolveStageStatusLabels } from './stage-status-lexicon.js'
 import { STATUS_HEALTH, type StatusCode } from './stage-status.js'
+import type { StatusProposalView } from './audit.js'
 import {
   buildDirectives,
   decisionNeedsFocus,
@@ -700,6 +701,8 @@ export interface ReportView {
   /** Criterion 10b — every actionable row's handle, and what it resolves to. */
   handles: readonly ReportHandle[]
   coverage: ReportCoverage
+  /** Contextual serving metadata; absent on the uninstructed deterministic projection. */
+  proposals?: StatusProposalView['proposals']
   /**
    * The actionable directives rendered by this conductor. `directivesProjection` names their meaning and
    * canonical urgency ordering so they cannot be confused with SnapshotV1's rule-derived fact projection.
@@ -999,20 +1002,25 @@ export function auditNextActions(descriptors: readonly NextActionAuditDescriptor
 
 /**
  * Amendment D10 — describe rendered À-FAIRE rows as audit descriptors. The
- * renderer's markers map to their machine states; any other text maps to an
- * UNCERTIFIED `investigated` row (action without origin): a translated
- * placeholder still fails the serving audit, exactly as required, because no
- * translated words are recognised here.
+ * serving layer supplies instruction/origin metadata. Missing metadata owes
+ * investigation regardless of the text's language; no prose is classified.
  */
 export function describeRowNextActions(rows: readonly Record<string, string>[]): NextActionAuditDescriptor[] {
   return rows.map((row) => {
     const focus = row['focus'] === 'true'
     const next = row['nextAction'] ?? ''
-    if (next === NEXT_ACTION_TO_INSTRUCT) return { focus, instruction: 'to-instruct' as const }
-    if (next === NEXT_ACTION_NOT_INSTRUCTED) return { focus, instruction: 'not-instructed' as const }
-    if (next === NEXT_ACTION_STRUCTURE_DOSSIER) return { focus, instruction: 'structure-dossier' as const }
-    if (next === NO_ACTION) return { focus, instruction: 'none-owed' as const }
-    return { focus, instruction: 'investigated' as const, action: next }
+    const value = row['instruction']
+    const instruction: NextActionInstruction =
+      value === 'investigated' || value === 'not-instructed' || value === 'structure-dossier' || value === 'none-owed'
+        ? value : 'to-instruct'
+    const origin = row['actionOrigin']
+    return {
+      focus,
+      instruction,
+      ...(instruction === 'investigated' ? { action: next } : {}),
+      ...(origin === 'investigated' || origin === 'gate-class' ? { actionOrigin: origin } : {}),
+      ...(row['gateSteps'] !== undefined ? { gateSteps: row['gateSteps'].split(',').filter(Boolean) } : {}),
+    }
   })
 }
 
@@ -1121,6 +1129,7 @@ function compactRefs(refs: readonly string[]): string {
 export interface ConductorMeta {
   /** The acceptance baseline the report is judged against — NOT a reporting window (criterion 1). */
   baselineCommit?: string
+  requireAccepted?: boolean
   /** ISO timestamp of the FIRST recorded event — the window's lower bound (criterion 21). */
   logFrom?: string
   /** ISO timestamp of the LAST recorded event — the fallback upper bound when no clock is injected. */
@@ -1205,6 +1214,14 @@ export function handleCommandFor(meta: ConductorMeta): string {
     }
   }
   if (meta.subWp === true) parts.push('--sub-wp')
+  const clock = meta.now ?? meta.periodWindow?.to ?? meta.logTo
+  if (clock !== undefined) parts.push(`--now ${shellArgument(clock)}`)
+  if (meta.baselineCommit !== undefined) parts.push(`--commit ${shellArgument(meta.baselineCommit)}`)
+  if (meta.requireAccepted === true) parts.push('--require-accepted')
+  if (meta.journalRevision !== undefined) {
+    parts.push(`--expect-events ${meta.journalRevision.events}`)
+    if (meta.journalRevision.head !== null) parts.push(`--expect-head ${shellArgument(meta.journalRevision.head)}`)
+  }
   parts.push('--resolve <handle>')
   return parts.join(' ')
 }
@@ -1334,6 +1351,7 @@ export function buildWpConductorView(
     else attached.push(directive)
   }
   const urgencyIndex = new Map(directives.map((d, i) => [d.id, i]))
+  const stepByDirectiveId = new Map(directives.map(d => [d.id, d.step.code]))
 
   /**
    * Criterion 7 + 19 — `bloqué` names the ANSWER that unblocks (a D-number) when the gate is a dossier,
@@ -1521,9 +1539,6 @@ export function buildWpConductorView(
   // withdrawal with a live gate) is NOT duplicated: its status comes from
   // the shared derivation. Notices never touch legacy bucket/tally rules and
   // are never counted a second time in active/delivered totals.
-  const renderedIds = new Set(
-    [...wpTodoDrafts, ...horsWpDrafts].flatMap((draft) => draft.items.map((item) => item.id)),
-  )
   const containerLabel = (containerId: string): string | undefined => {
     const walk = (nodes: readonly WpNode[]): WpNode | undefined => {
       for (const node of nodes) {
@@ -1538,11 +1553,16 @@ export function buildWpConductorView(
   }
   const noticeDrafts: TodoDraft[] = []
   for (const notice of meta.withdrawnNotices ?? []) {
-    if (renderedIds.has(notice.id)) continue
+    const existing = [...wpTodoDrafts, ...horsWpDrafts, ...noticeDrafts].flatMap(draft => draft.items).filter(item => item.id === notice.id)
+    const reason = notice.reason === undefined ? 'retiré — motif non enregistré' : `retiré : ${notice.reason}`
+    if (existing.length > 0) {
+      for (const item of existing) item.excerpt = reason
+      continue
+    }
     const item: TodoItem = {
       id: notice.id,
       title: clean(notice.title),
-      excerpt: notice.reason === undefined ? 'retiré — motif non enregistré' : `retiré : ${notice.reason}`,
+      excerpt: reason,
     }
     const host = [...wpTodoDrafts, ...horsWpDrafts, ...noticeDrafts].find((draft) =>
       notice.containerId !== undefined && draft.nodeIds.includes(notice.containerId),
@@ -1569,7 +1589,6 @@ export function buildWpConductorView(
         order: '09997',
       })
     }
-    renderedIds.add(notice.id)
   }
 
   const orderedDrafts = [...wpTodoDrafts, ...horsWpDrafts, ...noticeDrafts].sort((a, b) =>
@@ -1598,7 +1617,9 @@ export function buildWpConductorView(
       const outside = isOutsideWp(item.id) ? ' (outside-wp)' : ''
       if (outside !== '') outsideIds.add(item.id)
       const excerpt = item.excerpt === undefined ? '' : `\n↳ extrait : ${item.excerpt}`
-      return `[${handle}] ${item.title}${note}${outside}${excerpt}`
+      const source = meta.itemFacts?.[item.id]?.requestSource
+      const request = source?.provenance === 'demand-raw' ? `\n↳ source (demand-raw): ${source.text}` : ''
+      return `[${handle}] ${item.title}${note}${outside}${excerpt}${request}`
     })
     const stageLines = draft.items.map((item, itemIndex) => stageCell(item.id, `${rowIndex + 1}.${itemIndex + 1}`))
     const statusLines = draft.items.map((item, itemIndex) => statusCell(item.id, `${rowIndex + 1}.${itemIndex + 1}`))
@@ -1609,6 +1630,9 @@ export function buildWpConductorView(
         : rowIndex < FOCUS_ROWS
           ? NEXT_ACTION_TO_INSTRUCT
           : NEXT_ACTION_NOT_INSTRUCTED)
+    const instruction: NextActionInstruction = draft.fixedNextAction !== undefined
+      ? (draft.gatedOnDecision || draft.items.length === 0 || draft.fixedNextAction === NO_ACTION ? 'none-owed' : 'structure-dossier')
+      : draft.items.length === 0 ? 'none-owed' : rowIndex < FOCUS_ROWS ? 'to-instruct' : 'not-instructed'
     return {
       wp: draft.wp,
       progress: draft.progress,
@@ -1617,9 +1641,11 @@ export function buildWpConductorView(
       todo: cells.join('\n'),
       blocked: draft.blocked,
       nextAction,
+      instruction,
       directiveIds: draft.directiveIds,
       gateDetail: draft.gateDetail,
       gateStep: draft.gateStep,
+      gateSteps: [...new Set(draft.directiveIds.split(',').flatMap(id => stepByDirectiveId.get(id) ?? []))].join(','),
       focus: rowIndex < FOCUS_ROWS ? 'true' : 'false',
     }
   })
@@ -1629,7 +1655,7 @@ export function buildWpConductorView(
 
   const todoRows = orderedTodo.length > 0
     ? orderedTodo
-    : [{ wp: '—', progress: 'n/a', stage: '—', status: '—', todo: 'aucun WP ouvert', blocked: NO_GATE, nextAction: NO_ACTION, directiveIds: '' }]
+    : [{ wp: '—', progress: 'n/a', stage: '—', status: '—', todo: 'aucun WP ouvert', blocked: NO_GATE, nextAction: NO_ACTION, instruction: 'none-owed', directiveIds: '' }]
 
   // ---- DÉCISIONS ----------------------------------------------------------------------------------
   // Criterion 23 — pending, answerable dossiers ONLY. Nothing else.

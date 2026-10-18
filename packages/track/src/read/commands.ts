@@ -78,14 +78,14 @@ function periodProjection(
 /**
  * `report` rendered exactly as the CLI renders it (SPEC §7).
  *
- * Default for text/md (0.19.1): a directive action report — WP/table conductor when a WP forest exists,
- * deterministic action/decision fallback otherwise. Use `--flat` to force the deprecated legacy bucket dump.
+ * Default for text/md: the four-section conductor, including outside-WP work
+ * when the forest is empty. Use `--flat` to force the deprecated legacy bucket dump.
  * JSON stays the flat structured contract unless `--wp` is explicit.
  *
  * The conductor renders deterministic FAIT / À-FAIRE / ACTIONS DÉRIVÉES tables for `text`/`md`.
  * For `json` the contract is UNCHANGED from 0.19.0: the additive `{...report, wpTotals}` flat structure
  * (so existing machine consumers keep working), PLUS an OPTIONAL `view` field carrying the conductor view
- * model (for presentation skills). If no WP forest exists, text/md falls back to the deterministic action view.
+ * model (for presentation skills), also when no WP containers exist.
  */
 /**
  * Criterion 21 — the window bounds the LOG carries, plus the caller's clock when it injected one. This
@@ -111,6 +111,7 @@ function conductorMeta(
   const revision = snapshot.cursor
   return {
     baselineCommit: options.baselineCommit,
+    ...(options.requireAccepted === true ? { requireAccepted: true } : {}),
     ...(window.from !== undefined ? { logFrom: window.from } : {}),
     ...(window.to !== undefined ? { logTo: window.to } : {}),
     journalRevision: { events: revision.count, head: revision.head },
@@ -140,9 +141,7 @@ function conductorMeta(
 function withdrawalServing(
   snapshot: ReportSnapshot,
   report: Report,
-  selection: ReportPeriodSelection | undefined,
-  now: string | undefined,
-  baselineCommit: string,
+  period: ReportPeriodPayload,
 ): { itemFacts: ConductorMeta['itemFacts']; withdrawnNotices?: WithdrawalNotice[]; withdrawnOmitted?: ReportOmission[] } {
   const itemFacts = report.itemFacts
   const candidates = report.withdrawals ?? []
@@ -150,10 +149,8 @@ function withdrawalServing(
   const state = fold(snapshot.events)
   const inScope = new Set<string>()
   for (const bucket of BUCKETS) for (const row of report.buckets[bucket]) inScope.add(row.id)
-  const fromMs = selection?.from === undefined ? Number.NEGATIVE_INFINITY : Date.parse(selection.from)
-  const toMs = selection?.to === undefined || now === undefined
-    ? Number.POSITIVE_INFINITY
-    : Math.max(Date.parse(selection.to), Date.parse(now))
+  const fromMs = period.from === undefined ? Number.NEGATIVE_INFINITY : Date.parse(period.from)
+  const toMs = period.to === undefined ? Number.POSITIVE_INFINITY : Date.parse(period.to)
   const inWindow = (at: string): boolean => {
     const ms = Date.parse(at)
     return ms >= fromMs && ms <= toMs
@@ -168,7 +165,7 @@ function withdrawalServing(
     }
     if (event.type === 'decision.outcome') {
       const to = (event.payload as { to?: string }).to
-      if (to === 'go' || to === 'no-go' || to === 'deferred') {
+      if (to === 'go' || to === 'no-go') {
         const decision = state.decisions.get(event.aggregateId)
         for (const targetId of decision?.targets ?? []) {
           settlementsInWindow.set(targetId, (settlementsInWindow.get(targetId) ?? 0) + 1)
@@ -296,8 +293,7 @@ export function reportText(
   lang?: string,
 ): string {
   assertReportFormat(format)
-  void statusTable
-  const snapshot = reader.reportSnapshot(options)
+  const snapshot = reader.reportSnapshot(statusTable ? { ...options, wpTree: true, decisions: true } : options)
   const globalReport = snapshot.report
   const scoped = scopeSelector === undefined ? undefined : projectReportScope(globalReport, scopeSelector)
   const report = scoped?.report ?? globalReport
@@ -305,32 +301,31 @@ export function reportText(
   // Amendment D3/D9/D11 — per-item conductor facts + withdrawal serving ride
   // the same meta the conductor renders from, so `--status-table` and the
   // validated route over an identical period are byte-identical.
-  const serving = withdrawalServing(snapshot, report, periodSelection, now, options.baselineCommit)
+  const serving = withdrawalServing(snapshot, report, projection.payload)
   const meta = conductorMeta(options, snapshot, now, subWp, scoped?.scope, projection, periodSelection !== undefined, { ...serving, ...(lang !== undefined ? { lang } : {}) })
   const period = reportPeriod(meta)
   const payload = reportPeriodPayload(meta)
 
-  if (options.wpTree && report.wpTree !== undefined) {
+  if ((options.wpTree && report.wpTree !== undefined) || statusTable) {
+    const tree = report.wpTree ?? []
     if (format === 'json') {
       // Machine contract preserved (0.19.0 shape) + additive optional `view` for skill rendering. WP-codes
       // A3: `--active-roster` is a HUMAN-render option only — JSON ALWAYS carries the full forest (every node
       // + its `terminal` flag) so a machine consumer filters terminal roots itself.
-      const view = report.wpTree.length > 0
-        ? buildWpConductorView(
-            report.wpTree,
-            report.decisions ?? [],
-            report.outsideRollup,
-            scoped === undefined ? 'global' : `${scoped.scope.label} (sous-arbre)`,
-            meta,
-          )
-        : undefined
-      return `${JSON.stringify({ ...report, period: payload, wpTotals: wpTotals(report.wpTree, report.outsideRollup), ...(view !== undefined ? { view } : {}) }, null, 2)}\n`
+      const view = buildWpConductorView(
+        tree,
+        report.decisions ?? [],
+        report.outsideRollup,
+        scoped === undefined ? 'global' : `${scoped.scope.label} (sous-arbre)`,
+        meta,
+      )
+      return `${JSON.stringify({ ...report, period: payload, wpTotals: wpTotals(tree, report.outsideRollup), view }, null, 2)}\n`
     }
     // text/md: the rendered conductor tables when there is an actual WP forest. WP-codes A3 (DESIGN §A3) —
     // `--active-roster` OMITS terminal (DROPPED) ROOTS from the rendered roster. The ordinals were assigned in
     // `computeWpTree` over ALL roots, so the survivors keep their `WP<n>`/code (a gap appears) — no re-pack.
-    const roster = options.activeRoster === true ? report.wpTree.filter((n) => n.terminal !== true) : report.wpTree
-    if (roster.length > 0) {
+    const roster = options.activeRoster === true ? tree.filter((n) => n.terminal !== true) : tree
+    if (roster.length > 0 || options.activeRoster !== true) {
       return formatWpConductor(
         roster, format, report.decisions, report.outsideRollup,
         options.activeRoster === true ? 'roster actif (terminal exclu)' : scoped === undefined ? 'global' : `${scoped.scope.label} (sous-arbre)`,
@@ -426,11 +421,9 @@ export function resolveHandle(
   const globalReport = snapshot.report
   const scoped = scopeSelector === undefined ? undefined : projectReportScope(globalReport, scopeSelector)
   const report = scoped?.report ?? globalReport
-  const projection = ctx.periodSelection === undefined
-    ? undefined
-    : periodProjection(snapshot, ctx.periodSelection, ctx.now)
+  const projection = periodProjection(snapshot, ctx.periodSelection, ctx.now)
   void statusTable
-  const serving = withdrawalServing(snapshot, report, ctx.periodSelection, ctx.now, options.baselineCommit)
+  const serving = withdrawalServing(snapshot, report, projection.payload)
   const meta = conductorMeta(
     options, snapshot, ctx.now, ctx.subWp, scoped?.scope, projection, ctx.periodSelection !== undefined, serving,
   )
