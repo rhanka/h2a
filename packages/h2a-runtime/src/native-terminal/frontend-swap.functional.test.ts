@@ -129,7 +129,10 @@ process.stdin.on('data',b=>{fs.appendFileSync(${JSON.stringify(bytesPath)},b);pr
   const stdout = { columns: 80, rows: 24, write: (s: string) => { output.push(s); return true; } };
   const attach = () => {
     const result = runAttach("cli", {
-      connect: async () => { const c = await connect(proxyPath, 150); connected++; return c; },
+      // Use the fixture's ordinary transport budget for control operations.
+      // Only the selected write ACK is withheld; it must still reach the real
+      // client's timeout and recover through D21, on both Linux and Darwin.
+      connect: async () => { const c = await connect(proxyPath); connected++; return c; },
       stdin: input as unknown as NodeJS.ReadStream, stdout: stdout as unknown as NodeJS.WriteStream,
       now: Date.now, delay: ms => delay(Math.min(ms, 20)), onResize: fn => { resize = fn; }, offResize() {},
     });

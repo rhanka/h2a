@@ -316,6 +316,9 @@ test("performAutoUpgrade R2: an old, undatable-live lock is surfaced (diagnostic
     const rec = JSON.parse(readFileSync(lockFile, "utf8"));
     lease.release();
     rec.timeNs = null; // proc start no longer comparable ⇒ live is undatable
+    // Darwin's absolute ps birth needs no time namespace. A foreign source
+    // supplies the same undatable-live premise there, without changing locks.
+    if (rec.start?.startsWith("ps:")) rec.start = "proc:1";
     rec.at = NOW - (STALE_LOCK_ALERT_MS + 60_000); // older than the alert threshold, on the fake clock
     writeFileSync(lockFile, JSON.stringify(rec), "utf8");
 
@@ -353,6 +356,7 @@ test("performAutoUpgrade R2 negative: a young busy lock stays quiet skipped-lock
     const rec = JSON.parse(readFileSync(lockFile, "utf8"));
     lease.release();
     rec.timeNs = null; // undatable...
+    if (rec.start?.startsWith("ps:")) rec.start = "proc:1";
     rec.at = NOW - 1000; // ...but held only ~1s: well under the threshold
     writeFileSync(lockFile, JSON.stringify(rec), "utf8");
     const { runtime } = stagedFake({
@@ -371,8 +375,8 @@ test("performAutoUpgrade R2 negative: a young busy lock stays quiet skipped-lock
 // N6(d): an OLD lock whose holder is DATABLE (its start time is comparable — a healthy,
 // confirmed live process) must NOT raise the stale outcome. The alert targets only the
 // undatable case (a reused PID could mask a dead holder); a confirmed-live holder, however
-// long it holds, is not that case — no false alarm on a healthy Linux host.
-test("performAutoUpgrade R2 negative: an old but DATABLE-live lock stays quiet skipped-locked", (t) => {
+// long it holds, is not that case — no false alarm on a healthy qualified host.
+test("performAutoUpgrade R2 negative: an old but DATABLE-live lock stays quiet skipped-locked", () => {
   const prefix = mkdtempSync(join(tmpdir(), "h2a-r2d-"));
   const lockFile = join(prefix, ".h2a-upgrade.lock");
   try {
@@ -381,14 +385,13 @@ test("performAutoUpgrade R2 negative: an old but DATABLE-live lock stays quiet s
     assert.equal(lease.acquired, true);
     const rec = JSON.parse(readFileSync(lockFile, "utf8"));
     lease.release();
-    // This test needs a DATABLE holder: a proc-sourced start on a kernel with a readable
-    // time namespace. On a kernel < 5.6 / gVisor / non-Linux the start is undatable, so the
-    // "datable ⇒ quiet" premise does not hold — skip rather than false-fail (CI is ubuntu).
-    if (rec.timeNs === null || typeof rec.start !== "string" || !rec.start.startsWith("proc:")) {
-      t.skip("holder start is not datable on this kernel (no comparable time namespace)");
-      return;
-    }
-    // Keep the real proc start AND the real timeNs (comparable ⇒ datable), just age it.
+    // Linux proc births require a comparable time namespace; Darwin ps births
+    // are absolute and need none. Missing proof fails qualification visibly.
+    assert.ok(typeof rec.start === "string" &&
+      ((process.platform === "darwin" && rec.start.startsWith("ps:")) ||
+       (process.platform === "linux" && rec.start.startsWith("proc:") && rec.timeNs !== null)),
+      "qualified platform must supply a datable live holder");
+    // Keep the real birth and frame, just age the record.
     rec.at = NOW - (STALE_LOCK_ALERT_MS + 60_000);
     writeFileSync(lockFile, JSON.stringify(rec), "utf8");
     const { runtime } = stagedFake({
