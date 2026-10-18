@@ -46,10 +46,8 @@ lane and additional standalone workflow steps retain their existing timing
 logs; they are not included in this report-based ranking.
 
 Investigate warnings and job-time growth before raising this budget again.
-Sharding is deferred here because the independent trust root pins the complete
-production invocation and its execution proof. Splitting that contract needs
-its own proof of exhaustive shard coverage; extending the measured job budget
-does not change it.
+The 0.98.8 lane partitions the complete M17 campaign as described below.
+The complete discovery and execution inventory remains mandatory.
 
 The 0.98.8 lane adds a 10,000-mutation-per-domain backend campaign. On the
 shared runner disk it still exceeded the 1,200-second Node backstop, reaching
@@ -58,7 +56,7 @@ unchanged five-second kernel-lock deadline. The private eight-actor diagnostic
 with 400 mutations per domain took 25.2 seconds on disk and 6.1 seconds on
 tmpfs. It is a diagnostic, not the full stress acceptance.
 
-Both Linux integration jobs now create an invocation-owned, 1 GiB tmpfs data
+The two dedicated Linux M17 qualification jobs create an invocation-owned, 1 GiB tmpfs data
 volume for M17 alone. The real APIs, eight actors, 10,000 acknowledgements,
 per-domain totals, fresh quota checks, journal verification, kernel-lock
 boundaries and all assertions are unchanged. Invalid configured directories
@@ -69,12 +67,36 @@ unmounts and removes only that temporary directory. This qualifies concurrency
 on tmpfs; it does not claim power-loss persistence or performance on disk.
 Other tests and packaging continue using their ordinary private disk fixtures.
 
-The 36-process identity startup file runs before the backend campaign, with
-its original cohort size and handshake deadlines. All four cold files finish
-before the overlapping backend/protocol phase; package work still waits for
-the remaining protocol barrier. CI jobs remain capped at 25 minutes.
+The remaining Node suites retain the four cold qualifications, protocol/bulk
+barrier, original assertions and 1200-second outer backstop. M17 executes the
+original file alone with that same backstop, eight simultaneous actors and
+1250 iterations per actor. No test case is filtered or shortened. Each job
+remains capped at 25 minutes.
 
-Required check names remain **`build-and-test (ubuntu-latest, 22)`**,
-**`build-and-test (ubuntu-latest, 24)`**, and **`npm-test-trust-root`**.
-No branch-protection update is needed. All other jobs and their budgets remain
-unchanged; no suite, assertion, platform or runtime is removed by this change.
+The Node 22 and Node 24 producers publish a closed execution envelope only
+after the real temporary volume and private process state have been removed
+and every recorded PID/birth has stopped. Its immutable artifact name includes
+workflow run, attempt and Node. Consumers compare repository, workflow, run,
+attempt, actual checkout SHA, exact Node version, architecture and source input
+hashes, and require a clean tracked checkout. The SHA binds all tracked runtime,
+helper and build inputs; the supplementary hashes do not replace that binding.
+The exact M17 case must pass once, with 10000 ACK, zero duplicates, all seven
+domains complete, eight actors and the observed kernel locks. A provisional,
+missing, stale, malformed, failed or skipped report is rejected.
+
+Default npm test still executes every local file. Only explicit GitHub proof
+mode partitions M17 after complete discovery. The local/external sets must be
+disjoint and exhaustive; their merged report passes the unchanged complete
+inventory verifier. Import configuration is removed from test descendants.
+Existing required jobs run with always() and explicitly fail if either producer
+fails or is cancelled, so a skipped dependency cannot manufacture a green check.
+The trust root still runs its direct wiring guard outside the production runner.
+
+Required check names remain **build-and-test (ubuntu-latest, 22)**,
+**build-and-test (ubuntu-latest, 24)**, and **npm-test-trust-root**. Two additional
+**m17-qualification (22/24)** jobs are mandatory through those fail-closed
+consumers; no branch-protection change is required. There are two actual M17
+campaigns per PR: the Node 22 result is shared by two consumers. This proves
+the same test on the same code, but no longer measures M17 under contention
+from other suites or on the same machine as those suites. Run provenance is
+not protection against maliciously changed source in the tested commit.
