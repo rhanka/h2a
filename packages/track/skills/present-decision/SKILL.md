@@ -96,3 +96,13 @@ Record when `.track/` exists or the owner approves tracking:
   Never record a bridge/relay principal as the human decider.
 
 This is the agent's human-facing method; h2a negotiations remain inter-agent. Existing repo methods win.
+# Embedded supporting evidence
+
+When pieces are needed, use the freshly built checkout's `focus template --evidence`
+and `focus build` chain. Its explicit `schemaVersion: 2` preserves original embedded
+bytes, typed citations and separate annexes. Never hand-edit the generated renderer
+or geometry. Keep decisions and material risks in the primary path; summaries count
+against the reading budget, raw evidence volume is disclosed separately. Validate
+and exercise offline navigation/search/download/back before presentation. Inspect
+the actual H1 capability manifest; DS in-canvas controls belong to H2/H3 delivery.
+
