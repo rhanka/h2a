@@ -39,6 +39,8 @@ export type OptionAnnotationState = "none" | "accept" | "reject" | "comment";
 interface FocusNodeBase {
   readonly id: string;
   readonly targetRef: TargetRef;
+  /** v2 only; the legacy closed validator refuses this field. */
+  readonly citationRefs?: readonly string[];
 }
 
 /** Markdown prose body. The renderer injects the markdown→string conversion (host hook). */
@@ -220,7 +222,7 @@ export interface DossierReadability {
  * decision. Maps to track `DecisionDossierView{outcome,dossier,comprehensionEvidence}` +
  * `amendmentTrace` (wired for real at L2).
  */
-export interface DecisionDossierDocument {
+export interface DecisionDossierDocumentV1 {
   readonly ref: FocusRef;
   readonly subject: string;
   readonly title: string;
@@ -240,3 +242,52 @@ export interface DecisionDossierDocument {
    */
   readonly readability?: DossierReadability;
 }
+
+/** Original bytes are stored once. Origin is provenance data, never a reader fetch. */
+export interface EvidenceSource {
+  readonly id: string;
+  readonly title: string;
+  readonly origin: { readonly uri: string } | { readonly repo: string; readonly revision: string; readonly path: string };
+  readonly mediaType: string;
+  readonly encoding: 'base64';
+  readonly data: string;
+  readonly sha256: string;
+  readonly size: number;
+  readonly width?: number;
+  readonly height?: number;
+  readonly alt?: string;
+}
+export interface EvidenceCitation {
+  readonly id: string;
+  readonly sourceId: string;
+  readonly label: string;
+  /** Lines are 1-based, inclusive; CRLF is one separator; trailing empty line counts. */
+  readonly locator: { readonly kind: 'lines'; readonly start: number; readonly end: number }
+    | { readonly kind: 'image'; readonly caption: string };
+}
+export interface EvidenceGroup {
+  readonly id: string;
+  readonly summary: string;
+  readonly citationRefs: readonly string[];
+  readonly sourceRefs: readonly string[];
+}
+export type AnnexBlock = { readonly kind: 'text' | 'code'; readonly text: string; readonly language?: string }
+  | { readonly kind: 'table'; readonly columns: readonly string[]; readonly rows: readonly (readonly string[])[] }
+  | { readonly kind: 'references'; readonly citationRefs: readonly string[] };
+export interface EvidenceAnnex {
+  readonly id: string;
+  readonly title: string;
+  readonly summary: string;
+  readonly blocks: readonly AnnexBlock[];
+  readonly backRefs: readonly string[];
+}
+export interface DecisionDossierDocumentV2 extends DecisionDossierDocumentV1 {
+  readonly schemaVersion: 2;
+  readonly sources: readonly EvidenceSource[];
+  readonly citations: readonly EvidenceCitation[];
+  readonly evidenceGroups: readonly EvidenceGroup[];
+  readonly annexes: readonly EvidenceAnnex[];
+}
+export type DecisionDossierDocument = DecisionDossierDocumentV1 | DecisionDossierDocumentV2;
+export const isEvidenceDossier = (doc: DecisionDossierDocument): doc is DecisionDossierDocumentV2 =>
+  'schemaVersion' in doc && doc.schemaVersion === 2;
