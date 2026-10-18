@@ -9,6 +9,7 @@
  * this stays a pure string builder with no ANSI/color side effects.
  */
 import { preparePresentation } from "./presentation.js";
+import { evidenceIndex } from './evidence.js';
 const rule = (width) => "=".repeat(Math.max(8, width));
 const renderQuestion = (q) => {
     const lines = [`Q: ${q.question}  [${q.state}]`];
@@ -86,6 +87,8 @@ export const renderTerminal = (doc, opts = {}) => {
         blocks.push(renderNode(node));
     }
     blocks.push(renderAmendmentTrace(doc.amendmentTrace));
+    if (evidenceIndex(doc))
+        blocks.push(evidenceIndex(doc));
     const affordances = renderAffordances(doc.interactions);
     if (affordances !== "")
         blocks.push(affordances);
