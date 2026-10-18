@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { statSync } from "node:fs";
 import { connect, createServer, type Server, type Socket } from "node:net";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -50,15 +51,21 @@ type FrontendArgs = {
   socketPath: string | undefined;
   ownerSocket: string;
   listenFd: number | undefined;
+  upgradeToken: string | undefined;
 };
 
 function parseFrontendArgs(argv: ReadonlyArray<string>): FrontendArgs {
   let socketPath: string | undefined;
   let ownerSocket: string | undefined;
   let listenFd: number | undefined;
+  let upgradeToken: string | undefined;
   for (let index = 2; index < argv.length; index += 1) {
     const flag = argv[index];
     const value = argv[index + 1];
+    if (flag === "--upgrade-token") {
+      if (!value) throw new Error("--upgrade-token requires a token");
+      upgradeToken = value; index += 1; continue;
+    }
     if (flag === "--socket") {
       if (!value) throw new Error("--socket requires a path");
       socketPath = value;
@@ -89,7 +96,7 @@ function parseFrontendArgs(argv: ReadonlyArray<string>): FrontendArgs {
   if (socketPath !== undefined && listenFd !== undefined) {
     throw new Error("frontend takes either --socket or --listen-fd, never both");
   }
-  return { socketPath, ownerSocket, listenFd };
+  return { socketPath, ownerSocket, listenFd, upgradeToken };
 }
 
 type OwnerHello = {
@@ -190,6 +197,8 @@ export async function runNativeTerminalFrontend(argv: ReadonlyArray<string>): Pr
   const onListenerFailure = (failure: NativeTerminalListenerFailure): void => {
     writeHostLogLine(`terminal frontend listener failure: ${failure.kind}`);
     const exitCode = failure.kind === "unknown" ? 3 : 0;
+    // The keeper still holds this listener. Retiring a failed serving copy
+    // must preserve its published inode/backlog for the next frontend.
     void closeServing(false).finally(() => process.exit(exitCode));
   };
 
@@ -406,6 +415,10 @@ export async function runNativeTerminalFrontend(argv: ReadonlyArray<string>): Pr
         void closeServing(true).finally(() => process.exit(0));
         return;
       }
+      if (frame.kind === "retire") {
+        void closeServing(false).finally(() => process.exit(0));
+        return;
+      }
     }
   });
   try {
@@ -415,6 +428,9 @@ export async function runNativeTerminalFrontend(argv: ReadonlyArray<string>): Pr
       frontendPid: process.pid,
       frontendVersion,
       frontendCodePath: frontendCodePath,
+      ownerProtocolVersion: OWNER_PROTOCOL_VERSION,
+      upgradeToken: args.upgradeToken,
+      codeIdentity: (() => { const identity = statSync(frontendCodePath); return { dev: identity.dev, ino: identity.ino }; })(),
     })}\n`);
   } catch {
     onOwnerGone("hello write failed");

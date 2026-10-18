@@ -1892,13 +1892,13 @@ export function cmdUpgrade(
   const hosts = convergeAfterExplicitUpgrade(result, flags);
   if (result.outcome === "upgraded") {
     streams.stdout.write(
-      `${JSON.stringify({ ok: true, current, latest: result.target, upgraded: true, verified: result.verifiedVersion, package: H2A_CLI_PACKAGE, hosts, ...(result.logPath ? { log: result.logPath } : {}) }, null, 2)}\n`
+      `${JSON.stringify({ ok: true, current, latest: result.target, upgraded: true, verified: result.verifiedVersion, package: H2A_CLI_PACKAGE, hosts, ...(result.pty ? { pty: result.pty } : {}), ...(result.logPath ? { log: result.logPath } : {}) }, null, 2)}\n`
     );
     return 0;
   }
   if (result.outcome === "already-current") {
     streams.stdout.write(
-      `${JSON.stringify({ ok: true, current, latest: result.target ?? current, upgraded: false, hosts, reason: "already current or registry unreachable" }, null, 2)}\n`
+      `${JSON.stringify({ ok: true, current, latest: result.target ?? current, upgraded: false, hosts, ...(result.pty ? { pty: result.pty } : {}), reason: "already current or registry unreachable" }, null, 2)}\n`
     );
     return 0;
   }
@@ -1913,7 +1913,7 @@ export function cmdUpgrade(
   }
   // skipped-locked / failed.
   streams.stdout.write(
-    `${JSON.stringify({ ok: false, current, latest: result.target, upgraded: false, outcome: result.outcome, reason: result.message, ...(result.logPath ? { log: result.logPath } : {}) }, null, 2)}\n`
+    `${JSON.stringify({ ok: false, current, latest: result.target, upgraded: result.verifiedVersion !== undefined && result.verifiedVersion === result.target, outcome: result.outcome, reason: result.message, ...(result.pty ? { pty: result.pty } : {}), ...(result.logPath ? { log: result.logPath } : {}) }, null, 2)}\n`
   );
   return 1;
 }

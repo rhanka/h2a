@@ -24,7 +24,9 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
-import test from "node:test";
+import test, { after } from "node:test";
+import { setupNativeTestEnvironment } from "./helpers/native-isolation.js";
+setupNativeTestEnvironment(after);
 
 import {
   H2A_CLI_VERB_CONTRACTS,
