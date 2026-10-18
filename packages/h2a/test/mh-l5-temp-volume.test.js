@@ -21,6 +21,14 @@ test('M17 refuses a missing configured volume instead of falling back to another
   await assert.rejects(runCampaign(2),/m17_temp_volume_invalid/);
   assert.deepEqual(fs.readdirSync(root),[]);
 });
+test('M17 refuses an explicitly empty volume instead of creating state in the working directory',async t=>{
+  const {root}=configured(t,root=>root),before=process.cwd();
+  // The negative control itself stays in a private temporary directory.
+  process.chdir(root);process.env.H2A_TEST_M17_TMPDIR='';
+  try{await assert.rejects(runCampaign(2),/m17_temp_volume_invalid/);}
+  finally{process.chdir(before);}
+  assert.deepEqual(fs.readdirSync(root),[]);
+});
 test('M17 refuses a symlink configured volume before creating backend state',async t=>{
   const {root}=configured(t,root=>{const path=join(root,'link');fs.symlinkSync(root,path);return path;});
   await assert.rejects(runCampaign(2),/m17_temp_volume_invalid/);
