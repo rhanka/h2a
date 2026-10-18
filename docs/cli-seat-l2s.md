@@ -121,3 +121,15 @@ non-renewable custody refresh. h2a now rejects both to enforce the requested
 spec invariants; this is stricter local validation, not exact upstream parity.
 No independent harness consensus was dispatched: the owner's confinement
 forbids installed/native h2a access. Only disposable fixtures were used.
+
+## Final publication check (Dernier tour)
+
+Sentropic PR #681 remains OPEN at this check. An isolated npm installation
+of the latest published cluster-mesh 0.18.0 and llm-mesh 0.26.1 confirms that
+parseCliSeatProfile, parseTokenSeatEnvelope and facade.importSeatBundle
+are all absent (three executed assertions fail, none skipped). Rebasing h2a
+cannot supply this missing upstream API. The publication reserve remains
+open; this PR must not merge with it. No fallback, guard or lock was changed.
+L1 owns publication; the subsequent h2a change must pin compatible published
+versions and pass all five providers in both cli/token modes against those
+packages, including external refresh refusal and persisted lineage.
