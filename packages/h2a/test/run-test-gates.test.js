@@ -492,10 +492,17 @@ test('CI exposes an independent, stable npm-test-trust-root job', () => {
       'npm ci',
       'npm install --global @openai/codex@0.145.0 @anthropic-ai/claude-code@2.1.296',
       'node --test packages/h2a/test/run-test-gates.test.js',
+      'node scripts/ci-m17-temp.mjs setup',
       'node scripts/run-test-gates.mjs',
+      'node scripts/ci-m17-temp.mjs cleanup',
     ],
     'the dedicated job must verify the runner and then execute its real entrypoint',
   )
+  for (const id of ['build-and-test', 'npm-test-trust-root']) {
+    const block = workflowJobBlock(CI_WORKFLOW, id)
+    assert.match(block, /- name: Prepare the private M17 data volume\n\s+run: node scripts\/ci-m17-temp\.mjs setup/)
+    assert.match(block, /- name: Remove the private M17 data volume\n\s+if: \$\{\{ always\(\) && env\.H2A_TEST_M17_TMPDIR != '' \}\}\n\s+run: node scripts\/ci-m17-temp\.mjs cleanup/)
+  }
 })
 
 test('the runner test is not discovered through the runner it verifies', () => {
