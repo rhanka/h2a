@@ -86,7 +86,9 @@ process.stdin.on('data',b=>{fs.appendFileSync(${JSON.stringify(bytesPath)},b);pr
   }
   const expand = (value: string) => value.replaceAll("{DIR}",directory).replaceAll("{HOME}",isolated.HOME!);
   let command = process.execPath, args = ["-e",program];
-  if (launch === "bash") { command = "/bin/bash"; args = ["--noprofile","--norc","-i"]; isolated.PS1 = "B5> "; isolated.PROMPT_COMMAND = ""; isolated.HISTFILE = "/dev/null"; }
+  // The guardian runs its command as a background job in one containment
+  // group. Disable Bash job control, retaining the interactive readline loop.
+  if (launch === "bash") { command = "/bin/bash"; args = ["--noprofile","--norc","-i","+m"]; isolated.PS1 = "B5> "; isolated.PROMPT_COMMAND = ""; isolated.HISTFILE = "/dev/null"; }
   else if (launch) {
     command = launch.binary; args = launch.args.map(expand);
     for (const [key,value] of Object.entries(launch.env)) {
@@ -105,9 +107,13 @@ process.stdin.on('data',b=>{fs.appendFileSync(${JSON.stringify(bytesPath)},b);pr
     await until(()=>version.exitCode!==null||version.signalCode!==null,Boolean,"version probe exit");
     const code = version.exitCode; expect(code,error).toBe(0); expect(actual.trim()).toBe(launch.version);
   }
-  const state = await admin.create({ id:"cli",command,args,cwd:directory,env:isolated,cols:80,rows:24 });
-  if (launch === undefined) await until(() => existsSync(infoPath),Boolean,"CLI ready");
-  const cliPid = state.pid;
+  // Record the exec'ed CLI, not the product guardian returned as state.pid.
+  // exec preserves this PID and birth; no conversation is relaunched.
+  const state = await admin.create({ id:"cli",command:"/bin/bash",args:["--noprofile","--norc","-c",
+    "printf '{\"pid\":%s}\\n' \"$$\" > \"$1\"; shift; exec \"$@\"","b5-exec",infoPath,command,...args],
+    cwd:directory,env:isolated,cols:80,rows:24 });
+  await until(() => existsSync(infoPath),Boolean,"CLI exec receipt");
+  const cliPid = JSON.parse(readFileSync(infoPath,"utf8")).pid;
   const cliBirth = readProcessStartTime(cliPid), ownerBirth = readProcessStartTime(owner.pid!);
   expect(cliBirth).toBeDefined(); expect(ownerBirth).toBeDefined();
   appendFileSync(receipts,JSON.stringify({pid:cliPid,birth:cliBirth})+"\n");
@@ -230,7 +236,7 @@ try { cohort = enrollment(); } catch (error) { enrollmentError = error; }
 
 async function identities(f: Awaited<ReturnType<typeof fixture>>) {
   const client = await f.connect();
-  expect((await client.state("cli")).pid).toBe(f.cliPid);
+  expect((await client.state("cli")).pid).toBe(f.state.pid);
   expect((await client.ping()).hostPid).toBe(f.owner.pid);
   expect(readProcessStartTime(f.cliPid)).toBe(f.cliBirth);
   expect(readProcessStartTime(f.owner.pid!)).toBe(f.ownerBirth);
@@ -274,7 +280,14 @@ async function conversation(cut: Exclude<Cut,undefined>, cli?: EnrolledCli) {
 describe("Phase B agent qualification (B5)", () => {
   it("should preserve a real interactive shell session across a frontend upgrade", async () => {
     const f=await fixture(undefined,"bash"),attached=f.attach();
-    await until(()=>f.output.join(""),text=>/bash-[^\n]*[$#] /.test(text)||text.includes("B5> "),"interactive Bash/readline prompt");
+    await until(()=>f.output.join(""),text=>/bash-[^\n]*[$#] /.test(text)||text.includes("B5> "),"interactive Bash/readline prompt").catch(async error=>{
+      let ownedProcess = "identity no longer matches";
+      if(readProcessStartTime(f.cliPid)===f.cliBirth) {
+        const ps = spawn("/bin/ps",["-p",String(f.cliPid),"-o","pid=,ppid=,pgid=,stat=,comm="],{env:process.env,stdio:["ignore","pipe","pipe"]});
+        ownedProcess="";ps.stdout!.on("data",chunk=>{ownedProcess+=chunk;});await once(ps,"close");
+      }
+      throw new Error(`${error.message}; owned CLI: ${ownedProcess}; session: ${JSON.stringify(await f.admin.state("cli"))}`);
+    });
     f.input.write("printf 'B5-BEFORE\\n'\n");
     await until(()=>f.output.join(""),text=>text.replaceAll("\r","").replace(/\x1b\[[0-9;?]*[A-Za-z]/g,"").includes("\nB5-BEFORE\n"),"Bash before replacement");
     await identities(f); expect((await f.upgrade()).status).toBe("switched"); expect((await f.replacement()).frontend.version).toBe("999.0.0");
