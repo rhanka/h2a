@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { loadM17Partition } from "./m17-ci-evidence.mjs";
 /**
  * Cross-platform test runner. Used by `npm test` (via scripts/run-test-gates.mjs).
  *
@@ -235,6 +236,16 @@ function main() {
     process.exit(1);
   }
 
+  // CI may supply only the closed M17 shard proof from this exact workflow
+  // run/attempt/checkout/Node. Discovery above remains complete. The default
+  // invocation executes M17 locally; malformed explicit proof is a hard error.
+  const m17Partition = loadM17Partition(nodeTestFiles, REPO_ROOT);
+  if (m17Partition.report) process.stdout.write(`M17 companion proof validated: ${JSON.stringify({
+    file: 'packages/h2a/test/mh-l5-concurrency.test.js', checkout: process.env.GITHUB_SHA,
+    runId: process.env.GITHUB_RUN_ID, attempt: process.env.GITHUB_RUN_ATTEMPT, node: process.version,
+    source: process.env.H2A_TEST_CI_M17_REPORT,
+  })}\n`);
+
   const VITEST_SUITES = [
     { name: "Track", dir: "packages/track", config: "vitest.config.ts" },
     { name: "AgentStats", dir: "packages/agent-stats", testDir: "tests", config: "vitest.config.ts" },
@@ -385,6 +396,9 @@ function main() {
     H2A_RUN_EXAMPLE: "1",
     H2A_LOCK_STRESS: "1"
   };
+  // Only this orchestration imports the companion proof. Tests of the runner
+  // create their own private checkouts and must exercise the default full path.
+  delete testEnv.H2A_TEST_CI_M17_REPORT;
 
   // These suites require the real pinned archives, never absent-state skips.
   const prepared = spawnSync(process.execPath, [join(REPO_ROOT, "scripts/prepare-mh-test-fixtures.mjs")], {
@@ -522,14 +536,17 @@ function main() {
     let reports;
     try { reports = [...nodeBuckets.map((bucket) => bucket.report), trackReport].map((path) => JSON.parse(readFileSync(path, "utf8"))); }
     catch { reports = []; }
+    const localReportCount = reports.length;
+    if (m17Partition.report) reports.push(m17Partition.report);
     const required = listNodeTrackSuiteFiles();
     const combined = {
-      success: reports.length === nodeBuckets.length + 1 && reports.every((report) => report.success !== false),
+      success: localReportCount === nodeBuckets.length + 1 && reports.every((report) => report.success !== false),
       testResults: reports.flatMap((report) => report.testResults ?? []),
       ...Object.fromEntries(["numTotalTests", "numPassedTests", "numFailedTests", "numPendingTests", "numTodoTests"]
         .map((key) => [key, reports.reduce((sum, report) => sum + report[key], 0)])),
     };
     const holes = verifyNodeTrackExecution(combined, required);
+    if (!holes.length && m17Partition.report) process.stdout.write('M17 local/external exhaustive inventory verification: passed\n');
     if (holes.length) process.stderr.write(holes.join("\n") + "\n");
     else {
       process.stdout.write(`run-tests: Node buckets inventory verified: ${nodeTestFiles.length} files exactly once across ${nodeBuckets.length} buckets (plus Track).\n`);
