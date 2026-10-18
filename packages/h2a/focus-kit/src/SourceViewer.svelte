@@ -2,24 +2,33 @@
   import { tick, onMount } from 'svelte';
   import { decodeEvidence, evidenceText, evidenceLines } from '../../../focus/src/validation/evidence-bytes.ts';
   import { searchSource } from './evidence-search.js';
-  let { source, locator, onback } = $props();
+  let { source, locator, visit, onback } = $props();
   let lines = $derived(source.mediaType.startsWith('image/') ? [] : evidenceLines(evidenceText(decodeEvidence(source.data))));
   let start = $state(0), jump = $state(1);
   let query = $state(''), matches = $state([]), searching = $state(false), serial = 0, matchIndex = $state(0);
-  let scroller = $state(null), target = $state(null), heading;
+  let scroller = $state(null), target = $state(null), heading, navigation = 0;
   onMount(() => heading.focus());
   const windowSize = 80, lineHeight = 24;
   async function go(line, focus = true) {
+    const token = ++navigation;
     const n = Math.min(lines.length, Math.max(1, Number(line) || 1));
     start = Math.max(0, n - 9); jump = n;
-    await tick(); scroller.scrollTop = (n - 1) * lineHeight;
-    await tick(); if (focus) target?.focus({ preventScroll: true });
+    await tick(); if (token !== navigation) return;
+    scroller.scrollTop = (n - 1) * lineHeight;
+    await tick(); if (focus && token === navigation) {
+      scroller.querySelector(`[data-line="${n}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      target?.focus({ preventScroll: true });
+    }
   }
-  $effect(() => { if (lines.length) go(locator?.start ?? 1); });
+  // Reopening the same citation is a new navigation even if its locator is unchanged.
+  $effect(() => { if (visit > 0 && lines.length) go(locator?.start ?? 1); });
   $effect(() => {
-    const needle = query, input = lines, token = ++serial;
+    const needle = query, input = lines, token = ++serial, location = navigation;
     matches = []; searching = true; matchIndex = 0;
-    searchSource(input, needle, () => serial === token, found => { matches = found; searching = false; if (found.length) go(found[0], false); });
+    searchSource(input, needle, () => serial === token, found => {
+      matches = found; searching = false;
+      if (found.length && location === navigation) go(found[0], false);
+    });
     return () => { serial++; };
   });
   function download() {
