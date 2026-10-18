@@ -25,9 +25,11 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { PassThrough } from "node:stream";
 import test from "node:test";
+import { H2A_CLI_MCP_TOOL_DESCRIPTORS } from "../dist/runtime/mcp/tools.js";
 
 import {
   H2A_CLI_VERB_CONTRACTS,
+  H2A_CLI_MCP_TOOL_NAMES,
   cmdUpgrade,
   createEnvelope,
   createLocalStore,
@@ -1264,6 +1266,74 @@ async function happyTrackMcp() {
   }
 }
 
+// Exercise the real bridge dispatch and its complete stdio wire surface. This
+// contract case does not qualify the separately tracked central-route policy.
+async function happyRegistryBridgeServe() {
+  const { dir, root } = freshRoot("h2a-contract-registry-");
+  const config = join(dir, "host.json"), lock = join(dir, "host.lock.json");
+  const bootstrap = captureStreams(dir);
+  let child, closed;
+  try {
+    assert.equal(await runCli(["registry", "bootstrap", "install", "--host", "claude",
+      "--config", config, "--lock", lock], bootstrap, {}), 0, bootstrap.stderrText);
+    const configBefore = readFileSync(config), lockBefore = readFileSync(lock);
+    const env = { ...process.env, H2A_ROOT: root, H2A_MCP_CENTRAL: "0", CLAUDE_CODE_SESSION_ID: "" };
+    for (const key of ["HOME", "XDG_RUNTIME_DIR", "XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_DATA_HOME",
+      "XDG_CACHE_HOME", "REMOTE_CLI_CONFIG_HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "TMPDIR"]) {
+      env[key] = join(dir, key.toLowerCase()); mkdirSync(env[key], { mode: 0o700 });
+    }
+    child = spawn(process.execPath, [BIN_PATH, "registry-bridge", "serve", "--host", "claude",
+      "--profile", "default", "--lock", lock, "--root", root], {
+      cwd: dir, env, stdio: ["pipe", "pipe", "pipe"]
+    });
+    closed = new Promise((done, reject) => {
+      child.once("error", reject);
+      child.once("close", (code, signal) => done({ code, signal }));
+    });
+    closed.catch(() => {});
+    let out = "", errors = "";
+    child.stdout.on("data", chunk => { out += chunk; });
+    child.stderr.on("data", chunk => { errors += chunk; });
+    child.stdin.write(jsonRpcInitialize(1));
+    const initialized = await firstEnvelopeLine(() => out, "registry-bridge serve");
+    assert.equal(initialized.jsonrpc, "2.0");
+    assert.equal(initialized.error, undefined, errors + JSON.stringify(initialized));
+    assert.equal(initialized.id, 1);
+    assert.equal(typeof initialized.result?.protocolVersion, "string");
+    assert.equal(initialized.result?.serverInfo?.name, "@sentropic/h2a");
+    child.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
+    child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }) + "\n");
+    const frames = () => out.split("\n").filter(line => line.trim()).map(line => JSON.parse(line));
+    await waitFor(() => frames().some(row => row.id === 2), 20_000, "registry-bridge tools/list");
+    const listed = frames().find(row => row.id === 2);
+    assert.equal(listed.error, undefined, errors);
+    const names = listed.result.tools.map(tool => tool.name);
+    assert.deepEqual(names, H2A_CLI_MCP_TOOL_DESCRIPTORS.map(tool => tool.name), "bridge preserves the exact served order");
+    assert.deepEqual([...names].sort(), [...H2A_CLI_MCP_TOOL_NAMES].sort());
+    assert.equal(new Set(names).size, names.length, "bridge must not duplicate a tool");
+    child.stdin.end();
+    assert.deepEqual(await settleBounded(closed, "registry-bridge EOF", 20_000), { code: 0, signal: null }, errors);
+    assert.deepEqual(readFileSync(config), configBefore, "serve must not rewrite host configuration");
+    assert.deepEqual(readFileSync(lock), lockBefore, "serve must not rewrite its deployment lock");
+    console.log(`registry-bridge contract: initialize and ${names.length} tools verified; EOF exit0; config/lock unchanged`);
+  } finally {
+    if (child && child.exitCode === null && child.signalCode === null) {
+      child.kill("SIGTERM");
+      let timer;
+      try {
+        const stopped = await Promise.race([closed.then(() => true, () => true), new Promise(done => {
+          timer = setTimeout(() => done(false), 1000);
+        })]);
+        if (!stopped) {
+          child.kill("SIGKILL");
+          await settleBounded(closed, "registry-bridge forced cleanup", 3000);
+        }
+      } finally { clearTimeout(timer); }
+    } else if (closed) await closed.catch(() => {});
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 // `h2a loop tick` — async (lazy runtime import), so it cannot go through the
 // sync runCli harness. In-process via the exported runner bin.ts calls.
 async function happyLoopTick() {
@@ -1489,6 +1559,7 @@ const ASYNC_HAPPY_PATHS = new Map([
   ["loop watch", happyLoopWatch],
   ["mcp-serve", happyMcpServe],
   ["track-mcp", happyTrackMcp],
+  ["registry-bridge serve", happyRegistryBridgeServe],
   ["canevas serve", happyCanevasServe],
   ["focus serve", () => happyFocusServe("serve")],
   ["focus web", () => happyFocusServe("web")],
