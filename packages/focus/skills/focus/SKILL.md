@@ -1,6 +1,6 @@
 ---
 name: focus
-version: 1.0.0
+version: 2.0.0
 description: Prepare and review readable decision dossiers that trace the owner's request, expose real stakes and offer short explicit choices. Read-only snapshots; no decisions, signatures, amendments or Track writes.
 category: decision
 tools: []
@@ -13,6 +13,23 @@ Method capability: `sentropic.focus.decision-dossier`. Prepare a
 `urn:sentropic:focus:DecisionDossierDocument:1.0.0`
 (`schemas/decision-dossier-document.v1.schema.json`). This instruction-only
 skill grants no tools or write authority.
+
+For supporting evidence, select the explicit v2 template with the freshly built
+checkout CLI: `node packages/h2a/dist/bin.js focus template --evidence -o dossier.json`,
+then `node packages/h2a/dist/bin.js focus build dossier.json -o dossier.html`.
+It declares `schemaVersion: 2` and uses the separate schema
+`urn:sentropic:focus:DecisionDossierDocument:2.0.0`. Omitting the discriminant
+selects unchanged v1. Old consumers refuse v2; never strip evidence to bypass that.
+Store original bytes once in `sources` (canonical base64, original SHA-256 and byte
+size). Origins are frozen provenance data, never URLs/paths fetched by the reader.
+Use typed `citations`, section/option `citationRefs`, `evidenceGroups`, and collapsed
+`annexes`; keep choices, material risks and reservations in the primary decision.
+Summaries consume its reading budget; raw evidence volume and estimated consultation
+are disclosed separately. Hashes prove byte identity, not truth or owner approval.
+Embedded H1 supports offline text/capture consultation, complete-source search,
+original download and return to context. It does not advertise H2 DS geometry/CDN
+or H3 linked exploration. DS owns renderer controls inside the canvas; Focus
+declares choices/reference bindings. Do not author coordinates or invent a toolbar.
 
 A dossier serves the owner's intention. Ask the owner to choose a path or
 manage a real problem whose risk concerns them. Handle routine technical
