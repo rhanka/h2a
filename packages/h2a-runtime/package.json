@@ -16,9 +16,9 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1075.0",
     "@hono/node-server": "^2.0.12",
-    "@sentropic/cluster-mesh": "0.13.3",
-    "@sentropic/llm-gateway": "0.19.5",
-    "@sentropic/llm-mesh": "0.25.0",
+    "@sentropic/cluster-mesh": "0.16.0",
+    "@sentropic/llm-gateway": "0.20.0",
+    "@sentropic/llm-mesh": "0.26.0",
     "@xterm/headless": "^6.0.0",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
