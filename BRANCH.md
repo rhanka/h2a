@@ -24,6 +24,14 @@ Source: rvptyam2s-last.md
 
 The rejected marker-only contract and the unsafe draft monitor are not accepted. Pre-B admission and retirement criteria remain OPEN until an atomic barrier or a new reviewed contract exists; an empty list or owner handshake is never permission to signal. Real CLI availability is not inferred from synthetic seat fixtures. No Phase L work.
 
+### Amendment execution proof
+
+- Registry RED: `rtk node tmp/pty-am2-run.mjs pty-am2-registry-red node --test packages/h2a/test/gate-execution-evidence.test.js` → 71 tests, 69 pass, 2 fail (27≠26 and 4≠3), zero skip/TODO/cancellation, exit 1. The two cardinality expectations were updated before removing the manifest entry.
+- Actual supervisor report: `rtk node tmp/pty-am2-run.mjs pty-am2-supervisor-before node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=4 packages/h2a-runtime/src/native-terminal/supervisor.test.ts` → 16/16 pass, zero skips, exit 0. `rtk node tmp/pty-am2-verify.mjs pty-am2-verifier-red` → exactly one `declared non-test disappeared` error, exit 1.
+- Minimal repair removes only the obsolete supervisor declaration and synchronizes the registry test counts. `rtk node tmp/pty-am2-run.mjs pty-am2-registry-green node --test packages/h2a/test/gate-execution-evidence.test.js` → 71/71 pass, zero skip/TODO/cancellation, exit 0. `rtk node tmp/pty-am2-verify.mjs pty-am2-verifier-green` → zero verifier errors, exit 0, same supervisor report. Its added undeclared-ignore negative control is rejected both before and after. Production verifier and all lifecycle assertions are untouched.
+- A first wrapper setup used a nonconforming temporary qualification-root name and executed zero tests. It is a setup failure, not regression RED; the corrected wrapper uses a fresh `/tmp/h2a-qual-*` plus temporary HOME/XDG directories, with the unchanged isolation helper.
+- origin/main is already an ancestor of this branch (22 branch-only commits at the initial fetch); no rebase required. No installed host/state accessed, no full local suite.
+
 ## Approved amendments (verbatim)
 
 The two AMENDEMENTS-GO reviews below are accepted by the owner. Their fixture addition applies to the reopened B2 regression and the Linux B4 gate. The single keepalive exception is limited to B4 Linux; all other gate cases require zero skips, TODOs or cancellations.

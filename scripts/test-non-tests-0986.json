@@ -159,12 +159,6 @@
       "fullName": "dead legacy tmux row relaunch policy — NAMED DEBT, not covered DEAD_LEGACY_TMUX_ROW_RELAUNCHES_NATIVE_NOT_TMUX — pending dead-tmux-relaunch host policy decision (reopened by owner tmux-permanent ratification 2026-08-08)",
       "status": "todo",
       "reason": "Owner round 6: declared non-test; Pre-existing tracked debt outside spec §5"
-    },
-    {
-      "file": "packages/h2a-runtime/src/native-terminal/supervisor.test.ts",
-      "fullName": "NativeTerminalHostSupervisor takeover reconcile reap treats unknown per identity, never as a global state",
-      "status": "skipped",
-      "reason": "Owner round 6: declared non-test; Pre-existing tracked debt outside spec §5"
     }
   ]
 }
