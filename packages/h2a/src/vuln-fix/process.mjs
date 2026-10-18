@@ -1,11 +1,16 @@
 import { spawn } from 'node:child_process';
 
 // Never use a shell. Bound scanner/test output and time; kill only our child.
-export function command(executable, args, { cwd, input, timeout = 300_000, env = process.env } = {}) {
+export function command(executable, args, { cwd, input, timeout = 300_000, env = process.env, spawner = spawn } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(executable, args, { cwd, env, shell: false, stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawner(executable, args, { cwd, env, shell: false, stdio: ['pipe', 'pipe', 'pipe'] });
     let stdout = '', stderr = '', failure;
-    const fail = message => { failure ??= new Error(message); child.kill('SIGKILL'); };
+    const fail = message => {
+      failure ??= Object.assign(new Error(message), { quarantine: true });
+      child.kill('SIGKILL');
+      child.stdin.destroy(); child.stdout.destroy(); child.stderr.destroy();
+      reject(failure); // close may never arrive while a descendant owns pipes.
+    };
     const timer = setTimeout(() => fail(`${executable}: timeout`), timeout);
     for (const [stream, append] of [[child.stdout, text => { stdout += text; }], [child.stderr, text => { stderr += text; }]]) {
       stream.on('data', chunk => { append(chunk.toString()); if (stdout.length + stderr.length > 16_777_216) fail(`${executable}: output limit`); });

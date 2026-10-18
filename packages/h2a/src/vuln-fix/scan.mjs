@@ -75,7 +75,7 @@ export async function scanLocks({ root, locks, osv = true, scanners = [], comman
         result.coverage.push({ source: 'osv', lockfile, publicPackages: packages.length });
       } else result.gaps.push(`${lockfile}: OSV disabled by repository sharing policy`);
       result.gaps.push(`${lockfile}: OSV excludes private registry, workspace and local dependencies`);
-    } catch (error) { result.errors.push(`${lockfile}: ${error.message}`); }
+    } catch (error) { if (error.quarantine) throw error; result.errors.push(`${lockfile}: ${error.message}`); }
   }
   for (const scanner of scanners) {
     try {
@@ -85,7 +85,7 @@ export async function scanLocks({ root, locks, osv = true, scanners = [], comman
       if (!Array.isArray(entries) || entries.some(x => !object(x) || typeof x.id !== 'string' || !severities.has(x.severity))) throw new Error('expected findings array with id/severity');
       result.findings.push(...entries.filter(x => urgent(x.severity)).map(x => ({ ...x, source: scanner.name })));
       result.coverage.push({ source: scanner.name });
-    } catch (error) { result.errors.push(`${scanner.name}: ${error.message}`); }
+    } catch (error) { if (error.quarantine) throw error; result.errors.push(`${scanner.name}: ${error.message}`); }
   }
   result.complete = result.errors.length === 0;
   result.gaps.push('npm/OSV dependency trees do not cover OS images, vendored code or non-npm ecosystems unless a custom scanner is configured');
