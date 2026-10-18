@@ -43,7 +43,7 @@
               {#if section.title}<h3>{section.title}</h3>{/if}
               <div class="options" role="group" aria-label={section.title ?? 'Options'}>
                 {#each section.options as option}
-                  <button class="option-card" class:selected={selections.get(section.questionId) === option.id}
+                  <button id={option.id} class="option-card" class:selected={selections.get(section.questionId) === option.id}
                     aria-pressed={selections.get(section.questionId) === option.id} onclick={() => selections.set(section.questionId, option.id)}>
                     <Card><strong>{option.label}</strong>
                       {#if recommended(section, option)}<Badge tone="success">Recommandée</Badge>{/if}

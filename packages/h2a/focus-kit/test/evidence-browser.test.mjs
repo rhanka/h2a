@@ -28,12 +28,16 @@ test('opens evidence from a fresh built-package install with no checkout imports
 
 test('consults complete evidence offline with bounded lines, inert text and focus return on keyboard and touch', async () => {
   const doc = evidenceFixture(20_000, 31);
+  doc.sections[0].targetRef = 'reference:contexte';
+  const option = doc.sections.find(s => s.kind === 'optionSet').options[0];
+  doc.annexes[0].backRefs = ['reference:contexte', option.targetRef, doc.ref];
   doc.sources.push(source('hostile', '</script><img src=x onerror=globalThis.bad=1>\r\nL06b'));
   await withBrowser(doc, async ({ browser, url }) => {
     for (const width of [320, 390, 1440]) {
       const context = await browser.newContext({ offline: true, acceptDownloads: true, viewport: { width, height: 900 },
         isMobile: width < 600, hasTouch: width < 600 });
       const page = await context.newPage(), errors = [], network = [];
+      const activate = locator => width < 600 ? locator.tap() : locator.click();
       page.on('pageerror', e => errors.push(e.message)); page.on('request', r => { if (/^https?:/.test(r.url())) network.push(r.url()); });
       await page.goto(url);
       const evidence = page.getByRole('region', { name: 'Pièces justificatives', exact: true });
@@ -62,17 +66,24 @@ test('consults complete evidence offline with bounded lines, inert text and focu
       assert.equal(await opener.evaluate(e => e === document.activeElement), true);
       assert.equal(await page.locator('.svelte-flow__viewport').getAttribute('style'), camera);
       assert.equal(await page.getByRole('button', { name: /Fichier portable/ }).getAttribute('aria-pressed'), 'true');
-      await evidence.getByRole('button', { name: 'Consulter Source hostile', exact: true }).click();
+      await activate(evidence.getByRole('button', { name: 'Consulter Source hostile', exact: true }));
       assert.match(await panel.innerText(), /<img src=x onerror=/);
       assert.equal(await page.evaluate(() => globalThis.bad), undefined);
       assert.equal(await panel.locator('img').count(), 0);
-      await panel.getByRole('button', { name: 'Retour au contexte' }).click();
-      await evidence.getByRole('button', { name: 'Capture', exact: true }).first().click();
+      await activate(panel.getByRole('button', { name: 'Retour au contexte' }));
+      await activate(evidence.getByRole('button', { name: 'Capture', exact: true }).first());
       assert.equal(await panel.getByAltText('Capture de référence').count(), 1);
       await panel.getByRole('button', { name: 'Retour au contexte' }).click();
       await evidence.getByText('Détail des pièces', { exact: true }).click();
       await evidence.getByText('Texte de soutien.', { exact: true }).waitFor({ timeout: 1500 });
       assert.equal(await evidence.getByText('Texte de soutien.', { exact: true }).count(), 1);
+      const annex = evidence.locator('details').filter({ hasText: 'Détail des pièces' });
+      await annex.getByRole('button', { name: 'Retour : Contexte', exact: true }).click();
+      assert.equal(await page.locator('.dossier-section').first().evaluate(el => el === document.activeElement), true, 'Annex targetRef must resolve back to its actual section');
+      await annex.getByRole('button', { name: `Retour : ${option.label}`, exact: true }).click();
+      assert.equal(await page.locator('.options').getByRole('button', { name: /Fichier portable/ }).evaluate(el => el === document.activeElement), true);
+      await annex.getByRole('button', { name: 'Retour : dossier', exact: true }).click();
+      assert.equal(await page.locator('main').evaluate(el => el === document.activeElement), true);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
       assert.deepEqual(errors, []); assert.deepEqual(network, []);
       console.log(`${width}px: offline range/search/download/back, bounded DOM and inert text OK`);
