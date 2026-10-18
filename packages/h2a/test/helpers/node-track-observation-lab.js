@@ -33,7 +33,7 @@ export function observeNodeTrackEntry(source, repoRoot, { preparedNpmCache = fal
     writeFileSync(join(root, 'legacy', legacyEntry), '')
     const markers = join(root, 'observed.json')
     let copy = source
-    for (const module of ['cleanse-contract-ledger', 'test-execution-evidence', 'test-inventory', 'historical-test-ref', 'report-test-durations']) copy = copy.replace(`"./${module}.mjs"`, JSON.stringify(pathToFileURL(resolve(repoRoot, `scripts/${module}.mjs`)).href))
+    for (const module of ['cleanse-contract-ledger', 'test-execution-evidence', 'test-inventory', 'historical-test-ref', 'report-test-durations', 'm17-ci-evidence']) copy = copy.replace(`"./${module}.mjs"`, JSON.stringify(pathToFileURL(resolve(repoRoot, `scripts/${module}.mjs`)).href))
     writeFileSync(join(root, 'scripts/run-tests.mjs'), copy)
     // Substitute the child-process boundary, preserving production discovery,
     // entry, commands, loop, evidence validation and exit aggregation.

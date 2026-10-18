@@ -106,7 +106,48 @@ jobs:
           unset CODEX_HOME CLAUDE_CONFIG_DIR
           bash docs/uat/probe-presence.sh
 
+  # Same source and full M17 case, on its own runner. An artifact is published
+  # only after reconciliation, owned-process exit and real volume cleanup.
+  m17-qualification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["22", "24"]
+    env:
+      H2A_TEST_CI_M17_OUTPUT: ${{ github.workspace }}/tmp/m17-export
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Prepare the private M17 data volume
+        run: node scripts/ci-m17-temp.mjs setup
+      - name: Execute the complete M17 backend qualification
+        run: node scripts/ci-m17-proof.mjs run
+      - name: Remove the private M17 data volume
+        if: ${{ always() && env.H2A_TEST_M17_TMPDIR != '' }}
+        run: node scripts/ci-m17-temp.mjs cleanup
+      - name: Seal the same-run proof after cleanup
+        run: node scripts/ci-m17-proof.mjs finalize
+      - uses: actions/upload-artifact@v4
+        with:
+          name: m17-${{ github.run_id }}-${{ github.run_attempt }}-node${{ matrix.node }}
+          path: tmp/m17-export/proof.json
+          if-no-files-found: error
+          retention-days: 7
+
   build-and-test:
+    needs: [m17-qualification]
+    # A skipped required check can satisfy branch protection. Run and FAIL when
+    # either producer fails/cancels; dependency status is never itself a pass.
+    if: ${{ always() }}
     runs-on: ${{ matrix.os }}
     # Measured 2026-10-17: 15m06s on main, including ~13m npm test.
     # 25m budget and slow-suite guard: docs/ci-job-budget.md.
@@ -138,6 +179,10 @@ jobs:
         # Owner decision 2026-10-12: minimum Node 22; qualify 22 and 24.
         node: ["22", "24"]
     steps:
+      - name: Require both complete M17 qualifications
+        env:
+          M17_RESULT: ${{ needs.m17-qualification.result }}
+        run: test "$M17_RESULT" = success
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -151,19 +196,13 @@ jobs:
         run: npm install --global @openai/codex@0.145.0 @anthropic-ai/claude-code@2.1.296
       - name: Verify messaging backends and receive signatures
         run: node --test packages/h2a/test/send.test.js packages/h2a/test/cluster-mesh-messaging.test.js
-      - name: Create a disposable TMPDIR admitted by both confinement guards
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p -m 0700 "$HOME/.cache-tmp/h2a-test"
-          DIR="$(mktemp -d "$HOME/.cache-tmp/h2a-test/run-XXXXXX")"
-          echo "TMPDIR=$DIR" >> "$GITHUB_ENV"
-          echo "TMP=$DIR" >> "$GITHUB_ENV"
-          echo "TEMP=$DIR" >> "$GITHUB_ENV"
-          echo "H2A_TEST_QUALIFICATION_ROOT=$DIR" >> "$GITHUB_ENV"
-      - name: Prepare the private M17 data volume
-        run: node scripts/ci-m17-temp.mjs setup
+      - uses: actions/download-artifact@v4
+        with:
+          name: m17-${{ github.run_id }}-${{ github.run_attempt }}-node${{ matrix.node }}
+          path: tmp/m17-import
       - run: npm test
+        env:
+          H2A_TEST_CI_M17_REPORT: ${{ github.workspace }}/tmp/m17-import/proof.json
       - name: Exercise the native multi-session terminal host
         run: >-
           npx --no-install vitest run
@@ -202,16 +241,6 @@ jobs:
       # migration P2: le contrat public (surface MCP/CLI + anti-cycle core) ne doit pas dériver sans bump
       - run: bash scripts/check-public-contract.sh
         if: runner.os == 'Linux'
-      # TMPDIR cleanup AFTER the last consumer (all test legs above read
-      # TMPDIR/TMP/TEMP/H2A_TEST_QUALIFICATION_ROOT): no step runs with a
-      # missing TMPDIR. always() so a red gate still cleans the VM.
-      - name: Clean the disposable TMPDIR
-        if: always()
-        shell: bash
-        run: if [ -n "${TMPDIR:-}" ]; then rm -rf "$TMPDIR"; fi
-      - name: Remove the private M17 data volume
-        if: ${{ always() && env.H2A_TEST_M17_TMPDIR != '' }}
-        run: node scripts/ci-m17-temp.mjs cleanup
 
   # Stable, independently requireable trust root for `npm test`.
   #
@@ -221,6 +250,8 @@ jobs:
   # graph, and the runner's exact production command map.
   npm-test-trust-root:
     name: npm-test-trust-root
+    needs: [m17-qualification]
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     # Same complete entrypoint; 13m39s observed. See docs/ci-job-budget.md.
     timeout-minutes: 25
@@ -235,26 +266,17 @@ jobs:
       - run: npm ci
       - name: Install the mandatory configuration oracles
         run: npm install --global @openai/codex@0.145.0 @anthropic-ai/claude-code@2.1.296
-      - name: Create a disposable TMPDIR admitted by both confinement guards
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p -m 0700 "$HOME/.cache-tmp/h2a-test"
-          DIR="$(mktemp -d "$HOME/.cache-tmp/h2a-test/run-XXXXXX")"
-          echo "TMPDIR=$DIR" >> "$GITHUB_ENV"
-          echo "TMP=$DIR" >> "$GITHUB_ENV"
-          echo "TEMP=$DIR" >> "$GITHUB_ENV"
-          echo "H2A_TEST_QUALIFICATION_ROOT=$DIR" >> "$GITHUB_ENV"
       - name: Verify npm test wiring independently
         run: node --test packages/h2a/test/run-test-gates.test.js
-      - name: Prepare the private M17 data volume
-        run: node scripts/ci-m17-temp.mjs setup
+      - name: Require both complete M17 qualifications
+        env:
+          M17_RESULT: ${{ needs.m17-qualification.result }}
+        run: test "$M17_RESULT" = success
+      - uses: actions/download-artifact@v4
+        with:
+          name: m17-${{ github.run_id }}-${{ github.run_attempt }}-node22
+          path: tmp/m17-import
       - name: Execute the production test entrypoint directly
         run: node scripts/run-test-gates.mjs
-      - name: Clean the disposable TMPDIR
-        if: always()
-        shell: bash
-        run: if [ -n "${TMPDIR:-}" ]; then rm -rf "$TMPDIR"; fi
-      - name: Remove the private M17 data volume
-        if: ${{ always() && env.H2A_TEST_M17_TMPDIR != '' }}
-        run: node scripts/ci-m17-temp.mjs cleanup
+        env:
+          H2A_TEST_CI_M17_REPORT: ${{ github.workspace }}/tmp/m17-import/proof.json
