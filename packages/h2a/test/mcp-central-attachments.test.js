@@ -59,6 +59,44 @@ function fixture({ temporary = true, native = false } = {}) {
   const env = { ...qualified, H2A_ROOT: root, H2A_MCP_CENTRAL: "1" };
   return { dir, root, runtimeBase, env, cleanup() { rmSync(dir, { recursive: true, force: true }); } };
 }
+async function cleanupOwnedDaemon(f, identity) {
+  if (identity) {
+    // Only the PID/start-time pair returned by this fixture's own daemon is
+    // observed. A stop acknowledgement may precede its final filesystem write.
+    assert.ok(Number.isSafeInteger(identity.pid) && identity.pid > 1 && identity.pid !== process.pid);
+    assert.ok(Number.isSafeInteger(identity.startTime));
+    const running = () => {
+      let raw;
+      try { raw = readFileSync(`/proc/${identity.pid}/stat`,'utf8'); }
+      catch (error) { if (error.code === 'ENOENT') return false; throw error; }
+      const fields = raw.slice(raw.lastIndexOf(') ') + 2).split(' ');
+      return Number(fields[19]) === identity.startTime && fields[0] !== 'Z';
+    };
+    const deadline = performance.now() + 10_000;
+    while (running() && performance.now() < deadline) await delay(25);
+    assert.equal(running(),false,'the recorded fixture daemon must finish before state removal');
+  }
+  f.cleanup();
+}
+test('fixture cleanup waits for its recorded daemon to finish late writes before removing private state', async () => {
+  const f=fixture(), admission=new URL('../dist/runtime/handover/admission.js',import.meta.url).href;
+  const source=`import fs from 'node:fs';import {currentIdentity} from ${JSON.stringify(admission)};
+    console.log(JSON.stringify(currentIdentity()));
+    setTimeout(()=>fs.writeFileSync(${JSON.stringify(join(f.dir,'late-output'))},'finished'),500);`;
+  const child=spawn(process.execPath,['--input-type=module','-e',source],{env:f.env,cwd:f.dir,stdio:['ignore','pipe','pipe']});
+  const closed=once(child,'close');let errors='';child.stderr.on('data',bytes=>{errors+=bytes;});
+  try {
+    const [bytes]=await once(child.stdout,'data');
+    const identity=JSON.parse(bytes.toString());
+    assert.equal(identity.pid,child.pid,'the identity belongs to the child this fixture started');
+    await cleanupOwnedDaemon(f,identity);
+    assert.equal((await closed)[0],0,errors);
+    assert.equal(existsSync(f.dir),false);
+  } finally {
+    if(child.exitCode===null&&child.signalCode===null)child.kill('SIGTERM');
+    await closed;f.cleanup();
+  }
+});
 async function endpoint() {
   const server = createServer().listen(0, "127.0.0.1");
   await once(server, "listening");
@@ -419,6 +457,7 @@ for (const terminal of ["native", "tmux"])
       assert.equal(presence[0].launchContext, undefined, "client must not publish daemon-launcher native/tmux ownership");
       assert.equal(existsSync(readyFile), false, "daemon-launcher readiness challenge must not be acknowledged by a client");
       const sent = await channel.call("tools/call", { name: "h2a_send", arguments: { to: status.instance, message: "r19-isolation-probe" } });
+      assert.ok(sent.result, JSON.stringify(sent));
       assert.equal(sent.result.isError, false);
       const wakeDeadline = Date.now() + 3000;
       while (!stderr.includes("inbox-wake: 1 new envelope(s)") && Date.now() < wakeDeadline) await delay(25);
@@ -668,6 +707,7 @@ test("operator stop is authenticated, leaves shims open, and residue detection n
 
 test("mcp-serve defaults Claude to one ephemeral central without project writes; other hosts and opt-outs use stdio", { timeout: 30_000 }, async () => {
   const f = fixture();
+  let daemonIdentity;
   const children = [];
   const channels = [];
   const start = (host, repo, extra = {}) => {
@@ -687,6 +727,7 @@ test("mcp-serve defaults Claude to one ephemeral central without project writes;
       await channel.call("initialize");
       await ready(channel);
       const marker = JSON.parse(readFileSync(join(f.runtimeBase, "h2a-mcp-central", "marker.json"), "utf8"));
+      daemonIdentity ??= marker.processIdentity;
       assert.equal(marker.protocol, 2);
       assert.equal(marker.root, f.root);
       if (generation) assert.equal(marker.generation, generation);
@@ -714,7 +755,7 @@ test("mcp-serve defaults Claude to one ephemeral central without project writes;
     channels.forEach(channel => channel.close());
     await Promise.all(children.map(async child => { if (child.exitCode === null && child.signalCode === null) { child.kill("SIGTERM"); await once(child, "exit"); } }));
     await centralOperator("stop", { runtimeBase: f.runtimeBase });
-    f.cleanup();
+    await cleanupOwnedDaemon(f,daemonIdentity);
   }
 });
 
