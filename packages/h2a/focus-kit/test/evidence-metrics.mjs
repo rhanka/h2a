@@ -20,7 +20,7 @@ const afterPaint = page => page.evaluate(() => new Promise(resolve => requestAni
 const domCounts = page => page.evaluate(() => ({ lines: document.querySelectorAll('.source-line').length,
   nodes: document.querySelector('[aria-label="Pièces justificatives"]')?.querySelectorAll('*').length ?? 0 }));
 
-export async function measure(root, documents, { coldRuns, taskRuns, onSample = () => {} }) {
+export async function measure(root, documents, { coldRuns, taskRuns, onSample = () => {}, onDom = () => {} }) {
   assert.equal(process.platform, 'linux', 'Whole Chromium tree RSS qualification requires Linux /proc');
   const server = await chromium.launchServer({ headless: true, env: isolatedEnvironment(root) });
   const browser = await chromium.connect(server.wsEndpoint()), pid = server.process().pid;
@@ -34,6 +34,7 @@ export async function measure(root, documents, { coldRuns, taskRuns, onSample = 
         evidenceBytes: doc.sources?.reduce((n, s) => n + s.size, 0) ?? 0, sources: doc.sources?.length ?? 0,
         lines: doc.sources?.filter(s => !s.mediaType.startsWith('image/')).map(s => ({ id: s.id, lines: Buffer.from(s.data, 'base64').toString('utf8').split(/\r\n|\r|\n/).length })) ?? [] };
       const stats = { cold: [], citation: [], search: [], dom: [], memory: {} };
+      const recordDom = async page => { const value = await domCounts(page); stats.dom.push(value); onDom(value); };
       result.metrics[name] = stats;
       for (let i = 0; i < (name === 'doubled' ? 1 : coldRuns); i++) {
         const context = await browser.newContext({ offline: true, serviceWorkers: 'block', viewport: { width: 1440, height: 900 } });
@@ -56,16 +57,16 @@ export async function measure(root, documents, { coldRuns, taskRuns, onSample = 
             stats.citation.push(performance.now() - t);
             const original = Buffer.from(doc.sources.find(s => s.id === c.sourceId).data, 'base64').toString('utf8').split(/\r\n|\r|\n/);
             assert.ok((await panel.locator(`[data-line="${c.locator.start}"]`).innerText()).endsWith(original[c.locator.start - 1] || ' '));
-            stats.dom.push(await domCounts(page));
+            await recordDom(page);
             const queries = id === 'real' ? ['h2a','import','absent-marker'] : ['Ligne 1 ','fin distante','café','preuve','absent-marker'];
             const query = queries[j % queries.length], expected = original.filter(l => l.toLocaleLowerCase().includes(query.toLocaleLowerCase())).length;
             const q = panel.getByRole('searchbox', { name: 'Rechercher dans toute la source' }), s = performance.now();
             await q.fill('obsolete-query'); await q.fill(query);
             await page.waitForFunction(count => document.querySelector('[data-search-status]')?.textContent === `${count} résultat(s)`, expected, { timeout: 1500 });
-            await afterPaint(page); stats.search.push(performance.now() - s); stats.dom.push(await domCounts(page));
+            await afterPaint(page); stats.search.push(performance.now() - s); await recordDom(page);
             await panel.locator('.source-scroll').evaluate(el => { el.scrollTop = el.scrollHeight / 2; }); await afterPaint(page);
-            stats.dom.push(await domCounts(page));
-            await panel.getByRole('button', { name: 'Retour au contexte' }).click(); await afterPaint(page); stats.dom.push(await domCounts(page));
+            await recordDom(page);
+            await panel.getByRole('button', { name: 'Retour au contexte' }).click(); await afterPaint(page); await recordDom(page);
           }
           await session.send('HeapProfiler.collectGarbage');
           stats.memory.retainedRss = ownedRss(pid); stats.memory.retainedHeap = (await session.send('Runtime.getHeapUsage')).usedSize;
