@@ -784,7 +784,8 @@ Main advanced during qualification to `2fabf3a30` (#327), then `fceab4a95`
 (#363, restores the 0.98.7 release train), then `fc6f4347a` (#362, Focus
 publication), then `cf7c3c03f` (#365, Track owner status tables and shipped
 report skill), then `df5652b18` (workspace scope guards and native human
-questions). Six rebases preserve those
+questions), then `476c95fcc` (portable Focus dossiers and diagram-core assets).
+Seven rebases preserve those
 upstream changes; final manifests remain 0.98.7 and no release/bump commit is
 introduced by this lane. CI prerequisites now include
 full pinned Git history, private XDG cache/data, actual Node toolcache headers,
@@ -830,6 +831,39 @@ same immutable tarball and reverify both independent builds. All five titles,
 56 assertion calls, actual installs and SDK/PTY checks remain; these cases now
 have mandatory execution inventory entries. Targeted production-preload runs:
 core 3/3 in 140s, runtime 2/2 in 127s, no skips or recorded leftover children.
+
+# Focus decision dossier kit
+
+- [ ] Objective: default portable Focus design-system dossiers with mobile ecosystem canvases.
+- [ ] Scope: h2a Focus CLI, isolated Svelte consumer, reusable catalog, template, skill and targeted tests.
+- [x] Guardrails: owner confinement; no installed h2a, host state, Python, full local suite or main writes.
+- [x] Allowed: packages/h2a/focus-kit/**, src/focus-build.ts, bin.ts, CLI help, package metadata;
+      packages/track/skills/present-decision/**; named tests; build script, CI and documentation.
+- [x] Forbidden: reference kit writes, other runtime behavior and long-term DS renderer ownership.
+- [x] Design: use h2a focus build, a native Focus extension, and bundle @sentropic/focus/validate unchanged.
+- [x] Lot 1: closed document template, ecosystem catalog, validator/build command; focus-build.test.js.
+- [x] Lot 2: DS Svelte renderer, light/dark, cards, pinch zoom, portable artifact; browser fixture.
+- [x] Lot 3: default skill, exact command, documentation, targeted skill and schema tests.
+- [ ] Lot 4: package verification, push own branch, English PR, per-job CI report.
+- [x] Feedback: harness review selection-failed; installed h2a/mesh access forbidden by owner.
+- [x] Feedback: no Track writes through installed tools; no consensus or review identity claimed.
+- [x] Feedback: generated renderer and lockfile exceed suggested commit size; bounded to requested consumer.
+- [x] Tour 2 scope: optional plain-JSON diagram-core SemanticDocument on Focus DiagramNode;
+      canonical schema/validator/readability, catalog, interim xyflow consumer and targeted regressions.
+- [x] Design contract: generic@1, semantic records only; no Focus scene model, view, geometry or layout hint.
+- [x] Layout L-R1..L-R11 remains DS-owned; interim placement exists only inside the xyflow adapter.
+- [x] Rebase origin/main: already up to date at the start of Tour 2.
+- [x] Final rebase includes #364; only BRANCH.md conflicted; Focus scope retained.
+- [x] Direct delivery dependencies: regenerate Focus registry digests and Track focus-vendor
+      after changing canonical schema/validation. Red vendor drift and packed digest proofs recorded.
+- [x] Last round #368: close nested semantic records; regenerate authoritative Mermaid fallback;
+      budget displayed scene labels once while retaining opaque-code checks.
+- [x] Last round #368: reuse canonical question/option grouping and recommendation naming;
+      resolve local selections across linked sets; browser coverage at 320px and 390px.
+- [x] Regression proofs: all five reviewer findings reproduced red, then CLI/browser 32/32 green;
+      readability 69/69 green; isolated temporary state and no skipped tests.
+
+# Inherited workspace and previous main contexts
 
 # Workspace scope guard
 

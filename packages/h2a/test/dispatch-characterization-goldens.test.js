@@ -50,7 +50,7 @@ const BIN = join(REPO_ROOT, "packages", "h2a", "dist", "bin.js");
 // previous 14,127-byte stream and SHA-256 byte-for-byte.
 // Workspace scope opt-in adds three selection flags and default/qualification
 // wording (+182 bytes). Removing those changes restores the 14,229-byte stream.
-const CORE_HELP_SHA256 = "8af2d78eed68a3d4caeb6dfb41bdd1b218d20084dbeba7345af3bf3cb4737f35";
+const CORE_HELP_SHA256 = "4de27063c0528810c29e148ef0c55606080602784b6500be23e74672ee22747f";
 const RUNTIME_MISSING =
   "ce verbe requiert le runtime h2a (sessions / k8s / tunnel).\n" +
   "  Répare l'installation lockstep : npm i -g @sentropic/h2a@latest\n";
