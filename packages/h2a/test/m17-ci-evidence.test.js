@@ -201,5 +201,31 @@ test('M17 producer seals only a successful same-run report after owned-process a
       const stat = fs.readFileSync(`/proc/${owned.pid}/stat`, 'utf8').split(') ')[1].split(' ');
       assert.ok(stat[0] === 'Z' || stat[19] !== owned.birth, 'failed producer must stop its actual owned child');
     } catch (error) { if (!['ENOENT', 'ESRCH'].includes(error.code)) throw error; }
+    // Exercise the actual watchdog without waiting 22.5 minutes. Only this
+    // private fixture preloads a controlled clock: record the real requested
+    // infrastructure budget, then fire once all eight owned children are ready.
+    const timedChildren = join(root, 'timed-children.jsonl'), requested = join(root, 'requested-watchdog.json');
+    const timerHook = join(root, 'controlled-watchdog.mjs');
+    fs.writeFileSync(timerHook, `import fs from 'node:fs';const original=globalThis.setTimeout;\nglobalThis.setTimeout=(callback,delay,...args)=>{if(delay<1000000)return original(callback,delay,...args);fs.writeFileSync(${JSON.stringify(requested)},JSON.stringify(delay));const deadline=performance.now()+15000;function poll(){const ready=fs.existsSync(${JSON.stringify(timedChildren)})&&fs.readFileSync(${JSON.stringify(timedChildren)},'utf8').trim().split('\\n').length===8;if(ready||performance.now()>deadline)callback(...args);else original(poll,10);}return original(poll,10);};\n`);
+    const timedProgram = `import fs from 'node:fs';const s=fs.readFileSync('/proc/self/stat','utf8');fs.appendFileSync(${JSON.stringify(timedChildren)},JSON.stringify({pid:process.pid,birth:s.slice(s.lastIndexOf(') ')+2).split(' ')[19]})+'\\n');process.on('SIGTERM',()=>{});process.stdout.write('ready');setInterval(()=>{},1000);`;
+    fs.writeFileSync(join(root, M17_FILE), `import test from 'node:test';import {spawn} from 'node:child_process';import {once} from 'node:events';\ntest(${JSON.stringify(M17_TITLE)},async()=>{await Promise.all(Array.from({length:8},()=>{const c=spawn(process.execPath,['--input-type=module','-e',${JSON.stringify(timedProgram)}],{env:process.env,stdio:['ignore','pipe','ignore']});return once(c.stdout,'data');}));await new Promise(()=>{});});\n`);
+    git('add', M17_FILE, 'controlled-watchdog.mjs'); git('-c', 'core.hooksPath=/dev/null', 'commit', '--quiet', '-m', 'test: exercise the bounded producer watchdog in a private fixture');
+    const timedEnv = { ...failedEnv, GITHUB_SHA: git('rev-parse', 'HEAD'), H2A_TEST_CI_M17_OUTPUT: join(root, 'tmp/timed'),
+      NODE_OPTIONS: (env.NODE_OPTIONS ?? '') + ' --import=' + timerHook };
+    const timed = run(process.execPath, ['scripts/ci-m17-proof.mjs', 'run'], timedEnv);
+    assert.notEqual(timed.status, 0);
+    assert.match(timed.stderr, /M17 exceeded.*backstop/);
+    assert.equal(fs.existsSync(join(timedEnv.H2A_TEST_CI_M17_OUTPUT, 'pending.json')), false);
+    assert.equal(fs.existsSync(join(timedEnv.H2A_TEST_CI_M17_OUTPUT, 'proof.json')), false);
+    const timedRows = fs.readFileSync(timedChildren, 'utf8').trim().split('\n').map(JSON.parse);
+    assert.equal(timedRows.length, 8);
+    for (const row of timedRows) {
+      try {
+        const stat = fs.readFileSync(`/proc/${row.pid}/stat`, 'utf8').split(') ')[1].split(' ');
+        assert.ok(stat[0] === 'Z' || stat[19] !== row.birth, 'watchdog must confirm every owned child stopped');
+      } catch (error) { if (!['ENOENT', 'ESRCH'].includes(error.code)) throw error; }
+    }
+    assert.equal(JSON.parse(fs.readFileSync(requested, 'utf8')), 1_350_000,
+      'the standalone campaign has 22.5 minutes; the whole job still has 25');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
