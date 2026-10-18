@@ -1,11 +1,13 @@
 import { acceptanceStatus } from '../accept/status.js'
-import type { ActorId } from '../events/types.js'
+import type { ActorId, TrackEvent } from '../events/types.js'
 import type { AcceptanceStatus } from '../model/acceptance.js'
+import type { ReportStage, ReportStatus } from '../model/report-status.js'
 import { isStructuredDossier, type DecisionKind, type DossierArtifact, type Option, type Outcome } from '../model/decision.js'
 import { isRoleContainer, type ItemId, type ItemKind, type ItemRole, type ItemState, type Realization } from '../model/item.js'
 import type { State } from '../state/fold.js'
 import { BUCKETS, bucketOf, type Bucket, type ReportConfig } from './buckets.js'
 import { bodyExcerpt, computeWpTree, type WpNode } from './rollup.js'
+import { deriveItemStageStatus } from './stage-status.js'
 
 /**
  * focus-wp-enrichment (additive) — a short per-item DETAIL block for the focus card. It carries what a
@@ -47,6 +49,17 @@ export interface ReportRow {
   wpLabel?: string
   /** focus-wp-enrichment (additive) — the per-item detail block (body excerpt + recette state en clair). */
   detail: ReportRowDetail
+  /**
+   * Amendment D2/D3 (additive) — the derived neutral stage/status codes for
+   * this item (see `report/stage-status.ts`). Present iff the report was built
+   * with the folded event log (`ReportOptions.events`); absent otherwise, so a
+   * log-less projection keeps its established shape byte-identically.
+   */
+  stage?: ReportStage
+  /** Recorded evidence locator proving the stage; drop-when-absent. */
+  stageEvidence?: string
+  /** Derived neutral status code (`withdrawn` included); present with `stage`. */
+  status?: ReportStatus
 }
 
 export interface DecisionRow {
@@ -97,6 +110,13 @@ export interface Report {
 export interface ReportOptions {
   baselineCommit: string
   requireAccepted?: boolean
+  /**
+   * Amendment D2 (additive, optional) — the complete folded event log, in
+   * stream order. Present ⇒ every row carries the derived neutral
+   * stage/status codes; absent ⇒ rows keep their established shape (the
+   * query path and log-less projections are unaffected).
+   */
+  events?: readonly TrackEvent[]
   decisions?: boolean
   /** Include the WP rollup forest on `report.wpTree` (Workpackages §2). Absent ⇒ unchanged behavior. */
   wpTree?: boolean
@@ -156,11 +176,21 @@ function owningWpId(items: Map<ItemId, ItemState>, itemId: ItemId): ItemId | und
   return undefined
 }
 
-function toRow(state: State, item: ItemState, config: ReportConfig, labels: Map<ItemId, string>): ReportRow {
+function toRow(
+  state: State,
+  item: ItemState,
+  config: ReportConfig,
+  labels: Map<ItemId, string>,
+  events?: readonly TrackEvent[],
+): ReportRow {
   const acceptance = acceptanceStatus(state, item.id, config.baselineCommit)
   const wpId = owningWpId(state.items, item.id)
   const wpLabel = wpId !== undefined ? labels.get(wpId) : undefined
   const summary = bodyExcerpt(item.body)
+  // Amendment D2 (additive) — derived neutral stage/status codes + recorded
+  // stage evidence, iff the folded log was supplied. Never a second engine:
+  // the single `deriveItemStageStatus` table every route shares.
+  const derived = events === undefined ? undefined : deriveItemStageStatus(state, events, item, config.baselineCommit)
   return {
     id: item.id,
     title: item.title,
@@ -176,6 +206,9 @@ function toRow(state: State, item: ItemState, config: ReportConfig, labels: Map<
     // focus-wp-enrichment (additive) — WP attribution for EVERY bucket + a render-ready detail block.
     ...(wpId !== undefined ? { wpId } : {}),
     ...(wpLabel !== undefined ? { wpLabel } : {}),
+    ...(derived !== undefined ? { stage: derived.stage } : {}),
+    ...(derived?.stageEvidence !== undefined ? { stageEvidence: derived.stageEvidence } : {}),
+    ...(derived !== undefined ? { status: derived.status } : {}),
     detail: {
       ...(summary !== undefined ? { summary } : {}),
       acceptanceLabel: ACCEPTANCE_FR[acceptance],
@@ -219,7 +252,7 @@ export function buildReport(
     // flat buckets entirely so it can never be mis-counted as a TO-DO leaf (the false-% bug the design
     // warns about). The container forest is surfaced separately on `report.wpTree`.
     if (isRoleContainer(item)) continue
-    const row = toRow(state, item, config, labels)
+    const row = toRow(state, item, config, labels, options.events)
     buckets[row.bucket].push(row)
   }
   for (const bucket of BUCKETS) buckets[bucket].sort((a, b) => byPriority(a, b, compareIds))

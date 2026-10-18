@@ -1,18 +1,19 @@
 import type { TrackEvent } from '../events/types.js'
 import { acceptanceStatus } from '../accept/status.js'
-import { assertDecisionExpectations, assertItemReportStatus, type DecisionExpectations, type ItemReportStatus, type ReportStage, type ReportStatus } from '../model/report-status.js'
+import { assertDecisionExpectations, assertItemReportStatus, type DecisionExpectations, type ItemReportStatus, type ReportStage } from '../model/report-status.js'
 import { isSettled, type DecisionState } from '../model/decision.js'
 import type { ItemState } from '../model/item.js'
 import { fold } from '../state/fold.js'
 import type { Report, ReportOptions } from './build.js'
 import { effectiveOpenBlockersForItem } from './blocker-status.js'
 import { canonicalLeafUrgency } from './directive.js'
-import { buildWpConductorView, redactOwnerTable, renderReportView, type Format, type ConductorMeta, type ReportView } from './format.js'
+import { buildWpConductorView, redactOwnerTable, renderReportView, reportPeriodPayload, type Format, type ConductorMeta, type ReportView } from './format.js'
+import { deriveItemStageStatus, STATUS_HEALTH, type StatusCode } from './stage-status.js'
 
-const COLORS: Record<ReportStatus, string> = { progressing: '🟢', unforeseen: '🟠', blocked: '🔴', 'decision-awaited': '🔵' }
-const URGENCY: Record<ReportStatus, number> = { blocked: 0, 'decision-awaited': 1, unforeseen: 2, progressing: 3 }
-const LINK_STAGES: Record<string, ReportStage> = { 'pr-open': 'PR', 'pr-merged': 'mergé', deployed: 'déployé' }
-const STAGES: ReportStage[] = ['spec', 'dev', 'PR', 'mergé', 'déployé']
+// Amendment D2 — the transitional view consumes the shared derivation; it no
+// longer computes its own stage/status. Colours stay the four health states;
+// colourless codes render `—` (D8, D9) until lot 4 removes these builders.
+const URGENCY: Record<StatusCode, number> = { blocked: 0, 'decision-awaited': 1, unforeseen: 2, progressing: 3, 'not-qualified': 4, withdrawn: 5 }
 const COLUMNS = [
   { id: 'n', label: '#' }, { id: 'request', label: 'Ta demande' }, { id: 'stage', label: 'Étape' },
   { id: 'status', label: 'Statut' }, { id: 'action', label: 'Où ça en est / prochaine action' },
@@ -39,10 +40,12 @@ export interface StatusTableRow {
   id: string
   n: string
   request: string
-  requestSource: 'report-event' | 'demand' | 'owner-quote' | 'legacy-title'
+  requestSource: 'report-event' | 'demand' | 'legacy-title'
   stage: ReportStage
   stageEvidence?: string
   status: string
+  /** Neutral status code identity (D2); the `status` cell is its rendering. */
+  statusCode: StatusCode
   action: string
   issues: string[]
   expectations: DecisionExpectations[]
@@ -71,53 +74,53 @@ export function buildStatusTable(events: readonly TrackEvent[], report: Report, 
     const lastReopen = lastReopenById.get(item.id) ?? -1
     const lastReport = lastReportById.get(item.id) ?? -1
     const staleReport = lastReopen > lastReport
-    const recordedStage = info.stage
     if (staleReport) {
       issues.push('status-predates-reopening')
       // The request remains the owner's request; lifecycle assertions need fresh qualification.
       info = info.ownerRequest === undefined ? {} : { ownerRequest: info.ownerRequest }
     }
+    // Amendment P3 — request text comes from the structured demand
+    // (`raw.text`, immutable) when the item is linked; otherwise from the
+    // item title, flagged as a title (`legacy-title` provenance). The
+    // `Phrase(s) owner : « … »` body grep is deleted, not replaced.
     const demand = item.demandId === undefined ? undefined : state.demands.get(item.demandId)
-    const quote = [...(item.body ?? '').matchAll(/Phrase(?:s|\(s\))?\s+owner\s*(?:\([^)]*\)\s*)?:\s*«([^»]*)»/giu)]
-      .map(match => match[1]!.trim()).find(text => text.length > 0)
-    const request = info.ownerRequest ?? demand?.raw.text ?? quote ?? item.title
-    const requestSource = info.ownerRequest ? 'report-event' : demand ? 'demand' : quote ? 'owner-quote' : 'legacy-title'
+    const request = info.ownerRequest ?? demand?.raw.text ?? item.title
+    const requestSource = info.ownerRequest ? 'report-event' : demand ? 'demand' : 'legacy-title'
     if (versionOnlySubject(request)) issues.push('version-only-subject')
+    // Amendment D2 — stage and status come from the shared derivation (D6's
+    // single precedence table). This view flags; it never recomputes.
+    const derived = deriveItemStageStatus(state, events, item, options.baselineCommit)
+    const stage = derived.stage
+    const evidence = derived.stageEvidence
+    const status: StatusCode = derived.status
+    if (derived.stageVoidedByReopening) issues.push('stage-predates-reopening')
     const blockers = effectiveOpenBlockersForItem(state, item.id, options.baselineCommit)
     const linked = [...state.decisions.values()].filter(d => d.targets.includes(item.id))
     const pending = linked.filter(d => !isSettled(d.outcome))
     const failed = acceptanceStatus(state, item.id, options.baselineCommit) === 'fail'
     const dropped = source.bucket === 'DROPPED'
-    let status: ReportStatus = info.status ?? (dropped ? 'progressing' : 'unforeseen')
-    if (info.status === undefined && !staleReport && !dropped && blockers.length === 0 && !failed) issues.push('unrecorded-status')
-    if (pending.length > 0 && status !== 'blocked') status = 'decision-awaited'
-    if (blockers.some(b => b.kind !== 'decision') || failed) status = 'blocked'
+    // A live gate overrides a stored green (D6): the declaration stays
+    // visible in the facts, the derived status wins.
     if (info.status === 'progressing' && status !== 'progressing') issues.push('status-contradicts-live-gate')
     if (info.status === 'decision-awaited' && linked.length > 0 && pending.length === 0) {
-      if (status !== 'blocked') status = 'unforeseen'
       issues.push('settled-decision-expectations')
     }
+    if (derived.unanswerableDecisionGate) issues.push('unanswerable-decision-gate')
     if (status === 'blocked' && !info.proposal) issues.push('missing-proposal')
+    const blue = linked.filter(d => derived.blueDossierIds.includes(d.id))
     const expectations: DecisionExpectations[] = []
     if (status === 'decision-awaited') {
-      if (pending.length === 0 && info.decisionExpectations) expectations.push(info.decisionExpectations)
+      if (blue.length === 0 && info.decisionExpectations) expectations.push(info.decisionExpectations)
       const supplied = info.decisionExpectations
       const matches = (d: DecisionState): boolean => supplied !== undefined && supplied.question === (d.dossier.subject ?? d.title) &&
         supplied.options.length === d.dossier.options.length && supplied.options.every((o, i) => o.label === d.dossier.options[i]!.title && o.consequence === d.dossier.options[i]!.summary)
-      if (supplied && pending.length > 0 && !pending.some(matches)) issues.push('decision-expectations-conflict')
-      for (const d of pending) {
+      if (supplied && blue.length > 0 && !blue.some(matches)) issues.push('decision-expectations-conflict')
+      for (const d of blue) {
         const native = nativeExpectations(d)
         if (native) expectations.push(native)
         else if (supplied && matches(d)) expectations.push(supplied)
       }
-      if (expectations.length < Math.max(1, pending.length)) issues.push('missing-decision-expectations')
-    }
-    const derived = deriveStage(item)
-    let stage = info.stage?.value ?? derived.value
-    let evidence = info.stage === undefined ? derived.evidence : info.stage.evidence
-    if (lastReopen >= 0 && (staleReport || info.stage === undefined) && STAGES.indexOf(recordedStage?.value ?? derived.value) > 1) {
-      stage = 'dev'; evidence = undefined
-      if (staleReport) issues.push('stage-predates-reopening')
+      if (expectations.length < Math.max(1, blue.length)) issues.push('missing-decision-expectations')
     }
     const facts = [
       item.reopenings?.at(-1) ? `Réouverture : ${item.reopenings.at(-1)!.reason}.` : undefined,
@@ -136,8 +139,9 @@ export function buildStatusTable(events: readonly TrackEvent[], report: Report, 
     ].filter(Boolean)
     const next = status === 'decision-awaited' ? (issues.includes('missing-decision-expectations') ? 'compléter les attendus et le lien du dossier avant de demander ton GO.' : 'ton GO sur la question et les options ci-dessus.')
       : status === 'blocked' ? info.nextAction ?? info.proposal ?? 'rédiger une proposition de déblocage.'
-      : info.nextAction ?? (issues.some(i => i === 'unrecorded-status' || i === 'status-predates-reopening') ? 'vérifier puis renseigner le statut de conformité.' : dropped ? 'aucune action : demande retirée.' : 'renseigner la prochaine action vérifiée.')
-    const row: StatusTableRow = { id: item.id, n: '', request, requestSource, stage, ...(evidence ? { stageEvidence: evidence } : {}), status: COLORS[status], action: `${facts.join(' ')} Ensuite : ${next}`, issues: [...new Set(issues)], expectations, dossierRefs: expectations.map(e => e.dossier) }
+      : status === 'not-qualified' ? info.nextAction ?? 'qualifier la conformité (faits constatés ou recette), puis renseigner la prochaine action.'
+      : info.nextAction ?? (issues.some(i => i === 'status-predates-reopening') ? 'vérifier puis renseigner le statut de conformité.' : dropped ? 'aucune action : demande retirée.' : 'renseigner la prochaine action vérifiée.')
+    const row: StatusTableRow = { id: item.id, n: '', request, requestSource, stage, ...(evidence ? { stageEvidence: evidence } : {}), status: STATUS_HEALTH[status] ?? '—', statusCode: status, action: `${facts.join(' ')} Ensuite : ${next}`, issues: [...new Set(issues)], expectations, dossierRefs: expectations.map(e => e.dossier) }
     const terminal = (source.bucket === 'DONE' || dropped) && blockers.length === 0 && !['fail', 'stale'].includes(source.acceptance)
     const canonical = canonicalLeafUrgency({ realization: item.realization, acceptance: source.acceptance, specStatus: item.specStatus ?? 'n/a', openBlockers: blockers.map(b => ({ ...b, blockerId: b.id })) })
     return { row, terminal: Number(terminal), urgency: URGENCY[status], priority: source.priority ?? -Infinity, canonical }
@@ -146,17 +150,10 @@ export function buildStatusTable(events: readonly TrackEvent[], report: Report, 
   return { columns: COLUMNS, rows: entries.map(({ row }, i) => ({ ...row, n: String(i + 1) })), order: 'demandes actives avant clôturées ; blocage, décision propriétaire, imprévu, progression ; puis urgence canonique, priorité, identifiant' }
 }
 
-function deriveStage(item: ItemState): { value: ReportStage; evidence?: string } {
-  const links = (item.links ?? []).filter(l => LINK_STAGES[l.kind] && l.locator.trim())
-    .sort((a, b) => STAGES.indexOf(LINK_STAGES[b.kind]!) - STAGES.indexOf(LINK_STAGES[a.kind]!))
-  const link = links[0]
-  if (link) return { value: LINK_STAGES[link.kind]!, evidence: link.locator }
-  return { value: item.realization === 'in-progress' || item.realization === 'done' ? 'dev' : 'spec' }
-}
-
 function issueText(issue: string): string {
   const labels: Record<string, string> = {
-    'missing-proposal': 'proposition obligatoire', 'version-only-subject': 'finalité propriétaire manquante',
+    'missing-proposal': 'proposition obligatoire', 'unanswerable-decision-gate': 'dossier sans attendus actionnables : structurer avant de demander un GO',
+    'version-only-subject': 'finalité propriétaire manquante',
     'missing-decision-expectations': 'question, options avec conséquences, budget ≤2 min et lien du dossier requis',
     'unrecorded-status': 'statut de conformité non renseigné', 'invalid-report-event': 'événement de rapport invalide',
     'status-contradicts-live-gate': 'statut déclaré contredit par un blocage actif',
@@ -205,6 +202,8 @@ export function buildStatusTableView(statusTable: StatusTable, report: Report, m
 
 export function renderStatusTable(statusTable: StatusTable, report: Report, format: Format, meta: ConductorMeta): string {
   const view = buildStatusTableView(statusTable, report, meta)
-  if (format === 'json') return `${JSON.stringify({ ...report, statusTable, view }, null, 2)}\n`
+  // Amendment D4 — the full `period` payload is present in every format and
+  // every mode (the withdrawn view dropped it; the validated contract keeps it).
+  if (format === 'json') return `${JSON.stringify({ ...report, period: reportPeriodPayload(meta), statusTable, view }, null, 2)}\n`
   return renderReportView(view, format)
 }

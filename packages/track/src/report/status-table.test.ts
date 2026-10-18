@@ -32,8 +32,10 @@ const rows = () => JSON.parse(report()).statusTable.rows
 describe('owner status table regression fixtures', () => {
   it('flags a red row without a proposal in JSON and the rendered row', () => {
     const id = item()
+    const dep = item('Dépendance externe')
+    track.openBlocker({ targetId: id, kind: 'dependency', ref: dep, reason: 'Attente autre piste' })
     expect(set(id, { status: 'blocked', facts: 'La recette échoue.' }).code).toBe(0)
-    expect(rows()[0]).toMatchObject({ id, status: '🔴', issues: ['missing-proposal'] })
+    expect(rows()[0]).toMatchObject({ id, status: '🔴', statusCode: 'blocked', issues: ['missing-proposal'] })
     expect(report('md')).toContain('NON CONFORME : proposition obligatoire')
     expect(set(id, { status: 'blocked', proposal: 'Corriger la résolution puis rejouer la recette.' }).code).toBe(0)
     expect(rows()[0].issues).not.toContain('missing-proposal')
@@ -51,13 +53,14 @@ describe('owner status table regression fixtures', () => {
   it('persists an additive event, replays after restart, and replaces stale report fields', () => {
     const id = item()
     const prefix = readFileSync(join(dir, 'events.jsonl'), 'utf8')
-    expect(set(id, { stage: { value: 'PR', evidence: 'https://github.com/rhanka/h2a/pull/42' }, status: 'blocked', proposal: 'Rejouer CI' }).code).toBe(0)
+    expect(set(id, { stage: { value: 'pr', evidence: 'https://github.com/rhanka/h2a/pull/42' }, status: 'blocked', proposal: 'Rejouer CI' }).code).toBe(0)
     expect(store.readAll().at(-1)?.type).toBe('item.report-updated')
     expect(readFileSync(join(dir, 'events.jsonl'), 'utf8').startsWith(prefix)).toBe(true)
     expect(new Track(store).state().items.get(id)).toHaveProperty('report.status', 'blocked')
-    set(id, { status: 'progressing', stage: { value: 'dev' } })
+    track.setRealization(id, 'in-progress')
+    set(id, { status: 'progressing', facts: 'Avancement constaté.', stage: { value: 'dev' } })
     expect(new Track(store).state().items.get(id)).not.toHaveProperty('report.proposal')
-    expect(rows()[0]).toMatchObject({ stage: 'dev', status: '🟢' })
+    expect(rows()[0]).toMatchObject({ stage: 'dev', status: '🟢', statusCode: 'progressing' })
   })
 
   it('keeps historical items readable without asserting conformity or merge from done', () => {
@@ -65,14 +68,16 @@ describe('owner status table regression fixtures', () => {
     track.setRealization(id, 'in-progress')
     track.setRealization(id, 'done')
     expect(new Track(store).state().items.get(id)).not.toHaveProperty('report')
-    expect(rows()[0]).toMatchObject({ stage: 'dev', status: '🟠' })
-    expect(report('text')).toContain('statut de conformité non renseigné')
+    // Amendment D8 — never qualified, no colour: a reported gap, not an incident.
+    expect(rows()[0]).toMatchObject({ stage: 'dev', status: '—', statusCode: 'not-qualified' })
+    expect(rows()[0].issues).toEqual([])
+    expect(report('text')).toContain('qualifier la conformité')
     expect(rows()[0].action).toContain('Ensuite :')
   })
 
   it.each([
-    ['pr', 'spec'], ['pr-open', 'PR'], ['pr-merged', 'mergé'],
-    ['release', 'spec'], ['release-published', 'spec'], ['deployed', 'déployé'],
+    ['pr', 'spec'], ['pr-open', 'pr'], ['pr-merged', 'merged'],
+    ['release', 'spec'], ['release-published', 'spec'], ['deployed', 'deployed'],
   ])('derives stage from explicit evidence kind %s only', (kind, stage) => {
     item(undefined, { links: [{ kind, locator: 'https://example.test/evidence/42' }] })
     expect(rows()[0].stage).toBe(stage)
@@ -91,36 +96,70 @@ describe('owner status table regression fixtures', () => {
   })
 
   it('prints blue expectations verbatim with consequences and a clickable dossier; flags incomplete blue', () => {
+    // Amendment D6 — blue requires an effective gate on a pending, structured,
+    // answerable native dossier: the expectations below come from the dossier.
+    const incomplete = item('Choix incomplet')
+    const pendingDossier = {
+      context: 'Le choix change les connexions.',
+      qa: [],
+      options: [{ id: 'a', title: 'A : partager', summary: 'Une connexion commune.' }, { id: 'b', title: 'B : isoler', summary: 'Une connexion par session.' }],
+      recommendation: { optionId: 'a', rationale: 'Moins de connexions' },
+    }
+    const d1 = track.createDecision({ decisionKind: 'commitment', title: 'Faut-il partager le MCP ?', workspace: 'ws', targets: [incomplete], dossier: pendingDossier })
+    track.openBlocker({ targetId: incomplete, kind: 'decision', ref: d1, reason: 'Choix propriétaire en attente' })
+    expect(rows().find((r: { id: string }) => r.id === incomplete)!.issues).toContain('missing-decision-expectations')
     const id = item()
-    set(id, { status: 'decision-awaited' })
-    expect(rows()[0].issues).toContain('missing-decision-expectations')
+    const d2 = track.createDecision({ decisionKind: 'commitment', title: 'Faut-il partager le MCP ?', workspace: 'ws', targets: [id], dossier: {
+      ...pendingDossier,
+      readability: { readingBudgetMinutes: 2 },
+      artifacts: [{ kind: 'rendered-view', viewRef: 'https://example.test/dossier/42' }],
+    } })
+    track.openBlocker({ targetId: id, kind: 'decision', ref: d2, reason: 'Choix propriétaire en attente' })
+    const out = report('md')
+    for (const value of ['Faut-il partager le MCP', 'Une connexion commune.', 'Une connexion par session.', '[dossier](https://example.test/dossier/42)', 'ton GO', 'DÉCISIONS']) expect(out.replace(/\\-/gu, '-')).toContain(value)
+    expect(rows().find((r: { id: string }) => r.id === id)!.issues).toEqual([])
     const decisionExpectations = {
       question: 'Faut-il partager le MCP ?',
       options: [{ label: 'A : partager', consequence: 'Une connexion commune.' }, { label: 'B : isoler', consequence: 'Une connexion par session.' }],
-      dossier: 'https://example.test/dossier/42', readingMinutes: 2,
+      dossier: 'https://example.test/dossier/42', readingMinutes: 3,
     }
-    expect(set(id, { status: 'decision-awaited', decisionExpectations }).code).toBe(0)
-    const out = report('md')
-    for (const value of ['Faut-il partager le MCP', 'Une connexion commune.', 'Une connexion par session.', '[dossier](https://example.test/dossier/42)', 'ton GO', 'DÉCISIONS']) expect(out.replace(/\\-/gu, '-')).toContain(value)
-    expect(rows()[0].issues).toEqual([])
-    expect(set(id, { status: 'decision-awaited', decisionExpectations: { ...decisionExpectations, readingMinutes: 3 } }).code).not.toBe(0)
+    expect(set(id, { status: 'decision-awaited', decisionExpectations }).code).not.toBe(0)
   })
 
   it('keeps actual pending decision dossiers and flags missing presentation rather than inventing it', () => {
     const id = item()
-    track.createDecision({ decisionKind: 'commitment', title: 'Partager le MCP ?', workspace: 'ws', targets: [id], dossier: { context: 'Le choix change les connexions.', qa: [], options: [{ id: 'a', title: 'Partager', summary: 'Une connexion' }, { id: 'b', title: 'Isoler', summary: 'Plusieurs connexions' }], recommendation: { optionId: 'a', rationale: 'Moins de connexions' } } })
-    expect(rows()[0].status).toBe('🔵')
-    expect(rows()[0].issues).toContain('missing-decision-expectations')
+    const decisionId = track.createDecision({ decisionKind: 'commitment', title: 'Partager le MCP ?', workspace: 'ws', targets: [id], dossier: { context: 'Le choix change les connexions.', qa: [], options: [{ id: 'a', title: 'Partager', summary: 'Une connexion' }, { id: 'b', title: 'Isoler', summary: 'Plusieurs connexions' }], recommendation: { optionId: 'a', rationale: 'Moins de connexions' } } })
+    track.openBlocker({ targetId: id, kind: 'decision', ref: decisionId, reason: 'Choix propriétaire en attente' })
+    const row = rows().find((r: { id: string }) => r.id === id)!
+    expect(row.status).toBe('🔵')
+    expect(row.statusCode).toBe('decision-awaited')
+    expect(row.issues).toContain('missing-decision-expectations')
     const out = report('text')
     for (const text of ['DÉCISIONS', 'Partager', 'Isoler', 'Une connexion', 'Plusieurs connexions', 'Réponds']) expect(out).toContain(text)
   })
 
   it('orders urgent first and describes lane waits and suspension in the action column', () => {
-    set(item('Travail normal'), { status: 'progressing' })
-    set(item('Choix propriétaire'), { status: 'decision-awaited' })
-    set(item('Incident bloquant'), { status: 'blocked', proposal: 'Corriger', waitingOn: 'lane tests', suspended: 'attente de capacité' })
-    set(item('Imprévu'), { status: 'unforeseen' })
-    expect(rows().map((r: { status: string }) => r.status)).toEqual(['🔴', '🔵', '🟠', '🟢'])
+    const normal = item('Travail normal')
+    track.setRealization(normal, 'in-progress')
+    set(normal, { status: 'progressing', facts: 'Avancement constaté.' })
+    const choice = item('Choix propriétaire')
+    track.setRealization(choice, 'in-progress')
+    const choiceDecision = track.createDecision({ decisionKind: 'commitment', title: 'Partager ?', workspace: 'ws', targets: [choice], dossier: {
+      context: 'Choix de connexion.', qa: [], readability: { readingBudgetMinutes: 2 },
+      options: [{ id: 'a', title: 'Partager', summary: 'Une connexion' }, { id: 'b', title: 'Isoler', summary: 'Deux connexions' }],
+      recommendation: { optionId: 'a', rationale: 'Moins de connexions' },
+      artifacts: [{ kind: 'rendered-view', viewRef: 'https://example.test/dossier/choix' }],
+    } })
+    track.openBlocker({ targetId: choice, kind: 'decision', ref: choiceDecision, reason: 'Choix propriétaire en attente' })
+    const red = item('Incident bloquant')
+    const redDep = item('Prérequis bloquant')
+    track.openBlocker({ targetId: red, kind: 'dependency', ref: redDep, reason: 'Prérequis manquant' })
+    set(red, { status: 'blocked', proposal: 'Corriger', waitingOn: 'lane tests', suspended: 'attente de capacité' })
+    const orange = item('Imprévu')
+    track.setRealization(orange, 'in-progress')
+    track.setRealization(orange, 'done')
+    track.reopenItem(orange, { motive: 'regression-observed', reason: 'Régression constatée' })
+    expect(rows().filter((r: { id: string }) => r.id !== redDep).map((r: { status: string }) => r.status)).toEqual(['🔴', '🔵', '🟠', '🟢'])
     expect(rows()[0].action).toContain('En attente de lane tests')
     expect(rows()[0].action).toContain('Suspendu : attente de capacité')
     const header = report('md').split('\n').find(l => l.startsWith('| #'))!
@@ -162,11 +201,16 @@ describe('owner status table regression fixtures', () => {
     expect(out.split('\n').filter(l => l.startsWith('| 1 '))).toHaveLength(1)
   })
 
-  it('uses recorded owner quotes and flags old merge evidence after reopening', () => {
-    const id = item('Titre technique', { body: 'Phrase owner : « Je veux reprendre ma session »', links: [{ kind: 'pr-merged', locator: 'https://example.test/pr/1' }] })
+  it('uses the structured demand text and flags old merge evidence after reopening', () => {
+    // Amendment P3 — the request comes from the linked demand (`raw.text`,
+    // immutable); the body grope for `Phrase(s) owner : « … »` is deleted.
+    const demand = track.raiseDemand({ type: 'feature', workspace: 'ws', raw: { text: 'Je veux reprendre ma session' }, source: { kind: 'human' }, handler: 'h' })
+    track.claimDemand(demand, { handler: 'h' })
+    const [promoted] = track.agreeDemand(demand, { items: [{ title: 'Titre technique', links: [{ kind: 'pr-merged', locator: 'https://example.test/pr/1' }] }] })
+    const id: string = promoted!
     track.setRealization(id, 'in-progress')
     track.setRealization(id, 'done')
-    expect(rows()[0]).toMatchObject({ request: 'Je veux reprendre ma session', requestSource: 'owner-quote', stage: 'mergé' })
+    expect(rows()[0]).toMatchObject({ request: 'Je veux reprendre ma session', requestSource: 'demand', stage: 'merged' })
     track.reopenItem(id, { motive: 'regression-observed', reason: 'La reprise échoue de nouveau' })
     expect(rows()[0].stage).toBe('dev')
     expect(rows()[0].issues).toContain('stage-predates-reopening')
@@ -174,12 +218,15 @@ describe('owner status table regression fixtures', () => {
 
   it('derives complete expectations from the native dossier and keeps a separate block red', () => {
     const id = item()
-    track.createDecision({ decisionKind: 'commitment', title: 'Partager ?', workspace: 'ws', targets: [id], dossier: {
+    const decisionId = track.createDecision({ decisionKind: 'commitment', title: 'Partager ?', workspace: 'ws', targets: [id], dossier: {
       context: 'Choix de connexion.', qa: [], readability: { readingBudgetMinutes: 2 },
       options: [{ id: 'a', title: 'Partager', summary: 'Une connexion' }, { id: 'b', title: 'Isoler', summary: 'Deux connexions' }],
       recommendation: { optionId: 'a', rationale: 'Moins de connexions' }, artifacts: [{ kind: 'rendered-view', viewRef: 'https://example.test/dossier/native' }],
     } })
-    expect(rows()[0]).toMatchObject({ status: '🔵', issues: [], dossierRefs: ['https://example.test/dossier/native'] })
+    track.openBlocker({ targetId: id, kind: 'decision', ref: decisionId, reason: 'Choix propriétaire en attente' })
+    expect(rows()[0]).toMatchObject({ status: '🔵', statusCode: 'decision-awaited', issues: [], dossierRefs: ['https://example.test/dossier/native'] })
+    const dep = item('Prérequis bloquant')
+    track.openBlocker({ targetId: id, kind: 'dependency', ref: dep, reason: 'Transport à corriger' })
     set(id, { status: 'blocked', proposal: 'Corriger le transport avant le choix.' })
     expect(rows()[0].status).toBe('🔴')
     expect(report('md')).toContain('Partager')
@@ -222,18 +269,21 @@ describe('independent review regressions', () => {
     dossier: 'https://example.test/dossier/old', readingMinutes: 2,
   }
 
-  it.each(['Phrase(s) owner', 'Phrases owner (16/10)', 'Phrase owner (relayée par s-conductor, 13/10)'])('review #1: reads and trims %s quotes', prefix => {
-    item('Titre technique', { body: `${prefix} : «  Je veux reprendre ma session  »` })
-    expect(rows()[0]).toMatchObject({ request: 'Je veux reprendre ma session', requestSource: 'owner-quote' })
-    expect(rows()[0].issues).not.toContain('version-only-subject')
+  it('review #1: reads the structured demand lineage as the request', () => {
+    // Amendment P3 — the body grope for owner-quote markers is deleted: the
+    // request is the linked demand text, else the title flagged legacy-title.
+    const demand = track.raiseDemand({ type: 'feature', workspace: 'ws', raw: { text: 'Je veux reprendre ma session' }, source: { kind: 'human' }, handler: 'h' })
+    track.claimDemand(demand, { handler: 'h' })
+    const [promotedTitle] = track.agreeDemand(demand, { items: [{ title: 'Titre technique' }] })
+    const id: string = promotedTitle!
+    expect(rows().find((r: { id: string }) => r.id === id)).toMatchObject({ request: 'Je veux reprendre ma session', requestSource: 'demand' })
+    expect(rows().find((r: { id: string }) => r.id === id)!.issues).not.toContain('version-only-subject')
   })
 
-  it('review #1: ignores a blank quote and continues to a substantive owner quote', () => {
-    item('Reprendre la session', { body: 'Phrase owner : «   »' })
+  it('review #1: an item without a demand falls back to its title, flagged legacy-title', () => {
+    item('Reprendre la session')
     expect(rows()[0]).toMatchObject({ request: 'Reprendre la session', requestSource: 'legacy-title' })
     expect(rows()[0].issues).not.toContain('version-only-subject')
-    item('Autre titre', { body: 'Phrase owner : «   »\nPhrase(s) owner : « Reprendre les agents »' })
-    expect(rows().find((r: { request: string }) => r.request === 'Reprendre les agents')).toBeDefined()
   })
 
   it.each(['progressing', 'blocked', 'decision-awaited'])('review #2: invalidates all stale report fields after reopening from %s', status => {
@@ -257,8 +307,9 @@ describe('independent review regressions', () => {
     expect(rows()[0]).toMatchObject({ status: '🟢', stage: 'dev', issues: [] })
     expect(rows()[0]).not.toHaveProperty('stageEvidence')
     expect(rows()[0].action).not.toContain('https://example.test/pr/1')
-    set(id, { status: 'progressing', stage: { value: 'PR', evidence: 'https://example.test/pr/fix' } })
-    expect(rows()[0]).toMatchObject({ stage: 'PR', stageEvidence: 'https://example.test/pr/fix', issues: [] })
+    // Full replacement: the requalifying stage carries its conformity facts.
+    set(id, { status: 'progressing', facts: 'Correctif vérifié.', stage: { value: 'pr', evidence: 'https://example.test/pr/fix' } })
+    expect(rows()[0]).toMatchObject({ stage: 'pr', stageEvidence: 'https://example.test/pr/fix', issues: [] })
   })
 
   it('review #2: still enforces live gates and a fresh proposal after reopening', () => {
@@ -307,8 +358,9 @@ describe('independent review regressions', () => {
 
   it.each(['spec', 'dev'])('review #5: does not inherit link evidence for an explicit %s stage', stage => {
     const id = item(undefined, { links: [{ kind: 'pr-open', locator: 'https://example.test/pr/42' }] })
-    set(id, { stage: { value: stage }, status: 'progressing' })
-    expect(rows()[0]).toMatchObject({ stage, status: '🟢' })
+    track.setRealization(id, 'in-progress')
+    set(id, { stage: { value: stage }, status: 'progressing', facts: 'Avancement constaté.' })
+    expect(rows()[0]).toMatchObject({ stage, status: '🟢', statusCode: 'progressing' })
     expect(rows()[0]).not.toHaveProperty('stageEvidence')
     expect(rows()[0].action).not.toContain('https://example.test/pr/42')
   })
@@ -356,25 +408,39 @@ describe('independent review regressions', () => {
     expect(json.view.tables.find((t: { id: string }) => t.id === 'decisions').rows).toHaveLength(1)
   })
 
-  it.each(['cancelled', 'rejected'])('review #6: records terminal %s requests without an active anomaly', realization => {
+  it.each(['cancelled', 'rejected'])('review #6: records terminal %s requests colourless, never green', realization => {
+    // Amendment D9 — a withdrawn request carries no progress colour.
     const id = item()
     if (realization === 'rejected') track.selectDecisionOption(decision(id), 'b', 'no-go')
     else track.setRealization(id, 'cancelled')
-    expect(rows()[0]).toMatchObject({ status: '🟢', issues: [] })
+    expect(rows()[0]).toMatchObject({ status: '—', statusCode: 'withdrawn', issues: [] })
     expect(rows()[0].action).toContain(realization)
     expect(rows()[0].action).not.toContain('renseigner')
   })
 
+  // Amendment D6 — blue expectations come from an effective native dossier
+  // gate, not from a stored declaration alone.
+  const blueDossier = (id: string, dossier: string): void => {
+    const decisionId = track.createDecision({
+      decisionKind: 'commitment', title: 'Partager ?', workspace: 'ws', targets: [id], links: [{ kind: 'dossier', locator: dossier }],
+      dossier: {
+        context: 'Choix de connexion.', qa: [], readability: { readingBudgetMinutes: 2 },
+        options: [{ id: 'a', title: 'Partager', summary: 'Une connexion' }, { id: 'b', title: 'Isoler', summary: 'Deux connexions' }],
+        recommendation: { optionId: 'a', rationale: 'Moins de connexions' },
+      },
+    })
+    track.openBlocker({ targetId: id, kind: 'decision', ref: decisionId, reason: 'Choix propriétaire en attente' })
+  }
+
   it('review #7: preserves escaped URL bytes', () => {
-    const id = item()
-    set(id, { status: 'decision-awaited', decisionExpectations: { ...expectations, dossier: 'https://example.test/my%20doc.md?q=a%2Fb' } })
+    blueDossier(item(), 'https://example.test/my%20doc.md?q=a%2Fb')
     expect(report('md')).toContain('[dossier](https://example.test/my%20doc.md?q=a%2Fb)')
   })
 
   it('review #7: preserves dossier destinations containing internal IDs without printing IDs as owner text', () => {
     const internal = '01M515ED3S5WVMD3GVQ6E9WM5G'
     const dossier = `https://example.test/dossiers/${internal}.md`
-    set(item(), { status: 'decision-awaited', decisionExpectations: { ...expectations, dossier } })
+    blueDossier(item(), dossier)
     expect(report('md')).toContain(`[dossier](${dossier})`)
     expect(report('text').split('RÉSOLUTION DES HANDLES')[0]).not.toContain(internal)
     const view = JSON.parse(report()).view
@@ -382,12 +448,12 @@ describe('independent review regressions', () => {
   })
 
   it.each([' javascript:alert(1)', '\n\tdata:text/html,hello'])('review #7: rejects whitespace-prefixed schemes %s', dossier => {
-    set(item(), { status: 'decision-awaited', decisionExpectations: { ...expectations, dossier } })
+    blueDossier(item(), dossier)
     expect(report('md')).not.toContain('[dossier](')
   })
 
   it.each(['md', 'text'])('review #7: protects table cells including dossier references in %s', format => {
-    set(item(), { status: 'decision-awaited', decisionExpectations: { ...expectations, dossier: 'https://example.test/doc|extra\nsecond-row' } })
+    blueDossier(item(), 'https://example.test/doc|extra\nsecond-row')
     const out = report(format)
     const table = out.split('DEMANDES')[1]!.split('DÉCISIONS')[0]!
     expect(table).not.toContain('\nsecond-row')
@@ -398,8 +464,13 @@ describe('independent review regressions', () => {
   it.each(['md', 'text', 'json'])('review #7: shares a redacted DEMANDES view in %s', format => {
     const internal = '01M515ED3S5WVMD3GVQ6E9WM5G'
     const id = item(`Retrouver ${internal}`)
+    const dep = item(`Prérequis ${internal}`)
+    track.openBlocker({ targetId: id, kind: 'dependency', ref: dep, reason: `Attendre ${internal}` })
     set(id, { status: 'blocked', facts: `Échec ${internal}`, proposal: `Corriger ${internal}` })
-    const quoted = item('Titre', { body: `Phrase(s) owner : « Reprendre ${internal} »` })
+    const demand = track.raiseDemand({ type: 'feature', workspace: 'ws', raw: { text: `Reprendre ${internal}` }, source: { kind: 'human' }, handler: 'h' })
+    track.claimDemand(demand, { handler: 'h' })
+    const [quotedItem] = track.agreeDemand(demand, { items: [{ title: 'Titre' }] })
+    const quoted: string = quotedItem!
     track.openBlocker({ targetId: quoted, kind: 'dependency', ref: id, reason: `Attendre ${internal}` })
     const json = JSON.parse(report())
     const table = json.view.tables.find((t: { id: string }) => t.id === 'requests')
