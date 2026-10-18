@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import test from 'node:test';
-import { command } from '../src/vuln-fix/process.mjs';
+import { checked, command } from '../src/vuln-fix/process.mjs';
 import { scanLocks } from '../src/vuln-fix/scan.mjs';
 import { supplyChain } from '../src/vuln-fix/verify.mjs';
 
@@ -30,6 +30,16 @@ test('should force full dependency coverage and mask credentials in supply-chain
     for (const flag of ['--include=dev', '--include=optional', '--include=peer']) assert.ok(args.includes(flag), `npm misses ${flag}`);
   }
   assert.ok(!JSON.stringify(results).includes(raw));
+});
+
+test('should redact full stderr before truncating the failure message', async () => {
+  // Cut lands inside "Authorization: Bearer " so a truncate-first order keeps
+  // the token while dropping its scheme word. Fake token only.
+  const raw = 'FAKE-TOKEN-0000';
+  const stderr = `${'A'.repeat(50)}Authorization: Bearer ${raw}${'B'.repeat(1980)}`;
+  const execute = async () => ({ code: 1, stdout: '', stderr, signal: null });
+  await assert.rejects(checked('git', ['fetch'], {}, execute),
+    error => !error.message.includes(raw) && error.message.includes('[REDACTED]'));
 });
 
 test('should preserve process quarantine through detection and supply-chain aggregation', async () => {
