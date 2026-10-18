@@ -368,8 +368,8 @@ describe('view — additive directives + dispatchQueue (DESIGN §4)', () => {
 
     const view = buildWpConductorView(computeWpTree(t.state(), cfg), [standalone])
     const todo = view.tables.find((table) => table.id === 'todo')!
-    // Criterion 5 — exactly five columns; `actionTarget` is gone, it injected a ULID into the owner's view.
-    expect(todo.columns.map((column) => column.id)).toEqual(['wp', 'progress', 'todo', 'blocked', 'nextAction'])
+    // Criterion 5, amended D3 — exactly seven columns; `actionTarget` is gone, it injected a ULID into the owner's view.
+    expect(todo.columns.map((column) => column.id)).toEqual(['wp', 'progress', 'stage', 'status', 'todo', 'blocked', 'nextAction'])
 
     const staleRow = todo.rows.find((row) => row['directiveIds'] === `item:${stale}`)!
     // Criterion 7/19 — `bloqué` is a short handle on the answer, never a restated question, never `—`

@@ -241,12 +241,14 @@ describe('criteria 3/4 — FAIT names the last recorded actions, and declares it
   })
 })
 
-describe('criteria 5/6 — À-FAIRE has five columns, ordered by priority, and says so', () => {
-  it('has exactly `WP · av. · à faire · bloqué · prochaine action` and no `cible action`', () => {
+describe('criteria 5/6 — À-FAIRE has seven columns, ordered by priority, and says so', () => {
+  it('has exactly `WP · av. · stage · status · à faire · bloqué · prochaine action` and no `cible action`', () => {
+    // Amendment D3 (declared diff: the single regenerated golden traces here)
+    // — À-FAIRE gains exactly the two columns `stage` and `status`.
     seed()
     const todo = section(view(), 'todo')
-    expect(todo.columns.map((c) => c.id)).toEqual(['wp', 'progress', 'todo', 'blocked', 'nextAction'])
-    expect(todo.columns.map((c) => c.label)).toEqual(['WP', 'av.', 'à faire', 'bloqué', 'prochaine action'])
+    expect(todo.columns.map((c) => c.id)).toEqual(['wp', 'progress', 'stage', 'status', 'todo', 'blocked', 'nextAction'])
+    expect(todo.columns.map((c) => c.label)).toEqual(['WP', 'av.', 'étape', 'statut', 'à faire', 'bloqué', 'prochaine action'])
     expect(todo.columns.map((c) => c.id)).not.toContain('actionTarget')
     for (const rendered of [text(), md()]) expect(rendered).not.toContain('cible action')
   })
