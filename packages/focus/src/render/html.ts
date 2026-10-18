@@ -9,6 +9,7 @@
  */
 
 import { preparePresentation } from "./presentation.js";
+import { evidenceIndex } from './evidence.js';
 
 import type {
   Affordance,
@@ -134,6 +135,7 @@ export const renderHtml = (
     sections +
     amendment +
     affordances +
+    (evidenceIndex(doc) ? `<section class="focus-evidence"><pre>${escapeHtml(evidenceIndex(doc))}</pre></section>` : '') +
     "</article>";
 
   return hooks.sanitizeHtml(html);
