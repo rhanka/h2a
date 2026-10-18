@@ -69,9 +69,19 @@ Other tests and packaging continue using their ordinary private disk fixtures.
 
 The remaining Node suites retain the four cold qualifications, protocol/bulk
 barrier, original assertions and 1200-second outer backstop. M17 executes the
-original file alone with that same backstop, eight simultaneous actors and
+original file alone with a 1350-second producer backstop, eight simultaneous actors and
 1250 iterations per actor. No test case is filtered or shortened. Each job
 remains capped at 25 minutes.
+
+The first isolated Node 24 campaign passed completely; Node 22 reached
+1201/1250 iterations per actor just before its former 1200-second backstop.
+This is observed active work, not a product timeout. Its measured 37-second
+setup plus the new 1350-second allowance leaves about 113 seconds for cleanup
+and upload under the fixed 1500-second job budget. The original M17 case has
+no individual timeout; every assertion, actor, mutation and the five-second
+kernel-lock deadline remains unchanged. The ordinary Node suite still has
+its 1200-second backstop. A controlled-clock fixture forces the real producer
+watchdog, refuses acceptance and verifies all eight owned children stopped.
 
 The Node 22 and Node 24 producers publish a closed execution envelope only
 after the real temporary volume and private process state have been removed
