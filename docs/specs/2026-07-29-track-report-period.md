@@ -793,3 +793,15 @@ the language-foundations lot, retaining every outcome assertion. Any further
 change to a validated test block outside criterion 5 and the skill block is a
 deviation and must be justified here before it lands — none is authorised by
 this amendment.
+
+Implementation note — 2026-10-18 (lot 5, upholding criterion 34): the
+deterministic layer flags each 🔴 row lacking an investigated proposal
+(`missing-proposal`) and each 🔵 row with no matching DÉCISIONS entry via
+`auditStatusProposals` (`packages/track/src/report/audit.ts`, exported
+through the report barrel and the `@sentropic/track` root barrel). The audit
+consumes derived status codes, recorded `item.report-updated` proposals,
+machine-only `gateStep` phrases and `D#`/`Q#` handle tokens — never prose in
+any language. It echoes ids and recorded text only and never fabricates
+proposal text; a green mechanical audit never certifies prose quality. The
+audit changes no served byte: report generation neither authorises execution
+nor appends an owner answer.

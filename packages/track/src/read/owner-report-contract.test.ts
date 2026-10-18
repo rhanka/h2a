@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { runCli, type CliIO } from '../cli/index.js'
 import { EventStore } from '../events/store.js'
 import { Track } from '../track.js'
+import { auditStatusProposals, describeStatusProposals } from '../report/audit.js'
 import { reportText, resolveHandle, type ReportPeriodSelection } from './commands.js'
 import { TrackReader } from './contract.js'
 
@@ -364,6 +365,40 @@ describe('rendering cutover — --status-table selects the validated report (D1,
     expect(json.view.handles.some((handle) => handle.id === decisionId)).toBe(true)
     expect(json.view.handles.some((handle) => handle.id === blue)).toBe(true)
     expect(text).toContain(decisionId)
+  })
+
+  it('the served report passes the red-proposal audit when red carries a proposal and blue matches', () => {
+    const t = cutoverTrack()
+    seedCutover(t)
+    const reader = new TrackReader(eventsPath)
+    const snapshot = reader.reportSnapshot({ baselineCommit: 'c1', decisions: true, wpTree: true })
+    const view = JSON.parse(
+      cli(['report', '--status-table', '--commit', 'c1', '--now', NOW, '--format', 'json']).out,
+    ).view
+    const described = describeStatusProposals(t.state(), snapshot.report, view)
+    expect(auditStatusProposals(described.rows, described.decisionRefs)).toEqual({
+      missingProposals: [],
+      orphanBlue: [],
+      ok: true,
+    })
+  })
+
+  it('a red row without a recorded proposal fails the served audit', () => {
+    const t = cutoverTrack()
+    const wp = t.createItem({ kind: 'chore', title: 'WP', workspace: 'ws', role: 'workpackage' })
+    const red = t.createItem({ kind: 'chore', title: 'red without proposal', workspace: 'ws', parentId: wp })
+    t.setRealization(red, 'in-progress')
+    const dep = t.createItem({ kind: 'chore', title: 'prerequisite', workspace: 'ws' })
+    t.openBlocker({ targetId: red, kind: 'dependency', ref: dep, reason: 'Waiting' })
+    const reader = new TrackReader(eventsPath)
+    const snapshot = reader.reportSnapshot({ baselineCommit: 'c1', decisions: true, wpTree: true })
+    const view = JSON.parse(
+      cli(['report', '--status-table', '--commit', 'c1', '--now', NOW, '--format', 'json']).out,
+    ).view
+    const described = describeStatusProposals(t.state(), snapshot.report, view)
+    const audit = auditStatusProposals(described.rows, described.decisionRefs)
+    expect(audit.missingProposals).toEqual([red])
+    expect(audit.ok).toBe(false)
   })
 
   it('[n.m] handles rendered on the served report resolve under the captured context', () => {

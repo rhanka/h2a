@@ -64,6 +64,14 @@ export {
 } from './status-by-level.js'
 // Commit-relative blocker openness (v2.2a hybrid-A) — `linked-accepted` derived at projection time.
 export { effectiveBlockerOpen, effectiveOpenBlockersForItem } from './blocker-status.js'
+// Amendment D7 — the public red/blue proposal audit (deterministic flags, never fabricated text).
+export {
+  auditStatusProposals,
+  describeStatusProposals,
+  type StatusProposalAudit,
+  type StatusProposalRow,
+  type StatusProposalView,
+} from './audit.js'
 export {
   SNAPSHOT_EVENT_LIMIT,
   SNAPSHOT_SCHEMA,
