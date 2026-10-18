@@ -504,6 +504,8 @@ inventory in `.h2a/build/seat_model_inventory.md` (untracked).
 
 - [x] Execution specifications cover builds, missing fixtures, exact non-tests, source-only child launches and CI without RTK.
 
+- [x] Bootstrap copies candidate source/fixtures/goldens into private lanes and removes inherited identity/provider hints; no stale dist copied.
+
 ## Fixture integrity
 - [x] engram-enriched.json: SHA-256 `37a9c54032d3b56dd0c78f0aab886da260502a7805b2c898e7fa7377b2596ab7`, 15317 bytes.
 - [x] engram-older.json: SHA-256 `be8e2abc21fec7a775b9db26329915ff1be7e275abec790dead565eedeceb97f`, 28540 bytes.
