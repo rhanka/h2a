@@ -1,5 +1,5 @@
 import type { TrackEvent } from '../events/types.js'
-import type { ItemReportStatus } from '../model/report-status.js'
+import { normalizeStoredReport } from '../model/report-status.js'
 import type {
   CriterionState,
   EvidenceKind,
@@ -129,7 +129,12 @@ function applyEvent(state: State, event: TrackEvent): void {
   switch (event.type) {
     case 'item.report-updated': {
       const item = state.items.get(event.aggregateId)
-      if (item) item.report = event.payload as ItemReportStatus
+      if (item) {
+        // D10 — historical 2026-10-17 French stage values (`mergé`/`déployé`,
+        // `PR`) read as neutral codes in folded state. The events themselves
+        // are never rewritten; only this projection normalises.
+        item.report = normalizeStoredReport(event.payload)
+      }
       break
     }
     case 'item.created': {

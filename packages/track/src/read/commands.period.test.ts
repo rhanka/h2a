@@ -235,6 +235,69 @@ describe('report period — CLI boundary', () => {
     expect(html.err).toContain('--format must be one of: json|text|md')
   })
 
+  it('resolves rolling last-week/last-day to exact instant bounds', () => {
+    // Amendment D4 — pinned `--now 2026-10-18T12:00:00Z`: last-week and
+    // last-day are rolling instant windows, not calendar ones.
+    seed()
+    const rollingNow = '2026-10-18T12:00:00.000Z'
+    for (const [name, from] of [
+      ['last-week', '2026-10-11T12:00:00.000Z'],
+      ['last-day', '2026-10-17T12:00:00.000Z'],
+    ] as const) {
+      const result = cli(['report', '--period', name, '--now', rollingNow, '--format', 'json'])
+      expect(result.code, result.err).toBe(0)
+      expect((JSON.parse(result.out) as { period: Record<string, unknown> }).period).toMatchObject({
+        requested: name,
+        from,
+        to: rollingNow,
+        fromRef: null,
+        toRef: null,
+      })
+    }
+  })
+
+  it('defaults a status-table request without a selector to last-week', () => {
+    seed()
+    const rollingNow = '2026-10-18T12:00:00.000Z'
+    const result = cli(['report', '--status-table', '--commit', 'c1', '--now', rollingNow, '--format', 'json'])
+    expect(result.code, result.err).toBe(0)
+    expect((JSON.parse(result.out) as { period: Record<string, unknown> }).period).toMatchObject({
+      requested: 'last-week',
+      from: '2026-10-11T12:00:00.000Z',
+      to: rollingNow,
+    })
+  })
+
+  it('keeps the validated route without a selector on the whole journal', () => {
+    seed()
+    const rollingNow = '2026-10-18T12:00:00.000Z'
+    const result = cli(['report', '--now', rollingNow, '--format', 'json'])
+    expect(result.code, result.err).toBe(0)
+    const period = (JSON.parse(result.out) as { period: Record<string, unknown> }).period
+    expect(period['requested']).toBeNull()
+    expect(period['eventsInWindow']).toBe(period['eventsTotal'])
+  })
+
+  it('carries the complete top-level period block on the status-table JSON route', () => {
+    // Amendment D4 — the full `period` payload is present in every format and
+    // every mode (the withdrawn DEMANDES view dropped it). A status-table
+    // request without a selector now defaults to `last-week` (lot 3).
+    seed()
+    const result = cli(['report', '--status-table', '--commit', 'c1', '--now', NOW, '--format', 'json'])
+    expect(result.code, result.err).toBe(0)
+    const parsed = JSON.parse(result.out) as { period: Record<string, unknown> }
+    expect(parsed.period).toMatchObject({
+      requested: 'last-week',
+      from: '2026-07-13T12:00:00.000Z',
+      to: NOW,
+      fromRef: null,
+      toRef: null,
+      eventsInWindow: expect.any(Number),
+      eventsTotal: expect.any(Number),
+    })
+    expect(parsed.period['eventsTotal']).toBeGreaterThan(0)
+  })
+
   it('resolves SHA bounds by their committer timestamps and returns their full refs', () => {
     seed()
     execFileSync('git', ['init', '-q'], { cwd: dir })
@@ -283,7 +346,7 @@ describe('the presenter refuses a reversed period window', () => {
   })
 
   it('rejects reversed bounds through the inline presenter too', () => {
-    expect(() => formatWpConductorInline([], [], [], 'global', reversed)).toThrow(
+    expect(() => formatWpConductorInline([], [], {}, [], reversed)).toThrow(
       /must not end before it begins/,
     )
   })

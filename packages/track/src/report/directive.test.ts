@@ -209,7 +209,7 @@ describe('directive selector — routing a decision wait (DESIGN §2.A)', () => 
     const [directive] = buildDirectives([], [{
       id: decisionId, title: 'standalone', workspace: 'ws', decisionKind: 'orientation', realization: 'to-do', outcome: 'pending',
     }])
-    expect(directive.commandHint).toBe(`track focus ${decisionId} --workspace ws`)
+    expect(directive!.commandHint).toBe(`track focus ${decisionId} --workspace ws`)
   })
 })
 
@@ -368,8 +368,8 @@ describe('view — additive directives + dispatchQueue (DESIGN §4)', () => {
 
     const view = buildWpConductorView(computeWpTree(t.state(), cfg), [standalone])
     const todo = view.tables.find((table) => table.id === 'todo')!
-    // Criterion 5 — exactly five columns; `actionTarget` is gone, it injected a ULID into the owner's view.
-    expect(todo.columns.map((column) => column.id)).toEqual(['wp', 'progress', 'todo', 'blocked', 'nextAction'])
+    // Criterion 5, amended D3 — exactly seven columns; `actionTarget` is gone, it injected a ULID into the owner's view.
+    expect(todo.columns.map((column) => column.id)).toEqual(['wp', 'progress', 'stage', 'status', 'todo', 'blocked', 'nextAction'])
 
     const staleRow = todo.rows.find((row) => row['directiveIds'] === `item:${stale}`)!
     // Criterion 7/19 — `bloqué` is a short handle on the answer, never a restated question, never `—`
@@ -385,7 +385,7 @@ describe('view — additive directives + dispatchQueue (DESIGN §4)', () => {
     expect(specRow['blocked']).toBe('spec')
     expect(specRow['gateDetail']).toBe('À spécifier avant de démarrer')
 
-    const wipRow = todo.rows.find((row) => row['todo'].includes('active work'))!
+    const wipRow = todo.rows.find((row) => row['todo']?.includes('active work'))!
     expect(wipRow['blocked']).toBe('—') // criterion 19 — empty means NO blockage is recorded
     expect(wipRow['gateDetail']).toBe('')
 

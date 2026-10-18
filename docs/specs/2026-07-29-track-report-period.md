@@ -152,6 +152,10 @@ they never exercise an agent reading the skill.
    action`.** Today it has six; the added `cible action` injects
    `01KXHGD1ET2BKJ74C1TP6FQ65R · … [DONE]` into the owner's field of view.
 
+   *Amended by D3 of the 2026-10-18 amendment (criteria 28+ below): À-FAIRE has
+   exactly seven columns
+   `WP · av. · stage · status · à faire · bloqué · prochaine action`.*
+
 6. **À-FAIRE is ordered by priority and says so**, with the line
    `ordre = priorité ; les cinq premiers sont le focus`. Today the order is the
    conductor's canonical urgency, unexplained.
@@ -588,3 +592,216 @@ synthétiser — voir 26.
 Le rapport a cessé de mentir (critères 20–24). Il doit maintenant cesser d'être
 illisible. Un rapport d'avancement se lit par ce qu'il apporte, pas par ce qu'il
 a coûté — et un owner doit pouvoir en tirer une décision sans ouvrir le code.
+
+---
+
+## Amendment — stage and status in the validated report — 2026-10-18
+
+This amendment appends dated criteria 28–41 to the set above. It does not
+rewrite criteria 1–27 except criterion 5, amended explicitly by criterion 30
+(D3) below. Full rationale: `SPEC_AMENDMENT_TRACK_REPORT_STAGE_STATUS.v2.md`
+(owner requests 1–8 of 2026-10-17/18, owner decisions of 2026-10-18, two
+independent analyses converging on `origin/main`). GO-CODE from two independent
+reviewers. No implementation is part of this section.
+
+28. **One report contract; the DEMANDES view is withdrawn as a rendering.**
+    An owner request for a track report, a status table, or progress reporting
+    invokes the validated report: exactly four sections
+    FAIT · À-FAIRE · DÉCISIONS · RECOMMANDATION, in that order, same set and
+    order in text, Markdown and JSON (criterion 2 unchanged). Stage and status
+    are added to that report. The 2026-10-17 `--status-table` rendering whose
+    tables were `[requests, decisions, recommendation]` (a DEMANDES inventory
+    replacing FAIT and À-FAIRE) is withdrawn as a rendering; its
+    stage-evidence and flagging rules survive as derivation rules (criteria
+    32–34). `--status-table` remains accepted as a selector of the validated
+    report (criterion 31); it no longer selects a second projection.
+
+29. **Stage and status are neutral, derived codes.** Computed per tracked item
+    from facts already recorded in the journal (realisation, spec status, open
+    blockers, acceptance, linked pending dossiers, explicit delivery links,
+    reopenings). JSON carries codes, never localised words, as identity.
+    Stage ∈ `spec | dev | pr | merged | deployed`. Status ∈ `progressing |
+    unforeseen | blocked | decision-awaited | not-qualified`, plus the
+    terminal `withdrawn` state (criterion 36); only the first four carry a
+    health colour (🟢 🟠 🔴 🔵). No report may require a write to become
+    conforming: no mandatory backfill; derivation, not storage, is primary.
+
+30. **À-FAIRE gains exactly two columns: stage and status (amends criterion
+    5).** À-FAIRE has exactly seven columns
+    `WP · av. · stage · status · à faire · bloqué · prochaine action`.
+    FAIT, DÉCISIONS and RECOMMANDATION keep their validated shapes and
+    columns; stage and status are not added to FAIT. Stage and status annotate
+    identifiable tracked items, never a WP as a whole: a WP whose members sit
+    at different stages must not be shown at one invented stage, and
+    aggregating members must not hide a 🔴 proposal or a 🔵 dossier
+    (criteria 17/18 unchanged). The single À-FAIRE golden is regenerated for
+    these two columns, diff reviewed and traced here; every other named
+    golden, example and snapshot stays byte-identical.
+
+31. **A status table is the validated report over a rolling period.**
+    New additive period values: `--period last-week` = `[now − 7 days, now]`
+    and `--period last-day` = `[now − 24 h, now]`, `now` the single captured
+    report time (the existing `--now` pin). Bounds resolved and printed with
+    time and offset, like every period; the full `period` payload
+    (`requested, from, to, refs, eventsInWindow, eventsTotal`) is present in
+    every format and every mode. Existing selectors keep their documented
+    meaning (`today|week|month|all`, `week` stays the current calendar week;
+    `--since/--until` unchanged). A status-table request without an explicit
+    selector uses `last-week`; an explicit user period always wins. The
+    validated CLI route without `--status-table` and without a selector keeps
+    criterion 4 (whole journal, and says so). Period semantics unchanged: the
+    full journal is folded first; FAIT synthesises the window; À-FAIRE and
+    DÉCISIONS show current open state; an empty window still shows current
+    open work and decisions.
+
+32. **Stage requires recorded evidence; reopening requalifies.** `pr`,
+    `merged` and `deployed` require an explicit recorded delivery link or
+    equally explicit recorded evidence. `done` does not prove a merge; CI does
+    not prove a merge; publishing a release does not prove deployment.
+    A reopening after a stage was derived or stored voids that stage until the
+    item is requalified. No lifecycle state is inferred from localised titles
+    or prose. Track records assertions and references; it does not verify a PR
+    provider or a deployed environment itself (NOT covered).
+
+33. **Status meaning: four colours, absence is never orange.** One precedence
+    table governs; first matching row wins. Open gates and acceptance are
+    evaluated against the report's baseline. An unforeseen fact is an
+    unresolved recorded reopening/regression or a stale acceptance, never mere
+    silence or elapsed time.
+
+    | Priority | Recorded condition | Status code | Health colour |
+    |---|---|---|---|
+    | 1 | Current realisation `cancelled`/`rejected`, even with a live gate | `withdrawn` | none (criterion 36) |
+    | 2 | Open non-decision blocker or acceptance `fail` | `blocked` | 🔴 |
+    | 3 | Effective decision gate on a pending, structured, answerable native dossier | `decision-awaited` | 🔵 |
+    | 4 | Unforeseen fact as defined above, not superseded by requalification | `unforeseen` | 🟠 |
+    | 5 | No open gate and qualifying fact present, with realisation `in-progress` or (`done` and acceptance `pass`) | `progressing` | 🟢 |
+    | 6 | Otherwise, including `in-progress`, no gate, acceptance `unknown`, no qualifying fact | `not-qualified` | none |
+
+    A qualifying fact is either current `acceptanceStatus = pass` backed by its
+    recorded runs, or a valid `item.report-updated` assertion with
+    `status = progressing` and non-empty `facts` (a recorded conformity
+    assertion, not independently verified; its event is the evidence locator).
+    Either witness must postdate the last reopening/regression and must not be
+    superseded by a contrary fact. A bare stored green, a stage,
+    `in-progress`, `done`, or absence of a gate is not such a witness.
+    An unstructured decision gate remains visible as structuring work, never
+    an invented D-number or green. A live gate overrides a stored green. When
+    red and a pending dossier coexist, red is the status and its D-number and
+    full expectations remain visible in `bloqué` and DÉCISIONS.
+
+34. **Red carries a proposal, or the served report fails its audit.** The
+    deterministic layer flags each `blocked` row lacking an investigated
+    proposal (`missing-proposal`). The proposal itself is investigated agent
+    work of the same nature as criterion 20, carried by `prochaine action`
+    and RECOMMANDATION; the deterministic layer never fabricates proposal
+    text. `auditStatusProposals`, exported from `report/audit.ts` through the
+    report barrel and the root public barrel for `@sentropic/track`, fails a
+    served report that has a 🔴 row without a proposal or a 🔵 row with no
+    matching DÉCISIONS entry. A generic instruction to "handle red rows" is
+    not a proposal. Report generation neither authorises execution nor appends
+    an owner answer.
+
+35. **Never-qualified conformity: "not qualified", no colour.** When no
+    higher-priority fact in the criterion 33 table applies, an item without a
+    qualifying fact renders status code `not-qualified` with no health colour
+    (`—` glyph in the cell, the code in JSON). Absence of qualification never
+    renders orange. The row and its qualification work stay visible; the state
+    is a reported gap, not a fabricated incident and not conforming progress.
+
+36. **Withdrawn or rejected requests: shown without colour, only if
+    relevant.** A withdrawn/rejected (`cancelled`/`rejected`) request carries
+    no progress colour and is never 🟢. Shown only when relevant to the
+    selected period (withdrawn or decided inside the window, or still carrying
+    a live gate), with its recorded reason. The withdrawal notice is an
+    identifiable item in À-FAIRE under its actual container/WP, with
+    `status = withdrawn` and no health glyph; a withdrawal event is never a
+    delivery in FAIT. With no live gate the action cell states that no action
+    is owed, without implying open work. A later reopening means current
+    status is no longer `withdrawn`. If the reason is absent, that absence is
+    declared instead of invented. This is the sole declared membership
+    exception to the two-column enrichment; adding a notice changes neither
+    legacy bucket/tally rules nor the delivery projection.
+
+37. **Any user language; nothing language-specific is hardcoded.** Codes are
+    the identity (criterion 29). Human labels for the new surface come from a
+    per-language lexicon keyed by an open `--lang <bcp47>` parameter — never
+    a closed language enum, never a silent French fallback: an unknown
+    language renders the codes themselves, and the contextual agent layer
+    renders the served report in any language the user requests. Changing only
+    the output language changes no ids, order, period, percentages, handles,
+    or selectable options. No extraction, classification or detection may
+    pattern-match a natural language, in any language. The served path removes
+    `versionOnlySubject` and the French marker/prefix recognition in
+    `auditNextActions`; replacing them with other languages is not a fix.
+    Translated placeholders remain uninstructed; a gate-class action remains a
+    gate-class action after translation. Scope limit: this amendment makes the
+    new stage/status surface language-neutral and keeps the any-language path
+    at the agent layer; full localisation of the existing French deterministic
+    renderer is a separate WP, NOT covered here.
+
+    Declared test migration (see criterion 20 note below): criterion 20's
+    mechanical `auditNextActions` call-site test in
+    `validated-report-shape.test.ts` migrates its inputs to structured audit
+    descriptors, retaining every outcome assertion (uninstructed, repeated,
+    gate-class, investigated). This removes the language-dependent API
+    assumption, not the validated investigation criterion.
+
+38. **Every request stays attached to its WP; orphans are flagged.** The two
+    new columns preserve the existing `wpId`/`wpLabel` presentation fields.
+    Strict attachment is derived separately with the existing
+    `wpRootId(items, itemId)` helper (highest ancestor whose role is exactly
+    `workpackage`), surfaced additively without changing the historical
+    fields. `outside-wp` and its header count depend only on the absence of
+    this strict root. The existing demand model is reused (`demand`, immutable
+    `raw.text`, `item.demandId`, promotion 1→N); no parallel "owner request"
+    registry is created. An item with no WP ancestor renders with the visible
+    machine flag `outside-wp`, is counted in the header coverage line, is
+    never presented as a normal case, and is never silently dropped.
+    Generating a report never creates, duplicates or reparents work. A
+    write-side guard is explicitly out of this amendment.
+
+39. **Decision expectations are kept in full.** DÉCISIONS keeps its drawn
+    table, structured pending dossiers only, settled ones removed and counted,
+    unstructured ones routed to À-FAIRE as structuring work. RECOMMANDATION
+    keeps all three parts and exactly one reply line. Native dossiers take
+    priority for 🔵; no option is inferred from prose; stored
+    `decisionExpectations` without an answerable native dossier create no
+    `D#` and no selectable choice. A `deferred` dossier is not settled. Each
+    line is written by its finality; versions, PRs and releases are supporting
+    references in parentheses, never the subject.
+
+40. **One skill, one handle grammar.** The canonical skill is again
+    `packages/h2a/skills/harness/track-report/SKILL.md` alone. The 2026-10-17
+    precedence paragraph is deleted, and the duplicate
+    `packages/track/skills/track-report/` skill is removed from the
+    `track install-skills` bundle. Handles remain the validated `[n.m]`
+    everywhere; the withdrawn view's `#` numbering survives, if at all, only
+    as an alias resolving to the exact same report context.
+
+41. **Preservation contract: goldens and legacy payloads.** Criteria 1–27
+    stand, except criterion 5 as amended by criterion 30. The legacy JSON
+    contract `{buckets, wpTree, wpTotals}` changes additively only (per-row
+    `stage`/`status` codes, strict WP ancestry and audit metadata, full
+    `period` block in every mode). Exactly one golden is regenerated, with
+    its diff reviewed and traced to criterion 30; every other named golden,
+    example and snapshot stays byte-identical.
+
+Note on criterion 20's mechanical audit test: the single call-site test in
+`validated-report-shape.test.ts` migrates to structured audit descriptors in
+the language-foundations lot, retaining every outcome assertion. Any further
+change to a validated test block outside criterion 5 and the skill block is a
+deviation and must be justified here before it lands — none is authorised by
+this amendment.
+
+Implementation note — 2026-10-18 (lot 5, upholding criterion 34): the
+deterministic layer flags each 🔴 row lacking an investigated proposal
+(`missing-proposal`) and each 🔵 row with no matching DÉCISIONS entry via
+`auditStatusProposals` (`packages/track/src/report/audit.ts`, exported
+through the report barrel and the `@sentropic/track` root barrel). The audit
+consumes derived status codes, recorded `item.report-updated` proposals,
+machine-only `gateStep` phrases and `D#`/`Q#` handle tokens — never prose in
+any language. It echoes ids and recorded text only and never fabricates
+proposal text; a green mechanical audit never certifies prose quality. The
+audit changes no served byte: report generation neither authorises execution
+nor appends an owner answer.

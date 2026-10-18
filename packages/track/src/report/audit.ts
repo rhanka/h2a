@@ -6,8 +6,10 @@
 
 import { isRoleContainer, type ItemId, type ItemState } from '../model/item.js'
 import type { State } from '../state/fold.js'
+import type { Report } from './build.js'
 import { assertSafeCommandHint } from './directive.js'
 import { wpRootId } from './rollup.js'
+import type { StatusCode } from './stage-status.js'
 
 export type AuditFindingKind =
   | 'orphan'
@@ -145,4 +147,162 @@ export function auditFindings(state: State): AuditFinding[] {
 
   for (const f of findings) assertSafeCommandHint(f.commandHint) // reuse the record-only allowlist guard
   return findings.sort((a, b) => sortKey(a).localeCompare(sortKey(b)))
+}
+
+// ---- auditStatusProposals (amendment D7) --------------------------------------
+// Red carries a proposal, or the served report fails its audit. The proposal
+// itself is investigated agent work of the same nature as criterion 20,
+// carried by `prochaine action` and RECOMMANDATION; this deterministic layer
+// only FLAGS — it never fabricates proposal text, and a green mechanical
+// audit never certifies prose quality.
+
+/** One served row for the red/blue audit: codes and recorded text, never prose to classify. */
+export interface StatusProposalRow {
+  id: string
+  status: StatusCode
+  /**
+   * The recorded proposal text, if any. Opaque data: compared for equality
+   * only (gate-clause echo, cross-row repetition), never classified.
+   */
+  proposal?: string
+  /** Investigation and presence belong to the served report, never a stored assertion. */
+  proposalState?: 'investigated' | 'to-instruct'
+  inNextAction?: boolean
+  inRecommendation?: boolean
+  /** Machine gate-class phrases backing the row (the row's `gateStep`, never rendered words). */
+  gateClauses?: readonly string[]
+  /** Dossier refs the row cites (`D#`/`Q#` handle tokens, never prose). */
+  dossierRefs?: readonly string[]
+}
+
+export interface StatusProposalAudit {
+  /** Blocked rows lacking an investigated proposal (`missing-proposal`). */
+  missingProposals: string[]
+  /** Blue rows with no matching DÉCISIONS entry. */
+  orphanBlue: string[]
+  ok: boolean
+}
+
+/**
+ * The mechanical half of D7. A proposal must be tagged as investigated on
+ * the served report and present in both its action and recommendation. It
+ * must be non-empty, not an exact echo of the row's own gate clause, and not a slogan
+ * repeated verbatim across three or more rows. A generic instruction to
+ * "handle red rows" fails exactly here when it parrots the gate class or the
+ * other red rows. Anything subtler is prose quality — out of mechanical
+ * reach by design.
+ */
+export function auditStatusProposals(
+  rows: readonly StatusProposalRow[],
+  decisionRefs: readonly string[],
+): StatusProposalAudit {
+  const proposals = rows
+    .filter((row) => row.status === 'blocked' && row.proposal !== undefined && row.proposal.trim() !== '')
+    .map((row) => row.proposal!)
+  const counts = new Map<string, number>()
+  for (const proposal of proposals) counts.set(proposal, (counts.get(proposal) ?? 0) + 1)
+  const missingProposals = rows
+    .filter((row) => {
+      if (row.status !== 'blocked') return false
+      const proposal = row.proposal?.trim() ?? ''
+      if (proposal === '') return true
+      if (row.proposalState !== 'investigated' || row.inNextAction !== true || row.inRecommendation !== true) return true
+      if ((row.gateClauses ?? []).includes(row.proposal!)) return true
+      return (counts.get(row.proposal!) ?? 0) > 2
+    })
+    .map((row) => row.id)
+  const known = new Set(decisionRefs)
+  const orphanBlue = rows
+    .filter((row) =>
+      row.status === 'decision-awaited' &&
+      (row.dossierRefs ?? []).every((ref) => !known.has(ref)),
+    )
+    .map((row) => row.id)
+  return { missingProposals, orphanBlue, ok: missingProposals.length === 0 && orphanBlue.length === 0 }
+}
+
+/** The served view surface the proposal audit reads: handles, todo rows, decision numbers. */
+export interface StatusProposalView {
+  handles: readonly { handle: string; id: string; kind: string }[]
+  tables: readonly { id: string; rows: readonly Record<string, string>[]; lines?: readonly string[] }[]
+  /** Filled by the contextual serving layer after investigating each red item. */
+  proposals?: readonly { itemId: string; proposal: string; proposalState: 'investigated' | 'to-instruct' }[]
+}
+
+/**
+ * Describe a served report (folded state + bucket rows + rendered view) as
+ * red/blue audit rows. Row status comes from the derived report codes;
+ * proposals and their instruction state from the served view; gate clauses
+ * from the rows' machine-only `gateStep`; dossier refs from the `D#`/`Q#`
+ * handle tokens the blocked cells cite. No natural language is matched, in
+ * any language.
+ */
+export function describeStatusProposals(
+  state: State,
+  report: Report,
+  view: StatusProposalView,
+): { rows: StatusProposalRow[]; decisionRefs: string[] } {
+  // Kept in the public signature for callers migrating from stored proposals.
+  // Historical assertions cannot certify a current investigation.
+  void state
+  const todo = view.tables.find((table) => table.id === 'todo')
+  // Item handles are positional `[row.item]` (1-based): the row part locates
+  // the view row carrying the machine-only `gateStep` and the `bloqué` cell.
+  const rowIndexById = new Map<string, number>()
+  for (const handle of view.handles) {
+    if (handle.kind !== 'item') continue
+    const dot = handle.handle.indexOf('.')
+    if (dot < 0) continue
+    const rowIndex = Number(handle.handle.slice(0, dot)) - 1
+    if (Number.isInteger(rowIndex) && rowIndex >= 0) rowIndexById.set(handle.id, rowIndex)
+  }
+  const gateSteps = new Map<string, string>()
+  const blockedCells = new Map<string, string>()
+  const actionCells = new Map<string, string>()
+  for (const [id, rowIndex] of rowIndexById) {
+    const row = todo?.rows[rowIndex]
+    if (row === undefined) continue
+    if (row['gateStep'] !== undefined && row['gateStep'] !== '') gateSteps.set(id, row['gateStep'])
+    if (row['blocked'] !== undefined) blockedCells.set(id, row['blocked'])
+    if (row['instruction'] === 'investigated' && row['actionOrigin'] === 'investigated' && row['nextAction'] !== undefined) {
+      actionCells.set(id, row['nextAction'])
+    }
+  }
+  const recommendation = view.tables.find(table => table.id === 'recommendation')
+  const recommendationTexts = [
+    ...(recommendation?.lines ?? []),
+    ...(recommendation?.rows ?? []).flatMap(row => Object.values(row)),
+  ]
+  const rows: StatusProposalRow[] = []
+  for (const bucket of ['AWAITED', 'DROPPED', 'DONE', 'TO-DO'] as const) {
+    for (const row of report.buckets[bucket] ?? []) {
+      if (row.status !== 'blocked' && row.status !== 'decision-awaited') continue
+      const proposals = view.proposals?.filter(proposal => proposal.itemId === row.id) ?? []
+      // D7 requires exactly one proposal per red item, even on grouped WP rows.
+      const served = proposals.length === 1 ? proposals[0] : undefined
+      rows.push({
+        id: row.id,
+        status: row.status,
+        ...(served === undefined ? {} : {
+          proposal: served.proposal,
+          proposalState: served.proposalState,
+          inNextAction: served.proposal.trim() !== '' && (actionCells.get(row.id) ?? '').includes(served.proposal),
+          inRecommendation: served.proposal.trim() !== '' && recommendationTexts.some(text => text.includes(served.proposal)),
+        }),
+        ...(gateSteps.get(row.id) !== undefined ? { gateClauses: [gateSteps.get(row.id)!] } : {}),
+        ...(row.status === 'decision-awaited'
+          ? { dossierRefs: dossierRefsOf(blockedCells.get(row.id) ?? '') }
+          : {}),
+      })
+    }
+  }
+  const decisions = view.tables.find((table) => table.id === 'decisions')
+  const decisionRefs = (decisions?.rows ?? []).map((row) => row['n']).filter((ref) => ref !== undefined)
+  return { rows, decisionRefs }
+}
+
+/** `D#`/`Q#` handle tokens cited by a blocked cell (handle grammar, never prose). */
+function dossierRefsOf(blocked: string): string[] {
+  const refs = blocked.match(/(?<![0-9A-Z])D\d+|(?<![0-9A-Z])Q\d+/gu)
+  return refs === null ? [] : [...new Set(refs)]
 }
