@@ -1,3 +1,32 @@
+# Dossier diagrams — h2a lots
+
+## Objective
+- [ ] Deliver H1 evidence and matching H4; prepare H2 at its published DS boundary.
+
+## Scope / Guardrails
+- [x] Branch feat/dossier-diagrams; immutable v1, explicit schemaVersion: 2.
+- [x] Named test files only; disposable HOME/XDG/TMP; no Python or owner state.
+- [x] Allowed: packages/focus/{src,tests,schemas,skills,registry,package.json}; packages/h2a/{src/focus-build.ts,focus-kit,test/focus-build.test.js,test/distribution-increments.test.js,package.json}; scripts/{build-focus-dossier,focus-vendor-lib,vendor-focus,check-focus-vendor}.mjs; generated packages/track/src/focus-vendor; packages/track/skills/present-decision; docs/focus; docs/reviews/dossier-diagrams.md; .github/workflows/focus-dossier.yml; BRANCH.md.
+- [x] Forbidden: other repos, main, installed h2a, native host, owner state, unrelated processes, workflow changes outside Focus qualification.
+- [x] BRDG-EX1: generated schemas/vendor/renderer/locks may exceed the harness 150-line limit; regenerate reproducibly, rollback by regeneration from prior sources. No Makefile exists; selective git commits replace make commit.
+
+## Lots
+- [ ] H1a contract: model, byte integrity, closed validation, version schema; tests/evidence.spec.ts, schema.spec.ts.
+- [ ] H1b reading/export: summaries counted, raw bytes separately accounted; readability.spec.ts, render.spec.ts.
+- [ ] H1c build: atomic output, explicit evidence template, metadata; test/focus-build.test.js.
+- [ ] H1d renderer: offline citation/search/download/back and bounded DOM; evidence-browser.test.mjs.
+- [ ] H1e qualification: frozen numeric small/large policy and real corpus; evidence-performance-browser.test.mjs.
+- [ ] H2 blocked: npm E404 for @sentropic/diagram-core and @sentropic/diagram-canvas 0.1.0; DS2 exact tarballs required.
+- [ ] H3 blocked: H2 + DS4/DS5 renderer/control exports; no Focus toolbar substitute.
+- [ ] H4-H1: regenerated assets/vendor, capability manifest, skills/docs, fresh tarball template/build/open; packaging.spec.ts, distribution-increments.test.js.
+- [ ] Delivery: targeted gates, one draft PR, own-branch push, per-job CI report.
+
+## Feedback Loop
+- [x] Supplied spec reviews agree GO-CODE at 34b0b43a.
+- [x] Implementation review selection-failed: owner confinement forbids installed h2a/live mesh; docs/reviews/dossier-diagrams.md.
+
+# Inherited origin/main history
+
 # Live disclosure authority — owner decision 2026-10-17
 
 - [x] Scope: Δ-L7a on `feat/live-disclosure-authority`, based on origin/main.
