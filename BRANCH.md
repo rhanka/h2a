@@ -2,6 +2,37 @@
 
 ## Correction des revues rv375a / rv375s — 2026-10-18
 
+Complément CI/BM (`32467f6`) : l'invite Bash manquait sur macOS car le
+scrub des FD redirigeait durablement stderr vers `/dev/null`. La redirection
+temporaire autour de `eval exec` alloue un FD de sauvegarde que la boucle
+Darwin 3..1024 ferme elle-même. Le test sur un vrai PTY reçoit stdout mais
+perd stderr avant correction. Suppression des deux redirections du scrub,
+sans modifier fermeture des FD, guardian, groupes ni signaux.
+**Écart à l'allow-list B5 : `pty.ts` et sa régression dans
+`darwin-identity.test.ts`, strictement nécessaires au scénario Bash macOS.**
+Les étapes macOS upgrade et contrôle des skips continuent après un échec du
+substrat, pour exécuter les régressions portables même si la cohorte manque ;
+le job reste rouge, aucun résultat requis n'est ignoré.
+
+```sh
+rtk node tmp/pty-am2-run.mjs pty-r375-guardian-stderr-red node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/darwin-identity.test.ts
+# 2 passed, 1 failed (B5_STDERR absent), 0 skipped ; exit 1.
+rtk npm run build -w @sentropic/h2a-runtime
+# exit 0 ; vendor-engram-live mirror OK.
+rtk node tmp/pty-am2-run.mjs pty-r375-guardian-green-valid node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=1 packages/h2a-runtime/src/native-terminal/darwin-identity.test.ts
+# 3 passed, 0 failed/skipped ; exit 0.
+rtk node tmp/pty-am2-run.mjs pty-r375-guardian-final22 node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/darwin-identity.test.ts packages/h2a-runtime/src/native-terminal/process.functional.test.ts packages/h2a-runtime/src/native-terminal/crash-safety.functional.test.ts packages/h2a-runtime/src/native-terminal/terminal-modes.functional.test.ts
+# 60 passed, 1 failed, 0 skipped ; exit 1. process.functional 37/37 (FD hygiene
+# comprise), crash-safety 7/7 et identité 3/3. Timeout d'attente de la sortie
+# attach dans un cas terminal-modes, puis même fichier entier réexécuté seul :
+rtk node tmp/pty-am2-run.mjs pty-r375-terminal-final node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=1 packages/h2a-runtime/src/native-terminal/terminal-modes.functional.test.ts
+# 14 passed, 0 failed/skipped ; exit 0. Aucun timeout augmenté, aucune assertion affaiblie.
+rtk node tmp/pty-am2-run.mjs pty-r375-b5-stderr22 node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/phase-b-agent-qualification.functional.test.ts packages/h2a-runtime/src/native-terminal/legacy-drain.functional.test.ts packages/h2a-runtime/src/native-terminal/fleet.test.ts packages/h2a-runtime/src/native-terminal/op.test.ts
+# 33 passed, 1 failed (cohorte absente), 0 skipped ; exit 1.
+rtk env PATH=/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin:/usr/local/bin:/usr/bin:/bin node tmp/pty-am2-run.mjs pty-r375-b5-stderr24 node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/phase-b-agent-qualification.functional.test.ts packages/h2a-runtime/src/native-terminal/legacy-drain.functional.test.ts packages/h2a-runtime/src/native-terminal/fleet.test.ts packages/h2a-runtime/src/native-terminal/op.test.ts packages/h2a-runtime/src/native-terminal/darwin-identity.test.ts
+# 36 passed, 1 failed (cohorte absente), 0 skipped ; exit 1.
+```
+
 Départ `af2dd0df6`, branche `feat/pty-b-handover`. `origin/main` reste
 ancêtre après fetch : aucun rebase nécessaire. Aucun accès à l'hôte réel,
 binaire h2a installé, état propriétaire ou processus étranger. Tests ciblés
