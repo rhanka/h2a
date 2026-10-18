@@ -398,11 +398,15 @@ describe("native terminal local transport", () => {
     await closed;
     expect(hostLogSinkDiagnostics().faultCounters.h2a_host_socket_conn_errors).toBe((before[HOST_FAULT_COUNTERS.hostSocketConnectionErrors] ?? 0) + 1);
     // Exercise both frame-size destroy branches and the outer dispatch catch.
+    // Request execution is async (Phase B forwarding), so a malformed chunk
+    // destroys its connection on a microtask, not synchronously: flush
+    // microtasks (no timers) before asserting the deterministic outcome.
     for (const chunk of ["x".repeat(NATIVE_TERMINAL_MAX_FRAME_BYTES + 1) + "\n",
       "x".repeat(NATIVE_TERMINAL_MAX_FRAME_BYTES + 1),
       { [Symbol.toPrimitive]() { throw new Error("bad chunk"); } }]) {
       const faulty = await peer();
       expect(() => faulty.accepted.emit("data", chunk)).not.toThrow();
+      await new Promise((resolve) => setImmediate(resolve));
       expect(faulty.accepted.destroyed).toBe(true);
     }
     expect(hostLogSinkDiagnostics().faultCounters.h2a_host_client_frame_destroys).toBe((before[HOST_FAULT_COUNTERS.hostClientFrameDestroys] ?? 0) + 3);
