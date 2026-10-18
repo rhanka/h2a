@@ -158,3 +158,5 @@ Calibration répétée, hashes de corpus/générateur actualisés, puis qualific
 `rtk node --test packages/h2a/focus-kit/test/evidence-performance-browser.test.mjs`.
 Sortie : **1/1 pass, exit 0, zéro skip**, run-BttLAh ; mesures finales dans
 `dossier-diagrams/metrics.json`. Les anciennes preuves restent dans l'historique.
+Le job Focus conserve aussi le JSON brut de ses propres mesures, avec les hashes
+d'entrée/HTML/politique, dans l'artifact `focus-evidence-metrics-<SHA>` de la CI.

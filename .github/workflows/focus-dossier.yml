@@ -32,4 +32,13 @@ jobs:
       - name: H1 evidence tasks and fresh installed-package opening
         run: node --test packages/h2a/focus-kit/test/evidence-browser.test.mjs
       - name: Frozen H1 evidence reactivity and memory policy
+        env:
+          TMPDIR: ${{ runner.temp }}
         run: node --test packages/h2a/focus-kit/test/evidence-performance-browser.test.mjs
+      - name: Retain raw H1 performance samples and artifact hashes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: focus-evidence-metrics-${{ github.sha }}
+          path: ${{ runner.temp }}/focus-evidence-performance-*/metrics.json
+          if-no-files-found: error
