@@ -4,6 +4,7 @@ import { acquire, readState, writeJson } from './state.mjs';
 import { pair, selectSeats, validateConfig } from './policy.mjs';
 import { Repository } from './repository.mjs';
 import { LocalSeats } from './seats.mjs';
+import { redactDeep, redactSecretsText } from './redact.mjs';
 
 export async function runDaily(config, { dryRun = false, now = () => new Date(),
   runner = new LocalSeats(), repository = spec => new Repository(spec) } = {}) {
@@ -12,13 +13,14 @@ export async function runDaily(config, { dryRun = false, now = () => new Date(),
   const day = now().toISOString().slice(0, 10);
   const report = { version: 1, id: randomUUID(), day, dryRun, startedAt: now().toISOString(), repositories: [], failures: [] };
   const saveReport = () => {
-    writeJson(join(config.stateDir, 'reports', `${day}-${report.id}.json`), report);
-    writeJson(join(config.stateDir, dryRun ? 'latest-dry-run.json' : 'latest.json'), report);
+    const redacted = redactDeep(report);
+    writeJson(join(config.stateDir, 'reports', `${day}-${report.id}.json`), redacted);
+    writeJson(join(config.stateDir, dryRun ? 'latest-dry-run.json' : 'latest.json'), redacted);
   };
   try {
     const state = readState(config.stateDir);
     state.quarantines ??= {};
-    const save = () => writeJson(join(config.stateDir, 'state.json'), state);
+    const save = () => writeJson(join(config.stateDir, 'state.json'), redactDeep(state));
     for (const spec of config.repositories) {
       const item = { repository: spec.github, status: 'scanning' };
       report.repositories.push(item);
@@ -53,7 +55,7 @@ export async function runDaily(config, { dryRun = false, now = () => new Date(),
             capacity[seat.profile] = Math.min(capacity[seat.profile] ?? Infinity, admission.remainingUnits,
               10 - (state.uses[`${day}/${seat.profile}`] ?? 0));
             available.push(seat);
-          } catch (error) { unavailable.push({ seat: seat.id, reason: error.message }); }
+          } catch (error) { unavailable.push({ seat: seat.id, reason: redactSecretsText(error.message) }); }
         }
         item.unavailableSeats = unavailable;
         const selected = selectSeats(available, state.cursor, capacity);
@@ -74,7 +76,7 @@ export async function runDaily(config, { dryRun = false, now = () => new Date(),
         const findingsFile = await repo.authorContext(item.before.findings);
         const author = await runner.run({ seat: selected.author, kind: 'author', workspace: repo.workspace,
           baseline: item.baseline, findingsFile, locks: repo.locks });
-        if (author.code !== 0) throw new Error(`author failed: ${author.error ?? author.code}`);
+        if (author.code !== 0) throw new Error(redactSecretsText(`author failed: ${author.error ?? author.code}`));
         item.authorAdmission = author.admission;
         item.sha = await repo.seal();
         checkpoint({ status: 'candidate' });
@@ -98,9 +100,9 @@ export async function runDaily(config, { dryRun = false, now = () => new Date(),
           try { verdict = JSON.parse(receipt.stdout); } catch { /* Missing strict receipt is a failed review. */ }
           const approved = receipt.code === 0 && verdict?.sha === item.sha && verdict.approved === true &&
             Array.isArray(verdict.findings) && verdict.findings.length === 0;
-          item.reviews.push({ seat: seat.id, identity: pair(seat), lens: index, approved, verdict,
+          item.reviews.push(redactDeep({ seat: seat.id, identity: pair(seat), lens: index, approved, verdict,
             admission: receipt.admission,
-            ...(approved ? {} : { failure: receipt.error ?? 'review rejected or invalid/mismatched receipt' }) });
+            ...(approved ? {} : { failure: receipt.error ?? 'review rejected or invalid/mismatched receipt' }) }));
           checkpoint({ status: 'draft' });
         }
         await repo.assertHead(item.sha);
@@ -109,17 +111,17 @@ export async function runDaily(config, { dryRun = false, now = () => new Date(),
           checkpoint({ status: 'ready' });
         } else checkpoint({ status: 'draft-blocked', reason: 'verification, supply-chain admission or independent review blocked readiness' });
       } catch (error) {
-        if (error.checks) item.verificationFailure = error.checks;
+        if (error.checks) item.verificationFailure = redactDeep(error.checks);
         if (error.quarantine) {
           repo.quarantined = true;
-          state.quarantines[spec.github] = { at: now().toISOString(), error: error.message, workspace: repo.workspace };
+          state.quarantines[spec.github] = { at: now().toISOString(), error: redactSecretsText(error.message), workspace: repo.workspace };
           save();
         }
-        report.failures.push({ repository: spec.github, error: error.message });
-        checkpoint({ status: 'failed', error: error.message });
+        report.failures.push({ repository: spec.github, error: redactSecretsText(error.message) });
+        checkpoint({ status: 'failed', error: redactSecretsText(error.message) });
       } finally {
         try { await repo.cleanup(); }
-        catch (error) { report.failures.push({ repository: spec.github, error: `cleanup failed: ${error.message}` }); checkpoint({ cleanupFailed: true }); }
+        catch (error) { report.failures.push({ repository: spec.github, error: redactSecretsText(`cleanup failed: ${error.message}`) }); checkpoint({ cleanupFailed: true }); }
       }
     }
     report.finishedAt = now().toISOString();

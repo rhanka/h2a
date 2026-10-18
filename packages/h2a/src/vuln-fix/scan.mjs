@@ -1,6 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { command as defaultCommand, request as defaultRequest } from './process.mjs';
+import { redactSecretsText } from './redact.mjs';
+
+// npm inherits omit/include filters (notably under NODE_ENV=production).
+// Force full dev/optional/peer coverage so detection never reports a
+// falsely complete clean tree.
+export const npmTreeIncludes = ['--include=prod', '--include=dev', '--include=optional', '--include=peer'];
 
 const object = value => value && typeof value === 'object' && !Array.isArray(value);
 const severities = new Set(['info', 'low', 'moderate', 'medium', 'high', 'critical', 'unknown']);
@@ -52,7 +58,7 @@ export async function scanLocks({ root, locks, osv = true, scanners = [], comman
     try {
       const lock = readLock(lockfile);
       const packages = publicPackages(lock);
-      const audit = await command('npm', ['audit', '--json', '--package-lock-only', '--ignore-scripts'], { cwd: join(root, dirname(lockfile)) });
+      const audit = await command('npm', ['audit', '--json', '--package-lock-only', '--ignore-scripts', ...npmTreeIncludes], { cwd: join(root, dirname(lockfile)) });
       if (![0, 1].includes(audit.code)) throw new Error(`npm audit exit ${audit.code}`);
       result.findings.push(...npmFindings(JSON.parse(audit.stdout), lockfile));
       result.coverage.push({ source: 'npm', lockfile });
@@ -75,7 +81,7 @@ export async function scanLocks({ root, locks, osv = true, scanners = [], comman
         result.coverage.push({ source: 'osv', lockfile, publicPackages: packages.length });
       } else result.gaps.push(`${lockfile}: OSV disabled by repository sharing policy`);
       result.gaps.push(`${lockfile}: OSV excludes private registry, workspace and local dependencies`);
-    } catch (error) { if (error.quarantine) throw error; result.errors.push(`${lockfile}: ${error.message}`); }
+    } catch (error) { if (error.quarantine) throw error; result.errors.push(redactSecretsText(`${lockfile}: ${error.message}`)); }
   }
   for (const scanner of scanners) {
     try {
@@ -85,7 +91,7 @@ export async function scanLocks({ root, locks, osv = true, scanners = [], comman
       if (!Array.isArray(entries) || entries.some(x => !object(x) || typeof x.id !== 'string' || !severities.has(x.severity))) throw new Error('expected findings array with id/severity');
       result.findings.push(...entries.filter(x => urgent(x.severity)).map(x => ({ ...x, source: scanner.name })));
       result.coverage.push({ source: scanner.name });
-    } catch (error) { if (error.quarantine) throw error; result.errors.push(`${scanner.name}: ${error.message}`); }
+    } catch (error) { if (error.quarantine) throw error; result.errors.push(redactSecretsText(`${scanner.name}: ${error.message}`)); }
   }
   result.complete = result.errors.length === 0;
   result.gaps.push('npm/OSV dependency trees do not cover OS images, vendored code or non-npm ecosystems unless a custom scanner is configured');
