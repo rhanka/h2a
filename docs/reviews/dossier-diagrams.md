@@ -195,3 +195,70 @@ moins de 300 pour l'audit, avec les clauses propriétaires conservées. Aucun se
 de lecture n'a été modifié. La fermeture du package isolé repasse 1/1 après ce
 changement de texte, run-3vnWZe. Total des fichiers ciblés : **300 tests**, zéro skip.
 Les sorties par job CI et l'artifact de mesures sont liés dans la PR draft #377.
+
+## Corrections des revues CODE rv377 A/S
+
+Base relue par les deux pairs : `4dec3d35014df846c582e1e7f89a4d5206b6c965`.
+Les constats P1/P2 sont corrigés ; le P3 d'identifiant d'annexe est également
+traité dans le même chemin de retour. H2/H3 restent bloqués à la publication
+DS2, sans dépendance `file:`. Aucun budget ni contrôle CI n'est assoupli.
+
+| Constat | Commit | Preuve RED → GREEN |
+| --- | --- | --- |
+| A/S P1 : cache npm perdu lors de l'isolation de HOME | `77f16837b` | Entrée réelle du lanceur, frontière de spawn simulée : cache `undefined`, 0/1 → 1/1 ; `run-g0jSGX` → `run-IiRZFS` |
+| S P2 : schéma v2 trop permissif pour les captures | `1031661ce` | Ajv 2020 + runtime, PNG/JPEG : 3 échecs / 46 → 46/46 ; `run-e4qqv1` → `run-EYajvB` |
+| A P2 : recherche antérieure écrasant une citation | `31976f774` | Recherche réellement suspendue puis achevée sur 200 000 lignes : ligne citée absente → conservée, requête/résultats conservés |
+| A P2 : ligne citée hors de la fenêtre | `31976f774` | À 320px, y=1325 pour une fenêtre de 900px → ligne incluse dans la fenêtre et le conteneur aux trois largeurs |
+| A/S P2 : retour au premier appelant | `31976f774` | Deux citations de sections différentes : mauvais focus → dernier focus et défilement restaurés, clavier/touch |
+| S P3 : collision avec `id=app` | `31976f774` | Focus sur le DIV racine → vraie section du dossier |
+
+Les quatre témoins navigateur échouent ensemble avant correction :
+`run-e7kyZs`, 1/5 pass, exit 1, zéro skip ; après correction :
+`run-3k7fBu`, 5/5 pass, exit 0, zéro skip. Une activation a son propre
+compteur, même quand le locateur est inchangé. La source inchangée n'est
+plus réaffectée, ce qui évite de relancer la recherche après navigation.
+Le résultat d'une recherche reste valable pour la requête et la source ;
+son défilement automatique est refusé si une navigation plus récente existe.
+
+Commandes exactes via `rtk node tmp/diag377-run.mjs <commande>` depuis la
+racine ; les commandes Vitest utilisent `rtk node ../../tmp/diag377-run.mjs`
+depuis `packages/focus`. Ce lanceur crée HOME/XDG/TMP avec mkdtemp et
+conserve argv, cwd, exit et sortie intégrale dans
+`/home/antoinefa/.cache-tmp/diag377-evidence-B189hY/run-*/{command.json,output.log}`.
+
+| Commande ciblée | Résultat final | Journal |
+| --- | --- | --- |
+| `node --test packages/h2a/test/prepared-npm-cache.test.js` | 1/1, exit 0 | `run-IiRZFS` |
+| `node --test packages/h2a/test/run-test-gates.test.js` | 42/42, exit 0 | `run-4bLrJi` |
+| `npm exec --offline -- vitest run --config vitest.config.ts tests/schema.spec.ts` | 46/46, exit 0 ; hash v1 conservé | `run-EYajvB` |
+| `npm exec --offline -- vitest run --config vitest.config.ts tests/packaging.spec.ts` | 10/10, exit 0 ; empreintes v2/registre/vendor resynchronisées | `run-Qg1Sc2` |
+| `npm exec --offline -- vitest run --config vitest.config.ts tests/registry.spec.ts` | 50/50, exit 0 | `run-aIJDD6` |
+| `node --test packages/h2a/test/distribution-increments.test.js` | 1/1, exit 0 ; 190 tarballs, zéro métadonnée de registre | `run-KsxQ1q` |
+| `node --test packages/h2a/test/focus-build.test.js` | 33/33, exit 0 ; refus et écriture partielle préservent le précédent HTML | `run-cznj92` |
+| `node --test packages/h2a/focus-kit/test/evidence-browser.test.mjs` | 5/5, exit 0 ; package installé hors ligne, clavier/touch, 320/390/1440px | `run-3k7fBu` |
+| `node --test packages/h2a/focus-kit/test/browser.test.mjs` | 6/6, exit 0 ; usages v1 conservés | `run-D3OFSt` |
+| `node --test packages/h2a/focus-kit/test/evidence-performance-browser.test.mjs` | 1/1, exit 0 ; budgets inchangés, 30 ouvertures/taille et 30 citations/recherches | `run-CMDhRx` |
+| `node scripts/build-focus-dossier.mjs --check` | exit 0 ; sources et assets vérifiés | `run-TBVvPX` |
+| `npm run build:h2a` | exit 0 ; tsc -b, mirror OK | `run-uf3JGf` |
+| `node scripts/check-focus-vendor.mjs` | exit 0 ; byte-identical après synchronisation finale | `run-1ixBQb` |
+
+Zéro skip dans ces résultats. Les erreurs de préparation (échappement initial
+du mock, chemin relatif de génération, et lectures pendant la reconstruction
+du dist Track) sont conservées dans les journaux, exclues des preuves RED.
+L'échec de packaging sur l'ancien digest a été corrigé par les générateurs
+du registre/vendor ; le second passage passe les dix tests.
+
+G5a sur les assets corrigés : [mesures brutes](dossier-diagrams/review377-metrics.json).
+Grand HTML : environ 30,9 Mo, 31 sources ; p95 ouverture 1 708,3 ms,
+citation 187,4 ms, recherche 71,0 ms. RSS crête 729 686 016 octets,
+croissance retenue 38 854 656 octets ; DOM toujours borné à 80 lignes.
+Les politiques/corpus/budgets figés sont identiques à la qualification précédente.
+Total de ce tour : **195 tests ciblés**, sans suite complète locale.
+
+NON couvert : H2/H3, CDN et géométrie DS, mémoire multi-navigateurs,
+vérité métier du dossier CI/CD ; pas de nouvelle revue indépendante de code.
+La sélection `harness/review` reste impossible sous le confinement propriétaire
+(dispatcher installé interdit, métadonnées exactes d'auteur indisponibles).
+Les deux revues fournies portent sur la base, pas sur ces corrections.
+Écarts à la spec : aucun ; P3 fourni traité en complément des P1/P2.
+La suite complète reste réservée à la CI d'intégration.
