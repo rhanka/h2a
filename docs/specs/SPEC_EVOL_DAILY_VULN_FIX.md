@@ -157,6 +157,8 @@ All recorded runs have skipped=0, cancelled=0 and todo=0.
 | L5: rtk node --test packages/h2a/test/vuln-fix-merge.test.js | Initial 4 tests: pass 0 / fail 4, exit 1; "placement-independent merge reconciliation must exist", actual undefined | Same positive scenarios: pass 4 / fail 0, exit 0 |
 | L5 regression: same command, 8 tests | pass 5 / fail 3, exit 1; unrelated assertion and low baseline wrongly merged; controller left candidate ready instead of merged | pass 8 / fail 0, exit 0 |
 | L5 observation guards: same command, 50 tests | pass 46 / fail 4, exit 1; null review/package/check threw TypeError; string role bypassed permission validation | pass 50 / fail 0, exit 0 |
+| L5 Node 24 reporter: same command, 51 tests | Node 22: pass 50 / fail 1, exit 1; valid spec-format assertion RED refused | Node 22: pass 51 / fail 0, exit 0 |
+| L5 actual Node 24.10.0: command below, 51 tests | pass 49 / fail 2, exit 1; both applicable assertion RED scenarios refused | pass 51 / fail 0, exit 0 |
 | L6: rtk node --test packages/h2a/test/vuln-fix-controller.test.js | pass 15 / fail 2, exit 1; actual would-attempt vs scanned; actual ready vs waiting-admission | pass 17 / fail 0, exit 0 |
 | Integration: rtk node --test packages/h2a/test/vuln-fix-repository.test.js | No new regression claimed | pass 11 / fail 0, exit 0 |
 | Integration: rtk node --test packages/h2a/test/vuln-fix-scan.test.js | No new regression claimed | pass 9 / fail 0, exit 0 |
@@ -176,6 +178,12 @@ with --ignore-scripts --package-lock=false --no-audit --no-fund under
 /tmp/h2a-vulnfix-proof-wr6Y5wze/published. Both public enrollment entrypoints
 reported parseCliSeatProfile=undefined and parseTokenSeatEnvelope=undefined.
 This is an API blocker observation, not a delivered L1 RED/GREEN test.
+
+Node 24 was installed with scripts disabled under the same temporary proof
+root (node-linux-x64@24.10.0); no repository dependency/pin changed. Both
+the runner and its targeted child tests use that actual binary. Command:
+
+    rtk /tmp/h2a-vulnfix-proof-wr6Y5wze/node24/node_modules/node-linux-x64/bin/node --test packages/h2a/test/vuln-fix-merge.test.js
 
 Read-only sentropic #681 source inventory at 7293130ee3f6 (no edits here):
 packages/llm-mesh/src/enrollment/cli-seat-import.ts, enrollment/index.ts,

@@ -35,6 +35,8 @@
 
 - L5 initial RED: 0/4 pass; GREEN: 4/4. Further regression RED: 5/8 pass;
   GREEN: 8/8. Observation/permission RED: 46/50 pass; GREEN: 50/50.
+- Node 24 reporter RED: 50/51 pass on Node 22, 49/51 on actual Node 24.10.0;
+  GREEN: 51/51 on each binary, including real targeted child processes.
 - L6 controller RED: 15/17 pass; GREEN: 17/17.
 - Targeted repository 11/11, scan 9/9, CLI 4/4, redaction 10/10.
   All skip/cancel/TODO counts zero. Exact commands/output excerpts are in
