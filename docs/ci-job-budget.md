@@ -51,6 +51,29 @@ production invocation and its execution proof. Splitting that contract needs
 its own proof of exhaustive shard coverage; extending the measured job budget
 does not change it.
 
+The 0.98.8 lane adds a 10,000-mutation-per-domain backend campaign. On the
+shared runner disk it still exceeded the 1,200-second Node backstop, reaching
+only 701–801 of 1,250 iterations per actor. One contended writer also hit its
+unchanged five-second kernel-lock deadline. The private eight-actor diagnostic
+with 400 mutations per domain took 25.2 seconds on disk and 6.1 seconds on
+tmpfs. It is a diagnostic, not the full stress acceptance.
+
+Both Linux integration jobs now create an invocation-owned, 1 GiB tmpfs data
+volume for M17 alone. The real APIs, eight actors, 10,000 acknowledgements,
+per-domain totals, fresh quota checks, journal verification, kernel-lock
+boundaries and all assertions are unchanged. Invalid configured directories
+fail before any backend state is created; no fallback or test skip is allowed.
+The helper reports the actual filesystem type and configured-volume witness.
+Cleanup requires the same owned mount identity and an empty volume, then
+unmounts and removes only that temporary directory. This qualifies concurrency
+on tmpfs; it does not claim power-loss persistence or performance on disk.
+Other tests and packaging continue using their ordinary private disk fixtures.
+
+The 36-process identity startup file runs before the backend campaign, with
+its original cohort size and handshake deadlines. All four cold files finish
+before the overlapping backend/protocol phase; package work still waits for
+the remaining protocol barrier. CI jobs remain capped at 25 minutes.
+
 Required check names remain **`build-and-test (ubuntu-latest, 22)`**,
 **`build-and-test (ubuntu-latest, 24)`**, and **`npm-test-trust-root`**.
 No branch-protection update is needed. All other jobs and their budgets remain

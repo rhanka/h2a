@@ -16,14 +16,15 @@ test('both real package suites start before the remaining Node files without dro
   assert.equal(files.length, 4);
 });
 
-function scenario(t, { failing = false, limitedCpu = false, progress = false, isolated = false, transfer = false } = {}) {
+function scenario(t, { failing = false, limitedCpu = false, progress = false, isolated = false, transfer = false, burst = false } = {}) {
   const root = fs.mkdtempSync(join(tmpdir(), 'ordered-node-tests-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const order = join(root, 'started.jsonl'), report = join(root, 'evidence.json');
   const cpuHook = join(root, 'cpu-count.mjs');
   fs.writeFileSync(cpuHook, `import os from 'node:os'; import {syncBuiltinESMExports} from 'node:module';
     os.availableParallelism=()=>2; syncBuiltinESMExports();`);
-  const names = transfer ? ['z-package.test.js', 'mh-l3-transfer.test.js', 'mcp-central-attachments.test.js']
+  const names = burst ? ['mh-l5-concurrency.test.js', 'mcp-identity-burst.test.js']
+    : transfer ? ['z-package.test.js', 'mh-l3-transfer.test.js', 'mcp-central-attachments.test.js']
     : ['z-package.test.js', isolated ? 'mcp-central-attachments.test.js' : 'a-small.test.js'];
   const files = names.map(name => join(root, name));
   for (const [index, file] of files.entries()) fs.writeFileSync(file, `
@@ -96,6 +97,15 @@ test('a failed standalone daemon suite remains failed while every remaining file
   assert.equal(evidence.numFailedTests, 1);
   assert.equal(evidence.numPassedTests, 1);
   for (const file of files) assert.ok(evidence.testResults.some(row => row.name === file));
+});
+
+test('the 36-process identity startup qualification finishes before the backend campaign starts', t => {
+  const { result, files, started, evidence } = scenario(t, { isolated: true, burst: true });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.equal(started, '1\n0\n');
+  assert.equal(evidence.success, true);
+  assert.equal(evidence.numPassedTests, 2);
+  for (const file of files) assert.ok(evidence.testResults.some(row => row.name === file && row.assertionResults.some(a => a.status === 'passed')));
 });
 
 test('bounded daemon and handover qualifications each finish alone before the parallel package phase', t => {

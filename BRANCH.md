@@ -523,13 +523,19 @@ CI follow-up: the public Node test API preserves both expensive package files'
 priority (the CLI lexically reorders files), with both execution reporters,
 all reported CPUs and progress limited to its own children. Cold daemon
 attachments, M21 handover and MH-L4 source precheck finish in dedicated phases.
+The 36-process identity burst also completes in its own cold phase.
+M17 uses an invocation-owned 1 GiB tmpfs data volume in disposable Linux CI;
+invalid private-volume configuration fails rather than falling back. The real
+10,000 mutations per domain, eight actors, lock deadlines and assertions are
+unchanged. This is concurrency evidence, not disk power-loss qualification.
+The owned empty mount is verified, unmounted and removed at job cleanup.
 M17 then overlaps the remaining protocol and bulk phases with one reserved
 worker; the bulk installation pool still waits for the other protocols.
 Individual deadlines and G0/G1 assertions stay intact. CI shows useful work
 continuing at 900s, with only the late-started M17 still active: the expanded
 Node gate has a 1200s outer backstop within the unchanged 25-minute job, while other suites
 retain 600s. Real child ordering, phase exclusion and failed-child propagation
-have eleven mandatory regression cases. Payload writes cadence automatic expiry
+have twelve mandatory regression cases. Payload writes cadence automatic expiry
 maintenance with a monotone thirty-second interval; quota pressure and explicit
 sweeps remain immediate, TTL reads unchanged. Quota/live-data refusal controls
 and the full 10,000-mutation-per-domain backend stress remain required.
