@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { validateDecisionDossierForPresentation } from '@sentropic/focus/validate'
+import { evidenceFixture } from '../focus-kit/test/evidence-fixtures.mjs'
 
 const kit = fileURLToPath(new URL('../focus-kit/', import.meta.url))
 const bin = fileURLToPath(new URL('../dist/bin.js', import.meta.url))
@@ -18,6 +19,47 @@ const run = (root, ...args) => spawnSync(process.execPath, [bin, 'focus', ...arg
   cwd: root, encoding: 'utf8', env: { ...process.env, HOME: root, XDG_RUNTIME_DIR: root,
     XDG_CONFIG_HOME: root, XDG_STATE_HOME: root, H2A_ROOT: join(root, 'store') },
 })
+
+test('builds complete v2 evidence with distinct envelope and renderer fingerprints', () => isolated(root => {
+  const doc = evidenceFixture(20_000, 31), input = join(root, 'evidence.json'), output = join(root, 'evidence.html')
+  writeFileSync(input, JSON.stringify(doc))
+  const result = run(root, 'build', input, '-o', output)
+  assert.equal(result.status, 0, result.stderr)
+  const payload = JSON.parse(readFileSync(output, 'utf8').match(/<script type="application\/json" data-focus-document>([\s\S]*?)<\/script>/)[1])
+  assert.deepEqual(payload.document.sources, doc.sources)
+  assert.equal(payload.document.hash, doc.hash)
+  assert.equal(payload.build.increment, 'H1')
+  assert.match(payload.build.envelopeSha256, /^[a-f0-9]{64}$/)
+  assert.match(payload.build.rendererSha256, /^[a-f0-9]{64}$/)
+  assert.deepEqual(payload.build.formats, [1, 2])
+}))
+
+test('keeps previous output byte-identical on evidence integrity and version refusals', async t => {
+  for (const [name, change, code] of [
+    ['digest', d => { d.sources[0].sha256 = '0'.repeat(64) }, 'source_digest'],
+    ['range', d => { d.citations[0].locator.end = 999 }, 'citation_range'],
+    ['id', d => { d.sources.push(d.sources[0]) }, 'duplicate_id'],
+    ['version', d => { d.schemaVersion = 3 }, 'unsupported_version'],
+  ]) await t.test(name, () => isolated(root => {
+    const doc = evidenceFixture(), input = join(root, 'bad.json'), output = join(root, 'old.html')
+    change(doc); writeFileSync(input, JSON.stringify(doc)); writeFileSync(output, 'previous complete revision')
+    const result = run(root, 'build', input, '-o', output)
+    assert.equal(result.status, 1); assert.match(result.stderr, new RegExp(code))
+    assert.equal(readFileSync(output, 'utf8'), 'previous complete revision')
+  }))
+})
+
+test('preserves the complete previous revision when a write fails after partial bytes', () => isolated(root => {
+  const input = join(root, 'dossier.json'), output = join(root, 'previous.html'), hook = join(root, 'fail-write.mjs')
+  writeFileSync(input, JSON.stringify(fixture())); writeFileSync(output, 'previous complete revision')
+  writeFileSync(hook, `import fs from 'node:fs'; import {syncBuiltinESMExports} from 'node:module';
+    const write=fs.writeFileSync; fs.writeFileSync=(path,data,...args)=>{write(path,String(data).slice(0,80),...args);throw new Error('Injected partial write');}; syncBuiltinESMExports();`)
+  const result = spawnSync(process.execPath, ['--import', hook, bin, 'focus', 'build', input, '-o', output], {
+    cwd: root, encoding: 'utf8', env: { ...process.env, HOME: root, XDG_RUNTIME_DIR: root, XDG_CONFIG_HOME: root, XDG_STATE_HOME: root, H2A_ROOT: join(root, 'h2a') },
+  })
+  assert.equal(result.status, 1); assert.match(result.stderr, /Injected partial write/)
+  assert.equal(readFileSync(output, 'utf8'), 'previous complete revision')
+}))
 
 test('builds the shipped template into one portable validated HTML file', () => isolated((root) => {
   const input = join(root, 'dossier.json'), output = join(root, 'decision.html')
