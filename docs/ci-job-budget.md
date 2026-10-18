@@ -122,3 +122,17 @@ checks and release are identical. This is a measured resource optimization,
 not proof that the complete backend meets the CI budget. Full current-head
 CI reconciliation and cleanup remain mandatory. Quota/expiry traversal,
 stamp-tuple and cache-epoch variants were measured and not retained.
+
+## 0.98.8 lane: 35-minute integration budget (2026-10-18)
+
+Main baseline the same day ([39087263469](https://github.com/rhanka/h2a/actions/runs/39087263469),
+`5ccc9819`): Node 22 job 14m05s, Node 24 job 15m40s, trust root 14m39s.
+On the lane, the grown mh-l6/registry suites complete in 21-23m
+([39093202328](https://github.com/rhanka/h2a/actions/runs/39093202328):
+21m03s/21m42s; trust root 22m54s in the 39093196639 rerun), and four of
+eight executions were killed at 25m14s by the former deadline with no test
+failure in any partial log. The suite growth is real test volume, not a
+slowdown of existing cases, so the job budget moves 25m to 35m; the
+component allowances above are unchanged and the extra 10m extends the
+contingency. No test, subprocess, or child deadline changes. The
+m17-qualification jobs still complete inside their unchanged 25m budget.
