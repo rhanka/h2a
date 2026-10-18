@@ -136,6 +136,16 @@ function dirBytes(dir: string): number {
 export function createPayloadStore(root: string, scope: string = root): PayloadStore {
   const dir = join(root, "mcp-payloads");
   let lastSweepAt = Number.NEGATIVE_INFINITY;
+  // Derived parsing cache only. Every sweep checks current inode/size/times;
+  // expired records are always read again before deletion. No quota or read
+  // authority is cached, and a restart simply performs a cold scan.
+  let liveExpiries = new Map<string, { stamp: string; expiresAt: number }>();
+
+  function metadataStamp(path: string): string | undefined {
+    const info = lstatSync(path, { bigint: true });
+    if (!info.isFile()) return undefined;
+    return [info.dev, info.ino, info.size, info.mtimeNs, info.ctimeNs].join(":");
+  }
 
   function ensureDir(): void {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -149,13 +159,25 @@ export function createPayloadStore(root: string, scope: string = root): PayloadS
   function sweepExpired(now: number = Date.now()): number {
     if (!existsSync(dir)) return 0;
     let removed = 0;
+    const nextExpiries = new Map<string, { stamp: string; expiresAt: number }>();
     for (const entry of readdirSync(dir)) {
       if (!entry.endsWith(".json")) continue;
       const ref = entry.slice(0, -".json".length);
       if (!REF_RE.test(ref)) continue;
       try {
-        const meta = JSON.parse(readFileSync(join(dir, entry), "utf8")) as PayloadMeta;
-        if (Date.parse(meta.expiresAt) <= now) {
+        const path = join(dir, entry), stamp = metadataStamp(path);
+        if (!stamp) continue;
+        const cached = liveExpiries.get(ref);
+        if (cached?.stamp === stamp && cached.expiresAt > now) {
+          nextExpiries.set(ref, cached);
+          continue;
+        }
+        const meta = JSON.parse(readFileSync(path, "utf8")) as PayloadMeta;
+        // External replacement during the read cannot authorize deletion or
+        // populate a cache entry for a different generation of the metadata.
+        if (metadataStamp(path) !== stamp) continue;
+        const expiresAt = Date.parse(meta.expiresAt);
+        if (expiresAt <= now) {
           try {
             unlinkSync(metaPath(dir, ref));
           } catch {
@@ -167,11 +189,14 @@ export function createPayloadStore(root: string, scope: string = root): PayloadS
             /* already gone */
           }
           removed += 1;
+        } else if (Number.isFinite(expiresAt)) {
+          nextExpiries.set(ref, { stamp, expiresAt });
         }
       } catch {
         /* a corrupt meta is left for a human sweep, never live source data */
       }
     }
+    liveExpiries = nextExpiries;
     lastSweepAt = performance.now();
     return removed;
   }

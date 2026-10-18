@@ -72,6 +72,7 @@ test('automatic expiry maintenance advances monotonically and explicit sweeps st
   assert.equal(store.sweepExpired(),1);
   assert.equal(store.readPayload(third.ref,0,1024).error,'payload_not_found');
   assert.equal(Buffer.from(store.readPayload(live.ref,0,1024).data,'base64').toString(),'live');
+  store.persistOutput(Buffer.from('cold metadata for the slow scan'));
   const read=fs.readFileSync;
   let reads=0;
   t.mock.method(fs,'readFileSync',function(path,...args){
@@ -81,9 +82,51 @@ test('automatic expiry maintenance advances monotonically and explicit sweeps st
   syncBuiltinESMExports();
   t.after(()=>{t.mock.restoreAll();syncBuiltinESMExports();});
   store.sweepExpired();
+  assert.ok(reads>0,'the simulated slow scan must actually read cold metadata');
   const before=reads;
   store.persistOutput(Buffer.from('after a slow sweep'));
   assert.equal(reads,before,'the next write must measure its interval from sweep completion');
+});
+
+test('repeated sweeps reuse unchanged live expiry metadata and revalidate external replacements', t => {
+  const root=freshRoot(), directory=join(root,'mcp-payloads');
+  t.after(()=>rmSync(root,{recursive:true,force:true}));
+  const store=createPayloadStore(root);
+  const refs=Array.from({length:24},(_,n)=>store.persistOutput(Buffer.from(String(n))));
+  const original=fs.readFileSync;
+  let reads=0;
+  t.mock.method(fs,'readFileSync',function(path,...args){
+    if(typeof path==='string'&&path.startsWith(directory+'/')&&path.endsWith('.json'))reads++;
+    return Reflect.apply(original,this,[path,...args]);
+  });
+  syncBuiltinESMExports();
+  t.after(()=>{t.mock.restoreAll();syncBuiltinESMExports();});
+  assert.equal(store.sweepExpired(),0);
+  const cold=reads;
+  assert.ok(cold>=refs.length,'the first sweep must read the real metadata');
+  assert.equal(store.sweepExpired(),0);
+  assert.equal(reads,cold,'a warm sweep must not reparse every unchanged live record');
+  const path=join(directory,refs[0].ref+'.json'), old=fs.statSync(path);
+  const live=JSON.parse(original(path,'utf8'));
+  const expired={...live,expiresAt:new Date(0).toISOString()};
+  const bytes=JSON.stringify(expired)+'\n';
+  assert.equal(Buffer.byteLength(bytes),old.size,'replacement retains the same size');
+  fs.writeFileSync(path+'.replacement',bytes,{mode:0o600});
+  fs.utimesSync(path+'.replacement',old.atime,old.mtime);
+  fs.renameSync(path+'.replacement',path);
+  assert.equal(store.sweepExpired(),1,'same-sized replacement with restored mtime is observed');
+  assert.equal(fs.existsSync(join(directory,refs[0].ref+'.bin')),false);
+  const third=join(directory,refs[2].ref+'.json'), beforeEdit=fs.statSync(third);
+  const thirdMeta=JSON.parse(original(third,'utf8'));
+  fs.writeFileSync(third,JSON.stringify({...thirdMeta,expiresAt:new Date(0).toISOString()})+'\n');
+  fs.utimesSync(third,beforeEdit.atime,beforeEdit.mtime);
+  assert.equal(store.sweepExpired(),1,'same-inode edits with restored mtime invalidate the cached parse');
+  assert.equal(fs.existsSync(join(directory,refs[2].ref+'.bin')),false);
+  assert.equal(store.readPayload(refs[1].ref,0,1024).error,undefined);
+  const second=join(directory,refs[1].ref+'.json');
+  fs.writeFileSync(second,'invalid metadata');
+  assert.equal(store.sweepExpired(Date.now()+48*60*60*1000),refs.length-3);
+  assert.equal(fs.existsSync(join(directory,refs[1].ref+'.bin')),true,'corrupt external metadata never authorizes deletion');
 });
 
 /** Read a ref end-to-end in chunks and reassemble the bytes. */
