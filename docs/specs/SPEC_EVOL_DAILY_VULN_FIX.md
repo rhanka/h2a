@@ -1,43 +1,141 @@
-# Daily vulnerability fix
+# Daily vulnerability remediation — activation contract
 
-Owner directive of 17 October 2026 supersedes pending VA questions in study-v5:
-local daily systemd, local CLI seats now, future CI seats behind an interface,
-and manual merging. No Dependabot dependency or credit fallback.
+Owner decisions, 2026-10-18: **A · Partager la maintenance**, **Tous les
+dépôts prêts**, **Fix + revue autonome**, **Dans gh**. These supersede the
+earlier manual-merge/local-systemd assumptions. No schedule is enabled.
+The standing #371 merge NO GO remains in effect.
 
-- D1: Explicit repository inventory, canonical roots and matching GitHub remotes.
-  Scan tracked lock domains at fetched upstream main, including npm workspaces
-  and independent nested locks. npm HIGH/CRITICAL plus hydrated OSV records and
-  configurable trusted scanners. Unknown severity remains visible for triage.
-- D2: Invalid, unavailable or truncated scanner output is incomplete, never clean.
-  Send only public registry package resolutions to OSV; report coverage gaps.
-- D3: Global controller lock, durable per-repository UTC daily claim before
-  inference and persistent round robin. Ambiguous/crashed attempts consume the
-  day. Reconcile existing bot PRs before author dispatch to prevent duplicates.
-- D4: One SeatRunner interface for local CLI and future CI seat admission.
-  Declared host/model pairs are distinct, model/effort explicit; exclude author's
-  host and model from two blind independent reviewers. Requested identity is not
-  proof of the effective provider model. Unknown admission blocks inference.
-- D5: Repo-local ignored worktrees, never main; baseline and candidate SHA pinned.
-  Existing lockfiles only in the initial lane. Compatible generated lock updates
-  preferred; no force or install scripts. Major/ambiguous version changes block
-  this lane and require a separate manually supervised PR.
-- D6: Controller owns push and PR operations; no merge code. Agent receives
-  explicit workspace and harness scope; native tool restrictions supplement the
-  workspace guard. A local seat is admitted only with explicit guard qualification.
-- D7: Record red baseline audit and green candidate audit, plus configured
-  targeted tests and lock installation checks. Meaningful regression red/green
-  where applicable. Failed/skipped/missing verification blocks readiness.
-- D8: Draft PR first, two separate review worktrees at the same candidate SHA,
-  strict verdict receipts and evidence, unchanged local/remote head before ready.
-  Rejections/failures leave draft with evidence for conductor handoff.
-- D9: Atomic stable reports with findings, PRs, failures and coverage gaps, one
-  stdout summary. Dry run scans without inference, publication, daily claims or
-  cursor changes; disposable scan worktrees/fetch remain necessary for freshness.
-- D10: Render systemd user units with absolute paths and restrictive umask;
-  document install/enable. No activation against real owner state in confinement.
+Reference: SPEC_EVOL_VULN_FIX_ACTIVATION.v2.md, SHA-256
+624146043693f553cd50cd4c6f3f618242f1066866511eba09f76009dcc58593.
+Both supplied final-spec reviews say GO-CODE on that digest. This is not a
+live seat, authority, runner or activation receipt.
 
-Two independent design reviews identified false-clean scanners, OSV hydration,
-identity aliases, daily crash safety, lock policy and fixed-SHA review risks.
-These are acceptance gates. Real-seat qualification, shared machine-wide quota,
-effective identity attestation and future CI custody are integration boundaries.
-The local runner is not a hostile-code sandbox or a replacement for CI custody.
+## Rules
+
+1. Detect and fix npm HIGH/CRITICAL findings across every independently ready
+   repository using npm audit, hydrated OSV and configured extra scanners.
+   Unknown severity stays visible; incomplete scans never mean clean.
+2. Reuse #371 controller/state/scanners and #348 seat materialisation.
+   No second vault, quota ledger, refresh service or controller.
+3. One shared authority atomically reserves author + two reviews.
+   Remediation competes for two Codex maintenance units; preserve 6 CI +
+   2 enrolment, cap 10/CLI/UTC day, provider reserve >20%, unknown = refuse.
+4. Bind admitted seat reference/generation to its executed private projection.
+   No ambient login or API-credit fallback. Require usage/role/model permission.
+   Claude is a tested provider, never a remediation sub-contractor. The first
+   proposed pool is Muse author + two distinct Codex reviewer models; exact
+   binary/model/effort qualification is not inferred from aliases.
+5. Publishing belongs to deterministic control. Native authentication gets
+   only its admitted capability. Tools/installers/tests get neither provider
+   nor publishing/control capability. Private HOME/env filtering alone cannot
+   prove filesystem/process/FD/socket separation.
+6. Existing compatible locks only: no majors/new packages/manifest edits;
+   seven-day age for every modified package and integrity/signature/provenance.
+   No urgent age exception.
+7. Autonomous merge requires exact-head independent reviews, all required
+   checks successful (missing/skipped blocks), lock/trust/scan/test proofs,
+   unchanged proven base, resolved blocking threads and repository rules.
+   Merge commit + expected-head protection; never admin bypass or squash.
+8. Audit RED → GREEN is separate from ordinary tests GREEN → GREEN. Only an
+   applicable explicitly named redBefore:true regression uses functional
+   RED → GREEN. Install failures, skipped/TODO tests and unrelated failures
+   never qualify as regression RED. Every candidate test must execute.
+9. Persist owned pending PRs/evidence outside worktrees. Reconcile age/checks/
+   admission across restart and UTC days before new claims. Unchanged head/
+   base never repeats completed inference/charges. Save merge intent before
+   dispatch; reconcile remote state before retrying ambiguous acknowledgements.
+   Never adopt ownership from a branch prefix.
+10. Reports distinguish scanned/fixable/fix-blocked/merged/delivered. An open
+    PR is unfixed. Closing admissions stops merges and new work; never reset
+    accounting to regain quota.
+
+## L0 inventory — no secret or owner-state discovery
+
+Checkout: /home/antoinefa/src/h2a/tmp/worktrees/vulnfix.
+Branch: feat/daily-vuln-fix, rebased on origin/main
+7ebbcf266e1988c18624d0158936949a214f9fd8 (includes #348).
+
+| Inventory | Evidence / state | Resolver and acceptance |
+|---|---|---|
+| Seat references, owner, entitlement, usages/roles/models, expiry/generation, custody, capacity | Unknown; no private state read, no enrolment | Lab operator: redacted metadata + separate native/mesh and lifecycle receipts |
+| h2a locks | Root, apps/focus and packages/h2a/focus-kit package-lock.json tracked | h2a conductor: installs, manifest coverage, required tests, sharing consent, merge/delivery effects; inventory is not readiness |
+| sentropic, radar-immobilier, graphify/engram | Candidate names only; graphify correspondence and per-repo readiness unknown | Each conductor: exact roots/locks/tests/consent/delivery; no other repo edited here |
+| Published L1 | Latest llm-mesh 0.27.0 / cluster-mesh 0.19.1 still lack public consumer parsers; sentropic #681 OPEN at 7293130ee3f6 | sentropic L1 maintainer publishes import/parsers, then h2a pins and qualifies ten imports/reload/refusals |
+| Shared authority + D6 amendment | Deployed source/tests, cycle interface and integration command unknown | sentropic quota maintainer supplies exact source/tests and race/UTC/unknown-quota proof; no local substitute |
+| L3-R custody | Renewal/later-run verification/delivery/next consumption unknown | sentropic custody + h2a consumer maintainers: N → N+1 → next native use; serialized handoff where required |
+| D10 adapter | Qualified source/tests and role boundaries unknown | Shared runner maintainer proves env/file/process/FD/socket canaries, positive controls, cleanup |
+| GitHub placement | OQ1 principles and full technical derivation absent | h-cond/operator specifies orchestration repo/ref, role runners, custody delivery, retries/wake-ups, merge executor/rules, stop/resume before placement code |
+
+Unknowns are blocked dependencies, not executable placeholder paths. No
+admitted seat or ready repository is claimed.
+
+## Execution sheets
+
+All commands run from this checkout root with temporary XDG/runtime state.
+Only targeted files; the conductor owns full-suite integration. Existing
+paths are confirmed against the integrated base; proposed new files are
+explicit. Unresolved owning paths/interfaces/commands block dependent code.
+
+| Lot | Exact h2a source and tests | Status / closure |
+|---|---|---|
+| L0 | This contract; packages/h2a/skills/vuln-fix/references/operator.md | Documentation, no RED; global G0 open |
+| L1 | Runtime src/llm-mesh-accounts.ts, src/index.ts, package.json; docs/cli-seat-l2s.md; new runtime src/cli-seat-published-l1-contract.test.ts | BLOCKED on published API. Intended targeted command below; ten imports through real boundary, lineage/idempotence/owner/expiry/401, no fake facade |
+| L2 | Runtime src/vuln-seat.ts, agent-launch-args.ts, cli-seat-materialization.ts; h2a src/vuln-fix/seats.mjs, policy.mjs; runtime vuln-seat.test.ts, agent-launch-args.test.ts; h2a vuln-fix-policy.test.js, vuln-fix-controller.test.js | BLOCKED on L1 or V3 native proofs and qualified input/tools/models/efforts; no guessed Muse flags |
+| L3 / L3-R | h2a src/vuln-fix/seats.mjs, controller.mjs, repository.mjs; runtime src/vuln-seat.ts, cli-seat-materialization.ts, llm-mesh-accounts.ts; proposed h2a test/vuln-fix-seat-authority.test.js, vuln-fix-seat-lifecycle.test.js plus existing seat/repository/controller/materialisation tests | BLOCKED on authority/custody/confinement owning sheets; real integration commands cannot be invented |
+| L4 | h2a src/vuln-fix/cli.mjs, repository.mjs; proposed runner-entry.mjs / github-gate.mjs and corresponding tests after placement resolution | BLOCKED on OQ1 and L2/L3/L3-R; no workflow/timer choice |
+| L5 independent contract | h2a src/vuln-fix/controller.mjs, state.mjs, verify.mjs, scan.mjs; new test/vuln-fix-merge.test.js | Resolved below, independent contract may progress under OQ1; production integration BLOCKED on L2/L3/L4 |
+| L6 | Operator reference; test/vuln-fix-controller.test.js, vuln-fix-repository.test.js | Inventory progresses; activation BLOCKED; other repositories' validators/locks belong to their conductors |
+| L7 | scripts/e2e-cli-seats-direct.mjs; h2a test/cli-seat-direct-matrix.test.js; conditional runtime codec/materialisation sources; docs/cli-seat-l2s.md | BLOCKED on L1 + real binary/route/lifecycle/admission; retain refusing stub until prerequisites. Ten usages + 100 scenario + two-author rotation receipts required |
+
+L1 intended targeted command (not a claim of availability/closure):
+
+    rtk npx --no-install vitest run --config packages/h2a-runtime/vitest.config.ts packages/h2a-runtime/src/cli-seat-published-l1-contract.test.ts
+
+### L5 independent gate/reconciliation contract — frozen before RED
+
+Owner: h2a maintainer. Base: rebased #371 before this lot.
+Existing source operations: evaluateMergeEvidence in verify.mjs,
+reconcileCandidate in controller.mjs, candidate metadata validation in
+state.mjs, scan comparison in scan.mjs. Internal exports only, no configured
+production runner or selected GitHub merge placement.
+
+Candidate metadata binds repository/PR/branch, base/head, author/reviewer
+identities + permissions, verification/guard digests, immutable receipts and
+merge intent/result. Adapter observe(candidate) rereads remote ownership,
+head/base/reviews/checks/merge state and revalidates lock/trust/scan/tests.
+Adapter merge(candidate, {expectedHead, expectedBase, method, intentId})
+enforces the selected executor's protected operation at effect time, never
+bypassing repository rules. No production adapter is supplied here.
+A temporary-remote adapter proves the independent contract only.
+
+Failures persist bounded retry; head/base/proof change requires revalidation;
+blocked reviews stay blocked. Pending checks/age persist with a next wake-up.
+Disabled admissions suspend merge. Intent is durable before merge. Uncertain
+acknowledgement stays merge-pending until remote observation resolves it.
+This contract never starts inference or changes quota counters.
+
+Literal RED/GREEN command:
+
+    rtk node --test packages/h2a/test/vuln-fix-merge.test.js
+
+Expected initial RED: independent contract missing / no merge effect.
+Positive: real temporary bare remote, ordinary targeted Node tests GREEN →
+GREEN, audit RED → GREEN, two SHA-bound reviews, one two-parent merge.
+Resume: pending checks; seven-day maturation across UTC; lost merge
+acknowledgement; duplicate completion; retained accounting/no new inference.
+Separate guards: stale head/base/reviews/proofs, skipped checks/tests,
+provenance failure, non-lock/major/new-package changes, disabled admissions,
+foreign/ambiguous ownership. Guard refusals are not baseline exploits.
+
+## Remaining gates
+
+G0 partial. G1 placement and G2 live identity/quota/custody/separation open.
+G3 requires integrated qualification + selected continuation artefacts.
+G5 requires exact-final-SHA Sol 6.1 xhigh + Astra max code reviews and the
+conductor's CI integration result; spec approval cannot replace them.
+G4 scheduled activation and G6 production autonomy follow release under the
+conductor/operator, never this worktree. G7 remains independently due.
+
+Non-npm ecosystems, majors/new packages, urgent age exceptions, rollback,
+served-model attestation and macOS/Windows live qualification remain outside
+this delivery. Synthetic proof never establishes real CVE repair/activation.
