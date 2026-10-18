@@ -1,82 +1,37 @@
-# Live disclosure authority — owner decision 2026-10-17
+# Daily vulnerability remediation
 
-- [x] Scope: Δ-L7a on `feat/live-disclosure-authority`, based on origin/main.
-- [x] Reference: engram plan/09 and SPEC_LIVE_GIT_INDEXING at e417c33c,
-  including the Read side amendment (repository/provider/scope/duration).
-- [x] Allowed implementation: gateway-host/live-{auth,disclosure,host}.ts,
-  live-auth.test.ts and live-disclosure.test.ts; branch/review evidence only.
-- [x] Guardrails: temporary test roots, Node 22/24, targeted files only;
-  no installed h2a, owner state, Python, Track writes or provider calls.
-- [x] Lot A: registered Ed25519 host proof, live audience, current declaration,
-  host-local tenant, expiry, operations and revocation; default denial.
-- [x] Lot A evidence: 14 behavioural failures before implementation, then
-  14/14 pass; no session or enrollment fallback.
-- [x] Lot B: explicit grants, exact paths/surfaces, mandatory L4b policy,
-  before-handoff revalidation, opaque audit receipts, no snapshot archive.
-- [x] Lot C: G4 fails with policy-unavailable until an actual L8 contract
-  exists; isolated emitted consumer proof and targeted Node 22/24 checks.
-- [x] Lot B/C evidence: 39 behavioural failures before grants/audit, then
-  53/53 disclosure tests. Seven additional regressions observed red then green:
-  final-policy state replacement, async audit, throwing clock, revoked issuing
-  proof with fresh emit proof, backwards grant start, and independent read
-  authority missing from emission, and late provider redirection. Compiler
-  and test-type errors were corrected separately, not counted as RED evidence.
-- [x] Qualification: exact auth/disclosure/registration files, 90/90 on
-  Node 22.22.1 and 24.18.0, zero skips; repository and test typechecks pass.
-- [x] Lot D: English conventional commits, own-branch push and PR #367; CI job
-  outcomes and remaining qualification limits in the requested owner report.
-- [x] Feedback: #342/#343 deliver declarations/GitHub/retention, not L7a
-  verified authority or L8 policy. The old unverified registration guard stays.
-- [x] Feedback: installed h2a/mesh review launch is forbidden by confinement;
-  record selection failure and claim no independent consensus or merge gate.
+## Objective
+- [ ] Ship daily vulnerability detection/remediation through local seats, command, skill and timer.
 
-## Tour 2 — independent review rev367
+## Scope / Guardrails
+- [x] Owner directive 2026-10-17 selects local daily systemd, local seats, manual merge; no VA questions.
+- [x] No live host/state, installed h2a, main mutation, attribution, Python or full local suite.
+- [x] Tests use temporary state and targeted files only; no silent skips.
 
-- [x] Rebased onto origin/main; no merge of main. Push uses the owner-required
-  force-with-lease exception for this rebase, only on our feature branch.
-- [x] L4b-2 exhaustive deterministic exclusions at engram e417c33c: five secret
-  rules, all protected basenames/prefix/suffix/segments, secret-bearing paths;
-  each rule/alternative on all surfaces and every two-fragment split.
-- [x] Final emission requires one host snapshot lease spanning authority,
-  revocation, state, read access, content decisions, clock and bound transport.
-  Data-only validation and synchronous send share that lease; no unlocked fallback.
-- [x] Correct refusal codes and attempt ordering; authentication before grant
-  lookup, correlated revoke refusals, revoke survives policy/declaration drift;
-  no foreign state lookup before signed repository scope verification.
-- [x] Complete evidence ID coverage is required, including composed fragments.
-- [x] Snapshot authorizations must match the exact caller and issuing proof IDs;
-  same-owner proof substitution produced 2 RED failures before its guard.
-- [x] RED baseline: 67 behavioural failures / 172 tests, zero skips; execution
-  proof also rejects the old duplicate test names. GREEN: 172/172 on Linux
-  Node 22.22.1 and 24.18.0, zero skips; production execution-proof verifier
-  accepts each three-file targeted report; strict test and repo types pass.
-- [x] Fixed the duplicate parameterized secret-test identity that caused the
-  three previous CI execution-not-proven failures; no gate was weakened.
-- [x] No production snapshot adapter or independent peer consensus claimed;
-  missing snapshot authority denies emission and G4 stays policy-unavailable.
+## Branch Scope Boundaries
+- [x] Allowed: packages/h2a/src/vuln-fix/**, packages/h2a/src/bin.ts, packages/h2a/src/cli.ts, packages/h2a/src/cli-contract.ts, packages/h2a/src/cli-command-map.ts.
+- [x] Allowed: packages/h2a-runtime/src/vuln-seat.ts, packages/h2a-runtime/src/vuln-seat.test.ts, packages/h2a-runtime/src/index.ts.
+- [x] Allowed: packages/h2a/test/vuln-fix*.test.js, packages/h2a/test/cli-contract.test.js, packages/h2a/skills/vuln-fix/**.
+- [x] Allowed: docs/vuln-fix.md, docs/specs/SPEC_EVOL_DAILY_VULN_FIX.md, docs/reviews/vuln-fix/**, docs/contracts/golden/cli-verbs.json, scripts/test-inventory.json, BRANCH.md.
+- [x] Forbidden: owner host/state, installed dist, unrelated code, dependency/version bumps, workflow/infra changes.
+- [x] Conditional: systemd files rendered only; operator installs/enables outside confinement.
 
-# Inherited branch context
+## Lot 1 — Detection
+- [ ] Discover lock domains; npm HIGH/CRITICAL, hydrated OSV, custom source interface.
+- [ ] Prove incomplete scans cannot become clean and private packages stay local.
 
-# Focus publication — owner decision 2026-10-17
+## Lot 2 — Controller
+- [ ] Durable claims, round robin, isolated worktrees, pinned verification and draft PRs.
+- [ ] Lock-only, no majors, two independent complementary reviews before ready.
+- [ ] Fake-runner coverage for restart, concurrent lock, dry run and failure gates.
 
-Branch: feat/focus-publish. Implement the accepted release-wave decision:
-focus 0.5.0 is independent of the h2a 0.98.7 train. RC suffix follows the
-h2a tag; all five verified tarballs and versions enter the same-tree proof.
-Backfills must refuse an older four-package prepare helper before publication.
-Scope: release/rehearsal workflows, release/candidate/rehearsal helpers and
-qualified execution snapshot, named release tests, release documentation.
-No tag, npm publication, installed h2a, owner state, Track writes or full
-local suite. Tests use disposable HOME/XDG/TMP directories.
+## Lot 3 — Operator surface
+- [ ] Local runner adapter, command, skill, inventory configuration, timer rendering.
+- [ ] Stable report, summary and explicit activation/coverage limits.
 
-- [x] Red regression evidence: 48/61 then 25/32; no skips.
-- [x] Initial six targeted Node test files: 93/93, zero skips; actual focus tarball
-  dry-run without node_modules exit 0. Packed schema/validator and registry
-  digests checked; logs: /home/antoinefa/.cache/focuspub-{red,contract-red,green,rehearsal}.log.
-- [x] Legacy-preparation regression: 12/14 red before the focus-version
-  handoff guard, then six files 95/95 green with zero skips; same-tree focus
-  preparation is required for RC and stable.
-Publication: conventional commits, own-branch push and English PR; per-job
-CI outcomes are maintained in the owner-requested focuspub-report.md.
+## Lot 4 — Delivery
+- [ ] Reconcile two independent design reviews and record actual consensus availability.
+- [ ] Targeted verification, push, English PR, each CI result and French report.
 
 Harness consensus review is selection-failed: the required installed h2a/mesh
 access is forbidden by the owner's confinement. No peer consensus claimed.
@@ -426,3 +381,8 @@ inventory in `.h2a/build/seat_model_inventory.md` (untracked).
   compatible published versions and qualify all ten cli/token imports.
 - Targeted post-rebase enrollment/dispatch/regression suites: 6 files,
   118 passed, 0 skipped. Full local suite and native/installed h2a forbidden.
+## Feedback Loop
+- [x] Design reviews: scanner/identity safety and controller correctness; findings integrated into design.
+- [x] No installed h2a MCP available in confinement; no h2a seat consensus claimed.
+- [x] BR01-EX1: no Makefile in repo; selective direct git commits.
+- [x] BR01-EX2: cohesive controller lots may exceed 150 lines; minimal paths, no unrelated changes.
