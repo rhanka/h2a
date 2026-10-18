@@ -79,6 +79,18 @@ describe("owner applied write frontier", () => {
     expect(f.write.mock.calls).toEqual([["one"], ["new"]]);
   });
 
+  it("should require write identities on resumable leases and release explicit detach", () => {
+    const f = fixture();
+    expect(() => f.request("write", { lease: f.lease, data: "unidentified" })).toThrow(/write-identity-required/);
+    f.request("release-controller", { lease: f.lease });
+    expect(() => f.request("acquire-controller", { id: "cli", controllerId: "controller", writeIdentity: true, resumeLease: f.lease })).toThrow(/stale terminal controller lease/);
+    const legacy = f.request("acquire-controller", { id: "cli", controllerId: "legacy" });
+    expect(legacy.resumeToken).toBeUndefined();
+    f.request("write", { lease: legacy, data: "legacy" });
+    releaseNativeTerminalLeases(f.host, f.context);
+    expect(f.host.state("cli").controlled).toBe(false);
+  });
+
   it("should keep only one frontier and a 32-byte last-write digest per current epoch", () => {
     const f = fixture();
     for (let seq = 1; seq <= 1024; seq++) f.send(seq, String(seq));
