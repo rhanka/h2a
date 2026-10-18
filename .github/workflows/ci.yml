@@ -146,9 +146,11 @@ jobs:
     if: ${{ always() }}
     runs-on: ${{ matrix.os }}
     # Measured 2026-10-17: 15m06s on main, including ~13m npm test.
-    # 25m budget and slow-suite guard: docs/ci-job-budget.md.
+    # 2026-10-18 lane growth (mh-l6/registry suites): 21-23m completions,
+    # four 25m14s timeout kills in eight executions. 35m budget and
+    # slow-suite guard: docs/ci-job-budget.md.
     # Keep the DEC-061 process backstop; child deadlines are unchanged.
-    timeout-minutes: 25
+    timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
@@ -249,8 +251,9 @@ jobs:
     needs: [m17-qualification]
     if: ${{ always() }}
     runs-on: ubuntu-latest
-    # Same complete entrypoint; 13m39s observed. See docs/ci-job-budget.md.
-    timeout-minutes: 25
+    # Same complete entrypoint; 13m39s observed on main, 22m54s on the
+    # 0.98.8 lane. See docs/ci-job-budget.md.
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
         with:
