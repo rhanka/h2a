@@ -12,6 +12,24 @@ const object = value => value && typeof value === 'object' && !Array.isArray(val
 const severities = new Set(['info', 'low', 'moderate', 'medium', 'high', 'critical', 'unknown']);
 const urgent = severity => ['high', 'critical', 'unknown'].includes(severity);
 
+// Merge evidence compares findings, not just scanner exit codes. Unknown
+// severity cannot authorize an autonomous merge.
+export function scanChangeProven(before, after, targets) {
+  const same = (a, b) => a.source === b.source && a.lockfile === b.lockfile && a.name === b.name &&
+    [a.id, ...(a.aliases ?? [])].some(id => [b.id, ...(b.aliases ?? [])].includes(id));
+  if (before?.complete !== true || after?.complete !== true ||
+    !Array.isArray(before.findings) || !Array.isArray(after.findings) ||
+    !Array.isArray(targets) || targets.length === 0) return false;
+  if ([...before.findings, ...after.findings, ...targets].some(x =>
+    !x || typeof x.id !== 'string' || !x.id || typeof x.source !== 'string' ||
+    !severities.has(x.severity) || x.severity === 'unknown' ||
+    (x.aliases !== undefined && (!Array.isArray(x.aliases) || x.aliases.some(id => typeof id !== 'string'))))) return false;
+  return targets.every(target => ['high', 'critical'].includes(target.severity) &&
+    before.findings.some(x => same(x, target) && ['high', 'critical'].includes(x.severity)) && !after.findings.some(x => same(x, target))) &&
+    after.findings.every(x => !['high', 'critical'].includes(x.severity) ||
+      before.findings.some(old => same(old, x) && old.severity === x.severity));
+}
+
 export function npmFindings(audit, lockfile) {
   if (!object(audit) || audit.error || !object(audit.vulnerabilities)) throw new Error('invalid npm audit vulnerabilities object');
   return Object.entries(audit.vulnerabilities).flatMap(([name, item]) => {
