@@ -142,18 +142,20 @@ function deadSocketPath(): string {
   return join(scratch, "nothing-listens-here.sock");
 }
 
-// Phase B (lot B2): the owner/frontend split has no macOS product substrate
-// until lot BM. This case is defined only on darwin: on Linux it is not run
-// (never run-and-skipped, D27).
+// Phase B (lot BM): darwin has a product substrate now (filesystem lock,
+// ps-based attribution, bash-guardian containment), so the split is admitted
+// there. Platforms with no substrate still fail closed. This case is defined
+// only on darwin: on Linux it is not run (never run-and-skipped, D27).
 if (process.platform === "darwin") {
-  it("should fail closed with a typed publication error on darwin until lot BM", async () => {
+  it("should admit the owner/frontend split on darwin since lot BM", async () => {
     const { OwnerFrontendDarwinRefusal, assertOwnerFrontendSupported } = await import(
       "./owner-process.js"
     );
-    expect(() => assertOwnerFrontendSupported("darwin")).toThrowError(
+    expect(() => assertOwnerFrontendSupported("darwin")).not.toThrow();
+    expect(() => assertOwnerFrontendSupported("linux")).not.toThrow();
+    expect(() => assertOwnerFrontendSupported("win32")).toThrowError(
       OwnerFrontendDarwinRefusal,
     );
-    expect(() => assertOwnerFrontendSupported("linux")).not.toThrow();
   });
 }
 

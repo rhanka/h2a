@@ -11,6 +11,7 @@ export const PUBLICATION_REFUSALS = {
   H2A_ENDPOINT_LIVE_OWNER: "terminal host endpoint owned by a live older host; refusing double publication",
   H2A_ENDPOINT_OWNER_MALFORMED: "native endpoint owner identity is malformed or not a private owned file; refusing socket publication",
   H2A_PUBLICATION_LOCK_ID_MALFORMED: "terminal socket publication lock identity is malformed or not a private owned file; refusing socket publication",
+  H2A_PUBLICATION_LOCK_PATH_UNUSABLE: "terminal socket publication lock path exceeds the unix socket path budget; refusing socket publication",
   H2A_ENDPOINT_SCAN_UNKNOWN: "native host active scan is unknown; refusing socket publication",
   H2A_ENDPOINT_REGISTRY_UNKNOWN: "native endpoint owner registry is unreadable or corrupted; refusing socket publication",
 } as const;
