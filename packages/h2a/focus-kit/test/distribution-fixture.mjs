@@ -57,10 +57,11 @@ export function installedEvidence(root) {
   // cache must not conceal an unpinned package resolution on a fresh runner.
   const sourceCache = env.npm_config_cache, cache = join(root, 'tarball-only-cache');
   const matches = (values, host) => !values || ((!values.some(v => !v.startsWith('!')) || values.includes(host)) && !values.includes(`!${host}`));
+  const libc = process.platform === 'linux' ? (process.report.getReport().header.glibcVersionRuntime ? 'glibc' : 'musl') : '';
   let tarballs = 0;
-  for (const entry of Object.values(original)) {
+  for (const entry of Object.values(lock.packages)) {
     if (!entry.resolved?.startsWith('https:') || !entry.integrity?.startsWith('sha512-')
-      || !matches(entry.os, process.platform) || !matches(entry.cpu, process.arch)) continue;
+      || !matches(entry.os, process.platform) || !matches(entry.cpu, process.arch) || !matches(entry.libc, libc)) continue;
     const hex = Buffer.from(entry.integrity.slice(7), 'base64').toString('hex');
     const contentPath = join('_cacache', 'content-v2', 'sha512', hex.slice(0,2), hex.slice(2,4), hex.slice(4));
     const target = join(cache, contentPath); mkdirSync(dirname(target), { recursive: true });
