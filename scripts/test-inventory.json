@@ -539,6 +539,9 @@
   "packages/h2a/test/m07-relaunch-characterization.test.js": [],
   "packages/h2a/test/manual-cli-hook.test.js": [],
   "packages/h2a/test/mcp-autoopen.test.js": [],
+  "packages/h2a/test/mcp-central-attachments.test.js": [
+    "fixture cleanup waits for its recorded daemon to finish late writes before removing private state"
+  ],
   "packages/h2a/test/mcp-central.test.js": [],
   "packages/h2a/test/mcp-discovery-budget.test.js": [],
   "packages/h2a/test/mcp-discovery-pagination.test.js": [],
