@@ -14,8 +14,8 @@ export function corpus(root) {
     assert.ok((/^(packages|docs|scripts|apps|contrib|deploy|evaluations|examples)\//.test(f.path) && !/(^|\/)\./.test(f.path))
       || /^\.github\/workflows\//.test(f.path) || (!f.path.includes('/') && /\.md$/.test(f.path)), `Non-source corpus path: ${f.path}`);
   }
-  // Blob ids are shared with the checked-out tree, so shallow CI needs no old
-  // commit fetch. Never read host configuration or bootstrap-mutated files.
+  // Shallow CI prepares these frozen Git objects from manifest.reference.
+  // Never read host configuration or bootstrap-mutated files.
   const batch = spawnSync('git', ['cat-file', '--batch'], { cwd: fileURLToPath(new URL('../../../../', import.meta.url)),
     input: manifest.files.map(f => f.blob).join('\n') + '\n', maxBuffer: 64 * 1024 * 1024 });
   assert.equal(batch.status, 0, batch.stderr?.toString());
