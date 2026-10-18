@@ -90,20 +90,23 @@ function delay(milliseconds: number): Promise<void> {
 }
 
 async function waitForOwnerReady(child: ChildProcess): Promise<void> {
-  let output = "";
   const deadline = Date.now() + 30_000;
-  const chunks: string[] = [];
+  const outChunks: string[] = [];
+  const errChunks: string[] = [];
   child.stdout?.on("data", (chunk: Buffer) => {
-    chunks.push(chunk.toString("utf8"));
+    outChunks.push(chunk.toString("utf8"));
+  });
+  child.stderr?.on("data", (chunk: Buffer) => {
+    errChunks.push(chunk.toString("utf8"));
   });
   for (;;) {
-    output = chunks.join("");
+    const output = outChunks.join("");
     if (output.split("\n").some((line) => line.includes("h2a.native-terminal.ready"))) return;
     if (child.exitCode !== null || child.signalCode !== null) {
-      throw new Error(`owner exited before ready: ${child.exitCode ?? child.signalCode}; output: ${output.slice(-2000)}`);
+      throw new Error(`owner exited before ready: ${child.exitCode ?? child.signalCode}; stdout: ${output.slice(-2000)}; stderr: ${errChunks.join("").slice(-2000)}`);
     }
     if (Date.now() > deadline) {
-      throw new Error(`owner did not become ready; output: ${output.slice(-2000)}`);
+      throw new Error(`owner did not become ready; stdout: ${output.slice(-2000)}; stderr: ${errChunks.join("").slice(-2000)}`);
     }
     await delay(25);
   }
