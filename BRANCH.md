@@ -553,6 +553,10 @@ have eleven mandatory regression cases. Payload writes cadence automatic expiry
 maintenance with a monotone thirty-second interval; quota pressure and explicit
 sweeps remain immediate, TTL reads unchanged. Quota/live-data refusal controls
 and the full 10,000-mutation-per-domain backend stress remain required.
+Inherited native-host qualification now checks exact same-argument polling
+plus explicit changed-argument refusal, retaining one launch/brief as required
+by the H4 contract. Ephemeral daemon cleanup waits for its recorded PID and
+birth to stop writing before deleting private state; no marker-based signal.
 The expiry sweep reuses parsed live metadata only after a fresh inode, size,
 mtime and ctime check; expired records are reread before deletion. External
 replacements, in-place edits with restored mtime and corrupt metadata retain
