@@ -500,6 +500,8 @@ inventory in `.h2a/build/seat_model_inventory.md` (untracked).
 - [ ] Record code review target/outcome; harness/review requires installed h2a/mesh dispatch, prohibited by confinement; no invented consensus.
 - [ ] Final French report: per lot, pushed commits, exact RED/GREEN command/output/exit/skips, first measured output, CI, non-coverage/deviations.
 
+- [x] T-V00-I final named-file baseline: 28 failed, 0 passed, 0 skipped; initial 25-test baseline also retained. Test-first commits stage the contract before the implementation.
+
 ## Fixture integrity
 - [x] engram-enriched.json: SHA-256 `37a9c54032d3b56dd0c78f0aab886da260502a7805b2c898e7fa7377b2596ab7`, 15317 bytes.
 - [x] engram-older.json: SHA-256 `be8e2abc21fec7a775b9db26329915ff1be7e275abec790dead565eedeceb97f`, 28540 bytes.
