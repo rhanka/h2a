@@ -19,7 +19,7 @@
     "dossier.template.json": "628fd48769dc1426a6a6f860d1ad28c59db9a3dbda6f2a0c612978b8cfa81412",
     "ecosystem.json": "f28ebf603131cbb0388dfb04f09db4991110af5e40c18873056aad9bd974f2df",
     "dossier.evidence.template.json": "644ea4d5a2bcc1994223569ae6836cc190a7c668b9fda91f5ab780205fa8892d",
-    "../../focus/schemas/decision-dossier-document.v2.schema.json": "7c6fd7c889b8553d7ba96d1e54e2de377c1efdbea30d39ed377cd60f5176ed86",
+    "../../focus/schemas/decision-dossier-document.v2.schema.json": "1a8059e5264785cd15c74b7fcfc04cbe42c575203b4232af43819e094846f5a9",
     "../../focus/src/validation/evidence-bytes.ts": "eb3ce3007c91f5b5f0e9d1b9c9dae9d3d3fc68a3b5ec9f1b95448cd76a441f3b",
     "../../focus/src/validation/evidence-shape.ts": "31bef44120c835e595bc9c15229f94bf157c71081fdf992b0659a33a775e7cc4",
     "../../focus/src/validation/evidence-sources.ts": "cc8cdc3cfe4ea24680db853bf3e0fe102e247f17a37a2d7805bb42fbaf785812",
