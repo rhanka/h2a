@@ -84,3 +84,113 @@ test('should omit unrelated documentation links while retaining contract goldens
   assert.equal(fs.existsSync(join(lane.checkout, 'docs/focus')), false);
   assert.equal(fs.readFileSync(join(lane.checkout, 'docs/contracts/golden/cli-verbs.json'), 'utf8'), '["fixture"]');
 });
+test('should build source dependencies before the exact Node test and preserve the guard preload', () => {
+  const commands = commandPlan({ path: '/lane', checkout: '/lane/checkout', selection: selected });
+  assert.deepEqual(commands.map(c => c.args.slice(0, 6)), [
+    ['npm', 'ci', '--ignore-scripts', '--no-audit', '--no-fund'],
+    ['npm', 'run', 'build', '-w', '@sentropic/agent-stats'],
+    ['npm', 'run', 'build', '-w', '@sentropic/track'],
+    ['npm', 'run', 'build:h2a'],
+    ['node', '--import', './packages/h2a/test/helpers/identity-isolation-guard.mjs', '--test', '--test-reporter=spec', '--test-reporter-destination=stdout'],
+  ]);
+  assert.ok(commands.at(-1).args.includes('packages/h2a/' + file));
+});
+test('should select the package Vitest config and only the requested file', () => {
+  const lane = { path: '/lane', checkout: '/lane/checkout', selection: { package: 'agent-stats', files: ['tests/velocity-contract.test.ts'] } };
+  const command = commandPlan(lane).at(-1);
+  assert.equal(command.cwd, '/lane/checkout/packages/agent-stats');
+  assert.deepEqual(command.args.slice(0, 7), ['npx', '--no-install', 'vitest', 'run', '--config', 'vitest.config.ts', 'tests/velocity-contract.test.ts']);
+});
+function report(status = 'passed', name = 'required test') {
+  return { success: true, numTotalTests: 1, numPassedTests: status === 'passed' ? 1 : 0, numFailedTests: 0, numPendingTests: status === 'skipped' ? 1 : 0, numTodoTests: 0, testResults: [{ name: '/lane/checkout/packages/h2a/' + file, status: 'passed', assertionResults: [{ fullName: name, status }] }] };
+}
+test('should reject a missing execution report and zero executed tests', () => {
+  assert.throws(() => checkReport(null, ['/lane/checkout/packages/h2a/' + file], []), /report/i);
+  assert.throws(() => checkReport({ ...report(), testResults: [] }, ['/lane/checkout/packages/h2a/' + file], []), /NEVER EXECUTED/);
+});
+test('should reject unlisted skips instead of claiming green', () => assert.throws(() => checkReport(report('skipped'), ['/lane/checkout/packages/h2a/' + file], []), /not an authorized|ZERO tests/));
+test('should count passed assertions and separately list exact authorized non-tests', () => {
+  const data = report();
+  data.testResults[0].assertionResults.push({ fullName: 'owner placeholder', status: 'skipped' });
+  data.numTotalTests++; data.numPendingTests++;
+  assert.deepEqual(checkReport(data, ['/lane/checkout/packages/h2a/' + file], [{ file: '/lane/checkout/packages/h2a/' + file, fullName: 'owner placeholder', status: 'skipped', reason: 'explicit owner non-test' }]), { passed: 1, excluded: 1 });
+});
+test('should reject a renamed non-test and dishonest totals', () => {
+  const changed = { ...report(), numPassedTests: 99 };
+  assert.throws(() => checkReport(changed, ['/lane/checkout/packages/h2a/' + file], []), /counts/);
+  assert.throws(() => checkReport(report('skipped', 'renamed'), ['/lane/checkout/packages/h2a/' + file], [{ file: '/lane/checkout/packages/h2a/' + file, fullName: 'original', status: 'skipped' }]), /not an authorized|disappeared/);
+});
+test('should execute a controlled child under the guard and reject synthetic state before access', t => {
+  const lane = createLane({ sourceRoot: fixture(t), selection: selected });
+  t.after(() => fs.rmSync(lane.path, { recursive: true, force: true }));
+  const code = `import fs from 'node:fs'; import assert from 'node:assert/strict'; import {spawnSync} from 'node:child_process';
+    const forbidden=process.env.HOME+'/.config/sentropic/h2a/synthetic-missing';
+    assert.throws(()=>fs.readFileSync(forbidden), /forbidden h2a state/);
+    const child=spawnSync(process.execPath,['-e','process.stdout.write("controlled child")'],{env:process.env,encoding:'utf8'});
+    assert.equal(child.status,0); assert.equal(child.stdout,'controlled child');
+    assert.ok(fs.readFileSync(process.env.IDLOCK_LANE+'/owned-pids.txt','utf8').includes(String(child.pid)));
+    process.stdout.write('confined');`;
+  const child = spawnSync(process.execPath, ['--input-type=module', '-e', code], { cwd: lane.checkout, env: lane.env, encoding: 'utf8' });
+  assert.equal(child.status, 0, child.stderr);
+  assert.equal(child.stdout, 'confined');
+});
+test('should allow a relative build write inside the lane while refusing a relative state escape', t => {
+  const lane = createLane({ sourceRoot: fixture(t), selection: selected });
+  t.after(() => fs.rmSync(lane.path, { recursive: true, force: true }));
+  const child = spawnSync(process.execPath, ['--input-type=module', '-e', `import fs from 'node:fs'; import assert from 'node:assert/strict';
+    fs.mkdirSync('build-output'); fs.writeFileSync('build-output/proof.txt','private');
+    assert.throws(()=>fs.writeFileSync('../../outside-lane.txt','forbidden'), /outside isolated lane/);
+    assert.throws(()=>fs.readFileSync('../home/.config/sentropic/h2a/synthetic'), /forbidden h2a state/);`], { cwd: lane.checkout, env: lane.env, encoding: 'utf8' });
+  assert.equal(child.status, 0, child.stderr);
+  assert.equal(fs.readFileSync(join(lane.checkout, 'build-output/proof.txt'), 'utf8'), 'private');
+});
+test('should stop at the first build failure and never reach the test process', t => {
+  const dir = temporary(t); const calls = [];
+  const lane = { path: dir, checkout: dir, selection: selected, env: {} };
+  assert.throws(() => executeLane(lane, { run: (command, args) => { calls.push(args); return { status: calls.length === 2 ? 7 : 0, stdout: '', stderr: '' }; } }), /build.*7/);
+  assert.equal(calls.length, 2);
+});
+test('should fail when a successful build command did not produce checkout dist', t => {
+  const dir = temporary(t); let calls = 0;
+  const lane = { path: dir, checkout: dir, selection: selected, env: {} };
+  assert.throws(() => executeLane(lane, { run: () => { calls++; return { status: 0, stdout: '', stderr: '' }; } }), /missing.*build/i);
+  assert.equal(calls, 4);
+});
+test('should require source fixtures rather than inventing a successful fixture run', t => {
+  const sourceRoot = fixture(t);
+  fs.writeFileSync(join(sourceRoot, 'packages/h2a/test/velocity-test-lane.test.js'), "import test from 'node:test'; import fs from 'node:fs'; test('missing fixture fails', () => fs.readFileSync(new URL('./fixtures/absent.json', import.meta.url)));\n");
+  const lane = createLane({ sourceRoot, selection: selected });
+  t.after(() => fs.rmSync(lane.path, { recursive: true, force: true }));
+  // Unit adapter supplies build artifacts, then executes the real named Node test.
+  const run = (command, args, options) => {
+    if (args[0] !== 'node' && command !== 'node' && command !== process.execPath) {
+      for (const entry of ['agent-stats/dist/index.js', 'h2a/dist/bin.js', 'h2a-runtime/dist/index.js']) {
+        const target = join(lane.checkout, 'packages', entry);
+        fs.mkdirSync(resolve(target, '..'), { recursive: true }); fs.writeFileSync(target, '');
+      }
+      return { status: 0, stdout: '', stderr: '' };
+    }
+    return spawnSync(command, args, options);
+  };
+  assert.throws(() => executeLane(lane, { run }), /test.*failed|did not pass|failed assertion/i);
+  assert.match(fs.readFileSync(join(lane.path, 'command-4.log'), 'utf8'), /ENOENT.*absent\.json/s);
+});
+test('should use the same direct tools and execution proof when RTK is unavailable on CI', t => {
+  const lane = createLane({ sourceRoot: fixture(t), selection: selected });
+  t.after(() => fs.rmSync(lane.path, { recursive: true, force: true }));
+  const calls = [];
+  const run = (command, args, options) => {
+    calls.push([command, ...args]);
+    if (command === 'rtk') return { status: null, error: { code: 'ENOENT' } };
+    if (command === process.execPath || command === 'node') return spawnSync(command, args, options);
+    for (const entry of ['agent-stats/dist/index.js', 'h2a/dist/bin.js', 'h2a-runtime/dist/index.js']) {
+      const target = join(lane.checkout, 'packages', entry);
+      fs.mkdirSync(resolve(target, '..'), { recursive: true }); fs.writeFileSync(target, '');
+    }
+    return { status: 0, stdout: '', stderr: '' };
+  };
+  assert.deepEqual(executeLane(lane, { run }), { passed: 1, excluded: 0 });
+  assert.equal(calls.filter(call => call[0] === 'npm').length, 4);
+  assert.equal(calls.filter(call => call[0] === process.execPath || call[0] === 'node').length, 1);
+  assert.equal(JSON.parse(fs.readFileSync(join(lane.path, 'commands.json'), 'utf8')).at(-1).command, process.execPath);
+});
