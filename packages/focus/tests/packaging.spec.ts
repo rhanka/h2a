@@ -35,6 +35,14 @@ import {
 } from "../src/registry/definitions.js";
 import { decisionDossierFixture } from "./fixture.data.js";
 import { accessibleDossierFixture, technocraticDossierFixture } from "./readability.fixture.js";
+import { evidenceFixture } from '../../h2a/focus-kit/test/evidence-fixtures.mjs';
+
+it('should advertise and export the actual v2 evidence schema without dropping legacy support', () => {
+  const manifest = JSON.parse(readFileSync(new URL('../registry/entries.v1.json', import.meta.url), 'utf8'));
+  expect(manifest.entries[0].skill.documentSchemas.map((s: any) => s.version)).toEqual(['1.0.0', '2.0.0']);
+  expect(packageJson.exports['./schemas/decision-dossier-document.v2']).toBeDefined();
+  expect(validateDecisionDossierDocument(evidenceFixture()).ok).toBe(true);
+});
 
 const here = dirname(fileURLToPath(import.meta.url));
 const pkgRoot = join(here, "..");
