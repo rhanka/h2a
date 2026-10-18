@@ -1926,7 +1926,7 @@ describe("NativeTerminalHost", () => {
     expect(killGroup).toHaveBeenCalledWith(pgid, "SIGKILL");
   });
 
-  it("REAL_PROC_ZOMBIE_CENSUS_ANSWERS_ONLY_FROM_POSITIVE_EVIDENCE", async () => {
+  if (process.platform === "linux") it("REAL_PROC_ZOMBIE_CENSUS_ANSWERS_ONLY_FROM_POSITIVE_EVIDENCE", async () => {
     // The unit test above injects the census, so it is blind to a regression
     // inside the real /proc reader. This one drives the REAL exported helper
     // against REAL zombies, in both directions.
@@ -2020,7 +2020,7 @@ describe("NativeTerminalHost", () => {
     expect(groupIsOnlyZombies(4_100, root)).toBe(false);
   });
 
-  it("ZOMBIE_CENSUS_STILL_CLASSIFIES_A_GROUP_WHOSE_EVERY_TASK_IS_A_ZOMBIE_AS_DEAD", () => {
+  if (process.platform === "linux") it("ZOMBIE_CENSUS_STILL_CLASSIFIES_A_GROUP_WHOSE_EVERY_TASK_IS_A_ZOMBIE_AS_DEAD", () => {
     // The other direction of the same rule, so the per-task check cannot be
     // "fixed" by refusing everything: a group whose members are zombies down to
     // the last task is still DEAD for containment (the round-3 benefit).
@@ -2043,7 +2043,7 @@ describe("NativeTerminalHost", () => {
     expect(groupIsOnlyZombies(4_200, root)).toBe(true);
   });
 
-  it("ZOMBIE_CENSUS_IS_UNKNOWN_WHENEVER_THE_SCAN_ITSELF_COULD_NOT_ANSWER", () => {
+  if (process.platform === "linux") it("ZOMBIE_CENSUS_IS_UNKNOWN_WHENEVER_THE_SCAN_ITSELF_COULD_NOT_ANSWER", () => {
     // Three ways the census cannot see the whole group. Each must yield "not
     // proven dead", never a manufactured death verdict:
     //
