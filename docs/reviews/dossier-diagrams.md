@@ -105,3 +105,26 @@ pour garder Playwright dans le job Focus. Gros fichiers générés au-delà des
 limites du skill de planification (BRDG-EX1/2/3). Revue de code selection-failed :
 dispatcher installé interdit et métadonnées exactes d'auteur indisponibles.
 H2/H3 arrêtés aux dépendances, conformément à la consigne propriétaire.
+
+## Correction CI — fermeture npm sans métadonnées préchauffées
+
+Le premier job [portable-focus](https://github.com/rhanka/h2a/actions/runs/39166628137/job/117790817300)
+sur `1f73a67b8` échoue : `ENOTCACHED @hono/mcp` lors de l'installation hors
+ligne. Le cache local masquait une résolution de registre non verrouillée.
+Le témoin utilise maintenant la fermeture exacte de package-lock, remplace les
+liens workspace par les trois tarballs construits, et complète les entrées
+abrégées uniquement depuis le même nom/version/intégrité déjà verrouillé.
+Les outils de développement des workspaces ne font pas partie du consommateur.
+
+Le test prépare désormais un cache temporaire de 281 tarballs de la plateforme,
+avec **zéro entrée de métadonnées registre**. Une pièce absente fait échouer le
+témoin. RED local supplémentaire : `ENOTCACHED commander`, run-23dgJg ; aucun
+accès réseau ni fallback n'a été ajouté pour le contourner.
+
+| Commande exacte | Sortie finale |
+| --- | --- |
+| `rtk node --test packages/h2a/test/distribution-increments.test.js` | 1/1 pass, exit 0, zéro skip ; `281 platform tarballs, zero registry metadata entries` ; run-itysZ3 |
+| `rtk node --test packages/h2a/focus-kit/test/evidence-browser.test.mjs` | 2/2 pass, exit 0, zéro skip ; installation puis ouverture hors ligne ; run-bNvPMe |
+
+Cette correction concerne le témoin de distribution ; les sources du renderer,
+le corpus et les budgets mesurés sont identiques à la qualification retenue.

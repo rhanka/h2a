@@ -24,6 +24,7 @@
 - [ ] Delivery: targeted gates, one draft PR, own-branch push, per-job CI report.
 
 ## Feedback Loop
+- [x] CI initiale : ENOTCACHED @hono/mcp ; fermeture npm verrouillée et cache temporaire sans métadonnées registre, RED commander puis 1/1 distribution et 2/2 navigateur GREEN, zéro skip.
 - [x] Supplied spec reviews agree GO-CODE at 34b0b43a.
 - [x] Implementation review selection-failed: owner confinement forbids installed h2a/live mesh; docs/reviews/dossier-diagrams.md.
 
