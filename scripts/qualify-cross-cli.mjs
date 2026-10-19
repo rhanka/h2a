@@ -2,12 +2,12 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
-import { join, dirname, resolve } from 'node:path';
+import { join, dirname, resolve, relative } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { CLIS, PROBE, REPLY, repo, environment, sourceBuild, copyLogin,
   cliPath, privateExecutable, pythonEntrypoint, classify, matrix, inside,
-  rehydrateEventRecord } from './xcli-lab.mjs';
+  rehydrateEventRecord, cellSecretPaths, wipeSecrets } from './xcli-lab.mjs';
 import { startupTerminal } from './xcli-terminal.mjs';
 import { verifyWakeBatch } from './xcli-ci-check.mjs';
 
@@ -115,7 +115,12 @@ async function worker() {
   const request = JSON.parse(fs.readFileSync(0, 'utf8'));
   const { sender, receiver, root, build, executables, timeoutMs, authHome, simulated, dropWake,
     wake, poll, withholdForever, replayWake, releaseOffsetMs } = request;
-  const cell = fs.mkdtempSync(join(root, 'c-'));
+  // Lot L5: the parent pre-creates the cell and passes it in the request so a
+  // lost worker's secrets stay attributable and wipable. A provided cell must
+  // stay inside the campaign root; otherwise the worker mints its own.
+  let cell = null;
+  try { if (typeof request.cell === 'string') cell = inside(root, request.cell); } catch { cell = null; }
+  cell ??= fs.mkdtempSync(join(root, 'c-'));
   const hostEnv = { ...environment(cell), H2A_TEST_QUALIFICATION_ROOT: root };
   Object.assign(process.env, hostEnv);
   const isolation = await import(pathToFileURL(join(build, 'packages/h2a/test/helpers/native-isolation.js')));
@@ -126,7 +131,7 @@ async function worker() {
   const { stripAnsi } = await import(pathToFileURL(join(build, 'packages/h2a-runtime/dist/native-terminal/op.js')));
   const row = { sender, receiver, status: 'blocked', senderMcp: null, receiverMcp: null,
     sent: null, delivered: null, received: null, woke: null, replied: null, replyDelivered: null,
-    evidence: [], startedAt: new Date().toISOString(), credentialsCopied: {},
+    evidence: [], startedAt: new Date().toISOString(), credentialsCopied: {}, cell,
     noPostSendHarnessInput: true };
   let host, client;
   let withholdLease = null;
@@ -540,14 +545,33 @@ async function worker() {
       catch (error) { cleanupError('owned-wait', error); }
     }
     row.elapsedMs = Date.now() - started;
+    // Lot L5 (§6.6): process recovery and secret wipe are independent
+    // obligations. The wipe is unconditional — recorded login copies plus
+    // harness transcripts, removed and re-checked file by file — even when
+    // process recovery failed, and « preserve the root for diagnosis » is
+    // gone: a root survives only with a proven wipe, which leaves no
+    // credentials in it by construction.
+    row.processRecovery = !row.cleanupFailed;
+    let surviving = null;
+    try {
+      surviving = wipeSecrets(cellSecretPaths(cell, {
+        sender: { cli: sender, files: row.credentialsCopied.sender ?? [] },
+        receiver: { cli: receiver, files: row.credentialsCopied.receiver ?? [] },
+      }));
+    } catch { surviving = null; }
+    row.secretWipe = Array.isArray(surviving) && surviving.length === 0;
+    if (!row.secretWipe) {
+      row.cleanupFailed = true;
+      row.survivingSecrets = Array.isArray(surviving) ? surviving.map(p => relative(root, p)) : ['wipe-unproven'];
+    }
     row.status = row.cleanupFailed ? 'blocked' : classify(row);
     if (simulated) row.status = row.status.replace('measured-', 'simulated-');
-    if (row.cleanupFailed) row.blocker = 'owned-process-cleanup-failed';
-    // Remove copied logins and CLI-owned transcripts. Only allowlisted witness
-    // records returned to the parent survive the cell.
-    if (!row.cleanupFailed) {
+    if (!row.secretWipe) row.blocker = 'secret-wipe-unproven';
+    else if (row.cleanupFailed) row.blocker = 'owned-process-cleanup-failed';
+    if (row.secretWipe) {
       fs.rmSync(cell, { recursive: true, force: true });
-      row.evidence.push({ event: 'cleanup-complete', ownedProcessesStopped: true, privateStateRemoved: !fs.existsSync(cell) });
+      row.evidence.push({ event: 'cleanup-complete', processRecovery: row.processRecovery,
+        secretWipe: row.secretWipe, privateStateRemoved: !fs.existsSync(cell) });
     }
     else row.privateCleanupRoot = cell;
     process.off('SIGTERM', cancel);
@@ -616,22 +640,59 @@ async function main() {
       cells.push({ sender, receiver, status: 'blocked', blocker: 'qualification-cancelled', evidence: [], elapsedMs: 0 });
       continue;
     }
-    const child = spawn(process.execPath, [self, '--worker'], {
-      env: { ...environment(join(root, 'worker')), H2A_TEST_QUALIFICATION_ROOT: root },
-      cwd: root, stdio: ['pipe', 'pipe', 'ignore'],
-    });
+    // Lot L5: the cell is pre-created by the parent and passed in the request,
+    // so a lost worker's secrets stay attributable and wipable by the parent.
+    // XCLI_WORKER_STUB (test seam) runs a stub worker instead of --worker.
+    const cell = fs.mkdtempSync(join(root, 'c-'));
+    const stub = process.env.XCLI_WORKER_STUB;
+    const child = stub
+      ? spawn(process.execPath, [stub], {
+        env: { ...environment(join(root, 'worker')), H2A_TEST_QUALIFICATION_ROOT: root },
+        cwd: root, stdio: ['pipe', 'pipe', 'ignore'],
+      })
+      : spawn(process.execPath, [self, '--worker'], {
+        env: { ...environment(join(root, 'worker')), H2A_TEST_QUALIFICATION_ROOT: root },
+        cwd: root, stdio: ['pipe', 'pipe', 'ignore'],
+      });
     active = child;
     const watchdog = setTimeout(() => child.kill('SIGTERM'), timeoutMs * 2 + 45000);
     let output = '';
     child.stdout.on('data', bytes => { output += bytes; });
-    child.stdin.end(JSON.stringify({ sender, receiver, root, build: built.path, executables, timeoutMs,
+    child.stdin.end(JSON.stringify({ sender, receiver, root, build: built.path, executables, timeoutMs, cell,
       authHome: option('--auth-home'), simulated, dropWake: process.argv.includes('--drop-simulated-wake'),
       wake: wakeWindows, poll: pollEnvValue(poll), withholdForever, replayWake, releaseOffsetMs }));
     await new Promise((r, reject) => { child.once('close', r); child.once('error', reject); });
     clearTimeout(watchdog);
     active = undefined;
     let row;
-    try { row = JSON.parse(output); } catch { row = { sender, receiver, status: 'blocked', blocker: 'qualification-worker-failed', evidence: [], elapsedMs: 0 }; }
+    try {
+      row = JSON.parse(output);
+      assert.ok(row && typeof row === 'object', 'worker row must be an object');
+    } catch { row = { sender, receiver, status: 'blocked', cleanupFailed: true,
+      blocker: 'qualification-worker-failed-cleanup-unproven', evidence: [], elapsedMs: 0, cell }; }
+    // Lot L5 parent-side wipe enforcement (§6.6): never trust the worker's
+    // word. Re-wipe the recorded copy list — or the allowlisted candidates
+    // when the worker never reported — and re-check absence file by file. A
+    // wipe the parent cannot prove classifies secret-wipe-unproven with
+    // confinement-recovery reporting; the campaign stops either way.
+    let wipeCell = cell;
+    try { if (typeof row.cell === 'string') wipeCell = inside(root, row.cell); } catch { wipeCell = null; }
+    let surviving = null;
+    try {
+      const recorded = row.credentialsCopied && row.cell
+        ? { sender: { cli: row.sender, files: row.credentialsCopied.sender ?? [] },
+          receiver: { cli: row.receiver, files: row.credentialsCopied.receiver ?? [] } }
+        : null;
+      surviving = wipeCell ? wipeSecrets(cellSecretPaths(wipeCell, recorded)) : null;
+    } catch { surviving = null; }
+    row.parentSecretWipe = Array.isArray(surviving) && surviving.length === 0;
+    if (!row.parentSecretWipe) {
+      row.cleanupFailed = true;
+      row.status = 'blocked';
+      row.blocker = 'secret-wipe-unproven';
+      row.confinementRecovery = { root, surviving: Array.isArray(surviving) ? surviving.map(p => relative(root, p)) : ['wipe-unproven'] };
+      stopping = true;
+    }
     row.releaseOffsetMs = releaseOffsetMs;
     cells.push(row);
     fs.writeFileSync(join(root, `${sender}-${receiver}.json`), JSON.stringify(row, null, 2) + '\n', { mode: 0o600 });

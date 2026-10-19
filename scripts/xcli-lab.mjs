@@ -160,15 +160,50 @@ export function sourceBuild(root) {
 // the private target; mapped bytes are 0600. The caller witnesses the mapping
 // (role, allowlisted name, sha256 — never content) in the row evidence.
 const LOGIN_ROLES = Object.freeze(['codex', 'claude']);
-const authFiles = {
-  codex: ['.codex/auth.json'],
-  claude: ['.config/muse/auth.json'],
-};
+// Shared home for the login allowlist (Lot L5): the worker records copies
+// against it, the parent re-wipes a lost worker cell against it.
+export const LOGIN_ALLOWLIST = Object.freeze({
+  codex: Object.freeze(['.codex/auth.json']),
+  claude: Object.freeze(['.config/muse/auth.json']),
+});
+// Absolute destination of an allowlisted login copy inside a role env.
+export function loginCopyPath(env, cli, name) {
+  assert.ok(LOGIN_ROLES.includes(cli), `login-not-confined:${cli}`);
+  return cli === 'claude' ? join(env.XDG_CONFIG_HOME, 'muse/auth.json') : join(env.HOME, name);
+}
+// Lot L5 secret wipe: absolute secret-bearing paths inside a cell: recorded
+// login copies or, when the worker never reported, the allowlisted candidates
+// for both login roles, plus harness transcript files. Content is never read.
+export function cellSecretPaths(cell, copies) {
+  const paths = [];
+  for (const role of ['sender', 'receiver']) {
+    const dir = join(cell, role);
+    const env = { HOME: join(dir, 'home'), XDG_CONFIG_HOME: join(dir, 'home/.config') };
+    const recorded = copies?.[role];
+    if (recorded) {
+      for (const name of recorded.files ?? []) paths.push(loginCopyPath(env, recorded.cli, name));
+    } else {
+      for (const cli of LOGIN_ROLES) for (const name of LOGIN_ALLOWLIST[cli]) paths.push(loginCopyPath(env, cli, name));
+    }
+    paths.push(join(dir, 'events.jsonl'), join(cell, 'wake-lines'));
+  }
+  return paths;
+}
+// Remove every path and re-check absence file by file. Returns the surviving
+// paths (empty means the wipe is proven). Callers list survivors by name only.
+export function wipeSecrets(paths) {
+  const surviving = [];
+  for (const path of paths) {
+    try { fs.rmSync(path, { recursive: true, force: true }); } catch { /* the re-check below decides */ }
+    if (fs.existsSync(path)) surviving.push(path);
+  }
+  return surviving;
+}
 export function copyLogin(cli, authHome, target, env) {
   const copied = [];
   if (!authHome) return copied;
   assert.ok(LOGIN_ROLES.includes(cli), `login-not-confined:${cli}`);
-  for (const name of authFiles[cli]) {
+  for (const name of LOGIN_ALLOWLIST[cli]) {
     const src = join(authHome, name);
     // Plain open() with O_NOFOLLOW + fstat on the open descriptor: symlinks
     // are refused by the kernel with no lstat/copy race window.
@@ -178,7 +213,7 @@ export function copyLogin(cli, authHome, target, env) {
     try {
       const info = fs.fstatSync(fd);
       if (!info.isFile()) continue;
-      const out = cli === 'claude' ? join(env.XDG_CONFIG_HOME, 'muse/auth.json') : join(env.HOME, name);
+      const out = loginCopyPath(env, cli, name);
       inside(target, out);
       fs.mkdirSync(dirname(out), { recursive: true, mode: 0o700 });
       fs.writeFileSync(out, fs.readFileSync(fd));
