@@ -1,0 +1,950 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:sentropic:focus:FocusEditReturn:1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "kind": {
+      "const": "focus.return"
+    },
+    "schemaVersion": {
+      "const": 1
+    },
+    "returnId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "capture": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "at": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "at"
+      ]
+    },
+    "scope": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "workspaceId": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "workspaceId"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "documentRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "hash": {
+          "type": "string"
+        },
+        "cursor": {
+          "type": "string"
+        },
+        "baseHash": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "manifestId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "manifestBaseHash": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "documentRef",
+        "hash",
+        "cursor",
+        "baseHash",
+        "manifestId",
+        "manifestBaseHash"
+      ]
+    },
+    "production": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "producerId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "generationId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "requestId": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "producerId",
+            "generationId",
+            "requestId"
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "manifestId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "documentRef": {
+          "type": "string",
+          "minLength": 1
+        },
+        "baseHash": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "manifestBaseHash": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "nodeId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "targetRef": {
+                "type": "string",
+                "minLength": 1
+              },
+              "field": {
+                "enum": [
+                  "markdown",
+                  "question",
+                  "recommendedAnswer",
+                  "context",
+                  "label",
+                  "body",
+                  "consequence"
+                ]
+              },
+              "contentFormat": {
+                "enum": [
+                  "text/plain",
+                  "focus.markdown.p0@1"
+                ]
+              },
+              "blockKind": {
+                "enum": [
+                  "prose",
+                  "question",
+                  "option"
+                ]
+              }
+            },
+            "required": [
+              "nodeId",
+              "targetRef",
+              "field",
+              "contentFormat",
+              "blockKind"
+            ]
+          }
+        },
+        "paragraphs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "nodeId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "targetRef": {
+                "type": "string",
+                "minLength": 1
+              },
+              "field": {
+                "enum": [
+                  "markdown",
+                  "question",
+                  "recommendedAnswer",
+                  "context",
+                  "label",
+                  "body",
+                  "consequence"
+                ]
+              },
+              "paragraphId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "blockKind": {
+                "const": "paragraph"
+              },
+              "parentId": {
+                "type": "null"
+              },
+              "order": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "range": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "start": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "end": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "unit": {
+                    "const": "utf16"
+                  }
+                },
+                "required": [
+                  "start",
+                  "end",
+                  "unit"
+                ]
+              }
+            },
+            "required": [
+              "nodeId",
+              "targetRef",
+              "field",
+              "paragraphId",
+              "blockKind",
+              "parentId",
+              "order",
+              "range"
+            ]
+          }
+        },
+        "retiredParagraphIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "manifestId",
+        "documentRef",
+        "baseHash",
+        "manifestBaseHash",
+        "fields",
+        "paragraphs",
+        "retiredParagraphIds"
+      ]
+    },
+    "answers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "questionId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "targetRef": {
+            "type": "string",
+            "minLength": 1
+          },
+          "optionIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "uniqueItems": true
+          },
+          "text": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "questionId",
+          "targetRef",
+          "optionIds",
+          "text"
+        ]
+      }
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "targetRef": {
+            "type": "string",
+            "minLength": 1
+          },
+          "text": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "targetRef",
+          "text"
+        ]
+      }
+    },
+    "editReturn": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "mode": {
+          "const": "cumulative"
+        },
+        "transactions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "transactionId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "changes": {
+                "type": "array",
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "nodeId": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "targetRef": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "field": {
+                          "enum": [
+                            "markdown",
+                            "question",
+                            "recommendedAnswer",
+                            "context",
+                            "label",
+                            "body",
+                            "consequence"
+                          ]
+                        },
+                        "documentRef": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "paragraphId": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "changeId": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "blockKind": {
+                          "const": "paragraph"
+                        },
+                        "format": {
+                          "enum": [
+                            "text/plain",
+                            "focus.markdown.p0@1"
+                          ]
+                        },
+                        "operation": {
+                          "const": "replace"
+                        },
+                        "before": {
+                          "type": "string"
+                        },
+                        "after": {
+                          "type": "string"
+                        },
+                        "anchors": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "parentId": {
+                              "type": "null"
+                            },
+                            "previousParagraphId": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "nextParagraphId": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "parentId",
+                            "previousParagraphId",
+                            "nextParagraphId"
+                          ]
+                        },
+                        "beforeAnchors": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "parentId": {
+                              "type": "null"
+                            },
+                            "previousParagraphId": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "nextParagraphId": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "parentId",
+                            "previousParagraphId",
+                            "nextParagraphId"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "nodeId",
+                        "targetRef",
+                        "field",
+                        "documentRef",
+                        "paragraphId",
+                        "changeId",
+                        "blockKind",
+                        "format",
+                        "operation",
+                        "before",
+                        "after",
+                        "anchors",
+                        "beforeAnchors"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "nodeId": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "targetRef": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "field": {
+                          "enum": [
+                            "markdown",
+                            "question",
+                            "recommendedAnswer",
+                            "context",
+                            "label",
+                            "body",
+                            "consequence"
+                          ]
+                        },
+                        "documentRef": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "paragraphId": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "changeId": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "blockKind": {
+                          "const": "paragraph"
+                        },
+                        "format": {
+                          "enum": [
+                            "text/plain",
+                            "focus.markdown.p0@1"
+                          ]
+                        },
+                        "operation": {
+                          "const": "insert"
+                        },
+                        "before": {
+                          "type": "null"
+                        },
+                        "after": {
+                          "type": "string"
+                        },
+                        "anchors": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "parentId": {
+                              "type": "null"
+                            },
+                            "previousParagraphId": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "nextParagraphId": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "parentId",
+                            "previousParagraphId",
+                            "nextParagraphId"
+                          ]
+                        },
+                        "beforeAnchors": {
+                          "type": "null"
+                        }
+                      },
+                      "required": [
+                        "nodeId",
+                        "targetRef",
+                        "field",
+                        "documentRef",
+                        "paragraphId",
+                        "changeId",
+                        "blockKind",
+                        "format",
+                        "operation",
+                        "before",
+                        "after",
+                        "anchors",
+                        "beforeAnchors"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "nodeId": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "targetRef": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "field": {
+                          "enum": [
+                            "markdown",
+                            "question",
+                            "recommendedAnswer",
+                            "context",
+                            "label",
+                            "body",
+                            "consequence"
+                          ]
+                        },
+                        "documentRef": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "paragraphId": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "changeId": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "blockKind": {
+                          "const": "paragraph"
+                        },
+                        "format": {
+                          "enum": [
+                            "text/plain",
+                            "focus.markdown.p0@1"
+                          ]
+                        },
+                        "operation": {
+                          "const": "delete"
+                        },
+                        "before": {
+                          "type": "string"
+                        },
+                        "after": {
+                          "type": "null"
+                        },
+                        "anchors": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "parentId": {
+                              "type": "null"
+                            },
+                            "previousParagraphId": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "nextParagraphId": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "parentId",
+                            "previousParagraphId",
+                            "nextParagraphId"
+                          ]
+                        },
+                        "beforeAnchors": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "parentId": {
+                              "type": "null"
+                            },
+                            "previousParagraphId": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "nextParagraphId": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "parentId",
+                            "previousParagraphId",
+                            "nextParagraphId"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "nodeId",
+                        "targetRef",
+                        "field",
+                        "documentRef",
+                        "paragraphId",
+                        "changeId",
+                        "blockKind",
+                        "format",
+                        "operation",
+                        "before",
+                        "after",
+                        "anchors",
+                        "beforeAnchors"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "nodeId": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "targetRef": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "field": {
+                          "enum": [
+                            "markdown",
+                            "question",
+                            "recommendedAnswer",
+                            "context",
+                            "label",
+                            "body",
+                            "consequence"
+                          ]
+                        },
+                        "documentRef": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "paragraphId": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "changeId": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "blockKind": {
+                          "const": "paragraph"
+                        },
+                        "format": {
+                          "enum": [
+                            "text/plain",
+                            "focus.markdown.p0@1"
+                          ]
+                        },
+                        "operation": {
+                          "const": "move"
+                        },
+                        "before": {
+                          "type": "string"
+                        },
+                        "after": {
+                          "type": "string"
+                        },
+                        "anchors": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "parentId": {
+                              "type": "null"
+                            },
+                            "previousParagraphId": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "nextParagraphId": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "parentId",
+                            "previousParagraphId",
+                            "nextParagraphId"
+                          ]
+                        },
+                        "beforeAnchors": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "parentId": {
+                              "type": "null"
+                            },
+                            "previousParagraphId": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "nextParagraphId": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "minLength": 1
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "parentId",
+                            "previousParagraphId",
+                            "nextParagraphId"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "nodeId",
+                        "targetRef",
+                        "field",
+                        "documentRef",
+                        "paragraphId",
+                        "changeId",
+                        "blockKind",
+                        "format",
+                        "operation",
+                        "before",
+                        "after",
+                        "anchors",
+                        "beforeAnchors"
+                      ]
+                    }
+                  ]
+                },
+                "minItems": 1
+              }
+            },
+            "required": [
+              "transactionId",
+              "changes"
+            ]
+          }
+        },
+        "supersedesReturnId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "supersededReturnIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "mode",
+        "transactions",
+        "supersededReturnIds"
+      ]
+    }
+  },
+  "required": [
+    "kind",
+    "schemaVersion",
+    "returnId",
+    "digest",
+    "capture",
+    "scope",
+    "source",
+    "production",
+    "manifest",
+    "answers",
+    "notes",
+    "editReturn"
+  ]
+}

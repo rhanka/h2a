@@ -1,0 +1,192 @@
+{
+  "profile": "RFC8785/UTF-8/SHA-256",
+  "vectors": [
+    {
+      "document": {
+        "ref": "decision:é/\"~",
+        "subject": "synthetic",
+        "title": "Synthetic editing witness",
+        "hash": "draft-opaque",
+        "cursor": "rev-1",
+        "sections": [
+          {
+            "kind": "prose",
+            "id": "p/~",
+            "targetRef": "section:é/\"~",
+            "markdown": "Identique 😀  \r\nligne\r\n\r\nIdentique 😀  \r\nligne\r\n\r\n| A | B |\r\n| - | - |\r\n| x | y |\r\n\r\n- préservé\r\n  - imbriqué\r\n\r\n```js\r\nx()\r\n```\r\n\r\n"
+          },
+          {
+            "kind": "question",
+            "id": "q",
+            "targetRef": "question:q",
+            "question": "Pourquoi ?",
+            "recommendedAnswer": "Raison exacte",
+            "recommendedOptionId": "o",
+            "state": "open"
+          },
+          {
+            "kind": "optionSet",
+            "id": "os",
+            "targetRef": "options:os",
+            "questionId": "q",
+            "options": [
+              {
+                "kind": "option",
+                "id": "o",
+                "targetRef": "option:o",
+                "label": "Choix",
+                "body": "Corps",
+                "annotation": "none"
+              }
+            ]
+          }
+        ],
+        "interactions": [
+          {
+            "name": "amend",
+            "targetRef": "section:é/\"~",
+            "label": "Amender",
+            "enabled": false
+          }
+        ],
+        "provenance": {
+          "source": "synthetic; never a path instruction",
+          "readAt": "2026-10-18T12:00:00Z"
+        },
+        "amendmentTrace": []
+      },
+      "manifest": {
+        "schemaVersion": 1,
+        "manifestId": "manifest:914e7c136032a8dea5bdc75b19061c30c703ed236dc1c89dfa32a9b216f1f1dc",
+        "documentRef": "decision:é/\"~",
+        "baseHash": "sha256:914e7c136032a8dea5bdc75b19061c30c703ed236dc1c89dfa32a9b216f1f1dc",
+        "fields": [
+          {
+            "nodeId": "p/~",
+            "targetRef": "section:é/\"~",
+            "field": "markdown",
+            "contentFormat": "focus.markdown.p0@1",
+            "blockKind": "prose"
+          },
+          {
+            "nodeId": "q",
+            "targetRef": "question:q",
+            "field": "question",
+            "contentFormat": "text/plain",
+            "blockKind": "question"
+          },
+          {
+            "nodeId": "q",
+            "targetRef": "question:q",
+            "field": "recommendedAnswer",
+            "contentFormat": "text/plain",
+            "blockKind": "question"
+          },
+          {
+            "nodeId": "o",
+            "targetRef": "option:o",
+            "field": "label",
+            "contentFormat": "text/plain",
+            "blockKind": "option"
+          },
+          {
+            "nodeId": "o",
+            "targetRef": "option:o",
+            "field": "body",
+            "contentFormat": "text/plain",
+            "blockKind": "option"
+          }
+        ],
+        "paragraphs": [
+          {
+            "nodeId": "p/~",
+            "targetRef": "section:é/\"~",
+            "field": "markdown",
+            "paragraphId": "paragraph:55dd93b1fb62bfe6f914515ea00ba899ecea2e524348378596f10ca3beca26aa",
+            "blockKind": "paragraph",
+            "parentId": null,
+            "order": 0,
+            "range": {
+              "start": 0,
+              "end": 21,
+              "unit": "utf16"
+            }
+          },
+          {
+            "nodeId": "p/~",
+            "targetRef": "section:é/\"~",
+            "field": "markdown",
+            "paragraphId": "paragraph:e5a0c2534b46f58033e8f402a46b86d2d48a1ab6af2bce8fea3109b13434385b",
+            "blockKind": "paragraph",
+            "parentId": null,
+            "order": 1,
+            "range": {
+              "start": 25,
+              "end": 46,
+              "unit": "utf16"
+            }
+          },
+          {
+            "nodeId": "q",
+            "targetRef": "question:q",
+            "field": "question",
+            "paragraphId": "paragraph:231f689aabae6d1ccb445111ff9ae4a5326c1d2c555d27af30d1254648caeb76",
+            "blockKind": "paragraph",
+            "parentId": null,
+            "order": 0,
+            "range": {
+              "start": 0,
+              "end": 10,
+              "unit": "utf16"
+            }
+          },
+          {
+            "nodeId": "q",
+            "targetRef": "question:q",
+            "field": "recommendedAnswer",
+            "paragraphId": "paragraph:8380968df6b927026ce3ed2ab7156beaae0e89ab825eec55895a73796e8d5102",
+            "blockKind": "paragraph",
+            "parentId": null,
+            "order": 0,
+            "range": {
+              "start": 0,
+              "end": 13,
+              "unit": "utf16"
+            }
+          },
+          {
+            "nodeId": "o",
+            "targetRef": "option:o",
+            "field": "label",
+            "paragraphId": "paragraph:aaea005b8af73788f11903eb07159f33686b287fa97681c506fbb74d7b28d66b",
+            "blockKind": "paragraph",
+            "parentId": null,
+            "order": 0,
+            "range": {
+              "start": 0,
+              "end": 5,
+              "unit": "utf16"
+            }
+          },
+          {
+            "nodeId": "o",
+            "targetRef": "option:o",
+            "field": "body",
+            "paragraphId": "paragraph:2d9a3e915ef371734426100be71dd9088fcf8ac9ecdb54107b79ee77cd6ea9aa",
+            "blockKind": "paragraph",
+            "parentId": null,
+            "order": 0,
+            "range": {
+              "start": 0,
+              "end": 5,
+              "unit": "utf16"
+            }
+          }
+        ],
+        "retiredParagraphIds": [],
+        "manifestBaseHash": "sha256:87432ab3d67873a5944245e5f38c99e53720a31e3c026ec2095562e719d25725"
+      },
+      "expectedManifestBaseHash": "sha256:87432ab3d67873a5944245e5f38c99e53720a31e3c026ec2095562e719d25725"
+    }
+  ]
+}
