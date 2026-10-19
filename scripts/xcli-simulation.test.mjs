@@ -16,6 +16,7 @@ function runWakeCell(args, spawnTimeoutMs = 300000) {
   const result = spawnSync(process.execPath, [join(import.meta.dirname, 'qualify-cross-cli.mjs'),
     '--simulated', ...args, '--output', output],
   { env, encoding: 'utf8', timeout: spawnTimeoutMs, maxBuffer: 4 * 1024 * 1024 });
+  assert.ok(fs.existsSync(output), `qualification produced no receipt: ${result.stdout}\n${result.stderr}`);
   const receipt = JSON.parse(fs.readFileSync(output, 'utf8'));
   return { status: result.status, receipt, cells: receipt.cells };
 }

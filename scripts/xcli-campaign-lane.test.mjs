@@ -7,11 +7,40 @@ import fs from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 import { parse } from 'yaml';
+import { spawnSync } from 'node:child_process';
+import { environment } from './xcli-lab.mjs';
 
 const repo = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
 const campaign = fs.readFileSync(join(repo, '.github/workflows/cross-cli-campaign.yml'), 'utf8');
 const prLane = fs.readFileSync(join(repo, '.github/workflows/cross-cli-messaging.yml'), 'utf8');
 const release = fs.readFileSync(join(repo, '.github/workflows/release.yml'), 'utf8');
+
+test('L4: malformed seat bundles never expose their bytes in job logs', () => {
+  const root = fs.mkdtempSync('/tmp/xcli-materialize-');
+  try {
+    const script = parse(campaign).jobs.campaign.steps.find(s => s.name === 'Materialise seat HOMEs from environment bundles').run;
+    const canary = 'CANARY42';
+    const out = spawnSync('/bin/bash', ['-c', script], { cwd: repo,
+      env: { ...environment(join(root, 'env')), RUNNER_TEMP: root, SEAT_SET: 'codex', XCLI_SEAT_BUNDLE_CODEX: canary },
+      encoding: 'utf8', timeout: 10000 });
+    assert.notEqual(out.status, 0);
+    assert.ok(!`${out.stdout}${out.stderr}`.includes(canary), 'a parse failure must be a closed diagnostic');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('L4: campaign materialization refuses an aliased or reused seat root before writing credentials', () => {
+  const root = fs.mkdtempSync('/tmp/xcli-materialize-');
+  try {
+    const script = parse(campaign).jobs.campaign.steps.find(s => s.name === 'Materialise seat HOMEs from environment bundles').run;
+    const outside = join(root, 'outside'); fs.mkdirSync(outside); fs.symlinkSync(outside, join(root, 'seats'));
+    const out = spawnSync('/bin/bash', ['-c', script], { cwd: repo,
+      env: { ...environment(join(root, 'env')), RUNNER_TEMP: root, SEAT_SET: 'codex',
+        XCLI_SEAT_BUNDLE_CODEX: JSON.stringify({ family: 'codex', files: { '.codex/auth.json': Buffer.from('{}').toString('base64') } }) },
+      encoding: 'utf8', timeout: 10000 });
+    assert.notEqual(out.status, 0);
+    assert.deepEqual(fs.readdirSync(outside), []);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
 
 test('L11 review: candidate validation precedes checkout and every secret is step-scoped afterwards', async () => {
   const job = parse(campaign).jobs.campaign;

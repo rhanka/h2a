@@ -11,6 +11,37 @@ permissions:
   actions: read
 
 jobs:
+  harness-integrity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["22", "24"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: node scripts/xcli-node-headers.mjs
+      - run: npm run build:h2a
+      # Keep the long polling controls independent of the 108 pair
+      # replications. Each job retains its existing 30-minute budget.
+      - name: Test witness integrity and wake counterexamples
+        run: >-
+          node --test scripts/xcli-lab.test.mjs scripts/xcli-proxy.test.mjs
+          scripts/xcli-simulation.test.mjs scripts/xcli-gemini-registry.test.mjs
+          scripts/xcli-cleanup.test.mjs scripts/xcli-pid-namespace.test.mjs
+          scripts/xcli-terminal.test.mjs scripts/xcli-startup.test.mjs scripts/xcli-evidence.test.mjs
+          scripts/xcli-seats.test.mjs scripts/xcli-campaign.test.mjs scripts/xcli-matrix.test.mjs
+          scripts/xcli-receipt-check.test.mjs scripts/xcli-campaign-lane.test.mjs
+          scripts/xcli-scenarios.test.mjs scripts/xcli-docs.test.mjs
+          scripts/xcli-review-regressions.test.mjs scripts/xcli-wake-review.test.mjs
+          scripts/xcli-process-review.test.mjs scripts/xcli-trusted-artifact.test.mjs
+          scripts/xcli-evidence-scan.test.mjs scripts/xcli-packaged-review.test.mjs
+
   simulated-messaging:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -32,26 +63,6 @@ jobs:
       # The L15 remainder test and the drive-crypto twins read the served
       # surface from the built dist (tsc only, no install scripts, no Python).
       - run: npm run build:h2a
-      - name: Test witness integrity and detect delivery without live reaction
-        if: matrix.sender == 'claude'
-        run: >-
-          node --test scripts/xcli-lab.test.mjs scripts/xcli-proxy.test.mjs
-          scripts/xcli-simulation.test.mjs scripts/xcli-gemini-registry.test.mjs
-          scripts/xcli-cleanup.test.mjs
-          scripts/xcli-pid-namespace.test.mjs
-          scripts/xcli-terminal.test.mjs
-          scripts/xcli-startup.test.mjs
-          scripts/xcli-evidence.test.mjs
-          scripts/xcli-seats.test.mjs
-          scripts/xcli-campaign.test.mjs
-          scripts/xcli-matrix.test.mjs
-          scripts/xcli-receipt-check.test.mjs
-          scripts/xcli-campaign-lane.test.mjs
-          scripts/xcli-scenarios.test.mjs
-          scripts/xcli-docs.test.mjs
-          scripts/xcli-review-regressions.test.mjs scripts/xcli-wake-review.test.mjs
-          scripts/xcli-process-review.test.mjs scripts/xcli-trusted-artifact.test.mjs
-          scripts/xcli-evidence-scan.test.mjs scripts/xcli-packaged-review.test.mjs
       # Same exit-2 contract as the scenario matrix: the verdict belongs to
       # the ci-check step, which fails a partial or non-green matrix itself.
       - name: Exercise six ordered pairs in this sender shard with three repetitions each
