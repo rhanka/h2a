@@ -130,7 +130,9 @@ if (invokedAsCli) {
     } else receipt = JSON.parse(fs.readFileSync(receiptFile, 'utf8'));
   } catch (error) {
     if (args['report-only']) { printOpen('no receipt presented'); process.exit(0); }
-    console.log(`receipt-check: REFUSED code=${args['fetch-trusted'] ? error.message : 'receipt-absent'}`);
+    const code = args['fetch-trusted'] ? error.message : 'receipt-absent';
+    const pending = ['receipt-absent', 'trusted-receipt-absent'].includes(code);
+    console.log(`receipt-check: REFUSED code=${code}${pending ? ' (receipt absent, qualification pending)' : ''}`);
     process.exit(1);
   }
   try {

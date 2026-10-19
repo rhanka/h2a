@@ -47,7 +47,10 @@ export function decodeAuthenticatedArtifact(artifact, bytes) {
 }
 export async function fetchTrustedReceipt({ sha, request = githubRequest, download = downloadReceipt }) {
   assert.match(sha ?? '', /^[0-9a-f]{40}$/, 'candidate-sha-required');
-  const runs = await request('/actions/workflows/cross-cli-campaign.yml/runs?status=success&per_page=100');
+  // A workflow added on the candidate branch has no workflow-by-name API
+  // entry yet. List this exact SHA's runs, then authenticate the workflow
+  // and provenance below; an API/auth failure still fails distinctly.
+  const runs = await request(`/actions/runs?status=success&per_page=100&head_sha=${sha}`);
   for (const run of runs.workflow_runs ?? []) {
     if (run.head_sha !== sha || run.repository?.full_name !== repository ||
         run.path !== workflow || run.conclusion !== 'success' ||
