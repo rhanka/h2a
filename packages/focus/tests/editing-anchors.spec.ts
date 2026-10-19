@@ -55,6 +55,46 @@ it('should empty a plain narrative paragraph while keeping its identity', () => 
   expect(E.validateManifest(moved.manifest, moved.document).ok).toBe(true);
   expect(E.readParagraphs(moved.document, moved.manifest).find((p: any) => p.paragraphId === target.paragraphId).text).toBe('');
 });
+it('should represent a trailing empty paragraph in text/plain after Enter at end of field', () => {
+  const doc = document() as any;
+  doc.sections[1].context = 'A';
+  const manifest = E.seedManifest(doc);
+  const all = E.readParagraphs(doc, manifest);
+  const at = all.findIndex((p: any) => p.field === 'context');
+  const draft = [...all.slice(0, at + 1), { ...all[at], paragraphId: 'fresh:enter', text: '' }, ...all.slice(at + 1)];
+  const tx = E.diffParagraphs(all, draft, 'tx');
+  expect(tx.changes).toEqual([expect.objectContaining({ operation: 'insert', paragraphId: 'fresh:enter', before: null, after: '' })]);
+  const moved = E.applyParagraphChanges(doc, manifest, [tx]);
+  expect((moved.document.sections[1] as any).context).toBe('A\n\n');
+  expect(E.validateManifest(moved.manifest, moved.document).ok).toBe(true);
+  const values = E.readParagraphs(moved.document, moved.manifest).filter((p: any) => p.field === 'context');
+  expect(values.map((p: any) => [p.paragraphId, p.text])).toEqual([[all[at].paragraphId, 'A'], ['fresh:enter', '']]);
+  expect(E.diffParagraphs(E.readParagraphs(moved.document, moved.manifest), E.readParagraphs(moved.document, moved.manifest), 'noop').changes).toEqual([]);
+  const out = apply(doc, manifest, freeze(doc, manifest, [tx]));
+  expect(out.ok, JSON.stringify(out.conflicts)).toBe(true);
+  expect(E.readParagraphs(out.document, out.manifest).filter((p: any) => p.field === 'context').map((p: any) => p.text)).toEqual(['A', '']);
+});
+it('should represent fully emptied text/plain paragraphs without losing identities', () => {
+  const doc = document() as any;
+  doc.sections[1].context = 'A\n\nB';
+  const manifest = E.seedManifest(doc);
+  const all = E.readParagraphs(doc, manifest);
+  const base = all.filter((p: any) => p.field === 'context');
+  expect(base.map((p: any) => p.text)).toEqual(['A', 'B']);
+  const draft = structuredClone(all);
+  for (const p of draft.filter((p: any) => p.field === 'context')) p.text = '';
+  const tx = E.diffParagraphs(all, draft, 'tx');
+  expect(tx.changes).toEqual([expect.objectContaining({ operation: 'replace', after: '' }), expect.objectContaining({ operation: 'replace', after: '' })]);
+  const moved = E.applyParagraphChanges(doc, manifest, [tx]);
+  expect((moved.document.sections[1] as any).context).toBe('\n\n');
+  expect(E.validateManifest(moved.manifest, moved.document).ok).toBe(true);
+  const values = E.readParagraphs(moved.document, moved.manifest).filter((p: any) => p.field === 'context');
+  expect(values.map((p: any) => p.text)).toEqual(['', '']);
+  expect(values.map((p: any) => p.paragraphId)).toEqual(base.map((p: any) => p.paragraphId));
+  const out = apply(doc, manifest, freeze(doc, manifest, [tx]));
+  expect(out.ok, JSON.stringify(out.conflicts)).toBe(true);
+  expect(E.readParagraphs(out.document, out.manifest).filter((p: any) => p.field === 'context').map((p: any) => [p.paragraphId, p.text])).toEqual(values.map((p: any) => [p.paragraphId, p.text]));
+});
 it('should refuse a plain paragraph value spanning several blocks', () => {
   const doc = document() as any;
   doc.sections[1].context = 'Premier paragraphe\n\nSecond paragraphe';
