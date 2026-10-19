@@ -134,6 +134,7 @@ test('L12: failed sends and reads witness closed-vocabulary refusals, never erro
   const events = join(root, 'events.jsonl');
   const env = { ...environment(root), XCLI_CELL: root, XCLI_EVENTS: events, XCLI_BIN: server };
   fs.writeFileSync(server, `import {createInterface} from 'node:readline';
+process.stderr.write('h2a.mcp.phase {"role":"identity-child","phase":"codex:workspace:deadbeefcafe","event":"sample"}\\n');
 for await(const line of createInterface({input:process.stdin})) {
  const m=JSON.parse(line);
  if(m.params?.name==='h2a_send') process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,error:{code:-32000,message:'SECRET_TEXT_UNKNOWN_TARGET'}})+'\\n');

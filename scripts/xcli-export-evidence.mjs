@@ -14,9 +14,9 @@ export function exportEvidence(root, names) {
   const parent = fs.lstatSync(destination);
   assert.ok(parent.isDirectory() && !parent.isSymbolicLink());
   assert.equal(parent.mode & 0o777, 0o700, 'evidence directory must remain private');
+  for (const name of names) assert.ok(['receipt.json', 'execution.json'].includes(name));
   scanEvidenceFiles(names.map(name => join(root, name)));
   for (const name of names) {
-    assert.ok(['receipt.json', 'execution.json'].includes(name));
     const source = join(root, name), stat = fs.lstatSync(source);
     assert.ok(stat.isFile() && !stat.isSymbolicLink() && stat.size < 20 * 1024 * 1024);
     const bytes = fs.readFileSync(source);

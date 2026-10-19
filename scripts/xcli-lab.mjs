@@ -210,6 +210,8 @@ const LOGIN_ROLES = Object.freeze(Object.keys(LOGIN_ALLOWLIST));
 // Absolute destination of an allowlisted login copy inside a role env.
 export function loginCopyPath(env, cli, name) {
   assert.ok(LOGIN_ROLES.includes(cli), `login-not-confined:${cli}`);
+  if (cli === 'claude') return join(env.CLAUDE_CONFIG_DIR ?? join(env.HOME, '.claude'),
+    name === '.claude.json' ? '.claude.json' : '.credentials.json');
   return join(env.HOME, name);
 }
 // Lot L5 secret wipe: absolute secret-bearing paths inside a cell: recorded
