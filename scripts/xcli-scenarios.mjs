@@ -255,31 +255,56 @@ export function loopTwinScripts(twin) {
   return scripts[twin];
 }
 
+export const SIGNER_A = 'xcli:signer-a';
+export const SIGNER_B = 'xcli:signer-b';
 const NEGOTIATION_RECORD = Object.freeze({ id: NEGOTIATION_ID, scope: 'scope:xcli/scenario',
-  parties: ['xcli:initiator', 'xcli:responder'], subject: 'contract', status: 'draft',
-  requiredSigners: ['xcli:initiator', 'xcli:responder'] });
+  parties: [SIGNER_A, SIGNER_B], subject: 'contract', status: 'draft',
+  requiredSigners: [SIGNER_A, SIGNER_B] });
 const ARTIFACT = Object.freeze({ kind: 'ENGAGEMENT', id: 'engagement:xcli', goal: GOAL });
 
+// Per-cell throwaway signing keys (Lot L14): the worker generates two
+// ed25519 pairs per cell and passes them as $pubKeyA/$privKeyA/$pubKeyB/
+// $privKeyB script vars (process env only, never disk, never evidence).
+// Signer ids are fixed per-cell-store, so scripts stay deterministic.
+const REGISTER_A = { tool: 'h2a_register_instance',
+  args: { registration: { id: SIGNER_A, roles: ['CONDUCTOR'], publicKeys: ['$pubKeyA'] } } };
+const REGISTER_B = { tool: 'h2a_register_instance',
+  args: { registration: { id: SIGNER_B, roles: ['CONDUCTOR'], publicKeys: ['$pubKeyB'] } } };
+const signStep = (signer, priv) => ({ tool: 'h2a_sign',
+  args: { negotiationId: NEGOTIATION_ID, instance: signer, artifact: ARTIFACT, privateKeyPem: priv } });
+// Journal appends must be entry-shaped: the stabilize posture derivation
+// reads entry.actor.role, so a bare payload crashes it (product truth).
+const journalStep = signer => ({ tool: 'h2a_append_journal', args: { negotiationId: NEGOTIATION_ID,
+  payload: { actor: { instance: signer, role: 'CONDUCTOR', scope: 'scope:xcli/scenario' },
+    body: { kind: 'xcli-note', note: NOTE } } } });
+
 // Negotiation flow: initiator × responder. Stabilization needs both sides'
-// offers on the record before either side stabilizes.
+// SIGNATURES (h2a_sign) on the same artifact hash — offers alone never reach
+// quorum. One side stabilizes; the second stabilize would throw
+// already-stabilized, so the responder stops after signing.
 export function negotiationScripts() {
   const initiator = [
+    REGISTER_A,
+    REGISTER_B,
     { tool: 'h2a_open_negotiation', args: { record: NEGOTIATION_RECORD } },
     { writeFile: 'negotiation-open' },
     { tool: 'h2a_offer', args: { negotiationId: NEGOTIATION_ID, instance: '$instance', artifact: ARTIFACT } },
-    { tool: 'h2a_append_journal', args: { negotiationId: NEGOTIATION_ID, payload: { note: NOTE } } },
+    journalStep(SIGNER_A),
     { waitForFile: 'responder-offered' },
+    signStep(SIGNER_A, '$privKeyA'),
+    { waitForFile: 'responder-signed' },
     { tool: 'h2a_stabilize', args: { negotiationId: NEGOTIATION_ID } },
-    { tool: 'h2a_append_journal', args: { negotiationId: NEGOTIATION_ID, payload: { note: NOTE } } },
+    journalStep(SIGNER_A),
     { writeFile: 'initiator-stabilized' },
   ];
   const responder = [
     { waitForFile: 'negotiation-open' },
     { tool: 'h2a_counteroffer', args: { negotiationId: NEGOTIATION_ID, instance: '$instance', artifact: ARTIFACT } },
-    { tool: 'h2a_append_journal', args: { negotiationId: NEGOTIATION_ID, payload: { note: NOTE } } },
+    journalStep(SIGNER_B),
     { writeFile: 'responder-offered' },
+    signStep(SIGNER_B, '$privKeyB'),
+    { writeFile: 'responder-signed' },
     { waitForFile: 'initiator-stabilized' },
-    { tool: 'h2a_stabilize', args: { negotiationId: NEGOTIATION_ID } },
   ];
   validateScriptSteps(initiator);
   validateScriptSteps(responder);
@@ -296,8 +321,12 @@ export function negotiationTwinScripts(twin) {
       { tool: 'h2a_stabilize', args: { negotiationId: NEGOTIATION_ID }, expectOk: false },
     ],
     'replayed-stabilization': [
+      REGISTER_A,
+      REGISTER_B,
       { tool: 'h2a_open_negotiation', args: { record: NEGOTIATION_RECORD } },
       { tool: 'h2a_offer', args: { negotiationId: NEGOTIATION_ID, instance: '$instance', artifact: ARTIFACT } },
+      signStep(SIGNER_A, '$privKeyA'),
+      signStep(SIGNER_B, '$privKeyB'),
       { tool: 'h2a_stabilize', args: { negotiationId: NEGOTIATION_ID } },
       { tool: 'h2a_stabilize', args: { negotiationId: NEGOTIATION_ID }, expectOk: false },
     ],
