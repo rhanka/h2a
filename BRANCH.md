@@ -99,3 +99,18 @@ red/green receipts, qualification limits and cleanup evidence.
   provenance checks remain mandatory. No live receipt exists or was fabricated.
 - Targeted RED/GREEN, Node 22/24 outputs, CI job causes and local sudo limits:
   [round-3 evidence](docs/2026-10-19-fix379-r3.md). No full suite run locally.
+
+## PR #379 — CI correction round 4 (2026-10-19)
+
+- Forward a complete private HOME/XDG/remote configuration across sudo;
+  keep the private PID namespace and invoking UID/GID. Seven affected remote
+  suites pass 49/49 on Node 22 and 24.
+- Require the pinned npm oracle native payloads explicitly; retain the
+  reviewed bootstrap digest and disabled lifecycle scripts.
+- Allocate CI scratch space in RUNNER_TEMP/private TMPDIR and publish only
+  exact invocation export paths, without global /tmp evidence globs.
+- Expose failed Vitest suite preparation output even with zero failed
+  assertions. The historical Node 22 beforeAll cause was absent from its log;
+  do not claim it diagnosed or fixed without the next CI observation.
+- Receipt absence remains the expected refusal. Local targeted RED/GREEN,
+  confinement limits and cleanup record: [round-4 evidence](docs/2026-10-19-fix379-r4.md).
