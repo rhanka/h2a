@@ -90,6 +90,43 @@ for await(const line of createInterface({input:process.stdin})) {
   }
 });
 
+test('L13: loop tool calls witness closed tool-call events with no bodies', async () => {
+  const root = fs.mkdtempSync('/tmp/xcli-proxy-loop-');
+  const server = join(root, 'server.mjs');
+  const events = join(root, 'events.jsonl');
+  const env = { ...environment(root), XCLI_CELL: root, XCLI_EVENTS: events, XCLI_BIN: server };
+  fs.writeFileSync(server, `import {createInterface} from 'node:readline';
+for await(const line of createInterface({input:process.stdin})) {
+ const m=JSON.parse(line);
+ const ok = m.params.arguments.loopId !== 'xcli-no-such-loop';
+ const body = ok ? {content:[{type:'text',text:'{"loopId":"xcli-loop","state":"open"}'}]} : {isError:true,content:[{type:'text',text:'{"error":"SECRET_TEXT_NO_LOOP"}'}]};
+ process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:body})+'\\n');
+}\n`);
+  const child = spawn(process.execPath, [join(import.meta.dirname, 'xcli-proxy.mjs')], { env, cwd: root, stdio: ['pipe', 'pipe', 'ignore'] });
+  const closed = once(child, 'close');
+  const timer = setTimeout(() => child.kill('SIGKILL'), 5000);
+  try {
+    child.stdin.end(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'h2a_loop_join', arguments: { loopId: 'xcli-loop' } } }) + '\n' +
+      JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'h2a_loop_join', arguments: { loopId: 'xcli-no-such-loop' } } }) + '\n');
+    await closed;
+    const raw = fs.readFileSync(events, 'utf8');
+    assert.ok(!raw.includes('SECRET_TEXT'), 'loop failures retain no error text');
+    const records = raw.trim().split('\n').map(line => rehydrateEventRecord(JSON.parse(line)));
+    assert.deepEqual(records.filter(e => e.event === 'tool-call').map(e => ({ tool: e.tool, ok: e.ok })), [
+      { tool: 'h2a_loop_join', ok: true },
+      { tool: 'h2a_loop_join', ok: false },
+    ]);
+    const refusals = records.filter(e => e.event === 'refusal');
+    assert.deepEqual(refusals.map(e => ({ tool: e.tool, errorKind: e.errorKind })), [
+      { tool: 'h2a_loop_join', errorKind: 'result-error' },
+    ]);
+  } finally {
+    clearTimeout(timer);
+    if (child.exitCode === null && child.signalCode === null) { child.kill('SIGKILL'); await closed; }
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('L12: failed sends and reads witness closed-vocabulary refusals, never error text', async () => {
   const root = fs.mkdtempSync('/tmp/xcli-proxy-refusal-');
   const server = join(root, 'server.mjs');

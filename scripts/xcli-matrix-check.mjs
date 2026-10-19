@@ -36,7 +36,7 @@ export function checkMatrixManifest(manifest) {
       assert.ok(pairs.has(row.pair), `probe row names an unknown pair: ${row.pair}`);
       assert.deepEqual(row.tiers, ['S', 'C', 'R1'], `probe row ${row.pair} runs tiers S/C/R1`);
       assert.deepEqual(row.tools, [...PROBE_TOOLS], `probe row ${row.pair} covers the three probe tools`);
-    } else if (SCENARIO_ROWS.includes(row.scenario)) {
+    } else if (SCENARIO_ROWS.includes(row.scenario) && row.status !== 'not-covered') {
       // Lot L12+: defined scenario rows cover all 36 pairs at S with a
       // named R2 ratchet entry — never free-floating follow-ups.
       assert.equal(row.pairs, 'all-36', `row ${row.scenario} covers all 36 ordered pairs`);
@@ -52,9 +52,17 @@ export function checkMatrixManifest(manifest) {
       assert.match(row.owner ?? '', /^L1[2-5]$/, `row ${row.scenario} needs an owning lot L12-L15`);
     }
   }
-  assert.deepEqual([...defined].sort(), [...SCENARIO_ROWS].sort(), 'every scenario row is defined exactly once');
-  assert.deepEqual([...manifest.simulationMandatory.scenarios].sort(), [...SCENARIO_ROWS].sort(),
-    'simulationMandatory covers every scenario row');
+  // Lots promote rows incrementally: the defined rows must equal exactly
+  // the simulationMandatory set — every mandated row defined once, no
+  // unmandated defined row, every SCENARIO_ROWS member either mandated or
+  // explicitly not-covered elsewhere.
+  const mandated = [...manifest.simulationMandatory.scenarios].sort();
+  assert.deepEqual([...defined].sort(), mandated, 'defined rows equal the simulationMandatory set');
+  const notCovered = new Set(manifest.rows.filter(row => row.status === 'not-covered').map(row => row.scenario));
+  for (const scenario of SCENARIO_ROWS) {
+    assert.ok(defined.has(scenario) || notCovered.has(scenario), `${scenario} is defined or explicitly not-covered`);
+  }
+  for (const scenario of mandated) assert.ok(SCENARIO_ROWS.includes(scenario), `${scenario} is scenario vocabulary`);
   assert.equal(manifest.simulationMandatory.pairs, 'all-36', 'simulationMandatory covers all 36 pairs');
   assert.deepEqual(manifest.simulationMandatory.tiers, ['S'], 'simulationMandatory runs at tier S');
   return { pairs: expected.length };

@@ -38,6 +38,13 @@ test('L11: the PR lane carries the receipt-check gate', () => {
     'report-only output never reads as merge-readiness');
 });
 
+test('L13: every mandated scenario row runs on the CI scenario axis', () => {
+  const manifest = JSON.parse(fs.readFileSync(join(repo, 'docs/cross-cli-matrix.json'), 'utf8'));
+  for (const scenario of manifest.simulationMandatory.scenarios) {
+    assert.ok(prLane.includes(`"${scenario}"`), `${scenario} is on the CI axis`);
+  }
+});
+
 test('L11: the release lane gates on the exact-SHA receipt', () => {
   assert.ok(release.includes('xcli-receipt-check.mjs'), 'release invokes the receipt check');
   assert.ok(release.includes('resolve-release-sha'), 'release checks the resolved SHA, never a mutable tag');

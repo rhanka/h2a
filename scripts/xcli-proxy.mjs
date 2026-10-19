@@ -104,6 +104,16 @@ export function observe(line) {
     if (request.method === 'tools/list') emit({ event: 'tools', ok,
       messaging: ['h2a_identity_status', 'h2a_inbox', 'h2a_send'].every(name => result?.tools?.some(t => t.name === name)) });
     if (request.method !== 'tools/call') return;
+    // Lot L13: every h2a tool call witnesses a closed {tool, ok} event —
+    // names are the finite product vocabulary, bodies never retained.
+    // Failures outside send/inbox witness the generic closed refusal.
+    if (typeof request.tool === 'string' && request.tool.startsWith('h2a_') &&
+      !['h2a_send', 'h2a_inbox'].includes(request.tool)) {
+      const callOk = !rpc.error && rpc.result?.isError !== true;
+      emit({ event: 'tool-call', tool: request.tool, ok: callOk });
+      if (!callOk) emit({ event: 'refusal', tool: request.tool, kind: 'tool',
+        errorKind: rpc.error ? 'rpc-error' : 'result-error' });
+    }
     let value;
     try { value = JSON.parse(result?.content?.find(c => c.type === 'text')?.text); } catch { /* unsuccessful/non-JSON */ }
     if (request.tool === 'h2a_identity_status') {

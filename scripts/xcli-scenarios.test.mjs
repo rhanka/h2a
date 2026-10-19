@@ -8,6 +8,8 @@ import test from 'node:test';
 import { pathToFileURL } from 'node:url';
 import { CLIS } from './xcli-lab.mjs';
 import { parseScenario, expectedScenarioBlocker, classifyScenarioRow, verifyScenarioMatrix,
+  substituteScriptArgs, validateScriptSteps, loopScripts, loopTwinScripts,
+  negotiationScripts, negotiationTwinScripts, LOOP_TWINS, NEGOTIATION_TWINS,
   UNAVAILABILITY_STATES, REFUSAL_TWINS, SCENARIO_ROWS } from './xcli-scenarios.mjs';
 
 test('L12: scenario specs parse to a closed vocabulary', () => {
@@ -92,13 +94,72 @@ test('L12: the verdict scopes to one row with --only', () => {
 
 test('L12: the S matrix verdict requires all 36 pairs on every scenario row', () => {
   const allPairs = CLIS.flatMap(sender => CLIS.map(receiver => `${sender}:${receiver}`));
-  const cells = SCENARIO_ROWS.flatMap(scenario => allPairs.map(pair => closedRow(scenario, pair,
-    scenario.startsWith('refusal:') ? { refusalRejected: true, phaseAReplyDelivered: true } : {})));
+  const extra = scenario => scenario.startsWith('refusal:')
+    ? { refusalRejected: true, phaseAReplyDelivered: true }
+    : scenario.startsWith('loop:') && !scenario.includes('lifecycle') ? { twinRefused: true }
+    : scenario === 'loop:lifecycle' ? { loopTerminal: true }
+    : scenario.startsWith('negotiation:') && scenario !== 'negotiation:flow' ? { twinRefused: true }
+    : scenario === 'negotiation:flow' ? { stabilized: true, journalGrown: true }
+    : { inventoryOk: true };
+  const cells = SCENARIO_ROWS.flatMap(scenario => allPairs.map(pair => closedRow(scenario, pair, extra(scenario))));
   assert.equal(verifyScenarioMatrix(cells).pass, true);
   const missing = cells.filter(cell => cell.pair !== 'vibe:agy');
   const verdict = verifyScenarioMatrix(missing);
   assert.equal(verdict.pass, false);
   assert.ok(verdict.failures.some(f => f.includes('vibe:agy')), 'the missing pair is named');
+});
+
+test('L13: loop and negotiation specs parse to the closed vocabulary', () => {
+  assert.equal(parseScenario('loop:lifecycle').name, 'lifecycle');
+  for (const twin of ['join-unknown', 'report-without-join', 'report-after-done']) {
+    assert.ok(parseScenario(`loop:${twin}`).twin === twin);
+  }
+  assert.equal(parseScenario('negotiation:flow').name, 'flow');
+  for (const twin of ['offer-unknown', 'stabilize-without-offer', 'replayed-stabilization']) {
+    assert.ok(parseScenario(`negotiation:${twin}`).twin === twin);
+  }
+  for (const group of ['read-paths', 'session-paths', 'conductor-paths', 'governance-paths']) {
+    assert.equal(parseScenario(`inventory:${group}`).group, group);
+  }
+  assert.throws(() => parseScenario('loop:bogus'), /unknown-scenario/);
+  assert.equal(expectedScenarioBlocker(parseScenario('loop:lifecycle')), 'loop-lifecycle-complete');
+  assert.equal(expectedScenarioBlocker(parseScenario('loop:join-unknown')), 'loop-refused:join-unknown');
+  assert.equal(expectedScenarioBlocker(parseScenario('negotiation:flow')), 'negotiation-flow-complete');
+});
+
+test('L13: script args substitute instance and saved ids, nothing else', () => {
+  const args = substituteScriptArgs({ a: '$instance', b: 'x-$loop', c: ['$instance', 3], d: { e: '$loop' } },
+    { instance: 'i1', loop: 'l9' });
+  assert.deepEqual(args, { a: 'i1', b: 'x-$loop', c: ['i1', 3], d: { e: 'l9' } });
+  assert.throws(() => validateScriptSteps([{ tool: 'h2a_loop_create' }]), /script-args-required/);
+  assert.throws(() => validateScriptSteps([{ tool: 'rm', args: {} }]), /script-tool-not-h2a/);
+  assert.doesNotThrow(() => validateScriptSteps(loopScripts().creator));
+  assert.doesNotThrow(() => validateScriptSteps(loopScripts().participant));
+  assert.doesNotThrow(() => validateScriptSteps(negotiationScripts().initiator));
+  assert.doesNotThrow(() => validateScriptSteps(negotiationScripts().responder));
+  for (const twin of LOOP_TWINS) assert.doesNotThrow(() => validateScriptSteps(loopTwinScripts(twin)));
+  for (const twin of NEGOTIATION_TWINS) assert.doesNotThrow(() => validateScriptSteps(negotiationTwinScripts(twin)));
+});
+
+test('L13: loop lifecycle passes only on terminal state witnessed both sides', () => {
+  const base = { scenario: 'loop:lifecycle', pair: 'claude:codex', status: 'blocked',
+    blocker: 'loop-lifecycle-complete', loopTerminal: false };
+  assert.equal(classifyScenarioRow('loop:lifecycle', base).ok, false);
+  assert.equal(classifyScenarioRow('loop:lifecycle', { ...base, loopTerminal: true }).ok, true);
+  const twin = { scenario: 'loop:join-unknown', pair: 'claude:codex', status: 'blocked',
+    blocker: 'loop-refused:join-unknown', twinRefused: true };
+  assert.equal(classifyScenarioRow('loop:join-unknown', twin).ok, true);
+  assert.equal(classifyScenarioRow('loop:join-unknown', { ...twin, twinRefused: false }).ok, false);
+});
+
+test('L14: negotiation flow passes only on stabilization with journal growth', () => {
+  const base = { scenario: 'negotiation:flow', pair: 'claude:codex', status: 'blocked',
+    blocker: 'negotiation-flow-complete', stabilized: false, journalGrown: false };
+  assert.equal(classifyScenarioRow('negotiation:flow', base).ok, false);
+  assert.equal(classifyScenarioRow('negotiation:flow',
+    { ...base, stabilized: true, journalGrown: true }).ok, true);
+  assert.equal(classifyScenarioRow('negotiation:flow',
+    { ...base, stabilized: true, journalGrown: false }).ok, false);
 });
 
 // Guard level: the exact product crypto the scenario runner relies on.
