@@ -14,7 +14,8 @@ import { loadSeatManifest, resolveCampaignPair, createCampaignLedger, loadCampai
   runSeatPreflight } from './xcli-seats.mjs';
 import { startupTerminal } from './xcli-terminal.mjs';
 import { verifyWakeBatch } from './xcli-ci-check.mjs';
-import { parseScenario, expectedScenarioBlocker, UNKNOWN_INSTANCE } from './xcli-scenarios.mjs';
+import { parseScenario, expectedScenarioBlocker, UNKNOWN_INSTANCE, validateScriptSteps,
+  loopScripts, loopTwinScripts, negotiationScripts, negotiationTwinScripts } from './xcli-scenarios.mjs';
 
 const self = fileURLToPath(import.meta.url);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -173,7 +174,7 @@ async function worker() {
     row.cleanupErrors.push({ stage, code: error.code, name: error.name,
       locations: String(error.stack ?? '').split('\n').slice(1).filter(line => line.includes(build) || line.includes(repo)).map(line => line.trim()) });
   };
-  async function launch(cli, role, prompt) {
+  async function launch(cli, role, prompt, scriptJson) {
     const dir = join(cell, role);
     fs.mkdirSync(dir, { mode: 0o700 });
     const env = { ...environment(dir), H2A_TEST_QUALIFICATION_ROOT: root,
@@ -182,6 +183,7 @@ async function worker() {
       H2A_NATIVE_TARGET_SESSION: `h2a-${role}`, H2A_NATIVE_PTY_SESSION: `h2a-${role}`,
       XCLI_CELL: cell, XCLI_EVENTS: join(dir, 'events.jsonl'), XCLI_BIN: bin,
       XCLI_BUILD: build, XCLI_EXEC_JOURNAL: execJournal, ...(simulated ? { XCLI_SIMULATED: '1' } : {}),
+      ...(scriptJson ? { XCLI_SCRIPT: scriptJson } : {}),
       ...(mcpCallCap > 0 ? { XCLI_MCP_CALL_CAP: String(mcpCallCap) } : {}),
       ...(poll && role === 'receiver' ? { XCLI_POLL: poll } : {}),
       // Lot L12: the never-ready fault idles the receiver's identity gate.
@@ -352,18 +354,122 @@ async function worker() {
     }
     if (!client) { row.blocker = 'private-host-unavailable'; return row; }
     const receiverPrompt = `Qualification h2a. Use only h2a MCP tools. First call h2a_identity_status until state identity_ready (stop if identity_failed), then finish your turn and wait. After readiness do not poll. On an automatic h2a inbox wake, read your own inbox using h2a_inbox action read and your identity. For the exact message ${PROBE}, reply with h2a_send to that envelope's actor.instance, message exactly ${REPLY}. Never use shell, files, other agents or any non-h2a tool.`;
-    const r = await launch(receiver, 'receiver', receiverPrompt);
-    const readiness = await ready(r);
-    row.receiverMcp = loaded(r);
-    if (!readiness.instance) {
-      // Lot L12: a faulted identity gate classifies identity-never-ready —
-      // never an unclassified deadline failure, never credit.
-      if (scenario.kind === 'unavailability' && scenario.state === 'identity-never-ready') {
-        row.blocker = 'identity-never-ready';
+    // Lot L13+: scripted scenarios launch their own scripted peers below —
+    // the probe receiver launch is skipped, never duplicated.
+    const scriptedKind = ['loop', 'negotiation', 'inventory'].includes(scenario.kind);
+    const r = scriptedKind ? null : await launch(receiver, 'receiver', receiverPrompt);
+    const readiness = scriptedKind ? { instance: null } : await ready(r);
+    if (!scriptedKind) {
+      row.receiverMcp = loaded(r);
+      if (!readiness.instance) {
+        // Lot L12: a faulted identity gate classifies identity-never-ready —
+        // never an unclassified deadline failure, never credit.
+        if (scenario.kind === 'unavailability' && scenario.state === 'identity-never-ready') {
+          row.blocker = 'identity-never-ready';
+          return row;
+        }
+        row.blocker = readiness.blocker;
+        row.failure = readiness.failure;
         return row;
       }
-      row.blocker = readiness.blocker;
-      row.failure = readiness.failure;
+    }
+    // Lot L13+: scripted scenarios (loop, negotiation, inventory) replace
+    // the probe flow: both peers run deterministic tool scripts, the worker
+    // waits for their done markers and derives booleans from witnessed
+    // tool-call events. No wake is ever claimed on a scripted cell.
+    if (scriptedKind) {
+      const twinDone = [{ writeFile: 'twin-done' }];
+      const twinWait = [{ waitForFile: 'twin-done' }];
+      let receiverSteps, senderSteps;
+      if (scenario.kind === 'loop') {
+        if (scenario.twin) {
+          receiverSteps = [...loopTwinScripts(scenario.twin), ...twinDone];
+          senderSteps = twinWait;
+        } else {
+          const { creator, participant } = loopScripts();
+          receiverSteps = participant;
+          senderSteps = creator;
+        }
+      } else if (scenario.kind === 'negotiation') {
+        if (scenario.twin) {
+          receiverSteps = [...negotiationTwinScripts(scenario.twin), ...twinDone];
+          senderSteps = twinWait;
+        } else {
+          const { initiator, responder } = negotiationScripts();
+          receiverSteps = responder;
+          senderSteps = initiator;
+        }
+      } else {
+        // Lot L15 builds the inventory scripts; until then the kind fails
+        // closed instead of running an undefined scenario.
+        row.blocker = `scenario-unimplemented:${scenario.key}`;
+        return row;
+      }
+      validateScriptSteps(receiverSteps);
+      validateScriptSteps(senderSteps);
+      const rScripted = await launch(receiver, 'receiver', `Scripted ${scenario.key} participant.`, JSON.stringify(receiverSteps));
+      const receiverReady = await ready(rScripted);
+      row.receiverMcp = loaded(rScripted);
+      if (!receiverReady.instance) {
+        row.blocker = receiverReady.blocker ?? 'scripted-receiver-not-ready';
+        row.failure = receiverReady.failure;
+        return row;
+      }
+      const s = await launch(sender, 'sender', `Scripted ${scenario.key} creator.`, JSON.stringify(senderSteps));
+      const senderReady = await ready(s);
+      row.senderMcp = loaded(s);
+      if (!senderReady.instance) {
+        row.blocker = senderReady.blocker ?? 'scripted-sender-not-ready';
+        row.failure = senderReady.failure;
+        return row;
+      }
+      const markerOk = name => {
+        try { return JSON.parse(fs.readFileSync(join(cell, name), 'utf8')).ok === true; }
+        catch { return false; }
+      };
+      const markerDeadline = Date.now() + timeoutMs * 2;
+      while (Date.now() < markerDeadline) {
+        if (cancelled) { row.blocker = 'qualification-cancelled'; return row; }
+        if (markerOk('receiver-script-done') && markerOk('sender-script-done')) break;
+        await sleep(500);
+      }
+      const toolOk = (target, tool) => readEvents(target.env.XCLI_EVENTS)
+        .some(e => e.event === 'tool-call' && e.tool === tool && e.ok);
+      const refusalSeen = (target, tool) => readEvents(target.env.XCLI_EVENTS)
+        .some(e => e.event === 'refusal' && e.tool === tool);
+      row.receiverScriptOk = markerOk('receiver-script-done');
+      row.senderScriptOk = markerOk('sender-script-done');
+      const TWIN_KEY_TOOL = {
+        'join-unknown': 'h2a_loop_join', 'report-without-join': 'h2a_loop_report', 'report-after-done': 'h2a_loop_report',
+        'offer-unknown': 'h2a_offer', 'stabilize-without-offer': 'h2a_stabilize', 'replayed-stabilization': 'h2a_stabilize',
+      };
+      if (scenario.kind === 'loop' && !scenario.twin) {
+        row.loopTerminal =
+          ['h2a_loop_create', 'h2a_loop_status', 'h2a_loop_list', 'h2a_loop_done'].every(t => toolOk(s, t)) &&
+          ['h2a_loop_join', 'h2a_loop_report', 'h2a_loop_status', 'h2a_loop_list'].every(t => toolOk(rScripted, t)) &&
+          row.receiverScriptOk && row.senderScriptOk;
+      } else if (scenario.kind === 'negotiation' && !scenario.twin) {
+        const initiatorOk = ['h2a_open_negotiation', 'h2a_offer', 'h2a_append_journal', 'h2a_stabilize']
+          .every(t => toolOk(s, t));
+        const responderOk = ['h2a_counteroffer', 'h2a_append_journal', 'h2a_stabilize']
+          .every(t => toolOk(rScripted, t));
+        row.stabilized = initiatorOk && responderOk && row.receiverScriptOk && row.senderScriptOk;
+        row.journalGrown = toolOk(s, 'h2a_append_journal') && toolOk(rScripted, 'h2a_append_journal');
+      } else if (scenario.twin) {
+        row.twinRefused = row.receiverScriptOk && row.senderScriptOk &&
+          refusalSeen(rScripted, TWIN_KEY_TOOL[scenario.twin]);
+      } else {
+        // Unreachable: inventory returns early above. Defensive close.
+        row.blocker = `scenario-unimplemented:${scenario.key}`;
+        return row;
+      }
+      row.wakeClaim = 'no wake claimed (scripted scenario)';
+      row.blocker = expectedScenarioBlocker(scenario);
+      row.evidence.push({ event: 'scripted-outcome', scenario: scenario.key,
+        receiverScriptOk: row.receiverScriptOk, senderScriptOk: row.senderScriptOk,
+        loopTerminal: row.loopTerminal ?? null, stabilized: row.stabilized ?? null,
+        journalGrown: row.journalGrown ?? null, twinRefused: row.twinRefused ?? null,
+        inventoryOk: row.inventoryOk ?? null });
       return row;
     }
     const barrierAt = Date.now();
