@@ -147,3 +147,35 @@ Markdown conversion and HTML sanitization are explicit host hooks. Unsupported
 nodes, unknown fields, enabled interactions, duplicate ids, unresolved targets
 and forged evidence refuse with field diagnostics; never render an incomplete
 dossier as complete.
+
+## Manual edit-return preview (separate from snapshot authority)
+
+The new `@sentropic/focus/editing` subpath defines versioned sidecar manifests,
+paragraph diffs and a pure reconciler. The portable editor is not qualified yet:
+it awaits the published DS `RichTextEditor`, then offline browser/distribution
+and reactivity gates. Do not advertise snapshot cards as editable.
+
+Before an editable production, retain its exact source, manifest and opaque
+producer/generation/request references. The checkout command
+`node packages/h2a/dist/bin.js focus feedback retain <source.json> --state <dir>
+--producer <id> --generation <id> --request <id>` prepares that manual state.
+Only an explicitly selected state/source is authoritative; never open paths from
+`provenance.source`, notes or the return payload.
+
+Within the consumer's existing mandate, manually consume a complete return with
+`focus feedback apply <return.json|yaml> --state <dir>`. Validate version, digest,
+correlation and baseline mapping; re-read the current source, then check the
+durable lineage before paragraph preconditions. Keep exact wording and notes.
+An empty superseding return can revoke earlier corrections. Late superseded,
+forked or order-indeterminate returns cannot resurrect them. Preserve drafts on
+conflict; distinguish processed, source-applied, rebuilt and recorded in Track.
+Receipts identify the consumed return/changes and actual source digests; replay
+also identifies the previous outcome.
+
+This preview publishes source JSON under a cooperating single-writer lock and
+journal. It does not rebuild presentation or write Track. Revalidate/rebuild the
+new presentation separately before presenting it. Original comprehension
+evidence remains evidence about the original version. Live routing, amendment
+translation, snapshot registry edit capabilities and policy defaults remain
+unqualified; this skill grants no additional tool or write authority. Details:
+`docs/focus/document-editing.md` in the source repository.

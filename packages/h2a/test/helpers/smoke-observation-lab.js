@@ -15,6 +15,10 @@ export async function observeSmoke(source, scriptPath, options = {}) {
   const pinned = /^const PINNED_RUNTIME_VERSION = '([^']+)'$/m.exec(source)?.[1]
   assert.ok(pinned, 'the smoke must declare exactly one `const PINNED_RUNTIME_VERSION = X.Y.Z` literal')
   assert.match(pinned, /^\d+\.\d+\.\d+$/, 'the pinned literal must be a strict X.Y.Z train')
+  const focusPinned = /^const PINNED_FOCUS_VERSION = '([^']+)'$/m.exec(source)?.[1]
+  assert.ok(focusPinned, 'the smoke must declare exactly one `const PINNED_FOCUS_VERSION = X.Y.Z` literal')
+  assert.match(focusPinned, /^\d+\.\d+\.\d+$/, 'the focus pinned literal must be a strict X.Y.Z train')
+  const tarballVersion = (pkg) => pkg === '@sentropic/focus' ? focusPinned : pinned
   const root = fs.mkdtempSync(join(tmpdir(), 'smoke-observation-'))
   const observations = { packed: [], installed: [], seeded: false, faults: [], closed: false, ptys: [], pruned: false, pings: [] }
   const children = new Map()
@@ -22,10 +26,12 @@ export async function observeSmoke(source, scriptPath, options = {}) {
   if (options.prebuilt) {
     fs.mkdirSync(prebuilt)
     for (const name of ['h2a', 'h2a-runtime', 'h2a-cli', 'track']) fs.writeFileSync(join(prebuilt, `sentropic-${name}-${pinned}.tgz`), `prebuilt candidate ${name}`)
+    fs.writeFileSync(join(prebuilt, `sentropic-focus-${focusPinned}.tgz`), 'prebuilt candidate focus')
   }
   const nodeRequire = createRequire(import.meta.url)
   let resolvedManifest
   let resolvedTrackManifest
+  let resolvedFocusManifest
   let polls = 0
   const fakeProcess = { ...process, argv: ['node', scriptPath, ...(options.prebuilt ? ['--tarballs', prebuilt] : [])], execPath: process.execPath,
     env: { HOME: root, XDG_RUNTIME_DIR: root }, exit: (code) => { throw new Error(`premature exit ${code}`) } }
@@ -33,7 +39,7 @@ export async function observeSmoke(source, scriptPath, options = {}) {
     if (command === 'npm' && args[0] === 'pack') {
       const pkg = args[2], staging = args[4]
       observations.packed.push(pkg)
-      fs.writeFileSync(join(staging, pkg.replace('@', '').replace('/', '-') + `-${pinned}.tgz`), pkg)
+      fs.writeFileSync(join(staging, pkg.replace('@', '').replace('/', '-') + `-${tarballVersion(pkg)}.tgz`), pkg)
     } else if (command === 'npm' && args[0] === 'install') {
       const prefix = args[2]
       observations.installed = args.slice(5)
@@ -46,9 +52,13 @@ export async function observeSmoke(source, scriptPath, options = {}) {
       fs.mkdirSync(trackDir, { recursive: true })
       resolvedTrackManifest = join(trackDir, 'package.json')
       fs.writeFileSync(resolvedTrackManifest, JSON.stringify({ version: options.loadedTrackVersion ?? pinned }))
+      const focusDir = join(prefix, 'node_modules/@sentropic/focus')
+      fs.mkdirSync(focusDir, { recursive: true })
+      resolvedFocusManifest = join(focusDir, 'package.json')
+      fs.writeFileSync(resolvedFocusManifest, JSON.stringify({ version: options.loadedFocusVersion ?? focusPinned }))
     } else if (args[0] === '-p') {
       const query = args[1] ?? ''
-      const target = query.includes('@sentropic/track') ? resolvedTrackManifest : resolvedManifest
+      const target = query.includes('@sentropic/focus') ? resolvedFocusManifest : query.includes('@sentropic/track') ? resolvedTrackManifest : resolvedManifest
       return { status: 0, stdout: target, stderr: '' }
     }
     else if (args[1] === 'host-stop') {
@@ -153,13 +163,19 @@ export async function observeSmoke(source, scriptPath, options = {}) {
     process: fakeProcess, loadModule, setTimeout: timer, clearTimeout, console: { log: () => {} } }
   try {
     await new AsyncFunction(...Object.keys(deps), code)(...Object.values(deps))
-    assert.deepEqual(observations.packed.sort(), options.prebuilt ? [] : ['@sentropic/h2a', '@sentropic/h2a-cli', '@sentropic/h2a-runtime', '@sentropic/track'])
-    assert.equal(observations.installed.length, 4)
+    assert.deepEqual(observations.packed.sort(), options.prebuilt ? [] : ['@sentropic/focus', '@sentropic/h2a', '@sentropic/h2a-cli', '@sentropic/h2a-runtime', '@sentropic/track'])
+    assert.equal(observations.installed.length, 5)
     for (const name of ['h2a', 'h2a-runtime', 'h2a-cli', 'track']) assert.ok(observations.installed.some((path) => path.startsWith(root + '/') && path.endsWith(`sentropic-${name}-${pinned}.tgz`)), `candidate ${name} must be installed from its local tarball`)
+    assert.ok(observations.installed.some((path) => path.startsWith(root + '/') && path.endsWith(`sentropic-focus-${focusPinned}.tgz`)), 'candidate focus must be installed from its local tarball')
     if (options.prebuilt) for (const name of ['h2a', 'h2a-runtime', 'h2a-cli', 'track']) {
       const path = join(prebuilt, `sentropic-${name}-${pinned}.tgz`)
       assert.ok(observations.installed.includes(path), 'smoke must install the workflow-built bytes')
       assert.equal(fs.readFileSync(path, 'utf8'), `prebuilt candidate ${name}`, 'the provided tarballs must be preserved')
+    }
+    if (options.prebuilt) {
+      const path = join(prebuilt, `sentropic-focus-${focusPinned}.tgz`)
+      assert.ok(observations.installed.includes(path), 'smoke must install the workflow-built focus bytes')
+      assert.equal(fs.readFileSync(path, 'utf8'), 'prebuilt candidate focus', 'the provided focus tarball must be preserved')
     }
     assert.equal(observations.seeded, true, 'cold-boot previous-boot row was not observed')
     assert.deepEqual(observations.faults.slice(0, 2), ['this is not a frame at all\n', '\x00\x01\x02garbage'], 'faulty client bytes were not injected')

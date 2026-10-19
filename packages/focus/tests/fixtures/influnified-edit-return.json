@@ -1,0 +1,91 @@
+{
+  "fixtureProvenance": {
+    "kind": "reduced-source-slice",
+    "source": "/home/antoinefa/src/influence/dossier/influnified-audit.dossier.json",
+    "sourceDigest": "sha256:2486ab7e200512cfd433f9eea0a01dde1491e9d3af29d4c4f441edbfe4317d3e",
+    "qualifiedRealDossier": false
+  },
+  "value": {
+    "kind": "focus.return",
+    "schemaVersion": 1,
+    "returnId": "R1",
+    "digest": "sha256:4a8cc0e376463459a20f5e9eed33cd707445cdd4effba3dee60239e6e466b1a0",
+    "capture": {
+      "at": "2026-10-18T12:00:00Z"
+    },
+    "scope": null,
+    "source": {
+      "documentRef": "decision:influnified-audit-reponse-gael",
+      "hash": "draft-2026-10-18",
+      "cursor": "rev-1",
+      "baseHash": "sha256:5c23d13c37caea3aae3af2309debb02adea1eaa859d3accdbe9962ebde9b01aa",
+      "manifestId": "manifest:5c23d13c37caea3aae3af2309debb02adea1eaa859d3accdbe9962ebde9b01aa",
+      "manifestBaseHash": "sha256:1c3694eef4c561b36b6a6bbd6e637c53e82012d9957cdba6ef9d864ef3242b3a"
+    },
+    "production": {
+      "producerId": "producer:synthetic",
+      "generationId": "generation:1",
+      "requestId": "request:1"
+    },
+    "manifest": {
+      "schemaVersion": 1,
+      "manifestId": "manifest:5c23d13c37caea3aae3af2309debb02adea1eaa859d3accdbe9962ebde9b01aa",
+      "documentRef": "decision:influnified-audit-reponse-gael",
+      "baseHash": "sha256:5c23d13c37caea3aae3af2309debb02adea1eaa859d3accdbe9962ebde9b01aa",
+      "fields": [
+        {
+          "nodeId": "s-reco",
+          "targetRef": "section:recommandation",
+          "field": "markdown",
+          "contentFormat": "focus.markdown.p0@1",
+          "blockKind": "prose"
+        }
+      ],
+      "paragraphs": [
+        {
+          "nodeId": "s-reco",
+          "targetRef": "section:recommandation",
+          "field": "markdown",
+          "paragraphId": "paragraph:f7075f61ac4738c8dca3e4b275ac5ee58aa3d62b379166757777a9b6e18d291c",
+          "blockKind": "paragraph",
+          "parentId": null,
+          "order": 0,
+          "range": {
+            "start": 19,
+            "end": 154,
+            "unit": "utf16"
+          }
+        },
+        {
+          "nodeId": "s-reco",
+          "targetRef": "section:recommandation",
+          "field": "markdown",
+          "paragraphId": "paragraph:2c6f4a09dc2c58df3270d0462c1297ef8a07f9bd1427b73048af986968439db4",
+          "blockKind": "paragraph",
+          "parentId": null,
+          "order": 1,
+          "range": {
+            "start": 156,
+            "end": 211,
+            "unit": "utf16"
+          }
+        }
+      ],
+      "retiredParagraphIds": [],
+      "manifestBaseHash": "sha256:1c3694eef4c561b36b6a6bbd6e637c53e82012d9957cdba6ef9d864ef3242b3a"
+    },
+    "answers": [],
+    "notes": [
+      {
+        "targetRef": "section:recommandation",
+        "text": "Synthetic preservation witness; no owner correction"
+      }
+    ],
+    "editReturn": {
+      "schemaVersion": 1,
+      "mode": "cumulative",
+      "transactions": [],
+      "supersededReturnIds": []
+    }
+  }
+}
