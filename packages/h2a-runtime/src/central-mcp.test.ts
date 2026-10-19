@@ -1,4 +1,5 @@
 import { EventEmitter } from "node:events";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -10,6 +11,9 @@ const central = vi.hoisted(() => {
     generation: string;
     pid: number;
     startedAt: string;
+    root: string;
+    protocol: number;
+    endpointMode: "fixed" | "discovered";
   };
   let marker: Marker | undefined;
   let generation = 0;
@@ -20,16 +24,29 @@ const central = vi.hoisted(() => {
     options: { env?: NodeJS.ProcessEnv },
   ) => {
     marker = {
-      endpoint: options.env?.H2A_MCP_CENTRAL_ENDPOINT ?? "",
+      endpoint: options.env?.H2A_MCP_CENTRAL_ENDPOINT ?? "http://127.0.0.1:47831/mcp",
       generation: `generation-${++generation}`,
       pid: 71_001,
       startedAt: "2026-08-24T00:00:00.000Z",
+      root: _args[_args.indexOf("--root") + 1],
+      protocol: 2,
+      endpointMode: options.env?.H2A_MCP_CENTRAL_ENDPOINT ? "fixed" : "discovered",
     };
     const child = new EventEmitter() as EventEmitter & { unref(): void };
     child.unref = unref;
     return child;
   });
   const core = {
+    centralMcpMarkerPath: vi.fn(() => process.env.XDG_RUNTIME_DIR + "/marker.json"),
+    ensureCentralForRoot: vi.fn(async (root: string, observers: { logPath(): string; onSpawn(child: any): void }) => {
+      const endpoint = (await import("./config.js")).getH2aConfig().central.endpoint;
+      await core.centralMcpPing(endpoint ?? "http://127.0.0.1:47831/mcp");
+      if (marker) return marker;
+      observers.logPath();
+      const child = spawn(process.execPath, ["protected-core-fixture", "--root", root], { env: { ...(endpoint ? { H2A_MCP_CENTRAL_ENDPOINT: endpoint } : {}) } });
+      observers.onSpawn(child);
+      return marker!;
+    }),
     H2A_MCP_CENTRAL_ENV: "H2A_MCP_CENTRAL",
     H2A_MCP_CENTRAL_ENDPOINT_ENV: "H2A_MCP_CENTRAL_ENDPOINT",
     centralMcpPing: vi.fn(async (endpoint: string) =>
@@ -49,6 +66,7 @@ const central = vi.hoisted(() => {
       generation = 0;
       unref.mockClear();
       spawn.mockClear();
+      core.ensureCentralForRoot.mockClear();
       core.centralMcpPing.mockClear();
       core.readCentralMcpMarker.mockClear();
       core.runCli.mockClear();
@@ -70,7 +88,7 @@ import {
   resolveCentralMcpLogPath,
 } from "./central-mcp.js";
 import { MAX_CRASH_LOG_BYTES, readCrashLog, resolveCrashLogPath } from "./crash-log.js";
-import { getH2aConfig, setH2aConfig } from "./config.js";
+import { getH2aConfig, resolveConfigPath, setH2aConfig } from "./config.js";
 
 describe("central MCP auto-start", () => {
   let scratch: string;
@@ -104,7 +122,7 @@ describe("central MCP auto-start", () => {
     rmSync(scratch, { recursive: true, force: true });
   });
 
-  it("starts once, selects central-connect host setup, and reuses the generation for run and restore", async () => {
+  it("starts once without configuration writes and reuses the generation for run and restore", async () => {
     const endpoint = "http://127.0.0.1:47042/mcp";
     const workspace = join(scratch, "workspace");
     setH2aConfig({ central: { enabled: true, endpoint } });
@@ -118,35 +136,17 @@ describe("central MCP auto-start", () => {
     });
     expect(first).toEqual({ status: "central", endpoint, generation: "generation-1" });
     expect(central.spawn).toHaveBeenCalledTimes(1);
-    expect(central.unref).toHaveBeenCalledTimes(1);
+    expect(central.core.ensureCentralForRoot).toHaveBeenCalledWith(workspace, { logPath: expect.any(Function), onSpawn: expect.any(Function) });
     expect(central.spawn).toHaveBeenCalledWith(
-      "h2a",
-      ["mcp-central-serve", "--root", workspace],
-      expect.objectContaining({
-        detached: true,
-        stdio: ["ignore", expect.any(Number), expect.any(Number)],
-        env: expect.objectContaining({
-          H2A_MCP_CENTRAL: "1",
-          H2A_MCP_CENTRAL_ENDPOINT: endpoint,
-        }),
-      }),
+      process.execPath,
+      ["protected-core-fixture", "--root", workspace],
+      expect.objectContaining({ env: { H2A_MCP_CENTRAL_ENDPOINT: endpoint } }),
     );
     expect(process.env).toMatchObject({
       H2A_MCP_CENTRAL: "1",
       H2A_MCP_CENTRAL_ENDPOINT: endpoint,
     });
-    expect(central.core.runCli).toHaveBeenCalledWith(
-      [
-        "host",
-        "setup",
-        "--host",
-        "codex",
-        "--write",
-        join(scratch, "xdg", "codex", "mcp.json"),
-      ],
-      expect.any(Object),
-      expect.objectContaining({ doctorHostInstallations: expect.any(Function) }),
-    );
+    expect(central.core.runCli).not.toHaveBeenCalled();
     expect(getH2aConfig().central).toEqual({ enabled: true, endpoint });
 
     const second = await ensureCentralMcp({ root: workspace });
@@ -155,15 +155,6 @@ describe("central MCP auto-start", () => {
 
     const restored = await prepareCentralMcpForRestore({ root: workspace });
     expect(restored).toEqual({ status: "central", endpoint, generation: "generation-1" });
-    expect(central.spawn).toHaveBeenCalledTimes(1);
-  });
-
-  it("persists a deterministic endpoint the first time central MCP is enabled", async () => {
-    setH2aConfig({ central: { enabled: true } });
-    const ensured = await ensureCentralMcp();
-    const configured = getH2aConfig().central.endpoint;
-    expect(configured).toMatch(/^http:\/\/127\.0\.0\.1:4[7-9]\d{3}\/mcp$/);
-    expect(ensured?.endpoint).toBe(configured);
     expect(central.spawn).toHaveBeenCalledTimes(1);
   });
 
@@ -190,32 +181,6 @@ describe("central MCP auto-start", () => {
     expect(process.env.H2A_MCP_CENTRAL_ENDPOINT).toBeUndefined();
   });
 
-  it("restores the existing per-session sidecar config when central host setup fails", async () => {
-    const endpoint = "http://127.0.0.1:47042/mcp";
-    const workspace = join(scratch, "workspace");
-    const configPath = join(scratch, "xdg", "codex", "mcp.json");
-    const sidecarConfig = `${JSON.stringify({
-      mcpServers: { h2a: { command: "h2a", args: ["mcp-serve"] } },
-    })}\n`;
-    mkdirSync(join(scratch, "xdg", "codex"), { recursive: true });
-    writeFileSync(configPath, sidecarConfig);
-    setH2aConfig({ central: { enabled: true, endpoint } });
-    central.core.runCli.mockImplementationOnce(() => {
-      writeFileSync(configPath, JSON.stringify({
-        mcpServers: { h2a: { command: "h2a", args: ["mcp-central-connect"] } },
-      }));
-      return 2;
-    });
-
-    await expect(prepareCentralMcpForLaunch({ root: workspace, profile: "codex", cwd: workspace })).resolves.toEqual({
-      status: "degraded",
-      reason: `central MCP could not write the codex host config at ${configPath}`,
-    });
-    expect(readFileSync(configPath, "utf8")).toBe(sidecarConfig);
-    expect(process.env.H2A_MCP_CENTRAL).toBeUndefined();
-    expect(process.env.H2A_MCP_CENTRAL_ENDPOINT).toBeUndefined();
-  });
-
   it("is a warning-free no-op while central MCP remains disabled", async () => {
     const workspace = join(scratch, "workspace");
     setH2aConfig({ central: { enabled: false } });
@@ -226,6 +191,36 @@ describe("central MCP auto-start", () => {
     expect(central.core.runCli).not.toHaveBeenCalled();
     expect(process.env.H2A_MCP_CENTRAL).toBeUndefined();
     expect(process.env.H2A_MCP_CENTRAL_ENDPOINT).toBeUndefined();
+  });
+
+  it("leaves project files and git status unchanged after run and restore", async () => {
+    const workspace = join(scratch, "workspace");
+    mkdirSync(workspace);
+    execFileSync("git", ["init", "-q", workspace]);
+    const config = '{ "mcpServers": { "graphify-ts": { "command": "graphify" } } }\n';
+    writeFileSync(join(workspace, ".mcp.json"), config);
+    execFileSync("git", ["-C", workspace, "add", ".mcp.json"]);
+    const status = () => execFileSync("git", ["-C", workspace, "status", "--porcelain"], { encoding: "utf8" });
+    const before = status();
+    setH2aConfig({ central: { enabled: true, endpoint: "http://127.0.0.1:47042/mcp" } });
+    await prepareCentralMcpForLaunch({ profile: "claude", cwd: workspace });
+    await prepareCentralMcpForRestore();
+    expect(status()).toBe(before);
+    expect(readFileSync(join(workspace, ".mcp.json"), "utf8")).toBe(config);
+    expect(central.core.runCli).not.toHaveBeenCalled();
+    const [, args, opts] = central.spawn.mock.calls[0];
+    expect(args).not.toContain(workspace);
+    expect(opts.env).not.toHaveProperty("CLAUDE_CODE_SESSION_ID");
+    expect(opts.env).not.toHaveProperty("TMUX_PANE");
+    expect(opts.env).not.toHaveProperty("H2A_ROOT");
+  });
+
+  it("does not write configuration while selecting an endpoint", async () => {
+    setH2aConfig({ central: { enabled: true } });
+    const before = readFileSync(resolveConfigPath(), "utf8");
+    await ensureCentralMcp();
+    expect(readFileSync(resolveConfigPath(), "utf8")).toBe(before);
+    expect(getH2aConfig().central.endpoint).toBeUndefined();
   });
 });
 
@@ -274,7 +269,6 @@ describe("central MCP crash records (revcrashlog constats 2/4)", () => {
   function deadSpawn() {
     const child = new EventEmitter() as EventEmitter & { unref(): void };
     child.unref = () => {};
-    central.spawn.mockImplementationOnce(() => child);
     return child;
   }
 
@@ -282,14 +276,8 @@ describe("central MCP crash records (revcrashlog constats 2/4)", () => {
     const endpoint = "http://127.0.0.1:47043/mcp";
     const workspace = join(stateRoot, "workspace");
     setH2aConfig({ central: { enabled: true, endpoint } });
-    const child = deadSpawn();
-    const pending = ensureCentralMcp({ root: workspace });
-    // Attach the rejection handler BEFORE the failure can fire: otherwise the
-    // rejection is unhandled and fails the whole suite run (CI proof).
-    const assertion = expect(pending).rejects.toThrow("boom-spawn");
-    await new Promise((r) => setImmediate(r));
-    child.emit("error", new Error("boom-spawn"));
-    await assertion;
+    central.core.ensureCentralForRoot.mockRejectedValueOnce(new Error("boom-spawn"));
+    await expect(ensureCentralMcp({ root: workspace })).rejects.toThrow("boom-spawn");
     expect(serverRows()[0]).toMatchObject({ event: "startupError", reason: "spawn-failed" });
   });
 
@@ -297,14 +285,11 @@ describe("central MCP crash records (revcrashlog constats 2/4)", () => {
     const endpoint = "http://127.0.0.1:47044/mcp";
     const workspace = join(stateRoot, "workspace");
     setH2aConfig({ central: { enabled: true, endpoint } });
-    deadSpawn();
-    vi.useFakeTimers();
-    const pending = ensureCentralMcp({ root: workspace });
-    // Same unhandled-rejection hazard: the rejection fires DURING the timer
-    // advance, so the handler must already be attached here.
-    const assertion = expect(pending).rejects.toThrow(/did not become ready/);
-    await vi.advanceTimersByTimeAsync(11_000);
-    await assertion;
+    central.core.ensureCentralForRoot.mockImplementationOnce(async (_root, observers) => {
+      observers.onSpawn(deadSpawn());
+      throw new Error("successor_startup_failed");
+    });
+    await expect(ensureCentralMcp({ root: workspace })).rejects.toThrow("successor_startup_failed");
     expect(serverRows()[0]).toMatchObject({ event: "exit", reason: "readiness-timeout" });
   });
 

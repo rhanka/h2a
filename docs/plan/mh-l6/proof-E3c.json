@@ -1,0 +1,53 @@
+{
+  "source": "/tmp/mh-l3-qualification-b23",
+  "worktree": "/home/antoinefa/src/h2a/tmp/worktrees/mh-l0",
+  "files": [
+    {
+      "path": "packages/h2a/test/mh-l6-dist-freeze.test.js",
+      "sha256": "0f8d392001ea770ccb32346999b6dd70fdc686c4d7dc1ea244127d50ff54b915"
+    },
+    {
+      "path": "scripts/mh-l6-mutate.mjs",
+      "sha256": "eb0dc8757c21414dc34c5cc72364825722726d1fef9b1d7402abe0fe151abd64"
+    },
+    {
+      "path": "scripts/mh-l6-test.mjs",
+      "sha256": "499fa0af002d05ef5dd7b8d36adb0679351c0542aa852cec13bceb8fbc23bd7d"
+    },
+    {
+      "path": "scripts/mh-l6-e3c-freeze.mjs",
+      "sha256": "708e75caba331b87f529550c252f58ee2ea6b94b5b09d1d164170511438fe0a2"
+    },
+    {
+      "path": "scripts/mh-l6-legacy-fixtures.mjs",
+      "sha256": "5669565da46d29b3f17f976eb6a0cda1b41c301cebc3c74b2c5bcdaa7c941617"
+    },
+    {
+      "path": "docs/plan/mh-l6/legacy-integrity.json",
+      "sha256": "43c85e14001abeafef4f437f16460dd426faed73932e32f912d7282358ed1731"
+    },
+    {
+      "path": "docs/plan/mh-l6/dist-freeze-0986.json",
+      "sha256": "c4c96c70a76c6996d7242b06ea5ff98273721b44c304d96e6bc597f902baa40c"
+    }
+  ],
+  "frozen": {
+    "runtimeFiles": 400,
+    "upgradeFiles": 4,
+    "identical": [
+      "launch-guard.js"
+    ]
+  },
+  "profiles": [
+    {
+      "major": 22,
+      "tests": 3,
+      "mutations": 4
+    },
+    {
+      "major": 24,
+      "tests": 3,
+      "mutations": 4
+    }
+  ]
+}

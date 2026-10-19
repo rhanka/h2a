@@ -1,0 +1,34 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test --test-reporter=tap packages/h2a/test/mh-l3-central.test.js
+node: v24.21.0
+private root: /tmp/mh-l3-test-tPgD5k
+case: real central should resume an initialize reply lost after admission without creating another activation
+TAP version 13
+# {"event":"drive-consent.full-verification","durationMs":0.004790000000014061,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: real central should resume an initialize reply lost after admission without creating another activation
+not ok 1 - real central should resume an initialize reply lost after admission without creating another activation
+  ---
+  duration_ms: 132.170808
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-bUCXsb/source/packages/h2a/test/mh-l3-central.test.js:2:94'
+  failureType: 'testCodeFailure'
+  error: '[{"jsonrpc":"2.0","id":"init","result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{"listChanged":true}},"serverInfo":{"name":"@sentropic/h2a","version":"0.98.5"}}},{"jsonrpc":"2.0","id":"ping","error":{"code":-32011,"message":"central MCP HTTP 409","data":{"code":"central_unavailable","retrySafe":false}}}]'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  operator: '=='
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-bUCXsb/source/packages/h2a/test/mh-l3-central.test.js:76:12)
+    async Test.run (node:internal/test_runner/test:1409:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 327.592125
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l3-central.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

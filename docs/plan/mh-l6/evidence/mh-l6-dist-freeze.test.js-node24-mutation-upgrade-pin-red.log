@@ -1,0 +1,51 @@
+command: /home/antoinefa/.nvm/versions/node/v24.18.0/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-dist-freeze.test.js
+node: v24.18.0
+private root: /tmp/mh-l6-test-wNESik
+case: E3 should pin the published h2a .6 upgrade installer subset
+TAP version 13
+# Subtest: E3 should pin the published h2a .6 upgrade installer subset
+not ok 1 - E3 should pin the published h2a .6 upgrade installer subset
+  ---
+  duration_ms: 49.566784
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-b23/packages/h2a/test/mh-l6-dist-freeze.test.js:9:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly deep-equal:
+    + actual - expected
+    
+    + {
+    +   'index.d.ts': 'ba5a85bde6a1c665ceb9ab13b040229e058bb8f0255831cb331ce0ccbf1a592a',
+    +   'index.d.ts.map': '3e479fbdc6f0d55222c766bf7257625f7a1fd4426e91916957128d3971f590ea',
+    +   'index.js': '6cd3100c343eaa33426b4f15042ed063c38b980ac8fa53651635345f34ffcb6e',
+    +   'index.js.map': '1b8cc994eb99d3d3edad95880c43f06ee738503a6d90b7df9bf4b9f50c38285a'
+    + }
+    - {}
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual:
+    index.d.ts: 'ba5a85bde6a1c665ceb9ab13b040229e058bb8f0255831cb331ce0ccbf1a592a'
+    index.d.ts.map: '3e479fbdc6f0d55222c766bf7257625f7a1fd4426e91916957128d3971f590ea'
+    index.js: '6cd3100c343eaa33426b4f15042ed063c38b980ac8fa53651635345f34ffcb6e'
+    index.js.map: '1b8cc994eb99d3d3edad95880c43f06ee738503a6d90b7df9bf4b9f50c38285a'
+  operator: 'deepStrictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-b23/packages/h2a/test/mh-l6-dist-freeze.test.js:75:10)
+    Test.runInAsyncScope (node:async_hooks:227:14)
+    Test.run (node:internal/test_runner/test:1325:25)
+    Test.start (node:internal/test_runner/test:1191:17)
+    startSubtestAfterBootstrap (node:internal/test_runner/harness:385:17)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 83.847858
+
+receipt: {"command":["/home/antoinefa/.nvm/versions/node/v24.18.0/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-dist-freeze.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

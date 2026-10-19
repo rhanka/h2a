@@ -1,3 +1,4 @@
+import { withWriterMutation } from '../handover/mutation.js';
 /**
  * Durable blockage registry (DEC-092, EVO-3). Parallel to the drumbeat
  * registry: a peer's blockage must outlive the ~15s presence sweep so other
@@ -32,7 +33,7 @@ export interface RaiseBlockageInput {
  * Raise (upsert) a blockage. A fresh raise clears any prior resolution — the
  * agent is blocked again, on possibly a new reason.
  */
-export function raiseBlockage(
+ function raiseBlockageUnfenced(
   root: string,
   input: RaiseBlockageInput,
   now: number = Date.now()
@@ -84,7 +85,7 @@ export function listBlockages(root: string): H2ABlockage[] {
  * Resolve a blockage (idempotent). Returns the resolved blockage, or undefined
  * if the instance has none recorded. Re-resolving keeps the first resolution.
  */
-export function resolveBlockage(
+ function resolveBlockageUnfenced(
   root: string,
   instance: string,
   options: { by?: string; now?: number } = {}
@@ -99,4 +100,12 @@ export function resolveBlockage(
   };
   writeFileSync(entryFile(root, instance), `${JSON.stringify(resolved, null, 2)}\n`, "utf8");
   return resolved;
+}
+
+export function raiseBlockage(...args: Parameters<typeof raiseBlockageUnfenced>): ReturnType<typeof raiseBlockageUnfenced> {
+  return withWriterMutation(args[0], 'blockage', () => raiseBlockageUnfenced(...args));
+}
+
+export function resolveBlockage(...args: Parameters<typeof resolveBlockageUnfenced>): ReturnType<typeof resolveBlockageUnfenced> {
+  return withWriterMutation(args[0], 'blockage', () => resolveBlockageUnfenced(...args));
 }

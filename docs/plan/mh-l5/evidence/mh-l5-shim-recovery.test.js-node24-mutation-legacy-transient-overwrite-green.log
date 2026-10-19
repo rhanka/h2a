@@ -1,0 +1,40 @@
+command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l5-shim-recovery.test.js
+node: v24.21.0
+private root: /tmp/mh-l5-test-XFCC9o
+case: all cases in explicit file
+TAP version 13
+# Subtest: T9 should classify a cold v1 replacement during the first supervision backoff (same generation: false)
+ok 1 - T9 should classify a cold v1 replacement during the first supervision backoff (same generation: false)
+  ---
+  duration_ms: 82.683872
+  type: 'test'
+  ...
+# Subtest: T9 should classify a cold v1 replacement during the first supervision backoff (same generation: true)
+ok 2 - T9 should classify a cold v1 replacement during the first supervision backoff (same generation: true)
+  ---
+  duration_ms: 49.773626
+  type: 'test'
+  ...
+# Subtest: T9 should classify v1 immediately when transport loss starts recovery before supervision
+ok 3 - T9 should classify v1 immediately when transport loss starts recovery before supervision
+  ---
+  duration_ms: 46.276254
+  type: 'test'
+  ...
+# Subtest: T9 should retain the legacy diagnosis through missing or malformed marker retries and clear it only after v2 reconnects
+ok 4 - T9 should retain the legacy diagnosis through missing or malformed marker retries and clear it only after v2 reconnects
+  ---
+  duration_ms: 86.251477
+  type: 'test'
+  ...
+1..4
+# tests 4
+# suites 0
+# pass 4
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 402.522709
+
+receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l5-shim-recovery.test.js"],"code":0,"signal":null,"tests":4,"invalid":false,"spawned":1,"leftovers":[]}

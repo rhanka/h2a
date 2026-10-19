@@ -474,9 +474,9 @@
     "h2a host setup rejects unknown host values",
     "h2a host setup --write creates a new config file with mcpServers.h2a",
     "h2a host setup --write preserves pre-existing mcpServers.other",
-    "h2a host setup --write replaces h2a aliases and disables standalone Track MCP entries",
+    "h2a host setup --write edits h2a and preserves aliases and standalone Track entries",
     "h2a host setup refuses native TOML, YAML, and JSONC writes before it can overwrite them",
-    "h2a host setup --write --force may intentionally replace malformed JSON",
+    "h2a host setup --write refuses malformed JSON even with --force",
     "h2a host setup --write is idempotent when the target already matches"
   ],
   "packages/h2a/test/identity-bindings.test.js": [],
@@ -539,6 +539,9 @@
   "packages/h2a/test/m07-relaunch-characterization.test.js": [],
   "packages/h2a/test/manual-cli-hook.test.js": [],
   "packages/h2a/test/mcp-autoopen.test.js": [],
+  "packages/h2a/test/mcp-central-attachments.test.js": [
+    "fixture cleanup waits for its recorded daemon to finish late writes before removing private state"
+  ],
   "packages/h2a/test/mcp-central.test.js": [],
   "packages/h2a/test/mcp-discovery-budget.test.js": [],
   "packages/h2a/test/mcp-discovery-pagination.test.js": [],
@@ -547,7 +550,11 @@
   "packages/h2a/test/mcp-identity-readiness.test.js": [],
   "packages/h2a/test/mcp-mesh-activation.test.js": [],
   "packages/h2a/test/mcp-notifications.test.js": [],
-  "packages/h2a/test/mcp-payload-store.test.js": [],
+  "packages/h2a/test/mcp-payload-store.test.js": [
+    "writes below quota avoid expiry metadata scans while pressure reclaims only expired bytes",
+    "automatic expiry maintenance advances monotonically and explicit sweeps stay immediate",
+    "repeated sweeps reuse unchanged live expiry metadata and revalidate external replacements"
+  ],
   "packages/h2a/test/mcp-phase-trace-unit.test.js": [],
   "packages/h2a/test/mcp-phase-trace.test.js": [],
   "packages/h2a/test/mcp-registry.test.js": [],
@@ -892,5 +899,90 @@
     "stable refuses an RC proof missing focus or carrying a wrong focus version",
     "publish sanity refuses legacy four-package preparation and stale focus versions before publication",
     "five-package prepare hands the independent focus version to the publication sanity gate"
+  ],
+  "packages/h2a/test/candidate-artifacts.test.js": [
+    "verify, rehearsal and cross-platform smoke consume the same closed candidate producer",
+    "candidate tarballs include both verified payloads and the exact five-package release cohort"
+  ],
+  "packages/h2a/test/node-test-order.test.js": [
+    "the production Node runner starts explicit files in priority order and records every real case",
+    "the production Node runner reports a failing child and still executes the other explicit file",
+    "both real package suites start before the remaining Node files without dropping any file",
+    "two reported CPUs execute two waiting files together instead of reserving one CPU",
+    "the runner reports its own pending file and PID before that file completes",
+    "daemon startup qualification completes alone before the same runner executes every remaining file",
+    "a failed standalone daemon suite remains failed while every remaining file still executes",
+    "bounded daemon and handover qualifications each finish alone before the parallel package phase",
+    "bulk package and backend campaigns wait for bounded protocol qualification and all execute together",
+    "the long backend overlaps remaining suites while bulk packages retain their protocol barrier",
+    "a failed overlapping backend remains failed and every remaining suite still executes",
+    "the 36-process identity startup qualification finishes before the backend campaign starts"
+  ],
+  "packages/h2a/test/mh-l6-package.test.js": [
+    "U10 U12 should publish @sentropic/h2a with exact lockstep and install twice offline without a compiler",
+    "U10 should build the actual closed dependency graph from pinned prebuilds before invoking npm",
+    "U10 should install @sentropic/h2a for off-profile diagnostics while refusing H4 preparation"
+  ],
+  "packages/h2a/test/mh-l6-runtime-package.test.js": [
+    "U10 U12 should publish @sentropic/h2a-runtime with exact lockstep and install twice offline without a compiler",
+    "U10 should install @sentropic/h2a-runtime for off-profile diagnostics while refusing H4 preparation"
+  ],
+  "packages/h2a/test/mh-l5-temp-volume.test.js": [
+    "M17 refuses a missing configured volume instead of falling back to another filesystem",
+    "M17 refuses a symlink configured volume before creating backend state",
+    "M17 refuses a configured volume writable by another user",
+    "M17 refuses a regular file configured as its temporary volume",
+    "M17 executes every real actor on its configured private volume and removes its state",
+    "M17 refuses an explicitly empty volume instead of creating state in the working directory"
+  ],
+  "packages/h2a/test/closed-focus-preflight.test.js": [
+    "closed release refuses a stale portable Focus renderer before constructing any payload"
+  ],
+  "packages/h2a/test/m17-ci-evidence.test.js": [
+    "M17 companion evidence is exact and the default path executes the entire inventory",
+    "M17 companion rejects stale or foreign repository",
+    "M17 companion rejects stale or foreign workflow",
+    "M17 companion rejects stale or foreign runId",
+    "M17 companion rejects stale or foreign attempt",
+    "M17 companion rejects stale or foreign sha",
+    "M17 companion rejects stale or foreign platform",
+    "M17 companion rejects stale or foreign arch",
+    "M17 companion rejects stale or foreign node",
+    "M17 companion rejects stale or foreign inputs",
+    "M17 companion rejects unknown envelope field",
+    "M17 companion rejects unknown schema",
+    "M17 companion rejects failed process",
+    "M17 companion rejects cancelled process",
+    "M17 companion rejects live child",
+    "M17 companion rejects missing cleanup",
+    "M17 companion rejects failed volume cleanup",
+    "M17 companion rejects remaining private state",
+    "M17 companion rejects failed suite",
+    "M17 companion rejects report failure",
+    "M17 companion rejects skipped case",
+    "M17 companion rejects TODO case",
+    "M17 companion rejects duplicate suite",
+    "M17 companion rejects duplicate case",
+    "M17 companion rejects missing case",
+    "M17 companion rejects different case",
+    "M17 companion rejects absolute path",
+    "M17 companion rejects traversal path",
+    "M17 companion rejects foreign file",
+    "M17 companion rejects false counts",
+    "M17 companion rejects unhandled error",
+    "M17 companion rejects partial mutation count",
+    "M17 companion rejects missing domain",
+    "M17 companion rejects unknown domain",
+    "M17 companion rejects noninteger count",
+    "M17 companion rejects partial ACK",
+    "M17 companion rejects duplicate ACK",
+    "M17 companion rejects missing actor",
+    "M17 companion rejects duplicate actor",
+    "M17 companion rejects no kernel observation",
+    "M17 companion rejects disk fallback",
+    "M17 companion rejects unconfigured tmpfs",
+    "M17 partition is disjoint/exhaustive and the unchanged inventory checker rejects merge holes",
+    "M17 context refuses a configured proof outside the disposable GitHub runner",
+    "M17 producer seals only a successful same-run report after owned-process and volume cleanup"
   ]
 }

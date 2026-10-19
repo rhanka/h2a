@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { loadM17Partition } from "./m17-ci-evidence.mjs";
 /**
  * Cross-platform test runner. Used by `npm test` (via scripts/run-test-gates.mjs).
  *
@@ -46,6 +47,12 @@ export const TEST_DIRS = ["packages/h2a/test", "packages/focus-interactive/test"
 // This test must run outside scripts/run-test-gates.mjs. See CI's dedicated
 // `npm-test-trust-root` job.
 export const RUNNER_TEST_FILE = "packages/h2a/test/run-test-gates.test.js";
+
+export function prioritizeNodeTestFiles(files) {
+  const packageFiles = new Set(['mh-l6-package.test.js', 'mh-l6-runtime-package.test.js']);
+  const priority = file => packageFiles.has(file.replaceAll('\\', '/').split('/').at(-1));
+  return files.sort((a, b) => Number(priority(b)) - Number(priority(a)));
+}
 
 // Lane-scoped identity-lock suites. They mount the previous release's real
 // bindings (lane/base) and confine every simulation root inside an isolated
@@ -133,6 +140,7 @@ export function verifyNodeTrackExecution(report, requiredFiles) {
 }
 
 function main() {
+  process.umask(0o022);
   // Each configured directory is REQUIRED, in the sense of main's original
   // contract: an unavailable directory, or one with no .test.js files at all,
   // is a broken suite root — not a silently skipped one.
@@ -156,6 +164,10 @@ function main() {
   let nodeTestFiles;
   try {
     nodeTestFiles = discoverTestFiles();
+    // Each package's real installations can take ~250s on CI. Start both
+    // independent package files with the pool, retaining every scenario and
+    // the existing shared 600s backstop.
+    prioritizeNodeTestFiles(nodeTestFiles);
   } catch (err) {
     process.stderr.write(`${(err && err.message) || err}\n`);
     process.exit(1);
@@ -178,6 +190,16 @@ function main() {
     );
     process.exit(1);
   }
+
+  // CI may supply only the closed M17 shard proof from this exact workflow
+  // run/attempt/checkout/Node. Discovery above remains complete. The default
+  // invocation executes M17 locally; malformed explicit proof is a hard error.
+  const m17Partition = loadM17Partition(nodeTestFiles, REPO_ROOT);
+  if (m17Partition.report) process.stdout.write(`M17 companion proof validated: ${JSON.stringify({
+    file: 'packages/h2a/test/mh-l5-concurrency.test.js', checkout: process.env.GITHUB_SHA,
+    runId: process.env.GITHUB_RUN_ID, attempt: process.env.GITHUB_RUN_ATTEMPT, node: process.version,
+    source: process.env.H2A_TEST_CI_M17_REPORT,
+  })}\n`);
 
   const VITEST_SUITES = [
     { name: "Track", dir: "packages/track", config: "vitest.config.ts" },
@@ -230,6 +252,12 @@ function main() {
   // and NAMED instead. Portable across node versions (a spawnSync option, not the
   // node-20-incompatible `--test-timeout` flag). Override via H2A_TEST_TIMEOUT_MS.
   const RUN_TIMEOUT_MS = Number(process.env.H2A_TEST_TIMEOUT_MS) || 600000;
+  // The expanded closed-package/Node-ABI qualification is still doing useful
+  // work at ten minutes (owned-child progress identifies the active files).
+  // The long backend campaign now overlaps the remaining Node phases; it keeps
+  // all 10,000 mutations/domain. This outer leak backstop is twenty minutes;
+  // individual case deadlines and the CI job's 25-minute budget are unchanged.
+  const NODE_TIMEOUT_MS = Number(process.env.H2A_TEST_TIMEOUT_MS) || 1200000;
 
   // Defense-in-depth: create a throwaway temp dir for H2A_ROOT so that any test
   // that runs a writing verb (connect/register/mcp-serve) without --root AND with
@@ -248,6 +276,8 @@ function main() {
 
   mkdirSync(join(testRoot, "home"), { recursive: true });
   mkdirSync(join(testRoot, "run"), { mode: 0o700 });
+  mkdirSync(join(testRoot, "cache"), { mode: 0o700 });
+  mkdirSync(join(testRoot, "data"), { mode: 0o700 });
 
   // Historical PTY host the pre-upgrade suites qualify against. The inventory
   // REQUIRES native-inventory-absence's legacy test passed, and the
@@ -310,6 +340,8 @@ function main() {
     XDG_RUNTIME_DIR: join(testRoot, "run"),
     XDG_CONFIG_HOME: join(testRoot, "home/.config"),
     XDG_STATE_HOME: join(testRoot, "home/.local/state"),
+    XDG_CACHE_HOME: join(testRoot, "cache"),
+    XDG_DATA_HOME: join(testRoot, "data"),
     H2A_ROOT: join(testRoot, ".h2a"),
     H2A_TEST_DURABLE_ROOT: durableRoot,
     H2A_TEST_LEGACY_HOST_DIR: legacyHost.dir,
@@ -319,6 +351,17 @@ function main() {
     H2A_RUN_EXAMPLE: "1",
     H2A_LOCK_STRESS: "1"
   };
+  // Only this orchestration imports the companion proof. Tests of the runner
+  // create their own private checkouts and must exercise the default full path.
+  delete testEnv.H2A_TEST_CI_M17_REPORT;
+
+  // These suites require the real pinned archives, never absent-state skips.
+  const prepared = spawnSync(process.execPath, [join(REPO_ROOT, "scripts/prepare-mh-test-fixtures.mjs")], {
+    cwd: REPO_ROOT, env: testEnv, encoding: "utf8", timeout: 600_000, maxBuffer: 8 * 1024 * 1024,
+  });
+  if (prepared.status !== 0) throw new Error(`run-tests: MH fixtures failed: ${prepared.stderr ?? prepared.error}`);
+  const mhFixtures = JSON.parse(prepared.stdout);
+  Object.assign(testEnv, mhFixtures.env);
 
   // Track's no-store fixtures intentionally walk to the filesystem root.
   // Use the invocation's temporary parent, and reject any .track ancestor.
@@ -365,18 +408,18 @@ function main() {
     TEMP: trackTemp
   };
 
-  function runSuite(name, command, args, cwd, env = testEnv) {
+  function runSuite(name, command, args, cwd, env = testEnv, timeoutMs = RUN_TIMEOUT_MS) {
     const result = spawnSync(command, args, {
       cwd,
       stdio: "inherit",
-      timeout: RUN_TIMEOUT_MS,
+      timeout: timeoutMs,
       killSignal: "SIGKILL",
       env
     });
 
     if (result.error && result.error.code === "ETIMEDOUT") {
       process.stderr.write(
-        `\nrun-tests: ${name} HUNG — the test run exceeded ${RUN_TIMEOUT_MS}ms and was killed. ` +
+        `\nrun-tests: ${name} HUNG — the test run exceeded ${timeoutMs}ms and was killed. ` +
         `A test is not terminating (often a spawned child that never exits).\n`
       );
       return 124;
@@ -406,8 +449,8 @@ function main() {
   let exitCode = 0;
   try {
     const nodeStatus = runSuite("Node test suite", process.execPath,
-      ["--import", join(REPO_ROOT, "packages/h2a/test/helpers/native-isolation.js"), "--test", "--test-reporter=spec", `--test-reporter=${join(REPO_ROOT, "scripts/node-evidence-reporter.mjs")}`, "--test-reporter-destination=stdout", `--test-reporter-destination=${nodeReport}`, ...nodeTestFiles],
-      REPO_ROOT, trackFixtureEnv);
+      [join(REPO_ROOT, "scripts/run-node-tests.mjs"), "--test", "--test-reporter=spec", `--test-reporter=${join(REPO_ROOT, "scripts/node-evidence-reporter.mjs")}`, "--test-reporter-destination=stdout", `--test-reporter-destination=${nodeReport}`, ...m17Partition.local],
+      REPO_ROOT, trackFixtureEnv, NODE_TIMEOUT_MS);
     const vitestStatuses = vitestSuites.map((suite) => {
       const cwd = join(REPO_ROOT, suite.dir);
       const configArgs = suite.config === undefined ? [] : ["--config", suite.config];
@@ -435,14 +478,17 @@ function main() {
     let reports;
     try { reports = [nodeReport, trackReport].map((path) => JSON.parse(readFileSync(path, "utf8"))); }
     catch { reports = []; }
+    const localReportCount = reports.length;
+    if (m17Partition.report) reports.push(m17Partition.report);
     const required = listNodeTrackSuiteFiles();
     const combined = {
-      success: reports.length === 2 && reports.every((report) => report.success !== false),
+      success: localReportCount === 2 && reports.every((report) => report.success !== false),
       testResults: reports.flatMap((report) => report.testResults ?? []),
       ...Object.fromEntries(["numTotalTests", "numPassedTests", "numFailedTests", "numPendingTests", "numTodoTests"]
         .map((key) => [key, reports.reduce((sum, report) => sum + report[key], 0)])),
     };
     const holes = verifyNodeTrackExecution(combined, required);
+    if (!holes.length && m17Partition.report) process.stdout.write('M17 local/external exhaustive inventory verification: passed\n');
     if (holes.length) process.stderr.write(holes.join("\n") + "\n");
     else process.stdout.write(`RC 0.98.6: ${readDeclaredNonTests(REPO_ROOT).length} declared non-tests observed at their exact expected statuses; not claimed as coverage.\n`);
     const reportPath = process.env.H2A_TEST_REPORT_PATH ?? NODE_TRACK_EXECUTION_REPORT;
@@ -450,6 +496,7 @@ function main() {
     writeFileSync(reportPath, JSON.stringify(combined));
     exitCode = holes.length ? 1 : [nodeStatus, ...vitestStatuses, laneStatus].every((status) => status === 0) ? 0 : Math.max(nodeStatus, ...vitestStatuses, laneStatus);
   } finally {
+    for (const root of mhFixtures.owned) rmSync(root, { recursive: true, force: true });
     // Best-effort cleanup of what this run provisioned. A preset legacy dir
     // (owner-provided) is never ours to delete. The lane helper records the
     // lane it built in tmp/idlock-build2-lane.txt: remove that lane — and the

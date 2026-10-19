@@ -1,0 +1,27 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-package.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-wA13sU
+case: U10 should install @sentropic/h2a for off-profile diagnostics while refusing H4 preparation
+TAP version 13
+# Subtest: U10 should install @sentropic/h2a for off-profile diagnostics while refusing H4 preparation
+ok 1 - U10 should install @sentropic/h2a for off-profile diagnostics while refusing H4 preparation
+  ---
+  duration_ms: 99107.600039
+  type: 'test'
+  ...
+# npm scripts-enabled positive control: postinstall actually executed in a separate private fixture
+# {"npm":"pack --offline --json","filename":"sentropic-h2a-0.98.7.tgz","integrity":"sha512-Es1xCUc7KoRr9j6hW6ftVS0XMx8O5nICfsiafkLewZUy94EQ5LiUC+tLTW8+K+OPWT8ngMjhWRJyR1oIK4+KyA==","files":10075}
+# npm required-profile fixture control: incompatible linux/x64 package rejected with EBADPLATFORM
+# npm 11.19.0 required-profile fixture darwin/arm64: added 1 package in 15s; actual installed reader rejects H4 before preparation; no foreign runtime executed
+# npm 11.19.0 required-profile fixture win32/x64: added 1 package in 16s; actual installed reader rejects H4 before preparation; no foreign runtime executed
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 99311.116569
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-package.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":13,"leftovers":[]}

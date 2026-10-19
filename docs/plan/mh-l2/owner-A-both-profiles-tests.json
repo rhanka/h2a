@@ -1,0 +1,14 @@
+[
+  {
+    "node": "/usr/bin/node",
+    "pid": 29486,
+    "code": 1,
+    "signal": null
+  },
+  {
+    "node": "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+    "pid": 33853,
+    "code": 1,
+    "signal": null
+  }
+]
