@@ -2,10 +2,16 @@
 import fs from 'node:fs';
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
-import { PROBE, REPLY, inside, canonicalEventRecord } from './xcli-lab.mjs';
+import { PROBE, REPLY, inside, canonicalEventRecord, recordExec } from './xcli-lab.mjs';
 
 const root = process.env.XCLI_CELL;
 const evidence = inside(root, process.env.XCLI_EVENTS);
+// Lot L6 (§8.3): the witness is our chain — self-record its exec synchronously
+// at startup. Never let journaling break the witness path.
+if (process.env.XCLI_EXEC_JOURNAL) {
+  try { recordExec(process.env.XCLI_EXEC_JOURNAL, { pid: process.pid, path: process.argv[1], tag: 'harness' }); }
+  catch { /* classification reads whatever landed */ }
+}
 // Lot L4: single retention choke point. Every retained record shares the
 // canonical {at, event, transcript} envelope; the transcript is the JSON of
 // the evidence-shaped detail (secret-shaped keys stripped, 32768 chars max).
