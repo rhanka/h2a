@@ -101,6 +101,9 @@ const guard = createReplayGuard();
 const scriptJson = process.env.XCLI_SCRIPT ?? '';
 async function runScriptedPeer(steps) {
   const { substituteScriptArgs } = await import('./xcli-scenarios.mjs');
+  // Lot L14: worker-provided script vars (per-cell throwaway keys). Process
+  // env only — never written to disk or evidence.
+  const scriptVars = JSON.parse(process.env.XCLI_SCRIPT_VARS ?? '{}');
   const saved = {};
   const marker = name => join(process.env.XCLI_CELL, name);
   const outcome = { ok: true };
@@ -119,7 +122,7 @@ async function runScriptedPeer(steps) {
       }
       const until = Date.now() + (step.retryMs ?? 15000);
       for (;;) {
-        const value = await tool(step.tool, substituteScriptArgs(step.args, { instance, ...saved })).catch(error => error);
+        const value = await tool(step.tool, substituteScriptArgs(step.args, { instance, ...scriptVars, ...saved })).catch(error => error);
         if (value instanceof Error && step.expectOk === false) break;
         if (!(value instanceof Error) && step.expectOk !== false) {
           if (step.saveAs) saved[step.saveAs] = value.loopId ?? value.id ?? value.negotiationId ?? value.sessionId;
