@@ -35,6 +35,8 @@ const smokePath = 'scripts/smoke-artifact.mjs'
 const smoke = readFileSync(smokePath, 'utf8')
 const pin = `const PINNED_RUNTIME_VERSION = '${base}'`
 if (smoke.split(pin).length !== 2) throw new Error('smoke pin must match the release train exactly once')
+const focusPin = `const PINNED_FOCUS_VERSION = '${focus.version}'`
+if (smoke.split(focusPin).length !== 2) throw new Error('smoke focus pin must match the focus version exactly once')
 
 const internal = new Map(manifests.map(({ manifest }) => [manifest.name,
   manifest.name === '@sentropic/focus' ? focusVersion : version]))
@@ -49,5 +51,5 @@ for (const { path, manifest } of manifests) {
   writeFileSync(path, JSON.stringify(manifest, null, 2) + '\n')
 }
 // Keep the independent literal proof; only its CI copy changes, never the release smoke.
-writeFileSync(smokePath, smoke.replace(pin, `const PINNED_RUNTIME_VERSION = '${version}'`))
+writeFileSync(smokePath, smoke.replace(pin, `const PINNED_RUNTIME_VERSION = '${version}'`).replace(focusPin, `const PINNED_FOCUS_VERSION = '${focusVersion}'`))
 console.log(`rehearsal-version: stamped ${names.join(', ')} and smoke pin with ${version}; focus with ${focusVersion}`)

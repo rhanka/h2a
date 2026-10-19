@@ -14,7 +14,7 @@ export function installedEvidence(root) {
   };
   const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
   const archives = [], packedPackages = [];
-  for (const name of ['track','h2a-runtime','h2a']) {
+  for (const name of ['track','h2a-runtime','h2a','focus']) {
     const [packed] = JSON.parse(run(npm, ['pack','--offline','--ignore-scripts','--json','--pack-destination',root,join(repo,'packages',name)]));
     archives.push(join(root, packed.filename));
     packedPackages.push(packed);
