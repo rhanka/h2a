@@ -1,0 +1,416 @@
+{
+  "version": 1,
+  "profilePairs": [
+    "claude:claude",
+    "claude:codex",
+    "claude:muse",
+    "claude:agy",
+    "codex:claude",
+    "codex:codex",
+    "codex:muse",
+    "codex:agy",
+    "muse:claude",
+    "muse:codex",
+    "muse:muse",
+    "muse:agy",
+    "agy:claude",
+    "agy:codex",
+    "agy:muse",
+    "agy:agy"
+  ],
+  "probeTools": [
+    "h2a_identity_status",
+    "h2a_inbox",
+    "h2a_send"
+  ],
+  "mandatory": {
+    "merge": [
+      {
+        "scenario": "probe",
+        "pair": "claude:claude"
+      },
+      {
+        "scenario": "probe",
+        "pair": "claude:codex"
+      },
+      {
+        "scenario": "probe",
+        "pair": "claude:muse"
+      },
+      {
+        "scenario": "probe",
+        "pair": "claude:agy"
+      },
+      {
+        "scenario": "probe",
+        "pair": "codex:claude"
+      },
+      {
+        "scenario": "probe",
+        "pair": "codex:codex"
+      },
+      {
+        "scenario": "probe",
+        "pair": "codex:muse"
+      },
+      {
+        "scenario": "probe",
+        "pair": "codex:agy"
+      },
+      {
+        "scenario": "probe",
+        "pair": "muse:claude"
+      },
+      {
+        "scenario": "probe",
+        "pair": "muse:codex"
+      },
+      {
+        "scenario": "probe",
+        "pair": "muse:muse"
+      },
+      {
+        "scenario": "probe",
+        "pair": "muse:agy"
+      },
+      {
+        "scenario": "probe",
+        "pair": "agy:claude"
+      },
+      {
+        "scenario": "probe",
+        "pair": "agy:codex"
+      },
+      {
+        "scenario": "probe",
+        "pair": "agy:muse"
+      },
+      {
+        "scenario": "probe",
+        "pair": "agy:agy"
+      }
+    ],
+    "release": [
+      {
+        "scenario": "probe",
+        "pair": "claude:claude"
+      },
+      {
+        "scenario": "probe",
+        "pair": "claude:codex"
+      },
+      {
+        "scenario": "probe",
+        "pair": "claude:muse"
+      },
+      {
+        "scenario": "probe",
+        "pair": "claude:agy"
+      },
+      {
+        "scenario": "probe",
+        "pair": "codex:claude"
+      },
+      {
+        "scenario": "probe",
+        "pair": "codex:codex"
+      },
+      {
+        "scenario": "probe",
+        "pair": "codex:muse"
+      },
+      {
+        "scenario": "probe",
+        "pair": "codex:agy"
+      },
+      {
+        "scenario": "probe",
+        "pair": "muse:claude"
+      },
+      {
+        "scenario": "probe",
+        "pair": "muse:codex"
+      },
+      {
+        "scenario": "probe",
+        "pair": "muse:muse"
+      },
+      {
+        "scenario": "probe",
+        "pair": "muse:agy"
+      },
+      {
+        "scenario": "probe",
+        "pair": "agy:claude"
+      },
+      {
+        "scenario": "probe",
+        "pair": "agy:codex"
+      },
+      {
+        "scenario": "probe",
+        "pair": "agy:muse"
+      },
+      {
+        "scenario": "probe",
+        "pair": "agy:agy"
+      }
+    ]
+  },
+  "rows": [
+    {
+      "scenario": "probe",
+      "pair": "claude:claude",
+      "tiers": [
+        "S",
+        "C",
+        "R1"
+      ],
+      "tools": [
+        "h2a_identity_status",
+        "h2a_inbox",
+        "h2a_send"
+      ]
+    },
+    {
+      "scenario": "probe",
+      "pair": "claude:codex",
+      "tiers": [
+        "S",
+        "C",
+        "R1"
+      ],
+      "tools": [
+        "h2a_identity_status",
+        "h2a_inbox",
+        "h2a_send"
+      ]
+    },
+    {
+      "scenario": "probe",
+      "pair": "claude:muse",
+      "tiers": [
+        "S",
+        "C",
+        "R1"
+      ],
+      "tools": [
+        "h2a_identity_status",
+        "h2a_inbox",
+        "h2a_send"
+      ]
+    },
+    {
+      "scenario": "probe",
+      "pair": "claude:agy",
+      "tiers": [
+        "S",
+        "C",
+        "R1"
+      ],
+      "tools": [
+        "h2a_identity_status",
+        "h2a_inbox",
+        "h2a_send"
+      ]
+    },
+    {
+      "scenario": "probe",
+      "pair": "codex:claude",
+      "tiers": [
+        "S",
+        "C",
+        "R1"
+      ],
+      "tools": [
+        "h2a_identity_status",
+        "h2a_inbox",
+        "h2a_send"
+      ]
+    },
+    {
+      "scenario": "probe",
+      "pair": "codex:codex",
+      "tiers": [
+        "S",
+        "C",
+        "R1"
+      ],
+      "tools": [
+        "h2a_identity_status",
+        "h2a_inbox",
+        "h2a_send"
+      ]
+    },
+    {
+      "scenario": "probe",
+      "pair": "codex:muse",
+      "tiers": [
+        "S",
+        "C",
+        "R1"
+      ],
+      "tools": [
+        "h2a_identity_status",
+        "h2a_inbox",
+        "h2a_send"
+      ]
+    },
+    {
+      "scenario": "probe",
+      "pair": "codex:agy",
+      "tiers": [
+        "S",
+        "C",
+        "R1"
+      ],
+      "tools": [
+        "h2a_identity_status",
+        "h2a_inbox",
+        "h2a_send"
+      ]
+    },
+    {
+      "scenario": "probe",
+      "pair": "muse:claude",
+      "tiers": [
+        "S",
+        "C",
+        "R1"
+      ],
+      "tools": [
+        "h2a_identity_status",
+        "h2a_inbox",
+        "h2a_send"
+      ]
+    },
+    {
+      "scenario": "probe",
+      "pair": "muse:codex",
+      "tiers": [
+        "S",
+        "C",
+        "R1"
+      ],
+      "tools": [
+        "h2a_identity_status",
+        "h2a_inbox",
+        "h2a_send"
+      ]
+    },
+    {
+      "scenario": "probe",
+      "pair": "muse:muse",
+      "tiers": [
+        "S",
+        "C",
+        "R1"
+      ],
+      "tools": [
+        "h2a_identity_status",
+        "h2a_inbox",
+        "h2a_send"
+      ]
+    },
+    {
+      "scenario": "probe",
+      "pair": "muse:agy",
+      "tiers": [
+        "S",
+        "C",
+        "R1"
+      ],
+      "tools": [
+        "h2a_identity_status",
+        "h2a_inbox",
+        "h2a_send"
+      ]
+    },
+    {
+      "scenario": "probe",
+      "pair": "agy:claude",
+      "tiers": [
+        "S",
+        "C",
+        "R1"
+      ],
+      "tools": [
+        "h2a_identity_status",
+        "h2a_inbox",
+        "h2a_send"
+      ]
+    },
+    {
+      "scenario": "probe",
+      "pair": "agy:codex",
+      "tiers": [
+        "S",
+        "C",
+        "R1"
+      ],
+      "tools": [
+        "h2a_identity_status",
+        "h2a_inbox",
+        "h2a_send"
+      ]
+    },
+    {
+      "scenario": "probe",
+      "pair": "agy:muse",
+      "tiers": [
+        "S",
+        "C",
+        "R1"
+      ],
+      "tools": [
+        "h2a_identity_status",
+        "h2a_inbox",
+        "h2a_send"
+      ]
+    },
+    {
+      "scenario": "probe",
+      "pair": "agy:agy",
+      "tiers": [
+        "S",
+        "C",
+        "R1"
+      ],
+      "tools": [
+        "h2a_identity_status",
+        "h2a_inbox",
+        "h2a_send"
+      ]
+    },
+    {
+      "scenario": "unavailability",
+      "status": "not-covered",
+      "blocker": "scenario-undefined",
+      "owner": "L12"
+    },
+    {
+      "scenario": "refusal",
+      "status": "not-covered",
+      "blocker": "scenario-undefined",
+      "owner": "L12"
+    },
+    {
+      "scenario": "loop",
+      "status": "not-covered",
+      "blocker": "scenario-undefined",
+      "owner": "L13"
+    },
+    {
+      "scenario": "negotiation",
+      "status": "not-covered",
+      "blocker": "scenario-undefined",
+      "owner": "L14"
+    },
+    {
+      "scenario": "functions-remainder",
+      "status": "not-covered",
+      "blocker": "scenario-undefined",
+      "owner": "L15"
+    }
+  ]
+}
