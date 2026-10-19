@@ -1,9 +1,19 @@
 # Qualification de la messagerie live entre CLI
 
-La mesure réelle initiale est conservée dans
-[la table de phase 1](2026-10-15-cross-cli-phase1.md). Aucune cellule réelle
-n’est qualifiée à ce stade. Les résultats simulés sont un autre niveau de
-preuve, même lorsqu’ils passent les 36 paires.
+Bilan mesuré : **1/36 réel (Claude → Claude, diagonale)** ; **aucune paire
+inter-CLI réelle n’est qualifiée**. La [table de phase 1](2026-10-15-cross-cli-phase1.md)
+reste l’historique (0 measured-OK, 5 measured-KO, 31 blocked avant
+corrections) ; les rejeux cibles sont dans [la reprise](2026-10-16-cross-cli-resume.md),
+dont la cellule Claude → Claude measured-OK. Les résultats simulés sont un
+autre niveau de preuve, même lorsqu’ils passent les 36 paires.
+
+Niveaux de preuve, affichés séparément sans agrégation en une couleur :
+tier S (simulation déterministe, 36 paires, aucun modèle), tier C (oracles
+de configuration réelle : chaque binaire tranche le config MCP rendu par
+h2a à son chemin et format natifs, sans login ni appel modèle), tier R1
+(sonde réelle par paire, modèles réels, sièges owner), tier R2 (fonctions
+réelles au-delà de la sonde). Le cliquet : les lignes ne montent que
+(none → S → C → R1/R2) ; F3 reste ouvert jusqu’aux lots L12–L15.
 
 Pré requis : Linux, Node 22 ou 24, g++, headers Node et dépendances du checkout.
 Le builder compile les sources en mkdtemp et compile node-pty directement,
@@ -111,3 +121,24 @@ la reprise recharge le registre au lieu de le réinitialiser. Un quota
 fournisseur bloque les autres cellules du siège ; le quota MCP par session
 coupe la session fautive au témoin. Les diagonales passent d’abord, sans
 jamais abandonner une cellule obligatoire.
+
+Non couvert (états exacts : `unknown`, `source-gap`, `missing source`,
+`unverified`, `partial`, `not covered`) :
+
+- Messagerie réelle inter-CLI : `not covered`. 1/36 réel, diagonale
+  uniquement ; 35 cellules réelles sans claim ; 29 jamais rejouées après
+  la phase 1 (`unverified` au-delà de leur statut phase-1).
+- Couverture toutes-fonctions : `partial`. La sonde exerce identité, envoi,
+  lecture inbox, wake et réponse. Le reste (résolution de noms, autres
+  actions inbox, sessions, négociations, conducteur, délégation, autres
+  lignes MCP) est `not covered` jusqu’aux lots L12–L15.
+- Consommation modèle/tokens par famille : `source-gap`. Aucun signal
+  d’usage structuré démontré ; les plafonds lient sessions lancées,
+  appels MCP et horloge.
+- Exclusion des descendants transitoires sans observation event-grade :
+  `partial`, bornée et labellisée, jamais exhaustive.
+- Gemini : `missing source` (aucun siège). Vibe : `not covered` en R
+  jusqu’à un siège (la frontière Python n’est pas le bloqueur, QO4).
+  Aucun backend Vibe non-Python existant.
+- Enrôlement live des sièges : `partial` (chemin fichier intérimaire ;
+  pas d’import L1 publié, pas de preuve keyring/billing/refresh).
