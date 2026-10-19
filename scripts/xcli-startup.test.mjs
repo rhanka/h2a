@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { environment, sourceBuild, repo } from './xcli-lab.mjs';
+import { parseWakeWindows } from './qualify-cross-cli.mjs';
 
 // A real startup dialog may render its choice before it starts accepting keys.
 // No login or provider is used; after consent this runs the signed product path.
@@ -54,7 +55,8 @@ process.stdin.on('data', input);
     const result = spawnSync(process.execPath, [worker, '--worker'], {
       cwd: root, env: { ...environment(join(root, 'worker')), H2A_TEST_QUALIFICATION_ROOT: root },
       input: JSON.stringify({ sender: 'claude', receiver: 'claude', root, build: built.path,
-        executables, timeoutMs: 30000, simulated: true }),
+        executables, timeoutMs: 30000, simulated: true,
+        wake: parseWakeWindows(undefined, true), releaseOffsetMs: 0 }),
       encoding: 'utf8', timeout: 90000, maxBuffer: 1024 * 1024,
     });
     assert.equal(result.status, 0);
