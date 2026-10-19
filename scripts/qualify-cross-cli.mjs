@@ -7,7 +7,7 @@ import { pathToFileURL, fileURLToPath } from 'node:url';
 import { createHash, generateKeyPairSync } from 'node:crypto';
 import { CLIS, PROBE, REPLY, repo, environment, sourceBuild, copyLogin,
   cliPath, privateExecutable, pythonEntrypoint, classify, matrix, inside,
-  rehydrateEventRecord, cellSecretPaths, wipeSecrets,
+  rehydrateEventRecord, cellSecretPaths, wipeSecrets, loginCopyPath,
   recordExec, readExecJournal, classifyExecJournal, vendorRuntimeLabel } from './xcli-lab.mjs';
 import { loadSeatManifest, resolveCampaignPair, createCampaignLedger, loadCampaignLedger,
   debitSession, fitsSessions, noteWallClock, wallClockFits, renderSeatLedger, persistLedger,
@@ -139,9 +139,8 @@ async function worker() {
   let cell = null;
   try { if (typeof request.cell === 'string') cell = inside(root, request.cell); } catch { cell = null; }
   cell ??= fs.mkdtempSync(join(root, 'c-'));
-  // Lot L6 (§8.3): cell execution journal. Our chain records every exec with
-  // its resolved path synchronously at spawn; vendor-subtree processes never
-  // record here (vendor-runtime allowance by construction).
+  // Direct-worker instrumentation is partial. The parent owns the kernel
+  // exec observer and replaces this view before any campaign publication.
   const execJournal = join(cell, 'exec-journal.jsonl');
   recordExec(execJournal, { pid: process.pid, path: resolve(process.argv[1] ?? process.execPath), tag: 'harness' });
   const hostEnv = { ...environment(cell), H2A_TEST_QUALIFICATION_ROOT: root };
@@ -216,7 +215,7 @@ async function worker() {
     const roleAuthHome = authHomes[role];
     row.credentialsCopied[role] = roleAuthHome ? copyLogin(cli, roleAuthHome, cell, env) : [];
     for (const name of row.credentialsCopied[role]) {
-      const mapped = join(env.HOME, name);
+      const mapped = loginCopyPath(env, cli, name);
       row.evidence.push({ event: 'login-mapped', role, cli, file: name,
         sha256: createHash('sha256').update(fs.readFileSync(mapped)).digest('hex') });
     }
@@ -1085,7 +1084,8 @@ async function main() {
     const command = supervisedCommand(supervisor, observation, [process.execPath, ...(stub ? [stub] : [self, '--worker'])]);
     const child = spawn(command[0], command.slice(1), {
         env: { ...environment(join(root, 'worker')), H2A_TEST_QUALIFICATION_ROOT: root,
-          XCLI_VENDOR_PATHS: simulated ? '' : Object.values(executables).filter(Boolean).join('\n'),
+          XCLI_VENDOR_PATHS: simulated ? '' : [...Object.values(executables).filter(Boolean),
+            ...['sender', 'receiver'].filter(role => run[role] === 'muse').map(role => join(cell, role, 'muse-program/muse'))].join('\n'),
           XCLI_HARNESS_ENTRYPOINTS: [join(repo, 'scripts/xcli-proxy.mjs'), join(built.path, 'packages/h2a/dist/bin.js')].join('\n') },
         cwd: root, stdio: ['pipe', 'pipe', 'ignore'],
       });
@@ -1129,8 +1129,7 @@ async function main() {
     row.sharedSeat = run.sharedSeat;
     row.seatMode = seatMode;
     // Lot L5 parent-side wipe enforcement (§6.6): never trust the worker's
-    // word. Re-wipe the recorded copy list — or the allowlisted candidates
-    // when the worker never reported — and re-check absence file by file. A
+    // word. Wipe the parent-owned cell and re-check its absence. A
     // wipe the parent cannot prove classifies secret-wipe-unproven with
     // confinement-recovery reporting; the campaign stops either way.
     let surviving = null;
