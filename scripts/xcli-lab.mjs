@@ -127,7 +127,7 @@ export function sourceBuild(root) {
   // after new commits can never run a stale build.
   fs.rmSync(dest, { recursive: true, force: true });
   const sourceHash = createHash('sha256');
-  const packages = ['h2a', 'h2a-runtime', 'track', 'remote-protocol'];
+  const packages = ['h2a', 'h2a-runtime', 'track', 'remote-protocol', 'focus'];
   for (const pkg of packages) {
     const from = join(repo, 'packages', pkg), to = join(dest, 'packages', pkg);
     fs.mkdirSync(to, { recursive: true });
@@ -147,7 +147,7 @@ export function sourceBuild(root) {
       }
     }
     compile(join(from, 'src'));
-    for (const name of ['schema', 'fixtures']) {
+    for (const name of ['schema', 'fixtures', 'schemas', 'registry']) {
       if (fs.existsSync(join(from, name))) fs.cpSync(join(from, name), join(to, name), { recursive: true });
     }
   }
