@@ -552,57 +552,65 @@
     },
     {
       "scenario": "inventory:read-paths",
-      "status": "not-covered",
-      "blocker": "scenario-undefined",
-      "owner": "L15"
+      "pairs": "all-36",
+      "tiers": [
+        "S"
+      ],
+      "status": "covered-simulated",
+      "ratchet": {
+        "scope": "R2-seated",
+        "entry": "L9-diagonals-green"
+      }
     },
     {
       "scenario": "inventory:session-paths",
-      "status": "not-covered",
-      "blocker": "scenario-undefined",
-      "owner": "L15"
+      "pairs": "all-36",
+      "tiers": [
+        "S"
+      ],
+      "status": "covered-simulated",
+      "ratchet": {
+        "scope": "R2-seated",
+        "entry": "L9-diagonals-green"
+      }
     },
     {
       "scenario": "inventory:conductor-paths",
-      "status": "not-covered",
-      "blocker": "scenario-undefined",
-      "owner": "L15"
+      "pairs": "all-36",
+      "tiers": [
+        "S"
+      ],
+      "status": "covered-simulated",
+      "ratchet": {
+        "scope": "R2-seated",
+        "entry": "L9-diagonals-green"
+      }
     },
     {
       "scenario": "inventory:governance-paths",
-      "status": "not-covered",
-      "blocker": "scenario-undefined",
-      "owner": "L15"
-    },
-    {
-      "scenario": "unavailability",
-      "status": "not-covered",
-      "blocker": "scenario-undefined",
-      "owner": "L12"
-    },
-    {
-      "scenario": "refusal",
-      "status": "not-covered",
-      "blocker": "scenario-undefined",
-      "owner": "L12"
-    },
-    {
-      "scenario": "loop",
-      "status": "not-covered",
-      "blocker": "scenario-undefined",
-      "owner": "L13"
-    },
-    {
-      "scenario": "negotiation",
-      "status": "not-covered",
-      "blocker": "scenario-undefined",
-      "owner": "L14"
+      "pairs": "all-36",
+      "tiers": [
+        "S"
+      ],
+      "status": "covered-simulated",
+      "ratchet": {
+        "scope": "R2-seated",
+        "entry": "L9-diagonals-green"
+      }
     },
     {
       "scenario": "functions-remainder",
       "status": "not-covered",
-      "blocker": "scenario-undefined",
-      "owner": "L15"
+      "blocker": "no-executable-s-tier-scenario",
+      "owner": "L15",
+      "tools": [
+        "h2a_run",
+        "h2a_drive_consent_request",
+        "h2a_drive_consent_respond",
+        "h2a_drive_consent_cosign",
+        "h2a_drive_consent_status",
+        "h2a_drive_consent_revoke"
+      ]
     }
   ],
   "simulationMandatory": {
@@ -620,7 +628,11 @@
       "negotiation:flow",
       "negotiation:offer-unknown",
       "negotiation:stabilize-without-offer",
-      "negotiation:replayed-stabilization"
+      "negotiation:replayed-stabilization",
+      "inventory:read-paths",
+      "inventory:session-paths",
+      "inventory:conductor-paths",
+      "inventory:governance-paths"
     ],
     "pairs": "all-36",
     "tiers": [

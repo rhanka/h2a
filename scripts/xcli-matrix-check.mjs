@@ -50,6 +50,11 @@ export function checkMatrixManifest(manifest) {
       assert.equal(row.status, 'not-covered', `row ${row.scenario} must declare not-covered`);
       assert.ok(typeof row.blocker === 'string' && row.blocker.length > 0, `row ${row.scenario} needs a blocker`);
       assert.match(row.owner ?? '', /^L1[2-5]$/, `row ${row.scenario} needs an owning lot L12-L15`);
+      // Lot L15: the remainder row names every uncovered tool — no
+      // unnamed residue may close the inventory.
+      if (row.scenario === 'functions-remainder') {
+        assert.ok(Array.isArray(row.tools) && row.tools.length > 0, 'remainder names its tools');
+      }
     }
   }
   // Lots promote rows incrementally: the defined rows must equal exactly
