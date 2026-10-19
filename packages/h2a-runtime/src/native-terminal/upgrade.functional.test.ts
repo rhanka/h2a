@@ -370,9 +370,29 @@ describe.skipIf(process.platform !== "linux")("native terminal upgrade (scenario
     expect(packCode, `npm pack of the candidate failed: ${packOutput.stderr}`).toBe(0);
     const tarball = readdirSync(join(packDir, "closed/artifacts")).find((name) => name.endsWith(".tgz"));
     expect(tarball, "the candidate pack contains no tarball").toBeDefined();
+    // The candidate runtime imports its core peer during lease/supervision.
+    // Install the matching source-built core, never an owner's installed dist.
+    // The runtime tarball lives under the closed-pack artifacts dir; sibling
+    // candidates are packed beside it with plain npm pack (same layout the
+    // packaged-review test parses from this loop).
+    const candidateTarballs = [join(packDir, "closed/artifacts", tarball!)];
+    for (const dependency of ["h2a", "track", "focus"]) {
+      const before = new Set(readdirSync(packDir));
+      const dependencyPack = spawn(npmCommand, npmArgs(["pack", "--ignore-scripts", "--pack-destination", packDir]), {
+        cwd: join(workspacePackageDir, "..", dependency),
+        env: { ...process.env, PATH: buildToolPath }, stdio: ["ignore", "pipe", "pipe"],
+      });
+      children.add(dependencyPack);
+      const dependencyOutput = captureOutput(dependencyPack);
+      const [dependencyCode] = await once(dependencyPack, "exit");
+      expect(dependencyCode, `npm pack of candidate ${dependency} failed: ${dependencyOutput.stderr}`).toBe(0);
+      const dependencyTarball = readdirSync(packDir).find((name) => name.endsWith(".tgz") && !before.has(name));
+      expect(dependencyTarball, `the matching candidate ${dependency} pack is mandatory`).toBeDefined();
+      candidateTarballs.push(join(packDir, dependencyTarball!));
+    }
     candidatePrefix = createPrivateTestDirectory("upgrade-candidate-");
     prefixes.add(candidatePrefix);
-    await npmInstall([join(packDir, "closed/artifacts", tarball!)], candidatePrefix, cache);
+    await npmInstall(candidateTarballs, candidatePrefix, cache);
     candidateRoot = join(candidatePrefix, "node_modules", "@sentropic", "h2a-runtime", "dist");
     candidateEntry = join(candidateRoot, "native-terminal", "process.js");
 
@@ -380,6 +400,9 @@ describe.skipIf(process.platform !== "linux")("native terminal upgrade (scenario
     const candidateVersion = (JSON.parse(readFileSync(join(candidatePrefix, "node_modules", "@sentropic", "h2a-runtime", "package.json"), "utf8")) as { version: string }).version;
     const workspaceVersion = (JSON.parse(readFileSync(join(workspacePackageDir, "package.json"), "utf8")) as { version: string }).version;
     expect(candidateVersion).toBe(workspaceVersion);
+    const candidateFocus = JSON.parse(readFileSync(join(candidatePrefix, "node_modules", "@sentropic", "focus", "package.json"), "utf8")) as { version: string };
+    const workspaceFocus = JSON.parse(readFileSync(join(workspacePackageDir, "..", "focus", "package.json"), "utf8")) as { version: string };
+    expect(candidateFocus.version, "Focus must come from the matching local candidate, including prerelease versions").toBe(workspaceFocus.version);
     // And it is THIS train's build — the coded live-owner refusal exists only
     // in the candidate, not in the published 0.98.4 (the two dists differ).
     const candidateRefusal = readFileSync(join(candidateRoot, "native-terminal", "server.js"), "utf8");
