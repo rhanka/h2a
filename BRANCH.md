@@ -1,5 +1,45 @@
 # PTY Phase B — PR #375, continuation 2026-10-18
 
+## Dernier P1 cf375ba / cf375bs — retours d'erreur pré-B
+
+Correction limitée à `upgrade/index.ts`, `upgrade-swap.test.js` et ces preuves.
+L'adaptateur de remplacement conserve le plan connu quand le sous-processus
+échoue ou produit des métadonnées illisibles. Les retours `failed` après
+remplacement du paquet ou vérification finale incluent aussi les pré-B connus,
+avec `admission: unfenced`, `retirement: deferred` et les versions différées.
+L'issue d'échec du paquet et son diagnostic restent inchangés.
+
+Base rouge : `d7c14e2a086cbb4f7cd6e84f2b3e7949f577f59b`. Wrapper existant
+`tmp/pty-am2-run.mjs` : mkdtemp privé, HOME/XDG/runtime/TMPDIR temporaires.
+
+```sh
+rtk node tmp/pty-am2-run.mjs pty-final-baseline-build npm run build -w @sentropic/h2a
+# exit 0 ; vendor-engram-live mirror OK.
+rtk node tmp/pty-am2-run.mjs pty-final-errors-red-valid node --test packages/h2a/test/upgrade-swap.test.js
+# 30 passed, 8 failed, 0 skipped/cancelled/todo ; exit 1.
+rtk node tmp/pty-am2-run.mjs pty-final-errors-build npm run build -w @sentropic/h2a
+# exit 0 ; vendor-engram-live mirror OK.
+rtk node tmp/pty-am2-run.mjs pty-final-errors-green22 node --test packages/h2a/test/upgrade.test.js packages/h2a/test/upgrade-swap.test.js packages/h2a/test/upgrade-boot-worker.test.js
+# Node 22.22.1 : 80 passed, 0 failed/skipped/cancelled/todo ; exit 0.
+rtk env PATH=/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin:/usr/local/bin:/usr/bin:/bin node tmp/pty-am2-run.mjs pty-final-errors-green24 node --test packages/h2a/test/upgrade.test.js packages/h2a/test/upgrade-swap.test.js packages/h2a/test/upgrade-boot-worker.test.js
+# Node 24.22.0 : 80 passed, 0 failed/skipped/cancelled/todo ; exit 0.
+```
+
+Les huit nouveaux cas ont chacun échoué avant correction : sortie non nulle et
+JSON illisible du vrai adaptateur, paquet courant et remplacé ; remplacement
+refusé ou levé ; vérification incohérente ou levée. Le sous-processus temporaire
+écrit le plan reçu avant l'échec, preuve que le remplacement a bien été tenté.
+Premier essai rouge non retenu : fixture de paquet sans point d'entrée résoluble ;
+fixture corrigée avant `red-valid`, aucun changement produit entre les deux.
+Sorties complètes : `tmp/pty-final-*.log`.
+
+`origin/main=d0b1afa38` reste ancêtre après fetch ; aucun rebase nécessaire.
+Aucun écart à la spec, aucun gate modifié, aucun CLI réel B5 ni suite complète
+lancé localement. B5 Linux/macOS reste à qualifier par le conducteur avec une
+cohorte réelle non vide ; le vert local ne qualifie pas B5. Revue harness :
+`selection-failed` (identité modèle/effort exacte indisponible et lancement h2a
+installé interdit), aucun consensus revendiqué.
+
 ## Amendement pré-B ratifié — texte Astra intégral
 
 L'owner demande l'application de `rvpreba-last.md` (AMENDEMENT-MODIFIÉ),
