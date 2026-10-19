@@ -892,9 +892,12 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
           return 0;
         }
         try {
-          // One validated text line plus one submit CR: no bracketed-paste or
-          // embedded controls can turn this into multiple terminal actions.
-          await client.write(lease, `${text}\r`);
+          // Keep the submit out of the bulk-input burst: real TUIs treat
+          // text + CR in one read as pasted content and leave it unsent.
+          // Retain this fenced lease and the one-line/control-byte validator.
+          await client.write(lease, text);
+          await delay(100);
+          await client.write(lease, "\r");
         } finally {
           await client.releaseController(lease).catch(() => {});
         }

@@ -114,6 +114,16 @@ jobs:
           node -e 'if (process.versions.node.split(".")[0] !== process.argv[1]) process.exit(1)' "${{ matrix.node }}"
           test "$(git rev-parse HEAD)" = "${{ needs.resolve-release-sha.outputs.release-sha }}"
 
+      # Lot L11 (SPEC v3 §7.1): no passing trusted-lane receipt for the exact
+      # release SHA → no release. A release dry-run refuses the same way.
+      - name: Require the campaign receipt for the exact release SHA
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          node scripts/xcli-receipt-check.mjs --fetch-trusted
+          --sha "${{ needs.resolve-release-sha.outputs.release-sha }}" --gate release
+
       - run: npm ci
         shell: bash
       - run: npm run audit:security

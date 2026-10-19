@@ -53,7 +53,8 @@ type ConnectionContext = {
   readonly socket: Socket;
   readonly leases: Map<string, NativeTerminalControllerLease>;
   readonly responseBudget: ResponseQueueBudget;
-  buffer: string;
+  buffer: string[];
+  bufferBytes: number;
   pendingResponseBytes: number;
   pendingResponses: number;
 };
@@ -413,19 +414,26 @@ function writeError(context: ConnectionContext, id: unknown, code: NativeTermina
 }
 
 function consumeFrames(host: NativeTerminalHost, context: ConnectionContext, chunk: string): void {
-  context.buffer += chunk;
+  let start = 0;
   for (;;) {
-    const newline = context.buffer.indexOf("\n");
-    if (newline < 0) break;
-    const line = context.buffer.slice(0, newline);
-    context.buffer = context.buffer.slice(newline + 1);
-    if (line.length === 0) continue;
-    if (Buffer.byteLength(line) > NATIVE_TERMINAL_MAX_FRAME_BYTES) {
+    // Inspect only new input: rescanning/flattening the accumulated string on
+    // every socket read makes a fragmented near-limit frame quadratic.
+    const newline = chunk.indexOf("\n", start);
+    const fragment = newline < 0 ? chunk.slice(start) : chunk.slice(start, newline);
+    context.bufferBytes += Buffer.byteLength(fragment);
+    if (context.bufferBytes > NATIVE_TERMINAL_MAX_FRAME_BYTES) {
       writeError(context, "invalid", "invalid-request", new Error("terminal request exceeds the frame limit"));
       recordHostFault(HOST_FAULT_COUNTERS.hostClientFrameDestroys);
       context.socket.destroy();
       return;
     }
+    if (fragment.length > 0) context.buffer.push(fragment);
+    if (newline < 0) return;
+    const line = context.buffer.join("");
+    context.buffer = [];
+    context.bufferBytes = 0;
+    start = newline + 1;
+    if (line.length === 0) continue;
     let raw: unknown;
     try {
       raw = JSON.parse(line);
@@ -452,11 +460,6 @@ function consumeFrames(host: NativeTerminalHost, context: ConnectionContext, chu
     } catch (error) {
       if (!writeError(context, request.id, "operation-failed", error)) return;
     }
-  }
-  if (Buffer.byteLength(context.buffer) > NATIVE_TERMINAL_MAX_FRAME_BYTES) {
-    writeError(context, "invalid", "invalid-request", new Error("terminal request exceeds the frame limit"));
-    recordHostFault(HOST_FAULT_COUNTERS.hostClientFrameDestroys);
-    context.socket.destroy();
   }
 }
 
@@ -1354,7 +1357,8 @@ async function initializeNativeTerminalHostServer(options: {
       socket,
       leases: new Map(),
       responseBudget,
-      buffer: "",
+      buffer: [],
+      bufferBytes: 0,
       pendingResponseBytes: 0,
       pendingResponses: 0,
     };

@@ -9,8 +9,8 @@ import { renderH2aMcpServer } from "./codex.js";
  * Renders the JSON snippet a user must add to their Claude Code MCP config
  * to expose the `h2a mcp-serve` JSON-RPC 2.0 server as an MCP backend.
  *
- * Claude Code reads MCP servers from either `~/.config/claude/mcp.json`
- * (user-global) or a project-local `.mcp.json` at the workspace root.
+ * Claude Code reads user MCP servers from `~/.claude.json` (inside an explicit
+ * CLAUDE_CONFIG_DIR when set), or a project-local `.mcp.json`.
  * Both are documented in the path hint.
  */
 export function renderMcpConfig(
@@ -24,11 +24,12 @@ export function renderMcpConfig(
     },
     path: {
       hint:
-        "Claude Code reads its MCP config from either ~/.config/claude/mcp.json " +
-        "(user-global) or a project-local .mcp.json at the workspace root. " +
+        "Claude Code reads user MCP config from ~/.claude.json " +
+        "(or $CLAUDE_CONFIG_DIR/.claude.json when overridden), or a " +
+        "project-local .mcp.json at the workspace root. " +
         "Merge the snippet under the top-level `mcpServers` key in whichever " +
         "file your setup uses.",
-      example: "~/.config/claude/mcp.json"
+      example: "~/.claude.json"
     }
   };
 }

@@ -1,501 +1,145 @@
-# Focus edit return — feat/focus-edit-return
-
-## Objective
-- [ ] Implement independent h2a editing contracts and reconciliation from SPEC v3 (SHA-256 6d320f6627643c97a45baf47d103e0442618bbc2da4613054f8c7dd1e8b8e105).
-- [ ] Deliver one draft PR: feat(focus): in-place edit return with per-paragraph diff.
-
-## Scope / Guardrails
-- [x] Allowed: packages/focus/{src/editing,src/index.ts,tests/editing*,tests/fixtures,schemas/focus-edit*,scripts,package.json,skills/focus,registry}; packages/h2a/{package.json,src/focus-feedback.ts,src/runtime/focus/edit-receipts.ts,src/bin.ts,src/cli.ts,test/focus-feedback.test.js,test/focus-edit-recovery.test.js,test/helpers/focus-edit-fixture.js}; docs/focus/document-editing.md; docs/reviews/focus-edit-return*; package-lock.json; generated packages/track/src/focus-vendor; BRANCH.md.
-- [x] Conditional: focus-build/focus-kit/render anchors and FE-4 only after published DS editor; FE-6 only after offline loop and policy ratification; FE-8 UI qualification after FE-3.
-- [x] Forbidden: main, other repos, owner state/native host/installed h2a, unrelated processes, Python/Perl, full test suite, npm publication, Track writes.
-- [x] Tests use temporary HOME/XDG/TMP including XDG_RUNTIME_DIR, named files only, zero skips; no fallback editor authorised by this task.
-- [x] FEDIT-EX1: cohesive source/schema/test contracts and generated vendor exceed 150 lines; rollback via source revert and existing vendor generator. No Makefile or plan template is present; selective conventional commits replace make commit. No harness recorder may reach owner state.
-
-## Lots
-- [x] FE-0 implementation: closed sidecar and return schemas, S/F/M validation, canonical hashes and lossless JSON/YAML; editing-contract.spec.ts + schema.spec.ts + packaging.spec.ts.
-- [ ] FE-0 merge gate: Focus/DS cross-review of concrete vocabulary, retiredParagraphIds and source/editor codec pairing.
-- [x] FE-1 source core: persistent mapping, segmentation/diff and pure cumulative reconciler; editing-{anchors,codec,diff,reconcile}.spec.ts, browser-neutral hash vector; 26/26 core tests, zero skips.
-- [ ] FE-3/4: blocked pending FE-2 published RichTextEditor and final codec; no local substitute.
-- [x] FE-5 manual implementation: fixture-driven offline importer/receipt/register; focus-feedback.test.js + focus-edit-recovery.test.js; 5/5 pass in sequence after vendor generation, zero skips.
-- [ ] FE-5 complete gate: real browser export, presentation rebuild, versioned registry edit capabilities and hard-crash lock recovery remain unqualified.
-- [ ] FE-6/8/9: dependent acceptance/connected/consumer qualification remains open.
-- [x] Delivery: targeted gates, generated vendor check, conventional commits pushed to own branch, one draft PR #378, French evidence report at docs/reviews/focus-edit-return.md.
-
-## Feedback Loop
-- [x] Supplied independent Astra/Sol spec reviews: GO-CODE. Existing origin/main includes merged PR #377 at d0b1afa38.
-- [x] DS check: npm latest @sentropic/design-system-svelte 0.36.0 exports only the root; exact tarball contains no RichTextEditor. FE-3 stops at dependency boundary; FE-4 distribution and FE-8 browser budgets cannot be accepted.
-- [x] Source codec: @lezer/markdown 1.8.0 with GFM and an exact CRLF offset map; unchanged pinned hash vector after removing the original parser's transitive DOM dependency. List-item editing remains excluded pending FE-2.
-- [x] RED: initial core 19/19 fail; supplemental structural-revocation/malformed-receipt/refused-ID cases 3/10 fail, prototype key 1/7 fail, DOM dependency 1/8 fail, answer/note targets 1/9 fail; final core 26/26 pass. Initial consumer 6 failures included 2 duplicate registrations, corrected to a standalone helper; final named commands recorded in the delivery report.
-- [x] Review protocol requires installed h2a/live mesh, forbidden by owner confinement; record selection-failed and claim no implementation consensus.
-- [x] Verification: Focus 9 named files 153/153; Node feedback/recovery/build 38/38; vendor byte-identical; schema drift check and TypeScript build exit 0. A later Node rerun raced the vendor's Track-dist cleanup (1/5 failed); the same command rerun sequentially passes 5/5. No timeout or test condition was relaxed.
-
-# Inherited context: Dossier diagrams — h2a lots
-
-## Objective
-- [ ] Deliver H1 evidence and matching H4; prepare H2 at its published DS boundary.
-
-## Scope / Guardrails
-- [x] Branch feat/dossier-diagrams; immutable v1, explicit schemaVersion: 2.
-- [x] Named test files only; disposable HOME/XDG/TMP; no Python or owner state.
-- [x] Allowed: packages/focus/{src,tests,schemas,skills,registry,package.json}; packages/h2a/{src/focus-build.ts,focus-kit,test/focus-build.test.js,test/distribution-increments.test.js,package.json}; scripts/{build-focus-dossier,focus-vendor-lib,vendor-focus,check-focus-vendor}.mjs; generated packages/track/src/focus-vendor; packages/track/skills/present-decision; docs/focus; docs/reviews/dossier-diagrams.md; .github/workflows/focus-dossier.yml; BRANCH.md.
-- [x] Forbidden: other repos, main, installed h2a, native host, owner state, unrelated processes, workflow changes outside Focus qualification.
-- [x] BRDG-EX3: docs/focus/diagram-renderer-contract.md and docs/reviews/dossier-diagrams/** hold the dependency handoff and qualification evidence; generated vendor commits may exceed the file-count guideline.
-- [x] BRDG-EX2: frozen corpus/calibration manifests and old-validator fixture are generated qualification artifacts; their commits may exceed 150 lines.
-- [x] BRDG-EX1: generated schemas/vendor/renderer/locks may exceed the harness 150-line limit; regenerate reproducibly, rollback by regeneration from prior sources. No Makefile exists; selective git commits replace make commit.
-- [x] PR #377 correction scope: scripts/run-tests.mjs and its prepared-npm-cache.test.js / node-track-observation-lab.js witness preserve the prepared cache through HOME isolation.
-
-## Lots
-- [x] H1a contract: model, byte integrity, closed validation, version schema; tests/evidence.spec.ts, schema.spec.ts.
-- [x] H1b reading/export: summaries counted, raw bytes separately accounted; readability.spec.ts, render.spec.ts.
-- [x] H1c build: atomic output, explicit evidence template, metadata; test/focus-build.test.js.
-- [x] H1d renderer: offline citation/search/download/back and bounded DOM; evidence-browser.test.mjs.
-- [x] H1e qualification: frozen numeric small/large policy and real corpus; evidence-performance-browser.test.mjs.
-- [ ] H2 blocked: npm E404 for @sentropic/diagram-core and @sentropic/diagram-canvas 0.1.0; DS2 exact tarballs required.
-- [ ] H3 blocked: H2 + DS4/DS5 renderer/control exports; no Focus toolbar substitute.
-- [x] H4-H1: regenerated assets/vendor, capability manifest, skills/docs, fresh tarball template/build/open; packaging.spec.ts, distribution-increments.test.js.
-- [x] Delivery: targeted gates, one draft PR #377, own-branch push, per-job CI report; full integration checks remain visible in PR.
-
-## Feedback Loop
-- [x] rv377 A/S P1: prepared cache lost with isolated HOME; targeted production-entry witness RED 0/1 (run-g0jSGX) → GREEN 1/1 (run-kpLhOI), distribution 1/1 (run-KsxQ1q), zero skips. Logs: /home/antoinefa/.cache-tmp/diag377-evidence-B189hY.
-- [x] rv377 S P2 schema: image metadata conditional parity; schema 3 RED / 46 → 46/46 GREEN, registry and vendor digests regenerated; no v1 change.
-- [x] rv377 A/S P2 navigation and S P3 annex: stale search/actual viewport/latest opener/colliding app id, browser 4 RED / 5 → 5/5 GREEN at 320/390/1440px, keyboard/touch; run-e7kyZs → run-3k7fBu.
-- [x] rv377 qualification: 195 targeted tests pass, zero skips; G5a run-CMDhRx passes unchanged budgets on corrected assets, review377-metrics.json retains all samples/hashes.
-- [x] rv377 CI shallow checkout: exact frozen corpus reference fetched without changing the tested tree; depth-one clone witness 0/1 RED (run-iunwUR) → 1/1 GREEN (run-x3Rgqq), original 1,731 blobs/bytes retained, no numeric budget change. Final targeted total 196.
-- [x] H4 méthode : témoins install-skills 17/17 et shared-skills 3/3 ; budget present-decision 1/13 RED → 13/13 GREEN, instructions 835 mots et audit sous 300, seuils conservés.
-- [x] Race RSS : statm du même PID confirme un espace vide avant l'état zombie ; instrumentations vivantes/absentes toujours bloquantes. 2/6 RED → 6/6 GREEN ; G5a 30/30 aux mêmes budgets.
-- [x] CI corpus : remplacement de la dépendance aux fichiers de travail par 1 731 blobs de sources techniques figés ; recalibration et qualification 30/30 GREEN aux mêmes budgets, run-BttLAh.
-- [x] CI second passage : retrait des faux prérequis de développement/musl ; cache basé sur la fermeture runtime et os/cpu/libc, 190 tarballs, 1/1 distribution et 2/2 navigateur GREEN, zéro skip.
-- [x] CI initiale : ENOTCACHED @hono/mcp ; fermeture npm verrouillée et cache temporaire sans métadonnées registre, RED commander puis 1/1 distribution et 2/2 navigateur GREEN, zéro skip.
-- [x] Supplied spec reviews agree GO-CODE at 34b0b43a.
-- [x] Implementation review selection-failed: owner confinement forbids installed h2a/live mesh; docs/reviews/dossier-diagrams.md.
-
-# Inherited origin/main history
-
-# Live disclosure authority — owner decision 2026-10-17
-
-- [x] Scope: Δ-L7a on `feat/live-disclosure-authority`, based on origin/main.
-- [x] Reference: engram plan/09 and SPEC_LIVE_GIT_INDEXING at e417c33c,
-  including the Read side amendment (repository/provider/scope/duration).
-- [x] Allowed implementation: gateway-host/live-{auth,disclosure,host}.ts,
-  live-auth.test.ts and live-disclosure.test.ts; branch/review evidence only.
-- [x] Guardrails: temporary test roots, Node 22/24, targeted files only;
-  no installed h2a, owner state, Python, Track writes or provider calls.
-- [x] Lot A: registered Ed25519 host proof, live audience, current declaration,
-  host-local tenant, expiry, operations and revocation; default denial.
-- [x] Lot A evidence: 14 behavioural failures before implementation, then
-  14/14 pass; no session or enrollment fallback.
-- [x] Lot B: explicit grants, exact paths/surfaces, mandatory L4b policy,
-  before-handoff revalidation, opaque audit receipts, no snapshot archive.
-- [x] Lot C: G4 fails with policy-unavailable until an actual L8 contract
-  exists; isolated emitted consumer proof and targeted Node 22/24 checks.
-- [x] Lot B/C evidence: 39 behavioural failures before grants/audit, then
-  53/53 disclosure tests. Seven additional regressions observed red then green:
-  final-policy state replacement, async audit, throwing clock, revoked issuing
-  proof with fresh emit proof, backwards grant start, and independent read
-  authority missing from emission, and late provider redirection. Compiler
-  and test-type errors were corrected separately, not counted as RED evidence.
-- [x] Qualification: exact auth/disclosure/registration files, 90/90 on
-  Node 22.22.1 and 24.18.0, zero skips; repository and test typechecks pass.
-- [x] Lot D: English conventional commits, own-branch push and PR #367; CI job
-  outcomes and remaining qualification limits in the requested owner report.
-- [x] Feedback: #342/#343 deliver declarations/GitHub/retention, not L7a
-  verified authority or L8 policy. The old unverified registration guard stays.
-- [x] Feedback: installed h2a/mesh review launch is forbidden by confinement;
-  record selection failure and claim no independent consensus or merge gate.
-
-## Tour 2 — independent review rev367
-
-- [x] Rebased onto origin/main; no merge of main. Push uses the owner-required
-  force-with-lease exception for this rebase, only on our feature branch.
-- [x] L4b-2 exhaustive deterministic exclusions at engram e417c33c: five secret
-  rules, all protected basenames/prefix/suffix/segments, secret-bearing paths;
-  each rule/alternative on all surfaces and every two-fragment split.
-- [x] Final emission requires one host snapshot lease spanning authority,
-  revocation, state, read access, content decisions, clock and bound transport.
-  Data-only validation and synchronous send share that lease; no unlocked fallback.
-- [x] Correct refusal codes and attempt ordering; authentication before grant
-  lookup, correlated revoke refusals, revoke survives policy/declaration drift;
-  no foreign state lookup before signed repository scope verification.
-- [x] Complete evidence ID coverage is required, including composed fragments.
-- [x] Snapshot authorizations must match the exact caller and issuing proof IDs;
-  same-owner proof substitution produced 2 RED failures before its guard.
-- [x] RED baseline: 67 behavioural failures / 172 tests, zero skips; execution
-  proof also rejects the old duplicate test names. GREEN: 172/172 on Linux
-  Node 22.22.1 and 24.18.0, zero skips; production execution-proof verifier
-  accepts each three-file targeted report; strict test and repo types pass.
-- [x] Fixed the duplicate parameterized secret-test identity that caused the
-  three previous CI execution-not-proven failures; no gate was weakened.
-- [x] No production snapshot adapter or independent peer consensus claimed;
-  missing snapshot authority denies emission and G4 stays policy-unavailable.
-
-# Inherited branch context
-
-# Focus publication — owner decision 2026-10-17
-
-Branch: feat/focus-publish. Implement the accepted release-wave decision:
-focus 0.5.0 is independent of the h2a 0.98.7 train. RC suffix follows the
-h2a tag; all five verified tarballs and versions enter the same-tree proof.
-Backfills must refuse an older four-package prepare helper before publication.
-Scope: release/rehearsal workflows, release/candidate/rehearsal helpers and
-qualified execution snapshot, named release tests, release documentation.
-No tag, npm publication, installed h2a, owner state, Track writes or full
-local suite. Tests use disposable HOME/XDG/TMP directories.
-
-- [x] Red regression evidence: 48/61 then 25/32; no skips.
-- [x] Initial six targeted Node test files: 93/93, zero skips; actual focus tarball
-  dry-run without node_modules exit 0. Packed schema/validator and registry
-  digests checked; logs: /home/antoinefa/.cache/focuspub-{red,contract-red,green,rehearsal}.log.
-- [x] Legacy-preparation regression: 12/14 red before the focus-version
-  handoff guard, then six files 95/95 green with zero skips; same-tree focus
-  preparation is required for RC and stable.
-Publication: conventional commits, own-branch push and English PR; per-job
-CI outcomes are maintained in the owner-requested focuspub-report.md.
-
-Harness consensus review is selection-failed: the required installed h2a/mesh
-access is forbidden by the owner's confinement. No peer consensus claimed.
-See docs/reviews/focus-publish.md.
-
-# Inherited context from origin/main
-
-# Claude seat on the common seat model (realign 2026-10-13, r8)
-
-Branch: `feat/claude-seat-h2a-lots` (worktree `claude-seat-lots`).
-Scope: Claude subscription seat for llm-mesh, realigned on the model every
-other seat follows (owner decision 2026-10-13, DEC-118): same facade
-enrollment shape, mesh-side storage/refresh, gateway registry wiring, same
-test families — nothing Claude-specific.
-
-State: **enrolled seats route through the mesh; serving needs the official
-`claude` CLI on `PATH`**. The gateway always composes mesh
-`ClaudeCodeRuntimeClient` on the h2a runner into the provider registry via
-`AnthropicAdapter`, with no per-seat configuration. The runner resolves
-`claude` from `PATH` per attempt (generic spawn safety only: no version
-pin, no digest, no attestation). A seat with no enrolled account (or no
-`claude` on `PATH`) never serves a route — fail-closed per attempt, like
-every other seat. The pre-acquire seam halt is gone — account locking
-lives in the mesh directory like every other seat.
-
-Removed without replacement (no other seat carries them): egress/netns
-guard (`egressNetnsReader`, `H2A_CLAUDE_EGRESS_ENFORCED`, `/proc` netns
-checks), org-proof handoff, managed-config + registry/MDM guards, h2a-side
-account lease lock, seam-gate attempt binding, seat-qualification env
-configuration (`H2A_CLAUDE_BINARY_PATH` / `H2A_CLAUDE_BINARY_DIGEST`),
-version pin + digest/attestation machinery.
-
-Kept: facade enrollment (OAuth default + `--from cli` official store +
-`--from token` secret-manager pipe, DEC-119), mesh keyring
-storage/refresh, transport-specific hygiene of the CLI seat
-(identity-proven sweep, sandbox transport, cleanup blocking the result,
-root-level static error boundary (inherited by every subcommand —
-commander never prints its own text: `outputError` is a no-op,
-`exitOverride` writes a static message chosen ONLY from `err.code`
-(unknown option, unknown command, too many arguments, missing argument,
-option argument missing, required option not specified, conflicting option,
-invalid argument, fallback); no declared name kept, no counts, no suggestion;
-multi-line values ending a line with `'` or `.`, unknown commands with
-newline, `remove` with a dotted first line all static; proven by a 34-form
-property canary with exact static-shape asserts for every form),
-masked TTY input / piped-token boundary (never
-argv, never logged). The startup sweep runs at every gateway
-composition even with no Claude account enrolled.
-
-Import note (differs from muse by mesh limitation 0.25.0): `--from cli`
-is a point-in-time COPY — the mesh never writes the official store file,
-but its copy refreshes independently, so re-run `--from cli` when the
-grant rotates. Linux store file only; macOS keychain unverified.
-
-Follow-ups (not built here, other seats unchanged): `--from cli` on
-codex/cloud-code/mistral-vibe, `--from token` on
-codex/cloud-code/mistral-vibe/muse, a mesh-side Claude store leg
-(CLI sole writer, mesh re-reads at refresh), the shared GitHub-secret +
-cron refresh/re-enroll circuit (exists for NO seat today).
-
-Validation: `tsc -b` clean; seat suites green
-(`claude-code-cli-*`, `claude-seat-input`, `llm-mesh-accounts`,
-`gateway-host/claude-code-seat-wiring`, `gateway-host/host`,
-`runtime-llm-mesh-account`); `gh pr checks 327 -R rhanka/h2a` green.
-Reports under `.h2a/` stay untracked; the r8 report lives in
-`.h2a/build/claude_seat_r8_report.md` (untracked) and the seat-model
-inventory in `.h2a/build/seat_model_inventory.md` (untracked).
-
-# Inherited context from updated origin/main
-
-# Focus decision dossier kit
-# L2-s — PR 348 Tour 3
-
-Owner scope: rev348-r2.md, root corrections with targeted red/green evidence,
-rebase onto origin/main, own-branch push with lease, per-job CI and Tour 3 report.
-No main, Track, scanner, allowlist, real native host or installed h2a access.
-
-- Native interactive/headless IPC preserves non-seat authentication. Seat
-  launches consume the materializer environment; sanitization searches values
-  only for explicitly supplied secrets.
-- Serialized-only renewable fixtures delegate canonical references under
-  trusted custody and exclusive family tickets. Native access references and
-  canonical material reach the synthetic file/keyring payloads distinctly.
-- Native Vibe TOML editor update/removal regression; 16 serialized matrix cells
-  with disposal, capture and persisted clearance; strict lifecycle validation.
-- Public fixture/codec/materialization exports have a runtime red/green test.
-- Finding 3: real L1 PR 681@7293130ee3f6 discovered and pinned. All five
-  CLI cli/token sources route to its consumer parser/importSeatBundle API,
-  never to renewable product imports. Private profile and bounded stdin only.
-  Ten imports/reload/expiry/401/explicit-refresh tested against pinned L1
-  sources with zero provider calls. Publication remains an external gate;
-  older installed APIs refuse before input. Details: docs/cli-seat-l2s.md.
-- Sources/declarations and native op compiled only into disposable proof dirs.
-  No full local suite. No peer consensus: installed/native dispatch forbidden.
-
-# Earlier branch records
-
-# Focus publication — owner decision 2026-10-17
-
-Branch: feat/focus-publish. Implement the accepted release-wave decision:
-focus 0.5.0 is independent of the h2a 0.98.7 train. RC suffix follows the
-h2a tag; all five verified tarballs and versions enter the same-tree proof.
-Backfills must refuse an older four-package prepare helper before publication.
-Scope: release/rehearsal workflows, release/candidate/rehearsal helpers and
-qualified execution snapshot, named release tests, release documentation.
-No tag, npm publication, installed h2a, owner state, Track writes or full
-local suite. Tests use disposable HOME/XDG/TMP directories.
-
-- [x] Red regression evidence: 48/61 then 25/32; no skips.
-- [x] Initial six targeted Node test files: 93/93, zero skips; actual focus tarball
-  dry-run without node_modules exit 0. Packed schema/validator and registry
-  digests checked; logs: /home/antoinefa/.cache/focuspub-{red,contract-red,green,rehearsal}.log.
-- [x] Legacy-preparation regression: 12/14 red before the focus-version
-  handoff guard, then six files 95/95 green with zero skips; same-tree focus
-  preparation is required for RC and stable.
-Publication: conventional commits, own-branch push and English PR; per-job
-CI outcomes are maintained in the owner-requested focuspub-report.md.
-
-Harness consensus review is selection-failed: the required installed h2a/mesh
-access is forbidden by the owner's confinement. No peer consensus claimed.
-See docs/reviews/focus-publish.md.
-
-# Inherited context from origin/main
-# L2-s — PR 348 Tour 2
-
-Owner scope: rebase onto origin/main, address every finding in rev348.md with
-red/green targeted tests, push this branch with lease, append Tour 2 and every
-CI job to the requested report. No main/Track/guard/allowlist edits.
-
-Allowed correction scope: cli-seat-{codecs,fixtures,materialization}.ts and
-their named tests, cli-seat-direct-matrix.test.js; native-host.ts,
-llm-mesh-accounts.ts and its temporary-directory tests, index.ts aliases,
-cli-seat-runtime-wiring.test.ts, this record and docs/cli-seat-l2s.md.
-
-- Explicit channel authority, unavailable refusal, strict pinned envelope.
-- Native credential/MCP paths, private XDG/no-follow files, injected agy keyring.
-- Closed MCP environment, separate profile, three sanitized native captures.
-- Real materializer matrix, independent diagonal actors, lab billing admission.
-- Exclusive family journal, unique stream ids, exact persisted handoff.
-- Scenario/codec tool gate, adversarial canaries, precedence/base64/401 guards.
-- Targeted baseline controls retain 71/80 red regressions, 13/13 wiring red,
-  20/20 diagonal failures and a cross-process admission failure; final tests/typechecks are in the owner report.
-- Finding 3 remains partially blocked by the published L1 facade: no generic
-  five-provider cli/token import with external refresh policy. Preserve its
-  refusal, do not fabricate an API or duplicate the store. Explicit owner,
-  scope and acceptance are in docs/cli-seat-l2s.md. No mergeability claim.
-- Confinement forbids installed/native h2a review dispatch; no new consensus.
-  All test children are synchronous/owned, HOME/XDG are disposable; no full
-  local suite, provider state, Python or real credentials.
-
-# L2-s — PR 348 CI repair
-
-- Owner scope: rebase `feat/cli-seat-l2s` onto `origin/main`, repair the three
-  failed CI jobs without weakening tests, push with lease, and append `CI` to
-  the owner's `l2s-report.md`. No main or Track writes.
-- Rebased onto `3113014fe`; all three original jobs fail the same gateway
-  eradication ratchet on three provider references introduced by L2-s.
-- Minimal repair scope: fixture provenance comments, live-stub receipt
-  diagnostics, its targeted regression in `cli-seat-direct-matrix.test.js`,
-  and `docs/cli-seat-l2s.md`. Keep the scanner and allowlist unchanged.
-- Named tests only, temporary HOME/XDG/TMP roots, no installed h2a/native host,
-  provider credentials, Python, foreign process access or full local suite.
-- Native h2a/mesh review dispatch remains forbidden by the owner's confinement;
-  no external consensus is claimed.
-- Evidence: `node --test packages/h2a/test/gateway-eradication.test.js`:
-  3/4 before, 4/4 after. The final direct-matrix regression against the old
-  stub fails 103/104 on Node 22 and 24, then passes 104/104 after repair.
-  Six named `cli-seat-*.test.ts` files pass 76/76 on both Node versions.
-  No skips; scanner/allowlist unchanged. Detailed commands, logs and per-job
-  CI results are retained in the owner's report.
-- L1 update: npm 0.26.1 now exports the bundle via its public node entry.
-  Five-CLI seat import and external refresh-policy APIs remain absent from
-  the inspected facade contract; exact handoff: `docs/cli-seat-l2s.md`.
-
-# Inherited main context
-
-# Claude seat on the common seat model (realign 2026-10-13, r8)
-
-Branch: `feat/claude-seat-h2a-lots` (worktree `claude-seat-lots`).
-Scope: Claude subscription seat for llm-mesh, realigned on the model every
-other seat follows (owner decision 2026-10-13, DEC-118): same facade
-enrollment shape, mesh-side storage/refresh, gateway registry wiring, same
-test families — nothing Claude-specific.
-
-State: **enrolled seats route through the mesh; serving needs the official
-`claude` CLI on `PATH`**. The gateway always composes mesh
-`ClaudeCodeRuntimeClient` on the h2a runner into the provider registry via
-`AnthropicAdapter`, with no per-seat configuration. The runner resolves
-`claude` from `PATH` per attempt (generic spawn safety only: no version
-pin, no digest, no attestation). A seat with no enrolled account (or no
-`claude` on `PATH`) never serves a route — fail-closed per attempt, like
-every other seat. The pre-acquire seam halt is gone — account locking
-lives in the mesh directory like every other seat.
-
-Removed without replacement (no other seat carries them): egress/netns
-guard (`egressNetnsReader`, `H2A_CLAUDE_EGRESS_ENFORCED`, `/proc` netns
-checks), org-proof handoff, managed-config + registry/MDM guards, h2a-side
-account lease lock, seam-gate attempt binding, seat-qualification env
-configuration (`H2A_CLAUDE_BINARY_PATH` / `H2A_CLAUDE_BINARY_DIGEST`),
-version pin + digest/attestation machinery.
-
-Kept: facade enrollment (OAuth default + `--from cli` official store +
-`--from token` secret-manager pipe, DEC-119), mesh keyring
-storage/refresh, transport-specific hygiene of the CLI seat
-(identity-proven sweep, sandbox transport, cleanup blocking the result,
-root-level static error boundary (inherited by every subcommand —
-commander never prints its own text: `outputError` is a no-op,
-`exitOverride` writes a static message chosen ONLY from `err.code`
-(unknown option, unknown command, too many arguments, missing argument,
-option argument missing, required option not specified, conflicting option,
-invalid argument, fallback); no declared name kept, no counts, no suggestion;
-multi-line values ending a line with `'` or `.`, unknown commands with
-newline, `remove` with a dotted first line all static; proven by a 34-form
-property canary with exact static-shape asserts for every form),
-masked TTY input / piped-token boundary (never
-argv, never logged). The startup sweep runs at every gateway
-composition even with no Claude account enrolled.
-
-Import note (differs from muse by mesh limitation 0.25.0): `--from cli`
-is a point-in-time COPY — the mesh never writes the official store file,
-but its copy refreshes independently, so re-run `--from cli` when the
-grant rotates. Linux store file only; macOS keychain unverified.
-
-Follow-ups (not built here, other seats unchanged): `--from cli` on
-codex/cloud-code/mistral-vibe, `--from token` on
-codex/cloud-code/mistral-vibe/muse, a mesh-side Claude store leg
-(CLI sole writer, mesh re-reads at refresh), the shared GitHub-secret +
-cron refresh/re-enroll circuit (exists for NO seat today).
-
-Validation: `tsc -b` clean; seat suites green
-(`claude-code-cli-*`, `claude-seat-input`, `llm-mesh-accounts`,
-`gateway-host/claude-code-seat-wiring`, `gateway-host/host`,
-`runtime-llm-mesh-account`); `gh pr checks 327 -R rhanka/h2a` green.
-Reports under `.h2a/` stay untracked; the r8 report lives in
-`.h2a/build/claude_seat_r8_report.md` (untracked) and the seat-model
-inventory in `.h2a/build/seat_model_inventory.md` (untracked).
-
-# Inherited workspace scope guard record from origin/main
-
-# Workspace scope guard
-
-- [ ] Objective: default portable Focus design-system dossiers with mobile ecosystem canvases.
-- [ ] Scope: h2a Focus CLI, isolated Svelte consumer, reusable catalog, template, skill and targeted tests.
-- [x] Guardrails: owner confinement; no installed h2a, host state, Python, full local suite or main writes.
-- [x] Allowed: packages/h2a/focus-kit/**, src/focus-build.ts, bin.ts, CLI help, package metadata;
-      packages/track/skills/present-decision/**; named tests; build script, CI and documentation.
-- [x] Forbidden: reference kit writes, other runtime behavior and long-term DS renderer ownership.
-- [x] Design: use h2a focus build, a native Focus extension, and bundle @sentropic/focus/validate unchanged.
-- [x] Lot 1: closed document template, ecosystem catalog, validator/build command; focus-build.test.js.
-- [x] Lot 2: DS Svelte renderer, light/dark, cards, pinch zoom, portable artifact; browser fixture.
-- [x] Lot 3: default skill, exact command, documentation, targeted skill and schema tests.
-- [ ] Lot 4: package verification, push own branch, English PR, per-job CI report.
-- [x] Feedback: harness review selection-failed; installed h2a/mesh access forbidden by owner.
-- [x] Feedback: no Track writes through installed tools; no consensus or review identity claimed.
-- [x] Feedback: generated renderer and lockfile exceed suggested commit size; bounded to requested consumer.
-- [x] Tour 2 scope: optional plain-JSON diagram-core SemanticDocument on Focus DiagramNode;
-      canonical schema/validator/readability, catalog, interim xyflow consumer and targeted regressions.
-- [x] Design contract: generic@1, semantic records only; no Focus scene model, view, geometry or layout hint.
-- [x] Layout L-R1..L-R11 remains DS-owned; interim placement exists only inside the xyflow adapter.
-- [x] Rebase origin/main: already up to date at the start of Tour 2.
-- [x] Final rebase includes #364; only BRANCH.md conflicted; Focus scope retained.
-- [x] Direct delivery dependencies: regenerate Focus registry digests and Track focus-vendor
-      after changing canonical schema/validation. Red vendor drift and packed digest proofs recorded.
-- [x] Last round #368: close nested semantic records; regenerate authoritative Mermaid fallback;
-      budget displayed scene labels once while retaining opaque-code checks.
-- [x] Last round #368: reuse canonical question/option grouping and recommendation naming;
-      resolve local selections across linked sets; browser coverage at 320px and 390px.
-- [x] Regression proofs: all five reviewer findings reproduced red, then CLI/browser 32/32 green;
-      readability 69/69 green; isolated temporary state and no skipped tests.
-
-## Objective
-- [x] Enforce workspace ownership in shipped development hooks.
-
-## Scope / Guardrails
-- [x] Own worktree only; no live h2a state, installed binary or full local suite.
-- [x] No version bump, attribution or main mutation.
-
-## Branch Scope Boundaries
-- [x] Allowed: packages/h2a/hooks/**, targeted scope tests, hosts/plugin.ts,
-  hosts/vibe-equipment.ts, hosts/vibe-discovery.ts, hosts/native-convergence.ts,
-  hosts/native-files.ts, hosts/native-toml.ts, hosts/native-inspection.ts, cli.ts, plugin manifests,
-  test/native-host-convergence.test.js, test/native-host-review-regressions.test.js,
-  test/host-plugin.test.js, test/native-host-shared-skills.test.js,
-  docs/workspace-scope-guard.md, docs/specs/SPEC_EVOL_WORKSPACE_SCOPE_GUARD.md,
-  docs/reviews/workspace-scope-guard/**, BRANCH.md.
-- [x] Direct CI blocker: scripts/test-inventory.json (host-plugin normative title).
-- [x] Forbidden: live host state, unrelated sources, dependency/version changes.
-
-## Lot 1
-- [x] Classifier, signed grants, typed audit and owner command.
-- [x] Red/green: workspace-scope-guard.test.js.
-
-## Lot 2
-- [x] Host plumbing and targeted workspace-scope-hosts.test.js.
-
-## Lot 3
-- [x] Documentation, review outcome, push, PR and individual CI reporting.
-
-## Feedback Loop
-- [x] Independent security/coverage design reviews: pin launch identity, inspect
-  remote destinations and committed bumps, preserve private packages.
-- [x] h2a consensus unavailable: no h2a MCP in confinement; do not reach live host.
-
-- [x] Preserve read-only npm version and private package versioning; published siblings still require release authority.
-- [x] Restrict helper execution and manual session initialization while preserving source inspection.
-
-## Tour 2 — Independent review #364
-- [x] R1: agy native payloads and SessionStart/PreToolUse; Muse project hooks verified against the public Meta CLI; six-host enforcement/grant/version matrix.
-- [x] R2: scoped shell cwd/environment, executable heredocs/substitutions, git/gh options, package script aliases.
-- [x] R3: shell redirections before every executable/builtin; runtime/helper protection; static Codex envelopes and dynamic refusal.
-- [x] R4: root-relative manifests, pinned session baseline, path commits, matching refspecs, MultiEdit and separate foreign/release grants.
-- [x] R5: startup-pinned plugin key, normalized grant options/repositories, Vibe native-session journal and refreshed explicit trust.
-- [x] R6: quoted prose, own --all, native test runner flags, current PR resolution, branch reads, literal patch envelopes.
-- [x] R7: exact repo/action/ref/session in both refusal channels.
-- [ ] Fresh author-complementary h2a consensus: unavailable in confinement (no h2a MCP; no real-state access authorized).
-
-## Tour 3 — Independent review rev364-r2.md
-- [x] R1: agy global-hook cwd, native workspacePaths SessionStart binding, JSON startup output, multi-session --write installation; explicit Muse project installation only.
-- [x] R2: fail-closed shell grammar/state, wrappers, balanced cwd stacks, HOME/OLDPWD/directory stack, continuations, stdin/runtime paths and independent Git directory selectors.
-- [x] R3: protect hook configuration, installer metadata, helper code and journals; destination options, destructive Git commands and indirect/reflective JS capability access.
-- [x] R4: inspect index independently of commit operands, enumerate pushed refs, match full patch paths and honor native line ranges.
-- [x] R5: lex JS strings/comments separately and decode literals before shell classification; preserve legitimate commit messages.
-- [x] CI blocker: normative inventory follows the existing agy/Muse installation test, without removing its execution requirement.
-- [ ] Fresh h2a consensus remains unavailable; no independent verdict claimed for the new diff.
-
-## Tour 4 — Fail closed on uncertainty (conductor decision)
-- [x] Remove heredoc preprocessing and executable substitution/shell-script interpretation; refuse opaque protected intent with a typed request for the plain explicit form or owner grant.
-- [x] Check dynamic sensitive argv before action selection; cover runtime stdin/eval, independent Git directories, symlinks, file destination options and Git mutation forms from rev364-r3.md.
-- [x] Preserve explicit own copy/move/mkdir operations, conditional own cwd alternatives, plain protected actions and valid JavaScript escapes; reject duplicate command members using the shared lexer.
-- [x] Compare complete proposed/base manifests, preserve baseline publication across private toggles, and inspect the union of explicit pushed refs and tags; bind sessions before recording baselines.
-- [x] Targeted regression proof: 76 T4 tests on original HEAD (7 pass, 69 fail, 0 skipped), then 76 pass, 0 fail, 0 skipped after correction.
-- [x] Centralize symlink uncertainty before canonicalization, including env/npm selectors and dangling effective copy destinations: three additional red/green regressions.
-- [ ] Full native sessions, remote mutations and independent h2a consensus remain outside confinement qualification; full repository suite is reserved for the conductor.
-
-# L2-s — PR 348 Dernier tour
-
-- Owner scope: rev348-r3.md, minimal correction, rebase onto origin/main,
-  own-branch lease push and per-job CI in the owner report.
-- Rebased onto df5652b18; only BRANCH.md conflicted. Both branch records
-  were retained, including the complete workspace scope guard record.
-- The sole finding is still externally blocked: Sentropic PR 681 is OPEN;
-  registry latest is llm-mesh 0.26.1 / cluster-mesh 0.18.0. An isolated
-  install of those published packages fails all three API availability
-  assertions (3 failed, 0 skipped). No green-after or closure is claimed.
-- Keep the fail-closed import guard and dependency lock unchanged. Do not
-  merge with this reserve. L1 must publish its import API, then h2a can pin
-  compatible published versions and qualify all ten cli/token imports.
-- Targeted post-rebase enrollment/dispatch/regression suites: 6 files,
-  118 passed, 0 skipped. Full local suite and native/installed h2a forbidden.
+# Live cross-CLI messaging
+
+Branch: feat/live-cross-cli-messaging; base: 54e7ffd7859f84fdaa04db94975e292e1af63330 (0.98.6).
+Owner scope: 2026-10-15. No merge, release, installed h2a execution, Python,
+real owner h2a state, unowned process inspection, force push, or main changes.
+
+## Lot 1 — measure before changing the product
+
+- Node 22/24 harness; source-only build in mkdtemp; direct C++ compilation of
+  unchanged node-pty source avoids its Python installation toolchain.
+- 36 distinct ordered pairs of Claude, Codex, AGY, Gemini, Muse and Vibe.
+- Separate evidence for MCP initialization/tools, signed send, durable
+  delivery, CLI inbox read, autonomous live reaction and signed reply delivery.
+- Two empty independent workspaces/identities, including same-CLI pairs.
+- Fresh HOME/XDG/store/socket/registry per cell; existing login files copied
+  through an auth-only allowlist and deleted with CLI state after the cell.
+- Existing native isolation guards retained. Every nested h2a command resolves
+  to a temporary shim over checkout sources. Existing upgrade reexec guard
+  prevents background installation. No raw model/provider outputs retained.
+- Blocking trust/auth/provider/environment cases remain explicit blockers.
+  No skipped cells and no support claims without measured-OK.
+- Commit and push harness plus full table before product corrections.
+
+## Lot 2 — repair only observed failures
+
+Order: MCP loading, durable delivery, live wake, reply. Each regression must
+retain a failing command/receipt and the corresponding passing observation.
+Run every test file that references a changed integration. A successful MCP
+handshake alone never becomes a successful messaging cell.
+
+## Lot 3 — simulated CI, real local qualification
+
+GitHub CI on Node 22/24 exercises deterministic model peers on the real product
+messaging/wake path for all ordered pairs. Local real-CLI qualification stays
+separate, with no secrets or paid seats required by CI. Missing simulation
+coverage is a failed assertion, never a silent skip.
+
+## Design review and limitations
+
+Two independent adversarial design readings were reconciled: use h2a_inbox
+(no h2a_receive tool exists), prove MCP initialization plus tool publication,
+correlate exact envelopes and identities, require an idle receiver barrier,
+preserve the upgrade guard, and never treat a notification as model reception.
+
+The installed-h2a consensus-review route prescribed by harness-review is
+incompatible with the owner's explicit confinement. It is not used. These
+design readings are not a claim of a formal harness-review consensus.
+
+The shell's default bwrap runner cannot create its namespace in this
+confinement. Source reads and private test commands use explicit execution
+exceptions; they do not authorize contacting the real h2a host or state.
+
+Current outcome: phase 1 measured 0 OK, 5 KO, 31 blocked. CI has proven all
+36 simulated round trips on Node 22 and 24; this is no real-CLI support claim.
+Historical published-host fixtures now require a private PID namespace with
+an init reaper. The scoped new CI launcher supplies it. Running that fixture
+without the launcher fails closed; adapting the existing full npm-test/release
+entry points remains a pre-merge task, and those full gates are not qualified
+by the scoped cross-CLI workflow. No merge readiness is claimed.
+
+## Resume 2026-10-16
+
+Preserve the twelve pushed commits; never run the full suite locally. The
+confirmed native wake framing defect is fixed: keep the validated line and its
+single submit CR in separate input bursts under the same fenced lease. Human
+activity and control-byte guards remain intact. Claude-to-Claude now has a real
+measured signed round trip, autonomous inbox read and signed reply after the
+idle barrier. Codex still has no real MCP initialization; an ineffective
+initial-submit experiment was removed. The scoped CI workflow now includes the
+direct op consumers. See docs/2026-10-16-cross-cli-resume.md for commands,
+red/green receipts, qualification limits and cleanup evidence.
+### Resume follow-up — Muse settings and bounded CI jobs (2026-10-16)
+
+- Muse's real parser rejects settings without root schema_version=1. Preserve this field in product snippets/writes, keep unrelated settings and refuse incompatible versions even with force. Native config oracle: 3 failed before, 3 passed after; host integration: 26 passed/2 failed before, 28 passed after; six host consumer files: 71 passed/0 failed.
+- Copy Muse launcher/native program into the temporary experiment before running it: its wrapper accesses adjacent mutable update notices independently of HOME. Temporary fake-install red/green proves the owner installation notice is untouched. No Python or installed h2a execution.
+- Real Muse still exits 1 after trust, and its isolated exec preflight exits 1 without a recognized diagnostic. No real Muse support claim. AGY login selection is now an explicit authentication blocker. Codex remains unqualified; unsuccessful startup experiments were removed.
+- CI 38900923045 proves all 36 simulated pairs on both Node versions, but is cancelled overall because Node 24 exceeded the 10-minute combined job budget. Split independent runtime/native-source/host-source checks without increasing timeout or weakening guards; publish receipts. Follow-up CI required after push.
+- CI 38908671072 additionally exposed missing Track skill fixtures (six assertions, reproduced locally 11 pass/6 fail then 17 pass/0 fail) and root-owned receipt upload failure. Export only safe JSON copies with uploader ownership; leave all private build/state permissions intact. Export/PID refusal tests 4/4; targeted runtime op tests 4/4; Gemini replay remains authentication-required.
+- Final code CI 38909510272 on 2f4568a9: all eight jobs success. Each of Node 22/24: 36/36 simulated pairs, harness 18 passed, native config 2 passed, runtime 702 passed/0 failed (four declared non-tests), source native 151 passed/0 failed (12 declared todos), source hosts 210 passed/0 failed (one declared placeholder). Downloaded artifacts and independently validated every source-file identity and simulated messaging stage. Final evidence-only archive uses [skip ci]; no code changes after this qualified SHA.
+- Real live qualification remains Claude→Claude only, 1/36; no real cross-CLI pair qualified. Formal installed-h2a review route remains forbidden and selection-failed; global npm/release PID confinement wiring remains outside this qualified slice.
+
+## Lot L1 — rebase onto origin/main (2026-10-19)
+
+- New base: d0b1afa38 (was 54e7ffd7). `git merge-tree --write-tree origin/main HEAD` exits 0.
+- 17 commits replayed in original order, subjects unchanged; backup ref backup/xcli-pre-rebase-97f93e72 kept.
+- Resolutions per SPEC v3 §10: BRANCH.md kept branch-side; muse.ts keeps schema_version: 1 plus main's non-migrated/registry-bootstrap wording (no merge instruction in hint); hosts-integration.test.js keeps all assertions from both sides.
+- Rebase defect found and fixed in L1: post-rebase workers failed (qualification-worker-failed) because toml-eslint-parser (packages/h2a dep from main) was missing from the stale worktree install; `npm ci --ignore-scripts` restored it, lock untouched.
+- Post-rebase targeted proofs: harness 18/18, hosts-integration 28/28, muse-config 3/3, native-config 2/2, simulated spot cell claude:codex simulated-OK.
+- Not runnable in this sandbox: xcli-in-pid-namespace launcher (sudo blocked by container no-new-privileges); covered by CI.
+
+## PR #379 — CI correction round 3 (2026-10-19)
+
+- Private namespace init stays privileged; test consumers now drop to the
+  invoking UID/GID, preventing root-owned `.q` and `.test-scratch` residue.
+- Packaging resolves the selected npm before PATH isolation; the regression
+  test packs and installs the real local artifacts with a Node-only PATH.
+- Receipt discovery uses exact-SHA repository runs and explicitly refuses
+  `trusted-receipt-absent (receipt absent, qualification pending)`; all
+  provenance checks remain mandatory. No live receipt exists or was fabricated.
+- Targeted RED/GREEN, Node 22/24 outputs, CI job causes and local sudo limits:
+  [round-3 evidence](docs/2026-10-19-fix379-r3.md). No full suite run locally.
+
+## PR #379 — CI correction round 4 (2026-10-19)
+
+- Forward a complete private HOME/XDG/remote configuration across sudo;
+  keep the private PID namespace and invoking UID/GID. Seven affected remote
+  suites pass 49/49 on Node 22 and 24.
+- Require the pinned npm oracle native payloads explicitly; retain the
+  reviewed bootstrap digest and disabled lifecycle scripts.
+- Allocate CI scratch space in RUNNER_TEMP/private TMPDIR and publish only
+  exact invocation export paths, without global /tmp evidence globs.
+- Expose failed Vitest suite preparation output even with zero failed
+  assertions. The historical Node 22 beforeAll cause was absent from its log;
+  do not claim it diagnosed or fixed without the next CI observation.
+- Receipt absence remains the expected refusal. Local targeted RED/GREEN,
+  confinement limits and cleanup record: [round-4 evidence](docs/2026-10-19-fix379-r4.md).
+
+## PR #379 — CI correction round 5 (2026-10-19)
+
+- The general runtime gate no longer forces the qualification-only
+  `H2A_SESSION_HOST=native`: crash-log treated its value as a secret and
+  corrupted `native-name-collision`. Native remains the product default;
+  secret redaction, assertions and all confinement guards stay intact.
+- Regression RED on Node 22/24, then launcher tests 5/5 with real targeted
+  crash-log assertions 20/20 on both versions. Native isolation 5/5 and
+  targeted trust-root contract/discovery checks 5/5. Local real sudo dispatch
+  still requires interactive authentication; no namespace green claimed.
+- The historical Node 22 beforeAll cause is `unknown`: its published log,
+  annotations and receipt omit the diagnostic. The next CI run executes
+  all three upgrade cases successfully; no historical cause inferred.
+- Receipt absence remains the expected refusal. Commands, outputs and
+  review limitation: [round-5 evidence](docs/2026-10-19-fix379-r5.md).
+
+## PR #379 — CI correction round 6 (2026-10-19)
+
+- The publish smoke's oversized peer hit quadratic partial-frame processing,
+  also present in main: 32 MiB inspected as 8.64 GB across 64 KiB fragments.
+  Buffer fragments and count new UTF-8 bytes once; assemble at newline.
+  Protocol limit and the smoke's five-second deadline remain unchanged.
+- Regression RED three times at five seconds, then GREEN five times.
+  Server transport 41/41 and real-host crash containment 7/7 on Node 22/24;
+  smoke/rehearsal contracts 37/37 and source build pass.
+- origin/main is already an ancestor; no rebase required. Receipt absence
+  remains the expected refusal. Commands, measured costs and review limits:
+  [round-6 evidence](docs/2026-10-19-fix379-r6.md).
