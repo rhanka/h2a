@@ -33,7 +33,13 @@ test('L8/L9 review: Claude and Muse use their own login layouts', () => {
       const target = join(root, family), env = environment(target);
       assert.ok(copyLogin(family, source, target, env).includes(name));
       assert.equal(fs.readFileSync(join(env.HOME, name), 'utf8'), body);
-      if (family === 'claude') assert.equal(JSON.parse(fs.readFileSync(join(env.HOME, '.claude.json'))).mcpServers, undefined);
+      if (family === 'claude') {
+        const metadata = join(env.CLAUDE_CONFIG_DIR, '.claude.json');
+        assert.equal(fs.existsSync(metadata), true, 'Claude metadata follows its explicit config directory');
+        const value = JSON.parse(fs.readFileSync(metadata));
+        assert.equal(value.mcpServers, undefined);
+        assert.equal(value.hasCompletedOnboarding, true);
+      }
     }
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
