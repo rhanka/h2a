@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   simulated-messaging:
@@ -17,6 +18,7 @@ jobs:
       fail-fast: false
       matrix:
         node: ["22", "24"]
+        sender: [claude, codex, agy, gemini, muse, vibe]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -31,6 +33,7 @@ jobs:
       # surface from the built dist (tsc only, no install scripts, no Python).
       - run: npm run build:h2a
       - name: Test witness integrity and detect delivery without live reaction
+        if: matrix.sender == 'claude'
         run: >-
           node --test scripts/xcli-lab.test.mjs scripts/xcli-proxy.test.mjs
           scripts/xcli-simulation.test.mjs scripts/xcli-gemini-registry.test.mjs
@@ -46,20 +49,28 @@ jobs:
           scripts/xcli-campaign-lane.test.mjs
           scripts/xcli-scenarios.test.mjs
           scripts/xcli-docs.test.mjs
+          scripts/xcli-review-regressions.test.mjs scripts/xcli-wake-review.test.mjs
+          scripts/xcli-process-review.test.mjs scripts/xcli-trusted-artifact.test.mjs
+          scripts/xcli-evidence-scan.test.mjs scripts/xcli-packaged-review.test.mjs
       # Same exit-2 contract as the scenario matrix: the verdict belongs to
       # the ci-check step, which fails a partial or non-green matrix itself.
-      - name: Exercise all 36 ordered pairs with simulated models
+      - name: Exercise six ordered pairs in this sender shard with three repetitions each
         run: >-
-          node scripts/qualify-cross-cli.mjs --simulated --timeout-ms 30000
+          node scripts/qualify-cross-cli.mjs --simulated --sender "${{ matrix.sender }}" --timeout-ms 45000
+          --wake-release-offsets-ms 0,6000,1000
           --output "${{ runner.temp }}/xcli-simulated.json" || code=$?;
           if [ "${code:-0}" -ne 0 ] && [ "${code:-0}" -ne 2 ]; then exit "$code"; fi
       - name: Require every cell and every live messaging stage
-        run: node scripts/xcli-ci-check.mjs "${{ runner.temp }}/xcli-simulated.json"
-      - name: Preserve safe qualification receipt
+        run: node scripts/xcli-ci-check.mjs "${{ runner.temp }}/xcli-simulated.json" --sender "${{ matrix.sender }}"
+      - name: Scan publication files
+        id: evidence-scan
         if: always()
+        run: node scripts/xcli-evidence-scan.mjs "${{ runner.temp }}/xcli-simulated.json"
+      - name: Preserve safe qualification receipt
+        if: always() && steps.evidence-scan.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
-          name: xcli-simulated-node-${{ matrix.node }}
+          name: xcli-simulated-node-${{ matrix.node }}-${{ matrix.sender }}
           path: ${{ runner.temp }}/xcli-simulated.json
           if-no-files-found: error
 
@@ -83,8 +94,12 @@ jobs:
       - run: node --test scripts/xcli-native-config.test.mjs
       - name: Run all source suites referencing the changed runtime modules
         run: node scripts/xcli-in-pid-namespace.mjs scripts/xcli-runtime-tests.mjs
-      - name: Preserve runtime execution receipts
+      - name: Scan publication files
+        id: evidence-scan
         if: always()
+        run: node scripts/xcli-evidence-scan.mjs /tmp/xcli-evidence-*/receipt.json
+      - name: Preserve runtime execution receipts
+        if: always() && steps.evidence-scan.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: xcli-runtime-node-${{ matrix.node }}
@@ -145,8 +160,12 @@ jobs:
           packages/h2a/test/install-skills-hosts.test.js
           packages/h2a/test/mcp-run.test.js
           packages/h2a/test/cli-contract.test.js
-      - name: Preserve source execution receipts
+      - name: Scan publication files
+        id: evidence-scan
         if: always()
+        run: node scripts/xcli-evidence-scan.mjs /tmp/xcli-evidence-*/receipt.json /tmp/xcli-evidence-*/execution.json
+      - name: Preserve source execution receipts
+        if: always() && steps.evidence-scan.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: xcli-source-${{ matrix.scope }}-node-${{ matrix.node }}
@@ -195,8 +214,12 @@ jobs:
         run: >-
           node scripts/xcli-scenarios.mjs --check "${{ runner.temp }}/xcli-scenario.json"
           --only "${{ matrix.scenario }}"
-      - name: Preserve the scenario receipt
+      - name: Scan publication files
+        id: evidence-scan
         if: always()
+        run: node scripts/xcli-evidence-scan.mjs "${{ runner.temp }}/xcli-scenario.json"
+      - name: Preserve the scenario receipt
+        if: always() && steps.evidence-scan.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: xcli-scenario-node-${{ matrix.node }}-${{ strategy.job-index }}
@@ -217,15 +240,21 @@ jobs:
         node: ["22", "24"]
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
       - name: Gate on the trusted-lane receipt, or report the open qualification
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
           if [ "${{ github.base_ref }}" = "main" ]; then
-            node scripts/xcli-receipt-check.mjs --receipt docs/cross-cli-receipt.json \
-              --sha "$GITHUB_SHA" --gate merge
+            node scripts/xcli-receipt-check.mjs --fetch-trusted \
+              --sha "$CANDIDATE_SHA" --gate merge
           else
             node scripts/xcli-receipt-check.mjs --report-only
           fi

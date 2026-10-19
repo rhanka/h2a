@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { join } from 'node:path';
+import { scanEvidenceFiles } from './xcli-evidence-scan.mjs';
 
 // The PID-contained CI runner is root, whereas upload-artifact is not. Export
 // only named JSON receipts to its parent's empty private directory. Never
@@ -13,6 +14,7 @@ export function exportEvidence(root, names) {
   const parent = fs.lstatSync(destination);
   assert.ok(parent.isDirectory() && !parent.isSymbolicLink());
   assert.equal(parent.mode & 0o777, 0o700, 'evidence directory must remain private');
+  scanEvidenceFiles(names.map(name => join(root, name)));
   for (const name of names) {
     assert.ok(['receipt.json', 'execution.json'].includes(name));
     const source = join(root, name), stat = fs.lstatSync(source);

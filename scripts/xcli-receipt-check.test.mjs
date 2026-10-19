@@ -7,12 +7,16 @@ import fs from 'node:fs';
 import os from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { checkReceipt, computeHarnessDigests, loadMatrixManifest } from './xcli-receipt-check.mjs';
+import { checkReceipt, computeHarnessDigests, loadMatrixManifest, STAGE_KEYS } from './xcli-receipt-check.mjs';
+import { createHash } from 'node:crypto';
 import { buildCampaignReceipt } from './xcli-ci-check.mjs';
 import { ORACLE_SOURCES } from './xcli-lab.mjs';
 
 const repo = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
 const SHA = 'a'.repeat(40);
+const stages = () => Object.fromEntries(STAGE_KEYS.map(key => [key, true]));
+const replications = () => [20000, 28000, 24000].map(releaseAt => ({ woke: true, wakeWindows: {
+  barrierAt: 0, deliveryAt: 10000, releaseAt, wakeAt: releaseAt + 1000, firstReadAt: releaseAt + 2000, dMs: 3000 } }));
 
 function cliVersions() {
   return {
@@ -30,6 +34,8 @@ function goodReceipt(overrides = {}) {
     version: 1,
     lane: 'campaign',
     sha: SHA,
+    source: { sha: SHA, digest: 'a'.repeat(64) },
+    provenance: { runId: 123, runAttempt: 1 },
     harnessDigests: computeHarnessDigests(repo),
     seatManifestDigest: 'f'.repeat(64),
     cliVersions: cliVersions(),
@@ -37,15 +43,63 @@ function goodReceipt(overrides = {}) {
     mandatory: manifest.mandatory.merge,
     cells: manifest.mandatory.merge.map(row => ({ scenario: 'probe', pair: row.pair,
       status: 'measured-OK', simulated: false, blocker: null,
-      stages: { sent: true, delivered: true }, caps: { sessionsDebited: 1 },
-      cleanup: { secretWipe: true } })),
-    caps: { sessionsDebited: 16, wallClockSpentMs: 1000 },
-    cleanup: { secretWipeProven: true },
+      sourceSha: SHA, stages: stages(), proof: { identitiesReady: true, idleBarrier: true }, noPostSendHarnessInput: true, wakeReplications: replications(), caps: { sessionsDebited: 6 },
+      cleanup: { secretWipe: true, processRecovery: true } })),
+    caps: { sessionsDebited: 200, wallClockSpentMs: 1000 },
+    cleanup: { secretWipeProven: true, processRecoveryProven: true },
     ...overrides,
   };
 }
 
-const ctx = (overrides = {}) => ({ sha: SHA, gate: 'merge', repoRoot: repo, ...overrides });
+const ctx = (overrides = {}) => ({ sha: SHA, gate: 'merge', repoRoot: repo, contentOnly: true, ...overrides });
+
+test('L11 review: a self-declared campaign without authenticated run provenance refuses', () => {
+  assert.throws(() => checkReceipt(goodReceipt(), ctx({ provenance: undefined, contentOnly: false })), /provenance-untrusted/);
+});
+
+test('L11 review: only the authenticated artifact for this run and exact head passes provenance', () => {
+  const receipt = goodReceipt();
+  const provenance = { authenticated: true, repository: 'rhanka/h2a', workflow: '.github/workflows/cross-cli-campaign.yml',
+    candidateSha: SHA, runId: 123, runAttempt: 1, receiptDigest: createHash('sha256').update(JSON.stringify(receipt)).digest('hex') };
+  assert.equal(checkReceipt(receipt, ctx({ contentOnly: false, provenance })).cells, 16);
+  for (const mutation of [{ runId: 124 }, { candidateSha: 'f'.repeat(40) }, { authenticated: false }, { workflow: 'other.yml' }]) {
+    assert.throws(() => checkReceipt(receipt, ctx({ contentOnly: false, provenance: { ...provenance, ...mutation } })), /provenance-untrusted/);
+  }
+});
+
+test('L11 review: false stages, a blocker, failed process recovery and zero debits each refuse', () => {
+  for (const mutation of [
+    r => { r.cells[0].stages = { sent: false, delivered: false }; },
+    r => { r.cells[0].blocker = 'owned-process-cleanup-failed'; },
+    r => { r.cells[0].cleanup.processRecovery = false; },
+    r => { r.caps.sessionsDebited = 0; },
+  ]) {
+    const receipt = goodReceipt(); mutation(receipt);
+    assert.throws(() => checkReceipt(receipt, ctx()));
+  }
+});
+
+test('L11 review: source SHA and (scenario,pair) are required, a probe cannot manufacture a loop', () => {
+  const dir = fs.mkdtempSync('/tmp/xcli-receipt-');
+  try {
+    const manifest = loadMatrixManifest(join(repo, 'docs/cross-cli-matrix.json'));
+    const row = { scenario: 'loop:lifecycle', pair: 'claude:codex' };
+    const file = join(dir, 'matrix.json');
+    fs.writeFileSync(file, JSON.stringify({ ...manifest, mandatory: { merge: [...manifest.mandatory.merge, row] } }));
+    const qualify = { version: 1, mode: 'real-cli', sha: SHA, cells: manifest.mandatory.merge.map(r => {
+      const [sender, receiver] = r.pair.split(':');
+      return { sender, receiver, scenario: 'probe', status: 'measured-OK', secretWipe: true };
+    }) };
+    fs.writeFileSync(join(dir, 'qualification.json'), JSON.stringify(qualify));
+    fs.writeFileSync(join(dir, 'campaign-ledger.json'), '{"sessionsDebited":32}');
+    const assemble = () => buildCampaignReceipt({ campaignRoot: dir, sha: SHA, gate: 'merge', manifestFile: file, repoRoot: repo,
+      cliVersions: cliVersions(), seatManifestDigest: 'f'.repeat(64) });
+    assert.equal(assemble().cells.at(-1).status, 'blocked', 'loop was never run');
+    qualify.sha = 'b'.repeat(40);
+    fs.writeFileSync(join(dir, 'qualification.json'), JSON.stringify(qualify));
+    assert.throws(assemble, /source-sha-mismatch/);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
 
 test('L11: the all-green exact-SHA fixture passes', () => {
   const result = checkReceipt(goodReceipt(), ctx());
@@ -111,14 +165,18 @@ test('L11: the lane-built receipt for an all-green campaign passes the check', (
   try {
     const manifest = loadMatrixManifest(join(repo, 'docs/cross-cli-matrix.json'));
     const qualifyOutput = { version: 1, mode: 'real-cli', sha: SHA,
-      cells: manifest.mandatory.merge.map(row => {
+      cells: manifest.mandatory.merge.flatMap(row => replications().map(rep => {
         const [sender, receiver] = row.pair.split(':');
-        return { sender, receiver, status: 'measured-OK', blocker: null, secretWipe: true };
-      }) };
+        return { sender, receiver, scenario: 'probe', status: 'measured-OK', blocker: null, secretWipe: true, parentSecretWipe: true,
+          processRecovery: true, parentProcessRecovery: true, ...stages(), ...rep, noPostSendHarnessInput: true,
+          evidence: [{ event: 'identity', role: 'sender', ok: true, ready: true, instance: 'sender:fixture' },
+            { event: 'identity', role: 'receiver', ok: true, ready: true, instance: 'receiver:fixture' },
+            { event: 'receiver-idle-barrier', at: rep.wakeWindows.barrierAt }] };
+      })) };
     fs.writeFileSync(join(dir, 'qualification.json'), JSON.stringify(qualifyOutput));
     fs.writeFileSync(join(dir, 'campaign-ledger.json'), JSON.stringify({ version: 1,
       caps: { launchedSessions: 32, mcpCallsPerSession: 60, wallClockMs: 7200000 },
-      sessionsDebited: 16, perSeatDebited: {}, wallClockSpentMs: 1000, attempts: {}, mcpRefusals: [] }));
+      sessionsDebited: 96, perSeatDebited: {}, wallClockSpentMs: 1000, attempts: {}, mcpRefusals: [] }));
     const receipt = buildCampaignReceipt({ campaignRoot: dir, sha: SHA, gate: 'merge',
       repoRoot: repo, cliVersions: cliVersions(), seatManifestDigest: 'f'.repeat(64) });
     assert.equal(checkReceipt(receipt, ctx()).cells, 16);
@@ -141,7 +199,7 @@ test('L11: merge refuses an absent then blocked ratcheted R2 row', () => {
     fs.writeFileSync(file, JSON.stringify(ratcheted));
     const base = goodReceipt({ mandatory: ratcheted.mandatory.merge,
       cells: [...goodReceipt().cells, { ...r2, status: 'measured-OK', simulated: false,
-        blocker: null, stages: {}, caps: {}, cleanup: { secretWipe: true } }] });
+        blocker: null, sourceSha: SHA, scenarioExecuted: true, stages: {}, caps: { sessionsDebited: 2 }, cleanup: { secretWipe: true, processRecovery: true } }] });
     assert.equal(checkReceipt(base, { ...ctx(), manifestFile: file }).cells, 17);
     const missing = { ...base, cells: base.cells.filter(c => c.scenario !== 'loop') };
     assert.throws(() => checkReceipt(missing, { ...ctx(), manifestFile: file }), /cell-missing:loop:claude:codex/);

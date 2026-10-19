@@ -3,11 +3,12 @@ import fs from 'node:fs';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
-import { PROBE, REPLY, inside, canonicalEventRecord, recordExec } from './xcli-lab.mjs';
+import { PROBE, REPLY, inside, canonicalEventRecord, recordExec, repo } from './xcli-lab.mjs';
 
 const root = process.env.XCLI_CELL;
 const evidence = inside(root, process.env.XCLI_EVENTS);
 const identities = join(root, 'known-instances.jsonl');
+const knownTools = new Set((fs.readFileSync(join(repo, 'packages/h2a/src/mcp.ts'), 'utf8').match(/["']h2a_[a-z_]+["']/g) ?? []).map(name => name.slice(1, -1)));
 const knownInstance = value => {
   if (typeof value !== 'string') return undefined;
   try { return fs.readFileSync(identities, 'utf8').split('\n').includes(value) ? value : undefined; }
@@ -114,7 +115,7 @@ export function observe(line) {
     // Lot L13: every h2a tool call witnesses a closed {tool, ok} event —
     // names are the finite product vocabulary, bodies never retained.
     // Failures outside send/inbox witness the generic closed refusal.
-    if (typeof request.tool === 'string' && request.tool.startsWith('h2a_') &&
+    if (knownTools.has(request.tool) &&
       !['h2a_send', 'h2a_inbox'].includes(request.tool)) {
       const callOk = !rpc.error && rpc.result?.isError !== true;
       emit({ event: 'tool-call', tool: request.tool, ok: callOk });
