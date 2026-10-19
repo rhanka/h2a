@@ -6,8 +6,9 @@
  *   — the explicit operator-owned host-config writer. Anything else
  *   (rendering, preview, launch, serve) writes no host config.
  * - `h2a registry-bridge serve --host <h> --profile <p> --lock <path>` —
- *   guard chain (lock → compile → static central-route check → served-surface
- *   equality) then delegates transport to the existing `mcp-serve` path.
+ *   guard chain (lock → compile → central attachment admission → served-surface
+ *   equality) then delegates transport to the central attachment shim
+ *   (never the legacy `mcp-serve` path).
  *   Refusals are typed JSON-RPC initialize errors; a missing lock is never
  *   an inferred server and never a silent empty tools/list.
  * - `h2a hosted-lock draft|verify|activate` — operator lifecycle for the
@@ -27,6 +28,7 @@ import { validateRegistryEntry, type RegistryEntry } from "./descriptors.js";
 import { activateHostedLock, draftHostedLock, verifyHostedLock } from "./hosted.js";
 import { registryPackageManifest } from "./manifest.js";
 import { createRegistry } from "./registry.js";
+import { bridgeCentralAttachmentAdmitted } from "../runtime/mcp-central-policy.js";
 
 export interface CliStreams {
   stdout: { write(text: string): void };
@@ -253,12 +255,20 @@ export async function cmdRegistryBridge(
   if (modes.includes("hosted-read-only")) {
     return refuse("invalid_parameters", "a CLI bridge never serves hosted-read-only mode; that composition belongs to the hosted service");
   }
-  if (modes.includes("shared-central")) {
-    if (process.platform !== "linux") {
-      return refuse("central_unavailable", `shared-central has no central route on ${process.platform}; refusing instead of substituting a server`);
-    }
-    if ((host as string) !== "claude") {
-      return refuse("missing_binding", `shared-central has no qualified central route for host=${host} on this build (R5-CA owns non-Claude adapters); refusing instead of substituting a server`);
+  if (modes.includes("shared-central") && flags["instance"] === undefined) {
+    // Central attachment admission lives in the central policy file: a
+    // qualified Claude session AND an enabled central with a local
+    // protocol-2 marker. Anything else is refused here — a missing lock is
+    // never an inferred server. Instance (sidecar) requests skip this
+    // refusal and stay on stdio through the plain shim; the lane policy
+    // admits them per connection, if at all.
+    if (!bridgeCentralAttachmentAdmitted({ host, ...flags })) {
+      // TODO(R5-CA): non-Claude adapters (gemini/codex/copilot/opencode/agents, ESC lanes).
+      const adapter = (host as string) !== "claude" ? " (R5-CA owns non-Claude adapters)" : "";
+      return refuse(
+        "central_unavailable",
+        `shared-central has no qualified central route for host=${host}${adapter}: needs linux, a qualified Claude session, enabled central and a local protocol-2 marker; refusing instead of substituting a server`
+      );
     }
   }
   // Prove the selection against the registry, then prove the served surface
