@@ -41,6 +41,7 @@ jobs:
           scripts/xcli-matrix.test.mjs
           scripts/xcli-receipt-check.test.mjs
           scripts/xcli-campaign-lane.test.mjs
+          scripts/xcli-scenarios.test.mjs
           scripts/xcli-docs.test.mjs
       - name: Exercise all 36 ordered pairs with simulated models
         run: >-
@@ -146,6 +147,44 @@ jobs:
           path: |
             /tmp/xcli-evidence-*/receipt.json
             /tmp/xcli-evidence-*/execution.json
+          if-no-files-found: error
+
+  # Lot L12 scenario matrix (SPEC v3 §5.1 scenario 2): every scenario row
+  # runs the full 36-pair simulated matrix and must classify scenario-OK
+  # on all 36. Loop and negotiation join the scenario axis in L13/L14.
+  scenario-matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["22", "24"]
+        scenario: ["unavailability:stopped-receiver", "unavailability:unknown-instance",
+          "unavailability:identity-never-ready", "refusal:unsigned-wake",
+          "refusal:misaddressed-wake", "refusal:replayed-wake"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: node scripts/xcli-node-headers.mjs
+      - name: Run the full simulated matrix for one scenario row
+        run: >-
+          node scripts/qualify-cross-cli.mjs --simulated --timeout-ms 30000
+          --scenario "${{ matrix.scenario }}"
+          --output "${{ runner.temp }}/xcli-scenario.json"
+      - name: Require scenario-OK on all 36 pairs
+        run: >-
+          node scripts/xcli-scenarios.mjs --check "${{ runner.temp }}/xcli-scenario.json"
+          --only "${{ matrix.scenario }}"
+      - name: Preserve the scenario receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcli-scenario-node-${{ matrix.node }}-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/xcli-scenario.json
           if-no-files-found: error
 
   # Lot L11 receipt gate (SPEC v3 §7.1): no secrets present, fork-safe. On

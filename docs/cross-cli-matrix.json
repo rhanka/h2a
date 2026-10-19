@@ -383,6 +383,78 @@
       ]
     },
     {
+      "scenario": "unavailability:stopped-receiver",
+      "pairs": "all-36",
+      "tiers": [
+        "S"
+      ],
+      "status": "covered-simulated",
+      "ratchet": {
+        "scope": "R2-seated",
+        "entry": "L9-diagonals-green"
+      }
+    },
+    {
+      "scenario": "unavailability:unknown-instance",
+      "pairs": "all-36",
+      "tiers": [
+        "S"
+      ],
+      "status": "covered-simulated",
+      "ratchet": {
+        "scope": "R2-seated",
+        "entry": "L9-diagonals-green"
+      }
+    },
+    {
+      "scenario": "unavailability:identity-never-ready",
+      "pairs": "all-36",
+      "tiers": [
+        "S"
+      ],
+      "status": "covered-simulated",
+      "ratchet": {
+        "scope": "R2-seated",
+        "entry": "L9-diagonals-green"
+      }
+    },
+    {
+      "scenario": "refusal:unsigned-wake",
+      "pairs": "all-36",
+      "tiers": [
+        "S"
+      ],
+      "status": "covered-simulated",
+      "ratchet": {
+        "scope": "R2-seated",
+        "entry": "L9-diagonals-green"
+      }
+    },
+    {
+      "scenario": "refusal:misaddressed-wake",
+      "pairs": "all-36",
+      "tiers": [
+        "S"
+      ],
+      "status": "covered-simulated",
+      "ratchet": {
+        "scope": "R2-seated",
+        "entry": "L9-diagonals-green"
+      }
+    },
+    {
+      "scenario": "refusal:replayed-wake",
+      "pairs": "all-36",
+      "tiers": [
+        "S"
+      ],
+      "status": "covered-simulated",
+      "ratchet": {
+        "scope": "R2-seated",
+        "entry": "L9-diagonals-green"
+      }
+    },
+    {
       "scenario": "unavailability",
       "status": "not-covered",
       "blocker": "scenario-undefined",
@@ -412,5 +484,19 @@
       "blocker": "scenario-undefined",
       "owner": "L15"
     }
-  ]
+  ],
+  "simulationMandatory": {
+    "scenarios": [
+      "unavailability:stopped-receiver",
+      "unavailability:unknown-instance",
+      "unavailability:identity-never-ready",
+      "refusal:unsigned-wake",
+      "refusal:misaddressed-wake",
+      "refusal:replayed-wake"
+    ],
+    "pairs": "all-36",
+    "tiers": [
+      "S"
+    ]
+  }
 }
