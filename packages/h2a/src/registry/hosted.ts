@@ -153,40 +153,74 @@ export interface HostedBindings {
   [bindingKey: string]: { contract: string };
 }
 
-/** Verify every lock binding against real supplied ports. Unbound refuses. */
-export function verifyHostedLock(options: { lockPath: string; bindings: HostedBindings }): { ok: true; lock: HostedDeploymentLock } | { ok: false; diagnostics: Array<{ code: string; message: string }> } {
-  let lock: HostedDeploymentLock;
-  try {
-    lock = JSON.parse(readFileSync(options.lockPath, "utf8")) as HostedDeploymentLock;
-  } catch (error) {
-    return { ok: false, diagnostics: [{ code: "invalid_entry", message: `invalid_entry: unreadable deployment lock: ${(error as Error).message}` }] };
-  }
-  if (!isRecord(lock) || lock.format !== HOSTED_DEPLOYMENT_LOCK_FORMAT) {
+/**
+ * Shared verification core: every lock binding is checked against real
+ * supplied ports and unbound refuses. `verifyHostedLock` and
+ * `activateHostedLock` both run this core — no second divergent checker.
+ */
+function checkHostedLock(lock: unknown, bindings: HostedBindings): { ok: true; lock: HostedDeploymentLock } | { ok: false; diagnostics: Array<{ code: string; message: string }> } {
+  if (!isRecord(lock) || lock["format"] !== HOSTED_DEPLOYMENT_LOCK_FORMAT) {
     return { ok: false, diagnostics: [{ code: "invalid_entry", message: "invalid_entry: unknown deployment lock format" }] };
   }
-  const service = options.bindings[lock.serviceBindingRef];
+  const typed = lock as unknown as HostedDeploymentLock;
+  if (!isRecord(typed.tenants)) {
+    return { ok: false, diagnostics: [{ code: "invalid_entry", message: "invalid_entry: deployment lock tenants must be an object" }] };
+  }
+  const service = bindings[typed.serviceBindingRef];
   if (!service || service.contract !== "h2a.hosted-service/v1") {
     return { ok: false, diagnostics: [{ code: "missing_binding", message: "missing_binding: hosted service binding fails verification" }] };
   }
-  const tenantIds = Object.keys(lock.tenants);
+  const tenantIds = Object.keys(typed.tenants);
   if (tenantIds.length === 0) {
     // Single-tenant bootstrap refuses Track serving when no binding verifies.
     return { ok: false, diagnostics: [{ code: "missing_binding", message: "missing_binding: no tenant repository binding verifies" }] };
   }
   for (const id of tenantIds) {
-    const ref = (lock.tenants[id] as { repositoryBindingRef: string }).repositoryBindingRef;
-    const binding = options.bindings[ref];
+    const ref = (typed.tenants[id] as { repositoryBindingRef: string }).repositoryBindingRef;
+    const binding = bindings[ref];
     if (!binding || binding.contract !== "h2a.workspace/v1") {
       return { ok: false, diagnostics: [{ code: "missing_binding", message: `missing_binding: tenant ${id} repository binding fails verification` }] };
     }
   }
-  return { ok: true, lock };
+  return { ok: true, lock: typed };
 }
 
-/** Atomically activate a verified draft as the hosted lock. */
-export function activateHostedLock(options: { lockPath: string; activePath: string }): { action: "activated"; lock: HostedDeploymentLock; backupPath?: string } {
-  const raw = readFileSync(options.lockPath, "utf8");
-  const lock = JSON.parse(raw) as HostedDeploymentLock;
+/** Verify every lock binding against real supplied ports. Unbound refuses. */
+export function verifyHostedLock(options: { lockPath: string; bindings: HostedBindings }): { ok: true; lock: HostedDeploymentLock } | { ok: false; diagnostics: Array<{ code: string; message: string }> } {
+  let lock: unknown;
+  try {
+    lock = JSON.parse(readFileSync(options.lockPath, "utf8")) as unknown;
+  } catch (error) {
+    return { ok: false, diagnostics: [{ code: "invalid_entry", message: `invalid_entry: unreadable deployment lock: ${(error as Error).message}` }] };
+  }
+  return checkHostedLock(lock, options.bindings);
+}
+
+/**
+ * Atomically activate a verified draft as the hosted lock. Admission runs
+ * the shared verification core against the operator bindings first: an
+ * unbound draft refuses with the verification diagnostic and the active
+ * lock file is left absent/unchanged. The published active bytes equal the
+ * verified draft bytes.
+ */
+export function activateHostedLock(options: { lockPath: string; activePath: string; bindings: HostedBindings }): { action: "activated"; lock: HostedDeploymentLock; backupPath?: string } {
+  let raw: string;
+  try {
+    raw = readFileSync(options.lockPath, "utf8");
+  } catch (error) {
+    throw Object.assign(new Error(`invalid_entry: unreadable deployment lock: ${(error as Error).message}`), { code: "invalid_entry" });
+  }
+  let draft: unknown;
+  try {
+    draft = JSON.parse(raw) as unknown;
+  } catch (error) {
+    throw Object.assign(new Error(`invalid_entry: unreadable deployment lock: ${(error as Error).message}`), { code: "invalid_entry" });
+  }
+  const checked = checkHostedLock(draft, options.bindings);
+  if (!checked.ok) {
+    const first = checked.diagnostics[0] as { code: string; message: string };
+    throw Object.assign(new Error(first.message), { code: first.code });
+  }
   const existed = existsSync(options.activePath);
   const backupPath = existed ? `${options.activePath}.backup-${randomUUID()}` : undefined;
   if (backupPath) writeFileSync(backupPath, readFileSync(options.activePath), { flag: "wx", mode: 0o600 });
@@ -194,7 +228,7 @@ export function activateHostedLock(options: { lockPath: string; activePath: stri
   const staging = `${options.activePath}.${randomUUID()}.tmp`;
   writeFileSync(staging, raw, { flag: "wx", mode: 0o600 });
   renameSync(staging, options.activePath);
-  return { action: "activated", lock, ...(backupPath ? { backupPath } : {}) };
+  return { action: "activated", lock: checked.lock, ...(backupPath ? { backupPath } : {}) };
 }
 
 /** Per-request tenant check: unbound tenants get coordination reads only (zero Track handler runs). */
