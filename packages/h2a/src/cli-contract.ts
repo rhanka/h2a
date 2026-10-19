@@ -549,11 +549,11 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
   {
     verb: "upgrade",
     outputShape: "action",
-    exitCodes: [0, 1],
+    exitCodes: [0, 1, 2],
     requiredFlags: [],
-    optionalFlags: ["check"],
+    optionalFlags: ["to", "dry-run", "json", "strict", "check"],
     description:
-      "Self-upgrade the global `@sentropic/h2a` (EVO-8, DEC-107). `--check` reports `{current, latest, upgradeAvailable}` without installing; bare runs `npm i -g @sentropic/h2a@latest`. Exit 1 if the install fails."
+      "Single H4 upgrade command (0.98.8): select a prepared managed build (`--to`), or report (`--check`, `status`, `resume`, `abort`, `compensate`, `unmanage`). Diagnostic and dry-run requests never install; the native host is never restarted. Exit 2 when incomplete without definitive failure, 1 on real failure."
   },
 
   {
