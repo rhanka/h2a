@@ -1,11 +1,18 @@
 // Transparent stdio witness. Never writes RPC bodies, model text or secrets.
 import fs from 'node:fs';
+import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { PROBE, REPLY, inside, canonicalEventRecord, recordExec } from './xcli-lab.mjs';
 
 const root = process.env.XCLI_CELL;
 const evidence = inside(root, process.env.XCLI_EVENTS);
+const identities = join(root, 'known-instances.jsonl');
+const knownInstance = value => {
+  if (typeof value !== 'string') return undefined;
+  try { return fs.readFileSync(identities, 'utf8').split('\n').includes(value) ? value : undefined; }
+  catch { return undefined; }
+};
 // Lot L6 (§8.3): the witness is our chain — self-record its exec synchronously
 // at startup. Never let journaling break the witness path.
 if (process.env.XCLI_EXEC_JOURNAL) {
@@ -117,17 +124,22 @@ export function observe(line) {
     let value;
     try { value = JSON.parse(result?.content?.find(c => c.type === 'text')?.text); } catch { /* unsuccessful/non-JSON */ }
     if (request.tool === 'h2a_identity_status') {
+      if (ok && value?.state === 'identity_ready' && typeof value.instance === 'string' &&
+          /^[a-zA-Z0-9_.:-]{1,200}$/.test(value.instance)) {
+        fs.appendFileSync(identities, value.instance + '\n', { mode: 0o600 });
+      }
       const state = `${ok}:${value?.state}:${value?.instance}`;
       if (state !== lastIdentity) emit({ event: 'identity', ok,
-        ready: value?.state === 'identity_ready', instance: value?.instance,
-        state: value?.state, cause: /^[a-z_]+$/.test(value?.cause ?? '') ? value.cause : undefined });
+        ready: value?.state === 'identity_ready', instance: knownInstance(value?.instance),
+        state: ['identity_ready', 'identity_pending', 'identity_failed'].includes(value?.state) ? value.state : undefined });
       lastIdentity = state;
     }
     if (request.tool === 'h2a_send') {
       const kind = request.args?.message === PROBE ? 'probe' : request.args?.message === REPLY ? 'reply' : 'other';
       const sent = ok && !value?.error && Boolean(value?.envelope?.id);
       emit({ event: 'send', ok: sent, kind,
-        envelopeId: value?.envelope?.id, from: value?.envelope?.actor?.instance, to: value?.envelope?.target?.instance });
+        envelopeId: sent && knownInstance(value?.envelope?.actor?.instance) && knownInstance(value?.envelope?.target?.instance) ? value.envelope.id : undefined,
+        from: knownInstance(value?.envelope?.actor?.instance), to: knownInstance(value?.envelope?.target?.instance) });
       // Lot L12: closed-vocabulary refusal events only. A failed send
       // witnesses {tool, kind, errorKind} — never error text, bodies, or
       // instances beyond the envelope endpoints the send event carries.
@@ -138,8 +150,8 @@ export function observe(line) {
       const values = Array.isArray(value) ? value : value?.envelopes ?? (value?.envelope ? [value.envelope] : []);
       const action = request.args?.action;
       const done = ok && !value?.error;
-      emit({ event: 'inbox', ok: done, action, instance: request.args?.instance,
-        envelopes: values.filter(e => [PROBE, REPLY].includes(e?.body?.text)).map(e => ({
+      emit({ event: 'inbox', ok: done, action, instance: knownInstance(request.args?.instance),
+        envelopes: values.filter(e => [PROBE, REPLY].includes(e?.body?.text) && knownInstance(e.actor?.instance) && knownInstance(e.target?.instance)).map(e => ({
           id: e.id, from: e.actor?.instance, to: e.target?.instance,
           kind: e.body.text === PROBE ? 'probe' : 'reply',
         })) });
