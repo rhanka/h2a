@@ -143,7 +143,8 @@ for await(const line of createInterface({input:process.stdin})) {
   const timer = setTimeout(() => child.kill('SIGKILL'), 5000);
   try {
     child.stdin.end(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'h2a_send', arguments: { to: 'xcli-unknown-instance', message: 'hello' } } }) + '\n' +
-      JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'h2a_inbox', arguments: { action: 'read', instance: 'x' } } }) + '\n');
+      JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'h2a_inbox', arguments: { action: 'read', instance: 'x' } } }) + '\n' +
+      JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'h2a_inbox', arguments: { action: 'put', instance: 'x', envelope: {} } } }) + '\n');
     await closed;
     const raw = fs.readFileSync(events, 'utf8');
     assert.ok(!raw.includes('SECRET_TEXT'), 'refusals retain no error text');
@@ -152,7 +153,11 @@ for await(const line of createInterface({input:process.stdin})) {
     assert.deepEqual(refusals.map(e => ({ tool: e.tool, kind: e.kind, errorKind: e.errorKind })), [
       { tool: 'h2a_send', kind: 'other', errorKind: 'rpc-error' },
       { tool: 'h2a_inbox', kind: 'read', errorKind: 'result-error' },
+      { tool: 'h2a_inbox', kind: 'put', errorKind: 'result-error' },
     ]);
+    const puts = records.filter(e => e.event === 'inbox' && e.action === 'put');
+    assert.equal(puts.length, 1, 'put is witnessed with its action');
+    assert.equal(puts[0].ok, false);
   } finally {
     clearTimeout(timer);
     if (child.exitCode === null && child.signalCode === null) { child.kill('SIGKILL'); await closed; }

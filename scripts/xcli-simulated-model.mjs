@@ -59,7 +59,13 @@ createInterface({ input: mcp.stdout }).on('line', line => {
   if (!pending) return; // notifications alone never trigger this simulated model
   requests.delete(rpc.id);
   clearTimeout(pending.timer);
-  if (rpc.error || rpc.result?.isError) pending.reject(new Error('MCP request rejected'));
+  // Lot L15: oversize responses arrive as an error WITH a recovery ref —
+  // the product's designed path. Attached for steps that consume the ref.
+  if (rpc.error || rpc.result?.isError) {
+    const failure = new Error('MCP request rejected');
+    failure.recovery = rpc.error?.data?.recovery;
+    pending.reject(failure);
+  }
   else pending.resolve(rpc.result);
 });
 function call(method, params) {
@@ -110,6 +116,18 @@ async function runScriptedPeer(steps) {
   try {
     for (const step of steps) {
       if (step.writeFile) { fs.writeFileSync(marker(step.writeFile), instance + '\n', { mode: 0o600 }); continue; }
+      if (step.readVarFile) {
+        assert.ok(/^[a-z0-9][a-z0-9.-]{0,40}$/.test(step.readVarFile.name), 'script-marker-name');
+        assert.ok(/^[a-zA-Z][a-zA-Z0-9]{0,20}$/.test(step.readVarFile.as), 'script-var-name');
+        saved[step.readVarFile.as] = fs.readFileSync(marker(step.readVarFile.name), 'utf8').trim();
+        continue;
+      }
+      if (step.saveVarFile) {
+        assert.ok(/^[a-z0-9][a-z0-9.-]{0,40}$/.test(step.saveVarFile.name), 'script-marker-name');
+        assert.ok(/^[a-zA-Z][a-zA-Z0-9]{0,20}$/.test(step.saveVarFile.as), 'script-var-name');
+        fs.writeFileSync(marker(step.saveVarFile.name), String(saved[step.saveVarFile.as] ?? ''), { mode: 0o600 });
+        continue;
+      }
       if (step.waitForFile) {
         const until = Date.now() + (step.timeoutMs ?? 120000);
         for (;;) {
@@ -122,10 +140,17 @@ async function runScriptedPeer(steps) {
       }
       const until = Date.now() + (step.retryMs ?? 15000);
       for (;;) {
-        const value = await tool(step.tool, substituteScriptArgs(step.args, { instance, ...scriptVars, ...saved })).catch(error => error);
+        const value = await tool(step.tool, substituteScriptArgs(step.args, { instance, cwd: process.cwd(), ...scriptVars, ...saved })).catch(error => error);
+        // Lot L15: a recovery ref satisfies the step even though the call
+        // errored — the ref IS the product's oversize answer.
+        if (value instanceof Error && step.recoveryRef && value.recovery?.ref) {
+          if (step.saveAs) saved[step.saveAs] = value.recovery.ref;
+          break;
+        }
         if (value instanceof Error && step.expectOk === false) break;
         if (!(value instanceof Error) && step.expectOk !== false) {
-          if (step.saveAs) saved[step.saveAs] = value.loopId ?? value.id ?? value.negotiationId ?? value.sessionId;
+          if (step.saveAs) saved[step.saveAs] = value.loopId ?? value.id ?? value.negotiationId
+            ?? value.sessionId ?? value.session?.sessionId ?? value.ref;
           break;
         }
         if (Date.now() > until) throw new Error(`script-step-failed:${step.tool}`);

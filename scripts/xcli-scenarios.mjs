@@ -193,9 +193,20 @@ export function validateScriptSteps(steps) {
       assert.ok(typeof name === 'string' && /^[a-z0-9][a-z0-9.-]{0,40}$/.test(name), 'script-marker-name');
       continue;
     }
+    if (step.readVarFile !== undefined) {
+      assert.ok(/^[a-z0-9][a-z0-9.-]{0,40}$/.test(step.readVarFile.name ?? ''), 'script-marker-name');
+      assert.ok(/^[a-zA-Z][a-zA-Z0-9]{0,20}$/.test(step.readVarFile.as ?? ''), 'script-var-name');
+      continue;
+    }
+    if (step.saveVarFile !== undefined) {
+      assert.ok(/^[a-z0-9][a-z0-9.-]{0,40}$/.test(step.saveVarFile.name ?? ''), 'script-marker-name');
+      assert.ok(/^[a-zA-Z][a-zA-Z0-9]{0,20}$/.test(step.saveVarFile.as ?? ''), 'script-var-name');
+      continue;
+    }
     assert.ok(typeof step.tool === 'string' && step.tool.startsWith('h2a_'), 'script-tool-not-h2a');
     assert.ok(step.args && typeof step.args === 'object', 'script-args-required');
     if (step.retryMs !== undefined) assert.ok(Number.isSafeInteger(step.retryMs) && step.retryMs > 0, 'script-retry-range');
+    if (step.recoveryRef !== undefined) assert.equal(step.recoveryRef, true, 'script-recovery-ref-flag');
   }
   return true;
 }
@@ -215,6 +226,7 @@ export function loopScripts() {
     { tool: 'h2a_loop_list', args: {} },
     { waitForFile: 'participant-reported' },
     { tool: 'h2a_loop_done', args: { loopId: LOOP_ID, instance: '$instance', note: NOTE } },
+    { tool: 'h2a_loop_stop', args: { loopId: LOOP_ID, instance: '$instance', note: NOTE } },
     { tool: 'h2a_loop_status', args: { loopId: LOOP_ID } },
     { writeFile: 'creator-done' },
   ];
@@ -266,12 +278,14 @@ const ARTIFACT = Object.freeze({ kind: 'ENGAGEMENT', id: 'engagement:xcli', goal
 // ed25519 pairs per cell and passes them as $pubKeyA/$privKeyA/$pubKeyB/
 // $privKeyB script vars (process env only, never disk, never evidence).
 // Signer ids are fixed per-cell-store, so scripts stay deterministic.
+// Signers carry PRINCIPAL (comprehension attestation requires it) plus
+// CONDUCTOR (negotiation authority for ENGAGEMENT requires it).
 const REGISTER_A = { tool: 'h2a_register_instance',
-  args: { registration: { id: SIGNER_A, roles: ['CONDUCTOR'], publicKeys: ['$pubKeyA'] } } };
+  args: { registration: { id: SIGNER_A, roles: ['PRINCIPAL', 'CONDUCTOR'], publicKeys: ['$pubKeyA'] } } };
 const REGISTER_B = { tool: 'h2a_register_instance',
-  args: { registration: { id: SIGNER_B, roles: ['CONDUCTOR'], publicKeys: ['$pubKeyB'] } } };
-const signStep = (signer, priv) => ({ tool: 'h2a_sign',
-  args: { negotiationId: NEGOTIATION_ID, instance: signer, artifact: ARTIFACT, privateKeyPem: priv } });
+  args: { registration: { id: SIGNER_B, roles: ['PRINCIPAL', 'CONDUCTOR'], publicKeys: ['$pubKeyB'] } } };
+const signStep = (signer, priv, negotiationId = NEGOTIATION_ID) => ({ tool: 'h2a_sign',
+  args: { negotiationId, instance: signer, artifact: ARTIFACT, privateKeyPem: priv } });
 // Journal appends must be entry-shaped: the stabilize posture derivation
 // reads entry.actor.role, so a bare payload crashes it (product truth).
 const journalStep = signer => ({ tool: 'h2a_append_journal', args: { negotiationId: NEGOTIATION_ID,
@@ -334,6 +348,161 @@ export function negotiationTwinScripts(twin) {
   assert.ok(scripts[twin], `unknown-scenario:negotiation:${twin}`);
   validateScriptSteps(scripts[twin]);
   return scripts[twin];
+}
+
+// Lot L15 homogenous inventory scripts. Peer crossing uses worker-written
+// peer-id files (peer-for-sender / peer-for-receiver); readVarFile loads
+// the other peer's enrolled id into $peer. $cwd is the peer workspace.
+const PEER_FILE = role => role === 'sender' ? 'peer-for-sender' : 'peer-for-receiver';
+// Bulk text travels as a worker-written marker file (readVarFile), never as
+// process env. Sized past the default 1 MiB transport frame so the read
+// response takes the real oversize path and yields a payload ref.
+export const LARGE_TEXT = 'x'.repeat(1100000);
+
+// Put envelopes must be protocol-valid (validateH2AEnvelope): the store
+// refuses shapeless bodies before any delivery.
+const putEnvelope = role => ({ protocol: 'sentropic.h2a', version: '0.1', id: `xcli-read-${role}`,
+  type: 'event', actor: { instance: '$instance' }, body: { kind: 'xcli-note', text: '$large' },
+  createdAt: new Date().toISOString() });
+
+function readPathsScripts(role) {
+  const other = role === 'sender' ? 'receiver' : 'sender';
+  const smallEnvelope = { protocol: 'sentropic.h2a', version: '0.1', id: `xcli-read-small-${role}`,
+    type: 'event', actor: { instance: '$instance' }, body: { kind: 'xcli-note', text: 'xcli' },
+    createdAt: new Date().toISOString() };
+  return [
+    { waitForFile: PEER_FILE(role) },
+    { readVarFile: { name: PEER_FILE(role), as: 'peer' } },
+    { readVarFile: { name: 'large-text', as: 'large' } },
+    { tool: 'h2a_identity_status', args: {} },
+    { tool: 'h2a_discover_instances', args: {} },
+    { tool: 'h2a_discover_sessions', args: { instance: '$instance' } },
+    { tool: 'h2a_inbox', args: { action: 'put', instance: '$peer', envelope: putEnvelope(role) } },
+    { tool: 'h2a_inbox', args: { action: 'put', instance: '$peer', envelope: smallEnvelope } },
+    { writeFile: `${role}-put` },
+    { waitForFile: `${other}-put` },
+    // The large envelope forces the oversize path: read errors WITH the
+    // recovery ref, which the peer consumes through read_payload.
+    { tool: 'h2a_inbox', args: { action: 'read', instance: '$instance' }, saveAs: 'ref', recoveryRef: true },
+    { saveVarFile: { as: 'ref', name: `${role}-ref` } },
+    { waitForFile: `${other}-ref` },
+    { readVarFile: { name: `${other}-ref`, as: 'peerRef' } },
+    { tool: 'h2a_read_payload', args: { ref: '$peerRef' } },
+    { tool: 'h2a_inbox', args: { action: 'pop', instance: '$instance', envelopeId: `xcli-read-small-${other}` } },
+  ];
+}
+
+// h2a_run is excluded by design (spawns agent processes); the group covers
+// register/open/close plus sign cross-verification (A signs, B stabilizes
+// through product paths). The run row stays not-covered with its blocker.
+const INV_SIGN_ID = 'xcli-inv-sign';
+function sessionPathsScripts(role) {
+  if (role === 'sender') {
+    return [
+      REGISTER_A,
+      REGISTER_B,
+      { tool: 'h2a_register_instance',
+        args: { registration: { id: 'xcli:inventory-reg', roles: ['CONDUCTOR'] } } },
+      { tool: 'h2a_open_negotiation', args: { record: { ...NEGOTIATION_RECORD, id: INV_SIGN_ID } } },
+      { writeFile: 'inv-nego-open' },
+      { tool: 'h2a_session_open', args: { instance: '$instance' }, saveAs: 'session' },
+      { tool: 'h2a_offer', args: { negotiationId: INV_SIGN_ID, instance: '$instance', artifact: ARTIFACT } },
+      signStep(SIGNER_A, '$privKeyA', INV_SIGN_ID),
+      { waitForFile: 'inv-b-signed' },
+      { tool: 'h2a_stabilize', args: { negotiationId: INV_SIGN_ID } },
+      { tool: 'h2a_session_close', args: { sessionId: '$session' } },
+      { writeFile: 'inv-a-closed' },
+    ];
+  }
+  return [
+    { waitForFile: 'inv-nego-open' },
+    { tool: 'h2a_session_open', args: { instance: '$instance' }, saveAs: 'session' },
+    signStep(SIGNER_B, '$privKeyB', INV_SIGN_ID),
+    { writeFile: 'inv-b-signed' },
+    { waitForFile: 'inv-a-closed' },
+    { tool: 'h2a_session_close', args: { sessionId: '$session' } },
+  ];
+}
+
+// Conductor paths with the contested-claim twin embedded: B claims A's
+// held instance and must be refused before A releases.
+function conductorPathsScripts(role) {
+  if (role === 'sender') {
+    return [
+      { waitForFile: PEER_FILE(role) },
+      { readVarFile: { name: PEER_FILE(role), as: 'peer' } },
+      { tool: 'h2a_conductor', args: { workspacePath: '$cwd' } },
+      { tool: 'h2a_conductor_claim', args: { instance: '$instance', workspacePath: '$cwd' } },
+      { writeFile: 'conductor-held' },
+      { tool: 'h2a_conductor_launch_check', args: { workspacePath: '$cwd' } },
+      { tool: 'h2a_conductor_launch', args: { workspacePath: '$cwd' } },
+      { tool: 'h2a_conductor_release', args: { instance: '$instance', workspacePath: '$cwd' } },
+    ];
+  }
+  // Spec deviation (product truth): claims and releases are append-only —
+  // a contested claim is accepted, never refused — so no refusal twin
+  // exists in conductor paths. Both peers claim and release their own.
+  return [
+    { tool: 'h2a_conductor', args: { workspacePath: '$cwd' } },
+    { waitForFile: 'conductor-held' },
+    { tool: 'h2a_conductor_claim', args: { instance: '$instance', workspacePath: '$cwd' } },
+    { tool: 'h2a_conductor_release', args: { instance: '$instance', workspacePath: '$cwd' } },
+  ];
+}
+
+const INV_GOV_ID = 'xcli-inv-gov';
+const GOV_RECORD = Object.freeze({ ...NEGOTIATION_RECORD, id: INV_GOV_ID });
+function governancePathsScripts(role) {
+  const signer = role === 'sender' ? SIGNER_A : SIGNER_B;
+  const priv = role === 'sender' ? '$privKeyA' : '$privKeyB';
+  const steps = [
+    { tool: 'h2a_escalate', args: { negotiationId: INV_GOV_ID, instance: '$instance',
+      channel: role === 'sender' ? 'advise' : 'decide' } },
+    { tool: 'h2a_conflict_posture', args: { negotiationId: INV_GOV_ID } },
+    { tool: 'h2a_declare_conflit_interet', args: { negotiationId: INV_GOV_ID, instance: '$instance',
+      interets: [`scope:xcli/${role}`] } },
+    { tool: 'h2a_blockage_raise', args: { instance: '$instance', reason: `xcli ${role}` } },
+    { tool: 'h2a_blockage_list', args: {} },
+    { tool: 'h2a_blockage_resolve', args: { instance: '$instance' } },
+    { tool: 'h2a_nhi_inventory', args: {} },
+    { tool: 'h2a_nhi_report', args: {} },
+    { tool: 'h2a_nhi_attest', args: { instance: signer, privateKeyPem: priv,
+      role: 'CONDUCTOR', scope: 'scope:xcli/scenario' } },
+    { tool: 'h2a_attest_comprehension', args: { instance: signer, privateKeyPem: priv,
+      role: 'PRINCIPAL', scope: 'scope:xcli/scenario',
+      dossier: { title: 'xcli inventory', body: 'scenario comprehension' } } },
+    { tool: 'h2a_nhi_export', args: { instance: '$instance', trustDomain: 'xcli-inventory' } },
+  ];
+  if (role === 'sender') {
+    return [
+      REGISTER_A,
+      REGISTER_B,
+      { tool: 'h2a_open_negotiation', args: { record: GOV_RECORD } },
+      { writeFile: 'gov-open' },
+      ...steps,
+      { tool: 'h2a_nhi_offboard', args: { instance: '$instance', reason: 'xcli inventory end' } },
+    ];
+  }
+  return [
+    { waitForFile: 'gov-open' },
+    ...steps,
+    { tool: 'h2a_nhi_offboard', args: { instance: '$instance', reason: 'xcli inventory end' } },
+  ];
+}
+
+export function inventoryScripts(group) {
+  const builders = {
+    'read-paths': readPathsScripts,
+    'session-paths': sessionPathsScripts,
+    'conductor-paths': conductorPathsScripts,
+    'governance-paths': governancePathsScripts,
+  };
+  assert.ok(builders[group], `unknown-scenario:inventory:${group}`);
+  const receiver = builders[group]('receiver');
+  const sender = builders[group]('sender');
+  validateScriptSteps(receiver);
+  validateScriptSteps(sender);
+  return { receiver, sender };
 }
 
 const invokedAsCli = process.argv[1] === new URL(import.meta.url).pathname;

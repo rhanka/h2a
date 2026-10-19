@@ -15,7 +15,8 @@ import { loadSeatManifest, resolveCampaignPair, createCampaignLedger, loadCampai
 import { startupTerminal } from './xcli-terminal.mjs';
 import { verifyWakeBatch } from './xcli-ci-check.mjs';
 import { parseScenario, expectedScenarioBlocker, UNKNOWN_INSTANCE, validateScriptSteps,
-  loopScripts, loopTwinScripts, negotiationScripts, negotiationTwinScripts } from './xcli-scenarios.mjs';
+  loopScripts, loopTwinScripts, negotiationScripts, negotiationTwinScripts,
+  inventoryScripts, LARGE_TEXT } from './xcli-scenarios.mjs';
 
 const self = fileURLToPath(import.meta.url);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -183,7 +184,7 @@ async function worker() {
     return { pubKeyA: pem(a.publicKey, 'spki'), privKeyA: pem(a.privateKey, 'pkcs8'),
       pubKeyB: pem(b.publicKey, 'spki'), privKeyB: pem(b.privateKey, 'pkcs8') };
   };
-  async function launch(cli, role, prompt, scriptJson, scriptVars) {
+  async function launch(cli, role, prompt, scriptJson, scriptVars, scriptEnv) {
     const dir = join(cell, role);
     fs.mkdirSync(dir, { mode: 0o700 });
     const env = { ...environment(dir), H2A_TEST_QUALIFICATION_ROOT: root,
@@ -194,6 +195,7 @@ async function worker() {
       XCLI_BUILD: build, XCLI_EXEC_JOURNAL: execJournal, ...(simulated ? { XCLI_SIMULATED: '1' } : {}),
       ...(scriptJson ? { XCLI_SCRIPT: scriptJson } : {}),
       ...(scriptVars ? { XCLI_SCRIPT_VARS: JSON.stringify(scriptVars) } : {}),
+      ...(scriptEnv ?? {}),
       ...(mcpCallCap > 0 ? { XCLI_MCP_CALL_CAP: String(mcpCallCap) } : {}),
       ...(poll && role === 'receiver' ? { XCLI_POLL: poll } : {}),
       // Lot L12: the never-ready fault idles the receiver's identity gate.
@@ -410,14 +412,13 @@ async function worker() {
           senderSteps = initiator;
         }
       } else {
-        // Lot L15 builds the inventory scripts; until then the kind fails
-        // closed instead of running an undefined scenario.
-        row.blocker = `scenario-unimplemented:${scenario.key}`;
-        return row;
+        const built = inventoryScripts(scenario.group);
+        receiverSteps = built.receiver;
+        senderSteps = built.sender;
       }
       validateScriptSteps(receiverSteps);
       validateScriptSteps(senderSteps);
-      const keyVars = scenario.kind === 'negotiation' ? scriptKeyVars() : undefined;
+      const keyVars = ['negotiation', 'inventory'].includes(scenario.kind) ? scriptKeyVars() : undefined;
       const rScripted = await launch(receiver, 'receiver', `Scripted ${scenario.key} participant.`, JSON.stringify(receiverSteps), keyVars);
       const receiverReady = await ready(rScripted);
       row.receiverMcp = loaded(rScripted);
@@ -433,6 +434,15 @@ async function worker() {
         row.blocker = senderReady.blocker ?? 'scripted-sender-not-ready';
         row.failure = senderReady.failure;
         return row;
+      }
+      // Peer crossing for read-paths and conductor-paths: the worker owns
+      // both enrolled ids only once both peers are ready.
+      if (['inventory:read-paths', 'inventory:conductor-paths'].includes(scenario.key)) {
+        fs.writeFileSync(join(cell, 'peer-for-sender'), receiverReady.instance + '\n', { mode: 0o600 });
+        fs.writeFileSync(join(cell, 'peer-for-receiver'), senderReady.instance + '\n', { mode: 0o600 });
+      }
+      if (scenario.key === 'inventory:read-paths') {
+        fs.writeFileSync(join(cell, 'large-text'), LARGE_TEXT, { mode: 0o600 });
       }
       const markerOk = name => {
         try { return JSON.parse(fs.readFileSync(join(cell, name), 'utf8')).ok === true; }
@@ -456,7 +466,7 @@ async function worker() {
       };
       if (scenario.kind === 'loop' && !scenario.twin) {
         row.loopTerminal =
-          ['h2a_loop_create', 'h2a_loop_status', 'h2a_loop_list', 'h2a_loop_done'].every(t => toolOk(s, t)) &&
+          ['h2a_loop_create', 'h2a_loop_status', 'h2a_loop_list', 'h2a_loop_done', 'h2a_loop_stop'].every(t => toolOk(s, t)) &&
           ['h2a_loop_join', 'h2a_loop_report', 'h2a_loop_status', 'h2a_loop_list'].every(t => toolOk(rScripted, t)) &&
           row.receiverScriptOk && row.senderScriptOk;
       } else if (scenario.kind === 'negotiation' && !scenario.twin) {
@@ -470,9 +480,40 @@ async function worker() {
         row.twinRefused = row.receiverScriptOk && row.senderScriptOk &&
           refusalSeen(rScripted, TWIN_KEY_TOOL[scenario.twin]);
       } else {
-        // Unreachable: inventory returns early above. Defensive close.
-        row.blocker = `scenario-unimplemented:${scenario.key}`;
-        return row;
+        // Lot L15: per-group, per-side witnessed conjunctions, including
+        // the embedded contested-claim refusal for conductor-paths.
+        // h2a_inbox is witnessed through inbox events (the proxy never
+        // emits generic tool-call for send/inbox), everything else
+        // through tool-call.
+        const witnessed = (target, tool) => tool === 'h2a_inbox'
+          ? readEvents(target.env.XCLI_EVENTS).some(e => e.event === 'inbox' && e.ok === true)
+          : toolOk(target, tool);
+        const readPaths = ['h2a_identity_status', 'h2a_discover_instances', 'h2a_discover_sessions',
+          'h2a_inbox', 'h2a_read_payload'];
+        const govPaths = ['h2a_escalate', 'h2a_conflict_posture', 'h2a_declare_conflit_interet',
+          'h2a_blockage_raise', 'h2a_blockage_list', 'h2a_blockage_resolve',
+          'h2a_nhi_inventory', 'h2a_nhi_report', 'h2a_nhi_attest', 'h2a_nhi_export', 'h2a_nhi_offboard',
+          'h2a_attest_comprehension'];
+        const required = {
+          'read-paths': { sender: readPaths, receiver: readPaths },
+          'session-paths': {
+            sender: ['h2a_register_instance', 'h2a_open_negotiation', 'h2a_session_open',
+              'h2a_offer', 'h2a_sign', 'h2a_stabilize', 'h2a_session_close'],
+            receiver: ['h2a_session_open', 'h2a_sign', 'h2a_session_close'],
+          },
+          'conductor-paths': {
+            sender: ['h2a_conductor', 'h2a_conductor_claim', 'h2a_conductor_launch_check',
+              'h2a_conductor_launch', 'h2a_conductor_release'],
+            receiver: ['h2a_conductor', 'h2a_conductor_claim', 'h2a_conductor_release'],
+          },
+          'governance-paths': {
+            sender: ['h2a_open_negotiation', ...govPaths],
+            receiver: govPaths,
+          },
+        }[scenario.group];
+        row.inventoryOk = required.sender.every(t => witnessed(s, t)) &&
+          required.receiver.every(t => witnessed(rScripted, t)) &&
+          row.receiverScriptOk && row.senderScriptOk;
       }
       row.wakeClaim = 'no wake claimed (scripted scenario)';
       row.blocker = expectedScenarioBlocker(scenario);
