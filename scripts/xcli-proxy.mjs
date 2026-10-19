@@ -134,15 +134,16 @@ export function observe(line) {
       if (!sent) emit({ event: 'refusal', tool: 'h2a_send', kind,
         errorKind: rpc.error ? 'rpc-error' : 'result-error' });
     }
-    if (request.tool === 'h2a_inbox' && ['read', 'pop'].includes(request.args?.action)) {
+    if (request.tool === 'h2a_inbox' && ['read', 'pop', 'put'].includes(request.args?.action)) {
       const values = Array.isArray(value) ? value : value?.envelopes ?? (value?.envelope ? [value.envelope] : []);
-      const read = ok && !value?.error;
-      emit({ event: 'inbox', ok: read, instance: request.args?.instance,
+      const action = request.args?.action;
+      const done = ok && !value?.error;
+      emit({ event: 'inbox', ok: done, action, instance: request.args?.instance,
         envelopes: values.filter(e => [PROBE, REPLY].includes(e?.body?.text)).map(e => ({
           id: e.id, from: e.actor?.instance, to: e.target?.instance,
           kind: e.body.text === PROBE ? 'probe' : 'reply',
         })) });
-      if (!read) emit({ event: 'refusal', tool: 'h2a_inbox', kind: 'read',
+      if (!done) emit({ event: 'refusal', tool: 'h2a_inbox', kind: action === 'put' ? 'put' : 'read',
         errorKind: rpc.error ? 'rpc-error' : 'result-error' });
     }
   } catch { /* malformed RPC cannot be positive evidence */ }
