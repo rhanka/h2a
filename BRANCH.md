@@ -1,5 +1,85 @@
 # PTY Phase B — PR #375, continuation 2026-10-18
 
+## Amendement pré-B ratifié — texte Astra intégral
+
+L'owner demande l'application de `rvpreba-last.md` (AMENDEMENT-MODIFIÉ),
+plus strict que `rvprebs-last.md`. Ce texte remplace les obligations
+universelles d'admission/retrait pré-B de D5/B5 et précise D2/H2 ; les
+amendements antérieurs ci-dessous sont conservés comme historique.
+
+> Les propriétaires pré-B déjà chargés sans barrière effective sont exemptés des seules obligations de refus des créations et de retrait automatique, y compris pour les connexions v1 établies et nouvelles. Un marqueur ne constitue pas un drainage garanti. Leurs sessions, y compris celles créées ultérieurement, restent accessibles sur leur propriétaire ; l’upgrade ne le signale pas, ne retire pas son endpoint et ne migre pas ses sessions. Les installations nécessaires restent conservées.
+>
+> L’inventaire et tous les chemins d’upgrade rapportent explicitement `admission: unfenced`, `retirement: deferred`. Cette coexistence peut durer indéfiniment : le propriétaire unique de D2/H2 reste la cible, sans garantie de convergence pendant cette exception.
+>
+> B5 peut être qualifié par plateforme avec cette exception précisément identifiée. Les pré-B restent soumis aux exigences de préservation des sessions et de rétention ; seule leur fermeture d’admission et leur retraite automatique sont exemptées. La qualification B5 ne transforme pas leur résultat d’upgrade `deferred` en transition accomplie. La barrière reste obligatoire pour chaque propriétaire coopérant, indépendamment du protocole client/frontend.
+>
+> Le contre-exemple hérité, les quatre fichiers B5 complets, la cohorte réelle non vide et les gates D27 restent obligatoires, sans ignore, TODO ni annulation. Aucun lot L ne commence dans un environnement contenant un pré-B non coopérant ou dont l’absence reste inconnue. Le vert B5 de la plateforme et les exigences D23 concernant tous les écrivains anciens ou inconnus restent nécessaires.
+
+Périmètre de cette continuation : résultats d'upgrade pré-B seuls, mixtes et
+différés, inventaire d'upgrade, régressions ciblées et cette documentation/PR.
+La cohorte réelle B5 ne sera pas tentée, sur instruction de l'owner. Aucun
+gate, skip, TODO, annulation ou scénario obligatoire n'est modifié.
+Rebase sur `origin/main=d0b1afa38` ; seul conflit dans BRANCH.md, résolu en
+conservant les notes PTY et l'historique dossier-diagrams de main.
+
+**Allowed Paths (pre-B continuation)**
+  - `BRANCH.md`
+  - `packages/h2a/src/runtime/upgrade/index.ts`
+  - `packages/h2a/test/upgrade-swap.test.js`
+  - `packages/h2a-runtime/src/native-terminal/supervisor.ts`
+  - `packages/h2a-runtime/src/native-terminal/legacy-drain.functional.test.ts`
+
+### Réalisation et preuves ciblées de l'amendement
+
+Les résultats pré-B portent maintenant `unfenced/deferred` pour le paquet
+déjà courant, installé par une autre lane, remplacé, ou différé par une
+erreur de rétention/remplacement. Un inventaire partiel conserve les pré-B
+déjà identifiés. Les messages n'annoncent plus un drainage garanti. Les
+installations inconnues restent retenues, y compris après sweep ; aucun
+signal, retrait d'endpoint, migration ni barrière fictive n'est ajouté.
+Le contre-exemple hérité et ses assertions restent inchangés.
+
+Base rouge après rebase : `a5f84d0b8`. Commandes exactes depuis ce worktree,
+avec le helper d'isolation et `tmp/pty-am2-run.mjs` inchangés (mkdtemp privé,
+HOME/XDG/runtime/TMPDIR temporaires) :
+
+```sh
+rtk node tmp/pty-am2-run.mjs pty-preb-baseline-build npm run build -w @sentropic/h2a
+# exit 0 ; vendor-engram-live mirror OK.
+rtk node tmp/pty-am2-run.mjs pty-preb-amend-upgrade-red node --test packages/h2a/test/upgrade-swap.test.js
+# 20 passed, 10 failed ; exit 1 : champs absents et pré-B connu omis.
+rtk node tmp/pty-am2-run.mjs pty-preb-amend-legacy-red node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/legacy-drain.functional.test.ts
+# 7 passed, 2 failed ; exit 1 : inventaire incomplet et résultat différé incomplet.
+rtk node tmp/pty-am2-run.mjs pty-preb-amend-build npm run build -w @sentropic/h2a
+# exit 0 ; vendor-engram-live mirror OK.
+rtk node tmp/pty-am2-run.mjs pty-preb-amend-upgrade-green22 node --test packages/h2a/test/upgrade.test.js packages/h2a/test/upgrade-swap.test.js packages/h2a/test/upgrade-boot-worker.test.js
+# 72 passed, 0 failed ; exit 0, Node 22.22.1.
+rtk node tmp/pty-am2-run.mjs pty-preb-amend-runtime-green22 node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/legacy-drain.functional.test.ts packages/h2a-runtime/src/native-terminal/fleet.test.ts packages/h2a-runtime/src/native-terminal/op.test.ts packages/h2a-runtime/src/native-terminal/upgrade-pty-contract.test.ts
+# 44 passed, 0 failed ; exit 0, Node 22.22.1.
+rtk env PATH=/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin:/usr/local/bin:/usr/bin:/bin node tmp/pty-am2-run.mjs pty-preb-amend-upgrade-green24 node --test packages/h2a/test/upgrade.test.js packages/h2a/test/upgrade-swap.test.js packages/h2a/test/upgrade-boot-worker.test.js
+# 72 passed, 0 failed ; exit 0, Node 24.22.0.
+rtk env PATH=/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin:/usr/local/bin:/usr/bin:/bin node tmp/pty-am2-run.mjs pty-preb-amend-runtime-green24 node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/legacy-drain.functional.test.ts packages/h2a-runtime/src/native-terminal/fleet.test.ts packages/h2a-runtime/src/native-terminal/op.test.ts packages/h2a-runtime/src/native-terminal/upgrade-pty-contract.test.ts
+# 44 passed, 0 failed ; exit 0, Node 24.22.0.
+```
+
+Chaque campagne ci-dessus : zéro skip, TODO ou annulation. Les 12 échecs
+rouges couvrent tous les chemins corrigés ; aucune assertion ni durée n'a
+été affaiblie. Sorties complètes : `tmp/pty-preb-amend-*.log` et rapports
+Vitest JSON du même nom. Le texte Astra est comparé à la source (1 610
+caractères identiques) ; le corps PR reprend la même citation.
+
+Limites : aucun CLI réel B5 tenté, aucun des quatre fichiers complets B5
+qualifié comme ensemble, aucun lot L. Le contre-exemple pré-B n'est plus un
+défaut contractuel d'admission après cet amendement, mais le résultat reste
+`deferred`. B5 Linux/macOS demeure non qualifié sans cohorte réelle. Les
+logs CI de la tête précédente (`d91a53ffe`) montrent l'échec obligatoire
+`B5 incomplete: conductor must enroll a nonempty real CLI cohort in
+H2A_TEST_PHASE_B_CLIS` sur Linux et macOS 22/24 ; aucun gate n'est retiré
+pour obtenir un vert. La CI de la nouvelle tête sera rapportée dans la PR.
+Revue d'implémentation harness : `tmp/pty-preb-amend-review.md`,
+`selection-failed` (identité auteur exacte indisponible, h2a/mesh installé
+interdit par l'owner) ; aucun consensus d'implémentation revendiqué.
+
 ## Correction des revues rv375a / rv375s — 2026-10-18
 
 Complément D21 : sur macOS Node 24, remplacer avant la fin du délai pouvait
