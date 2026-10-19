@@ -1,0 +1,8 @@
+CORRECTIONS-REQUISES
+Reviewer: astra-max
+Spec: /home/antoinefa/.cache-tmp/claude-1000/-home-antoinefa-src-h2a/902cb8f7-eb8e-4897-9640-8b9653fc7d0e/scratchpad/0985/xclifix/SPEC_EVOL_CROSS_CLI_MESSAGING.v2.md
+Spec-SHA256: 8f2ef6efb27796eea97c45703d040b676428920ec53d52330efde303af3137a9
+
+- **P1 restant — Les réplications peuvent encore créditer un poller lent.** [§3.3, ligne 394](/home/antoinefa/.cache-tmp/claude-1000/-home-antoinefa-src-h2a/902cb8f7-eb8e-4897-9640-8b9653fc7d0e/scratchpad/0985/xclifix/SPEC_EVOL_CROSS_CLI_MESSAGING.v2.md:394). Des décalages non commensurables n’empêchent pas les fenêtres de réception de largeur `D` de se recouvrir. Avec `W0=W1=10 s`, `D=3 s`, des réveils vers 21 / 21,414 / 21,732 s et un premier polling à 23 s dans chaque répétition, les trois passent sans aucune lecture préalable, même si tous les réveils sont ignorés. Ajouter ce contre-exemple au RED et définir son rejet ; sinon F1 reste ouvert et ces observations ne suffisent pas au crédit d’étape 7.
+
+- **P1 restant — Le contrôle de fusion exclut les lignes R2 obligatoires.** [§7.1, ligne 1004](/home/antoinefa/.cache-tmp/claude-1000/-home-antoinefa-src-h2a/902cb8f7-eb8e-4897-9640-8b9653fc7d0e/scratchpad/0985/xclifix/SPEC_EVOL_CROSS_CLI_MESSAGING.v2.md:1004). Le périmètre de fusion est explicitement limité à R1 ; R2 n’entre que dans celui de release. Une boucle devenue obligatoire à R2 peut donc être absente ou `blocked` sans empêcher la fusion, contrairement à §5.4. Inclure toutes les lignes R1/R2 déjà obligatoires dans le contrôle avant fusion et tester ce refus.

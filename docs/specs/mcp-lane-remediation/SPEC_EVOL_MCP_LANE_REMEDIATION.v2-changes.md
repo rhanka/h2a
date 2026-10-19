@@ -1,0 +1,68 @@
+# Changements v1 → v2 — SPEC_EVOL_MCP_LANE_REMEDIATION
+
+**Résultat principal : les 10 findings P1/P2 des deux revues sont appliqués dans la v2, après vérification aux sources. Aucun relecteur n'est contredit sur le fond ; deux précisions de citation sont consignées plus bas.**
+
+| Élément | Valeur |
+|---|---|
+| Base v1 | [SPEC_EVOL_MCP_LANE_REMEDIATION.md](/home/antoinefa/.cache-tmp/claude-1000/-home-antoinefa-src-h2a/902cb8f7-eb8e-4897-9640-8b9653fc7d0e/scratchpad/0985/mcpfix/SPEC_EVOL_MCP_LANE_REMEDIATION.md), SHA-256 `82ea7387eba4a89a52676a803ab0ccbfaff5a688aa4e470f6bd29db491544751` (revérifiée) |
+| Sortie v2 | [SPEC_EVOL_MCP_LANE_REMEDIATION.v2.md](/home/antoinefa/.cache-tmp/claude-1000/-home-antoinefa-src-h2a/902cb8f7-eb8e-4897-9640-8b9653fc7d0e/scratchpad/0985/mcpfix/SPEC_EVOL_MCP_LANE_REMEDIATION.v2.md) |
+| Revues appliquées | `rvmca-last.md` (Astra max : 2 P1, 4 P2) et `rvmcs-last.md` (Sol max : 2 P1, 2 P2), toutes deux `CORRECTIONS-REQUISES` sur la même empreinte v1 |
+| Déduplication | 10 bullets → 6 findings SP-01..SP-06 (§5.5 de la v2) |
+| Méthode | Chaque affirmation source relue aux têtes `ef9bde52a` (#355, worktree `mh-l0`) et `e8508e394` (#354, worktree `r5r6`), propres, et dans les contrats v7 (§10) et v8 (§7) et `DECISIONS-owner.md`. Aucun code, aucun test exécuté (tâche spec). Aucun Python. |
+
+## Tableau des changements, par finding relecteur
+
+| # | Relecteur / sévérité | Finding (résumé) | Vérification aux sources | Changement v2 |
+|---|---|---|---|---|
+| 1 | Astra P1 + Sol P1 → **SP-01** | Plugins livrés sans lot : les manifestes empaquetés lancent encore `mcp-serve` et sont absents du périmètre LOT-3/4 + annexe B. | **Confirmé, plus fort qu'énoncé.** À `e8508e394`, `.claude-plugin/plugin.json` et `.codex-plugin/plugin.json` → `./.mcp.json` déclarent `mcp-serve` ; les trois assets partent dans le tarball (`files` de `package.json`). Aucun renderer plugin n'existe (`defaultMechanism`, `host-bootstrap.ts:43`, retourne toujours `file`) et `package-plugin-manifest.test.js` asserte les args `mcp-serve`. Le v8 §7.1 assigne le remplacement au publisher du plugin, au build du paquet ; §7.2 nomme les assets générés `registry.mcp.json`. | Nouveau **LOT-4B** (§7) : renderer intérimaire + assets générés, preuve sur déclarations **extraites du tarball candidat**, identité plugin et clé `h2a` conservées, refus du double bootstrap plugin+fichier, suppression du `.mcp.json` racine, résolution du lock par défaut du mécanisme plugin. RQ-08/RQ-12 étendues, §6.1, annexe B, gate G-1. |
+| 2 | Astra P1 → **SP-02** | Qualification réelle du parcours registre facultative : LOT-2B « ideally after LOT-3 », NC-1 reporte R7b, G-2 peut passer sur le shim direct avec SDK+fixtures seulement. Amorçage de campagne non précisé. | **Confirmé.** La v1 exigeait un vrai Claude, ni tête intégrée ni déclaration bootstrap ni route bridge. Le pattern d'amorçage conforme existe déjà dans l'arbre : `qualifiedShim` (`test/helpers/mh-l1-shim.js`) copie `dist` en temporaire, asserte le manifeste livré vide, injecte les clients fixture dans la copie seule. | **LOT-2B réécrit** : dépendance dure LOT-3..LOT-6 (tête intégrée), vrai Claude lançant la déclaration produite par le bootstrap, 5 familles (initialisation, identité, catalogue, reprise, upgrade), amorçage par copie privée de campagne **sans contournement publié** + run de confirmation sur le build candidat exact (§6.2). G-2 réécrite, NC-1 réduite au reste R7b, RQ-02 étendue, D-02 étendue aux mécanismes. |
+| 3 | Sol P1 + Astra P2 → **SP-03** | NC-6 renvoie packaging final, U07/U11 et charge/endurance aux versions ultérieures, sans responsable ni reçu ni blocage de publication (§8 étape 7, §9). | **Confirmé.** v7 §10.6 : U07/U11/U13 en gate REL ; §10.7 : charge/endurance ; §10.9 : gate release sur artefacts exacts (packaging, smoke, charge, endurance, qualification consommateurs). Décision owner QC 2026-10-12 (`DECISIONS-owner.md:61`) : hors `latest` jusqu'à qualification vrais Claude (U07/U11), puis promotion. La décision du 17/10 décale le numéro (0.98.8), pas les obligations. Précision : le packaging final relève de §10.9 (+§8.3), U07/U11 de §10.6 — la citation d'Astra les regroupait. | NC-6 scindée : **NC-6a** (prérequis externes bloquants : responsable nommé « MH release-qualification owner » désigné par le conducteur, reçu REL sur artefacts exacts, nouvelle gate **G-10**, §8 étape 7 réécrite : merge ≠ publication, promotion `latest` bloquée) et NC-6b (profondeur MH ultérieure). Tout report = `[PROPOSITION]` **D-06** sous arbitrage owner. |
+| 4 | Astra P2 → **SP-04a** | LOT-1 ne prouve pas l'upgrade nominal : aucun `upgrade --to` effectif suivi du chargement de la nouvelle version au reconnect, ni l'absence de redémarrage natif. | **Confirmé.** `parseUpgradeCommand` parse `--to`, rien ne l'exécute ; le dispatch `cli.ts:7708` reste sur le legacy. U03 (v7 §10.6) interdit tout signal natif sur tous les parcours, sans cas dans la v1. | LOT-1 : cas **(k)** nominal `--to` → sélection durable B → nouveau processus via l'entrypoint sélectionné qui tourne B, jamais A ; cas **(l)** cible sans contrôleur H4 refusée avant sélection (`controller_protocol_incompatible`) ; cas **(n)** zéro appel stop/restart/signal natif sur tous les cas. RQ-04 rendue observable. |
+| 5 | Astra P2 + Sol P2 → **SP-04b** | Convergence manuel/automatique non prouvée et chemin auto hors périmètre nommé (`boot-worker.js` → `performAutoUpgrade`). | **Confirmé.** `runUpgradeOnce` (`upgrade-run.js:14`) : zéro appelant de production à `ef9bde52a`. `performAutoUpgrade` est appelé par `boot-worker.js:13`, `cmdUpgrade` (`cli.ts:1902`), le seam boot mcp-serve (`cli.ts:2058`) et la source worker dépréciée exportée (`cli.ts:332`). U01 (v7 §10.6) exige les mêmes gardes manuel/auto ; §8.4 impose le fencing du moteur hérité. | LOT-1 : cas **(m)** par le **véritable déclencheur** (`mcp-serve --auto-upgrade` construit, worker détaché réel, externes simulés par les seams fixture uniquement — v7 §10.1) : mêmes effets journal/sélection H4 que le manuel, zéro swap legacy, opt-out respecté ; `--upgrade-check` sans mutation. Fichiers exacts nommés (`boot-worker.js`, `index.ts`, `upgrade-run.js`, modules d'enveloppe) ; **inventaire des jonctions** avant/après avec disposition par appelant, adossé à la preuve runtime, pas au grep seul (§6.3). RQ-06 réécrite. |
+| 6 | Astra P2 → **SP-05** | Le test F-05 peut passer sans rollback : §6.4 prévalide le chemin du reçu, LOT-4 teste un répertoire à cet endroit → refus avant publication. Exiger des fautes après publication (reçu puis lock), restauration, nettoyage borné, édition concurrente préservée. | **Confirmé.** Séquence actuelle : publication config (`host-bootstrap.ts:322`), reçu (`:323`), puis lock provisionné par le verbe CLI **après** retour (`cli-registry.ts:110` puis `:115`), hors tout rollback. Une fois le preflight §6.4 en place, le cas répertoire ne touche plus jamais le rollback. | F-05 scindé en **F-05a** (preflight, étiqueté non-preuve de rollback), **F-05b** (faute reçu après publication), **F-05c** (faute lock après publication), **F-05d** (édition concurrente après publication : préservée, état nommé). Restauration octet-exacte, nettoyage limité aux artefacts de la transaction, reçu/lock préexistants restaurés. RQ-09 et §6.4 : rollback = second compare-and-replace ; transaction unique incluant le lock. |
+| 7 | Astra P2 + Sol P2 → **SP-06** | Le RED annoncé pour LOT-2A est déjà implémenté (`claude_version_unqualified`, contrôles exacts) ; aucun défaut concret ne soutient le RED obligatoire. Requalifier en validation exemptée ou fournir un contre-exemple réel ; F-01 ouvert jusqu'à LOT-2B. | **Confirmé.** `bin.ts:43-44` émet le diagnostic ; `qualifiedClaudeInitialize` (`mcp-central-qualification.ts:35`) impose chaque champ exact ; `mh-l1-shim.test.js:39`/`:63` assertent déjà le diagnostic dans les deux sens. Micro-observation vérifiée et **non retenue** comme RED : `Boolean(entry.evidence)` accepte une evidence faite d'espaces — sans effet d'admission réel (diff de manifeste revu en LOT-2B), elle ne justifie pas un lot produit. | **LOT-2A requalifié validation sans modification produit**, exemption RED explicite et unique pour un lot comportemental (§0, §7.0, carte du lot), matrice commitée en vert-dès-l'arrivée, **stop-rule** si un cas échoue (nouveau finding RED-first séparé). Diff produit attendu vide, vérifié. F-01 reste ouvert jusqu'à LOT-2B. Estimation ramenée à 2–4 h-agent. |
+
+## Changements de structure induits
+
+| Zone v2 | Changement |
+|---|---|
+| En-tête + §0 | Statut v2, ligne Révision (empreinte v1, revues), exemptions RED nommées (LOT-0, LOT-2A) et aucune autre. |
+| §1.4 | Ligne « Spec reviews of v1 » ajoutée aux preuves lues. |
+| §3 | RQ-02 (route bridge obligatoire), RQ-04 (observable de reconnexion), RQ-06 (déclencheurs nommés, fencing legacy, opt-out), RQ-08 (publisher plugin), RQ-09 (rollback compare-and-replace, nettoyage borné), RQ-12 (preuve tarball). |
+| §4 | Faits vérifiés ajoutés : mécanisme de qualification déjà exact/testé ; chemin auto encore legacy (4 appelants cités) ; plugins livrés en `mcp-serve`, aucun renderer ; test existant qui épingle le défaut. |
+| §5.5 (nouveau) | Registre SP-01..SP-06 : défaut v1, vérification aux têtes, disposition v2. |
+| §6 | §6.1 surface plugin ; §6.2 amorçage de campagne sans bypass publié + confirmation ; §6.3 convergence structurelle + inventaire des jonctions ; §6.4 transaction complète et fautes post-publication. |
+| §7.0 | Ordre dur : LOT-3 → LOT-4 → **LOT-4B** → LOT-5 → LOT-6 → LOT-2B → LOT-7 ; dépendances LOT-3..6→LOT-2B et LOT-4→LOT-4B explicites ; règle RED + exemptions. |
+| §7 LOT-0 | Baseline étendue : `mh-l1-shim.test.js` (SP-06) et `package-plugin-manifest.test.js` (vert sur le défaut SP-01, consigné comme tel). |
+| §7 LOT-1 | Cas (k)–(n), fichiers du chemin auto nommés, inventaire des jonctions livrable, voisins ajoutés, estimation 6–11 h-agent. |
+| §7 LOT-2A | Carte réécrite en validation exemptée avec stop-rule. |
+| §7 LOT-2B | Carte réécrite : tête intégrée, déclaration bootstrap, amorçage, confirmation, reste R7b borné au tuple exercé. Position d'exécution après LOT-6 (nom conservé). |
+| §7 LOT-3 | Parité des flags de contexte par hôte (Claude avec auto-upgrade, Codex sans) dans `bridgeArgs` et le cas (d). |
+| §7 LOT-4 | F-05 en 4 cas temporels ; lock ramené dans la transaction (`cli-registry.ts` au périmètre réel). |
+| §7 LOT-4B (nouveau) | Migration des plugins livrés : renderer intérimaire, assets générés, tarball, double bootstrap, lock plugin par défaut, continuité d'identité sur octets livrés. |
+| §7 LOT-7 | Le rapport liste les prérequis NC-6a/G-10 en `not covered`, sans les convertir en succès. |
+| §8 | Étape 5 (ordre des lots + rebase post-LOT-2B) ; étape 7 (merge ≠ publication, G-10 bloque `latest`). |
+| §9 | G-1 (SP inclus, P1 sans report), G-2 (route bridge + confirmation), G-8 (re-revue v2), **G-10** (prérequis REL de publication). |
+| §10 | NC-1 (reste R7b hors tuple LOT-2B), NC-6a/NC-6b, NC-10 (conditions de publication ≠ exclues). |
+| §11 | D-01 bornée au timing de merge, D-02 étendue aux mécanismes, **D-06** (report G-10 = arbitrage owner, non demandé). |
+| §12 + annexe B | Traçabilité SP-01..SP-06 ; index de fichiers complété (chemin auto, assets plugin, renderer, tests). |
+| Estimations | LOT-1 4–8 → 6–11 h-agent ; LOT-2A 3–6 → 2–4 ; LOT-2B 8–16 → 10–18 ; LOT-4 6–10 → 7–11 ; LOT-4B nouveau 5–9. Total indicatif v2 ≈ 52–96 h-agent (estimation, pas une mesure ; v1 annonçait 43–81). À recalibrer après LOT-0. |
+
+## Points où un relecteur est nuancé (pas d'erreur de fond)
+
+| Point | Verdict après vérification |
+|---|---|
+| Astra cite v7 « §10.6 et §10.9 » pour packaging + U07/U11 + charge. | Substantiellement exact ; attribution précise : U07/U11/U13 = §10.6, charge/endurance = §10.7 (non cité), packaging final = §10.9 (+§8.3). La v2 cite les trois § séparément. |
+| Astra parle de corriger « le bridge et ses renderers » (plugins). | Il n'existe aucun renderer plugin à corriger : il faut le créer (LOT-4B inclut le renderer intérimaire). Le finding est donc plus large que formulé, pas moins valide. |
+| Sol : « les contrôles exacts du manifeste sont également présents ». | Exact champ par champ. Seule réserve mesurée : `Boolean(evidence)` laisse passer une evidence d'espaces ; non retenue comme RED (motif au tableau, ligne 7). La correction demandée par les deux relecteurs (validation exemptée) est appliquée. |
+| Astra : LOT-2B « prévoit #355 et seulement ideally after LOT-3 ». | Exact sur la v1. La v2 va plus loin que la correction minimale : tête intégrée LOT-3..6 **incluant LOT-4B**, car la déclaration plugin fait partie de la route annoncée. |
+
+## Non couvert par cette révision, écarts
+
+| Sujet | Statut |
+|---|---|
+| Code et tests | Aucun écrit, aucun exécuté — tâche « spec seule, no code ». Les preuves RED/green restent à produire en phase code, lot par lot. |
+| `summary.md` (résumé français v1) | Non régénéré : ses tableaux de lots et son total d'estimation décrivent la v1. À régénérer après re-revue de la v2 ; hors livrables demandés ici. |
+| Re-revue de la v2 | Non faite : c'est l'étape suivante (G-8, deux relecteurs max sur les sections changées), puis GO-CODE owner D-01..D-06. |
+| Fraîcheur des têtes | Vérifications aux têtes locales `ef9bde52a` / `e8508e394` (propres). Tout mouvement des PR depuis impose la re-vérification LOT-0 (§8 étape 0) ; SG-5 de la spec reste applicable. |
+| Commits / push | Aucun : le répertoire de travail n'est pas un dépôt git et la tâche livre deux fichiers de spec. Aucun accès à l'état h2a réel, au binaire installé ni à un processus tiers ; lectures de sources uniquement. |
