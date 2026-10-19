@@ -23,7 +23,10 @@ export function buildCampaignReceipt({ campaignRoot, sha, gate, repoRoot, cliVer
   const ledger = JSON.parse(fs.readFileSync(join(campaignRoot, 'campaign-ledger.json'), 'utf8'));
   const manifest = loadMatrixManifest(manifestFile ?? join(repoRoot, 'docs/cross-cli-matrix.json'));
   const mandatory = manifest.mandatory?.[gate] ?? [];
-  const byPair = new Map(qualify.cells.map(cell => [`${cell.sender}:${cell.receiver}`, cell]));
+  // Receipt scope is the probe: scenario cells never satisfy probe rows.
+  const byPair = new Map(qualify.cells
+    .filter(cell => (cell.scenario ?? 'probe') === 'probe')
+    .map(cell => [`${cell.sender}:${cell.receiver}`, cell]));
   const cells = mandatory.map(row => {
     const source = byPair.get(row.pair) ?? {};
     return { scenario: row.scenario, pair: row.pair,
