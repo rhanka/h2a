@@ -42,6 +42,11 @@ export async function observeSmoke(source, scriptPath, options = {}) {
         observations.packed.push("@sentropic/" + name);
         fs.writeFileSync(join(args[1], "sentropic-" + name + `-${pinned}.tgz`), name);
       }
+      // The closed candidate cohort is five tarballs: the focus pack rides
+      // the same producer (pack-candidate.mjs packs track/h2a-cli/focus via
+      // workspaces after the two verified payloads).
+      observations.packed.push("@sentropic/focus");
+      fs.writeFileSync(join(args[1], `sentropic-focus-${focusPinned}.tgz`), "focus");
     } else if (command === 'npm' && args[0] === 'pack') {
       const pkg = args[2], staging = args[4]
       observations.packed.push(pkg)
