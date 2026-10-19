@@ -89,7 +89,7 @@ test('the private environment drops ambient sockets, hooks, daemon and provider 
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test('L4: login copies accept only codex and Muse roles, never ambient material', async () => {
+test('L4: login copies accept only the codex and Muse login roles, never ambient material', async () => {
   const { copyLogin, environment } = await import('./xcli-lab.mjs');
   const CANARY_TOKEN = 'canary-owner-token-zz9';
   const CANARY_INSTANCE = 'canary-owner-instance-zz9';
@@ -110,8 +110,8 @@ test('L4: login copies accept only codex and Muse roles, never ambient material'
     // config, and a planted instance-shaped name.
     writeFileSync(join(authHome, '.codex/config.toml'), `instance = "${CANARY_INSTANCE}"\n`);
     writeFileSync(join(ambient, '.codex/auth.json'), JSON.stringify({ token: 'ambient-canary-zz9' }));
-    // Roles beyond codex|Muse are refused, even with material present.
-    for (const cli of ['gemini', 'agy', 'claude', 'vibe']) {
+    // Roles beyond 'codex'|'claude' are refused, even with material present.
+    for (const cli of ['gemini', 'agy', 'muse', 'vibe']) {
       const cell = join(root, 'cell-' + cli);
       const env = environment(join(cell, 'role'));
       assert.throws(() => copyLogin(cli, authHome, cell, env), /login-not-confined/,
@@ -119,7 +119,7 @@ test('L4: login copies accept only codex and Muse roles, never ambient material'
     }
     // Allowed roles copy exactly their allowlisted files, byte-identical,
     // with no ambient read and no planted names or paths received.
-    for (const cli of ['codex', 'Muse']) {
+    for (const cli of ['codex', 'claude']) {
       const cell = join(root, 'cell-' + cli);
       const env = environment(join(cell, 'role'));
       const copied = copyLogin(cli, authHome, cell, env);

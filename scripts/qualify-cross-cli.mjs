@@ -6,7 +6,8 @@ import { join, dirname, resolve } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { CLIS, PROBE, REPLY, repo, environment, sourceBuild, copyLogin,
-  cliPath, privateExecutable, pythonEntrypoint, classify, matrix, inside } from './xcli-lab.mjs';
+  cliPath, privateExecutable, pythonEntrypoint, classify, matrix, inside,
+  rehydrateEventRecord } from './xcli-lab.mjs';
 import { startupTerminal } from './xcli-terminal.mjs';
 import { verifyWakeBatch } from './xcli-ci-check.mjs';
 
@@ -48,8 +49,13 @@ function parseOffsets(raw) {
     "invalid --wake-release-offsets-ms (expected non-negative integers)");
   return parts;
 }
+// Lot L4: on-disk records are canonical {at, event, transcript} envelopes;
+// rehydrate the evidence-shaped flat fields from the transcript so every
+// consumer keeps its established access (shared helper in xcli-lab.mjs).
 const readEvents = path => {
-  try { return fs.readFileSync(path, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse); }
+  try {
+    return fs.readFileSync(path, 'utf8').trim().split('\n').filter(Boolean).map(line => rehydrateEventRecord(JSON.parse(line)));
+  }
   catch (error) { if (error.code === 'ENOENT') return []; throw error; }
 };
 
@@ -158,12 +164,14 @@ async function worker() {
       H2A_MCP_TRACE: '1',
       ...(dropWake ? { XCLI_DROP_WAKE: '1' } : {}),
     };
-    row.credentialsCopied[role] = copyLogin(cli, authHome, cell, env);
-    if ((cli === 'gemini' || cli === 'agy') && row.credentialsCopied[role].includes('.gemini/oauth_creds.json')) {
-      // Select the existing copied OAuth login; never copy the owner's MCPs,
-      // hooks, extensions or arbitrary configuration.
-      fs.mkdirSync(join(env.HOME, '.gemini'), { recursive: true });
-      fs.writeFileSync(join(env.HOME, '.gemini/settings.json'), JSON.stringify({ security: { auth: { selectedType: 'oauth-personal' } } }));
+    // Lot L4 login confinement: copyLogin admits 'codex'|'claude' only and throws
+    // login-not-confined for every other family. The mapping is witnessed
+    // (role, allowlisted name, sha256 — never content) in the row evidence.
+    row.credentialsCopied[role] = authHome ? copyLogin(cli, authHome, cell, env) : [];
+    for (const name of row.credentialsCopied[role]) {
+      const mapped = cli === 'claude' ? join(env.XDG_CONFIG_HOME, 'muse/auth.json') : join(env.HOME, name);
+      row.evidence.push({ event: 'login-mapped', role, cli, file: name,
+        sha256: createHash('sha256').update(fs.readFileSync(mapped)).digest('hex') });
     }
     // Every nested h2a invocation resolves to this witnessed checkout build.
     fs.writeFileSync(join(dir, 'bin/h2a'), `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(proxy)} "$@"\n`, { mode: 0o700 });
@@ -477,7 +485,7 @@ async function worker() {
     if (!row.blocker && !row.replyDelivered && !row.wakeFailure) row.failure = row.sent ? (row.received ? 'reply-not-observed' : 'live-receive-not-observed') : 'sender-send-not-observed';
     return row;
   } catch (error) {
-    const known = ['host-setup-no-config'];
+    const known = ['host-setup-no-config', 'login-not-confined:gemini', 'login-not-confined:agy', 'login-not-confined:claude', 'login-not-confined:vibe', 'login-not-confined:muse'];
     row.blocker = known.includes(error.message) ? error.message : 'qualification-infrastructure-error';
     row.infrastructureCode = /^[A-Z0-9_]+$/.test(error.code ?? '') ? error.code : undefined;
     row.infrastructureLocations = String(error.stack ?? '').split('\n').slice(1)
@@ -656,8 +664,12 @@ async function main() {
     }
   }
   const sha = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).stdout.trim();
+  // Lot L4 receipt hygiene: the retained command never carries the owner
+  // config path given to --auth-home (it names an owner-side directory).
+  const redactedArgs = process.argv.slice(2).map((arg, index, args) =>
+    args[index - 1] === '--auth-home' ? '<auth-home>' : arg);
   const result = { version: 1, mode: simulated ? 'simulated-model' : 'real-cli', sha, node: process.version,
-    command: ['node', 'scripts/qualify-cross-cli.mjs', ...process.argv.slice(2)].join(' '),
+    command: ['node', 'scripts/qualify-cross-cli.mjs', ...redactedArgs].join(' '),
     root, build: built,
     harnessDigests: Object.fromEntries(['qualify-cross-cli.mjs', 'xcli-lab.mjs', 'xcli-proxy.mjs', 'xcli-terminal.mjs', 'xcli-simulated-model.mjs'].map(name =>
       [name, createHash('sha256').update(fs.readFileSync(join(repo, 'scripts', name))).digest('hex')])),

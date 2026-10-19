@@ -36,6 +36,16 @@ export function canonicalEventRecord(at, event, detail) {
   const transcript = JSON.stringify(clean);
   return { at, event, [REPLAY_TRANSCRIPT_BODY]: transcript.slice(0, TRANSCRIPT_RETAIN_LIMIT) };
 }
+// Inverse of the canonical envelope for readers: rehydrate the evidence-shaped
+// flat fields from the transcript so consumers keep their established access.
+// Non-canonical lines (older files, worker-pushed memory events) pass through.
+export function rehydrateEventRecord(record) {
+  if (record && typeof record[REPLAY_TRANSCRIPT_BODY] === 'string') {
+    try { return { ...JSON.parse(record[REPLAY_TRANSCRIPT_BODY]), at: record.at, event: record.event }; }
+    catch { return record; }
+  }
+  return record;
+}
 
 export function inside(root, path) {
   const rel = relative(root, resolve(path));
@@ -142,40 +152,39 @@ export function sourceBuild(root) {
 
 // These are the documented auth-only files, not the product's broad remote
 // auth bundle: hooks, plugins, commands and MCP settings must never be copied.
+// Lot L4 login confinement: only the 'codex' and 'claude' roles map login files.
+// Every other family is refused outright (no 'gemini'/'agy'/'muse'/'vibe' logins),
+// so a real seat outside those roles can never receive owner credentials
+// through this path. Sources open with a plain open() + fstat (no
+// lstat/copy race, no symlinks, regular files only); both ends stay inside
+// the private target; mapped bytes are 0600. The caller witnesses the mapping
+// (role, allowlisted name, sha256 — never content) in the row evidence.
+const LOGIN_ROLES = Object.freeze(['codex', 'claude']);
 const authFiles = {
-  claude: ['.claude/.credentials.json'], codex: ['.codex/auth.json'],
-  agy: ['.gemini/oauth_creds.json', '.gemini/google_accounts.json'],
-  gemini: ['.gemini/oauth_creds.json', '.gemini/google_accounts.json'],
-  muse: ['.config/muse/auth.json'], vibe: [],
+  codex: ['.codex/auth.json'],
+  claude: ['.config/muse/auth.json'],
 };
 export function copyLogin(cli, authHome, target, env) {
   const copied = [];
   if (!authHome) return copied;
+  assert.ok(LOGIN_ROLES.includes(cli), `login-not-confined:${cli}`);
   for (const name of authFiles[cli]) {
     const src = join(authHome, name);
-    // No recursive traversal or symlink to an owner's configuration tree.
-    let info;
-    try { info = fs.lstatSync(src); } catch (error) { if (error.code === 'ENOENT') continue; throw error; }
-    if (!info.isFile() || info.isSymbolicLink()) continue;
-    const out = cli === 'muse' ? join(env.XDG_CONFIG_HOME, 'muse/auth.json') : join(env.HOME, name);
-    inside(target, out);
-    fs.mkdirSync(dirname(out), { recursive: true, mode: 0o700 });
-    fs.copyFileSync(src, out);
-    fs.chmodSync(out, 0o600);
-    copied.push(name);
-  }
-  if (cli === 'claude') {
+    // Plain open() with O_NOFOLLOW + fstat on the open descriptor: symlinks
+    // are refused by the kernel with no lstat/copy race window.
+    let fd = null;
+    try { fd = fs.openSync(src, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW); }
+    catch (error) { if (error.code === 'ENOENT' || error.code === 'ELOOP') continue; throw error; }
     try {
-      const source = JSON.parse(fs.readFileSync(join(authHome, '.claude.json'), 'utf8'));
-      const login = {};
-      if (source.oauthAccount && typeof source.oauthAccount === 'object') login.oauthAccount = source.oauthAccount;
-      if (typeof source.hasCompletedOnboarding === 'boolean') login.hasCompletedOnboarding = source.hasCompletedOnboarding;
-      if (typeof source.lastOnboardingVersion === 'string' && /^\d+\.\d+\.\d+$/.test(source.lastOnboardingVersion)) login.lastOnboardingVersion = source.lastOnboardingVersion;
-      if (Object.keys(login).length) {
-        fs.writeFileSync(inside(target, join(env.CLAUDE_CONFIG_DIR, '.claude.json')), JSON.stringify(login), { mode: 0o600 });
-        copied.push('.claude.json:login-metadata-only');
-      }
-    } catch (error) { if (error.code !== 'ENOENT') throw error; }
+      const info = fs.fstatSync(fd);
+      if (!info.isFile()) continue;
+      const out = cli === 'claude' ? join(env.XDG_CONFIG_HOME, 'muse/auth.json') : join(env.HOME, name);
+      inside(target, out);
+      fs.mkdirSync(dirname(out), { recursive: true, mode: 0o700 });
+      fs.writeFileSync(out, fs.readFileSync(fd));
+      fs.chmodSync(out, 0o600);
+      copied.push(name);
+    } finally { if (fd !== null) fs.closeSync(fd); }
   }
   return copied;
 }
