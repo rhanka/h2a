@@ -88,3 +88,49 @@ test('the private environment drops ambient sockets, hooks, daemon and provider 
     assert.equal(pythonEntrypoint(entry), false);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test('L4: login copies accept only codex and Muse roles, never ambient material', async () => {
+  const { copyLogin, environment } = await import('./xcli-lab.mjs');
+  const CANARY_TOKEN = 'canary-owner-token-zz9';
+  const CANARY_INSTANCE = 'canary-owner-instance-zz9';
+  const root = mkdtempSync('/tmp/xcli-login-');
+  try {
+    const authHome = join(root, 'auth');
+    const ambient = join(root, 'ambient-home');
+    fs.mkdirSync(join(authHome, '.codex'), { recursive: true });
+    fs.mkdirSync(join(authHome, '.claude'), { recursive: true });
+    fs.mkdirSync(join(authHome, '.gemini'), { recursive: true });
+    fs.mkdirSync(join(authHome, '.config/muse'), { recursive: true });
+    fs.mkdirSync(join(ambient, '.codex'), { recursive: true });
+    writeFileSync(join(authHome, '.codex/auth.json'), JSON.stringify({ token: CANARY_TOKEN }));
+    writeFileSync(join(authHome, '.claude/.credentials.json'), JSON.stringify({ token: CANARY_TOKEN }));
+    writeFileSync(join(authHome, '.gemini/oauth_creds.json'), JSON.stringify({ token: CANARY_TOKEN }));
+    writeFileSync(join(authHome, '.config/muse/auth.json'), JSON.stringify({ token: CANARY_TOKEN }));
+    // Decoys the copier must never touch: extra files, ambient owner-style
+    // config, and a planted instance-shaped name.
+    writeFileSync(join(authHome, '.codex/config.toml'), `instance = "${CANARY_INSTANCE}"\n`);
+    writeFileSync(join(ambient, '.codex/auth.json'), JSON.stringify({ token: 'ambient-canary-zz9' }));
+    // Roles beyond codex|Muse are refused, even with material present.
+    for (const cli of ['gemini', 'agy', 'claude', 'vibe']) {
+      const cell = join(root, 'cell-' + cli);
+      const env = environment(join(cell, 'role'));
+      assert.throws(() => copyLogin(cli, authHome, cell, env), /login-not-confined/,
+        `${cli} logins must be refused`);
+    }
+    // Allowed roles copy exactly their allowlisted files, byte-identical,
+    // with no ambient read and no planted names or paths received.
+    for (const cli of ['codex', 'Muse']) {
+      const cell = join(root, 'cell-' + cli);
+      const env = environment(join(cell, 'role'));
+      const copied = copyLogin(cli, authHome, cell, env);
+      assert.ok(copied.length > 0, `${cli} copies its login`);
+      const walk = dir => fs.readdirSync(dir, { withFileTypes: true }).flatMap(e =>
+        e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)]);
+      const content = walk(cell).map(f => fs.readFileSync(f, 'utf8')).join('\n');
+      assert.ok(!content.includes('ambient-canary-zz9'), 'no ambient credential material received');
+      assert.ok(!content.includes(CANARY_INSTANCE), 'no planted instance name received');
+      assert.ok(!content.includes(ambient), 'no ambient path received');
+      assert.ok(!content.includes(join(authHome, '.codex/config.toml')), 'decoy files never copied');
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
