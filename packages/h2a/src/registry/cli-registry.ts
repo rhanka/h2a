@@ -23,7 +23,7 @@ import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { trackRegistryPackageManifest } from "@sentropic/track/registry/manifest";
 import { installBridgeEntry, previewInstall, uninstallBridgeEntry } from "./host-bootstrap.js";
 import { assertRegistryHost } from "./host-bootstrap.js";
-import { defaultBridgeLockPath, provisionBridgeLock, readBridgeLock } from "./bridge-lock.js";
+import { defaultBridgeLockPath, readBridgeLock } from "./bridge-lock.js";
 import { validateRegistryEntry, type RegistryEntry } from "./descriptors.js";
 import { activateHostedLock, draftHostedLock, verifyHostedLock } from "./hosted.js";
 import { registryPackageManifest } from "./manifest.js";
@@ -109,14 +109,13 @@ export function cmdRegistry(argv: readonly string[], streams: CliStreams): numbe
         return 0;
       }
       if (action === "install") {
-        const installed = installBridgeEntry({ host, configPath: config, profile, lockPath, dryRun: flags["dry-run"] === "true" });
-        let lockAction = "skipped-dry-run";
-        if (flags["dry-run"] !== "true") {
-          const h2aEntry = (registryPackageManifest.entries as RegistryEntry[])[0] as RegistryEntry;
-          const trackEntry = (trackRegistryPackageManifest.entries as RegistryEntry[])[0] as RegistryEntry;
-          lockAction = provisionBridgeLock({ lockPath, host, profile, bridge: { command: "h2a", args: ["registry-bridge", "serve", "--host", host, "--profile", profile, "--lock", lockPath] }, h2aEntry, trackEntry }).action;
-        }
-        streams.stdout.write(`${JSON.stringify({ ok: true, host, profile, config, lock: lockPath, lockAction, ...installed }, null, 2)}\n`);
+        // The whole config+receipt+lock sequence runs in the one install
+        // transaction (host-bootstrap.ts); nothing is provisioned here after
+        // the installer returns.
+        const h2aEntry = (registryPackageManifest.entries as RegistryEntry[])[0] as RegistryEntry;
+        const trackEntry = (trackRegistryPackageManifest.entries as RegistryEntry[])[0] as RegistryEntry;
+        const installed = installBridgeEntry({ host, configPath: config, profile, lockPath, dryRun: flags["dry-run"] === "true", h2aEntry, trackEntry });
+        streams.stdout.write(`${JSON.stringify({ ok: true, host, profile, config, lock: lockPath, ...installed }, null, 2)}\n`);
         return 0;
       }
       if (action === "uninstall") {
