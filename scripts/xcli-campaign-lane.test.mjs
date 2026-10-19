@@ -2,6 +2,7 @@
 // an explicit seat set and refuses fork refs; the PR lane carries the
 // receipt-check job; the release lane gates on the exact-SHA receipt.
 // Red while any lane misses its gate.
+import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { join } from 'node:path';
@@ -16,7 +17,7 @@ const prLane = fs.readFileSync(join(repo, '.github/workflows/cross-cli-messaging
 const release = fs.readFileSync(join(repo, '.github/workflows/release.yml'), 'utf8');
 
 test('L4: malformed seat bundles never expose their bytes in job logs', () => {
-  const root = fs.mkdtempSync('/tmp/xcli-materialize-');
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-materialize-'));
   try {
     const script = parse(campaign).jobs.campaign.steps.find(s => s.name === 'Materialise seat HOMEs from environment bundles').run;
     const canary = 'CANARY42';
@@ -29,7 +30,7 @@ test('L4: malformed seat bundles never expose their bytes in job logs', () => {
 });
 
 test('L4: campaign materialization refuses an aliased or reused seat root before writing credentials', () => {
-  const root = fs.mkdtempSync('/tmp/xcli-materialize-');
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-materialize-'));
   try {
     const script = parse(campaign).jobs.campaign.steps.find(s => s.name === 'Materialise seat HOMEs from environment bundles').run;
     const outside = join(root, 'outside'); fs.mkdirSync(outside); fs.symlinkSync(outside, join(root, 'seats'));
@@ -84,7 +85,7 @@ test('L11 review: PR and release fetch authenticated artifacts for the exact hea
 });
 
 test('campaign review: funded windows, guarded root, Vibe measurement and explicit provisioned runner', () => {
-  assert.ok(campaign.includes('/tmp/h2a-qual-'));
+  assert.ok(campaign.includes('${RUNNER_TEMP}/h2a-qual-'));
   assert.match(campaign, /--timeout-ms (?:[6-9]\d{4}|1[0-7]\d{4}|180000)/);
   assert.ok(campaign.includes('Object.keys(ORACLE_SOURCES)'));
   assert.ok(campaign.includes('XCLI_CAMPAIGN_RUNNER'), 'owner selects an ephemeral image with the required binaries');
