@@ -2,6 +2,9 @@ import { baseDigest, canonicalJson, manifestDigest } from './digest.js';
 import { manifestSchema, matchesSchema } from './structure.js';
 import { segmentMarkdown, segmentText } from './codec.js';
 export const fieldKey = (a) => canonicalJson([a.nodeId, a.targetRef, a.field]);
+/** An emptied narrative field keeps one empty unit: `""` is content (D14), so an
+ * empty source still carries its paragraph identity instead of zero units. */
+const textSegments = (source) => source === '' ? [{ start: 0, end: 0, editable: true }] : segmentText(source);
 export function sourceNodes(doc) {
     return doc.sections.flatMap(s => s.kind === 'optionSet' ? [s, ...s.options] : [s]);
 }
@@ -25,7 +28,7 @@ export function seedManifest(doc) {
     const baseHash = baseDigest(doc), fields = editableFields(doc);
     const paragraphs = fields.flatMap(f => {
         const source = sourceNode(doc, f)[f.field];
-        const segments = f.contentFormat === 'text/plain' ? segmentText(source) : segmentMarkdown(source);
+        const segments = f.contentFormat === 'text/plain' ? textSegments(source) : segmentMarkdown(source);
         return segments.filter(s => s.editable).map((s, order) => ({ nodeId: f.nodeId, targetRef: f.targetRef, field: f.field,
             paragraphId: `paragraph:${baseDigest([baseHash, fieldKey(f), order]).slice(7)}`, blockKind: 'paragraph', parentId: null, order,
             range: { start: s.start, end: s.end, unit: 'utf16' } }));
@@ -47,7 +50,7 @@ export function validateManifest(value, doc) {
             fieldIds.add(key);
             const source = sourceNode(doc, f)[f.field];
             const ps = m.paragraphs.filter(p => fieldKey(p) === key).sort((a, b) => a.order - b.order);
-            const segments = f.contentFormat === 'text/plain' ? segmentText(source) : segmentMarkdown(source);
+            const segments = f.contentFormat === 'text/plain' ? textSegments(source) : segmentMarkdown(source);
             let end = 0;
             ps.forEach((p, index) => {
                 if (p.order !== index || p.range.start < end || p.range.end < p.range.start || p.range.end > source.length)
