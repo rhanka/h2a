@@ -8,6 +8,9 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const kit = fileURLToPath(new URL('../packages/h2a/focus-kit/', import.meta.url));
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 const inputs = ['package.json', 'package-lock.json', 'dossier.template.json', 'ecosystem.json',
+  'dossier.evidence.template.json', '../../focus/schemas/decision-dossier-document.v2.schema.json',
+  ...readdirSync(join(kit, '../../focus/src/validation')).filter(n => n.startsWith('evidence')).sort().map(n => `../../focus/src/validation/${n}`),
+  '../../focus/src/render/evidence.ts',
   '../../../scripts/build-focus-dossier.mjs', '../../focus/schemas/decision-dossier-document.v1.schema.json',
   '../../focus/src/validation/index.ts', '../../focus/src/validation/readability.ts', '../../focus/src/model.ts',
   '../../focus/src/render/presentation.ts',
@@ -18,7 +21,8 @@ if (process.argv.includes('--check')) {
   const manifest = JSON.parse(readFileSync(join(kit, 'renderer-manifest.json'), 'utf8'));
   if (JSON.stringify(manifest.sources) !== JSON.stringify(sources()) || manifest.html !== digest(readFileSync(join(kit, 'renderer.html'))) ||
     manifest.validator !== digest(readFileSync(join(kit, 'validator.mjs'))) ||
-    digest(readFileSync(join(kit, 'dossier.schema.json'))) !== digest(readFileSync(join(kit, '../../focus/schemas/decision-dossier-document.v1.schema.json')))) {
+    digest(readFileSync(join(kit, 'dossier.schema.json'))) !== digest(readFileSync(join(kit, '../../focus/schemas/decision-dossier-document.v1.schema.json'))) ||
+    digest(readFileSync(join(kit, 'dossier.v2.schema.json'))) !== digest(readFileSync(join(kit, '../../focus/schemas/decision-dossier-document.v2.schema.json')))) {
     throw new Error('Focus dossier renderer is stale: npm --prefix packages/h2a/focus-kit ci && node scripts/build-focus-dossier.mjs');
   }
   console.log('Focus dossier renderer sources and portable asset: verified');
@@ -64,7 +68,12 @@ if (process.argv.includes('--check')) {
       platform: 'node', target: 'node22', format: 'esm', outfile: join(kit, 'validator.mjs'),
       banner: { js: `/*!\n${readFileSync(join(kit, '../../focus/LICENSE'), 'utf8')}\n*/` } });
     writeFileSync(join(kit, 'dossier.schema.json'), readFileSync(join(kit, '../../focus/schemas/decision-dossier-document.v1.schema.json')));
-    writeFileSync(join(kit, 'renderer-manifest.json'), JSON.stringify({ sources: sources(), html: digest(html), validator: digest(readFileSync(join(kit, 'validator.mjs'))) }, null, 2) + '\n');
+    writeFileSync(join(kit, 'dossier.v2.schema.json'), readFileSync(join(kit, '../../focus/schemas/decision-dossier-document.v2.schema.json')));
+    writeFileSync(join(kit, 'renderer-manifest.json'), JSON.stringify({ increment: 'H1', formats: [1, 2],
+      capabilities: ['embedded-offline', 'evidence-citations', 'evidence-search', 'evidence-download', 'evidence-annexes'],
+      rendererVersion: JSON.parse(readFileSync(join(kit, '../package.json'))).version,
+      validatorVersion: JSON.parse(readFileSync(join(kit, '../../focus/package.json'))).version,
+      sources: sources(), html: digest(html), validator: digest(readFileSync(join(kit, 'validator.mjs'))) }, null, 2) + '\n');
     console.log(`Portable Focus renderer: ${html.length} bytes`);
   } finally { rmSync(staging, { recursive: true, force: true }); }
 }

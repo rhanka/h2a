@@ -15,7 +15,7 @@ import { createHash } from "node:crypto";
 /** Canonical registry ID of the Focus skill. */
 export const FOCUS_SKILL_ID = "sentropic.focus";
 /** Public entry version of the first Focus registry release. */
-export const FOCUS_ENTRY_VERSION = "1.0.0";
+export const FOCUS_ENTRY_VERSION = "2.0.0";
 /** Entry-contract version this descriptor conforms to. */
 export const FOCUS_CONTRACT_VERSION = "1.1.4";
 /** Parameter-schema version of the Focus entry (contract §5.4). */
@@ -53,6 +53,8 @@ const FOCUS_TRACK_PEER_NAME = "@sentropic/track";
 const FOCUS_TRACK_PEER_RANGE = "^0.98.6";
 const FOCUS_INSTRUCTIONS_ASSET = "skills/focus/SKILL.md";
 const FOCUS_SCHEMA_ASSET = "schemas/decision-dossier-document.v1.schema.json";
+const FOCUS_EVIDENCE_ASSET = 'schemas/decision-dossier-document.v2.schema.json';
+const FOCUS_EVIDENCE_ID = 'urn:sentropic:focus:DecisionDossierDocument:2.0.0';
 const FOCUS_INSTRUCTIONS_ROLE = "skill-instructions";
 const FOCUS_SCHEMA_ROLE = "document-schema";
 const FOCUS_INSTRUCTIONS_MEDIA = "text/markdown";
@@ -215,13 +217,14 @@ export const validateFocusEntryDescriptor = (value) => {
         fail(at("bindings"), "invalid_entry", "instruction-only entries carry no bindings");
     }
     const assets = value["assets"];
-    if (!Array.isArray(assets) || assets.length !== 2) {
-        fail(at("assets"), "invalid_entry", "expected exactly the two pinned entry assets");
+    if (!Array.isArray(assets) || assets.length !== 3) {
+        fail(at("assets"), "invalid_entry", "expected exactly the instructions and two versioned schema assets");
     }
     else {
         const expectedAssets = [
             { role: FOCUS_INSTRUCTIONS_ROLE, path: FOCUS_INSTRUCTIONS_ASSET, mediaType: FOCUS_INSTRUCTIONS_MEDIA },
             { role: FOCUS_SCHEMA_ROLE, path: FOCUS_SCHEMA_ASSET, mediaType: FOCUS_SCHEMA_MEDIA },
+            { role: FOCUS_SCHEMA_ROLE, path: FOCUS_EVIDENCE_ASSET, mediaType: FOCUS_SCHEMA_MEDIA },
         ];
         assets.forEach((asset, index) => {
             const path = `$.assets[${index}]`;
@@ -314,9 +317,9 @@ export const validateFocusEntryDescriptor = (value) => {
                     }
                     valid = false;
                 }
-                if (capability["inputSchemaRef"] !== FOCUS_DOSSIER_SCHEMA_ID ||
-                    capability["outputSchemaRef"] !== FOCUS_DOSSIER_SCHEMA_ID) {
-                    fail("$.skill.capabilities[0]", "invalid_entry", `expected schema refs bound to ${FOCUS_DOSSIER_SCHEMA_ID}`);
+                if (capability["inputSchemaRef"] !== FOCUS_EVIDENCE_ID ||
+                    capability["outputSchemaRef"] !== FOCUS_EVIDENCE_ID) {
+                    fail("$.skill.capabilities[0]", "invalid_entry", `expected schema refs bound to ${FOCUS_EVIDENCE_ID}`);
                 }
             }
         }
@@ -324,37 +327,42 @@ export const validateFocusEntryDescriptor = (value) => {
             fail("$.skill.tools", "invalid_entry", "instruction-only entries carry no tools");
         }
         const schemas = skill["documentSchemas"];
-        if (!Array.isArray(schemas) || schemas.length !== 1) {
-            fail("$.skill.documentSchemas", "invalid_entry", "expected exactly the digest-bound DecisionDossierDocument schema reference");
+        if (!Array.isArray(schemas) || schemas.length !== 2) {
+            fail("$.skill.documentSchemas", "invalid_entry", "expected both digest-bound dossier schema versions");
         }
         else {
-            const schema = schemas[0];
-            if (!isRecord(schema) ||
-                schema["name"] !== "DecisionDossierDocument" ||
-                schema["schemaId"] !== FOCUS_DOSSIER_SCHEMA_ID ||
-                schema["version"] !== FOCUS_DOSSIER_SCHEMA_VERSION ||
-                typeof schema["assetPath"] !== "string" ||
-                typeof schema["sha256"] !== "string" ||
-                !HEX64.test(schema["sha256"])) {
-                fail("$.skill.documentSchemas", "invalid_entry", "expected exactly the digest-bound DecisionDossierDocument schema reference");
-            }
-            else {
-                rejectUnknownKeys(schema, ["name", "schemaId", "version", "assetPath", "sha256"], "$.skill.documentSchemas[0]");
-                if (schema["assetPath"] !== FOCUS_SCHEMA_ASSET) {
-                    fail("$.skill.documentSchemas[0].assetPath", "invalid_entry", "expected the pinned schema asset path");
+            schemas.forEach((schema, index) => {
+                const schemaId = index === 0 ? FOCUS_DOSSIER_SCHEMA_ID : FOCUS_EVIDENCE_ID;
+                const version = index === 0 ? FOCUS_DOSSIER_SCHEMA_VERSION : '2.0.0';
+                const assetPath = index === 0 ? FOCUS_SCHEMA_ASSET : FOCUS_EVIDENCE_ASSET;
+                const schemaPath = `$.skill.documentSchemas[${index}]`;
+                if (!isRecord(schema) ||
+                    schema["name"] !== "DecisionDossierDocument" ||
+                    schema["schemaId"] !== schemaId ||
+                    schema["version"] !== version ||
+                    typeof schema["assetPath"] !== "string" ||
+                    typeof schema["sha256"] !== "string" ||
+                    !HEX64.test(schema["sha256"])) {
+                    fail("$.skill.documentSchemas", "invalid_entry", "expected exactly the digest-bound DecisionDossierDocument schema reference");
                 }
-                else if (!declaredAssetPaths.has(schema["assetPath"])) {
-                    fail("$.skill.documentSchemas[0].assetPath", "invalid_entry", "schema asset is not a declared entry asset");
-                }
-                else if (Array.isArray(assets)) {
-                    const pinned = assets.find((asset) => isRecord(asset) && asset["path"] === FOCUS_SCHEMA_ASSET);
-                    if (!isRecord(pinned) ||
-                        pinned["sha256"] !== schema["sha256"] ||
-                        pinned["role"] !== FOCUS_SCHEMA_ROLE) {
-                        fail("$.skill.documentSchemas[0].sha256", "integrity_mismatch", "schema digest must match the pinned asset digest");
+                else {
+                    rejectUnknownKeys(schema, ["name", "schemaId", "version", "assetPath", "sha256"], schemaPath);
+                    if (schema["assetPath"] !== assetPath) {
+                        fail(`${schemaPath}.assetPath`, "invalid_entry", "expected the pinned schema asset path");
+                    }
+                    else if (!declaredAssetPaths.has(schema["assetPath"])) {
+                        fail(`${schemaPath}.assetPath`, "invalid_entry", "schema asset is not a declared entry asset");
+                    }
+                    else if (Array.isArray(assets)) {
+                        const pinned = assets.find((asset) => isRecord(asset) && asset["path"] === assetPath);
+                        if (!isRecord(pinned) ||
+                            pinned["sha256"] !== schema["sha256"] ||
+                            pinned["role"] !== FOCUS_SCHEMA_ROLE) {
+                            fail(`${schemaPath}.sha256`, "integrity_mismatch", "schema digest must match the pinned asset digest");
+                        }
                     }
                 }
-            }
+            });
         }
         if (!Array.isArray(skill["dependencies"]) || skill["dependencies"].length !== 0) {
             fail("$.skill.dependencies", "invalid_entry", "instruction-only entries carry no dependencies");

@@ -1,6 +1,7 @@
 /** Portable dossier adapter. Focus owns the document and the presentation gate. */
-import { readFileSync, writeFileSync, realpathSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { readFileSync, writeFileSync, realpathSync, mkdtempSync, openSync, closeSync, fsyncSync, renameSync, rmSync } from 'node:fs';
+import { resolve, dirname, join } from 'node:path';
+import { createHash } from 'node:crypto';
 import type { DecisionDossierDocument } from '@sentropic/focus';
 
 // Generated directly from @sentropic/focus/validate; no second validation implementation.
@@ -9,6 +10,7 @@ const { assertDecisionDossierForPresentation, assertDecisionDossierDocument } =
 
 const kit = new URL('../focus-kit/', import.meta.url);
 const readAsset = (name: string): string => readFileSync(new URL(name, kit), 'utf8');
+const digest = (text: string): string => createHash('sha256').update(text).digest('hex');
 const jsonForHtml = (value: unknown): string => JSON.stringify(value).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
 const escapeHtml = (value: string): string => value.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
@@ -123,14 +125,30 @@ export function buildFocusDossier(input: unknown): string {
   if (!diagramCount) throw new Error('A Focus dossier needs an ecosystem diagram; add a diagram section with source ecosystem:overview');
   const renderer = readAsset('renderer.html');
   if (!renderer.includes('<!--FOCUS_PAYLOAD-->') || !renderer.includes('<!--FOCUS_TITLE-->')) throw new Error('Invalid Focus renderer asset; rebuild the kit');
+  const manifest = JSON.parse(readAsset('renderer-manifest.json'));
+  const build = { increment: manifest.increment, formats: manifest.formats, capabilities: manifest.capabilities,
+    rendererVersion: manifest.rendererVersion, validatorVersion: manifest.validatorVersion,
+    envelopeSha256: digest(JSON.stringify(validated)), rendererSha256: digest(renderer), validatorSha256: digest(readAsset('validator.mjs')) };
   return renderer.replace('<!--FOCUS_TITLE-->', () => escapeHtml(validated.title))
-    .replace('<!--FOCUS_PAYLOAD-->', () => `<script type="application/json" data-focus-document>${jsonForHtml({ document: validated })}</script>`);
+    .replace('<!--FOCUS_PAYLOAD-->', () => `<script type="application/json" data-focus-document>${jsonForHtml({ document: validated, build })}</script>`);
+}
+
+/** Same-directory rename is the only publication point; failures preserve the old artifact. */
+function publishArtifact(output: string, content: string): void {
+  const staging = mkdtempSync(join(dirname(output), '.focus-build-'));
+  try {
+    const pending = join(staging, 'artifact'), fd = openSync(pending, 'wx', 0o600);
+    try { writeFileSync(fd, content, 'utf8'); fsyncSync(fd); } finally { closeSync(fd); }
+    renameSync(pending, output);
+  } finally { rmSync(staging, { recursive: true, force: true }); }
 }
 
 export function runFocusBuildCli(args: readonly string[], streams = { stdout: process.stdout, stderr: process.stderr }): number {
-  const usage = 'Usage: h2a focus build <dossier.json> -o <file.html>\n       h2a focus template -o <dossier.json>\n';
+  const usage = 'Usage: h2a focus build <dossier.json> -o <file.html>\n       h2a focus template [--evidence] -o <dossier.json>\n';
   if (args.includes('--help') || args.includes('-h')) { streams.stdout.write(usage); return 0; }
   const template = args[0] === 'template';
+  const evidenceTemplate = template && args[1] === '--evidence';
+  if (evidenceTemplate) args = [args[0], ...args.slice(2)];
   const offset = template ? 1 : 2;
   if ((!template && args[0] !== 'build') || args.length !== offset + 2 || !['-o', '--output'].includes(args[offset]) || !args[offset + 1] || args[offset + 1].startsWith('-') || (!template && args[1].startsWith('-'))) {
     streams.stderr.write(usage); return 2;
@@ -142,8 +160,8 @@ export function runFocusBuildCli(args: readonly string[], streams = { stdout: pr
       try { existingOutput = realpathSync(output); } catch { /* New output file. */ }
       if (realpathSync(args[1]) === existingOutput) throw new Error('Output must differ from the input dossier');
     }
-    const html = template ? readAsset('dossier.template.json') : buildFocusDossier(JSON.parse(readFileSync(args[1], 'utf8')));
-    writeFileSync(output, html, 'utf8');
+    const html = template ? readAsset(evidenceTemplate ? 'dossier.evidence.template.json' : 'dossier.template.json') : buildFocusDossier(JSON.parse(readFileSync(args[1], 'utf8')));
+    publishArtifact(output, html);
     streams.stdout.write(template ? `Focus template: ${output}\n` : `Focus dossier validated; portable HTML: ${output}\n`);
     return 0;
   } catch (error) {

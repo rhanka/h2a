@@ -20,10 +20,31 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      - name: Prepare the exact frozen evidence corpus Git objects
+        run: node packages/h2a/focus-kit/test/prepare-evidence-corpus.mjs
+      - name: Verify corpus preparation from a depth-one checkout
+        run: node --test packages/h2a/focus-kit/test/evidence-corpus-checkout.test.mjs
       - run: node scripts/build-focus-dossier.mjs --check
       - name: Validate and build portable dossier fixtures
         run: node --test packages/h2a/test/focus-build.test.js
+      - name: Fresh H1 package template and build without checkout imports
+        run: node --test packages/h2a/test/distribution-increments.test.js
       - run: npm --prefix packages/h2a/focus-kit ci --no-audit --no-fund
       - run: npm --prefix packages/h2a/focus-kit exec -- playwright install --with-deps chromium
       - name: Offline desktop and phone, themes, selection and touch pinch
         run: node --test packages/h2a/focus-kit/test/browser.test.mjs
+      - name: H1 evidence tasks and fresh installed-package opening
+        run: node --test packages/h2a/focus-kit/test/evidence-browser.test.mjs
+      - name: Strict memory observation including exiting owned processes
+        run: node --test packages/h2a/focus-kit/test/evidence-memory.test.mjs
+      - name: Frozen H1 evidence reactivity and memory policy
+        env:
+          TMPDIR: ${{ runner.temp }}
+        run: node --test packages/h2a/focus-kit/test/evidence-performance-browser.test.mjs
+      - name: Retain raw H1 performance samples and artifact hashes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: focus-evidence-metrics-${{ github.sha }}
+          path: ${{ runner.temp }}/focus-evidence-performance-*/metrics.json
+          if-no-files-found: error
