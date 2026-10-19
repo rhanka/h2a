@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { environment, repo } from './xcli-lab.mjs';
+import { pathToFileURL } from 'node:url';
 
 for (const poll of ['single:18000', 'periodic:60000:17000']) test(`L3 review: ${poll} cannot credit one repetition`, () => {
   const root = fs.mkdtempSync('/tmp/xcli-wake-review-');
@@ -20,5 +21,28 @@ console.log(JSON.stringify({sender:r.sender,receiver:r.receiver,scenario:'probe'
     assert.equal(cell.woke, false);
     assert.equal(cell.wakeFailure, 'wake-phase-separation-unproven');
     assert.ok(!cell.wakeClaim?.includes('single replication'));
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+for (const poll of ['single:18000', 'periodic:60000:17000']) test(`L3 poller counterexample: ${poll} ignores the wake and must fail`, () => {
+  const root = fs.mkdtempSync('/tmp/xcli-wake-review-');
+  try {
+    let script = join(repo, 'scripts/qualify-cross-cli.mjs');
+    if (process.env.XCLI_WAKE_REVIEW_BASELINE) {
+      const old = spawnSync('git', ['show', `${process.env.XCLI_WAKE_REVIEW_BASELINE}:scripts/qualify-cross-cli.mjs`], { cwd: repo, encoding: 'utf8' });
+      assert.equal(old.status, 0, old.stderr);
+      script = join(root, 'baseline.mjs');
+      fs.writeFileSync(script, old.stdout.replace(/'\.\/([^']+\.mjs)'/g, (_, name) => JSON.stringify(pathToFileURL(join(repo, 'scripts', name)).href)));
+    }
+    const output = join(root, 'result.json');
+    const result = spawnSync(process.execPath, [script, '--simulated', '--pair', 'claude:codex', '--poll', poll,
+      '--timeout-ms', '90000', '--mcp-call-cap', '1000', '--output', output], {
+      env: environment(join(root, 'env')), encoding: 'utf8', timeout: 120000, maxBuffer: 4 * 1024 * 1024,
+    });
+    const cell = JSON.parse(fs.readFileSync(output)).cells[0];
+    assert.equal(result.status, 2, JSON.stringify({ status: cell.status, woke: cell.woke }));
+    assert.equal(cell.received, true, 'the wake-ignoring poller read the delivered envelope');
+    assert.equal(cell.woke, false);
+    assert.equal(cell.wakeFailure, 'wake-phase-separation-unproven');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
