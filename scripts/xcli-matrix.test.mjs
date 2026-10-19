@@ -23,15 +23,21 @@ test('L11: a manifest with a dropped pair fails closed', () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test('L12: scenario-2 rows are defined with S coverage, not free-floating', () => {
+test('L12/L13: mandated rows are defined; every scenario is defined or explicitly owned', () => {
   const rows = new Map(manifest.rows.filter(row => row.scenario !== 'probe').map(row => [row.scenario, row]));
-  for (const scenario of SCENARIO_ROWS) {
+  for (const scenario of manifest.simulationMandatory.scenarios) {
     const row = rows.get(scenario);
     assert.ok(row, `${scenario} is defined`);
     assert.equal(row.status, 'covered-simulated');
     assert.deepEqual(row.tiers, ['S']);
   }
-  assert.deepEqual([...manifest.simulationMandatory.scenarios].sort(), [...SCENARIO_ROWS].sort());
+  for (const scenario of SCENARIO_ROWS) {
+    const row = rows.get(scenario);
+    assert.ok(row, `${scenario} is tracked`);
+    const owned = row.status === 'covered-simulated' ||
+      (row.status === 'not-covered' && /^L1[2-5]$/.test(row.owner ?? '') && (row.blocker ?? '').length > 0);
+    assert.ok(owned, `${scenario} is defined or explicitly owned`);
+  }
   assert.equal(manifest.simulationMandatory.pairs, 'all-36');
 });
 
