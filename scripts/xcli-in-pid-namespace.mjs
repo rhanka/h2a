@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, readlinkSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
-import { repo } from './xcli-lab.mjs';
+import { repo, resolveNodeHeaders } from './xcli-lab.mjs';
 import { ensureHistoricalGitRef, LEGACY_HOST_REF } from './historical-test-ref.mjs';
 
 // Lot L2 gate mode: confine the pinned npm-test h2a-runtime suites to the
@@ -38,7 +38,7 @@ if (process.argv[2] === '--gate') {
     assert.equal(compiled.status, 0, 'private PID namespace init must compile');
     const child = spawn('/usr/bin/sudo', ['-n', '/usr/bin/env',
       `XCLI_PARENT_PID_NS=${readlinkSync('/proc/self/ns/pid')}`,
-      `XCLI_NODE_HEADERS=${process.env.XCLI_NODE_HEADERS ?? '/usr/include/node'}`,
+      `XCLI_NODE_HEADERS=${resolveNodeHeaders()}`,
       ...(process.env.H2A_TEST_REPORT_PATH ? [`H2A_TEST_REPORT_PATH=${process.env.H2A_TEST_REPORT_PATH}`] : []),
       ...(process.env.XCLI_SOURCE_TMP_PARENT ? [`XCLI_SOURCE_TMP_PARENT=${process.env.XCLI_SOURCE_TMP_PARENT}`] : []),
       `PATH=${process.env.PATH ?? '/usr/bin:/bin'}`,
@@ -61,7 +61,7 @@ if (process.argv[2] === '--gate') {
   assert.equal(compiled.status, 0, 'private PID namespace init must compile');
   const child = spawn('/usr/bin/sudo', ['-n', '/usr/bin/env',
     `XCLI_PARENT_PID_NS=${readlinkSync('/proc/self/ns/pid')}`,
-    `XCLI_NODE_HEADERS=${process.env.XCLI_NODE_HEADERS ?? '/usr/include/node'}`,
+    `XCLI_NODE_HEADERS=${resolveNodeHeaders()}`,
     `XCLI_EVIDENCE_EXPORT_DIR=${evidence}`,
     ...(process.env.XCLI_SOURCE_TMP_PARENT ? [`XCLI_SOURCE_TMP_PARENT=${process.env.XCLI_SOURCE_TMP_PARENT}`] : []),
     `PATH=${process.env.PATH ?? '/usr/bin:/bin'}`,

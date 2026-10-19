@@ -99,6 +99,26 @@ export function environment(root, bin = join(root, 'bin')) {
   return env;
 }
 
+// Node headers for the direct node-pty build (no node-gyp/Python). The
+// pre-provisioned XCLI_NODE_HEADERS wins; otherwise fetch the matching
+// public headers once via xcli-node-headers.mjs (setup-node ships no
+// /usr/include/node). A provisioning failure keeps the system-headers
+// fallback with a warning — the g++ step then fails closed on its own.
+let cachedNodeHeaders = null;
+export function resolveNodeHeaders() {
+  if (process.env.XCLI_NODE_HEADERS) return process.env.XCLI_NODE_HEADERS;
+  if (cachedNodeHeaders) return cachedNodeHeaders;
+  const provisioned = spawnSync(process.execPath, [join(repo, 'scripts/xcli-node-headers.mjs')],
+    { encoding: 'utf8', timeout: 120000 });
+  const line = String(provisioned.stdout ?? '').split('\n').find((candidate) => candidate.startsWith('XCLI_NODE_HEADERS='));
+  if (provisioned.status === 0 && line) {
+    cachedNodeHeaders = line.slice('XCLI_NODE_HEADERS='.length).trim();
+    return cachedNodeHeaders;
+  }
+  console.warn('xcli: node headers not provisioned, falling back to /usr/include/node');
+  return '/usr/include/node';
+}
+
 export function sourceBuild(root) {
   const require = createRequire(join(repo, 'package.json'));
   const ts = require('typescript');
@@ -164,7 +184,7 @@ export function sourceBuild(root) {
   const native = join(pty, 'build/Release');
   fs.mkdirSync(native, { recursive: true });
   const command = ['/usr/bin/g++', '-std=c++17', '-shared', '-fPIC', '-O2', '-pthread',
-    '-DNAPI_CPP_EXCEPTIONS', `-I${process.env.XCLI_NODE_HEADERS ?? '/usr/include/node'}`, `-I${join(repo, 'node_modules/node-addon-api')}`,
+    '-DNAPI_CPP_EXCEPTIONS', `-I${resolveNodeHeaders()}`, `-I${join(repo, 'node_modules/node-addon-api')}`,
     join(pty, 'src/unix/pty.cc'), '-o', join(native, 'pty.node'), '-lutil'];
   const result = spawnSync(command[0], command.slice(1), { env: environment(join(root, 'compiler')), encoding: 'utf8', timeout: 30000 });
   assert.equal(result.status, 0, 'private node-pty compilation failed (requires Linux, g++, Node headers)');
