@@ -7,7 +7,13 @@ import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { PROBE, REPLY } from './xcli-lab.mjs';
+import { PROBE, REPLY, recordExec } from './xcli-lab.mjs';
+// Lot L6 (§8.3): the simulated model is our chain — self-record its exec
+// synchronously at startup. Never let journaling break the model path.
+if (process.env.XCLI_EXEC_JOURNAL) {
+  try { recordExec(process.env.XCLI_EXEC_JOURNAL, { pid: process.pid, path: process.argv[1], tag: 'harness' }); }
+  catch { /* classification reads whatever landed */ }
+}
 
 const profile = process.argv[2];
 const prompt = process.argv.at(-1);

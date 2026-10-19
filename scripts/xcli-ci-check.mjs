@@ -24,6 +24,10 @@ export function verifySimulation(receipt, negative = false) {
     for (const key of ['senderMcp', 'receiverMcp', 'sent', 'delivered']) assert.equal(cell[key], true, key);
     for (const key of ['received', 'woke', 'replied', 'replyDelivered']) assert.equal(cell[key], !negative, key);
     assert.ok(Object.values(cell.credentialsCopied).every(files => files.length === 0), 'simulation must use no logins');
+    // Lot L6: every cell carries its execution-journal verdict with the stated
+    // scope, and no Python interpreter ran in our launch chain.
+    assert.equal(cell.execJournal?.scope, 'spawn-event-our-chain; vendor-subtree-allowance', 'execution journal verdict with stated scope');
+    assert.deepEqual(cell.execJournal.pythonDescendants, [], 'no Python in our launch chain');
     // Lot L3: every cell carries the withheld-wake protocol evidence and the
     // bounded claim — never an absolute wake-consumption proof. Windows must
     // fit inside the reported cell budget; the claim wording is exact.

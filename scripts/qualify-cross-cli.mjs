@@ -7,7 +7,8 @@ import { pathToFileURL, fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { CLIS, PROBE, REPLY, repo, environment, sourceBuild, copyLogin,
   cliPath, privateExecutable, pythonEntrypoint, classify, matrix, inside,
-  rehydrateEventRecord, cellSecretPaths, wipeSecrets } from './xcli-lab.mjs';
+  rehydrateEventRecord, cellSecretPaths, wipeSecrets,
+  recordExec, readExecJournal, classifyExecJournal } from './xcli-lab.mjs';
 import { startupTerminal } from './xcli-terminal.mjs';
 import { verifyWakeBatch } from './xcli-ci-check.mjs';
 
@@ -121,6 +122,11 @@ async function worker() {
   let cell = null;
   try { if (typeof request.cell === 'string') cell = inside(root, request.cell); } catch { cell = null; }
   cell ??= fs.mkdtempSync(join(root, 'c-'));
+  // Lot L6 (§8.3): cell execution journal. Our chain records every exec with
+  // its resolved path synchronously at spawn; vendor-subtree processes never
+  // record here (vendor-runtime allowance by construction).
+  const execJournal = join(cell, 'exec-journal.jsonl');
+  recordExec(execJournal, { pid: process.pid, path: resolve(process.argv[1] ?? process.execPath), tag: 'harness' });
   const hostEnv = { ...environment(cell), H2A_TEST_QUALIFICATION_ROOT: root };
   Object.assign(process.env, hostEnv);
   const isolation = await import(pathToFileURL(join(build, 'packages/h2a/test/helpers/native-isolation.js')));
@@ -159,7 +165,7 @@ async function worker() {
       REMOTE_CLI_CONFIG_HOME: hostEnv.HOME,
       H2A_NATIVE_TARGET_SESSION: `h2a-${role}`, H2A_NATIVE_PTY_SESSION: `h2a-${role}`,
       XCLI_CELL: cell, XCLI_EVENTS: join(dir, 'events.jsonl'), XCLI_BIN: bin,
-      XCLI_BUILD: build, ...(simulated ? { XCLI_SIMULATED: '1' } : {}),
+      XCLI_BUILD: build, XCLI_EXEC_JOURNAL: execJournal, ...(simulated ? { XCLI_SIMULATED: '1' } : {}),
       ...(poll && role === 'receiver' ? { XCLI_POLL: poll } : {}),
       // Both peers belong to this one experiment. Their lock liveness checks
       // must see the same owned-process view, never unrelated owner processes.
@@ -184,6 +190,7 @@ async function worker() {
     fs.mkdirSync(workspace);
     const rendered = spawnSync(process.execPath, [bin, 'host', 'setup', '--host', cli, '--print', '--root', env.H2A_ROOT],
       { env, cwd: workspace, encoding: 'utf8', timeout: 20000, maxBuffer: 1024 * 1024 });
+    if (Number.isSafeInteger(rendered.pid)) recordExec(execJournal, { pid: rendered.pid, path: bin, tag: 'harness' });
     row.evidence.push({ event: 'host-setup', role, exitCode: rendered.status });
     let config;
     try { config = JSON.parse(rendered.stdout); } catch { throw new Error('host-setup-no-config'); }
@@ -564,6 +571,12 @@ async function worker() {
       row.cleanupFailed = true;
       row.survivingSecrets = Array.isArray(surviving) ? surviving.map(p => relative(root, p)) : ['wipe-unproven'];
     }
+    // Lot L6 (§8.3): classify the cell execution journal at cleanup. A Python
+    // interpreter executed anywhere in our chain blocks the cell. The verdict
+    // (with its stated scope) joins the row evidence either way.
+    row.execJournal = classifyExecJournal(readExecJournal(execJournal));
+    row.evidence.push({ event: 'exec-journal', ...row.execJournal });
+    if (row.execJournal.pythonDescendants.length && !row.blocker) row.blocker = 'python-descendant-detected';
     row.status = row.cleanupFailed ? 'blocked' : classify(row);
     if (simulated) row.status = row.status.replace('measured-', 'simulated-');
     if (!row.secretWipe) row.blocker = 'secret-wipe-unproven';

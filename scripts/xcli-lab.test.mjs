@@ -134,3 +134,68 @@ test('L4: login copies accept only the codex and Muse login roles, never ambient
     }
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+// Lot L6 RED: the entrypoint guard recognises versioned interpreters, env -S
+// forms, absolute interpreter paths and one-level shell wrappers that exec
+// Python (dummy files, never executed). Red on current code for the
+// versioned, absolute-path and wrapper cases.
+test('L6: the entrypoint guard rejects versioned, env-form, absolute and wrapper Python', () => {
+  const root = mkdtempSync('/tmp/xcli-guard-');
+  try {
+    const cases = [
+      ['#!/usr/bin/env python3\n', true],
+      ['#!/usr/bin/env python3.14\n', true],
+      ['#!/usr/bin/env -S python3 -u\n', true],
+      ['#!/opt/tools/python3.12\n', true],
+      ['#!/bin/sh\nexec /usr/bin/python3 "$@"\n', true],
+      ['#!/bin/sh\n/usr/bin/env python3.14 "$@"\n', true],
+      ['#!/usr/bin/env node\n', false],
+      ['#!/bin/sh\necho hi\n', false],
+    ];
+    for (const [body, expected] of cases) {
+      const entry = join(root, `entry-${cases.indexOf(cases.find(c => c[0] === body))}`);
+      writeFileSync(entry, body);
+      assert.equal(pythonEntrypoint(entry), expected, JSON.stringify(body.slice(0, 40)));
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+// Lot L6 RED: the cell execution journal records transient descendants at
+// ~1 ms, ~10 ms and ~100 ms lifetimes. The dummy carries a Python
+// interpreter name but is a trivial native binary copy (nothing Python ever
+// runs). Red on any cleanup-snapshot-only design by construction: only an
+// event-grade (spawn-time) record can catch the shortest lifetime.
+test('L6: the execution journal records transient descendants at every lifetime', async () => {
+  const { spawn } = await import('node:child_process');
+  const { recordExec, readExecJournal, classifyExecJournal, isPythonInterpreterPath } = await import('./xcli-lab.mjs');
+  const root = mkdtempSync('/tmp/xcli-journal-');
+  try {
+    // A trivial native binary copy carrying an interpreter name (/bin/bash
+    // runs under any argv[0]; nothing Python ever runs). Lifetimes come from
+    // the shell builtin read -t, so the dummy itself lives ~1/10/100 ms.
+    const dummy = join(root, 'python3.14');
+    fs.copyFileSync('/bin/bash', dummy);
+    fs.chmodSync(dummy, 0o700);
+    const journal = join(root, 'exec-journal.jsonl');
+    for (const script of ['exit 0', 'read -t 0.01 < /dev/null; exit 0', 'read -t 0.1 < /dev/null; exit 0']) {
+      const child = spawn(dummy, ['-c', script]);
+      recordExec(journal, { pid: child.pid, path: dummy, tag: 'harness' });
+      await new Promise((resolve, reject) => {
+        child.once('error', reject);
+        child.once('close', code => code === 0 ? resolve() : reject(new Error(`dummy exited ${code}`)));
+      });
+    }
+    const records = readExecJournal(journal);
+    assert.equal(records.length, 3, 'all three transient descendants recorded');
+    for (const record of records) {
+      assert.ok(Number.isSafeInteger(record.pid), 'spawn-time pid recorded');
+      assert.ok(record.path.endsWith('/python3.14'), 'resolved executable path recorded');
+      assert.equal(record.tag, 'harness');
+    }
+    const verdict = classifyExecJournal(records);
+    assert.equal(verdict.observed, 3);
+    assert.equal(verdict.pythonDescendants.length, 3, 'interpreter-named harness execs classify as Python');
+    assert.ok(isPythonInterpreterPath('/opt/x/python3.14'));
+    assert.ok(!isPythonInterpreterPath('/usr/bin/node'));
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
