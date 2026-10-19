@@ -46,10 +46,13 @@ jobs:
           scripts/xcli-campaign-lane.test.mjs
           scripts/xcli-scenarios.test.mjs
           scripts/xcli-docs.test.mjs
+      # Same exit-2 contract as the scenario matrix: the verdict belongs to
+      # the ci-check step, which fails a partial or non-green matrix itself.
       - name: Exercise all 36 ordered pairs with simulated models
         run: >-
           node scripts/qualify-cross-cli.mjs --simulated --timeout-ms 30000
-          --output "${{ runner.temp }}/xcli-simulated.json"
+          --output "${{ runner.temp }}/xcli-simulated.json" || code=$?;
+          if [ "${code:-0}" -ne 0 ] && [ "${code:-0}" -ne 2 ]; then exit "$code"; fi
       - name: Require every cell and every live messaging stage
         run: node scripts/xcli-ci-check.mjs "${{ runner.temp }}/xcli-simulated.json"
       - name: Preserve safe qualification receipt
@@ -178,11 +181,16 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - run: node scripts/xcli-node-headers.mjs
+      # qualify exits 2 when cells are not all simulated-OK — the expected
+      # shape for refusal/inventory twins. Only a crash (any other code) may
+      # fail here; the verdict belongs to the --check step below, which also
+      # fails a partial matrix (missing rows), so nothing is masked.
       - name: Run the full simulated matrix for one scenario row
         run: >-
           node scripts/qualify-cross-cli.mjs --simulated --timeout-ms 30000
           --scenario "${{ matrix.scenario }}"
-          --output "${{ runner.temp }}/xcli-scenario.json"
+          --output "${{ runner.temp }}/xcli-scenario.json" || code=$?;
+          if [ "${code:-0}" -ne 0 ] && [ "${code:-0}" -ne 2 ]; then exit "$code"; fi
       - name: Require scenario-OK on all 36 pairs
         run: >-
           node scripts/xcli-scenarios.mjs --check "${{ runner.temp }}/xcli-scenario.json"
