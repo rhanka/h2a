@@ -455,6 +455,102 @@
       }
     },
     {
+      "scenario": "loop:lifecycle",
+      "pairs": "all-36",
+      "tiers": [
+        "S"
+      ],
+      "status": "covered-simulated",
+      "ratchet": {
+        "scope": "R2-seated",
+        "entry": "L9-diagonals-green"
+      }
+    },
+    {
+      "scenario": "loop:join-unknown",
+      "pairs": "all-36",
+      "tiers": [
+        "S"
+      ],
+      "status": "covered-simulated",
+      "ratchet": {
+        "scope": "R2-seated",
+        "entry": "L9-diagonals-green"
+      }
+    },
+    {
+      "scenario": "loop:report-without-join",
+      "pairs": "all-36",
+      "tiers": [
+        "S"
+      ],
+      "status": "covered-simulated",
+      "ratchet": {
+        "scope": "R2-seated",
+        "entry": "L9-diagonals-green"
+      }
+    },
+    {
+      "scenario": "loop:report-after-done",
+      "pairs": "all-36",
+      "tiers": [
+        "S"
+      ],
+      "status": "covered-simulated",
+      "ratchet": {
+        "scope": "R2-seated",
+        "entry": "L9-diagonals-green"
+      }
+    },
+    {
+      "scenario": "negotiation:flow",
+      "status": "not-covered",
+      "blocker": "scenario-undefined",
+      "owner": "L14"
+    },
+    {
+      "scenario": "negotiation:offer-unknown",
+      "status": "not-covered",
+      "blocker": "scenario-undefined",
+      "owner": "L14"
+    },
+    {
+      "scenario": "negotiation:stabilize-without-offer",
+      "status": "not-covered",
+      "blocker": "scenario-undefined",
+      "owner": "L14"
+    },
+    {
+      "scenario": "negotiation:replayed-stabilization",
+      "status": "not-covered",
+      "blocker": "scenario-undefined",
+      "owner": "L14"
+    },
+    {
+      "scenario": "inventory:read-paths",
+      "status": "not-covered",
+      "blocker": "scenario-undefined",
+      "owner": "L15"
+    },
+    {
+      "scenario": "inventory:session-paths",
+      "status": "not-covered",
+      "blocker": "scenario-undefined",
+      "owner": "L15"
+    },
+    {
+      "scenario": "inventory:conductor-paths",
+      "status": "not-covered",
+      "blocker": "scenario-undefined",
+      "owner": "L15"
+    },
+    {
+      "scenario": "inventory:governance-paths",
+      "status": "not-covered",
+      "blocker": "scenario-undefined",
+      "owner": "L15"
+    },
+    {
       "scenario": "unavailability",
       "status": "not-covered",
       "blocker": "scenario-undefined",
@@ -492,7 +588,11 @@
       "unavailability:identity-never-ready",
       "refusal:unsigned-wake",
       "refusal:misaddressed-wake",
-      "refusal:replayed-wake"
+      "refusal:replayed-wake",
+      "loop:lifecycle",
+      "loop:join-unknown",
+      "loop:report-without-join",
+      "loop:report-after-done"
     ],
     "pairs": "all-36",
     "tiers": [
