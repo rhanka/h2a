@@ -18,8 +18,12 @@ export async function packCandidate(output, { buildId } = {}) {
   buildId ??= (await exec('git', ['rev-parse', 'HEAD'], { cwd: repo })).stdout.trim();
   const stage = fs.mkdtempSync(join(tmpdir(), 'h2a-candidate-'));
   try {
-    for (const name of ['h2a-runtime', 'h2a']) {
-      const result = await packRelease(join(stage, name), { packageName: '@sentropic/' + name, buildId });
+    // The two verified payloads are independent (separate stage directories
+    // and per-call npm profiles/caches): pack them concurrently so the slow
+    // `npm pack` steps overlap instead of stacking end to end.
+    const packed = await Promise.all(['h2a-runtime', 'h2a'].map((name) =>
+      packRelease(join(stage, name), { packageName: '@sentropic/' + name, buildId })));
+    for (const result of packed) {
       fs.copyFileSync(result.filename, join(output, result.filename.split('/').at(-1)), fs.constants.COPYFILE_EXCL);
     }
     // Focus joins the release wave at its own manifest version. It must use
