@@ -47,9 +47,12 @@ export function observeDiagnosticLine(line) {
   if (prefix === -1) return;
   try {
     const trace = JSON.parse(line.slice(prefix + 'h2a.mcp.phase '.length));
-    if ((trace.role === 'identity-child' || /^(?:process_start|identity_pending|identity_ready|identity_failed)$/.test(trace.phase)) && /^[a-z0-9_:. -]{1,80}$/i.test(trace.phase)) {
-      emit({ event: 'startup-phase', phase: trace.phase, kind: trace.event, processRole: trace.role,
-        durationMs: trace.durationMs, waitMs: trace.waitMs, holdMs: trace.holdMs });
+    if (['process_start', 'identity_pending', 'identity_ready', 'identity_failed'].includes(trace.phase)) {
+      const number = key => Number.isFinite(trace[key]) ? trace[key] : undefined;
+      emit({ event: 'startup-phase', phase: trace.phase,
+        kind: ['begin', 'end', 'error', 'sample'].includes(trace.event) ? trace.event : undefined,
+        processRole: ['server', 'identity-child'].includes(trace.role) ? trace.role : undefined,
+        durationMs: number('durationMs'), waitMs: number('waitMs'), holdMs: number('holdMs') });
     }
   } catch { /* never retain unparsed diagnostics */ }
 }
