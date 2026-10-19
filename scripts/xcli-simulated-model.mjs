@@ -93,6 +93,49 @@ assert.equal(identity.state, 'identity_ready');
 assert.equal(identity.signingAvailable, true);
 const instance = identity.instance;
 const guard = createReplayGuard();
+// Lot L13+: scripted peer mode. XCLI_SCRIPT carries deterministic tool
+// steps executed after identity readiness; marker files coordinate peers.
+// Scripted peers idle afterwards: no probe behavior, stdin ignored, no wake
+// claimed. Step failures (including a step that refuses to fail) write a
+// failure marker — never a silent pass.
+const scriptJson = process.env.XCLI_SCRIPT ?? '';
+async function runScriptedPeer(steps) {
+  const { substituteScriptArgs } = await import('./xcli-scenarios.mjs');
+  const saved = {};
+  const marker = name => join(process.env.XCLI_CELL, name);
+  const outcome = { ok: true };
+  try {
+    for (const step of steps) {
+      if (step.writeFile) { fs.writeFileSync(marker(step.writeFile), instance + '\n', { mode: 0o600 }); continue; }
+      if (step.waitForFile) {
+        const until = Date.now() + (step.timeoutMs ?? 120000);
+        for (;;) {
+          try { fs.readFileSync(marker(step.waitForFile), 'utf8'); break; }
+          catch { /* peer has not arrived yet */ }
+          if (Date.now() > until) throw new Error(`script-wait-timeout:${step.waitForFile}`);
+          await new Promise(r => setTimeout(r, 250));
+        }
+        continue;
+      }
+      const until = Date.now() + (step.retryMs ?? 15000);
+      for (;;) {
+        const value = await tool(step.tool, substituteScriptArgs(step.args, { instance, ...saved })).catch(error => error);
+        if (value instanceof Error && step.expectOk === false) break;
+        if (!(value instanceof Error) && step.expectOk !== false) {
+          if (step.saveAs) saved[step.saveAs] = value.loopId ?? value.id ?? value.negotiationId ?? value.sessionId;
+          break;
+        }
+        if (Date.now() > until) throw new Error(`script-step-failed:${step.tool}`);
+        await new Promise(r => setTimeout(r, 1000));
+      }
+    }
+  } catch (error) {
+    outcome.ok = false;
+    outcome.failedStep = error.message;
+  }
+  fs.writeFileSync(marker(`${role}-script-done`), JSON.stringify(outcome) + '\n', { mode: 0o600 });
+  if (!outcome.ok) process.exitCode = 73;
+}
 // Lot L3 polling fixtures: the receiver ignores the wake as a cause and polls
 // its inbox on a harness-coordinated schedule instead. XCLI_POLL carries one
 // of: `periodic:<periodMs>:<phaseMs>` (ticks at barrier+phase+k*period),
@@ -155,6 +198,12 @@ if (pollMode) {
       }
     } catch { process.exit(73); }
   })();
+}
+if (scriptJson) {
+  process.stdout.write(`Simulated ${profile} model\r\nReady · ${process.cwd()}\r\n${profile === 'codex' ? '›' : '❯'} \r\n`);
+  await runScriptedPeer(JSON.parse(scriptJson));
+  for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.once(signal, () => { mcp.kill('SIGTERM'); process.exit(0); });
+  await new Promise(() => {});
 }
 process.stdin.setRawMode(true);
 process.stdin.resume();
