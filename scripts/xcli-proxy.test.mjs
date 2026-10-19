@@ -6,6 +6,37 @@ import { once } from 'node:events';
 import test from 'node:test';
 import { PROBE, environment, rehydrateEventRecord } from './xcli-lab.mjs';
 
+test('L8: a looping session trips the live per-session MCP-call cap and dies', async () => {
+  const root = fs.mkdtempSync('/tmp/xcli-proxy-cap-');
+  const server = join(root, 'server.mjs');
+  const events = join(root, 'events.jsonl');
+  const env = { ...environment(root), XCLI_CELL: root, XCLI_EVENTS: events, XCLI_BIN: server, XCLI_MCP_CALL_CAP: '3' };
+  fs.writeFileSync(server, `import {createInterface} from 'node:readline';
+for await(const line of createInterface({input:process.stdin})) {
+ const m=JSON.parse(line);
+ process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{content:[{type:'text',text:'{}'}]}})+'\\n');
+}\n`);
+  const child = spawn(process.execPath, [join(import.meta.dirname, 'xcli-proxy.mjs')], { env, cwd: root, stdio: ['pipe', 'pipe', 'ignore'] });
+  const closed = once(child, 'close');
+  const timer = setTimeout(() => child.kill('SIGKILL'), 5000);
+  try {
+    const calls = [];
+    for (let id = 1; id <= 10; id++) calls.push(JSON.stringify({ jsonrpc: '2.0', id, method: 'tools/call', params: { name: 'h2a_inbox', arguments: { action: 'read' } } }));
+    child.stdin.end(calls.join('\n') + '\n');
+    await closed;
+    const records = fs.readFileSync(events, 'utf8').trim().split('\n').map(line => rehydrateEventRecord(JSON.parse(line)));
+    const caps = records.filter(e => e.event === 'mcp-call-cap-exceeded');
+    assert.equal(caps.length, 1, 'the cap trips exactly once');
+    assert.equal(caps[0].count, 4, 'the call crossing the cap is witnessed');
+    assert.equal(caps[0].cap, 3);
+    assert.ok(records.some(e => e.event === 'server-exit'), 'the owned session is terminated');
+  } finally {
+    clearTimeout(timer);
+    if (child.exitCode === null && child.signalCode === null) { child.kill('SIGKILL'); await closed; }
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('the transparent MCP witness records outcomes and exact envelope IDs without retaining bodies', async () => {
   const root = fs.mkdtempSync('/tmp/xcli-proxy-');
   const server = join(root, 'server.mjs');

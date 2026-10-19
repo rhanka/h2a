@@ -9,6 +9,9 @@ import { CLIS, PROBE, REPLY, repo, environment, sourceBuild, copyLogin,
   cliPath, privateExecutable, pythonEntrypoint, classify, matrix, inside,
   rehydrateEventRecord, cellSecretPaths, wipeSecrets,
   recordExec, readExecJournal, classifyExecJournal, vendorRuntimeLabel } from './xcli-lab.mjs';
+import { loadSeatManifest, resolveCampaignPair, createCampaignLedger, loadCampaignLedger,
+  debitSession, fitsSessions, noteWallClock, wallClockFits, renderSeatLedger, persistLedger,
+  runSeatPreflight } from './xcli-seats.mjs';
 import { startupTerminal } from './xcli-terminal.mjs';
 import { verifyWakeBatch } from './xcli-ci-check.mjs';
 
@@ -116,6 +119,11 @@ async function worker() {
   const request = JSON.parse(fs.readFileSync(0, 'utf8'));
   const { sender, receiver, root, build, executables, timeoutMs, authHome, simulated, dropWake,
     wake, poll, withholdForever, replayWake, releaseOffsetMs } = request;
+  // Lot L8: per-role auth sources from the seat manifest, seat attribution,
+  // and the per-session MCP-call cap. Older requests without them fall back
+  // to the single authHome with no seats and no cap.
+  const authHomes = request.authHomes ?? { sender: authHome, receiver: authHome };
+  const mcpCallCap = Number(request.mcpCallCap ?? 0);
   // Lot L5: the parent pre-creates the cell and passes it in the request so a
   // lost worker's secrets stay attributable and wipable. A provided cell must
   // stay inside the campaign root; otherwise the worker mints its own.
@@ -138,6 +146,9 @@ async function worker() {
   const row = { sender, receiver, status: 'blocked', senderMcp: null, receiverMcp: null,
     sent: null, delivered: null, received: null, woke: null, replied: null, replyDelivered: null,
     evidence: [], startedAt: new Date().toISOString(), credentialsCopied: {}, cell,
+    seats: request.seats ?? { sender: null, receiver: null },
+    sharedSeat: request.seats ? request.seats.sender === request.seats.receiver : null,
+    seatMode: request.seatMode ?? 'no-seats',
     noPostSendHarnessInput: true };
   let host, client;
   let withholdLease = null;
@@ -166,6 +177,7 @@ async function worker() {
       H2A_NATIVE_TARGET_SESSION: `h2a-${role}`, H2A_NATIVE_PTY_SESSION: `h2a-${role}`,
       XCLI_CELL: cell, XCLI_EVENTS: join(dir, 'events.jsonl'), XCLI_BIN: bin,
       XCLI_BUILD: build, XCLI_EXEC_JOURNAL: execJournal, ...(simulated ? { XCLI_SIMULATED: '1' } : {}),
+      ...(mcpCallCap > 0 ? { XCLI_MCP_CALL_CAP: String(mcpCallCap) } : {}),
       ...(poll && role === 'receiver' ? { XCLI_POLL: poll } : {}),
       // Both peers belong to this one experiment. Their lock liveness checks
       // must see the same owned-process view, never unrelated owner processes.
@@ -178,7 +190,8 @@ async function worker() {
     // Lot L4 login confinement: copyLogin admits 'codex'|'claude' only and throws
     // login-not-confined for every other family. The mapping is witnessed
     // (role, allowlisted name, sha256 — never content) in the row evidence.
-    row.credentialsCopied[role] = authHome ? copyLogin(cli, authHome, cell, env) : [];
+    const roleAuthHome = authHomes[role];
+    row.credentialsCopied[role] = roleAuthHome ? copyLogin(cli, roleAuthHome, cell, env) : [];
     for (const name of row.credentialsCopied[role]) {
       const mapped = cli === 'claude' ? join(env.XDG_CONFIG_HOME, 'muse/auth.json') : join(env.HOME, name);
       row.evidence.push({ event: 'login-mapped', role, cli, file: name,
@@ -504,6 +517,11 @@ async function worker() {
     }
     if (!row.replyDelivered) for (const target of targets)
       row.evidence.push({ event: 'final-screen-facts', role: target.role, facts: startupFacts(await capture(target)) });
+    // Lot L8 (§6.4) runaway brake: a session the proxy terminated at the
+    // per-session MCP-call cap classifies measured-KO. The count is exact at
+    // the witness; it does not bound silent reasoning.
+    const mcpCapped = targets.some(t => readEvents(t.env.XCLI_EVENTS).some(e => e.event === 'mcp-call-cap-exceeded'));
+    if (mcpCapped && !row.blocker) row.failure = 'mcp-call-cap-exceeded';
     if (!row.blocker && !row.replyDelivered && !row.wakeFailure) row.failure = row.sent ? (row.received ? 'reply-not-observed' : 'live-receive-not-observed') : 'sender-send-not-observed';
     return row;
   } catch (error) {
@@ -602,8 +620,22 @@ async function worker() {
   }
 }
 
+// Lot L8 (§5.5): seat-campaign table — one row per cell with seat IDs (never
+// secrets), status, blocker/failure, and versions. No tier aggregation.
+function seatMarkdown(result) {
+  const lines = ['| Siège émetteur | Siège destinataire | Statut | Motif |',
+    '|---|---|---|---|'];
+  for (const c of result.cells) {
+    lines.push(`| ${c.seats?.sender ?? c.sender} | ${c.seats?.receiver ?? c.receiver} | ${c.status} | ${c.blocker ?? c.failure ?? '—'} |`);
+  }
+  return lines.join('\n');
+}
+
 function markdown(result) {
-  const lines = ['# Qualification live cross-CLI — phase 1', '', matrix(result.cells), '',
+  // Lot L8 (§5.5): seat campaigns print seat IDs and the cap-ledger totals;
+  // the 36-family matrix only covers the family full product.
+  const seatTable = result.seatMode !== 'no-seats' || result.cells.length !== 36;
+  const lines = ['# Qualification live cross-CLI — phase 1', '', seatTable ? seatMarkdown(result) : matrix(result.cells), '',
     `Commande : \`${result.command}\``, '',
     `Base : \`${result.sha}\` ; Node : \`${result.node}\` ; mode : **CLI réelles**.`, '',
     'M = MCP initialize + outils ; D = enveloppe durable ; R = lecture inbox par la CLI ; W = réaction après barrière inactive, sans entrée du harness ; A = réponse signée livrée au sender.', '',
@@ -613,6 +645,11 @@ function markdown(result) {
     '| Émetteur | Destinataire | Statut | M émetteur / récepteur | D | R | W | A | Motif | Preuve |',
     '|---|---|---|---|---|---|---|---|---|---|'];
   const flag = v => v === true ? 'oui' : v === false ? 'non' : 'non mesuré';
+  lines.push('', '## Sièges et plafonds', '', '```', result.ledgerTotals ?? 'no ledger', '```');
+  if (result.preflights?.length) {
+    lines.push('', '| Siège | Pré-vol | Motif | Version |', '|---|---|---|---|');
+    for (const p of result.preflights) lines.push(`| ${p.seatId} | ${p.ok ? 'oui' : 'non'} | ${p.reason ?? '—'} | ${p.version ?? '—'} |`);
+  }
   for (const c of result.cells) lines.push(`| ${c.sender} | ${c.receiver} | ${c.status} | ${flag(c.senderMcp)} / ${flag(c.receiverMcp)} | ${flag(c.delivered)} | ${flag(c.received)} | ${flag(c.woke)} | ${flag(c.replyDelivered)} | ${c.blocker ?? c.failure ?? '—'} | [JSON](2026-10-15-cross-cli-phase1.json#${c.sender}-${c.receiver}) |`);
   for (const c of result.cells) lines.push('', `## ${c.sender}-${c.receiver}`, '',
     `Statut : **${c.status}** ; motif : \`${c.blocker ?? c.failure ?? 'complete-round-trip'}\` ; durée : ${c.elapsedMs} ms.`, '',
@@ -622,15 +659,35 @@ function markdown(result) {
 
 async function main() {
   assert.ok([22, 24].includes(Number(process.versions.node.split('.')[0])), 'Node 22/24 required');
-  const root = fs.mkdtempSync('/tmp/h2a-qual-');
+  // Lot L8 (§6.1/§6.4): campaign root (fresh, or resumed from --campaign-root
+  // with its persisted ledger) and composite caps. Cap numbers are
+  // PROPOSITION until the owner ratifies D2; counting, stop rules, and
+  // persistence are normative.
+  const campaignRoot = option('--campaign-root');
+  const root = campaignRoot ? resolve(campaignRoot) : fs.mkdtempSync('/tmp/h2a-qual-');
+  if (campaignRoot) fs.mkdirSync(root, { recursive: true, mode: 0o700 });
   process.stdout.write(`Private qualification root: ${root}\n`);
+  const caps = {
+    launchedSessions: Number(option('--session-cap', '500')),
+    mcpCallsPerSession: Number(option('--mcp-call-cap', '100')),
+    wallClockMs: Number(option('--campaign-wall-clock-ms', '7200000')),
+  };
+  for (const [key, value] of Object.entries(caps)) assert.ok(Number.isSafeInteger(value) && value > 0, `invalid campaign cap ${key}`);
+  let ledger;
+  if (campaignRoot && fs.existsSync(join(root, 'campaign-ledger.json'))) {
+    ledger = loadCampaignLedger(root);
+    assert.deepEqual(ledger.caps, caps, 'campaign-ledger-mismatch: resume with the caps the ledger states');
+  } else {
+    ledger = createCampaignLedger(root, caps);
+  }
+  ledger.refusals ??= [];
   const built = sourceBuild(root);
   const sourcePath = process.env.PATH ?? '/usr/bin:/bin';
   const simulated = process.argv.includes('--simulated');
   assert.ok(!simulated || !option('--auth-home'), 'simulated CI must never read login files');
   const executables = Object.fromEntries(CLIS.map(cli => [cli, cliPath(cli, sourcePath)]));
   if (simulated) {
-    fs.mkdirSync(join(root, 'sim-bin'));
+    fs.mkdirSync(join(root, 'sim-bin'), { recursive: true });
     for (const cli of CLIS) {
       const path = join(root, 'sim-bin', cli);
       fs.writeFileSync(path, `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(join(repo, 'scripts/xcli-simulated-model.mjs'))} ${quote(cli)} "$@"\n`, { mode: 0o700 });
@@ -643,9 +700,41 @@ async function main() {
   const stop = () => { stopping = true; active?.kill('SIGTERM'); };
   process.on('SIGTERM', stop);
   process.on('SIGINT', stop);
+  // Lot L8 (§6.1): seat manifest, deprecated --auth-home alias, or family
+  // mode. Manifest pairs name seats (or the manifest's explicit pairs
+  // field); the default scope is the full ordered seat product, stated in
+  // evidence. The 16-profile R1 default stays a proposition until D2
+  // ratifies the roster — no silent scope trimming here.
+  const manifestFile = option('--seat-manifest');
+  assert.ok(!manifestFile || !option('--auth-home'), 'seat manifest and --auth-home conflict');
+  const manifest = manifestFile ? loadSeatManifest(resolve(manifestFile)) : null;
+  const authHomeAlias = option('--auth-home');
+  if (authHomeAlias) process.stderr.write('warning: --auth-home is deprecated; use --seat-manifest\n');
+  const seatMode = manifest ? manifest.seatMode : (authHomeAlias ? 'interim-file-copy' : 'no-seats');
   const selected = option('--pair');
-  const pairs = CLIS.flatMap(sender => CLIS.map(receiver => ({ sender, receiver })))
-    .filter(p => !selected || `${p.sender}:${p.receiver}` === selected);
+  const seatRuns = [];
+  if (manifest) {
+    const seatPairs = selected ? [selected]
+      : manifest.pairs ?? manifest.seats.flatMap(a => manifest.seats.map(b => `${a.seatId}:${b.seatId}`));
+    for (const seatPair of seatPairs) {
+      const resolved = resolveCampaignPair(manifest, seatPair);
+      seatRuns.push({ sender: resolved.sender, receiver: resolved.receiver,
+        senderSeat: resolved.senderSeat, receiverSeat: resolved.receiverSeat,
+        sharedSeat: resolved.sharedSeat, authHomes: resolved.authHomes });
+    }
+  } else if (authHomeAlias) {
+    const familyPairs = CLIS.flatMap(sender => CLIS.map(receiver => ({ sender, receiver })))
+      .filter(p => !selected || `${p.sender}:${p.receiver}` === selected);
+    for (const { sender, receiver } of familyPairs) {
+      seatRuns.push({ sender, receiver, senderSeat: `${sender}-default`, receiverSeat: `${receiver}-default`,
+        sharedSeat: sender === receiver,
+        authHomes: { sender: authHomeAlias, receiver: authHomeAlias } });
+    }
+  }
+  const pairs = manifest || authHomeAlias
+    ? seatRuns.map(({ sender, receiver }) => ({ sender, receiver }))
+    : CLIS.flatMap(sender => CLIS.map(receiver => ({ sender, receiver })))
+      .filter(p => !selected || `${p.sender}:${p.receiver}` === selected);
   assert.ok(pairs.length, 'unknown --pair');
   const timeoutMs = Number(option('--timeout-ms', '30000'));
   assert.ok(Number.isSafeInteger(timeoutMs) && timeoutMs >= 1000 && timeoutMs <= 180000, 'invalid bounded timeout');
@@ -657,12 +746,95 @@ async function main() {
   assert.ok(!withholdForever || releaseOffsets.length === 1, '--withhold-forever runs a single cell');
   const notifyIntervalMs = simulated ? 100 : 0; // 0 = product default, recorded but not set
   const runs = [];
-  for (const { sender, receiver } of pairs) for (const releaseOffsetMs of releaseOffsets) runs.push({ sender, receiver, releaseOffsetMs });
-  for (const { sender, receiver, releaseOffsetMs } of runs) {
+  const baseRuns = (manifest || authHomeAlias) ? seatRuns : pairs;
+  for (const base of baseRuns) for (const releaseOffsetMs of releaseOffsets) {
+    const { sender, receiver } = base;
+    runs.push({ sender, receiver, releaseOffsetMs,
+      senderSeat: base.senderSeat ?? null, receiverSeat: base.receiverSeat ?? null,
+      sharedSeat: base.sharedSeat ?? (sender === receiver),
+      authHomes: base.authHomes ?? {} });
+  }
+  // Cheapest discriminating cells first: diagonals, then the rest. Ordering
+  // never drops a mandatory cell; unrun cells stay blocked in the report.
+  runs.sort((a, b) => Number(!(a.sharedSeat ?? a.sender === a.receiver)) - Number(!(b.sharedSeat ?? b.sender === b.receiver)));
+  // Lot L8 (§6.4/§6.5): per-seat quota stops, one preflight per seat, and the
+  // pre-spawn cap gates. Nothing spawns and no seat is touched on refusal.
+  const quotaSeats = new Set();
+  const preflighted = new Map();
+  const runAuthPrecheck = async seat => {
+    // Muse config-status contrast: the control HOME (no logins) must not
+    // read authed while the seat HOME (seat files only) reads accepted.
+    // Closed-vocabulary match only; outputs discarded; both HOMEs deleted.
+    // No model turn is spent.
+    const probe = async withFiles => {
+      const home = fs.mkdtempSync(join(root, 'pre-'));
+      try {
+        const env = environment(home);
+        if (withFiles) copyLogin(seat.family, seat.authSource, home, env);
+        const out = spawnSync(executables[seat.family], ['config', 'status'],
+          { env, cwd: home, encoding: 'utf8', timeout: 30000, maxBuffer: 256 * 1024 });
+        const text = `${out.stdout ?? ''}\n${out.stderr ?? ''}`;
+        return { status: out.status,
+          authed: /logged.?in|authenticated|auth\S*ok/i.test(text),
+          noauth: /not.*(logged|signed).?in|no .*auth|unauthenticated|missing.*(login|credential)/i.test(text) };
+      } finally { fs.rmSync(home, { recursive: true, force: true }); }
+    };
+    const control = await probe(false);
+    if (control.authed) return { ok: false, reason: 'preflight-control-untrusted', modelCalls: 0 };
+    const seated = await probe(true);
+    if (seated.status === 0 && seated.authed) return { ok: true, modelCalls: 0, detail: 'config-status-accepted' };
+    return { ok: false, reason: 'preflight-auth-unproven', modelCalls: 0 };
+  };
+  const seatKey = (run, role) => run[role === 'sender' ? 'senderSeat' : 'receiverSeat'] ?? (role === 'sender' ? run.sender : run.receiver);
+  const blockedRow = (run, releaseOffsetMs, blocker, evidence = []) => ({ sender: run.sender, receiver: run.receiver,
+    seats: { sender: run.senderSeat, receiver: run.receiverSeat }, sharedSeat: run.sharedSeat, seatMode,
+    status: 'blocked', blocker, evidence, elapsedMs: 0, cleanupFailed: false, parentSecretWipe: true,
+    releaseOffsetMs });
+  const cellBoundMs = timeoutMs * 2 + 45000;
+  for (const run of runs) {
+    const { sender, receiver, releaseOffsetMs } = run;
     if (stopping) {
-      cells.push({ sender, receiver, status: 'blocked', blocker: 'qualification-cancelled', evidence: [], elapsedMs: 0 });
+      cells.push(blockedRow(run, releaseOffsetMs, 'qualification-cancelled'));
       continue;
     }
+    if (quotaSeats.has(seatKey(run, 'sender')) || quotaSeats.has(seatKey(run, 'receiver'))) {
+      cells.push(blockedRow(run, releaseOffsetMs, 'provider-quota-seat-exhausted',
+        [{ event: 'seat-quota-stop', seats: [seatKey(run, 'sender'), seatKey(run, 'receiver')] }]));
+      continue;
+    }
+    // Preflights gate real seats only: simulated cells spend no model turns
+    // and read no logins, so there is nothing a preflight could protect.
+    if (manifest && !simulated) {
+      let preflightBlocker = null;
+      for (const role of ['sender', 'receiver']) {
+        const seatId = seatKey(run, role);
+        if (!preflighted.has(seatId)) {
+          const seat = manifest.seats.find(s => s.seatId === seatId);
+          const verdict = await runSeatPreflight(seat, { executables, runAuthPrecheck });
+          preflighted.set(seatId, verdict);
+        }
+        const verdict = preflighted.get(seatId);
+        if (!verdict.ok && !preflightBlocker) preflightBlocker = verdict.reason;
+      }
+      if (preflightBlocker) {
+        cells.push(blockedRow(run, releaseOffsetMs, preflightBlocker));
+        continue;
+      }
+    }
+    if (!fitsSessions(ledger, 2) || !wallClockFits(ledger, cellBoundMs)) {
+      const cap = !fitsSessions(ledger, 2) ? 'launched-sessions' : 'wall-clock';
+      ledger.refusals.push({ run: `${sender}>${receiver}`, code: 'campaign-cap-exhausted', cap });
+      persistLedger(ledger);
+      // No stopping flag: every later cell re-hits the same pre-spawn gate
+      // and records the same reason. Launches stop campaign-wide because no
+      // refused launch ever spawns.
+      cells.push(blockedRow(run, releaseOffsetMs, 'campaign-cap-exhausted', [{ event: 'cap-refused', cap }]));
+      continue;
+    }
+    const senderDebit = debitSession(ledger, seatKey(run, 'sender'));
+    const receiverDebit = debitSession(ledger, seatKey(run, 'receiver'));
+    assert.ok(senderDebit.ok && receiverDebit.ok, 'pre-checked debits cannot refuse');
+    ledger.attempts[`${sender}>${receiver}`] = (ledger.attempts[`${sender}>${receiver}`] ?? 0) + 1;
     // Lot L5: the cell is pre-created by the parent and passed in the request,
     // so a lost worker's secrets stay attributable and wipable by the parent.
     // XCLI_WORKER_STUB (test seam) runs a stub worker instead of --worker.
@@ -682,7 +854,10 @@ async function main() {
     let output = '';
     child.stdout.on('data', bytes => { output += bytes; });
     child.stdin.end(JSON.stringify({ sender, receiver, root, build: built.path, executables, timeoutMs, cell,
-      authHome: option('--auth-home'), simulated, dropWake: process.argv.includes('--drop-simulated-wake'),
+      authHome: authHomeAlias, authHomes: run.authHomes,
+      seats: { sender: run.senderSeat, receiver: run.receiverSeat }, seatMode,
+      mcpCallCap: caps.mcpCallsPerSession,
+      simulated, dropWake: process.argv.includes('--drop-simulated-wake'),
       wake: wakeWindows, poll: pollEnvValue(poll), withholdForever, replayWake, releaseOffsetMs }));
     await new Promise((r, reject) => { child.once('close', r); child.once('error', reject); });
     clearTimeout(watchdog);
@@ -693,6 +868,11 @@ async function main() {
       assert.ok(row && typeof row === 'object', 'worker row must be an object');
     } catch { row = { sender, receiver, status: 'blocked', cleanupFailed: true,
       blocker: 'qualification-worker-failed-cleanup-unproven', evidence: [], elapsedMs: 0, cell }; }
+    // Lot L8: seat attribution is parent-authoritative — a worker (or stub)
+    // can never forge which seats served the cell.
+    row.seats = { sender: run.senderSeat, receiver: run.receiverSeat };
+    row.sharedSeat = run.sharedSeat;
+    row.seatMode = seatMode;
     // Lot L5 parent-side wipe enforcement (§6.6): never trust the worker's
     // word. Re-wipe the recorded copy list — or the allowlisted candidates
     // when the worker never reported — and re-check absence file by file. A
@@ -718,7 +898,16 @@ async function main() {
     }
     row.releaseOffsetMs = releaseOffsetMs;
     cells.push(row);
-    fs.writeFileSync(join(root, `${sender}-${receiver}.json`), JSON.stringify(row, null, 2) + '\n', { mode: 0o600 });
+    // Lot L8 (§6.4): quota safety net per seat, and wall-clock accounting for
+    // the silent-session bound. Per-cell files are seat-qualified under a
+    // manifest so seat pairs sharing a family never overwrite each other.
+    if (row.blocker === 'provider-quota') {
+      quotaSeats.add(seatKey(run, 'sender'));
+      quotaSeats.add(seatKey(run, 'receiver'));
+    }
+    noteWallClock(ledger, Number.isSafeInteger(row.elapsedMs) ? row.elapsedMs : 0);
+    const cellFile = run.senderSeat ? `${run.senderSeat}-${run.receiverSeat}` : `${sender}-${receiver}`;
+    fs.writeFileSync(join(root, `${cellFile}.json`), JSON.stringify(row, null, 2) + '\n', { mode: 0o600 });
     if (row.cleanupFailed) stopping = true;
     process.stdout.write(`${sender} -> ${receiver}: ${row.status} (${row.blocker ?? row.failure ?? 'round-trip'})\n`);
   }
@@ -748,15 +937,23 @@ async function main() {
     }
   }
   const sha = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).stdout.trim();
-  // Lot L4 receipt hygiene: the retained command never carries the owner
-  // config path given to --auth-home (it names an owner-side directory).
+  // Lot L4 receipt hygiene: the retained command never carries owner-side
+  // paths (--auth-home, --seat-manifest, --campaign-root name directories
+  // outside the campaign root).
+  const redactable = new Set(['--auth-home', '--seat-manifest', '--campaign-root']);
   const redactedArgs = process.argv.slice(2).map((arg, index, args) =>
-    args[index - 1] === '--auth-home' ? '<auth-home>' : arg);
+    redactable.has(args[index - 1]) ? `<${args[index - 1].slice(2)}>` : arg);
+  // Lot L8 (§5.5/§6.4): the receipt carries the seat mode, the composite
+  // caps (PROPOSITION numbers until D2), the per-seat ledger totals, the
+  // refused-launch registry, and one preflight verdict per seat.
+  const preflights = [...preflighted.entries()].map(([seatId, verdict]) => ({ seatId, ...verdict }));
   const result = { version: 1, mode: simulated ? 'simulated-model' : 'real-cli', sha, node: process.version,
     command: ['node', 'scripts/qualify-cross-cli.mjs', ...redactedArgs].join(' '),
     root, build: built,
     harnessDigests: Object.fromEntries(['qualify-cross-cli.mjs', 'xcli-lab.mjs', 'xcli-proxy.mjs', 'xcli-terminal.mjs', 'xcli-simulated-model.mjs'].map(name =>
       [name, createHash('sha256').update(fs.readFileSync(join(repo, 'scripts', name))).digest('hex')])),
+    seatMode, caps, capsStatus: 'proposition-pending-D2',
+    ledgerTotals: renderSeatLedger(ledger), ledgerRefusals: ledger.refusals, preflights,
     cells, counts: Object.fromEntries([simulated ? 'simulated-OK' : 'measured-OK', simulated ? 'simulated-KO' : 'measured-KO', 'blocked'].map(s => [s, cells.filter(c => c.status === s).length])) };
   const output = resolve(option('--output', join(root, 'qualification.json')));
   fs.writeFileSync(output, JSON.stringify(result, null, 2) + '\n', { mode: 0o600 });
