@@ -33,6 +33,7 @@ export type RegistryDiagnosticCode =
   | "unsupported_presentation"
   | "central_unavailable"
   | "missing_lock"
+  | "restore_failed"
   | "stale_generation";
 
 export class RegistryError extends Error {
