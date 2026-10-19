@@ -13,13 +13,13 @@ function fieldGaps(snapshot, field) {
 }
 /** Restore the original layout of structural edits, replaying independent third-party units.
  * The source baseline supplies exact separators; unrelated source gaps remain current. */
-function restoreStructuralFields(baseline, applied, current, keys) {
+function restoreStructuralFields(baseline, applied, current, keys, restoreIds) {
     const document = structuredClone(current.document), paragraphs = structuredClone(current.manifest.paragraphs.filter(p => !keys.has(fieldKey(p))));
     for (const f of baseline.manifest.fields.filter(f => keys.has(fieldKey(f)))) {
         const previous = readParagraphs(applied.document, applied.manifest).filter(p => fieldKey(p) === fieldKey(f));
         const now = readParagraphs(current.document, current.manifest).filter(p => fieldKey(p) === fieldKey(f));
         const independent = diffParagraphs(previous, now, 'reconciler:independent');
-        const rebased = applyParagraphChanges(baseline.document, baseline.manifest, independent.changes.length ? [independent] : [], true);
+        const rebased = applyParagraphChanges(baseline.document, baseline.manifest, independent.changes.length ? [independent] : [], restoreIds);
         const baseGaps = fieldGaps(baseline, f), appliedGaps = fieldGaps(applied, f), currentGaps = fieldGaps(current, f), restoredGaps = fieldGaps(rebased, f);
         for (const [key, gap] of currentGaps) {
             if (appliedGaps.has(key) && gap !== appliedGaps.get(key) && baseGaps.get(key) !== appliedGaps.get(key))
@@ -49,9 +49,15 @@ export function reconcile(input) {
     const lineage = structuredClone(input.lineage ?? { baseHash: baseline.manifest.baseHash, manifestBaseHash: baseline.manifest.manifestBaseHash, production, tombstones: [], seen: [], applied: [], applications: [] });
     const value = input.value;
     let rememberIdentity = false;
-    const result = (status, conflicts = [], candidate = current, ok = false) => {
+    const result = (status, conflicts = [], candidate = current, ok = false, appliedTransition) => {
+        const transactions = (validateReturnStructure(value) ? value.editReturn.transactions : []).map(t => ({ transactionId: t.transactionId, changeIds: t.changes.map(c => c.changeId), status }));
+        // The receipt names the changes the reconciler effectively applied or
+        // revoked — including revocation inverses the incoming return never
+        // listed — so a revocation is auditable by change identity.
+        if (ok && appliedTransition && appliedTransition.changes.length)
+            transactions.push({ transactionId: appliedTransition.transactionId, changeIds: appliedTransition.changes.map(c => c.changeId), status });
         const receipt = { returnId: typeof value?.returnId === 'string' ? value.returnId : '', digest: typeof value?.digest === 'string' ? value.digest : '', status,
-            transactions: (validateReturnStructure(value) ? value.editReturn.transactions : []).map(t => ({ transactionId: t.transactionId, changeIds: t.changes.map(c => c.changeId), status })), conflicts };
+            transactions, conflicts };
         if (ok) {
             receipt.baseHash = baseDigest(current.document);
             receipt.resultHash = baseDigest(candidate.document);
@@ -68,10 +74,13 @@ export function reconcile(input) {
     const seen = lineage.seen.find(s => s.returnId === value.returnId);
     if (seen) {
         const out = result(seen.digest === value.digest ? 'already-processed' : 'identity-reuse');
+        // A replay reports the original diagnostic, never an empty success: the
+        // unsuccessful character of a refused return survives the replay.
+        out.receipt.previousStatus = seen.receipt.status;
+        out.receipt.conflicts = seen.receipt.conflicts;
         if (seen.digest === value.digest) {
             out.receipt.baseHash = seen.receipt.baseHash;
             out.receipt.resultHash = seen.receipt.resultHash;
-            out.receipt.previousStatus = seen.receipt.status;
         }
         return out;
     }
@@ -101,8 +110,10 @@ export function reconcile(input) {
             const recorded = oldChanges.filter(c => c.paragraphId === id), expected = recorded.length ? r : b;
             const sameAddress = !expected || (!!a && fieldKey(a) === fieldKey(expected));
             let matches = (a?.text ?? null) === (expected?.text ?? null) && sameAddress;
-            const structural = [...recorded, ...newChanges.filter(c => c.paragraphId === id)].some(c => c.operation !== 'replace');
-            if (matches && structural && expected && a) {
+            // Every affected unit carries a topology precondition, including pure
+            // text replacements: a paragraph moved by a third party no longer
+            // matches, even when its text is unchanged.
+            if (matches && expected && a) {
                 const expectedList = (recorded.length ? appliedValues : base).filter(p => fieldKey(p) === fieldKey(expected));
                 const actualList = actual.filter(p => fieldKey(p) === fieldKey(a));
                 matches = canonicalJson(paragraphAnchors(expectedList, expectedList.indexOf(expected))) === canonicalJson(paragraphAnchors(actualList, actualList.indexOf(a)));
@@ -113,16 +124,21 @@ export function reconcile(input) {
         if (conflicts.length)
             return result('conflict', conflicts);
         const structuralFields = new Set(oldChanges.filter(c => c.operation !== 'replace').map(fieldKey));
-        const sourceRestored = restoreStructuralFields(baseline, applied, current, structuralFields);
+        // Only identities this lineage retired may be restored: revocation must
+        // revive lineage content, while a collision with a third-party
+        // retirement refuses instead of reassigning the identity (D13).
+        const deletedIds = (txs) => txs.flatMap(t => t.changes).filter(c => c.operation === 'delete').map(c => c.paragraphId);
+        const restoreIds = new Set([...deletedIds(lineage.applied), ...lineage.applications.flatMap(a => deletedIds(a.transactions))]);
+        const sourceRestored = restoreStructuralFields(baseline, applied, current, structuralFields, restoreIds);
         const inverse = oldChanges.filter(c => !structuralFields.has(fieldKey(c))).slice().reverse().map(c => ({ ...c, operation: c.operation === 'insert' ? 'delete' : c.operation === 'delete' ? 'insert' : c.operation,
             before: c.after, after: c.before, beforeAnchors: c.operation === 'delete' ? null : c.anchors, anchors: c.beforeAnchors ?? c.anchors }));
-        const restored = applyParagraphChanges(sourceRestored.document, sourceRestored.manifest, inverse.length ? [{ transactionId: 'reconciler:revoke', changes: inverse }] : [], true);
-        const candidate = applyParagraphChanges(restored.document, restored.manifest, value.editReturn.transactions, true);
+        const restored = applyParagraphChanges(sourceRestored.document, sourceRestored.manifest, inverse.length ? [{ transactionId: 'reconciler:revoke', changes: inverse }] : [], restoreIds);
+        const candidate = applyParagraphChanges(restored.document, restored.manifest, value.editReturn.transactions, restoreIds);
         if (!validateManifest(candidate.manifest, candidate.document).ok)
             return result('conflict', [{ reason: 'result-mapping' }]);
         const transition = diffParagraphs(actual, readParagraphs(candidate.document, candidate.manifest), `application:${value.returnId}`);
         const revoked = oldChanges.some(c => !newChanges.some(n => n.paragraphId === c.paragraphId));
-        const out = result(revoked ? 'revocation-applied' : 'applied', [], candidate, true);
+        const out = result(revoked ? 'revocation-applied' : 'applied', [], candidate, true, transition);
         lineage.head = { returnId: value.returnId, supersededReturnIds: [...value.editReturn.supersededReturnIds] };
         lineage.tombstones = [...new Set([...lineage.tombstones, ...value.editReturn.supersededReturnIds])];
         lineage.applied = structuredClone(value.editReturn.transactions);
