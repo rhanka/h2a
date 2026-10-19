@@ -14,6 +14,35 @@ import { parseScenario, expectedScenarioBlocker, classifyScenarioRow, verifyScen
   UNAVAILABILITY_STATES, REFUSAL_TWINS, SCENARIO_ROWS } from './xcli-scenarios.mjs';
 import fs from 'node:fs';
 import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { environment, repo } from './xcli-lab.mjs';
+
+test('L15 review: read-paths data is ready when the peer markers are published', () => {
+  const root = fs.mkdtempSync('/tmp/xcli-inventory-review-');
+  try {
+    const worker = join(root, 'qualify.mjs'), output = join(root, 'receipt.json');
+    const source = fs.readFileSync(join(repo, 'scripts/qualify-cross-cli.mjs'), 'utf8');
+    const marker = "fs.writeFileSync(join(cell, 'peer-for-receiver'), senderReady.instance + '\\n', { mode: 0o600 });";
+    assert.ok(source.includes(marker), 'the readiness publication must be instrumented');
+    // Reproduce the reviewer's scheduling gap after readiness, without
+    // changing the product or the peers that immediately consume its data.
+    fs.writeFileSync(worker, source.replace(marker, marker + '\n        await sleep(500);')
+      .replace(/'\.\/([^']+\.mjs)'/g, (_, name) => JSON.stringify(pathToFileURL(join(repo, 'scripts', name)).href)));
+    const run = spawnSync(process.execPath, [worker, '--simulated', '--pair', 'claude:codex',
+      '--scenario', 'inventory:read-paths', '--timeout-ms', '15000', '--output', output], {
+      env: environment(join(root, 'env')), encoding: 'utf8', timeout: 120000, maxBuffer: 4 * 1024 * 1024,
+    });
+    assert.ok(fs.existsSync(output), run.stdout + run.stderr);
+    const cell = JSON.parse(fs.readFileSync(output)).cells[0];
+    const proof = { inventoryOk: cell.inventoryOk, receiverScriptOk: cell.receiverScriptOk, senderScriptOk: cell.senderScriptOk };
+    console.log(proof);
+    // Scripted rows claim no wake: the runner returns 2, and the separate
+    // scenario verifier decides whether the observed inventory is complete.
+    assert.equal(run.status, 2, run.stdout + run.stderr);
+    assert.deepEqual(proof, { inventoryOk: true, receiverScriptOk: true, senderScriptOk: true });
+    assert.equal(classifyScenarioRow('inventory:read-paths', cell).ok, true);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
 
 test('L12: scenario specs parse to a closed vocabulary', () => {
   assert.equal(parseScenario('probe').kind, 'probe');
