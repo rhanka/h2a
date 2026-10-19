@@ -8,6 +8,7 @@ import os from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { checkReceipt, computeHarnessDigests, loadMatrixManifest } from './xcli-receipt-check.mjs';
+import { buildCampaignReceipt } from './xcli-ci-check.mjs';
 import { ORACLE_SOURCES } from './xcli-lab.mjs';
 
 const repo = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
@@ -103,6 +104,30 @@ test('L11: any secret-wipe-unproven marker refuses', () => {
   const receipt = goodReceipt();
   receipt.cells[3].note = 'secret-wipe-unproven on resume';
   assert.throws(() => checkReceipt(receipt, ctx()), /secret-wipe-unproven/);
+});
+
+test('L11: the lane-built receipt for an all-green campaign passes the check', () => {
+  const dir = fs.mkdtempSync(join(os.tmpdir(), 'xcli-receipt-'));
+  try {
+    const manifest = loadMatrixManifest(join(repo, 'docs/cross-cli-matrix.json'));
+    const qualifyOutput = { version: 1, mode: 'real-cli', sha: SHA,
+      cells: manifest.mandatory.merge.map(row => {
+        const [sender, receiver] = row.pair.split(':');
+        return { sender, receiver, status: 'measured-OK', blocker: null, secretWipe: true };
+      }) };
+    fs.writeFileSync(join(dir, 'qualification.json'), JSON.stringify(qualifyOutput));
+    fs.writeFileSync(join(dir, 'campaign-ledger.json'), JSON.stringify({ version: 1,
+      caps: { launchedSessions: 32, mcpCallsPerSession: 60, wallClockMs: 7200000 },
+      sessionsDebited: 16, perSeatDebited: {}, wallClockSpentMs: 1000, attempts: {}, mcpRefusals: [] }));
+    const receipt = buildCampaignReceipt({ campaignRoot: dir, sha: SHA, gate: 'merge',
+      repoRoot: repo, cliVersions: cliVersions(), seatManifestDigest: 'f'.repeat(64) });
+    assert.equal(checkReceipt(receipt, ctx()).cells, 16);
+    const blocked = { ...qualifyOutput, cells: qualifyOutput.cells.map((cell, index) =>
+      index === 0 ? { ...cell, status: 'blocked', blocker: 'seat-blocked', secretWipe: true } : cell) };
+    fs.writeFileSync(join(dir, 'qualification.json'), JSON.stringify(blocked));
+    assert.throws(() => checkReceipt(buildCampaignReceipt({ campaignRoot: dir, sha: SHA,
+      gate: 'merge', repoRoot: repo, cliVersions: cliVersions(), seatManifestDigest: 'f'.repeat(64) }), ctx()), /cell-blocked/);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('L11: merge refuses an absent then blocked ratcheted R2 row', () => {
