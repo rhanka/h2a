@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { join } from 'node:path';
 import { CLIS } from './xcli-lab.mjs';
+import { SCENARIO_ROWS } from './xcli-scenarios.mjs';
 
 // Owner roster of seated families. Gemini and vibe hold no seat.
 export const SEATED_FAMILIES = Object.freeze(['claude', 'codex', 'muse', 'agy']);
@@ -29,17 +30,33 @@ export function checkMatrixManifest(manifest) {
     assert.deepEqual(listed, wanted, `mandatory.${gate} must require the probe on all 16 pairs`);
   }
   const pairs = new Set(manifest.profilePairs);
+  const defined = new Set();
   for (const row of manifest.rows) {
     if (row.scenario === 'probe') {
       assert.ok(pairs.has(row.pair), `probe row names an unknown pair: ${row.pair}`);
       assert.deepEqual(row.tiers, ['S', 'C', 'R1'], `probe row ${row.pair} runs tiers S/C/R1`);
       assert.deepEqual(row.tools, [...PROBE_TOOLS], `probe row ${row.pair} covers the three probe tools`);
+    } else if (SCENARIO_ROWS.includes(row.scenario)) {
+      // Lot L12+: defined scenario rows cover all 36 pairs at S with a
+      // named R2 ratchet entry — never free-floating follow-ups.
+      assert.equal(row.pairs, 'all-36', `row ${row.scenario} covers all 36 ordered pairs`);
+      assert.deepEqual(row.tiers, ['S'], `row ${row.scenario} runs at tier S`);
+      assert.equal(row.status, 'covered-simulated', `row ${row.scenario} states its coverage`);
+      assert.equal(row.ratchet?.scope, 'R2-seated', `row ${row.scenario} names its R2 ratchet scope`);
+      assert.equal(row.ratchet?.entry, 'L9-diagonals-green', `row ${row.scenario} names its ratchet entry`);
+      assert.ok(!defined.has(row.scenario), `duplicate row ${row.scenario}`);
+      defined.add(row.scenario);
     } else {
       assert.equal(row.status, 'not-covered', `row ${row.scenario} must declare not-covered`);
       assert.ok(typeof row.blocker === 'string' && row.blocker.length > 0, `row ${row.scenario} needs a blocker`);
       assert.match(row.owner ?? '', /^L1[2-5]$/, `row ${row.scenario} needs an owning lot L12-L15`);
     }
   }
+  assert.deepEqual([...defined].sort(), [...SCENARIO_ROWS].sort(), 'every scenario row is defined exactly once');
+  assert.deepEqual([...manifest.simulationMandatory.scenarios].sort(), [...SCENARIO_ROWS].sort(),
+    'simulationMandatory covers every scenario row');
+  assert.equal(manifest.simulationMandatory.pairs, 'all-36', 'simulationMandatory covers all 36 pairs');
+  assert.deepEqual(manifest.simulationMandatory.tiers, ['S'], 'simulationMandatory runs at tier S');
   return { pairs: expected.length };
 }
 

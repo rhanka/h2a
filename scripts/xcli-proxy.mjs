@@ -115,16 +115,25 @@ export function observe(line) {
     }
     if (request.tool === 'h2a_send') {
       const kind = request.args?.message === PROBE ? 'probe' : request.args?.message === REPLY ? 'reply' : 'other';
-      emit({ event: 'send', ok: ok && !value?.error && Boolean(value?.envelope?.id), kind,
+      const sent = ok && !value?.error && Boolean(value?.envelope?.id);
+      emit({ event: 'send', ok: sent, kind,
         envelopeId: value?.envelope?.id, from: value?.envelope?.actor?.instance, to: value?.envelope?.target?.instance });
+      // Lot L12: closed-vocabulary refusal events only. A failed send
+      // witnesses {tool, kind, errorKind} — never error text, bodies, or
+      // instances beyond the envelope endpoints the send event carries.
+      if (!sent) emit({ event: 'refusal', tool: 'h2a_send', kind,
+        errorKind: rpc.error ? 'rpc-error' : 'result-error' });
     }
     if (request.tool === 'h2a_inbox' && ['read', 'pop'].includes(request.args?.action)) {
       const values = Array.isArray(value) ? value : value?.envelopes ?? (value?.envelope ? [value.envelope] : []);
-      emit({ event: 'inbox', ok: ok && !value?.error, instance: request.args?.instance,
+      const read = ok && !value?.error;
+      emit({ event: 'inbox', ok: read, instance: request.args?.instance,
         envelopes: values.filter(e => [PROBE, REPLY].includes(e?.body?.text)).map(e => ({
           id: e.id, from: e.actor?.instance, to: e.target?.instance,
           kind: e.body.text === PROBE ? 'probe' : 'reply',
         })) });
+      if (!read) emit({ event: 'refusal', tool: 'h2a_inbox', kind: 'read',
+        errorKind: rpc.error ? 'rpc-error' : 'result-error' });
     }
   } catch { /* malformed RPC cannot be positive evidence */ }
 }
