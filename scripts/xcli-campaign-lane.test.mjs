@@ -6,11 +6,60 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
+import { parse } from 'yaml';
 
 const repo = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
 const campaign = fs.readFileSync(join(repo, '.github/workflows/cross-cli-campaign.yml'), 'utf8');
 const prLane = fs.readFileSync(join(repo, '.github/workflows/cross-cli-messaging.yml'), 'utf8');
 const release = fs.readFileSync(join(repo, '.github/workflows/release.yml'), 'utf8');
+
+test('L11 review: candidate validation precedes checkout and every secret is step-scoped afterwards', async () => {
+  const job = parse(campaign).jobs.campaign;
+  assert.equal(job.env, undefined, 'no job-level bundles before candidate validation');
+  const steps = job.steps, validation = steps.findIndex(step => step.id === 'validate');
+  assert.ok(validation >= 0, 'a pre-checkout authenticated candidate validator exists');
+  assert.ok(validation < steps.findIndex(step => step.uses?.startsWith('actions/checkout')));
+  const script = steps[validation].with.script;
+  const execute = new (Object.getPrototypeOf(async function(){}).constructor)('github', 'context', 'core', 'process', script);
+  const sha = 'a'.repeat(40), context = { repo: { owner: 'rhanka', repo: 'h2a' }, sha, ref: 'refs/heads/feat/live-cross-cli-messaging', eventName: 'workflow_dispatch' };
+  let protectedRef = true;
+  const github = { rest: { repos: { getBranch: async () => ({ data: { protected: protectedRef, commit: { sha } } }) } } };
+  const core = { setOutput() {}, setFailed(message) { throw new Error(message); } };
+  await execute(github, context, core, { env: { CANDIDATE_SHA: sha, SEAT_SET: 'claude,codex' } });
+  await assert.rejects(execute(github, context, core, { env: { CANDIDATE_SHA: 'b'.repeat(40), SEAT_SET: 'claude' } }), /candidate/);
+  protectedRef = false;
+  await assert.rejects(execute(github, context, core, { env: { CANDIDATE_SHA: sha, SEAT_SET: 'claude' } }), /protected/);
+  for (const [i, step] of steps.entries()) if (Object.keys(step.env ?? {}).some(key => key.startsWith('XCLI_SEAT_BUNDLE_'))) assert.ok(i > validation);
+  const measurement = steps.findIndex(step => step.name?.startsWith('Measure all provisioned'));
+  assert.ok(measurement > validation && measurement < steps.findIndex(step => Object.keys(step.env ?? {}).some(key => key.startsWith('XCLI_SEAT_BUNDLE_'))),
+    'missing vendor binaries refuse before any seat material is exposed');
+});
+
+test('L4: every workflow upload is preceded by a required publication scan', () => {
+  for (const lane of [campaign, prLane]) for (const job of Object.values(parse(lane).jobs)) {
+    for (const [index, step] of (job.steps ?? []).entries()) {
+      if (!step.uses?.startsWith('actions/upload-artifact')) continue;
+      assert.ok(job.steps.slice(0, index).some(s => s.run?.includes('xcli-evidence-scan.mjs')), 'scan before every upload');
+      assert.ok(!step.if?.trim().endsWith('always()'), 'a failing scan must prevent publication');
+    }
+  }
+});
+
+test('L11 review: PR and release fetch authenticated artifacts for the exact head', () => {
+  for (const lane of [prLane, release]) {
+    assert.ok(lane.includes('--fetch-trusted'));
+    assert.ok(!lane.includes('--receipt docs/cross-cli-receipt.json'));
+    assert.ok(lane.includes('actions: read'));
+  }
+  assert.ok(prLane.includes('github.event.pull_request.head.sha'));
+});
+
+test('campaign review: funded windows, guarded root, Vibe measurement and explicit provisioned runner', () => {
+  assert.ok(campaign.includes('/tmp/h2a-qual-'));
+  assert.match(campaign, /--timeout-ms (?:[6-9]\d{4}|1[0-7]\d{4}|180000)/);
+  assert.ok(campaign.includes('Object.keys(ORACLE_SOURCES)'));
+  assert.ok(campaign.includes('XCLI_CAMPAIGN_RUNNER'), 'owner selects an ephemeral image with the required binaries');
+});
 
 test('L11: the campaign lane demands an explicit seat set', () => {
   assert.ok(/seat_set:\s*\n(\s+\S.*\n)*?\s+required:\s*true/.test(campaign), 'seat_set input is required');

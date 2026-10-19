@@ -38,6 +38,20 @@ test('L8/L9 review: Claude and Muse use their own login layouts', () => {
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+test('L4 review: destination components cannot redirect a login write outside the cell', () => {
+  const root = fs.mkdtempSync('/tmp/xcli-review-');
+  try {
+    const source = join(root, 'source'), outside = join(root, 'outside');
+    fs.mkdirSync(join(source, '.codex'), { recursive: true }); fs.mkdirSync(outside);
+    fs.writeFileSync(join(source, '.codex/auth.json'), 'dummy');
+    fs.writeFileSync(join(outside, 'auth.json'), 'preserve');
+    const target = join(root, 'target'), env = environment(target);
+    fs.rmdirSync(env.CODEX_HOME); fs.symlinkSync(outside, env.CODEX_HOME);
+    assert.throws(() => copyLogin('codex', source, target, env));
+    assert.equal(fs.readFileSync(join(outside, 'auth.json'), 'utf8'), 'preserve');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 test('L5 review: lost-worker wipe removes all CLI private state including transcripts', () => {
   const root = fs.mkdtempSync('/tmp/xcli-review-');
   try {

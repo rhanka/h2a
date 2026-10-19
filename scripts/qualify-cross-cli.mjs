@@ -14,6 +14,8 @@ import { loadSeatManifest, resolveCampaignPair, createCampaignLedger, loadCampai
   runSeatPreflight } from './xcli-seats.mjs';
 import { startupTerminal } from './xcli-terminal.mjs';
 import { verifyWakeBatch } from './xcli-ci-check.mjs';
+import { buildSupervisor, supervisedCommand, supervisorResult } from './xcli-process-supervisor.mjs';
+import { scanEvidenceText } from './xcli-evidence-scan.mjs';
 import { parseScenario, expectedScenarioBlocker, UNKNOWN_INSTANCE, validateScriptSteps,
   loopScripts, loopTwinScripts, negotiationScripts, negotiationTwinScripts,
   inventoryScripts, LARGE_TEXT } from './xcli-scenarios.mjs';
@@ -209,8 +211,7 @@ async function worker() {
       H2A_MCP_TRACE: '1',
       ...(dropWake ? { XCLI_DROP_WAKE: '1' } : {}),
     };
-    // Lot L4 login confinement: copyLogin admits 'codex'|'claude' only and throws
-    // login-not-confined for every other family. The mapping is witnessed
+    // The auth-only family allowlist is enforced by copyLogin. The mapping is witnessed
     // (role, allowlisted name, sha256 — never content) in the row evidence.
     const roleAuthHome = authHomes[role];
     row.credentialsCopied[role] = roleAuthHome ? copyLogin(cli, roleAuthHome, cell, env) : [];
@@ -915,6 +916,7 @@ async function main() {
   }
   ledger.refusals ??= [];
   const built = sourceBuild(root);
+  const supervisor = buildSupervisor(root);
   const sourcePath = process.env.PATH ?? '/usr/bin:/bin';
   const simulated = process.argv.includes('--simulated');
   assert.ok(!simulated || !option('--auth-home'), 'simulated CI must never read login files');
@@ -945,6 +947,8 @@ async function main() {
   if (authHomeAlias) process.stderr.write('warning: --auth-home is deprecated; use --seat-manifest\n');
   const seatMode = manifest ? manifest.seatMode : (authHomeAlias ? 'interim-file-copy' : 'no-seats');
   const selected = option('--pair');
+  const selectedSender = option('--sender');
+  assert.ok(!selectedSender || (simulated && CLIS.includes(selectedSender) && !selected && !manifest), '--sender selects a simulated family shard');
   const seatRuns = [];
   if (manifest) {
     const seatPairs = selected ? [selected]
@@ -967,9 +971,9 @@ async function main() {
   const pairs = manifest || authHomeAlias
     ? seatRuns.map(({ sender, receiver }) => ({ sender, receiver }))
     : CLIS.flatMap(sender => CLIS.map(receiver => ({ sender, receiver })))
-      .filter(p => !selected || `${p.sender}:${p.receiver}` === selected);
+      .filter(p => (!selected || `${p.sender}:${p.receiver}` === selected) && (!selectedSender || p.sender === selectedSender));
   assert.ok(pairs.length, 'unknown --pair');
-  const timeoutMs = Number(option('--timeout-ms', '30000'));
+  const timeoutMs = Number(option('--timeout-ms', simulated ? '30000' : '60000'));
   assert.ok(Number.isSafeInteger(timeoutMs) && timeoutMs >= 1000 && timeoutMs <= 180000, 'invalid bounded timeout');
   // Lot L12: scripted scenario dispatch. Unknown specs fail fast here —
   // the worker never sees them.
@@ -998,7 +1002,7 @@ async function main() {
   // pre-spawn cap gates. Nothing spawns and no seat is touched on refusal.
   const quotaSeats = new Set();
   const preflighted = new Map();
-  const runAuthPrecheck = async seat => {
+  const runAuthPrecheck = async (seat, { executable }) => {
     // Muse config-status contrast: the control HOME (no logins) must not
     // read authed while the seat HOME (seat files only) reads accepted.
     // Closed-vocabulary match only; outputs discarded; both HOMEs deleted.
@@ -1008,7 +1012,7 @@ async function main() {
       try {
         const env = environment(home);
         if (withFiles) copyLogin(seat.family, seat.authSource, home, env);
-        const out = spawnSync(executables[seat.family], ['config', 'status'],
+        const out = spawnSync(executable, ['config', 'status'],
           { env, cwd: home, encoding: 'utf8', timeout: 30000, maxBuffer: 256 * 1024 });
         const text = `${out.stdout ?? ''}\n${out.stderr ?? ''}`;
         return { status: out.status,
@@ -1077,13 +1081,12 @@ async function main() {
     // XCLI_WORKER_STUB (test seam) runs a stub worker instead of --worker.
     const cell = fs.mkdtempSync(join(root, 'c-'));
     const stub = process.env.XCLI_WORKER_STUB;
-    const child = stub
-      ? spawn(process.execPath, [stub], {
-        env: { ...environment(join(root, 'worker')), H2A_TEST_QUALIFICATION_ROOT: root },
-        cwd: root, stdio: ['pipe', 'pipe', 'ignore'],
-      })
-      : spawn(process.execPath, [self, '--worker'], {
-        env: { ...environment(join(root, 'worker')), H2A_TEST_QUALIFICATION_ROOT: root },
+    const observation = fs.mkdtempSync(join(root, 'p-'));
+    const command = supervisedCommand(supervisor, observation, [process.execPath, ...(stub ? [stub] : [self, '--worker'])]);
+    const child = spawn(command[0], command.slice(1), {
+        env: { ...environment(join(root, 'worker')), H2A_TEST_QUALIFICATION_ROOT: root,
+          XCLI_VENDOR_PATHS: simulated ? '' : Object.values(executables).filter(Boolean).join('\n'),
+          XCLI_HARNESS_ENTRYPOINTS: [join(repo, 'scripts/xcli-proxy.mjs'), join(built.path, 'packages/h2a/dist/bin.js')].join('\n') },
         cwd: root, stdio: ['pipe', 'pipe', 'ignore'],
       });
     active = child;
@@ -1106,6 +1109,20 @@ async function main() {
       assert.ok(row && typeof row === 'object', 'worker row must be an object');
     } catch { row = { sender, receiver, status: 'blocked', cleanupFailed: true,
       blocker: 'qualification-worker-failed-cleanup-unproven', evidence: [], elapsedMs: 0, cell }; }
+    try {
+      const observed = supervisorResult(observation);
+      row.parentProcessRecovery = observed.processRecovery === true;
+      row.execJournal = { ...classifyExecJournal(observed.records), scope: 'ptrace-exec-owned-subtree; vendor-subtree-allowance' };
+      if (!observed.observed || !row.parentProcessRecovery) {
+        row.cleanupFailed = true; row.status = 'blocked'; row.blocker = 'owned-process-recovery-unproven';
+      }
+      if (row.execJournal.pythonDescendants.length) {
+        row.status = 'blocked'; row.blocker = 'python-descendant-detected';
+      }
+    } catch {
+      row.parentProcessRecovery = false; row.cleanupFailed = true;
+      row.status = 'blocked'; row.blocker = 'owned-process-recovery-unproven';
+    } finally { fs.rmSync(observation, { recursive: true, force: true }); }
     // Lot L8: seat attribution is parent-authoritative — a worker (or stub)
     // can never forge which seats served the cell.
     row.seats = { sender: run.senderSeat, receiver: run.receiverSeat };
@@ -1116,15 +1133,11 @@ async function main() {
     // when the worker never reported — and re-check absence file by file. A
     // wipe the parent cannot prove classifies secret-wipe-unproven with
     // confinement-recovery reporting; the campaign stops either way.
-    let wipeCell = cell;
-    try { if (typeof row.cell === 'string') wipeCell = inside(root, row.cell); } catch { wipeCell = null; }
     let surviving = null;
     try {
-      const recorded = row.credentialsCopied && row.cell
-        ? { sender: { cli: row.sender, files: row.credentialsCopied.sender ?? [] },
-          receiver: { cli: row.receiver, files: row.credentialsCopied.receiver ?? [] } }
-        : null;
-      surviving = wipeCell ? wipeSecrets(cellSecretPaths(wipeCell, recorded)) : null;
+      // The parent owns this exact path. Never accept a worker-supplied
+      // cleanup target. Remove ALL private state after bounded recovery.
+      surviving = wipeSecrets([cell]);
     } catch { surviving = null; }
     row.parentSecretWipe = Array.isArray(surviving) && surviving.length === 0;
     if (!row.parentSecretWipe) {
@@ -1144,8 +1157,6 @@ async function main() {
       quotaSeats.add(seatKey(run, 'receiver'));
     }
     noteWallClock(ledger, Number.isSafeInteger(row.elapsedMs) ? row.elapsedMs : 0);
-    const cellFile = run.senderSeat ? `${run.senderSeat}-${run.receiverSeat}` : `${sender}-${receiver}`;
-    fs.writeFileSync(join(root, `${cellFile}.json`), JSON.stringify(row, null, 2) + '\n', { mode: 0o600 });
     if (row.cleanupFailed) stopping = true;
     process.stdout.write(`${sender} -> ${receiver}: ${row.status} (${row.blocker ?? row.failure ?? 'round-trip'})\n`);
   }
@@ -1175,6 +1186,7 @@ async function main() {
         }
       } else {
         for (const cell of group) {
+          if (cell.wakeFailure !== 'wake-withheld-forever') cell.wakeClaim = 'no wake claimed (wake-phase-separation-unproven)';
           if (cell.woke === true) {
             cell.woke = false;
             cell.wakeFailure = 'wake-phase-separation-unproven';
@@ -1185,6 +1197,13 @@ async function main() {
       }
       process.stdout.write(`wake batch ${key}: ${verdict.pass ? 'separated' : 'NOT separated'} (${verdict.failures.join('; ')})\n`);
     }
+  }
+  // Persist only final batch verdicts; no earlier per-cell file may keep
+  // stage-7 credit that the separation check subsequently withdrew.
+  for (const [index, row] of cells.entries()) {
+    scanEvidenceText(JSON.stringify(row));
+    const name = `${row.seats?.sender ?? row.sender}-${row.seats?.receiver ?? row.receiver}-${index}.json`;
+    fs.writeFileSync(join(root, name), JSON.stringify(row, null, 2) + '\n', { mode: 0o600 });
   }
   const sha = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).stdout.trim();
   // Lot L4 receipt hygiene: the retained command never carries owner-side
@@ -1206,9 +1225,11 @@ async function main() {
     ledgerTotals: renderSeatLedger(ledger), ledgerRefusals: ledger.refusals, preflights,
     cells, counts: Object.fromEntries([simulated ? 'simulated-OK' : 'measured-OK', simulated ? 'simulated-KO' : 'measured-KO', 'blocked'].map(s => [s, cells.filter(c => c.status === s).length])) };
   const output = resolve(option('--output', join(root, 'qualification.json')));
+  scanEvidenceText(JSON.stringify(result));
   fs.writeFileSync(output, JSON.stringify(result, null, 2) + '\n', { mode: 0o600 });
   if (!selected && !simulated) {
     const doc = resolve(option('--markdown', join(root, 'qualification.md')));
+    scanEvidenceText(markdown(result));
     fs.writeFileSync(doc, markdown(result));
     process.stdout.write(`Table: ${doc}\n`);
   }

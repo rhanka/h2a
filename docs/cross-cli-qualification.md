@@ -21,7 +21,8 @@ sans node-gyp/Python. Aucun binaire h2a installé n’est exécuté.
 
 ```sh
 npm ci --ignore-scripts
-node scripts/qualify-cross-cli.mjs --auth-home /path/to/login-home \
+node scripts/qualify-cross-cli.mjs --seat-manifest /path/to/seats.json \
+  --pair claude-a:claude-b --timeout-ms 120000 --wake-release-offsets-ms 0,30000,6000 \
   --output /tmp/xcli-real.json --markdown /tmp/xcli-real.md
 ```
 
@@ -40,8 +41,9 @@ serait un changement suivi, jamais un remplacement silencieux. Sans
 Une cellule peut être rejouée sans relancer les autres :
 
 ```sh
-node scripts/qualify-cross-cli.mjs --pair claude:codex \
-  --auth-home /path/to/login-home --output /tmp/xcli-cell.json
+node scripts/qualify-cross-cli.mjs --pair claude-a:codex \
+  --seat-manifest /path/to/seats.json --timeout-ms 120000 \
+  --wake-release-offsets-ms 0,30000,6000 --output /tmp/xcli-cell.json
 ```
 
 | Statut réel | Exigence |
@@ -52,10 +54,13 @@ node scripts/qualify-cross-cli.mjs --pair claude:codex \
 
 Les preuves ne contiennent ni RPC bruts, ni textes de modèle, ni tokens :
 seulement événements, identifiants techniques et booléens corrélés. Chaque
-cellule produit une preuve intermédiaire ; le résultat final contient les
+cellule produit une preuve après le verdict du lot de répétitions ; le résultat final contient les
 empreintes des sources et du harness. Le code de sortie est 0 uniquement si
 toutes les cellules demandées passent ; sinon 2. Un échec de nettoyage arrête
-la campagne et préserve son état privé pour diagnostic.
+la campagne. L’effacement de tout l’état privé (logins et transcripts inclus)
+est tenté et vérifié même après la perte du worker. Le superviseur Linux
+observe les execs des descendants possédés et borne leur récupération ; un
+nettoyage non prouvé reste bloquant. Un scan précède toute publication.
 
 Pour CI, les modèles sont remplacés par des peers déterministes. Les MCP,
 signatures, inbox, résolution de session et injections PTY sont ceux du produit.
@@ -68,7 +73,8 @@ configuration sans login ni appel modèle.
 ```sh
 node --test scripts/xcli-lab.test.mjs scripts/xcli-proxy.test.mjs \
   scripts/xcli-simulation.test.mjs scripts/xcli-gemini-registry.test.mjs
-node scripts/qualify-cross-cli.mjs --simulated --output /tmp/xcli-sim.json
+node scripts/qualify-cross-cli.mjs --simulated --timeout-ms 45000 \
+  --wake-release-offsets-ms 0,6000,1000 --output /tmp/xcli-sim.json
 node scripts/xcli-ci-check.mjs /tmp/xcli-sim.json
 ```
 
@@ -77,6 +83,10 @@ deviennent jamais des statuts `measured-OK`. Le contrôle négatif ignore le wak
 dans le seul modèle de test et exige une livraison durable sans lecture/réponse ;
 il doit échouer à la qualification. Le budget par défaut de 30 s couvre
 l’échéance d’identité produit inchangée de 20 s et la barrière inactive.
+Le crédit de réveil exige au moins trois répétitions dont les fenêtres
+effectivement observées sont séparées. Une exécution avec un seul offset
+n’obtient jamais ce crédit, quel que soit le mode de polling. Le budget réel
+par défaut est de 60 s ; les offsets longs doivent être financés explicitement.
 
 Le workflow `cross-cli-messaging` exécute ces gates sur Node 22 et 24. Les
 cellules des six modèles réels restent une qualification locale, en attente
@@ -107,7 +117,8 @@ Le gate global `npm test`/release n’est pas qualifié ici. Sa fixture historiq
 exige maintenant ce confinement : sans le lanceur, elle échoue avant
 l’installation ou l’exécution du producteur ancien. Le nouveau workflow couvre
 les 34 suites runtime et neuf suites source ciblées ; l’intégration des entrées
-globales dans un domaine PID privé reste nécessaire avant merge.
+globales dans un domaine PID privé est câblée ; sa preuve GREEN reste requise
+sur CI. Le confinement local refuse `sudo` avec `no new privileges`.
 
 Campagne réelle aux sièges : un manifeste de sièges (`--seat-manifest`)
 nomme une source d’authentification par siège et par rôle ; les paires
@@ -122,6 +133,17 @@ fournisseur bloque les autres cellules du siège ; le quota MCP par session
 coupe la session fautive au témoin. Les diagonales passent d’abord, sans
 jamais abandonner une cellule obligatoire.
 
+La lane protégée exige une référence protégée et le SHA exact de son propre
+workflow avant le checkout et l’exposition des bundles. Les variables owner
+`XCLI_CAMPAIGN_RUNNER` (labels JSON d’un runner éphémère provisionné avec les
+cinq binaires), `XCLI_SESSION_CAP`, `XCLI_MCP_CAP` et `XCLI_WALL_CLOCK_CAP_MS`
+portent D3/D2 ; aucune valeur de runner implicite ne les remplace.
+Les gates PR/release utilisent `--fetch-trusted` : téléchargement authentifié
+de l’artefact du run réussi, vérification de son digest et du head candidat
+(jamais le SHA de merge synthétique), puis des preuves, plafonds et nettoyages.
+`--content-only` sert uniquement à l’assemblage avant publication et ne prouve
+aucune provenance. Aucun reçu de qualification réelle n’a été produit ici.
+
 Non couvert (états exacts : `unknown`, `source-gap`, `missing source`,
 `unverified`, `partial`, `not covered`) :
 
@@ -135,8 +157,10 @@ Non couvert (états exacts : `unknown`, `source-gap`, `missing source`,
 - Consommation modèle/tokens par famille : `source-gap`. Aucun signal
   d’usage structuré démontré ; les plafonds lient sessions lancées,
   appels MCP et horloge.
-- Exclusion des descendants transitoires sans observation event-grade :
-  `partial`, bornée et labellisée, jamais exhaustive.
+- Descendants transitoires : observation d’exec via ptrace sur Linux, 9/9
+  fixtures natives à 1/10/100 ms. Les autres plateformes restent `not covered`.
+- Polling dont la phase varie entre sessions : `not covered`, même avec les
+  trois répétitions séparées ; la preuve exclut uniquement la fenêtre annoncée.
 - Gemini : `missing source` (aucun siège). Vibe : `not covered` en R
   jusqu’à un siège (la frontière Python n’est pas le bloqueur, QO4).
   Aucun backend Vibe non-Python existant.
