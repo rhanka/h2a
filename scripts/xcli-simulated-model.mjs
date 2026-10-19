@@ -79,6 +79,69 @@ assert.equal(identity.state, 'identity_ready');
 assert.equal(identity.signingAvailable, true);
 const instance = identity.instance;
 const guard = createReplayGuard();
+// Lot L3 polling fixtures: the receiver ignores the wake as a cause and polls
+// its inbox on a harness-coordinated schedule instead. XCLI_POLL carries one
+// of: `periodic:<periodMs>:<phaseMs>` (ticks at barrier+phase+k*period),
+// `single:<atMs>` (one read at barrier+at), `wakedelay:<delayMs>` (one read
+// delayMs after the first wake-shaped line arrives). Barrier time comes from
+// the worker-published $XCLI_CELL/barrier-at file. Active for the receiver
+// role only; the sender never polls.
+const pollSpec = role === 'receiver' ? (process.env.XCLI_POLL ?? '') : '';
+const pollMode = pollSpec.startsWith('periodic:') ? 'periodic'
+  : pollSpec.startsWith('single:') ? 'single'
+  : pollSpec.startsWith('wakedelay:') ? 'wakedelay' : '';
+const pollNums = (pollSpec.split(':').slice(1).map(Number));
+const pollValid = pollMode === 'periodic' ? pollNums.length === 2 && pollNums.every(n => Number.isSafeInteger(n) && n >= 0) && pollNums[0] > 0
+  : pollMode !== '' ? pollNums.length === 1 && Number.isSafeInteger(pollNums[0]) && pollNums[0] >= 0 : true;
+assert.ok(pollValid, 'malformed XCLI_POLL fixture schedule');
+let pollFirstWakeAt = 0;
+async function pollOnce() {
+  const value = await tool('h2a_inbox', { action: 'read', instance });
+  if (role === 'receiver' && !pollOnce.replied) {
+    const message = value.envelopes.find(e => e.body?.text === PROBE && e.target?.instance === instance);
+    if (message) {
+      pollOnce.replied = true;
+      await tool('h2a_send', { to: message.actor.instance, message: REPLY });
+    }
+  }
+}
+if (pollMode) {
+  const barrierFile = join(process.env.XCLI_CELL, 'barrier-at');
+  const readBarrier = () => {
+    const started = Date.now();
+    return (async () => {
+      for (;;) {
+        try { return Number(fs.readFileSync(barrierFile, 'utf8')); } catch { /* not published yet */ }
+        if (Date.now() - started > 300000) throw new Error('barrier-at never published');
+        await new Promise(r => setTimeout(r, 50));
+      }
+    })();
+  };
+  (async () => {
+    try {
+      if (pollMode === 'wakedelay') {
+        for (;;) {
+          if (pollFirstWakeAt) break;
+          await new Promise(r => setTimeout(r, 25));
+        }
+        await new Promise(r => setTimeout(r, Math.max(0, pollFirstWakeAt + pollNums[0] - Date.now())));
+        await pollOnce();
+      } else {
+        const barrierAt = await readBarrier();
+        if (pollMode === 'single') {
+          await new Promise(r => setTimeout(r, Math.max(0, barrierAt + pollNums[0] - Date.now())));
+          await pollOnce();
+        } else {
+          const [period, phase] = pollNums;
+          for (let k = 0; ; k++) {
+            await new Promise(r => setTimeout(r, Math.max(0, barrierAt + phase + k * period - Date.now())));
+            await pollOnce();
+          }
+        }
+      }
+    } catch { process.exit(73); }
+  })();
+}
 process.stdin.setRawMode(true);
 process.stdin.resume();
 let input = '', processing = Promise.resolve();
@@ -90,6 +153,11 @@ process.stdin.on('data', bytes => {
     input = input.slice(index + 1);
     if (!line) continue;
     if (process.env.XCLI_DROP_WAKE === '1') continue;
+    if (pollMode === 'wakedelay') {
+      if (!pollFirstWakeAt && line.includes('[h2a-wake reason=inbox ')) pollFirstWakeAt = Date.now();
+      continue;
+    }
+    if (pollMode) continue; // periodic/single fixtures ignore the wake entirely
     processing = processing.then(async () => {
       const parsed = parseSignedDriveInstruction(line);
       assert.ok(parsed && parsed.payload.to === instance, 'wake must address this exact identity');
@@ -98,6 +166,13 @@ process.stdin.on('data', bytes => {
       });
       assert.equal(verified.ok, true, 'simulated model must reject unsigned or replayed wakes');
       assert.ok(parsed.payload.instruction.includes('[h2a-wake reason=inbox '));
+      if (role === 'receiver') {
+        try {
+          const dir = join(process.env.XCLI_CELL, 'wake-lines');
+          fs.mkdirSync(dir, { recursive: true });
+          fs.appendFileSync(join(dir, 'receiver.log'), line + '\n');
+        } catch { /* cell-private instrumentation must never break the model path */ }
+      }
       const value = await tool('h2a_inbox', { action: 'read', instance });
       if (role === 'receiver') {
         const message = value.envelopes.find(e => e.body?.text === PROBE && e.target?.instance === instance);
