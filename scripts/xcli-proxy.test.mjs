@@ -39,6 +39,7 @@ for await(const line of createInterface({input:process.stdin})) {
 
 test('the transparent MCP witness records outcomes and exact envelope IDs without retaining bodies', async () => {
   const root = fs.mkdtempSync('/tmp/xcli-proxy-');
+  fs.writeFileSync(join(root, 'known-instances.jsonl'), 'claude:sender\ncodex:receiver\n');
   const server = join(root, 'server.mjs');
   const events = join(root, 'events.jsonl');
   const env = { ...environment(root), XCLI_CELL: root, XCLI_EVENTS: events, XCLI_BIN: server };
@@ -144,16 +145,19 @@ for await(const line of createInterface({input:process.stdin})) {
   try {
     child.stdin.end(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'h2a_send', arguments: { to: 'xcli-unknown-instance', message: 'hello' } } }) + '\n' +
       JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'h2a_inbox', arguments: { action: 'read', instance: 'x' } } }) + '\n' +
-      JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'h2a_inbox', arguments: { action: 'put', instance: 'x', envelope: {} } } }) + '\n');
+      JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'h2a_inbox', arguments: { action: 'put', instance: 'x', envelope: {} } } }) + '\n' +
+      JSON.stringify({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'h2a_inbox', arguments: { action: 'read', instance: 'codex:workspace:deadbeefcafe' } } }) + '\n');
     await closed;
     const raw = fs.readFileSync(events, 'utf8');
     assert.ok(!raw.includes('SECRET_TEXT'), 'refusals retain no error text');
+    assert.ok(!raw.includes('codex:workspace:deadbeefcafe'), 'L4 review: an instance-shaped canary before identity is never retained');
     const records = raw.trim().split('\n').map(line => rehydrateEventRecord(JSON.parse(line)));
     const refusals = records.filter(e => e.event === 'refusal');
     assert.deepEqual(refusals.map(e => ({ tool: e.tool, kind: e.kind, errorKind: e.errorKind })), [
       { tool: 'h2a_send', kind: 'other', errorKind: 'rpc-error' },
       { tool: 'h2a_inbox', kind: 'read', errorKind: 'result-error' },
       { tool: 'h2a_inbox', kind: 'put', errorKind: 'result-error' },
+      { tool: 'h2a_inbox', kind: 'read', errorKind: 'result-error' },
     ]);
     const puts = records.filter(e => e.event === 'inbox' && e.action === 'put');
     assert.equal(puts.length, 1, 'put is witnessed with its action');
@@ -168,6 +172,7 @@ for await(const line of createInterface({input:process.stdin})) {
 test('L4: both observe paths retain identical canonical records with a transcript field', async () => {
   const { canonicalEventRecord, REPLAY_TRANSCRIPT_BODY } = await import('./xcli-lab.mjs');
   const root = fs.mkdtempSync('/tmp/xcli-proxy-canonical-');
+  fs.writeFileSync(join(root, 'known-instances.jsonl'), 'codex:sender\ncodex:receiver\n');
   const server = join(root, 'server.mjs');
   const events = join(root, 'events.jsonl');
   const env = { ...environment(root), XCLI_CELL: root, XCLI_EVENTS: events, XCLI_BIN: server };
@@ -178,7 +183,7 @@ process.stderr.write('ready","event":"sample"}\\n');
 for await(const line of createInterface({input:process.stdin})) {
  const m=JSON.parse(line); let result;
  if(m.method==='initialize') result={protocolVersion:'2024-11-05',capabilities:{tools:{}},serverInfo:{name:'fixture',version:'1'}};
- else if(m.method==='tools/call') result={content:[{type:'text',text:JSON.stringify({envelopes:[{id:'env:fixture',from:'codex:sender',to:'codex:receiver',kind:'probe',body:{text:${JSON.stringify(PROBE)}}}]})}]};
+ else if(m.method==='tools/call') result={content:[{type:'text',text:JSON.stringify({envelopes:[{id:'env:fixture',actor:{instance:'codex:sender'},target:{instance:'codex:receiver'},body:{text:${JSON.stringify(PROBE)}}}]})}]};
  process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');
 }\n`);
   const { spawn: spawnChild } = await import('node:child_process');
