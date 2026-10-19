@@ -2,11 +2,20 @@
 import fs from 'node:fs';
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
-import { PROBE, REPLY, inside } from './xcli-lab.mjs';
+import { PROBE, REPLY, inside, canonicalEventRecord } from './xcli-lab.mjs';
 
 const root = process.env.XCLI_CELL;
 const evidence = inside(root, process.env.XCLI_EVENTS);
-const emit = event => fs.appendFileSync(evidence, JSON.stringify({ at: Date.now(), ...event }) + '\n', { mode: 0o600 });
+// Lot L4: single retention choke point. Every retained record shares the
+// canonical {at, event, transcript} envelope; the transcript is the JSON of
+// the evidence-shaped detail (secret-shaped keys stripped, 32768 chars max).
+// Readers rehydrate the flat fields from the transcript (see readEvents in
+// scripts/qualify-cross-cli.mjs), so on-disk evidence is canonical while
+// consumers keep their established field access.
+const emit = raw => {
+  const { event, ...detail } = raw;
+  fs.appendFileSync(evidence, JSON.stringify(canonicalEventRecord(Date.now(), event, detail)) + '\n', { mode: 0o600 });
+};
 const child = spawn(process.execPath, [process.env.XCLI_BIN, ...process.argv.slice(2)], {
   env: process.env, stdio: ['pipe', 'pipe', 'pipe'],
 });
