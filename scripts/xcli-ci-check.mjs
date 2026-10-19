@@ -24,6 +24,24 @@ export function verifySimulation(receipt, negative = false) {
     for (const key of ['senderMcp', 'receiverMcp', 'sent', 'delivered']) assert.equal(cell[key], true, key);
     for (const key of ['received', 'woke', 'replied', 'replyDelivered']) assert.equal(cell[key], !negative, key);
     assert.ok(Object.values(cell.credentialsCopied).every(files => files.length === 0), 'simulation must use no logins');
+    // Lot L3: every cell carries the withheld-wake protocol evidence and the
+    // bounded claim — never an absolute wake-consumption proof. Windows must
+    // fit inside the reported cell budget; the claim wording is exact.
+    const w = cell.wakeWindows;
+    assert.ok(w && Number.isSafeInteger(w.w0Ms) && Number.isSafeInteger(w.w1Ms) && Number.isSafeInteger(w.dMs) &&
+      Number.isSafeInteger(w.barrierAt) && Number.isSafeInteger(cell.budgetMs) &&
+      Number.isSafeInteger(w.notifyIntervalMs), 'wake windows, budget and tick interval witnessed');
+    assert.ok(cell.budgetMs - (w.barrierAt - Date.parse(cell.startedAt)) >= w.w0Ms + w.w1Ms + w.dMs,
+      'wake windows funded inside the cell budget, never silently shrunk');
+    if (cell.wakeFailure === 'wake-withheld-forever') {
+      assert.equal(cell.wakeClaim, 'no wake claimed (wake never released)');
+    } else if (cell.delivered) {
+      assert.equal(cell.wakeClaim,
+        `withheld-protocol, periods ≤ ${w.w1Ms}ms excluded, single replication (no batch separation); varying-phase polling not excluded`,
+        'bounded wake claim required');
+    } else {
+      assert.equal(cell.wakeClaim, 'no wake claimed (no durable delivery)');
+    }
   }
   return { cells: receipt.cells.length, outcome: negative ? 'negative-control-detected' : 'simulated-round-trips-proven' };
 }
