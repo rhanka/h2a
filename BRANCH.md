@@ -888,3 +888,19 @@ red/green receipts, qualification limits and cleanup evidence.
   do not claim it diagnosed or fixed without the next CI observation.
 - Receipt absence remains the expected refusal. Local targeted RED/GREEN,
   confinement limits and cleanup record: [round-4 evidence](docs/2026-10-19-fix379-r4.md).
+
+## PR #379 — CI correction round 5 (2026-10-19)
+
+- The general runtime gate no longer forces the qualification-only
+  `H2A_SESSION_HOST=native`: crash-log treated its value as a secret and
+  corrupted `native-name-collision`. Native remains the product default;
+  secret redaction, assertions and all confinement guards stay intact.
+- Regression RED on Node 22/24, then launcher tests 5/5 with real targeted
+  crash-log assertions 20/20 on both versions. Native isolation 5/5 and
+  targeted trust-root contract/discovery checks 5/5. Local real sudo dispatch
+  still requires interactive authentication; no namespace green claimed.
+- The historical Node 22 beforeAll cause is `unknown`: its published log,
+  annotations and receipt omit the diagnostic. The next CI run executes
+  all three upgrade cases successfully; no historical cause inferred.
+- Receipt absence remains the expected refusal. Commands, outputs and
+  review limitation: [round-5 evidence](docs/2026-10-19-fix379-r5.md).
