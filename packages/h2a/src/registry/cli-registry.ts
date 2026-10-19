@@ -21,9 +21,9 @@
  */
 import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { trackRegistryPackageManifest } from "@sentropic/track/registry/manifest";
-import { installBridgeEntry, previewInstall, uninstallBridgeEntry } from "./host-bootstrap.js";
+import { installBridgeEntry, previewInstall, uninstallBridgeEntry, verifyPluginInstall } from "./host-bootstrap.js";
 import { assertRegistryHost } from "./host-bootstrap.js";
-import { defaultBridgeLockPath, readBridgeLock } from "./bridge-lock.js";
+import { defaultBridgeLockPath, defaultPluginBridgeLockPath, readBridgeLock } from "./bridge-lock.js";
 import { validateRegistryEntry, type RegistryEntry } from "./descriptors.js";
 import { activateHostedLock, draftHostedLock, verifyHostedLock } from "./hosted.js";
 import { registryPackageManifest } from "./manifest.js";
@@ -102,6 +102,13 @@ export function cmdRegistry(argv: readonly string[], streams: CliStreams): numbe
     if (!config) return usageError(streams, "h2a registry bootstrap: --config <path> is required");
     const profile = flags["profile"] ?? "default";
     const lockPath = flags["lock"] ?? defaultBridgeLockPath(config);
+    const mechanism = flags["mechanism"] ?? "file";
+    if (mechanism !== "file" && mechanism !== "plugin") {
+      return usageError(streams, "h2a registry bootstrap: --mechanism must be file|plugin");
+    }
+    if (mechanism === "plugin" && action !== "install") {
+      return usageError(streams, "h2a registry bootstrap: --mechanism plugin is only supported for install");
+    }
     try {
       if (action === "preview") {
         const preview = previewInstall({ host, configPath: config, profile });
@@ -109,11 +116,22 @@ export function cmdRegistry(argv: readonly string[], streams: CliStreams): numbe
         return 0;
       }
       if (action === "install") {
+        const h2aEntry = (registryPackageManifest.entries as RegistryEntry[])[0] as RegistryEntry;
+        const trackEntry = (trackRegistryPackageManifest.entries as RegistryEntry[])[0] as RegistryEntry;
+        if (mechanism === "plugin") {
+          // Plugin-mechanism verification: the installed plugin declaration is
+          // verified, the per-host/profile default lock is provisioned and the
+          // receipt recorded. The plugin cache and the host config are read,
+          // never edited.
+          const pluginDir = flags["plugin-dir"];
+          if (!pluginDir) return usageError(streams, "h2a registry bootstrap: --plugin-dir <path> is required with --mechanism plugin");
+          const installed = verifyPluginInstall({ host, configPath: config, profile, pluginDir, h2aEntry, trackEntry });
+          streams.stdout.write(`${JSON.stringify({ ok: true, host, profile, config, lock: defaultPluginBridgeLockPath(host, profile), ...installed }, null, 2)}\n`);
+          return 0;
+        }
         // The whole config+receipt+lock sequence runs in the one install
         // transaction (host-bootstrap.ts); nothing is provisioned here after
         // the installer returns.
-        const h2aEntry = (registryPackageManifest.entries as RegistryEntry[])[0] as RegistryEntry;
-        const trackEntry = (trackRegistryPackageManifest.entries as RegistryEntry[])[0] as RegistryEntry;
         const installed = installBridgeEntry({ host, configPath: config, profile, lockPath, dryRun: flags["dry-run"] === "true", h2aEntry, trackEntry });
         streams.stdout.write(`${JSON.stringify({ ok: true, host, profile, config, lock: lockPath, ...installed }, null, 2)}\n`);
         return 0;
@@ -232,19 +250,37 @@ export async function cmdRegistryBridge(
   };
   const host = flags["host"];
   const profile = flags["profile"] ?? "default";
-  const lockPath = flags["lock"];
+  const explicitLock = flags["lock"];
   try {
     assertRegistryHost(host);
   } catch (error) {
     return refuse("unsupported_host", (error as Error).message);
   }
+  // An explicit --lock stays authoritative. Without one, the bridge resolves
+  // the per-host/profile default provisioned by `bootstrap install
+  // --mechanism plugin` (RQ-17); nothing is ever inferred into a server.
+  let lockPath = explicitLock;
+  let defaulted = false;
   if (!lockPath) {
-    return refuse("missing_lock", `no --lock for host=${host} profile=${profile}; run h2a registry bootstrap install --host ${host} --profile ${profile} --config <host-config>`);
+    try {
+      lockPath = defaultPluginBridgeLockPath(host, profile);
+      defaulted = true;
+    } catch (error) {
+      return refuse("missing_lock", (error as Error).message);
+    }
   }
   let lock;
   try {
     lock = readBridgeLock(lockPath);
   } catch (error) {
+    if (defaulted) {
+      return refuse(
+        "missing_lock",
+        `no lock at the plugin default ${lockPath} for host=${host} profile=${profile} ` +
+        `(${(error as Error).message}); run h2a registry bootstrap install --mechanism plugin ` +
+        `--host ${host} --profile ${profile} --config <host-config> --plugin-dir <plugin-dir>`
+      );
+    }
     return refuse((error as { code?: string }).code ?? "missing_lock", (error as Error).message);
   }
   if (lock.host !== host || lock.profile !== profile) {

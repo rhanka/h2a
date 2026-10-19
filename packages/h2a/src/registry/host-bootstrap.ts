@@ -19,10 +19,10 @@
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { dirname } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { replaceJsonEntry } from "../hosts/json-entry.js";
 import { RegistryError, type RegistryEntry } from "./descriptors.js";
-import { provisionBridgeLock } from "./bridge-lock.js";
+import { defaultPluginBridgeLockPath, provisionBridgeLock } from "./bridge-lock.js";
 import {
   isBridgeServer as isCodexBridgeServer,
   isH2aServerName as isCodexH2aServerName,
@@ -57,9 +57,20 @@ export function defaultMechanism(host: RegistryHost): RegistryMechanism {
   return "file";
 }
 
+/**
+ * Per-host identity-establishing context preserved from the legacy direct
+ * declarations (file and plugin mechanisms render the same args: one
+ * rendering path). Claude keeps wake/auto-open/auto-upgrade; Codex keeps
+ * wake/auto-open and never gains auto-upgrade (existing rmcp constraint).
+ */
+const BRIDGE_CONTEXT_FLAGS: Partial<Record<RegistryHost, string[]>> = {
+  claude: ["--wake", "auto", "--auto-open", "--auto-upgrade"],
+  codex: ["--wake", "auto", "--auto-open"]
+};
+
 export function bridgeArgs(host: RegistryHost, profile: string): string[] {
   if (!profile || /[\s]/.test(profile)) fail("profile must be a nonempty token without whitespace");
-  return ["registry-bridge", "serve", "--host", host, "--profile", profile];
+  return ["registry-bridge", "serve", "--host", host, "--profile", profile, ...(BRIDGE_CONTEXT_FLAGS[host] ?? [])];
 }
 
 export interface BridgeEndpoint {
@@ -397,10 +408,9 @@ function provisionTxLock(
 ): { commit: (() => void) | undefined; getAction: () => InstallLockAction } {
   if (!h2aEntry || !trackEntry) return { commit: undefined, getAction: () => "skipped-no-entries" as const };
   let action: InstallLockAction = "skipped-no-entries";
-  const bridge = {
-    command: "h2a",
-    args: ["registry-bridge", "serve", "--host", host, "--profile", profile, "--lock", lockPath]
-  };
+  // One rendering path: the lock records the exact args the host launches.
+  const rendered = renderBridgeEntry(host, { profile, lockPath });
+  const bridge = { command: "h2a", args: rendered.args };
   return {
     commit: () => {
       action = provisionBridgeLock({ lockPath, host, profile, bridge, h2aEntry, trackEntry }).action;
@@ -861,4 +871,179 @@ export function uninstallBridgeEntry(options: { host: string; configPath: string
     /* receipt may predate this installer */
   }
   return { action: "uninstalled", ...(backupPath ? { backupPath } : {}) };
+}
+
+export interface PluginInstallOptions {
+  host: string;
+  /** Receipt rendezvous + hash assertion target; read, never edited. */
+  configPath: string;
+  profile?: string;
+  /** Installed package root carrying the plugin manifest. */
+  pluginDir: string;
+  h2aEntry?: RegistryEntry;
+  trackEntry?: RegistryEntry;
+}
+
+export interface PluginDeclaration {
+  manifestPath: string;
+  assetPath: string;
+  pluginName: string;
+  pluginVersion: unknown;
+  entry: BridgeEndpoint;
+}
+
+function flagValue(args: string[], flag: string): string | null {
+  const at = args.indexOf(flag);
+  if (at === -1 || at + 1 >= args.length) return null;
+  return args[at + 1] as string;
+}
+
+/**
+ * Read and verify the installed plugin declaration for a host: the manifest
+ * must reference the generated host asset (never inline servers), the asset
+ * must declare exactly one server keyed `h2a` running the interim bridge
+ * (never `mcp-serve`), bound to the requested host/profile, under the stable
+ * plugin identity. A legacy plugin still declaring `mcp-serve` is refused.
+ */
+export function readPluginDeclaration(host: RegistryHost, pluginDir: string, profile: string): PluginDeclaration {
+  const candidates = [
+    join(pluginDir, "plugin.json"),
+    join(pluginDir, host === "claude" ? ".claude-plugin" : ".codex-plugin", "plugin.json")
+  ];
+  const manifestPath = candidates.find((candidate) => {
+    try {
+      return statSync(candidate).isFile();
+    } catch {
+      return false;
+    }
+  });
+  if (!manifestPath) {
+    throw new RegistryError("invalid_entry", `no plugin manifest for host=${host} under ${pluginDir}`);
+  }
+  let manifest: unknown;
+  try {
+    manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as unknown;
+  } catch {
+    throw new RegistryError("invalid_entry", `plugin manifest at ${manifestPath} is not JSON`);
+  }
+  if (!isPlainObject(manifest)) throw new RegistryError("invalid_entry", `plugin manifest at ${manifestPath} is not an object`);
+  if (manifest["name"] !== BRIDGE_SERVER_KEY) {
+    throw new RegistryError("invalid_entry", `plugin identity at ${manifestPath} is not ${BRIDGE_SERVER_KEY}; refusing to verify it`);
+  }
+  const reference = manifest["mcpServers"];
+  if (typeof reference !== "string" || !reference.startsWith(".")) {
+    const inline = isPlainObject(reference) ? (reference as Record<string, unknown>)["h2a"] : null;
+    const inlineArgs = isPlainObject(inline) ? (inline as Record<string, unknown>)["args"] : null;
+    if (Array.isArray(inlineArgs) && (inlineArgs as unknown[]).includes("mcp-serve")) {
+      throw new RegistryError("invalid_entry", `legacy plugin at ${manifestPath} still declares mcp-serve; migrate it through the generated asset first`);
+    }
+    throw new RegistryError("invalid_entry", `plugin manifest at ${manifestPath} must reference a generated asset (./<dir>/registry.mcp.json), never inline servers`);
+  }
+  const assetPath = join(pluginDir, reference);
+  if (!resolve(assetPath).startsWith(`${resolve(pluginDir)}${sep}`)) {
+    throw new RegistryError("invalid_entry", `plugin asset reference ${reference} escapes ${pluginDir}; refusing to follow it`);
+  }
+  let asset: unknown;
+  try {
+    asset = JSON.parse(readFileSync(assetPath, "utf8")) as unknown;
+  } catch {
+    throw new RegistryError("invalid_entry", `plugin asset at ${assetPath} is not JSON`);
+  }
+  const servers = isPlainObject(asset) ? (asset as Record<string, unknown>)["mcpServers"] : null;
+  if (!isPlainObject(servers) || Object.keys(servers).length !== 1 || !isPlainObject(servers["h2a"])) {
+    throw new RegistryError("invalid_entry", `plugin asset at ${assetPath} must declare exactly one server keyed h2a`);
+  }
+  const endpoint = servers["h2a"] as Record<string, unknown>;
+  const args = endpoint["args"];
+  if (typeof endpoint["command"] !== "string" || !H2A_COMMAND.test(endpoint["command"] as string) || !Array.isArray(args)) {
+    throw new RegistryError("invalid_entry", `plugin asset at ${assetPath} declares no h2a bridge endpoint`);
+  }
+  const stringArgs = (args as unknown[]).filter((arg): arg is string => typeof arg === "string");
+  if (stringArgs.includes("mcp-serve")) {
+    throw new RegistryError("invalid_entry", `legacy plugin asset at ${assetPath} still declares mcp-serve; regenerate it first`);
+  }
+  if (!stringArgs.includes("registry-bridge")) {
+    throw new RegistryError("invalid_entry", `plugin asset at ${assetPath} does not declare the registry bridge`);
+  }
+  if (flagValue(stringArgs, "--host") !== host || flagValue(stringArgs, "--profile") !== profile) {
+    throw new RegistryError(
+      "invalid_entry",
+      `plugin asset at ${assetPath} is not bound to host=${host} profile=${profile}; refusing to verify it`
+    );
+  }
+  return {
+    manifestPath,
+    assetPath,
+    pluginName: manifest["name"] as string,
+    pluginVersion: manifest["version"] ?? null,
+    entry: { command: endpoint["command"] as string, args: stringArgs }
+  };
+}
+
+/**
+ * Plugin-mechanism install: verify the installed plugin declaration, then
+ * provision the per-host/profile default lock and record the receipt
+ * (mechanism, plugin identity, lock location). Verification edits neither
+ * the plugin cache nor the host config: only the receipt (next to the host
+ * config) and the default lock are written. A file-mechanism receipt for the
+ * same host/profile refuses as a duplicate mechanism, and conversely.
+ */
+export function verifyPluginInstall(options: PluginInstallOptions): InstallResult {
+  assertRegistryHost(options.host);
+  if (options.host !== "claude" && options.host !== "codex") {
+    throw new RegistryError("unsupported_host", `no qualified plugin adapter for host=${options.host}; plugin mechanism exists for claude and codex`);
+  }
+  const profile = options.profile ?? "default";
+  if (!options.pluginDir) {
+    throw new RegistryError("invalid_entry", "plugin verification needs --plugin-dir <installed package root>");
+  }
+  const declaration = readPluginDeclaration(options.host, options.pluginDir, profile);
+  const receiptPath = receiptPathFor(options.configPath);
+  const existing = readInstallReceipt(options.configPath);
+  if (
+    existing &&
+    existing["host"] === options.host &&
+    (existing["profile"] ?? "default") === profile &&
+    (existing["mechanism"] ?? "file") !== "plugin"
+  ) {
+    throw new RegistryError(
+      "invalid_entry",
+      `conflicting mechanism ${JSON.stringify(existing["mechanism"] ?? "file")} recorded for host=${options.host} profile=${profile} ` +
+      `at ${receiptPath}; plugin install refused (duplicate mechanism)`
+    );
+  }
+  if (!options.h2aEntry || !options.trackEntry) {
+    throw new RegistryError("invalid_entry", "plugin verification needs the packed entries to provision the default lock");
+  }
+  const lockPath = defaultPluginBridgeLockPath(options.host, profile);
+  const record = {
+    host: options.host,
+    profile,
+    mechanism: "plugin",
+    plugin: { name: declaration.pluginName, version: declaration.pluginVersion, manifest: declaration.manifestPath },
+    bridge: declaration.entry,
+    lockPath,
+    action: "installed"
+  };
+  if (existing && deepEqualJson(existing, { format: "h2a.registry-install/v1", ...record })) {
+    const lockAction = provisionBridgeLock({
+      lockPath,
+      host: options.host,
+      profile,
+      bridge: { command: "h2a", args: declaration.entry.args },
+      h2aEntry: options.h2aEntry,
+      trackEntry: options.trackEntry
+    }).action;
+    return { action: "reinstall-identical", receiptPath, lockAction };
+  }
+  const lockAction = provisionBridgeLock({
+    lockPath,
+    host: options.host,
+    profile,
+    bridge: { command: "h2a", args: declaration.entry.args },
+    h2aEntry: options.h2aEntry,
+    trackEntry: options.trackEntry
+  }).action;
+  writeReceiptRecord(receiptPath, record);
+  return { action: "installed", receiptPath, lockAction };
 }

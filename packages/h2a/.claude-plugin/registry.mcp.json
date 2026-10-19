@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "h2a": {
+      "command": "h2a",
+      "args": [
+        "registry-bridge",
+        "serve",
+        "--host",
+        "claude",
+        "--profile",
+        "default",
+        "--wake",
+        "auto",
+        "--auto-open",
+        "--auto-upgrade"
+      ]
+    }
+  }
+}
