@@ -165,10 +165,11 @@ function cleanShippedLayoutHome() {
     ].join("\n")
   );
   copyShippedFile(".codex-plugin/plugin.json", join(codexPluginPath, ".codex-plugin", "plugin.json"));
-  copyShippedFile(".mcp.json", join(codexPluginPath, ".mcp.json"));
+  copyShippedFile(".codex-plugin/registry.mcp.json", join(codexPluginPath, ".codex-plugin", "registry.mcp.json"));
   currentMarketplace(join(home, ".codex", ".tmp", "marketplaces", "sentropic"));
 
   copyShippedFile(".claude-plugin/plugin.json", join(claudePluginPath, ".claude-plugin", "plugin.json"));
+  copyShippedFile(".claude-plugin/registry.mcp.json", join(claudePluginPath, ".claude-plugin", "registry.mcp.json"));
   writeJson(join(home, ".claude", "plugins", "known_marketplaces.json"), {
     sentropic: {
       source: { source: "github", repo: "rhanka/h2a" },
@@ -2310,6 +2311,7 @@ test("doctor revalidates a legacy Codex marketplace immediately before atomic re
 function installCanonicalClaudeRoot(root, version) {
   const pluginPath = join(root, "plugins", "cache", "sentropic", "h2a", version);
   copyShippedFile(".claude-plugin/plugin.json", join(pluginPath, ".claude-plugin", "plugin.json"));
+  copyShippedFile(".claude-plugin/registry.mcp.json", join(pluginPath, ".claude-plugin", "registry.mcp.json"));
   currentMarketplace(join(root, "plugins", "marketplaces", "sentropic"));
   writeJson(join(root, "plugins", "known_marketplaces.json"), {
     sentropic: {
@@ -2395,7 +2397,7 @@ test("doctor diagnoses and repairs the configured CODEX_HOME rather than its HOM
   try {
     const configuredCache = join(configuredCodex, "plugins", "cache", "sentropic", "h2a", version);
     copyShippedFile(".codex-plugin/plugin.json", join(configuredCache, ".codex-plugin", "plugin.json"));
-    copyShippedFile(".mcp.json", join(configuredCache, ".mcp.json"));
+    copyShippedFile(".codex-plugin/registry.mcp.json", join(configuredCache, ".codex-plugin", "registry.mcp.json"));
     currentMarketplace(join(configuredCodex, ".tmp", "marketplaces", "sentropic"));
     writeFileSync(
       configuredConfig,

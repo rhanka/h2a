@@ -16,7 +16,7 @@
   ],
   "skills": "./skills/",
   "hooks": "./hooks/hooks.json",
-  "mcpServers": "./.mcp.json",
+  "mcpServers": "./.codex-plugin/registry.mcp.json",
   "interface": {
     "displayName": "h2a",
     "shortDescription": "Coordinate CLI agents and tracked work.",
