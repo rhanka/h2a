@@ -267,13 +267,72 @@ export function privateExecutable(cli, executable, root) {
   return { path: join(dest, 'muse'), version, hashes };
 }
 
+// Lot L6 (§8.3): entrypoint guard aimed at our launch chain. Reads file
+// text only, never executes. Recognises versioned interpreters (python,
+// python3, python3.14, micro versions), env forms including -S, absolute
+// interpreter paths, and one-level shell wrappers that exec a Python
+// interpreter (closed patterns over the launcher text).
 export function pythonEntrypoint(path) {
-  const fd = fs.openSync(path, 'r');
+  let text = '';
   try {
-    const buf = Buffer.alloc(256);
-    fs.readSync(fd, buf, 0, buf.length, 0);
-    return /^#![^\n]*\bpython\d*(?:\s|$)/i.test(buf.toString());
-  } finally { fs.closeSync(fd); }
+    const fd = fs.openSync(path, 'r');
+    try {
+      const buf = Buffer.alloc(4096);
+      text = buf.subarray(0, fs.readSync(fd, buf, 0, buf.length, 0)).toString('utf8');
+    } finally { fs.closeSync(fd); }
+  } catch { return false; }
+  if (isPythonInterpreterPath(shebangInterpreter(text))) return true;
+  return isPythonWrapper(text);
+}
+export function isPythonInterpreterPath(path) {
+  if (typeof path !== 'string' || !path) return false;
+  return /^python(\d+(\.\d+){0,2})?$/.test(path.split('/').pop());
+}
+function shebangInterpreter(text) {
+  const first = text.split('\n', 1)[0] ?? '';
+  if (!first.startsWith('#!')) return '';
+  const tokens = first.slice(2).trim().split(/\s+/).filter(Boolean);
+  if (!tokens.length) return '';
+  let rest = tokens;
+  if (rest[0] === '/usr/bin/env' || rest[0] === 'env') {
+    rest = rest.slice(1).filter(token => !token.startsWith('-') || /^-\d/.test(token));
+  }
+  return rest[0] ?? '';
+}
+function isPythonWrapper(text) {
+  const lines = text.split('\n');
+  if (!/^#!\s*\/bin\/(ba)?sh\b/.test(lines[0] ?? '') && !/^#!\s*\/usr\/bin\/env\s+(ba)?sh\b/.test(lines[0] ?? '')) return false;
+  return lines.slice(1).some(line =>
+    /(^|[;&|]\s*|\bexec\s+)(python(\d+(\.\d+){0,2})?|\/[\w./~+-]*python(\d+(\.\d+){0,2})?|(\/[\w./~+-]*env\s+)?(-S\s+)?python(\d+(\.\d+){0,2})?)\b/.test(line));
+}
+// Lot L6 (§8.3) execution journal: spawn-time (event-grade) records of our
+// launch chain, from cell start to cell end. Each record carries the resolved
+// executable path, so even ~1 ms descendants are recorded synchronously at
+// spawn — a cleanup snapshot could never catch them. Vendor-subtree
+// processes never record here; they fall under the vendor-runtime allowance
+// (§8.2) by construction, and the verdict states that scope.
+export function recordExec(journalPath, entry) {
+  assert.ok(entry && Number.isSafeInteger(entry.pid) && typeof entry.path === 'string' && entry.path.length > 0, 'exec record needs a pid and a path');
+  assert.ok(entry.tag === 'harness' || entry.tag === 'vendor', 'exec record needs a chain tag');
+  let resolved = entry.path;
+  try { resolved = fs.realpathSync(entry.path); } catch { /* record the given path */ }
+  fs.mkdirSync(dirname(journalPath), { recursive: true, mode: 0o700 });
+  fs.appendFileSync(journalPath, JSON.stringify({ at: Date.now(), pid: entry.pid, path: resolved, tag: entry.tag }) + '\n', { mode: 0o600 });
+}
+export function readExecJournal(journalPath) {
+  try {
+    return fs.readFileSync(journalPath, 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line));
+  } catch (error) { if (error.code === 'ENOENT') return []; throw error; }
+}
+export function classifyExecJournal(records) {
+  const pythonDescendants = [];
+  for (const record of Array.isArray(records) ? records : []) {
+    if (record?.tag !== 'harness') continue;
+    if (isPythonInterpreterPath(record.path)) { pythonDescendants.push(record.path); continue; }
+    try { if (pythonEntrypoint(record.path)) pythonDescendants.push(record.path); } catch { /* gone temp path: basename check above stands */ }
+  }
+  return { observed: Array.isArray(records) ? records.length : 0,
+    pythonDescendants, scope: 'spawn-event-our-chain; vendor-subtree-allowance' };
 }
 
 export function classify(row) {
