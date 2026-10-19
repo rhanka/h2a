@@ -147,6 +147,25 @@ it('should refuse a plain paragraph value spanning several blocks', () => {
   expect(() => E.diffParagraphs(base, draft, 'tx')).not.toThrow();
   expect(() => E.applyParagraphChanges(doc, manifest, [E.diffParagraphs(base, draft, 'tx')])).toThrow('unsupported-paragraph-format');
 });
+it('should refuse an internal fragment carried as a paragraph (ABC -> [1,2))', () => {
+  const doc = document() as any;
+  doc.sections[1].context = 'ABC';
+  const manifest = E.seedManifest(doc);
+  const mapping = structuredClone(manifest.paragraphs).map((p: any) => p.field === 'context'
+    ? { ...p, range: { ...p.range, start: 1, end: 2 } } : p);
+  expect(() => E.carryManifest(doc, manifest, mapping)).toThrow(/unsupported-range/);
+});
+it('should refuse a recomputed manifest over an internal fragment (ABCDE -> [1,4])', () => {
+  const doc = document() as any;
+  doc.sections[1].context = 'ABCDE';
+  const manifest = E.seedManifest(doc);
+  const paragraphs = structuredClone(manifest.paragraphs).map((p: any) => p.field === 'context'
+    ? { ...p, range: { ...p.range, start: 1, end: 4 } } : p);
+  const recalculated = E.sealManifest({ schemaVersion: 1, manifestId: manifest.manifestId, documentRef: doc.ref,
+    baseHash: manifest.baseHash, fields: structuredClone(manifest.fields), paragraphs, retiredParagraphIds: [] });
+  expect(E.validateManifest(recalculated, doc).ok).toBe(false);
+  expect(() => E.readParagraphs(doc, recalculated)).toThrow(/unsupported-range/);
+});
 it('should preserve explicit identities across an agent revision with an insertion before the second paragraph', () => {
   const { doc, manifest } = setup(), old = units(doc, manifest), next = structuredClone(doc) as any;
   next.sections[0].markdown = 'Nouveau\n\n' + next.sections[0].markdown;
