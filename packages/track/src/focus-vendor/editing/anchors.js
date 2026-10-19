@@ -1,6 +1,6 @@
 import { baseDigest, canonicalJson, manifestDigest } from './digest.js';
 import { manifestSchema, matchesSchema } from './structure.js';
-import { segmentMarkdown, segmentText } from './codec.js';
+import { isRepresentablePlainText, segmentMarkdown, segmentText } from './codec.js';
 export const fieldKey = (a) => canonicalJson([a.nodeId, a.targetRef, a.field]);
 /** An emptied narrative field keeps one empty unit: `""` is content (D14), so an
  * empty source still carries its paragraph identity instead of zero units. */
@@ -61,7 +61,12 @@ export function validateManifest(value, doc) {
                 // blank gap), never strictly inside one.
                 const emptyGapUnit = f.contentFormat === 'text/plain' && p.range.start === p.range.end &&
                     !segments.some(s => s.start < p.range.start && p.range.start < s.end);
-                if (!segments.some(s => s.editable && s.start === p.range.start && s.end === p.range.end) && !emptyGapUnit && !(p.range.start === p.range.end && f.contentFormat !== 'text/plain'))
+                // Case 3: a text/plain paragraph may keep at most one soft break at
+                // each edge ("A\n", "\nB"). Its range then extends one break beyond
+                // its block; the sliced text still round-trips via stored ranges.
+                const edgeBreakUnit = f.contentFormat === 'text/plain' && p.range.start < p.range.end &&
+                    isRepresentablePlainText(source.slice(p.range.start, p.range.end));
+                if (!segments.some(s => s.editable && s.start === p.range.start && s.end === p.range.end) && !emptyGapUnit && !edgeBreakUnit && !(p.range.start === p.range.end && f.contentFormat !== 'text/plain'))
                     issues.push('unsupported-range');
                 end = p.range.end;
             });
