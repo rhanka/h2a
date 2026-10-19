@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "fixtureRootHex": "1111111111111111111111111111111111111111111111111111111111111111",
+  "context": {
+    "service": "h2a-mcp-central",
+    "namespaceId": "ns-a",
+    "generation": "g-a"
+  },
+  "payload": {
+    "sequence": 1,
+    "bodyDigest": "sha256:ecf59a2696ca44a417e20e2a7eabb1b26e82c779f8546bea354a2cc80e8e1eed"
+  },
+  "canonicalPayload": "{\"bodyDigest\":\"sha256:ecf59a2696ca44a417e20e2a7eabb1b26e82c779f8546bea354a2cc80e8e1eed\",\"sequence\":1}",
+  "vectors": [
+    {
+      "domain": "readiness",
+      "info": "{\"domain\":\"readiness\",\"generation\":\"g-a\",\"namespaceId\":\"ns-a\",\"service\":\"h2a-mcp-central\"}",
+      "keyHex": "0928bf86e8f79dd51bbadfac1dbe3f9fea15176d3c2dda54f61fd830d5e22f9b",
+      "mac": "10e0fa015f64584529c039348f2de1d20df712cc3b3067296a77a2b8f98fc907"
+    },
+    {
+      "domain": "requests",
+      "info": "{\"domain\":\"requests\",\"generation\":\"g-a\",\"namespaceId\":\"ns-a\",\"service\":\"h2a-mcp-central\"}",
+      "keyHex": "b2b970a8cfb9ddd7aa014af518a1dcf3dda4ee4c6eb1bdd95778186109dad319",
+      "mac": "80305c0d0459442a23f76a0fada3ac5b577757efff7651a78906a7044f0b99b1"
+    },
+    {
+      "domain": "responses",
+      "info": "{\"domain\":\"responses\",\"generation\":\"g-a\",\"namespaceId\":\"ns-a\",\"service\":\"h2a-mcp-central\"}",
+      "keyHex": "9ee43d4528c42b120156525c1f989fa56ea218efbebbcd927c824637ca712661",
+      "mac": "e7c1d6ef4271394d58d1392322c937c27921410fe9bccacf8eb5db1740f571a7"
+    },
+    {
+      "domain": "notifications",
+      "info": "{\"domain\":\"notifications\",\"generation\":\"g-a\",\"namespaceId\":\"ns-a\",\"service\":\"h2a-mcp-central\"}",
+      "keyHex": "d7bbcbd01f7567218b54c7f7c098d7d0d6e21b630d3de7b988e83fce0a541722",
+      "mac": "b0b3a0a1ed17fcfbbf2cd4750a6cbcf7fc731477c022f15d0d22c494685a7f65"
+    },
+    {
+      "domain": "admission",
+      "info": "{\"domain\":\"admission\",\"generation\":\"g-a\",\"namespaceId\":\"ns-a\",\"service\":\"h2a-mcp-central\"}",
+      "keyHex": "a6c406bb2e7e4bac4f51a257c2bd7c4832203595daacb7cb5a2f10322e1b650b",
+      "mac": "3a2d5c235501f5408892638f08aae810012f63a10d10be125a43049544862be6"
+    },
+    {
+      "domain": "compatibility",
+      "info": "{\"domain\":\"compatibility\",\"generation\":\"g-a\",\"namespaceId\":\"ns-a\",\"service\":\"h2a-mcp-central\"}",
+      "keyHex": "76e01f2c8e70fd1b91a762114a186422f51691f666268c88617e849ece299319",
+      "mac": "c1e02b5d6186736232190a03a8e1d57089c614d7cd342bfed28cd50c7213236e"
+    }
+  ],
+  "negativeMutations": [
+    "domain",
+    "namespaceId",
+    "generation",
+    "sequence",
+    "MAC length",
+    "MAC alphabet",
+    "short root",
+    "unknown schema"
+  ]
+}

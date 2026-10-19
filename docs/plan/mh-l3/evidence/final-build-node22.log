@@ -1,0 +1,17 @@
+command: npm run build
+node: v22.22.1
+
+> h2a@0.98.5 build
+> npm run build -w @sentropic/track && npm exec -w @sentropic/h2a-runtime --call "node ../../scripts/clean-workspace-dist.mjs" && tsc -b --force && node scripts/generate-mcp-descriptor.mjs --check
+
+
+> @sentropic/track@0.98.5 build
+> node ../../scripts/clean-workspace-dist.mjs && tsc -p tsconfig.build.json
+
+npm warn Unknown builtin config "globalignorefile". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown builtin config "globalignorefile". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown env config "globalignorefile". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown builtin config "globalignorefile". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown env config "globalignorefile". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+exit: 0

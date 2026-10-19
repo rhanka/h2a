@@ -1,0 +1,47 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test --test-reporter=tap packages/h2a/test/mh-l3-central.test.js
+node: v24.21.0
+private root: /tmp/mh-l3-test-4uteSc
+case: all cases in explicit file
+TAP version 13
+# {"event":"drive-consent.full-verification","durationMs":0.004358000000024731,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: real central should keep one activation past its lease and resume with fencing and idempotent attempts
+# {"event":"drive-consent.full-verification","durationMs":0.008777000000009139,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+ok 1 - real central should keep one activation past its lease and resume with fencing and idempotent attempts
+  ---
+  duration_ms: 281.062528
+  type: 'test'
+  ...
+# Subtest: real central should resume an initialize reply lost after admission without creating another activation
+# {"event":"drive-consent.full-verification","durationMs":0.00440800000001218,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+ok 2 - real central should resume an initialize reply lost after admission without creating another activation
+  ---
+  duration_ms: 106.317229
+  type: 'test'
+  ...
+# Subtest: signed SSE should authenticate readiness promptly and release only its notification stream on disconnect
+# {"event":"drive-consent.full-verification","durationMs":0.002704999999991742,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+ok 3 - signed SSE should authenticate readiness promptly and release only its notification stream on disconnect
+  ---
+  duration_ms: 67.303264
+  type: 'test'
+  ...
+# h2a mcp-serve: identity migration: claude:mh-l3-identity-ack-ictn9v:10846da54895 reads legacy claude:mh-l3-identity-ack-IctN9v; no proof of possession of a legacy key — mint net-new keys
+# h2a mcp-serve: auto-opened session for claude:mh-l3-identity-ack-ictn9v:10846da54895
+# h2a mcp-serve: identity ready: claude:mh-l3-identity-ack-ictn9v:10846da54895 (signing available)
+# Subtest: resume should discover an unknown expected identity without weakening the instance guard or creating another binding
+ok 4 - resume should discover an unknown expected identity without weakening the instance guard or creating another binding
+  ---
+  duration_ms: 341.507443
+  type: 'test'
+  ...
+1..4
+# tests 4
+# suites 0
+# pass 4
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1027.057521
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l3-central.test.js"],"code":0,"signal":null,"tests":4,"invalid":false,"spawned":2,"leftovers":[]}

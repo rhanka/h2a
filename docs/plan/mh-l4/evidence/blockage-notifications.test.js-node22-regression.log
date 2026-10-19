@@ -1,0 +1,29 @@
+command: /usr/bin/node --test packages/h2a/test/blockage-notifications.test.js
+node: v22.22.1
+private test root: /tmp/mh-l4-test-3bo7Lo
+TAP version 13
+# {"event":"drive-consent.full-verification","durationMs":0.043652000000008684,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.01541900000000851,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: dispatcher pushes peer.blocked / peer.unblocked to a subscribed peer in scope
+ok 1 - dispatcher pushes peer.blocked / peer.unblocked to a subscribed peer in scope
+  ---
+  duration_ms: 13.778406
+  type: 'test'
+  ...
+# Subtest: dispatcher does not notify an instance of its own blockage, nor out-of-scope peers
+ok 2 - dispatcher does not notify an instance of its own blockage, nor out-of-scope peers
+  ---
+  duration_ms: 2.156299
+  type: 'test'
+  ...
+1..2
+# tests 2
+# suites 0
+# pass 2
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 306.695524
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/blockage-notifications.test.js"],"code":0,"signal":null,"elapsedMs":386}

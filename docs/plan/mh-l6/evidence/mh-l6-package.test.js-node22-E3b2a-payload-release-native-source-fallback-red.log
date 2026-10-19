@@ -1,0 +1,38 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-package.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-fggR1F
+case: U10 should build the actual closed dependency graph from pinned prebuilds before invoking npm
+TAP version 13
+# Subtest: U10 should build the actual closed dependency graph from pinned prebuilds before invoking npm
+not ok 1 - U10 should build the actual closed dependency graph from pinned prebuilds before invoking npm
+  ---
+  duration_ms: 508.127823
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-package.test.js:14:96'
+  failureType: 'testCodeFailure'
+  error: |-
+    release packaging must not execute a local compiler
+    
+    true !== false
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: false
+  actual: true
+  operator: 'strictEqual'
+  stack: |-
+    packageScenario (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-package.test.js:48:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 684.574824
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-package.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

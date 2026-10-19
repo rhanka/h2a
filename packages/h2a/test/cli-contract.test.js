@@ -22,12 +22,14 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { get } from "node:http";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { PassThrough } from "node:stream";
 import test from "node:test";
+import { H2A_CLI_MCP_TOOL_DESCRIPTORS } from "../dist/runtime/mcp/tools.js";
 
 import {
   H2A_CLI_VERB_CONTRACTS,
+  H2A_CLI_MCP_TOOL_NAMES,
   cmdUpgrade,
   createEnvelope,
   createLocalStore,
@@ -333,6 +335,9 @@ function ensureDrivePair(root) {
 function buildHappyArgv(verb, ctx) {
   const { root, privateKeyPath, publicKeyPath } = ctx;
   switch (verb) {
+    case "central status":
+    case "central stop":
+      return [...verb.split(" "), "--runtime-base", dirname(root)];
     case "--help":
       return ["--help"];
     case "explain":
@@ -1061,6 +1066,13 @@ function buildHappyArgv(verb, ctx) {
       // its usage (text) and exits 0 (help is not an error); deeper parity vs
       // the standalone `harness` bin is covered by harness-facade.test.js.
       return ["harness", "--help"];
+    case "registry catalog":
+      return ["registry", "catalog"];
+    case "registry bootstrap":
+      // Preview writes nothing, needs no lock, exits 0 with an action envelope.
+      return ["registry", "bootstrap", "preview", "--host", "claude", "--config", join(root, "mcp.json")];
+    case "hosted-lock":
+      return ["hosted-lock", "draft", "--lock", join(root, "hosted.lock.json")];
     default:
       throw new Error(`No happy-path argv for verb "${verb}"`);
   }
@@ -1250,6 +1262,74 @@ async function happyTrackMcp() {
   } finally {
     // Guaranteed termination of ONLY the child this test spawned.
     if (child && child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// Exercise the real bridge dispatch and its complete stdio wire surface. This
+// contract case does not qualify the separately tracked central-route policy.
+async function happyRegistryBridgeServe() {
+  const { dir, root } = freshRoot("h2a-contract-registry-");
+  const config = join(dir, "host.json"), lock = join(dir, "host.lock.json");
+  const bootstrap = captureStreams(dir);
+  let child, closed;
+  try {
+    assert.equal(await runCli(["registry", "bootstrap", "install", "--host", "claude",
+      "--config", config, "--lock", lock], bootstrap, {}), 0, bootstrap.stderrText);
+    const configBefore = readFileSync(config), lockBefore = readFileSync(lock);
+    const env = { ...process.env, H2A_ROOT: root, H2A_MCP_CENTRAL: "0", CLAUDE_CODE_SESSION_ID: "" };
+    for (const key of ["HOME", "XDG_RUNTIME_DIR", "XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_DATA_HOME",
+      "XDG_CACHE_HOME", "REMOTE_CLI_CONFIG_HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "TMPDIR"]) {
+      env[key] = join(dir, key.toLowerCase()); mkdirSync(env[key], { mode: 0o700 });
+    }
+    child = spawn(process.execPath, [BIN_PATH, "registry-bridge", "serve", "--host", "claude",
+      "--profile", "default", "--lock", lock, "--root", root], {
+      cwd: dir, env, stdio: ["pipe", "pipe", "pipe"]
+    });
+    closed = new Promise((done, reject) => {
+      child.once("error", reject);
+      child.once("close", (code, signal) => done({ code, signal }));
+    });
+    closed.catch(() => {});
+    let out = "", errors = "";
+    child.stdout.on("data", chunk => { out += chunk; });
+    child.stderr.on("data", chunk => { errors += chunk; });
+    child.stdin.write(jsonRpcInitialize(1));
+    const initialized = await firstEnvelopeLine(() => out, "registry-bridge serve");
+    assert.equal(initialized.jsonrpc, "2.0");
+    assert.equal(initialized.error, undefined, errors + JSON.stringify(initialized));
+    assert.equal(initialized.id, 1);
+    assert.equal(typeof initialized.result?.protocolVersion, "string");
+    assert.equal(initialized.result?.serverInfo?.name, "@sentropic/h2a");
+    child.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
+    child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }) + "\n");
+    const frames = () => out.split("\n").filter(line => line.trim()).map(line => JSON.parse(line));
+    await waitFor(() => frames().some(row => row.id === 2), 20_000, "registry-bridge tools/list");
+    const listed = frames().find(row => row.id === 2);
+    assert.equal(listed.error, undefined, errors);
+    const names = listed.result.tools.map(tool => tool.name);
+    assert.deepEqual(names, H2A_CLI_MCP_TOOL_DESCRIPTORS.map(tool => tool.name), "bridge preserves the exact served order");
+    assert.deepEqual([...names].sort(), [...H2A_CLI_MCP_TOOL_NAMES].sort());
+    assert.equal(new Set(names).size, names.length, "bridge must not duplicate a tool");
+    child.stdin.end();
+    assert.deepEqual(await settleBounded(closed, "registry-bridge EOF", 20_000), { code: 0, signal: null }, errors);
+    assert.deepEqual(readFileSync(config), configBefore, "serve must not rewrite host configuration");
+    assert.deepEqual(readFileSync(lock), lockBefore, "serve must not rewrite its deployment lock");
+    console.log(`registry-bridge contract: initialize and ${names.length} tools verified; EOF exit0; config/lock unchanged`);
+  } finally {
+    if (child && child.exitCode === null && child.signalCode === null) {
+      child.kill("SIGTERM");
+      let timer;
+      try {
+        const stopped = await Promise.race([closed.then(() => true, () => true), new Promise(done => {
+          timer = setTimeout(() => done(false), 1000);
+        })]);
+        if (!stopped) {
+          child.kill("SIGKILL");
+          await settleBounded(closed, "registry-bridge forced cleanup", 3000);
+        }
+      } finally { clearTimeout(timer); }
+    } else if (closed) await closed.catch(() => {});
     rmSync(dir, { recursive: true, force: true });
   }
 }
@@ -1479,6 +1559,7 @@ const ASYNC_HAPPY_PATHS = new Map([
   ["loop watch", happyLoopWatch],
   ["mcp-serve", happyMcpServe],
   ["track-mcp", happyTrackMcp],
+  ["registry-bridge serve", happyRegistryBridgeServe],
   ["canevas serve", happyCanevasServe],
   ["focus serve", () => happyFocusServe("serve")],
   ["focus web", () => happyFocusServe("web")],
@@ -1538,6 +1619,8 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
   const declared = H2A_CLI_VERB_CONTRACTS.map((c) => c.verb);
   // Hand-rolled list of verbs we know `runCli` will dispatch.
   const expected = [
+    "central status",
+    "central stop",
     "--help",
     // 2026-07-25: public-contract addition. This branch was written against a
     // 97-verb main; PR #30 landed `keys prove-control` first, then `explain`,
@@ -1644,7 +1727,11 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
     "conductor claim",
     "conductor release",
     "conductor-launch-check",
-    "conductor-launch"
+    "conductor-launch",
+    "registry catalog",
+    "registry bootstrap",
+    "registry-bridge serve",
+    "hosted-lock"
   ];
   assert.deepEqual([...declared].sort(), [...expected].sort());
   for (const c of H2A_CLI_VERB_CONTRACTS) {
@@ -1663,7 +1750,7 @@ for (const contract of H2A_CLI_VERB_CONTRACTS) {
     });
     continue;
   }
-  test(`${contract.verb} emits a ${contract.outputShape} envelope on the happy path`, (t) => {
+  test(`${contract.verb} emits a ${contract.outputShape} envelope on the happy path`, async (t) => {
     if (contract.outputShape === "stream") {
       t.skip(`${contract.verb}: stream shape without a registered streaming harness (ASYNC_HAPPY_PATHS)`);
       return;
@@ -1702,7 +1789,7 @@ for (const contract of H2A_CLI_VERB_CONTRACTS) {
       if (contract.verb === "upgrade") {
         rc = cmdUpgrade({}, streams, injectedUpgradeRuntime(dir));
       } else {
-        rc = runCli(
+        rc = await runCli(
           argv,
           streams,
           contract.verb === "host setup"

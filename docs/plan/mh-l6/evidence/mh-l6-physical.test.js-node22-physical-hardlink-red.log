@@ -1,0 +1,33 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-physical.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-Q4NwsQ
+case: U07 should reject hardlinked npm code before adoption
+TAP version 13
+# Subtest: U07 should reject hardlinked npm code before adoption
+not ok 1 - U07 should reject hardlinked npm code before adoption
+  ---
+  duration_ms: 14.364178
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-physical.test.js:9:67'
+  failureType: 'testCodeFailure'
+  error: 'Missing expected exception.'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  operator: 'throws'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-physical.test.js:79:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 112.170117
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-physical.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

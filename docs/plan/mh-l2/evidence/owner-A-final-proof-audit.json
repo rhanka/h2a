@@ -1,0 +1,3396 @@
+{
+  "qualificationOverall": "NOT_GREEN: unresolved attachment failures; initial cold restoration failures retained",
+  "expectedProofs": 154,
+  "verifiedProofs": 154,
+  "invalid": [],
+  "proofs": [
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "acceptance",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-acceptance-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-acceptance-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "acquired-writer-authority",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-acquired-writer-authority-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-acquired-writer-authority-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "acquired-writer-gate",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-acquired-writer-gate-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-acquired-writer-gate-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "checkpoint-before-publication",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-checkpoint-before-publication-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-checkpoint-before-publication-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "close-order",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-close-order-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-close-order-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "delegation-missing-delegation",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-delegation-missing-delegation-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-delegation-missing-delegation-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "delegation-missing-ticket",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-delegation-missing-ticket-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-delegation-missing-ticket-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "delegation-revoked-authority",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-delegation-revoked-authority-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-delegation-revoked-authority-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "delegation-unselected-installation",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-delegation-unselected-installation-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-delegation-unselected-installation-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "delegation-wrong-component-journal",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-delegation-wrong-component-journal-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-delegation-wrong-component-journal-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "delegation-wrong-controller-build",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-delegation-wrong-controller-build-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-delegation-wrong-controller-build-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "delegation-wrong-controller-epoch",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-delegation-wrong-controller-epoch-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-delegation-wrong-controller-epoch-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "delegation-wrong-controller-process",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-delegation-wrong-controller-process-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-delegation-wrong-controller-process-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "delegation-wrong-receipt",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-delegation-wrong-receipt-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-delegation-wrong-receipt-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "delegation-wrong-target-manifest",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-delegation-wrong-target-manifest-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-delegation-wrong-target-manifest-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "digest",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-digest-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-digest-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "drain",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-drain-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-drain-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "expired",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-expired-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-expired-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "expiry-reopen",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-expiry-reopen-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-expiry-reopen-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "fencing",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-fencing-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-fencing-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "inventory",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-inventory-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-inventory-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "mac-authorization",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-mac-authorization-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-mac-authorization-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "mac-publication",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-mac-publication-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-mac-publication-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "new-UID",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-new-UID-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-new-UID-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "new-build",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-new-build-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-new-build-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "new-endpoint",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-new-endpoint-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-new-endpoint-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "new-epoch",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-new-epoch-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-new-epoch-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "new-generation",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-new-generation-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-new-generation-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "new-manifest",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-new-manifest-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-new-manifest-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "new-namespace",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-new-namespace-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-new-namespace-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "new-predecessor",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-new-predecessor-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-new-predecessor-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "new-process-frame",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-new-process-frame-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-new-process-frame-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "new-root",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-new-root-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-new-root-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "not-yet-valid",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-not-yet-valid-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-not-yet-valid-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "old-build",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-old-build-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-old-build-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "old-generation",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-old-generation-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-old-generation-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "old-process",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-old-process-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-old-process-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "old-publication-epoch",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-old-publication-epoch-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-old-publication-epoch-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "operator-reopen",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-operator-reopen-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-operator-reopen-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "owner-process",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-owner-process-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-owner-process-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "publication-authorization",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-publication-authorization-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-publication-authorization-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "publication-checkpoint",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-publication-checkpoint-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-publication-checkpoint-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "publication-entry-revalidation",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-publication-entry-revalidation-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-publication-entry-revalidation-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "publication-marker",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-publication-marker-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-publication-marker-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "publication-precheck-revalidation",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-publication-precheck-revalidation-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-publication-precheck-revalidation-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "publication-target",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-publication-target-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-publication-target-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "publication-target-revalidation",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-publication-target-revalidation-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-publication-target-revalidation-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "reconcile-uncertain-fence",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-reconcile-uncertain-fence-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-reconcile-uncertain-fence-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "retirement-acceptance",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-retirement-acceptance-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-retirement-acceptance-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "revalidation",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-revalidation-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-revalidation-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "same-process",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-same-process-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-same-process-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "source-drain-scope",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-source-drain-scope-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-source-drain-scope-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "source-memo-scope",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-source-memo-scope-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-source-memo-scope-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "source-reconcile-scope",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-source-reconcile-scope-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-source-reconcile-scope-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "source-unknown-work",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-source-unknown-work-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-source-unknown-work-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "step-conflict",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-step-conflict-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-step-conflict-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "step-id-recovery",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-step-id-recovery-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-step-id-recovery-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "ticket-and-receipt",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-ticket-and-receipt-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-ticket-and-receipt-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "ticket-possession",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-ticket-possession-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-ticket-possession-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "wrong-controller",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-wrong-controller-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-wrong-controller-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "wrong-handover",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-wrong-handover-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-wrong-handover-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "wrong-selection",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-wrong-selection-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-wrong-selection-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "live",
+      "name": "wrong-transaction-epoch",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node22-wrong-transaction-epoch-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node22-wrong-transaction-epoch-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "real-source",
+      "name": "successor-control",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-central.test.js-owner-A-node22-successor-control-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-central.test.js-owner-A-node22-successor-control-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "real-source",
+      "name": "published-source-authority",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-central.test.js-owner-A-node22-published-source-authority-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-central.test.js-owner-A-node22-published-source-authority-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "cold",
+      "name": "unicode",
+      "valid": true,
+      "red": {
+        "file": "owner-A-node22-cold-mh-l2-auth.test.js-mutation-unicode-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 3,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "owner-A-node22-cold-mh-l2-auth.test.js-mutation-unicode-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 3,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "cold",
+      "name": "durable",
+      "valid": true,
+      "red": {
+        "file": "owner-A-node22-cold-mh-l2-image.test.js-mutation-durable-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "owner-A-node22-cold-mh-l2-image.test.js-mutation-durable-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "cold",
+      "name": "owner-record",
+      "valid": true,
+      "red": {
+        "file": "owner-A-node22-cold-mh-l2-image.test.js-mutation-owner-record-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "owner-A-node22-cold-mh-l2-image.test.js-mutation-owner-record-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "cold",
+      "name": "compensation",
+      "valid": true,
+      "red": {
+        "file": "owner-A-node22-cold-mh-l2-compensation.test.js-mutation-compensation-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "owner-A-node22-cold-mh-l2-compensation.test.js-mutation-compensation-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "cold",
+      "name": "pause",
+      "valid": true,
+      "red": {
+        "file": "owner-A-node22-cold-mh-l2-starters.test.js-mutation-pause-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "owner-A-node22-cold-mh-l2-starters.test.js-mutation-pause-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "cold",
+      "name": "mac",
+      "valid": true,
+      "red": {
+        "file": "owner-A-node22-cold-mh-l2-auth.test.js-mutation-mac-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 3,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "owner-A-node22-cold-mh-l2-auth.test.js-mutation-mac-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 3,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "cold",
+      "name": "socket",
+      "valid": true,
+      "red": {
+        "file": "owner-A-node22-cold-mh-l2-auth.test.js-mutation-socket-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 3,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "owner-A-node22-cold-mh-l2-auth.test.js-mutation-socket-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 3,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "cold",
+      "name": "owner",
+      "valid": true,
+      "red": {
+        "file": "owner-A-node22-cold-mh-l2-authority.test.js-mutation-owner-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 2,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "owner-A-node22-cold-mh-l2-authority.test.js-mutation-owner-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 2,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "cold",
+      "name": "inode",
+      "valid": true,
+      "red": {
+        "file": "owner-A-node22-cold-mh-l2-authority.test.js-mutation-inode-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 2,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "owner-A-node22-cold-mh-l2-authority.test.js-mutation-inode-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 2,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "cold",
+      "name": "precheck",
+      "valid": true,
+      "red": {
+        "file": "owner-A-node22-retry-cold-mh-l2-image.test.js-mutation-precheck-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "owner-A-node22-retry-cold-mh-l2-image.test.js-mutation-precheck-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "cold",
+      "name": "stop",
+      "valid": true,
+      "red": {
+        "file": "owner-A-node22-cold-mh-l2-cold.test.js-mutation-stop-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 4,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "owner-A-node22-cold-mh-l2-cold.test.js-mutation-stop-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 4,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 22,
+      "kind": "cold",
+      "name": "budget",
+      "valid": true,
+      "red": {
+        "file": "owner-A-node22-cold-mh-l2-cold.test.js-mutation-budget-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 4,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "owner-A-node22-cold-mh-l2-cold.test.js-mutation-budget-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 4,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "acceptance",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-acceptance-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-acceptance-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "acquired-writer-authority",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-acquired-writer-authority-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-acquired-writer-authority-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "acquired-writer-gate",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-acquired-writer-gate-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-acquired-writer-gate-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "checkpoint-before-publication",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-checkpoint-before-publication-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-checkpoint-before-publication-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "close-order",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-close-order-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-close-order-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "delegation-missing-delegation",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-delegation-missing-delegation-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-delegation-missing-delegation-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "delegation-missing-ticket",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-delegation-missing-ticket-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-delegation-missing-ticket-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "delegation-revoked-authority",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-delegation-revoked-authority-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-delegation-revoked-authority-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "delegation-unselected-installation",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-delegation-unselected-installation-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-delegation-unselected-installation-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "delegation-wrong-component-journal",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-delegation-wrong-component-journal-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-delegation-wrong-component-journal-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "delegation-wrong-controller-build",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-delegation-wrong-controller-build-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-delegation-wrong-controller-build-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "delegation-wrong-controller-epoch",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-delegation-wrong-controller-epoch-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-delegation-wrong-controller-epoch-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "delegation-wrong-controller-process",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-delegation-wrong-controller-process-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-delegation-wrong-controller-process-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "delegation-wrong-receipt",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-delegation-wrong-receipt-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-delegation-wrong-receipt-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "delegation-wrong-target-manifest",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-delegation-wrong-target-manifest-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-delegation-wrong-target-manifest-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "digest",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-digest-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-digest-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "drain",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-drain-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-drain-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "expired",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-expired-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-expired-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "expiry-reopen",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-expiry-reopen-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-expiry-reopen-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "fencing",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-fencing-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-fencing-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "inventory",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-inventory-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-inventory-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "mac-authorization",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-mac-authorization-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-mac-authorization-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "mac-publication",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-mac-publication-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-mac-publication-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "new-UID",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-new-UID-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-new-UID-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "new-build",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-new-build-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-new-build-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "new-endpoint",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-new-endpoint-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-new-endpoint-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "new-epoch",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-new-epoch-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-new-epoch-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "new-generation",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-new-generation-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-new-generation-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "new-manifest",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-new-manifest-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-new-manifest-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "new-namespace",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-new-namespace-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-new-namespace-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "new-predecessor",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-new-predecessor-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-new-predecessor-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "new-process-frame",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-new-process-frame-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-new-process-frame-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "new-root",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-new-root-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-new-root-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "not-yet-valid",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-not-yet-valid-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-not-yet-valid-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "old-build",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-old-build-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-old-build-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "old-generation",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-old-generation-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-old-generation-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "old-process",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-old-process-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-old-process-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "old-publication-epoch",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-old-publication-epoch-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-old-publication-epoch-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "operator-reopen",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-operator-reopen-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-operator-reopen-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "owner-process",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-owner-process-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-owner-process-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "publication-authorization",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-publication-authorization-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-publication-authorization-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "publication-checkpoint",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-publication-checkpoint-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-publication-checkpoint-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "publication-entry-revalidation",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-publication-entry-revalidation-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-publication-entry-revalidation-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "publication-marker",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-publication-marker-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-publication-marker-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "publication-precheck-revalidation",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-publication-precheck-revalidation-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-publication-precheck-revalidation-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "publication-target",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-publication-target-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-publication-target-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "publication-target-revalidation",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-publication-target-revalidation-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-publication-target-revalidation-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "reconcile-uncertain-fence",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-reconcile-uncertain-fence-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-reconcile-uncertain-fence-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "retirement-acceptance",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-retirement-acceptance-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-retirement-acceptance-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "revalidation",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-revalidation-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-revalidation-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "same-process",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-same-process-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-same-process-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "source-drain-scope",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-source-drain-scope-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-source-drain-scope-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "source-memo-scope",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-source-memo-scope-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-source-memo-scope-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "source-reconcile-scope",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-source-reconcile-scope-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-source-reconcile-scope-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "source-unknown-work",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-source-unknown-work-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-source-unknown-work-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "step-conflict",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-step-conflict-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-step-conflict-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "step-id-recovery",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-step-id-recovery-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-step-id-recovery-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "ticket-and-receipt",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-ticket-and-receipt-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-ticket-and-receipt-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "ticket-possession",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-ticket-possession-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-ticket-possession-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "wrong-controller",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-wrong-controller-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-wrong-controller-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "wrong-handover",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-wrong-handover-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-wrong-handover-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "wrong-selection",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-wrong-selection-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-wrong-selection-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "live",
+      "name": "wrong-transaction-epoch",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-node24-wrong-transaction-epoch-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-node24-wrong-transaction-epoch-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "real-source",
+      "name": "successor-control",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-central.test.js-owner-A-node24-successor-control-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-central.test.js-owner-A-node24-successor-control-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "real-source",
+      "name": "published-source-authority",
+      "valid": true,
+      "red": {
+        "file": "mh-l2-live-central.test.js-owner-A-node24-published-source-authority-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "mh-l2-live-central.test.js-owner-A-node24-published-source-authority-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "cold",
+      "name": "unicode",
+      "valid": true,
+      "red": {
+        "file": "owner-A-node24-cold-mh-l2-auth.test.js-mutation-unicode-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 3,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "owner-A-node24-cold-mh-l2-auth.test.js-mutation-unicode-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 3,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "cold",
+      "name": "durable",
+      "valid": true,
+      "red": {
+        "file": "owner-A-node24-cold-mh-l2-image.test.js-mutation-durable-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "owner-A-node24-cold-mh-l2-image.test.js-mutation-durable-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "cold",
+      "name": "owner-record",
+      "valid": true,
+      "red": {
+        "file": "owner-A-node24-retry-cold-mh-l2-image.test.js-mutation-owner-record-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "owner-A-node24-retry-cold-mh-l2-image.test.js-mutation-owner-record-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "cold",
+      "name": "compensation",
+      "valid": true,
+      "red": {
+        "file": "owner-A-node24-cold-mh-l2-compensation.test.js-mutation-compensation-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "owner-A-node24-cold-mh-l2-compensation.test.js-mutation-compensation-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "cold",
+      "name": "pause",
+      "valid": true,
+      "red": {
+        "file": "owner-A-node24-cold-mh-l2-starters.test.js-mutation-pause-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "owner-A-node24-cold-mh-l2-starters.test.js-mutation-pause-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "cold",
+      "name": "mac",
+      "valid": true,
+      "red": {
+        "file": "owner-A-node24-cold-mh-l2-auth.test.js-mutation-mac-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 3,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "owner-A-node24-cold-mh-l2-auth.test.js-mutation-mac-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 3,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "cold",
+      "name": "socket",
+      "valid": true,
+      "red": {
+        "file": "owner-A-node24-cold-mh-l2-auth.test.js-mutation-socket-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 3,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "owner-A-node24-cold-mh-l2-auth.test.js-mutation-socket-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 3,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "cold",
+      "name": "owner",
+      "valid": true,
+      "red": {
+        "file": "owner-A-node24-cold-mh-l2-authority.test.js-mutation-owner-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 2,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "owner-A-node24-cold-mh-l2-authority.test.js-mutation-owner-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 2,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "cold",
+      "name": "inode",
+      "valid": true,
+      "red": {
+        "file": "owner-A-node24-cold-mh-l2-authority.test.js-mutation-inode-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 2,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "owner-A-node24-cold-mh-l2-authority.test.js-mutation-inode-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 2,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "cold",
+      "name": "precheck",
+      "valid": true,
+      "red": {
+        "file": "owner-A-node24-cold-mh-l2-image.test.js-mutation-precheck-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "owner-A-node24-cold-mh-l2-image.test.js-mutation-precheck-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 1,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "cold",
+      "name": "stop",
+      "valid": true,
+      "red": {
+        "file": "owner-A-node24-cold-mh-l2-cold.test.js-mutation-stop-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 4,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "owner-A-node24-cold-mh-l2-cold.test.js-mutation-stop-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 4,
+        "skipped": 0,
+        "assertion": false
+      }
+    },
+    {
+      "node": 24,
+      "kind": "cold",
+      "name": "budget",
+      "valid": true,
+      "red": {
+        "file": "owner-A-node24-cold-mh-l2-cold.test.js-mutation-budget-red.log",
+        "code": 1,
+        "signal": null,
+        "tests": 4,
+        "skipped": 0,
+        "assertion": true
+      },
+      "green": {
+        "file": "owner-A-node24-cold-mh-l2-cold.test.js-mutation-budget-green.log",
+        "code": 0,
+        "signal": null,
+        "tests": 4,
+        "skipped": 0,
+        "assertion": false
+      }
+    }
+  ]
+}

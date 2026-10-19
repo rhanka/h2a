@@ -297,11 +297,11 @@ test("R8.1/R8.3 (3): verify runs the trust root BEFORE npm test, then the packag
 
 test("R8.2: verify packs the four lockstep packages, records sha256, uploads them as artifacts", () => {
   const verify = job("verify");
-  const pack = verify.steps.find((step) => String(step.run ?? "").includes("npm pack --workspace"));
+  const pack = verify.steps.find((step) => String(step.run ?? "").includes("node scripts/pack-candidate.mjs"));
   assert.ok(pack, "verify must npm pack the candidate packages");
   for (const pkg of ["@sentropic/h2a", "@sentropic/h2a-runtime", "@sentropic/h2a-cli", "@sentropic/track", "@sentropic/focus"]) {
     assert.ok(
-      String(pack.run).includes(pkg),
+      readFileSync(join(REPO_ROOT, "scripts/pack-candidate.mjs"), "utf8").includes(pkg.replace("@sentropic/", "'") + "'"),
       `verify must pack ${pkg} — the tarball publish later MUST be these exact bytes`,
     );
   }
@@ -325,7 +325,7 @@ test("R8.2: the pack step is pinned COMMAND BY COMMAND — a manifest that stops
   // only generator, so its EFFECTIVE script (comments stripped) is pinned
   // line by line, exactly like the publish integrity control: any edit that
   // changes WHAT the manifest covers changes a line and fails here.
-  const pack = job("verify").steps.find((step) => String(step.run ?? "").includes("npm pack --workspace"));
+  const pack = job("verify").steps.find((step) => String(step.run ?? "").includes("node scripts/pack-candidate.mjs"));
   assert.ok(pack, "verify must pack the lockstep packages");
   assert.equal(pack.shell, "bash", "the manifest generation must run under the bash wrapper — a weaker shell changes what the pinned lines mean");
   assert.equal(pack["working-directory"], undefined, "a working-directory on the pack step silently relocates the paths the pinned commands address");
@@ -333,9 +333,7 @@ test("R8.2: the pack step is pinned COMMAND BY COMMAND — a manifest that stops
     "set -euo pipefail",
     "node scripts/check-lockstep-versions.mjs",
     "mkdir -p dist-tarballs",
-    "for pkg in @sentropic/h2a @sentropic/h2a-runtime @sentropic/h2a-cli @sentropic/track @sentropic/focus; do",
-    'npm pack --workspace "$pkg" --pack-destination dist-tarballs',
-    "done",
+    "node scripts/pack-candidate.mjs dist-tarballs",
     "(cd dist-tarballs && sha256sum *.tgz > sha256sums.txt && cat sha256sums.txt)",
     'echo "${{ needs.resolve-release-sha.outputs.release-sha }}" > dist-tarballs/release-sha.txt',
   ], "the manifest generation is pinned: narrowing the sha256sum glob (round-5 H01: CLI-only manifest), dropping a package from the pack loop, or removing `set -euo pipefail` all change this script");
@@ -348,11 +346,11 @@ test("R8.2: the sha256 manifest covers the FOUR lockstep tarballs — generation
   // integrity control in a mkdtemp lab with a fake npm (no install, no
   // registry, no publication — only local files): the manifest the pack
   // step actually GENERATES must cover h2a, h2a-runtime, h2a-cli and track,
-  // and the publish control must refuse EACH of the four tarballs once its
+  // and the publish control must refuse EACH of the five tarballs once its
   // bytes are corrupted. Under the round-5 mutation (a manifest covering
   // the CLI only) the corrupted runtime passes with exit 0 — exactly the
   // property this test forces to stay red.
-  const pack = job("verify").steps.find((step) => String(step.run ?? "").includes("npm pack --workspace"));
+  const pack = job("verify").steps.find((step) => String(step.run ?? "").includes("node scripts/pack-candidate.mjs"));
   const integrity = job("publish").steps.find((step) => String(step.run ?? "").includes("sha256sum --check"));
   assert.ok(pack, "verify must pack the lockstep packages");
   assert.ok(integrity, "publish must check the tarball sha256");
@@ -371,11 +369,11 @@ test("R8.2: the sha256 manifest covers the FOUR lockstep tarballs — generation
     // Run the real version gate too: the lab contains a coherent package set.
     mkdirSync(join(lab, 'scripts'));
     writeFileSync(join(lab, 'scripts/check-lockstep-versions.mjs'), readFileSync(join(REPO_ROOT, 'scripts/check-lockstep-versions.mjs')));
-    for (const name of ['h2a', 'h2a-cli', 'h2a-runtime', 'track']) {
+    for (const name of ['h2a', 'h2a-cli', 'h2a-runtime', 'track', 'focus']) {
       const base=join(lab, 'packages', name);mkdirSync(base, {recursive:true});
       writeFileSync(join(base, 'package.json'), readFileSync(join(REPO_ROOT, 'packages', name, 'package.json')));
     }
-    // A fake npm producing the four tarballs `npm pack` would: purely local
+    // A fake npm producing the five tarballs `npm pack` would: purely local
     // file writes inside the lab, no network and no real npm involved.
     const bin = join(lab, "bin");
     mkdirSync(bin);
@@ -394,6 +392,7 @@ test("R8.2: the sha256 manifest covers the FOUR lockstep tarballs — generation
       'printf "candidate original bytes: %s\\n" "$name" > "${dest}/sentropic-${name}-0.98.5.tgz"',
       "",
     ].join("\n"), { mode: 0o700 });
+    writeFileSync(join(lab, "scripts/pack-candidate.mjs"), 'import {execFileSync} from "node:child_process"; for (const name of ["h2a", "h2a-runtime", "h2a-cli", "track", "focus"]) execFileSync("npm", ["pack", "--workspace", "@sentropic/"+name, "--pack-destination", process.argv[2]]);\n');
     const runWorkflowScript = (script, name) => {
       const file = join(lab, name);
       // The only ${{ }} expressions in these two scripts resolve to the one
@@ -427,7 +426,7 @@ test("R8.2: the sha256 manifest covers the FOUR lockstep tarballs — generation
     const intact = runWorkflowScript(integrity.run, "integrity.sh");
     assert.equal(intact.status, 0, `positive control failed:\n${intact.stdout}\n${intact.stderr}`);
     // The guarded property, per tarball: corrupt the bytes, the publish
-    // control must refuse EACH of the four (exit non-zero), then restore.
+    // control must refuse EACH of the five (exit non-zero), then restore.
     for (const tarball of covered) {
       const path = join(lab, "dist-tarballs", tarball);
       const original = readFileSync(path);
@@ -679,7 +678,7 @@ test("no publication path bypasses verify: publish needs verify and nothing else
 test("C9: the complete execution plan preserves context, SHA, Node, bytes and every publication route", () => {
   assert.deepEqual(releaseContractFailures(WORKFLOW), []);
   const verify = job("verify");
-  const pack = verify.steps.findIndex((step) => String(step.run ?? "").includes("npm pack --workspace"));
+  const pack = verify.steps.findIndex((step) => String(step.run ?? "").includes("node scripts/pack-candidate.mjs"));
   const smoke = firstStepIndex(verify, "npm run smoke:artifact -- --tarballs dist-tarballs");
   const upload = verify.steps.findIndex((step) => step.uses === "actions/upload-artifact@v4");
   assert.ok(pack < smoke && smoke + 1 === upload, "smoke exercises the built bytes immediately before their upload");
@@ -696,7 +695,7 @@ test("C9 A09: a comment-shaped line inside a quoted script cannot hide another p
 
 
 test('release validates exact internal versions before packing and before publishing', () => {
-  for (const [id, marker] of [['verify', 'npm pack --workspace'], ['publish', 'npm publish']]) {
+  for (const [id, marker] of [['verify', 'node scripts/pack-candidate.mjs'], ['publish', 'npm publish']]) {
     const script = job(id).steps.map(step => step.run ?? '').join('\n');
     const gate = script.indexOf('node scripts/check-lockstep-versions.mjs');
     const action = script.indexOf(marker);

@@ -1,0 +1,9 @@
+{
+  "status": "not executed",
+  "code": "no_enrolled_seat",
+  "reason": "claude answers Not logged in",
+  "evidence": "/home/antoinefa/.cache-tmp/h2a-l2b-evidence-7Fbq5K",
+  "head": "4e5ca7d40030d3d12cf13c4bf14bdf1bde9616f2",
+  "next": "enroll one seat under the 2026-10-18 shared-quota rules, then re-run"
+}
+rc=2

@@ -1,0 +1,84 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-package.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-HyDdxR
+case: all cases in explicit file
+TAP version 13
+# Subtest: U10 U12 should publish @sentropic/h2a with exact lockstep and install twice offline without a compiler
+not ok 1 - U10 U12 should publish @sentropic/h2a with exact lockstep and install twice offline without a compiler
+  ---
+  duration_ms: 100571.33289
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-package.test.js:11:96'
+  failureType: 'testCodeFailure'
+  error: 'ifError got unwanted exception: stdout maxBuffer length exceeded'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: ~
+  actual:
+  error: 'stdout maxBuffer length exceeded'
+  name: 'RangeError'
+  stack: |-
+    Socket.onChildStdout (node:child_process:484:14)
+    Socket.emit (node:events:519:28)
+    addChunk (node:internal/streams/readable:561:12)
+    readableAddChunkPushByteMode (node:internal/streams/readable:512:3)
+    Readable.push (node:internal/streams/readable:392:5)
+    Pipe.onStreamRead (node:internal/stream_base_commons:189:23)
+  operator: 'ifError'
+  stack: |-
+    packageScenario (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-package.test.js:42:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+    Socket.onChildStdout (node:child_process:484:14)
+    Socket.emit (node:events:519:28)
+    addChunk (node:internal/streams/readable:561:12)
+    readableAddChunkPushByteMode (node:internal/streams/readable:512:3)
+    Readable.push (node:internal/streams/readable:392:5)
+    Pipe.onStreamRead (node:internal/stream_base_commons:189:23)
+  ...
+# Subtest: U10 U12 should publish @sentropic/h2a-runtime with exact lockstep and install twice offline without a compiler
+not ok 2 - U10 U12 should publish @sentropic/h2a-runtime with exact lockstep and install twice offline without a compiler
+  ---
+  duration_ms: 104258.11076
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-package.test.js:11:96'
+  failureType: 'testCodeFailure'
+  error: 'ifError got unwanted exception: stdout maxBuffer length exceeded'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: ~
+  actual:
+  error: 'stdout maxBuffer length exceeded'
+  name: 'RangeError'
+  stack: |-
+    Socket.onChildStdout (node:child_process:484:14)
+    Socket.emit (node:events:519:28)
+    addChunk (node:internal/streams/readable:561:12)
+    readableAddChunkPushByteMode (node:internal/streams/readable:512:3)
+    Readable.push (node:internal/streams/readable:392:5)
+    Pipe.onStreamRead (node:internal/stream_base_commons:189:23)
+  operator: 'ifError'
+  stack: |-
+    packageScenario (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-package.test.js:42:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+    Socket.onChildStdout (node:child_process:484:14)
+    Socket.emit (node:events:519:28)
+    addChunk (node:internal/streams/readable:561:12)
+    readableAddChunkPushByteMode (node:internal/streams/readable:512:3)
+    Readable.push (node:internal/streams/readable:392:5)
+    Pipe.onStreamRead (node:internal/stream_base_commons:189:23)
+  ...
+1..2
+# tests 2
+# suites 0
+# pass 0
+# fail 2
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 204955.805713
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-package.test.js"],"code":1,"signal":null,"tests":2,"invalid":false,"spawned":5,"leftovers":[]}

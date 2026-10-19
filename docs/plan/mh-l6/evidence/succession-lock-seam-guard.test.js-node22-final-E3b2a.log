@@ -1,0 +1,46 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/succession-lock-seam-guard.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-50B3Bk
+case: all cases in explicit file
+TAP version 13
+# Subtest: T-guard: no code outside tests depends on the separate lock seam
+ok 1 - T-guard: no code outside tests depends on the separate lock seam
+  ---
+  duration_ms: 4010.775793
+  type: 'test'
+  ...
+# Subtest: T-guard: every literal destination is rejected regardless of import syntax
+ok 2 - T-guard: every literal destination is rejected regardless of import syntax
+  ---
+  duration_ms: 0.745233
+  type: 'test'
+  ...
+# Subtest: T-guard: split literals cannot reference the seam
+ok 3 - T-guard: split literals cannot reference the seam
+  ---
+  duration_ms: 0.118353
+  type: 'test'
+  ...
+# Subtest: T-guard: interpolated templates cannot reference the seam
+ok 4 - T-guard: interpolated templates cannot reference the seam
+  ---
+  duration_ms: 0.086132
+  type: 'test'
+  ...
+# Subtest: T-guard: dist, the npm pack tarball and package exports cannot load the seam
+ok 5 - T-guard: dist, the npm pack tarball and package exports cannot load the seam
+  ---
+  duration_ms: 47978.242941
+  type: 'test'
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 5
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 52355.828973
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/succession-lock-seam-guard.test.js"],"code":0,"signal":null,"tests":5,"invalid":false,"spawned":4,"leftovers":[]}

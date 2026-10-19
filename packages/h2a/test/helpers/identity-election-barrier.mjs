@@ -21,4 +21,15 @@ fs.linkSync=(source,target,...args)=>{
   mark('elected');wait('retire');return result;
  }catch(error){if(error.code==='EEXIST')mark('lost');throw error;}
 };
+// Expose the actual create-before-write window of the recovery witness.
+// The final name must stay absent until the complete JSON is published.
+if(role==='recovery'){
+ const write=fs.writeFileSync;
+ fs.writeFileSync=(target,data,...options)=>{
+  if(target===dir+'/recovery.held'||target===dir+'/recovery.held.tmp'){
+   write(target,'',...options);mark('witness-open');wait('witness-finish');
+  }
+  return write(target,data,...options);
+ };
+}
 syncBuiltinESMExports();

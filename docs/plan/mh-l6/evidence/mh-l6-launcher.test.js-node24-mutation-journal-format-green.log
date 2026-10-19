@@ -1,0 +1,22 @@
+command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-launcher.test.js
+node: v24.21.0
+private root: /tmp/mh-l6-test-h3fo0z
+case: all cases in explicit file
+TAP version 13
+# Subtest: U06 should refuse to claim a reliable status for an unknown journal without repairing it
+ok 1 - U06 should refuse to claim a reliable status for an unknown journal without repairing it
+  ---
+  duration_ms: 92.4766
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 147.300115
+
+receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-launcher.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":2,"leftovers":[]}

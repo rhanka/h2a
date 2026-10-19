@@ -1,0 +1,65 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-cuts.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-rM5saA
+{"event":"drive-consent.full-verification","durationMs":0.05704800000000887,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.031458999999983916,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.020278000000075735,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.03323199999999815,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.018595000000004802,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✔ should close admissions at barrier and bind presence mutations to the exact session (360.331385ms)
+✔ should propagate the reserved token through the real async subprocess seam (1.314294ms)
+✔ should revalidate a replaced presence instance under the mutation lock for update and delete (47.171629ms)
+✔ should detect conflicting launch parameters through the MCP server cache (106.341873ms)
+✖ should reconcile a final memo after a crash before operation closure without executing again (55.153594ms)
+✔ should persist owner-directed delegation after freeze and deduplicate the eventual writer receipt (115.839812ms)
+✖ should recover the delegation event after final memo publication but before operation closure (245.61063ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 5
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1117.702396
+
+✖ failing tests:
+
+test at packages/h2a/test/mh-l4-cuts.test.js:75:1
+✖ should reconcile a final memo after a crash before operation closure without executing again (55.153594ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  false !== true
+  
+      at TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-cuts.test.js:85:9)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at packages/h2a/test/mh-l4-cuts.test.js:108:1
+✖ should recover the delegation event after final memo publication but before operation closure (245.61063ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  0 !== 1
+  
+      at TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-cuts.test.js:119:9)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 0,
+    expected: 1,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-cuts.test.js"],"code":1,"signal":null,"elapsedMs":1144}

@@ -1,0 +1,51 @@
+{
+  "node": "v22.22.1",
+  "files": [
+    {
+      "path": "packages/h2a/src/runtime/upgrade/unmanage.js",
+      "sha256": "39b0e38c9762802dab30129459e7781e4c7bf9a7f115ce0a1fe7ea32286a3ad5"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/upgrade/unmanage.js",
+      "sha256": "30dda5ccde486c5acaf43ab0601b88a1e7ebc68f1628f18bcc09eb03a29d31a6"
+    }
+  ],
+  "results": [
+    {
+      "name": "engaged-check",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-unmanage.test.js-node22-mutation-engaged-check-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-unmanage.test.js-node22-mutation-engaged-check-green.log",
+      "restored": true
+    },
+    {
+      "name": "unrestorable-check",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-unmanage.test.js-node22-mutation-unrestorable-check-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-unmanage.test.js-node22-mutation-unrestorable-check-green.log",
+      "restored": true
+    },
+    {
+      "name": "marker-write",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-unmanage.test.js-node22-mutation-marker-write-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-unmanage.test.js-node22-mutation-marker-write-green.log",
+      "restored": true
+    },
+    {
+      "name": "marker-reason",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-unmanage.test.js-node22-mutation-marker-reason-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-unmanage.test.js-node22-mutation-marker-reason-green.log",
+      "restored": true
+    },
+    {
+      "name": "opt-out-absent",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-unmanage.test.js-node22-mutation-opt-out-absent-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-unmanage.test.js-node22-mutation-opt-out-absent-green.log",
+      "restored": true
+    },
+    {
+      "name": "opt-out-unreadable",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-unmanage.test.js-node22-mutation-opt-out-unreadable-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-unmanage.test.js-node22-mutation-opt-out-unreadable-green.log",
+      "restored": true
+    }
+  ]
+}

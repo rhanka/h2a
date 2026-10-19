@@ -1,0 +1,49 @@
+{
+  "root": "/tmp/mh-l5-artifacts-shD7Sf",
+  "profiles": [
+    {
+      "version": "0.98.5",
+      "packages": [
+        {
+          "name": "@sentropic/h2a",
+          "version": "0.98.5",
+          "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.98.5.tgz",
+          "integrity": "sha512-nwztKV3ENIgeJFam1bk8OuSUiN+gEKWQU0nn+rA4QC6ENqP5q/yiadP7xhonaMKaEnB6D8fzmNfvU7Vk+0DXJQ==",
+          "sha256": "c74b5f597eeef99bdca8072cd707f0647da09cf3cad1f92d37baa810ca9ae8a5"
+        },
+        {
+          "name": "@sentropic/h2a-runtime",
+          "version": "0.98.5",
+          "tarball": "https://registry.npmjs.org/@sentropic/h2a-runtime/-/h2a-runtime-0.98.5.tgz",
+          "integrity": "sha512-IgyVp6ozv93BqWR/diBJQs/FLO67aprF2LMMVHjPpLcZg0+aOhzD42iKnSvDMrv9MkcRT6mahWpounuppNbzFw==",
+          "sha256": "c8c005e50701239a5136b2d33093ef9e583984055ed11314c007222f81b3a66a"
+        }
+      ],
+      "centralSha256": "8407f6df1bbc635f9850c215142553db3ef8aec5991e282eb485fc1b26203d92",
+      "lockSha256": "2c7b51f50eed04154bf3740f86f5f044157ff674d2a01e902e6e7f564f89956f"
+    },
+    {
+      "version": "0.98.6",
+      "packages": [
+        {
+          "name": "@sentropic/h2a",
+          "version": "0.98.6",
+          "tarball": "https://registry.npmjs.org/@sentropic/h2a/-/h2a-0.98.6.tgz",
+          "integrity": "sha512-3e56L3hp1tMH0Cuu/WWFcaLYmWCJ8ffuutuEbNxWL2s7q0CJ4NNncqrXllJ+TmqFvkWur//5TKQND1YXdR2pRg==",
+          "sha256": "aa7553a50f502b18e894d30b7ff063a100ecb8b48b279b910d15b87dd544e814"
+        },
+        {
+          "name": "@sentropic/h2a-runtime",
+          "version": "0.98.6",
+          "tarball": "https://registry.npmjs.org/@sentropic/h2a-runtime/-/h2a-runtime-0.98.6.tgz",
+          "integrity": "sha512-cIIMwTh5lNNzpe6jUuuue0Hz6tMJvWAqSEt5DgVTwDGPVdTgMEC4NExzHZhfARwud+X+IFJChJkO6Ed+9atU5Q==",
+          "sha256": "44109da8eb65646a2100658480ff474ec389913ed2f083ae2539b235b4a20870"
+        }
+      ],
+      "centralSha256": "8407f6df1bbc635f9850c215142553db3ef8aec5991e282eb485fc1b26203d92",
+      "lockSha256": "5419e28ee70c5e316b4bd9d501808b88ba54056f838257d989415959cd4c3a50"
+    }
+  ],
+  "node24": "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+  "nodeArchiveSha256": "fd8e59d5a511510f6a298afb548f18c7d2b1be404d8b4a27d94fbe49f56cb2d6"
+}

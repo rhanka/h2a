@@ -1,0 +1,61 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-cuts.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-LYe9al
+{"event":"drive-consent.full-verification","durationMs":0.01853500000001418,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.013045000000005302,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.017833999999993466,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.014347000000043408,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.018584999999973206,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✖ should close admissions at barrier and bind presence mutations to the exact session (49.901676ms)
+✔ should propagate the reserved token through the real async subprocess seam (1.275491ms)
+✖ should revalidate a replaced presence instance under the mutation lock for update and delete (19.866577ms)
+✔ should detect conflicting launch parameters through the MCP server cache (68.103018ms)
+✔ should reconcile a final memo after a crash before operation closure without executing again (45.529175ms)
+✔ should persist owner-directed delegation after freeze and deduplicate the eventual writer receipt (83.758589ms)
+✔ should recover the delegation event after final memo publication but before operation closure (48.717938ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 5
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 530.599822
+
+✖ failing tests:
+
+test at packages/h2a/test/mh-l4-cuts.test.js:17:1
+✖ should close admissions at barrier and bind presence mutations to the exact session (49.901676ms)
+  AssertionError [ERR_ASSERTION]: Missing expected exception.
+      at TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-cuts.test.js:23:9)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.start (node:internal/test_runner/test:1262:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: /presence_ownership_mismatch/,
+    operator: 'throws',
+    diff: 'simple'
+  }
+
+test at packages/h2a/test/mh-l4-cuts.test.js:46:1
+✖ should revalidate a replaced presence instance under the mutation lock for update and delete (19.866577ms)
+  AssertionError [ERR_ASSERTION]: Missing expected exception.
+      at TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-cuts.test.js:56:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: /presence_ownership_mismatch/,
+    operator: 'throws',
+    diff: 'simple'
+  }
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-cuts.test.js"],"code":1,"signal":null,"elapsedMs":560}
