@@ -718,7 +718,9 @@ export const defaultUpgradeRuntime: UpgradeRuntime = {
     return invokePtyRuntime(packageDir, {}, "inspect");
   },
   switchPtyFrontend(plan, frontendModule, rollbackModule) {
-    return invokePtyRuntime(dirname(dirname(dirname(frontendModule))), { plan, frontendModule, rollbackModule }, "switch");
+    const result = invokePtyRuntime(dirname(dirname(dirname(frontendModule))), { plan, frontendModule, rollbackModule }, "switch");
+    return plan.legacyHosts?.length && result.status === "deferred" && result.owners.length === 0
+      ? legacyPtyUpgradeResult(plan, plan.owners, result.reason) : result;
   },
   fetchLatest(pkg) {
     try {
@@ -1779,6 +1781,7 @@ export function performAutoUpgrade(
         target,
         outcome: "failed",
         message: `auto-upgrade to ${target} failed: ${err} (see ${logPath})`,
+        ...(ptyPlan?.legacyHosts?.length ? { pty: withPtyVersions(legacyPtyUpgradeResult(ptyPlan, ptyPlan.owners, err), installed ?? current, target) } : {}),
         logPath
       };
     }
@@ -1869,6 +1872,7 @@ export function performAutoUpgrade(
       outcome: "failed",
       ...(verified ? { verifiedVersion: verified } : {}),
       message: `auto-upgrade to ${target} failed: verification mismatch (got ${verified ?? "unknown"}) (see ${logPath})`,
+      ...(ptyPlan?.legacyHosts?.length ? { pty: withPtyVersions(legacyPtyUpgradeResult(ptyPlan, ptyPlan.owners, `verification mismatch (got ${verified ?? "unknown"})`), verified ?? "unknown", target) } : {}),
       logPath
     };
   } finally {
