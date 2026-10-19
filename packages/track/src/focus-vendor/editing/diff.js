@@ -75,6 +75,11 @@ export function applyParagraphChanges(document, manifest, transactions, restoreI
                     throw new Error('paragraph-precondition');
                 if (canonicalJson(paragraphAnchors(list, index)) !== canonicalJson(c.beforeAnchors))
                     throw new Error('structural-precondition');
+                // Topology-preserving operations carry the same anchors out as in: a
+                // forged output topology would otherwise apply cleanly and break its
+                // own revocation with a structural-precondition failure.
+                if ((c.operation === 'replace' || c.operation === 'delete') && canonicalJson(c.anchors) !== canonicalJson(c.beforeAnchors))
+                    throw new Error('structural-precondition');
             }
             if (c.after !== null)
                 assertParagraphText(c.after, c.format);
