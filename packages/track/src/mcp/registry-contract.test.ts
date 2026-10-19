@@ -1,5 +1,8 @@
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const root = new URL("../../", import.meta.url);
@@ -47,6 +50,19 @@ describe("R5 track registry entry (contract §§3.2/5.4)", () => {
     });
   });
 
+  it("resolves the packaged manifest identically through the module export and the asset file", async () => {
+    const mod = (await import("../../dist/registry/manifest.js")) as {
+      trackRegistryPackageManifest: { entries: Array<{ id: string; mcp: { manifestAsset: string } }> };
+    };
+    const exported = mod.trackRegistryPackageManifest.entries[0] as { id: string; mcp: { manifestAsset: string } };
+    expect(exported.id).toBe("sentropic.track");
+    const asset = readJson(exported.mcp.manifestAsset) as { tools: Array<{ name: string }> };
+    const direct = readJson("registry/manifest.track.json") as { tools: Array<{ name: string }> };
+    expect(asset).toEqual(direct);
+    const names = direct.tools.map((t) => t.name);
+    expect(new Set(names).size).toBe(names.length);
+  });
+
   it("owns the exact Track read surface once, with pinned asset bytes", () => {
     const wrapper = readJson("registry/entries.v1.json") as {
       entries: Array<{
@@ -70,5 +86,41 @@ describe("R5 track registry entry (contract §§3.2/5.4)", () => {
     expect(profile?.readOnly).toBe(true);
     expect(profile?.tools).toEqual(manifest.tools.map((t) => t.name));
     expect(new Set(profile?.tools).size).toBe(profile?.tools.length);
+  });
+
+  it("LOT-6 F-10: the packed tarball carries the registry assets with identical bytes", () => {
+    const dir = mkdtempSync(join(tmpdir(), "track-l6-pack-"));
+    try {
+      const out = execFileSync("npm", ["pack", "--json", "--pack-destination", dir], {
+        cwd: new URL("../../", import.meta.url).pathname,
+        encoding: "utf8",
+        timeout: 120000
+      });
+      const packed = JSON.parse(out) as Array<{ filename: string }>;
+      expect(packed).toHaveLength(1);
+      const tgz = join(dir, packed[0].filename);
+      const names = execFileSync("tar", ["-tzf", tgz], { encoding: "utf8" })
+        .split("\n")
+        .filter(Boolean);
+      for (const asset of ["registry/entries.v1.json", "registry/manifest.track.json", "dist/registry/manifest.js"]) {
+        expect(names.some((n) => n === `package/${asset}`)).toBe(true);
+      }
+      const extract = mkdtempSync(join(tmpdir(), "track-l6-unpack-"));
+      try {
+        execFileSync("tar", ["-xzf", tgz, "-C", extract]);
+        const fromTar = (rel: string): string =>
+          readFileSync(join(extract, "package", rel), "utf8");
+        expect(fromTar("registry/manifest.track.json")).toBe(
+          readFileSync(new URL("../../registry/manifest.track.json", import.meta.url), "utf8")
+        );
+        expect(fromTar("registry/entries.v1.json")).toBe(
+          readFileSync(new URL("../../registry/entries.v1.json", import.meta.url), "utf8")
+        );
+      } finally {
+        rmSync(extract, { recursive: true, force: true });
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
