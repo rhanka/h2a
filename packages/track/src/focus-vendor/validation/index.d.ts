@@ -44,7 +44,7 @@ export declare class DecisionDossierValidationError extends Error {
     readonly issues: readonly ValidationIssue[];
     constructor(issues: readonly ValidationIssue[]);
 }
-/** Structural layer: closed shape check against the published schema. */
+/** Absence means historical v1; unknown explicit versions always refuse. */
 export declare const validateDecisionDossierStructure: (value: unknown) => ValidationResult<DecisionDossierDocument>;
 /** Semantic layer on a structurally valid dossier. Empty means valid. */
 export declare const validateDecisionDossierSemantics: (doc: DecisionDossierDocument) => ValidationIssue[];

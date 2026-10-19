@@ -12,6 +12,20 @@ import { describe, expect, it } from "vitest";
 import { renderHtml, renderMd, renderTerminal } from "../src/index.js";
 import type { HtmlRenderHooks } from "../src/index.js";
 import { decisionDossierFixture } from "./fixture.data.js";
+import { evidenceFixture } from '../../h2a/focus-kit/test/evidence-fixtures.mjs';
+
+it('should preserve source, citation, annex and section bindings in every export', () => {
+  const evidence = evidenceFixture();
+  evidence.annexes[0].summary = 'A literal <img onerror=bad()> is evidence.';
+  for (const text of [renderMd(evidence), renderTerminal(evidence), renderHtml(evidence, hooks)]) {
+    expect(text).toContain('Preuve distante');
+    expect(text).toContain('long:12–13');
+    expect(text).toContain('Détail des pièces');
+    expect(text).toContain('3 sources');
+    expect(text).toContain('late');
+  }
+  expect(renderHtml(evidence, hooks)).not.toContain('<img onerror=bad()>');
+});
 
 const doc = {
   ...decisionDossierFixture,

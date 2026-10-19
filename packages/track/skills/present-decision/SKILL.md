@@ -96,3 +96,9 @@ Record when `.track/` exists or the owner approves tracking:
   Never record a bridge/relay principal as the human decider.
 
 This is the agent's human-facing method; h2a negotiations remain inter-agent. Existing repo methods win.
+## Embedded evidence (H1)
+
+Use checkout `focus template --evidence` then `focus build`: version 2,
+original bytes/digests, citations, separate annexes. Keep material risks primary;
+disclose consultation separately. Test offline search/download/back. DS in-canvas
+controls await H2/H3. Never rewrite renderer/geometry.

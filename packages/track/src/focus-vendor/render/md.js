@@ -7,6 +7,7 @@
  * (or passed through an optional host `renderMarkdown` hook for normalization).
  */
 import { preparePresentation } from "./presentation.js";
+import { evidenceIndex } from './evidence.js';
 const renderQuestion = (q) => {
     const lines = [`**Q:** ${q.question} _(${q.state})_`];
     if (q.context !== undefined)
@@ -78,6 +79,8 @@ export const renderMd = (doc, hooks = {}) => {
         blocks.push(renderNode(node, hooks));
     }
     blocks.push(renderAmendmentTrace(doc.amendmentTrace));
+    if (evidenceIndex(doc))
+        blocks.push(evidenceIndex(doc));
     const affordances = renderAffordances(doc.interactions);
     if (affordances !== "")
         blocks.push(affordances);

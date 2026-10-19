@@ -9,4 +9,4 @@
  * This is the read-only FocusSnapshot split: affordances render as DISABLED metadata only
  * (no live commands). Live drivers (FocusLiveSession) are deferred (L3+).
  */
-export {};
+export const isEvidenceDossier = (doc) => 'schemaVersion' in doc && doc.schemaVersion === 2;

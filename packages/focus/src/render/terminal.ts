@@ -10,6 +10,7 @@
  */
 
 import { preparePresentation } from "./presentation.js";
+import { evidenceIndex } from './evidence.js';
 
 import type {
   Affordance,
@@ -122,6 +123,7 @@ export const renderTerminal = (
   }
 
   blocks.push(renderAmendmentTrace(doc.amendmentTrace));
+  if (evidenceIndex(doc)) blocks.push(evidenceIndex(doc));
 
   const affordances = renderAffordances(doc.interactions);
   if (affordances !== "") blocks.push(affordances);

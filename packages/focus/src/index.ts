@@ -14,6 +14,13 @@ export type {
   AmendmentTraceNode,
   ComprehensionEvidence,
   DecisionDossierDocument,
+  DecisionDossierDocumentV1,
+  DecisionDossierDocumentV2,
+  EvidenceSource,
+  EvidenceCitation,
+  EvidenceGroup,
+  EvidenceAnnex,
+  AnnexBlock,
   DiagramNode,
   DiagramSyntax,
   DossierReadability,
@@ -31,6 +38,7 @@ export type {
   QuestionValidationState,
   TargetRef,
 } from "./model.js";
+export { isEvidenceDossier } from './model.js';
 
 export type {
   HtmlRenderHooks,
@@ -43,3 +51,4 @@ export { renderTerminal } from "./render/terminal.js";
 export type { TerminalRenderOptions } from "./render/terminal.js";
 export { renderMd } from "./render/md.js";
 export { renderHtml } from "./render/html.js";
+export { evidenceVolume } from './render/evidence.js';

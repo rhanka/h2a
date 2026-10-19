@@ -9,6 +9,9 @@
  */
 
 import { createRequire } from "node:module";
+import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { evidenceFixture } from '../../h2a/focus-kit/test/evidence-fixtures.mjs';
 
 import { describe, expect, it } from "vitest";
 
@@ -29,6 +32,50 @@ const schemaDoc = require("../schemas/decision-dossier-document.v1.schema.json")
 
 const clone = (doc: DecisionDossierDocument): unknown =>
   JSON.parse(JSON.stringify(doc)) as unknown;
+
+describe('evidence schema version boundary', () => {
+  const Ajv2020 = require('ajv/dist/2020.js');
+  const validateSchema = new Ajv2020({ strict: false }).compile(require('../schemas/decision-dossier-document.v2.schema.json'));
+  it.each(['image/png', 'image/jpeg'])('should require image metadata in both validators for %s', mediaType => {
+    const image = evidenceFixture().sources[1];
+    image.mediaType = mediaType;
+    // A minimal JPEG SOF frame is sufficient for the runtime metadata contract.
+    if (mediaType === 'image/jpeg') {
+      const bytes = Buffer.from([255, 216, 255, 192, 0, 11, 8, 0, 1, 0, 1, 1, 1, 17, 0]);
+      image.data = bytes.toString('base64'); image.size = bytes.length;
+      image.sha256 = createHash('sha256').update(bytes).digest('hex');
+    }
+    const doc = evidenceFixture(); doc.sources[1] = image;
+    expect(validateSchema(doc), JSON.stringify(validateSchema.errors)).toBe(true);
+    expect(validateDecisionDossierDocument(doc).ok).toBe(true);
+    for (const fields of [['width'], ['height'], ['alt'], ['width', 'height', 'alt']]) {
+      const invalid = structuredClone(doc);
+      for (const field of fields) delete invalid.sources[1][field];
+      expect(validateDecisionDossierDocument(invalid).ok).toBe(false);
+      expect(validateSchema(invalid), `Missing image metadata: ${fields.join(', ')}`).toBe(false);
+    }
+  });
+  it('should reject image metadata on text in both validators', () => {
+    for (const [field, value] of [['width', 1], ['height', 1], ['alt', 'Text is not an image']]) {
+      const doc = evidenceFixture(); doc.sources[0][field] = value;
+      expect(validateDecisionDossierDocument(doc).ok).toBe(false);
+      expect(validateSchema(doc), `Text with image metadata: ${field}`).toBe(false);
+    }
+  });
+  it('should ship a separate closed v2 schema while preserving the original v1 bytes', () => {
+    const v2 = require('../schemas/decision-dossier-document.v2.schema.json');
+    expect(v2.$id).toBe('urn:sentropic:focus:DecisionDossierDocument:2.0.0');
+    expect(v2.properties.schemaVersion.const).toBe(2);
+    expect(v2.additionalProperties).toBe(false);
+    expect(v2.required).toEqual(expect.arrayContaining(['sources','citations','annexes','evidenceGroups','schemaVersion']));
+    expect(createHash('sha256').update(readFileSync(new URL('../schemas/decision-dossier-document.v1.schema.json', import.meta.url))).digest('hex'))
+      .toBe('725bc07e7c6b6ad51a1f720cc9fb02649d8f31bc54e71c61c350fd20058c8852');
+  });
+  it('should reject new evidence through the frozen old validator rather than dropping it', async () => {
+    const old = await import('./fixtures/validator.v1.mjs');
+    expect(old.validateDecisionDossierDocument(evidenceFixture()).ok).toBe(false);
+  });
+});
 
 describe("DecisionDossierDocument schema asset identity", () => {
   it("publishes the stable schema ID under draft 2020-12", () => {

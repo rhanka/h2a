@@ -1,0 +1,361 @@
+{
+  "version": 1,
+  "frozenAt": "2026-10-18",
+  "calibration": {
+    "command": "node calibration script: measure(coldRuns:3, taskRuns:5)",
+    "sha256": "4a879cb8e2fcd4664ddb7510cd1c5e97dac2abae68b3fd59f8e91de1b6aa28a3",
+    "node": "v22.22.1",
+    "chromium": "153.0.8010.12",
+    "cpu": "AMD RYZEN AI MAX+ 395 w/ Radeon 8060S",
+    "ramBytes": 61736112128
+  },
+  "corpusSha256": "7889dc63dbf8cf304ea88ac79a1cbe9c8d86c59a8427ae8cb5e20882e5c1957e",
+  "generatorSha256": "a78a7851d85ee75658f177e4f91c247f8c3d491301170d2bd20f43529e44b86f",
+  "fixtureSha256": "0f3fc61f2c2fb0b46ef68d404ae251ad56ed5faac92fbe4d7c07c5605510d350",
+  "measurementSha256": "0ad56bd76d31782ca2228b2f3812dd34be5e226d852fec14c270cb9204dbdac1",
+  "libraries": {
+    "playwright": "1.63.0",
+    "svelte": "5.56.4",
+    "vite": "7.3.6"
+  },
+  "profile": {
+    "viewport": [
+      1440,
+      900
+    ],
+    "usabilityViewports": [
+      320,
+      390,
+      1440
+    ],
+    "font": "system-ui, sans-serif; source: monospace 14px/24px",
+    "themes": [
+      "light",
+      "dark"
+    ]
+  },
+  "method": "Linux summed VmRSS of the exact launched Chromium PID and its descendants at 20ms; zombie/exited children have zero resident pages; CDP Runtime.getHeapUsage after HeapProfiler.collectGarbage. Counts shared pages per process, includes browser/GPU/workers; no cross-browser parity claim. If VmRSS disappears before zombie state, the same PID statm must independently report all seven counters zero; any live/nonzero, malformed or unavailable measurement fails. Raw measurements are retained before asserting monitoring failures.",
+  "repetitions": {
+    "cold": 30,
+    "tasks": 30
+  },
+  "budgets": {
+    "cold": {
+      "legacy": {
+        "p95": 500,
+        "max": 1000
+      },
+      "small": {
+        "p95": 500,
+        "max": 1000
+      },
+      "large": {
+        "p95": 2500,
+        "max": 4000
+      },
+      "doubled": {
+        "p95": 500,
+        "max": 1000
+      }
+    },
+    "citation": {
+      "p95": 300,
+      "max": 500
+    },
+    "search": {
+      "p95": 400,
+      "max": 750
+    },
+    "domLines": 80,
+    "domNodes": 400,
+    "peakRssBytes": 2147483648,
+    "retainedRssGrowthBytes": 134217728,
+    "retainedHeapGrowthBytes": 16777216
+  },
+  "calibrationArtifacts": {
+    "legacy": {
+      "inputSha256": "de3e21bdbec1b00c16fecf2fccb39100f0443c7c4c44357e39125b4269e8f210",
+      "htmlSha256": "3b4bab25e97b74e27815705bb3f994b6c237b884a554e5e28e049ac477a0b2a0",
+      "htmlBytes": 341931,
+      "evidenceBytes": 0,
+      "sources": 0,
+      "lines": []
+    },
+    "small": {
+      "inputSha256": "d2810cdf7e9486ac4d8ff5d39f322d2df5d92ecc4f87bce6a62d1e2b7c7c4f1f",
+      "htmlSha256": "cc8f2d53e0a4b4763ac1280c14377dbbfb9e59a513b21a42b0f7474b2c7cdd65",
+      "htmlBytes": 343975,
+      "evidenceBytes": 404,
+      "sources": 3,
+      "lines": [
+        {
+          "id": "long",
+          "lines": 13
+        },
+        {
+          "id": "other-0",
+          "lines": 1
+        }
+      ]
+    },
+    "large": {
+      "inputSha256": "710e5e388de544972a6d2e440c16bc4d05fa5baa056f9b5c633c2db9fe72026a",
+      "htmlSha256": "ac1a27714e86c6d0fc66632166ceba0dc030a9f2cde2a0be0b070d8da8ba7827",
+      "htmlBytes": 30948510,
+      "evidenceBytes": 22945971,
+      "sources": 31,
+      "lines": [
+        {
+          "id": "long",
+          "lines": 20001
+        },
+        {
+          "id": "repository-0",
+          "lines": 10978
+        },
+        {
+          "id": "repository-1",
+          "lines": 15234
+        },
+        {
+          "id": "repository-2",
+          "lines": 12296
+        },
+        {
+          "id": "repository-3",
+          "lines": 14745
+        },
+        {
+          "id": "repository-4",
+          "lines": 11642
+        },
+        {
+          "id": "repository-5",
+          "lines": 13160
+        },
+        {
+          "id": "repository-6",
+          "lines": 11128
+        },
+        {
+          "id": "repository-7",
+          "lines": 9595
+        },
+        {
+          "id": "repository-8",
+          "lines": 12028
+        },
+        {
+          "id": "repository-9",
+          "lines": 10762
+        },
+        {
+          "id": "repository-10",
+          "lines": 17456
+        },
+        {
+          "id": "repository-11",
+          "lines": 10814
+        },
+        {
+          "id": "repository-12",
+          "lines": 12838
+        },
+        {
+          "id": "repository-13",
+          "lines": 13343
+        },
+        {
+          "id": "repository-14",
+          "lines": 12693
+        },
+        {
+          "id": "repository-15",
+          "lines": 18684
+        },
+        {
+          "id": "repository-16",
+          "lines": 16608
+        },
+        {
+          "id": "repository-17",
+          "lines": 24155
+        },
+        {
+          "id": "repository-18",
+          "lines": 13535
+        },
+        {
+          "id": "repository-19",
+          "lines": 19800
+        },
+        {
+          "id": "repository-20",
+          "lines": 10886
+        },
+        {
+          "id": "repository-21",
+          "lines": 15562
+        },
+        {
+          "id": "repository-22",
+          "lines": 20055
+        },
+        {
+          "id": "repository-23",
+          "lines": 14575
+        },
+        {
+          "id": "repository-24",
+          "lines": 11656
+        },
+        {
+          "id": "repository-25",
+          "lines": 12753
+        },
+        {
+          "id": "repository-26",
+          "lines": 15965
+        },
+        {
+          "id": "repository-27",
+          "lines": 17584
+        },
+        {
+          "id": "repository-28",
+          "lines": 13431
+        }
+      ]
+    },
+    "doubled": {
+      "inputSha256": "62ab023ba5f1cc1c5048a3bbc535c80e4b68c968f098a58060008704467a5efe",
+      "htmlSha256": "5f8a1d45a25e124e10d7589ecb087898080f7f162dc852a04e5efbf0bce49410",
+      "htmlBytes": 1935590,
+      "evidenceBytes": 1189403,
+      "sources": 31,
+      "lines": [
+        {
+          "id": "long",
+          "lines": 40001
+        },
+        {
+          "id": "other-0",
+          "lines": 1
+        },
+        {
+          "id": "other-1",
+          "lines": 1
+        },
+        {
+          "id": "other-2",
+          "lines": 1
+        },
+        {
+          "id": "other-3",
+          "lines": 1
+        },
+        {
+          "id": "other-4",
+          "lines": 1
+        },
+        {
+          "id": "other-5",
+          "lines": 1
+        },
+        {
+          "id": "other-6",
+          "lines": 1
+        },
+        {
+          "id": "other-7",
+          "lines": 1
+        },
+        {
+          "id": "other-8",
+          "lines": 1
+        },
+        {
+          "id": "other-9",
+          "lines": 1
+        },
+        {
+          "id": "other-10",
+          "lines": 1
+        },
+        {
+          "id": "other-11",
+          "lines": 1
+        },
+        {
+          "id": "other-12",
+          "lines": 1
+        },
+        {
+          "id": "other-13",
+          "lines": 1
+        },
+        {
+          "id": "other-14",
+          "lines": 1
+        },
+        {
+          "id": "other-15",
+          "lines": 1
+        },
+        {
+          "id": "other-16",
+          "lines": 1
+        },
+        {
+          "id": "other-17",
+          "lines": 1
+        },
+        {
+          "id": "other-18",
+          "lines": 1
+        },
+        {
+          "id": "other-19",
+          "lines": 1
+        },
+        {
+          "id": "other-20",
+          "lines": 1
+        },
+        {
+          "id": "other-21",
+          "lines": 1
+        },
+        {
+          "id": "other-22",
+          "lines": 1
+        },
+        {
+          "id": "other-23",
+          "lines": 1
+        },
+        {
+          "id": "other-24",
+          "lines": 1
+        },
+        {
+          "id": "other-25",
+          "lines": 1
+        },
+        {
+          "id": "other-26",
+          "lines": 1
+        },
+        {
+          "id": "other-27",
+          "lines": 1
+        },
+        {
+          "id": "other-28",
+          "lines": 1
+        }
+      ]
+    }
+  },
+  "headroom": "Rounded budgets from exploratory maxima (~135ms small,1000ms large,82ms citation,90ms search,730MB peak) allow runner variation; frozen before qualification, never relaxed on failure. Corpus repair: allowlisted technical source blobs only, recalibrated at identical numeric budgets before qualification."
+}
