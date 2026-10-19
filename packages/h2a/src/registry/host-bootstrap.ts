@@ -17,11 +17,23 @@
  * the original bytes pre-acceptance, and there is never a window with two
  * `h2a` entries.
  */
-import { existsSync, mkdirSync, renameSync, unlinkSync, writeFileSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { dirname } from "node:path";
 import { replaceJsonEntry } from "../hosts/json-entry.js";
-import { RegistryError } from "./descriptors.js";
+import { RegistryError, type RegistryEntry } from "./descriptors.js";
+import { provisionBridgeLock } from "./bridge-lock.js";
+import {
+  isBridgeServer as isCodexBridgeServer,
+  isH2aServerName as isCodexH2aServerName,
+  isLegacyDirectServer as isCodexLegacyDirectServer,
+  legacyCodexDeviation,
+  parseCodexToml,
+  readCodexServers,
+  removeCodexH2a,
+  upsertCodexH2a,
+  type CodexServer
+} from "./codex-toml.js";
 import { isBridgeServer, isH2aServerName, isLegacyDirectServer, readVibeServers, removeVibeH2a, upsertVibeH2a } from "./vibe-toml.js";
 
 export const BRIDGE_SERVER_KEY = "h2a";
@@ -95,12 +107,31 @@ export function qualifiedToolId(host: RegistryHost, mechanism: RegistryMechanism
   fail(`unknown mechanism ${JSON.stringify(mechanism)}`);
 }
 
+/**
+ * Test-only interposition seam for deterministic transaction tests: the
+ * test harness injects faults (concurrent edits, receipt/lock sabotage) at
+ * exact transaction phases. Never set outside tests — there is no published
+ * fault-injection surface (no CLI flag, no env var reads this field).
+ */
+export interface HostBootstrapInterpose {
+  /** After the original bytes are captured, before staging is written. */
+  afterRead?: (target: string) => void;
+  /** After the candidate is published (rename), before the receipt write. */
+  afterPublish?: (target: string, published: string) => void;
+  /** After the receipt write, before the post-publish commit (lock). */
+  afterReceipt?: (target: string) => void;
+}
+
 export interface InstallOptions {
   host: string;
   configPath: string;
   profile?: string;
   dryRun?: boolean;
   lockPath?: string;
+  interpose?: HostBootstrapInterpose;
+  /** Packed entries for in-transaction lock provisioning; absent skips it. */
+  h2aEntry?: RegistryEntry;
+  trackEntry?: RegistryEntry;
 }
 
 export interface InstallPreview {
@@ -108,10 +139,13 @@ export interface InstallPreview {
   reason: string;
 }
 
+export type InstallLockAction = "provisioned" | "already-present" | "skipped-dry-run" | "skipped-no-entries";
+
 export interface InstallResult {
   action: "installed" | "migrate-direct" | "reinstall-identical";
   backupPath?: string;
   receiptPath: string;
+  lockAction: InstallLockAction;
 }
 
 const H2A_COMMAND = /(^|[\\/])h2a(\.cmd|\.exe)?$/i;
@@ -138,73 +172,241 @@ function writeReceipt(configPath: string, record: Record<string, unknown>): stri
 export interface AtomicWriteReceipt {
   path: string;
   record: Record<string, unknown>;
+  snapshot: FileSnapshot;
+}
+
+export interface AtomicWriteLock {
+  path: string;
+  snapshot: FileSnapshot;
+}
+
+export interface AtomicWriteOptions {
+  receipt?: AtomicWriteReceipt;
+  lock?: AtomicWriteLock;
+  interpose?: HostBootstrapInterpose;
+  /** Post-receipt commit (lock provisioning): runs inside the transaction. */
+  commit?: () => void;
 }
 
 function writeReceiptRecord(receiptPath: string, record: Record<string, unknown>): void {
   writeFileSync(receiptPath, `${JSON.stringify({ format: "h2a.registry-install/v1", ...record }, null, 2)}\n`, { mode: 0o600 });
 }
 
-function atomicWriteWithBackup(target: string, next: string, receipt?: AtomicWriteReceipt): { backupPath?: string } {
+/** Prior existence/bytes of a transaction artefact (receipt, lock). */
+export interface FileSnapshot {
+  exists: boolean;
+  bytes: Buffer | null;
+}
+
+function snapshotFile(path: string): FileSnapshot {
+  try {
+    if (statSync(path).isDirectory()) return { exists: true, bytes: null };
+    return { exists: true, bytes: readFileSync(path) };
+  } catch {
+    return { exists: false, bytes: null };
+  }
+}
+
+/**
+ * Restore a snapshotted artefact: pre-existing bytes are rewritten,
+ * transaction-created paths are removed. Only the transaction calls this,
+ * only for paths it snapshotted at preflight.
+ */
+function restoreSnapshot(path: string, snapshot: FileSnapshot): void {
+  if (snapshot.exists && snapshot.bytes) {
+    try {
+      if (statSync(path).isDirectory()) rmSync(path, { recursive: true, force: true });
+    } catch {
+      /* absent: the write below recreates it */
+    }
+    writeFileSync(path, snapshot.bytes);
+    return;
+  }
+  if (snapshot.exists && !snapshot.bytes) {
+    throw new RegistryError("invalid_entry", `cannot snapshot directory at ${path}; refusing to alter it`);
+  }
+  try {
+    if (statSync(path).isDirectory()) rmSync(path, { recursive: true, force: true });
+    else unlinkSync(path);
+  } catch {
+    /* already absent: the pre-install state */
+  }
+}
+
+/**
+ * Compare-and-replace rollback for self-published bytes. Restores the exact
+ * pre-install bytes while the target still holds what this transaction
+ * published (recreating it when it vanished, removing it when this
+ * transaction created it). A concurrent user edit that arrived after
+ * publication is preserved and yields the named irrecoverable state instead
+ * of being overwritten. A failed restore surfaces distinctly and the
+ * transaction record (receipt) names it.
+ */
+function rollbackPublishedTarget(target: string, published: string, original: Buffer | null, backupPath: string | undefined): void {
+  let current: Buffer | null = null;
+  try {
+    current = existsSync(target) ? readFileSync(target) : null;
+  } catch {
+    current = null;
+  }
+  const stillOurs = current !== null && current.toString("utf8") === published;
+  if (!stillOurs && current !== null) {
+    throw new RegistryError(
+      "published_then_edited",
+      `host config at ${target} changed after this transaction published; concurrent bytes preserved, ` +
+      `pre-install bytes kept at ${backupPath ?? "no backup (target was created by this transaction)"}`
+    );
+  }
+  try {
+    if (original) writeFileSync(target, original);
+    else if (stillOurs) unlinkSync(target);
+    // Created-then-vanished: absence already matches the pre-install state.
+  } catch (restoreError) {
+    const failure = {
+      action: "restore-failed",
+      target,
+      restoreError: (restoreError as Error)?.message ?? String(restoreError)
+    };
+    try {
+      writeReceiptRecord(receiptPathFor(target), failure);
+    } catch {
+      /* the receipt itself is unwritable: restore_failed below still carries the cause */
+    }
+    throw new RegistryError(
+      "restore_failed",
+      `failed to roll back ${target} (${failure.restoreError}); see ${receiptPathFor(target)}`
+    );
+  }
+}
+
+function atomicWriteWithBackup(target: string, next: string, options: AtomicWriteOptions = {}): { backupPath?: string } {
   const existed = existsSync(target);
   const original = existed ? readFileSync(target) : null;
   if (original && original.toString("utf8") === next) return {};
   const backupPath = existed ? `${target}.backup-${randomUUID()}` : undefined;
   if (backupPath && original) writeFileSync(backupPath, original, { flag: "wx", mode: 0o600 });
   mkdirSync(dirname(target), { recursive: true });
+  options.interpose?.afterRead?.(target);
   const staging = `${target}.${randomUUID()}.tmp`;
+  let published: string | null = null;
+  let commitAttempted = false;
   try {
     writeFileSync(staging, next, { flag: "wx", mode: 0o600 });
     if (existed && readFileSync(target).toString("utf8") !== (original as Buffer).toString("utf8")) {
       throw new RegistryError("invalid_entry", "host config changed while preparing the edit; refusing to overwrite it");
     }
     renameSync(staging, target);
+    published = next;
+    options.interpose?.afterPublish?.(target, next);
     // The receipt is part of the transaction: a receipt failure after the
-    // rename must restore the original bytes, never leave a migrated config
-    // without its transaction record.
-    if (receipt) writeReceiptRecord(receipt.path, receipt.record);
+    // rename rolls back, never leaving a migrated config without its record.
+    if (options.receipt) writeReceiptRecord(options.receipt.path, options.receipt.record);
+    options.interpose?.afterReceipt?.(target);
+    // Lock provisioning is part of the same transaction: its failure rolls
+    // back config and receipt identically.
+    if (options.commit) {
+      commitAttempted = true;
+      options.commit();
+    }
   } catch (error) {
     try {
       if (existsSync(staging)) unlinkSync(staging);
     } catch {
-      /* staging cleanup is best-effort; the original error below carries the failure */
+      /* staging cleanup is best-effort; the error below carries the failure */
     }
-    // Restore whenever the target diverged from the original bytes, including
-    // when the target vanished mid-transaction (missing counts as diverged).
-    // An unreadable target also counts as diverged: the restore is attempted
-    // and its failure surfaces distinctly below.
-    if (original) {
-      let current: Buffer | null = null;
+    if (published !== null) {
+      // Restore covers only self-published bytes (compare-and-replace). The
+      // not-yet-published case never touches the target: a concurrent edit
+      // detected before rename stays exactly as the operator left it.
+      // Artefact cleanup runs even when the rollback itself reports the
+      // named irrecoverable state: the named state takes precedence, a
+      // cleanup failure is appended, never silent.
+      let rollbackError: unknown = null;
       try {
-        current = existsSync(target) ? readFileSync(target) : null;
-      } catch {
-        current = null;
+        rollbackPublishedTarget(target, published, original, backupPath);
+      } catch (rollback) {
+        rollbackError = rollback;
       }
-      if (!current || !current.equals(original)) {
-        try {
-          writeFileSync(target, original);
-        } catch (restoreError) {
-          const failure = {
-            action: "restore-failed",
-            target,
-            error: (error as Error)?.message ?? String(error),
-            restoreError: (restoreError as Error)?.message ?? String(restoreError)
-          };
-          try {
-            writeReceiptRecord(receiptPathFor(target), failure);
-          } catch {
-            /* the receipt itself is unwritable: restore_failed below still carries both causes */
-          }
-          throw new RegistryError(
-            "restore_failed",
-            `failed to restore ${target} after install failure (${failure.error}); ` +
-            `restore also failed (${failure.restoreError}); see ${receiptPathFor(target)}`
-          );
+      let cleanupError: unknown = null;
+      try {
+        if (options.receipt) restoreSnapshot(options.receipt.path, options.receipt.snapshot);
+        if (options.lock && commitAttempted) restoreSnapshot(options.lock.path, options.lock.snapshot);
+      } catch (cleanup) {
+        cleanupError = cleanup;
+      }
+      if (rollbackError) {
+        if (cleanupError) {
+          (rollbackError as Error).message +=
+            `; artefact cleanup also failed (${(cleanupError as Error)?.message ?? String(cleanupError)})`;
         }
+        throw rollbackError;
       }
+      if (cleanupError) throw cleanupError;
     }
     throw error;
   }
   return backupPath ? { backupPath } : {};
+}
+
+/** Plugin and file mechanisms for one host/profile are mutually exclusive. */
+function refuseConflictingMechanism(host: string, profile: string, configPath: string): void {
+  const receipt = readInstallReceipt(configPath);
+  if (!receipt) return;
+  if (receipt["host"] !== host || (receipt["profile"] ?? "default") !== profile) return;
+  const recorded = receipt["mechanism"];
+  if (recorded !== undefined && recorded !== "file") {
+    throw new RegistryError(
+      "invalid_entry",
+      `conflicting mechanism ${JSON.stringify(recorded)} recorded for host=${host} profile=${profile} ` +
+      `at ${receiptPathFor(configPath)}; file install refused (duplicate mechanism)`
+    );
+  }
+}
+
+export interface InstallPreflight {
+  receiptPath: string;
+  receiptSnapshot: FileSnapshot;
+  lockSnapshot: FileSnapshot;
+}
+
+/**
+ * Preflight everything preflightable before publishing config bytes: the
+ * receipt path must be writable (never a directory) and the lock path must
+ * be usable. Preflight failures refuse before publication and are never
+ * cited as rollback evidence. Prior receipt/lock bytes are snapshotted for
+ * rollback restoration.
+ */
+function preflightInstall(configPath: string, lockPath: string): InstallPreflight {
+  const receiptPath = receiptPathFor(configPath);
+  if (existsSync(receiptPath) && statSync(receiptPath).isDirectory()) {
+    throw new RegistryError("invalid_entry", `receipt path at ${receiptPath} is a directory; refusing before publication`);
+  }
+  if (existsSync(lockPath) && statSync(lockPath).isDirectory()) {
+    throw new RegistryError("invalid_entry", `lock path at ${lockPath} is a directory; refusing before publication`);
+  }
+  return { receiptPath, receiptSnapshot: snapshotFile(receiptPath), lockSnapshot: snapshotFile(lockPath) };
+}
+
+/** In-transaction lock provisioning for installs carrying packed entries. */
+function provisionTxLock(
+  lockPath: string,
+  host: RegistryHost,
+  profile: string,
+  h2aEntry: RegistryEntry | undefined,
+  trackEntry: RegistryEntry | undefined
+): { commit: (() => void) | undefined; getAction: () => InstallLockAction } {
+  if (!h2aEntry || !trackEntry) return { commit: undefined, getAction: () => "skipped-no-entries" as const };
+  let action: InstallLockAction = "skipped-no-entries";
+  const bridge = {
+    command: "h2a",
+    args: ["registry-bridge", "serve", "--host", host, "--profile", profile, "--lock", lockPath]
+  };
+  return {
+    commit: () => {
+      action = provisionBridgeLock({ lockPath, host, profile, bridge, h2aEntry, trackEntry }).action;
+    },
+    getAction: () => action
+  };
 }
 
 function legacyJsonDeviation(entry: Record<string, unknown>): string | null {
@@ -334,7 +536,14 @@ function classifyJsonHost(current: unknown, wanted: { h2a: BridgeEndpoint }): In
   return { action: "conflict", reason: "unknown same-key h2a ownership: refusing to overwrite it" };
 }
 
-function installJsonHost(host: RegistryHost, configPath: string, profile: string, dryRun: boolean, lockPath: string): InstallResult {
+function installJsonHost(
+  host: RegistryHost,
+  configPath: string,
+  profile: string,
+  dryRun: boolean,
+  lockPath: string,
+  tx: { interpose?: HostBootstrapInterpose; h2aEntry?: RegistryEntry; trackEntry?: RegistryEntry }
+): InstallResult {
   const { entry } = renderBridgeEntry(host, { profile, lockPath });
   const raw = existsSync(configPath) ? readFileSync(configPath, "utf8") : "{}\n";
   let parsed: Record<string, unknown>;
@@ -346,27 +555,119 @@ function installJsonHost(host: RegistryHost, configPath: string, profile: string
   if (parsed["mcpServers"] !== undefined && !isPlainObject(parsed["mcpServers"])) {
     throw new RegistryError("invalid_entry", "mcpServers must be an object");
   }
+  refuseConflictingMechanism(host, profile, configPath);
+  const preflight = preflightInstall(configPath, lockPath);
   const preview = classifyJsonHost((parsed["mcpServers"] as Record<string, unknown> | undefined)?.["h2a"], entry);
   if (preview.action === "conflict") throw new RegistryError("invalid_entry", `not migrating ${configPath}: ${preview.reason}`);
+  const lockTx = provisionTxLock(lockPath, host, profile, tx.h2aEntry, tx.trackEntry);
   if (preview.action === "reinstall-identical") {
-    const receiptPath = receiptPathFor(configPath);
-    if (!existsSync(receiptPath) && !dryRun) {
+    if (!existsSync(preflight.receiptPath) && !dryRun) {
       writeReceipt(configPath, { host, profile, mechanism: "file", bridge: entry.h2a, lockPath, action: "reinstall-identical" });
     }
-    return { action: "reinstall-identical", receiptPath };
+    if (dryRun) return { action: "reinstall-identical", receiptPath: preflight.receiptPath, lockAction: "skipped-dry-run" };
+    if (lockTx.commit) {
+      try {
+        lockTx.commit();
+      } catch (error) {
+        restoreSnapshot(preflight.receiptPath, preflight.receiptSnapshot);
+        throw error;
+      }
+    }
+    return { action: "reinstall-identical", receiptPath: preflight.receiptPath, lockAction: lockTx.getAction() };
   }
   const next = replaceJsonEntry(raw, ["mcpServers", BRIDGE_SERVER_KEY], entry.h2a);
+  try {
+    JSON.parse(next);
+  } catch {
+    throw new RegistryError("invalid_entry", `rendered candidate for ${configPath} is not JSON; refusing to publish it`);
+  }
   const resultAction = preview.action === "install" ? "installed" : preview.action;
-  if (dryRun) return { action: resultAction, receiptPath: receiptPathFor(configPath) };
-  const receiptPath = receiptPathFor(configPath);
+  if (dryRun) return { action: resultAction, receiptPath: preflight.receiptPath, lockAction: "skipped-dry-run" };
   const { backupPath } = atomicWriteWithBackup(configPath, next, {
-    path: receiptPath,
-    record: { host, profile, mechanism: "file", bridge: entry.h2a, lockPath, action: preview.action }
+    receipt: {
+      path: preflight.receiptPath,
+      record: { host, profile, mechanism: "file", bridge: entry.h2a, lockPath, action: preview.action },
+      snapshot: preflight.receiptSnapshot
+    },
+    lock: { path: lockPath, snapshot: preflight.lockSnapshot },
+    interpose: tx.interpose,
+    commit: lockTx.commit
   });
-  return { action: resultAction, ...(backupPath ? { backupPath } : {}), receiptPath };
+  return { action: resultAction, ...(backupPath ? { backupPath } : {}), receiptPath: preflight.receiptPath, lockAction: lockTx.getAction() };
 }
 
-function installVibeHost(configPath: string, profile: string, dryRun: boolean, lockPath: string): InstallResult {
+function classifyCodexHost(current: CodexServer | undefined): InstallPreview {
+  if (current === undefined) return { action: "install", reason: "no h2a entry present" };
+  if (isCodexBridgeServer(current)) return { action: "reinstall-identical", reason: "bridge entry already installed" };
+  if (isCodexLegacyDirectServer(current)) return { action: "migrate-direct", reason: "legacy direct h2a [mcp_servers.h2a] entry" };
+  const deviation = legacyCodexDeviation(current);
+  if (deviation !== null && (current.args ?? []).includes("mcp-serve")) {
+    return { action: "conflict", reason: deviation };
+  }
+  return { action: "conflict", reason: "unknown same-key h2a ownership: refusing to overwrite it" };
+}
+
+function installCodexHost(
+  configPath: string,
+  profile: string,
+  dryRun: boolean,
+  lockPath: string,
+  tx: { interpose?: HostBootstrapInterpose; h2aEntry?: RegistryEntry; trackEntry?: RegistryEntry }
+): InstallResult {
+  const { entry } = renderBridgeEntry("codex", { profile, lockPath });
+  const raw = existsSync(configPath) ? readFileSync(configPath, "utf8") : "";
+  // Format is chosen by host: a JSON-shaped config.toml is refused here,
+  // before any write is considered.
+  const servers = readCodexServers(raw);
+  const owned = servers.filter((server) => isCodexH2aServerName(server.name));
+  let preview: InstallPreview;
+  if (owned.length > 1) {
+    preview = { action: "conflict", reason: "duplicate h2a [mcp_servers.*] tables: resolve the conflict by hand" };
+  } else {
+    preview = classifyCodexHost(owned[0] as CodexServer | undefined);
+  }
+  refuseConflictingMechanism("codex", profile, configPath);
+  const preflight = preflightInstall(configPath, lockPath);
+  if (preview.action === "conflict") throw new RegistryError("invalid_entry", `not migrating ${configPath}: ${preview.reason}`);
+  const lockTx = provisionTxLock(lockPath, "codex", profile, tx.h2aEntry, tx.trackEntry);
+  const { text: next, changed } = upsertCodexH2a(raw, entry.h2a.command, entry.h2a.args);
+  if (preview.action === "reinstall-identical" || !changed) {
+    if (!existsSync(preflight.receiptPath) && !dryRun) {
+      writeReceipt(configPath, { host: "codex", profile, mechanism: "file", bridge: entry.h2a, lockPath, action: "reinstall-identical" });
+    }
+    if (dryRun) return { action: "reinstall-identical", receiptPath: preflight.receiptPath, lockAction: "skipped-dry-run" };
+    if (lockTx.commit) {
+      try {
+        lockTx.commit();
+      } catch (error) {
+        restoreSnapshot(preflight.receiptPath, preflight.receiptSnapshot);
+        throw error;
+      }
+    }
+    return { action: "reinstall-identical", receiptPath: preflight.receiptPath, lockAction: lockTx.getAction() };
+  }
+  const resultAction = preview.action === "install" ? "installed" : preview.action;
+  if (dryRun) return { action: resultAction, receiptPath: preflight.receiptPath, lockAction: "skipped-dry-run" };
+  const { backupPath } = atomicWriteWithBackup(configPath, next, {
+    receipt: {
+      path: preflight.receiptPath,
+      record: { host: "codex", profile, mechanism: "file", bridge: entry.h2a, lockPath, action: preview.action },
+      snapshot: preflight.receiptSnapshot
+    },
+    lock: { path: lockPath, snapshot: preflight.lockSnapshot },
+    interpose: tx.interpose,
+    commit: lockTx.commit
+  });
+  return { action: resultAction, ...(backupPath ? { backupPath } : {}), receiptPath: preflight.receiptPath, lockAction: lockTx.getAction() };
+}
+
+function installVibeHost(
+  configPath: string,
+  profile: string,
+  dryRun: boolean,
+  lockPath: string,
+  tx: { interpose?: HostBootstrapInterpose; h2aEntry?: RegistryEntry; trackEntry?: RegistryEntry }
+): InstallResult {
   const { entry } = renderBridgeEntry("vibe", { profile, lockPath });
   const raw = existsSync(configPath) ? readFileSync(configPath, "utf8") : "";
   const servers = readVibeServers(raw);
@@ -388,28 +689,54 @@ function installVibeHost(configPath: string, profile: string, dryRun: boolean, l
       preview = { action: "conflict", reason: "unknown same-key h2a ownership: refusing to overwrite it" };
     }
   }
+  refuseConflictingMechanism("vibe", profile, configPath);
+  const preflight = preflightInstall(configPath, lockPath);
   if (preview.action === "conflict") throw new RegistryError("invalid_entry", `not migrating ${configPath}: ${preview.reason}`);
+  const lockTx = provisionTxLock(lockPath, "vibe", profile, tx.h2aEntry, tx.trackEntry);
   const { text: next, changed } = upsertVibeH2a(raw, entry.h2a.command, entry.h2a.args);
   if (!changed) {
-    const receiptPath = receiptPathFor(configPath);
-    if (!existsSync(receiptPath) && !dryRun) {
+    if (!existsSync(preflight.receiptPath) && !dryRun) {
       writeReceipt(configPath, { host: "vibe", profile, mechanism: "file", bridge: entry.h2a, lockPath, action: "reinstall-identical" });
     }
-    return { action: "reinstall-identical", receiptPath };
+    if (dryRun) return { action: "reinstall-identical", receiptPath: preflight.receiptPath, lockAction: "skipped-dry-run" };
+    if (lockTx.commit) {
+      try {
+        lockTx.commit();
+      } catch (error) {
+        restoreSnapshot(preflight.receiptPath, preflight.receiptSnapshot);
+        throw error;
+      }
+    }
+    return { action: "reinstall-identical", receiptPath: preflight.receiptPath, lockAction: lockTx.getAction() };
   }
   const resultAction = preview.action === "install" ? "installed" : preview.action;
-  if (dryRun) return { action: resultAction, receiptPath: receiptPathFor(configPath) };
-  const receiptPath = receiptPathFor(configPath);
+  if (dryRun) return { action: resultAction, receiptPath: preflight.receiptPath, lockAction: "skipped-dry-run" };
   const { backupPath } = atomicWriteWithBackup(configPath, next, {
-    path: receiptPath,
-    record: { host: "vibe", profile, mechanism: "file", bridge: entry.h2a, lockPath, action: preview.action }
+    receipt: {
+      path: preflight.receiptPath,
+      record: { host: "vibe", profile, mechanism: "file", bridge: entry.h2a, lockPath, action: preview.action },
+      snapshot: preflight.receiptSnapshot
+    },
+    lock: { path: lockPath, snapshot: preflight.lockSnapshot },
+    interpose: tx.interpose,
+    commit: lockTx.commit
   });
-  return { action: resultAction, ...(backupPath ? { backupPath } : {}), receiptPath };
+  return { action: resultAction, ...(backupPath ? { backupPath } : {}), receiptPath: preflight.receiptPath, lockAction: lockTx.getAction() };
 }
 
 export function previewInstall(options: InstallOptions): InstallPreview {
   assertRegistryHost(options.host);
   const profile = options.profile ?? "default";
+  if (options.host === "muse") {
+    throw new RegistryError("unsupported_host", "muse file install is blocked until generic stdio bridge pickup is proven; supported install hosts: claude, codex, agy, vibe");
+  }
+  if (options.host === "codex") {
+    const raw = existsSync(options.configPath) ? readFileSync(options.configPath, "utf8") : "";
+    const servers = readCodexServers(raw);
+    const owned = servers.filter((server) => isCodexH2aServerName(server.name));
+    if (owned.length > 1) return { action: "conflict", reason: "duplicate h2a [mcp_servers.*] tables" };
+    return classifyCodexHost(owned[0] as CodexServer | undefined);
+  }
   if (options.host === "vibe") {
     const raw = existsSync(options.configPath) ? readFileSync(options.configPath, "utf8") : "";
     const servers = readVibeServers(raw);
@@ -421,9 +748,7 @@ export function previewInstall(options: InstallOptions): InstallPreview {
     if (isLegacyDirectServer(target)) return { action: "migrate-direct", reason: "interim direct h2a [[mcp_servers]] entry" };
     return { action: "conflict", reason: "unknown same-key h2a ownership" };
   }
-  if (options.host !== "claude" && options.host !== "codex" && options.host !== "agy" && options.host !== "muse") {
-    throw new RegistryError("unsupported_host", `unknown host ${options.host}; supported hosts: ${SUPPORTED_HOSTS.join(", ")}`);
-  }
+  // Narrowed to claude|agy by the explicit dispatch above: JSON adapter.
   const { entry } = renderBridgeEntry(options.host, { profile });
   const raw = existsSync(options.configPath) ? readFileSync(options.configPath, "utf8") : "{}\n";
   let parsed: Record<string, unknown>;
@@ -450,18 +775,48 @@ export function installBridgeEntry(options: InstallOptions): InstallResult {
     );
   }
   const lockPath = options.lockPath;
-  // Explicit host dispatch: any non-vibe host outside the JSON allowlist
-  // throws unsupported_host instead of falling through to the JSON installer.
-  if (options.host === "vibe") return installVibeHost(options.configPath, profile, dryRun, lockPath);
-  if (options.host === "claude" || options.host === "codex" || options.host === "agy" || options.host === "muse") {
-    return installJsonHost(options.host, options.configPath, profile, dryRun, lockPath);
+  const tx = { interpose: options.interpose, h2aEntry: options.h2aEntry, trackEntry: options.trackEntry };
+  // Explicit host dispatch, format chosen by host, never by fallthrough. A
+  // host/format pair with no qualified adapter (muse: pickup unproven)
+  // returns unsupported_host before any write.
+  if (options.host === "vibe") return installVibeHost(options.configPath, profile, dryRun, lockPath, tx);
+  if (options.host === "codex") return installCodexHost(options.configPath, profile, dryRun, lockPath, tx);
+  if (options.host === "claude" || options.host === "agy") {
+    return installJsonHost(options.host, options.configPath, profile, dryRun, lockPath, tx);
   }
-  throw new RegistryError("unsupported_host", `unknown host ${options.host}; supported hosts: ${SUPPORTED_HOSTS.join(", ")}`);
+  throw new RegistryError("unsupported_host", `muse file install is blocked until generic stdio bridge pickup is proven; supported install hosts: claude, codex, agy, vibe`);
 }
 
 export function uninstallBridgeEntry(options: { host: string; configPath: string }): { action: "uninstalled"; backupPath?: string } {
   assertRegistryHost(options.host);
+  if (options.host === "muse") {
+    throw new RegistryError("unsupported_host", "muse file install is blocked until generic stdio bridge pickup is proven; supported install hosts: claude, codex, agy, vibe");
+  }
   if (!existsSync(options.configPath)) throw new RegistryError("invalid_entry", `host config at ${options.configPath} is absent`);
+  if (options.host === "codex") {
+    const tomlRaw = readFileSync(options.configPath, "utf8");
+    const tomlServers = readCodexServers(tomlRaw);
+    const tomlOwned = tomlServers.filter((server) => isCodexH2aServerName(server.name));
+    if (tomlOwned.length === 0) throw new RegistryError("invalid_entry", "no h2a entry to uninstall");
+    if (tomlOwned.length > 1) {
+      throw new RegistryError("invalid_entry", "not uninstalling: duplicate h2a [mcp_servers.*] tables (conflict)");
+    }
+    const tomlTarget = tomlOwned[0] as CodexServer;
+    if (!isCodexBridgeServer(tomlTarget)) {
+      if (isCodexLegacyDirectServer(tomlTarget)) {
+        throw new RegistryError("invalid_entry", "not uninstalling a legacy direct entry here: run the registry migrate transaction instead");
+      }
+      throw new RegistryError("invalid_entry", "not uninstalling: h2a entry is not the installer-owned bridge entry (conflict)");
+    }
+    const { text: tomlNext } = removeCodexH2a(tomlRaw);
+    const { backupPath: tomlBackup } = atomicWriteWithBackup(options.configPath, tomlNext);
+    try {
+      unlinkSync(receiptPathFor(options.configPath));
+    } catch {
+      /* receipt may predate this installer */
+    }
+    return { action: "uninstalled", ...(tomlBackup ? { backupPath: tomlBackup } : {}) };
+  }
   if (options.host === "vibe") {
     const raw = readFileSync(options.configPath, "utf8");
     const servers = readVibeServers(raw);
@@ -479,9 +834,7 @@ export function uninstallBridgeEntry(options: { host: string; configPath: string
     }
     return { action: "uninstalled", ...(backupPath ? { backupPath } : {}) };
   }
-  if (options.host !== "claude" && options.host !== "codex" && options.host !== "agy" && options.host !== "muse") {
-    throw new RegistryError("unsupported_host", `unknown host ${options.host}; supported hosts: ${SUPPORTED_HOSTS.join(", ")}`);
-  }
+  // Narrowed to claude|agy by the explicit dispatch above: JSON adapter.
   const raw = readFileSync(options.configPath, "utf8");
   let parsed: Record<string, unknown>;
   try {
