@@ -45,7 +45,9 @@ const BIN = join(REPO_ROOT, "packages", "h2a", "dist", "bin.js");
 // instead of refusing every --write (+77 bytes, cli.ts renderCliHelp only).
 // Portable Focus adds exactly two usage lines (+183 bytes); removing them
 // restores the previous lane help stream and SHA-256 byte-for-byte.
-const CORE_HELP_SHA256 = "bd482dcc00bcf54d4c13935dd23adb10bf9152211a715cc661a51230f2ea3a57";
+// New main (#378 focus-edit-return): the `h2a focus feedback retain|apply`
+// usage line (+102 bytes); removing it recovers the LOT-1 stream and SHA-256.
+const CORE_HELP_SHA256 = "9eeebba03234abce47c3c9d3473a8c16ab90d87f80accd3877f97840399c9ec2";
 
 const RUNTIME_MISSING =
   "ce verbe requiert le runtime h2a (sessions / k8s / tunnel).\n" +
@@ -147,7 +149,8 @@ function assertCoreHelp(result) {
   // the host setup usage line now documents Vibe --write/--remove instead of refusing every --write.
   // + 28 for the LOT-1 H4 upgrade surface (0.98.8): the `h2a upgrade` usage
   // line now documents the single H4 command instead of the legacy staged path.
-  assert.equal(Buffer.byteLength(result.stdout), 14605);
+  // + 102 for main's focus feedback line on the rebased head.
+  assert.equal(Buffer.byteLength(result.stdout), 14707);
 
 }
 
