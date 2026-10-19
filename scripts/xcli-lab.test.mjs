@@ -110,8 +110,9 @@ test('L4: login copies accept only the codex and Muse login roles, never ambient
     // config, and a planted instance-shaped name.
     writeFileSync(join(authHome, '.codex/config.toml'), `instance = "${CANARY_INSTANCE}"\n`);
     writeFileSync(join(ambient, '.codex/auth.json'), JSON.stringify({ token: 'ambient-canary-zz9' }));
-    // Roles beyond 'codex'|'claude' are refused, even with material present.
-    for (const cli of ['gemini', 'agy', 'muse', 'vibe']) {
+    // Roles beyond 'codex'|'claude' map no login files: installer families with
+    // credential files are refused; 'vibe' maps an empty allowlist (QO4, Lot L7).
+    for (const cli of ['gemini', 'agy', 'muse']) {
       const cell = join(root, 'cell-' + cli);
       const env = environment(join(cell, 'role'));
       assert.throws(() => copyLogin(cli, authHome, cell, env), /login-not-confined/,
@@ -131,6 +132,18 @@ test('L4: login copies accept only the codex and Muse login roles, never ambient
       assert.ok(!content.includes(CANARY_INSTANCE), 'no planted instance name received');
       assert.ok(!content.includes(ambient), 'no ambient path received');
       assert.ok(!content.includes(join(authHome, '.codex/config.toml')), 'decoy files never copied');
+    }
+    // Lot L7 (QO4): 'vibe' maps an empty allowlist — no login files,
+    // no ambient reads, and no planted names or paths received.
+    {
+      const cell = join(root, 'cell-vibe');
+      const env = environment(join(cell, 'role'));
+      const copied = copyLogin('vibe', authHome, cell, env);
+      assert.deepEqual(copied, []);
+      const walk = dir => fs.readdirSync(dir, { withFileTypes: true }).flatMap(e =>
+        e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)]);
+      const content = walk(cell).map(f => fs.readFileSync(f, 'utf8')).join('\n');
+      assert.ok(!content.includes('ambient-canary-zz9'), 'no ambient credential material received');
     }
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
@@ -197,5 +210,22 @@ test('L6: the execution journal records transient descendants at every lifetime'
     assert.equal(verdict.pythonDescendants.length, 3, 'interpreter-named harness execs classify as Python');
     assert.ok(isPythonInterpreterPath('/opt/x/python3.14'));
     assert.ok(!isPythonInterpreterPath('/usr/bin/node'));
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+// Lot L7 RED (QO4, §8.2): the installed vendor vibe entrypoint classifies as
+// vendor-runtime python (not shipped) and is never blocked. Other families
+// keep the refusal: a Python entrypoint outside the vendor allowance stays
+// forbidden. Red on current code: no such classification exists and every
+// Vibe cell blocks pre-execution on python-entrypoint-forbidden.
+test('L7: the vendor vibe entrypoint classifies as vendor-runtime, never forbidden', async () => {
+  const { vendorRuntimeLabel } = await import('./xcli-lab.mjs');
+  const root = mkdtempSync('/tmp/xcli-vibe-');
+  try {
+    const launcher = join(root, 'vibe');
+    writeFileSync(launcher, '#!/home/owner/.local/share/uv/tools/mistral-vibe/bin/python3\n');
+    assert.equal(vendorRuntimeLabel('vibe', launcher), 'python (not shipped)');
+    assert.equal(vendorRuntimeLabel('vibe', join(root, 'missing')), null);
+    assert.equal(vendorRuntimeLabel('codex', launcher), null);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
