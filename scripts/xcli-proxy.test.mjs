@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import { join } from 'node:path';
 import { once } from 'node:events';
 import test from 'node:test';
-import { PROBE, environment } from './xcli-lab.mjs';
+import { PROBE, environment, rehydrateEventRecord } from './xcli-lab.mjs';
 
 test('the transparent MCP witness records outcomes and exact envelope IDs without retaining bodies', async () => {
   const root = fs.mkdtempSync('/tmp/xcli-proxy-');
@@ -43,7 +43,9 @@ for await(const line of createInterface({input:process.stdin})) {
     const raw = fs.readFileSync(events, 'utf8');
     assert.ok(!raw.includes('DO_NOT_RETAIN_PROVIDER_BODY'));
     assert.ok(!raw.includes(PROBE), 'retain only fixed marker classification, never bodies');
-    const records = raw.trim().split('\n').map(JSON.parse);
+    // Lot L4: on-disk records are canonical envelopes; established flat-field
+    // assertions read through the shared rehydration helper.
+    const records = raw.trim().split('\n').map(line => rehydrateEventRecord(JSON.parse(line)));
     assert.deepEqual(records.filter(e => e.event === 'inbox-wake').map(e => ({ freshCount: e.freshCount, ok: e.ok })),
       [{ freshCount: 1, ok: true }, { freshCount: 2, ok: false }]);
     assert.ok(records.some(e => e.event === 'initialize' && e.ok));
@@ -70,7 +72,7 @@ process.stderr.write('ready","event":"sample"}\\n');
 for await(const line of createInterface({input:process.stdin})) {
  const m=JSON.parse(line); let result;
  if(m.method==='initialize') result={protocolVersion:'2024-11-05',capabilities:{tools:{}},serverInfo:{name:'fixture',version:'1'}};
- else if(m.method==='tools/call') result={content:[{type:'text',text:JSON.stringify({envelopes:[{id:'env:fixture',from:'codex:sender',to:'codex:receiver',kind:'probe',body:{text:'marker'}}]})}]};
+ else if(m.method==='tools/call') result={content:[{type:'text',text:JSON.stringify({envelopes:[{id:'env:fixture',from:'codex:sender',to:'codex:receiver',kind:'probe',body:{text:${JSON.stringify(PROBE)}}}]})}]};
  process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');
 }\n`);
   const { spawn: spawnChild } = await import('node:child_process');
