@@ -1,0 +1,107 @@
+{
+  "fixtureProvenance": {
+    "kind": "reduced-source-slice",
+    "source": "/home/antoinefa/src/influence/dossier/influnified-audit.dossier.json",
+    "sourceDigest": "sha256:2486ab7e200512cfd433f9eea0a01dde1491e9d3af29d4c4f441edbfe4317d3e",
+    "qualifiedRealDossier": false
+  },
+  "document": {
+    "ref": "decision:influnified-audit-reponse-gael",
+    "subject": "Influnified — réponse à Gaël et cadrage de l'audit technique",
+    "title": "Dossier de décision — Audit Influnified",
+    "hash": "draft-2026-10-18",
+    "cursor": "rev-1",
+    "provenance": {
+      "source": "otter-transcript.txt · otter-images/ · observed-facts.md · gael-audit-requis.md · avis Codex + Opus",
+      "readAt": "2026-10-18T23:40:00-04:00"
+    },
+    "amendmentTrace": [
+      {
+        "at": "2026-10-12 17:48",
+        "author": "Gaël, Farid, Fabien",
+        "summary": "Meeting 57 min : démo Influnified, proposition d'audit ≤ 16 h avec IA, actions Otter (Farid envoie l'e-mail, Fabien fait l'analyse)."
+      },
+      {
+        "at": "2026-10-18 19:00",
+        "author": "gpt-6.1-sol (xhigh)",
+        "summary": "v1 du livrable gael-audit-requis.md, sans les captures."
+      },
+      {
+        "at": "2026-10-18 19:30",
+        "author": "gpt-6.1-sol (xhigh)",
+        "summary": "v2 avec faits observés : e-mail 411 mots + liste jointe + annexe 16 h en 7 lots."
+      },
+      {
+        "at": "2026-10-18 23:28",
+        "author": "Opus (second avis)",
+        "summary": "Recommande B + C : e-mail court par Farid, offre en 2 phases au forfait."
+      },
+      {
+        "at": "2026-10-18 23:28",
+        "author": "Codex (second avis)",
+        "summary": "Recommande B allégée par Farid ; prix en régie plafonnée à 16 h."
+      },
+      {
+        "at": "2026-10-18 23:35",
+        "author": "Fabien",
+        "summary": "Forme du prix décidée : forfait en 2 phases."
+      }
+    ],
+    "sections": [
+      {
+        "kind": "prose",
+        "id": "s-reco",
+        "targetRef": "section:recommandation",
+        "markdown": "## Recommandation\n\n**B allégée, envoyée par Farid, Fabien en copie.** Les deux avis indépendants (Codex, Opus) convergent : ils rejettent A, C et D seuls.\n\nRetouches au brouillon de sol, communes aux deux avis :\n\n- Remplacer « les 16 h d'audit que je réaliserai » par une proposition à confirmer après échange.\n- Retirer la liste jointe et le bloc « À voir en séance » ; l'annexe reste le guide de séance de Fabien.\n- Reporter l'invitation Cloudflare « Administrator Read Only » après l'accord, avec MFA, durée fixée et révocation à la clôture. La portée réelle du rôle sur les données D1/R2 n'est pas vérifiée.\n- GitHub : une phrase de confidentialité (lecture pour cadrage, révocation ensuite, IA utilisées nommées, aucune donnée de production).\n- Prompts Claude Code : sans validation automatique, sortie relue avant envoi, sinon inventaire fait ensemble en séance. Une consigne « ne lis pas les valeurs » n'est pas un contrôle."
+      }
+    ],
+    "interactions": []
+  },
+  "manifest": {
+    "schemaVersion": 1,
+    "manifestId": "manifest:5c23d13c37caea3aae3af2309debb02adea1eaa859d3accdbe9962ebde9b01aa",
+    "documentRef": "decision:influnified-audit-reponse-gael",
+    "baseHash": "sha256:5c23d13c37caea3aae3af2309debb02adea1eaa859d3accdbe9962ebde9b01aa",
+    "fields": [
+      {
+        "nodeId": "s-reco",
+        "targetRef": "section:recommandation",
+        "field": "markdown",
+        "contentFormat": "focus.markdown.p0@1",
+        "blockKind": "prose"
+      }
+    ],
+    "paragraphs": [
+      {
+        "nodeId": "s-reco",
+        "targetRef": "section:recommandation",
+        "field": "markdown",
+        "paragraphId": "paragraph:f7075f61ac4738c8dca3e4b275ac5ee58aa3d62b379166757777a9b6e18d291c",
+        "blockKind": "paragraph",
+        "parentId": null,
+        "order": 0,
+        "range": {
+          "start": 19,
+          "end": 154,
+          "unit": "utf16"
+        }
+      },
+      {
+        "nodeId": "s-reco",
+        "targetRef": "section:recommandation",
+        "field": "markdown",
+        "paragraphId": "paragraph:2c6f4a09dc2c58df3270d0462c1297ef8a07f9bd1427b73048af986968439db4",
+        "blockKind": "paragraph",
+        "parentId": null,
+        "order": 1,
+        "range": {
+          "start": 156,
+          "end": 211,
+          "unit": "utf16"
+        }
+      }
+    ],
+    "retiredParagraphIds": [],
+    "manifestBaseHash": "sha256:1c3694eef4c561b36b6a6bbd6e637c53e82012d9957cdba6ef9d864ef3242b3a"
+  }
+}
