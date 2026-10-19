@@ -200,6 +200,27 @@ function writeFileSyncJoin(...parts) {
   fs.writeFileSync(join(...parts.slice(0, -1)), parts[parts.length - 1]);
 }
 
+// Lot L9d: a login-free real Gemini cell completes blocked on seat/auth
+// grounds — notably blocked, never python-entrypoint-forbidden, wipe
+// proven. Durable collateral for the QO4 vendor-runtime invariant.
+test('L9d: a login-free real Gemini cell blocks on auth, never on Python', () => {
+  const root = fs.mkdtempSync('/tmp/xcli-gemini-');
+  try {
+    const output = join(root, 'receipt.json');
+    const env = { ...environment(join(root, 'env')),
+      ...(process.env.XCLI_NODE_HEADERS ? { XCLI_NODE_HEADERS: process.env.XCLI_NODE_HEADERS } : {}) };
+    const result = spawnSync(process.execPath, [join(import.meta.dirname, 'qualify-cross-cli.mjs'),
+      '--pair', 'gemini:gemini', '--timeout-ms', '30000', '--output', output],
+    { env, encoding: 'utf8', timeout: 240000, maxBuffer: 4 * 1024 * 1024 });
+    assert.ok(fs.existsSync(output), `a receipt must be written (exit ${result.status})`);
+    const receipt = JSON.parse(fs.readFileSync(output, 'utf8'));
+    assert.equal(receipt.cells.length, 1);
+    assert.equal(receipt.cells[0].status, 'blocked');
+    assert.notEqual(receipt.cells[0].blocker, 'python-entrypoint-forbidden');
+    assert.notEqual(receipt.cells[0].cleanupFailed, true);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 test('L3: normal simulated cells keep full wake credit with bounded wording', () => {
   for (const pair of ['claude:codex', 'codex:claude']) {
     const { status, cells } = runWakeCell(['--pair', pair, '--timeout-ms', '30000']);
