@@ -18,3 +18,10 @@ it('should express split, merge, move and paste with identities and explicit anc
   const move = E.diffParagraphs(base, moved, 'move'); expect(move.changes.some((c: any) => c.operation === 'move')).toBe(true);
   const applied = E.applyParagraphChanges(doc, manifest, [move]); expect(units(applied.document, applied.manifest)[0].paragraphId).toBe(base[1].paragraphId);
 });
+it('should refuse a replace whose output anchors do not match the baseline topology', () => {
+  const { doc, manifest } = setup(), base = units(doc, manifest);
+  const draft = structuredClone(base); draft[0].text = 'B';
+  const tx = E.diffParagraphs(base, draft, 'tx');
+  tx.changes[0].anchors = { parentId: null, previousParagraphId: 'paragraph:absent', nextParagraphId: null };
+  expect(() => E.applyParagraphChanges(doc, manifest, [tx])).toThrow('structural-precondition');
+});

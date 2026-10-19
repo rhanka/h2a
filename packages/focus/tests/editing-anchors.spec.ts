@@ -46,6 +46,15 @@ it('should reconcile independent corrections of two plain paragraphs without a j
   expect(out.ok, JSON.stringify(out.conflicts)).toBe(true);
   expect(E.readParagraphs(out.document, out.manifest).find((p: any) => p.paragraphId === second.paragraphId).text).toBe('Second corrigé');
 });
+it('should empty a plain narrative paragraph while keeping its identity', () => {
+  const { doc, manifest } = setup(), base = units(doc, manifest);
+  const target = base.find((p: any) => p.field === 'recommendedAnswer');
+  const draft = structuredClone(base);
+  draft.find((p: any) => p.paragraphId === target.paragraphId).text = '';
+  const moved = E.applyParagraphChanges(doc, manifest, [E.diffParagraphs(base, draft, 'tx')]);
+  expect(E.validateManifest(moved.manifest, moved.document).ok).toBe(true);
+  expect(E.readParagraphs(moved.document, moved.manifest).find((p: any) => p.paragraphId === target.paragraphId).text).toBe('');
+});
 it('should refuse a plain paragraph value spanning several blocks', () => {
   const doc = document() as any;
   doc.sections[1].context = 'Premier paragraphe\n\nSecond paragraphe';
