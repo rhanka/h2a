@@ -7,13 +7,35 @@ import fs from 'node:fs';
 import os from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { spawnSync } from 'node:child_process';
 import { checkReceipt, computeHarnessDigests, loadMatrixManifest, STAGE_KEYS } from './xcli-receipt-check.mjs';
 import { createHash } from 'node:crypto';
 import { buildCampaignReceipt } from './xcli-ci-check.mjs';
-import { ORACLE_SOURCES } from './xcli-lab.mjs';
+import { environment, ORACLE_SOURCES } from './xcli-lab.mjs';
 
 const repo = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
 const SHA = 'a'.repeat(40);
+
+test('L11: a branch-only campaign without a receipt reports pending qualification and still blocks merge', () => {
+  const root = fs.mkdtempSync('/tmp/xcli-receipt-pending-');
+  try {
+    const preload = join(root, 'github.mjs');
+    fs.writeFileSync(preload, `
+      globalThis.fetch = async url => new Response(JSON.stringify(
+        url === 'https://api.github.com/repos/rhanka/h2a/actions/runs?status=success&per_page=100&head_sha=${SHA}'
+          ? { workflow_runs: [] } : { message: 'Not Found' }
+      ), { status: url.includes('/actions/workflows/') ? 404 : 200 });
+    `);
+    const out = spawnSync(process.execPath, ['--import', preload, join(repo, 'scripts/xcli-receipt-check.mjs'),
+      '--fetch-trusted', '--sha', SHA, '--gate', 'merge'], {
+      env: { ...environment(join(root, 'env')), GH_TOKEN: 'fixture-only' }, encoding: 'utf8', timeout: 10000,
+    });
+    assert.equal(out.status, 1, out.stderr);
+    assert.match(out.stdout, /code=trusted-receipt-absent/);
+    assert.match(out.stdout, /receipt absent, qualification pending/);
+    assert.doesNotMatch(out.stdout, /github-api-failed|receipt-check: pass/);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
 const stages = () => Object.fromEntries(STAGE_KEYS.map(key => [key, true]));
 const replications = () => [20000, 28000, 24000].map(releaseAt => ({ woke: true, wakeWindows: {
   barrierAt: 0, deliveryAt: 10000, releaseAt, wakeAt: releaseAt + 1000, firstReadAt: releaseAt + 2000, dMs: 3000 } }));
