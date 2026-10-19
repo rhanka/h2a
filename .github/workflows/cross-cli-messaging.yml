@@ -24,6 +24,8 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           cache: npm
+      - name: Use runner temporary storage
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
       - run: npm ci --ignore-scripts
       - run: node scripts/xcli-node-headers.mjs
       - run: npm run build -w @sentropic/track && npm run build:h2a
@@ -41,6 +43,7 @@ jobs:
           scripts/xcli-review-regressions.test.mjs scripts/xcli-wake-review.test.mjs
           scripts/xcli-process-review.test.mjs scripts/xcli-trusted-artifact.test.mjs
           scripts/xcli-evidence-scan.test.mjs scripts/xcli-packaged-review.test.mjs
+          scripts/xcli-npm-oracles.test.mjs scripts/xcli-runtime-runner.test.mjs
 
   simulated-messaging:
     runs-on: ubuntu-latest
@@ -58,6 +61,8 @@ jobs:
           cache: npm
       # The temporary source builder compiles node-pty directly with g++.
       # No install scripts, node-gyp, Python or installed h2a are needed.
+      - name: Use runner temporary storage
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
       - run: npm ci --ignore-scripts
       - run: node scripts/xcli-node-headers.mjs
       # The L15 remainder test and the drive-crypto twins read the served
@@ -98,6 +103,8 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           cache: npm
+      - name: Use runner temporary storage
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
       - run: npm ci --ignore-scripts
       - run: node scripts/xcli-node-headers.mjs
       # Config discovery needs real CLI parsers, but no login/model/paid seat.
@@ -108,13 +115,13 @@ jobs:
       - name: Scan publication files
         id: evidence-scan
         if: always()
-        run: node scripts/xcli-evidence-scan.mjs /tmp/xcli-evidence-*/receipt.json
+        run: node scripts/xcli-evidence-scan.mjs "${XCLI_EVIDENCE_EXPORT_DIR:?missing runtime evidence directory}/receipt.json"
       - name: Preserve runtime execution receipts
         if: always() && steps.evidence-scan.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: xcli-runtime-node-${{ matrix.node }}
-          path: /tmp/xcli-evidence-*/receipt.json
+          path: ${{ env.XCLI_EVIDENCE_EXPORT_DIR }}/receipt.json
           if-no-files-found: error
 
   # The runtime and source consumers are independent checks. Serializing both
@@ -133,6 +140,8 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           cache: npm
+      - name: Use runner temporary storage
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
       - run: npm ci --ignore-scripts
       - run: node scripts/xcli-node-headers.mjs
       - name: Run native source consumers in a private PID domain
@@ -174,15 +183,15 @@ jobs:
       - name: Scan publication files
         id: evidence-scan
         if: always()
-        run: node scripts/xcli-evidence-scan.mjs /tmp/xcli-evidence-*/receipt.json /tmp/xcli-evidence-*/execution.json
+        run: node scripts/xcli-evidence-scan.mjs "${XCLI_EVIDENCE_EXPORT_DIR:?missing runtime evidence directory}/receipt.json" "${XCLI_EVIDENCE_EXPORT_DIR:?missing runtime evidence directory}/execution.json"
       - name: Preserve source execution receipts
         if: always() && steps.evidence-scan.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: xcli-source-${{ matrix.scope }}-node-${{ matrix.node }}
           path: |
-            /tmp/xcli-evidence-*/receipt.json
-            /tmp/xcli-evidence-*/execution.json
+            ${{ env.XCLI_EVIDENCE_EXPORT_DIR }}/receipt.json
+            ${{ env.XCLI_EVIDENCE_EXPORT_DIR }}/execution.json
           if-no-files-found: error
 
   # Lot L12-L15 scenario matrix (SPEC v3 §5.1 scenarios 2-4 + inventory):
@@ -209,6 +218,8 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           cache: npm
+      - name: Use runner temporary storage
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
       - run: npm ci --ignore-scripts
       - run: node scripts/xcli-node-headers.mjs
       # qualify exits 2 when cells are not all simulated-OK — the expected

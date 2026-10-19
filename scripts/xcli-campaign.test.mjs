@@ -1,6 +1,7 @@
 // Lot L8 campaign-engine tests (SPEC v3 §6.1/§6.4/§6.5, §5.5). Drive the
 // campaign parent with worker stubs (XCLI_WORKER_STUB) and dummy seat dirs in
 // mkdtemp; no real login, no model. RED on code without the L8 wiring.
+import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { join } from 'node:path';
@@ -31,7 +32,7 @@ const stubRow = blocker => `${stubHead}process.stdout.write(JSON.stringify({ sen
   cell: request.cell, seats: request.seats, credentialsCopied: { sender: [], receiver: [] } }));\n`;
 
 function runCampaign(args, stubBody) {
-  const dir = fs.mkdtempSync('/tmp/xcli-camp-');
+  const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-camp-'));
   const stub = join(dir, 'stub.mjs');
   fs.writeFileSync(stub, stubBody);
   const output = join(dir, 'receipt.json');
@@ -46,7 +47,7 @@ function runCampaign(args, stubBody) {
 }
 
 test('L8: a seat-qualified pair selects distinct auth sources per role', () => {
-  const dir = fs.mkdtempSync('/tmp/xcli-camp-');
+  const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-camp-'));
   try {
     const manifest = writeManifest(dir, [
       { seatId: 'claude-a', family: 'claude', authSource: 'seat-a' },
@@ -69,7 +70,7 @@ test('L8: a seat-qualified pair selects distinct auth sources per role', () => {
 });
 
 test('L8: a diagonal single-seat cell records sharedSeat', () => {
-  const dir = fs.mkdtempSync('/tmp/xcli-camp-');
+  const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-camp-'));
   try {
     const manifest = writeManifest(dir, [{ seatId: 'codex', family: 'codex', authSource: 'seat-codex' }]);
     const run = runCampaign(['--simulated', '--seat-manifest', manifest, '--pair', 'codex:codex',
@@ -82,7 +83,7 @@ test('L8: a diagonal single-seat cell records sharedSeat', () => {
 });
 
 test('L8: provider-quota on a seat stops further cells on that seat', () => {
-  const dir = fs.mkdtempSync('/tmp/xcli-camp-');
+  const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-camp-'));
   try {
     const manifest = writeManifest(dir, [
       { seatId: 's1', family: 'codex', authSource: 'seat-1' },
@@ -110,7 +111,7 @@ test('L8: the launched-session cap refuses pre-spawn and stops the campaign', ()
 });
 
 test('L8: killing and resuming continues from the persisted ledger', () => {
-  const dir = fs.mkdtempSync('/tmp/xcli-camp-');
+  const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-camp-'));
   const campaignRoot = join(dir, 'campaign');
   const args = ['--simulated', '--pair', 'codex:codex', '--wake-release-offsets-ms', '0,100',
     '--timeout-ms', '10000', '--session-cap', '4', '--campaign-root', campaignRoot];
@@ -128,7 +129,7 @@ test('L8: killing and resuming continues from the persisted ledger', () => {
 });
 
 test('L8: diagonal cells run before cross cells', () => {
-  const dir = fs.mkdtempSync('/tmp/xcli-camp-');
+  const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-camp-'));
   try {
     const manifest = writeManifest(dir, [
       { seatId: 'a', family: 'codex', authSource: 'seat-a' },
@@ -145,7 +146,7 @@ test('L8: diagonal cells run before cross cells', () => {
 });
 
 test('L8: a dummy-seat real-mode dry run blocks on preflight with no spawn', async () => {
-  const dir = fs.mkdtempSync('/tmp/xcli-camp-');
+  const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-camp-'));
   try {
     const manifest = writeManifest(dir, [{ seatId: 'dummy', family: 'codex', authSource: 'seat-dummy' }]);
     const output = join(dir, 'receipt.json');

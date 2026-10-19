@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
@@ -898,7 +899,7 @@ async function main() {
   // PROPOSITION until the owner ratifies D2; counting, stop rules, and
   // persistence are normative.
   const campaignRoot = option('--campaign-root');
-  const root = campaignRoot ? resolve(campaignRoot) : fs.mkdtempSync('/tmp/h2a-qual-');
+  const root = campaignRoot ? resolve(campaignRoot) : fs.mkdtempSync(join(tmpdir(), 'h2a-qual-'));
   if (campaignRoot) fs.mkdirSync(root, { recursive: true, mode: 0o700 });
   process.stdout.write(`Private qualification root: ${root}\n`);
   const caps = {
