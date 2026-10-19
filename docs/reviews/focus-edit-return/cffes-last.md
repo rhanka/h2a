@@ -1,0 +1,6 @@
+CORRECTIONS-REQUISES
+Reviewer: sol-max
+Spec: /home/antoinefa/.cache-tmp/claude-1000/-home-antoinefa-src-h2a/902cb8f7-eb8e-4897-9640-8b9653fc7d0e/scratchpad/0985/fedit/SPEC_EVOL_FOCUS_EDIT_RETURN.v2.md
+Spec-SHA256: 510a53dd0c0262e0cceaa3aafa2a10280c7d8876014c5faa8ddc26b94b33a0b9
+
+- **P1 restant — La supersession transitive reste indéterminable lorsque des retours intermédiaires manquent.** [§5.2, L270](/home/antoinefa/.cache-tmp/claude-1000/-home-antoinefa-src-h2a/902cb8f7-eb8e-4897-9640-8b9653fc7d0e/scratchpad/0985/fedit/SPEC_EVOL_FOCUS_EDIT_RETURN.v2.md:270) transmet seulement `supersedesReturnId`, le prédécesseur immédiat ; §5.4 étape 3 exige pourtant de marquer toute l’ascendance comme supersédée, même jamais reçue. Exemple, même baseline : R1 propose A→B ; R2 propose A→C et remplace R1 ; R3, vide, remplace R2. Si R3 arrive puis R1, sans R2, le consommateur connaît la supersession de R2, mais ne peut déduire celle de R1. La branche « otherwise […] candidate new head » permet alors de rétablir B, annulé par R3. Préciser comment l’ascendance complète devient disponible, ou bloquer explicitement l’application lorsque la continuité reste indéterminable. Ajouter le RED de livraison R3→R1 avec R2 absent.
