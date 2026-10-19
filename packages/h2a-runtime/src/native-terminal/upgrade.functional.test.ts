@@ -372,7 +372,7 @@ describe.skipIf(process.platform !== "linux")("native terminal upgrade (scenario
     // The candidate runtime imports its core peer during lease/supervision.
     // Install the matching source-built core, never an owner's installed dist.
     const candidateTarballs = [join(packDir, tarball!)];
-    for (const dependency of ["h2a", "track"]) {
+    for (const dependency of ["h2a", "track", "focus"]) {
       const before = new Set(readdirSync(packDir));
       const dependencyPack = spawn(npmCommand, npmArgs(["pack", "--ignore-scripts", "--pack-destination", packDir]), {
         cwd: join(workspacePackageDir, "..", dependency),
@@ -396,6 +396,9 @@ describe.skipIf(process.platform !== "linux")("native terminal upgrade (scenario
     const candidateVersion = (JSON.parse(readFileSync(join(candidatePrefix, "node_modules", "@sentropic", "h2a-runtime", "package.json"), "utf8")) as { version: string }).version;
     const workspaceVersion = (JSON.parse(readFileSync(join(workspacePackageDir, "package.json"), "utf8")) as { version: string }).version;
     expect(candidateVersion).toBe(workspaceVersion);
+    const candidateFocus = JSON.parse(readFileSync(join(candidatePrefix, "node_modules", "@sentropic", "focus", "package.json"), "utf8")) as { version: string };
+    const workspaceFocus = JSON.parse(readFileSync(join(workspacePackageDir, "..", "focus", "package.json"), "utf8")) as { version: string };
+    expect(candidateFocus.version, "Focus must come from the matching local candidate, including prerelease versions").toBe(workspaceFocus.version);
     // And it is THIS train's build — the coded live-owner refusal exists only
     // in the candidate, not in the published 0.98.4 (the two dists differ).
     const candidateRefusal = readFileSync(join(candidateRoot, "native-terminal", "server.js"), "utf8");
