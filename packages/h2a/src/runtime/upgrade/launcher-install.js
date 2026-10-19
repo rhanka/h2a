@@ -31,7 +31,13 @@ export function installManagedLauncher(envelope = {}) {
   } catch { throw new Error('bootstrap_launcher_command_unusable'); }
   assertBootstrapSessionUnchanged(session);
   const launcherPath = join(managedDir, 'launcher', 'h2a.mjs');
-  const legacyEntry = session.evidence?.commandPath;
+  // The classifier compares the command link's target against the legacy
+  // ENTRY (dist/bin.js), like every other assessNpmCommand caller (observers,
+  // unmanage, mh-l6-npm fixtures). The link path itself can never equal its
+  // own target, so passing evidence.commandPath made 'legacy' unreachable
+  // and every non-explicit adoption threw foreign (LOT-1 amendment: the
+  // automatic trigger could never converge).
+  const legacyEntry = session.evidence?.entrypoint;
   if (typeof legacyEntry !== 'string' || !isAbsolute(legacyEntry)) throw new Error('bootstrap_launcher_install_invalid');
   const verdict = assessNpmCommand({ commandPath, managedLauncher: launcherPath, legacyEntry });
   const forced = explicit === true;
