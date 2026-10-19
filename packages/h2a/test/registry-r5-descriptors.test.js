@@ -153,3 +153,14 @@ test("R5 descriptors: tampered asset bytes fail closure in an isolated copy", as
     );
   });
 });
+
+test("R5 descriptors F-09: coordination definition shell matches the packed asset", async () => {
+  const { h2aCoordinationDefinition } = await import("../dist/registry/definitions.js");
+  const H2A_ENTRY = readJson("packages/h2a/registry/entries.v1.json").entries[0];
+  const H2A_MANIFEST = readJson("packages/h2a/registry/manifest.h2a.json");
+  assert.equal(h2aCoordinationDefinition.descriptor.id, "sentropic.h2a");
+  assert.deepEqual(h2aCoordinationDefinition.descriptor, H2A_ENTRY);
+  assert.deepEqual(h2aCoordinationDefinition.manifest, H2A_MANIFEST);
+  assert.deepEqual(h2aCoordinationDefinition.schemas, {});
+  assert.equal(typeof h2aCoordinationDefinition.load, "function");
+});
