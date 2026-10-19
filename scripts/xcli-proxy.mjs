@@ -67,13 +67,27 @@ child.on('close', code => { emit({ event: 'server-exit', code }); process.exitCo
 for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP']) {
   process.once(signal, () => { child.kill(signal); setTimeout(() => child.kill('SIGKILL'), 1000).unref(); });
 }
+// Lot L8 (§6.4) runaway brake: witnessed MCP tool calls per launched session
+// are counted live. Crossing the cap terminates that owned session only and
+// witnesses the refusal. The count is exact at the witness; it does not bound
+// silent reasoning, and the verdict says so.
+const mcpCallCap = Number(process.env.XCLI_MCP_CALL_CAP ?? '0');
+let mcpCalls = 0, mcpCapped = false;
+const enforceMcpCallCap = () => {
+  if (mcpCapped || !(mcpCallCap > 0) || mcpCalls <= mcpCallCap) return;
+  mcpCapped = true;
+  emit({ event: 'mcp-call-cap-exceeded', count: mcpCalls, cap: mcpCallCap });
+  try { child.kill('SIGTERM'); } catch { /* already exited */ }
+  setTimeout(() => { try { child.kill('SIGKILL'); } catch { /* reaped */ } }, 1000).unref();
+};
 for await (const line of createInterface({ input: process.stdin })) {
   try {
     const rpc = JSON.parse(line);
     if (rpc.id !== undefined) pending.set(rpc.id, { method: rpc.method,
       tool: rpc.params?.name, args: rpc.params?.arguments });
+    if (rpc.method === 'tools/call') { mcpCalls += 1; enforceMcpCallCap(); }
   } catch { /* pass original bytes through unchanged */ }
-  child.stdin.write(line + '\n');
+  if (!mcpCapped) child.stdin.write(line + '\n');
 }
 child.stdin.end();
 
