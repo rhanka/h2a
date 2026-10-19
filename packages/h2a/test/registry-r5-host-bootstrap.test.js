@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -101,18 +101,19 @@ test("R5 bootstrap: JSON install preserves unrelated bytes and is idempotent", a
   const { installBridgeEntry } = await loadLib();
   await withTempDir((dir) => {
     const config = join(dir, "mcp.json");
+    const lock = join(dir, "mcp.json.h2a-lock.json");
     writeFileSync(config, LEGACY_CLAUDE_CONFIG);
-    const preview = installBridgeEntry({ host: "claude", configPath: config, profile: "default", dryRun: true });
+    const preview = installBridgeEntry({ host: "claude", configPath: config, profile: "default", lockPath: lock, dryRun: true });
     assert.equal(preview.action, "migrate-direct");
     assert.ok(readFileSync(config, "utf8").includes('"mcp-serve"'));
-    const first = installBridgeEntry({ host: "claude", configPath: config, profile: "default" });
+    const first = installBridgeEntry({ host: "claude", configPath: config, profile: "default", lockPath: lock });
     assert.equal(first.action, "migrate-direct");
     const afterFirst = readFileSync(config, "utf8");
     assert.ok(afterFirst.includes("graphify-ts"));
     assert.ok(afterFirst.includes("registry-bridge"));
     assert.ok(!afterFirst.includes("mcp-serve"));
     assert.equal((afterFirst.match(/"h2a":/g) ?? []).length, 1);
-    const second = installBridgeEntry({ host: "claude", configPath: config, profile: "default" });
+    const second = installBridgeEntry({ host: "claude", configPath: config, profile: "default", lockPath: lock });
     assert.equal(second.action, "reinstall-identical");
     assert.equal(readFileSync(config, "utf8"), afterFirst);
   });
@@ -123,7 +124,7 @@ test("R5 bootstrap: non-default legacy declarations conflict instead of normaliz
   await withTempDir((dir) => {
     const config = join(dir, "mcp.json");
     writeFileSync(config, JSON.stringify({ mcpServers: { h2a: { command: "h2a", args: ["mcp-serve", "--no-wake"] } } }));
-    assert.throws(() => installBridgeEntry({ host: "claude", configPath: config, profile: "default" }), /--no-wake/);
+    assert.throws(() => installBridgeEntry({ host: "claude", configPath: config, profile: "default", lockPath: join(dir, "x.h2a-lock.json") }), /--no-wake/);
     assert.ok(readFileSync(config, "utf8").includes("--no-wake"));
   });
 });
@@ -132,10 +133,11 @@ test("R5 bootstrap: vibe interim direct entry migrates in one transaction", asyn
   const { installBridgeEntry, uninstallBridgeEntry } = await loadLib();
   await withTempDir((dir) => {
     const config = join(dir, "config.toml");
+    const lock = join(dir, "config.toml.h2a-lock.json");
     writeFileSync(config, VIBE_DIRECT_CONFIG);
-    const preview = installBridgeEntry({ host: "vibe", configPath: config, profile: "default", dryRun: true });
+    const preview = installBridgeEntry({ host: "vibe", configPath: config, profile: "default", lockPath: lock, dryRun: true });
     assert.equal(preview.action, "migrate-direct");
-    const result = installBridgeEntry({ host: "vibe", configPath: config, profile: "default" });
+    const result = installBridgeEntry({ host: "vibe", configPath: config, profile: "default", lockPath: lock });
     assert.equal(result.action, "migrate-direct");
     const after = readFileSync(config, "utf8");
     assert.ok(after.includes('[general]\nname = "owner"'));
@@ -172,5 +174,101 @@ test("R5 bootstrap: failed migration restores the original bytes", async () => {
       /unsupported_host|unknown host/
     );
     assert.equal(readFileSync(config, "utf8"), LEGACY_CLAUDE_CONFIG);
+  });
+});
+
+// ---- LOT-4 (F-04/F-05/F-06/F-10) ----
+
+test("R5 LOT-4 F-05: install without a caller-resolved lock refuses missing_lock", async () => {
+  const { installBridgeEntry } = await loadLib();
+  await withTempDir((dir) => {
+    const config = join(dir, "mcp.json");
+    writeFileSync(config, LEGACY_CLAUDE_CONFIG);
+    assert.throws(
+      () => installBridgeEntry({ host: "claude", configPath: config, profile: "default" }),
+      /missing_lock/
+    );
+    assert.equal(readFileSync(config, "utf8"), LEGACY_CLAUDE_CONFIG);
+  });
+});
+
+test("R5 LOT-4 F-05: installed bridge command carries the resolved --lock", async () => {
+  const { installBridgeEntry } = await loadLib();
+  await withTempDir((dir) => {
+    const config = join(dir, "mcp.json");
+    const lock = join(dir, "custom.h2a-lock.json");
+    writeFileSync(config, LEGACY_CLAUDE_CONFIG);
+    installBridgeEntry({ host: "claude", configPath: config, profile: "default", lockPath: lock });
+    const installed = JSON.parse(readFileSync(config, "utf8"));
+    const args = installed.mcpServers.h2a.args;
+    const flag = args.indexOf("--lock");
+    assert.notEqual(flag, -1);
+    assert.equal(args[flag + 1], lock);
+  });
+});
+
+test("R5 LOT-4 F-04a: receipt failure after rename restores the original bytes", async () => {
+  const { installBridgeEntry } = await loadLib();
+  await withTempDir((dir) => {
+    const config = join(dir, "mcp.json");
+    writeFileSync(config, LEGACY_CLAUDE_CONFIG);
+    mkdirSync(join(dir, "mcp.json.h2a-registry.json")); // receipt path unwritable: EISDIR on receipt write
+    assert.throws(
+      () => installBridgeEntry({ host: "claude", configPath: config, profile: "default", lockPath: join(dir, "x.h2a-lock.json") }),
+      /EISDIR/
+    );
+    assert.equal(readFileSync(config, "utf8"), LEGACY_CLAUDE_CONFIG);
+  });
+});
+
+test("R5 LOT-4 F-06: preview refuses an unknown host with unsupported_host", async () => {
+  const { previewInstall } = await loadLib();
+  await withTempDir((dir) => {
+    const config = join(dir, "mcp.json");
+    writeFileSync(config, LEGACY_CLAUDE_CONFIG);
+    assert.throws(() => previewInstall({ host: "nope", configPath: config }), /unsupported_host/);
+  });
+});
+
+test("R5 LOT-4 F-06: install refuses an unknown host with unsupported_host, config untouched", async () => {
+  const { installBridgeEntry } = await loadLib();
+  await withTempDir((dir) => {
+    const config = join(dir, "mcp.json");
+    writeFileSync(config, LEGACY_CLAUDE_CONFIG);
+    assert.throws(
+      () => installBridgeEntry({ host: "nope", configPath: config, profile: "default", lockPath: join(dir, "x.h2a-lock.json") }),
+      /unsupported_host/
+    );
+    assert.equal(readFileSync(config, "utf8"), LEGACY_CLAUDE_CONFIG);
+  });
+});
+
+test("R5 LOT-4 F-10: provisioned lock lands next to the host config", async () => {
+  const bridgeLock = await import("../dist/registry/bridge-lock.js");
+  const { installBridgeEntry } = await loadLib();
+  await withTempDir((dir) => {
+    const configDir = join(dir, "config");
+    const decoyDir = join(dir, "profiles");
+    mkdirSync(configDir, { recursive: true });
+    mkdirSync(decoyDir, { recursive: true });
+    const config = join(configDir, "mcp.json");
+    writeFileSync(config, LEGACY_CLAUDE_CONFIG);
+    writeFileSync(join(decoyDir, "default.toml"), "# decoy profile template living elsewhere\n");
+    const lock = bridgeLock.defaultBridgeLockPath(config);
+    assert.equal(lock, join(configDir, "mcp.json.h2a-lock.json"));
+    installBridgeEntry({ host: "claude", configPath: config, profile: "default", lockPath: lock });
+    const provisioned = bridgeLock.provisionBridgeLock({
+      lockPath: lock,
+      host: "claude",
+      profile: "default",
+      bridge: { command: "h2a", args: ["registry-bridge", "serve", "--host", "claude", "--profile", "default", "--lock", lock] },
+      h2aEntry: structuredClone(H2A_ENTRY),
+      trackEntry: structuredClone(TRACK_ENTRY)
+    });
+    assert.equal(provisioned.action, "provisioned");
+    assert.equal(provisioned.lockPath, lock);
+    const lockDoc = JSON.parse(readFileSync(lock, "utf8"));
+    assert.equal(lockDoc.host, "claude");
+    assert.deepEqual(readdirSync(decoyDir), ["default.toml"]);
   });
 });
