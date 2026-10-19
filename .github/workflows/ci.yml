@@ -224,6 +224,8 @@ jobs:
           node-version: "22"
           cache: npm
       - run: npm ci
+      # The independent L2 dispatch packs and runs the candidate dist.
+      - run: npm run build
       - name: Install the mandatory configuration oracles
         run: npm install --global @openai/codex@0.145.0 @anthropic-ai/claude-code@2.1.296
       - name: Create a disposable TMPDIR admitted by both confinement guards
