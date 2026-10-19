@@ -3,9 +3,12 @@
     "h2a": {
       "command": "h2a",
       "args": [
-        "mcp-serve",
+        "registry-bridge",
+        "serve",
         "--host",
         "codex",
+        "--profile",
+        "default",
         "--wake",
         "auto",
         "--auto-open"
