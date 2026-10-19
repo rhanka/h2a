@@ -1,7 +1,48 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { join } from 'node:path';
 import { matrix } from './xcli-lab.mjs';
+import { computeHarnessDigests, loadMatrixManifest, RECEIPT_VERSION } from './xcli-receipt-check.mjs';
+
+// Lot L11 (SPEC v3 §7.1): assemble the filtered campaign receipt from the
+// lane's own outputs — the qualify result, the persisted cap ledger, and the
+// CLI versions the lane measured. Harness digests are recomputed from the
+// candidate tree (never trusted from the qualify output). Seat material
+// never enters the receipt: the seat manifest digest binds the receipt to
+// the manifest the lane used, and per-seat paths stay out.
+export function buildCampaignReceipt({ campaignRoot, sha, gate, repoRoot, cliVersions, manifestFile, seatManifestDigest }) {
+  assert.ok(['merge', 'release'].includes(gate), 'receipt gate is merge or release');
+  // The seat manifest lives outside the candidate tree, so the lane measures
+  // its digest from the exact file it used and passes it in: the receipt is
+  // bound to that manifest by publication, never by re-derivation here.
+  assert.match(seatManifestDigest ?? '', /^[0-9a-f]{64}$/, 'seat manifest digest required');
+  const qualify = JSON.parse(fs.readFileSync(join(campaignRoot, 'qualification.json'), 'utf8'));
+  assert.equal(qualify.version, 1, 'qualify output version must be 1');
+  const simulated = qualify.mode === 'simulated-model';
+  const ledger = JSON.parse(fs.readFileSync(join(campaignRoot, 'campaign-ledger.json'), 'utf8'));
+  const manifest = loadMatrixManifest(manifestFile ?? join(repoRoot, 'docs/cross-cli-matrix.json'));
+  const mandatory = manifest.mandatory?.[gate] ?? [];
+  const byPair = new Map(qualify.cells.map(cell => [`${cell.sender}:${cell.receiver}`, cell]));
+  const cells = mandatory.map(row => {
+    const source = byPair.get(row.pair) ?? {};
+    return { scenario: row.scenario, pair: row.pair,
+      status: source.status ?? 'blocked',
+      simulated: simulated || source.status === undefined ? true : (source.simulated ?? false),
+      blocker: source.blocker ?? (source.status === undefined ? 'cell-missing-in-output' : null),
+      stages: { sent: source.sent ?? null, delivered: source.delivered ?? null },
+      caps: { sessionsDebited: 1 },
+      cleanup: { secretWipe: source.secretWipe === true } };
+  });
+  return { version: RECEIPT_VERSION, lane: 'campaign', sha,
+    harnessDigests: computeHarnessDigests(repoRoot),
+    seatManifestDigest,
+    cliVersions, matrixVersion: manifest.version, mandatory,
+    cells,
+    caps: { sessionsDebited: ledger.sessionsDebited ?? 0,
+      wallClockSpentMs: ledger.wallClockSpentMs ?? 0 },
+    cleanup: { secretWipeProven: cells.every(cell => cell.cleanup.secretWipe) } };
+}
 
 export function verifyReceiverIdleInput(cell) {
   const barrier = cell.evidence.find(event => event.event === 'receiver-idle-barrier');
