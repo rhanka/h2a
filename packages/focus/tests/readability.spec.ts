@@ -347,3 +347,19 @@ describe("reviewed presentation boundaries", () => {
     expect(text).not.toContain("Along the side wall — Along the side wall");
   });
 });
+import { evidenceFixture } from '../../h2a/focus-kit/test/evidence-fixtures.mjs';
+
+it('should include evidence summaries in the primary code and reading gate', () => {
+  const doc = evidenceFixture();
+  doc.evidenceGroups[0].summary = 'Opaque L06b condition';
+  expect(validateDecisionDossierReadability(doc).some(i => i.code === 'undefined_code')).toBe(true);
+  doc.evidenceGroups[0].summary = 'support '.repeat(2000);
+  expect(validateDecisionDossierReadability(doc).some(i => i.code === 'reading_budget_exceeded')).toBe(true);
+});
+
+it('should check supporting explanations while keeping raw source volume outside the primary budget', () => {
+  const doc = evidenceFixture(20_000, 31);
+  expect(validateDecisionDossierReadability(doc)).toEqual([]);
+  doc.annexes[0].blocks[0].text = 'Undefined L06b';
+  expect(validateDecisionDossierReadability(doc).some(i => i.code === 'undefined_code')).toBe(true);
+});

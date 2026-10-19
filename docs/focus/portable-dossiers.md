@@ -132,3 +132,72 @@ node --test packages/h2a/focus-kit/test/browser.test.mjs
 
 The source/hash manifest checks the committed asset at prepack; CI builds and checks the fixture plus
 desktop/phone offline browser behavior. Browser profiles, dossiers and state live in temporary dirs.
+
+## H1 embedded evidence (dossier diagrams v3)
+
+The explicit new template is selected with the freshly built checkout:
+
+```sh
+node packages/h2a/dist/bin.js focus template --evidence -o dossier.json
+node packages/h2a/dist/bin.js focus build dossier.json -o dossier.html
+```
+
+This envelope declares `schemaVersion: 2`, independently of diagram-core's
+`scene.schemaVersion`. Absence keeps historical v1; unknown versions refuse.
+The v1 schema file/URN are unchanged. V2 adds required sources, citations,
+evidence groups and annexes (arrays may be empty). Old validators refuse v2;
+the TypeScript document union and registry entry 2.0 require a breaking Focus
+release. This PR does not publish packages or reuse approval attestations.
+
+Sources have a stable id, title, frozen origin (uri or repo/revision/path),
+mediaType, encoding base64, data, original-byte SHA-256 and size. UTF-8 text
+(including logs, YAML, JSON and diffs) and inert PNG/JPEG are accepted. Images
+also require matching encoded dimensions and alt text. Other media refuse
+explicitly. Origins are never read or fetched at opening. A digest proves byte
+identity, not truth, provenance authenticity or approval. Text/markup stays inert.
+
+Citations have id, sourceId, label and either an inclusive 1-based lines locator
+or a whole-image locator with caption. CRLF is one separator, lone CR/LF are
+separators, Unicode is decoded as strict UTF-8, BOM bytes are preserved and a
+trailing separator adds a final empty line. Section/option citationRefs resolve
+explicitly. Groups summarize a claim with citationRefs/sourceRefs. Annexes have
+title, summary, typed text/code/table/reference blocks and backRefs; they start
+collapsed and cannot contain questions/options or executable author content.
+Graph/plan bindings await H3 rather than being invented in the H1 envelope.
+
+Summaries remain in the primary reading budget. Supporting source bytes and
+annex details have a separately disclosed consultation estimate (six UTF-8
+bytes per word, 180 words/minute), never a claim that all evidence takes two
+minutes. Raw sources skip editorial acronym checks; titles, summaries and
+supporting explanations do not. Authors/reviewers still ensure that material
+risks, reservations and choices appear in the primary decision path.
+
+The portable offers a source index, distant citation jumps, complete-source
+cancellable search, at most 80 mounted lines, original-byte download and focus/
+scroll return without remounting the canvas. Build failures preserve previous
+output bytes: a same-directory temporary write is fsynced then renamed once.
+Payload metadata fingerprints the extended envelope, renderer and validator
+separately from the opaque source hash/cursor and comprehension evidence.
+Markdown/terminal/static HTML retain the citation/source/annex index and identify
+the portable renderer required for full consultation. Renderer assets are rebuilt
+from Focus, with both schema versions indexed and hashed in the shipped manifest.
+
+## Shared renderer boundary and blocked increments
+
+| Surface | Preserved/shared capital | Delivery |
+| --- | --- | --- |
+| Semantic graph | diagram-core generic@1 identities, #368 scene and text fallback; engram guards definitions | Existing bounded h2a consumer retained |
+| Layout/measurement | DS diagram-canvas ports/routes/labels/diagnostics and actual theme/font measurements | H2 blocked: diagram-core/diagram-canvas 0.1.0 both npm E404; DS2 reproducible hashed tarballs required |
+| Controls/publication | DS renderer owns in-canvas case/event/before-after/group controls, hit/focus bounds, camera and atomic tuple publication | H3 blocked: H2 plus DS4/DS5 exports; no separate page toolbar qualifies |
+| Dossier/build/evidence | Focus model, validation, reading order, sources/citations, portable packaging | H1 delivered independently; kit is retained, no retirement decision inferred |
+| Business meaning | Consumer scenario membership, measurements, critical path and gains | sentropic S1/S2, outside this PR |
+
+The H1 manifest declares embedded evidence capabilities only. CDN equivalence,
+DS geometric qualification and linked explorer transitions are not advertised.
+Numeric reactivity budgets/corpus hashes are frozen in
+`focus-kit/test/fixtures/evidence-performance-policy.v1.json`. Qualification
+records 30 fresh contexts per legacy/small/large artifact, 30 citation/search
+cycles, doubled-line DOM checks and Linux memory for owned Chromium descendants.
+The real corpus is a frozen, hashed inventory of repository sources grouped
+without repeated synthetic padding; original/path/reference hashes remain in
+its manifest. Browser functional tasks also cover 320/390/1440px widths.

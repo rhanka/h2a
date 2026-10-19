@@ -3,10 +3,12 @@
   import { SvelteMap } from 'svelte/reactivity';
   import { lightTheme, darkTheme } from './themes.js';
   import Canvas from './Canvas.svelte';
+  import Evidence from './Evidence.svelte';
   import { preparePresentation } from '../../../focus/src/render/presentation.ts';
   let { document: dossier } = $props();
   let dark = $state(matchMedia('(prefers-color-scheme: dark)').matches);
   const selections = new SvelteMap();
+  let evidencePanel = $state(null);
   let questions = $derived(dossier.sections.filter(s => s.kind === 'question'));
   let sections = $derived(preparePresentation(dossier).sections);
   let optionSets = $derived(sections.filter(s => s.kind === 'optionSet'));
@@ -41,7 +43,7 @@
               {#if section.title}<h3>{section.title}</h3>{/if}
               <div class="options" role="group" aria-label={section.title ?? 'Options'}>
                 {#each section.options as option}
-                  <button class="option-card" class:selected={selections.get(section.questionId) === option.id}
+                  <button id={option.id} class="option-card" class:selected={selections.get(section.questionId) === option.id}
                     aria-pressed={selections.get(section.questionId) === option.id} onclick={() => selections.set(section.questionId, option.id)}>
                     <Card><strong>{option.label}</strong>
                       {#if recommended(section, option)}<Badge tone="success">Recommandée</Badge>{/if}
@@ -58,8 +60,13 @@
             {:else if section.kind === 'outcome'}
               <Card><h3>Conclusion proposée</h3><p>{section.statement}</p></Card>
             {/if}
+            {#each section.citationRefs ?? [] as id}<button class="citation-link" onclick={() => evidencePanel.openCitation(id)}>{dossier.citations.find(c => c.id === id).label}</button>{/each}
+            {#if section.kind === 'optionSet'}{#each section.options as option}
+              {#each option.citationRefs ?? [] as id}<p>{option.label} : <button class="citation-link" onclick={() => evidencePanel.openCitation(id)}>{dossier.citations.find(c => c.id === id).label}</button></p>{/each}
+            {/each}{/if}
           </section>
         {/each}
+        {#if dossier.schemaVersion === 2}<Evidence {dossier} bind:this={evidencePanel} />{/if}
         {#if steps.length}<details><summary>Historique</summary><ul>{#each steps as step}<li>{step.at} · {step.author} : {step.summary}</li>{/each}</ul></details>{/if}
         <footer><p>Vos sélections restent dans cette page jusqu’à sa fermeture. Elles ne valent pas décision enregistrée.</p>
           <details><summary>Source et version</summary><p>{dossier.provenance.source} · {dossier.provenance.readAt}</p><p>{dossier.ref} · {dossier.cursor} · {dossier.hash}</p></details>

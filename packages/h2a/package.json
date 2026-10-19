@@ -48,6 +48,8 @@
     "focus-kit/validator.mjs",
     "focus-kit/dossier.template.json",
     "focus-kit/dossier.schema.json",
+    "focus-kit/dossier.v2.schema.json",
+    "focus-kit/dossier.evidence.template.json",
     "focus-kit/ecosystem.json"
   ],
   "publishConfig": {

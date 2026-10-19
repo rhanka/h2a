@@ -1,3 +1,4 @@
+import { isEvidenceDossier } from '../model.js';
 export const READABILITY_BUDGETS = { low: 2, medium: 8, high: 30 };
 export const READABILITY_LIMITS = {
     minOwnerRequestQuoteLength: 8,
@@ -91,6 +92,26 @@ export const validateDecisionDossierReadability = (doc) => {
         if (text)
             shared.push(text);
     };
+    if (isEvidenceDossier(doc)) {
+        doc.sources.forEach((s, i) => { checkCodes(s.title, `$.sources[${i}].title`); checkCodes(s.alt, `$.sources[${i}].alt`); });
+        doc.citations.forEach((c, i) => {
+            checkCodes(c.label, `$.citations[${i}].label`);
+            if (c.locator.kind === 'image')
+                checkCodes(c.locator.caption, `$.citations[${i}].locator.caption`);
+        });
+        doc.evidenceGroups.forEach((g, i) => visible(g.summary, `$.evidenceGroups[${i}].summary`));
+        doc.annexes.forEach((a, i) => {
+            visible(a.title, `$.annexes[${i}].title`);
+            visible(a.summary, `$.annexes[${i}].summary`);
+            a.blocks.forEach((b, j) => {
+                const path = `$.annexes[${i}].blocks[${j}]`;
+                if (b.kind === 'text')
+                    checkCodes(b.text, `${path}.text`);
+                if (b.kind === 'table')
+                    [...b.columns, ...b.rows.flat()].forEach(t => checkCodes(t, path));
+            });
+        });
+    }
     for (const field of ["title", "subject"]) {
         visible(doc[field], `$.${field}`);
         if (blank(doc[field]))
