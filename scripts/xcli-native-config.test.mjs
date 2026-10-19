@@ -4,7 +4,23 @@ import { join, dirname } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import test from 'node:test';
-import { sourceBuild, environment, cliPath } from './xcli-lab.mjs';
+import { sourceBuild, environment, cliPath, ORACLE_SOURCES } from './xcli-lab.mjs';
+
+// Lot L11: tier-C covers every family with an installable no-login parse
+// path. Pinned families must state their install source; the rest must state
+// a reason — never a silent gap.
+test('every seated family declares a tier-C oracle source or a reason', () => {
+  assert.deepEqual(Object.keys(ORACLE_SOURCES).sort(), ['agy', 'claude', 'codex', 'muse', 'vibe']);
+  for (const [family, source] of Object.entries(ORACLE_SOURCES)) {
+    assert.ok(['npm', 'uv', 'none'].includes(source.kind), `${family} oracle kind`);
+    if (source.kind === 'none') {
+      assert.ok(source.reason.length > 0, `${family} documents why no oracle installs it`);
+    } else {
+      assert.match(source.pin, /^\d+\.\d+\.\d+$/, `${family} oracle is pinned`);
+    }
+  }
+  assert.equal(ORACLE_SOURCES.vibe.pin, '2.26.1', 'vibe stays on its reviewed pin');
+});
 
 // Native CLI parser is the oracle; no model calls or fixture parser here.
 test('Codex actually discovers the MCP configured at the product descriptor path', async () => {
