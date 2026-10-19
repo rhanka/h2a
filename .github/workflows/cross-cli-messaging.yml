@@ -27,6 +27,9 @@ jobs:
       # No install scripts, node-gyp, Python or installed h2a are needed.
       - run: npm ci --ignore-scripts
       - run: node scripts/xcli-node-headers.mjs
+      # The L15 remainder test and the drive-crypto twins read the served
+      # surface from the built dist (tsc only, no install scripts, no Python).
+      - run: npm run build:h2a
       - name: Test witness integrity and detect delivery without live reaction
         run: >-
           node --test scripts/xcli-lab.test.mjs scripts/xcli-proxy.test.mjs
