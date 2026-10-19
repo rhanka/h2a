@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 import { CLIS, PROBE, REPLY, repo, environment, sourceBuild, copyLogin,
   cliPath, privateExecutable, pythonEntrypoint, classify, matrix, inside,
   rehydrateEventRecord, cellSecretPaths, wipeSecrets,
-  recordExec, readExecJournal, classifyExecJournal } from './xcli-lab.mjs';
+  recordExec, readExecJournal, classifyExecJournal, vendorRuntimeLabel } from './xcli-lab.mjs';
 import { startupTerminal } from './xcli-terminal.mjs';
 import { verifyWakeBatch } from './xcli-ci-check.mjs';
 
@@ -307,8 +307,18 @@ async function worker() {
     return loaded(target) ? { blocker: 'initial-model-tool-turn-not-observed' } : { failure: 'mcp-not-loaded-before-deadline' };
   }
   try {
+    row.vendorRuntime = {};
     for (const cli of new Set([receiver, sender])) {
       if (!executables[cli]) { row.blocker = `cli-not-found:${cli}`; return row; }
+      // Lot L7 (QO4, section 8.2): the vendor vibe product runs as installed,
+      // vendor Python runtime included. Its runtime is labelled in evidence,
+      // never blocked: Vibe cells fail on seat/auth grounds, not on Python.
+      const vendorLabel = vendorRuntimeLabel(cli, executables[cli]);
+      if (vendorLabel) {
+        row.vendorRuntime[cli] = vendorLabel;
+        row.evidence.push({ event: 'vendor-runtime', cli, runtime: vendorLabel });
+        continue;
+      }
       if (pythonEntrypoint(executables[cli])) { row.blocker = `python-entrypoint-forbidden:${cli}`; return row; }
     }
     host = isolation.spawnIsolatedNative(process.execPath,
@@ -497,7 +507,7 @@ async function worker() {
     if (!row.blocker && !row.replyDelivered && !row.wakeFailure) row.failure = row.sent ? (row.received ? 'reply-not-observed' : 'live-receive-not-observed') : 'sender-send-not-observed';
     return row;
   } catch (error) {
-    const known = ['host-setup-no-config', 'login-not-confined:gemini', 'login-not-confined:agy', 'login-not-confined:claude', 'login-not-confined:vibe', 'login-not-confined:muse'];
+    const known = ['host-setup-no-config', 'login-not-confined:gemini', 'login-not-confined:agy', 'login-not-confined:claude', 'login-not-confined:muse'];
     row.blocker = known.includes(error.message) ? error.message : 'qualification-infrastructure-error';
     row.infrastructureCode = /^[A-Z0-9_]+$/.test(error.code ?? '') ? error.code : undefined;
     row.infrastructureLocations = String(error.stack ?? '').split('\n').slice(1)
