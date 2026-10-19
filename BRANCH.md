@@ -130,3 +130,16 @@ red/green receipts, qualification limits and cleanup evidence.
   all three upgrade cases successfully; no historical cause inferred.
 - Receipt absence remains the expected refusal. Commands, outputs and
   review limitation: [round-5 evidence](docs/2026-10-19-fix379-r5.md).
+
+## PR #379 — CI correction round 6 (2026-10-19)
+
+- The publish smoke's oversized peer hit quadratic partial-frame processing,
+  also present in main: 32 MiB inspected as 8.64 GB across 64 KiB fragments.
+  Buffer fragments and count new UTF-8 bytes once; assemble at newline.
+  Protocol limit and the smoke's five-second deadline remain unchanged.
+- Regression RED three times at five seconds, then GREEN five times.
+  Server transport 41/41 and real-host crash containment 7/7 on Node 22/24;
+  smoke/rehearsal contracts 37/37 and source build pass.
+- origin/main is already an ancestor; no rebase required. Receipt absence
+  remains the expected refusal. Commands, measured costs and review limits:
+  [round-6 evidence](docs/2026-10-19-fix379-r6.md).
