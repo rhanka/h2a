@@ -159,13 +159,15 @@ export function sourceBuild(root) {
 // lstat/copy race, no symlinks, regular files only); both ends stay inside
 // the private target; mapped bytes are 0600. The caller witnesses the mapping
 // (role, allowlisted name, sha256 — never content) in the row evidence.
-const LOGIN_ROLES = Object.freeze(['codex', 'claude']);
+// LOGIN_ROLES is declared after LOGIN_ALLOWLIST below (derived keys).
 // Shared home for the login allowlist (Lot L5): the worker records copies
 // against it, the parent re-wipes a lost worker cell against it.
 export const LOGIN_ALLOWLIST = Object.freeze({
   codex: Object.freeze(['.codex/auth.json']),
   claude: Object.freeze(['.config/muse/auth.json']),
+  vibe: Object.freeze([]),
 });
+const LOGIN_ROLES = Object.freeze(Object.keys(LOGIN_ALLOWLIST));
 // Absolute destination of an allowlisted login copy inside a role env.
 export function loginCopyPath(env, cli, name) {
   assert.ok(LOGIN_ROLES.includes(cli), `login-not-confined:${cli}`);
@@ -199,6 +201,16 @@ export function wipeSecrets(paths) {
   }
   return surviving;
 }
+// Lot L7 (QO4, section 8.2): the vendor vibe product may run as installed,
+// vendor Python runtime included. Its entrypoint is recorded, never blocked.
+// A future non-Python backend surfaces as a non-python label here: adopting
+// it is a follow-up change, never a silent swap.
+export function vendorRuntimeLabel(cli, path) {
+  if (cli !== 'vibe') return null;
+  try { fs.accessSync(path, fs.constants.R_OK); } catch { return null; }
+  return pythonEntrypoint(path) ? 'python (not shipped)' : 'non-python (upstream follow-up)';
+}
+
 export function copyLogin(cli, authHome, target, env) {
   const copied = [];
   if (!authHome) return copied;
