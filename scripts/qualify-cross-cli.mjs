@@ -215,7 +215,7 @@ async function worker() {
     const roleAuthHome = authHomes[role];
     row.credentialsCopied[role] = roleAuthHome ? copyLogin(cli, roleAuthHome, cell, env) : [];
     for (const name of row.credentialsCopied[role]) {
-      const mapped = cli === 'claude' ? join(env.XDG_CONFIG_HOME, 'muse/auth.json') : join(env.HOME, name);
+      const mapped = join(env.HOME, name);
       row.evidence.push({ event: 'login-mapped', role, cli, file: name,
         sha256: createHash('sha256').update(fs.readFileSync(mapped)).digest('hex') });
     }
@@ -1149,13 +1149,24 @@ async function main() {
     if (row.cleanupFailed) stopping = true;
     process.stdout.write(`${sender} -> ${receiver}: ${row.status} (${row.blocker ?? row.failure ?? 'round-trip'})\n`);
   }
-  // Lot L3 batch separation (§3.3): with several harness-chosen release
-  // offsets for one pair, no cell earns stage-7 credit until the full batch
-  // passes the containment check on actual witnessed times. A failing batch
+  // Lot L3 batch separation (§3.3): NO cell earns stage-7 credit until its
+  // full batch — at least 3 separated replications of the same probe pair —
+  // passes the containment check on actual witnessed times. The check runs
+  // for every poll mode and every offset count, single offset included: a
+  // lone cell can never satisfy the 3-replication rule, so a single-offset
+  // run (or any short batch) earns no wake credit. A failing batch
   // downgrades credited cells; cells already KO keep their own mechanism.
-  if (releaseOffsets.length > 1) {
-    for (const { sender, receiver } of pairs) {
-      const group = cells.filter(c => c.sender === sender && c.receiver === receiver);
+  // Scripted scenarios never claim a wake and stay out of the batch.
+  {
+    const seen = new Set();
+    for (const cell of cells) {
+      if ((cell.scenario ?? 'probe') !== 'probe') continue;
+      const key = `${cell.seats?.sender ?? cell.sender}:${cell.seats?.receiver ?? cell.receiver}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const group = cells.filter(c => c.sender === cell.sender && c.receiver === cell.receiver &&
+        c.seats?.sender === cell.seats?.sender && c.seats?.receiver === cell.seats?.receiver &&
+        (c.scenario ?? 'probe') === 'probe');
       if (!group.length) continue;
       const verdict = verifyWakeBatch(group);
       if (verdict.pass) {
@@ -1167,11 +1178,12 @@ async function main() {
           if (cell.woke === true) {
             cell.woke = false;
             cell.wakeFailure = 'wake-phase-separation-unproven';
+            cell.wakeClaim = 'no wake claimed (wake-phase-separation-unproven)';
             cell.status = classify(cell).replace(/^measured-/, simulated ? 'simulated-' : 'measured-');
           }
         }
       }
-      process.stdout.write(`wake batch ${sender}->${receiver}: ${verdict.pass ? 'separated' : 'NOT separated'} (${verdict.failures.join('; ')})\n`);
+      process.stdout.write(`wake batch ${key}: ${verdict.pass ? 'separated' : 'NOT separated'} (${verdict.failures.join('; ')})\n`);
     }
   }
   const sha = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).stdout.trim();
