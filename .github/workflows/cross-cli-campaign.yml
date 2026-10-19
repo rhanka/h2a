@@ -1,0 +1,140 @@
+name: cross-cli-campaign
+
+# Lot L11 trusted campaign lane (SPEC v3 §7.1/§7.2, PROPOSITION, Decision D3
+# pending). Manual + scheduled + pre-merge on the frozen candidate head.
+# Never on forks, never on pull_request, never with pull_request_target
+# semantics. Concurrency 1: a queued campaign waits rather than racing seats.
+on:
+  workflow_dispatch:
+    inputs:
+      seat_set:
+        description: Explicit seat set; each name maps to its XCLI_SEAT_BUNDLE_<NAME> secret (family names while one seat per family)
+        required: true
+      candidate_sha:
+        description: Frozen candidate head the receipt will bind
+        required: true
+  schedule:
+    - cron: "17 3 * * 0"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cross-cli-campaign
+  cancel-in-progress: false
+
+jobs:
+  campaign:
+    # Seat material lives in the protected environment only.
+    environment: cross-cli-seats
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    if: github.event_name != 'pull_request'
+    # One secret bundle per seated family, exposed only inside this
+    # protected environment. The seat_set input names seats; a seat without
+    # its bundle here refuses at materialisation, never from elsewhere.
+    env:
+      XCLI_SEAT_BUNDLE_CLAUDE: ${{ secrets.XCLI_SEAT_BUNDLE_CLAUDE }}
+      XCLI_SEAT_BUNDLE_CODEX: ${{ secrets.XCLI_SEAT_BUNDLE_CODEX }}
+      XCLI_SEAT_BUNDLE_MUSE: ${{ secrets.XCLI_SEAT_BUNDLE_MUSE }}
+      XCLI_SEAT_BUNDLE_AGY: ${{ secrets.XCLI_SEAT_BUNDLE_AGY }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.candidate_sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm ci --ignore-scripts
+      # Interim file-copy path (§7.3): one environment secret bundle per seat
+      # (XCLI_SEAT_BUNDLE_<SEATID> holding {family, files:{relpath: base64}}),
+      # written into 0700 temp HOMEs; the manifest is validated at load and
+      # carries paths only, never secret bytes.
+      - name: Materialise seat HOMEs from environment bundles
+        env:
+          SEAT_SET: ${{ inputs.seat_set }}
+        run: >-
+          node --input-type=module -e "
+          import fs from 'node:fs';
+          import { createHash } from 'node:crypto';
+          import { join } from 'node:path';
+          import { loadSeatManifest } from './scripts/xcli-seats.mjs';
+          const ids = (process.env.SEAT_SET ?? '').split(',').map(s => s.trim()).filter(Boolean);
+          if (!ids.length) { console.error('seat set is required'); process.exit(1); }
+          for (const seatId of ids) {
+            const key = 'XCLI_SEAT_BUNDLE_' + seatId.replace(/[^A-Za-z0-9]/g, '_').toUpperCase();
+            if (!process.env[key]) { console.error('no bundle mapped for seat: ' + seatId); process.exit(1); }
+          }
+          const base = join(process.env.RUNNER_TEMP, 'seats');
+          fs.mkdirSync(base, { recursive: true, mode: 0o700 });
+          const seats = ids.map(seatId => {
+            const bundle = JSON.parse(process.env['XCLI_SEAT_BUNDLE_' + seatId.replace(/[^A-Za-z0-9]/g, '_').toUpperCase()] ?? 'null');
+            const home = join(base, seatId);
+            fs.mkdirSync(home, { recursive: true, mode: 0o700 });
+            for (const [rel, b64] of Object.entries(bundle.files ?? {})) {
+              const target = join(home, rel);
+              fs.mkdirSync(join(target, '..'), { recursive: true, mode: 0o700 });
+              fs.writeFileSync(target, Buffer.from(b64, 'base64'), { mode: 0o600 });
+            }
+            return { seatId, family: bundle.family, authSource: home };
+          });
+          const manifest = { version: 1, seatMode: 'interim-file-copy', seats };
+          const file = join(process.env.RUNNER_TEMP, 'seats.json');
+          fs.writeFileSync(file, JSON.stringify(manifest, null, 2), { mode: 0o600 });
+          loadSeatManifest(file);
+          console.log('seats=' + seats.map(s => s.seatId).join(','));
+          console.log('manifest-digest=' + createHash('sha256').update(fs.readFileSync(file)).digest('hex'));
+          "
+      - name: Run the R1 campaign on the frozen head
+        env:
+          SEAT_MANIFEST: ${{ runner.temp }}/seats.json
+        run: >-
+          node scripts/qualify-cross-cli.mjs --seat-manifest "${SEAT_MANIFEST}"
+          --campaign-root "${RUNNER_TEMP}/campaign"
+          --output "${RUNNER_TEMP}/campaign/qualification.json"
+      # Filtered receipt only: digests recomputed from the candidate tree,
+      # never trusted from the qualify output; seat paths stay out.
+      - name: Assemble the filtered campaign receipt
+        run: >-
+          node --input-type=module -e "
+          import { spawnSync } from 'node:child_process';
+          import fs from 'node:fs';
+          import { createHash } from 'node:crypto';
+          import os from 'node:os';
+          import { join } from 'node:path';
+          import { buildCampaignReceipt } from './scripts/xcli-ci-check.mjs';
+          import { SEATED_FAMILIES } from './scripts/xcli-matrix-check.mjs';
+          const home = fs.mkdtempSync(join(os.tmpdir(), 'xcli-measure-'));
+          const cliVersions = {};
+          for (const family of SEATED_FAMILIES) {
+            const found = spawnSync('/usr/bin/which', [family], { encoding: 'utf8' });
+            if (found.status !== 0) { console.error('missing CLI binary: ' + family); process.exit(1); }
+            const path = found.stdout.trim();
+            const probe = spawnSync(path, ['--version'], { env: { ...process.env, HOME: home }, encoding: 'utf8', timeout: 30000 });
+            if (probe.status !== 0) { console.error('no version answer: ' + family); process.exit(1); }
+            cliVersions[family] = { version: probe.stdout.match(/\d+\.\d+\.\d+(-R\d+(\.\d+)?)?/)[0],
+              binaryDigest: createHash('sha256').update(fs.readFileSync(path)).digest('hex') };
+          }
+          fs.rmSync(home, { recursive: true, force: true });
+          const manifestFile = join(process.env.RUNNER_TEMP, 'seats.json');
+          const receipt = buildCampaignReceipt({ campaignRoot: join(process.env.RUNNER_TEMP, 'campaign'),
+            sha: '${{ inputs.candidate_sha || github.sha }}', gate: 'merge',
+            repoRoot: '${{ github.workspace }}', cliVersions,
+            seatManifestDigest: createHash('sha256').update(fs.readFileSync(manifestFile)).digest('hex') });
+          fs.writeFileSync(join(process.env.RUNNER_TEMP, 'campaign-receipt.json'), JSON.stringify(receipt, null, 2) + '\n', { mode: 0o600 });
+          console.log('receipt cells=' + receipt.cells.length);
+          "
+      - name: Check the receipt before publishing
+        run: >-
+          node scripts/xcli-receipt-check.mjs --receipt "${RUNNER_TEMP}/campaign-receipt.json"
+          --sha "${{ inputs.candidate_sha || github.sha }}" --gate merge
+      - name: Publish the filtered receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcli-campaign-receipt
+          path: ${{ runner.temp }}/campaign-receipt.json
+          if-no-files-found: error
+      - name: Wipe seat HOMEs unconditionally
+        if: always()
+        run: rm -rf "${RUNNER_TEMP}/seats" "${RUNNER_TEMP}/seats.json"
