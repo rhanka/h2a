@@ -29,7 +29,7 @@ const option = (name, fallback) => {
 // values (ratified under D2); relations and refusals are normative.
 const SIM_WAKE_DEFAULTS = { w0Ms: 2000, w1Ms: 13000, dMs: 3000 };
 const REAL_WAKE_DEFAULTS = { w0Ms: 5000, w1Ms: 15000, dMs: 20000 };
-function parseWakeWindows(raw, simulated) {
+export function parseWakeWindows(raw, simulated) {
   const fallback = simulated ? SIM_WAKE_DEFAULTS : REAL_WAKE_DEFAULTS;
   if (raw === undefined) return { ...fallback };
   const parts = raw.split(",").map(Number);
