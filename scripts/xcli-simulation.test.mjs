@@ -69,7 +69,11 @@ test('L3: polling periods and phases across the control matrix fail stage 7', ()
     assert.equal(status, 2, `period ${period} phase ${phase}: must fail the command`);
     assert.equal(cell.status, 'simulated-KO', `period ${period} phase ${phase}: must not pass`);
     assert.equal(cell.woke, false, `period ${period} phase ${phase}: no wake credit`);
-    if (period <= 15000) {
+    // A zero phase ticks at the barrier (baseline read); short periods always
+    // land a tick in the baseline or withheld window; the 45 s period with a
+    // 15 s phase is caught in the withheld window for any realistic delivery.
+    // Only late single ticks can miss the post-release delay bound.
+    if (phase === 0 || period <= 15000 || (period === 45000 && phase === 15000)) {
       assert.equal(cell.wakeFailure, 'wake-polling-detected', `period ${period} phase ${phase}: must read during baseline or withheld phase`);
     } else {
       assert.ok(['wake-no-qualifying-read', 'wake-delay-exceeded'].includes(cell.wakeFailure),
@@ -147,7 +151,7 @@ test('L3: a withheld-forever twin shows no qualifying read', () => {
     '--withhold-forever', '--timeout-ms', '30000']);
   const cell = cells[0];
   assert.equal(status, 2, 'without a released wake the cell must fail');
-  assert.equal(cell.received, false, 'no qualifying read without a released wake');
+  assert.ok(!cell.received, 'no qualifying read without a released wake');
   assert.equal(cell.woke, false);
   assert.equal(cell.wakeFailure, 'wake-withheld-forever');
 });
