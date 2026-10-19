@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { CLIS, pythonEntrypoint, vendorRuntimeLabel, LOGIN_ALLOWLIST } from './xcli-lab.mjs';
+import { CLIS, pythonEntrypoint, vendorRuntimeLabel, LOGIN_ALLOWLIST, environment, copyLogin, privateExecutable } from './xcli-lab.mjs';
 
 const GEMINI_SHAPED = ['oauth_creds.json', 'google_accounts.json'];
 
@@ -213,16 +213,18 @@ export function usageSignalInventory() {
 // precheck proves the login is accepted without spending a messaging cell.
 // No step spends a model turn except the injected auth precheck, whose calls
 // the caller debits. Every failure carries a classified reason.
-const codes = s => [...s].map(c => c.codePointAt(0).toString(16)).join(',');
-const CLAUDE_FAMILY = CLIS.find(family => family.length === 6 && codes(family).startsWith('63,6c'));
-
 export async function runSeatPreflight(seat, { executables = {}, runAuthPrecheck } = {}) {
   const fail = reason => ({ ok: false, reason, modelCalls: 0 });
-  const executable = executables[seat.family];
+  let executable = executables[seat.family];
   if (!executable) return fail(`cli-not-found:${seat.family}`);
+  const root = fs.mkdtempSync('/tmp/h2a-preflight-');
+  try {
+  const env = environment(root);
+  executable = privateExecutable(seat.family, executable, root).path;
+  const options = { env, cwd: root, encoding: 'utf8' };
   let version = null;
   try {
-    const probed = spawnSync(executable, ['--version'], { encoding: 'utf8', timeout: 15000, maxBuffer: 65536 });
+    const probed = spawnSync(executable, ['--version'], { ...options, timeout: 15000, maxBuffer: 65536 });
     version = probed.status === 0 ? probed.stdout.match(/\b\d+\.\d+\.\d+\b/)?.[0] ?? null : null;
   } catch { version = null; }
   if (!version) return fail('preflight-version-unproven');
@@ -236,17 +238,16 @@ export async function runSeatPreflight(seat, { executables = {}, runAuthPrecheck
   } else if (pythonEntrypoint(executable)) {
     return { ...fail(`python-entrypoint-forbidden:${seat.family}`), ...facts };
   }
-  facts.tierC = tierCOracle(seat.family, executable);
+  facts.tierC = tierCOracle(seat.family, executable, options);
   if (!facts.tierC.ok) return { ...fail(facts.tierC.reason), ...facts };
   const allowlisted = LOGIN_ALLOWLIST[seat.family] ?? null;
   if (allowlisted === null) return { ...fail(`login-not-confined:${seat.family}`), ...facts };
   let present = [];
   try {
-    const names = fs.readdirSync(seat.authSource);
-    present = allowlisted.filter(name => names.includes(name.split('/').pop()));
+    present = copyLogin(seat.family, seat.authSource, root, env);
   } catch { present = []; }
   if (!present.length) return { ...fail('preflight-auth-unproven'), ...facts };
-  if (seat.family === CLAUDE_FAMILY) {
+  if (seat.family === 'muse') {
     assert.ok(typeof runAuthPrecheck === 'function', 'Muse auth precheck requires an injected runner');
     const checked = await runAuthPrecheck(seat);
     facts.modelCalls = checked.modelCalls ?? 1;
@@ -256,16 +257,17 @@ export async function runSeatPreflight(seat, { executables = {}, runAuthPrecheck
     facts.authPrecheck = 'login-files-present';
   }
   return { ok: true, ...facts };
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 }
 
 // Read-only tier-C step per family (real parser, no login, no model). Only
 // families with a proven read-only list command are executed; the rest name
 // their gap and pass the step without pretending.
-function tierCOracle(family, executable) {
-  const list = family === 'codex' ? ['mcp', 'list', '--json'] : family === 'Muse' ? ['mcp', 'list'] : null;
+function tierCOracle(family, executable, options) {
+  const list = family === 'codex' ? ['mcp', 'list', '--json'] : null;
   if (!list) return { ok: true, oracle: 'source-gap', reason: 'no-read-only-oracle' };
   try {
-    const probed = spawnSync(executable, list, { encoding: 'utf8', timeout: 20000, maxBuffer: 1024 * 1024 });
+    const probed = spawnSync(executable, list, { ...options, timeout: 20000, maxBuffer: 1024 * 1024 });
     if (probed.status !== 0) return { ok: false, reason: 'preflight-oracle-failed' };
     return { ok: true, oracle: list.join(' ') };
   } catch { return { ok: false, reason: 'preflight-oracle-failed' }; }
