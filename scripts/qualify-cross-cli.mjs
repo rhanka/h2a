@@ -174,7 +174,16 @@ async function worker() {
     row.cleanupErrors.push({ stage, code: error.code, name: error.name,
       locations: String(error.stack ?? '').split('\n').slice(1).filter(line => line.includes(build) || line.includes(repo)).map(line => line.trim()) });
   };
-  async function launch(cli, role, prompt, scriptJson) {
+  // Lot L14: per-cell throwaway signing keys for negotiation scenarios.
+  // Generated per cell, passed via process env only, never retained.
+  const scriptKeyVars = () => {
+    const pair = () => generateKeyPairSync('ed25519');
+    const pem = (key, type) => key.export({ type, format: 'pem' });
+    const a = pair(), b = pair();
+    return { pubKeyA: pem(a.publicKey, 'spki'), privKeyA: pem(a.privateKey, 'pkcs8'),
+      pubKeyB: pem(b.publicKey, 'spki'), privKeyB: pem(b.privateKey, 'pkcs8') };
+  };
+  async function launch(cli, role, prompt, scriptJson, scriptVars) {
     const dir = join(cell, role);
     fs.mkdirSync(dir, { mode: 0o700 });
     const env = { ...environment(dir), H2A_TEST_QUALIFICATION_ROOT: root,
@@ -184,6 +193,7 @@ async function worker() {
       XCLI_CELL: cell, XCLI_EVENTS: join(dir, 'events.jsonl'), XCLI_BIN: bin,
       XCLI_BUILD: build, XCLI_EXEC_JOURNAL: execJournal, ...(simulated ? { XCLI_SIMULATED: '1' } : {}),
       ...(scriptJson ? { XCLI_SCRIPT: scriptJson } : {}),
+      ...(scriptVars ? { XCLI_SCRIPT_VARS: JSON.stringify(scriptVars) } : {}),
       ...(mcpCallCap > 0 ? { XCLI_MCP_CALL_CAP: String(mcpCallCap) } : {}),
       ...(poll && role === 'receiver' ? { XCLI_POLL: poll } : {}),
       // Lot L12: the never-ready fault idles the receiver's identity gate.
@@ -407,7 +417,8 @@ async function worker() {
       }
       validateScriptSteps(receiverSteps);
       validateScriptSteps(senderSteps);
-      const rScripted = await launch(receiver, 'receiver', `Scripted ${scenario.key} participant.`, JSON.stringify(receiverSteps));
+      const keyVars = scenario.kind === 'negotiation' ? scriptKeyVars() : undefined;
+      const rScripted = await launch(receiver, 'receiver', `Scripted ${scenario.key} participant.`, JSON.stringify(receiverSteps), keyVars);
       const receiverReady = await ready(rScripted);
       row.receiverMcp = loaded(rScripted);
       if (!receiverReady.instance) {
@@ -415,7 +426,7 @@ async function worker() {
         row.failure = receiverReady.failure;
         return row;
       }
-      const s = await launch(sender, 'sender', `Scripted ${scenario.key} creator.`, JSON.stringify(senderSteps));
+      const s = await launch(sender, 'sender', `Scripted ${scenario.key} creator.`, JSON.stringify(senderSteps), keyVars);
       const senderReady = await ready(s);
       row.senderMcp = loaded(s);
       if (!senderReady.instance) {
@@ -449,9 +460,9 @@ async function worker() {
           ['h2a_loop_join', 'h2a_loop_report', 'h2a_loop_status', 'h2a_loop_list'].every(t => toolOk(rScripted, t)) &&
           row.receiverScriptOk && row.senderScriptOk;
       } else if (scenario.kind === 'negotiation' && !scenario.twin) {
-        const initiatorOk = ['h2a_open_negotiation', 'h2a_offer', 'h2a_append_journal', 'h2a_stabilize']
+        const initiatorOk = ['h2a_open_negotiation', 'h2a_offer', 'h2a_append_journal', 'h2a_sign', 'h2a_stabilize']
           .every(t => toolOk(s, t));
-        const responderOk = ['h2a_counteroffer', 'h2a_append_journal', 'h2a_stabilize']
+        const responderOk = ['h2a_counteroffer', 'h2a_append_journal', 'h2a_sign']
           .every(t => toolOk(rScripted, t));
         row.stabilized = initiatorOk && responderOk && row.receiverScriptOk && row.senderScriptOk;
         row.journalGrown = toolOk(s, 'h2a_append_journal') && toolOk(rScripted, 'h2a_append_journal');

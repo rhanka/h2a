@@ -504,27 +504,51 @@
     },
     {
       "scenario": "negotiation:flow",
-      "status": "not-covered",
-      "blocker": "scenario-undefined",
-      "owner": "L14"
+      "pairs": "all-36",
+      "tiers": [
+        "S"
+      ],
+      "status": "covered-simulated",
+      "ratchet": {
+        "scope": "R2-seated",
+        "entry": "L9-diagonals-green"
+      }
     },
     {
       "scenario": "negotiation:offer-unknown",
-      "status": "not-covered",
-      "blocker": "scenario-undefined",
-      "owner": "L14"
+      "pairs": "all-36",
+      "tiers": [
+        "S"
+      ],
+      "status": "covered-simulated",
+      "ratchet": {
+        "scope": "R2-seated",
+        "entry": "L9-diagonals-green"
+      }
     },
     {
       "scenario": "negotiation:stabilize-without-offer",
-      "status": "not-covered",
-      "blocker": "scenario-undefined",
-      "owner": "L14"
+      "pairs": "all-36",
+      "tiers": [
+        "S"
+      ],
+      "status": "covered-simulated",
+      "ratchet": {
+        "scope": "R2-seated",
+        "entry": "L9-diagonals-green"
+      }
     },
     {
       "scenario": "negotiation:replayed-stabilization",
-      "status": "not-covered",
-      "blocker": "scenario-undefined",
-      "owner": "L14"
+      "pairs": "all-36",
+      "tiers": [
+        "S"
+      ],
+      "status": "covered-simulated",
+      "ratchet": {
+        "scope": "R2-seated",
+        "entry": "L9-diagonals-green"
+      }
     },
     {
       "scenario": "inventory:read-paths",
@@ -592,7 +616,11 @@
       "loop:lifecycle",
       "loop:join-unknown",
       "loop:report-without-join",
-      "loop:report-after-done"
+      "loop:report-after-done",
+      "negotiation:flow",
+      "negotiation:offer-unknown",
+      "negotiation:stabilize-without-offer",
+      "negotiation:replayed-stabilization"
     ],
     "pairs": "all-36",
     "tiers": [
