@@ -598,6 +598,90 @@ test('should retain a deferred legacy result when the installed frontend is alre
     assert.equal(result.pty.status,'deferred');
     assert.equal(result.pty.owners.length,2);
     assert.equal(result.pty.owners.find(owner=>owner.socketPath===plan.legacyHosts[0].socketPath)?.status,'deferred');
+    assert.equal(result.pty.owners.find(owner=>owner.socketPath===plan.legacyHosts[0].socketPath)?.admission,'unfenced');
+    assert.equal(result.pty.owners.find(owner=>owner.socketPath===plan.legacyHosts[0].socketPath)?.retirement,'deferred');
     assert.equal(result.pty.owners.find(owner=>owner.socketPath===plan.owners[0].socketPath)?.status,'switched');
   } finally {rmSync(prefix,{recursive:true,force:true});}
 });
+
+function assertUnfencedLegacy(result, legacy) {
+  assert.equal(result.outcome, 'pty-deferred');
+  assert.equal(result.pty.status, 'deferred');
+  const owner = result.pty.owners.find(owner => owner.socketPath === legacy.socketPath);
+  assert.ok(owner, 'a known pre-B owner must remain in every upgrade result');
+  assert.equal(owner.owner.pid, legacy.hostPid);
+  assert.equal(owner.status, 'deferred');
+  assert.equal(owner.admission, 'unfenced');
+  assert.equal(owner.retirement, 'deferred');
+  assert.doesNotMatch(owner.reason, /drains in place/);
+}
+
+for (const path of ['already-current', 'installed-by-another-lane', 'package-swap']) {
+  test(`should report unfenced pre-B admission and retain installs on ${path}`, () => {
+    const prefix = freshPrefix(), current = globalPkgDir(prefix), legacy = { socketPath: join(prefix, 'lf1.sock'), hostPid: process.pid };
+    try {
+      writeSelfContainedPkg(current, '1.0.0');
+      const retained = retainedFixture(prefix, '0.9.0-2147483646-preb');
+      const lock = rt.acquirePrefixLock(prefix);
+      try { ptyUpgrade.recordPtyInstallReferences(prefix, lock, retained.target.installDir, []); }
+      finally { lock.release(); }
+      let previousInstall;
+      const runtime = {
+        ...rt, fetchLatest: () => path === 'package-swap' ? '1.0.1' : '1.0.0',
+        preparePtyUpgrade: () => ({ state: 'active', owners: [], components: [], legacyHosts: [legacy] }),
+        fetchTarball: () => ({ ok: true, file: join(prefix, 'fake.tgz') }),
+        stageInstall: (_tarball, stagingPrefix) => { writeSelfContainedPkg(stagedPkgDir(stagingPrefix), '1.0.1'); return { ok: true }; },
+        swapPackageDir: (...args) => { const swapped = rt.swapPackageDir(...args); previousInstall = swapped.prevDir; return swapped; },
+        switchPtyFrontend: () => { throw new Error('a pre-B host cannot switch frontends'); },
+      };
+      const result = performAutoUpgrade(path === 'installed-by-another-lane' ? '0.9.0' : '1.0.0', { prefix, runtime });
+      assertUnfencedLegacy(result, legacy);
+      assert.match(result.pty.owners[0].reason, /no atomic admission fence/);
+      assert.equal(result.pty.versions[0].loadedVersion, 'unknown');
+      assert.equal(result.pty.versions[0].switchedVersion, null);
+      assert.equal(JSON.parse(readFileSync(join(prefix, '.h2a-pty-retention.json'), 'utf8')).unknownReferences, true);
+      const sweepLock = rt.acquirePrefixLock(prefix);
+      try { ptyUpgrade.sweepPtyRetainedInstalls(prefix, sweepLock); }
+      finally { sweepLock.release(); }
+      assert.equal(existsSync(retained.target.frontendModule), true);
+      if (path === 'package-swap') {
+        assert.ok(previousInstall);
+        assert.equal(existsSync(previousInstall), true);
+        assert.equal(result.verifiedVersion, '1.0.1');
+        assert.doesNotMatch(result.message, /owner restart deferred until drain/);
+      }
+    } finally { rmSync(prefix, { recursive: true, force: true }); }
+  });
+}
+
+for (const stage of [false, true]) for (const failure of ['retention', 'switch', 'unavailable']) {
+  test(`should keep a known pre-B owner explicit when ${stage ? 'staged' : 'current'} upgrade defers at ${failure}`, () => {
+    const prefix = freshPrefix(), current = globalPkgDir(prefix), legacy = { socketPath: join(prefix, 'lf1.sock'), hostPid: process.pid };
+    try {
+      writeSelfContainedPkg(current, '1.0.0');
+      const candidate = 'node_modules/@sentropic/h2a-runtime/dist/native-terminal/frontend-process.js';
+      const previous = join(current, 'dist/previous-frontend.js');
+      writeFileSync(previous, 'export {};');
+      mkdirSync(dirname(join(current, candidate)), { recursive: true }); writeFileSync(join(current, candidate), 'export {};');
+      const loaded = { pid: process.pid, version: '0.9.0', codePath: previous, codeIdentity: { dev: statSync(previous).dev, ino: statSync(previous).ino } };
+      const plan = { state: 'active', owners: [{ socketPath: join(prefix, 'b.sock'), status: {
+        ownerProtocolVersion: 1, owner: loaded, frontend: failure === 'retention' ? undefined : loaded,
+      } }], components: [loaded], legacyHosts: [legacy] };
+      const runtime = {
+        ...rt, fetchLatest: () => stage ? '1.0.1' : '1.0.0', preparePtyUpgrade: () => plan,
+        fetchTarball: () => ({ ok: true, file: join(prefix, 'fake.tgz') }),
+        stageInstall: (_tarball, stagingPrefix) => {
+          const pkg = stagedPkgDir(stagingPrefix); writeSelfContainedPkg(pkg, '1.0.1');
+          mkdirSync(dirname(join(pkg, candidate)), { recursive: true }); writeFileSync(join(pkg, candidate), 'export {};');
+          return { ok: true };
+        },
+        switchPtyFrontend: failure === 'unavailable' ? undefined : () => { throw new Error('frontend switch interrupted'); },
+      };
+      const result = performAutoUpgrade('1.0.0', { prefix, runtime });
+      assert.match(result.pty.reason, failure === 'retention' ? /no qualified previous frontend/ : failure === 'switch' ? /frontend switch interrupted/ : /frontend.*unavailable/);
+      assertUnfencedLegacy(result, legacy);
+      assert.equal(result.pty.owners.some(owner => owner.socketPath === plan.owners[0].socketPath), true);
+      assert.equal(JSON.parse(readFileSync(join(prefix, '.h2a-pty-retention.json'), 'utf8')).unknownReferences, true);
+    } finally { rmSync(prefix, { recursive: true, force: true }); }
+  });
+}

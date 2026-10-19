@@ -533,11 +533,13 @@ function preparePtyRetention(prefix: string, lock: PrefixLockLease, packageDir: 
       ownerProtocolVersion: protocol, codeIdentity: frontend.codeIdentity }, { ...frontend, ownerProtocolVersion: protocol });
   }
 }
-function legacyPtyUpgradeResult(plan: PtyUpgradePlan): PtyUpgradeResult {
-  return { status: "deferred", components: plan.components, owners: (plan.legacyHosts ?? []).map(legacy => ({
+function legacyPtyUpgradeResult(plan: PtyUpgradePlan, owners: any[] = [],
+  reason = "pre-B admission is unfenced; automatic retirement deferred; installs with unknown references retained"): PtyUpgradeResult {
+  return { status: "deferred", components: plan.components, owners: [...owners, ...(plan.legacyHosts ?? []).map(legacy => ({
     socketPath: legacy.socketPath, status: "deferred", owner: { pid: legacy.hostPid, version: "unknown" },
-    reason: "legacy fused host drains in place",
-  })), reason: "legacy sessions remain on their existing host; installs with unknown references retained" };
+    admission: "unfenced", retirement: "deferred",
+    reason: "pre-B host has no atomic admission fence; automatic retirement is deferred",
+  }))], reason };
 }
 function finishCurrentPtyUpgrade(prefix: string, lock: PrefixLockLease, runtime: UpgradeRuntime): PtyUpgradeResult | undefined {
   if (!runtime.preparePtyUpgrade) return undefined;
@@ -555,14 +557,14 @@ function finishCurrentPtyUpgrade(prefix: string, lock: PrefixLockLease, runtime:
     if (plan.owners.every(owner => owner.status.frontend?.codeIdentity?.dev === candidate.dev && owner.status.frontend?.codeIdentity?.ino === candidate.ino)) {
       const currentOwners = plan.owners.map(owner => ({ socketPath: owner.socketPath, ...owner.status, status: "switched" }));
       if (plan.legacyHosts?.length) {
-        const deferred = legacyPtyUpgradeResult(plan);
-        return { ...deferred, owners: [...currentOwners, ...deferred.owners] };
+        return legacyPtyUpgradeResult(plan, currentOwners);
       }
       return { status: "switched", owners: currentOwners, components: plan.components };
     }
     return runtime.switchPtyFrontend(plan, frontend, pin.frontendModule);
   } catch (error) {
-    return { status: "deferred", owners: plan?.owners ?? [], components: plan?.components ?? [], reason: error instanceof Error ? error.message : String(error) };
+    const reason = error instanceof Error ? error.message : String(error);
+    return plan ? legacyPtyUpgradeResult(plan, plan.owners, reason) : { status: "deferred", owners: [], components: [], reason };
   }
 }
 
@@ -1745,7 +1747,8 @@ export function performAutoUpgrade(
         cleanupAttempt();
         const reason = error instanceof Error ? error.message : String(error);
         return { current, target, outcome: "pty-deferred", message: `PTY upgrade deferred: ${reason}; owner unchanged`,
-          pty: withPtyVersions({ status: "deferred", owners: ptyPlan?.owners ?? [], components: ptyPlan?.components ?? [], reason }, current, target)! };
+          pty: withPtyVersions(ptyPlan ? legacyPtyUpgradeResult(ptyPlan, ptyPlan.owners, reason)
+            : { status: "deferred", owners: [], components: [], reason }, current, target)! };
       }
     }
 
@@ -1808,11 +1811,10 @@ export function performAutoUpgrade(
             const rollback = readPtyRollbackFrontend(resolvedPrefix, ptyPlan.owners[0]?.status.ownerProtocolVersion);
             pty = frontendModule && rollback && runtime.switchPtyFrontend
               ? runtime.switchPtyFrontend(ptyPlan, frontendModule, rollback.frontendModule)
-              : { status: "deferred", owners: ptyPlan.owners, components: ptyPlan.components, reason: "compatible candidate or retained rollback frontend unavailable" };
+              : legacyPtyUpgradeResult(ptyPlan, ptyPlan.owners, "compatible candidate or retained rollback frontend unavailable");
           }
         } catch (error) {
-          pty = { status: "deferred", owners: ptyPlan.owners, components: ptyPlan.components,
-            reason: error instanceof Error ? error.message : String(error) };
+          pty = legacyPtyUpgradeResult(ptyPlan, ptyPlan.owners, error instanceof Error ? error.message : String(error));
         }
       }
       pty = withPtyVersions(pty, verified);
@@ -1854,7 +1856,7 @@ export function performAutoUpgrade(
         outcome: pty?.status === "deferred" ? "pty-deferred" : "upgraded",
         verifiedVersion: verified,
         verifiedEntrypoint: join(resolveGlobalPkgDir(resolvedPrefix), 'dist/bin.js'),
-        message: `auto-upgraded ${current} → ${target} [verified]${pty ? `; PTY frontend ${pty.status}; owner loaded ${pty.versions?.filter(version => version.component === "owner").map(version => version.loadedVersion).join(",") || "none"}, owner restart deferred until drain${pty.reason ? `; ${pty.reason}` : ""}` : " (applies on next launch)"}`,
+        message: `auto-upgraded ${current} → ${target} [verified]${pty ? `; PTY frontend ${pty.status}; owner loaded ${pty.versions?.filter(version => version.component === "owner").map(version => version.loadedVersion).join(",") || "none"}, ${pty.owners.some(owner => owner.admission === "unfenced") ? "pre-B admission unfenced; automatic retirement deferred" : "owner restart deferred until drain"}${pty.reason ? `; ${pty.reason}` : ""}` : " (applies on next launch)"}`,
         ...(pty === undefined ? {} : { pty }),
         logPath
       };
