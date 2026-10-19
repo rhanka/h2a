@@ -34,6 +34,7 @@ export type RegistryDiagnosticCode =
   | "central_unavailable"
   | "missing_lock"
   | "restore_failed"
+  | "published_then_edited"
   | "stale_generation";
 
 export class RegistryError extends Error {
