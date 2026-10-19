@@ -58,9 +58,19 @@ for(const method of ['spawn','execFile','execFileSync'])test('U12 should refuse 
  const r=run(f,'internal-'+method,{EXTERNAL_MODULE_URL:new URL('file://'+decoy).href});assert.equal(r.code,1,r.stderr);assert.match(r.stderr,/image_external_module/);assert.equal(r.marker,false);
 });
 for(const mode of ['boot-check','boot-auto'])test('U12 should run the real file boot worker in '+mode+' mode without network or prefix escape',async()=>{
- const f=await fixture(),r=run(f,mode);assert.equal(r.code,0,r.stderr);assert.equal(r.stdout,'');
+ const f=await fixture(),selectionBefore=fs.readFileSync(f.selectionPath,'utf8'),r=run(f,mode);assert.equal(r.code,0,r.stderr);assert.equal(r.stdout,'');
  if(mode==='boot-check')assert.ok(r.stderr.includes(`${f.availableVersion} available (current ${f.payload.coreVersion})`),r.stderr);
- else{assert.equal(r.stderr,'');assert.equal(r.cache.lastOutcome,'ok');assert.equal(r.cache.lastAttemptVersion,f.payload.coreVersion);assert.ok(r.cache.lastAttemptAt>0);}
+ // Since LOT-1 the worker enters the single H4 pass. Offline the automatic
+ // pass is a recorded best-effort no-op (target_unresolvable): the failure
+ // surfaces once per TTL window (like the legacy non-quiet outcomes),
+ // writes no legacy staged-engine cache fields, advances no journal
+ // transaction and leaves the durable selection alone.
+ else{assert.ok(r.stderr.includes('auto-upgrade target_unresolvable (current '),r.stderr);
+  assert.equal(r.cache.lastAutoOutcome,'no-op');assert.equal(r.cache.lastAutoReason,'target_unresolvable');assert.ok(r.cache.lastAutoAt>0);
+  assert.equal(r.cache.lastOutcome,undefined,'no legacy staged-engine outcome');assert.equal(r.cache.lastAttemptVersion,undefined,'no legacy attempt version');
+  assert.equal(fs.readFileSync(f.selectionPath,'utf8'),selectionBefore,'durable selection untouched');
+  const txDir=join(f.installation.managedRoot,'state','upgrade','transactions');
+  assert.deepEqual(fs.existsSync(txDir)?fs.readdirSync(txDir):[],[],'no journal transaction opened');}
 });
 
 for(const mode of ['alias-fork','alias-node','alias-spawn'])test('U12 should bind physical image execution through '+mode+' before any external effect',async()=>{
