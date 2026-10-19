@@ -277,6 +277,9 @@ export function createRegistry(): {
     const configDigests: Record<string, string> = {};
     const effectiveProfiles: Record<string, string> = {};
     const bindingContracts: Record<string, string> = {};
+    // Scratch loader state: staged handler maps commit to the stored
+    // definitions only when the whole candidate below validates.
+    const stagedHandlers = new Map<StoredDefinition, Map<string, (args: unknown) => unknown>>();
 
     for (const id of selection) {
       const stored = [...definitions.values()].find((candidate) => candidate.entry.id === id) as StoredDefinition;
@@ -359,9 +362,9 @@ export function createRegistry(): {
         return { ok: false, diagnostics: [diag((error as { code?: RegistryDiagnosticCode }).code ?? "invalid_entry", (error as Error).message)] };
       }
       // Selected-only load: thunks run after metadata/peer/policy preflight,
-      // never for unselected entries. The payload must match the registered
-      // shell and cover the effective profile; anything else refuses with no
-      // partial activation.
+      // never for unselected entries. Loaded handlers stage in scratch state
+      // and commit only when the whole candidate validates: a failed
+      // candidate never disturbs the stored (possibly active) handlers.
       if (stored.lazyLoad) {
         let payload: unknown;
         try {
@@ -380,10 +383,11 @@ export function createRegistry(): {
             return { ok: false, diagnostics: [diag("invalid_entry", `provider ${id} loader manifest drifts from the registered shell`)] };
           }
         }
-        stored.handlers = payload["handlers"] as Map<string, (args: unknown) => unknown>;
+        stagedHandlers.set(stored, payload["handlers"] as Map<string, (args: unknown) => unknown>);
       }
+      const effectiveHandlers = stagedHandlers.get(stored) ?? stored.handlers;
       for (const name of tools) {
-        if (!stored.handlers.has(name)) {
+        if (!effectiveHandlers.has(name)) {
           return { ok: false, diagnostics: [diag("invalid_entry", `provider ${id} supplies no handler for selected tool ${name}`)] };
         }
       }
@@ -411,6 +415,11 @@ export function createRegistry(): {
       }
     }
 
+    // The candidate validated: commit staged loader handlers to the stored
+    // definitions. Every failure above returns before this point, so a
+    // refused candidate leaves stored (possibly active) handlers untouched.
+    for (const [stored, handlers] of stagedHandlers) stored.handlers = handlers;
+
     const materializedManifestDigest = sha256Hex(canonicalJson({
       selection: [...selection],
       profiles: { ...effectiveProfiles },
@@ -431,7 +440,10 @@ export function createRegistry(): {
       bindingContracts,
       materializedManifestDigest
     };
-    issuedPlans.set(plan.generation, plan);
+    // The issued snapshot is a copy, never an alias of the returned plan:
+    // caller mutation is detected by activate (integrity_mismatch) instead
+    // of silently rewriting the recorded candidate.
+    issuedPlans.set(plan.generation, structuredClone(plan));
     return { ok: true, plan };
   }
 

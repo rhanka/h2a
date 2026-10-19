@@ -163,7 +163,7 @@ export function cmdHostedLock(argv: readonly string[], streams: CliStreams): num
     if (token === "--binding") {
       const next = rest[i + 1] as string;
       const eq = next?.indexOf("=");
-      if (next === undefined || eq < 0) return usageError(streams, "h2a hosted-lock verify: --binding <key>=<contract> needs a value");
+      if (next === undefined || eq < 0) return usageError(streams, "h2a hosted-lock: --binding <key>=<contract> needs a value");
       bindings[next.slice(0, eq)] = { contract: next.slice(eq + 1) };
       i++;
       continue;
@@ -198,8 +198,10 @@ export function cmdHostedLock(argv: readonly string[], streams: CliStreams): num
       return result.ok ? 0 : 2;
     }
     if (action === "activate") {
+      // Activation verifies the draft against the operator bindings first;
+      // an unbound draft refuses and the active file stays absent/unchanged.
       const active = flags["active"] ?? lockPath;
-      const receipt = activateHostedLock({ lockPath, activePath: active });
+      const receipt = activateHostedLock({ lockPath, activePath: active, bindings });
       streams.stdout.write(`${JSON.stringify({ ok: true, ...receipt, lock: lockPath, active }, null, 2)}\n`);
       return 0;
     }
