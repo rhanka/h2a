@@ -14,6 +14,29 @@ test('should apply a complete manual file with no live agent and retain exact no
   assert.deepEqual(stored.returns[0].notes, value.notes); assert.equal(stored.returns[0].digest, value.digest);
   assert.equal(result.receipt.transactions[0].changeIds[0], value.editReturn.transactions[0].changes[0].changeId);
 }));
+test('should keep a replayed refusal unsuccessful with its conflicts at the CLI', () => fixture(({ root, source, stateDir, freeze, consume, consumer }) => {
+  assert.equal(consume(freeze({ 0: 'B' })).ok, true);
+  // A coherent third-party change: source and manifest advance together
+  // through the same pure core, so the refusal is paragraph-level.
+  const state = JSON.parse(readFileSync(join(stateDir, 'state.json'), 'utf8'));
+  const base = E.readParagraphs(state.current.document, state.current.manifest);
+  const third = structuredClone(base); third[0].text = 'Z';
+  const diverged = E.applyParagraphChanges(state.current.document, state.current.manifest, [E.diffParagraphs(base, third, 'tiers')]);
+  writeFileSync(source, JSON.stringify(diverged.document));
+  writeFileSync(join(stateDir, 'state.json'), JSON.stringify({ ...state, current: { document: diverged.document, manifest: diverged.manifest } }));
+  const r1 = freeze({ 0: 'B' }), r2 = freeze({ 0: 'C' }, r1, 'R2');
+  const refused = consume(r2);
+  assert.equal(refused.ok, false); assert.equal(refused.receipt.status, 'conflict');
+  assert.ok(refused.receipt.conflicts.length > 0);
+  const input = join(root, 'replay.json'); writeFileSync(input, E.encodeReturn(r2));
+  let stdout = '', stderr = '';
+  const streams = { stdout: { write: (s) => { stdout += s; } }, stderr: { write: (s) => { stderr += s; } } };
+  assert.equal(consumer.runFocusFeedbackCli(['apply', input, '--state', stateDir], streams), 1, stdout + stderr);
+  const replay = JSON.parse(stdout);
+  assert.equal(replay.status, 'already-processed'); assert.equal(replay.previousStatus, 'conflict');
+  assert.equal(replay.conflicts.length, refused.receipt.conflicts.length);
+  assert.equal(replay.conflicts[0].requested, 'C');
+}));
 test('should refuse a wrong generation, unknown version, malformed data and a concurrent write before publication', () => fixture(({ root, stateDir, consumer, source, freeze, consume }) => {
   const value = freeze({ 0: 'B' }), wrong = structuredClone(value); wrong.production.generationId = 'wrong'; wrong.digest = E.returnDigest(wrong);
   assert.equal(consume(wrong).receipt.status, 'generation-mismatch');
