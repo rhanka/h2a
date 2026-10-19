@@ -78,11 +78,11 @@ export async function inspectNativeTerminalFrontendUpgrade(): Promise<{
   state: "active" | "absent" | "deferred";
   owners: Array<{ socketPath: string; ownerPid: number; status: any }>;
   components: any[];
-  legacyHosts: Array<{ socketPath: string; hostPid: number }>;
+  legacyHosts: Array<{ socketPath: string; hostPid: number; admission?: "unfenced"; retirement?: "deferred" }>;
   reason?: string;
 }> {
   const owners: Array<{ socketPath: string; ownerPid: number; status: any }> = [], components: any[] = [];
-  const legacyHosts: Array<{ socketPath: string; hostPid: number }> = [];
+  const legacyHosts: Array<{ socketPath: string; hostPid: number; admission?: "unfenced"; retirement?: "deferred" }> = [];
   let reason: string | undefined;
   for (const socketPath of knownNativeTerminalSocketPaths()) {
     let client: NativeTerminalClient | undefined;
@@ -91,7 +91,7 @@ export async function inspectNativeTerminalFrontendUpgrade(): Promise<{
       const ping = await client.ping();
       describeNativeTerminalHost(ping);
       if (!(ping as any).owner) {
-        legacyHosts.push({ socketPath, hostPid: ping.hostPid });
+        legacyHosts.push({ socketPath, hostPid: ping.hostPid, admission: "unfenced", retirement: "deferred" });
         continue;
       }
       const status = await requestNativeTerminalOwnerControl(socketPath, ping.hostPid, "status");
@@ -110,7 +110,12 @@ export async function inspectNativeTerminalFrontendUpgrade(): Promise<{
 export async function switchNativeTerminalUpgradeFrontends(plan: Awaited<ReturnType<typeof inspectNativeTerminalFrontendUpgrade>>,
   frontendModule: string, rollbackModule: string): Promise<{ status: "switched" | "deferred" | "absent"; components: unknown[]; owners: unknown[] }> {
   if (plan.state === "absent") return { status: "absent", components: [], owners: [] };
-  if (plan.state !== "active") return { status: "deferred", components: plan.components, owners: plan.owners };
+  // Known pre-B owners remain explicit even if another endpoint is unknown.
+  // Neither a partial inventory nor a marker can authorize their retirement.
+  const legacyOwners = plan.legacyHosts.map(legacy => ({ socketPath: legacy.socketPath, status: "deferred",
+    owner: { pid: legacy.hostPid, version: "unknown" }, admission: "unfenced", retirement: "deferred",
+    reason: "pre-B host has no atomic admission fence; automatic retirement is deferred" }));
+  if (plan.state !== "active") return { status: "deferred", components: plan.components, owners: [...plan.owners, ...legacyOwners] };
   const owners = [];
   let deferred = plan.legacyHosts.length > 0;
   for (const owner of plan.owners) {
@@ -125,9 +130,7 @@ export async function switchNativeTerminalUpgradeFrontends(plan: Awaited<ReturnT
   }
   // No list-empty observation, client marker or owner tag closes admission on
   // already-established v1 connections. Never signal or unlink a pre-B host.
-  for (const legacy of plan.legacyHosts) owners.push({ socketPath: legacy.socketPath, status: "deferred",
-    owner: { pid: legacy.hostPid, version: "unknown" }, admission: "unfenced", retirement: "deferred",
-    reason: "pre-B host has no atomic admission fence; automatic retirement is deferred" });
+  owners.push(...legacyOwners);
   return { status: deferred ? "deferred" : "switched", components: plan.components, owners };
 }
 

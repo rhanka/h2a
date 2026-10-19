@@ -174,6 +174,8 @@ it("should never treat a client marker as an admission fence on established or f
 
 it("should inventory both generations with loaded versions and explicit unfenced retirement", async () => {
   const f = await fixture();
+  expect((await f.inspect()).legacyHosts).toContainEqual({ socketPath: f.paths[1], hostPid: f.legacy.child.pid,
+    admission: "unfenced", retirement: "deferred" });
   const inventory = await collectNativeInventory(f.paths, path => f.connect(f.paths.indexOf(path)));
   expect(inventory.complete).toBe(true); expect(inventory.hosts.map(h => h.socketPath)).toEqual(f.paths);
   expect(inventory.hosts[0]).toMatchObject({ generation: "drain-0", loadedVersion: getRuntimeVersion() });
@@ -186,6 +188,16 @@ it("should inventory both generations with loaded versions and explicit unfenced
   const [code] = await once(op, "close"); expect(code, errors).toBe(0);
   expect(JSON.parse(output).hosts[1]).toMatchObject({ socketPath: f.paths[1], reachable: true,
     generation: "drain-1", loadedVersion: "unknown", admission: "unfenced", retirement: "deferred" });
+}, 20000);
+
+it("should preserve known pre-B metadata when another endpoint makes the upgrade inventory undecidable", async () => {
+  const f = await fixture(), plan = await f.inspect();
+  const state = await f.create(f.legacy.client, "deferred-inventory"), birth = readProcessStartTime(state.pid);
+  expect(birth).toBeDefined();
+  f.deferred(await f.defer({ ...plan, state: "deferred", reason: "another endpoint is undecidable" }));
+  await f.exchange(f.legacy.client, state.id, "still-accessible");
+  expect(readProcessStartTime(state.pid)).toBe(birth);
+  expect(readProcessStartTime(f.legacy.child.pid!)).toBe(f.legacy.birth);
 }, 20000);
 
 it("should refuse an unknown protocol before classifying or retiring a pre-B host", async () => {
