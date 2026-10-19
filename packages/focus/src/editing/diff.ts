@@ -34,8 +34,10 @@ export function diffParagraphs(baseline: ParagraphValue[], draft: ParagraphValue
   return { transactionId, changes };
 }
 
-/** Applies one atomic batch to source tokens. Opaque gaps are never reserialized. */
-export function applyParagraphChanges(document: DecisionDossierDocument, manifest: FocusEditingManifest, transactions: EditTransaction[], restoreRetired = false): { document: DecisionDossierDocument; manifest: FocusEditingManifest } {
+/** Applies one atomic batch to source tokens. Opaque gaps are never reserialized.
+ * A retired identity is restored only when explicitly listed in `restoreIds`:
+ * reviving any other retired identity silently reassigns it (D13). */
+export function applyParagraphChanges(document: DecisionDossierDocument, manifest: FocusEditingManifest, transactions: EditTransaction[], restoreIds: ReadonlySet<string> | null = null): { document: DecisionDossierDocument; manifest: FocusEditingManifest } {
   const values = readParagraphs(document, manifest), changes = transactions.flatMap(t => t.changes);
   if (!changes.length) return { document: structuredClone(document), manifest: structuredClone(manifest) };
   const next = structuredClone(document), paragraphs: Paragraph[] = [], retired = new Set(manifest.retiredParagraphIds);
@@ -52,10 +54,10 @@ export function applyParagraphChanges(document: DecisionDossierDocument, manifes
       let tokenIndex = tokens.findIndex(t => t.value?.paragraphId === c.paragraphId);
       const list = active(), index = list.findIndex(p => p.paragraphId === c.paragraphId);
       if (c.operation === 'insert') {
-        if (values.some(p => p.paragraphId === c.paragraphId) || (retired.has(c.paragraphId) && !restoreRetired) || tokenIndex >= 0 || c.before !== null || c.after === null) throw new Error('reused-paragraph-id');
+        if (values.some(p => p.paragraphId === c.paragraphId) || (retired.has(c.paragraphId) && !restoreIds?.has(c.paragraphId)) || tokenIndex >= 0 || c.before !== null || c.after === null) throw new Error('reused-paragraph-id');
       } else {
         if (index < 0 || list[index].text !== c.before) throw new Error('paragraph-precondition');
-        if (c.operation !== 'replace' && canonicalJson(paragraphAnchors(list, index)) !== canonicalJson(c.beforeAnchors)) throw new Error('structural-precondition');
+        if (canonicalJson(paragraphAnchors(list, index)) !== canonicalJson(c.beforeAnchors)) throw new Error('structural-precondition');
       }
       if (c.after !== null) assertParagraphText(c.after, c.format);
       if (c.operation === 'replace') { if (c.after === null) throw new Error('replace-value'); tokens[tokenIndex] = { text: c.after, value: { ...list[index], text: c.after } }; continue; }
