@@ -15,23 +15,28 @@ const pending = new Map();
 let diagnostic = '';
 let lastIdentity;
 let diagnosticLines = '';
+// Lot L4: the stderr observe path. Exported alongside observe() so the
+// equivalence test can run the same line sequence through both paths.
+export function observeDiagnosticLine(line) {
+  const wake = /^h2a mcp-serve: inbox-wake: (\d+) new envelope\(s\) → drive (ok|failed)$/.exec(line);
+  if (wake) emit({ event: 'inbox-wake', freshCount: Number(wake[1]), ok: wake[2] === 'ok' });
+  const prefix = line.indexOf('h2a.mcp.phase ');
+  if (prefix === -1) return;
+  try {
+    const trace = JSON.parse(line.slice(prefix + 'h2a.mcp.phase '.length));
+    if ((trace.role === 'identity-child' || /^(?:process_start|identity_pending|identity_ready|identity_failed)$/.test(trace.phase)) && /^[a-z0-9_:. -]{1,80}$/i.test(trace.phase)) {
+      emit({ event: 'startup-phase', phase: trace.phase, kind: trace.event, processRole: trace.role,
+        durationMs: trace.durationMs, waitMs: trace.waitMs, holdMs: trace.holdMs });
+    }
+  } catch { /* never retain unparsed diagnostics */ }
+}
 child.stderr.on('data', bytes => {
   diagnosticLines += bytes.toString();
   let newline;
   while ((newline = diagnosticLines.indexOf('\n')) !== -1) {
     const line = diagnosticLines.slice(0, newline);
     diagnosticLines = diagnosticLines.slice(newline + 1);
-    const wake = /^h2a mcp-serve: inbox-wake: (\d+) new envelope\(s\) → drive (ok|failed)$/.exec(line);
-    if (wake) emit({ event: 'inbox-wake', freshCount: Number(wake[1]), ok: wake[2] === 'ok' });
-    const prefix = line.indexOf('h2a.mcp.phase ');
-    if (prefix === -1) continue;
-    try {
-      const trace = JSON.parse(line.slice(prefix + 'h2a.mcp.phase '.length));
-      if ((trace.role === 'identity-child' || /^(?:process_start|identity_pending|identity_ready|identity_failed)$/.test(trace.phase)) && /^[a-z0-9_:. -]{1,80}$/i.test(trace.phase)) {
-        emit({ event: 'startup-phase', phase: trace.phase, kind: trace.event, processRole: trace.role,
-          durationMs: trace.durationMs, waitMs: trace.waitMs, holdMs: trace.holdMs });
-      }
-    } catch { /* never retain unparsed diagnostics */ }
+    observeDiagnosticLine(line);
   }
   diagnosticLines = diagnosticLines.slice(-32768);
   diagnostic = (diagnostic + bytes.toString()).slice(-16384);
@@ -58,7 +63,8 @@ for await (const line of createInterface({ input: process.stdin })) {
 child.stdin.end();
 
 // Registered before stdin is read: the host may initialize immediately.
-function observe(line) {
+// Exported for the Lot L4 equivalence test (both observe paths).
+export function observe(line) {
   try {
     const rpc = JSON.parse(line), request = pending.get(rpc.id);
     if (!request) return;
