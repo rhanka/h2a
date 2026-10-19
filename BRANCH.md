@@ -19,7 +19,7 @@
 - [x] FE-5 manual implementation: fixture-driven offline importer/receipt/register; focus-feedback.test.js + focus-edit-recovery.test.js; 5/5 pass in sequence after vendor generation, zero skips.
 - [ ] FE-5 complete gate: real browser export, presentation rebuild, versioned registry edit capabilities and hard-crash lock recovery remain unqualified.
 - [ ] FE-6/8/9: dependent acceptance/connected/consumer qualification remains open.
-- [ ] Delivery: targeted gates, generated vendor check, conventional commits pushed to own branch, one draft PR, French evidence report.
+- [x] Delivery: targeted gates, generated vendor check, conventional commits pushed to own branch, one draft PR #378, French evidence report at docs/reviews/focus-edit-return.md.
 
 ## Feedback Loop
 - [x] Supplied independent Astra/Sol spec reviews: GO-CODE. Existing origin/main includes merged PR #377 at d0b1afa38.
