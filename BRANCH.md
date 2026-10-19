@@ -852,3 +852,12 @@ red/green receipts, qualification limits and cleanup evidence.
 - CI 38908671072 additionally exposed missing Track skill fixtures (six assertions, reproduced locally 11 pass/6 fail then 17 pass/0 fail) and root-owned receipt upload failure. Export only safe JSON copies with uploader ownership; leave all private build/state permissions intact. Export/PID refusal tests 4/4; targeted runtime op tests 4/4; Gemini replay remains authentication-required.
 - Final code CI 38909510272 on 2f4568a9: all eight jobs success. Each of Node 22/24: 36/36 simulated pairs, harness 18 passed, native config 2 passed, runtime 702 passed/0 failed (four declared non-tests), source native 151 passed/0 failed (12 declared todos), source hosts 210 passed/0 failed (one declared placeholder). Downloaded artifacts and independently validated every source-file identity and simulated messaging stage. Final evidence-only archive uses [skip ci]; no code changes after this qualified SHA.
 - Real live qualification remains Claude→Claude only, 1/36; no real cross-CLI pair qualified. Formal installed-h2a review route remains forbidden and selection-failed; global npm/release PID confinement wiring remains outside this qualified slice.
+
+## Lot L1 — rebase onto origin/main (2026-10-19)
+
+- New base: d0b1afa38 (was 54e7ffd7). `git merge-tree --write-tree origin/main HEAD` exits 0.
+- 17 commits replayed in original order, subjects unchanged; backup ref backup/xcli-pre-rebase-97f93e72 kept.
+- Resolutions per SPEC v3 §10: BRANCH.md kept branch-side; muse.ts keeps schema_version: 1 plus main's non-migrated/registry-bootstrap wording (no merge instruction in hint); hosts-integration.test.js keeps all assertions from both sides.
+- Rebase defect found and fixed in L1: post-rebase workers failed (qualification-worker-failed) because toml-eslint-parser (packages/h2a dep from main) was missing from the stale worktree install; `npm ci --ignore-scripts` restored it, lock untouched.
+- Post-rebase targeted proofs: harness 18/18, hosts-integration 28/28, muse-config 3/3, native-config 2/2, simulated spot cell claude:codex simulated-OK.
+- Not runnable in this sandbox: xcli-in-pid-namespace launcher (sudo blocked by container no-new-privileges); covered by CI.
