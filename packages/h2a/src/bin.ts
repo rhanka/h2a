@@ -205,6 +205,8 @@ if (argv[0] === "--version" || argv[0] === "-v" || argv[0] === "version") {
   runAsync("sysml verify", runSysmlVerify(parseFlagsFrom(2)));
 } else if (argv[0] === "keepalive") {
   runAsync("keepalive", cmdKeepalive(parseFlagsFrom(1), { stdout: process.stdout, stderr: process.stderr }));
+} else if (argv[0] === "focus" && argv[1] === "feedback") {
+  runAsync('focus feedback', import('./focus-feedback.js').then(({ runFocusFeedbackCli }) => runFocusFeedbackCli(argv.slice(2))));
 } else if (argv[0] === "focus" && (argv[1] === "build" || argv[1] === "template")) {
   runAsync(`focus ${argv[1]}`, import("./focus-build.js").then(({ runFocusBuildCli }) => runFocusBuildCli(argv.slice(1))));
 } else if (argv[0] === "focus" && (argv[1] === "serve" || argv[1] === "web")) {

@@ -6,9 +6,12 @@
  * gate tested only the WORKSPACE tree; the bytes on npm were never exercised
  * once between `npm pack` and `npm publish`. The pinned steps:
  *
- *   (1) `npm pack` the four lockstep packages of the candidate
+ *   (1) `npm pack` the five candidate packages: the four lockstep packages
  *       (@sentropic/h2a, @sentropic/h2a-runtime, @sentropic/h2a-cli,
- *       @sentropic/track);
+ *       @sentropic/track) plus @sentropic/focus at its independent version
+ *       (h2a depends on the exact focus release, so a smoke that packs only
+ *       the lockstep four resolves focus from the registry — ETARGET before
+ *       the focus release is published, a silent registry fallback after);
  *   (2) `mkdtemp` a clean prefix;
  *   (3) install FROM the candidate tarballs — @sentropic/h2a-runtime and
  *       @sentropic/track resolved from the candidate tarballs, never from
@@ -52,7 +55,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(HERE, '..')
-const PACKAGES = ['@sentropic/h2a', '@sentropic/h2a-runtime', '@sentropic/h2a-cli', '@sentropic/track']
+const PACKAGES = ['@sentropic/h2a', '@sentropic/h2a-runtime', '@sentropic/h2a-cli', '@sentropic/track', '@sentropic/focus']
+const FOCUS_PACKAGE = '@sentropic/focus'
 
 function fail(message) {
   throw new Error(`smoke-artifact: FAIL — ${message}`)
@@ -75,14 +79,17 @@ function runSync(command, args, options = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// (1) pack the four lockstep packages of the candidate
+// (1) pack the five candidate packages
 // ---------------------------------------------------------------------------
 // SPEC 0.98.5 R8.3(4) pins the LITERAL: the proof is "version === 0.98.6", not
 // "version === whatever this tree happens to be". Comparing to the candidate
 // version would pass even when the clean prefix silently fell back to a
 // previously published version in the same range — the exact hole this step
-// exists to close.
+// exists to close. The focus pin closes the same hole on the independent
+// focus train: h2a's exact focus dependency must resolve from the candidate
+// tarball, never the registry.
 const PINNED_RUNTIME_VERSION = '0.98.7'
+const PINNED_FOCUS_VERSION = '0.5.0'
 const runtimeVersion = JSON.parse(
   readFileSync(join(REPO_ROOT, 'packages', 'h2a-runtime', 'package.json'), 'utf8'),
 ).version
@@ -92,6 +99,15 @@ if (runtimeVersion !== PINNED_RUNTIME_VERSION) {
       `bump the lockstep version (npm run release -- --version ${PINNED_RUNTIME_VERSION}) before tagging`,
   )
 }
+const focusVersion = JSON.parse(
+  readFileSync(join(REPO_ROOT, 'packages', 'focus', 'package.json'), 'utf8'),
+).version
+if (focusVersion !== PINNED_FOCUS_VERSION) {
+  fail(
+    `the candidate tree is @sentropic/focus@${focusVersion}, but the smoke proves the ${PINNED_FOCUS_VERSION} train: ` +
+      `publish the matching focus release before depending on it exactly`,
+  )
+}
 const providedTarballs = process.argv[2] === '--tarballs' ? resolve(process.argv[3]) : null
 if (process.argv.length > 2 && (!providedTarballs || process.argv.length !== 4)) fail('expected --tarballs <candidate directory>')
 const staging = providedTarballs ?? mkdtempSync(join(tmpdir(), 'h2a-smoke-staging-'))
@@ -99,7 +115,7 @@ const prefix = mkdtempSync(join(tmpdir(), 'h2a-smoke-prefix-'))
 const sandbox = mkdtempSync(join(tmpdir(), 'h2a-smoke-sandbox-'))
 const ownedHosts = new Set()
 const tarballName = (name) =>
-  `${name.replace(/^@/, '').replace(/\//, '-')}-${runtimeVersion}.tgz`
+  `${name.replace(/^@/, '').replace(/\//, '-')}-${name === FOCUS_PACKAGE ? focusVersion : runtimeVersion}.tgz`
 
 try {
   const digests = new Map()
@@ -158,6 +174,26 @@ try {
     )
   }
   console.log(`smoke-artifact: track resolved from the candidate prefix at version ${loadedTrackVersion}`)
+  // The same proof for @sentropic/focus, against its OWN pinned literal:
+  // focus versions independently of the lockstep train, so the focus proof
+  // is "version === 0.5.0", never "whatever the candidate is" and never the
+  // runtime train. Without this, the prefix install falls back to the
+  // registry for focus — and verify runs BEFORE publish, so an unpublished
+  // focus X.Y.Z is never there yet (ETARGET on every focus release).
+  const resolvedFocus = runSync(process.execPath, ['-p', "require.resolve('@sentropic/focus/package.json')"], {
+    cwd: prefix,
+  }).trim()
+  if (!resolve(resolvedFocus).startsWith(prefix + '/')) {
+    fail(`@sentropic/focus resolved OUTSIDE the candidate prefix: ${resolvedFocus}`)
+  }
+  const loadedFocusVersion = JSON.parse(readFileSync(resolvedFocus, 'utf8')).version
+  if (loadedFocusVersion !== PINNED_FOCUS_VERSION) {
+    fail(
+      `packaged focus version is ${loadedFocusVersion}, expected the pinned ${PINNED_FOCUS_VERSION} ` +
+        '(a registry fallback would load a previously published version — this is exactly the hole the proof closes)',
+    )
+  }
+  console.log(`smoke-artifact: focus resolved from the candidate prefix at version ${loadedFocusVersion}`)
 
   // -------------------------------------------------------------------------
   // (5) drive the PACKAGED host binary

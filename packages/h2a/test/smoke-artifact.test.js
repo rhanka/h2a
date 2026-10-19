@@ -51,6 +51,11 @@ assert.ok(PINNED, "the smoke must declare exactly one `const PINNED_RUNTIME_VERS
 assert.match(PINNED, /^\d+\.\d+\.\d+$/, "the pinned literal must be a strict X.Y.Z train");
 const PINNED_DECL_COUNT = (SMOKE_SOURCE.match(/^const PINNED_RUNTIME_VERSION = '[^']*'$/gm) ?? []).length;
 assert.equal(PINNED_DECL_COUNT, 1, "the smoke must declare the pin exactly once");
+const PINNED_FOCUS = /^const PINNED_FOCUS_VERSION = '([^']+)'$/m.exec(SMOKE_SOURCE)?.[1];
+assert.ok(PINNED_FOCUS, "the smoke must declare exactly one `const PINNED_FOCUS_VERSION = 'X.Y.Z'` literal");
+assert.match(PINNED_FOCUS, /^\d+\.\d+\.\d+$/, "the focus pinned literal must be a strict X.Y.Z train");
+const PINNED_FOCUS_DECL_COUNT = (SMOKE_SOURCE.match(/^const PINNED_FOCUS_VERSION = '[^']*'$/gm) ?? []).length;
+assert.equal(PINNED_FOCUS_DECL_COUNT, 1, "the smoke must declare the focus pin exactly once");
 
 test("C9 A10/A11: execute smoke orchestration and observe seed, install, faults, identity, prune and PTYs", async () => {
   await observeSmoke(SMOKE_SOURCE, SMOKE_PATH);
@@ -80,6 +85,11 @@ test("C9 A10: smoke must fail when the installed track has a different version",
   await assert.rejects(observeSmoke(SMOKE_SOURCE, SMOKE_PATH, { loadedTrackVersion: "0.98.4" }), /track version/);
 });
 
+test("C9 A10: smoke must fail when the installed focus has a different version", async () => {
+  assert.notEqual("0.4.0", PINNED_FOCUS, "the mismatch fixture must differ from the pinned focus train");
+  await assert.rejects(observeSmoke(SMOKE_SOURCE, SMOKE_PATH, { loadedFocusVersion: "0.4.0" }), /focus version/);
+});
+
 test("C9 A11: a failed fault connection proves no injection", async () => {
   await assert.rejects(observeSmoke(SMOKE_SOURCE, SMOKE_PATH, { failConnect: true }), /fault connection/);
 });
@@ -97,6 +107,33 @@ test("R8.3: the runtime manifest must let the smoke prove the loaded path (./pac
     assert.doesNotThrow(
       () => fromPrefix.resolve("@sentropic/h2a-runtime/package.json"),
       "the smoke path proof requires the ./package.json subpath export; without it the proof step is red and the smoke fails",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("R8.3: the focus manifest must let the smoke prove the loaded path (./package.json subpath export)", () => {
+  // Same proof as runtime/track: resolution of the focus manifest from an
+  // INSTALLED prefix requires the ./package.json subpath export, or the
+  // focus path proof is red and the smoke fails.
+  const focusManifest = JSON.parse(
+    readFileSync(resolve(REPO_ROOT, "packages", "focus", "package.json"), "utf8"),
+  );
+  assert.equal(
+    PINNED_FOCUS,
+    focusManifest.version,
+    "the focus pin tracks the independent focus train: it must equal the focus manifest version",
+  );
+  const root = mkdtempSync(join(tmpdir(), "h2a-smoke-focus-manifest-"));
+  try {
+    const packageDir = join(root, "node_modules", "@sentropic", "focus");
+    mkdirSync(packageDir, { recursive: true });
+    writeFileSync(join(packageDir, "package.json"), JSON.stringify(focusManifest));
+    const fromPrefix = createRequire(join(root, "probe.cjs"));
+    assert.doesNotThrow(
+      () => fromPrefix.resolve("@sentropic/focus/package.json"),
+      "the smoke focus proof requires the ./package.json subpath export; without it the proof step is red and the smoke fails",
     );
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -201,20 +238,43 @@ test("R8.3: the smoke packs and installs the candidate track tarball, never the 
   );
 });
 
-test(`R8.3: the smoke installs all four candidate tarballs including track at ${PINNED}`, async () => {
+test(`R8.3: the smoke installs all five candidate tarballs including track at ${PINNED} and focus at ${PINNED_FOCUS}`, async () => {
   const observations = await observeSmoke(SMOKE_SOURCE, SMOKE_PATH);
   assert.deepEqual(
     observations.packed.sort(),
-    ["@sentropic/h2a", "@sentropic/h2a-cli", "@sentropic/h2a-runtime", "@sentropic/track"],
-    "the smoke must pack all four lockstep packages",
+    ["@sentropic/focus", "@sentropic/h2a", "@sentropic/h2a-cli", "@sentropic/h2a-runtime", "@sentropic/track"],
+    "the smoke must pack the four lockstep packages plus the focus candidate",
   );
-  assert.equal(observations.installed.length, 4, "the prefix install must take exactly the four candidate tarballs");
+  assert.equal(observations.installed.length, 5, "the prefix install must take exactly the five candidate tarballs");
   for (const name of ["h2a", "h2a-runtime", "h2a-cli", "track"]) {
     assert.ok(
       observations.installed.some((path) => path.endsWith(`sentropic-${name}-${PINNED}.tgz`)),
       `candidate ${name} must be installed from its local ${PINNED} tarball, never the registry`,
     );
   }
+  assert.ok(
+    observations.installed.some((path) => path.endsWith(`sentropic-focus-${PINNED_FOCUS}.tgz`)),
+    `candidate focus must be installed from its local ${PINNED_FOCUS} tarball, never the registry`,
+  );
+});
+
+test("R8.3: the smoke proves the focus candidate against the focus pin, never the runtime train", () => {
+  assert.ok(
+    SMOKE_SOURCE.includes("loadedFocusVersion !== PINNED_FOCUS_VERSION"),
+    "the loaded focus version must be compared to the focus pinned literal",
+  );
+  assert.ok(
+    !SMOKE_SOURCE.includes("loadedFocusVersion !== PINNED_RUNTIME_VERSION"),
+    "comparing focus to the lockstep train reopens the hole on the independent focus train",
+  );
+  assert.ok(
+    SMOKE_SOURCE.includes("@sentropic/focus resolved OUTSIDE the candidate prefix"),
+    "the focus path proof must fail closed outside the prefix",
+  );
+  assert.ok(
+    SMOKE_SOURCE.includes("require.resolve('@sentropic/focus/package.json')"),
+    "the smoke must prove the focus path resolves from the installed prefix",
+  );
 });
 
 test("R8.3: scenario 7 closes the stderr reader BEFORE the deferred prune, and every fault is followed by a PTY proof", () => {
