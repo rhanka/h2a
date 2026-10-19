@@ -531,6 +531,7 @@ export function renderCliHelp(): string {
     "",
     "Focus Web (packaged production app):",
     "  h2a focus build <dossier.json> -o <file.html>   (validated portable DS dossier; offline)",
+    "  h2a focus feedback retain|apply … --state <dir> (manual edit returns; explicit retained baseline)",
     "  h2a focus template -o <dossier.json>           (editable DecisionDossierDocument example)",
     "  h2a focus serve [--repo <path>] [--track-events <path>] [--host <host>] [--port <0-65535>]",
     "  h2a focus web   [--repo <path>] [--track-events <path>] [--host <host>] [--port <0-65535>]   (exact alias)",
