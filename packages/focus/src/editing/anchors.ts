@@ -2,9 +2,12 @@ import type { DecisionDossierDocument } from '../model.js';
 import type { Address, EditingField, FocusEditingManifest, Paragraph, ParagraphValue, Validation } from './contract.js';
 import { baseDigest, canonicalJson, manifestDigest } from './digest.js';
 import { manifestSchema, matchesSchema } from './structure.js';
-import { segmentMarkdown, segmentText } from './codec.js';
+import { isRepresentablePlainText, segmentMarkdown, segmentText } from './codec.js';
 
 export const fieldKey = (a: Address): string => canonicalJson([a.nodeId, a.targetRef, a.field]);
+/** Exactly one soft line break (LF, CRLF or CR): the only allowed overhang
+ * of a text/plain paragraph range beyond its source block. */
+const singleLineBreak = /^(?:\r\n|\n|\r)$/;
 /** An emptied narrative field keeps one empty unit: `""` is content (D14), so an
  * empty source still carries its paragraph identity instead of zero units. */
 const textSegments = (source: string): { start: number; end: number; editable: boolean }[] =>
@@ -53,7 +56,24 @@ export function validateManifest(value: unknown, doc: DecisionDossierDocument): 
       let end = 0;
       ps.forEach((p, index) => {
         if (p.order !== index || p.range.start < end || p.range.end < p.range.start || p.range.end > source.length) issues.push('ambiguous-range');
-        if (!segments.some(s => s.editable && s.start === p.range.start && s.end === p.range.end) && !(p.range.start === p.range.end && f.contentFormat !== 'text/plain')) issues.push('unsupported-range');
+        // An empty text/plain paragraph holds no characters, so it never matches a
+        // text block: it is a zero-length unit owned by a structural gap (D14).
+        // It is representable outside any block (source edge, block boundary or
+        // blank gap), never strictly inside one.
+        const emptyGapUnit = f.contentFormat === 'text/plain' && p.range.start === p.range.end &&
+          !segments.some(s => s.start < p.range.start && p.range.start < s.end);
+        // Case 3: a text/plain paragraph may keep at most one soft break at
+        // each edge ("A\n", "\nB"). Its range then extends one break beyond
+        // its block; the sliced text still round-trips via stored ranges.
+        // The extension must stay anchored on a whole source block: an
+        // internal fragment that merely round-trips (e.g. "B" of "ABC")
+        // is never a paragraph.
+        const edgeBreakUnit = f.contentFormat === 'text/plain' && p.range.start < p.range.end &&
+          isRepresentablePlainText(source.slice(p.range.start, p.range.end)) &&
+          segments.some(s => s.editable && p.range.start <= s.start && p.range.end >= s.end &&
+            (p.range.start === s.start || singleLineBreak.test(source.slice(p.range.start, s.start))) &&
+            (p.range.end === s.end || singleLineBreak.test(source.slice(s.end, p.range.end))));
+        if (!segments.some(s => s.editable && s.start === p.range.start && s.end === p.range.end) && !emptyGapUnit && !edgeBreakUnit && !(p.range.start === p.range.end && f.contentFormat !== 'text/plain')) issues.push('unsupported-range');
         end = p.range.end;
       });
     }

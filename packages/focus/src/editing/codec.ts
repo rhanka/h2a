@@ -55,12 +55,33 @@ export function segmentText(source: string): SourceSegment[] {
   if (open !== null) close(lines.length - 1);
   return segments;
 }
+const lineBreak = String.raw`(?:\r\n|\n|\r)`;
+const singleBreak = new RegExp(`^${lineBreak}$`);
+const leadingBreak = new RegExp(`^${lineBreak}`);
+const trailingBreak = new RegExp(`${lineBreak}$`);
+/** A text/plain paragraph is one block of non-blank lines (segmentText) with
+ * at most one soft line break kept at each edge (case 3: "A\n", "\nB",
+ * "\nA\n", CRLF/CR included). Blank lines stay structural gaps owned by the
+ * manifest, never paragraph content: stripping more than one edge break still
+ * leaves an edge break behind, so "A\n\n" or "\n\nB" keep failing. A lone
+ * single break ("\n", "\r\n", "\r") is representable as its own unit. */
+export function isRepresentablePlainText(text: string): boolean {
+  if (text === '') return true;
+  if (singleBreak.test(text)) return true;
+  let core = text;
+  const lead = core.match(leadingBreak);
+  if (lead) core = core.slice(lead[0].length);
+  const trail = core.match(trailingBreak);
+  if (trail) core = core.slice(0, -trail[0].length);
+  if (core === '') return false;
+  const parts = segmentText(core);
+  return parts.length === 1 && parts[0].start === 0 && parts[0].end === core.length;
+}
 export function assertParagraphText(text: string, format: string): void {
   if (text === '') return;
   if (format === 'text/plain') {
-    const parts = segmentText(text);
-    if (parts.length !== 1 || parts[0].start !== 0 || parts[0].end !== text.length) throw new Error('unsupported-paragraph-format');
-    return;
+    if (isRepresentablePlainText(text)) return;
+    throw new Error('unsupported-paragraph-format');
   }
   const parts = segmentMarkdown(text);
   if (parts.length !== 1 || !parts[0].editable || parts[0].start !== 0 || parts[0].end !== text.length) throw new Error('unsupported-paragraph-format');

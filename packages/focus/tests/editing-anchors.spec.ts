@@ -55,6 +55,88 @@ it('should empty a plain narrative paragraph while keeping its identity', () => 
   expect(E.validateManifest(moved.manifest, moved.document).ok).toBe(true);
   expect(E.readParagraphs(moved.document, moved.manifest).find((p: any) => p.paragraphId === target.paragraphId).text).toBe('');
 });
+it('should represent a trailing empty paragraph in text/plain after Enter at end of field', () => {
+  const doc = document() as any;
+  doc.sections[1].context = 'A';
+  const manifest = E.seedManifest(doc);
+  const all = E.readParagraphs(doc, manifest);
+  const at = all.findIndex((p: any) => p.field === 'context');
+  const draft = [...all.slice(0, at + 1), { ...all[at], paragraphId: 'fresh:enter', text: '' }, ...all.slice(at + 1)];
+  const tx = E.diffParagraphs(all, draft, 'tx');
+  expect(tx.changes).toEqual([expect.objectContaining({ operation: 'insert', paragraphId: 'fresh:enter', before: null, after: '' })]);
+  const moved = E.applyParagraphChanges(doc, manifest, [tx]);
+  expect((moved.document.sections[1] as any).context).toBe('A\n\n');
+  expect(E.validateManifest(moved.manifest, moved.document).ok).toBe(true);
+  const values = E.readParagraphs(moved.document, moved.manifest).filter((p: any) => p.field === 'context');
+  expect(values.map((p: any) => [p.paragraphId, p.text])).toEqual([[all[at].paragraphId, 'A'], ['fresh:enter', '']]);
+  expect(E.diffParagraphs(E.readParagraphs(moved.document, moved.manifest), E.readParagraphs(moved.document, moved.manifest), 'noop').changes).toEqual([]);
+  const out = apply(doc, manifest, freeze(doc, manifest, [tx]));
+  expect(out.ok, JSON.stringify(out.conflicts)).toBe(true);
+  expect(E.readParagraphs(out.document, out.manifest).filter((p: any) => p.field === 'context').map((p: any) => p.text)).toEqual(['A', '']);
+});
+it('should represent fully emptied text/plain paragraphs without losing identities', () => {
+  const doc = document() as any;
+  doc.sections[1].context = 'A\n\nB';
+  const manifest = E.seedManifest(doc);
+  const all = E.readParagraphs(doc, manifest);
+  const base = all.filter((p: any) => p.field === 'context');
+  expect(base.map((p: any) => p.text)).toEqual(['A', 'B']);
+  const draft = structuredClone(all);
+  for (const p of draft.filter((p: any) => p.field === 'context')) p.text = '';
+  const tx = E.diffParagraphs(all, draft, 'tx');
+  expect(tx.changes).toEqual([expect.objectContaining({ operation: 'replace', after: '' }), expect.objectContaining({ operation: 'replace', after: '' })]);
+  const moved = E.applyParagraphChanges(doc, manifest, [tx]);
+  expect((moved.document.sections[1] as any).context).toBe('\n\n');
+  expect(E.validateManifest(moved.manifest, moved.document).ok).toBe(true);
+  const values = E.readParagraphs(moved.document, moved.manifest).filter((p: any) => p.field === 'context');
+  expect(values.map((p: any) => p.text)).toEqual(['', '']);
+  expect(values.map((p: any) => p.paragraphId)).toEqual(base.map((p: any) => p.paragraphId));
+  const out = apply(doc, manifest, freeze(doc, manifest, [tx]));
+  expect(out.ok, JSON.stringify(out.conflicts)).toBe(true);
+  expect(E.readParagraphs(out.document, out.manifest).filter((p: any) => p.field === 'context').map((p: any) => [p.paragraphId, p.text])).toEqual(values.map((p: any) => [p.paragraphId, p.text]));
+});
+it('should keep a trailing soft break inside text/plain (case 3: A\\nB + Enter -> [A\\n, B])', () => {
+  const doc = document() as any;
+  doc.sections[1].context = 'A\nB';
+  const manifest = E.seedManifest(doc);
+  const all = E.readParagraphs(doc, manifest);
+  const base = all.filter((p: any) => p.field === 'context');
+  expect(base.map((p: any) => p.text)).toEqual(['A\nB']);
+  const draft = structuredClone(all);
+  const at = draft.findIndex((p: any) => p.field === 'context');
+  draft[at].text = 'A\n';
+  draft.splice(at + 1, 0, { ...draft[at], paragraphId: 'fresh:trailing', text: 'B' });
+  const tx = E.diffParagraphs(all, draft, 'tx');
+  const moved = E.applyParagraphChanges(doc, manifest, [tx]);
+  expect((moved.document.sections[1] as any).context).toBe('A\n\n\nB');
+  expect(E.validateManifest(moved.manifest, moved.document).ok).toBe(true);
+  const values = E.readParagraphs(moved.document, moved.manifest).filter((p: any) => p.field === 'context');
+  expect(values.map((p: any) => p.text)).toEqual(['A\n', 'B']);
+  expect(E.diffParagraphs(E.readParagraphs(moved.document, moved.manifest), E.readParagraphs(moved.document, moved.manifest), 'noop').changes).toEqual([]);
+  const out = apply(doc, manifest, freeze(doc, manifest, [tx]));
+  expect(out.ok, JSON.stringify(out.conflicts)).toBe(true);
+  expect(E.readParagraphs(out.document, out.manifest).filter((p: any) => p.field === 'context').map((p: any) => p.text)).toEqual(['A\n', 'B']);
+});
+it('should keep a leading soft break inside text/plain (case 3 mirror: A\\nB + Enter -> [A, \\nB])', () => {
+  const doc = document() as any;
+  doc.sections[1].context = 'A\nB';
+  const manifest = E.seedManifest(doc);
+  const all = E.readParagraphs(doc, manifest);
+  const draft = structuredClone(all);
+  const at = draft.findIndex((p: any) => p.field === 'context');
+  draft[at].text = 'A';
+  draft.splice(at + 1, 0, { ...draft[at], paragraphId: 'fresh:leading', text: '\nB' });
+  const tx = E.diffParagraphs(all, draft, 'tx');
+  const moved = E.applyParagraphChanges(doc, manifest, [tx]);
+  expect((moved.document.sections[1] as any).context).toBe('A\n\n\nB');
+  expect(E.validateManifest(moved.manifest, moved.document).ok).toBe(true);
+  const values = E.readParagraphs(moved.document, moved.manifest).filter((p: any) => p.field === 'context');
+  expect(values.map((p: any) => p.text)).toEqual(['A', '\nB']);
+  expect(E.diffParagraphs(E.readParagraphs(moved.document, moved.manifest), E.readParagraphs(moved.document, moved.manifest), 'noop').changes).toEqual([]);
+  const out = apply(doc, manifest, freeze(doc, manifest, [tx]));
+  expect(out.ok, JSON.stringify(out.conflicts)).toBe(true);
+  expect(E.readParagraphs(out.document, out.manifest).filter((p: any) => p.field === 'context').map((p: any) => p.text)).toEqual(['A', '\nB']);
+});
 it('should refuse a plain paragraph value spanning several blocks', () => {
   const doc = document() as any;
   doc.sections[1].context = 'Premier paragraphe\n\nSecond paragraphe';
@@ -64,6 +146,25 @@ it('should refuse a plain paragraph value spanning several blocks', () => {
   draft.find((p: any) => p.field === 'context').text = 'Bloc unique\n\nsur deux blocs';
   expect(() => E.diffParagraphs(base, draft, 'tx')).not.toThrow();
   expect(() => E.applyParagraphChanges(doc, manifest, [E.diffParagraphs(base, draft, 'tx')])).toThrow('unsupported-paragraph-format');
+});
+it('should refuse an internal fragment carried as a paragraph (ABC -> [1,2))', () => {
+  const doc = document() as any;
+  doc.sections[1].context = 'ABC';
+  const manifest = E.seedManifest(doc);
+  const mapping = structuredClone(manifest.paragraphs).map((p: any) => p.field === 'context'
+    ? { ...p, range: { ...p.range, start: 1, end: 2 } } : p);
+  expect(() => E.carryManifest(doc, manifest, mapping)).toThrow(/unsupported-range/);
+});
+it('should refuse a recomputed manifest over an internal fragment (ABCDE -> [1,4])', () => {
+  const doc = document() as any;
+  doc.sections[1].context = 'ABCDE';
+  const manifest = E.seedManifest(doc);
+  const paragraphs = structuredClone(manifest.paragraphs).map((p: any) => p.field === 'context'
+    ? { ...p, range: { ...p.range, start: 1, end: 4 } } : p);
+  const recalculated = E.sealManifest({ schemaVersion: 1, manifestId: manifest.manifestId, documentRef: doc.ref,
+    baseHash: manifest.baseHash, fields: structuredClone(manifest.fields), paragraphs, retiredParagraphIds: [] });
+  expect(E.validateManifest(recalculated, doc).ok).toBe(false);
+  expect(() => E.readParagraphs(doc, recalculated)).toThrow(/unsupported-range/);
 });
 it('should preserve explicit identities across an agent revision with an insertion before the second paragraph', () => {
   const { doc, manifest } = setup(), old = units(doc, manifest), next = structuredClone(doc) as any;
