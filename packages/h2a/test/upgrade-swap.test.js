@@ -604,8 +604,8 @@ test('should retain a deferred legacy result when the installed frontend is alre
   } finally {rmSync(prefix,{recursive:true,force:true});}
 });
 
-function assertUnfencedLegacy(result, legacy) {
-  assert.equal(result.outcome, 'pty-deferred');
+function assertUnfencedLegacy(result, legacy, outcome = 'pty-deferred') {
+  assert.equal(result.outcome, outcome);
   assert.equal(result.pty.status, 'deferred');
   const owner = result.pty.owners.find(owner => owner.socketPath === legacy.socketPath);
   assert.ok(owner, 'a known pre-B owner must remain in every upgrade result');
@@ -654,15 +654,31 @@ for (const path of ['already-current', 'installed-by-another-lane', 'package-swa
   });
 }
 
-for (const stage of [false, true]) for (const failure of ['retention', 'switch', 'unavailable']) {
+for (const stage of [false, true]) for (const failure of ['retention', 'switch', 'unavailable', 'subprocess', 'metadata']) {
   test(`should keep a known pre-B owner explicit when ${stage ? 'staged' : 'current'} upgrade defers at ${failure}`, () => {
     const prefix = freshPrefix(), current = globalPkgDir(prefix), legacy = { socketPath: join(prefix, 'lf1.sock'), hostPid: process.pid };
     try {
       writeSelfContainedPkg(current, '1.0.0');
       const candidate = 'node_modules/@sentropic/h2a-runtime/dist/native-terminal/frontend-process.js';
+      const usesSubprocess = failure === 'subprocess' || failure === 'metadata';
+      const attempted = join(prefix, 'switch-attempted');
+      const writeCandidate = pkg => {
+        mkdirSync(dirname(join(pkg, candidate)), { recursive: true }); writeFileSync(join(pkg, candidate), 'export {};');
+        if (usesSubprocess) {
+          writeFileSync(join(pkg, 'node_modules/@sentropic/h2a-runtime/package.json'), JSON.stringify({ name: '@sentropic/h2a-runtime', type: 'module', exports: './dist/index.js' }));
+          writeFileSync(join(pkg, 'node_modules/@sentropic/h2a-runtime/dist/index.js'), 'export {};');
+          writeFileSync(join(dirname(join(pkg, candidate)), 'supervisor.js'), `
+            import { writeFileSync } from 'node:fs';
+            export function switchNativeTerminalUpgradeFrontends(plan) {
+              writeFileSync(${JSON.stringify(attempted)}, JSON.stringify(plan));
+              ${failure === 'subprocess' ? 'process.exit(23);' : 'process.stdout.write("invalid metadata"); process.exit(0);'}
+            }
+          `);
+        }
+      };
       const previous = join(current, 'dist/previous-frontend.js');
       writeFileSync(previous, 'export {};');
-      mkdirSync(dirname(join(current, candidate)), { recursive: true }); writeFileSync(join(current, candidate), 'export {};');
+      writeCandidate(current);
       const loaded = { pid: process.pid, version: '0.9.0', codePath: previous, codeIdentity: { dev: statSync(previous).dev, ino: statSync(previous).ino } };
       const plan = { state: 'active', owners: [{ socketPath: join(prefix, 'b.sock'), status: {
         ownerProtocolVersion: 1, owner: loaded, frontend: failure === 'retention' ? undefined : loaded,
@@ -672,16 +688,57 @@ for (const stage of [false, true]) for (const failure of ['retention', 'switch',
         fetchTarball: () => ({ ok: true, file: join(prefix, 'fake.tgz') }),
         stageInstall: (_tarball, stagingPrefix) => {
           const pkg = stagedPkgDir(stagingPrefix); writeSelfContainedPkg(pkg, '1.0.1');
-          mkdirSync(dirname(join(pkg, candidate)), { recursive: true }); writeFileSync(join(pkg, candidate), 'export {};');
+          writeCandidate(pkg);
           return { ok: true };
         },
-        switchPtyFrontend: failure === 'unavailable' ? undefined : () => { throw new Error('frontend switch interrupted'); },
+        switchPtyFrontend: failure === 'unavailable' ? undefined : usesSubprocess ? rt.switchPtyFrontend : () => { throw new Error('frontend switch interrupted'); },
       };
       const result = performAutoUpgrade('1.0.0', { prefix, runtime });
-      assert.match(result.pty.reason, failure === 'retention' ? /no qualified previous frontend/ : failure === 'switch' ? /frontend switch interrupted/ : /frontend.*unavailable/);
+      if (usesSubprocess) assert.deepEqual(JSON.parse(readFileSync(attempted, 'utf8')), plan, 'the production adapter must invoke the replacement subprocess');
+      assert.match(result.pty.reason, failure === 'retention' ? /no qualified previous frontend/ : failure === 'switch' ? /frontend switch interrupted/
+        : failure === 'subprocess' ? /probe interrupted or unavailable/ : failure === 'metadata' ? /unreadable metadata/ : /frontend.*unavailable/);
       assertUnfencedLegacy(result, legacy);
       assert.equal(result.pty.owners.some(owner => owner.socketPath === plan.owners[0].socketPath), true);
+      if (usesSubprocess) {
+        assert.equal(result.pty.components.length, plan.components.length);
+        assert.equal(result.pty.versions.find(version => version.component === 'owner' && version.pid === loaded.pid)?.loadedVersion, loaded.version);
+        assert.doesNotMatch(result.message, /owner restart deferred until drain/);
+      }
       assert.equal(JSON.parse(readFileSync(join(prefix, '.h2a-pty-retention.json'), 'utf8')).unknownReferences, true);
+    } finally { rmSync(prefix, { recursive: true, force: true }); }
+  });
+}
+
+for (const failure of ['swap-return', 'swap-throw', 'verification-mismatch', 'verification-throw']) {
+  test(`should keep a known pre-B owner explicit when package upgrade fails at ${failure}`, () => {
+    const prefix = freshPrefix(), current = globalPkgDir(prefix), legacy = { socketPath: join(prefix, 'lf1.sock'), hostPid: process.pid };
+    try {
+      writeSelfContainedPkg(current, '1.0.0');
+      const runtime = {
+        ...rt, fetchLatest: () => '1.0.1',
+        preparePtyUpgrade: () => ({ state: 'active', owners: [], components: [], legacyHosts: [legacy] }),
+        fetchTarball: () => ({ ok: true, file: join(prefix, 'fake.tgz') }),
+        stageInstall: (_tarball, stagingPrefix) => { writeSelfContainedPkg(stagedPkgDir(stagingPrefix), '1.0.1'); return { ok: true }; },
+        swapPackageDir: (...args) => {
+          if (failure === 'swap-throw') throw new Error('package replacement interrupted');
+          if (failure === 'swap-return') return { ok: false, error: 'package replacement refused' };
+          return rt.swapPackageDir(...args);
+        },
+        readGlobalPkgVersion: () => {
+          if (failure === 'verification-throw' && rt.readGlobalPkgVersion(prefix) === '1.0.1') throw new Error('verification interrupted');
+          return '1.0.0';
+        },
+        switchPtyFrontend: () => { throw new Error('a pre-B host cannot switch frontends'); },
+      };
+      const result = performAutoUpgrade('1.0.0', { prefix, runtime });
+      assertUnfencedLegacy(result, legacy, 'failed');
+      assert.match(result.message, failure.startsWith('swap-') ? /package replacement/ : /verification mismatch/);
+      assert.equal(result.pty.versions[0].loadedVersion, 'unknown');
+      assert.equal(result.pty.versions[0].switchedVersion, null);
+      assert.equal(result.pty.versions[0].deferredVersion, '1.0.1');
+      assert.equal(rt.readGlobalPkgVersion(prefix), failure.startsWith('swap-') ? '1.0.0' : '1.0.1');
+      assert.equal(JSON.parse(readFileSync(join(prefix, '.h2a-pty-retention.json'), 'utf8')).unknownReferences, true);
+      assert.equal(existsSync(lockPath(prefix)), false);
     } finally { rmSync(prefix, { recursive: true, force: true }); }
   });
 }
