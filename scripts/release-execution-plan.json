@@ -87,6 +87,12 @@
         ]
       },
       {
+        "shell": "bash",
+        "run": [
+          "node scripts/xcli-receipt-check.mjs --receipt docs/cross-cli-receipt.json --sha \"${{ needs.resolve-release-sha.outputs.release-sha }}\" --gate release"
+        ]
+      },
+      {
         "run": [
           "npm ci"
         ],
