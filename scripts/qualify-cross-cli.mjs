@@ -435,14 +435,15 @@ async function worker() {
         row.failure = senderReady.failure;
         return row;
       }
+      // Publish data before readiness: peers read it as soon as their marker exists.
+      if (scenario.key === 'inventory:read-paths') {
+        fs.writeFileSync(join(cell, 'large-text'), LARGE_TEXT, { mode: 0o600 });
+      }
       // Peer crossing for read-paths and conductor-paths: the worker owns
       // both enrolled ids only once both peers are ready.
       if (['inventory:read-paths', 'inventory:conductor-paths'].includes(scenario.key)) {
         fs.writeFileSync(join(cell, 'peer-for-sender'), receiverReady.instance + '\n', { mode: 0o600 });
         fs.writeFileSync(join(cell, 'peer-for-receiver'), senderReady.instance + '\n', { mode: 0o600 });
-      }
-      if (scenario.key === 'inventory:read-paths') {
-        fs.writeFileSync(join(cell, 'large-text'), LARGE_TEXT, { mode: 0o600 });
       }
       const markerOk = name => {
         try { return JSON.parse(fs.readFileSync(join(cell, name), 'utf8')).ok === true; }
