@@ -90,6 +90,39 @@ for await(const line of createInterface({input:process.stdin})) {
   }
 });
 
+test('L12: failed sends and reads witness closed-vocabulary refusals, never error text', async () => {
+  const root = fs.mkdtempSync('/tmp/xcli-proxy-refusal-');
+  const server = join(root, 'server.mjs');
+  const events = join(root, 'events.jsonl');
+  const env = { ...environment(root), XCLI_CELL: root, XCLI_EVENTS: events, XCLI_BIN: server };
+  fs.writeFileSync(server, `import {createInterface} from 'node:readline';
+for await(const line of createInterface({input:process.stdin})) {
+ const m=JSON.parse(line);
+ if(m.params?.name==='h2a_send') process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,error:{code:-32000,message:'SECRET_TEXT_UNKNOWN_TARGET'}})+'\\n');
+ else process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{isError:true,content:[{type:'text',text:'{"error":"SECRET_TEXT_READ_FAILED"}'}]}})+'\\n');
+}\n`);
+  const child = spawn(process.execPath, [join(import.meta.dirname, 'xcli-proxy.mjs')], { env, cwd: root, stdio: ['pipe', 'pipe', 'ignore'] });
+  const closed = once(child, 'close');
+  const timer = setTimeout(() => child.kill('SIGKILL'), 5000);
+  try {
+    child.stdin.end(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'h2a_send', arguments: { to: 'xcli-unknown-instance', message: 'hello' } } }) + '\n' +
+      JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'h2a_inbox', arguments: { action: 'read', instance: 'x' } } }) + '\n');
+    await closed;
+    const raw = fs.readFileSync(events, 'utf8');
+    assert.ok(!raw.includes('SECRET_TEXT'), 'refusals retain no error text');
+    const records = raw.trim().split('\n').map(line => rehydrateEventRecord(JSON.parse(line)));
+    const refusals = records.filter(e => e.event === 'refusal');
+    assert.deepEqual(refusals.map(e => ({ tool: e.tool, kind: e.kind, errorKind: e.errorKind })), [
+      { tool: 'h2a_send', kind: 'other', errorKind: 'rpc-error' },
+      { tool: 'h2a_inbox', kind: 'read', errorKind: 'result-error' },
+    ]);
+  } finally {
+    clearTimeout(timer);
+    if (child.exitCode === null && child.signalCode === null) { child.kill('SIGKILL'); await closed; }
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('L4: both observe paths retain identical canonical records with a transcript field', async () => {
   const { canonicalEventRecord, REPLAY_TRANSCRIPT_BODY } = await import('./xcli-lab.mjs');
   const root = fs.mkdtempSync('/tmp/xcli-proxy-canonical-');
