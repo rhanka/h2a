@@ -116,16 +116,19 @@ jobs:
             if (!process.env[key]) { console.error('no bundle mapped for seat: ' + seatId); process.exit(1); }
           }
           const base = join(process.env.RUNNER_TEMP, 'seats');
-          fs.mkdirSync(base, { recursive: true, mode: 0o700 });
+          if (fs.realpathSync(process.env.RUNNER_TEMP) !== process.env.RUNNER_TEMP) throw new Error('aliased runner temp');
+          fs.mkdirSync(base, { mode: 0o700 });
           const seats = ids.map(seatId => {
-            const bundle = JSON.parse(process.env['XCLI_SEAT_BUNDLE_' + seatId.replace(/[^A-Za-z0-9]/g, '_').toUpperCase()] ?? 'null');
+            let bundle;
+            try { bundle = JSON.parse(process.env['XCLI_SEAT_BUNDLE_' + seatId.replace(/[^A-Za-z0-9]/g, '_').toUpperCase()] ?? 'null'); }
+            catch { throw new Error('seat-bundle-invalid'); }
             const home = join(base, seatId);
-            fs.mkdirSync(home, { recursive: true, mode: 0o700 });
+            fs.mkdirSync(home, { mode: 0o700 });
             for (const [rel, b64] of Object.entries(bundle.files ?? {})) {
               if (!(LOGIN_ALLOWLIST[bundle.family] ?? []).includes(rel)) throw new Error('seat file not allowlisted');
               const target = join(home, rel);
               fs.mkdirSync(join(target, '..'), { recursive: true, mode: 0o700 });
-              fs.writeFileSync(target, Buffer.from(b64, 'base64'), { mode: 0o600 });
+              fs.writeFileSync(target, Buffer.from(b64, 'base64'), { mode: 0o600, flag: 'wx' });
             }
             return { seatId, family: bundle.family, authSource: home };
           });
