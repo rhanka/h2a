@@ -1,3 +1,4 @@
+import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -26,7 +27,7 @@ test('every seated family declares a tier-C oracle source or a reason', () => {
 test('Codex actually discovers the MCP configured at the product descriptor path', async () => {
   const executable = cliPath('codex', process.env.PATH ?? '/usr/bin:/bin');
   assert.ok(executable, 'native Codex config oracle is mandatory; absence is a failure');
-  const root = fs.mkdtempSync('/tmp/h2a-qual-');
+  const root = fs.mkdtempSync(join(tmpdir(), 'h2a-qual-'));
   try {
     const build = sourceBuild(root);
     const env = environment(join(root, 'oracle'));
@@ -49,7 +50,7 @@ test('Codex actually discovers the MCP configured at the product descriptor path
 test('Vibe actually accepts the MCP configured at the product descriptor path', async () => {
   const executable = cliPath('vibe', process.env.PATH ?? '/usr/bin:/bin');
   assert.ok(executable, 'native Vibe config oracle is mandatory; absence is a failure');
-  const root = fs.mkdtempSync('/tmp/h2a-qual-');
+  const root = fs.mkdtempSync(join(tmpdir(), 'h2a-qual-'));
   try {
     const build = sourceBuild(root);
     const env = environment(join(root, 'oracle'));
@@ -76,7 +77,7 @@ test('Vibe actually accepts the MCP configured at the product descriptor path', 
 test('Claude actually connects to the MCP configured at the product descriptor path', async () => {
   const executable = cliPath('claude', process.env.PATH ?? '/usr/bin:/bin');
   assert.ok(executable, 'native Claude config oracle is mandatory; absence is a failure');
-  const root = fs.mkdtempSync('/tmp/h2a-qual-');
+  const root = fs.mkdtempSync(join(tmpdir(), 'h2a-qual-'));
   try {
     const build = sourceBuild(root);
     const env = environment(join(root, 'oracle'));

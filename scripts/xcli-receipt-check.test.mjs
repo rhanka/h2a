@@ -17,7 +17,7 @@ const repo = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
 const SHA = 'a'.repeat(40);
 
 test('L11: a branch-only campaign without a receipt reports pending qualification and still blocks merge', () => {
-  const root = fs.mkdtempSync('/tmp/xcli-receipt-pending-');
+  const root = fs.mkdtempSync(join(os.tmpdir(), 'xcli-receipt-pending-'));
   try {
     const preload = join(root, 'github.mjs');
     fs.writeFileSync(preload, `
@@ -102,7 +102,7 @@ test('L11 review: false stages, a blocker, failed process recovery and zero debi
 });
 
 test('L11 review: source SHA and (scenario,pair) are required, a probe cannot manufacture a loop', () => {
-  const dir = fs.mkdtempSync('/tmp/xcli-receipt-');
+  const dir = fs.mkdtempSync(join(os.tmpdir(), 'xcli-receipt-'));
   try {
     const manifest = loadMatrixManifest(join(repo, 'docs/cross-cli-matrix.json'));
     const row = { scenario: 'loop:lifecycle', pair: 'claude:codex' };

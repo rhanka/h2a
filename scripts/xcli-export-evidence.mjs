@@ -1,15 +1,16 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { scanEvidenceFiles } from './xcli-evidence-scan.mjs';
 
-// The PID-contained CI runner is root, whereas upload-artifact is not. Export
-// only named JSON receipts to its parent's empty private directory. Never
+// Export only named JSON receipts to the launcher's private directory. Never
 // change ownership or permissions of the build, CLI state, logs or credentials.
 export function exportEvidence(root, names) {
   const destination = process.env.XCLI_EVIDENCE_EXPORT_DIR;
   if (!destination) return;
-  assert.match(destination, /^\/tmp\/xcli-evidence-[a-zA-Z0-9]{6}$/);
+  assert.match(basename(destination), /^xcli-evidence-[a-zA-Z0-9]{6}$/);
+  assert.equal(dirname(destination), fs.realpathSync(process.env.RUNNER_TEMP ?? tmpdir()), 'evidence must belong to this temporary parent');
   assert.equal(fs.realpathSync(destination), destination, 'evidence directory must not be aliased');
   const parent = fs.lstatSync(destination);
   assert.ok(parent.isDirectory() && !parent.isSymbolicLink());
