@@ -26,7 +26,7 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - run: node scripts/xcli-node-headers.mjs
-      - run: npm run build:h2a
+      - run: npm run build -w @sentropic/track && npm run build:h2a
       # Keep the long polling controls independent of the 108 pair
       # replications. Each job retains its existing 30-minute budget.
       - name: Test witness integrity and wake counterexamples
@@ -62,7 +62,7 @@ jobs:
       - run: node scripts/xcli-node-headers.mjs
       # The L15 remainder test and the drive-crypto twins read the served
       # surface from the built dist (tsc only, no install scripts, no Python).
-      - run: npm run build:h2a
+      - run: npm run build -w @sentropic/track && npm run build:h2a
       # Same exit-2 contract as the scenario matrix: the verdict belongs to
       # the ci-check step, which fails a partial or non-green matrix itself.
       - name: Exercise six ordered pairs in this sender shard with three repetitions each
