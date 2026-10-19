@@ -124,6 +124,10 @@ export interface UpgradeThrottle {
 export interface UpgradeCacheEntry extends UpgradeThrottle {
   readonly checkedAt: number;
   readonly latest?: string;
+  /** H4 automatic pass (LOT-1): last run stamp. Absent on machines that never ran it. */
+  readonly lastAutoAt?: number;
+  readonly lastAutoOutcome?: string;
+  readonly lastAutoReason?: string;
 }
 
 /** Bounded diagnostics record written per auto-upgrade attempt. */
@@ -453,6 +457,301 @@ function sweepUpgradeResidues(prefix: string, lockToken?: string): void {
  */
 export function isQuietUpgradeOutcome(outcome: string): boolean {
   return outcome === "already-current" || outcome === "skipped-throttled" || outcome === "skipped-locked";
+}
+
+/**
+ * H4 boot entry (LOT-1, 0.98.8): the single pass every automatic trigger
+ * enters through. `mcp-serve --auto-upgrade` (detached `boot-worker.js`),
+ * the `--upgrade-check` boot path and the injectable `mcp-serve` seam all
+ * call `runBootUpgrade`; the CLI `run` action drives the same pass via
+ * `runUpgradeOnce` with `explicit: true` (see `cmdUpgradeH4` in cli.ts).
+ * The legacy staged engine (`performAutoUpgrade` and its prefix swap) keeps
+ * no caller here: it stays exported for API compatibility only.
+ *
+ * Managed context: explicit `managedRoot` option wins, then the
+ * `H2A_MANAGED_ROOT` operator override (same standing as `H2A_ROOT`), then
+ * derivation from the worker's own payload path (managed image or npm
+ * prefix layout). Without a verified `installation.json` the automatic pass
+ * is a recorded best-effort no-op — never a legacy install substitute.
+ * Exclusion evidence is the operator-provided
+ * `<managedRoot>/exclusion-evidence.json`, fail-closed to
+ * `legacy_installer_unfenced` (selection deferred, never installed around).
+ */
+import { UpgradeStore } from "./h4-store.js";
+import { runUpgradeOnce } from "./upgrade-run.js";
+import { openBootstrapSession } from "./bootstrap-session.js";
+
+export interface H4UpgradeTarget {
+  packageVersion: string;
+  manifestDigest: string;
+  entrypoint: string;
+  buildId: string;
+}
+
+const H4_IMAGE_DIGEST = /^[0-9a-f]{64}$/;
+
+export function resolveH4ManagedRoot(workerPath?: string): string | undefined {
+  const override = process.env.H2A_MANAGED_ROOT;
+  if (override !== undefined && override.length > 0) return override;
+  const entry = workerPath ?? fileURLToPath(import.meta.url);
+  const managed = /^(.*)\/h2a-managed\/(\d+)\/images\/[0-9a-f]{64}\//.exec(entry);
+  if (managed) {
+    const candidate = join(managed[1], "h2a-managed", managed[2]);
+    if (existsSync(join(candidate, "installation.json"))) return candidate;
+    return undefined;
+  }
+  const npm = /^(.*)\/lib\/node_modules\/@sentropic\/h2a\/dist\/runtime\/upgrade\/index\.js$/.exec(entry);
+  if (npm && typeof process.getuid === "function") {
+    const candidate = join(npm[1], "h2a-managed", String(process.getuid()));
+    if (existsSync(join(candidate, "installation.json"))) return candidate;
+  }
+  return undefined;
+}
+
+export function resolveH4Target(managedRoot: string, version: string): H4UpgradeTarget {
+  let names: string[];
+  try {
+    names = readdirSync(join(managedRoot, "images"));
+  } catch {
+    throw new Error("controller_protocol_incompatible");
+  }
+  for (const name of names.sort()) {
+    if (!H4_IMAGE_DIGEST.test(name)) continue;
+    let manifest: Record<string, unknown>;
+    try {
+      manifest = JSON.parse(readFileSync(join(managedRoot, "images", name, "manifest.json"), "utf8")) as unknown as Record<
+        string,
+        unknown
+      >;
+    } catch {
+      continue;
+    }
+    if ((manifest as { packageVersion?: unknown }).packageVersion !== version) continue;
+    const entrypoints = (manifest as { entrypoints?: unknown }).entrypoints as Record<string, unknown> | undefined;
+    const controller = entrypoints?.controller;
+    const buildId = (manifest as { buildId?: unknown }).buildId;
+    if (typeof controller !== "string" || !controller || typeof buildId !== "string" || !buildId) {
+      throw new Error("controller_protocol_incompatible");
+    }
+    return { packageVersion: version, manifestDigest: `sha256:${name}`, entrypoint: controller, buildId };
+  }
+  throw new Error("controller_protocol_incompatible");
+}
+
+export function readH4ExclusionEvidence(managedRoot: string): Record<string, unknown> {
+  const absent = {
+    workersTerminated: { established: false, detail: "exclusion_evidence_absent" },
+    relaunchSourcesClosed: { established: false, detail: "exclusion_evidence_absent" },
+    futureStartsRouted: { established: false, detail: "exclusion_evidence_absent" },
+    installerReintroductionBarred: { established: false, detail: "exclusion_evidence_absent" }
+  };
+  let raw: string;
+  try {
+    raw = readFileSync(join(managedRoot, "exclusion-evidence.json"), "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === "ENOENT") return absent;
+    throw error;
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return absent;
+    return parsed as Record<string, unknown>;
+  } catch {
+    return absent;
+  }
+}
+
+let h4BootCounter = 0;
+
+export function createH4UpgradeId(): string {
+  h4BootCounter += 1;
+  return `u-${Date.now().toString(36)}-${process.pid.toString(36)}-${h4BootCounter.toString(36)}`;
+}
+
+export interface BootUpgradeOptions {
+  root: string;
+  ttlMs: number;
+  mode: "auto" | "check";
+  managedRoot?: string;
+  workerPath?: string;
+}
+
+export interface BootUpgradeResult {
+  mode: "auto" | "check";
+  completed: boolean;
+  reason: string;
+  current: string;
+  latest?: string;
+  selectedVersion?: string;
+}
+
+function recordBootStamp(
+  cachePath: string,
+  latest: string | undefined,
+  outcome: string,
+  reason: string
+): void {
+  try {
+    const now = defaultUpgradeRuntime.now();
+    defaultUpgradeRuntime.writeCache(cachePath, {
+      checkedAt: now,
+      ...(latest !== undefined ? { latest } : {}),
+      lastAutoAt: now,
+      lastAutoOutcome: outcome,
+      lastAutoReason: reason
+    });
+  } catch {
+    // best-effort: a stamp failure never tears down the serving process.
+  }
+}
+
+export function runBootUpgrade(options: BootUpgradeOptions): BootUpgradeResult {
+  const { root, ttlMs, mode } = options;
+  if (
+    !root ||
+    typeof root !== "string" ||
+    !Number.isSafeInteger(ttlMs) ||
+    ttlMs <= 0 ||
+    (mode !== "auto" && mode !== "check")
+  ) {
+    throw new Error("upgrade_worker_arguments_invalid");
+  }
+  const current = currentCliVersion();
+  const cachePath = upgradeCachePath(root);
+  if (mode === "check") {
+    const checked = checkUpgrade(current, { cachePath, ttlMs });
+    return {
+      mode,
+      completed: false,
+      reason: checked.upgradeAvailable ? "upgrade_available" : "already_current",
+      current,
+      ...(checked.latest !== undefined ? { latest: checked.latest } : {})
+    };
+  }
+  // Automatic pass (explicit: false): TTL/coalescence first, then the single
+  // H4 pass. Every failure below is best-effort and recorded in the stamp.
+  try {
+    const stamp = defaultUpgradeRuntime.readCache(cachePath) as
+      | { checkedAt?: unknown; lastAutoAt?: unknown }
+      | undefined;
+    const now = defaultUpgradeRuntime.now();
+    if (
+      stamp &&
+      typeof stamp.checkedAt === "number" &&
+      now - stamp.checkedAt < ttlMs &&
+      typeof stamp.lastAutoAt === "number" &&
+      now - stamp.lastAutoAt < ttlMs
+    ) {
+      return { mode, completed: false, reason: "ttl_coalesced", current };
+    }
+  } catch {
+    // An unreadable stamp never blocks the pass; it is rewritten below.
+  }
+  const managedRoot = options.managedRoot ?? resolveH4ManagedRoot(options.workerPath);
+  if (!managedRoot) {
+    recordBootStamp(cachePath, undefined, "no-op", "managed_installation_absent");
+    return { mode, completed: false, reason: "managed_installation_absent", current };
+  }
+  let store: UpgradeStore;
+  try {
+    const installation = JSON.parse(readFileSync(join(managedRoot, "installation.json"), "utf8")) as never;
+    store = new UpgradeStore(installation);
+  } catch {
+    recordBootStamp(cachePath, undefined, "no-op", "managed_installation_absent");
+    return { mode, completed: false, reason: "managed_installation_absent", current };
+  }
+  const prefix = (store.installation as { canonicalPrefix: string }).canonicalPrefix;
+  let checked: { latest?: string };
+  try {
+    checked = checkUpgrade(current, { force: true });
+  } catch {
+    recordBootStamp(cachePath, undefined, "no-op", "target_unresolvable");
+    return { mode, completed: false, reason: "target_unresolvable", current };
+  }
+  if (checked.latest === undefined) {
+    recordBootStamp(cachePath, undefined, "no-op", "target_unresolvable");
+    return { mode, completed: false, reason: "target_unresolvable", current };
+  }
+  const latest = checked.latest;
+  let target: H4UpgradeTarget;
+  try {
+    target = resolveH4Target(managedRoot, latest);
+  } catch {
+    recordBootStamp(cachePath, latest, "no-op", "controller_protocol_incompatible");
+    return { mode, completed: false, reason: "controller_protocol_incompatible", current, latest };
+  }
+  let session: { release: () => void };
+  try {
+    session = openBootstrapSession({
+      prefix,
+      entrypoint: join(prefix, "lib", "node_modules", "@sentropic", "h2a", "dist", "bin.js"),
+      legacyPrefix: prefix,
+      target
+    }) as { release: () => void };
+  } catch (error) {
+    const reason = (error as Error)?.message ?? "bootstrap_failed";
+    recordBootStamp(cachePath, latest, "no-op", reason);
+    return { mode, completed: false, reason, current, latest };
+  }
+  try {
+    const outcome = runUpgradeOnce({
+      session,
+      store,
+      upgradeId: createH4UpgradeId(),
+      target,
+      launcherSource: join(managedRoot, "launcher-source.mjs"),
+      managedDir: join(managedRoot, "managed"),
+      commandPath: join(prefix, "bin", "h2a"),
+      exclusion: readH4ExclusionEvidence(managedRoot),
+      explicit: false
+    }) as { completed: boolean; reason?: string };
+    if (outcome.completed) {
+      recordBootStamp(cachePath, latest, "selected", "selected");
+      return { mode, completed: true, reason: "selected", current, latest, selectedVersion: target.packageVersion };
+    }
+    recordBootStamp(cachePath, latest, "no-op", outcome.reason ?? "unknown");
+    return { mode, completed: false, reason: outcome.reason ?? "unknown", current, latest };
+  } catch (error) {
+    const reason = (error as Error)?.message ?? "upgrade_failed";
+    recordBootStamp(cachePath, latest, "no-op", reason);
+    return { mode, completed: false, reason, current, latest };
+  } finally {
+    try {
+      session.release();
+    } catch {
+      // best-effort
+    }
+  }
+}
+
+/**
+ * Boot-visible routing for the H4 pass outcome. Returns the exact stderr
+ * line, or null when the outcome stays quiet. A mass restart must not spam:
+ * quiet covers nothing-to-do (`already_adopted`), TTL coalescing, and the
+ * unmanaged machine (`managed_installation_absent` — not actionable
+ * per-boot). Selection deferrals, opt-outs, completions and real failures
+ * surface, like the legacy quiet set's actionable outcomes did.
+ */
+export function describeBootUpgrade(result: BootUpgradeResult): string | null {
+  if (result.mode === "check") {
+    if (result.reason === "upgrade_available" && result.latest !== undefined) {
+      return `h2a mcp-serve: h2a ${result.latest} available (current ${result.current}) — run \`h2a upgrade\``;
+    }
+    return null;
+  }
+  switch (result.reason) {
+    case "selected":
+      return `h2a mcp-serve: auto-selected h2a ${result.selectedVersion ?? result.latest ?? "unknown"} (applies on next launch)`;
+    case "already_adopted":
+    case "ttl_coalesced":
+    case "managed_installation_absent":
+      return null;
+    case "management_opted_out":
+      return "h2a mcp-serve: auto-upgrade deferred (management opted out)";
+    default:
+      if (result.reason.startsWith("selection_deferred:")) return `h2a mcp-serve: ${result.reason}`;
+      return `h2a mcp-serve: auto-upgrade ${result.reason} (current ${result.current})`;
+  }
 }
 
 /**
