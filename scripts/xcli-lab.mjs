@@ -11,6 +11,32 @@ export const PROBE = 'H2A_XCLI_PROBE_20261015';
 export const REPLY = 'H2A_XCLI_REPLY_20261015';
 export const repo = resolve(import.meta.dirname, '..');
 
+// Lot L4 evidence hygiene: every retained MCP/terminal record shares one
+// envelope. REPLAY_TRANSCRIPT_BODY names the live transcript field; the
+// transcript is the JSON of the evidence-shaped detail, truncated so a runaway
+// line can never bloat retained evidence. Secret-shaped keys are stripped
+// from the retained detail; bodies and envelopes stay only where the recorded
+// tests demand them (probe/reply matching), never secret material.
+export const REPLAY_TRANSCRIPT_BODY = 'transcript';
+export const TRANSCRIPT_RETAIN_LIMIT = 32768;
+const SECRET_KEY_PATTERN = /(secret|passwd|password|token|credential|private[_-]?key|oauth|session[_-]?key|api[_-]?key)/i;
+export function stripSecretFields(value) {
+  if (Array.isArray(value)) return value.map(stripSecretFields);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value)
+      .filter(([key]) => !SECRET_KEY_PATTERN.test(key))
+      .map(([key, entry]) => [key, stripSecretFields(entry)]));
+  }
+  return value;
+}
+export function canonicalEventRecord(at, event, detail) {
+  assert.ok(Number.isSafeInteger(at) && typeof event === 'string' && event.length > 0, 'canonical record needs time and name');
+  assert.ok(detail && typeof detail === 'object' && !Array.isArray(detail), 'canonical record needs an evidence-shaped detail');
+  const clean = stripSecretFields(detail);
+  const transcript = JSON.stringify(clean);
+  return { at, event, [REPLAY_TRANSCRIPT_BODY]: transcript.slice(0, TRANSCRIPT_RETAIN_LIMIT) };
+}
+
 export function inside(root, path) {
   const rel = relative(root, resolve(path));
   assert.ok(rel === '' || (!rel.startsWith('..') && !rel.startsWith('/')), 'path outside private qualification');
