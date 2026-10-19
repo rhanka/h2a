@@ -11,7 +11,7 @@
  * format string keeps them distinct so no reader confuses the two.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { trackRegistryPackageManifest } from "@sentropic/track/registry/manifest";
 import { canonicalJson, normalizeConfiguration, sha256Hex, validateRegistryEntry, type RegistryEntry } from "./descriptors.js";
 import { registryPackageManifest } from "./manifest.js";
@@ -42,6 +42,39 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 export function defaultBridgeLockPath(configPath: string): string {
   return `${configPath}.h2a-lock.json`;
+}
+
+/**
+ * Config base for plugin-mechanism defaults (RQ-17): XDG_CONFIG_HOME, else
+ * `~/.config`. Never baked into a packed declaration: the default lock
+ * resolves at serve time from the serving environment.
+ */
+export function pluginBridgeConfigBase(): string {
+  const xdg = process.env.XDG_CONFIG_HOME?.trim();
+  if (xdg) return xdg;
+  const home = process.env.HOME?.trim();
+  if (home) return join(home, ".config");
+  throw Object.assign(
+    new Error("missing_lock: cannot resolve the plugin default lock location without XDG_CONFIG_HOME or HOME"),
+    { code: "missing_lock" }
+  );
+}
+
+/**
+ * Default lock location for the plugin mechanism, provisioned by
+ * `bootstrap install --mechanism plugin`:
+ * `<config-base>/sentropic/h2a/registry-bridge/<host>/<profile>.lock.json`
+ * (interim mirror of the registry v8 §7.3 default layout). Host/profile are
+ * restricted to path-safe tokens so argv can never escape the directory.
+ */
+export function defaultPluginBridgeLockPath(host: string, profile: string): string {
+  if (!/^[A-Za-z0-9_-]+$/.test(host) || !/^[A-Za-z0-9_-]+$/.test(profile)) {
+    throw Object.assign(
+      new Error(`invalid_parameters: refusing path-unsafe host/profile ${JSON.stringify(host)}/${JSON.stringify(profile)} for the plugin default lock`),
+      { code: "invalid_parameters" }
+    );
+  }
+  return join(pluginBridgeConfigBase(), "sentropic", "h2a", "registry-bridge", host, `${profile}.lock.json`);
 }
 
 /** Frozen CLI binding refs for a full-tuple bridge lock (guide §4). */
