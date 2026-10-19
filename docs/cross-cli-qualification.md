@@ -98,3 +98,16 @@ exige maintenant ce confinement : sans le lanceur, elle échoue avant
 l’installation ou l’exécution du producteur ancien. Le nouveau workflow couvre
 les 34 suites runtime et neuf suites source ciblées ; l’intégration des entrées
 globales dans un domaine PID privé reste nécessaire avant merge.
+
+Campagne réelle aux sièges : un manifeste de sièges (`--seat-manifest`)
+nomme une source d’authentification par siège et par rôle ; les paires
+nomment des sièges (`claude-a:claude-b`), jamais des familles. Chaque
+cellule enregistre ses identifiants de siège, le mode de siège et le
+drapeau diagonale ; sans manifeste, `--auth-home` reste un alias
+mono-siège déprécié. Un registre persistant (0600) débite chaque session
+lancée avant le spawn — pré-vols, réessais et reprises inclus — et refuse
+sans spawn au-delà des plafonds (nombres PROPOSITION en attente de D2) ;
+la reprise recharge le registre au lieu de le réinitialiser. Un quota
+fournisseur bloque les autres cellules du siège ; le quota MCP par session
+coupe la session fautive au témoin. Les diagonales passent d’abord, sans
+jamais abandonner une cellule obligatoire.
