@@ -1,3 +1,4 @@
+import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { join } from 'node:path';
@@ -6,7 +7,7 @@ import test from 'node:test';
 import { environment } from './xcli-lab.mjs';
 
 test('L4 review: publication scans every JSON/Markdown file and refuses tokens without printing them', () => {
-  const root = fs.mkdtempSync('/tmp/xcli-scan-');
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-scan-'));
   try {
     fs.mkdirSync(join(root, 'nested'));
     const file = join(root, 'nested/receipt.md');

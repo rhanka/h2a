@@ -1,3 +1,4 @@
+import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { join } from 'node:path';
@@ -9,7 +10,7 @@ const baseline = process.env.XCLI_PROCESS_REVIEW_BASELINE;
 
 test('L6 review: native descendant execs are observed without self-reporting at 1/10/100ms', async () => {
   const { buildSupervisor, supervisedCommand, supervisorResult } = await import('./xcli-process-supervisor.mjs');
-  const root = fs.mkdtempSync('/tmp/xcli-process-');
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-process-'));
   try {
     const binary = buildSupervisor(root), fixture = join(root, 'python3.14'), launcher = join(root, 'launcher.mjs');
     const native = join(root, 'fixture.cc');
@@ -40,7 +41,7 @@ for (const ms of [1,10,100]) for(let n=0;n<3;n++) spawnSync(${JSON.stringify(fix
 
 test('L5 review: lost worker descendants are stopped and reaped within the recovery bound', async () => {
   const { buildSupervisor, supervisedCommand, supervisorResult } = await import('./xcli-process-supervisor.mjs');
-  const root = fs.mkdtempSync('/tmp/xcli-process-');
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-process-'));
   let orphan;
   try {
     const binary = buildSupervisor(root), fixture = join(root, 'lost.mjs');
@@ -64,7 +65,7 @@ fs.writeFileSync(${JSON.stringify(join(root, 'child.pid'))},String(child.pid));c
 
 test('L6: a vendor subtree allowance ends when it launches our MCP entrypoint', async () => {
   const { buildSupervisor, supervisedCommand, supervisorResult } = await import('./xcli-process-supervisor.mjs');
-  const root = fs.mkdtempSync('/tmp/xcli-process-');
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-process-'));
   try {
     const binary = buildSupervisor(root), dummy = join(root, 'python3.14');
     fs.copyFileSync('/bin/true', dummy);

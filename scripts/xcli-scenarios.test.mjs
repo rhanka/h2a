@@ -2,6 +2,7 @@
 // with its classified code — never a durable-only success worded as
 // delivery, never wake credit — and refusal twins must observe rejection.
 // Red while xcli-scenarios.mjs is absent or misclassifies any twin.
+import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
 import test from 'node:test';
@@ -18,7 +19,7 @@ import { spawnSync } from 'node:child_process';
 import { environment, repo } from './xcli-lab.mjs';
 
 test('L15 review: read-paths data is ready when the peer markers are published', () => {
-  const root = fs.mkdtempSync('/tmp/xcli-inventory-review-');
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-inventory-review-'));
   try {
     const worker = join(root, 'qualify.mjs'), output = join(root, 'receipt.json');
     const source = fs.readFileSync(join(repo, 'scripts/qualify-cross-cli.mjs'), 'utf8');
@@ -30,7 +31,9 @@ test('L15 review: read-paths data is ready when the peer markers are published',
       .replace(/'\.\/([^']+\.mjs)'/g, (_, name) => JSON.stringify(pathToFileURL(join(repo, 'scripts', name)).href)));
     const run = spawnSync(process.execPath, [worker, '--simulated', '--pair', 'claude:codex',
       '--scenario', 'inventory:read-paths', '--timeout-ms', '15000', '--output', output], {
-      env: environment(join(root, 'env')), encoding: 'utf8', timeout: 120000, maxBuffer: 4 * 1024 * 1024,
+      // Keep campaign allocations at the test's temporary parent: nesting
+      // another root under env/tmp can exceed the Unix socket path limit.
+      env: { ...environment(join(root, 'env')), TMPDIR: tmpdir() }, encoding: 'utf8', timeout: 120000, maxBuffer: 4 * 1024 * 1024,
     });
     assert.ok(fs.existsSync(output), run.stdout + run.stderr);
     const cell = JSON.parse(fs.readFileSync(output)).cells[0];
