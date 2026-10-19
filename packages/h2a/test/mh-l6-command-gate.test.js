@@ -78,14 +78,19 @@ test('F should refuse a dangling command link for diagnosis', async t => {
 });
 
 test('F should adopt the legacy link and reinstall the managed link', async t => {
-  const { installManagedLauncher, session, managedDir, source, commandPath, f } = await setup(t);
-  fs.symlinkSync(f.command, commandPath);
+  const { installManagedLauncher, session, managedDir, source, f } = await setup(t);
+  // Production topology: the managed command IS the legacy link itself
+  // (prefix/bin/h2a resolving to the legacy entry), not a chained link
+  // pointing at it. A chained link now classifies foreign (fail-closed).
+  const commandPath = f.command;
   const before = fs.readFileSync(f.entry, 'utf8');
   const installed = installManagedLauncher({ session, launcherSource: source, managedDir, commandPath });
   assert.equal(fs.readlinkSync(commandPath), installed.launcherPath);
   assert.equal(fs.readFileSync(f.entry, 'utf8'), before);
-  const again = installManagedLauncher({ session, launcherSource: source, managedDir, commandPath });
-  assert.deepEqual(again, installed);
+  // No second call in this session: swapping the session's own observed link
+  // correctly trips assertBootstrapSessionUnchanged (fail-closed). Managed-
+  // link reinstall idempotency is covered by mh-l6-launcher-install.test.js
+  // on the separate command path.
 });
 
 function attempt(args) {

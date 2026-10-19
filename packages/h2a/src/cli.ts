@@ -256,12 +256,33 @@ import {
   isQuietUpgradeOutcome,
   currentCliVersion,
   upgradeCachePath,
+  runBootUpgrade,
+  describeBootUpgrade,
+  resolveH4ManagedRoot,
+  resolveH4Target,
+  readH4ExclusionEvidence,
+  createH4UpgradeId,
   H2A_CLI_PACKAGE,
   H2A_AUTO_UPGRADE_CHECK_TTL_MS,
   H2A_REEXEC_GUARD_ENV,
   H2A_UPGRADE_CHECK_TTL_MS,
   type UpgradeRuntime
 } from "./runtime/upgrade/index.js";
+import { parseUpgradeCommand, upgradeExitCode } from "./runtime/upgrade/upgrade-cli.js";
+import {
+  resumeUpgrade,
+  abortUpgrade,
+  statusUpgrade,
+  compensateUpgrade,
+  previewUnmanage,
+  assertNoSuccessorFailure
+} from "./runtime/upgrade/upgrade-dispatch.js";
+import { runUpgradeOnce } from "./runtime/upgrade/upgrade-run.js";
+import { UpgradeStore } from "./runtime/upgrade/h4-store.js";
+import { openBootstrapSession } from "./runtime/upgrade/bootstrap-session.js";
+import { unmanageInstallation } from "./runtime/upgrade/unmanage.js";
+import { assessAdoptionNeed } from "./runtime/upgrade/adoption-need.js";
+import { readState } from "./runtime/handover/state.js";
 import {
   H2A_CLI_DECLARED_CAPABILITIES,
   createHostSessionNameRefresher,
@@ -318,39 +339,28 @@ const SKILLS_DIR = resolvePath(HERE, "..", "skills");
  * the upgrade module by URL and runs the check/upgrade in the background. The body is wrapped
  * in a catch — a boot-upgrade failure must never affect the MCP server. Exported (module-level,
  * static: it reads all inputs from argv, never a closure) so a test can launch the REAL source,
- * not a copy. `isQuietUpgradeOutcome` is called OPTIONALLY (`?.`): if the imported module is an
- * older build that lacks the export (a rollback/downgrade during boot on the hinge release), the
- * result is `undefined` and the message is SHOWN (fail-open) rather than the M-2/R2 alarm being
- * silently lost — presence of the export is not guaranteed across a version skew.
+ * not a copy. Since LOT-1 it delegates to the single H4 pass (`runBootUpgrade`
+ * + `describeBootUpgrade`): the legacy staged engine is unreachable from this
+ * source. Both calls stay OPTIONAL (`?.`): if the imported module is an older
+ * build that lacks the exports (a rollback/downgrade during boot on the hinge
+ * release), the result is `undefined` and a generic line is SHOWN (fail-open)
+ * rather than silently lost — presence of the exports is not guaranteed
+ * across a version skew.
  */
 export const MCP_UPGRADE_WORKER_SOURCE = String.raw`
 const [moduleUrl, root, ttl, mode] = process.argv.slice(1);
 try {
   const upgrade = await import(moduleUrl);
-  const current = upgrade.currentCliVersion();
-  if (mode === "auto") {
-    const result = upgrade.performAutoUpgrade(current, {
-      cachePath: upgrade.upgradeCachePath(root),
-      ttlMs: Number(ttl)
-    });
-    // Shared quiet set (isQuietUpgradeOutcome): blocked-undecidable (M-2) and skipped-locked-stale
-    // (R2) surface at boot. Optional call: a missing export ⇒ undefined ⇒ show the message.
-    if (!upgrade.isQuietUpgradeOutcome?.(result.outcome)) {
-      process.stderr.write("h2a mcp-serve: " + result.message + "\n");
-    }
-  } else {
-    const result = upgrade.checkUpgrade(current, {
-      cachePath: upgrade.upgradeCachePath(root),
-      ttlMs: Number(ttl)
-    });
-    if (result.upgradeAvailable) {
-      process.stderr.write("h2a mcp-serve: h2a " + result.latest + " available (current " + current + ") — run \`h2a upgrade\`\n");
-    }
-  }
+  const result = await upgrade.runBootUpgrade?.({ root, ttlMs: Number(ttl), mode });
+  const describe = upgrade.describeBootUpgrade;
+  const notice = result === undefined ? "h2a mcp-serve: auto-upgrade unavailable (legacy upgrade module)" : (typeof describe === "function" ? describe(result) : "h2a mcp-serve: auto-upgrade outcome recorded (see h2a upgrade status)");
+  if (notice) process.stderr.write(notice + "\n");
 } catch {
   // Best-effort background maintenance must not affect the MCP server.
 }
 `;
+
+
 
 /**
  * Pattern matchers used to map known store-level error messages to exit code
@@ -473,7 +483,7 @@ export function renderCliHelp(): string {
     "  h2a outbox put --instance <id> --json <envelope> [--root <path>]",
     "  h2a outbox read --instance <id> [--root <path>]",
     "  h2a mcp-serve [--root <path>] [--backend local|cluster-mesh] [--auto-open [--host <h>] [--instance <id>] [--scope <s>]] [--wake <native|logging>] [--upgrade-check | --auto-upgrade [--no-restart]]   (--auto-open joins the bus at startup; --wake injects a signed h2a-tagged wake into the host on inbox arrival, EVO-1, needs --auto-open; --auto-upgrade self-updates via a non-destructive staged swap, the new version applies on the next launch (the live stdio session is never re-exec'd); --upgrade-check = notice only; both opt-in/no network by default; /h2a disconnect to leave)",
-    "  h2a upgrade [--check]   (--check: report current vs latest; bare: non-destructive staged self-update)",
+    "  h2a upgrade [--to <version>] [--dry-run] [--check]   (single H4 command: select a prepared build, never restarts the native host)",
     "  h2a remote serve [--port <n>] [--host <h>] [--path </h2a/envelopes>] [--root <path>]",
     "  h2a remote send --url <u> --instance <signer> --private-key <pem> --json <envelope>",
     "  h2a remote mirror-serve [--port <n>] [--host <h>] [--path </h2a/mirror>] [--enrolled-keys-file <json>] [--root <path>]   (EVO-13 instance-mirror ingester; enrolled keys also via H2A_MIRROR_ENROLLED_KEYS base64)",
@@ -1882,9 +1892,74 @@ export function resolveAutoOpen(
 }
 
 /**
+ * H4 upgrade surface (0.98.8, LOT-1): `h2a upgrade` parses through
+ * `parseUpgradeCommand` first and every action enters through the single H4
+ * pass (`runUpgradeOnce` for run/auto, read-only report for status/check,
+ * journal authority for resume/abort, routed compensation, managed unmanage).
+ * Diagnostic and dry-run requests never enter the install path, and no path
+ * restarts, signals or ensures the native host (this dispatcher spawns
+ * nothing: the only subprocess in the family is the npm metadata lookup for
+ * `--check` / bare-latest resolution, via the legacy lookup seam only).
+ *
+ * Managed context resolution: `H2A_MANAGED_ROOT` (explicit operator
+ * override, same standing as `H2A_ROOT`) wins; otherwise the managed root is
+ * derived from the running payload's npm prefix and must hold a verified
+ * `installation.json`. Without one, mutating actions refuse with
+ * `managed_installation_absent` — the legacy staged engine is never used as
+ * a substitute. Exclusion evidence comes from the operator-provided
+ * `<managedRoot>/exclusion-evidence.json` consumed by `assessLegacyExclusion`
+ * (fail-closed: absent or malformed evidence defers selection with
+ * `legacy_installer_unfenced`, never installs around it).
+ */
+function h4UpgradeFailure(streams: H2ACliStreams, code: string, detail?: string): number {
+  streams.stderr.write(`h2a upgrade: ${code}${detail ? `: ${detail}` : ""}\n`);
+  return 1;
+}
+
+function h4ManagedRoot(): string {
+  const shared = resolveH4ManagedRoot();
+  if (shared !== undefined) return shared;
+  // The CLI payload path (dist/cli.js) carries no managed identity of its
+  // own; only the npm layout is probed here.
+  const here = fileURLToPath(import.meta.url);
+  const match = /^(.*)\/lib\/node_modules\/@sentropic\/h2a\/dist\/cli\.js$/.exec(here);
+  if (match && typeof process.getuid === "function") {
+    const candidate = join(match[1], "h2a-managed", String(process.getuid()));
+    if (existsSync(join(candidate, "installation.json"))) return candidate;
+  }
+  throw new Error("managed_installation_absent");
+}
+
+function h4OpenStore(): InstanceType<typeof UpgradeStore> {
+  const managedRoot = h4ManagedRoot();
+  let installation: Record<string, unknown>;
+  try {
+    installation = JSON.parse(readFileSync(join(managedRoot, "installation.json"), "utf8")) as Record<
+      string,
+      unknown
+    >;
+  } catch {
+    throw new Error("managed_installation_absent");
+  }
+  try {
+    return new UpgradeStore(installation as never);
+  } catch {
+    throw new Error("managed_installation_absent");
+  }
+}
+
+function h4WriteEnvelope(streams: H2ACliStreams, envelope: Record<string, unknown>): void {
+  streams.stdout.write(`${JSON.stringify(envelope, null, 2)}\n`);
+}
+
+/**
  * `h2a upgrade [--check]` (DEC-107, EVO-8 level 1): explicit self-upgrade.
  * `--check` reports current vs latest (no install); bare runs the global
  * install of `@latest`. Sync (spawnSync). `runtime` is injectable for tests.
+ *
+ * Kept as the exported legacy path for API compatibility (unit-tested by
+ * upgrade.test.js and the cli-contract happy path). No CLI trigger reaches
+ * it since LOT-1: `runCli` routes `upgrade` through `cmdUpgradeH4` below.
  */
 export function cmdUpgrade(
   flags: Record<string, string>,
@@ -1930,6 +2005,304 @@ export function cmdUpgrade(
   return 1;
 }
 
+function h4CheckAction(streams: H2ACliStreams): number {
+  const current = currentCliVersion();
+  const result = checkUpgrade(current, { force: true });
+  h4WriteEnvelope(streams, {
+    schemaVersion: 1,
+    action: "check",
+    current,
+    ...(result.latest !== undefined ? { latest: result.latest } : {}),
+    upgradeAvailable: result.upgradeAvailable
+  });
+  return 0;
+}
+
+function h4StatusAction(streams: H2ACliStreams): number {
+  const store = h4OpenStore();
+  const report = statusUpgrade({ store });
+  assertNoSuccessorFailure(store);
+  const durable = report.durable as Record<string, unknown> | null;
+  h4WriteEnvelope(streams, {
+    schemaVersion: 1,
+    action: "status",
+    ok: true,
+    selectedVersion: (durable?.packageVersion as string | undefined) ?? null,
+    selectedBuildId: (durable?.buildId as string | undefined) ?? null,
+    transactions: report.transactions
+  });
+  return 0;
+}
+
+function h4ResumeAction(streams: H2ACliStreams, upgradeId: string, strict: boolean): number {
+  const store = h4OpenStore();
+  const result = resumeUpgrade({ store, upgradeId });
+  assertNoSuccessorFailure(store);
+  h4WriteEnvelope(streams, {
+    schemaVersion: 1,
+    action: "resume",
+    ok: true,
+    upgradeId: result.upgradeId,
+    installationState: result.installationState,
+    controllerEpoch: result.controllerEpoch
+  });
+  void strict;
+  return 0;
+}
+
+function h4AbortAction(streams: H2ACliStreams, upgradeId: string): number {
+  const store = h4OpenStore();
+  const result = abortUpgrade({ store, upgradeId });
+  h4WriteEnvelope(streams, {
+    schemaVersion: 1,
+    action: "abort",
+    ok: true,
+    upgradeId: result.upgradeId,
+    installationState: result.installationState,
+    controllerEpoch: result.controllerEpoch
+  });
+  return 0;
+}
+
+function h4CompensateAction(streams: H2ACliStreams, upgradeId: string, component: string, strict: boolean): number {
+  const store = h4OpenStore();
+  const result = compensateUpgrade({ store, upgradeId, component });
+  streams.stderr.write(`h2a upgrade: compensation_engine_pending: component ${result.component} of ${result.upgradeId}\n`);
+  void strict;
+  return 2;
+}
+
+function h4UnmanageAction(
+  streams: H2ACliStreams,
+  dryRun: boolean
+): number {
+  const store = h4OpenStore();
+  const installation = (store as unknown as { installation: Record<string, unknown> }).installation as {
+    canonicalPrefix: string;
+  };
+  const managedRoot = h4ManagedRoot();
+  const managedDir = join(managedRoot, "managed");
+  const commandPath = join(installation.canonicalPrefix as string, "bin", "h2a");
+  const originalTarget = join(
+    installation.canonicalPrefix as string,
+    "lib",
+    "node_modules",
+    "@sentropic",
+    "h2a",
+    "dist",
+    "bin.js"
+  );
+  if (dryRun) {
+    const preview = previewUnmanage({ store, commandPath, originalTarget, managedDir });
+    h4WriteEnvelope(streams, {
+      schemaVersion: 1,
+      action: "unmanage",
+      ok: true,
+      dryRun: true,
+      restored: false,
+      wouldRestore: preview.wouldRestore,
+      linkVerdict: preview.linkVerdict
+    });
+    return 0;
+  }
+  const result = unmanageInstallation({ store, commandPath, originalTarget, managedDir, explicit: true });
+  h4WriteEnvelope(streams, {
+    schemaVersion: 1,
+    action: "unmanage",
+    ok: true,
+    dryRun: false,
+    restored: result.restored,
+    commandPath: result.commandPath
+  });
+  return 0;
+}
+
+function h4RunAction(
+  streams: H2ACliStreams,
+  intent: { to: string | null; dryRun: boolean; strict: boolean }
+): number {
+  const current = currentCliVersion();
+  const managedRoot = h4ManagedRoot();
+  const store = h4OpenStore();
+  const installation = (store as unknown as { installation: Record<string, unknown> }).installation as {
+    canonicalPrefix: string;
+    prefixId: string;
+  };
+  let target: { packageVersion: string; manifestDigest: string; entrypoint: string; buildId: string };
+  if (intent.to !== null) {
+    target = resolveH4Target(managedRoot, intent.to);
+  } else {
+    const checked = checkUpgrade(current, { force: true });
+    if (checked.latest === undefined) {
+      h4WriteEnvelope(streams, {
+        schemaVersion: 1,
+        action: "run",
+        ok: true,
+        dryRun: intent.dryRun,
+        completed: false,
+        current,
+        latest: null,
+        reason: "target_unresolvable"
+      });
+      return 2;
+    }
+    target = resolveH4Target(managedRoot, checked.latest);
+  }
+  if (intent.dryRun) {
+    const selection = readState(join(managedRoot, "state", "selected-build.json"), "selection")?.value ?? null;
+    const need = assessAdoptionNeed({
+      managed: { prefixId: installation.prefixId, selection },
+      physical: { prefixId: installation.prefixId },
+      target: { packageVersion: target.packageVersion, manifestDigest: target.manifestDigest }
+    });
+    h4WriteEnvelope(streams, {
+      schemaVersion: 1,
+      action: "run",
+      ok: true,
+      dryRun: true,
+      completed: false,
+      current,
+      latest: target.packageVersion,
+      wouldSelect: need.needed ? target.packageVersion : null,
+      reason: need.reason
+    });
+    return 0;
+  }
+  const upgradeId = createH4UpgradeId();
+  const prefix = installation.canonicalPrefix;
+  const session = openBootstrapSession({
+    prefix,
+    entrypoint: join(prefix, "lib", "node_modules", "@sentropic", "h2a", "dist", "bin.js"),
+    legacyPrefix: prefix,
+    target
+  });
+  try {
+    const outcome = runUpgradeOnce({
+      session,
+      store,
+      upgradeId,
+      target,
+      launcherSource: join(managedRoot, "launcher-source.mjs"),
+      managedDir: join(managedRoot, "managed"),
+      commandPath: join(prefix, "bin", "h2a"),
+      exclusion: readH4ExclusionEvidence(managedRoot),
+      explicit: true
+    }) as { completed: boolean; reason?: string };
+    assertNoSuccessorFailure(store);
+    if (outcome.completed) {
+      const durable = readState(join(managedRoot, "state", "selected-build.json"), "selection")?.value as
+        | Record<string, unknown>
+        | undefined;
+      h4WriteEnvelope(streams, {
+        schemaVersion: 1,
+        action: "run",
+        ok: true,
+        dryRun: false,
+        completed: true,
+        current,
+        latest: target.packageVersion,
+        upgraded: true,
+        upgradeId,
+        selectedVersion: durable?.packageVersion ?? target.packageVersion,
+        selectedBuildId: durable?.buildId ?? target.buildId
+      });
+      return upgradeExitCode({ completed: true }, { strict: intent.strict });
+    }
+    h4WriteEnvelope(streams, {
+      schemaVersion: 1,
+      action: "run",
+      ok: true,
+      dryRun: false,
+      completed: false,
+      current,
+      latest: target.packageVersion,
+      upgraded: false,
+      upgradeId,
+      reason: outcome.reason ?? "unknown"
+    });
+    return upgradeExitCode({ completed: false, deferred: false }, { strict: intent.strict });
+  } finally {
+    (session as { release: () => void }).release();
+  }
+}
+
+/**
+ * H4 `upgrade` dispatch: parse first (usage errors exit 1 with zero side
+ * effects), then authorize, then act. JSON envelopes go to stdout; every
+ * diagnostic goes to stderr, including in `--json` mode.
+ */
+export function cmdUpgradeH4(argvAfterUpgrade: readonly string[], streams: H2ACliStreams): number {
+  let intent: { action: string; upgradeId: string | null; component: string | null; to: string | null; dryRun: boolean; json: boolean; strict: boolean };
+  try {
+    intent = parseUpgradeCommand([...argvAfterUpgrade]) as typeof intent;
+  } catch (error) {
+    const message = (error as Error)?.message ?? "upgrade_cli_invalid";
+    if (message === "upgrade_cli_invalid") return h4UpgradeFailure(streams, "upgrade_cli_invalid");
+    return h4UpgradeFailure(streams, "upgrade_cli_usage", message.replace(/^upgrade_cli_usage:/, ""));
+  }
+  if (intent.action === "help") {
+    streams.stdout.write(
+      "h2a upgrade — single H4 upgrade command (never restarts the native host)\n" +
+        "\n" +
+        "  h2a upgrade [--to <version>] [--dry-run] [--json] [--strict]\n" +
+        "  h2a upgrade --check [--json]\n" +
+        "  h2a upgrade status [--json]\n" +
+        "  h2a upgrade resume <upgradeId> [--json] [--strict]\n" +
+        "  h2a upgrade abort <upgradeId> [--json]\n" +
+        "  h2a upgrade compensate <upgradeId> --component mcp|gateway [--json] [--strict]\n" +
+        "  h2a upgrade unmanage [--dry-run] [--json]\n" +
+        "\n" +
+        "Exit codes: 0 requested selection done or no change needed, " +
+        "2 incomplete without definitive failure, 1 real failure or contradiction.\n"
+    );
+    return 0;
+  }
+  try {
+    switch (intent.action) {
+      case "check":
+        return h4CheckAction(streams);
+      case "status":
+        return h4StatusAction(streams);
+      case "resume":
+        return h4ResumeAction(streams, intent.upgradeId as string, intent.strict);
+      case "abort":
+        return h4AbortAction(streams, intent.upgradeId as string);
+      case "compensate":
+        return h4CompensateAction(streams, intent.upgradeId as string, intent.component as string, intent.strict);
+      case "unmanage":
+        return h4UnmanageAction(streams, intent.dryRun);
+      case "run":
+        return h4RunAction(streams, intent);
+      default:
+        return h4UpgradeFailure(streams, "upgrade_cli_usage", "unknown_action");
+    }
+  } catch (error) {
+    const message = (error as Error)?.message ?? "upgrade_failed";
+    if (message.startsWith("selection_deferred:")) {
+      const envelope = {
+        schemaVersion: 1,
+        action: intent.action,
+        ok: true,
+        completed: false,
+        deferred: true,
+        reason: message
+      };
+      // upgradeExitCode maps deferred to 0, or 2 under --strict.
+      if (upgradeExitCode({ completed: false, deferred: true }, { strict: intent.strict }) === 2) {
+        h4WriteEnvelope(streams, envelope);
+        return 2;
+      }
+      h4WriteEnvelope(streams, envelope);
+      return 0;
+    }
+    if (message === "successor_failed") {
+      streams.stderr.write("h2a upgrade: successor_failed\n");
+      return 1;
+    }
+    return h4UpgradeFailure(streams, message);
+  }
+}
+
 /**
  * `h2a presence-reap` — false-live janitor. Deletes presence files whose owning
  * process is provably dead: the stale "live" presence a host (Claude Code /
@@ -1973,8 +2346,12 @@ export async function runMcpServe(
     cwd?: () => string;
     /** Test seam for the internal structured-readiness environment. */
     env?: NodeJS.ProcessEnv;
-    /** Test seam for boot upgrade ordering; production uses the default runtime. */
-    upgradeRuntime?: UpgradeRuntime;
+    /**
+     * Test seam for boot upgrade ordering: managed root the H4 automatic
+     * pass adopts from. Production leaves it unset (the worker resolves the
+     * managed installation itself); tests point it at a fixture.
+     */
+    upgradeManagedRoot?: string;
     /** Graceful-shutdown signal; bin.ts wires SIGTERM/SIGINT/SIGHUP to it. */
     signal?: AbortSignal;
     /** Internal central attachment adapter. */
@@ -2047,40 +2424,21 @@ export async function runMcpServe(
       // same-day release isn't masked by the 24h notice cache; the passive
       // `--upgrade-check` notice keeps the 24h throttle.
       const ttlMs = wantAutoUpgrade ? H2A_AUTO_UPGRADE_CHECK_TTL_MS : H2A_UPGRADE_CHECK_TTL_MS;
-      if (io.upgradeRuntime) {
-        // Injectable source-proof seam. Production never runs the synchronous
-        // runtime here; its spawnSync calls live only in the detached worker.
-        // This path and the worker below call the SAME orchestration
-        // (`performAutoUpgrade` / `checkUpgrade`) — no duplicated upgrade logic.
+      if (io.upgradeManagedRoot !== undefined) {
+        // Injectable ordering seam for tests: the SAME H4 pass the detached
+        // worker runs (`runBootUpgrade`, explicit: false), scheduled off the
+        // serve path so readiness and initialize never wait for it. The legacy
+        // staged engine is unreachable here.
         setImmediate(() => {
           try {
-            const current = currentCliVersion();
-            if (wantAutoUpgrade) {
-              const result = performAutoUpgrade(current, {
-                runtime: io.upgradeRuntime,
-                cachePath: upgradeCachePath(root),
-                ttlMs
-              });
-              // Stay quiet on the common no-op / benign-skip outcomes so a mass restart
-              // does not spam stderr; report actionable states only. The quiet set is the
-              // single source of truth isQuietUpgradeOutcome (shared with the boot worker):
-              // blocked-undecidable (M-2) and skipped-locked-stale (R2) are NOT quiet and
-              // surface at boot.
-              if (!isQuietUpgradeOutcome(result.outcome)) {
-                io.stderr.write(`h2a mcp-serve: ${result.message}\n`);
-              }
-            } else {
-              const result = checkUpgrade(current, {
-                cachePath: upgradeCachePath(root),
-                ttlMs,
-                runtime: io.upgradeRuntime
-              });
-              if (result.upgradeAvailable) {
-                io.stderr.write(
-                  `h2a mcp-serve: h2a ${result.latest} available (current ${current}) — run \`h2a upgrade\`\n`
-                );
-              }
-            }
+            const result = runBootUpgrade({
+              root,
+              ttlMs,
+              mode: wantAutoUpgrade ? "auto" : "check",
+              managedRoot: io.upgradeManagedRoot
+            });
+            const notice = describeBootUpgrade(result);
+            if (notice !== null) io.stderr.write(`${notice}\n`);
           } catch {
             // best-effort: a check/upgrade failure must never affect serving.
           }
@@ -7706,7 +8064,7 @@ export function runCli(
     }
     return cmdDrumbeat(argv.slice(1), streams);
   }
-  if (command === "upgrade") return cmdUpgrade(flags, streams);
+  if (command === "upgrade") return cmdUpgradeH4(argv.slice(1), streams);
   if (command === "nhi") return cmdNhi(argv.slice(1), streams);
   if (command === "org") return cmdOrg(argv.slice(1), streams);
   if (command === "coach") return cmdCoach(argv.slice(1), streams);
