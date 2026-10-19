@@ -16,6 +16,15 @@ consommateur manuel. **Il ne livre pas encore l'édition dans le dossier HTML.**
 La première boucle complète n'est pas acceptée : FE-3 s'arrête sur FE-2 DS,
 comme demandé par le propriétaire. [Contrat et limites](../focus/document-editing.md).
 
+PR brouillon unique : [#378](https://github.com/rhanka/h2a/pull/378), branche
+`feat/focus-edit-return`, à jour sur `origin/main` au push, sans rebase nécessaire.
+
+| Commits poussés | Contenu |
+| --- | --- |
+| `c4409623a` | Contrats, identités, codec source, diff et réconciliation cumulative |
+| `be669ecce` | Consommateur manuel, registre durable, journal et reçus |
+| `e504507d6` | Contrat documenté, preuves et dépendance DS |
+
 | Lot | Résultat observable | Gate encore ouverte |
 | --- | --- | --- |
 | FE-0 | Schémas sidecar, JSON/YAML sans trim, couches S/F/M, hashes et vecteur navigateur/Node | Revue Focus/DS des noms, de `retiredParagraphIds` et du codec final |
