@@ -33,7 +33,7 @@ fs.cpSync(join(repo, 'docs'), join(built.path, 'docs'), { recursive: true });
 fs.cpSync(join(repo, 'packages/h2a/test'), join(built.path, 'packages/h2a/test'), { recursive: true });
 // CLI contract and spawn-boundary consumers read shipped assets and runner
 // configuration. Copy those fixtures unchanged; missing fixtures must fail.
-for (const name of ['skills', 'focus-app']) {
+for (const name of ['skills', 'focus-app', 'hooks']) {
   fs.cpSync(join(repo, 'packages/h2a', name), join(built.path, 'packages/h2a', name), { recursive: true });
 }
 fs.cpSync(join(repo, 'packages/track/skills'), join(built.path, 'packages/track/skills'), { recursive: true });
