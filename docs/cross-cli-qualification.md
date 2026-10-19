@@ -19,8 +19,13 @@ Les six CLI doivent être présentes sur le PATH initial. Chaque cellule a deux
 workspaces et identités distincts, un host natif dédié, un store et des HOME/XDG
 temporaires. Seuls des fichiers de login explicitement autorisés sont copiés ;
 les hooks, plugins et configurations MCP de l’utilisateur ne sont pas repris.
-Un point d’entrée Python est refusé avant exécution, ce qui bloque actuellement
-Vibe. Sans `--auth-home`, aucun login existant n’est lu.
+Un point d’entrée Python de notre chaîne de lancement est refusé avant
+exécution ; le produit vendeur Vibe tourne tel qu’installé, runtime Python
+vendeur inclus (règle owner QO4 du 11/10 : ce que nous livrons reste 0
+Python), et chaque preuve Vibe porte le label `vendor-runtime: python (not
+shipped)`. Aucun backend Vibe non-Python n’existe aujourd’hui : en adopter un
+serait un changement suivi, jamais un remplacement silencieux. Sans
+`--auth-home`, aucun login existant n’est lu.
 
 Une cellule peut être rejouée sans relancer les autres :
 
