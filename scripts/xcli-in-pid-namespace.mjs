@@ -35,6 +35,11 @@ if (process.argv[2] === '--gate') {
   } else {
     const root = mkdtempSync(join(process.env.RUNNER_TEMP ?? tmpdir(), 'xcli-pid-init-'));
     const privateEnv = environment(join(root, 'env'));
+    // The general gate must let each suite select its host. Forcing the
+    // qualification-only value "native" also makes crash-log redact that
+    // word as an environment value, corrupting native-name-collision.
+    // Native remains the product default; all isolation paths stay private.
+    delete privateEnv.H2A_SESSION_HOST;
     const init = join(root, 'init');
     const compiled = spawnSync('/usr/bin/g++', ['-std=c++17', '-O2', resolve(repo, 'scripts/xcli-pid-init.cc'), '-o', init], { stdio: 'inherit' });
     assert.equal(compiled.status, 0, 'private PID namespace init must compile');
