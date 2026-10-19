@@ -31,6 +31,15 @@ afterEach(async () => {
   directories.clear();
 });
 
+type ChunkReplay = { chunks: Array<{ data: string }> };
+
+// Oracle over a PTY chunk replay: matches over the concatenated chunk
+// stream, never over individual chunks (PTY fragmentation splits needles
+// across chunk boundaries).
+function streamIncludes(replay: ChunkReplay, needle: string): boolean {
+  return replay.chunks.map((chunk) => chunk.data).join("").includes(needle);
+}
+
 async function eventually<T>(read: () => Promise<T>, accept: (value: T) => boolean): Promise<T> {
   let last: T | undefined;
   for (let attempt = 0; attempt < 200; attempt += 1) {
@@ -157,7 +166,7 @@ describe.skipIf(process.platform !== "linux")("h2a drive native PTY backchannel"
       });
       await eventually(
         () => client.readOutput(sessionId, 0),
-        (replay) => replay.chunks.some((chunk) => chunk.data.includes("native-drive-ready")),
+        (replay) => streamIncludes(replay, "native-drive-ready"),
       );
 
       // The h2a instance resolves through its label (worker) to this exact
@@ -226,7 +235,7 @@ describe.skipIf(process.platform !== "linux")("h2a drive native PTY backchannel"
       assert.equal(delivery.driven, true);
       const replay = await eventually(
         () => client.readOutput(sessionId, 0),
-        (value) => value.chunks.some((chunk) => chunk.data.includes(delivery.instructionLine)),
+        (value) => streamIncludes(value, delivery.instructionLine),
       );
       assert.match(
         replay.chunks.map((chunk) => chunk.data).join(""),
@@ -248,7 +257,7 @@ describe.skipIf(process.platform !== "linux")("h2a drive native PTY backchannel"
       await client.releaseController(humanLease);
       await eventually(
         () => client.readOutput(sessionId, 0),
-        (value) => value.chunks.some((chunk) => chunk.data.includes("recent-human-input")),
+        (value) => streamIncludes(value, "recent-human-input"),
       );
 
       const deferred = captureStreams(directory);
@@ -329,4 +338,15 @@ describe.skipIf(process.platform !== "linux")("h2a drive native PTY backchannel"
       }
     }
   }, 15_000);
+});
+
+describe("drive chunk-stream oracle", () => {
+  it("satisfies a needle split across chunk boundaries", () => {
+    const fragmented = { chunks: [{ data: "r" }, { data: "ecent-human-input\r" }] };
+    assert.equal(streamIncludes(fragmented, "recent-human-input"), true);
+  });
+  it("still matches a whole-chunk needle and rejects absence", () => {
+    assert.equal(streamIncludes({ chunks: [{ data: "recent-human-input\r" }] }, "recent-human-input"), true);
+    assert.equal(streamIncludes({ chunks: [{ data: "r" }, { data: "ecent" }] }, "recent-human-input"), false);
+  });
 });
