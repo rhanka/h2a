@@ -33,4 +33,36 @@ for (const [cli, version] of [['codex', '0.162.1'], ['claude', '2.1.301']]) {
   assert.equal(probe.stdout.match(/\b\d+\.\d+\.\d+\b/)?.[0], version);
 }
 if (process.env.GITHUB_PATH) fs.appendFileSync(process.env.GITHUB_PATH, bin + '\n');
-console.log(JSON.stringify({ bin, versions: { codex: '0.162.1', claude: '2.1.301' }, installScripts: false, reviewedNodeBootstrap: true }));
+// Lot L7 (QO4, section 8.2): tier-C needs the real vendor vibe binary. It is
+// a uv-managed Python product (no non-Python backend exists today, section
+// 8.2 finding). Resolve it on PATH; install the pinned tool with uv only
+// where it is absent (ephemeral CI runners — never where a seat exists, and
+// never a Python toolchain we ship). No login or model calls.
+const VIBE_PIN = '2.26.1';
+const whichVibe = () => {
+  const found = spawnSync('/usr/bin/which', ['vibe'], { encoding: 'utf8' });
+  return found.status === 0 ? found.stdout.trim() : null;
+};
+let vibeEntry = whichVibe();
+let vibeInstalledByOracle = false;
+if (!vibeEntry) {
+  const uv = spawnSync('/usr/bin/which', ['uv'], { encoding: 'utf8' });
+  assert.equal(uv.status, 0, 'vibe oracle binary absent and uv unavailable to install it');
+  const installed = spawnSync(uv.stdout.trim(), ['tool', 'install', `mistral-vibe==${VIBE_PIN}`],
+    { encoding: 'utf8', timeout: 300000, maxBuffer: 1024 * 1024 });
+  assert.equal(installed.status, 0, 'pinned vibe tool installation must succeed');
+  vibeInstalledByOracle = true;
+  vibeEntry = whichVibe();
+  assert.ok(vibeEntry, 'installed vibe binary must be on PATH');
+}
+const vibeProbe = spawnSync(vibeEntry, ['--version'], { encoding: 'utf8', timeout: 15000, maxBuffer: 65536 });
+assert.equal(vibeProbe.status, 0, 'native vibe executable must answer --version');
+const vibeVersion = vibeProbe.stdout.match(/\b\d+\.\d+\.\d+\b/)?.[0];
+assert.ok(vibeVersion, 'native vibe version must parse');
+if (vibeInstalledByOracle) assert.equal(vibeVersion, VIBE_PIN, 'oracle installs the pinned vibe');
+// Classify the launcher as installed (unresolved: uv shims are shell wrappers
+// around the tool interpreter, and the wrapper guard sees through them).
+const { pythonEntrypoint } = await import('./xcli-lab.mjs');
+const vibeRuntime = pythonEntrypoint(vibeEntry) ? 'python (not shipped)' : 'non-python (upstream follow-up)';
+console.log(JSON.stringify({ bin, versions: { codex: '0.162.1', claude: '2.1.301' }, installScripts: false, reviewedNodeBootstrap: true,
+  vibe: { path: vibeEntry, version: vibeVersion, vendorRuntime: vibeRuntime, installedByOracle: vibeInstalledByOracle } }));
