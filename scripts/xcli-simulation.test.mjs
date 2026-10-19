@@ -165,6 +165,41 @@ test('L3: a replayed wake produces at most one qualifying read', () => {
   assert.equal(cell.replayRejected, true, 'the duplicate wake must not produce a second read or reply');
 });
 
+test('L4: owner credential material never reaches qualification evidence', () => {
+  // Planted owner-style instances plus an ambient-looking config path flow
+  // through the login surface; the full evidence (receipt JSON, every event,
+  // every path-shaped string) must contain neither canary text, canary file
+  // names, canary-shaped instance names nor the owner config path. Real mode
+  // with a short budget blocks on wake-window funding before any model turn,
+  // so no seat is consumed; the receipt is still written and scanned.
+  const CANARY = 'canary-owner-zz9';
+  const root = fs.mkdtempSync('/tmp/xcli-canary-');
+  try {
+    const authHome = join(root, `${CANARY}-seats`);
+    fs.mkdirSync(join(authHome, '.codex'), { recursive: true });
+    fs.mkdirSync(join(authHome, '.claude'), { recursive: true });
+    writeFileSyncJoin(authHome, '.codex/auth.json', JSON.stringify({ token: `${CANARY}-token` }));
+    writeFileSyncJoin(authHome, '.claude/.credentials.json', JSON.stringify({ token: `${CANARY}-token` }));
+    writeFileSyncJoin(authHome, '.claude.json', JSON.stringify({ oauthAccount: { id: `${CANARY}-instance` } }));
+    const output = join(root, 'receipt.json');
+    const env = { ...environment(join(root, 'env')), [`${CANARY}_ENV`.toUpperCase()]: `${CANARY}-env-value`,
+      ...(process.env.XCLI_NODE_HEADERS ? { XCLI_NODE_HEADERS: process.env.XCLI_NODE_HEADERS } : {}) };
+    const result = spawnSync(process.execPath, [join(import.meta.dirname, 'qualify-cross-cli.mjs'),
+      '--pair', 'codex:codex', '--auth-home', authHome, '--timeout-ms', '20000', '--output', output],
+    { env, encoding: 'utf8', timeout: 240000, maxBuffer: 4 * 1024 * 1024 });
+    assert.ok(fs.existsSync(output), `a receipt must be written (exit ${result.status})`);
+    const text = fs.readFileSync(output, 'utf8');
+    assert.ok(!text.includes(`${CANARY}-token`), 'no planted credential text in evidence');
+    assert.ok(!text.includes(`${CANARY}-instance`), 'no planted instance name in evidence');
+    assert.ok(!text.includes(`${CANARY}-env-value`), 'no ambient carrier in evidence');
+    assert.ok(!text.includes(authHome), 'no owner config path in evidence');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+function writeFileSyncJoin(...parts) {
+  fs.writeFileSync(join(...parts.slice(0, -1)), parts[parts.length - 1]);
+}
+
 test('L3: normal simulated cells keep full wake credit with bounded wording', () => {
   for (const pair of ['claude:codex', 'codex:claude']) {
     const { status, cells } = runWakeCell(['--pair', pair, '--timeout-ms', '30000']);
