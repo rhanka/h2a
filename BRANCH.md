@@ -1,3 +1,450 @@
+# PTY Phase B — PR #375, continuation 2026-10-18
+
+## Dernier P1 cf375ba / cf375bs — retours d'erreur pré-B
+
+Correction limitée à `upgrade/index.ts`, `upgrade-swap.test.js` et ces preuves.
+L'adaptateur de remplacement conserve le plan connu quand le sous-processus
+échoue ou produit des métadonnées illisibles. Les retours `failed` après
+remplacement du paquet ou vérification finale incluent aussi les pré-B connus,
+avec `admission: unfenced`, `retirement: deferred` et les versions différées.
+L'issue d'échec du paquet et son diagnostic restent inchangés.
+
+Base rouge : `d7c14e2a086cbb4f7cd6e84f2b3e7949f577f59b`. Wrapper existant
+`tmp/pty-am2-run.mjs` : mkdtemp privé, HOME/XDG/runtime/TMPDIR temporaires.
+
+```sh
+rtk node tmp/pty-am2-run.mjs pty-final-baseline-build npm run build -w @sentropic/h2a
+# exit 0 ; vendor-engram-live mirror OK.
+rtk node tmp/pty-am2-run.mjs pty-final-errors-red-valid node --test packages/h2a/test/upgrade-swap.test.js
+# 30 passed, 8 failed, 0 skipped/cancelled/todo ; exit 1.
+rtk node tmp/pty-am2-run.mjs pty-final-errors-build npm run build -w @sentropic/h2a
+# exit 0 ; vendor-engram-live mirror OK.
+rtk node tmp/pty-am2-run.mjs pty-final-errors-green22 node --test packages/h2a/test/upgrade.test.js packages/h2a/test/upgrade-swap.test.js packages/h2a/test/upgrade-boot-worker.test.js
+# Node 22.22.1 : 80 passed, 0 failed/skipped/cancelled/todo ; exit 0.
+rtk env PATH=/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin:/usr/local/bin:/usr/bin:/bin node tmp/pty-am2-run.mjs pty-final-errors-green24 node --test packages/h2a/test/upgrade.test.js packages/h2a/test/upgrade-swap.test.js packages/h2a/test/upgrade-boot-worker.test.js
+# Node 24.22.0 : 80 passed, 0 failed/skipped/cancelled/todo ; exit 0.
+```
+
+Les huit nouveaux cas ont chacun échoué avant correction : sortie non nulle et
+JSON illisible du vrai adaptateur, paquet courant et remplacé ; remplacement
+refusé ou levé ; vérification incohérente ou levée. Le sous-processus temporaire
+écrit le plan reçu avant l'échec, preuve que le remplacement a bien été tenté.
+Premier essai rouge non retenu : fixture de paquet sans point d'entrée résoluble ;
+fixture corrigée avant `red-valid`, aucun changement produit entre les deux.
+Sorties complètes : `tmp/pty-final-*.log`.
+
+`origin/main=d0b1afa38` reste ancêtre après fetch ; aucun rebase nécessaire.
+Aucun écart à la spec, aucun gate modifié, aucun CLI réel B5 ni suite complète
+lancé localement. B5 Linux/macOS reste à qualifier par le conducteur avec une
+cohorte réelle non vide ; le vert local ne qualifie pas B5. Revue harness :
+`selection-failed` (identité modèle/effort exacte indisponible et lancement h2a
+installé interdit), aucun consensus revendiqué.
+
+## Amendement pré-B ratifié — texte Astra intégral
+
+L'owner demande l'application de `rvpreba-last.md` (AMENDEMENT-MODIFIÉ),
+plus strict que `rvprebs-last.md`. Ce texte remplace les obligations
+universelles d'admission/retrait pré-B de D5/B5 et précise D2/H2 ; les
+amendements antérieurs ci-dessous sont conservés comme historique.
+
+> Les propriétaires pré-B déjà chargés sans barrière effective sont exemptés des seules obligations de refus des créations et de retrait automatique, y compris pour les connexions v1 établies et nouvelles. Un marqueur ne constitue pas un drainage garanti. Leurs sessions, y compris celles créées ultérieurement, restent accessibles sur leur propriétaire ; l’upgrade ne le signale pas, ne retire pas son endpoint et ne migre pas ses sessions. Les installations nécessaires restent conservées.
+>
+> L’inventaire et tous les chemins d’upgrade rapportent explicitement `admission: unfenced`, `retirement: deferred`. Cette coexistence peut durer indéfiniment : le propriétaire unique de D2/H2 reste la cible, sans garantie de convergence pendant cette exception.
+>
+> B5 peut être qualifié par plateforme avec cette exception précisément identifiée. Les pré-B restent soumis aux exigences de préservation des sessions et de rétention ; seule leur fermeture d’admission et leur retraite automatique sont exemptées. La qualification B5 ne transforme pas leur résultat d’upgrade `deferred` en transition accomplie. La barrière reste obligatoire pour chaque propriétaire coopérant, indépendamment du protocole client/frontend.
+>
+> Le contre-exemple hérité, les quatre fichiers B5 complets, la cohorte réelle non vide et les gates D27 restent obligatoires, sans ignore, TODO ni annulation. Aucun lot L ne commence dans un environnement contenant un pré-B non coopérant ou dont l’absence reste inconnue. Le vert B5 de la plateforme et les exigences D23 concernant tous les écrivains anciens ou inconnus restent nécessaires.
+
+Périmètre de cette continuation : résultats d'upgrade pré-B seuls, mixtes et
+différés, inventaire d'upgrade, régressions ciblées et cette documentation/PR.
+La cohorte réelle B5 ne sera pas tentée, sur instruction de l'owner. Aucun
+gate, skip, TODO, annulation ou scénario obligatoire n'est modifié.
+Rebase sur `origin/main=d0b1afa38` ; seul conflit dans BRANCH.md, résolu en
+conservant les notes PTY et l'historique dossier-diagrams de main.
+
+**Allowed Paths (pre-B continuation)**
+  - `BRANCH.md`
+  - `packages/h2a/src/runtime/upgrade/index.ts`
+  - `packages/h2a/test/upgrade-swap.test.js`
+  - `packages/h2a-runtime/src/native-terminal/supervisor.ts`
+  - `packages/h2a-runtime/src/native-terminal/legacy-drain.functional.test.ts`
+
+### Réalisation et preuves ciblées de l'amendement
+
+Les résultats pré-B portent maintenant `unfenced/deferred` pour le paquet
+déjà courant, installé par une autre lane, remplacé, ou différé par une
+erreur de rétention/remplacement. Un inventaire partiel conserve les pré-B
+déjà identifiés. Les messages n'annoncent plus un drainage garanti. Les
+installations inconnues restent retenues, y compris après sweep ; aucun
+signal, retrait d'endpoint, migration ni barrière fictive n'est ajouté.
+Le contre-exemple hérité et ses assertions restent inchangés.
+
+Base rouge après rebase : `a5f84d0b8`. Commandes exactes depuis ce worktree,
+avec le helper d'isolation et `tmp/pty-am2-run.mjs` inchangés (mkdtemp privé,
+HOME/XDG/runtime/TMPDIR temporaires) :
+
+```sh
+rtk node tmp/pty-am2-run.mjs pty-preb-baseline-build npm run build -w @sentropic/h2a
+# exit 0 ; vendor-engram-live mirror OK.
+rtk node tmp/pty-am2-run.mjs pty-preb-amend-upgrade-red node --test packages/h2a/test/upgrade-swap.test.js
+# 20 passed, 10 failed ; exit 1 : champs absents et pré-B connu omis.
+rtk node tmp/pty-am2-run.mjs pty-preb-amend-legacy-red node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/legacy-drain.functional.test.ts
+# 7 passed, 2 failed ; exit 1 : inventaire incomplet et résultat différé incomplet.
+rtk node tmp/pty-am2-run.mjs pty-preb-amend-build npm run build -w @sentropic/h2a
+# exit 0 ; vendor-engram-live mirror OK.
+rtk node tmp/pty-am2-run.mjs pty-preb-amend-upgrade-green22 node --test packages/h2a/test/upgrade.test.js packages/h2a/test/upgrade-swap.test.js packages/h2a/test/upgrade-boot-worker.test.js
+# 72 passed, 0 failed ; exit 0, Node 22.22.1.
+rtk node tmp/pty-am2-run.mjs pty-preb-amend-runtime-green22 node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/legacy-drain.functional.test.ts packages/h2a-runtime/src/native-terminal/fleet.test.ts packages/h2a-runtime/src/native-terminal/op.test.ts packages/h2a-runtime/src/native-terminal/upgrade-pty-contract.test.ts
+# 44 passed, 0 failed ; exit 0, Node 22.22.1.
+rtk env PATH=/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin:/usr/local/bin:/usr/bin:/bin node tmp/pty-am2-run.mjs pty-preb-amend-upgrade-green24 node --test packages/h2a/test/upgrade.test.js packages/h2a/test/upgrade-swap.test.js packages/h2a/test/upgrade-boot-worker.test.js
+# 72 passed, 0 failed ; exit 0, Node 24.22.0.
+rtk env PATH=/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin:/usr/local/bin:/usr/bin:/bin node tmp/pty-am2-run.mjs pty-preb-amend-runtime-green24 node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/legacy-drain.functional.test.ts packages/h2a-runtime/src/native-terminal/fleet.test.ts packages/h2a-runtime/src/native-terminal/op.test.ts packages/h2a-runtime/src/native-terminal/upgrade-pty-contract.test.ts
+# 44 passed, 0 failed ; exit 0, Node 24.22.0.
+```
+
+Chaque campagne ci-dessus : zéro skip, TODO ou annulation. Les 12 échecs
+rouges couvrent tous les chemins corrigés ; aucune assertion ni durée n'a
+été affaiblie. Sorties complètes : `tmp/pty-preb-amend-*.log` et rapports
+Vitest JSON du même nom. Le texte Astra est comparé à la source (1 610
+caractères identiques) ; le corps PR reprend la même citation.
+
+Limites : aucun CLI réel B5 tenté, aucun des quatre fichiers complets B5
+qualifié comme ensemble, aucun lot L. Le contre-exemple pré-B n'est plus un
+défaut contractuel d'admission après cet amendement, mais le résultat reste
+`deferred`. B5 Linux/macOS demeure non qualifié sans cohorte réelle. Les
+logs CI de la tête précédente (`d91a53ffe`) montrent l'échec obligatoire
+`B5 incomplete: conductor must enroll a nonempty real CLI cohort in
+H2A_TEST_PHASE_B_CLIS` sur Linux et macOS 22/24 ; aucun gate n'est retiré
+pour obtenir un vert. La CI de la nouvelle tête sera rapportée dans la PR.
+Revue d'implémentation harness : `tmp/pty-preb-amend-review.md`,
+`selection-failed` (identité auteur exacte indisponible, h2a/mesh installé
+interdit par l'owner) ; aucun consensus d'implémentation revendiqué.
+
+## Correction des revues rv375a / rv375s — 2026-10-18
+
+Complément D21 : sur macOS Node 24, remplacer avant la fin du délai pouvait
+produire un reset et contourner la coupure « timeout » (assertion conservée :
+0 timeout observé au lieu de ≥1). Le proxy retient maintenant seulement l'ACK
+sélectionné, sert les autres réponses, observe le vrai timeout d'écriture,
+puis remplace le frontend avant de restituer l'erreur au chemin attach.
+L'assertion timeout, les octets exacts et toutes les identités restent exigés.
+
+```sh
+rtk node tmp/pty-am2-run.mjs pty-r375-b5-timeout22 node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/phase-b-agent-qualification.functional.test.ts
+rtk env PATH=/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin:/usr/local/bin:/usr/bin:/bin node tmp/pty-am2-run.mjs pty-r375-b5-timeout24 node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/phase-b-agent-qualification.functional.test.ts
+# Chacun : 4 passed, 1 failed (cohorte absente), 0 skipped ; exit 1.
+```
+
+Complément CI/BM (`32467f6`) : l'invite Bash manquait sur macOS car le
+scrub des FD redirigeait durablement stderr vers `/dev/null`. La redirection
+temporaire autour de `eval exec` alloue un FD de sauvegarde que la boucle
+Darwin 3..1024 ferme elle-même. Le test sur un vrai PTY reçoit stdout mais
+perd stderr avant correction. Suppression des deux redirections du scrub,
+sans modifier fermeture des FD, guardian, groupes ni signaux.
+**Écart à l'allow-list B5 : `pty.ts` et sa régression dans
+`darwin-identity.test.ts`, strictement nécessaires au scénario Bash macOS.**
+Les étapes macOS upgrade et contrôle des skips continuent après un échec du
+substrat, pour exécuter les régressions portables même si la cohorte manque ;
+le job reste rouge, aucun résultat requis n'est ignoré.
+
+```sh
+rtk node tmp/pty-am2-run.mjs pty-r375-guardian-stderr-red node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/darwin-identity.test.ts
+# 2 passed, 1 failed (B5_STDERR absent), 0 skipped ; exit 1.
+rtk npm run build -w @sentropic/h2a-runtime
+# exit 0 ; vendor-engram-live mirror OK.
+rtk node tmp/pty-am2-run.mjs pty-r375-guardian-green-valid node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=1 packages/h2a-runtime/src/native-terminal/darwin-identity.test.ts
+# 3 passed, 0 failed/skipped ; exit 0.
+rtk node tmp/pty-am2-run.mjs pty-r375-guardian-final22 node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/darwin-identity.test.ts packages/h2a-runtime/src/native-terminal/process.functional.test.ts packages/h2a-runtime/src/native-terminal/crash-safety.functional.test.ts packages/h2a-runtime/src/native-terminal/terminal-modes.functional.test.ts
+# 60 passed, 1 failed, 0 skipped ; exit 1. process.functional 37/37 (FD hygiene
+# comprise), crash-safety 7/7 et identité 3/3. Timeout d'attente de la sortie
+# attach dans un cas terminal-modes, puis même fichier entier réexécuté seul :
+rtk node tmp/pty-am2-run.mjs pty-r375-terminal-final node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=1 packages/h2a-runtime/src/native-terminal/terminal-modes.functional.test.ts
+# 14 passed, 0 failed/skipped ; exit 0. Aucun timeout augmenté, aucune assertion affaiblie.
+rtk node tmp/pty-am2-run.mjs pty-r375-b5-stderr22 node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/phase-b-agent-qualification.functional.test.ts packages/h2a-runtime/src/native-terminal/legacy-drain.functional.test.ts packages/h2a-runtime/src/native-terminal/fleet.test.ts packages/h2a-runtime/src/native-terminal/op.test.ts
+# 33 passed, 1 failed (cohorte absente), 0 skipped ; exit 1.
+rtk env PATH=/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin:/usr/local/bin:/usr/bin:/bin node tmp/pty-am2-run.mjs pty-r375-b5-stderr24 node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/phase-b-agent-qualification.functional.test.ts packages/h2a-runtime/src/native-terminal/legacy-drain.functional.test.ts packages/h2a-runtime/src/native-terminal/fleet.test.ts packages/h2a-runtime/src/native-terminal/op.test.ts packages/h2a-runtime/src/native-terminal/darwin-identity.test.ts
+# 36 passed, 1 failed (cohorte absente), 0 skipped ; exit 1.
+```
+
+Départ `af2dd0df6`, branche `feat/pty-b-handover`. `origin/main` reste
+ancêtre après fetch : aucun rebase nécessaire. Aucun accès à l'hôte réel,
+binaire h2a installé, état propriétaire ou processus étranger. Tests ciblés
+uniquement, racines temporaires HOME/XDG/runtime ; aucun skip ajouté.
+
+| Constat | Correction | Preuve rouge → verte |
+|---|---|---|
+| P1 frontend de secours fatal | Après un premier frontend, un échec avant hello conserve owner et CLI ; la fatalité initiale reste en place. | `upgrade-pty-contract.test.ts` : sortie owner 3 → owner inchangé et nouvelle réponse CLI par son canal privé. Registre produit utilisé. |
+| P1 attribution après remplacement | Le frontend attend le hello owner avant publication et attribue `.owner` à son PID/naissance stables. Échec de publication : fermeture du canal ouvert. Retrait explicite après drainage sous exclusion, sans autoriser un autre publisher vivant. | Même fichier : « second owner started » sur l'ancienne tête → refus 3, connexion existante toujours utilisable, attribution à l'owner. |
+| P1 verrou Darwin | Réclamation sérialisée par un répertoire exclusif ; socket lié depuis un nom privé unique. `close` ne peut supprimer le nom d'un successeur. | `darwin-publication.test.ts` : deux détenteurs et pathname supprimé → exclusion et successeur intact. Huit cas verts, dont garde abandonnée refusée. |
+| P2 upgrade déjà installé | Résultat agrégé `deferred`, incluant les hôtes pré-B, même si tous les frontends B correspondent déjà au candidat. | `upgrade-swap.test.js` : `already-current` → `pty-deferred`, résultat des deux générations présent. |
+| P2 fichier B5 manquant | Fichier nommé ajouté, avec vrai attach, Bash/readline, resize, nouvelle version frontend, trois coupures D21, cohortes strictes. Ajout au workflow macOS. | Quatre scénarios locaux verts ; absence de cohorte = échec explicite, jamais skip. B5 reste non qualifié. |
+
+Limite conservatoire Darwin : si un processus meurt pendant qu'il détient
+le répertoire `.recovery`, les suivants refusent après délai ; aucune reprise
+automatique de cette garde par âge ou sonde n'est autorisée. Le socket de
+verrou libéré reste périmé jusqu'à la prochaine récupération sérialisée.
+Cela privilégie l'exclusion ; la récupération automatique de la garde
+abandonnée n'est pas couverte. Les propriétaires pré-B restent `deferred`,
+avec admissions historiques non clôturées : aucun amendement B5 implicite.
+
+Commandes et sorties observées, wrapper `tmp/pty-am2-run.mjs` inchangé :
+
+```sh
+rtk env H2A_TEST_PTY_DIST=/home/antoinefa/src/h2a/tmp/worktrees/ptycode/tmp/pty-r375-baseline-dist node tmp/pty-am2-run.mjs pty-r375-owner-red-final node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/upgrade-pty-contract.test.ts
+# 12 passed, 2 failed, 0 skipped ; exit 1. Copie jetable du dist courant avec
+# owner/frontend/server de af2dd0df6 transpilés par TypeScript, sans autre changement.
+rtk node tmp/pty-am2-run.mjs pty-r375-darwin-red-valid node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/darwin-publication.test.ts
+# Ancien code Darwin : 5 passed, 2 failed, 0 skipped ; exit 1.
+rtk node tmp/pty-am2-run.mjs pty-r375-upgrade-red-valid node --test packages/h2a/test/upgrade-swap.test.js
+# 20 passed, 1 failed, 0 skipped/TODO/cancelled ; exit 1.
+rtk npm run build -w @sentropic/h2a-runtime
+rtk npm run build -w @sentropic/h2a
+# exit 0 chacun ; vendor-engram-live mirror OK.
+rtk node tmp/pty-am2-run.mjs pty-r375-green-final node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/upgrade-pty-contract.test.ts packages/h2a-runtime/src/native-terminal/darwin-publication.test.ts packages/h2a-runtime/src/native-terminal/legacy-drain.functional.test.ts packages/h2a-runtime/src/native-terminal/fleet.test.ts packages/h2a-runtime/src/native-terminal/op.test.ts
+# 5 files, 51 passed, 0 failed/skipped/TODO/cancelled ; exit 0, Node 22.22.1.
+rtk env PATH=/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin:/usr/local/bin:/usr/bin:/bin node tmp/pty-am2-run.mjs pty-r375-node24-final node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/upgrade-pty-contract.test.ts packages/h2a-runtime/src/native-terminal/darwin-publication.test.ts packages/h2a-runtime/src/native-terminal/legacy-drain.functional.test.ts packages/h2a-runtime/src/native-terminal/fleet.test.ts packages/h2a-runtime/src/native-terminal/op.test.ts
+# 5 files, 51 passed, 0 failed/skipped/TODO/cancelled ; exit 0, Node 24.22.0.
+rtk node tmp/pty-am2-run.mjs pty-r375-node-green-final node --test packages/h2a/test/upgrade.test.js packages/h2a/test/upgrade-swap.test.js packages/h2a/test/upgrade-boot-worker.test.js
+# 63 passed, 0 failed/skipped/TODO/cancelled ; exit 0, Node 22.
+rtk env PATH=/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin:/usr/local/bin:/usr/bin:/bin node tmp/pty-am2-run.mjs pty-r375-upgrade24 node --test packages/h2a/test/upgrade.test.js packages/h2a/test/upgrade-swap.test.js packages/h2a/test/upgrade-boot-worker.test.js
+# 63 passed, 0 failed/skipped/TODO/cancelled ; exit 0, Node 24.
+rtk node tmp/pty-am2-run.mjs pty-r375-neighbors node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/server.test.ts packages/h2a-runtime/src/native-terminal/frontend-swap.functional.test.ts packages/h2a-runtime/src/native-terminal/darwin-publication.test.ts packages/h2a-runtime/src/native-terminal/darwin-identity.test.ts
+# 4 files, 57 passed, 0 failed/skipped/TODO/cancelled ; exit 0.
+rtk node tmp/pty-am2-run.mjs pty-r375-b5-final22 node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/phase-b-agent-qualification.functional.test.ts packages/h2a-runtime/src/native-terminal/legacy-drain.functional.test.ts packages/h2a-runtime/src/native-terminal/fleet.test.ts packages/h2a-runtime/src/native-terminal/op.test.ts
+# 33 passed, 1 failed (cohorte absente), 0 skipped/TODO/cancelled ; exit 1.
+rtk env PATH=/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin:/usr/local/bin:/usr/bin:/bin node tmp/pty-am2-run.mjs pty-r375-b5-final24 node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/phase-b-agent-qualification.functional.test.ts packages/h2a-runtime/src/native-terminal/legacy-drain.functional.test.ts packages/h2a-runtime/src/native-terminal/fleet.test.ts packages/h2a-runtime/src/native-terminal/op.test.ts
+# 33 passed, 1 failed (cohorte absente), 0 skipped/TODO/cancelled ; exit 1.
+```
+
+Les premiers montages de contention et de paquet déjà installé ont échoué
+sur le montage, puis ont été corrigés avant la preuve rouge valide ci-dessus.
+Un essai runtime a croisé un nettoyage de dist : ses erreurs d'import ne
+comptent pas comme preuve ; les commandes finales suivent les builds achevés.
+
+Contrat `H2A_TEST_PHASE_B_CLIS` : tableau JSON non vide fixé par le conducteur.
+Chaque entrée exige `name`, `binary` absolu exécutable, `version` (stdout exact
+de `versionArgs`), `seat`, `platforms` (ex. `linux/x64`, `darwin/arm64`), `args`,
+`env`, `homeFiles` (contenus de fichiers relatifs au HOME privé), `ready`,
+`receivedInputFile` relatif à la racine privée du scénario ; trois `turns`
+`{input,output}` contenant respectivement `numbered:001`, `002`, `003` ;
+`resize:{input,output}` lisant `37 109` et `exit:{input,code}`. `{DIR}` et
+`{HOME}` sont substitués dans args/env/config ; les racines HOME/XDG ne sont
+jamais remplaçables. Le reçu doit porter les octets réellement consommés par
+le CLI, pas une copie du proxy. Modèles simulés autorisés, binaire réel requis.
+Chaque membre exécute les trois coupures et doit réussir version, réponses,
+identités PID/naissance owner/CLI, séquences exactes, resize et sortie.
+Le scénario timeout observe effectivement une erreur de timeout du client.
+
+Complément B5 après le premier retour CI macOS : l'invite Bash ne paraît
+pas sur le runner ARM64. Le lancement Bash interactif désactive explicitement
+le job control (`+m`), puisque le guardian maintient un seul groupe de
+confinement ; les assertions readline, resize et sortie restent intégrales.
+Un petit lanceur `exec` écrit le PID réel du CLI avant exec, dont le PID et
+la naissance sont ensuite comparés ; `state.pid` est celui du guardian et
+ne constitue pas à lui seul une identité CLI. Le modèle simulé écrit toujours
+le reçu exact des octets. Les runs complets du fichier, commandes ci-dessous,
+ont quatre scénarios réussis et un échec de cohorte absente, zéro skip,
+sur chaque version Node ; la confirmation de cette correction sur macOS
+reste à lire dans la CI du dernier SHA.
+
+```sh
+rtk node tmp/pty-am2-run.mjs pty-r375-b5-cli-pid22-valid node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/phase-b-agent-qualification.functional.test.ts
+rtk env PATH=/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin:/usr/local/bin:/usr/bin:/bin node tmp/pty-am2-run.mjs pty-r375-b5-cli-pid24-valid node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/phase-b-agent-qualification.functional.test.ts
+# Pour chacun : 4 passed, 1 failed (cohorte absente), 0 skipped ; exit 1.
+```
+
+Restent ouverts : cohorte réelle, vert B5 Linux puis macOS ARM64 Node 22/24,
+barrière d'admission pré-B. Aucun lot L. La CI ne peut être déclarée verte
+sans cohorte : le fichier obligatoire échoue volontairement sur son absence.
+Nouvelle revue harness : `selection-failed` (identité auteur exacte non
+disponible et dispatch h2a installé interdit) ; aucun consensus inventé.
+
+Owner scope: apply the approved amendments, close B4, repair the three Linux CI jobs, implement B5, then stop. No Phase L or second standing PTY owner. Start: af46490d8, origin/main initially 46b82b427; subsequently rebased without conflicts onto 7ebbcf266 before publication. Temporary test roots only; targeted files only; no installed h2a, owner state, Python or foreign processes.
+
+## Admission/drain barrier correction — 2026-10-18
+
+Current owner scope starts at `508f3eddc`: resolve the admission/retirement
+race within the spec and approved amendments; do not run enrolled real-CLI
+B5 qualification. `origin/main=7ebbcf266` remains an ancestor after fetch,
+so no rebase is needed. This correction reopens B2's owner lifecycle and
+uses B5's named legacy/fleet files; BM's existing workflow runs the portable
+regressions on macOS ARM64 Node 22/24. No new wire operation or host/session
+semantics, installation dependency, fixture helper, or Phase L code changes.
+
+- Root cause: the B owner delegated admission refusal to frontends. An older
+  frontend can still forward a v1 create after drain. `abandon` also deferred
+  closing admission until a later `setImmediate`, after acknowledging an empty
+  owner. The tests demonstrate both creates being accepted (`ok: true`).
+- Fix: the owner rejects creates itself once draining; its empty `abandon`
+  decision seals admission synchronously before acknowledging withdrawal.
+  Existing leases, reads and writes continue while live sessions drain.
+- Pre-B has no retroactive drain command. Keep those hosts and installs
+  reachable, identify admission as `unfenced` and retirement as `deferred`,
+  including when empty. Never signal/unlink them or mint a client drain marker.
+  Preserve the adversarial counterexample: existing and fresh v1 connections
+  still create successfully despite a marker. This is evidence of the open
+  criterion, **not** proof that pre-B admission is closed.
+- Fleet/CLI inventory reports both generations and loaded component versions;
+  a pre-B version stays `unknown`. Unknown client protocols refuse inventory
+  and upgrade classification before any retirement decision.
+
+Exact targeted commands and observed results (temporary HOME/XDG/runtime
+roots created by the unchanged `tmp/pty-am2-run.mjs` wrapper):
+
+```sh
+rtk node tmp/pty-am2-run.mjs pty-admission-legacy-red node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/legacy-drain.functional.test.ts
+# 6 failed, 0 passed, 0 skipped; exit 1 (initial six conservative-contract tests).
+rtk node tmp/pty-am2-run.mjs pty-admission-owner-red node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/legacy-drain.functional.test.ts
+# 8 failed, 0 passed, 0 skipped; exit 1, including the two actual owner-side races.
+rtk node tmp/pty-am2-run.mjs pty-admission-fleet-red node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/fleet.test.ts
+# 8 passed, 3 failed, 0 skipped; exit 1.
+rtk npm run build -w @sentropic/h2a-runtime
+rtk npm run build -w @sentropic/h2a
+# Both exit 0; vendor-engram-live mirror OK.
+rtk node tmp/pty-am2-run.mjs pty-admission-final-retry node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/legacy-drain.functional.test.ts packages/h2a-runtime/src/native-terminal/fleet.test.ts packages/h2a-runtime/src/native-terminal/op.test.ts packages/h2a-runtime/src/native-terminal/supervisor.test.ts packages/h2a-runtime/src/native-terminal/owner-frontend.functional.test.ts
+# 5 files passed, 52 tests passed, 0 failed/skipped/TODO/cancelled; exit 0, Node 22.22.1.
+```
+
+The first four-file green was 45/45. A subsequent run overlapped the CLI
+build's dist cleanup and had four import failures before test execution;
+it is a failed setup, not regression evidence. The five-file command above
+was rerun after the completed build, including the final natural-exit and
+CLI inventory assertions. Logs/JSON are in `tmp/pty-admission-*.{log,json}`.
+
+Additional targeted checks (no production changes after the first green):
+
+```sh
+rtk node tmp/pty-am2-run.mjs pty-admission-upgrade-neighbors node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/upgrade-pty-contract.test.ts packages/h2a-runtime/src/native-terminal/upgrade.functional.test.ts packages/h2a-runtime/src/native-terminal/journal.test.ts packages/h2a-runtime/src/native-terminal/server.test.ts
+# 4 files, 85/85 passed, zero skips; exit 0.
+rtk node tmp/pty-am2-run.mjs pty-admission-node-upgrades node --test packages/h2a/test/upgrade.test.js packages/h2a/test/upgrade-swap.test.js packages/h2a/test/upgrade-boot-worker.test.js
+# 62/62 passed, zero skips/TODO/cancellations; exit 0.
+rtk node tmp/pty-am2-run.mjs pty-admission-marker-final node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=2 packages/h2a-runtime/src/native-terminal/legacy-drain.functional.test.ts
+# 8/8 passed, zero skips; exit 0. Require a known birth for both fixture hosts
+# and use the exact marker fields (hostPid/startTime/generation/dev/ino).
+```
+
+Review: `tmp/pty-admission-review.md` is `selection-failed`; exact author
+model/effort are unavailable and installed h2a/mesh dispatch is prohibited by
+the owner. No peer dispatch or independent consensus is claimed.
+
+Remaining acceptance: Phase B/B5 remains **unqualified** on both platforms.
+The conductor owns the nonempty enrolled CLI cohort and the full four-file
+B5 gate. The PTY owner/conductor must provide a reviewed, enforceable pre-B
+admission barrier (including established v1 connections and concurrent
+creates) before any automatic historical retirement can be enabled. This
+patch implements the approved conservative deferral, not a waiver of that
+criterion. No full local suite or real-CLI B5 qualification was run.
+
+## Owner-approved continuation — 2026-10-18 (092bcaecb)
+
+Only the intersection of rvptyam2a-last.md and rvptyam2s-last.md is authorized. Both exact amendment wordings are preserved below. Apply the stricter combined requirements: 26 declarations (23 Node + 3 runtime; 3 skipped + 23 TODO); no retirement without an atomic admission fence on every existing/new connection; explicit nonempty conductor enrollment with binary/version/seat/platform/isolated configuration; all four complete B5 files, no skip/TODO/cancellation; Linux Node 22/24 then macOS ARM64 Node 22/24 after BM. The B4 Linux keepalive exception does not extend to B5.
+
+Source: rvptyam2a-last.md
+
+> Ajouter `scripts/test-non-tests-0986.json` et `packages/h2a/test/gate-execution-evidence.test.js` au périmètre B4, exclusivement pour retirer l’identité supervisor désignée dans le diff et synchroniser les comptes : **26 entrées, 23 Node, 3 runtime**. Conserver les contrôles de disparition, changement de statut et ignore non déclaré.
+
+> Un hôte pré-B sans fermeture effective de toutes les admissions reste accessible et inventorié ; son retrait automatique est explicitement différé. Un marqueur client ou une observation ponctuelle de liste vide ne l’autorise pas. Les critères B5 d’admission et de retrait restent ouverts jusqu’à preuve couvrant les connexions v1 déjà établies et les créations concurrentes.
+
+> Avant exécution, le conducteur fixe une cohorte non vide de vrais CLI, leurs versions, sièges et plateformes. Tous les membres enrôlés et les quatre fichiers B5 doivent réussir ; absence, indisponibilité, ignore, TODO ou annulation empêchent le verdict vert. La qualification nomme exactement les CLI et plateformes prouvés. L’exception keepalive reste limitée à B4 Linux.
+
+Source: rvptyam2s-last.md
+
+> Ajouter à l’allow-list B4 `scripts/test-non-tests-0986.json` et `packages/h2a/test/gate-execution-evidence.test.js`, exclusivement pour retirer l’entrée supervisor désignée par le diff et synchroniser les comptes : **26 entrées, 23 Node + 3 runtime, 3 skipped, 23 TODO**. Conserver les contrôles de disparition, d’activation et d’ignores non déclarés.
+
+> Pour un propriétaire pré-B sans gel atomique d’admission couvrant toutes les connexions, y compris v1 déjà ouvertes, le retrait automatique reste `deferred`. Conserver les sessions, leur endpoint et les installations nécessaires. Une observation `list` vide n’autorise aucun signal d’arrêt. Le critère B5 interdisant les créations après drainage reste obligatoire et bloquant.
+
+> Avant le gate, le conducteur consigne une liste **non vide** de CLI/sièges réellement enrôlés, leurs binaires, versions et configurations isolées dans `H2A_TEST_PHASE_B_CLIS`. Exécuter chaque entrée dans le fichier B5 nommé. Zéro entrée signifie qualification incomplète avec échec explicite. Qualifier Linux d’abord ; qualifier macOS ARM64 après BM. Chaque verdict exige les quatre fichiers B5 complets, tous les cas requis réussis, zéro ignore, TODO ou annulation. Aucun lot L ne démarre avant le vert B5 de sa plateforme.
+
+The rejected marker-only contract and the unsafe draft monitor are not accepted. Pre-B admission and retirement criteria remain OPEN until an atomic barrier or a new reviewed contract exists; an empty list or owner handshake is never permission to signal. Real CLI availability is not inferred from synthetic seat fixtures. No Phase L work.
+
+### Amendment execution proof
+
+- Registry RED: `rtk node tmp/pty-am2-run.mjs pty-am2-registry-red node --test packages/h2a/test/gate-execution-evidence.test.js` → 71 tests, 69 pass, 2 fail (27≠26 and 4≠3), zero skip/TODO/cancellation, exit 1. The two cardinality expectations were updated before removing the manifest entry.
+- Actual supervisor report: `rtk node tmp/pty-am2-run.mjs pty-am2-supervisor-before node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=4 packages/h2a-runtime/src/native-terminal/supervisor.test.ts` → 16/16 pass, zero skips, exit 0. `rtk node tmp/pty-am2-verify.mjs pty-am2-verifier-red` → exactly one `declared non-test disappeared` error, exit 1.
+- Minimal repair removes only the obsolete supervisor declaration and synchronizes the registry test counts. `rtk node tmp/pty-am2-run.mjs pty-am2-registry-green node --test packages/h2a/test/gate-execution-evidence.test.js` → 71/71 pass, zero skip/TODO/cancellation, exit 0. `rtk node tmp/pty-am2-verify.mjs pty-am2-verifier-green` → zero verifier errors, exit 0, same supervisor report. Its added undeclared-ignore negative control is rejected both before and after. Production verifier and all lifecycle assertions are untouched.
+- A first wrapper setup used a nonconforming temporary qualification-root name and executed zero tests. It is a setup failure, not regression RED; the corrected wrapper uses a fresh `/tmp/h2a-qual-*` plus temporary HOME/XDG directories, with the unchanged isolation helper.
+- origin/main is already an ancestor of this branch (22 branch-only commits at the initial fetch); no rebase required. No installed host/state accessed, no full local suite.
+
+## Approved amendments (verbatim)
+
+The two AMENDEMENTS-GO reviews below are accepted by the owner. Their fixture addition applies to the reopened B2 regression and the Linux B4 gate. The single keepalive exception is limited to B4 Linux; all other gate cases require zero skips, TODOs or cancellations.
+
+Source: revptyama-last.md
+
+> Par exception à D27/§5, le gate **B4 Linux uniquement** distingue comme non-test préexistant `packages/h2a/test/cli-contract.test.js :: keepalive emits a action envelope on the happy path`. La commande complète reste exécutée sans filtrage ; son ignore reste affiché dans les comptes bruts. Tous les autres cas requis doivent réussir, sans ignore, TODO ni annulation. Cette exception cesse à sa réactivation ; elle ne modifie ni DEC-034 ni les autres gates.
+
+> Ajouter `packages/h2a/test/native-inventory-absence.test.js` à l’allow-list et au gate Linux B4, uniquement pour adapter l’observation et le nettoyage au split B2. Après les assertions, terminer les seules sessions créées par la fixture, observer la fin du propriétaire effectif et garantir le nettoyage de ses descendants privés, y compris sur échec. Préserver les scénarios historiques et toutes les assertions d’inventaire, d’identité et de refus. Utiliser le helper d’isolation sans le modifier. Exiger une preuve rouge puis verte du fichier complet, avec le build historique temporaire provisionné et zéro ignore.
+
+> Ajouter `packages/h2a-runtime/src/native-terminal/publication-refusal.ts` à BM, exclusivement pour le refus `H2A_PUBLICATION_LOCK_PATH_UNUSABLE`, son diagnostic stable et le code de sortie 3. Les refus existants et les gates BM restent inchangés.
+
+> Ajouter `packages/h2a-runtime/src/native-terminal/owner-process.ts` à BM, uniquement pour admettre Darwin dans `assertOwnerFrontendSupported` et adapter le diagnostic associé. L’admission repose sur le substrat et les preuves exigés par BM ; Linux reste inchangé, les autres plateformes restent refusées. Aucune modification du cycle de vie owner/frontend n’est autorisée par cet ajout.
+
+> jusqu’à BM
+
+Source: revptyams-last.md
+
+> Par exception à §5/D27, seul `keepalive emits a action envelope on the happy path`, dans `packages/h2a/test/cli-contract.test.js`, est déclaré non-test pour B4 Linux. Les quatre fichiers restent exécutés intégralement ; les comptes bruts sont publiés ; tout autre ignore, TODO, échec ou annulation bloque le gate. Le contrat et l’implémentation de `keepalive` restent hors du chantier PTY.
+
+> Réouvrir la régression B2 avant B5 : ajouter `packages/h2a/test/native-inventory-absence.test.js` à son allow-list et à son ensemble Linux. Adapter exclusivement l’observation des sorties et le nettoyage aux propriétaires B : terminer les seules sessions créées par la fixture, puis attendre la sortie effective du propriétaire drainé. Conserver les démarrages historiques explicites en `process.js`, les assertions d’inventaire et le helper d’isolation inchangés. Preuve ciblée avant/après ; fichier entier vert, zéro ignore, avec le build historique isolé requis.
+
+> Ajouter à l’allow-list BM `packages/h2a-runtime/src/native-terminal/publication-refusal.ts`, exclusivement pour `H2A_PUBLICATION_LOCK_PATH_UNUSABLE`, son diagnostic et son refus avec code de sortie 3. Conserver tous les refus existants ; vérifier le dépassement du budget du chemin du verrou et les régressions Linux.
+
+> Ajouter à l’allow-list BM `packages/h2a-runtime/src/native-terminal/owner-process.ts`, uniquement pour admettre `darwin` dans `assertOwnerFrontendSupported` après le port du substrat BM, et adapter le diagnostic associé. Toute autre plateforme reste refusée. Aucune modification de lifecycle, drain, confinement ou transfert n’est autorisée par cet ajout. Les gates BM restent exigées.
+
+## Work and evidence
+
+- [x] Amendments recorded before the fixture/B5 changes; original spec remains unchanged.
+- [x] B4 complete file gates, raw keepalive non-test count visible.
+- [x] Reopened B2 inventory fixture: full RED/green with isolated historical build.
+- [ ] B5: legacy drain, Bash/readline, scripted real attach; enrolled real CLI list requested from conductor.
+- [ ] Linux Node 22/24 + trust-root CI and macOS ARM64 Node 22/24 outcomes.
+
+## Continuation evidence
+
+- B4 builds: `rtk npm run build -w @sentropic/h2a-runtime` and `rtk npm run build -w @sentropic/h2a`, exit 0; logs `tmp/pty-b4-build-{runtime,cli}.log`.
+- B4 installed-artifact RED: four complete-file failures (58 tests: 54 pass, 4 fail, 0 skip), missing CLI facade dependency in the disposable candidate. The qualification now packs and installs the actual built runtime/CLI/Track tarballs in one temporary prefix, attesting all versions. Intermediate ETARGET for unreleased Track was a failed setup, never a green gate.
+- B4 after that repair, also after B5 supervisor changes: `rtk node tmp/pty-run.mjs node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=4 packages/h2a-runtime/src/native-terminal/upgrade-pty-contract.test.ts packages/h2a-runtime/src/native-terminal/upgrade.functional.test.ts packages/h2a-runtime/src/native-terminal/journal.test.ts packages/h2a-runtime/src/native-terminal/supervisor.test.ts`: 4 files, 58 pass, 0 fail, 0 skip, exit 0 (`tmp/pty-b4-post-b5.log`).
+- Node B4: `rtk node tmp/pty-run.mjs node --test packages/h2a/test/upgrade.test.js packages/h2a/test/upgrade-swap.test.js packages/h2a/test/upgrade-boot-worker.test.js packages/h2a/test/cli-contract.test.js`: 167 tests, 166 pass, 0 fail, 0 cancelled, 1 skip (the exact approved keepalive non-test), 0 TODO, exit 0 (`tmp/pty-b4-post-b5-node.log`).
+- Inventory root: all three original Linux CI jobs run the same failing fixture. Its missing owner exit receipt and incomplete teardown produce suite errors, followed by execution-proof refusals. No trust-root, inventory allowlist or ci.yml change is proposed.
+- Inventory RED on af46490d8: full file, isolated historical build `89bbd9af1033153b6654c272e126d91e0fa42683^`, 37 tests, 23 pass, 14 fail, 0 skip, exit 1 (`tmp/pty-inventory-red-clean.log`). This short-root diagnostic additionally exposes two MCP workspace refusals under /tmp. A second baseline resolves imports from the original file directory and uses the ordinary repo .q fixture root, so MCP's durable-workspace refusal is preserved without changing its assertions.
+- Inotify allocation fails with EMFILE in this environment; the original watcher is emulated by a polling-only temporary preload for baseline observation. Product and isolation helper stay untouched. The first mixed build/test diagnostic is invalid and is not used as RED evidence. Final fixture observation polls receipts directly; its deadline follows B2's 10-second frontend-channel close plus bounded journal flush.
+- Failed baseline campaigns left private descendants. They were stopped only from their recorded private proc receipts and verified pinned identities, never by a process-name pattern. Final fixture cleanup uses the unchanged helper in a finally block, including on assertion failure.
+- B5 initial legacy RED: 4 fail, 0 pass, 0 skip, exit 1 (`tmp/pty-b5-legacy-red.log`); after implementation 22/22 with fleet/op unit suites, zero skips. A further pinned ensure-host regression: 1 fail, 3 pass, 0 skip (`tmp/pty-b5-pinned-red.log`), then fixed for both explicit and selected endpoints.
+- B5 Bash/readline and the three scripted D21 cuts already pass on the B4 base (4 pass). The scripted qualification exchanges 32 numbered inputs per cut through real attach and preserves actual CLI/owner births. With no enrolled real CLI, the fifth case FAILS explicitly; it is never skipped or counted green (`tmp/pty-b5-agent-red.log`). The conductor's enrollment list/configuration has been requested; Phase B qualification cannot be claimed until supplied.
+- Inventory of v1 pre-B fused hosts exposes loadedVersion=unknown because those hosts never advertised their build; the observer never substitutes its own version. B owners/frontend versions are reported from their actual handshake.
+- No Phase L, PTY transfer, guardian-v2 backend, second standing owner, or real-state access. No full local suite. Full CI remains the conductor/integration lane.
+
+## Final inventory proof before rebase
+
+- Baseline af46490d8 complete file in the repository temporary fixture root: `rtk env H2A_TEST_REQUIRE_LEGACY_HOST=1 node --input-type=module` launches `node --import ./tmp/pty-watch-fallback.mjs --test --test-force-exit tmp/pty-inventory-baseline.test.mjs` with the historical build; original assertions/code, only import paths and repo constant resolved from the original directory. Output: 37 tests, 23 pass, 14 fail, 0 cancelled, 0 skip, 0 TODO, exit 1 (`tmp/pty-inventory-red-reporoot.log`).
+- A complete intermediate run exposed a disappeared-descendant proc-open race during cleanup: 36 pass, 1 fail, 0 skip. Retry is limited to ENOENT/ESRCH while pinning; all other failures remain errors and the helper still requires every private writer gone.
+- Final command: `rtk node tmp/pty-run.mjs node --test packages/h2a/test/native-inventory-absence.test.js`. Output: 37 tests, 37 pass, 0 fail, 0 cancelled, 0 skip, 0 TODO, exit 0, 358700.255211ms (`tmp/pty-inventory-final2.log`). No force-exit or polling preload in this green command.
+- The fixture now observes owner-process.js as well as explicit historical process.js; closes its clients, ends only sessions on its own endpoints, observes actual owner exit within B2's shutdown bound, and always reaps its private descendants through the unchanged isolation helper. All historical scenarios and inventory/identity/refusal assertions are unchanged.
+- B5's complete four-file Linux run: 27 pass, 1 fail, 0 skip, exit 1; the sole failure explicitly reports no conductor-enrolled real CLI (`tmp/pty-b5-gate.log`). The added routing regression and explicit-socket admission checks pass. B5 implementation/qualification remains pending, never claimed complete.
+- origin/main advanced to 7ebbcf266 (#374) during qualification. Rebase required before push; no PTY file overlaps in the new base. Dedicated macOS CI stays the BM/B3/B4 gate until the B5 enrollment is available.
+
+## CI root analysis on 467dff4e0 / pending bounded amendment
+
+- Actual Linux CI 39159982115 is RED on all three jobs. The fixture assertions pass, but the Node campaign exceeds its unchanged 600000ms backstop; its missing final JSON causes the broad NEVER EXECUTED cascade. This is not a green CI claim.
+- A fenced launch against a B owner also starts an idle second B owner on lf1. New real-upgrade regression: 10 pass, 1 fail, 0 skip, exit 1; the mate socket exists after a frontend upgrade (tmp/pty-single-owner-red2.log). This violates the single-owner goal and adds redundant startup/teardown cost to inventory qualification. Repair stays in op.ts (B5 scope) and the existing B4 upgrade-contract file; historical fused-host assertions remain unchanged. Fixture-owned endpoint shutdown is observed concurrently, all results settled before cleanup. No test or CI timeout is increased.
+- Independent execution-proof failure: supervisor.test.ts's empty skipped placeholder was removed in the inherited Phase B diff, but its versioned non-test declaration remains. The unchanged production verifier rejects the 16/16 passing targeted report solely with declared non-test disappeared. A temporary proposed manifest removes exactly that obsolete entry; the same verifier then returns zero failures. Proposed six-line diff: tmp/pty-ci-declaration-amendment.diff; proof: tmp/pty-ci-declaration-proof.log. No tracked manifest edit has been made.
+- REQUESTED, NOT APPROVED/APPLIED: add scripts/test-non-tests-0986.json to B4 exclusively to remove that obsolete supervisor placeholder entry. No active test, other declaration or gate changes. Spec §5 requires an amendment before any file outside the closed list is edited. Native owner question is pending.
+- B5 adversarial RED: a real pre-B v1 connection accepts create after the launcher marker (tmp/pty-b5-legacy-admission-red.log: 5 pass, 1 fail, 0 skip). A client-side marker cannot fence that legacy server. The B5 draft is withheld and now refuses automatic retirement of an uncapable fused host, preserving its sessions. This limitation is not approved as a reduction of D5, and B5 is not complete. The actual enrolled CLI list is also still missing.
+- present-decision calibration: the obsolete-ledger removal is a local reversible scope-maintenance ask, with no change to real coverage. The legacy admission contract remains a separate unresolved safety criterion; no reduction is silently chosen, no complete decision dossier or independent review is claimed. Scope/confinement prohibit Track/installed-h2a writes; evidence stays in these notes and the PR.
+
+## Linux CI root fixes after 467dff4e0
+
+- The successful frontend startup left a referenced 10000ms deadline alive. With no sessions and all channels closed, the owner still could not exit until that timer elapsed. The new empty-owner regression fails before correction: `rtk node tmp/pty-run.mjs node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=4 packages/h2a-runtime/src/native-terminal/upgrade-pty-contract.test.ts`, 12 tests, 11 pass, 1 fail, 0 skip, exit 1 (`tmp/pty-owner-empty-red-clean.log`). The launcher regression on its preceding base was 11 tests, 10 pass, 1 fail, 0 skip, exit 1 (`tmp/pty-single-owner-red2.log`), same complete-file command.
+- Repair: always cancel the startup deadline after its ready/timeout race; a certified B endpoint is sufficient for launch admission without starting an empty mate owner. No owner is signalled by upgrade. Inventory fixture host shutdown settles both private endpoints concurrently; the receipt deadline is restored to its original 3000ms. Neither CI's 600000ms backstop nor any product shutdown deadline is increased.
+- Static gate: `rtk npm run build -w @sentropic/h2a-runtime` and `rtk npm run build -w @sentropic/h2a`, exit 0 (`tmp/pty-timer-build-runtime.log`, `tmp/pty-timer-build-cli.log`).
+- GREEN runtime command: `rtk node tmp/pty-run.mjs node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts --maxWorkers=4 packages/h2a-runtime/src/native-terminal/upgrade-pty-contract.test.ts packages/h2a-runtime/src/native-terminal/upgrade.functional.test.ts packages/h2a-runtime/src/native-terminal/journal.test.ts packages/h2a-runtime/src/native-terminal/supervisor.test.ts packages/h2a-runtime/src/native-terminal/owner-frontend.functional.test.ts`. Output: 5 files passed, 67 tests passed, 0 failed/skipped, exit 0, 42.74s (`tmp/pty-timer-gate.log`, JSON `tmp/pty-timer-gate.json`). These are the four B4 files plus the B2 owner lifecycle file.
+- GREEN Node command: `rtk node tmp/pty-run.mjs node --test packages/h2a/test/upgrade.test.js packages/h2a/test/upgrade-swap.test.js packages/h2a/test/upgrade-boot-worker.test.js packages/h2a/test/cli-contract.test.js`. Output: 167 tests, 166 pass, 0 fail/cancelled/TODO, 1 skip (only the approved keepalive non-test), exit 0 (`tmp/pty-timer-node-b4.log`).
+- GREEN complete inventory command: `rtk node tmp/pty-run.mjs node --test packages/h2a/test/native-inventory-absence.test.js`. Output: 37 tests, 37 pass, 0 fail/cancelled/skipped/TODO, exit 0, 278299.647571ms (`tmp/pty-timer-inventory-green.log`), against the provisioned historical build. No forced exit or baseline preload. This is local targeted evidence, not a full Linux CI verdict.
+- Published CI at 467dff4e0: Linux run 39159982115 has three failed jobs; macOS ARM64 run 39159981983 has two successful jobs (Node 22 and 24, each 111 runtime + 61 Node tests, zero skips). The new source fixes require fresh CI. The obsolete non-test ledger amendment above is still pending; that independent verifier failure remains until explicitly authorized.
+- Scope audit: these source changes touch only op.ts (B5), owner-process.ts and upgrade-pty-contract.test.ts (B4/B2), and the explicitly amended inventory fixture. No shipped helper, gate policy, unlisted source or Phase L code is changed. B5 legacy admission and enrolled CLI qualification remain unresolved; the safe incomplete draft is saved in stash da2057db031db79417da3af88ac68b8e18b26f16, not published.
+
+# Inherited branch notes
+
 # Dossier diagrams — h2a lots
 
 ## Objective

@@ -1,0 +1,271 @@
+import type { ChildProcess } from "node:child_process";
+import { once } from "node:events";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
+// @ts-ignore Shared JS qualification helper; tests are outside the production build.
+import { setupNativeTestEnvironment, spawnIsolatedNative as spawn } from "../../../h2a/test/helpers/native-isolation.js";
+
+setupNativeTestEnvironment(afterAll);
+
+import { NativeTerminalClient } from "./client.js";
+import { defaultOwnerHostProbe, readProcessStartTime } from "./host.js";
+import { LINUX_PTY_GUARDIAN_SCRIPT, nodePtySpawner } from "../pty.js";
+
+it("should preserve CLI stderr while scrubbing every guardian descriptor on Darwin", async () => {
+  // Execute the exact Darwin branch under a real PTY on both platforms.
+  const script = LINUX_PTY_GUARDIAN_SCRIPT.replace("if [ -d /proc/$$/fd ]; then", "if false; then")
+    .replace("h2a_expected_parent=$1", "h2a_expected_parent=$PPID");
+  const pty = nodePtySpawner({command:"/bin/bash",args:["--noprofile","--norc","-c",script,"fd-proof",String(process.pid),
+    "/bin/bash","--noprofile","--norc","-c","printf 'B5_STDOUT\\n'; printf 'B5_STDERR\\n' >&2"],
+    cwd:process.env.TMPDIR!,env:process.env as Record<string,string>,cols:80,rows:24});
+  let output="";pty.onData(chunk=>{output+=chunk;});
+  let timer: NodeJS.Timeout | undefined, finished=false;
+  try {
+    const exit=await new Promise<{exitCode:number}>((resolve,reject)=>{
+      pty.onExit(exit=>{finished=true;resolve(exit);}); timer=setTimeout(()=>reject(new Error(`guardian still running: ${output}`)),5000);
+    });
+    expect(exit.exitCode).toBe(0); expect(output).toContain("B5_STDOUT");expect(output).toContain("B5_STDERR");
+  } finally {clearTimeout(timer);if(!finished)try{pty.kill("SIGKILL");}catch{/* already exited */}}
+});
+
+// Lot BM RED: darwin identity + legacy containment proofs. Same platform
+// contract as darwin-publication.test.ts: every test executes on both
+// platforms with real assertions. Before the port, darwin start-time reads
+// are unavailable and the owner refuses to boot, so both tests are red on
+// darwin; on Linux they pin the behaviour the port must preserve.
+const OWNER_ENTRY = fileURLToPath(new URL("../../dist/native-terminal/owner-process.js", import.meta.url));
+const TEST_TIMEOUT = 90_000;
+
+// Each Node child records its own PID and birth in this private fixture.
+// Cleanup uses these launch receipts, never a process census or name matching.
+const receiptPath = join(process.env.TMPDIR!, "darwin-identity-children.jsonl");
+const observerPath = receiptPath + ".mjs";
+const identityModule = pathToFileURL(fileURLToPath(new URL("../../dist/proc-identity.js", import.meta.url))).href;
+writeFileSync(observerPath, `import { appendFileSync } from "node:fs";
+import { readProcessStartTime } from ${JSON.stringify(identityModule)};
+import { ChildProcess } from "node:child_process";
+const record = pid => appendFileSync(${JSON.stringify(receiptPath)}, JSON.stringify({pid,birth:readProcessStartTime(pid)})+"\\n");
+record(process.pid);
+const original = ChildProcess.prototype.spawn;
+ChildProcess.prototype.spawn = function(options) {
+  const result = original.call(this, options);
+  if (this.pid) record(this.pid);
+  return result;
+};`);
+const previousNodeOptions = process.env.NODE_OPTIONS;
+process.env.NODE_OPTIONS = `${previousNodeOptions ?? ""} --import=${pathToFileURL(observerPath).href}`;
+afterAll(() => {
+  if (previousNodeOptions === undefined) delete process.env.NODE_OPTIONS;
+  else process.env.NODE_OPTIONS = previousNodeOptions;
+});
+
+function stopRecordedChildren(): void {
+  let rows: string;
+  try { rows = readFileSync(receiptPath, "utf8"); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return; throw error; }
+  for (const line of rows.trim().split("\n").filter(Boolean)) {
+    const {pid, birth} = JSON.parse(line);
+    if (pid === process.pid || birth === undefined || readProcessStartTime(pid) !== birth) continue;
+    try { process.kill(pid, "SIGKILL"); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
+  }
+}
+
+const children = new Set<ChildProcess>();
+const directories = new Set<string>();
+const sessionGroups = new Set<number>();
+
+
+afterEach(async () => {
+  for (const pgid of sessionGroups) {
+    try {
+      process.kill(-pgid, "SIGKILL");
+    } catch {
+      // Already gone.
+    }
+  }
+  sessionGroups.clear();
+  for (const child of children) {
+    if (child.exitCode === null && child.signalCode === null) {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // Already gone.
+      }
+    }
+  }
+  for (const child of children) {
+    if (child.exitCode === null && child.signalCode === null) {
+      await once(child, "exit").catch(() => undefined);
+    }
+  }
+  children.clear();
+  stopRecordedChildren();
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  for (const directory of directories) {
+    rmSync(directory, { recursive: true, force: true });
+  }
+  directories.clear();
+});
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function waitForOwnerReady(child: ChildProcess): Promise<void> {
+  const deadline = Date.now() + 30_000;
+  const outChunks: string[] = [];
+  const errChunks: string[] = [];
+  child.stdout?.on("data", (chunk: Buffer) => {
+    outChunks.push(chunk.toString("utf8"));
+  });
+  child.stderr?.on("data", (chunk: Buffer) => {
+    errChunks.push(chunk.toString("utf8"));
+  });
+  for (;;) {
+    const output = outChunks.join("");
+    if (output.split("\n").some((line) => line.includes("h2a.native-terminal.ready"))) return;
+    if (child.exitCode !== null || child.signalCode !== null) {
+      throw new Error(`owner exited before ready: ${child.exitCode ?? child.signalCode}; stdout: ${output.slice(-2000)}; stderr: ${errChunks.join("").slice(-2000)}`);
+    }
+    if (Date.now() > deadline) {
+      throw new Error(`owner did not become ready; stdout: ${output.slice(-2000)}; stderr: ${errChunks.join("").slice(-2000)}`);
+    }
+    await delay(25);
+  }
+}
+
+async function spawnOwner(): Promise<{ child: ChildProcess; socketPath: string; directory: string }> {
+  const directory = await mkdtemp(join(tmpdir(), "downer-"));
+  directories.add(directory);
+  const socketPath = join(directory, "owner.sock");
+  const child = spawn(process.execPath, [
+    OWNER_ENTRY,
+    "--socket",
+    socketPath,
+    "--generation",
+    "bm-darwin",
+    "--replay-bytes",
+    String(1024 * 1024),
+    "--max-sessions",
+    "16",
+    "--registry-path",
+    join(directory, "registry.json"),
+  ], {
+    cwd: dirname(OWNER_ENTRY),
+    env: process.env,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  children.add(child);
+  await waitForOwnerReady(child);
+  return { child, socketPath, directory };
+}
+
+function processGone(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "ESRCH";
+  }
+}
+
+async function groupGone(pgid: number, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      process.kill(-pgid, 0);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ESRCH") return true;
+    }
+    if (Date.now() > deadline) return false;
+    await delay(100);
+  }
+}
+
+describe("darwin process identity substrate", () => {
+  it("should distinguish a recycled pid from the same process, or refuse the proof", async () => {
+    // The substrate must deliver a start-time discriminant: without it every
+    // verdict below degrades and the test fails (pre-port darwin behaviour).
+    const ownStart = readProcessStartTime(process.pid);
+    expect(ownStart).toBeDefined();
+    expect(defaultOwnerHostProbe({ pid: process.pid, startTime: ownStart })).toBe("alive");
+    // A different live process under this pid's recorded start-time is exactly
+    // what pid recycling looks like to the probe. The 1.1 s guard separates
+    // the two starts even at one-second resolution.
+    await delay(1100);
+    const sleeper = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000);"], {
+      env: process.env,
+      stdio: "ignore",
+    });
+    children.add(sleeper);
+    let otherStart: number | undefined;
+    const startDeadline = Date.now() + 10_000;
+    while (otherStart === undefined) {
+      if (sleeper.exitCode !== null || sleeper.signalCode !== null) {
+        throw new Error("sleeper exited before its start time was readable");
+      }
+      if (Date.now() > startDeadline) throw new Error("sleeper start time stayed unreadable");
+      otherStart = readProcessStartTime(sleeper.pid!);
+      if (otherStart === undefined) await delay(100);
+    }
+    try {
+      expect(otherStart).not.toBe(ownStart);
+      expect(defaultOwnerHostProbe({ pid: sleeper.pid!, startTime: ownStart })).toBe("dead");
+      expect(defaultOwnerHostProbe({ pid: sleeper.pid!, startTime: otherStart })).toBe("alive");
+    } finally {
+      try {
+        sleeper.kill("SIGKILL");
+      } catch {
+        // Already gone.
+      }
+    }
+    await once(sleeper, "exit").catch(() => undefined);
+    const goneDeadline = Date.now() + 10_000;
+    while (!processGone(sleeper.pid!)) {
+      if (Date.now() > goneDeadline) throw new Error("sleeper pid never reported gone");
+      await delay(50);
+    }
+    expect(defaultOwnerHostProbe({ pid: sleeper.pid!, startTime: otherStart })).toBe("dead");
+  }, TEST_TIMEOUT);
+
+  it("should confine a legacy session group on host death, or refuse to start it", async () => {
+    const { child, socketPath, directory } = await spawnOwner();
+    let pgid = -1;
+    try {
+      const client = await NativeTerminalClient.connect(socketPath);
+      try {
+        const session = await client.create({
+          id: "bm-confinement",
+          command: "/bin/sh",
+          args: ["-c", "sleep 60"],
+          cwd: directory,
+          env: { ...process.env } as Record<string, string>,
+          cols: 80,
+          rows: 24,
+        });
+        // node-pty puts the spawned tree in its own session: pgid === pid.
+        pgid = session.pid;
+        sessionGroups.add(pgid);
+        child.kill("SIGKILL");
+        await once(child, "exit");
+        expect(await groupGone(pgid, 15_000)).toBe(true);
+      } finally {
+        await client.close();
+      }
+    } finally {
+      if (pgid > 0) {
+        try {
+          process.kill(-pgid, "SIGKILL");
+        } catch {
+          // Already gone.
+        }
+      }
+      if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+    }
+  }, TEST_TIMEOUT);
+});

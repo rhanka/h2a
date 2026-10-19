@@ -1,10 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
-import { closeSync, constants, fstatSync, lstatSync, openSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync, unlinkSync } from "node:fs";
+import { closeSync, constants, fstatSync, linkSync, lstatSync, mkdirSync, rmdirSync, openSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync, unlinkSync } from "node:fs";
 import { chmod, link, lstat, mkdir, open, readFile, rename, unlink, writeFile, type FileHandle } from "node:fs/promises";
 import { createConnection, createServer, type Server, type Socket } from "node:net";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 
 import { writeHostLogLine } from "./crash-safe-log.js";
+import { OWNER_WRITE_IDENTITY_CAPABILITY, extractWriteIdentity } from "./owner-protocol.js";
 import { HOST_FAULT_COUNTERS, recordHostFault } from "./fault-counters.js";
 import {
   NativeTerminalHost,
@@ -30,6 +31,7 @@ import {
   type NativeTerminalErrorResponse,
   type NativeTerminalRequest,
   type NativeTerminalResponse,
+  type NativeTerminalStopSignal,
 } from "./protocol.js";
 import {
   NATIVE_TERMINAL_SOCKET_MAX_PATH_BYTES,
@@ -42,7 +44,9 @@ import {
 import { listNativeTerminalPgidEntries, loadRegistry } from "../registry.js";
 import {
   classifyDurableProcFrame,
+  readDarwinProcessTable,
   readProcessFrame,
+  type DarwinProcessTableRow,
   type DurableProcFrame,
   type ReadProcessFrame,
 } from "../proc-identity.js";
@@ -50,6 +54,7 @@ import {
 import { NativeTerminalPublicationRefusal } from "./publication-refusal.js";
 
 type ConnectionContext = {
+  readonly id: string;
   readonly socket: Socket;
   readonly leases: Map<string, NativeTerminalControllerLease>;
   readonly responseBudget: ResponseQueueBudget;
@@ -147,6 +152,7 @@ function controllerLease(value: unknown): NativeTerminalControllerLease {
     ),
     controllerId: requiredIdentifier(lease.controllerId, "controller lease id"),
     epoch: requiredInteger(lease.epoch, "controller lease epoch"),
+    ...(lease.resumeToken !== undefined ? { resumeToken: requiredIdentifier(lease.resumeToken, "controller resume token") } : {}),
   };
 }
 
@@ -155,10 +161,25 @@ function sameLease(left: NativeTerminalControllerLease, right: NativeTerminalCon
     && left.generation === right.generation
     && left.incarnation === right.incarnation
     && left.controllerId === right.controllerId
-    && left.epoch === right.epoch;
+    && left.epoch === right.epoch
+    && left.resumeToken === right.resumeToken;
 }
 
-function ownedLease(context: ConnectionContext, params: unknown): NativeTerminalControllerLease {
+/**
+ * Phase B (lot B2): the request-execution half of a connection. The fused
+ * host (process.ts) and the split owner (owner-process.ts) both execute
+ * against this context; the split frontend (frontend-process.ts) only
+ * forwards, so per-client lease binding stays in this one dispatch.
+ */
+export type NativeTerminalLeaseContext = {
+  readonly leases: Map<string, NativeTerminalControllerLease>;
+};
+
+export function createNativeTerminalLeaseContext(): NativeTerminalLeaseContext {
+  return { leases: new Map<string, NativeTerminalControllerLease>() };
+}
+
+function ownedLease(context: NativeTerminalLeaseContext, params: unknown): NativeTerminalControllerLease {
   const lease = controllerLease(requiredRecord(params, "params").lease);
   const owned = context.leases.get(lease.id);
   if (!owned || !sameLease(owned, lease)) {
@@ -191,10 +212,10 @@ function createOptions(params: unknown): NativeTerminalCreateOptions {
   };
 }
 
-function releaseConnectionLeases(host: NativeTerminalHost, context: ConnectionContext): void {
+function releaseConnectionLeases(host: NativeTerminalHost, context: NativeTerminalLeaseContext): void {
   for (const lease of context.leases.values()) {
     try {
-      host.releaseController(lease);
+      host.disconnectController(lease);
     } catch {
       // Exit/stop already fences the lease. Disconnect cleanup is idempotent.
     }
@@ -202,12 +223,30 @@ function releaseConnectionLeases(host: NativeTerminalHost, context: ConnectionCo
   context.leases.clear();
 }
 
-function dispatch(host: NativeTerminalHost, context: ConnectionContext, request: NativeTerminalRequest): unknown {
+/** Phase B (lot B2): owner-side execution of one forwarded request. */
+export function executeNativeTerminalHostRequest(
+  host: NativeTerminalHost,
+  context: NativeTerminalLeaseContext,
+  request: NativeTerminalRequest,
+): unknown {
+  return dispatch(host, context, request);
+}
+
+/** Phase B (lot B2): owner-side release of leases held through one context. */
+export function releaseNativeTerminalLeases(
+  host: NativeTerminalHost,
+  context: NativeTerminalLeaseContext,
+): void {
+  releaseConnectionLeases(host, context);
+}
+
+function dispatch(host: NativeTerminalHost, context: NativeTerminalLeaseContext, request: NativeTerminalRequest): unknown {
   const params = request.params;
   switch (request.operation) {
     case "ping":
       return {
         launchFence: true,
+        capabilities: [OWNER_WRITE_IDENTITY_CAPABILITY],
         generation: host.generation,
         hostPid: process.pid,
         protocolVersion: NATIVE_TERMINAL_PROTOCOL_VERSION,
@@ -236,6 +275,9 @@ function dispatch(host: NativeTerminalHost, context: ConnectionContext, request:
       if (record.takeover !== undefined && typeof record.takeover !== "boolean") {
         throw new TypeError("terminal controller takeover must be a boolean");
       }
+      if (record.writeIdentity !== undefined && typeof record.writeIdentity !== "boolean") {
+        throw new TypeError("terminal write identity option must be a boolean");
+      }
       const lease = host.acquireController(
         requiredIdentifier(record.id, "session id"),
         requiredIdentifier(record.controllerId, "controller id"),
@@ -244,6 +286,8 @@ function dispatch(host: NativeTerminalHost, context: ConnectionContext, request:
           ...(record.takeover !== undefined ? { takeover: record.takeover as boolean } : {}),
           ...(record.pid !== undefined ? { pid: requiredInteger(record.pid, "controller pid") } : {}),
           ...(record.tty !== undefined ? { tty: requiredString(record.tty, "controller tty") } : {}),
+          ...(record.writeIdentity !== undefined ? { writeIdentity: record.writeIdentity as boolean } : {}),
+          ...(record.resumeLease !== undefined ? { resumeLease: controllerLease(record.resumeLease) } : {}),
         },
       );
       context.leases.set(lease.id, lease);
@@ -268,8 +312,7 @@ function dispatch(host: NativeTerminalHost, context: ConnectionContext, request:
     case "write": {
       const record = requiredRecord(params, "params");
       const lease = ownedLease(context, record);
-      host.write(lease, requiredString(record.data, "terminal input"));
-      return null;
+      return host.write(lease, requiredString(record.data, "terminal input"), extractWriteIdentity(record)) ?? null;
     }
     case "resize": {
       const record = requiredRecord(params, "params");
@@ -412,7 +455,11 @@ function writeError(context: ConnectionContext, id: unknown, code: NativeTermina
   return writeResponse(context, response);
 }
 
-function consumeFrames(host: NativeTerminalHost, context: ConnectionContext, chunk: string): void {
+async function consumeFrames(
+  context: ConnectionContext,
+  chunk: string,
+  execute: (request: NativeTerminalRequest) => unknown | Promise<unknown>,
+): Promise<void> {
   context.buffer += chunk;
   for (;;) {
     const newline = context.buffer.indexOf("\n");
@@ -446,7 +493,7 @@ function consumeFrames(host: NativeTerminalHost, context: ConnectionContext, chu
         version: NATIVE_TERMINAL_PROTOCOL_VERSION,
         id: request.id,
         ok: true,
-        result: dispatch(host, context, request),
+        result: await execute(request),
       };
       if (!writeResponse(context, response)) return;
     } catch (error) {
@@ -460,11 +507,105 @@ function consumeFrames(host: NativeTerminalHost, context: ConnectionContext, chu
   }
 }
 
+/**
+ * Phase B (lot B2): per-connection serving shared by the fused host and the
+ * split frontend. Framing, budgets, lease-context tracking and disconnect
+ * cleanup behave identically on both paths; only `execute` differs (local
+ * host dispatch vs forward-to-owner). `closed` releases whatever `execute`
+ * granted through the connection's leases.
+ */
+export type NativeTerminalServedConnection = Readonly<{
+  id: string;
+  leases: Map<string, NativeTerminalControllerLease>;
+}>;
+
+export type NativeTerminalConnectionEvents = {
+  execute(
+    connection: NativeTerminalServedConnection,
+    request: NativeTerminalRequest,
+  ): unknown | Promise<unknown>;
+  closed(connection: NativeTerminalServedConnection): void;
+  accepted?(): void;
+};
+
+export type NativeTerminalConnectionServing = {
+  resume(): void;
+  close(): void;
+};
+
+export function serveNativeTerminalConnections(
+  server: Server,
+  events: NativeTerminalConnectionEvents,
+  options: { startPaused?: boolean } = {},
+): NativeTerminalConnectionServing {
+  const sockets = new Set<Socket>();
+  const responseBudget: ResponseQueueBudget = { pendingBytes: 0 };
+  let readyForRequests = options.startPaused !== true;
+  const attach = (socket: Socket): void => {
+    events.accepted?.();
+    if (sockets.size >= NATIVE_TERMINAL_MAX_CONNECTIONS) {
+      socket.destroy();
+      return;
+    }
+    // A visible socket is not yet a completed publication: its durable owner
+    // record and publication lock must finish before health/PTY admission.
+    if (!readyForRequests) socket.pause();
+    const context: ConnectionContext = {
+      id: randomUUID(),
+      socket,
+      leases: new Map(),
+      responseBudget,
+      buffer: "",
+      pendingResponseBytes: 0,
+      pendingResponses: 0,
+    };
+    sockets.add(socket);
+    socket.setEncoding("utf8");
+    socket.setNoDelay(true);
+    socket.on("error", () => {
+      // R7.5 named exemption: expected, potentially high-volume transport
+      // errors. Count per connection instead of producing a log per event.
+      recordHostFault(HOST_FAULT_COUNTERS.hostSocketConnectionErrors);
+    });
+    socket.on("data", (chunk: string) => {
+      void consumeFrames(context, chunk, (request) =>
+        events.execute(
+          { id: context.id, leases: context.leases },
+          request,
+        ),
+      ).catch(() => {
+        // R7.5 named exemption: a bad client costs only this connection;
+        // count frame destroys instead of logging every malformed stream.
+        recordHostFault(HOST_FAULT_COUNTERS.hostClientFrameDestroys);
+        socket.destroy();
+      });
+    });
+    socket.on("close", () => {
+      releaseAllPendingResponses(context);
+      try {
+        events.closed({ id: context.id, leases: context.leases });
+      } finally {
+        sockets.delete(socket);
+      }
+    });
+  };
+  server.on("connection", (socket) => attach(socket));
+  return {
+    resume(): void {
+      readyForRequests = true;
+      for (const socket of sockets) socket.resume();
+    },
+    close(): void {
+      for (const socket of sockets) socket.destroy();
+    },
+  };
+}
+
 
 async function socketPublicationLockSecret(socketPath: string, signal?: AbortSignal): Promise<string> {
-  if (process.platform !== "linux" || process.getuid === undefined) {
+  if ((process.platform !== "linux" && process.platform !== "darwin") || process.getuid === undefined) {
     throw new Error(
-      "native terminal socket publication requires Linux abstract Unix sockets",
+      "native terminal socket publication requires Linux abstract Unix sockets or a macOS filesystem lock",
     );
   }
   const directory = dirname(socketPath);
@@ -512,8 +653,116 @@ async function socketPublicationLockSecret(socketPath: string, signal?: AbortSig
   return secret;
 }
 
+/**
+ * The darwin publication-lock pathname: the same lock-id secret and the same
+ * per-socket hash as the Linux abstract address, but bound in the private
+ * socket directory because darwin has no abstract namespace. Exported for
+ * the darwin gate, which asserts the lock lives on the filesystem.
+ */
+export function darwinSocketPublicationLockPath(socketPath: string, secret: string): string {
+  const name = `.h2a-l${createHash("sha256")
+    .update(`${process.getuid?.() ?? "unknown"}:${socketPath}:${secret}`)
+    .digest("hex")
+    .slice(0, 12)}.sock`;
+  const path = join(dirname(socketPath), name);
+  try {
+    assertNativeTerminalSocketPathWithinLimit(path, "terminal socket publication lock path");
+  } catch {
+    throw new NativeTerminalPublicationRefusal("H2A_PUBLICATION_LOCK_PATH_UNUSABLE");
+  }
+  return path;
+}
+
+function probeLockSocket(lockPath: string, signal?: AbortSignal): Promise<boolean> {
+  return new Promise<boolean>((resolve, reject) => {
+    const probe = createConnection(lockPath);
+    const finish = (live: boolean) => {
+      signal?.removeEventListener("abort", cancel);
+      probe.destroy();
+      resolve(live);
+    };
+    const cancel = () => finish(false);
+    if (signal !== undefined) {
+      if (signal.aborted) return finish(false);
+      signal.addEventListener("abort", cancel, { once: true });
+    }
+    probe.once("connect", () => finish(true));
+    probe.once("error", error => {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "ENOENT" || code === "ECONNREFUSED") finish(false);
+      else { signal?.removeEventListener("abort", cancel); probe.destroy(); reject(error); }
+    });
+  });
+}
+
+/**
+ * Serialize Darwin stale-lock recovery with an exclusive directory. A crashed
+ * recovery leaves that guard in place: later contenders time out, never steal
+ * it by age. Bind at a unique name, then hard-link the lock pathname, so Node's
+ * implicit unlink on close can only remove this holder's private staged name.
+ * Release leaves a stale public lock for the next serialized recovery.
+ */
+export async function acquireDarwinSocketPublicationLock(
+  socketPath: string,
+  secret: string,
+  signal?: AbortSignal,
+): Promise<Server> {
+  const lockPath = darwinSocketPublicationLockPath(socketPath, secret);
+  const guardPath = lockPath + ".recovery";
+  const deadline = Date.now() + SOCKET_PUBLICATION_LOCK_TIMEOUT_MS;
+  const retry = async (): Promise<void> => {
+    if (Date.now() >= deadline) throw new NativeTerminalPublicationRefusal("H2A_PUBLICATION_LOCK_TIMEOUT");
+    await abortable(new Promise(resolve => setTimeout(resolve, SOCKET_PUBLICATION_LOCK_RETRY_MS)), signal);
+  };
+  for (;;) {
+    signal?.throwIfAborted();
+    try { mkdirSync(guardPath, { mode: 0o700 }); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      await retry(); continue;
+    }
+    const guard = lstatSync(guardPath);
+    let lock: Server | undefined;
+    let stagedPath: string | undefined;
+    try {
+      if (!await probeLockSocket(lockPath, signal)) {
+        signal?.throwIfAborted();
+        // Every contender must hold this guard throughout probe/unlink/bind.
+        unlinkIfPresent(lockPath);
+        stagedPath = join(dirname(lockPath), ".lk-" + randomUUID().slice(0, 12));
+        const candidate = createServer(socket => socket.destroy());
+        lock = candidate;
+        await abortable(new Promise<void>((resolve, reject) => {
+          candidate.once("error", reject);
+          candidate.listen(stagedPath!, () => {
+            candidate.removeListener("error", reject);
+            if (signal?.aborted) { candidate.close(); reject(signal.reason); }
+            else resolve();
+          });
+        }), signal);
+        await abortable(chmod(stagedPath, 0o600), signal);
+        // Publish synchronously: cancellation cannot install a late shared name.
+        signal?.throwIfAborted();
+        linkSync(stagedPath, lockPath);
+        return candidate;
+      }
+    } catch (error) {
+      lock?.close();
+      if (stagedPath !== undefined) unlinkIfPresent(stagedPath);
+      throw error;
+    } finally {
+      // Only this acquisition created the guard; never recover a rival's guard.
+      if (sameNativeTerminalSocket(lstatSync(guardPath), guard)) rmdirSync(guardPath);
+    }
+    await retry();
+  }
+}
+
 async function acquireSocketPublicationLock(socketPath: string, signal?: AbortSignal): Promise<Server> {
   const secret = await socketPublicationLockSecret(socketPath, signal);
+  if (process.platform === "darwin") {
+    return acquireDarwinSocketPublicationLock(socketPath, secret, signal);
+  }
   const address = `\0h2a-terminal-lock-${createHash("sha256")
     .update(`${process.getuid?.() ?? "unknown"}:${socketPath}:${secret}`)
     .digest("hex")}`;
@@ -583,14 +832,15 @@ function unlinkOwnedPath(path: string, owned: NativeTerminalSocketIdentity): voi
   }
 }
 
-function rollbackEndpoint(socketPath: string, owned: NativeTerminalSocketIdentity): void {
+function rollbackEndpoint(socketPath: string, owned: NativeTerminalSocketIdentity,
+  processOwner = { pid: process.pid, startTime: readProcessStartTime(process.pid) }): void {
   unlinkOwnedPath(socketPath, owned);
   const ownerPath = `${socketPath}.owner`;
   try {
     const identity = lstatSync(ownerPath);
     if (!identity.isFile() || identity.uid !== process.getuid?.() || (identity.mode & 0o777) !== 0o600) return;
     const owner = JSON.parse(readFileSync(ownerPath, "utf8")) as EndpointOwner;
-    if (owner.pid === process.pid && owner.startTime === readProcessStartTime(process.pid)
+    if (owner.pid === processOwner.pid && owner.startTime === processOwner.startTime
       && sameNativeTerminalSocket(owner, owned)) unlinkOwnedPath(ownerPath, identity);
   } catch { /* Unknown sidecar ownership is never cleanup authority. */ }
 }
@@ -704,6 +954,31 @@ export async function proveNativeTerminalEndpointAbsent(
     signal => proveEndpointAbsentUnderLock(socketPath, signal, readPublicationFrame(readFrame), ownerProbe));
 }
 
+/** B2 drain cleanup after the publishing frontend was replaced. The emptied
+ * owner has closed every listener holder; it may remove only this inode, under
+ * the same exclusion and positive absence proof as a new publisher. */
+export async function withdrawDrainedNativeTerminalEndpoint(socketPath: string, expected: NativeTerminalSocketIdentity): Promise<void> {
+  await withSocketPublicationLock(socketPath, async signal => {
+    let socket: NativeTerminalSocketIdentity;
+    try { socket = await inspectPrivateNativeTerminalSocket(socketPath); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return; throw error; }
+    if (!sameNativeTerminalSocket(socket, expected)) throw new Error("drained terminal endpoint identity changed");
+    if (!await proveEndpointAbsentUnderLock(socketPath, signal, readPublicationFrame(readProcessFrame), defaultOwnerHostProbe,
+      { pid: process.pid, startTime: readProcessStartTime(process.pid) })) {
+      throw new NativeTerminalPublicationRefusal("H2A_STALE_SOCKET_UNPROVEN");
+    }
+    // No await separates the final identity check and either unlink.
+    const ownerPath = `${socketPath}.owner`;
+    let sidecar: NativeTerminalSocketIdentity | undefined;
+    try {
+      const info = lstatSync(ownerPath), owner = JSON.parse(readFileSync(ownerPath, "utf8"));
+      if (info.isFile() && info.uid === process.getuid?.() && (info.mode & 0o777) === 0o600 && sameNativeTerminalSocket(owner, expected)) sidecar = info;
+    } catch { /* unreadable sidecar is never deletion authority */ }
+    unlinkOwnedPath(socketPath, expected);
+    if (sidecar) unlinkOwnedPath(ownerPath, sidecar);
+  });
+}
+
 function canonicalizePath(targetPath: string): string | undefined {
   const resolved = resolve(targetPath);
   try {
@@ -725,13 +1000,142 @@ type ActiveHostScan =
   | { state: "live"; pid: number; startTime: number }
   | { state: "unknown"; reason: string };
 
-function findActiveHostServingSocket(
+/**
+ * The darwin active-host scan (lot BM): the same candidate grammar as the
+ * Linux `/proc` cmdline stage — a `--socket <candidate>` argument plus a
+ * host marker — read from `ps` instead of `/proc/<pid>/cmdline`, then the
+ * same canonical/basename/staged-name correlation and the same injected
+ * liveness probe per candidate.
+ *
+ * What darwin cannot see (DECLARED LIMITS): per-process file descriptors and
+ * the bound-socket table, so a process holding the endpoint WITHOUT matching
+ * argv is invisible to this scan. That is safe, not silent: every adopted
+ * holder (frontend, keeper) belongs to an owner process whose own argv always
+ * carries `--socket <endpoint>`, so a live serving tree always has at least
+ * one visible member — the scan needs only one to refuse. The residual race
+ * (owner dead, adopted holder not yet exited, connects already refusing)
+ * resolves the same way on Linux and darwin: the holder exits on its dead
+ * owner channel and the next attempt publishes.
+ *
+ * `ps` joins argv with spaces (DECLARED LIMIT): a socket path containing
+ * whitespace cannot be attributed exactly, so such a target is unknown
+ * (refuse), never absent. Exported for the darwin gate.
+ *
+ * A candidate is live only with SERVING corroboration (a completed connect
+ * handshake right now): argv plus aliveness alone also matches the
+ * reclaiming tree itself — an owner naming its endpoint before anything is
+ * bound — which must publish, never refuse itself. This is the darwin side
+ * of the Linux rule that an argv match without a held socket is skipped:
+ * serving (or, downstream, a live owner record) proves holdership. A
+ * pathname-less live tree with a live owner record is therefore refused
+ * downstream (`H2A_ENDPOINT_OWNER_UNPROVEN`), not here.
+ */
+export function probeServingNow(socketPath: string): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    const probe = createConnection(socketPath);
+    const timer = setTimeout(() => finish(false), 500);
+    const finish = (serving: boolean) => {
+      clearTimeout(timer);
+      probe.destroy();
+      resolve(serving);
+    };
+    probe.once("connect", () => finish(true));
+    probe.once("error", () => finish(false));
+  });
+}
+
+export async function findDarwinActiveHostServingSocket(
+  socketPath: string,
+  table: DarwinProcessTableRow[] | undefined,
+  ownerProbe: NativeTerminalOwnerHostProbe = defaultOwnerHostProbe,
+): Promise<ActiveHostScan> {
+  if (/\s/.test(socketPath)) {
+    return { state: "unknown", reason: "darwin argv scan cannot attribute socket paths containing whitespace" };
+  }
+  if (table === undefined) {
+    return { state: "unknown", reason: "darwin process table is unreadable" };
+  }
+  const targetCanonical = canonicalizePath(socketPath);
+  if (!targetCanonical) {
+    return {
+      state: "unknown",
+      reason: `cannot canonicalize target socket path: ${socketPath}`,
+    };
+  }
+  let targetSocket: NativeTerminalSocketIdentity | undefined;
+  try { targetSocket = statSync(targetCanonical); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+
+  for (const row of table) {
+    if (row.pid === process.pid) continue;
+    const tokens = row.args.split(/\s+/).filter(Boolean);
+    const idx = tokens.indexOf("--socket");
+    if (idx === -1 || idx + 1 >= tokens.length) continue;
+    const candidateSocket = tokens[idx + 1]!;
+    const isHost = row.args.includes("process.js")
+      || (row.args.includes("native-terminal") && !row.args.includes("op.js"));
+    if (!isHost) continue;
+
+    let sameCandidateSocket = false;
+    if (targetSocket) {
+      try { sameCandidateSocket = sameNativeTerminalSocket(statSync(candidateSocket), targetSocket); }
+      catch { /* An absent published name supplies no direct inode evidence. */ }
+    }
+    if (!sameCandidateSocket && basename(resolve(candidateSocket)) !== basename(targetCanonical)) continue;
+    const candidateCanonical = canonicalizePath(candidateSocket);
+    const candidateAliased = candidateCanonical !== undefined && candidateCanonical !== resolve(candidateSocket);
+    const couldServeTarget = candidateCanonical === undefined
+      || candidateCanonical === targetCanonical || sameCandidateSocket || candidateAliased;
+    if (!couldServeTarget) continue;
+
+    let isStagingCandidate = false;
+    try {
+      const dirEntries = readdirSync(dirname(candidateSocket));
+      isStagingCandidate = dirEntries.some((name) => isStagedSocketName(name, candidateSocket, row.pid));
+    } catch {
+      // Staging-directory inspection is optional, as on Linux.
+    }
+    if (isStagingCandidate) continue;
+
+    try {
+      process.kill(row.pid, 0);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ESRCH" || (error as NodeJS.ErrnoException).code === "ENOENT") {
+        continue;
+      }
+      // EPERM or anything else: the process exists (we may not signal it).
+    }
+    const startTime = readProcessStartTime(row.pid);
+    if (startTime === undefined) {
+      return { state: "unknown", reason: `cannot read start time for host pid ${row.pid}` };
+    }
+    const probe = ownerProbe({ pid: row.pid, startTime });
+    if (probe === "alive") {
+      // Serving corroboration (see the function header): without it this
+      // candidate may be the reclaiming tree itself, naming an endpoint
+      // nothing serves yet.
+      if (await probeServingNow(socketPath)) {
+        return { state: "live", pid: row.pid, startTime };
+      }
+      continue;
+    }
+    if (probe === "unresolvable") {
+      return { state: "unknown", reason: `host pid ${row.pid} liveness probe is unresolvable` };
+    }
+  }
+  return { state: "absent" };
+}
+
+async function findActiveHostServingSocket(
   socketPath: string,
   procRoot = process.env.H2A_TEST_PROC_ROOT ?? "/proc",
   ownerProbe: NativeTerminalOwnerHostProbe = defaultOwnerHostProbe,
-): ActiveHostScan {
+): Promise<ActiveHostScan> {
   if (process.env.H2A_TEST_PROC_UNAVAILABLE) {
     return { state: "unknown", reason: "simulated /proc observation unavailable" };
+  }
+  if (process.platform === "darwin") {
+    return findDarwinActiveHostServingSocket(socketPath, readDarwinProcessTable(), ownerProbe);
   }
   if (process.platform !== "linux") {
     return { state: "unknown", reason: "platform does not support /proc host observation" };
@@ -992,6 +1396,8 @@ async function proveEndpointAbsentUnderLock(
   signal: AbortSignal | undefined,
   currentFrame: DurableProcFrame,
   ownerProbe: NativeTerminalOwnerHostProbe = defaultOwnerHostProbe,
+  // Only the sealed, drained owner may relinquish its own current attribution.
+  retiringOwner?: { pid: number; startTime: number | undefined },
 ): Promise<boolean> {
   signal?.throwIfAborted();
   let socket: NativeTerminalSocketIdentity | undefined;
@@ -1003,7 +1409,7 @@ async function proveEndpointAbsentUnderLock(
   // candidate must never unlink or republish over it.
   // Seam symmetry (F4): the scan liveness probe is the INJECTED ownerProbe so
   // the "zero probes for stale-boot sources" assertions observe this path too.
-  const activeScan = findActiveHostServingSocket(socketPath, undefined, ownerProbe);
+  const activeScan = await findActiveHostServingSocket(socketPath, undefined, ownerProbe);
   if (activeScan.state === "live") throw new NativeTerminalPublicationRefusal("H2A_ENDPOINT_LIVE_OWNER");
   if (activeScan.state === "unknown") {
     // The frozen literal carries the sense (T8); the scan's own reason (e.g.
@@ -1070,7 +1476,8 @@ async function proveEndpointAbsentUnderLock(
     currentOwners.push({ pid: row.ownerHostPid, ...(row.ownerHostStartTime !== undefined ? { startTime: row.ownerHostStartTime } : {}) });
   }
   const uniqueOwners = [...new Map(currentOwners.map(owner => [`${owner.pid}:${owner.startTime}`, owner])).values()];
-  const ownersDead = uniqueOwners.every(owner => owner.startTime !== undefined && ownerProbe(owner) === "dead");
+  const ownersDead = uniqueOwners.every(owner => owner.startTime !== undefined &&
+    ((retiringOwner?.pid === owner.pid && retiringOwner.startTime === owner.startTime) || ownerProbe(owner) === "dead"));
   const sidecarProvesDeath = sidecarVerdict === "stale-boot" || (sidecarVerdict === "current" && ownersDead);
   // Even a run of refusals cannot prove a new, unattributed holder dead.
   if (!await repeatedlyRefusesConnection(socketPath, socket !== undefined, signal)) return false;
@@ -1268,6 +1675,21 @@ export type NativeTerminalHostServer = Readonly<{
 }>;
 
 /**
+ * Phase B (lot B2): the OS file descriptor of a bound listener. The split
+ * frontend reads it once to hand a copy to its keeper subprocess via spawn
+ * stdio (the keeper never wraps it, so it never polls or reads). The
+ * descriptor number is a Node internal (`_handle.fd`); it is validated
+ * here and fails closed instead of propagating an unknown shape.
+ */
+export function nativeTerminalListenFd(server: Server): number {
+  const fd = (server as unknown as { _handle?: { fd?: unknown } })._handle?.fd;
+  if (typeof fd !== "number" || !Number.isSafeInteger(fd) || fd < 0) {
+    throw new Error("terminal listener has no usable file descriptor");
+  }
+  return fd;
+}
+
+/**
  * Listener failure classification (R7). A listener error that is neither
  * recoverable nor provably-unusable is UNKNOWN: the host must not pretend to
  * serve on a listener whose failure it cannot name.
@@ -1324,64 +1746,65 @@ export async function startNativeTerminalHostServer(options: {
   } finally { clearTimeout(timer); }
 }
 
-async function initializeNativeTerminalHostServer(options: {
+/**
+ * Phase B (lot B2): staged publication of a listener with caller-chosen
+ * serving. The fused host (process.ts) and the split frontend
+ * (frontend-process.ts) share this path, so publication proofs, the owner
+ * record, the R7 listener taxonomy and pre-publication socket handling
+ * behave identically on both. Only the request executor differs (local
+ * host dispatch vs forward-to-owner).
+ */
+export type NativeTerminalPublishedListener = Readonly<{
   socketPath: string;
-  host: NativeTerminalHost;
-  signal: AbortSignal;
+  server: Server;
+  close(closeOptions?: { stopSessions?: boolean; signal?: string }): Promise<void>;
+  /**
+   * Serving starts paused: connections accepted before the caller is
+   * ready wait instead of failing. The fused host resumes once
+   * publication completes; the split frontend resumes once its owner
+   * channel is up.
+   */
+  resume(): void;
+  /**
+   * Stop serving without withdrawing the endpoint (no rollback). Used
+   * when the serving generation ends but the endpoint stays published
+   * for its replacement.
+   */
+  stopServing(): void;
+}>;
+
+export async function publishNativeTerminalListener(options: {
+  socketPath: string;
+  signal?: AbortSignal;
   readFrame?: ReadProcessFrame;
   ownerProbe?: NativeTerminalOwnerHostProbe;
+  /** Stable owner of the endpoint when the publishing process is replaceable. */
+  processOwner?: { pid: number; startTime: number | undefined };
   onListenerFailure?: (failure: NativeTerminalListenerFailure) => void;
-}): Promise<NativeTerminalHostServer> {
+  /**
+   * Session teardown for paths that own sessions (the fused host passes
+   * `host.stopAll`). The split frontend passes nothing: its sessions live
+   * in the owner and survive frontend death by design.
+   */
+  stopSessions?: (signal: NativeTerminalStopSignal) => void;
+  /** Request serving attached to the listener from its first accept. */
+  serve: NativeTerminalConnectionEvents;
+}): Promise<NativeTerminalPublishedListener> {
   options.signal?.throwIfAborted();
   if (!isAbsolute(options.socketPath)) throw new Error("terminal host socket path must be absolute");
   await abortable(ensurePrivateSocketDirectory(options.socketPath), options.signal);
 
-  const sockets = new Set<Socket>();
-  const responseBudget: ResponseQueueBudget = { pendingBytes: 0 };
-  let readyForRequests = false;
   let listenerExhaustionEvents: number[] = [];
-  const server: Server = createServer((socket) => {
-    // A successful accept breaks the consecutive failure series (R7 v5).
-    listenerExhaustionEvents = [];
-    if (sockets.size >= NATIVE_TERMINAL_MAX_CONNECTIONS) {
-      socket.destroy();
-      return;
-    }
-    // A visible socket is not yet a completed publication: its durable owner
-    // record and publication lock must finish before health/PTY admission.
-    if (!readyForRequests) socket.pause();
-    const context: ConnectionContext = {
-      socket,
-      leases: new Map(),
-      responseBudget,
-      buffer: "",
-      pendingResponseBytes: 0,
-      pendingResponses: 0,
-    };
-    sockets.add(socket);
-    socket.setEncoding("utf8");
-    socket.setNoDelay(true);
-    socket.on("error", () => {
-      // R7.5 named exemption: expected, potentially high-volume transport
-      // errors. Count per connection instead of producing a log per event.
-      recordHostFault(HOST_FAULT_COUNTERS.hostSocketConnectionErrors);
-    });
-    socket.on("data", (chunk: string) => {
-      try {
-        consumeFrames(options.host, context, chunk);
-      } catch {
-        // R7.5 named exemption: a bad client costs only this connection;
-        // count frame destroys instead of logging every malformed stream.
-        recordHostFault(HOST_FAULT_COUNTERS.hostClientFrameDestroys);
-        socket.destroy();
-      }
-    });
-    socket.on("close", () => {
-      releaseAllPendingResponses(context);
-      releaseConnectionLeases(options.host, context);
-      sockets.delete(socket);
-    });
-  });
+  const server: Server = createServer();
+  const serving = serveNativeTerminalConnections(server, {
+    execute: options.serve.execute,
+    closed: options.serve.closed,
+    accepted: () => {
+      // A successful accept breaks the consecutive failure series (R7 v5).
+      listenerExhaustionEvents = [];
+      options.serve.accepted?.();
+    },
+  }, { startPaused: true });
   // bind(2) retains this literal path in /proc/net/unix. Resolve its directory
   // before binding so it agrees with the retained directory FD even if an
   // ancestor symlink is later removed. Keep the published path and grammar.
@@ -1483,14 +1906,14 @@ async function initializeNativeTerminalHostServer(options: {
           const frame = readPublicationFrame(options.readFrame ?? readProcessFrame);
           const published = await publishSocket(stagedPath, options.socketPath, signal,
             frame, options.ownerProbe ?? defaultOwnerHostProbe);
-          await recordEndpointOwner(options.socketPath, published, undefined, signal,
+          await recordEndpointOwner(options.socketPath, published, options.processOwner, signal,
             frame);
           return published;
         } catch (pubError) {
           // A link may have committed without resolving its promise. Invalidate
           // its source first, then remove only this listener's published inode.
           unlinkOwnedPath(stagedPath, ownedSocket!);
-          rollbackEndpoint(options.socketPath, ownedSocket!);
+          rollbackEndpoint(options.socketPath, ownedSocket!, options.processOwner);
           throw pubError;
         }
       },
@@ -1501,18 +1924,16 @@ async function initializeNativeTerminalHostServer(options: {
     }
   } catch (error) {
     try {
-      for (const socket of sockets) socket.destroy();
+      serving.close();
       const closed = new Promise<void>((resolve) => server.close(() => resolve()));
       if (ownedSocket !== undefined) {
         unlinkOwnedPath(stagedPath, ownedSocket);
-        rollbackEndpoint(options.socketPath, ownedSocket);
+        rollbackEndpoint(options.socketPath, ownedSocket, options.processOwner);
       }
       await abortable(closed, AbortSignal.timeout(SOCKET_PUBLICATION_CLEANUP_TIMEOUT_MS));
     } finally { closeDirectory(); }
     throw error;
   }
-  readyForRequests = true;
-  for (const socket of sockets) socket.resume();
   let closing: Promise<void> | undefined;
 
   const doClose = (closeOptions: { stopSessions?: boolean; signal?: string } = {}): Promise<void> => {
@@ -1524,18 +1945,18 @@ async function initializeNativeTerminalHostServer(options: {
           if (!isNativeTerminalStopSignal(signal)) {
             throw new TypeError("invalid terminal host shutdown signal");
           }
-          options.host.stopAll(signal);
+          options.stopSessions?.(signal);
         } catch (error) {
           stopError = error;
         }
       }
-      for (const socket of sockets) socket.destroy();
+      serving.close();
       await abortable(new Promise<void>((resolve, reject) => {
         server.close((error) => error ? reject(error) : resolve());
       }), AbortSignal.timeout(SOCKET_PUBLICATION_CLEANUP_TIMEOUT_MS));
       await withSocketPublicationLock(options.socketPath, async () => {
         try {
-          rollbackEndpoint(options.socketPath, ownedSocket!);
+          rollbackEndpoint(options.socketPath, ownedSocket!, options.processOwner);
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
         }
@@ -1550,5 +1971,27 @@ async function initializeNativeTerminalHostServer(options: {
     socketPath: options.socketPath,
     server,
     close: doClose,
+    resume: () => serving.resume(),
+    stopServing: () => serving.close(),
   });
+}
+
+async function initializeNativeTerminalHostServer(options: {
+  socketPath: string;
+  host: NativeTerminalHost;
+  signal: AbortSignal;
+  readFrame?: ReadProcessFrame;
+  ownerProbe?: NativeTerminalOwnerHostProbe;
+  onListenerFailure?: (failure: NativeTerminalListenerFailure) => void;
+}): Promise<NativeTerminalHostServer> {
+  const published = await publishNativeTerminalListener({
+    ...options,
+    stopSessions: (signal) => options.host.stopAll(signal),
+    serve: {
+      execute: (connection, request) => dispatch(options.host, connection, request),
+      closed: (connection) => releaseConnectionLeases(options.host, connection),
+    },
+  });
+  published.resume();
+  return published;
 }

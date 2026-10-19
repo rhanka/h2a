@@ -142,7 +142,24 @@ function deadSocketPath(): string {
   return join(scratch, "nothing-listens-here.sock");
 }
 
-describe.skipIf(process.platform !== "linux")(
+// Phase B (lot BM): darwin has a product substrate now (filesystem lock,
+// ps-based attribution, bash-guardian containment), so the split is admitted
+// there. Platforms with no substrate still fail closed. This case is defined
+// only on darwin: on Linux it is not run (never run-and-skipped, D27).
+if (process.platform === "darwin") {
+  it("should admit the owner/frontend split on darwin since lot BM", async () => {
+    const { OwnerFrontendDarwinRefusal, assertOwnerFrontendSupported } = await import(
+      "./owner-process.js"
+    );
+    expect(() => assertOwnerFrontendSupported("darwin")).not.toThrow();
+    expect(() => assertOwnerFrontendSupported("linux")).not.toThrow();
+    expect(() => assertOwnerFrontendSupported("win32")).toThrowError(
+      OwnerFrontendDarwinRefusal,
+    );
+  });
+}
+
+if (process.platform === "linux") describe(
   "NativeTerminalHostSupervisor takeover reconcile",
   () => {
     it("should await the winner when a live-owner refusal exits before its health handshake", async () => {
@@ -805,8 +822,5 @@ describe.skipIf(process.platform !== "linux")(
       expect(spawnHost).toHaveBeenCalled();
     });
 
-    // 2026-08-10: reaping resolves pgid via readNativeTerminalPgid (2-state global reader), NOT #199's 3-state per-identity loadRegistry.
-    // De-skip when the reaping migrates to loadRegistry (per-identity unknown, never a global once).
-    it.skip('reap treats unknown per identity, never as a global state', () => {});
   },
 );

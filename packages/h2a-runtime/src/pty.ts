@@ -1,12 +1,13 @@
 import type * as nodePty from "node-pty";
-import { accessSync, constants as fsConstants } from "node:fs";
+import { accessSync, chmodSync, constants as fsConstants } from "node:fs";
 import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 
 const require = createRequire(import.meta.url);
 
 const LINUX_PARENT_DEATH_SIGNAL = "SIGUSR2";
 const LINUX_FORCE_KILL_SIGNAL = "SIGUSR1";
-const LINUX_PTY_GUARDIAN_SCRIPT = [
+export const LINUX_PTY_GUARDIAN_SCRIPT = [
   "h2a_expected_parent=$1",
   "shift",
   '[ "$PPID" -eq "$h2a_expected_parent" ] || { builtin kill -KILL -- "-$$"; exit 127; }',
@@ -26,13 +27,15 @@ const LINUX_PTY_GUARDIAN_SCRIPT = [
   '  for h2a_fd in /proc/$$/fd/*; do',
   '    h2a_fd_num="${h2a_fd##*/}"',
   '    if [ "$h2a_fd_num" -ge 3 ] 2>/dev/null; then',
-  '      eval "exec ${h2a_fd_num}>&-" 2>/dev/null || :',
+  // Redirecting stderr around exec allocates a saved descriptor. The sweep
+  // can close that descriptor, leaving CLI stderr permanently on /dev/null.
+  '      eval "exec ${h2a_fd_num}>&-" || :',
   "    fi",
   "  done",
   "else",
   "  h2a_fd_num=3",
   '  while [ "$h2a_fd_num" -le 1024 ]; do',
-  '    eval "exec ${h2a_fd_num}>&-" 2>/dev/null || :',
+  '    eval "exec ${h2a_fd_num}>&-" || :',
   "    h2a_fd_num=$((h2a_fd_num + 1))",
   "  done",
   "fi",
@@ -73,10 +76,45 @@ function linuxBashPath(): string {
   );
 }
 
+/**
+ * Lot BM darwin floor: macOS ships no `setpriv --pdeathsig` and no
+ * parent-death signal at all, so the guardian runs directly under bash.
+ * Parent-death containment rests on PTY master-close semantics instead: when
+ * the owning host dies, the kernel closes the master and the slave side
+ * receives SIGHUP, which the guardian script's unchanged `trap h2a_force
+ * HUP` turns into a whole-group kill. No new script, no weakened Linux path.
+ */
+function darwinBashPath(): string {
+  for (const candidate of ["/bin/bash", "/opt/homebrew/bin/bash", "/usr/local/bin/bash"]) {
+    try {
+      accessSync(candidate, fsConstants.X_OK);
+      return candidate;
+    } catch {
+      // Try the next fixed system path. Never resolve this boundary through PATH.
+    }
+  }
+  throw new Error(
+    "native terminal PTY crash containment requires bash on darwin",
+  );
+}
+
 function guardedSpawnCommand(options: Parameters<PtySpawner>[0]): {
   command: string;
   args: string[];
 } {
+  if (process.platform === "darwin") {
+    return {
+      command: darwinBashPath(),
+      args: [
+        "-c",
+        LINUX_PTY_GUARDIAN_SCRIPT,
+        "h2a-pty-guardian",
+        String(process.pid),
+        options.command,
+        ...options.args,
+      ],
+    };
+  }
   if (process.platform !== "linux") {
     return { command: options.command, args: [...options.args] };
   }
@@ -126,6 +164,16 @@ export function nativePtyRequirements():
       };
     }
   }
+  if (process.platform === "darwin") {
+    try {
+      darwinBashPath();
+    } catch (error) {
+      return {
+        ok: false,
+        reason: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
   return { ok: true };
 }
 
@@ -163,10 +211,45 @@ export type PtySpawner = (options: {
   rows: number;
 }) => PtyHandle;
 
+/**
+ * Lot BM darwin repair: node-pty spawns sessions through its `spawn-helper`
+ * binary, which the published prebuilds ship WITHOUT the executable bit, so
+ * `posix_spawn` fails with EACCES on macOS ("posix_spawnp failed."). Restore
+ * the bit best-effort before spawning — a no-op syscall where it is already
+ * set, and a preserved real spawn error where the install is read-only or
+ * the helper is absent (nothing is masked: a still-failing spawn throws).
+ * Mirrors node-pty's own helper lookup order without importing its internals.
+ */
+function ensureDarwinSpawnHelperExecutable(): void {
+  let packageDir: string;
+  try {
+    packageDir = dirname(dirname(require.resolve("node-pty")));
+  } catch {
+    return;
+  }
+  const candidates = [
+    join(packageDir, "build", "Release", "spawn-helper"),
+    join(packageDir, "build", "Debug", "spawn-helper"),
+    join(packageDir, "prebuilds", `darwin-${process.arch}`, "spawn-helper"),
+  ];
+  for (const candidate of candidates) {
+    try {
+      accessSync(candidate, fsConstants.X_OK);
+    } catch {
+      try {
+        chmodSync(candidate, 0o755);
+      } catch {
+        // Read-only install or absent helper: the spawn below reports it.
+      }
+    }
+  }
+}
+
 export const nodePtySpawner: PtySpawner = (options) => {
   // Lazy load node-pty so test environments without the native binary still
   // import this module — they substitute a stub spawner.
 
+  if (process.platform === "darwin") ensureDarwinSpawnHelperExecutable();
   const pty: typeof nodePty = require("node-pty");
   const guarded = guardedSpawnCommand(options);
   const proc = pty.spawn(guarded.command, guarded.args, {

@@ -3,8 +3,12 @@ import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { requestNativeTerminalOwnerControl } from "./owner-protocol.js";
+import { knownNativeTerminalSocketPaths } from "./socket-path.js";
+import { proveNativeTerminalEndpointAbsent } from "./server.js";
 
 import { NativeTerminalClient } from "./client.js";
+import { describeNativeTerminalHost } from "./fleet.js";
 import { HOST_FAULT_COUNTERS, recordHostFault } from "./fault-counters.js";
 import {
   defaultOwnerHostProbe,
@@ -67,6 +71,67 @@ export class NativeTerminalContainmentError extends Error {
     this.outcomeStatus = details.outcomeStatus;
     this.refusalCause = details.refusalCause;
   }
+}
+
+/** Upgrade inventory never ensures a host: absence is proved, unknown defers. */
+export async function inspectNativeTerminalFrontendUpgrade(): Promise<{
+  state: "active" | "absent" | "deferred";
+  owners: Array<{ socketPath: string; ownerPid: number; status: any }>;
+  components: any[];
+  legacyHosts: Array<{ socketPath: string; hostPid: number; admission?: "unfenced"; retirement?: "deferred" }>;
+  reason?: string;
+}> {
+  const owners: Array<{ socketPath: string; ownerPid: number; status: any }> = [], components: any[] = [];
+  const legacyHosts: Array<{ socketPath: string; hostPid: number; admission?: "unfenced"; retirement?: "deferred" }> = [];
+  let reason: string | undefined;
+  for (const socketPath of knownNativeTerminalSocketPaths()) {
+    let client: NativeTerminalClient | undefined;
+    try {
+      client = await NativeTerminalClient.connect(socketPath);
+      const ping = await client.ping();
+      describeNativeTerminalHost(ping);
+      if (!(ping as any).owner) {
+        legacyHosts.push({ socketPath, hostPid: ping.hostPid, admission: "unfenced", retirement: "deferred" });
+        continue;
+      }
+      const status = await requestNativeTerminalOwnerControl(socketPath, ping.hostPid, "status");
+      owners.push({ socketPath, ownerPid: ping.hostPid, status });
+      components.push(...status.components);
+    } catch (error) {
+      try { if (await proveNativeTerminalEndpointAbsent(socketPath, error)) continue; } catch { /* unknown */ }
+      reason = error instanceof Error ? error.message : String(error);
+    } finally { client?.close(); }
+  }
+  return { state: reason ? "deferred" : owners.length || legacyHosts.length ? "active" : "absent", owners, components, legacyHosts,
+    ...(reason ? { reason } : {}) };
+}
+
+/** Called by both upgrade entry points through performAutoUpgrade. */
+export async function switchNativeTerminalUpgradeFrontends(plan: Awaited<ReturnType<typeof inspectNativeTerminalFrontendUpgrade>>,
+  frontendModule: string, rollbackModule: string): Promise<{ status: "switched" | "deferred" | "absent"; components: unknown[]; owners: unknown[] }> {
+  if (plan.state === "absent") return { status: "absent", components: [], owners: [] };
+  // Known pre-B owners remain explicit even if another endpoint is unknown.
+  // Neither a partial inventory nor a marker can authorize their retirement.
+  const legacyOwners = plan.legacyHosts.map(legacy => ({ socketPath: legacy.socketPath, status: "deferred",
+    owner: { pid: legacy.hostPid, version: "unknown" }, admission: "unfenced", retirement: "deferred",
+    reason: "pre-B host has no atomic admission fence; automatic retirement is deferred" }));
+  if (plan.state !== "active") return { status: "deferred", components: plan.components, owners: [...plan.owners, ...legacyOwners] };
+  const owners = [];
+  let deferred = plan.legacyHosts.length > 0;
+  for (const owner of plan.owners) {
+    try {
+      const result = await requestNativeTerminalOwnerControl(owner.socketPath, owner.ownerPid, "replace-frontend", { frontendModule, rollbackModule });
+      if (result.status !== "switched") deferred = true;
+      owners.push({ socketPath: owner.socketPath, ...result });
+    } catch (error) {
+      deferred = true;
+      owners.push({ socketPath: owner.socketPath, status: "deferred", reason: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  // No list-empty observation, client marker or owner tag closes admission on
+  // already-established v1 connections. Never signal or unlink a pre-B host.
+  owners.push(...legacyOwners);
+  return { status: deferred ? "deferred" : "switched", components: plan.components, owners };
 }
 
 /**
@@ -212,7 +277,11 @@ function defaultSpawnHost(options: {
   maxSessions: number;
   registryPath?: string;
 }): ChildProcess {
-  const entry = fileURLToPath(new URL("./process.js", import.meta.url));
+  // Phase B (lot B2): the supervisor spawns the PTY owner. The owner holds
+  // sessions and the listening socket; it spawns and respawns its own
+  // frontend. The supervisor never signals the owner except through the
+  // pre-existing never-healthy/losing-contender teardown below (D4).
+  const entry = fileURLToPath(new URL("./owner-process.js", import.meta.url));
   const child = spawn(process.execPath, [
     entry,
     "--socket",

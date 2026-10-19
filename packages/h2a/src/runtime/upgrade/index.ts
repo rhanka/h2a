@@ -31,8 +31,10 @@
 
 import { randomBytes, randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   readdirSync,
   readFileSync,
@@ -42,8 +44,8 @@ import {
   unlinkSync,
   writeFileSync
 } from "node:fs";
-import { basename, dirname, join, resolve as resolvePath } from "node:path";
-import { fileURLToPath } from "node:url";
+import { basename, dirname, isAbsolute, join, relative, resolve as resolvePath } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 export const H2A_CLI_PACKAGE = "@sentropic/h2a";
 /** Re-check at most once per this window for the passive `--upgrade-check` notice. */
@@ -181,6 +183,22 @@ export interface UpgradeRuntime {
   acquirePrefixLock?(prefix: string, options?: AcquirePrefixLockOptions & PrefixLockHooks): PrefixLockLease;
   /** Bounded per-attempt diagnostics file. */
   writeDiagnostics?(path: string, record: UpgradeDiagnosticsRecord): void;
+  preparePtyUpgrade?(packageDir: string): PtyUpgradePlan;
+  switchPtyFrontend?(plan: PtyUpgradePlan, frontendModule: string, rollbackModule: string): PtyUpgradeResult;
+}
+
+export type PtyUpgradePlan = { state: "active" | "absent" | "deferred" | "unsupported"; owners: any[]; components: any[]; legacyHosts?: Array<{ socketPath: string; hostPid: number }>; reason?: string };
+export type PtyUpgradeResult = { status: "switched" | "absent" | "deferred" | "unsupported"; owners: any[]; components: any[]; reason?: string;
+  versions?: Array<{ component: "owner" | "frontend"; pid: number; installedVersion: string; loadedVersion: string; switchedVersion: string | null; deferredVersion: string | null }> };
+function withPtyVersions(pty: PtyUpgradeResult | undefined, installed: string, desired = installed): PtyUpgradeResult | undefined {
+  if (!pty) return undefined;
+  return { ...pty, versions: pty.owners.flatMap(owner => ["owner", "frontend"].flatMap(component => {
+    const loaded = owner[component] ?? owner.status?.[component];
+    if (!loaded) return [];
+    const switched = component === "frontend" && (owner.status === "switched" || pty.status === "switched") && loaded.version === installed;
+    return [{ component: component as "owner" | "frontend", pid: loaded.pid, installedVersion: installed,
+      loadedVersion: loaded.version, switchedVersion: switched ? installed : null, deferredVersion: switched ? null : desired }];
+  })) };
 }
 
 function globalPkgDir(prefix: string): string {
@@ -331,9 +349,224 @@ import {
   me,
   readLockHolder,
   readLockRecord,
+  procStartInfo,
   safeAtIso
 } from "../local-files/succession-lock.js";
-import type { AcquirePrefixLockOptions, PrefixLockHooks, PrefixLockLease } from "../local-files/succession-lock.js";
+import type { AcquirePrefixLockOptions, PrefixLockHooks, PrefixLockLease, LockRec } from "../local-files/succession-lock.js";
+
+export type PtyRollbackFrontend = {
+  installDir: string;
+  frontendModule: string;
+  ownerProtocolVersion: number;
+  codeIdentity: { dev: number; ino: number };
+};
+type PtyRetention = {
+  version: 1;
+  pins: Record<string, PtyRollbackFrontend>;
+  installs: Record<string, { identity: { dev: number; ino: number }; components: LockRec[] }>;
+  unknownReferences?: boolean;
+};
+const ptyRetentionPath = (prefix: string) => join(prefix, ".h2a-pty-retention.json");
+function readPtyRetention(prefix: string, create = false): PtyRetention | undefined {
+  let value;
+  try { value = JSON.parse(readFileSync(ptyRetentionPath(prefix), "utf8")); }
+  catch (error) {
+    if (errnoOf(error) === "ENOENT") return create ? { version: 1, pins: {}, installs: {} } : undefined;
+    throw new Error("PTY retention metadata unreadable; retained installs must be kept");
+  }
+  if (!value || value.version !== 1 || typeof value.pins !== "object" || !value.pins || Array.isArray(value.pins) ||
+      typeof value.installs !== "object" || !value.installs || Array.isArray(value.installs) ||
+      (value.unknownReferences !== undefined && typeof value.unknownReferences !== "boolean")) {
+    throw new Error("PTY retention metadata invalid; retained installs must be kept");
+  }
+  return value as PtyRetention;
+}
+function assertPtyRetentionLock(lock: PrefixLockLease): void {
+  if (!lock.acquired || !lock.stillHeld()) throw new Error("PTY retention requires the held upgrade prefix lock");
+}
+function installIdentity(prefix: string, installDir: string, allowRoot = false): { dev: number; ino: number } {
+  const rel = relative(resolvePath(prefix), resolvePath(installDir));
+  if ((!rel && !allowRoot) || installDir !== resolvePath(installDir) || rel === ".." || rel.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) || isAbsolute(rel)) throw new Error("PTY install is outside the upgrade prefix");
+  let path = resolvePath(prefix);
+  for (const part of ["", ...rel.split(/[\\/]/).filter(Boolean)]) {
+    path = join(path, part);
+    const parent = lstatSync(path);
+    if (!parent.isDirectory() || parent.isSymbolicLink()) throw new Error("unsafe retained PTY install ancestor");
+  }
+  const stat = lstatSync(resolvePath(installDir));
+  if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error("unsafe retained PTY install");
+  return { dev: stat.dev, ino: stat.ino };
+}
+function savePtyRetention(prefix: string, lock: PrefixLockLease, state: PtyRetention): void {
+  assertPtyRetentionLock(lock);
+  const path = ptyRetentionPath(prefix), temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    writeFileSync(temporary, JSON.stringify(state), { flag: "wx", mode: 0o600 });
+    assertPtyRetentionLock(lock); renameSync(temporary, path);
+  } finally { try { unlinkSync(temporary); } catch { /* unique, already renamed */ } }
+}
+
+export function recordPtyInstallReferences(prefix: string, lock: PrefixLockLease, installDir: string, components: LockRec[]): void {
+  assertPtyRetentionLock(lock);
+  const identity = installIdentity(prefix, installDir), state = readPtyRetention(prefix, true)!;
+  state.installs[installDir] = { identity, components };
+  savePtyRetention(prefix, lock, state);
+}
+
+/** Only a handshake receipt for these exact bytes qualifies a replacement.
+ * Replacing this protocol's pin and releasing its predecessor is one rename. */
+export function pinPtyRollbackFrontend(prefix: string, lock: PrefixLockLease, target: PtyRollbackFrontend,
+  qualification: { ownerProtocolVersion: number; codePath: string; codeIdentity: { dev: number; ino: number } }): void {
+  assertPtyRetentionLock(lock); installIdentity(prefix, target.installDir);
+  const rel = relative(target.installDir, target.frontendModule), stat = lstatSync(target.frontendModule);
+  if (!rel || rel.startsWith("..") || isAbsolute(rel) || !stat.isFile() || stat.isSymbolicLink() ||
+      qualification.ownerProtocolVersion !== target.ownerProtocolVersion || qualification.codePath !== target.frontendModule ||
+      stat.dev !== target.codeIdentity.dev || stat.ino !== target.codeIdentity.ino ||
+      qualification.codeIdentity.dev !== stat.dev || qualification.codeIdentity.ino !== stat.ino) throw new Error("unqualified PTY rollback frontend");
+  const state = readPtyRetention(prefix, true)!;
+  state.pins[String(target.ownerProtocolVersion)] = target;
+  savePtyRetention(prefix, lock, state);
+}
+export function readPtyRollbackFrontend(prefix: string, protocol: number): PtyRollbackFrontend | undefined {
+  const pin = readPtyRetention(prefix)?.pins[String(protocol)];
+  return pin === undefined ? undefined : resolvePtyRollbackPin(prefix, pin);
+}
+function resolvePtyRollbackPin(prefix: string, pin: PtyRollbackFrontend): PtyRollbackFrontend {
+  const moduleRelative = relative(pin.installDir, pin.frontendModule), parent = dirname(pin.installDir);
+  if (!moduleRelative || moduleRelative.startsWith("..") || isAbsolute(moduleRelative)) throw new Error("invalid rollback module path");
+  installIdentity(prefix, parent, true);
+  const base = basename(pin.installDir).split(".h2a-prev-", 1)[0]!;
+  const candidates = [pin.installDir, ...readdirSync(parent).filter(name => name === base || name.startsWith(`${base}.h2a-prev-`)).map(name => join(parent, name))];
+  for (const installDir of new Set(candidates)) {
+    try {
+      installIdentity(prefix, installDir);
+      const frontendModule = join(installDir, moduleRelative), stat = lstatSync(frontendModule);
+      if (stat.isFile() && !stat.isSymbolicLink() && stat.dev === pin.codeIdentity.dev && stat.ino === pin.codeIdentity.ino) return { ...pin, installDir, frontendModule };
+    } catch { /* Another candidate may still carry this identity after rename. */ }
+  }
+  throw new Error("pinned PTY rollback code identity unavailable; keep retained installs");
+}
+function canRemovePtyInstall(prefix: string, installDir: string): boolean {
+  try {
+    const state = readPtyRetention(prefix), record = state?.installs[installDir];
+    if (!state || state.unknownReferences || !record || !Array.isArray(record.components)) return false;
+    const current = installIdentity(prefix, installDir);
+    if (current.dev !== record.identity.dev || current.ino !== record.identity.ino) return false;
+    if (Object.values(state.pins).some(pin => resolvePtyRollbackPin(prefix, pin).installDir === installDir)) return false;
+    return record.components.every(component => classifyLiveness(component, me()).verdict === "dead");
+  } catch { return false; }
+}
+export function sweepPtyRetainedInstalls(prefix: string, lock: PrefixLockLease): void {
+  assertPtyRetentionLock(lock);
+  let state; try { state = readPtyRetention(prefix); } catch { return; }
+  if (!state) return;
+  for (const installDir of Object.keys(state.installs)) {
+    // Only previous-install residues, never the current or staging install.
+    if (!basename(installDir).startsWith("h2a.h2a-prev-") || !canRemovePtyInstall(prefix, installDir)) continue;
+    assertPtyRetentionLock(lock); rmSyncSafe(installDir);
+    if (!existsSync(installDir)) delete state.installs[installDir];
+  }
+  savePtyRetention(prefix, lock, state);
+}
+
+function runtimeFrontendModule(packageDir: string): string | undefined {
+  const nested = join(packageDir, "node_modules/@sentropic/h2a-runtime/dist/native-terminal/frontend-process.js");
+  if (existsSync(nested)) return nested;
+  try {
+    const entry = createRequire(join(packageDir, "package.json")).resolve("@sentropic/h2a-runtime");
+    const module = join(dirname(entry), "native-terminal/frontend-process.js");
+    return existsSync(module) ? module : undefined;
+  } catch { return undefined; }
+}
+function invokePtyRuntime(packageDir: string, input: unknown, phase: "inspect" | "switch"): any {
+  let frontend = runtimeFrontendModule(packageDir);
+  if (!frontend) {
+    try { frontend = join(dirname(fileURLToPath(import.meta.resolve("@sentropic/h2a-runtime"))), "native-terminal/frontend-process.js"); }
+    catch { return { state: "deferred", status: "deferred", owners: [], components: [], reason: "PTY runtime unavailable" }; }
+  }
+  const moduleUrl = new URL("./supervisor.js", pathToFileURL(frontend)).href;
+  const source = `import {readFileSync} from 'node:fs';
+const runtime=await import(${JSON.stringify(moduleUrl)}),input=JSON.parse(readFileSync(0,'utf8'));
+const result=${phase === "inspect" ? "await runtime.inspectNativeTerminalFrontendUpgrade()" : "await runtime.switchNativeTerminalUpgradeFrontends(input.plan,input.frontendModule,input.rollbackModule)"};
+process.stdout.write(JSON.stringify(result));`;
+  const result = spawnSync(process.execPath, ["--input-type=module", "--eval", source], {
+    input: JSON.stringify(input), encoding: "utf8", timeout: 30000, maxBuffer: 1024 * 1024, env: process.env,
+  });
+  if (result.status !== 0) return { state: "deferred", status: "deferred", owners: [], components: [], reason: "PTY upgrade probe interrupted or unavailable" };
+  try { return JSON.parse(result.stdout); }
+  catch { return { state: "deferred", status: "deferred", owners: [], components: [], reason: "PTY upgrade probe returned unreadable metadata" }; }
+}
+function relocatePtyInstall(prefix: string, lock: PrefixLockLease, from: string, to: string): void {
+  const state = readPtyRetention(prefix);
+  if (!state) return;
+  const record = state.installs[from];
+  if (record) { state.installs[to] = record; delete state.installs[from]; }
+  for (const pin of Object.values(state.pins)) if (pin.installDir === from) {
+    pin.frontendModule = join(to, relative(from, pin.frontendModule)); pin.installDir = to;
+  }
+  savePtyRetention(prefix, lock, state);
+}
+function preparePtyRetention(prefix: string, lock: PrefixLockLease, packageDir: string, plan: PtyUpgradePlan): void {
+  if (plan.state === "deferred") throw new Error(plan.reason ?? "PTY ownership unknown");
+  if (plan.state === "unsupported") return;
+  const matching = plan.components.filter(component => typeof component.codePath === "string" && component.codePath.startsWith(packageDir + "/"));
+  const components: LockRec[] = matching.map(component => ({ ...me(), pid: component.pid,
+    start: procStartInfo(component.pid)?.start ?? null, token: "pty-component", at: Date.now() }));
+  recordPtyInstallReferences(prefix, lock, packageDir, components);
+  const state = readPtyRetention(prefix, true)!;
+  state.unknownReferences = (plan.legacyHosts?.length ?? 0) > 0;
+  savePtyRetention(prefix, lock, state);
+  for (const owner of plan.owners) {
+    const protocol = owner.status.ownerProtocolVersion;
+    const existing = readPtyRollbackFrontend(prefix, protocol);
+    if (existing) {
+      installIdentity(prefix, existing.installDir);
+      const rel = relative(existing.installDir, existing.frontendModule);
+      if (existing.ownerProtocolVersion !== protocol || rel.startsWith("..") || isAbsolute(rel)) throw new Error("invalid pinned PTY rollback target");
+      const current = lstatSync(existing.frontendModule);
+      if (current.dev !== existing.codeIdentity.dev || current.ino !== existing.codeIdentity.ino) throw new Error("pinned PTY rollback bytes changed");
+      continue;
+    }
+    const frontend = owner.status.frontend;
+    if (!frontend || !frontend.codePath?.startsWith(packageDir + "/")) throw new Error("no qualified previous frontend under this install prefix");
+    pinPtyRollbackFrontend(prefix, lock, { installDir: packageDir, frontendModule: frontend.codePath,
+      ownerProtocolVersion: protocol, codeIdentity: frontend.codeIdentity }, { ...frontend, ownerProtocolVersion: protocol });
+  }
+}
+function legacyPtyUpgradeResult(plan: PtyUpgradePlan, owners: any[] = [],
+  reason = "pre-B admission is unfenced; automatic retirement deferred; installs with unknown references retained"): PtyUpgradeResult {
+  return { status: "deferred", components: plan.components, owners: [...owners, ...(plan.legacyHosts ?? []).map(legacy => ({
+    socketPath: legacy.socketPath, status: "deferred", owner: { pid: legacy.hostPid, version: "unknown" },
+    admission: "unfenced", retirement: "deferred",
+    reason: "pre-B host has no atomic admission fence; automatic retirement is deferred",
+  }))], reason };
+}
+function finishCurrentPtyUpgrade(prefix: string, lock: PrefixLockLease, runtime: UpgradeRuntime): PtyUpgradeResult | undefined {
+  if (!runtime.preparePtyUpgrade) return undefined;
+  let plan: PtyUpgradePlan | undefined;
+  try {
+    const packageDir = resolveGlobalPkgDir(prefix);
+    plan = runtime.preparePtyUpgrade(packageDir);
+    preparePtyRetention(prefix, lock, packageDir, plan);
+    if (plan.state === "unsupported") return { status: "unsupported", owners: [], components: [], ...(plan.reason ? { reason: plan.reason } : {}) };
+    if (plan.state === "absent") return { status: "absent", owners: [], components: [] };
+    if (plan.owners.length === 0) return legacyPtyUpgradeResult(plan);
+    const frontend = runtimeFrontendModule(packageDir), pin = readPtyRollbackFrontend(prefix, plan.owners[0]?.status.ownerProtocolVersion);
+    if (!frontend || !pin || !runtime.switchPtyFrontend) throw new Error("compatible frontend or rollback target unavailable");
+    const candidate = statSync(frontend);
+    if (plan.owners.every(owner => owner.status.frontend?.codeIdentity?.dev === candidate.dev && owner.status.frontend?.codeIdentity?.ino === candidate.ino)) {
+      const currentOwners = plan.owners.map(owner => ({ socketPath: owner.socketPath, ...owner.status, status: "switched" }));
+      if (plan.legacyHosts?.length) {
+        return legacyPtyUpgradeResult(plan, currentOwners);
+      }
+      return { status: "switched", owners: currentOwners, components: plan.components };
+    }
+    return runtime.switchPtyFrontend(plan, frontend, pin.frontendModule);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return plan ? legacyPtyUpgradeResult(plan, plan.owners, reason) : { status: "deferred", owners: [], components: [], reason };
+  }
+}
 
 function pidFromAttemptName(name: string): number | undefined {
   const m = /^\.h2a-upgrade-(?:staging|tarball)-(\d+)-/.exec(name);
@@ -434,7 +667,7 @@ function sweepUpgradeResidues(prefix: string, lockToken?: string): void {
       if (!n.startsWith("h2a.h2a-prev-")) continue;
       const full = join(parent, n);
       try {
-        if (shouldRemoveResidue(full, pidFromPrevName(n), now)) rmSyncSafe(full);
+        if (shouldRemoveResidue(full, pidFromPrevName(n), now) && canRemovePtyInstall(prefix, full)) rmSyncSafe(full);
       } catch {
         // best-effort per entry
       }
@@ -480,6 +713,15 @@ export function describeLockReason(reason: PrefixLockLease["reason"]): string {
 }
 
 export const defaultUpgradeRuntime: UpgradeRuntime = {
+  preparePtyUpgrade(packageDir) {
+    if (process.platform !== "linux" && process.platform !== "darwin") return { state: "unsupported", owners: [], components: [], reason: `Phase B PTY substrate unsupported on ${process.platform}` };
+    return invokePtyRuntime(packageDir, {}, "inspect");
+  },
+  switchPtyFrontend(plan, frontendModule, rollbackModule) {
+    const result = invokePtyRuntime(dirname(dirname(dirname(frontendModule))), { plan, frontendModule, rollbackModule }, "switch");
+    return plan.legacyHosts?.length && result.status === "deferred" && result.owners.length === 0
+      ? legacyPtyUpgradeResult(plan, plan.owners, result.reason) : result;
+  },
   fetchLatest(pkg) {
     try {
       // Bounded, but realistic: `npm view` routinely takes ~5s, so the old 4s
@@ -698,7 +940,7 @@ export const defaultUpgradeRuntime: UpgradeRuntime = {
           `${JSON.stringify({ phase: "started", prefix, currentDir, prevDir, stagingPkgDir, version, at: Date.now(), pid: process.pid }, null, 2)}\n`,
           "utf8"
         );
-        if (existsSync(prevDir)) rmSyncSafe(prevDir);
+        if (existsSync(prevDir)) throw new Error("backup destination already exists; retained installs must not be replaced");
         renameSync(currentDir, prevDir);
         backedUp = true;
         writeFileSync(
@@ -958,6 +1200,7 @@ export interface AutoUpgradeResult {
   readonly outcome:
     | "upgraded"
     | "already-current"
+    | "pty-deferred"
     | "deferred-propagation"
     | "failed"
     | "skipped-locked"
@@ -974,6 +1217,7 @@ export interface AutoUpgradeResult {
   readonly verifiedEntrypoint?: string;
   readonly message: string;
   readonly logPath?: string;
+  readonly pty?: PtyUpgradeResult;
 }
 
 export interface AutoUpgradeOptions {
@@ -1088,6 +1332,14 @@ export function performAutoUpgrade(
     };
   }
   if (!check.upgradeAvailable || !check.latest) {
+    let pty: PtyUpgradeResult | undefined;
+    if (runtime.preparePtyUpgrade) {
+      const lease = acquireLock(resolvedPrefix);
+      try {
+        pty = lease.acquired ? withPtyVersions(finishCurrentPtyUpgrade(resolvedPrefix, lease, runtime), current)
+          : { status: "deferred", owners: [], components: [], reason: "upgrade prefix lock unavailable" };
+      } finally { lease.release(); }
+    }
     if (cachePath) {
       try {
         const prev = readEntry();
@@ -1105,8 +1357,9 @@ export function performAutoUpgrade(
     }
     return {
       current,
-      outcome: "already-current",
-      message: `already current (${current})`
+      outcome: pty?.status === "deferred" ? "pty-deferred" : "already-current",
+      message: `already current (${current})${pty ? `; PTY frontend ${pty.status}${pty.reason ? `: ${pty.reason}` : ""}` : ""}`,
+      ...(pty === undefined ? {} : { pty }),
     };
   }
 
@@ -1324,6 +1577,7 @@ export function performAutoUpgrade(
       }
     }
     if (installed === target && installedNativeOk) {
+      const pty = withPtyVersions(finishCurrentPtyUpgrade(resolvedPrefix, lock, runtime), installed);
       if (cachePath) {
         try {
           const prev = readEntry();
@@ -1342,8 +1596,9 @@ export function performAutoUpgrade(
       return {
         current: installed,
         target,
-        outcome: "already-current",
-        message: `already current (${installed}); another lane installed ${target} before this one acquired the lock`
+        outcome: pty?.status === "deferred" ? "pty-deferred" : "already-current",
+        ...(pty === undefined ? {} : { pty }),
+        message: `already current (${installed}); another lane installed ${target} before this one acquired the lock${pty ? `; PTY frontend ${pty.status}${pty.reason ? `: ${pty.reason}` : ""}` : ""}`,
       };
     }
 
@@ -1483,6 +1738,22 @@ export function performAutoUpgrade(
       };
     }
 
+    // Qualify and persist the rollback target before any install can be
+    // retired. Unknown ownership/metadata defers without touching the owner.
+    let ptyPlan: PtyUpgradePlan | undefined;
+    if (runtime.preparePtyUpgrade !== undefined) {
+      try {
+        ptyPlan = runtime.preparePtyUpgrade(resolveGlobalPkgDir(resolvedPrefix));
+        preparePtyRetention(resolvedPrefix, lock, resolveGlobalPkgDir(resolvedPrefix), ptyPlan);
+      } catch (error) {
+        cleanupAttempt();
+        const reason = error instanceof Error ? error.message : String(error);
+        return { current, target, outcome: "pty-deferred", message: `PTY upgrade deferred: ${reason}; owner unchanged`,
+          pty: withPtyVersions(ptyPlan ? legacyPtyUpgradeResult(ptyPlan, ptyPlan.owners, reason)
+            : { status: "deferred", owners: [], components: [], reason }, current, target)! };
+      }
+    }
+
     // Atomic rename swap, then verify the global root reports the target.
     // Always switch the prepared autonomous folder (no dep-range gate: a
     // self-contained version brings its own nested deps).
@@ -1510,6 +1781,7 @@ export function performAutoUpgrade(
         target,
         outcome: "failed",
         message: `auto-upgrade to ${target} failed: ${err} (see ${logPath})`,
+        ...(ptyPlan?.legacyHosts?.length ? { pty: withPtyVersions(legacyPtyUpgradeResult(ptyPlan, ptyPlan.owners, err), installed ?? current, target) } : {}),
         logPath
       };
     }
@@ -1530,18 +1802,38 @@ export function performAutoUpgrade(
       verifiedVersion: verified
     });
     if (verified === target) {
+      let pty: PtyUpgradeResult | undefined;
+      if (ptyPlan !== undefined) {
+        try {
+          if (swapped.prevDir) relocatePtyInstall(resolvedPrefix, lock, resolveGlobalPkgDir(resolvedPrefix), swapped.prevDir);
+          if (ptyPlan.state === "unsupported") pty = { status: "unsupported", owners: [], components: [], ...(ptyPlan.reason ? { reason: ptyPlan.reason } : {}) };
+          else if (ptyPlan.state === "absent") pty = { status: "absent", owners: [], components: [] };
+          else if (ptyPlan.owners.length === 0) pty = legacyPtyUpgradeResult(ptyPlan);
+          else {
+            const frontendModule = runtimeFrontendModule(resolveGlobalPkgDir(resolvedPrefix));
+            const rollback = readPtyRollbackFrontend(resolvedPrefix, ptyPlan.owners[0]?.status.ownerProtocolVersion);
+            pty = frontendModule && rollback && runtime.switchPtyFrontend
+              ? runtime.switchPtyFrontend(ptyPlan, frontendModule, rollback.frontendModule)
+              : legacyPtyUpgradeResult(ptyPlan, ptyPlan.owners, "compatible candidate or retained rollback frontend unavailable");
+          }
+        } catch (error) {
+          pty = legacyPtyUpgradeResult(ptyPlan, ptyPlan.owners, error instanceof Error ? error.message : String(error));
+        }
+      }
+      pty = withPtyVersions(pty, verified);
       // M4: drop the backup and sweep residues UNDER the lock. Inodes stay
       // valid for already-launched processes; the sweep never touches a live
       // attempt's staging (live owner => keep, no age shortcut).
       if (typeof swapped.prevDir === "string" && swapped.prevDir) {
         try {
-          rmSyncSafe(swapped.prevDir);
+          if (canRemovePtyInstall(resolvedPrefix, swapped.prevDir)) rmSyncSafe(swapped.prevDir);
         } catch {
           // best-effort: the next sweep retries
         }
       }
       try {
         sweepUpgradeResidues(resolvedPrefix, lock.token);
+        if (lock.stillHeld?.()) sweepPtyRetainedInstalls(resolvedPrefix, lock);
       } catch {
         // best-effort
       }
@@ -1564,10 +1856,11 @@ export function performAutoUpgrade(
       return {
         current,
         target,
-        outcome: "upgraded",
+        outcome: pty?.status === "deferred" ? "pty-deferred" : "upgraded",
         verifiedVersion: verified,
         verifiedEntrypoint: join(resolveGlobalPkgDir(resolvedPrefix), 'dist/bin.js'),
-        message: `auto-upgraded ${current} → ${target} (applies on next launch) [verified]`,
+        message: `auto-upgraded ${current} → ${target} [verified]${pty ? `; PTY frontend ${pty.status}; owner loaded ${pty.versions?.filter(version => version.component === "owner").map(version => version.loadedVersion).join(",") || "none"}, ${pty.owners.some(owner => owner.admission === "unfenced") ? "pre-B admission unfenced; automatic retirement deferred" : "owner restart deferred until drain"}${pty.reason ? `; ${pty.reason}` : ""}` : " (applies on next launch)"}`,
+        ...(pty === undefined ? {} : { pty }),
         logPath
       };
     }
@@ -1579,6 +1872,7 @@ export function performAutoUpgrade(
       outcome: "failed",
       ...(verified ? { verifiedVersion: verified } : {}),
       message: `auto-upgrade to ${target} failed: verification mismatch (got ${verified ?? "unknown"}) (see ${logPath})`,
+      ...(ptyPlan?.legacyHosts?.length ? { pty: withPtyVersions(legacyPtyUpgradeResult(ptyPlan, ptyPlan.owners, `verification mismatch (got ${verified ?? "unknown"})`), verified ?? "unknown", target) } : {}),
       logPath
     };
   } finally {

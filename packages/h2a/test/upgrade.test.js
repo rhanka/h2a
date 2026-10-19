@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import test from "node:test";
+import test, { after } from "node:test";
+import { setupNativeTestEnvironment } from "./helpers/native-isolation.js";
+setupNativeTestEnvironment(after);
 
 import {
   cmdUpgrade,
@@ -314,6 +316,9 @@ test("performAutoUpgrade R2: an old, undatable-live lock is surfaced (diagnostic
     const rec = JSON.parse(readFileSync(lockFile, "utf8"));
     lease.release();
     rec.timeNs = null; // proc start no longer comparable ⇒ live is undatable
+    // Darwin's absolute ps birth needs no time namespace. A foreign source
+    // supplies the same undatable-live premise there, without changing locks.
+    if (rec.start?.startsWith("ps:")) rec.start = "proc:1";
     rec.at = NOW - (STALE_LOCK_ALERT_MS + 60_000); // older than the alert threshold, on the fake clock
     writeFileSync(lockFile, JSON.stringify(rec), "utf8");
 
@@ -351,6 +356,7 @@ test("performAutoUpgrade R2 negative: a young busy lock stays quiet skipped-lock
     const rec = JSON.parse(readFileSync(lockFile, "utf8"));
     lease.release();
     rec.timeNs = null; // undatable...
+    if (rec.start?.startsWith("ps:")) rec.start = "proc:1";
     rec.at = NOW - 1000; // ...but held only ~1s: well under the threshold
     writeFileSync(lockFile, JSON.stringify(rec), "utf8");
     const { runtime } = stagedFake({
@@ -369,8 +375,8 @@ test("performAutoUpgrade R2 negative: a young busy lock stays quiet skipped-lock
 // N6(d): an OLD lock whose holder is DATABLE (its start time is comparable — a healthy,
 // confirmed live process) must NOT raise the stale outcome. The alert targets only the
 // undatable case (a reused PID could mask a dead holder); a confirmed-live holder, however
-// long it holds, is not that case — no false alarm on a healthy Linux host.
-test("performAutoUpgrade R2 negative: an old but DATABLE-live lock stays quiet skipped-locked", (t) => {
+// long it holds, is not that case — no false alarm on a healthy qualified host.
+test("performAutoUpgrade R2 negative: an old but DATABLE-live lock stays quiet skipped-locked", () => {
   const prefix = mkdtempSync(join(tmpdir(), "h2a-r2d-"));
   const lockFile = join(prefix, ".h2a-upgrade.lock");
   try {
@@ -379,14 +385,13 @@ test("performAutoUpgrade R2 negative: an old but DATABLE-live lock stays quiet s
     assert.equal(lease.acquired, true);
     const rec = JSON.parse(readFileSync(lockFile, "utf8"));
     lease.release();
-    // This test needs a DATABLE holder: a proc-sourced start on a kernel with a readable
-    // time namespace. On a kernel < 5.6 / gVisor / non-Linux the start is undatable, so the
-    // "datable ⇒ quiet" premise does not hold — skip rather than false-fail (CI is ubuntu).
-    if (rec.timeNs === null || typeof rec.start !== "string" || !rec.start.startsWith("proc:")) {
-      t.skip("holder start is not datable on this kernel (no comparable time namespace)");
-      return;
-    }
-    // Keep the real proc start AND the real timeNs (comparable ⇒ datable), just age it.
+    // Linux proc births require a comparable time namespace; Darwin ps births
+    // are absolute and need none. Missing proof fails qualification visibly.
+    assert.ok(typeof rec.start === "string" &&
+      ((process.platform === "darwin" && rec.start.startsWith("ps:")) ||
+       (process.platform === "linux" && rec.start.startsWith("proc:") && rec.timeNs !== null)),
+      "qualified platform must supply a datable live holder");
+    // Keep the real birth and frame, just age the record.
     rec.at = NOW - (STALE_LOCK_ALERT_MS + 60_000);
     writeFileSync(lockFile, JSON.stringify(rec), "utf8");
     const { runtime } = stagedFake({
@@ -631,4 +636,36 @@ test("isQuietUpgradeOutcome: only benign no-op skips are quiet; M-2 and R2 stale
   for (const loud of ["upgraded", "failed", "deferred-propagation", "blocked-undecidable", "skipped-locked-stale"]) {
     assert.equal(isQuietUpgradeOutcome(loud), false, `${loud} must surface at boot`);
   }
+});
+
+
+test('should take the same PTY-safe path for manual upgrade and boot auto-upgrade', () => {
+  const prefix=mkdtempSync(join(tmpdir(),'pty-common-'));
+  try {
+    for (const entry of ['manual','boot-core']) {
+      let prepared=0;
+      const {runtime,calls}=stagedFake({prefix,runtime:{preparePtyUpgrade:()=>{prepared++;return {state:'deferred',owners:[],components:[],reason:'unknown PTY ownership'};}}});
+      if(entry==='manual') {
+        let output=''; const rc=cmdUpgrade({'skip-hosts':'true'},{stdout:{write:c=>{output+=c;}},stderr:{write(){}}},runtime);
+        assert.equal(rc,1);assert.equal(JSON.parse(output).outcome,'pty-deferred');
+      } else {
+        const result=performAutoUpgrade(CUR,{runtime,prefix});
+        assert.equal(result.outcome,'pty-deferred');
+        assert.equal(result.pty.status,'deferred');
+      }
+      assert.equal(prepared,1,entry+' uses the common PTY preparation step');
+      assert.equal(calls.swap,0,'unknown ownership defers the swap before mutation');
+    }
+  } finally {rmSync(prefix,{recursive:true,force:true});}
+});
+
+
+test('should leave ordinary upgrades available on platforms without a Phase B PTY substrate', () => {
+  const descriptor=Object.getOwnPropertyDescriptor(process,'platform'),prefix=mkdtempSync(join(tmpdir(),'pty-unsupported-'));
+  try {
+    Object.defineProperty(process,'platform',{value:'win32'});
+    const result=defaultUpgradeRuntime.preparePtyUpgrade(prefix);
+    assert.equal(result.state,'unsupported');assert.deepEqual(result.owners,[]);
+    assert.match(result.reason,/unsupported/);
+  } finally {Object.defineProperty(process,'platform',descriptor);rmSync(prefix,{recursive:true,force:true});}
 });

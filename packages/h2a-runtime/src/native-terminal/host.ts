@@ -1,5 +1,5 @@
 import { readFileSync, readdirSync } from "node:fs";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
 
 import { writeHostLogLine } from "./crash-safe-log.js";
@@ -22,7 +22,14 @@ import {
 } from "../registry.js";
 // The pid-namespace/boot/machine anchor a durable row is only re-provable
 // within — the SAME definition the row was written with (see proc-identity.ts).
-import { readBootId, readMachineId, readPidNamespaceId, readProcessStartTime } from "../proc-identity.js";
+import {
+  readBootId,
+  readDarwinProcessSessionToken,
+  readDarwinProcessTable,
+  readMachineId,
+  readPidNamespaceId,
+  readProcessStartTime,
+} from "../proc-identity.js";
 export { readProcessStartTime };
 import {
   TerminalReplayBuffer,
@@ -30,7 +37,9 @@ import {
   type TerminalReplayGap,
 } from "./replay-buffer.js";
 import { TerminalResetRelay } from "./reset-relay.js";
+import { parseOwnerWriteIdentity, type OwnerWriteIdentity, type OwnerAppliedFrontier } from "./owner-protocol.js";
 import {
+  NativeTerminalWriteIdentityError,
   NATIVE_TERMINAL_DEFAULT_MAX_SESSIONS,
   NATIVE_TERMINAL_MAX_IDENTIFIER_CHARS,
   NATIVE_TERMINAL_MAX_SESSIONS,
@@ -85,6 +94,14 @@ export const posixProcessGroupReaper: NativeTerminalProcessGroupReaper = {
     }
   },
   describeGroup(pgid) {
+    if (process.platform === "darwin") {
+      const table = readDarwinProcessTable();
+      if (table === undefined) return "diagnostic scan failed: darwin process table is unreadable";
+      const members = table
+        .filter((row) => row.pgid === pgid)
+        .map((row) => `${row.pid}(state=${row.stat})`);
+      return members.length > 0 ? members.join(", ") : "no members found (race with exit?)";
+    }
     if (process.platform !== "linux") {
       return "diagnostic unavailable on this platform";
     }
@@ -172,6 +189,11 @@ export const H2A_SESSION_TOKEN_ENV_VAR = "H2A_SESSION_TOKEN";
  * failure.
  */
 function listProcessGroupMemberPids(pgid: number, procRoot = "/proc"): number[] {
+  if (process.platform === "darwin") {
+    const table = readDarwinProcessTable();
+    if (table === undefined) return [];
+    return table.filter((row) => row.pgid === pgid).map((row) => row.pid);
+  }
   if (process.platform !== "linux") return [];
   let names: string[];
   try {
@@ -202,6 +224,7 @@ function listProcessGroupMemberPids(pgid: number, procRoot = "/proc"): number[] 
  * a non-Linux platform — same "never guess" contract as `readProcessStartTime`.
  */
 function readProcessSessionToken(pid: number, procRoot = "/proc"): string | undefined {
+  if (process.platform === "darwin") return readDarwinProcessSessionToken(pid);
   if (process.platform !== "linux") return undefined;
   try {
     const raw = readFileSync(join(procRoot, String(pid), "environ"), "utf8");
@@ -381,6 +404,20 @@ function censusProcessGroup(
   pgid: number,
   procRoot: string,
 ): Map<number, string> | undefined {
+  if (process.platform === "darwin") {
+    // `ps` reports per-process state: a `Z` row is a reaped-but-uncollected
+    // process with no live threads by definition, so no thread-group
+    // refinement applies. An unreadable table is unknown (fail closed), and
+    // `parseDarwinProcessTable` already poisons partially-parsed output.
+    const table = readDarwinProcessTable();
+    if (table === undefined) return undefined;
+    const members = new Map<number, string>();
+    for (const row of table) {
+      if (row.pgid !== pgid) continue;
+      members.set(row.pid, row.stat);
+    }
+    return members;
+  }
   if (process.platform !== "linux") return undefined;
   if (procMountHidesProcesses(procRoot) !== false) return undefined;
   let names: string[];
@@ -562,6 +599,8 @@ export type NativeTerminalControllerOptions = Readonly<{
   takeover?: boolean;
   pid?: number;
   tty?: string;
+  writeIdentity?: boolean;
+  resumeLease?: NativeTerminalControllerLease;
 }>;
 
 export type NativeTerminalSessionState = Readonly<{
@@ -614,6 +653,9 @@ export type NativeTerminalControllerLease = Readonly<{
   incarnation: string;
   controllerId: string;
   epoch: number;
+  /** Private resume credential; never included in public session state. */
+  resumeToken?: string;
+  appliedFrontier?: OwnerAppliedFrontier;
 }>;
 
 export type NativeTerminalControllerState = Readonly<{
@@ -741,6 +783,11 @@ type SessionRecord = {
   controllerIdentity: NativeTerminalControllerIdentity | null;
   controllerEpoch: number;
   lastHumanActivityAt: number | null;
+  controllerResumeToken?: string | undefined;
+  controllerProcessStartTime?: number | undefined;
+  /** D21 memory bound: one frontier + one SHA-256 digest (32 bytes), no history. */
+  writeFrontier?: number | undefined;
+  lastWriteDigest?: Buffer | undefined;
   dataSubscription?: { dispose(): void };
   exitSubscription?: { dispose(): void };
 };
@@ -1160,6 +1207,30 @@ export class NativeTerminalHost {
     if (options.tty !== undefined && (options.tty.length === 0 || options.tty.length > 256 || /[\p{Cc}\p{Cf}]/u.test(options.tty))) {
       throw new TypeError("terminal controller tty must be a printable name of 1-256 characters");
     }
+    if (options.resumeLease !== undefined) {
+      const lease = options.resumeLease;
+      this.#requireMatchingController(lease);
+      if (controllerId !== record.controllerId || options.writeIdentity !== true ||
+          record.controllerResumeToken === undefined || lease.resumeToken !== record.controllerResumeToken) {
+        throw new Error("stale terminal controller lease");
+      }
+      return Object.freeze({ ...lease, appliedFrontier: this.#appliedFrontier(record) });
+    }
+    // A lost D21 transport keeps its lease. A different attach may reclaim it
+    // only after positive death/recycling evidence for the original process.
+    const holderPid = record.controllerIdentity?.pid;
+    if (record.controllerResumeToken !== undefined && holderPid && record.controllerProcessStartTime !== undefined) {
+      const current = readProcessStartTime(holderPid);
+      if (current !== record.controllerProcessStartTime) {
+        // A missing process is death only when kill(0) also reports ESRCH.
+        let dead = current !== undefined;
+        if (current === undefined) {
+          try { process.kill(holderPid, 0); }
+          catch (error) { dead = (error as NodeJS.ErrnoException).code === "ESRCH"; }
+        }
+        if (dead) this.#invalidateController(record);
+      }
+    }
     if (record.controllerId !== null && options.takeover !== true) {
       const holder = record.controllerIdentity;
       throw new Error(`terminal session already has a controller: ${id}; pid=${holder?.pid ?? "unknown"} tty=${holder?.tty ?? "unknown"} since=${holder?.since ?? "unknown"}; use h2a attach ${id.replace(/^h2a-/, "")} --takeover to detach it`);
@@ -1170,6 +1241,10 @@ export class NativeTerminalHost {
     record.controllerId = controllerId;
     record.controllerActivity = activity;
     record.controllerIdentity = Object.freeze({ pid: options.pid ?? null, tty: options.tty ?? "unknown", since: new Date().toISOString() });
+    record.controllerResumeToken = options.writeIdentity === true ? randomUUID() : undefined;
+    record.controllerProcessStartTime = options.pid === undefined ? undefined : readProcessStartTime(options.pid);
+    record.writeFrontier = options.writeIdentity === true ? 0 : undefined;
+    record.lastWriteDigest = undefined;
     if (activity === "human") record.lastHumanActivityAt = Date.now();
     return Object.freeze({
       role: "controller",
@@ -1178,6 +1253,10 @@ export class NativeTerminalHost {
       incarnation: record.incarnation,
       controllerId,
       epoch: record.controllerEpoch,
+      ...(record.controllerResumeToken === undefined ? {} : {
+        resumeToken: record.controllerResumeToken,
+        appliedFrontier: this.#appliedFrontier(record),
+      }),
     });
   }
 
@@ -1231,11 +1310,48 @@ export class NativeTerminalHost {
     });
   }
 
-  write(lease: NativeTerminalControllerLease, data: string): void {
+  /** Transport loss preserves resumable state; explicit release still fences it. */
+  disconnectController(lease: NativeTerminalControllerLease): void {
+    const record = this.#requireMatchingController(lease);
+    if (record.controllerResumeToken !== undefined && lease.resumeToken === record.controllerResumeToken) return;
+    this.releaseController(lease);
+  }
+
+  #appliedFrontier(record: SessionRecord): OwnerAppliedFrontier {
+    return Object.freeze({ controllerId: record.controllerId!, epoch: record.controllerEpoch, frontier: record.writeFrontier ?? 0 });
+  }
+
+  write(lease: NativeTerminalControllerLease, data: string, identity?: OwnerWriteIdentity): void | OwnerAppliedFrontier {
     if (data.length === 0) {
       throw new RangeError("terminal input must not be empty");
     }
     const record = this.#requireController(lease);
+    if (identity !== undefined) {
+      identity = parseOwnerWriteIdentity(identity);
+      if (record.controllerResumeToken === undefined || lease.resumeToken !== record.controllerResumeToken ||
+          identity.sessionId !== record.id || identity.incarnation !== record.incarnation ||
+          identity.controllerEpoch !== record.controllerEpoch || identity.seq < 1) {
+        throw new NativeTerminalWriteIdentityError("write-identity-invalid", "identity does not match the resumable controller lease");
+      }
+      const frontier = record.writeFrontier!;
+      const digest = createHash("sha256").update(data).digest();
+      if (identity.seq <= frontier) {
+        if (identity.seq === frontier && !digest.equals(record.lastWriteDigest!)) {
+          throw new NativeTerminalWriteIdentityError("write-identity-conflict", "last write identity was reused with different input");
+        }
+        return this.#appliedFrontier(record);
+      }
+      if (identity.seq !== frontier + 1) throw new NativeTerminalWriteIdentityError("write-sequence-gap", `expected ${frontier + 1}, received ${identity.seq}`);
+      if (record.controllerActivity === "human") record.lastHumanActivityAt = Date.now();
+      // Synchronous node-pty submission and frontier advancement share one
+      // owner turn. Frontend death cannot separate them. Owner crash is outside
+      // D21: this frontier is intentionally not a durable delivery journal.
+      record.pty.write(data);
+      record.writeFrontier = identity.seq;
+      record.lastWriteDigest = digest;
+      return this.#appliedFrontier(record);
+    }
+    if (record.controllerResumeToken !== undefined) throw new NativeTerminalWriteIdentityError("write-identity-required", "resumable controllers must identify every write");
     if (record.controllerActivity === "human") record.lastHumanActivityAt = Date.now();
     record.pty.write(data);
   }
@@ -2052,6 +2168,10 @@ export class NativeTerminalHost {
     record.controllerActivity = null;
     record.controllerIdentity = null;
     record.controllerEpoch += 1;
+    record.controllerResumeToken = undefined;
+    record.controllerProcessStartTime = undefined;
+    record.writeFrontier = undefined;
+    record.lastWriteDigest = undefined;
   }
 
   /**

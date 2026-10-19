@@ -194,6 +194,11 @@ async function selectLaunchClient(fenced: boolean): Promise<{ client: NativeTerm
   const client = await launchClient(historical);
   const ping = await client.ping();
   if (!fenced || paths.length === 1) return { client, socketPath: historical };
+  // A B endpoint certifies admission itself. Fleet inventory can prove the
+  // compatible endpoint absent; probing must not start an idle PTY owner.
+  if (ping.launchFence === true && (ping as typeof ping & { owner?: { pid: number } }).owner?.pid === ping.hostPid) {
+    return { client, socketPath: historical };
+  }
   const compatible = paths[1]!;
   // Initialize the second known endpoint so admission obtains a complete
   // inventory even when the historical host already provides the fence.
@@ -306,7 +311,7 @@ type NativeTerminalAttachClient = Pick<
   | "write"
   | "resize"
   | "close"
->;
+> & Partial<Pick<NativeTerminalClient, "ping">>;
 
 export type NativeTerminalAttachRuntime = {
   connect(): Promise<NativeTerminalAttachClient>;
@@ -436,6 +441,10 @@ export async function runAttach(
   let pendingInputBytes = 0;
   const pendingInput: Buffer[] = [];
   let inputPump: Promise<void> | undefined;
+  const writeIdentities = new WeakMap<Buffer, import("./owner-protocol.js").OwnerWriteIdentity>();
+  let writeIdentityNegotiated = false;
+  let nextWriteSeq = 1;
+  let resumeLease: NativeTerminalControllerLease | undefined;
   let takeoverPending = options.takeover === true;
   let tty = "not-a-tty";
   try { tty = readlinkSync("/proc/self/fd/0"); } catch { /* Non-Linux terminal. */ }
@@ -504,17 +513,27 @@ export async function runAttach(
         if (current === undefined) return;
         const chunk = pendingInput[0]!;
         try {
-          await current.client.write(current.lease, chunk.toString("utf8"));
+          let writeIdentity = writeIdentities.get(chunk);
+          if (writeIdentityNegotiated && writeIdentity === undefined) {
+            writeIdentity = { sessionId: current.lease.id, incarnation: current.lease.incarnation, controllerEpoch: current.lease.epoch, seq: nextWriteSeq++ };
+            writeIdentities.set(chunk, writeIdentity);
+          }
+          if (writeIdentity === undefined) await current.client.write(current.lease, chunk.toString("utf8"));
+          else await current.client.write(current.lease, chunk.toString("utf8"), { writeIdentity });
           pendingInput.shift();
           pendingInputBytes -= chunk.length;
         } catch (error) {
-          // The host may have accepted the write before the response path
-          // broke. Drop this ONE uncertain chunk with an explicit warning;
-          // replaying it could duplicate a command. Later queued input stays
-          // ordered and is delivered only after a fresh exclusive lease.
-          pendingInput.shift();
-          pendingInputBytes -= chunk.length;
-          markTransportFailure(current, error, true);
+          // D21 retries retain the original identity and queue position. A
+          // legacy peer still drops the uncertain chunk with a warning.
+          if (!writeIdentityNegotiated) {
+            pendingInput.shift();
+            pendingInputBytes -= chunk.length;
+          }
+          if (error instanceof NativeTerminalRemoteError && error.writeIdentityReason !== undefined) {
+            stdout.write(`\r\n[h2a] ${error.message}; attach detached\r\n`);
+            terminalEnded = true;
+            closeActive();
+          } else markTransportFailure(current, error, !writeIdentityNegotiated);
           return;
         }
       }
@@ -530,7 +549,6 @@ export async function runAttach(
     const chunk = Buffer.isBuffer(value) ? Buffer.from(value) : Buffer.from(value);
     if (chunk.includes(DETACH_BYTE)) {
       detached = true;
-      closeActive();
       return;
     }
     if (pendingInputBytes + chunk.length > ATTACH_PENDING_INPUT_MAX_BYTES) {
@@ -540,7 +558,6 @@ export async function runAttach(
       );
       appendCrashLog("attach", { event: "refusal", sessionId: id, reason: "input-buffer-full" });
       detached = true;
-      closeActive();
       return;
     }
     pendingInput.push(chunk);
@@ -548,7 +565,7 @@ export async function runAttach(
     pumpInput();
   };
   stdin.on("data", onInput);
-  const onEnd = (): void => { detached = true; closeActive(); };
+  const onEnd = (): void => { detached = true; };
   stdin.on("end", onEnd);
   const resize = (): void => {
     const current = active;
@@ -563,6 +580,9 @@ export async function runAttach(
   const connectAndAcquire = async (): Promise<NativeTerminalSessionState> => {
     const client = await runtime.connect();
     try {
+      const ping = client.ping === undefined ? undefined : await client.ping();
+      const capable = ping?.capabilities?.includes("write-identity-v1") === true;
+      if (writeIdentityNegotiated && !capable) throw new Error("terminal write-identity capability lost during reconnect");
       const state = await client.state(id);
       if (state.status === "exited") {
         client.close();
@@ -572,8 +592,18 @@ export async function runAttach(
         id,
         `h2a-attach-${process.pid}`,
         "human",
-        { takeover: takeoverPending, pid: process.pid, tty },
+        { takeover: takeoverPending, pid: process.pid, tty,
+          ...(capable ? { writeIdentity: true, ...(resumeLease === undefined ? {} : { resumeLease }) } : {}),
+        },
       );
+      if (capable) {
+        if (!lease.resumeToken || !lease.appliedFrontier || lease.appliedFrontier.controllerId !== lease.controllerId || lease.appliedFrontier.epoch !== lease.epoch || !Number.isSafeInteger(lease.appliedFrontier.frontier) || lease.appliedFrontier.frontier < 0) {
+          throw new TypeError("terminal peer advertised write identities without a resumable frontier");
+        }
+        writeIdentityNegotiated = true;
+        resumeLease = lease;
+        nextWriteSeq = Math.max(nextWriteSeq, lease.appliedFrontier.frontier + 1);
+      }
       // A reconnect must never take the terminal back from a newer attach.
       takeoverPending = false;
       active = { client, lease };
@@ -643,7 +673,7 @@ export async function runAttach(
             nextStatePollAt = runtime.now() + ATTACH_STATE_POLL_MS;
             break;
           } catch (error) {
-            if (error instanceof NativeTerminalRemoteError && error.message.includes("already has a controller")) {
+            if (error instanceof NativeTerminalRemoteError && (error.message.includes("already has a controller") || error.message === "stale terminal controller lease")) {
               stdout.write(`\r\n[h2a] ${error.message}; attach detached\r\n`);
               appendCrashLog("attach", { event: "refusal", sessionId: id, reason: "already-has-controller", detail: error.message });
               terminalEnded = true;
@@ -775,7 +805,7 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
     case "list": {
       const inventory = await inventoryFor(parsed);
       emit({ sessions: inventory.sessions, complete: inventory.complete,
-        hosts: inventory.hosts.map(({ socketPath, reason, absent }) => ({ socketPath, reachable: !absent && reason === undefined, ...(absent ? { absent } : {}), ...(reason ? { reason } : {}) })) });
+        hosts: inventory.hosts.map(({ client: _client, ...host }) => ({ ...host, reachable: !host.absent && host.reason === undefined })) });
       return 0;
     }
     case "state": {

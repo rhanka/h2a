@@ -26,7 +26,7 @@ import { HOST_FAULT_COUNTERS, hostFaultCounters } from "./fault-counters.js";
 import { hostLogSinkDiagnostics } from "./crash-safe-log.js";
 import type { NativeTerminalStopSignal } from "./protocol.js";
 import { NATIVE_TERMINAL_MAX_REPLAY_CHUNKS_PER_SESSION } from "./replay-buffer.js";
-import { isStagedSocketName, proveNativeTerminalEndpointAbsent, startNativeTerminalHostServer, type NativeTerminalHostServer } from "./server.js";
+import { darwinSocketPublicationLockPath, isStagedSocketName, proveNativeTerminalEndpointAbsent, startNativeTerminalHostServer, type NativeTerminalHostServer } from "./server.js";
 import { defaultNativeTerminalSocketPath } from "./socket-path.js";
 import { NATIVE_TERMINAL_MAX_FRAME_BYTES } from "./protocol.js";
 import { assertListenerFaultExit } from "../../test/helpers/listener-fault.js";
@@ -398,11 +398,15 @@ describe("native terminal local transport", () => {
     await closed;
     expect(hostLogSinkDiagnostics().faultCounters.h2a_host_socket_conn_errors).toBe((before[HOST_FAULT_COUNTERS.hostSocketConnectionErrors] ?? 0) + 1);
     // Exercise both frame-size destroy branches and the outer dispatch catch.
+    // Request execution is async (Phase B forwarding), so a malformed chunk
+    // destroys its connection on a microtask, not synchronously: flush
+    // microtasks (no timers) before asserting the deterministic outcome.
     for (const chunk of ["x".repeat(NATIVE_TERMINAL_MAX_FRAME_BYTES + 1) + "\n",
       "x".repeat(NATIVE_TERMINAL_MAX_FRAME_BYTES + 1),
       { [Symbol.toPrimitive]() { throw new Error("bad chunk"); } }]) {
       const faulty = await peer();
       expect(() => faulty.accepted.emit("data", chunk)).not.toThrow();
+      await new Promise((resolve) => setImmediate(resolve));
       expect(faulty.accepted.destroyed).toBe(true);
     }
     expect(hostLogSinkDiagnostics().faultCounters.h2a_host_client_frame_destroys).toBe((before[HOST_FAULT_COUNTERS.hostClientFrameDestroys] ?? 0) + 3);
@@ -1064,5 +1068,25 @@ describe("native terminal socket path limits", () => {
     expect(fallback.startsWith(join(tmpdir(), "h2a-nt-"))).toBe(true);
     expect(fallback.endsWith("/native-terminal.sock")).toBe(true);
     expect(Buffer.byteLength(fallback)).toBeLessThanOrEqual(limit);
+  });
+
+  // Lot BM: the darwin filesystem lock path. Pure derivation — deterministic
+  // on every platform, so it runs in the Linux set too.
+  it("should derive a filesystem lock path per socket without abstract addresses", () => {
+    const first = darwinSocketPublicationLockPath("/run/user/1000/h2a-nt/native-terminal.sock", "secret");
+    expect(first.startsWith("/run/user/1000/h2a-nt/")).toBe(true);
+    expect(first.endsWith(".sock")).toBe(true);
+    expect(first.includes("\0")).toBe(false);
+    expect(darwinSocketPublicationLockPath("/run/user/1000/h2a-nt/native-terminal.sock", "secret")).toBe(first);
+    expect(darwinSocketPublicationLockPath("/run/user/1000/h2a-nt/native-terminal.lf1.sock", "secret")).not.toBe(first);
+    expect(darwinSocketPublicationLockPath("/run/user/1000/h2a-nt/native-terminal.sock", "other")).not.toBe(first);
+    expect(Buffer.byteLength(first)).toBeLessThanOrEqual(103);
+  });
+
+  it("should refuse coded when the darwin lock path exceeds the socket budget", () => {
+    const deep = `/${"d".repeat(200)}/native-terminal.sock`;
+    expect(() => darwinSocketPublicationLockPath(deep, "secret")).toThrowError(
+      expect.objectContaining({ code: "H2A_PUBLICATION_LOCK_PATH_UNUSABLE", exitCode: 3 }),
+    );
   });
 });

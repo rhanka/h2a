@@ -30,6 +30,19 @@ import {
   type NativeTerminalProcFrame,
   type NativeTerminalProcessGroupReaper,
 } from "./host.js";
+import {
+  classifyDurableProcFrame,
+  DARWIN_PID_NAMESPACE_SENTINEL,
+  darwinBootIdFromEpochSeconds,
+  parseDarwinProcessTable,
+  parseIoPlatformUuid,
+  parsePsLstart,
+  readDarwinBootId,
+  readDarwinBootTimeMs,
+  readDarwinProcessTable,
+  readDarwinProcessSessionToken,
+  readDarwinProcessStartTime,
+} from "../proc-identity.js";
 import type { NativeTerminalStopSignal } from "./protocol.js";
 import { HOST_FAULT_COUNTERS, hostFaultCounters } from "./fault-counters.js";
 import { hostLogSinkDiagnostics } from "./crash-safe-log.js";
@@ -1553,7 +1566,7 @@ describe("NativeTerminalHost", () => {
     });
   });
 
-  it.skipIf(process.platform !== "linux")(
+  if (process.platform === "linux") it(
     "PGID_GUARD_PROVES_THE_GROUP_GONE_WHEN_THE_ROW_WAS_WRITTEN_BEFORE_THIS_BOOT",
     async () => {
       // A `pgidBootId` that differs from this reader's is POSITIVE proof that
@@ -1618,7 +1631,7 @@ describe("NativeTerminalHost", () => {
     },
   );
 
-  it.skipIf(process.platform !== "linux")(
+  if (process.platform === "linux") it(
     "PGID_GUARD_GRANTS_NO_STALE_BOOT_PROOF_ACROSS_A_PID_NAMESPACE",
     async () => {
       // Same foreign boot id, but the row also comes from another pid
@@ -1718,7 +1731,7 @@ describe("NativeTerminalHost", () => {
   const FOREIGN_BOOT_ID = "00000000-0000-4000-8000-000000000000";
   const FOREIGN_MACHINE_ID = "0123456789abcdef0123456789abcdef";
 
-  it.skipIf(process.platform !== "linux")(
+  if (process.platform === "linux") it(
     "PGID_GUARD_GRANTS_NO_STALE_BOOT_PROOF_TO_A_ROW_WRITTEN_BY_ANOTHER_MACHINE",
     async () => {
       // A registry shared by two machines (a networked `$HOME`): machine A's
@@ -1764,7 +1777,7 @@ describe("NativeTerminalHost", () => {
     },
   );
 
-  it.skipIf(process.platform !== "linux")(
+  if (process.platform === "linux") it(
     "PGID_GUARD_GRANTS_NO_STALE_BOOT_PROOF_WHEN_EITHER_SIDE_HAS_NO_MACHINE_ID",
     async () => {
       // "Same machine" must be KNOWN on both sides: a row written before the
@@ -1806,7 +1819,7 @@ describe("NativeTerminalHost", () => {
     },
   );
 
-  it.skipIf(process.platform !== "linux")(
+  if (process.platform === "linux") it(
     "PGID_GUARD_GRANTS_NO_STALE_BOOT_PROOF_WITHOUT_A_KNOWN_BOOT_ID_ON_BOTH_SIDES",
     async () => {
       // The boot half of the same rule: a different boot is a proof only when
@@ -1847,7 +1860,7 @@ describe("NativeTerminalHost", () => {
     },
   );
 
-  it.skipIf(process.platform !== "linux")(
+  if (process.platform === "linux") it(
     "PGID_GUARD_IGNORES_THE_MACHINE_ID_WITHIN_ONE_BOOT",
     async () => {
       // The machine id gates ONLY the boot proof. Within one boot id the kernel
@@ -1916,7 +1929,7 @@ describe("NativeTerminalHost", () => {
     expect(killGroup).toHaveBeenCalledWith(pgid, "SIGKILL");
   });
 
-  it("REAL_PROC_ZOMBIE_CENSUS_ANSWERS_ONLY_FROM_POSITIVE_EVIDENCE", async () => {
+  if (process.platform === "linux") it("REAL_PROC_ZOMBIE_CENSUS_ANSWERS_ONLY_FROM_POSITIVE_EVIDENCE", async () => {
     // The unit test above injects the census, so it is blind to a regression
     // inside the real /proc reader. This one drives the REAL exported helper
     // against REAL zombies, in both directions.
@@ -2010,7 +2023,7 @@ describe("NativeTerminalHost", () => {
     expect(groupIsOnlyZombies(4_100, root)).toBe(false);
   });
 
-  it("ZOMBIE_CENSUS_STILL_CLASSIFIES_A_GROUP_WHOSE_EVERY_TASK_IS_A_ZOMBIE_AS_DEAD", () => {
+  if (process.platform === "linux") it("ZOMBIE_CENSUS_STILL_CLASSIFIES_A_GROUP_WHOSE_EVERY_TASK_IS_A_ZOMBIE_AS_DEAD", () => {
     // The other direction of the same rule, so the per-task check cannot be
     // "fixed" by refusing everything: a group whose members are zombies down to
     // the last task is still DEAD for containment (the round-3 benefit).
@@ -2033,7 +2046,7 @@ describe("NativeTerminalHost", () => {
     expect(groupIsOnlyZombies(4_200, root)).toBe(true);
   });
 
-  it("ZOMBIE_CENSUS_IS_UNKNOWN_WHENEVER_THE_SCAN_ITSELF_COULD_NOT_ANSWER", () => {
+  if (process.platform === "linux") it("ZOMBIE_CENSUS_IS_UNKNOWN_WHENEVER_THE_SCAN_ITSELF_COULD_NOT_ANSWER", () => {
     // Three ways the census cannot see the whole group. Each must yield "not
     // proven dead", never a manufactured death verdict:
     //
@@ -2115,7 +2128,7 @@ describe("NativeTerminalHost", () => {
     expect(groupIsOnlyZombies(4_700, otherTree)).toBe(false);
   });
 
-  it.skipIf(!HAS_CC)(
+  if (process.platform === "linux") it(
     "REAL_PROC_CENSUS_REFUSES_A_REAL_MULTITHREADED_PROCESS_WHOSE_LEADER_THREAD_EXITED",
     async () => {
       // The fixture above pins the parsing rule; this one pins it against a REAL
@@ -2894,4 +2907,142 @@ describe("NativeTerminalHost", () => {
     host.write(current, "current");
     expect(ptys.get("alpha")!.write).toHaveBeenCalledWith("current");
   });
+});
+
+// Lot BM: darwin observation parsing. Pure fixture tests — deterministic on
+// every platform, so they run in the Linux set too and pin the parsers the
+// macOS substrate proofs rely on.
+describe("darwin observation parsing", () => {
+  it("should parse ps lstart output into epoch seconds", () => {
+    expect(parsePsLstart("Mon Oct 19 10:23:45 2026\n")).toBe(
+      Math.floor(Date.UTC(2026, 9, 19, 10, 23, 45) / 1000),
+    );
+    expect(parsePsLstart("Tue Oct  6 03:04:05 2026")).toBe(
+      Math.floor(Date.UTC(2026, 9, 6, 3, 4, 5) / 1000),
+    );
+    for (const bad of ["", "garbage", "Mon Foo 19 10:23:45 2026", "Mon Oct 32 10:23:45 2026",
+      "Mon Oct 19 25:23:45 2026", "Mon Oct 19 10:23:45 1969", "Oct 19 10:23:45 2026"]) {
+      expect(parsePsLstart(bad)).toBeUndefined();
+    }
+  });
+
+  it("should normalize an ioreg hardware UUID to the frame shape", () => {
+    const output = `+-o IOPlatformExpertDevice  <class IOPlatformExpertDevice>
+  |   "IOPlatformUUID" = "A1B2C3D4-E5F6-4711-8899-AABBCCDDEEFF"
+`;
+    expect(parseIoPlatformUuid(output)).toBe("a1b2c3d4e5f647118899aabbccddeeff");
+    expect(parseIoPlatformUuid("no uuid here")).toBeUndefined();
+    expect(parseIoPlatformUuid(`"IOPlatformUUID" = "00000000-0000-0000-0000-000000000000"`)).toBeUndefined();
+    expect(parseIoPlatformUuid(`"IOPlatformUUID" = "not-a-uuid"`)).toBeUndefined();
+  });
+
+  it("should encode the darwin boot instant deterministically in frame shape", () => {
+    const first = darwinBootIdFromEpochSeconds(1_791_000_000);
+    const second = darwinBootIdFromEpochSeconds(1_791_000_000);
+    expect(first).toBe(second);
+    expect(first).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    expect(darwinBootIdFromEpochSeconds(1_791_000_001)).not.toBe(first);
+  });
+
+  it("should classify darwin frames without touching the shared validator", () => {
+    expect(DARWIN_PID_NAMESPACE_SENTINEL).toBe("0");
+    const machineId = "a".repeat(32);
+    const boot = darwinBootIdFromEpochSeconds(1_791_000_000);
+    const darwin = { machineId, bootId: boot, pidNamespace: "0" };
+    expect(classifyDurableProcFrame(darwin, darwin)).toBe("current");
+    expect(classifyDurableProcFrame({ ...darwin, bootId: darwinBootIdFromEpochSeconds(1) }, darwin))
+      .toBe("stale-boot");
+    // A Linux row (real namespace inode) never validates in a darwin frame.
+    expect(classifyDurableProcFrame({ ...darwin, pidNamespace: "4026531836" }, darwin))
+      .toBe("foreign-frame");
+    expect(classifyDurableProcFrame(darwin, { ...darwin, pidNamespace: "4026531836" }))
+      .toBe("foreign-frame");
+  });
+
+  it("should parse the ps process table and poison partial output", () => {
+    const output = [
+      "  PID  PGID STAT COMMAND",
+      "    1     0 Ss   /sbin/launchd",
+      "  123   123 Ss   /bin/bash -c sleep 60",
+      "  124   123 S    sleep 60",
+      "  125   125 Z    (defunct)",
+      "",
+    ].join("\n");
+    const table = parseDarwinProcessTable(output);
+    expect(table).toEqual([
+      { pid: 1, pgid: 0, stat: "S", args: "/sbin/launchd" },
+      { pid: 123, pgid: 123, stat: "S", args: "/bin/bash -c sleep 60" },
+      { pid: 124, pgid: 123, stat: "S", args: "sleep 60" },
+      { pid: 125, pgid: 125, stat: "Z", args: "(defunct)" },
+    ]);
+    expect(parseDarwinProcessTable("PID PGID STAT COMMAND\nnot a row")).toBeUndefined();
+    expect(parseDarwinProcessTable("PID PGID STAT COMMAND\n")).toEqual([]);
+  });
+
+  it("should read start times and tokens through the injected ps runner", () => {
+    const run = (args: ReadonlyArray<string>): string => {
+      if (args.includes("lstart=")) return "Mon Oct 19 10:23:45 2026\n";
+      if (args.includes("-E")) throw Object.assign(new Error("unsupported"), { code: 1 });
+      if (args.includes("e")) return "  PID TTY TIME CMD\n  42 ?? 0:00.01 node H2A_SESSION_TOKEN=abc123\n";
+      throw new Error(`unexpected ps invocation: ${args.join(" ")}`);
+    };
+    expect(readDarwinProcessStartTime(42, run)).toBe(
+      Math.floor(Date.UTC(2026, 9, 19, 10, 23, 45) / 1000),
+    );
+    expect(readDarwinProcessStartTime(42, () => { throw new Error("no ps"); })).toBeUndefined();
+    expect(readDarwinProcessStartTime(-1, run)).toBeUndefined();
+    // The first spelling fails, the second carries the token.
+    expect(readDarwinProcessSessionToken(42, run)).toBe("abc123");
+    expect(readDarwinProcessSessionToken(42, () => "")).toBeUndefined();
+  });
+});
+
+
+describe('darwin confinement and kernel boot identity', () => {
+  it('should validate a recorded Darwin birth without depending on unrelated process receipts', () => {
+    const birth = readDarwinProcessStartTime(process.pid);
+    expect(birth).toBeDefined();
+    const root = join(scratch, 'darwin-owned');
+    mkdirSync(root, { mode: 0o700 });
+    writeFileSync(join(root, `darwin-${process.pid}.json`), JSON.stringify({ pid: process.pid, birth }));
+    writeFileSync(join(root, `darwin-${process.pid + 10000000}.json`), 'invalid unrelated receipt');
+    const previousOwned = process.env.H2A_TEST_OWNED_PROC_ROOT, previousRoot = process.env.H2A_TEST_PROC_ROOT;
+    try {
+      process.env.H2A_TEST_OWNED_PROC_ROOT = root; process.env.H2A_TEST_PROC_ROOT = root;
+      expect(readDarwinProcessStartTime(process.pid)).toBe(birth);
+      writeFileSync(join(root, `darwin-${process.pid}.json`), JSON.stringify({ pid: process.pid, birth: birth! + 1 }));
+      expect(readDarwinProcessStartTime(process.pid)).toBeUndefined();
+    } finally {
+      if (previousOwned === undefined) delete process.env.H2A_TEST_OWNED_PROC_ROOT; else process.env.H2A_TEST_OWNED_PROC_ROOT = previousOwned;
+      if (previousRoot === undefined) delete process.env.H2A_TEST_PROC_ROOT; else process.env.H2A_TEST_PROC_ROOT = previousRoot;
+    }
+  });
+  it('should obtain boot identity from sysctl without inspecting launchd', () => {
+    const uuid='c9f0fc27-129b-4cb2-9e1f-462cb1d481cb';
+    const run=(args:ReadonlyArray<string>)=>{expect(args).toEqual(['-n','kern.bootsessionuuid']);return uuid;};
+    expect(readDarwinBootId(run)).toBe(uuid);
+    expect(readDarwinBootId(()=> 'unreadable')).toBeUndefined();
+  });
+  it('should obtain the absolute boot time from sysctl without inspecting another process', () => {
+    expect(readDarwinBootTimeMs(args=>{expect(args).toEqual(['-n','kern.boottime']);return '{ sec = 1729231200, usec = 123456 }';})).toBe(1729231200123.456);
+    expect(readDarwinBootTimeMs(()=> 'broken')).toBeUndefined();
+  });
+  it('should census only fixture-owned process ids when the private test view is active', () => {
+    expect(process.env.H2A_TEST_OWNED_PROC_ROOT).toBeDefined();
+    const rows=readDarwinProcessTable(args=>{
+      expect(args).not.toContain('-axo');expect(args).toContain('-p');
+      return 'PID PGID STAT COMMAND\n'+process.pid+' '+process.pid+' R owned-fixture';
+    });
+    expect(rows).toEqual([{pid:process.pid,pgid:process.pid,stat:'R',args:'owned-fixture'}]);
+  });
+});
+
+
+it('should keep the same Darwin process birth when reader time zones differ', () => {
+    const previous=process.env.TZ;
+    try {
+      process.env.TZ='Pacific/Honolulu';const first=readDarwinProcessStartTime(process.pid);
+      process.env.TZ='UTC';const second=readDarwinProcessStartTime(process.pid);
+      expect(first).toBeDefined();expect(second).toBe(first);
+    } finally {if(previous===undefined)delete process.env.TZ;else process.env.TZ=previous;}
 });

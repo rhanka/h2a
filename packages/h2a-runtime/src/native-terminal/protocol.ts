@@ -89,6 +89,7 @@ export type NativeTerminalResponse =
 
 export type NativeTerminalPing = Readonly<{
   launchFence?: boolean;
+  capabilities?: ReadonlyArray<string>;
   generation: string;
   hostPid: number;
   protocolVersion: typeof NATIVE_TERMINAL_PROTOCOL_VERSION;
@@ -101,11 +102,26 @@ export type NativeTerminalLeaseParams = Readonly<{
 
 export class NativeTerminalRemoteError extends Error {
   readonly code: NativeTerminalErrorResponse["error"]["code"];
+  readonly writeIdentityReason: NativeTerminalWriteIdentityReason | undefined;
 
   constructor(error: NativeTerminalErrorResponse["error"]) {
     super(error.message);
     this.name = "NativeTerminalRemoteError";
     this.code = error.code;
+    this.writeIdentityReason = writeIdentityReason(error.message);
+  }
+}
+
+export type NativeTerminalWriteIdentityReason = "write-sequence-gap" | "write-identity-conflict" | "write-identity-invalid" | "write-identity-required";
+function writeIdentityReason(message: string): NativeTerminalWriteIdentityReason | undefined {
+  const prefix = message.split(":", 1)[0];
+  return ["write-sequence-gap", "write-identity-conflict", "write-identity-invalid", "write-identity-required"].includes(prefix!)
+    ? prefix as NativeTerminalWriteIdentityReason : undefined;
+}
+export class NativeTerminalWriteIdentityError extends Error {
+  constructor(readonly reason: NativeTerminalWriteIdentityReason, detail: string) {
+    super(`${reason}: ${detail}`);
+    this.name = "NativeTerminalWriteIdentityError";
   }
 }
 

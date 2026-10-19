@@ -1,0 +1,69 @@
+name: pty-macos-qualification
+
+# Lot BM owns this workflow (SPEC_EVOL_PTY_B_BATCH_HANDOVER §5/D27): it runs
+# the darwin file sets on macOS ARM64 with skipped: 0 enforcement. A dedicated
+# workflow — not a matrix cell in ci.yml — because ci.yml's build-and-test runs
+# the full Linux-coupled suite, and unparking macOS there would turn unrelated
+# suites red-and-tolerated instead of inactive (owner decision 2026-07-28).
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  darwin-substrate:
+    runs-on: macos-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        # Owner decision 2026-10-12: minimum Node 22; qualify 22 and 24.
+        node: ["22", "24"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - name: Require macOS ARM64
+        run: node -e 'console.log(`${process.platform}/${process.arch}`); if(process.platform!=="darwin" || process.arch!=="arm64") process.exit(1)'
+      - run: npm ci
+      # The darwin tests spawn the built owner/frontend processes from dist.
+      - run: npm run build
+      - name: Run the darwin substrate file set
+        id: substrate
+        run: |
+          set -euo pipefail
+          npx --no-install vitest run --config packages/h2a-runtime/vitest.config.ts \
+            packages/h2a-runtime/src/native-terminal/darwin-publication.test.ts \
+            packages/h2a-runtime/src/native-terminal/darwin-identity.test.ts \
+            packages/h2a-runtime/src/native-terminal/write-ack.test.ts \
+            packages/h2a-runtime/src/native-terminal/host.test.ts \
+            packages/h2a-runtime/src/native-terminal/client.test.ts \
+            packages/h2a-runtime/src/native-terminal/op.test.ts \
+            packages/h2a-runtime/src/native-terminal/replay-buffer.test.ts \
+            packages/h2a-runtime/src/native-terminal/frontend-swap.functional.test.ts \
+            packages/h2a-runtime/src/native-terminal/upgrade-pty-contract.test.ts \
+            packages/h2a-runtime/src/native-terminal/legacy-drain.functional.test.ts \
+            packages/h2a-runtime/src/native-terminal/phase-b-agent-qualification.functional.test.ts \
+            packages/h2a-runtime/src/native-terminal/fleet.test.ts \
+            packages/h2a-runtime/src/native-terminal/supervisor.test.ts 2>&1 | tee /tmp/darwin-pty.log
+      - name: Run the portable upgrade file set
+        if: ${{ !cancelled() && steps.substrate.outcome != 'skipped' }}
+        run: |
+          set -euo pipefail
+          node --test --test-reporter=tap \
+            packages/h2a/test/upgrade.test.js \
+            packages/h2a/test/upgrade-swap.test.js \
+            packages/h2a/test/upgrade-boot-worker.test.js 2>&1 | tee -a /tmp/darwin-pty.log
+      - name: Enforce skipped 0 in the darwin set
+        if: ${{ !cancelled() && steps.substrate.outcome != 'skipped' }}
+        run: |
+          set -euo pipefail
+          node -e 'const r=require("./tmp/h2a-runtime-vitest-report.json"); if(r.numPendingTests!==0 || r.numTodoTests!==0 || r.numFailedTests!==0) process.exit(1)'
+          if grep -E "[1-9][0-9]* skipped|^# skipped [1-9][0-9]*|# SKIP" /tmp/darwin-pty.log; then
+            echo "darwin set must have skipped: 0"
+            exit 1
+          fi
