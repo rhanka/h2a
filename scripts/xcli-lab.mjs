@@ -193,12 +193,9 @@ export function sourceBuild(root) {
 
 // These are the documented auth-only files, not the product's broad remote
 // auth bundle: hooks, plugins, commands and MCP settings must never be copied.
-// Lot L4 login confinement: only the 'codex' and 'claude' roles map login files.
-// Every other family is refused outright (no 'gemini'/'agy'/'muse'/'vibe' logins),
-// so a real seat outside those roles can never receive owner credentials
-// through this path. Sources open with a plain open() + fstat (no
-// lstat/copy race, no symlinks, regular files only); both ends stay inside
-// the private target; mapped bytes are 0600. The caller witnesses the mapping
+// Sources are opened through descriptor-relative, no-symlink walks; only
+// regular files in the explicit family allowlist cross into the private
+// HOME. Mapped bytes are 0600. The caller witnesses the mapping
 // (role, allowlisted name, sha256 — never content) in the row evidence.
 // LOGIN_ROLES is declared after LOGIN_ALLOWLIST below (derived keys).
 // Shared home for the login allowlist (Lot L5): the worker records copies
@@ -268,7 +265,6 @@ export function copyLogin(cli, authHome, target, env) {
       if (!info.isFile()) continue;
       const out = loginCopyPath(env, cli, name);
       inside(target, out);
-      fs.mkdirSync(dirname(out), { recursive: true, mode: 0o700 });
       let bytes = fs.readFileSync(fd);
       if (cli === 'claude' && name === '.claude.json') {
         const source = JSON.parse(bytes.toString('utf8'));
@@ -276,8 +272,11 @@ export function copyLogin(cli, authHome, target, env) {
           hasCompletedOnboarding: source.hasCompletedOnboarding === true,
           lastOnboardingVersion: /^\d+\.\d+\.\d+$/.test(source.lastOnboardingVersion ?? '') ? source.lastOnboardingVersion : undefined });
       }
-      fs.writeFileSync(out, bytes);
-      fs.chmodSync(out, 0o600);
+      const destination = openLoginFile(target, relative(target, out), true);
+      try {
+        assert.ok(fs.fstatSync(destination).isFile(), 'login destination must be regular');
+        fs.writeFileSync(destination, bytes); fs.fchmodSync(destination, 0o600);
+      } finally { fs.closeSync(destination); }
       copied.push(name);
     } finally { if (fd !== null) fs.closeSync(fd); }
   }
@@ -286,18 +285,24 @@ export function copyLogin(cli, authHome, target, env) {
 
 // Descriptor-relative walk: O_NOFOLLOW protects EVERY component, even if
 // an ancestor is concurrently renamed. Other platforms fail closed.
-function openLoginFile(authHome, name) {
+function openLoginFile(authHome, name, write = false) {
   assert.equal(process.platform, 'linux', 'login descriptor confinement requires Linux');
   assert.ok(!name.split('/').includes('..'), 'invalid login path');
   const parts = resolve(authHome, name).split('/').filter(Boolean);
   let directory = fs.openSync('/', fs.constants.O_RDONLY | fs.constants.O_DIRECTORY);
   try {
     for (const part of parts.slice(0, -1)) {
-      const next = fs.openSync(`/proc/self/fd/${directory}/${part}`,
-        fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW);
+      const path = `/proc/self/fd/${directory}/${part}`;
+      if (write) {
+        try { fs.mkdirSync(path, { mode: 0o700 }); }
+        catch (error) { if (error.code !== 'EEXIST') throw error; }
+      }
+      const next = fs.openSync(path, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW);
       fs.closeSync(directory); directory = next;
     }
-    return fs.openSync(`/proc/self/fd/${directory}/${parts.at(-1)}`, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    return fs.openSync(`/proc/self/fd/${directory}/${parts.at(-1)}`,
+      (write ? fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL : fs.constants.O_RDONLY) |
+      fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK, 0o600);
   } finally { fs.closeSync(directory); }
 }
 
@@ -382,12 +387,9 @@ function isPythonWrapper(text) {
   return lines.slice(1).some(line =>
     /(^|[;&|]\s*|\bexec\s+)(python(\d+(\.\d+){0,2})?|\/[\w./~+-]*python(\d+(\.\d+){0,2})?|(\/[\w./~+-]*env\s+)?(-S\s+)?python(\d+(\.\d+){0,2})?)\b/.test(line));
 }
-// Lot L6 (§8.3) execution journal: spawn-time (event-grade) records of our
-// launch chain, from cell start to cell end. Each record carries the resolved
-// executable path, so even ~1 ms descendants are recorded synchronously at
-// spawn — a cleanup snapshot could never catch them. Vendor-subtree
-// processes never record here; they fall under the vendor-runtime allowance
-// (§8.2) by construction, and the verdict states that scope.
+// Explicit instrumentation is useful for direct-worker diagnostics, but
+// proves no descendant observation. The parent replaces this partial view
+// with the kernel exec events from xcli-process-supervisor before publishing.
 export function recordExec(journalPath, entry) {
   assert.ok(entry && Number.isSafeInteger(entry.pid) && typeof entry.path === 'string' && entry.path.length > 0, 'exec record needs a pid and a path');
   assert.ok(entry.tag === 'harness' || entry.tag === 'vendor', 'exec record needs a chain tag');
@@ -409,7 +411,7 @@ export function classifyExecJournal(records) {
     try { if (pythonEntrypoint(record.path)) pythonDescendants.push(record.path); } catch { /* gone temp path: basename check above stands */ }
   }
   return { observed: Array.isArray(records) ? records.length : 0,
-    pythonDescendants, scope: 'spawn-event-our-chain; vendor-subtree-allowance' };
+    pythonDescendants, scope: 'explicit-records-only; no descendant-observation' };
 }
 
 export function classify(row) {

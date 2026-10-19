@@ -249,7 +249,7 @@ export async function runSeatPreflight(seat, { executables = {}, runAuthPrecheck
   if (!present.length) return { ...fail('preflight-auth-unproven'), ...facts };
   if (seat.family === 'muse') {
     assert.ok(typeof runAuthPrecheck === 'function', 'Muse auth precheck requires an injected runner');
-    const checked = await runAuthPrecheck(seat);
+    const checked = await runAuthPrecheck(seat, { executable, env, root });
     facts.modelCalls = checked.modelCalls ?? 1;
     if (!checked.ok) return { ...fail(checked.reason ?? 'preflight-auth-unproven'), ...facts };
     facts.authPrecheck = checked.detail ?? 'exec-preflight-accepted';
