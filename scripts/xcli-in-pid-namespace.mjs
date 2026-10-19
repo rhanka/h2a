@@ -44,7 +44,10 @@ if (process.argv[2] === '--gate') {
       `PATH=${process.env.PATH ?? '/usr/bin:/bin'}`,
       'GIT_CONFIG_COUNT=1', 'GIT_CONFIG_KEY_0=safe.directory', `GIT_CONFIG_VALUE_0=${repo}`,
       '/usr/bin/unshare', '--mount', '--pid', '--fork', '--mount-proc',
-      init, process.execPath, resolve(repo, 'node_modules/vitest/vitest.mjs'), ...vitestArgs], { stdio: 'inherit' });
+      // Only the namespace init needs root. Test scratch directories and
+      // reports must remain owned by the caller for the following CI steps.
+      init, '/usr/bin/setpriv', '--reuid', String(process.getuid()), '--regid', String(process.getgid()), '--clear-groups',
+      process.execPath, resolve(repo, 'node_modules/vitest/vitest.mjs'), ...vitestArgs], { stdio: 'inherit' });
     child.once('error', () => { process.exitCode = 1; });
     child.once('close', code => { rmSync(root, { recursive: true, force: true }); process.exitCode = code ?? 1; });
     for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => child.kill(signal));
@@ -67,7 +70,8 @@ if (process.argv[2] === '--gate') {
     `PATH=${process.env.PATH ?? '/usr/bin:/bin'}`,
     'GIT_CONFIG_COUNT=1', 'GIT_CONFIG_KEY_0=safe.directory', `GIT_CONFIG_VALUE_0=${repo}`,
     '/usr/bin/unshare', '--mount', '--pid', '--fork', '--mount-proc',
-    init, process.execPath, resolve(repo, target), ...args], { stdio: 'inherit' });
+    init, '/usr/bin/setpriv', '--reuid', String(process.getuid()), '--regid', String(process.getgid()), '--clear-groups',
+    process.execPath, resolve(repo, target), ...args], { stdio: 'inherit' });
   child.once('error', () => { process.exitCode = 1; });
   child.once('close', code => { rmSync(root, { recursive: true, force: true }); process.exitCode = code ?? 1; });
   for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => child.kill(signal));
