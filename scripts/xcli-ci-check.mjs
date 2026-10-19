@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
-import { matrix } from './xcli-lab.mjs';
-import { computeHarnessDigests, loadMatrixManifest, RECEIPT_VERSION } from './xcli-receipt-check.mjs';
+import { matrix, CLIS } from './xcli-lab.mjs';
+import { computeHarnessDigests, loadMatrixManifest, RECEIPT_VERSION, STAGE_KEYS } from './xcli-receipt-check.mjs';
 
 // Lot L11 (SPEC v3 §7.1): assemble the filtered campaign receipt from the
 // lane's own outputs — the qualify result, the persisted cap ledger, and the
@@ -11,40 +12,61 @@ import { computeHarnessDigests, loadMatrixManifest, RECEIPT_VERSION } from './xc
 // candidate tree (never trusted from the qualify output). Seat material
 // never enters the receipt: the seat manifest digest binds the receipt to
 // the manifest the lane used, and per-seat paths stay out.
-export function buildCampaignReceipt({ campaignRoot, sha, gate, repoRoot, cliVersions, manifestFile, seatManifestDigest }) {
+export function buildCampaignReceipt({ campaignRoot, sha, gate, repoRoot, cliVersions, manifestFile, seatManifestDigest, provenance }) {
   assert.ok(['merge', 'release'].includes(gate), 'receipt gate is merge or release');
   // The seat manifest lives outside the candidate tree, so the lane measures
   // its digest from the exact file it used and passes it in: the receipt is
   // bound to that manifest by publication, never by re-derivation here.
   assert.match(seatManifestDigest ?? '', /^[0-9a-f]{64}$/, 'seat manifest digest required');
-  const qualify = JSON.parse(fs.readFileSync(join(campaignRoot, 'qualification.json'), 'utf8'));
+  const sourceBytes = fs.readFileSync(join(campaignRoot, 'qualification.json'));
+  const qualify = JSON.parse(sourceBytes);
   assert.equal(qualify.version, 1, 'qualify output version must be 1');
+  assert.equal(qualify.sha, sha, 'source-sha-mismatch');
   const simulated = qualify.mode === 'simulated-model';
   const ledger = JSON.parse(fs.readFileSync(join(campaignRoot, 'campaign-ledger.json'), 'utf8'));
   const manifest = loadMatrixManifest(manifestFile ?? join(repoRoot, 'docs/cross-cli-matrix.json'));
   const mandatory = manifest.mandatory?.[gate] ?? [];
-  // Receipt scope is the probe: scenario cells never satisfy probe rows.
-  const byPair = new Map(qualify.cells
-    .filter(cell => (cell.scenario ?? 'probe') === 'probe')
-    .map(cell => [`${cell.sender}:${cell.receiver}`, cell]));
+  // An exact scenario and ordered pair are required; one scenario cannot
+  // satisfy another row, even when they share the same pair.
+  const byPair = new Map();
+  for (const cell of qualify.cells) {
+    const key = `${cell.scenario ?? 'probe'}:${cell.sender}:${cell.receiver}`;
+    if (!byPair.has(key)) byPair.set(key, []);
+    byPair.get(key).push(cell);
+  }
   const cells = mandatory.map(row => {
-    const source = byPair.get(row.pair) ?? {};
+    const repetitions = byPair.get(`${row.scenario}:${row.pair}`) ?? [];
+    const source = repetitions.find(cell => cell.status !== 'measured-OK' || cell.blocker || cell.failure || cell.cleanupFailed) ?? repetitions[0] ?? {};
     return { scenario: row.scenario, pair: row.pair,
       status: source.status ?? 'blocked',
       simulated: simulated || source.status === undefined ? true : (source.simulated ?? false),
       blocker: source.blocker ?? (source.status === undefined ? 'cell-missing-in-output' : null),
-      stages: { sent: source.sent ?? null, delivered: source.delivered ?? null },
-      caps: { sessionsDebited: 1 },
-      cleanup: { secretWipe: source.secretWipe === true } };
+      failure: source.failure ?? null, cleanupFailed: repetitions.some(cell => cell.cleanupFailed),
+      sourceSha: qualify.sha,
+      stages: Object.fromEntries(STAGE_KEYS.map(stage => [stage, repetitions.length > 0 && repetitions.every(cell => cell[stage] === true)])),
+      proof: { identitiesReady: repetitions.length > 0 && repetitions.every(cell => {
+        const identity = role => cell.evidence?.find(e => e.event === 'identity' && e.role === role && e.ok && e.ready)?.instance;
+        return Boolean(identity('sender') && identity('receiver') && identity('sender') !== identity('receiver'));
+      }), idleBarrier: repetitions.length > 0 && repetitions.every(cell => {
+        try { verifyReceiverIdleInput(cell); return true; } catch { return false; }
+      }) },
+      noPostSendHarnessInput: repetitions.length > 0 && repetitions.every(cell => cell.noPostSendHarnessInput === true),
+      wakeReplications: row.scenario === 'probe' ? repetitions.map(cell => ({ woke: cell.woke, wakeWindows: cell.wakeWindows })) : undefined,
+      scenarioExecuted: repetitions.length > 0 && repetitions.every(cell => cell.scenario === row.scenario && cell.senderScriptOk && cell.receiverScriptOk),
+      caps: { sessionsDebited: repetitions.length * 2 },
+      cleanup: { secretWipe: repetitions.length > 0 && repetitions.every(cell => cell.secretWipe === true && cell.parentSecretWipe === true),
+        processRecovery: repetitions.length > 0 && repetitions.every(cell => cell.processRecovery === true && cell.parentProcessRecovery === true) } };
   });
   return { version: RECEIPT_VERSION, lane: 'campaign', sha,
+    provenance, source: { sha: qualify.sha, digest: createHash('sha256').update(sourceBytes).digest('hex') },
     harnessDigests: computeHarnessDigests(repoRoot),
     seatManifestDigest,
     cliVersions, matrixVersion: manifest.version, mandatory,
     cells,
     caps: { sessionsDebited: ledger.sessionsDebited ?? 0,
       wallClockSpentMs: ledger.wallClockSpentMs ?? 0 },
-    cleanup: { secretWipeProven: cells.every(cell => cell.cleanup.secretWipe) } };
+    cleanup: { secretWipeProven: qualify.cells.every(cell => cell.secretWipe === true && cell.parentSecretWipe === true),
+      processRecoveryProven: qualify.cells.every(cell => cell.processRecovery === true && cell.parentProcessRecovery === true) } };
 }
 
 export function verifyReceiverIdleInput(cell) {
@@ -55,10 +77,19 @@ export function verifyReceiverIdleInput(cell) {
   'receiver input after the idle barrier invalidates live-wake proof');
 }
 
-export function verifySimulation(receipt, negative = false) {
+export function verifySimulation(receipt, negative = false, sender) {
   assert.equal(receipt.mode, 'simulated-model', 'CI cannot relabel a real-CLI run');
-  assert.equal(receipt.cells.length, negative ? 1 : 36);
-  if (!negative) matrix(receipt.cells); // validates all distinct ordered pairs
+  assert.ok(!sender || CLIS.includes(sender), 'known sender shard');
+  const pairs = (sender ? [sender] : CLIS).flatMap(s => CLIS.map(r => `${s}:${r}`));
+  assert.equal(receipt.cells.length, negative ? 1 : pairs.length * 3);
+  if (!negative) {
+    for (const pair of pairs) {
+      const group = receipt.cells.filter(cell => `${cell.sender}:${cell.receiver}` === pair);
+      assert.equal(group.length, 3, `three replications required: ${pair}`);
+      assert.ok(verifyWakeBatch(group).pass, `separation required: ${pair}`);
+    }
+    if (!sender) matrix(pairs.map(pair => receipt.cells.find(cell => `${cell.sender}:${cell.receiver}` === pair)));
+  }
   for (const cell of receipt.cells) {
     assert.equal(cell.status, negative ? 'simulated-KO' : 'simulated-OK');
     assert.equal(cell.blocker, undefined);
@@ -70,7 +101,7 @@ export function verifySimulation(receipt, negative = false) {
     assert.ok(Object.values(cell.credentialsCopied).every(files => files.length === 0), 'simulation must use no logins');
     // Lot L6: every cell carries its execution-journal verdict with the stated
     // scope, and no Python interpreter ran in our launch chain.
-    assert.equal(cell.execJournal?.scope, 'spawn-event-our-chain; vendor-subtree-allowance', 'execution journal verdict with stated scope');
+    assert.equal(cell.execJournal?.scope, 'ptrace-exec-owned-subtree; vendor-subtree-allowance', 'execution journal verdict with stated scope');
     assert.deepEqual(cell.execJournal.pythonDescendants, [], 'no Python in our launch chain');
     // Lot L3: every cell carries the withheld-wake protocol evidence and the
     // bounded claim — never an absolute wake-consumption proof. Windows must
@@ -83,9 +114,11 @@ export function verifySimulation(receipt, negative = false) {
       'wake windows funded inside the cell budget, never silently shrunk');
     if (cell.wakeFailure === 'wake-withheld-forever') {
       assert.equal(cell.wakeClaim, 'no wake claimed (wake never released)');
+    } else if (negative) {
+      assert.match(cell.wakeClaim, /^no wake claimed/);
     } else if (cell.delivered) {
       assert.equal(cell.wakeClaim,
-        `withheld-protocol, periods ≤ ${w.w1Ms}ms excluded, single replication (no batch separation); varying-phase polling not excluded`,
+        `withheld-protocol, periods ≤ ${w.w1Ms}ms excluded, 3 separated replications; varying-phase polling not excluded`,
         'bounded wake claim required');
     } else {
       assert.equal(cell.wakeClaim, 'no wake claimed (no durable delivery)');
@@ -132,5 +165,6 @@ export function verifyWakeBatch(cells) {
 }
 
 if (process.argv[1]?.endsWith('/xcli-ci-check.mjs')) {
-  console.log(JSON.stringify(verifySimulation(JSON.parse(fs.readFileSync(process.argv[2], 'utf8')), process.argv.includes('--negative'))));
+  const senderIndex = process.argv.indexOf('--sender');
+  console.log(JSON.stringify(verifySimulation(JSON.parse(fs.readFileSync(process.argv[2], 'utf8')), process.argv.includes('--negative'), senderIndex < 0 ? undefined : process.argv[senderIndex + 1])));
 }

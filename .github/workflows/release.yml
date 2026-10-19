@@ -118,8 +118,10 @@ jobs:
       # release SHA → no release. A release dry-run refuses the same way.
       - name: Require the campaign receipt for the exact release SHA
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: >-
-          node scripts/xcli-receipt-check.mjs --receipt docs/cross-cli-receipt.json
+          node scripts/xcli-receipt-check.mjs --fetch-trusted
           --sha "${{ needs.resolve-release-sha.outputs.release-sha }}" --gate release
 
       - run: npm ci
