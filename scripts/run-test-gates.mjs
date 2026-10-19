@@ -183,15 +183,24 @@ export const STEPS = [
   {
     id: 'h2a-runtime',
     description: 'TypeScript suites of packages/h2a-runtime (src/**/*.test.ts) via vitest',
-    // SPEC 0.98.5 R8.1 pins this command EXACTLY; the trust-root test
-    // (packages/h2a/test/run-test-gates.test.js) asserts the exact string, so
-    // any silent replacement — an inert wrapper, a redirect to a lighter
-    // config, a dropped `--config` — makes the independent gate go red.
-    // Relative path + no PATH lookup: run from REPO_ROOT, node_modules/.bin is
-    // where `npm ci` puts vitest, and a missing binary is a reported
-    // spawn-error (a FAILED verdict), never a silent skip.
-    command: 'node_modules/.bin/vitest',
-    args: ['run', '--config', 'packages/h2a-runtime/vitest.config.ts'],
+    // SPEC v3 Lot L2: the historical-host fixture refuses to run outside the
+    // private PID namespace launcher, but this gate invoked Vitest directly —
+    // every direct run failed closed while CI still reported the step. The
+    // step now dispatches through scripts/xcli-in-pid-namespace.mjs --gate,
+    // which on Linux confines the pinned Vitest invocation to a private PID
+    // namespace (off Linux it executes the pinned command directly; the
+    // guarded fixture skips by platform there). The --gate policy is closed:
+    // only the pinned config below plus validated suite-file filters, and the
+    // H2A_TEST_REPORT_PATH execution proof is forwarded across the boundary.
+    // This command is pinned EXACTLY; the trust-root test
+    // (packages/h2a/test/run-test-gates.test.js) asserts the exact strings
+    // and drives the real dispatch with execution proof, so any silent
+    // replacement — an inert wrapper, a redirect to a lighter config, a
+    // dropped --config, a launcher bypass — makes the independent gate go red.
+    // A missing launcher or binary is a reported spawn-error (a FAILED
+    // verdict), never a silent skip.
+    command: process.execPath,
+    args: ['scripts/xcli-in-pid-namespace.mjs', '--gate', 'packages/h2a-runtime/vitest.config.ts'],
     requiresBuild: true,
     timeoutMs: 10 * MINUTE_MS,
     // SPEC 0.98.5 R8 (round-7 finding P1): exit 0 from vitest is not evidence

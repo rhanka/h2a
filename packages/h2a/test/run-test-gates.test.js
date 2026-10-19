@@ -463,8 +463,8 @@ test('the real STEPS list invokes the exact production commands', () => {
       },
       {
         id: 'h2a-runtime',
-        command: 'node_modules/.bin/vitest',
-        args: ['run', '--config', 'packages/h2a-runtime/vitest.config.ts'],
+        command: process.execPath,
+        args: ['scripts/xcli-in-pid-namespace.mjs', '--gate', 'packages/h2a-runtime/vitest.config.ts'],
         shell: false,
         requiresBuild: true,
         inconclusiveExitCode: null,
@@ -510,7 +510,7 @@ test('the runner test is not discovered through the runner it verifies', () => {
 // ---------------------------------------------------------------------------
 
 const H2A_RUNTIME_COMMAND =
-  'node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts'
+  `${process.execPath} scripts/xcli-in-pid-namespace.mjs --gate packages/h2a-runtime/vitest.config.ts`
 const RUNNER_SOURCE = readFileSync(
   resolve(REPO_ROOT, 'scripts', 'run-test-gates.mjs'),
   'utf8',
@@ -526,7 +526,7 @@ test('R8.1: a dedicated h2a-runtime step exists and runs the exact pinned comman
   assert.equal(
     stepCommandLine(step),
     H2A_RUNTIME_COMMAND,
-    'the h2a-runtime command is pinned exactly by the spec: any replacement — inert wrapper, lighter config, dropped --config — must fail here',
+    'the h2a-runtime command is pinned exactly by the spec (launcher-confined dispatch per Lot L2, proven by the L2 dispatch test below): any replacement — inert wrapper, lighter config, dropped --config, launcher bypass — must fail here',
   )
   assert.equal(step.requiresBuild, true, 'a broken build must yield NO verdict for the runtime suites, not a misleading one')
   // The step must sit in the production list itself, not beside it.
@@ -1436,4 +1436,30 @@ test('C9 A01/A03/A04: effective config and versioned test inventory are mandator
 
 test('C9 A04: execute the effective Node/Track entry and observe both required suites', () => {
   observeNodeTrackEntry(readFileSync(resolve(REPO_ROOT, 'scripts/run-tests.mjs'), 'utf8'), REPO_ROOT)
+})
+
+// ---------------------------------------------------------------------------
+// Lot L2 (SPEC v3 §9) — the h2a-runtime gate must dispatch through the
+// private PID namespace launcher on Linux. This test drives the REAL gate
+// dispatch: it imports runGates and STEPS, selects the real h2a-runtime step
+// with its reportPath, requiredFiles and verifyExecution proof intact, and
+// narrows only the Vitest file selection to the launcher-guarded fixture.
+// RED (direct Vitest): the fixture's assertPrivatePidNamespace() throws
+// `historical host requires the private PID namespace launcher` in beforeAll
+// and the step verdict is failed. GREEN (launcher wiring): the fixture
+// observes the namespace and the verdict is passed WITH its execution proof
+// (fresh report, required suite present with executed count > 0).
+// ---------------------------------------------------------------------------
+const L2_UPGRADE_FILE = 'packages/h2a-runtime/src/native-terminal/upgrade.functional.test.ts'
+
+test('L2: the h2a-runtime gate dispatches through the PID-namespace launcher with execution proof', () => {
+  const step = STEPS.find((s) => s.id === 'h2a-runtime')
+  assert.ok(step, 'npm test must contain a step named h2a-runtime')
+  const narrowed = {
+    ...step,
+    args: [...step.args, L2_UPGRADE_FILE],
+    requiredFiles: () => [resolve(REPO_ROOT, L2_UPGRADE_FILE)],
+  }
+  const code = runGates([narrowed], { stdio: 'pipe', write: () => {}, writeErr: () => {}, scope: '' })
+  assert.equal(code, 0, 'the real h2a-runtime step must pass the launcher-guarded fixture with its execution proof')
 })
