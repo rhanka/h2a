@@ -1,0 +1,13 @@
+NON-FUSIONNABLE — SHA relu : `4dec3d35014df846c582e1e7f89a4d5206b6c965`
+
+- **P1 — Le nouveau test H4-H1 casse le contrôle CI `npm-test-trust-root`.** [distribution-fixture.mjs:10](/home/antoinefa/src/h2a/tmp/worktrees/diagcode/packages/h2a/focus-kit/test/distribution-fixture.mjs:10) déduit le cache npm de `HOME`, que le lanceur de tests remplace par un répertoire temporaire. La copie des tarballs échoue alors avec `ENOENT`. [Échec CI constaté](https://github.com/rhanka/h2a/actions/runs/39169250066/job/117798672424). Il faut transmettre explicitement le cache préparé avant isolation, puis refaire passer ce contrôle sans supprimer l’isolation.
+
+- **P2 — Le schéma v2 accepte des captures que le validateur refuse.** Dans [le schéma:547](/home/antoinefa/src/h2a/tmp/worktrees/diagcode/packages/focus/schemas/decision-dossier-document.v2.schema.json:547), `width`, `height` et `alt` restent facultatifs pour PNG/JPEG. Reproduction avec Ajv 2020 : supprimer ces trois champs de la capture donne une validation JSON Schema réussie, puis un refus du runtime sur `$.sources[1].alt`. Ajouter les contraintes conditionnelles et vérifier la parité des deux validateurs.
+
+- **P2 — Le retour conserve le contexte de la première citation.** [Evidence.svelte:15](/home/antoinefa/src/h2a/tmp/worktrees/diagcode/packages/h2a/focus-kit/src/Evidence.svelte:15) mémorise l’origine uniquement lorsqu’aucune source n’est ouverte. Reproduction navigateur : ouvrir « Preuve distante », puis « Capture » depuis une autre section ; « Retour au contexte » ramène à « Preuve distante ». Actualiser le contexte lors d’une nouvelle activation depuis le dossier.
+
+- **P3 — Un identifiant valide peut détourner le retour d’annexe.** [Evidence.svelte:32](/home/antoinefa/src/h2a/tmp/worktrees/diagcode/packages/h2a/focus-kit/src/Evidence.svelte:32) utilise `getElementById`. Avec une section `id: "app"`, le retour cible le conteneur racine homonyme. Reproduit : focus sur le `DIV` racine au lieu de la section. Résoudre les références dans les éléments du dossier ou préfixer leurs identifiants DOM.
+
+**Vérification : 259 tests ciblés relancés, tous réussis, zéro skip.** Qualification d’environ 30,9 Mo réussie : ouverture p95 ≈ 1,05 s, citation ≈ 66 ms, recherche ≈ 61 ms ; DOM borné. Compatibilité v1 et conservation de l’ancien HTML après écriture partielle vérifiées.
+
+`gh pr checks 377` : **14 réussites, 1 échec** ci-dessus. H2/H3 sont explicitement bloqués et aucune adoption DS n’est simulée. Aucune modification effectuée ; worktree propre.
