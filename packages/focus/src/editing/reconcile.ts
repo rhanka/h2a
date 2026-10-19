@@ -39,6 +39,19 @@ function restoreStructuralFields(baseline: EditingSnapshot, applied: EditingSnap
     const previous = readParagraphs(applied.document, applied.manifest).filter(p => fieldKey(p) === fieldKey(f));
     const now = readParagraphs(current.document, current.manifest).filter(p => fieldKey(p) === fieldKey(f));
     const independent = diffParagraphs(previous, now, 'reconciler:independent');
+    // Pure text corrections carry the applied layout in their anchors. Re-anchor
+    // them onto the baseline topology before replaying: the text precondition
+    // stays third-party, but the topology precondition must describe the base
+    // being replayed onto, not the layout the lineage had already changed.
+    const baseValues = readParagraphs(baseline.document, baseline.manifest).filter(p => fieldKey(p) === fieldKey(f));
+    for (const c of independent.changes) {
+      if (c.operation !== 'replace') continue;
+      const at = baseValues.findIndex(p => p.paragraphId === c.paragraphId);
+      if (at < 0) continue;
+      const reanchored = paragraphAnchors(baseValues, at);
+      c.beforeAnchors = { ...reanchored };
+      c.anchors = { ...reanchored };
+    }
     const rebased = applyParagraphChanges(baseline.document, baseline.manifest, independent.changes.length ? [independent] : [], restoreIds);
     const baseGaps = fieldGaps(baseline, f), appliedGaps = fieldGaps(applied, f), currentGaps = fieldGaps(current, f), restoredGaps = fieldGaps(rebased, f);
     for (const [key, gap] of currentGaps) {

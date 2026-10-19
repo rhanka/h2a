@@ -11,6 +11,21 @@ it('should apply B→C once and replay only by return identity and digest', () =
   const forged = structuredClone(r2); forged.notes[0].text = 'changed'; forged.digest = E.returnDigest(forged);
   expect(apply(doc, manifest, forged, current(second), second.lineage).receipt.status).toBe('identity-reuse');
 });
+it('should revoke a structural insert while keeping an independent correction of the next paragraph', () => {
+  const { doc, manifest } = setup(), base = units(doc, manifest);
+  const draft = structuredClone(base);
+  draft.splice(1, 0, { ...draft[0], paragraphId: 'fresh:witness', text: 'X' });
+  const r1 = freeze(doc, manifest, [E.diffParagraphs(base, draft, 'tx')]), first = apply(doc, manifest, r1);
+  expect(first.ok).toBe(true);
+  const corrected = units(first.document, first.manifest).map((p: any) => p.paragraphId === base[1].paragraphId ? { ...p, text: 'Correction tierce' } : p);
+  const third = E.applyParagraphChanges(first.document, first.manifest, [E.diffParagraphs(units(first.document, first.manifest), corrected, 'tiers')]);
+  const r2 = freeze(doc, manifest, [], r1, 'R2'), out = apply(doc, manifest, r2, current(third), first.lineage);
+  expect(out.ok, JSON.stringify(out.conflicts)).toBe(true);
+  expect(out.receipt.status).toBe('revocation-applied');
+  const values = units(out.document, out.manifest);
+  expect(values.some((p: any) => p.paragraphId === 'fresh:witness')).toBe(false);
+  expect(values.find((p: any) => p.paragraphId === base[1].paragraphId).text).toBe('Correction tierce');
+});
 it('should refuse a replace whose structural anchors do not match the baseline topology', () => {
   const { doc, manifest } = setup(), base = units(doc, manifest);
   const forged = change(doc, manifest, 0, 'B');
