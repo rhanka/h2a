@@ -25,7 +25,10 @@ function fixture(t, version = '0.98.6') {
   }
   mkdirSync(join(root, 'scripts'))
   mkdirSync(join(root, 'run'))
-  writeFileSync(join(root, 'scripts/smoke-artifact.mjs'), `const PINNED_RUNTIME_VERSION = '${version}'\n`)
+  writeFileSync(join(root, 'scripts/smoke-artifact.mjs'), `const PINNED_RUNTIME_VERSION = '${version}'\nconst PINNED_FOCUS_VERSION = '0.5.0'\n`)
+  const h2aManifest = JSON.parse(readFileSync(join(root, 'packages', 'h2a', 'package.json'), 'utf8'))
+  h2aManifest.dependencies['@sentropic/focus'] = '0.5.0'
+  writeFileSync(join(root, 'packages', 'h2a', 'package.json'), JSON.stringify(h2aManifest))
   const run = (overrides = {}) => spawnSync(process.execPath, [script], {
     cwd: root, encoding: 'utf8',
     env: { PATH: process.env.PATH, HOME: root, XDG_RUNTIME_DIR: join(root, 'run'),
@@ -39,18 +42,20 @@ test('stamps every published manifest, internal pin and the independent smoke li
   const result = run()
   assert.equal(result.status, 0, result.stderr)
   const expected = '0.98.6-rehearsal.38901487200.2'
+  const focusExpected = '0.5.0-rehearsal.38901487200.2'
   assert.equal(checkLockstepVersions(root), expected)
   for (const pkg of packages) {
     const manifest = JSON.parse(readFileSync(join(root, 'packages', pkg, 'package.json')))
-    assert.equal(manifest.version, pkg === 'focus' ? '0.5.0-rehearsal.38901487200.2' : expected)
+    assert.equal(manifest.version, pkg === 'focus' ? focusExpected : expected)
     for (const field of ['dependencies', 'peerDependencies', 'optionalDependencies', 'devDependencies']) {
       for (const [name, value] of Object.entries(manifest[field])) {
-        assert.equal(value, name === 'external' ? '^1.2.3' : expected)
+        assert.equal(value, name === 'external' ? '^1.2.3' : name === '@sentropic/focus' ? focusExpected : expected, `${pkg} ${field}.${name}`)
       }
     }
   }
+  assert.equal(JSON.parse(readFileSync(join(root, 'packages', 'h2a', 'package.json'))).dependencies['@sentropic/focus'], focusExpected)
   assert.equal(readFileSync(join(root, 'scripts/smoke-artifact.mjs'), 'utf8'),
-    `const PINNED_RUNTIME_VERSION = '${expected}'\n`)
+    `const PINNED_RUNTIME_VERSION = '${expected}'\nconst PINNED_FOCUS_VERSION = '${focusExpected}'\n`)
 })
 
 test('different CI runs and attempts stamp different versions, including future release trains', (t) => {
