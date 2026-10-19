@@ -47,7 +47,10 @@ const BIN = join(REPO_ROOT, "packages", "h2a", "dist", "bin.js");
 // restores the previous lane help stream and SHA-256 byte-for-byte.
 // New main (#378 focus-edit-return): the `h2a focus feedback retain|apply`
 // usage line (+102 bytes); removing it recovers the LOT-1 stream and SHA-256.
-const CORE_HELP_SHA256 = "9eeebba03234abce47c3c9d3473a8c16ab90d87f80accd3877f97840399c9ec2";
+// Integrated head (LOT-3/LOT-5 registry verbs): the core help gains the
+// `registry catalog`, `registry bootstrap` and `hosted-lock` usage lines
+// (+501 bytes).
+const CORE_HELP_SHA256 = "2f3cfec26afa69d9993711716b222efdd2148796d35da0ede1bddd6313e4c01e";
 
 const RUNTIME_MISSING =
   "ce verbe requiert le runtime h2a (sessions / k8s / tunnel).\n" +
@@ -149,8 +152,8 @@ function assertCoreHelp(result) {
   // the host setup usage line now documents Vibe --write/--remove instead of refusing every --write.
   // + 28 for the LOT-1 H4 upgrade surface (0.98.8): the `h2a upgrade` usage
   // line now documents the single H4 command instead of the legacy staged path.
-  // + 102 for main's focus feedback line on the rebased head.
-  assert.equal(Buffer.byteLength(result.stdout), 14707);
+  // + 102 for main's focus feedback line; + 501 for the LOT-3/LOT-5 registry verbs.
+  assert.equal(Buffer.byteLength(result.stdout), 15208);
 
 }
 
