@@ -53,7 +53,13 @@ export function validateManifest(value: unknown, doc: DecisionDossierDocument): 
       let end = 0;
       ps.forEach((p, index) => {
         if (p.order !== index || p.range.start < end || p.range.end < p.range.start || p.range.end > source.length) issues.push('ambiguous-range');
-        if (!segments.some(s => s.editable && s.start === p.range.start && s.end === p.range.end) && !(p.range.start === p.range.end && f.contentFormat !== 'text/plain')) issues.push('unsupported-range');
+        // An empty text/plain paragraph holds no characters, so it never matches a
+        // text block: it is a zero-length unit owned by a structural gap (D14).
+        // It is representable outside any block (source edge, block boundary or
+        // blank gap), never strictly inside one.
+        const emptyGapUnit = f.contentFormat === 'text/plain' && p.range.start === p.range.end &&
+          !segments.some(s => s.start < p.range.start && p.range.start < s.end);
+        if (!segments.some(s => s.editable && s.start === p.range.start && s.end === p.range.end) && !emptyGapUnit && !(p.range.start === p.range.end && f.contentFormat !== 'text/plain')) issues.push('unsupported-range');
         end = p.range.end;
       });
     }
