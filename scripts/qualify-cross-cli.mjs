@@ -8,6 +8,7 @@ import { createHash } from 'node:crypto';
 import { CLIS, PROBE, REPLY, repo, environment, sourceBuild, copyLogin,
   cliPath, privateExecutable, pythonEntrypoint, classify, matrix, inside } from './xcli-lab.mjs';
 import { startupTerminal } from './xcli-terminal.mjs';
+import { verifyWakeBatch } from './xcli-ci-check.mjs';
 
 const self = fileURLToPath(import.meta.url);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -122,6 +123,7 @@ async function worker() {
     evidence: [], startedAt: new Date().toISOString(), credentialsCopied: {},
     noPostSendHarnessInput: true };
   let host, client;
+  let withholdLease = null;
   const targets = [];
   const registry = join(hostEnv.HOME, '.config/sentropic/remote-cli/registry.json');
   const store = createLocalStore({ root: hostEnv.H2A_ROOT });
@@ -313,26 +315,58 @@ async function worker() {
     try { fs.writeFileSync(join(cell, 'barrier-at'), String(barrierAt) + '\n', { mode: 0o600 }); }
     catch { row.blocker = 'barrier-file-unwritable'; return row; }
     r.terminal.freeze();
+    // Lot L3 withheld-wake protocol (§3.3): W0 silent baseline, W1 withheld
+    // drive, D released delay. Window sizes are PROPOSITION values (D2);
+    // relations and refusals are normative. A cell that cannot fund W0+W1+D
+    // inside its budget is blocked (wake-window-unfunded), never shortened.
+    const { w0Ms, w1Ms, dMs } = wake;
+    const notifyIntervalMs = simulated ? 100 : 0; // 0 = product default, recorded but unset
+    row.budgetMs = timeoutMs;
+    row.wakeWindows = { w0Ms, w1Ms, dMs, barrierAt, releaseOffsetMs, notifyIntervalMs,
+      deliveryAt: null, withholdAt: null, releaseAt: null, wakeAt: null, firstReadAt: null,
+      baselineReads: 0, preBarrierReads: 0 };
+    row.wakeClaim = 'no wake claimed (no durable delivery)';
+    if (timeoutMs - (barrierAt - started) < w0Ms + w1Ms + dMs) {
+      row.blocker = 'wake-window-unfunded'; return row;
+    }
+    // Withhold the product drive at the harness-owned private host BEFORE any
+    // envelope exists: while this worker lease is held, the product drive
+    // request is deferred (session already has a controller) so the wake
+    // handler sees drive → false and retries per tick; the signed line never
+    // reaches the PTY. No product code changes, no model fault injected.
+    withholdLease = null;
+    try {
+      withholdLease = await client.acquireController(r.state.id, 'xcli-withhold', 'automation');
+    } catch { row.blocker = 'wake-withhold-unavailable'; return row; }
+    const withholdAt = Date.now();
+    row.wakeWindows.withholdAt = withholdAt;
+    row.evidence.push({ event: 'wake-withhold', at: withholdAt });
+    const receiverReads = (from = 0, to = Infinity) => readEvents(r.env.XCLI_EVENTS)
+      .filter(e => e.event === 'inbox' && e.ok && e.instance === readiness.instance && e.at >= from && e.at < to);
+    const cancellableSleep = async ms => {
+      const until = Date.now() + ms;
+      while (Date.now() < until) {
+        if (cancelled) return false;
+        await sleep(Math.min(100, until - Date.now()));
+      }
+      return !cancelled;
+    };
+    await cancellableSleep(w0Ms); // Phase 1: silent baseline, sender launch delayed
     const senderPrompt = `Qualification h2a. Use only h2a MCP tools. Call h2a_identity_status until identity_ready (stop if identity_failed), then h2a_send once, to exactly ${readiness.instance}, message exactly ${PROBE}. Finish your turn. Never use shell, files, other agents or any non-h2a tool.`;
     const s = await launch(sender, 'sender', senderPrompt);
     const deadline = Date.now() + timeoutMs;
+    // Phase 2a: wait for the signed send and durable delivery. No reply break
+    // here: the withheld-window observation must run its full course.
+    let send = null, deliveryAt = 0;
     while (Date.now() < deadline) {
       if (cancelled) { row.blocker = 'qualification-cancelled'; break; }
-      const se = events(s), re = events(r);
+      const se = events(s);
       row.senderMcp = loaded(s);
-      const send = se.find(e => e.event === 'send' && e.ok && e.kind === 'probe' && e.to === readiness.instance);
+      send = se.find(e => e.event === 'send' && e.ok && e.kind === 'probe' && e.to === readiness.instance) ?? null;
       row.sent = Boolean(send);
       if (send) s.terminal.freeze();
-      if (send) {
-        row.delivered = store.readInbox(readiness.instance).some(e => e.id === send.envelopeId && e.body?.text === PROBE && e.actor?.instance === send.from);
-        const receive = re.find(e => e.event === 'inbox' && e.ok && e.at >= send.at && e.instance === readiness.instance &&
-          e.envelopes.some(v => v.id === send.envelopeId && v.from === send.from && v.to === readiness.instance && v.kind === 'probe'));
-        row.received = Boolean(receive);
-        row.woke = Boolean(receive) && row.noPostSendHarnessInput;
-        const reply = re.find(e => e.event === 'send' && e.ok && e.kind === 'reply' && e.to === send.from && e.from === readiness.instance && e.at >= (receive?.at ?? Infinity));
-        row.replied = Boolean(reply);
-        row.replyDelivered = Boolean(reply) && store.readInbox(send.from).some(e => e.id === reply.envelopeId && e.body?.text === REPLY && e.actor?.instance === readiness.instance);
-        if (row.replyDelivered && row.received) break;
+      if (send && store.readInbox(readiness.instance).some(e => e.id === send.envelopeId && e.body?.text === PROBE && e.actor?.instance === send.from)) {
+        deliveryAt = Date.now(); break;
       }
       const senderScreen = await capture(s);
       if (!row.sent && await startup(s, senderScreen)) continue;
@@ -340,9 +374,107 @@ async function worker() {
       if (blocker) { row.blocker = blocker; break; }
       await sleep(100);
     }
+    row.delivered = Boolean(send && deliveryAt);
+    if (!send || !deliveryAt) {
+      if (withholdLease) await client.releaseController(withholdLease).catch(() => {});
+      withholdLease = null;
+      row.woke = false;
+      if (!row.blocker) row.failure = row.sent ? 'live-receive-not-observed' : 'sender-send-not-observed';
+    } else {
+      row.wakeWindows.deliveryAt = deliveryAt;
+      const releaseAt = deliveryAt + w1Ms + releaseOffsetMs;
+      row.wakeWindows.releaseAt = withholdForever ? null : releaseAt;
+      // Phase 2b: withheld window. The probe is already readable in the
+      // inbox; any receiver read before release proves polling.
+      while (Date.now() < Math.min(releaseAt, deadline)) {
+        if (cancelled) { row.blocker = 'qualification-cancelled'; break; }
+        const blocker = blockingScreen(await capture(s)) ?? blockingScreen(await capture(r));
+        if (blocker) { row.blocker = blocker; break; }
+        await sleep(200);
+      }
+      const preBarrierReads = receiverReads(0, barrierAt);
+      const baselineReads = receiverReads(barrierAt, deliveryAt);
+      const withheldReads = receiverReads(deliveryAt, withholdForever ? Infinity : releaseAt);
+      row.wakeWindows.preBarrierReads = preBarrierReads.length;
+      row.wakeWindows.baselineReads = baselineReads.length;
+      if (!withholdForever && !row.blocker) {
+        try {
+          await client.releaseController(withholdLease); withholdLease = null;
+          row.evidence.push({ event: 'wake-release', at: Date.now() });
+        }
+        catch { row.blocker = 'wake-withhold-unavailable'; }
+      }
+      // Phase 3: released window. Wait for the product wake, the qualifying
+      // read and the signed reply — plus first-wake/read tracking.
+      let firstWakeOk = null, firstRead = null;
+      while (Date.now() < deadline && !withholdForever && !row.blocker) {
+        if (cancelled) { row.blocker = 'qualification-cancelled'; break; }
+        const se = events(s), re = events(r);
+        row.senderMcp = loaded(s);
+        const receive = re.find(e => e.event === 'inbox' && e.ok && e.at >= send.at && e.instance === readiness.instance &&
+          e.envelopes.some(v => v.id === send.envelopeId && v.from === send.from && v.to === readiness.instance && v.kind === 'probe'));
+        row.received = Boolean(receive);
+        if (!firstWakeOk) firstWakeOk = re.find(e => e.event === 'inbox-wake' && e.ok && e.at >= releaseAt) ?? null;
+        if (!firstRead) firstRead = re.find(e => e.event === 'inbox' && e.ok && e.instance === readiness.instance && e.at >= releaseAt) ?? null;
+        if (row.noPostSendHarnessInput && row.evidence.some(e => e.role === 'receiver' &&
+          ['startup-ui', 'startup-terminal-response'].includes(e.event) && e.at >= barrierAt)) {
+          row.noPostSendHarnessInput = false;
+        }
+        const reply = receive ? re.find(e => e.event === 'send' && e.ok && e.kind === 'reply' && e.to === send.from && e.from === readiness.instance && e.at >= receive.at) : null;
+        row.replied = Boolean(reply);
+        row.replyDelivered = Boolean(reply) && store.readInbox(send.from).some(e => e.id === reply.envelopeId && e.body?.text === REPLY && e.actor?.instance === readiness.instance);
+        if (row.replyDelivered && row.received) break;
+        const senderScreen = await capture(s);
+        if (!row.sent && await startup(s, senderScreen)) continue;
+        const blocker = blockingScreen(senderScreen) ?? blockingScreen(await capture(r));
+        if (blocker) { row.blocker = blocker; break; }
+        await sleep(100);
+      }
+      if (withholdForever) {
+        row.wakeFailure = 'wake-withheld-forever';
+        row.wakeClaim = 'no wake claimed (wake never released)';
+        row.woke = false;
+      } else {
+        row.wakeClaim = `withheld-protocol, periods ≤ ${w1Ms}ms excluded, single replication (no batch separation); varying-phase polling not excluded`;
+        row.wakeWindows.wakeAt = firstWakeOk?.at ?? null;
+        row.wakeWindows.firstReadAt = firstRead?.at ?? null;
+        const firstReadHasProbe = Boolean(firstRead?.envelopes?.some(v => v.id === send.envelopeId &&
+          v.from === send.from && v.to === readiness.instance && v.kind === 'probe'));
+        if (preBarrierReads.length || baselineReads.length || withheldReads.length) row.wakeFailure = 'wake-polling-detected';
+        else if (!firstWakeOk) row.wakeFailure = 'wake-no-qualifying-read';
+        else if (!firstRead || !firstReadHasProbe) row.wakeFailure = 'wake-no-qualifying-read';
+        else if (firstRead.at < firstWakeOk.at || firstRead.at - firstWakeOk.at > dMs) row.wakeFailure = 'wake-delay-exceeded';
+        row.woke = Boolean(row.received && firstReadHasProbe && !row.wakeFailure && row.noPostSendHarnessInput);
+      }
+      // Control (d): replay the exact witnessed wake line after a pass. The
+      // duplicate must produce no second qualifying read and no second reply.
+      if (replayWake && !row.blocker && row.replyDelivered && row.received && row.woke) {
+        let replayed = null;
+        try {
+          const logged = fs.readFileSync(join(cell, 'wake-lines', 'receiver.log'), 'utf8').split('\n').filter(Boolean);
+          replayed = logged.at(-1) ?? null;
+        } catch { /* no witnessed line: control cannot run */ }
+        const probeReadsBefore = receiverReads(0, Infinity).filter(e => e.envelopes?.some(v => v.kind === 'probe')).length;
+        const replySendsBefore = readEvents(r.env.XCLI_EVENTS).filter(e => e.event === 'send' && e.ok && e.kind === 'reply').length;
+        if (replayed) {
+          row.evidence.push({ event: 'wake-replay', at: Date.now() });
+          row.postPassReplayInput = true;
+          const lease = await client.acquireController(r.state.id, 'xcli-replay', 'automation');
+          try { await client.write(lease, replayed); await sleep(100); await client.write(lease, '\r'); }
+          finally { await client.releaseController(lease).catch(() => {}); }
+          await cancellableSleep(3000);
+        }
+        const probeReadsAfter = receiverReads(0, Infinity).filter(e => e.envelopes?.some(v => v.kind === 'probe')).length;
+        const replySendsAfter = readEvents(r.env.XCLI_EVENTS).filter(e => e.event === 'send' && e.ok && e.kind === 'reply').length;
+        row.replayRejected = Boolean(replayed) && probeReadsAfter === probeReadsBefore && replySendsAfter === replySendsBefore;
+      }
+      if (!row.blocker && !row.replyDelivered) {
+        row.failure = row.sent ? (row.received ? (row.wakeFailure ? 'wake-not-proven' : 'reply-not-observed') : 'live-receive-not-observed') : 'sender-send-not-observed';
+      }
+    }
     if (!row.replyDelivered) for (const target of targets)
       row.evidence.push({ event: 'final-screen-facts', role: target.role, facts: startupFacts(await capture(target)) });
-    if (!row.blocker && !row.replyDelivered) row.failure = row.sent ? (row.received ? 'reply-not-observed' : 'live-receive-not-observed') : 'sender-send-not-observed';
+    if (!row.blocker && !row.replyDelivered && !row.wakeFailure) row.failure = row.sent ? (row.received ? 'reply-not-observed' : 'live-receive-not-observed') : 'sender-send-not-observed';
     return row;
   } catch (error) {
     const known = ['host-setup-no-config'];
@@ -352,6 +484,10 @@ async function worker() {
       .filter(line => line.includes(build) || line.includes(repo)).map(line => line.trim());
     return row;
   } finally {
+    if (withholdLease && client) {
+      try { await client.releaseController(withholdLease); } catch { /* cleanup path releases best-effort */ }
+      withholdLease = null;
+    }
     for (const t of targets) {
       row.evidence.push(...events(t).map(e => ({ role: t.role, ...e })));
       row.evidence.push({ event: 'terminal-queries', role: t.role, kinds: t.terminal.queries() });
@@ -493,6 +629,31 @@ async function main() {
     fs.writeFileSync(join(root, `${sender}-${receiver}.json`), JSON.stringify(row, null, 2) + '\n', { mode: 0o600 });
     if (row.cleanupFailed) stopping = true;
     process.stdout.write(`${sender} -> ${receiver}: ${row.status} (${row.blocker ?? row.failure ?? 'round-trip'})\n`);
+  }
+  // Lot L3 batch separation (§3.3): with several harness-chosen release
+  // offsets for one pair, no cell earns stage-7 credit until the full batch
+  // passes the containment check on actual witnessed times. A failing batch
+  // downgrades credited cells; cells already KO keep their own mechanism.
+  if (releaseOffsets.length > 1) {
+    for (const { sender, receiver } of pairs) {
+      const group = cells.filter(c => c.sender === sender && c.receiver === receiver);
+      if (!group.length) continue;
+      const verdict = verifyWakeBatch(group);
+      if (verdict.pass) {
+        for (const cell of group) {
+          cell.wakeClaim = `withheld-protocol, periods ≤ ${cell.wakeWindows.w1Ms}ms excluded, ${group.length} separated replications; varying-phase polling not excluded`;
+        }
+      } else {
+        for (const cell of group) {
+          if (cell.woke === true) {
+            cell.woke = false;
+            cell.wakeFailure = 'wake-phase-separation-unproven';
+            cell.status = classify(cell).replace(/^measured-/, simulated ? 'simulated-' : 'measured-');
+          }
+        }
+      }
+      process.stdout.write(`wake batch ${sender}->${receiver}: ${verdict.pass ? 'separated' : 'NOT separated'} (${verdict.failures.join('; ')})\n`);
+    }
   }
   const sha = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).stdout.trim();
   const result = { version: 1, mode: simulated ? 'simulated-model' : 'real-cli', sha, node: process.version,
