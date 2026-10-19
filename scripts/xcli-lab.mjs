@@ -85,6 +85,9 @@ export function sourceBuild(root) {
   const require = createRequire(join(repo, 'package.json'));
   const ts = require('typescript');
   const dest = join(root, 'build');
+  // A resumed campaign reuses its root: rebuild from scratch so a resume
+  // after new commits can never run a stale build.
+  fs.rmSync(dest, { recursive: true, force: true });
   const sourceHash = createHash('sha256');
   const packages = ['h2a', 'h2a-runtime', 'track', 'remote-protocol'];
   for (const pkg of packages) {
