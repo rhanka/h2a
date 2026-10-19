@@ -9,8 +9,11 @@ import { pathToFileURL } from 'node:url';
 import { CLIS } from './xcli-lab.mjs';
 import { parseScenario, expectedScenarioBlocker, classifyScenarioRow, verifyScenarioMatrix,
   substituteScriptArgs, validateScriptSteps, loopScripts, loopTwinScripts,
-  negotiationScripts, negotiationTwinScripts, LOOP_TWINS, NEGOTIATION_TWINS,
+  negotiationScripts, negotiationTwinScripts, inventoryScripts,
+  LOOP_TWINS, NEGOTIATION_TWINS, INVENTORY_GROUPS,
   UNAVAILABILITY_STATES, REFUSAL_TWINS, SCENARIO_ROWS } from './xcli-scenarios.mjs';
+import fs from 'node:fs';
+import { join } from 'node:path';
 
 test('L12: scenario specs parse to a closed vocabulary', () => {
   assert.equal(parseScenario('probe').kind, 'probe');
@@ -152,6 +155,29 @@ test('L13: loop lifecycle passes only on terminal state witnessed both sides', (
   assert.equal(classifyScenarioRow('loop:join-unknown', { ...twin, twinRefused: false }).ok, false);
 });
 
+test('L15: every inventory group builds valid two-sided scripts', () => {
+  for (const group of INVENTORY_GROUPS) {
+    const { receiver, sender } = inventoryScripts(group);
+    assert.ok(receiver.length > 0 && sender.length > 0, `${group} scripts both sides`);
+    const tools = new Set([...receiver, ...sender].filter(s => s.tool).map(s => s.tool));
+    assert.ok([...tools].every(t => t.startsWith('h2a_')), `${group} closed tool vocabulary`);
+  }
+  assert.throws(() => inventoryScripts('bogus'), /unknown-scenario/);
+  // Regression: every sign/offer/stabilize step names the negotiation its
+  // flow opened (a hardcoded id fails closed with negotiation-not-found).
+  for (const group of ['session-paths']) {
+    const { receiver, sender } = inventoryScripts(group);
+    const ids = new Set([...receiver, ...sender]
+      .filter(s => ['h2a_offer', 'h2a_sign', 'h2a_stabilize'].includes(s.tool))
+      .map(s => s.args.negotiationId));
+    assert.equal(ids.size, 1, `${group} single negotiation id`);
+  }
+  const row = { scenario: 'inventory:read-paths', pair: 'claude:codex', status: 'blocked',
+    blocker: 'inventory-complete:read-paths', inventoryOk: true };
+  assert.equal(classifyScenarioRow('inventory:read-paths', row).ok, true);
+  assert.equal(classifyScenarioRow('inventory:read-paths', { ...row, inventoryOk: false }).ok, false);
+});
+
 test('L14: negotiation flow passes only on stabilization with journal growth', () => {
   const base = { scenario: 'negotiation:flow', pair: 'claude:codex', status: 'blocked',
     blocker: 'negotiation-flow-complete', stabilized: false, journalGrown: false };
@@ -162,7 +188,33 @@ test('L14: negotiation flow passes only on stabilization with journal growth', (
     { ...base, stabilized: true, journalGrown: false }).ok, false);
 });
 
-// Guard level: the exact product crypto the scenario runner relies on.
+test('L15: every served tool is covered by a scenario or named in the remainder', () => {
+  const repoRoot = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
+  const src = fs.readFileSync(join(repoRoot, 'packages/h2a/dist/runtime/mcp/tools.js'), 'utf8');
+  const served = new Set([...src.matchAll(/name: "(h2a_[a-z_]+)"/g)].map(m => m[1]));
+  const covered = new Set(['h2a_identity_status', 'h2a_inbox', 'h2a_send']);
+  const scripts = [loopScripts()];
+  for (const twin of LOOP_TWINS) scripts.push({ creator: loopTwinScripts(twin), participant: [] });
+  scripts.push(negotiationScripts());
+  for (const twin of NEGOTIATION_TWINS) scripts.push({ initiator: negotiationTwinScripts(twin), responder: [] });
+  for (const group of INVENTORY_GROUPS) scripts.push(inventoryScripts(group));
+  for (const built of scripts) {
+    for (const steps of Object.values(built)) {
+      for (const step of steps) if (step.tool) covered.add(step.tool);
+    }
+  }
+  const manifest = JSON.parse(fs.readFileSync(join(repoRoot, 'docs/cross-cli-matrix.json'), 'utf8'));
+  const remainder = manifest.rows.find(row => row.scenario === 'functions-remainder').tools;
+  const uncovered = [...served].filter(tool => !covered.has(tool)).sort();
+  const unpublished = remainder.filter(tool => !served.has(tool)).sort();
+  assert.deepEqual(uncovered, remainder.filter(tool => served.has(tool)).sort(),
+    'no served tool is neither covered nor listed');
+  // Named-but-unpublished tools stay tracked in the remainder with their
+  // blocker instead of vanishing from the inventory.
+  assert.deepEqual(unpublished, ['h2a_drive_consent_cosign', 'h2a_drive_consent_request',
+    'h2a_drive_consent_respond', 'h2a_drive_consent_revoke', 'h2a_drive_consent_status']);
+});
+
 // Unsigned, mis-addressed, and replayed wakes must all verify false.
 const build = new URL('../packages/h2a/dist/index.js', import.meta.url).pathname;
 const { formatSignedDriveInstruction, verifySignedDriveInstruction, verifyDriveOnReceive,
