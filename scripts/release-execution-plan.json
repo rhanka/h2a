@@ -98,8 +98,11 @@
       },
       {
         "shell": "bash",
+        "env": {
+          "GH_TOKEN": "${{ github.token }}"
+        },
         "run": [
-          "node scripts/xcli-receipt-check.mjs --receipt docs/cross-cli-receipt.json --sha \"${{ needs.resolve-release-sha.outputs.release-sha }}\" --gate release"
+          "node scripts/xcli-receipt-check.mjs --fetch-trusted --sha \"${{ needs.resolve-release-sha.outputs.release-sha }}\" --gate release"
         ]
       },
       {
