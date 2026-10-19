@@ -44,6 +44,10 @@ Plain narrative fields: question/question-context/recommendation and nested
 option label/body/consequence. The manifest lists each source address; the
 presentation's recommended-option prefix is never used as source text.
 States, annotations, outcomes, citations and comprehension evidence are excluded.
+Each plain field segments into one unit per block of non-blank lines, with
+exact source offsets and no trimming; blank lines stay structural gaps. A
+paragraph value spanning several blocks is refused, so correcting one plain
+paragraph never transports or conflicts with its neighbours.
 
 `seedManifest` is for the first legacy baseline only. It deterministically
 seeds distinct opaque paragraph IDs even for identical text. Subsequent
@@ -60,7 +64,9 @@ ordered replace/insert/delete/move operations. Repeated typing coalesces to one
 baseline-relative change. Splits retain the leading ID and insert fresh units;
 merges retain the leading ID and delete consumed units. Moves preserve text.
 Structural operations carry before/after sibling anchors with explicit null
-boundaries. Unsupported source gaps are retained, including CRLF and tables.
+boundaries. Replacements carry them too: a `replace` whose anchors no longer
+match the current topology refuses instead of applying text to a moved
+paragraph. Unsupported source gaps are retained, including CRLF and tables.
 
 ## Digest domains
 
@@ -97,8 +103,12 @@ change or revoke earlier corrections. A third-party modification to an affected
 unit/topology produces a conflict with baseline / lineage-applied / current /
 requested values. Structural revocation restores exact baseline source gaps
 while replaying independent third-party units. Every accepted application records
-actual base/result hashes and consumed IDs. Refused valid identities are also
-bound to their digest; replay receipts preserve the previous outcome.
+actual base/result hashes, consumed IDs and the reconciler-computed transition
+it effectively applied or revoked, so a revocation receipt names its changes.
+A retired identity is restored only for this lineage's own deletions; any other
+collision refuses. Refused valid identities are also
+bound to their digest; replay receipts preserve the previous outcome and its
+conflicts, and the `focus feedback` CLI keeps a replayed refusal unsuccessful.
 
 ## Manual producer workflow
 
@@ -133,6 +143,10 @@ The manual preview does not translate to Track or widen snapshot registry
 permissions. Complete FE-5 registry capabilities and presentation rebuild remain
 gated on the FE-3/FE-4 round trip. Deployment must carry the matching newly built
 Focus package; availability of this contract in published 0.5.0 is not asserted.
+Every install circuit packs and installs the focus candidate with the rest:
+the CI smoke installs five tarballs, `smoke-artifact` packs five candidates
+and proves the focus version against its own pin from the installed prefix,
+and the offline distribution fixture packs focus into the consumer closure.
 
 ## Regeneration and qualification
 
