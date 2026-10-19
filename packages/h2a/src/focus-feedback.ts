@@ -73,6 +73,10 @@ export function importFocusFeedback(options: ImportFeedbackOptions): { ok: boole
   });
 }
 
+/** A replayed refusal stays unsuccessful: the CLI exit follows the original
+ * outcome, never the replay mechanics. Only a replay of an applied return —
+ * or of a legacy receipt without a recorded previous outcome — exits 0. */
+const REFUSED_PREVIOUS = new Set(['conflict', 'validation-refused', 'generation-mismatch', 'superseded', 'lineage-order-indeterminate', 'identity-reuse', 'concurrent-source-change', 'unsupported-or-invalid-return']);
 export function runFocusFeedbackCli(args: readonly string[], streams = { stdout: process.stdout, stderr: process.stderr }): number {
   const usage = 'Usage: h2a focus feedback retain <source.json> --state <dir> --producer <id> --generation <id> --request <id>\n       h2a focus feedback apply <return.json|yaml> --state <dir> [--manifest <current-manifest.json>]\n';
   if (args.includes('--help') || args.includes('-h')) { streams.stdout.write(usage); return 0; }
@@ -90,6 +94,9 @@ export function runFocusFeedbackCli(args: readonly string[], streams = { stdout:
       streams.stdout.write(JSON.stringify({ status: 'baseline-retained', baseHash: snapshot.manifest.baseHash, manifestBaseHash: snapshot.manifest.manifestBaseHash }) + '\n'); return 0;
     }
     const result = importFocusFeedback({ input, stateDir: params.get('--state')!, currentManifestPath: params.get('--manifest') });
-    streams.stdout.write(JSON.stringify(result.receipt) + '\n'); return result.ok || result.receipt.status === 'already-processed' ? 0 : 1;
+    streams.stdout.write(JSON.stringify(result.receipt) + '\n');
+    if (result.ok) return 0;
+    if (result.receipt.status === 'already-processed' && !REFUSED_PREVIOUS.has(result.receipt.previousStatus ?? '')) return 0;
+    return 1;
   } catch (error) { streams.stderr.write(`h2a focus feedback: ${(error as Error).message}\n`); return 1; }
 }
