@@ -490,6 +490,7 @@ test('CI exposes an independent, stable npm-test-trust-root job', () => {
     commands,
     [
       'npm ci',
+      'npm run build',
       'npm install --global @openai/codex@0.145.0 @anthropic-ai/claude-code@2.1.296',
       'node --test packages/h2a/test/run-test-gates.test.js',
       'node scripts/run-test-gates.mjs',
@@ -1460,6 +1461,7 @@ test('L2: the h2a-runtime gate dispatches through the PID-namespace launcher wit
     args: [...step.args, L2_UPGRADE_FILE],
     requiredFiles: () => [resolve(REPO_ROOT, L2_UPGRADE_FILE)],
   }
-  const code = runGates([narrowed], { stdio: 'pipe', write: () => {}, writeErr: () => {}, scope: '' })
-  assert.equal(code, 0, 'the real h2a-runtime step must pass the launcher-guarded fixture with its execution proof')
+  let diagnostics = ''
+  const code = runGates([narrowed], { stdio: 'inherit', write: text => { diagnostics += text }, writeErr: text => { diagnostics += text }, scope: '' })
+  assert.equal(code, 0, `the real h2a-runtime step must pass the launcher-guarded fixture with its execution proof\n${diagnostics}`)
 })
