@@ -11,6 +11,27 @@ it('should apply B→C once and replay only by return identity and digest', () =
   const forged = structuredClone(r2); forged.notes[0].text = 'changed'; forged.digest = E.returnDigest(forged);
   expect(apply(doc, manifest, forged, current(second), second.lineage).receipt.status).toBe('identity-reuse');
 });
+it('should refuse a replace whose structural anchors do not match the baseline topology', () => {
+  const { doc, manifest } = setup(), base = units(doc, manifest);
+  const forged = change(doc, manifest, 0, 'B');
+  forged.changes[0].beforeAnchors = { parentId: null, previousParagraphId: 'paragraph:absent', nextParagraphId: null };
+  const out = apply(doc, manifest, freeze(doc, manifest, [forged]));
+  expect(out.ok).toBe(false); expect(out.receipt.status).toBe('conflict'); expect(out.document).toEqual(doc);
+});
+it('should conflict when revoking a correction whose paragraph was moved by a third party', () => {
+  const { doc, manifest } = setup(), base = units(doc, manifest);
+  const r1 = freeze(doc, manifest, [change(doc, manifest, 0, 'B')]);
+  const first = apply(doc, manifest, r1);
+  expect(first.ok).toBe(true);
+  const draft = structuredClone(units(first.document, first.manifest));
+  [draft[0], draft[1]] = [draft[1], draft[0]];
+  const moved = E.applyParagraphChanges(first.document, first.manifest, [E.diffParagraphs(units(first.document, first.manifest), draft, 'tiers:move')]);
+  expect(units(moved.document, moved.manifest)[0].paragraphId).toBe(base[1].paragraphId);
+  const out = apply(doc, manifest, freeze(doc, manifest, [], r1, 'R2'), { document: moved.document, manifest: moved.manifest }, first.lineage);
+  expect(out.ok).toBe(false); expect(out.receipt.status).toBe('conflict');
+  expect(out.conflicts[0]).toMatchObject({ paragraphId: base[0].paragraphId });
+  expect(out.document).toEqual(moved.document);
+});
 it('should revoke an applied correction, and revoke only the cancelled part of a two-paragraph return', () => {
   const { doc, manifest } = setup(), draft = units(doc, manifest); draft[0].text = 'B'; draft[1].text = 'Y';
   const r1 = freeze(doc, manifest, [E.diffParagraphs(units(doc, manifest), draft, 'tx')]), first = apply(doc, manifest, r1);
@@ -18,6 +39,53 @@ it('should revoke an applied correction, and revoke only the cancelled part of a
   expect(partial.ok).toBe(true); expect(units(partial.document, partial.manifest).slice(0, 2).map((p: any) => p.text)).toEqual([units(doc, manifest)[0].text, 'Y']);
   const r3 = freeze(doc, manifest, [], r2, 'R3'), revoked = apply(doc, manifest, r3, current(partial), partial.lineage);
   expect(revoked.ok).toBe(true); expect(revoked.document).toEqual(doc); expect(revoked.receipt.status).toBe('revocation-applied');
+});
+it('should name the effectively revoked changes in revocation receipts', () => {
+  const { doc, manifest } = setup(), base = units(doc, manifest);
+  const draft = structuredClone(base); draft[0].text = 'B'; draft[1].text = 'Y';
+  const r1 = freeze(doc, manifest, [E.diffParagraphs(base, draft, 'tx')]);
+  const first = apply(doc, manifest, r1);
+  expect(first.ok).toBe(true);
+  const revoked = apply(doc, manifest, freeze(doc, manifest, [], r1, 'R2'), current(first), first.lineage);
+  expect(revoked.ok).toBe(true); expect(revoked.receipt.status).toBe('revocation-applied');
+  const recorded = revoked.lineage.applications.at(-1).transactions[0];
+  expect(recorded.changes.map((c: any) => [c.paragraphId, c.before, c.after])).toEqual([[base[0].paragraphId, 'B', base[0].text], [base[1].paragraphId, 'Y', base[1].text]]);
+  const entry = revoked.receipt.transactions.find((t: any) => t.transactionId === recorded.transactionId);
+  expect(entry, JSON.stringify(revoked.receipt.transactions)).toBeDefined();
+  expect(entry.changeIds).toEqual(recorded.changes.map((c: any) => c.changeId));
+  const partial = apply(doc, manifest, freeze(doc, manifest, [change(doc, manifest, 1, 'Y')], r1, 'R2b'), current(first), first.lineage);
+  expect(partial.ok).toBe(true); expect(partial.receipt.status).toBe('revocation-applied');
+  const recordedPartial = partial.lineage.applications.at(-1).transactions[0];
+  expect(recordedPartial.changes.map((c: any) => c.paragraphId)).toEqual([base[0].paragraphId]);
+  const partialEntry = partial.receipt.transactions.find((t: any) => t.transactionId === recordedPartial.transactionId);
+  expect(partialEntry.changeIds).toEqual(recordedPartial.changes.map((c: any) => c.changeId));
+});
+it('should preserve conflicts and the unsuccessful outcome when replaying a refused return', () => {
+  const { doc, manifest } = setup();
+  const r1 = freeze(doc, manifest, [change(doc, manifest, 0, 'B')]);
+  const diverged = E.applyParagraphChanges(doc, manifest, [change(doc, manifest, 0, 'Tiers')]);
+  const out = apply(doc, manifest, r1, diverged);
+  expect(out.ok).toBe(false); expect(out.receipt.status).toBe('conflict');
+  expect(out.receipt.conflicts.length).toBeGreaterThan(0);
+  const replay = apply(doc, manifest, r1, { document: out.document, manifest: out.manifest }, out.lineage);
+  expect(replay.ok).toBe(false);
+  expect(replay.receipt.status).toBe('already-processed');
+  expect(replay.receipt.previousStatus).toBe('conflict');
+  expect(replay.receipt.conflicts).toEqual(out.receipt.conflicts);
+});
+it('should refuse an insert that reuses an identity retired outside the lineage', () => {
+  const { doc, manifest } = setup(), base = units(doc, manifest);
+  const fresh = { ...base[0], paragraphId: 'fresh:tiers', text: 'Texte tiers' };
+  const draft = [...base.slice(0, 2), fresh, ...base.slice(2)];
+  const inserted = E.applyParagraphChanges(doc, manifest, [E.diffParagraphs(base, draft, 'tiers:insert')]);
+  const retired = E.applyParagraphChanges(inserted.document, inserted.manifest, [E.diffParagraphs(units(inserted.document, inserted.manifest), base, 'tiers:delete')]);
+  expect(retired.manifest.retiredParagraphIds).toContain('fresh:tiers');
+  const returning = [...base.slice(0, 2), { ...base[0], paragraphId: 'fresh:tiers', text: 'Retour' }, ...base.slice(2)];
+  const value = freeze(doc, manifest, [E.diffParagraphs(base, returning, 'tx')]);
+  const out = apply(doc, manifest, value, { document: retired.document, manifest: retired.manifest });
+  expect(out.ok).toBe(false); expect(out.receipt.status).toBe('conflict');
+  expect(out.conflicts[0]).toMatchObject({ reason: 'reused-paragraph-id' });
+  expect(out.lineage.head).toBeUndefined();
 });
 it('should tombstone late R1 after empty R2, and after R3 with missing intermediate R2', () => {
   const { doc, manifest } = setup(), r1 = freeze(doc, manifest, [change(doc, manifest, 0, 'B')]);

@@ -29,8 +29,39 @@ export function segmentMarkdown(source: string): SourceSegment[] {
   }
   return segments;
 }
+/** Plain narrative fields: one unit per block of non-blank lines. Exact source
+ * offsets, CRLF/CR aware, no trimming and no normalization: blank lines stay
+ * structural gaps owned by the manifest, never paragraph content. */
+export function segmentText(source: string): SourceSegment[] {
+  if (source === '') return [];
+  const parts = source.split(/(\r\n|\n|\r)/);
+  const lines: { start: number; end: number; text: string }[] = [];
+  let offset = 0;
+  for (let i = 0; i < parts.length; i += 2) {
+    const text = parts[i];
+    lines.push({ start: offset, end: offset + text.length, text });
+    offset += text.length + (parts[i + 1] ?? '').length;
+  }
+  const segments: SourceSegment[] = [];
+  let open: number | null = null;
+  const close = (last: number): void => {
+    segments.push({ start: lines[open!].start, end: lines[last].end, text: source.slice(lines[open!].start, lines[last].end), editable: true });
+    open = null;
+  };
+  lines.forEach((line, index) => {
+    if (/^[ \t]*$/.test(line.text)) { if (open !== null) close(index - 1); }
+    else if (open === null) open = index;
+  });
+  if (open !== null) close(lines.length - 1);
+  return segments;
+}
 export function assertParagraphText(text: string, format: string): void {
-  if (format === 'text/plain' || text === '') return;
+  if (text === '') return;
+  if (format === 'text/plain') {
+    const parts = segmentText(text);
+    if (parts.length !== 1 || parts[0].start !== 0 || parts[0].end !== text.length) throw new Error('unsupported-paragraph-format');
+    return;
+  }
   const parts = segmentMarkdown(text);
   if (parts.length !== 1 || !parts[0].editable || parts[0].start !== 0 || parts[0].end !== text.length) throw new Error('unsupported-paragraph-format');
 }

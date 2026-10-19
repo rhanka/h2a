@@ -1,11 +1,60 @@
 import { expect, it } from 'vitest';
-import { E, setup, units } from './editing-fixture.js';
+import { E, setup, units, document, freeze, apply } from './editing-fixture.js';
 it('should seed distinct stable identities for duplicate source text and bind the exact source, never presentation', () => {
   const { doc, manifest } = setup(); expect(E.seedManifest(doc)).toEqual(manifest);
   const ps = units(doc, manifest); expect(ps[0].text).toBe(ps[1].text); expect(ps[0].paragraphId).not.toBe(ps[1].paragraphId);
   expect(ps.find((p: any) => p.field === 'recommendedAnswer').text).toBe('Raison exacte');
   expect(E.validateManifest(manifest, doc).ok).toBe(true);
   expect(E.validateManifest({ ...manifest, manifestId: 'other' }, doc).ok).toBe(false);
+});
+it('should segment plain narrative fields into one unit per paragraph with exact offsets', () => {
+  expect(E.segmentText('')).toEqual([]);
+  expect(E.segmentText('Premier paragraphe\n\nSecond paragraphe').map((s: any) => [s.start, s.end, s.text])).toEqual([[0, 18, 'Premier paragraphe'], [20, 37, 'Second paragraphe']]);
+  expect(E.segmentText('A\r\n\r\nB').map((s: any) => [s.start, s.end])).toEqual([[0, 1], [5, 6]]);
+  expect(E.segmentText('ligne une\nligne deux\n\nsuite').map((s: any) => s.text)).toEqual(['ligne une\nligne deux', 'suite']);
+  expect(E.segmentText('\n\n  \n').map((s: any) => s.text)).toEqual([]);
+  const doc = document() as any;
+  doc.sections[1].context = 'Premier paragraphe\n\nSecond paragraphe';
+  const manifest = E.seedManifest(doc);
+  const ps = E.readParagraphs(doc, manifest).filter((p: any) => p.field === 'context');
+  expect(ps.map((p: any) => p.text)).toEqual(['Premier paragraphe', 'Second paragraphe']);
+  expect(ps[0].paragraphId).not.toBe(ps[1].paragraphId);
+  expect(E.validateManifest(manifest, doc).ok).toBe(true);
+  const draft = structuredClone(E.readParagraphs(doc, manifest));
+  const second = draft.find((p: any) => p.field === 'context' && p.text === 'Second paragraphe');
+  draft.find((p: any) => p.paragraphId === second.paragraphId).text = 'Second corrigé';
+  const tx = E.diffParagraphs(E.readParagraphs(doc, manifest), draft, 'tx');
+  expect(tx.changes).toHaveLength(1);
+  expect(tx.changes[0]).toMatchObject({ operation: 'replace', paragraphId: second.paragraphId, before: 'Second paragraphe', after: 'Second corrigé' });
+  const moved = E.applyParagraphChanges(doc, manifest, [tx]);
+  expect((moved.document.sections[1] as any).context).toBe('Premier paragraphe\n\nSecond corrigé');
+  expect(E.validateManifest(moved.manifest, moved.document).ok).toBe(true);
+});
+it('should reconcile independent corrections of two plain paragraphs without a joint conflict', () => {
+  const doc = document() as any;
+  doc.sections[1].context = 'Premier paragraphe\n\nSecond paragraphe';
+  const manifest = E.seedManifest(doc);
+  const base = E.readParagraphs(doc, manifest);
+  const second = base.find((p: any) => p.field === 'context' && p.text === 'Second paragraphe');
+  const draft = structuredClone(base);
+  draft.find((p: any) => p.paragraphId === second.paragraphId).text = 'Second corrigé';
+  const value = freeze(doc, manifest, [E.diffParagraphs(base, draft, 'tx')]);
+  const third = structuredClone(base);
+  third.find((p: any) => p.field === 'context' && p.text === 'Premier paragraphe').text = 'Premier tiers';
+  const diverged = E.applyParagraphChanges(doc, manifest, [E.diffParagraphs(base, third, 'tiers')]);
+  const out = apply(doc, manifest, value, diverged);
+  expect(out.ok, JSON.stringify(out.conflicts)).toBe(true);
+  expect(E.readParagraphs(out.document, out.manifest).find((p: any) => p.paragraphId === second.paragraphId).text).toBe('Second corrigé');
+});
+it('should refuse a plain paragraph value spanning several blocks', () => {
+  const doc = document() as any;
+  doc.sections[1].context = 'Premier paragraphe\n\nSecond paragraphe';
+  const manifest = E.seedManifest(doc);
+  const base = E.readParagraphs(doc, manifest);
+  const draft = structuredClone(base);
+  draft.find((p: any) => p.field === 'context').text = 'Bloc unique\n\nsur deux blocs';
+  expect(() => E.diffParagraphs(base, draft, 'tx')).not.toThrow();
+  expect(() => E.applyParagraphChanges(doc, manifest, [E.diffParagraphs(base, draft, 'tx')])).toThrow('unsupported-paragraph-format');
 });
 it('should preserve explicit identities across an agent revision with an insertion before the second paragraph', () => {
   const { doc, manifest } = setup(), old = units(doc, manifest), next = structuredClone(doc) as any;
