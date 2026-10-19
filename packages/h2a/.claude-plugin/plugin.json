@@ -6,18 +6,5 @@
     "name": "Fabien Antoine"
   },
   "homepage": "https://github.com/rhanka/h2a/tree/main/packages/h2a#readme",
-  "mcpServers": {
-    "h2a": {
-      "command": "h2a",
-      "args": [
-        "mcp-serve",
-        "--host",
-        "claude",
-        "--wake",
-        "auto",
-        "--auto-open",
-        "--auto-upgrade"
-      ]
-    }
-  }
+  "mcpServers": "./.claude-plugin/registry.mcp.json"
 }
