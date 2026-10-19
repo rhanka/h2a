@@ -42,8 +42,10 @@ export function diffParagraphs(baseline, draft, transactionId) {
     }
     return { transactionId, changes };
 }
-/** Applies one atomic batch to source tokens. Opaque gaps are never reserialized. */
-export function applyParagraphChanges(document, manifest, transactions, restoreRetired = false) {
+/** Applies one atomic batch to source tokens. Opaque gaps are never reserialized.
+ * A retired identity is restored only when explicitly listed in `restoreIds`:
+ * reviving any other retired identity silently reassigns it (D13). */
+export function applyParagraphChanges(document, manifest, transactions, restoreIds = null) {
     const values = readParagraphs(document, manifest), changes = transactions.flatMap(t => t.changes);
     if (!changes.length)
         return { document: structuredClone(document), manifest: structuredClone(manifest) };
@@ -65,13 +67,13 @@ export function applyParagraphChanges(document, manifest, transactions, restoreR
             let tokenIndex = tokens.findIndex(t => t.value?.paragraphId === c.paragraphId);
             const list = active(), index = list.findIndex(p => p.paragraphId === c.paragraphId);
             if (c.operation === 'insert') {
-                if (values.some(p => p.paragraphId === c.paragraphId) || (retired.has(c.paragraphId) && !restoreRetired) || tokenIndex >= 0 || c.before !== null || c.after === null)
+                if (values.some(p => p.paragraphId === c.paragraphId) || (retired.has(c.paragraphId) && !restoreIds?.has(c.paragraphId)) || tokenIndex >= 0 || c.before !== null || c.after === null)
                     throw new Error('reused-paragraph-id');
             }
             else {
                 if (index < 0 || list[index].text !== c.before)
                     throw new Error('paragraph-precondition');
-                if (c.operation !== 'replace' && canonicalJson(paragraphAnchors(list, index)) !== canonicalJson(c.beforeAnchors))
+                if (canonicalJson(paragraphAnchors(list, index)) !== canonicalJson(c.beforeAnchors))
                     throw new Error('structural-precondition');
             }
             if (c.after !== null)
