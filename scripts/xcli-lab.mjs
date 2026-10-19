@@ -205,14 +205,15 @@ export function sourceBuild(root) {
 // against it, the parent re-wipes a lost worker cell against it.
 export const LOGIN_ALLOWLIST = Object.freeze({
   codex: Object.freeze(['.codex/auth.json']),
-  claude: Object.freeze(['.config/muse/auth.json']),
+  claude: Object.freeze(['.claude/.credentials.json', '.claude.json']),
+  muse: Object.freeze(['.config/muse/auth.json']),
   vibe: Object.freeze([]),
 });
 const LOGIN_ROLES = Object.freeze(Object.keys(LOGIN_ALLOWLIST));
 // Absolute destination of an allowlisted login copy inside a role env.
 export function loginCopyPath(env, cli, name) {
   assert.ok(LOGIN_ROLES.includes(cli), `login-not-confined:${cli}`);
-  return cli === 'claude' ? join(env.XDG_CONFIG_HOME, 'muse/auth.json') : join(env.HOME, name);
+  return join(env.HOME, name);
 }
 // Lot L5 secret wipe: absolute secret-bearing paths inside a cell: recorded
 // login copies or, when the worker never reported, the allowlisted candidates
@@ -228,8 +229,10 @@ export function cellSecretPaths(cell, copies) {
     } else {
       for (const cli of LOGIN_ROLES) for (const name of LOGIN_ALLOWLIST[cli]) paths.push(loginCopyPath(env, cli, name));
     }
-    paths.push(join(dir, 'events.jsonl'), join(cell, 'wake-lines'));
+    // Transcripts can occur anywhere under HOME/XDG, not just at login paths.
+    paths.push(...['home', 'state', 'cache', 'data', 'run', 'tmp', 'workspace', 'events.jsonl'].map(name => join(dir, name)));
   }
+  paths.push(join(cell, 'wake-lines'), join(cell, 'exec-trace'));
   return paths;
 }
 // Remove every path and re-check absence file by file. Returns the surviving
@@ -257,24 +260,45 @@ export function copyLogin(cli, authHome, target, env) {
   if (!authHome) return copied;
   assert.ok(LOGIN_ROLES.includes(cli), `login-not-confined:${cli}`);
   for (const name of LOGIN_ALLOWLIST[cli]) {
-    const src = join(authHome, name);
-    // Plain open() with O_NOFOLLOW + fstat on the open descriptor: symlinks
-    // are refused by the kernel with no lstat/copy race window.
     let fd = null;
-    try { fd = fs.openSync(src, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW); }
-    catch (error) { if (error.code === 'ENOENT' || error.code === 'ELOOP') continue; throw error; }
+    try { fd = openLoginFile(authHome, name); }
+    catch (error) { if (['ENOENT', 'ELOOP', 'ENOTDIR'].includes(error.code)) continue; throw error; }
     try {
       const info = fs.fstatSync(fd);
       if (!info.isFile()) continue;
       const out = loginCopyPath(env, cli, name);
       inside(target, out);
       fs.mkdirSync(dirname(out), { recursive: true, mode: 0o700 });
-      fs.writeFileSync(out, fs.readFileSync(fd));
+      let bytes = fs.readFileSync(fd);
+      if (cli === 'claude' && name === '.claude.json') {
+        const source = JSON.parse(bytes.toString('utf8'));
+        bytes = JSON.stringify({ oauthAccount: source.oauthAccount,
+          hasCompletedOnboarding: source.hasCompletedOnboarding === true,
+          lastOnboardingVersion: /^\d+\.\d+\.\d+$/.test(source.lastOnboardingVersion ?? '') ? source.lastOnboardingVersion : undefined });
+      }
+      fs.writeFileSync(out, bytes);
       fs.chmodSync(out, 0o600);
       copied.push(name);
     } finally { if (fd !== null) fs.closeSync(fd); }
   }
   return copied;
+}
+
+// Descriptor-relative walk: O_NOFOLLOW protects EVERY component, even if
+// an ancestor is concurrently renamed. Other platforms fail closed.
+function openLoginFile(authHome, name) {
+  assert.equal(process.platform, 'linux', 'login descriptor confinement requires Linux');
+  assert.ok(!name.split('/').includes('..'), 'invalid login path');
+  const parts = resolve(authHome, name).split('/').filter(Boolean);
+  let directory = fs.openSync('/', fs.constants.O_RDONLY | fs.constants.O_DIRECTORY);
+  try {
+    for (const part of parts.slice(0, -1)) {
+      const next = fs.openSync(`/proc/self/fd/${directory}/${part}`,
+        fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW);
+      fs.closeSync(directory); directory = next;
+    }
+    return fs.openSync(`/proc/self/fd/${directory}/${parts.at(-1)}`, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+  } finally { fs.closeSync(directory); }
 }
 
 export function cliPath(cli, path) {
