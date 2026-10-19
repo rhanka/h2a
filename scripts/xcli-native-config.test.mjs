@@ -30,6 +30,33 @@ test('Codex actually discovers the MCP configured at the product descriptor path
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+test('Vibe actually accepts the MCP configured at the product descriptor path', async () => {
+  const executable = cliPath('vibe', process.env.PATH ?? '/usr/bin:/bin');
+  assert.ok(executable, 'native Vibe config oracle is mandatory; absence is a failure');
+  const root = fs.mkdtempSync('/tmp/h2a-qual-');
+  try {
+    const build = sourceBuild(root);
+    const env = environment(join(root, 'oracle'));
+    const { H2A_VIBE_HOST } = await import(pathToFileURL(join(build.path, 'packages/h2a/dist/index.js')));
+    const snippet = H2A_VIBE_HOST.renderMcpConfig({ command: process.execPath,
+      args: [join(build.path, 'packages/h2a/dist/bin.js'), 'mcp-serve'] });
+    assert.equal(snippet.path.example, '~/.vibe/config.toml');
+    const path = join(env.VIBE_HOME, 'config.toml');
+    fs.mkdirSync(dirname(path), { recursive: true });
+    const endpoint = snippet.config.mcpServers.h2a;
+    fs.writeFileSync(path, '[[mcp_servers]]\nname = "h2a"\ntransport = "stdio"\n' +
+      `command = ${JSON.stringify(endpoint.command)}\nargs = ${JSON.stringify(endpoint.args)}\n`);
+    assert.ok(fs.readFileSync(path, 'utf8').includes('name = "h2a"'), 'oracle writes the h2a entry first');
+    // The real binary parses the h2a-written TOML and acts on the h2a server:
+    // removing it exits 0 and leaves exactly that entry gone.
+    const result = spawnSync(executable, ['mcp', 'remove', 'h2a'], { cwd: root, env,
+      encoding: 'utf8', timeout: 20000, maxBuffer: 1024 * 1024 });
+    assert.equal(result.status, 0, `native Vibe must parse the h2a-written config (output: ${(result.stdout + result.stderr).slice(0, 300)})`);
+    const after = fs.readFileSync(path, 'utf8');
+    assert.ok(!after.includes('"h2a"'), 'native Vibe acted on the h2a entry: it removed exactly that server');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 test('Claude actually connects to the MCP configured at the product descriptor path', async () => {
   const executable = cliPath('claude', process.env.PATH ?? '/usr/bin:/bin');
   assert.ok(executable, 'native Claude config oracle is mandatory; absence is a failure');
