@@ -131,11 +131,20 @@ function receiptPathFor(configPath: string): string {
 
 function writeReceipt(configPath: string, record: Record<string, unknown>): string {
   const receiptPath = receiptPathFor(configPath);
-  writeFileSync(receiptPath, `${JSON.stringify({ format: "h2a.registry-install/v1", ...record }, null, 2)}\n`, { mode: 0o600 });
+  writeReceiptRecord(receiptPath, record);
   return receiptPath;
 }
 
-function atomicWriteWithBackup(target: string, next: string): { backupPath?: string } {
+export interface AtomicWriteReceipt {
+  path: string;
+  record: Record<string, unknown>;
+}
+
+function writeReceiptRecord(receiptPath: string, record: Record<string, unknown>): void {
+  writeFileSync(receiptPath, `${JSON.stringify({ format: "h2a.registry-install/v1", ...record }, null, 2)}\n`, { mode: 0o600 });
+}
+
+function atomicWriteWithBackup(target: string, next: string, receipt?: AtomicWriteReceipt): { backupPath?: string } {
   const existed = existsSync(target);
   const original = existed ? readFileSync(target) : null;
   if (original && original.toString("utf8") === next) return {};
@@ -149,19 +158,49 @@ function atomicWriteWithBackup(target: string, next: string): { backupPath?: str
       throw new RegistryError("invalid_entry", "host config changed while preparing the edit; refusing to overwrite it");
     }
     renameSync(staging, target);
+    // The receipt is part of the transaction: a receipt failure after the
+    // rename must restore the original bytes, never leave a migrated config
+    // without its transaction record.
+    if (receipt) writeReceiptRecord(receipt.path, receipt.record);
   } catch (error) {
     try {
-      unlinkSync(staging);
+      if (existsSync(staging)) unlinkSync(staging);
     } catch {
-      /* rename consumed staging */
+      /* staging cleanup is best-effort; the original error below carries the failure */
     }
-    // Best-effort restore: never leave a half-migrated config behind.
-    try {
-      if (original && existsSync(target) && readFileSync(target).toString("utf8") !== original.toString("utf8")) {
-        writeFileSync(target, original);
+    // Restore whenever the target diverged from the original bytes, including
+    // when the target vanished mid-transaction (missing counts as diverged).
+    // An unreadable target also counts as diverged: the restore is attempted
+    // and its failure surfaces distinctly below.
+    if (original) {
+      let current: Buffer | null = null;
+      try {
+        current = existsSync(target) ? readFileSync(target) : null;
+      } catch {
+        current = null;
       }
-    } catch {
-      /* restore is best-effort; the original error below still reports */
+      if (!current || !current.equals(original)) {
+        try {
+          writeFileSync(target, original);
+        } catch (restoreError) {
+          const failure = {
+            action: "restore-failed",
+            target,
+            error: (error as Error)?.message ?? String(error),
+            restoreError: (restoreError as Error)?.message ?? String(restoreError)
+          };
+          try {
+            writeReceiptRecord(receiptPathFor(target), failure);
+          } catch {
+            /* the receipt itself is unwritable: restore_failed below still carries both causes */
+          }
+          throw new RegistryError(
+            "restore_failed",
+            `failed to restore ${target} after install failure (${failure.error}); ` +
+            `restore also failed (${failure.restoreError}); see ${receiptPathFor(target)}`
+          );
+        }
+      }
     }
     throw error;
   }
@@ -319,8 +358,11 @@ function installJsonHost(host: RegistryHost, configPath: string, profile: string
   const next = replaceJsonEntry(raw, ["mcpServers", BRIDGE_SERVER_KEY], entry.h2a);
   const resultAction = preview.action === "install" ? "installed" : preview.action;
   if (dryRun) return { action: resultAction, receiptPath: receiptPathFor(configPath) };
-  const { backupPath } = atomicWriteWithBackup(configPath, next);
-  const receiptPath = writeReceipt(configPath, { host, profile, mechanism: "file", bridge: entry.h2a, lockPath, action: preview.action });
+  const receiptPath = receiptPathFor(configPath);
+  const { backupPath } = atomicWriteWithBackup(configPath, next, {
+    path: receiptPath,
+    record: { host, profile, mechanism: "file", bridge: entry.h2a, lockPath, action: preview.action }
+  });
   return { action: resultAction, ...(backupPath ? { backupPath } : {}), receiptPath };
 }
 
@@ -357,8 +399,11 @@ function installVibeHost(configPath: string, profile: string, dryRun: boolean, l
   }
   const resultAction = preview.action === "install" ? "installed" : preview.action;
   if (dryRun) return { action: resultAction, receiptPath: receiptPathFor(configPath) };
-  const { backupPath } = atomicWriteWithBackup(configPath, next);
-  const receiptPath = writeReceipt(configPath, { host: "vibe", profile, mechanism: "file", bridge: entry.h2a, lockPath, action: preview.action });
+  const receiptPath = receiptPathFor(configPath);
+  const { backupPath } = atomicWriteWithBackup(configPath, next, {
+    path: receiptPath,
+    record: { host: "vibe", profile, mechanism: "file", bridge: entry.h2a, lockPath, action: preview.action }
+  });
   return { action: resultAction, ...(backupPath ? { backupPath } : {}), receiptPath };
 }
 
@@ -376,6 +421,9 @@ export function previewInstall(options: InstallOptions): InstallPreview {
     if (isLegacyDirectServer(target)) return { action: "migrate-direct", reason: "interim direct h2a [[mcp_servers]] entry" };
     return { action: "conflict", reason: "unknown same-key h2a ownership" };
   }
+  if (options.host !== "claude" && options.host !== "codex" && options.host !== "agy" && options.host !== "muse") {
+    throw new RegistryError("unsupported_host", `unknown host ${options.host}; supported hosts: ${SUPPORTED_HOSTS.join(", ")}`);
+  }
   const { entry } = renderBridgeEntry(options.host, { profile });
   const raw = existsSync(options.configPath) ? readFileSync(options.configPath, "utf8") : "{}\n";
   let parsed: Record<string, unknown>;
@@ -392,9 +440,23 @@ export function installBridgeEntry(options: InstallOptions): InstallResult {
   assertRegistryHost(options.host);
   const profile = options.profile ?? "default";
   const dryRun = options.dryRun ?? false;
-  const lockPath = options.lockPath ?? defaultInstallLockPath(options.configPath);
+  // The installer binds the exact caller-resolved lock. A missing lock is
+  // never defaulted to a sibling path here: refusing with missing_lock keeps
+  // the receipt and the bridge --lock on the lock the caller resolved.
+  if (options.lockPath === undefined) {
+    throw new RegistryError(
+      "missing_lock",
+      `no lock path bound for host config at ${options.configPath}; pass the caller-resolved --lock`
+    );
+  }
+  const lockPath = options.lockPath;
+  // Explicit host dispatch: any non-vibe host outside the JSON allowlist
+  // throws unsupported_host instead of falling through to the JSON installer.
   if (options.host === "vibe") return installVibeHost(options.configPath, profile, dryRun, lockPath);
-  return installJsonHost(options.host, options.configPath, profile, dryRun, lockPath);
+  if (options.host === "claude" || options.host === "codex" || options.host === "agy" || options.host === "muse") {
+    return installJsonHost(options.host, options.configPath, profile, dryRun, lockPath);
+  }
+  throw new RegistryError("unsupported_host", `unknown host ${options.host}; supported hosts: ${SUPPORTED_HOSTS.join(", ")}`);
 }
 
 export function uninstallBridgeEntry(options: { host: string; configPath: string }): { action: "uninstalled"; backupPath?: string } {
@@ -416,6 +478,9 @@ export function uninstallBridgeEntry(options: { host: string; configPath: string
       /* receipt may predate this installer */
     }
     return { action: "uninstalled", ...(backupPath ? { backupPath } : {}) };
+  }
+  if (options.host !== "claude" && options.host !== "codex" && options.host !== "agy" && options.host !== "muse") {
+    throw new RegistryError("unsupported_host", `unknown host ${options.host}; supported hosts: ${SUPPORTED_HOSTS.join(", ")}`);
   }
   const raw = readFileSync(options.configPath, "utf8");
   let parsed: Record<string, unknown>;
