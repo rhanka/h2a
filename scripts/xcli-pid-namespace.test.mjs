@@ -85,6 +85,51 @@ test('historical producers refuse a missing or unchanged PID namespace', () => {
   }
 });
 
+test('runtime gate preserves crash-log metadata and secret redaction in its private environment', (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'xcli-gate-crashlog-'));
+  try {
+    const report = join(root, 'report.json');
+    const preload = join(root, 'probe.mjs');
+    writeFileSync(preload, `
+      import cp from 'node:child_process';
+      import { EventEmitter } from 'node:events';
+      import { syncBuiltinESMExports } from 'node:module';
+      // Exercise only the captured Vitest payload, without pretending this
+      // local probe qualifies sudo/unshare. The launch-shape test above
+      // independently requires the namespace, init and invoking UID/GID.
+      cp.spawn = (command, args) => {
+        if (command !== '/usr/bin/sudo') throw new Error('unexpected launch');
+        const unshare = args.indexOf('/usr/bin/unshare');
+        const node = args.indexOf('/usr/bin/setpriv') + 6;
+        const env = Object.fromEntries(args.slice(2, unshare).map(value => {
+          const split = value.indexOf('=');
+          return [value.slice(0, split), value.slice(split + 1)];
+        }));
+        const result = cp.spawnSync(args[node], args.slice(node + 1), {
+          env, stdio: 'inherit', timeout: 30000,
+        });
+        const child = new EventEmitter();
+        setImmediate(() => child.emit('close', result.status ?? 1));
+        return child;
+      };
+      syncBuiltinESMExports();
+    `);
+    const out = spawnSync(process.execPath, ['--import', preload, join(repo, 'scripts/xcli-in-pid-namespace.mjs'),
+      '--gate', 'packages/h2a-runtime/vitest.config.ts', 'packages/h2a-runtime/src/crash-log.test.ts'], {
+      cwd: repo, env: { ...environment(join(root, 'env')), RUNNER_TEMP: root,
+        H2A_TEST_REPORT_PATH: report, XCLI_NODE_HEADERS: root }, encoding: 'utf8', timeout: 60000,
+    });
+    assert.equal(out.status, 0, out.stdout + out.stderr);
+    const observed = JSON.parse(readFileSync(report, 'utf8'));
+    assert.equal(observed.numTotalTests, 20);
+    assert.equal(observed.numPassedTests, 20);
+    assert.equal(observed.numFailedTests, 0);
+    assert.equal(observed.numPendingTests, 0);
+    assert.equal(observed.numTodoTests, 0);
+    t.diagnostic(`crash-log: ${observed.numPassedTests} passed, ${observed.numFailedTests} failed, ${observed.numPendingTests} pending, ${observed.numTodoTests} todo (${process.version})`);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test('namespace init refuses to adopt or signal processes outside its private PID namespace', () => {
   const root = mkdtempSync(join(tmpdir(), 'xcli-pid-init-test-'));
   try {
