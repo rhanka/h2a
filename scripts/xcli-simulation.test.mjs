@@ -158,7 +158,7 @@ test('L3: a withheld-forever twin shows no qualifying read', () => {
 
 test('L3: a replayed wake produces at most one qualifying read', () => {
   const { status, cells } = runWakeCell(['--pair', 'claude:codex',
-    '--replay-wake', '--timeout-ms', '30000']);
+    '--replay-wake', '--wake-release-offsets-ms', '0,6000,1000', '--timeout-ms', '45000']);
   const cell = cells[0];
   assert.equal(status, 0, 'the passing cell stays green; the replay is a post-pass control');
   assert.equal(cell.status, 'simulated-OK');
@@ -223,12 +223,12 @@ test('L9d: a login-free real Gemini cell blocks on auth, never on Python', () =>
 
 test('L3: normal simulated cells keep full wake credit with bounded wording', () => {
   for (const pair of ['claude:codex', 'codex:claude']) {
-    const { status, cells } = runWakeCell(['--pair', pair, '--timeout-ms', '30000']);
+    const { status, cells } = runWakeCell(['--pair', pair, '--wake-release-offsets-ms', '0,6000,1000', '--timeout-ms', '45000']);
     const cell = cells[0];
     assert.equal(status, 0, `${pair} must stay simulated-OK`);
     assert.equal(cell.woke, true, `${pair} keeps stage-7 credit under the protocol`);
     assert.match(cell.wakeClaim ?? '',
-      /^withheld-protocol, periods ≤ \d+ms excluded, single replication \(no batch separation\); varying-phase polling not excluded$/,
+      /^withheld-protocol, periods ≤ \d+ms excluded, 3 separated replications; varying-phase polling not excluded$/,
       `${pair} carries the bounded claim, never an absolute consumption proof`);
   }
 });
