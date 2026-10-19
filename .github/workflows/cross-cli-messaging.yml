@@ -149,9 +149,9 @@ jobs:
             /tmp/xcli-evidence-*/execution.json
           if-no-files-found: error
 
-  # Lot L12/L13 scenario matrix (SPEC v3 §5.1 scenarios 2-3): every
+  # Lot L12/L13/L14 scenario matrix (SPEC v3 §5.1 scenarios 2-4): every
   # mandated row runs the full 36-pair simulated matrix and must classify
-  # scenario-OK on all 36. Negotiation joins the axis in L14.
+  # scenario-OK on all 36. Inventory groups join the axis in L15.
   scenario-matrix:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -163,7 +163,8 @@ jobs:
           "unavailability:identity-never-ready", "refusal:unsigned-wake",
           "refusal:misaddressed-wake", "refusal:replayed-wake",
           "loop:lifecycle", "loop:join-unknown", "loop:report-without-join",
-          "loop:report-after-done"]
+          "loop:report-after-done", "negotiation:flow", "negotiation:offer-unknown",
+          "negotiation:stabilize-without-offer", "negotiation:replayed-stabilization"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
