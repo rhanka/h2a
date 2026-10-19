@@ -7,6 +7,24 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 
 export const CLIS = Object.freeze(['claude', 'codex', 'agy', 'gemini', 'muse', 'vibe']);
+
+// Lot L11 (SPEC v3 §7.1): single-sourced tier-C oracle table. Families with
+// kind 'npm'/'uv' are installed pinned by xcli-install-oracles.mjs and must
+// answer their config oracle with no login. Families with kind 'none' have
+// no installable no-login parse path: muse ships as a channel-tracked
+// launcher with no version pin (installing it would track latest), and agy
+// has no published install recipe (binary provenance unknown). 'none' is a
+// tested verdict, never a silent gap: the receipt still records the real
+// binary version + digest the campaign lane measured.
+export const ORACLE_SOURCES = Object.freeze({
+  codex: Object.freeze({ kind: 'npm', package: '@openai/codex', bin: 'codex', pin: '0.162.1' }),
+  claude: Object.freeze({ kind: 'npm', package: '@anthropic-ai/claude-code', bin: 'claude', pin: '2.1.301',
+    bootstrapSha256: '32a7b2429d7447c5aa043e383bcf9a72e0b233dff66336ea4b5b32531da981ad' }),
+  vibe: Object.freeze({ kind: 'uv', tool: 'mistral-vibe', pin: '2.26.1' }),
+  muse: Object.freeze({ kind: 'none',
+    reason: 'channel-tracked launcher without a version pin; login-adjacent' }),
+  agy: Object.freeze({ kind: 'none', reason: 'no published install recipe; binary provenance unknown' }),
+});
 export const PROBE = 'H2A_XCLI_PROBE_20261015';
 export const REPLY = 'H2A_XCLI_REPLY_20261015';
 export const repo = resolve(import.meta.dirname, '..');
