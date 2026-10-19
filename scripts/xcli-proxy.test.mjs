@@ -1,3 +1,4 @@
+import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -7,7 +8,7 @@ import test from 'node:test';
 import { PROBE, environment, rehydrateEventRecord } from './xcli-lab.mjs';
 
 test('L8: a looping session trips the live per-session MCP-call cap and dies', async () => {
-  const root = fs.mkdtempSync('/tmp/xcli-proxy-cap-');
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-proxy-cap-'));
   const server = join(root, 'server.mjs');
   const events = join(root, 'events.jsonl');
   const env = { ...environment(root), XCLI_CELL: root, XCLI_EVENTS: events, XCLI_BIN: server, XCLI_MCP_CALL_CAP: '3' };
@@ -38,7 +39,7 @@ for await(const line of createInterface({input:process.stdin})) {
 });
 
 test('the transparent MCP witness records outcomes and exact envelope IDs without retaining bodies', async () => {
-  const root = fs.mkdtempSync('/tmp/xcli-proxy-');
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-proxy-'));
   fs.writeFileSync(join(root, 'known-instances.jsonl'), 'claude:sender\ncodex:receiver\n');
   const server = join(root, 'server.mjs');
   const events = join(root, 'events.jsonl');
@@ -92,7 +93,7 @@ for await(const line of createInterface({input:process.stdin})) {
 });
 
 test('L13: loop tool calls witness closed tool-call events with no bodies', async () => {
-  const root = fs.mkdtempSync('/tmp/xcli-proxy-loop-');
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-proxy-loop-'));
   const server = join(root, 'server.mjs');
   const events = join(root, 'events.jsonl');
   const env = { ...environment(root), XCLI_CELL: root, XCLI_EVENTS: events, XCLI_BIN: server };
@@ -129,7 +130,7 @@ for await(const line of createInterface({input:process.stdin})) {
 });
 
 test('L12: failed sends and reads witness closed-vocabulary refusals, never error text', async () => {
-  const root = fs.mkdtempSync('/tmp/xcli-proxy-refusal-');
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-proxy-refusal-'));
   const server = join(root, 'server.mjs');
   const events = join(root, 'events.jsonl');
   const env = { ...environment(root), XCLI_CELL: root, XCLI_EVENTS: events, XCLI_BIN: server };
@@ -172,7 +173,7 @@ for await(const line of createInterface({input:process.stdin})) {
 
 test('L4: both observe paths retain identical canonical records with a transcript field', async () => {
   const { canonicalEventRecord, REPLAY_TRANSCRIPT_BODY } = await import('./xcli-lab.mjs');
-  const root = fs.mkdtempSync('/tmp/xcli-proxy-canonical-');
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-proxy-canonical-'));
   fs.writeFileSync(join(root, 'known-instances.jsonl'), 'codex:sender\ncodex:receiver\n');
   const server = join(root, 'server.mjs');
   const events = join(root, 'events.jsonl');

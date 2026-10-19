@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { join } from 'node:path';
@@ -6,7 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { repo, sourceBuild, environment } from './xcli-lab.mjs';
 import { exportEvidence } from './xcli-export-evidence.mjs';
 
-const root = fs.mkdtempSync('/tmp/h2a-qual-');
+const root = fs.mkdtempSync(join(tmpdir(), 'h2a-qual-'));
 const built = sourceBuild(root);
 for (const pkg of ['h2a-runtime', 'h2a', 'track', 'remote-protocol']) {
   fs.cpSync(join(repo, 'packages', pkg, 'src'), join(built.path, 'packages', pkg, 'src'), { recursive: true });
@@ -46,6 +47,9 @@ const args = [join(repo, 'node_modules/vitest/vitest.mjs'), 'run', '--maxWorkers
 const result = spawnSync(process.execPath, args, { cwd: built.path, env, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
 let unexpectedNonTest = false;
 fs.writeFileSync(join(root, 'runner.log'), (result.stdout ?? '') + (result.stderr ?? ''));
+// Vitest reports beforeAll/collection failures at suite level, even when
+// numFailedTests is zero. Keep that cause visible in the job log.
+if (result.status !== 0) process.stderr.write((result.stdout ?? '') + (result.stderr ?? ''));
 if (fs.existsSync(report)) {
   const json = JSON.parse(fs.readFileSync(report, 'utf8'));
   const declared = JSON.parse(fs.readFileSync(join(repo, 'scripts/test-non-tests-0986.json'), 'utf8')).entries;

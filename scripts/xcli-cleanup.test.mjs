@@ -1,3 +1,4 @@
+import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { join } from 'node:path';
@@ -7,7 +8,7 @@ import test from 'node:test';
 import { environment, sourceBuild, repo } from './xcli-lab.mjs';
 
 test('an already exited private CLI is blocked without falsely failing its verified cleanup', () => {
-  const root = fs.mkdtempSync('/tmp/h2a-qual-');
+  const root = fs.mkdtempSync(join(tmpdir(), 'h2a-qual-'));
   const built = sourceBuild(root);
   const fixture = join(root, 'exit.mjs');
   fs.writeFileSync(fixture, 'setTimeout(() => process.exit(0), 500);\n');
@@ -52,7 +53,7 @@ fs.writeFileSync(join(request.root, 'stub-ready'), cell);
 `;
 
 function runParentWithStub(stubBody, extraArgs = []) {
-  const dir = fs.mkdtempSync('/tmp/xcli-l5-');
+  const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-l5-'));
   const stub = join(dir, 'stub.mjs');
   fs.writeFileSync(stub, stubBody);
   const output = join(dir, 'receipt.json');
@@ -110,7 +111,7 @@ test('L5: a worker reporting cleanup failure without wiping is wiped by the pare
 });
 
 test('L5: cancelling the campaign mid-cell still wipes the cell secrets', async () => {
-  const dir = fs.mkdtempSync('/tmp/xcli-l5-');
+  const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-l5-'));
   const stub = join(dir, 'stub.mjs');
   fs.writeFileSync(stub, `${stubHead}await new Promise(r => setTimeout(r, 60000));\n`);
   const output = join(dir, 'receipt.json');

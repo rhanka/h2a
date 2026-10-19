@@ -2,6 +2,7 @@
 // §5.5). Dummy seat dirs in mkdtemp; no real login, no model. Red today:
 // xcli-seats.mjs does not exist (import failure) and no manifest, ledger,
 // caps, preflight or seat-qualified selection exists anywhere.
+import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { join } from 'node:path';
@@ -17,7 +18,7 @@ function dummyManifest(dir, entries) {
 }
 
 test('L8: a seat-qualified pair selects distinct auth sources per role', () => {
-  const dir = fs.mkdtempSync('/tmp/xcli-seats-');
+  const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-seats-'));
   try {
     const file = dummyManifest(dir, [
       { seatId: 'claude-a', family: 'claude', authSource: 'seat-a' },
@@ -34,7 +35,7 @@ test('L8: a seat-qualified pair selects distinct auth sources per role', () => {
 });
 
 test('L8: a diagonal single-seat cell records sharedSeat', () => {
-  const dir = fs.mkdtempSync('/tmp/xcli-seats-');
+  const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-seats-'));
   try {
     const file = dummyManifest(dir, [{ seatId: 'codex', family: 'codex', authSource: 'seat-codex' }]);
     const manifest = seats.loadSeatManifest(file);
@@ -45,7 +46,7 @@ test('L8: a diagonal single-seat cell records sharedSeat', () => {
 });
 
 test('L8: an AGY entry pointing at Gemini files is refused as proof', () => {
-  const dir = fs.mkdtempSync('/tmp/xcli-seats-');
+  const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-seats-'));
   try {
     const file = dummyManifest(dir, [
       { seatId: 'agy', family: 'agy', authSource: 'seat-gemini' },
@@ -57,7 +58,7 @@ test('L8: an AGY entry pointing at Gemini files is refused as proof', () => {
 });
 
 test('L8: the launched-session cap is refused before spawn with a witness', () => {
-  const dir = fs.mkdtempSync('/tmp/xcli-seats-');
+  const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-seats-'));
   try {
     const ledger = seats.createCampaignLedger(dir, { launchedSessions: 1, mcpCallsPerSession: 10, wallClockMs: 60000 });
     assert.equal(seats.debitSession(ledger, 'codex').ok, true);
@@ -70,7 +71,7 @@ test('L8: the launched-session cap is refused before spawn with a witness', () =
 });
 
 test('L8: preflights, retries and re-runs debit exactly like first attempts', () => {
-  const dir = fs.mkdtempSync('/tmp/xcli-seats-');
+  const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-seats-'));
   try {
     const ledger = seats.createCampaignLedger(dir, { launchedSessions: 3, mcpCallsPerSession: 10, wallClockMs: 60000 });
     assert.equal(seats.debitSession(ledger, 'codex', { kind: 'preflight' }).ok, true);
@@ -82,7 +83,7 @@ test('L8: preflights, retries and re-runs debit exactly like first attempts', ()
 });
 
 test('L8: killing and resuming continues from the persisted ledger', () => {
-  const dir = fs.mkdtempSync('/tmp/xcli-seats-');
+  const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-seats-'));
   try {
     const first = seats.createCampaignLedger(dir, { launchedSessions: 2, mcpCallsPerSession: 10, wallClockMs: 60000 });
     seats.debitSession(first, 'codex');
@@ -112,7 +113,7 @@ test('L8: the per-family usage-signal inventory names its gaps', () => {
 });
 
 test('L8: a session fits check precedes the atomic pair debit', () => {
-  const dir = fs.mkdtempSync('/tmp/xcli-seats-');
+  const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-seats-'));
   try {
     const ledger = seats.createCampaignLedger(dir, { launchedSessions: 2, mcpCallsPerSession: 10, wallClockMs: 60000 });
     assert.equal(seats.fitsSessions(ledger, 2), true);
@@ -121,7 +122,7 @@ test('L8: a session fits check precedes the atomic pair debit', () => {
 });
 
 test('L8: the seat ledger renders per-seat debit totals', () => {
-  const dir = fs.mkdtempSync('/tmp/xcli-seats-');
+  const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-seats-'));
   try {
     const ledger = seats.createCampaignLedger(dir, { launchedSessions: 10, mcpCallsPerSession: 10, wallClockMs: 60000 });
     seats.debitSession(ledger, 'claude-a');
@@ -134,7 +135,7 @@ test('L8: the seat ledger renders per-seat debit totals', () => {
 });
 
 test('L8: a seat preflight fails closed on missing logins without model calls', async () => {
-  const dir = fs.mkdtempSync('/tmp/xcli-seats-');
+  const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-seats-'));
   try {
     const authSource = join(dir, 'empty-seat');
     fs.mkdirSync(authSource, { recursive: true });
@@ -148,7 +149,7 @@ test('L8: a seat preflight fails closed on missing logins without model calls', 
 });
 
 test('L8: manifest auth sources resolve against the manifest directory', () => {
-  const dir = fs.mkdtempSync('/tmp/xcli-seats-');
+  const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-seats-'));
   try {
     const sub = join(dir, 'conf');
     fs.mkdirSync(sub, { recursive: true });
@@ -162,7 +163,7 @@ test('L8: manifest auth sources resolve against the manifest directory', () => {
 });
 
 test('L8: campaign pairs resolve seats with single-seat family fallback', () => {
-  const dir = fs.mkdtempSync('/tmp/xcli-seats-');
+  const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-seats-'));
   try {
     fs.mkdirSync(join(dir, 'seat-a'), { recursive: true });
     fs.mkdirSync(join(dir, 'seat-b'), { recursive: true });

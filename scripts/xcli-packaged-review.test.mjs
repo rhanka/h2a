@@ -1,3 +1,4 @@
+import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { join } from 'node:path';
@@ -6,7 +7,7 @@ import test from 'node:test';
 import { environment, repo, sourceBuild } from './xcli-lab.mjs';
 
 test('L2 review: the upgrade candidate installs its exact local Focus artifact without registry fallback', () => {
-  const root = fs.mkdtempSync('/tmp/xcli-packaged-');
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-packaged-'));
   try {
     // Resolve the selected toolchain before replacing PATH/HOME.
     const npmLocation = spawnSync('/usr/bin/which', ['npm'], { encoding: 'utf8' });

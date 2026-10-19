@@ -1,3 +1,4 @@
+import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
@@ -8,7 +9,7 @@ import { startupKey, blockingScreen } from './qualify-cross-cli.mjs';
 import { spawnSync } from 'node:child_process';
 
 test('private CLI shebangs use the selected Node version without inheriting the host PATH', () => {
-  const root = mkdtempSync('/tmp/xcli-node-path-');
+  const root = mkdtempSync(join(tmpdir(), 'xcli-node-path-'));
   try {
     const result = spawnSync('/usr/bin/env', ['node', '--version'], { env: environment(root), encoding: 'utf8' });
     assert.equal(result.status, 0);
@@ -17,7 +18,7 @@ test('private CLI shebangs use the selected Node version without inheriting the 
 });
 
 test('a private Muse program leaves installation-side notice and binary untouched', () => {
-  const root = mkdtempSync('/tmp/xcli-muse-program-');
+  const root = mkdtempSync(join(tmpdir(), 'xcli-muse-program-'));
   try {
     const install = join(root, 'installed'), cell = join(root, 'cell');
     fs.mkdirSync(install); fs.mkdirSync(cell);
@@ -70,7 +71,7 @@ test('the qualification table requires all 36 distinct ordered pairs including s
 });
 
 test('the private environment drops ambient sockets, hooks, daemon and provider configuration', () => {
-  const root = mkdtempSync('/tmp/xcli-env-');
+  const root = mkdtempSync(join(tmpdir(), 'xcli-env-'));
   try {
     const env = environment(root);
     for (const key of ['HOME', 'XDG_CONFIG_HOME', 'XDG_STATE_HOME', 'XDG_RUNTIME_DIR',
@@ -93,7 +94,7 @@ test('L4: login copies accept only the codex and Muse login roles, never ambient
   const { copyLogin, environment } = await import('./xcli-lab.mjs');
   const CANARY_TOKEN = 'canary-owner-token-zz9';
   const CANARY_INSTANCE = 'canary-owner-instance-zz9';
-  const root = mkdtempSync('/tmp/xcli-login-');
+  const root = mkdtempSync(join(tmpdir(), 'xcli-login-'));
   try {
     const authHome = join(root, 'auth');
     const ambient = join(root, 'ambient-home');
@@ -153,7 +154,7 @@ test('L4: login copies accept only the codex and Muse login roles, never ambient
 // Python (dummy files, never executed). Red on current code for the
 // versioned, absolute-path and wrapper cases.
 test('L6: the entrypoint guard rejects versioned, env-form, absolute and wrapper Python', () => {
-  const root = mkdtempSync('/tmp/xcli-guard-');
+  const root = mkdtempSync(join(tmpdir(), 'xcli-guard-'));
   try {
     const cases = [
       ['#!/usr/bin/env python3\n', true],
@@ -181,7 +182,7 @@ test('L6: the entrypoint guard rejects versioned, env-form, absolute and wrapper
 test('L6: the execution journal records transient descendants at every lifetime', async () => {
   const { spawn } = await import('node:child_process');
   const { recordExec, readExecJournal, classifyExecJournal, isPythonInterpreterPath } = await import('./xcli-lab.mjs');
-  const root = mkdtempSync('/tmp/xcli-journal-');
+  const root = mkdtempSync(join(tmpdir(), 'xcli-journal-'));
   try {
     // A trivial native binary copy carrying an interpreter name (/bin/bash
     // runs under any argv[0]; nothing Python ever runs). Lifetimes come from
@@ -220,7 +221,7 @@ test('L6: the execution journal records transient descendants at every lifetime'
 // Vibe cell blocks pre-execution on python-entrypoint-forbidden.
 test('L7: the vendor vibe entrypoint classifies as vendor-runtime, never forbidden', async () => {
   const { vendorRuntimeLabel } = await import('./xcli-lab.mjs');
-  const root = mkdtempSync('/tmp/xcli-vibe-');
+  const root = mkdtempSync(join(tmpdir(), 'xcli-vibe-'));
   try {
     const launcher = join(root, 'vibe');
     writeFileSync(launcher, '#!/home/owner/.local/share/uv/tools/mistral-vibe/bin/python3\n');

@@ -1,3 +1,4 @@
+import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { join } from 'node:path';
@@ -10,7 +11,7 @@ import { parseWakeWindows } from './qualify-cross-cli.mjs';
 // A real startup dialog may render its choice before it starts accepting keys.
 // No login or provider is used; after consent this runs the signed product path.
 test('a partially rendered Cancel-focused trust dialog completes before the live round trip', () => {
-  const root = fs.mkdtempSync('/tmp/h2a-qual-');
+  const root = fs.mkdtempSync(join(tmpdir(), 'h2a-qual-'));
   try {
     const built = sourceBuild(root);
     const fixture = join(root, 'startup.mjs');

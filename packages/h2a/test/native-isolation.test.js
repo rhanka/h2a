@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
@@ -70,7 +71,7 @@ test("should refuse unsafe child environments before executing the operation", (
 });
 
 test("should refuse direct paths and aliases before inspecting metadata outside the private root", () => {
-  const root = createPrivateTestDirectory("i"), outside = mkdtempSync("/tmp/h2a-r2-metadata-canary-");
+  const root = createPrivateTestDirectory("i"), outside = mkdtempSync(join(tmpdir(), "h2a-r2-metadata-canary-"));
   const env = nativeTestEnvironment(root), alias = join(root, "alias");
   symlinkSync(outside, alias);
   const original = fs.lstatSync, inspected = [];

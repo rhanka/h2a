@@ -1,3 +1,4 @@
+import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -10,7 +11,7 @@ import { sourceBuild, environment, cliPath, privateExecutable } from './xcli-lab
 test('native Muse accepts product-rendered and product-written settings', async t => {
   const installed = cliPath('muse', process.env.PATH ?? '/usr/bin:/bin');
   assert.ok(installed, 'native Muse is required for this local qualification');
-  const root = fs.mkdtempSync('/tmp/h2a-qual-');
+  const root = fs.mkdtempSync(join(tmpdir(), 'h2a-qual-'));
   try {
     const build = sourceBuild(root);
     const programRoot = join(root, 'program');
