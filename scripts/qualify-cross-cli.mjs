@@ -16,6 +16,37 @@ const option = (name, fallback) => {
   const index = process.argv.indexOf(name);
   return index === -1 ? fallback : process.argv[index + 1];
 };
+// Lot L3 wake protocol (§3.3): closed flag grammar. Timings are PROPOSITION
+// values (ratified under D2); relations and refusals are normative.
+const SIM_WAKE_DEFAULTS = { w0Ms: 2000, w1Ms: 13000, dMs: 3000 };
+const REAL_WAKE_DEFAULTS = { w0Ms: 5000, w1Ms: 15000, dMs: 20000 };
+function parseWakeWindows(raw, simulated) {
+  const fallback = simulated ? SIM_WAKE_DEFAULTS : REAL_WAKE_DEFAULTS;
+  if (raw === undefined) return { ...fallback };
+  const parts = raw.split(",").map(Number);
+  assert.ok(parts.length === 3 && parts.every(n => Number.isSafeInteger(n) && n >= 0),
+    "invalid --wake-windows (expected w0Ms,w1Ms,dMs non-negative integers)");
+  return { w0Ms: parts[0], w1Ms: parts[1], dMs: parts[2] };
+}
+function parsePollSpec(raw) {
+  if (raw === undefined) return undefined;
+  const m = /^(periodic:(\d+):(\d+)|single:(\d+)|wakedelay:(\d+))$/.exec(raw);
+  assert.ok(m, "invalid --poll (expected periodic:<periodMs>:<phaseMs>, single:<atMs> or wakedelay:<delayMs>)");
+  if (m[2] !== undefined) { assert.ok(Number(m[2]) > 0, "poll period must be positive"); return { mode: "periodic", nums: [Number(m[2]), Number(m[3])] }; }
+  return { mode: m[1].split(":")[0] === "single" ? "single" : "wakedelay", nums: [Number(m[4] ?? m[5])] };
+}
+function pollEnvValue(poll) {
+  if (!poll) return undefined;
+  return poll.mode === "periodic" ? `periodic:${poll.nums[0]}:${poll.nums[1]}`
+    : poll.mode === "single" ? `single:${poll.nums[0]}` : `wakedelay:${poll.nums[0]}`;
+}
+function parseOffsets(raw) {
+  if (raw === undefined) return [0];
+  const parts = raw.split(",").map(Number);
+  assert.ok(parts.length >= 1 && parts.every(n => Number.isSafeInteger(n) && n >= 0),
+    "invalid --wake-release-offsets-ms (expected non-negative integers)");
+  return parts;
+}
 const readEvents = path => {
   try { return fs.readFileSync(path, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse); }
   catch (error) { if (error.code === 'ENOENT') return []; throw error; }
@@ -75,7 +106,8 @@ export function startupKey(screen) {
 
 async function worker() {
   const request = JSON.parse(fs.readFileSync(0, 'utf8'));
-  const { sender, receiver, root, build, executables, timeoutMs, authHome, simulated, dropWake } = request;
+  const { sender, receiver, root, build, executables, timeoutMs, authHome, simulated, dropWake,
+    wake, poll, withholdForever, replayWake, releaseOffsetMs } = request;
   const cell = fs.mkdtempSync(join(root, 'c-'));
   const hostEnv = { ...environment(cell), H2A_TEST_QUALIFICATION_ROOT: root };
   Object.assign(process.env, hostEnv);
@@ -115,6 +147,7 @@ async function worker() {
       H2A_NATIVE_TARGET_SESSION: `h2a-${role}`, H2A_NATIVE_PTY_SESSION: `h2a-${role}`,
       XCLI_CELL: cell, XCLI_EVENTS: join(dir, 'events.jsonl'), XCLI_BIN: bin,
       XCLI_BUILD: build, ...(simulated ? { XCLI_SIMULATED: '1' } : {}),
+      ...(poll && role === 'receiver' ? { XCLI_POLL: poll } : {}),
       // Both peers belong to this one experiment. Their lock liveness checks
       // must see the same owned-process view, never unrelated owner processes.
       H2A_TEST_PROC_ROOT: process.env.H2A_TEST_PROC_ROOT,
@@ -274,7 +307,11 @@ async function worker() {
       row.failure = readiness.failure;
       return row;
     }
-    row.evidence.push({ event: 'receiver-idle-barrier', at: Date.now(), instance: readiness.instance });
+    const barrierAt = Date.now();
+    row.evidence.push({ event: 'receiver-idle-barrier', at: barrierAt, instance: readiness.instance });
+    row.barrierAt = barrierAt;
+    try { fs.writeFileSync(join(cell, 'barrier-at'), String(barrierAt) + '\n', { mode: 0o600 }); }
+    catch { row.blocker = 'barrier-file-unwritable'; return row; }
     r.terminal.freeze();
     const senderPrompt = `Qualification h2a. Use only h2a MCP tools. Call h2a_identity_status until identity_ready (stop if identity_failed), then h2a_send once, to exactly ${readiness.instance}, message exactly ${PROBE}. Finish your turn. Never use shell, files, other agents or any non-h2a tool.`;
     const s = await launch(sender, 'sender', senderPrompt);
@@ -421,7 +458,16 @@ async function main() {
   assert.ok(pairs.length, 'unknown --pair');
   const timeoutMs = Number(option('--timeout-ms', '30000'));
   assert.ok(Number.isSafeInteger(timeoutMs) && timeoutMs >= 1000 && timeoutMs <= 180000, 'invalid bounded timeout');
-  for (const { sender, receiver } of pairs) {
+  const wakeWindows = parseWakeWindows(option('--wake-windows'), simulated);
+  const poll = parsePollSpec(option('--poll'));
+  const withholdForever = process.argv.includes('--withhold-forever');
+  const replayWake = process.argv.includes('--replay-wake');
+  const releaseOffsets = parseOffsets(option('--wake-release-offsets-ms'));
+  assert.ok(!withholdForever || releaseOffsets.length === 1, '--withhold-forever runs a single cell');
+  const notifyIntervalMs = simulated ? 100 : 0; // 0 = product default, recorded but not set
+  const runs = [];
+  for (const { sender, receiver } of pairs) for (const releaseOffsetMs of releaseOffsets) runs.push({ sender, receiver, releaseOffsetMs });
+  for (const { sender, receiver, releaseOffsetMs } of runs) {
     if (stopping) {
       cells.push({ sender, receiver, status: 'blocked', blocker: 'qualification-cancelled', evidence: [], elapsedMs: 0 });
       continue;
@@ -435,12 +481,14 @@ async function main() {
     let output = '';
     child.stdout.on('data', bytes => { output += bytes; });
     child.stdin.end(JSON.stringify({ sender, receiver, root, build: built.path, executables, timeoutMs,
-      authHome: option('--auth-home'), simulated, dropWake: process.argv.includes('--drop-simulated-wake') }));
+      authHome: option('--auth-home'), simulated, dropWake: process.argv.includes('--drop-simulated-wake'),
+      wake: wakeWindows, poll: pollEnvValue(poll), withholdForever, replayWake, releaseOffsetMs }));
     await new Promise((r, reject) => { child.once('close', r); child.once('error', reject); });
     clearTimeout(watchdog);
     active = undefined;
     let row;
     try { row = JSON.parse(output); } catch { row = { sender, receiver, status: 'blocked', blocker: 'qualification-worker-failed', evidence: [], elapsedMs: 0 }; }
+    row.releaseOffsetMs = releaseOffsetMs;
     cells.push(row);
     fs.writeFileSync(join(root, `${sender}-${receiver}.json`), JSON.stringify(row, null, 2) + '\n', { mode: 0o600 });
     if (row.cleanupFailed) stopping = true;
