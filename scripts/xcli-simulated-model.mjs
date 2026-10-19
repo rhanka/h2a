@@ -76,6 +76,14 @@ async function tool(name, args) {
   assert.ok(!value.error, 'MCP tool must succeed');
   return value;
 }
+// Lot L12 (identity-never-ready): the harness faults the receiver's identity
+// gate — no identity call, no readiness, the session idles. The worker's
+// readiness deadline must then classify identity-never-ready, never credit.
+if (process.env.XCLI_SCENARIO_FAULT === 'never-ready' && role === 'receiver') {
+  process.stdout.write(`Simulated ${profile} model\r\nReady · ${process.cwd()}\r\n${profile === 'codex' ? '›' : '❯'} \r\n`);
+  for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.once(signal, () => { mcp.kill('SIGTERM'); process.exit(0); });
+  await new Promise(() => {});
+}
 await call('initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: `simulated-${profile}`, version: '1' } });
 mcp.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n');
 await call('tools/list', {});
