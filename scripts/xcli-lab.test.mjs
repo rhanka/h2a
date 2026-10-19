@@ -112,7 +112,7 @@ test('L4: login copies accept only the codex and Muse login roles, never ambient
     writeFileSync(join(ambient, '.codex/auth.json'), JSON.stringify({ token: 'ambient-canary-zz9' }));
     // Roles beyond 'codex'|'claude' map no login files: installer families with
     // credential files are refused; 'vibe' maps an empty allowlist (QO4, Lot L7).
-    for (const cli of ['gemini', 'agy', 'muse']) {
+    for (const cli of ['gemini', 'agy']) {
       const cell = join(root, 'cell-' + cli);
       const env = environment(join(cell, 'role'));
       assert.throws(() => copyLogin(cli, authHome, cell, env), /login-not-confined/,
@@ -120,7 +120,7 @@ test('L4: login copies accept only the codex and Muse login roles, never ambient
     }
     // Allowed roles copy exactly their allowlisted files, byte-identical,
     // with no ambient read and no planted names or paths received.
-    for (const cli of ['codex', 'claude']) {
+    for (const cli of ['codex', 'claude', 'muse']) {
       const cell = join(root, 'cell-' + cli);
       const env = environment(join(cell, 'role'));
       const copied = copyLogin(cli, authHome, cell, env);
