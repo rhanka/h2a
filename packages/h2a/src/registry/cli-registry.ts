@@ -20,11 +20,14 @@
  * awaits the lane's R5-CA policy change (recorded NOT covered).
  */
 import { existsSync, readFileSync, unlinkSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { trackRegistryPackageManifest } from "@sentropic/track/registry/manifest";
 import { installBridgeEntry, previewInstall, uninstallBridgeEntry, verifyPluginInstall } from "./host-bootstrap.js";
 import { assertRegistryHost } from "./host-bootstrap.js";
 import { defaultBridgeLockPath, defaultPluginBridgeLockPath, readBridgeLock } from "./bridge-lock.js";
-import { validateRegistryEntry, type RegistryEntry } from "./descriptors.js";
+import { RegistryError, validateRegistryEntry, type RegistryEntry } from "./descriptors.js";
 import { activateHostedLock, draftHostedLock, verifyHostedLock } from "./hosted.js";
 import { registryPackageManifest } from "./manifest.js";
 import { createRegistry } from "./registry.js";
@@ -50,14 +53,53 @@ function packedEntries(): RegistryEntry[] {
   return [...registryPackageManifest.entries, ...trackRegistryPackageManifest.entries] as RegistryEntry[];
 }
 
+/**
+ * Resolve a packed track asset through the `@sentropic/track` package
+ * itself (works hoisted, nested, or workspace-linked). The monorepo-sibling
+ * fallback below covers bare trees with no installed track package.
+ * Exported for the packed-layout tests; production callers omit `fromUrl`.
+ */
+export function resolveTrackManifestAsset(asset: string, fromUrl: string = import.meta.url): string {
+  try {
+    const packagePath = createRequire(fromUrl).resolve("@sentropic/track/package.json");
+    return join(dirname(packagePath), asset);
+  } catch {
+    return fileURLToPath(new URL(`../../../track/${asset}`, fromUrl));
+  }
+}
+
+function readPackedAsset(label: string, path: string): unknown {
+  let bytes: string;
+  try {
+    bytes = readFileSync(path, "utf8");
+  } catch (error) {
+    // The missing-asset diagnostic names the asset path and carries no raw
+    // ENOENT stack; non-ENOENT read failures surface unchanged.
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      throw new RegistryError("invalid_entry", `invalid_entry: missing packed ${label} asset at ${path}`);
+    }
+    throw error;
+  }
+  try {
+    return JSON.parse(bytes) as unknown;
+  } catch (error) {
+    throw new RegistryError("invalid_entry", `invalid_entry: unreadable packed ${label} asset at ${path} (${(error as Error).message})`);
+  }
+}
+
 function packedManifests(): { h2aManifest: unknown; trackManifest: unknown } {
   // Manifest assets resolve next to the packed entries descriptors.
   // (node:fs is a builtin: fine in this CLI-only module, which never joins
   // the light `./registry/definitions` import graph.)
   const h2aEntry = (registryPackageManifest.entries as RegistryEntry[])[0] as RegistryEntry;
   const trackEntry = (trackRegistryPackageManifest.entries as RegistryEntry[])[0] as RegistryEntry;
-  const h2aManifest = JSON.parse(readFileSync(new URL(`../../${h2aEntry.mcp?.manifestAsset}`, import.meta.url), "utf8")) as unknown;
-  const trackManifest = JSON.parse(readFileSync(new URL(`../../../track/${trackEntry.mcp?.manifestAsset}`, import.meta.url), "utf8")) as unknown;
+  const h2aAsset = h2aEntry.mcp?.manifestAsset;
+  const trackAsset = trackEntry.mcp?.manifestAsset;
+  if (!h2aAsset || !trackAsset) {
+    throw new RegistryError("invalid_entry", "invalid_entry: packed entries declare no manifestAsset");
+  }
+  const h2aManifest = readPackedAsset("h2a", fileURLToPath(new URL(`../../${h2aAsset}`, import.meta.url)));
+  const trackManifest = readPackedAsset("track", resolveTrackManifestAsset(trackAsset));
   return { h2aManifest, trackManifest };
 }
 
