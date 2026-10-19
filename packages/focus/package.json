@@ -13,6 +13,13 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
+    "./package.json": "./package.json",
+    "./editing": {
+      "types": "./dist/editing/index.d.ts",
+      "import": "./dist/editing/index.js"
+    },
+    "./schemas/focus-edit-return.v1": "./schemas/focus-edit-return.v1.schema.json",
+    "./schemas/focus-editing-manifest.v1": "./schemas/focus-editing-manifest.v1.schema.json",
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
@@ -57,7 +64,10 @@
     "registry:sync": "node scripts/sync-registry-entry.mjs"
   },
   "dependencies": {
-    "@sentropic/track": "^0.98.6"
+    "@lezer/markdown": "1.8.0",
+    "@noble/hashes": "2.0.1",
+    "@sentropic/track": "^0.98.6",
+    "yaml": "2.9.0"
   },
   "devDependencies": {
     "@types/node": "^22.19.19",
