@@ -1,3 +1,4 @@
+import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { join } from 'node:path';
@@ -6,7 +7,7 @@ import test from 'node:test';
 import { sourceBuild } from './xcli-lab.mjs';
 
 test('a launched Gemini peer survives the strict registry read needed by native wake', async () => {
-  const root = fs.mkdtempSync('/tmp/h2a-qual-');
+  const root = fs.mkdtempSync(join(tmpdir(), 'h2a-qual-'));
   try {
     const build = sourceBuild(root);
     const registry = await import(pathToFileURL(join(build.path, 'packages/h2a-runtime/dist/registry.js')));

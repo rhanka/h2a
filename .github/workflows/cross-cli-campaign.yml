@@ -63,6 +63,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      - name: Use runner temporary storage
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
       - run: npm ci --ignore-scripts
       - name: Measure all provisioned CLI versions before exposing seats
         run: >-
@@ -72,7 +74,7 @@ jobs:
           import { createHash } from 'node:crypto';
           import { join } from 'node:path';
           import { ORACLE_SOURCES, environment, privateExecutable } from './scripts/xcli-lab.mjs';
-          const home = fs.mkdtempSync('/tmp/xcli-measure-');
+          const home = fs.mkdtempSync(join(process.env.RUNNER_TEMP, 'xcli-measure-'));
           const versions = {};
           try {
             for (const family of Object.keys(ORACLE_SOURCES)) {
@@ -89,7 +91,7 @@ jobs:
           } finally { fs.rmSync(home, { recursive: true, force: true }); }
           "
       - name: Allocate a guarded campaign root
-        run: echo "XCLI_CAMPAIGN_ROOT=$(mktemp -d /tmp/h2a-qual-XXXXXX)" >> "$GITHUB_ENV"
+        run: echo "XCLI_CAMPAIGN_ROOT=$(mktemp -d "${RUNNER_TEMP}/h2a-qual-XXXXXX")" >> "$GITHUB_ENV"
       # Interim file-copy path (§7.3): one environment secret bundle per seat
       # (XCLI_SEAT_BUNDLE_<SEATID> holding {family, files:{relpath: base64}}),
       # written into 0700 temp HOMEs; the manifest is validated at load and
@@ -179,7 +181,7 @@ jobs:
         run: |
           rm -rf "${RUNNER_TEMP}/seats" "${RUNNER_TEMP}/seats.json"
           case "${XCLI_CAMPAIGN_ROOT:-}" in
-            /tmp/h2a-qual-*) rm -rf "$XCLI_CAMPAIGN_ROOT"; test ! -e "$XCLI_CAMPAIGN_ROOT" ;;
+            "${RUNNER_TEMP}"/h2a-qual-*) rm -rf "$XCLI_CAMPAIGN_ROOT"; test ! -e "$XCLI_CAMPAIGN_ROOT" ;;
             "") ;;
             *) exit 1 ;;
           esac

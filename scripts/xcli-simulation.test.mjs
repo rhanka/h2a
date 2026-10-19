@@ -1,3 +1,4 @@
+import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { join } from 'node:path';
@@ -9,9 +10,9 @@ import { verifySimulation, verifyWakeBatch } from './xcli-ci-check.mjs';
 // Lot L3 helpers: run one simulated cell with wake-protocol flags and return
 // the receipt's first cell. Every run uses temp dirs only, never real state.
 function runWakeCell(args, spawnTimeoutMs = 300000) {
-  const root = fs.mkdtempSync('/tmp/xcli-wake-');
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-wake-'));
   const output = join(root, 'receipt.json');
-  const env = { ...environment(join(root, 'env')),
+  const env = { ...environment(join(root, 'env')), TMPDIR: tmpdir(),
     ...(process.env.XCLI_NODE_HEADERS ? { XCLI_NODE_HEADERS: process.env.XCLI_NODE_HEADERS } : {}) };
   const result = spawnSync(process.execPath, [join(import.meta.dirname, 'qualify-cross-cli.mjs'),
     '--simulated', ...args, '--output', output],
@@ -26,9 +27,9 @@ function receiverInboxReads(cell) {
 }
 
 test('a delivered envelope without a model reaction fails the live CI gate', () => {
-  const root = fs.mkdtempSync('/tmp/xcli-negative-');
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-negative-'));
   const output = join(root, 'negative.json');
-  const env = { ...environment(join(root, 'env')),
+  const env = { ...environment(join(root, 'env')), TMPDIR: tmpdir(),
     ...(process.env.XCLI_NODE_HEADERS ? { XCLI_NODE_HEADERS: process.env.XCLI_NODE_HEADERS } : {}) };
   const result = spawnSync(process.execPath, [join(import.meta.dirname, 'qualify-cross-cli.mjs'),
     '--simulated', '--pair', 'codex:codex', '--drop-simulated-wake', '--timeout-ms', '30000', '--output', output],
@@ -174,7 +175,7 @@ test('L4: owner credential material never reaches qualification evidence', () =>
   // with a short budget blocks on wake-window funding before any model turn,
   // so no seat is consumed; the receipt is still written and scanned.
   const CANARY = 'canary-owner-zz9';
-  const root = fs.mkdtempSync('/tmp/xcli-canary-');
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-canary-'));
   try {
     const authHome = join(root, `${CANARY}-seats`);
     fs.mkdirSync(join(authHome, '.codex'), { recursive: true });
@@ -183,7 +184,7 @@ test('L4: owner credential material never reaches qualification evidence', () =>
     writeFileSyncJoin(authHome, '.claude/.credentials.json', JSON.stringify({ token: `${CANARY}-token` }));
     writeFileSyncJoin(authHome, '.claude.json', JSON.stringify({ oauthAccount: { id: `${CANARY}-instance` } }));
     const output = join(root, 'receipt.json');
-    const env = { ...environment(join(root, 'env')), [`${CANARY}_ENV`.toUpperCase()]: `${CANARY}-env-value`,
+    const env = { ...environment(join(root, 'env')), TMPDIR: tmpdir(), [`${CANARY}_ENV`.toUpperCase()]: `${CANARY}-env-value`,
       ...(process.env.XCLI_NODE_HEADERS ? { XCLI_NODE_HEADERS: process.env.XCLI_NODE_HEADERS } : {}) };
     const result = spawnSync(process.execPath, [join(import.meta.dirname, 'qualify-cross-cli.mjs'),
       '--pair', 'codex:codex', '--auth-home', authHome, '--timeout-ms', '20000', '--output', output],
@@ -205,10 +206,10 @@ function writeFileSyncJoin(...parts) {
 // grounds — notably blocked, never python-entrypoint-forbidden, wipe
 // proven. Durable collateral for the QO4 vendor-runtime invariant.
 test('L9d: a login-free real Gemini cell blocks on auth, never on Python', () => {
-  const root = fs.mkdtempSync('/tmp/xcli-gemini-');
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-gemini-'));
   try {
     const output = join(root, 'receipt.json');
-    const env = { ...environment(join(root, 'env')),
+    const env = { ...environment(join(root, 'env')), TMPDIR: tmpdir(),
       ...(process.env.XCLI_NODE_HEADERS ? { XCLI_NODE_HEADERS: process.env.XCLI_NODE_HEADERS } : {}) };
     const result = spawnSync(process.execPath, [join(import.meta.dirname, 'qualify-cross-cli.mjs'),
       '--pair', 'gemini:gemini', '--timeout-ms', '30000', '--output', output],

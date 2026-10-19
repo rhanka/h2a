@@ -1,3 +1,4 @@
+import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { join } from 'node:path';
@@ -6,7 +7,7 @@ import { copyLogin, environment, cellSecretPaths, wipeSecrets } from './xcli-lab
 import { runSeatPreflight } from './xcli-seats.mjs';
 
 test('L4 review: every source path component refuses symlinks', () => {
-  const root = fs.mkdtempSync('/tmp/xcli-review-');
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-review-'));
   try {
     const source = join(root, 'source'), outside = join(root, 'outside');
     fs.mkdirSync(source); fs.mkdirSync(outside);
@@ -21,7 +22,7 @@ test('L4 review: every source path component refuses symlinks', () => {
 });
 
 test('L8/L9 review: Claude and Muse use their own login layouts', () => {
-  const root = fs.mkdtempSync('/tmp/xcli-review-');
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-review-'));
   try {
     const source = join(root, 'source');
     fs.mkdirSync(join(source, '.claude'), { recursive: true });
@@ -45,7 +46,7 @@ test('L8/L9 review: Claude and Muse use their own login layouts', () => {
 });
 
 test('L4 review: destination components cannot redirect a login write outside the cell', () => {
-  const root = fs.mkdtempSync('/tmp/xcli-review-');
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-review-'));
   try {
     const source = join(root, 'source'), outside = join(root, 'outside');
     fs.mkdirSync(join(source, '.codex'), { recursive: true }); fs.mkdirSync(outside);
@@ -59,7 +60,7 @@ test('L4 review: destination components cannot redirect a login write outside th
 });
 
 test('L5 review: lost-worker wipe removes all CLI private state including transcripts', () => {
-  const root = fs.mkdtempSync('/tmp/xcli-review-');
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-review-'));
   try {
     const transcript = join(root, 'sender/home/.codex/sessions/transcript.jsonl');
     fs.mkdirSync(join(transcript, '..'), { recursive: true }); fs.writeFileSync(transcript, 'dummy');
@@ -69,7 +70,7 @@ test('L5 review: lost-worker wipe removes all CLI private state including transc
 });
 
 test('L8 review: versions and config oracles use private HOME/XDG/cwd and nested Codex auth', async () => {
-  const root = fs.mkdtempSync('/tmp/xcli-review-');
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-review-'));
   try {
     const source = join(root, 'source'); fs.mkdirSync(join(source, '.codex'), { recursive: true });
     fs.writeFileSync(join(source, '.codex/auth.json'), '{}');
@@ -80,7 +81,7 @@ test('L8 review: versions and config oracles use private HOME/XDG/cwd and nested
     assert.equal(calls.length, 2);
     for (const call of calls) {
       assert.notEqual(call.home, process.env.HOME);
-      assert.ok(call.runtime.startsWith('/tmp/'));
+      assert.ok(call.runtime.startsWith(tmpdir() + '/'));
       assert.ok(call.xdg.startsWith(call.home + '/'));
       assert.notEqual(call.cwd, process.cwd());
       assert.equal(fs.existsSync(call.home), false, 'preflight private state is wiped');

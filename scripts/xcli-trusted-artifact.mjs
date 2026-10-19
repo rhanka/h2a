@@ -1,5 +1,6 @@
 // The trust boundary is the authenticated GitHub Actions API, never fields
 // self-declared in a local receipt. No seat material enters this module.
+import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -33,7 +34,7 @@ async function downloadReceipt(artifact) {
 }
 export function decodeAuthenticatedArtifact(artifact, bytes) {
   assert.equal(artifact.digest, `sha256:${createHash('sha256').update(bytes).digest('hex')}`, 'artifact-digest-mismatch');
-  const root = fs.mkdtempSync('/tmp/xcli-artifact-');
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-artifact-'));
   try {
     const archive = join(root, 'receipt.zip'); fs.writeFileSync(archive, bytes, { mode: 0o600 });
     const options = { env: environment(root), cwd: root, encoding: 'utf8', timeout: 10000, maxBuffer: 4 * 1024 * 1024 };

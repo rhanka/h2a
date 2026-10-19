@@ -1,3 +1,4 @@
+import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import test from 'node:test';
@@ -50,7 +51,7 @@ test('L11 review: gates download only a successful protected campaign artifact f
 
 test('L11: the downloaded archive digest and exact receipt payload are verified before parsing', async () => {
   const { decodeAuthenticatedArtifact } = await import('./xcli-trusted-artifact.mjs');
-  const root = fs.mkdtempSync('/tmp/xcli-archive-');
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-archive-'));
   try {
     const archive = join(root, 'receipt.zip'), payload = { sha: 'a'.repeat(40) };
     fs.writeFileSync(join(root, 'campaign-receipt.json'), JSON.stringify(payload));

@@ -3,6 +3,7 @@
 // Dummy seat dirs in mkdtemp; no real login, no model. Until sentropic L1
 // publishes importSeatBundle, the file-copy path is interim and labelled so
 // in code, docs, and evidence (seatMode: interim-file-copy).
+import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
@@ -217,7 +218,7 @@ export async function runSeatPreflight(seat, { executables = {}, runAuthPrecheck
   const fail = reason => ({ ok: false, reason, modelCalls: 0 });
   let executable = executables[seat.family];
   if (!executable) return fail(`cli-not-found:${seat.family}`);
-  const root = fs.mkdtempSync('/tmp/h2a-preflight-');
+  const root = fs.mkdtempSync(join(tmpdir(), 'h2a-preflight-'));
   try {
   const env = environment(root);
   executable = privateExecutable(seat.family, executable, root).path;
