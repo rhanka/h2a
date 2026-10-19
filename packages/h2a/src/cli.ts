@@ -79,6 +79,8 @@ import { buildLaunchIndex } from "./runtime/local-files/launch-index.js";
 import { renderCommandMap } from "./cli-command-map.js";
 import { HostConfigConflict, writeHostMcpEntry } from "./hosts/config-writer.js";
 import { cmdHostedLock, cmdRegistry, cmdRegistryBridge } from "./registry/cli-registry.js";
+import { runCentralShim } from "./runtime/mcp-central-shim.js";
+import { canonicalCentralRoot } from "./runtime/mcp-central-policy.js";
 import { readInstallReceipt } from "./registry/host-bootstrap.js";
 import { executeH2aRunWithAsyncSpawn, type H2aRunExecutor } from "./runtime/mcp/agent-launch.js";
 import { captureCentralAttachment } from "./runtime/mcp-central-context.js";
@@ -7986,6 +7988,18 @@ function delegateToTrackNative(
   }
 }
 
+/**
+ * Registry-bridge serve delegation table. Every route enters through the
+ * central attachment shim — attached when the policy admits the request,
+ * plain otherwise (the shim and the central lane policy own per-connection
+ * admission). The bridge only forwards flags, stdio and the outcome. The
+ * legacy `runMcpServe` path is deliberately absent from this table: it must
+ * never become the delegated target again (F-03).
+ */
+const REGISTRY_BRIDGE_SERVE_DELEGATES = {
+  delegateServe: (serveFlags: Record<string, string>) => runCentralShim(serveFlags, canonicalCentralRoot())
+} as const;
+
 export function runCli(
   argv: readonly string[] = process.argv.slice(2),
   streams: H2ACliStreams = {
@@ -8109,10 +8123,7 @@ export function runCli(
   if (command === "host") return cmdHost(argv.slice(1), streams, options);
   if (command === "registry") return cmdRegistry(argv.slice(1), streams);
   if (command === "registry-bridge") {
-    return cmdRegistryBridge(argv.slice(1), streams, {
-      delegateServe: (serveFlags) =>
-        runMcpServe(serveFlags, { stdin: process.stdin, stdout: process.stdout, stderr: process.stderr })
-    });
+    return cmdRegistryBridge(argv.slice(1), streams, REGISTRY_BRIDGE_SERVE_DELEGATES);
   }
   if (command === "hosted-lock") return cmdHostedLock(argv.slice(1), streams);
   if (command === "central") {

@@ -1,3 +1,27 @@
+/**
+ * Registry-bridge shared-central attachment admission (LOT-3): the single
+ * decision point for whether a bridge serve may attach to central. Requires
+ * qualified Claude (linux host, explicit claude, no sidecar instance, live
+ * session) AND an enabled central with a local protocol-2 marker pinned to
+ * the served root. Instance (sidecar) requests are never admitted here: they
+ * stay on stdio and the lane policy admits them per connection, if at all.
+ * Anything else is refused by the caller — never substituted.
+ */
+export function bridgeCentralAttachmentAdmitted(
+  flags: Record<string, string>,
+  env: NodeJS.ProcessEnv = process.env
+): boolean {
+  if (process.platform !== "linux" || flags.host !== "claude" || flags.instance) return false;
+  if (!env.CLAUDE_CODE_SESSION_ID?.trim() || !centralRoutingEnabled(env, true)) return false;
+  try {
+    const marker = readCentralMcpMarker(flags["runtime-base"] ? { runtimeBase: flags["runtime-base"] } : {});
+    if (!marker || marker.protocol !== 2 || marker.root !== canonicalCentralRoot(env)) return false;
+  } catch {
+    return false;
+  }
+  return true;
+}
+
 /** Minimal read-only routing policy; shared by initial launch and live recovery. */
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
