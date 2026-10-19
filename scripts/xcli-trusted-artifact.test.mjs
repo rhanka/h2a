@@ -6,6 +6,21 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { environment } from './xcli-lab.mjs';
 
+test('L11: receipt discovery distinguishes an empty exact-SHA history from API failures', async () => {
+  const { fetchTrustedReceipt } = await import('./xcli-trusted-artifact.mjs');
+  const sha = 'a'.repeat(40);
+  const download = async () => { assert.fail('an absent receipt must never be downloaded'); };
+  await assert.rejects(fetchTrustedReceipt({ sha, download, request: async path => {
+    assert.equal(path, `/actions/runs?status=success&per_page=100&head_sha=${sha}`);
+    return { workflow_runs: [] };
+  } }), /^Error: trusted-receipt-absent$/);
+  for (const status of [401, 403, 404, 500]) {
+    await assert.rejects(fetchTrustedReceipt({ sha, download, request: async () => {
+      throw new Error(`github-api-failed:${status}`);
+    } }), new RegExp(`^Error: github-api-failed:${status}$`));
+  }
+});
+
 test('L11 review: gates download only a successful protected campaign artifact for the exact candidate head', async () => {
   const { fetchTrustedReceipt } = await import('./xcli-trusted-artifact.mjs');
   const sha = 'a'.repeat(40), receipt = { sha, provenance: { runId: 7, runAttempt: 1 } };
