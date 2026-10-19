@@ -903,3 +903,15 @@ red/green receipts, qualification limits and cleanup evidence.
 - Rebase defect found and fixed in L1: post-rebase workers failed (qualification-worker-failed) because toml-eslint-parser (packages/h2a dep from main) was missing from the stale worktree install; `npm ci --ignore-scripts` restored it, lock untouched.
 - Post-rebase targeted proofs: harness 18/18, hosts-integration 28/28, muse-config 3/3, native-config 2/2, simulated spot cell claude:codex simulated-OK.
 - Not runnable in this sandbox: xcli-in-pid-namespace launcher (sudo blocked by container no-new-privileges); covered by CI.
+
+## PR #379 — CI correction round 3 (2026-10-19)
+
+- Private namespace init stays privileged; test consumers now drop to the
+  invoking UID/GID, preventing root-owned `.q` and `.test-scratch` residue.
+- Packaging resolves the selected npm before PATH isolation; the regression
+  test packs and installs the real local artifacts with a Node-only PATH.
+- Receipt discovery uses exact-SHA repository runs and explicitly refuses
+  `trusted-receipt-absent (receipt absent, qualification pending)`; all
+  provenance checks remain mandatory. No live receipt exists or was fabricated.
+- Targeted RED/GREEN, Node 22/24 outputs, CI job causes and local sudo limits:
+  [round-3 evidence](docs/2026-10-19-fix379-r3.md). No full suite run locally.
