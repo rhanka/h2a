@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // Run named product suites from a fresh source build, never checkout/installed dist.
+import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { join } from 'node:path';
@@ -22,7 +23,7 @@ if (durableParent) {
   assert.equal(durableParent, '/home/runner/work/_temp', 'only the hosted CI temporary parent is allowed');
   assert.equal(fs.realpathSync(durableParent), durableParent, 'CI temporary parent must not be aliased');
 }
-const root = fs.mkdtempSync(durableParent ? join(durableParent, 'xcli-') : '/tmp/h2a-qual-');
+const root = fs.mkdtempSync(durableParent ? join(durableParent, 'xcli-') : join(tmpdir(), 'h2a-qual-'));
 const built = sourceBuild(root);
 // Some source-consumer suites verify the shipped documentation and literal
 // source citations. Preserve those fixtures in the same private build tree.
