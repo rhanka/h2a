@@ -1,11 +1,22 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { runCli } from "../dist/index.js";
 
 async function loadLib() {
   return import("../dist/registry/hosted.js");
+}
+
+function streams() {
+  let stdout = "";
+  let stderr = "";
+  return {
+    stdout: { write(text) { stdout += text; } },
+    stderr: { write(text) { stderr += text; } },
+    text: () => ({ stdout, stderr })
+  };
 }
 
 const { H2A_HOSTED_READONLY_TOOLS } = await import("../dist/runtime/mcp-http/readonly-allowlist.js");
@@ -22,10 +33,10 @@ async function loadManifests() {
   };
 }
 
-function withTempDir(fn) {
+async function withTempDir(fn) {
   const dir = mkdtempSync(join(tmpdir(), "h2a-r6-hosted-"));
   try {
-    return fn(dir);
+    return await fn(dir);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -100,10 +111,58 @@ test("R6 hosted: deployment lock drafts, verifies and activates atomically", asy
     };
     const verified = verifyHostedLock({ lockPath: draftPath, bindings });
     assert.equal(verified.ok, true);
-    const receipt = activateHostedLock({ lockPath: draftPath, activePath });
+    const receipt = activateHostedLock({ lockPath: draftPath, activePath, bindings });
     assert.equal(receipt.action, "activated");
     assert.equal(isTenantBound(receipt.lock, "tenant-a"), true);
     assert.equal(isTenantBound(receipt.lock, "tenant-b"), false);
+    assert.equal(readFileSync(activePath, "utf8"), readFileSync(draftPath, "utf8"));
+  });
+});
+
+test("R6 hosted F-08: activation with an unbound tenant refuses before any write", async () => {
+  const { draftHostedLock, activateHostedLock } = await loadLib();
+  const { h2aEntry } = await loadManifests();
+  await withTempDir(async (dir) => {
+    const draftPath = join(dir, "hosted-lock.draft.json");
+    const activePath = join(dir, "hosted-lock.json");
+    draftHostedLock({ lockPath: draftPath, serviceBindingRef: "h2a-hosted-service", entries: [h2aEntry] });
+    assert.throws(
+      () => activateHostedLock({
+        lockPath: draftPath,
+        activePath,
+        bindings: { "h2a-hosted-service": { contract: "h2a.hosted-service/v1" } }
+      }),
+      /missing_binding/
+    );
+    assert.ok(!existsSync(activePath), "refused activation writes no active lock");
+  });
+});
+
+test("R6 hosted F-08: hosted-lock activate verifies operator bindings", async () => {
+  const { draftHostedLock } = await loadLib();
+  const { h2aEntry, trackEntry } = await loadManifests();
+  await withTempDir(async (dir) => {
+    const draftPath = join(dir, "hosted-lock.draft.json");
+    const activePath = join(dir, "hosted-lock.json");
+    draftHostedLock({
+      lockPath: draftPath,
+      serviceBindingRef: "h2a-hosted-service",
+      entries: [h2aEntry, trackEntry],
+      tenant: { id: "tenant-a", repositoryBindingRef: "tenant-a-workspace" }
+    });
+    let io = streams();
+    const refused = await runCli(["hosted-lock", "activate", "--lock", draftPath, "--active", activePath,
+      "--binding", "h2a-hosted-service=h2a.hosted-service/v1"], io, {});
+    assert.equal(refused, 2);
+    assert.match(io.text().stderr, /missing_binding/);
+    assert.ok(!existsSync(activePath), "refused activation writes no active lock");
+    io = streams();
+    const code = await runCli(["hosted-lock", "activate", "--lock", draftPath, "--active", activePath,
+      "--binding", "h2a-hosted-service=h2a.hosted-service/v1",
+      "--binding", "tenant-a-workspace=h2a.workspace/v1"], io, {});
+    assert.equal(code, 0, io.text().stderr);
+    assert.match(io.text().stdout, /"action": "activated"/);
+    assert.equal(readFileSync(activePath, "utf8"), readFileSync(draftPath, "utf8"));
   });
 });
 

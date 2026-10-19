@@ -189,7 +189,9 @@ test("R5 CLI: hosted-lock drafts, verifies and activates", async () => {
       0
     );
     io = streams();
-    const code = await runCli(["hosted-lock", "activate", "--lock", draft, "--active", active], io, {});
+    const code = await runCli(["hosted-lock", "activate", "--lock", draft, "--active", active,
+      "--binding", "h2a-hosted-service=h2a.hosted-service/v1",
+      "--binding", "tenant-a-workspace=h2a.workspace/v1"], io, {});
     assert.equal(code, 0);
     assert.match(io.text().stdout, /"action": "activated"/);
   });
