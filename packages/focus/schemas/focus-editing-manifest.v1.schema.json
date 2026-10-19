@@ -1,0 +1,167 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:sentropic:focus:FocusEditingManifest:1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "manifestId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "documentRef": {
+      "type": "string",
+      "minLength": 1
+    },
+    "baseHash": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "manifestBaseHash": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "fields": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "nodeId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "targetRef": {
+            "type": "string",
+            "minLength": 1
+          },
+          "field": {
+            "enum": [
+              "markdown",
+              "question",
+              "recommendedAnswer",
+              "context",
+              "label",
+              "body",
+              "consequence"
+            ]
+          },
+          "contentFormat": {
+            "enum": [
+              "text/plain",
+              "focus.markdown.p0@1"
+            ]
+          },
+          "blockKind": {
+            "enum": [
+              "prose",
+              "question",
+              "option"
+            ]
+          }
+        },
+        "required": [
+          "nodeId",
+          "targetRef",
+          "field",
+          "contentFormat",
+          "blockKind"
+        ]
+      }
+    },
+    "paragraphs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "nodeId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "targetRef": {
+            "type": "string",
+            "minLength": 1
+          },
+          "field": {
+            "enum": [
+              "markdown",
+              "question",
+              "recommendedAnswer",
+              "context",
+              "label",
+              "body",
+              "consequence"
+            ]
+          },
+          "paragraphId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "blockKind": {
+            "const": "paragraph"
+          },
+          "parentId": {
+            "type": "null"
+          },
+          "order": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "range": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "start": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "end": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "unit": {
+                "const": "utf16"
+              }
+            },
+            "required": [
+              "start",
+              "end",
+              "unit"
+            ]
+          }
+        },
+        "required": [
+          "nodeId",
+          "targetRef",
+          "field",
+          "paragraphId",
+          "blockKind",
+          "parentId",
+          "order",
+          "range"
+        ]
+      }
+    },
+    "retiredParagraphIds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "manifestId",
+    "documentRef",
+    "baseHash",
+    "manifestBaseHash",
+    "fields",
+    "paragraphs",
+    "retiredParagraphIds"
+  ]
+}
