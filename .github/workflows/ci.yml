@@ -34,6 +34,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      # Round-1 (code-review astra-8/sol-9): install AND qualify the L0
+      # filesystem barrier in the runner — no unconfined fallback. Every
+      # job below that invokes scripts/test-sandbox.mjs carries this step.
+      - name: Provision the L0 test barrier (bubblewrap)
+        run: command -v bwrap >/dev/null || { sudo apt-get update && sudo apt-get install -y bubblewrap; } && bwrap --version
       - run: bash scripts/check-no-python.sh
       - name: Guard self-tests (positive and negative fixtures)
         run: node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test scripts/check-no-python.test.mjs
@@ -62,6 +67,10 @@ jobs:
         with:
           node-version: "22"
           cache: npm
+      # Round-1 (code-review astra-8/sol-9): install AND qualify the L0
+      # filesystem barrier in the runner — no unconfined fallback.
+      - name: Provision the L0 test barrier (bubblewrap)
+        run: command -v bwrap >/dev/null || { sudo apt-get update && sudo apt-get install -y bubblewrap; } && bwrap --version
       - run: npm ci
       - run: npm run build
       # Pin the host oracle to the known-good CLI installed on this host (0.145.0).
@@ -139,6 +148,11 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           cache: npm
+      # Round-1 (code-review astra-8/sol-9): install AND qualify the L0
+      # filesystem barrier in the runner — no unconfined fallback.
+      - name: Provision the L0 test barrier (bubblewrap)
+        if: runner.os == 'Linux'
+        run: command -v bwrap >/dev/null || { sudo apt-get update && sudo apt-get install -y bubblewrap; } && bwrap --version
       - run: npm ci
       - run: npm run typecheck
       - name: Install the mandatory configuration oracles
@@ -202,6 +216,10 @@ jobs:
         with:
           node-version: "22"
           cache: npm
+      # Round-1 (code-review astra-8/sol-9): install AND qualify the L0
+      # filesystem barrier in the runner — no unconfined fallback.
+      - name: Provision the L0 test barrier (bubblewrap)
+        run: command -v bwrap >/dev/null || { sudo apt-get update && sudo apt-get install -y bubblewrap; } && bwrap --version
       - run: npm ci
       - name: Install the mandatory configuration oracles
         run: npm install --global @openai/codex@0.145.0 @anthropic-ai/claude-code@2.1.296

@@ -1,18 +1,16 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { convOwners, formatConvConflict, guardConvWriters } from "./conv-guard.js";
 import type { RegistryEntry } from "./registry.js";
 
-// Scratch dir inside the package (never /tmp), like the other test suites.
-const SCRATCH_ROOT = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "..",
-  ".test-scratch",
-  "conv-guard",
-);
+// Round-1 (code-review sol-8): suite scratch lives under the private TMPDIR
+// (the test-sandbox barrier mounts the package read-only), never in the
+// package's `.test-scratch`. The pure conv-guard-facet suite is NOT a
+// substitute for this wiring qualification.
+const SCRATCH_PREFIX = "h2a-conv-guard-";
 
 let scratch: string;
 let regPath: string;
@@ -22,8 +20,7 @@ const stderr = vi
   .mockImplementation(() => true);
 
 beforeEach(() => {
-  mkdirSync(SCRATCH_ROOT, { recursive: true });
-  scratch = mkdtempSync(join(SCRATCH_ROOT, "g-"));
+  scratch = mkdtempSync(join(tmpdir(), SCRATCH_PREFIX));
   regPath = join(scratch, "registry.json");
   stderr.mockClear();
 });

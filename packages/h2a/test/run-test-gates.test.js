@@ -489,6 +489,10 @@ test('CI exposes an independent, stable npm-test-trust-root job', () => {
   assert.deepEqual(
     commands,
     [
+      // Round-1 (code-review astra-8/sol-9, wonder-P3): the job provisions
+      // AND qualifies the L0 filesystem barrier (bubblewrap) before any
+      // test-sandbox invocation — no unconfined fallback.
+      'command -v bwrap >/dev/null || { sudo apt-get update && sudo apt-get install -y bubblewrap; } && bwrap --version',
       'npm ci',
       'npm install --global @openai/codex@0.145.0 @anthropic-ai/claude-code@2.1.296',
       'node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test packages/h2a/test/run-test-gates.test.js',

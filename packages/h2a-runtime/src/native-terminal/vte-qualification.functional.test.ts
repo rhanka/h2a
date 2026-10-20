@@ -16,7 +16,7 @@
  * separately.
  */
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { closeSync, constants, existsSync, openSync, readFileSync, rmSync, writeFileSync, writeSync } from "node:fs";
+import { closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync, writeSync } from "node:fs";
 import { connect } from "node:net";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -37,10 +37,12 @@ function haveBinary(name: string): boolean {
 
 function canRunXServer(): boolean {
   // A real VTE needs a real X server, and Xvfb needs a writable
-  // /tmp/.X11-unix (socket + lock file) — the L0 filesystem barrier mounts
-  // it read-only, so no X server can run inside the authorised envelope no
-  // matter which binaries are installed. Probe it directly: fast, honest.
+  // /tmp/.X11-unix (socket + lock file). Round-1: the L0 barrier provides a
+  // private writable /tmp, so the probe creates the socket dir first (a
+  // fresh namespace tmpfs starts empty) and then proves writability.
+  // Probe it directly: fast, honest.
   try {
+    mkdirSync("/tmp/.X11-unix", { recursive: true });
     const probe = join("/tmp/.X11-unix", `.h2a-vte-probe-${process.pid}`);
     writeFileSync(probe, "probe");
     rmSync(probe);
@@ -57,12 +59,12 @@ const vteAvailable =
   haveBinary("gnome-terminal") &&
   canRunXServer();
 
-if (!vteAvailable) {
+if (process.platform === "linux" && !vteAvailable) {
   process.stderr.write(
     "[h2a] VTE qualification INCOMPLETE: need Xvfb + dbus-run-session + gnome-terminal " +
-      "AND a writable /tmp/.X11-unix (the L0 barrier mounts it read-only, so Xvfb " +
-      "cannot create its socket/lock there: `Could not create lock file`); " +
-      "deterministic results stand separately.\n",
+      "AND a writable /tmp/.X11-unix (outside the L0 barrier, or the barrier without " +
+      "its private /tmp, Xvfb cannot create its socket/lock there: `Could not create " +
+      "lock file`); deterministic results stand separately.\n",
   );
 }
 
@@ -113,7 +115,23 @@ async function freeDisplay(): Promise<string> {
   throw new Error("VTE qualification: no free X display in :91–:99");
 }
 
-describe.skipIf(!vteAvailable)("lot L4-replies VTE acceptance (D10)", () => {
+// Round-1 (astra-9): the platform gate stays a skip (macOS/Windows have no
+// Xvfb path), but on Linux a missing qualification stack is a HARD failure,
+// never a silent skip — an absent gnome-terminal/Xvfb/dbus must read as red,
+// not as hidden "qualification-incomplete". Writability never gates here:
+// the L0 barrier provides a private writable /tmp/.X11-unix.
+const vteSkip = process.platform !== "linux";
+
+describe.skipIf(vteSkip)("lot L4-replies VTE acceptance (D10)", () => {
+  it("should refuse to qualify silently when the VTE stack is missing on Linux", () => {
+    if (!vteAvailable) {
+      throw new Error(
+        "VTE qualification stack missing on Linux (need: Xvfb, dbus-run-session, " +
+          "gnome-terminal, bubblewrap private /tmp) — install it, do not skip",
+      );
+    }
+  });
+
   it("should leave the post-CLI reader clean against a real responding terminal", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vteq-"));
     directories.push(directory);

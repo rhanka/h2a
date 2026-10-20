@@ -1,7 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createLlmMeshFacade,
@@ -33,14 +33,14 @@ vi.mock("node:fs", async (importOriginal) => {
   return { ...actual, existsSync: vi.fn(actual.existsSync) };
 });
 
-const SCRATCH = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "..",
-  ".test-scratch",
-  "daemon",
-);
+// Round-1 L0 same-class repair (code-review sol-8): suite scratch lives
+// under the private TMPDIR (the test-sandbox barrier mounts the package
+// read-only), never in the package's `.test-scratch`.
+let SCRATCH: string;
 
-beforeEach(() => mkdirSync(SCRATCH, { recursive: true }));
+beforeEach(() => {
+  SCRATCH = mkdtempSync(join(tmpdir(), "h2a-gateway-daemon-"));
+});
 
 afterEach(() => {
   rmSync(SCRATCH, { recursive: true, force: true });
