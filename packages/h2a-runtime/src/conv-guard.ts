@@ -273,6 +273,12 @@ export type GuardConvWritersArgs = LivenessOpts & {
   cwd: string;
   /** Registry entry id to ignore (the entry the caller is creating/reviving). */
   excludeId?: string;
+  /**
+   * Round-1 (D4a): host-observed subtrees of live native sessions (see
+   * `ConvOwnersOpts.nativeSubtrees`). A proven-live local-native owner
+   * refuses even when its registry pid is absent; omitted keeps unknown.
+   */
+  nativeSubtrees?: ConvOwnersOpts["nativeSubtrees"];
   /** Override the refusal (still warns). */
   force?: boolean;
   /**
@@ -309,6 +315,7 @@ export async function guardConvWriters(
     ...(args.pidAlive ? { pidAlive: args.pidAlive } : {}),
     ...(args.bootTimeMs !== undefined ? { bootTimeMs: args.bootTimeMs } : {}),
     ...(args.processCmdline ? { processCmdline: args.processCmdline } : {}),
+    ...(args.nativeSubtrees !== undefined ? { nativeSubtrees: args.nativeSubtrees } : {}),
   });
   if (owners === "unknown") {
     // The registry could not be read: the guard cannot PROVE the absence of
