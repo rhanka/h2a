@@ -235,12 +235,15 @@ import {
   chainDriver,
   formatSignedDriveInstruction,
   headlessDriver,
+  isDriven,
   localTmuxDriver,
   loggingDriver,
   nativeBackchannelDriver,
+  nativeDriveOutcomeFromOp,
   remoteDriveServerForStore,
   verifyDriveOnReceive,
   type H2ADriveInstructionPayload,
+  type H2ADriveOutcome,
   type H2ADriver,
   type H2ADriverKind
 } from "./runtime/drive/index.js";
@@ -3762,19 +3765,14 @@ function buildDriveDriver(kind: H2ADriverKind, log: (line: string) => void): H2A
     case "headless":
       return headlessDriver({ log });
     case "auto":
-      return {
-        drive(request) {
-          for (const driver of [
-            nativePtyBackchannelDriver(log),
-            localTmuxDriver({ log }),
-            headlessDriver({ log })
-          ]) {
-            const result = driver.drive(request);
-            if (result === true) return true;
-          }
-          return false;
-        }
-      };
+      // Lot L3: the shared chain — a deferred native/tmux drive STOPS the
+      // chain (never falls through to headless); only not-applicable and
+      // failed move to the next transport.
+      return chainDriver(
+        nativePtyBackchannelDriver(log),
+        localTmuxDriver({ log }),
+        headlessDriver({ log })
+      );
   }
 }
 
@@ -3825,23 +3823,38 @@ function nativePtyBackchannelDriver(log: (line: string) => void): H2ADriver {
           request.to,
           "--b64",
           Buffer.from(request.instructionLine, "utf8").toString("base64"),
+          // Lot L2/L3: stable idempotency key for one logical wake — the
+          // op defaults to a fresh key per call when omitted.
+          ...(request.requestId !== undefined ? ["--request-id", request.requestId] : []),
         ],
         { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
       );
-      let outcome: string | undefined;
+      let payload: { outcome?: unknown; reason?: unknown; retryAfterMs?: unknown; automationSeq?: unknown } | undefined;
       if (result.status === 0) {
         try {
           const line = result.stdout.trim().split("\n").at(-1);
-          const payload = line ? JSON.parse(line) as { outcome?: unknown } : undefined;
-          outcome = typeof payload?.outcome === "string" ? payload.outcome : undefined;
+          payload = line ? (JSON.parse(line) as typeof payload) : undefined;
         } catch {
-          outcome = undefined;
+          payload = undefined;
         }
       }
-      if (outcome === "unresolved") return undefined;
-      const ok = outcome === "driven";
-      log(`drive[native-pty]: ${request.to} (${ok ? "ok" : "failed"})`);
-      return ok;
+      // Lot L3: map the op JSON to a typed chain outcome. `unresolved`
+      // means this transport does not own the target (legacy backchannels
+      // may try); `deferred` stays typed so the chain STOPS instead of
+      // falling through to a headless spawn.
+      const outcome = nativeDriveOutcomeFromOp(payload ?? {});
+      if (outcome.outcome === "driven") {
+        log(`drive[native-pty]: ${request.to} (ok)`);
+      } else if (outcome.outcome === "deferred") {
+        const retry = outcome.retryAfterMs !== undefined ? `, retry in ${outcome.retryAfterMs}ms` : "";
+        log(`drive[native-pty]: ${request.to} (DEFERRED ${outcome.reason}${retry})`);
+      } else if (outcome.outcome === "not-applicable") {
+        log(`drive[native-pty]: no native target for ${request.to}`);
+        return undefined;
+      } else {
+        log(`drive[native-pty]: ${request.to} (failed${outcome.reason ? ` ${outcome.reason}` : ""})`);
+      }
+      return outcome;
     },
   });
 }
@@ -3943,7 +3956,9 @@ function cmdDrive(flags: Record<string, string>, streams: H2ACliStreams): number
     streams.stderr.write("h2a drive: async driver unavailable in synchronous CLI path\n");
     return 1;
   }
-  const driven = result === true;
+  // Lot L3: a typed deferred outcome is NOT driven (exit 2, retry later) —
+  // and it already stopped the chain, so no headless spawn happened.
+  const driven = isDriven(result as boolean | H2ADriveOutcome);
   streams.stdout.write(
     `${JSON.stringify(
       {

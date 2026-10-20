@@ -2,6 +2,7 @@ import { createInterface } from "node:readline";
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { linkSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import type { Readable, Writable } from "node:stream";
 
 import type { H2AWorkspaceRef } from "@sentropic/h2a";
@@ -600,11 +601,33 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
   function armInboxWake(cfg: AutoOpenConfig, wakeCfg: NonNullable<RunMcpStdioOptions["wake"]>): void {
     const wakeInstance = cfg.instance;
     const wakeStore = createLocalStore({ root });
+    // Lot L3: durable pending-wake file (envelope ids only, mode 0600).
+    // A wake the driver could not deliver survives a sidecar restart and
+    // is retried instead of being buried by the restart seed. Best effort:
+    // store failures never break the wake call.
+    const pendingPath = join(root, "inbox-wake-pending.json");
     const wake = createInboxWakeHandler({
       instance: wakeInstance,
       readInbox: () => wakeStore.readInbox(wakeInstance),
       privateKeyPem: wakeCfg.privateKeyPem,
       driver: wakeCfg.driver,
+      pendingStore: {
+        load: () => {
+          try {
+            const parsed: unknown = JSON.parse(readFileSync(pendingPath, "utf8"));
+            return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : [];
+          } catch {
+            return [];
+          }
+        },
+        save: (ids: string[]) => {
+          try {
+            writeFileSync(pendingPath, JSON.stringify(ids), { mode: 0o600 });
+          } catch {
+            // Best effort: a failing pending store never breaks the wake.
+          }
+        }
+      },
       ...(cfg.host !== undefined ? { host: cfg.host } : {}),
       // Self-wake targets THIS process's OWN tmux pane (inherited $TMUX_PANE).
       resolveLaunchContext: () =>

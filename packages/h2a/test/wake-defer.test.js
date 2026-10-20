@@ -68,10 +68,14 @@ const REQ = {
   launchContext: { cwd: "/x", command: "claude", tmux: { session: "mysess", pane: "%1" } }
 };
 
-test("localTmuxDriver: DEFERS (no send-keys) when a human was just active in the pane", () => {
+test("localTmuxDriver: DEFERS (no send-keys) when a human was just active in the pane", async () => {
   const rt = driverRuntime(1); // active 1s ago → within the 4s window
-  const ok = localTmuxDriver({ runtime: rt }).drive(REQ);
-  assert.equal(ok, false, "deferred → reports failure so the dispatcher retries");
+  const outcome = await localTmuxDriver({ runtime: rt }).drive(REQ);
+  // Lot L3: the deferral is typed (never "driven") so the chain stops
+  // instead of falling through to a headless spawn; the dispatcher still
+  // retries on the next tick.
+  assert.equal(outcome.outcome, "deferred");
+  assert.equal(outcome.reason, "deferred-tmux-human-active");
   assert.equal(
     rt.calls.some((c) => c.includes("send-keys")),
     false,
