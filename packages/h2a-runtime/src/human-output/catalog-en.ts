@@ -12,4 +12,12 @@ export const strings: Record<string, string> = {
   "restore.ledger.alreadyActive": "Already active",
   "restore.ledger.noCandidates": "No sessions to restore",
   "restore.group.shared": "Shared",
+  "restore.ledger.launched": "launched",
+  "restore.ledger.blocked": "blocked",
+  "restore.ledger.occupiedHuman": "occupied by a live human session — refusing to relaunch",
+  "restore.ledger.remedyAttach": "attach it live with",
+  "restore.facet.liveAgentCli": "live agent CLI",
+  "restore.facet.shell": "shell",
+  "restore.facet.consumableTranscript": "consumable transcript",
+  "restore.facet.unknown": "unknown",
 };
