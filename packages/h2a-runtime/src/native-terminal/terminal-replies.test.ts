@@ -125,14 +125,19 @@ describe("lot L4-replies RED: reply classifier", () => {
       { kind: "reply", family: "osc", key: "4;7", text: `${E}]4;7;rgb:0000/0000/0000${E}\\` },
     ]);
     // Input stays input: focus, bracketed paste (whole block verbatim),
-    // arrows, Alt-key, lone ESC, plain text.
+    // arrows, Alt-key, plain text. A lone trailing ESC is held (it may open
+    // a split reply) and resolves as one input unit on flush.
     expect(feed(`${E}[I`)).toEqual([{ kind: "input", text: `${E}[I` }]);
     expect(feed(`${E}[200~${E}[?1;2c${E}[201~`)).toEqual([
       { kind: "input", text: `${E}[200~${E}[?1;2c${E}[201~` },
     ]);
     expect(feed(`${E}[A`)).toEqual([{ kind: "input", text: `${E}[A` }]);
     expect(feed(`${E}x`)).toEqual([{ kind: "input", text: `${E}x` }]);
-    expect(feed(E)).toEqual([{ kind: "input", text: E }]);
+    // A lone trailing ESC is held (it may open a split reply) and resolves
+    // as one input unit on flush — never lost, never half-typed.
+    const lone = new TerminalReplyClassifier();
+    expect(lone.feed(E)).toEqual([]);
+    expect(lone.flush()).toEqual([{ kind: "input", text: E }]);
     expect(feed("hello")).toEqual([{ kind: "input", text: "hello" }]);
   });
 
@@ -145,10 +150,10 @@ describe("lot L4-replies RED: reply classifier", () => {
       `${E}]4;7;rgb:0000/0000/0000${E}\\`,
     ];
     for (const seq of sequences) {
-      // Splits start at 2: a lone leading ESC (split 1) is forwarded as
-      // input immediately by design (Alt-key/Esc-to-cancel, never held) —
-      // pinned by the bare-ESC test — so reassembly starts past it.
-      for (let split = 2; split < seq.length; split++) {
+      // D10 demands every boundary, including cut 1 (a lone leading ESC):
+      // the classifier holds the ambiguous ESC until the next chunk or a
+      // flush resolves it, so a split reply is never half-typed as input.
+      for (let split = 1; split < seq.length; split++) {
         const classifier = new TerminalReplyClassifier();
         const first = classifier.feed(seq.slice(0, split));
         const second = classifier.feed(seq.slice(split));
@@ -164,8 +169,8 @@ describe("lot L4-replies RED: reply classifier", () => {
 
   it("should keep split bracketed paste as input, never as replies", () => {
     const seq = `${E}[200~${E}[?1;2c-paste${E}[201~`;
-    // Same split-1 rule as above: reassembly starts past a lone leading ESC.
-    for (let split = 2; split < seq.length; split++) {
+    // Same boundary rule as above: reassembly starts at a lone leading ESC.
+    for (let split = 1; split < seq.length; split++) {
       const classifier = new TerminalReplyClassifier();
       const first = classifier.feed(seq.slice(0, split));
       const second = classifier.feed(seq.slice(split));
@@ -176,10 +181,17 @@ describe("lot L4-replies RED: reply classifier", () => {
     }
   });
 
-  it("should forward a trailing bare ESC immediately and hold a partial CSI", () => {
+  it("should hold a trailing bare ESC until the next chunk or a flush resolves it", () => {
     const classifier = new TerminalReplyClassifier();
-    // Bare ESC alone is an Alt-key prefix or Esc-to-cancel: never held.
-    expect(classifier.feed(E)).toEqual([{ kind: "input", text: E }]);
+    // A lone trailing ESC is ambiguous (Alt-key prefix, Esc-to-cancel, or
+    // the first byte of a split reply): hold it, never emit it as input.
+    expect(classifier.feed(E)).toEqual([]);
+    // When the rest of a reply follows, the whole resolves as one reply —
+    // the ESC never reaches the human input path.
+    expect(classifier.feed("[?1;2c")).toEqual([
+      { kind: "reply", family: "da", key: "", text: `${E}[?1;2c` },
+    ]);
+    expect(classifier.flush()).toEqual([]);
     // A partial CSI is held, then completes as human input (arrow key).
     expect(classifier.feed(`${E}[`)).toEqual([]);
     expect(classifier.feed("A")).toEqual([{ kind: "input", text: `${E}[A` }]);
@@ -189,6 +201,11 @@ describe("lot L4-replies RED: reply classifier", () => {
       { kind: "reply", family: "da", key: "", text: `${E}[?1;2c` },
     ]);
     expect(classifier.flush()).toEqual([]);
+    // With no continuation, a flush resolves the held ESC as one input
+    // unit (a genuine lone Escape key is never lost, only bounded-delayed).
+    const lone = new TerminalReplyClassifier();
+    expect(lone.feed(E)).toEqual([]);
+    expect(lone.flush()).toEqual([{ kind: "input", text: E }]);
   });
 });
 
