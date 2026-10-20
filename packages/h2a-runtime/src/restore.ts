@@ -20,10 +20,14 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import {
+  isLiveFacetRow,
   launchLayout,
+  resolveOccupiedHumanRefusals,
   tabCommand,
   type HostViewSnapshot,
+  type SessionFacetRow,
 } from "./launch-layout.js";
+import { humanOutputText } from "./human-output.js";
 
 import {
   getLayoutConfig,
@@ -974,10 +978,30 @@ function projLatest(arr: DiscoveredSession[]): number {
 }
 
 
+/**
+ * Lot L1a — one run-scoped restore ledger entry. Machine values only; the
+ * human lines render at print time through the locale catalog, so the record
+ * is never an impl-chosen default location away from the caller's path.
+ */
+export type RestoreLedgerEntry = {
+  session: string;
+  outcome: "launched" | "blocked" | "skipped" | "failed";
+  window?: string;
+  reason?: string;
+  remedy?: string;
+  at: string;
+};
+
 export type RestoreOptions = {
   dryRun?: boolean;
   /** Launch only the group whose title matches (exact or slug-normalized). */
   group?: string;
+  /**
+   * Lot L1a: receives every blocked/skipped ledger entry (occupied-human
+   * refusals). The caller owns persistence — restore() never picks a record
+   * path itself.
+   */
+  onLedgerEntry?: (entry: RestoreLedgerEntry) => void;
   /** Pre-resolved SCW tabs (from `remote ls`), used to fill `remote: true` groups. */
   remoteTabs?: RemoteTab[];
   /**
@@ -1117,7 +1141,54 @@ export function restore(
       ].join(", ")}\n`,
     );
   }
-  const { windows: localWindows, dropped } = groupSessions(sessions, cfg);
+  // Lot L1a foreground-facet contract — hard occupied-human refusal. A
+  // restorable row that is a live-agent-cli AND provably live on its
+  // persisted host (this plan's snapshot) is never relaunched over the live
+  // human CLI: it gets a blocked ledger entry with a per-session `h2a
+  // attach` remedy and leaves the launch set. Attach-live rows keep their
+  // attach-only path (exempt here); dead/unknown rows are untouched.
+  const facetRows: SessionFacetRow[] = [];
+  for (const s of sessions) {
+    if (s.attachLive === true) continue;
+    if (s.hostKind === undefined || s.managedName === undefined) continue;
+    if (liveView(s.hostKind, [s.managedName]).state !== "live") continue;
+    const row: SessionFacetRow = {
+      session: s.label ?? s.project,
+      tool: s.tool,
+      kind: s.hostKind,
+    };
+    if (s.hostKind === "local-tmux") row.tmuxLive = true;
+    else row.pidAlive = true;
+    if (s.label !== undefined) row.label = s.label;
+    facetRows.push(row);
+  }
+  const occupiedRefusals = resolveOccupiedHumanRefusals(
+    facetRows,
+    isLiveFacetRow,
+  );
+  const refusedSessions = new Set(
+    occupiedRefusals.map((r) => r.session),
+  );
+  for (const r of occupiedRefusals) {
+    const entry: RestoreLedgerEntry = {
+      session: r.session,
+      outcome: "blocked",
+      reason: "occupied-human",
+      remedy: r.remedy,
+      at: new Date().toISOString(),
+    };
+    opts.onLedgerEntry?.(entry);
+    stderr.write(
+      `[h2a] restore refused "${r.session}": ` +
+        `${humanOutputText("restore.ledger.occupiedHuman")} — ` +
+        `${humanOutputText("restore.ledger.remedyAttach")} ${r.remedy}\n`,
+    );
+  }
+  const launchable =
+    refusedSessions.size === 0
+      ? sessions
+      : sessions.filter((s) => !refusedSessions.has(s.label ?? s.project));
+  const { windows: localWindows, dropped } = groupSessions(launchable, cfg);
   const localByTitle = new Map(localWindows.map((w) => [w.title, w]));
 
   // Remote windows: each `remote: true` group is filled with the SCW tabs.
