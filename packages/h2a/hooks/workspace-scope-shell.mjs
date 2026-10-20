@@ -521,12 +521,13 @@ export function prBump(request) {
     // Full before/after manifests distinguish private fixtures and nested
     // metadata fields from the published package's top-level version.
     try {
-      metadata ??= JSON.parse(read(['pr', 'view', request.ref, '--repo', request.repo, '--json', 'baseRefOid,headRefOid']));
-      if (![metadata.baseRefOid, metadata.headRefOid].every(s => /^[a-f0-9]{40,64}$/.test(s))) return;
       const [hostname, owner, repo] = request.repo.split('/');
+      metadata ??= JSON.parse(read(['api', '--hostname', hostname, `repos/${owner}/${repo}/pulls/${request.ref}`]));
+      const shas = [metadata?.base?.sha, metadata?.head?.sha];
+      if (!shas.every(s => typeof s === 'string' && /^[a-f0-9]{40,64}$/.test(s))) return;
       const endpoint = `repos/${owner}/${repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}`;
       const content = ref => read(['api', '--hostname', hostname, `${endpoint}?ref=${ref}`, '-H', 'Accept: application/vnd.github.raw+json']);
-      const before = content(metadata.baseRefOid), after = content(metadata.headRefOid);
+      const before = content(metadata.base.sha), after = content(metadata.head.sha);
       if (before === undefined || after === undefined) return;
       JSON.parse(before); JSON.parse(after);
       if (publishedBump(before, after)) return true;
