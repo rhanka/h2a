@@ -156,6 +156,7 @@ import {
   driveNativeInstruction,
   killNativeSessionIfIncarnation,
   killNativeSessionTree,
+  listNativeSessions,
   nativeHostAvailable,
   nativePromptDeliveryDeps,
   nativeSessionLiveness,
@@ -195,12 +196,15 @@ import type { ProcView } from "./proc-cpu.js";
 import {
   isRelaunchKillable,
   planRelaunch,
+  relaunchCandidatesForNative,
   relaunchContinuationPrompt,
   tryAcquireResumeLaunchClaim,
   wakeRelaunchedSession,
+  type RelaunchCandidate,
 } from "./relaunch.js";
 import {
   buildRestoreJsonReport,
+  fetchNativeForegroundSubtrees,
   isHumanFacingSession,
   legacySessionEvidence,
   readConversationCustomTitle,
@@ -208,6 +212,7 @@ import {
   reconcileRunConvIds,
   renderRestoreTotals,
   restore as restoreLayout,
+  restoreExitCode,
   type LegacySessionEvidence,
   type RestoreLedgerEntry,
   type RestoreOptions,
@@ -339,7 +344,7 @@ import {
 } from "./conductor-launch.js";
 import { defaultLocalH2aRoot } from "./h2a-bridge.js";
 import { refuseCullExecution, runIdentityCullDryRun } from "./identity-cull/cull.js";
-import { guardConvWriters } from "./conv-guard.js";
+import { guardConvWriters, type ConvOwnersOpts } from "./conv-guard.js";
 import {
   handleClaudeHook,
   installClaudeHooks,
@@ -2756,9 +2761,11 @@ export function printRestoreLedger(
         ? "restore.ledger.launched"
         : entry.outcome === "already-active"
           ? "restore.ledger.alreadyActive"
-          : entry.outcome === "deferred"
-            ? "restore.ledger.deferred"
-            : "restore.ledger.blocked",
+          : entry.outcome === "attached"
+            ? "restore.ledger.attached"
+            : entry.outcome === "deferred"
+              ? "restore.ledger.deferred"
+              : "restore.ledger.blocked",
       locale,
     );
     const where = entry.window !== undefined ? ` → ${entry.window}` : "";
@@ -6235,6 +6242,14 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       "--background",
       "classify this detached session as a background worker excluded from human restore",
     )
+    .option(
+      "--primary",
+      "declare this session a primary (restored by default; refuses with delegation provenance)",
+    )
+    .option(
+      "--secondary",
+      "declare this session a secondary (restored only with the restore opt-in)",
+    )
     .option("--json", "emit one machine-readable h2a.run.result object")
     .option(
       "--llm-gateway",
@@ -6273,6 +6288,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           effort?: string;
           headless?: boolean;
           background?: boolean;
+          primary?: boolean;
+          secondary?: boolean;
           json?: boolean;
           llmGateway?: boolean;
           gw?: boolean;
@@ -6294,6 +6311,13 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           process.stderr.write(
             `[h2a] structured run supports only claude|codex|agy|muse (got "${profile}")\n`,
           );
+          process.exitCode = 2;
+          return;
+        }
+        // Round-1 (D12a): an explicitly declared restore facet travels to
+        // enrollment; declaring both is a usage error (refuse before launch).
+        if (opts.primary === true && opts.secondary === true) {
+          process.stderr.write("[h2a] --primary and --secondary are mutually exclusive\n");
           process.exitCode = 2;
           return;
         }
@@ -6604,11 +6628,25 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         }
         // Single-writer guard: refuse to resume a conversation another live
         // session (local registry / remote pod) is already writing.
+        // Round-1 (D4a): the guard also receives the host-observed native
+        // subtrees, so a proven-live local-native owner refuses even when
+        // its registry pid is absent (best-effort, never throws).
         if (opts.resume) {
+          let resumeSubtrees: ConvOwnersOpts["nativeSubtrees"] | undefined;
+          try {
+            const nativeNames = listNativeSessions()
+              .filter((s) => s.status === "running")
+              .map((s) => s.id);
+            const fetched = fetchNativeForegroundSubtrees(nativeNames);
+            if (fetched.length > 0) resumeSubtrees = fetched;
+          } catch {
+            resumeSubtrees = undefined;
+          }
           const ok = await guardConvWriters({
             convId: opts.resume,
             cwd,
             ...(opts.force ? { force: true } : {}),
+            ...(resumeSubtrees !== undefined ? { nativeSubtrees: resumeSubtrees } : {}),
             fetchRemoteSessions: async () => {
               const url = getConfiguredRemoteOptional();
               return url ? await listRemoteSessions(url) : [];
@@ -7090,6 +7128,13 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             cwd,
             sessionClass,
             ...(opts.resume !== undefined ? { convId: opts.resume } : {}),
+            // Round-1 (D12a): an explicitly declared facet overrides the
+            // sessionClass/delegation default at enrollment.
+            ...(opts.primary === true
+              ? { restoreFacet: "primary" as const }
+              : opts.secondary === true
+                ? { restoreFacet: "secondary" as const }
+                : {}),
             gatewayMode: launchGatewayMode,
             bare: useBare,
           });
@@ -9353,8 +9398,26 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           )
         : undefined;
       const entryByTmuxSession = new Map<string, RegistryEntry>();
+      // Round-1 (D3): the bare sweep covers live native sessions with the
+      // same in-place rule — activatable CLI and shell-state rows are seen
+      // and skipped loudly (never typed into, never killed); unattributable
+      // rows fail closed toward alive. Dead native rows stay manual (no
+      // relaunch form is guessed for them here).
+      let nativeSweepCandidates: RelaunchCandidate[] = [];
+      try {
+        const liveNative = listNativeSessions().filter((s) => s.status === "running");
+        if (liveNative.length > 0) {
+          nativeSweepCandidates = relaunchCandidatesForNative(
+            fetchNativeForegroundSubtrees(liveNative.map((s) => s.id)),
+            registryEntries,
+          );
+        }
+      } catch {
+        // Best-effort: the sweep degrades to tmux-only, never to a guess.
+        nativeSweepCandidates = [];
+      }
       const plan = planRelaunch(
-        sessions.map((s) => ({
+        [...sessions.map((s) => ({
           ...(() => {
             const matches = registryEntriesForLocalTmuxTarget(
               s.name,
@@ -9399,6 +9462,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             return { ...safety, livenessReason: safety.reason };
           })(),
         })),
+        ...nativeSweepCandidates,
+      ],
         {
           ...(forced ? { force: true } : {}),
           ...(opts.all && !opts.includeAgents
@@ -10173,6 +10238,20 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         }
 
         if (opts.reattach) restoreOpts.reattach = true;
+        // Round-1 (D1b/D4a): the product producer for `nativeSubtrees`.
+        // Best-effort host observation for every live native session (its
+        // own host's `state` foreground evidence); unattestable sessions
+        // are omitted (unknown, never empty). Never throws: a failed
+        // discovery degrades to no observation at all.
+        try {
+          const nativeNames = listNativeSessions()
+            .filter((s) => s.status === "running")
+            .map((s) => s.id);
+          const subtrees = fetchNativeForegroundSubtrees(nativeNames);
+          if (subtrees.length > 0) restoreOpts.nativeSubtrees = subtrees;
+        } catch {
+          // No host observation — restore() keeps unknown like old hosts.
+        }
         // Forced-direct restore must NOT spin up the gateway; otherwise prepare
         // it as before (no-op when the gateway is disabled).
         if (forceGateway !== "direct") {
@@ -10229,20 +10308,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             }
           }
         }
-        // Lot L1b (D2): the exit status answers "did anything remain
-        // unactioned?" — non-zero iff the ledger is non-empty AND no entry
-        // made progress (no launched, no already-active) AND this is a real
-        // run. A dry run previews only (always zero); an empty ledger means
-        // there was nothing to do (zero); an already-active primary means
-        // the session is up (zero).
-        if (
-          !opts.dryRun &&
-          ledgerEntries.length > 0 &&
-          !ledgerEntries.some(
-            (e) =>
-              e.outcome === "launched" || e.outcome === "already-active",
-          )
-        ) {
+        // Round-1 (D2): the exit status answers "did anything remain
+        // unactioned?" — via restoreExitCode (non-zero iff a candidate ends
+        // blocked/failed, even when another progressed; dry-run always
+        // zero). already-active/attached/launched satisfy the objective.
+        if (restoreExitCode(ledgerEntries, { dryRun: Boolean(opts.dryRun) }) !== 0) {
           process.exitCode = 1;
         }
         // Lot L6 (D14): the totals line reports observed outcomes from the

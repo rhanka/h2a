@@ -15,6 +15,7 @@ import {
   discoverSessions,
   groupSessions,
   registrySessions,
+  selectRemoteTabsForGroups,
   validateLayoutGroups,
   type DiscoveredSession,
 } from "./restore.js";
@@ -198,6 +199,7 @@ describe("lot LG RED: dedicated configurable restore groups (D13)", () => {
   });
 
   it("should refuse an invalid layout config before launching anything", () => {
+    useLang("en");
     expect(validateLayoutGroups([{ title: 42 } as never])).toHaveLength(1);
     expect(
       validateLayoutGroups([{ title: "a" }, { title: "A " }]),
@@ -244,5 +246,53 @@ describe("lot LG RED: dedicated configurable restore groups (D13)", () => {
     useLang("en");
     const en = groupSessions([session("alpha")], cfg({ groups: [] }));
     expect(en.windows.map((w) => w.title)).toEqual(["shared window 1"]);
+  });
+});
+
+describe("round-1 P2 (code-review astra-6/7): contract matchers, strict validation, remote gate", () => {
+  it("should match sessions by configured labels and nothing else", () => {
+    useLang("en");
+    const worker = session("alpha", { label: "worker" });
+    const other = session("beta", { label: "other" });
+    const config = cfg({ groups: [{ title: "crew", labels: ["worker"] }] });
+    const grouped = groupSessions([worker, other], config);
+    const crew = grouped.windows.find((w) => w.title === "crew");
+    expect(crew?.tabs.map((t) => t.label)).toEqual(["worker"]);
+    expect(grouped.unmatched).toEqual(["other"]);
+  });
+
+  it("should match sessions by project-prefix segments, never by string prefix", () => {
+    useLang("en");
+    const nested = session("h2a/tmp/worktrees/ptycode");
+    const lookalike = session("h2a2/tmp/worktrees/ptycode");
+    const config = cfg({ groups: [{ title: "fleet", projectPrefixes: ["h2a"] }] });
+    const grouped = groupSessions([nested, lookalike], config);
+    const fleet = grouped.windows.find((w) => w.title === "fleet");
+    expect(fleet?.tabs.map((t) => t.label)).toContain("h2a/tmp/worktrees/ptycode");
+    expect(grouped.unmatched).toContain("h2a2/tmp/worktrees/ptycode");
+  });
+
+  it("should refuse unknown matcher keys and non-array groups before launching anything", () => {
+    useLang("en");
+    // An unknown matcher key is a config error, never a silent no-match.
+    expect(validateLayoutGroups([{ title: "crew", labels: ["worker"], bogus: [] }] as never)).toHaveLength(1);
+    expect(validateLayoutGroups([{ title: "crew", projectPrefixes: "h2a" }] as never)).toHaveLength(1);
+    // A non-array groups value refuses instead of silently becoming [].
+    expect(() => {
+      const dir = fakeHome();
+      process.env.REMOTE_CLI_CONFIG_HOME = dir;
+      mkdirSync(join(dir, ".config", "sentropic", "h2a"), { recursive: true });
+      writeFileSync(
+        join(dir, ".config", "sentropic", "h2a", "config.json"),
+        JSON.stringify({ layout: { groups: "invalide" } }),
+      );
+      getLayoutConfig();
+    }).toThrow(/invalid layout/i);
+  });
+
+  it("should exclude unclassified remote rows from the default plan and name them", () => {
+    const tabs = [{ id: "r1", label: "delegated-unknown", cwd: "/fixture" }];
+    expect(selectRemoteTabsForGroups(tabs)).toEqual([]);
+    expect(selectRemoteTabsForGroups(tabs, { includeSecondary: true })).toEqual([]);
   });
 });

@@ -1814,6 +1814,13 @@ export function enrollFromRun(args: {
   gatewayMode?: "gateway" | "direct";
   bare?: boolean;
   sessionClass: RegistrySessionClass;
+  /**
+   * Round-1 (D12a): explicitly declared restore facet (--primary /
+   * --secondary on `h2a run`). Overrides the sessionClass/delegation
+   * default; `primary` combined with delegation provenance refuses (the
+   * enroll guard fails closed — enroll as secondary or drop the provenance).
+   */
+  restoreFacet?: RestoreFacet;
   delegationOrigin?: DelegationOrigin;
   delegatorInstance?: string;
   delegatorTmuxSession?: string;
@@ -1851,6 +1858,7 @@ export function enrollFromRun(args: {
       ...(args.convId !== undefined ? { convId: args.convId } : {}),
       ...(args.gatewayMode !== undefined ? { gatewayMode: args.gatewayMode } : {}),
       ...(args.bare !== undefined ? { bare: args.bare } : {}),
+      ...(args.restoreFacet !== undefined ? { restoreFacet: args.restoreFacet } : {}),
     });
   } catch {
     // best-effort: the tmux session is up regardless

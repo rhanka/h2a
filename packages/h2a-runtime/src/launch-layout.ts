@@ -20,6 +20,7 @@ import { join } from "node:path";
 import { localSessionName, slugify, type LocalSession } from "./tmux.js";
 import type { LayoutTab, LayoutWindow } from "./restore.js";
 import type { RegistryTool } from "./registry.js";
+import type { NativeTerminalProcessSnapshot } from "./native-terminal/protocol.js";
 import { humanOutputText } from "./human-output.js";
 
 /**
@@ -167,11 +168,31 @@ function runDir(): string {
  * Every decision reads the `hostView` PARAMETER — the plan's one snapshot —
  * never a live host (F3: this module has no reader to call).
  */
+/**
+ * Round-1 (D2): one dispatched tab, as observed by the launcher. `attach`
+ * = the tab opens a view onto a live session (`h2a attach …`); `run` = the
+ * tab (re)launches a session. Skipped tabs are not reported here — the
+ * plan's ledger owns them (already-active/deferred/blocked).
+ */
+export type LaunchTabDispatch = {
+  readonly tab: LayoutTab;
+  readonly kind: "attach" | "run";
+};
+
 export function launchLayout(
   windows: LayoutWindow[],
   hostView: HostViewSnapshot,
   stderr: NodeJS.WriteStream = process.stderr,
-  opts: { reattach?: boolean; forceGateway?: "gateway" | "direct" } = {},
+  opts: {
+    reattach?: boolean;
+    forceGateway?: "gateway" | "direct";
+    /**
+     * Round-1 (D2): observed per-tab dispatch, called once per tab whose
+     * window actually spawned (never for skipped tabs, never in dry-run —
+     * restore() turns these into `attached`/`launched` ledger entries).
+     */
+    onDispatch?: (windowTitle: string, dispatch: LaunchTabDispatch) => void;
+  } = {},
 ): { opened: number; skippedLive: string[] } {
   const tmuxKnown = hostView.tmux.known;
   const tmuxReason = hostView.tmux.known ? undefined : hostView.tmux.reason;
@@ -244,10 +265,10 @@ export function launchLayout(
     // Remote (k8s) tabs are always included — we can't probe pod health here.
     // Local tabs carry their finalized command because a live orphan must attach
     // to its exact tmux name, while an absent session must be launched.
-    const activeTabs: Array<{ tab: LayoutTab; command: string }> = [];
+    const activeTabs: Array<{ tab: LayoutTab; command: string; attach: boolean }> = [];
     for (const t of win.tabs) {
       if (t.remoteId) {
-        activeTabs.push({ tab: t, command: tabCommand(t) });
+        activeTabs.push({ tab: t, command: tabCommand(t), attach: true });
         continue;
       }
       const slug = slugify(t.label);
@@ -295,6 +316,7 @@ export function launchLayout(
           activeTabs.push({
             tab: t,
             command: tabCommand(t, new Set([slug]), { attachSession: exact }),
+            attach: true,
           });
           continue;
         }
@@ -305,7 +327,7 @@ export function launchLayout(
           );
           continue;
         }
-        activeTabs.push({ tab: t, command: tabCommand(t, new Set(), tabOpts) });
+        activeTabs.push({ tab: t, command: tabCommand(t, new Set(), tabOpts), attach: false });
         continue;
       }
       if (t.hostKind === "local-tmux") {
@@ -315,6 +337,7 @@ export function launchLayout(
           activeTabs.push({
             tab: t,
             command: tabCommand(t, new Set([slug]), { attachSession: exact }),
+            attach: true,
           });
           continue;
         }
@@ -332,6 +355,7 @@ export function launchLayout(
           activeTabs.push({
             tab: t,
             command: tabCommand(t, new Set([slug]), { attachSession: exact }),
+            attach: true,
           });
           continue;
         }
@@ -345,7 +369,7 @@ export function launchLayout(
         // --tmux pin (tabCommand). Which host a dead tmux session should be
         // relaunched on is a REOPENED policy question — this keeps the #199
         // behavior as-is.
-        activeTabs.push({ tab: t, command: tabCommand(t, new Set(), tabOpts) });
+        activeTabs.push({ tab: t, command: tabCommand(t, new Set(), tabOpts), attach: false });
         continue;
       }
 
@@ -354,6 +378,7 @@ export function launchLayout(
         activeTabs.push({
           tab: t,
           command: tabCommand(t, new Set([slug]), { attachSession: `h2a-${slug}` }),
+          attach: true,
         });
         continue;
       }
@@ -386,6 +411,7 @@ export function launchLayout(
         command: liveSession
           ? tabCommand(t, new Set([slug]), { attachSession: liveSession.name })
           : tabCommand(t, new Set(), tabOpts),
+        attach: liveSession !== undefined,
       });
     }
 
@@ -434,6 +460,13 @@ export function launchLayout(
     });
     child.unref();
     opened += activeTabs.length;
+    // Round-1 (D2): the window spawned — every tab in it was observedly
+    // dispatched (attached view or fresh launch). restore() records these.
+    if (opts.onDispatch !== undefined) {
+      for (const { tab, attach } of activeTabs) {
+        opts.onDispatch(win.title, { tab, kind: attach ? "attach" : "run" });
+      }
+    }
   }
 
   if (skippedLive.length > 0) {
@@ -465,22 +498,13 @@ export type SessionFacet =
   | "unknown";
 
 /**
- * Lot L1b (D6 i) — ONE host-observed process in a managed session's subtree.
- * Evidence, never a verdict: the host reports what it sees (no guessing, no
- * output parsing), the DECISION in this module matches it against the
- * enrolled row. `command` is argv[0] (fallback: comm); `args` the full argv
- * (capped by the host); `startedAtMs` the process start time (the
- * application incarnation the in-place decision binds to); `ppid` the parent
- * (lineage membership, not ordering). Absent on old hosts and whenever the
- * tree is unattestable — callers treat absence as UNKNOWN, never as empty.
+ * Round-1: ONE host-observed process in a managed session's subtree — the
+ * canonical `NativeTerminalProcessSnapshot` the host serves on `state`
+ * (host-side worker state, never client-side guessing). Kept as an alias
+ * so the restore-side decision vocabulary stays spelled here while the
+ * wire shape is owned once by the protocol.
  */
-export interface HostProcessSnapshot {
-  readonly pid: number;
-  readonly command: string;
-  readonly args: ReadonlyArray<string>;
-  readonly startedAtMs: number;
-  readonly ppid: number;
-}
+export type HostProcessSnapshot = NativeTerminalProcessSnapshot;
 
 /** Interpreter binaries whose real application is argv[1] (structural, not behavioral). */
 const INTERPRETER_BINARIES: ReadonlySet<string> = new Set([

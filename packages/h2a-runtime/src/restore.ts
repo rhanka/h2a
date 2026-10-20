@@ -61,7 +61,7 @@ import {
   type LocalSession,
 } from "./tmux.js";
 import type { SessionClass } from "./session-class.js";
-import { listNativeSessions } from "./native-host.js";
+import { listNativeSessions, nativeSessionState } from "./native-host.js";
 import { guardTestStateWrite } from "./test-state-guard.js";
 
 // Compatibility re-exports: the layout renderer lives in launch-layout.ts —
@@ -159,25 +159,33 @@ export type RemoteTab = {
   label: string;
   cwd: string;
   /**
-   * Lot L5 (D12c) — durable restore facet when the control plane reports
-   * one. Absent = unclassified remote row (admitted as today until the
-   * server reports facets); `secondary` rows are excluded from the default
-   * plan and restored only with the opt-in.
+   * Round-1 (D12c) — durable restore facet when the control plane reports
+   * one. Absent = unclassified remote row: excluded from the default plan
+   * and named (only positively-classified primaries restore); `secondary`
+   * rows are excluded from the default plan and restored only with the
+   * opt-in.
    */
   restoreFacet?: RestoreFacet;
 };
 
 /**
- * Lot L5 (D12c) — remote-tab selection per group (D12). Secondary remote
- * rows are excluded from the default plan; the explicit opt-in admits them.
- * Unclassified rows (no facet reported) are admitted as today.
+ * Round-1 (D12c) — remote-tab selection per group (D12). Only
+ * positively-classified primaries restore by default; `secondary` rows
+ * need the explicit opt-in, and unclassified rows (no facet reported) are
+ * excluded and named until the server reports facets. The opt-in admits
+ * secondaries only — unclassified rows are never an opt-in side effect.
  */
 export function selectRemoteTabsForGroups(
   tabs: ReadonlyArray<RemoteTab>,
-  opts: { includeSecondary?: boolean } = {},
+  opts: { includeSecondary?: boolean; onExcludedUnclassified?: (tabs: RemoteTab[]) => void } = {},
 ): RemoteTab[] {
-  if (opts.includeSecondary === true) return tabs.slice();
-  return tabs.filter((t) => t.restoreFacet !== "secondary");
+  const excludedUnclassified = tabs.filter((t) => t.restoreFacet === undefined);
+  if (excludedUnclassified.length > 0) {
+    opts.onExcludedUnclassified?.(excludedUnclassified);
+  }
+  const classified = tabs.filter((t) => t.restoreFacet !== undefined);
+  if (opts.includeSecondary === true) return classified.slice();
+  return classified.filter((t) => t.restoreFacet !== "secondary");
 }
 
 /**
@@ -1105,13 +1113,15 @@ function cwdMatchesPrefix(cwd: string, prefix: string): boolean {
 }
 
 /**
- * Lot LG (D13) — one explicit local group's hit predicate. `excludeProjects`
- * vetoes first; then any matcher hits: project equality (checked first),
- * cwd-prefix locality (nested worktrees included), tool equality, tag
- * any-of. A group with no matchers matches nothing locally (reported empty).
+ * Round-1 (D13) — one explicit local group's hit predicate.
+ * `excludeProjects` vetoes first; then any matcher hits: project equality
+ * (checked first), cwd-prefix locality (nested worktrees included),
+ * project-prefix segments (`h2a` matches `h2a/x`, never `h2a2/x`), exact
+ * session-label equality, tool equality, tag any-of. A group with no
+ * matchers matches nothing locally (reported empty).
  */
 export function groupMatchesSession(
-  s: Pick<DiscoveredSession, "project" | "cwd" | "tool"> &
+  s: Pick<DiscoveredSession, "project" | "cwd" | "tool" | "label"> &
     Partial<Pick<DiscoveredSession, "tags">>,
   g: LayoutGroup,
 ): boolean {
@@ -1122,6 +1132,10 @@ export function groupMatchesSession(
   for (const prefix of g.cwdPrefixes ?? []) {
     if (cwdMatchesPrefix(s.cwd, prefix)) return true;
   }
+  for (const prefix of g.projectPrefixes ?? []) {
+    if (s.project === prefix || s.project.startsWith(`${prefix}/`)) return true;
+  }
+  if (s.label !== undefined && (g.labels ?? []).includes(s.label)) return true;
   if ((g.tools ?? []).includes(s.tool)) return true;
   const tags = g.tags ?? [];
   if (tags.length > 0 && (s.tags ?? []).some((t) => tags.includes(t))) return true;
@@ -1287,7 +1301,14 @@ function projLatest(arr: DiscoveredSession[]): number {
  */
 export type RestoreLedgerEntry = {
   session: string;
-  outcome: "launched" | "blocked" | "skipped" | "failed" | "already-active" | "deferred";
+  outcome:
+    | "launched"
+    | "blocked"
+    | "skipped"
+    | "failed"
+    | "already-active"
+    | "attached"
+    | "deferred";
   window?: string;
   reason?: string;
   remedy?: string;
@@ -1305,6 +1326,8 @@ export type RestoreLedgerSummary = {
   failed: number;
   /** Lot L1b — observed in-place outcomes (attach/defer, never inject). */
   "already-active": number;
+  /** Round-1 (D2) — observed attach-view dispatches. */
+  attached: number;
   deferred: number;
 };
 
@@ -1318,10 +1341,55 @@ export function summarizeRestoreLedger(
     skipped: 0,
     failed: 0,
     "already-active": 0,
+    attached: 0,
     deferred: 0,
   };
   for (const entry of entries) summary[entry.outcome] += 1;
   return summary;
+}
+
+/**
+ * Round-1 (D2): the restore exit status. A dry run previews only (always
+ * zero); an empty ledger means there was nothing to do (zero);
+ * `already-active`/`attached`/`launched` satisfy the objective (zero). The
+ * run fails (1) when at least one candidate ends `blocked` or `failed` —
+ * even when another candidate progressed (reviewer finding c): a blocked
+ * objective must never be masked by a sibling's success.
+ */
+export function restoreExitCode(
+  entries: ReadonlyArray<RestoreLedgerEntry>,
+  opts: { dryRun?: boolean } = {},
+): number {
+  if (opts.dryRun === true) return 0;
+  return entries.some((e) => e.outcome === "blocked" || e.outcome === "failed") ? 1 : 0;
+}
+
+/**
+ * Round-1 (D1b/D4a): the product producer for `nativeSubtrees`. Best-effort
+ * host observation for every live native session: the foreground worker
+ * tree served by each session's own host on `state`. Sessions the host
+ * cannot observe (old host, unreadable /proc, non-Linux) are omitted —
+ * callers keep `unknown` for them, never an empty verdict. Throws nothing:
+ * a failed probe degrades to no observation for that session.
+ */
+export function fetchNativeForegroundSubtrees(
+  names: ReadonlyArray<string>,
+): Array<{ name: string; processes: HostProcessSnapshot[] }> {
+  const subtrees: Array<{ name: string; processes: HostProcessSnapshot[] }> = [];
+  for (const name of names) {
+    try {
+      const probe = nativeSessionState(name);
+      const session = probe.state === "found" ? probe.session : undefined;
+      const processes = session?.status === "running" ? session.foregroundProcesses : undefined;
+      if (processes !== undefined) {
+        subtrees.push({ name, processes: processes.slice() });
+      }
+    } catch {
+      // Unattestable — omit (unknown), never an empty verdict.
+      continue;
+    }
+  }
+  return subtrees;
 }
 
 /** Observed launch counts carried back by `restore()` (additive). */
@@ -1515,9 +1583,15 @@ export function restore(
 
   // Remote tabs resolved by the caller from `remote ls` (fill `remote: true`
   // groups). Computed up-front so they can ALSO dedup the local discovery.
-  // Lot L5 (D12c): secondary remote tabs are excluded from the default plan.
+  // Round-1 (D12c): only positively-classified primaries restore; secondary
+  // rows need the opt-in and unclassified rows are excluded and NAMED (they
+  // join the unmatched plan account below — never silently dropped).
+  const excludedUnclassifiedRemote: string[] = [];
   const remoteTabs = selectRemoteTabsForGroups(opts.remoteTabs ?? [], {
     ...(opts.includeSecondary === true ? { includeSecondary: true } : {}),
+    onExcludedUnclassified: (excluded) => {
+      for (const t of excluded) excludedUnclassifiedRemote.push(t.label);
+    },
   });
 
   // Local windows (groups + shared) — durable registry rows are the truth.
@@ -1665,11 +1739,77 @@ export function restore(
       ].join(", ")}\n`,
     );
   }
-  // Lot L1a foreground-facet contract — hard occupied-human refusal. A
-  // restorable row that is a live-agent-cli AND provably live on its
+  // Round-1 (D2): live sessions need no relaunch — they are already up.
+  // Sessions already recorded are never recorded twice downstream (the
+  // facet proof below and the post-launch dispatch pass skip them).
+  const recordedLedgerSessions = new Set<string>();
+  let blockedLedgerCount = 0;
+  const emitLedgerEntry = (entry: RestoreLedgerEntry): void => {
+    recordedLedgerSessions.add(entry.session);
+    if (entry.outcome === "blocked") blockedLedgerCount += 1;
+    opts.onLedgerEntry?.(entry);
+  };
+  // Round-1 (D2/reviewer finding c): dual-host ambiguous rows fail closed —
+  // the objective is NOT satisfied (no relaunch, no attach; the rows need
+  // human cleanup), so each records one `blocked` outcome with the
+  // dual-host reason. This keeps the exit predicate honest: a blocked
+  // objective fails the run even when another candidate progressed.
+  for (const name of ambiguousNames) {
+    emitLedgerEntry({
+      session: name,
+      outcome: "blocked",
+      reason: "dual-host",
+      at: new Date().toISOString(),
+    });
+  }
+  // Round-1 (D1–D4) — OBSERVED in-place outcomes from the host-observed
+  // subtree of a live terminal. This is the strongest evidence, so it
+  // records first: a foreground shell binds `deferred` (`needs-adapter` —
+  // the D6(iii) managed-shell adapter does not exist in this RC, so nothing
+  // is typed, nothing killed) even when the tool+live-host proof below
+  // would otherwise record `already-active`. Attach-live primaries carry no
+  // resolved conversation (empty sid), so the subtree alone attributes the
+  // foreground; rows with a resolved conversation additionally bind it
+  // (the CLI must hold THIS row's conversation). A verified foreground CLI
+  // records one `already-active` ledger outcome (the session is already
+  // up). Unknown foregrounds, ambiguous owners, or no subtree at all keep
+  // the attach-only path — old hosts stay compatible.
+  if (opts.nativeSubtrees !== undefined && opts.nativeSubtrees.length > 0) {
+    const subtreeByName = new Map(
+      opts.nativeSubtrees.map((s) => [s.name, s.processes] as const),
+    );
+    for (const s of sessions) {
+      if (s.managedName === undefined) continue;
+      const processes = subtreeByName.get(s.managedName);
+      if (processes === undefined) continue;
+      const at = new Date().toISOString();
+      const decision = decideInPlaceResume({
+        session: s.label ?? s.project,
+        hostProcesses: processes,
+        ...(s.sid.length > 0 ? { convId: s.sid } : {}),
+      });
+      if (decision?.outcome === "attach") {
+        emitLedgerEntry({
+          session: s.label ?? s.project,
+          outcome: "already-active",
+          at,
+        });
+      } else if (decision?.outcome === "deferred") {
+        emitLedgerEntry({
+          session: s.label ?? s.project,
+          outcome: "deferred",
+          reason: "needs-adapter",
+          at,
+        });
+      }
+    }
+  }
+  // A restorable row that is a live-agent-cli AND provably live on its
   // persisted host (this plan's snapshot) is never relaunched over the live
-  // human CLI: it gets a blocked ledger entry with a per-session `h2a
-  // attach` remedy and leaves the launch set. Attach-live rows keep their
+  // CLI: it records one `already-active` ledger outcome with a per-session
+  // `h2a attach` remedy and leaves the launch set (re-running restore right
+  // after a successful restore exits 0). Rows the subtree pass already
+  // recorded keep their observed outcome; attach-live rows keep their
   // attach-only path (exempt here); dead/unknown rows are untouched.
   const facetRows: SessionFacetRow[] = [];
   for (const s of sessions) {
@@ -1694,58 +1834,18 @@ export function restore(
     occupiedRefusals.map((r) => r.session),
   );
   for (const r of occupiedRefusals) {
-    const entry: RestoreLedgerEntry = {
+    if (recordedLedgerSessions.has(r.session)) continue;
+    emitLedgerEntry({
       session: r.session,
-      outcome: "blocked",
-      reason: "occupied-human",
+      outcome: "already-active",
       remedy: r.remedy,
       at: new Date().toISOString(),
-    };
-    opts.onLedgerEntry?.(entry);
+    });
     stderr.write(
-      `[h2a] restore refused "${r.session}": ` +
-        `${humanOutputText("restore.ledger.occupiedHuman")} — ` +
+      `[h2a] restore "${r.session}": ` +
+        `${humanOutputText("restore.ledger.alreadyActive")} — ` +
         `${humanOutputText("restore.ledger.remedyAttach")} ${r.remedy}\n`,
     );
-  }
-  // Lot L1b — OBSERVED in-place outcomes for attach-live primaries. When the
-  // caller hands restore() the host-observed subtree of a live terminal, the
-  // row is observed, not just attached: a verified foreground CLI records one
-  // `already-active` ledger outcome (the session is already up); a foreground
-  // shell records `deferred` (`needs-adapter` — the D6(iii) managed-shell
-  // adapter does not exist in this RC, so nothing is typed, nothing killed).
-  // Anything else (unknown foreground, ambiguous owners, or no subtree at
-  // all) keeps today's attach-only path with no ledger entry — old hosts stay
-  // L1a-compatible. Attach-live rows carry no resolved conversation (empty
-  // sid), so the subtree alone attributes the foreground.
-  if (opts.nativeSubtrees !== undefined && opts.nativeSubtrees.length > 0) {
-    const subtreeByName = new Map(
-      opts.nativeSubtrees.map((s) => [s.name, s.processes] as const),
-    );
-    for (const s of sessions) {
-      if (s.attachLive !== true || s.managedName === undefined) continue;
-      const processes = subtreeByName.get(s.managedName);
-      if (processes === undefined) continue;
-      const at = new Date().toISOString();
-      const decision = decideInPlaceResume({
-        session: s.label ?? s.project,
-        hostProcesses: processes,
-      });
-      if (decision?.outcome === "attach") {
-        opts.onLedgerEntry?.({
-          session: s.label ?? s.project,
-          outcome: "already-active",
-          at,
-        });
-      } else if (decision?.outcome === "deferred") {
-        opts.onLedgerEntry?.({
-          session: s.label ?? s.project,
-          outcome: "deferred",
-          reason: "needs-adapter",
-          at,
-        });
-      }
-    }
   }
   const launchable =
     refusedSessions.size === 0
@@ -1772,6 +1872,11 @@ export function restore(
   const unmatchedRemote = remoteTabs
     .filter((t) => !claimedRemote.has(t))
     .map((t) => t.label);
+  // Round-1 (D12c): unclassified remote rows excluded above are named here,
+  // alongside tabs no remote group claimed — excluded, never silent.
+  for (const label of excludedUnclassifiedRemote) {
+    if (!unmatchedRemote.includes(label)) unmatchedRemote.push(label);
+  }
   const remoteByTitle = new Map<string, LayoutWindow>();
   for (const g of cfg.groups) {
     if (!g.remote) continue;
@@ -1812,12 +1917,27 @@ export function restore(
   const total = windows.reduce((n, w) => n + w.tabs.length, 0);
   // Lot L6 (D14) — observed launch counts, captured from the launcher instead
   // of re-planned: the totals line reports these, never the planned tabs.
+  // Round-1 (D2): every dispatched tab is observed here and records one
+  // ledger outcome (`attached` for an attach view, `launched` for a fresh
+  // relaunch) — one line per candidate, never planned. Rows the plan pass
+  // already recorded (already-active/deferred/blocked) keep their observed
+  // outcome and are never recorded twice.
   let opened = 0;
   let skippedLiveLaunch = 0;
   if (!opts.dryRun && total > 0) {
     const launched = launchLayout(windows, hostView, stderr, {
       ...(opts.reattach ? { reattach: true } : {}),
       ...(opts.forceGateway ? { forceGateway: opts.forceGateway } : {}),
+      onDispatch: (windowTitle, dispatch) => {
+        const name = dispatch.tab.label;
+        if (recordedLedgerSessions.has(name)) return;
+        emitLedgerEntry({
+          session: name,
+          outcome: dispatch.kind === "attach" ? "attached" : "launched",
+          window: windowTitle,
+          at: new Date().toISOString(),
+        });
+      },
     });
     opened = launched.opened;
     skippedLiveLaunch = launched.skippedLive.length;
@@ -1832,7 +1952,7 @@ export function restore(
     planned: total,
     opened,
     skippedLive: skippedLiveLaunch,
-    blocked: occupiedRefusals.length,
+    blocked: blockedLedgerCount,
   };
   // Lot L6 (D14) — the whole human plan renders through the locale catalog
   // (one run = one language), including the L5 exclusion account.
