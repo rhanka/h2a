@@ -1,7 +1,7 @@
 import { createInterface } from "node:readline";
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { linkSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { linkSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Readable, Writable } from "node:stream";
 
@@ -601,11 +601,24 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
   function armInboxWake(cfg: AutoOpenConfig, wakeCfg: NonNullable<RunMcpStdioOptions["wake"]>): void {
     const wakeInstance = cfg.instance;
     const wakeStore = createLocalStore({ root });
-    // Lot L3: durable pending-wake file (envelope ids only, mode 0600).
-    // A wake the driver could not deliver survives a sidecar restart and
-    // is retried instead of being buried by the restart seed. Best effort:
-    // store failures never break the wake call.
-    const pendingPath = join(root, "inbox-wake-pending.json");
+    // Round-1 (code-review astra-4/sol-3, D9): durable pending-wake state
+    // PER RECIPIENT (envelope ids only, mode 0600). A single root-level
+    // file let one sidecar's success erase another sidecar's deferred wake;
+    // one file per instance keeps every recipient's pending batch isolated.
+    // Published atomically (tmp file + rename) so a crash mid-write never
+    // leaves a truncated store behind. The pre-round-1 shared path is read
+    // once as a migration source, then cleared.
+    const safeInstance = wakeInstance.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 64) || "default";
+    const pendingPath = join(root, `inbox-wake-pending.${safeInstance}.json`);
+    const legacyPendingPath = join(root, "inbox-wake-pending.json");
+    const readIdsFile = (path: string): string[] => {
+      try {
+        const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
+        return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : [];
+      } catch {
+        return [];
+      }
+    };
     const wake = createInboxWakeHandler({
       instance: wakeInstance,
       readInbox: () => wakeStore.readInbox(wakeInstance),
@@ -613,18 +626,22 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
       driver: wakeCfg.driver,
       pendingStore: {
         load: () => {
-          try {
-            const parsed: unknown = JSON.parse(readFileSync(pendingPath, "utf8"));
-            return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : [];
-          } catch {
-            return [];
-          }
+          const ids = readIdsFile(pendingPath);
+          const legacy = readIdsFile(legacyPendingPath);
+          return legacy.length > 0 ? [...new Set([...legacy, ...ids])] : ids;
         },
         save: (ids: string[]) => {
           try {
-            writeFileSync(pendingPath, JSON.stringify(ids), { mode: 0o600 });
+            const tmp = `${pendingPath}.tmp.${process.pid}`;
+            writeFileSync(tmp, JSON.stringify(ids), { mode: 0o600 });
+            renameSync(tmp, pendingPath);
           } catch {
             // Best effort: a failing pending store never breaks the wake.
+          }
+          try {
+            unlinkSync(legacyPendingPath);
+          } catch {
+            // No legacy file, or already migrated — nothing to do.
           }
         }
       },

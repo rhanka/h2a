@@ -9,6 +9,8 @@
  * smoke. Seeds `seen` from the inbox at construction so it does NOT wake on the
  * boot backlog — only on arrivals after the handler is wired.
  */
+import { createHash } from "node:crypto";
+
 import { decideInboxWake, type H2AEnvelope, type H2ALaunchContext } from "@sentropic/h2a";
 
 import {
@@ -16,6 +18,24 @@ import {
   formatSignedDriveInstruction,
   type H2ADriver
 } from "./index.js";
+
+/**
+ * Round-1 (code-review astra-1/sol-2): stable idempotency key for one
+ * logical wake batch. The key is a digest of the batch's sorted envelope
+ * ids — stable across ticks and restarts for the same undelivered batch
+ * (safe redelivery: the native transport dedups on it), and distinct for
+ * every distinct batch (a second batch is never mistaken for a redelivery
+ * of the first). Interpolating the envelope object (`wake:[object Object]`)
+ * collapsed every batch onto one key, so a deduping transport applied only
+ * the first write while the handler still marked later batches seen.
+ */
+export function wakeRequestIdForBatch(freshIds: readonly string[]): string {
+  const digest = createHash("sha256")
+    .update([...freshIds].sort().join("\n"), "utf8")
+    .digest("hex")
+    .slice(0, 32);
+  return `wake:${digest}`;
+}
 
 /**
  * Lot L3: durable pending-wake store. A wake the driver could not deliver
@@ -99,29 +119,34 @@ export function createInboxWakeHandler(deps: InboxWakeHandlerDeps): () => Promis
     });
     const launchContext = deps.resolveLaunchContext?.();
     const nativeSessionId = deps.resolveNativeSessionId?.();
-    // Stable idempotency key for one logical wake: retries of the same
-    // undelivered batch (this tick or after a restart) carry the same key
-    // so the native transport applies the unit once.
+    const freshIds = decision.fresh.map((e) => e.id);
+    // Round-1 (D9): persist the pending batch BEFORE sending, so a crash
+    // between a successful drive and the clearing below still retries the
+    // same batch under the same key — and the transport's idempotency
+    // dedups it instead of applying it twice.
+    writePending([...new Set([...readPending(), ...freshIds])]);
     const outcome = asDriveOutcome(await deps.driver.drive({
       to: nativeSessionId && nativeSessionId.length > 0
         ? nativeSessionId
         : deps.instance,
       instructionLine,
-      requestId: `wake:${decision.fresh[0]}`,
+      requestId: wakeRequestIdForBatch(freshIds),
       ...(deps.host ? { host: deps.host } : {}),
       ...(launchContext ? { launchContext } : {})
     }));
     // Advance `seen` ONLY on a driven wake: deferred and failed drives keep
     // the envelopes fresh so the next tick retries them, and the pending
-    // ids are persisted so a restart retries them too — instead of marking
+    // ids stay persisted so a restart retries them too — instead of marking
     // them seen and never waking on them again.
     if (outcome.outcome === "driven") {
       seen = decision.seen;
-      writePending([]);
+      // Reconcile the ACK (D9): clear exactly the driven batch, keep any
+      // other pending ids a concurrent tick may have recorded.
+      const driven = new Set(freshIds);
+      writePending(readPending().filter((id) => !driven.has(id)));
       deps.log?.(`inbox-wake: ${decision.fresh.length} new envelope(s) → drive ok`);
       return true;
     }
-    writePending(decision.fresh.map((e) => e.id));
     if (outcome.outcome === "deferred") {
       const retry = outcome.retryAfterMs !== undefined ? `, retry in ${outcome.retryAfterMs}ms` : "";
       deps.log?.(`inbox-wake: ${decision.fresh.length} new envelope(s) → drive deferred (${outcome.reason}${retry})`);
