@@ -23,7 +23,7 @@ import {
 } from "../registry.js";
 // The pid-namespace/boot/machine anchor a durable row is only re-provable
 // within — the SAME definition the row was written with (see proc-identity.ts).
-import { readBootId, readMachineId, readPidNamespaceId, readProcessStartTime } from "../proc-identity.js";
+import { readBootId, readBootTimeMs, readMachineId, readPidNamespaceId, readProcessStartTime } from "../proc-identity.js";
 export { readProcessStartTime };
 import {
   TerminalReplayBuffer,
@@ -38,11 +38,13 @@ import {
   replyQueryKey,
 } from "./terminal-replies.js";
 import type {
+  NativeTerminalProcessSnapshot,
   NativeTerminalReplyFamily,
   NativeTerminalReplyUnit,
 } from "./protocol.js";
 import {
   NATIVE_TERMINAL_DEFAULT_MAX_SESSIONS,
+  NATIVE_TERMINAL_MAX_FOREGROUND_PROCESSES,
   NATIVE_TERMINAL_MAX_IDENTIFIER_CHARS,
   NATIVE_TERMINAL_MAX_SESSIONS,
   type NativeTerminalStopSignal,
@@ -277,6 +279,68 @@ function isGoneErrno(error: unknown): boolean {
  * undefined when the line cannot be parsed — the caller must treat that as
  * "unknown", never as a state.
  */
+/**
+ * Round-1 (D1/L1b): read the worker tree of one session leader's process
+ * group as foreground evidence for `state`. The HOST reports its own
+ * worker state (never client-side /proc guessing): every returned member
+ * carries argv[0] (fallback: comm), the full argv, the start time in ms
+ * and the ppid. Best-effort: members that exit mid-scan are skipped;
+ * unparseable fields skip that member; a non-Linux platform or an
+ * unreadable leader/group returns undefined (unattestable — callers keep
+ * `unknown`, never an empty verdict). Bounded to
+ * NATIVE_TERMINAL_MAX_FOREGROUND_PROCESSES members.
+ */
+function readForegroundProcessSnapshots(
+  leaderPid: number,
+): NativeTerminalProcessSnapshot[] | undefined {
+  if (process.platform !== "linux") return undefined;
+  let pgrp: number;
+  try {
+    const raw = readFileSync(`/proc/${leaderPid}/stat`, "utf8");
+    const splitAt = raw.lastIndexOf(") ");
+    if (splitAt < 0) return undefined;
+    const rest = raw.slice(splitAt + 2).split(" ");
+    pgrp = Number(rest[2]);
+    if (!Number.isSafeInteger(pgrp) || pgrp <= 0) return undefined;
+  } catch {
+    return undefined;
+  }
+  const bootMs = readBootTimeMs();
+  if (bootMs === undefined) return undefined;
+  const snapshots: NativeTerminalProcessSnapshot[] = [];
+  for (const pid of listProcessGroupMemberPids(pgrp)) {
+    if (snapshots.length >= NATIVE_TERMINAL_MAX_FOREGROUND_PROCESSES) break;
+    try {
+      const raw = readFileSync(`/proc/${pid}/stat`, "utf8");
+      const splitAt = raw.lastIndexOf(") ");
+      if (splitAt < 0) continue;
+      const comm = raw.slice(raw.indexOf("(") + 1, splitAt);
+      const rest = raw.slice(splitAt + 2).split(" ");
+      const ppid = Number(rest[1]);
+      const startTicks = Number(rest[19]);
+      if (!Number.isSafeInteger(ppid) || ppid < 0) continue;
+      if (!Number.isFinite(startTicks) || startTicks < 0) continue;
+      const uptimeRaw = readFileSync("/proc/uptime", "utf8");
+      const uptimeSeconds = Number(uptimeRaw.trim().split(/\s+/)[0]);
+      if (!Number.isFinite(uptimeSeconds) || startTicks / 100 > uptimeSeconds) continue;
+      const cmdline = readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0").filter((s) => s.length > 0);
+      const command = cmdline[0] ?? comm;
+      if (command.length === 0) continue;
+      snapshots.push({
+        pid,
+        command,
+        args: cmdline,
+        startedAtMs: Math.round(bootMs + (startTicks / 100) * 1000),
+        ppid,
+      });
+    } catch {
+      // Exited mid-scan; never a verdict.
+      continue;
+    }
+  }
+  return snapshots;
+}
+
 function parseStatStateAndPgrp(
   raw: string,
 ): { state: string; pgrp: number } | undefined {
@@ -626,6 +690,14 @@ export type NativeTerminalSessionState = Readonly<{
    * has been observed since this host created the session.
    */
   lastHumanActivityAt?: number | null;
+  /**
+   * Round-1 (D1/L1b): the host-observed worker tree of this session's
+   * process group (foreground evidence for restore/in-place decisions).
+   * Absent when unattestable (non-Linux host, unreadable /proc, old host
+   * without this field) — callers keep `unknown`, never an empty verdict.
+   * Present-but-empty means the group scan proved no member attributable.
+   */
+  foregroundProcesses?: NativeTerminalProcessSnapshot[];
 }>;
 
 export type NativeTerminalReplay = Readonly<{
@@ -791,6 +863,22 @@ type SessionRecord = {
   automationSeq: number;
   appliedInjections: Map<string, NativeTerminalInjectOutcome>;
   /**
+   * Round-1 (D6/D7): host-observed human composition epoch. Counts every
+   * human-controller write chunk forwarded into this session. The host is
+   * the only path bytes take into the PTY, so zero here proves no human
+   * draft can exist; any positive count without a D6 adapter/observation
+   * attestation refuses injection (an expired timer alone never proves an
+   * empty composer — bytes already consumed by readline/the TUI are
+   * invisible to the host). Machine writes (automation activity, inject,
+   * replies) never advance it.
+   */
+  humanInputSeq: number;
+  /**
+   * Round-1 (sol-5): tombstoned idempotency keys, oldest first. A
+   * redelivery whose key left the live map is refused, never re-applied.
+   */
+  evictedRequestIds: string[];
+  /**
    * Lot L4-replies (D10) — CLI→shell transitions consumed on this PTY (one
    * per wrapper reset marker), the query scanner feeding the transition and
    * query state, and the currently outstanding foreground-app queries
@@ -806,15 +894,29 @@ type SessionRecord = {
 };
 
 /**
- * Lot L2: outcome of one host-side `inject` decision. `injected` carries
- * the assigned position on the automation frontier; `deferred-recent-human`
- * is retryable (`retryAfterMs`); `refused-stale-incarnation` is final for
- * that incarnation. Never flattened: callers surface the typed outcome.
+ * Round-1 (code-review astra-2/5, sol-1/4/5): outcome of one host-side
+ * `inject` decision. `injected` carries the assigned position on the
+ * automation frontier; `deferred-recent-human` is retryable
+ * (`retryAfterMs`); every `refused-*` outcome is final for the request and
+ * writes zero bytes. `refused-unproven-composition` fires when human bytes
+ * were forwarded in this session without D6 composition evidence (an
+ * expired timer alone never proves an empty composer);
+ * `refused-facet` fires when the managed-shell foreground holds the PTY
+ * without an adapter attestation; `refused-audit-unavailable` fires when
+ * the durable admission record cannot be written (fail before mutation);
+ * `refused-evicted-request` fires when a redelivered idempotency key fell
+ * out of the live map (an old identifier is refused, never re-applied);
+ * `refused-stale-incarnation` is final for that incarnation. Never
+ * flattened: callers surface the typed outcome.
  */
 export type NativeTerminalInjectOutcome = Readonly<
   | { outcome: "injected"; automationSeq: number }
   | { outcome: "deferred-recent-human"; retryAfterMs: number }
   | { outcome: "refused-stale-incarnation" }
+  | { outcome: "refused-unproven-composition" }
+  | { outcome: "refused-facet" }
+  | { outcome: "refused-audit-unavailable" }
+  | { outcome: "refused-evicted-request" }
 >;
 
 export interface NativeTerminalInjectOptions {
@@ -838,6 +940,13 @@ export const NATIVE_TERMINAL_MAX_INJECT_TEXT_CHARS = 4096;
 
 /** Idempotency map cap per session; oldest entries are evicted first. */
 export const NATIVE_TERMINAL_MAX_INJECT_OUTCOMES_PER_SESSION = 512;
+
+/**
+ * Round-1 (sol-5): tombstone cap for evicted idempotency keys per session.
+ * An evicted key stays refusably known (never re-applied, never silently
+ * forgotten) until it ages out of this bounded ring.
+ */
+export const NATIVE_TERMINAL_MAX_EVICTED_INJECT_REQUESTS_PER_SESSION = 4096;
 
 function isInjectableLine(text: string): boolean {
   // Parity with the op drive gate (nativeDriveInstruction in op.ts): one
@@ -1121,6 +1230,8 @@ export class NativeTerminalHost {
       lastHumanActivityAt: null,
       automationSeq: 0,
       appliedInjections: new Map(),
+      humanInputSeq: 0,
+      evictedRequestIds: [],
       applicationEpoch: 0,
       queryScanner: new TerminalQueryScanner(),
       outstandingQueries: new Map(),
@@ -1242,7 +1353,19 @@ export class NativeTerminalHost {
   }
 
   state(id: string): NativeTerminalSessionState {
-    return this.#snapshot(this.#requireSession(id));
+    const record = this.#requireSession(id);
+    const snapshot = this.#snapshot(record);
+    // Round-1 (D1/L1b): foreground evidence is a per-call host observation
+    // (a /proc group scan), not part of the cheap `#snapshot` used by
+    // `list` — restore fetches it explicitly per live native session.
+    // Unattestable stays absent (unknown), never an empty verdict.
+    if (record.status === "running") {
+      const foreground = readForegroundProcessSnapshots(record.pty.pid);
+      if (foreground !== undefined) {
+        return Object.freeze({ ...snapshot, foregroundProcesses: foreground });
+      }
+    }
+    return snapshot;
   }
 
   readOutput(id: string, afterSeq: number): NativeTerminalReplay {
@@ -1362,21 +1485,24 @@ export class NativeTerminalHost {
   }
 
   /**
-   * Lot L2: host-side injection concurrent with an attached window. Applies
-   * one validated line plus one submit under the host's own serialized
-   * handler WITHOUT taking, revoking or stamping the human controller
-   * lease: the attach lease keeps its meaning, and machine input never
-   * stamps `lastHumanActivityAt`. This method is synchronous from decision
-   * to `pty.write`, so no client read-then-write TOCTOU can interleave a
-   * human decision between the safety check and the commit.
+   * Round-1 (D5–D7): host-side injection concurrent with an attached window.
+   * Applies one validated line plus one submit under the host's own
+   * serialized handler WITHOUT taking, revoking or stamping the human
+   * controller lease: the attach lease keeps its meaning, and machine
+   * input never stamps `lastHumanActivityAt`. This method is synchronous
+   * from decision to `pty.write`, so no client read-then-write TOCTOU can
+   * interleave a human decision between the safety check and the commit.
    *
-   * Safety, decided atomically here: recent human activity inside the
-   * window defers (typed, retryable); a stale incarnation refuses with zero
-   * bytes; an unknown session throws (caller maps it to its typed outcome).
-   * Composition evidence beyond the activity window (consumed TUI drafts,
-   * multiline shells) is NOT proven here — the L2-full adapters close that
-   * gap; until then callers must not route untrusted composition through
-   * this path (see the lot report).
+   * Safety, decided atomically here, in order: the durable admission
+   * record is written BEFORE any mutation (an unwritable audit refuses
+   * with zero bytes); recent human activity inside the window defers
+   * (typed, retryable); human bytes forwarded without D6 composition
+   * evidence refuse (an expired timer alone never proves an empty
+   * composer); a managed-shell foreground without an adapter attestation
+   * refuses (facet mismatch — never submit a CLI line into a shell
+   * prompt); a stale incarnation refuses; an evicted idempotency key is
+   * refused, never re-applied; an unknown session throws (caller maps it
+   * to its typed outcome).
    */
   inject(id: string, options: NativeTerminalInjectOptions): NativeTerminalInjectOutcome {
     const record = this.#requireControllableSession(id);
@@ -1401,10 +1527,24 @@ export class NativeTerminalHost {
       this.#auditInject(record, options, `inject:${prior.outcome}`, prior, true);
       return prior;
     }
+    // A redelivered key that aged out of the live map stays known through
+    // its tombstone: refused, never re-applied (D7 — never submit twice).
+    if (record.evictedRequestIds.includes(requestId)) {
+      const outcome = Object.freeze({ outcome: "refused-evicted-request" } as const);
+      this.#auditInject(record, options, "inject:refused-evicted-request", outcome, true);
+      return outcome;
+    }
     if (options.incarnation !== undefined && options.incarnation !== record.incarnation) {
       const outcome = Object.freeze({ outcome: "refused-stale-incarnation" } as const);
       this.#auditInject(record, options, "inject:refused-stale-incarnation", outcome, false);
       return outcome;
+    }
+    // D7 durable admission BEFORE mutation: the attempt itself is recorded
+    // durably before any byte is written. When admission cannot be
+    // recorded, the operation refuses with zero bytes.
+    const admitted = this.#auditInject(record, options, "inject:admission", undefined, false);
+    if (!admitted) {
+      return Object.freeze({ outcome: "refused-audit-unavailable" } as const);
     }
     const activityWindowMs =
       options.activityWindowMs ?? NATIVE_TERMINAL_DEFAULT_INJECT_ACTIVITY_WINDOW_MS;
@@ -1419,6 +1559,28 @@ export class NativeTerminalHost {
         retryAfterMs: activityWindowMs - (now - activityAt),
       } as const);
       this.#auditInject(record, options, "inject:deferred-recent-human", outcome, false);
+      return outcome;
+    }
+    // D6 composition gate: the host is the only path bytes take into the
+    // PTY, so a positive human-input epoch proves a human MAY hold a draft
+    // (readline/the TUI may already have consumed the bytes). Without a D6
+    // adapter/observation attestation the request refuses with zero bytes —
+    // neither an expired timer, an empty kernel queue nor UI-readiness is
+    // composition evidence. A zero epoch proves no human draft can exist.
+    if (record.humanInputSeq > 0) {
+      const outcome = Object.freeze({ outcome: "refused-unproven-composition" } as const);
+      this.#auditInject(record, options, "inject:refused-unproven-composition", outcome, false);
+      return outcome;
+    }
+    // D6 facet gate: a consumed wrapper reset marker proves the managed
+    // shell now holds the foreground (the CLI exited). Submitting a CLI
+    // line into that shell prompt without an adapter attestation refuses
+    // with zero bytes. Unmanaged sessions never emit the marker (unknown
+    // foreground stays admissible here — the readiness proof, not a guess,
+    // is what the L1b wiring adds per candidate).
+    if (record.applicationEpoch > 0) {
+      const outcome = Object.freeze({ outcome: "refused-facet" } as const);
+      this.#auditInject(record, options, "inject:refused-facet", outcome, false);
       return outcome;
     }
     const automationSeq = record.automationSeq + 1;
@@ -1437,7 +1599,16 @@ export class NativeTerminalHost {
     record.appliedInjections.set(requestId, outcome);
     if (record.appliedInjections.size > NATIVE_TERMINAL_MAX_INJECT_OUTCOMES_PER_SESSION) {
       const oldest = record.appliedInjections.keys().next();
-      if (!oldest.done) record.appliedInjections.delete(oldest.value);
+      if (!oldest.done) {
+        record.appliedInjections.delete(oldest.value);
+        record.evictedRequestIds.push(oldest.value);
+        while (
+          record.evictedRequestIds.length >
+          NATIVE_TERMINAL_MAX_EVICTED_INJECT_REQUESTS_PER_SESSION
+        ) {
+          record.evictedRequestIds.shift();
+        }
+      }
     }
     this.#auditInject(record, options, "inject:injected", outcome, false);
     return outcome;
@@ -1449,11 +1620,13 @@ export class NativeTerminalHost {
     reason: string,
     outcome: NativeTerminalInjectOutcome | undefined,
     redelivered: boolean,
-  ): void {
+  ): boolean {
     // Audit data only, never payload content: kind + byte count + outcome.
-    // Best effort (never throws): a failing sink must not break the write path.
+    // Returns whether the row was durably recorded (the admission gate
+    // refuses mutation on false). Never throws: a failing sink reads as
+    // "not admitted", never as a write-path crash.
     try {
-      appendCrashLog("cli", {
+      return appendCrashLog("cli", {
         event: "inject",
         sessionId: record.id,
         ...(options.actor !== undefined ? { instanceId: options.actor } : {}),
@@ -1465,6 +1638,7 @@ export class NativeTerminalHost {
       });
     } catch {
       // Audit failures never escape the injection path.
+      return false;
     }
   }
 
@@ -1473,7 +1647,13 @@ export class NativeTerminalHost {
       throw new RangeError("terminal input must not be empty");
     }
     const record = this.#requireController(lease);
-    if (record.controllerActivity === "human") record.lastHumanActivityAt = Date.now();
+    if (record.controllerActivity === "human") {
+      record.lastHumanActivityAt = Date.now();
+      // Round-1 (D6): every human-controller chunk advances the
+      // host-observed composition epoch — the inject gate reads it, and
+      // machine writes (automation activity) never touch it.
+      record.humanInputSeq += 1;
+    }
     record.pty.write(data);
   }
 

@@ -1,7 +1,7 @@
 // @ts-ignore Shared JS test isolation helper.
 import { createPrivateTestDirectory, setupNativeTestEnvironment } from "../../../h2a/test/helpers/native-isolation.js";
 setupNativeTestEnvironment(afterAll);
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -19,6 +19,10 @@ class StubPty implements PtyHandle {
   readonly #dataHandlers = new Set<(chunk: string) => void>();
   readonly #exitHandlers = new Set<(event: { exitCode: number; signal?: number }) => void>();
   readonly writes: string[] = [];
+  /** Test-only: deliver output bytes as the real PTY would. */
+  emitData(chunk: string): void {
+    for (const handler of [...this.#dataHandlers]) handler(chunk);
+  }
   write = vi.fn((data: string) => {
     this.writes.push(data);
   });
@@ -165,5 +169,76 @@ describe("lot L2 RED: host-side injection concurrent with an attached window", (
     expect(attempts.length).toBeGreaterThanOrEqual(2);
     const raw = JSON.stringify(attempts);
     expect(raw).not.toContain("secret-payload-bytes");
+  });
+});
+
+describe("round-1 P1/P2 (code-review astra-2/5, sol-1/4/5): composition, admission, dedup", () => {
+  it("should refuse with zero bytes when human bytes were forwarded without composition evidence", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(5_000_000);
+    const { spawner, ptys } = stubSpawner();
+    const host = new NativeTerminalHost({ generation: "g", replayBytesPerSession: 1024, registryPath: join(scratch, "r.json"), spawner });
+    createSession(host, "alpha");
+    const lease = host.acquireController("alpha", "human-window", "human");
+    // The human composes a draft and never submits it.
+    host.write(lease, "printf 'HUMAN_RESULT:%s\\n' 'draft-");
+    // The idle window expires: an expired timer alone never proves an empty composer.
+    vi.setSystemTime(5_000_000 + 30_000);
+    const outcome = host.inject("alpha", { text: "MACHINE", requestId: "req-machine" });
+    expect(outcome.outcome).toBe("refused-unproven-composition");
+    // Zero machine bytes: the human draft is untouched, the timer did not launder it.
+    expect(ptys.get("alpha")!.writes).toEqual(["printf 'HUMAN_RESULT:%s\\n' 'draft-"]);
+  });
+
+  it("should refuse submit into a managed-shell foreground without an adapter", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(6_000_000);
+    const { spawner, ptys } = stubSpawner();
+    const host = new NativeTerminalHost({ generation: "g", replayBytesPerSession: 1024, registryPath: join(scratch, "r.json"), spawner });
+    createSession(host, "alpha");
+    // The wrapper reset marker proves the managed shell now holds the
+    // foreground (the CLI exited). No bytes were ever composed by a human.
+    ptys.get("alpha")!.emitData("\x1b]777;h2a-reset\x07");
+    vi.setSystemTime(6_000_000 + 30_000);
+    const outcome = host.inject("alpha", { text: "[h2a-wake test]", requestId: "req-shell" });
+    expect(outcome.outcome).toBe("refused-facet");
+    expect(ptys.get("alpha")!.writes).toEqual([]);
+  });
+
+  it("should refuse mutation when durable admission cannot be recorded", () => {
+    const { spawner, ptys } = stubSpawner();
+    const host = new NativeTerminalHost({ generation: "g", replayBytesPerSession: 1024, registryPath: join(scratch, "r.json"), spawner });
+    createSession(host, "alpha");
+    // XDG_STATE_HOME aimed at a plain file: the journal cannot be created.
+    const sentinel = join(scratch, "not-a-dir");
+    writeFileSync(sentinel, "sentinel");
+    const prev = process.env.XDG_STATE_HOME;
+    process.env.XDG_STATE_HOME = sentinel;
+    try {
+      const outcome = host.inject("alpha", { text: "audit-must-refuse", requestId: "req-audit" });
+      expect(outcome.outcome).toBe("refused-audit-unavailable");
+      expect(ptys.get("alpha")!.writes).toEqual([]);
+    } finally {
+      if (prev === undefined) delete process.env.XDG_STATE_HOME;
+      else process.env.XDG_STATE_HOME = prev;
+    }
+  });
+
+  it("should never re-apply an evicted idempotency key", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(7_000_000);
+    const { spawner, ptys } = stubSpawner();
+    const host = new NativeTerminalHost({ generation: "g", replayBytesPerSession: 1024, registryPath: join(scratch, "r.json"), spawner });
+    createSession(host, "alpha");
+    const first = host.inject("alpha", { text: "original", requestId: "req-original" });
+    expect(first.outcome).toBe("injected");
+    for (let i = 0; i < 512; i++) {
+      host.inject("alpha", { text: `filler-${i}`, requestId: `req-filler-${i}` });
+    }
+    const writesBefore = ptys.get("alpha")!.writes.length;
+    expect(writesBefore).toBe(513);
+    const redelivered = host.inject("alpha", { text: "original", requestId: "req-original" });
+    expect(redelivered.outcome).not.toBe("injected");
+    expect(ptys.get("alpha")!.writes.length).toBe(writesBefore);
   });
 });

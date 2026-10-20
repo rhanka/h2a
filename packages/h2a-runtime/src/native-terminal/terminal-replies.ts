@@ -34,6 +34,13 @@ import type {
 
 export const TERMINAL_REPLY_QUERY_WINDOW_MS = 5_000;
 export const TERMINAL_REPLY_MAX_OUTSTANDING = 64;
+/**
+ * Round-1 (D10/sol-6): bound (ms) the attach bridge waits for a chunk
+ * continuing a held ambiguous tail before flushing it as human input. A
+ * genuine lone Escape key is delayed by at most this long — never lost —
+ * while split terminal replies arriving in the same burst resolve first.
+ */
+export const TERMINAL_REPLY_BRIDGE_FLUSH_DELAY_MS = 25;
 /** Longest partial sequence the classifier/scanner holds (replies are short). */
 const TERMINAL_REPLY_MAX_HELD = 1_024;
 
@@ -77,14 +84,30 @@ function isDigit(c: string): boolean {
  * Incremental, chunk-safe classifier for the outer→host direction.
  * Complete reply sequences become typed replies; everything else — and any
  * trailing partial that cannot complete yet — stays human input, except a
- * partial CSI/DCS/OSC introducer which is held for the next chunk (a bare
- * trailing ESC is forwarded immediately: it is Alt-key or Esc-to-cancel,
- * never held). `flush` emits held bytes as input (detach/terminate path).
+ * partial CSI/DCS/OSC introducer which is held for the next chunk. A bare
+ * trailing ESC is ALSO held (round-1, sol-6): it is ambiguous (Alt-key
+ * prefix, Esc-to-cancel, or the first byte of a split terminal reply), so
+ * emitting it immediately would half-type a reply split at boundary 1
+ * straight into the human input path. `flush` emits held bytes as input
+ * (bounded-delay path for a genuine lone Escape key, detach/terminate
+ * path); the attach bridge flushes on a short bound so a lone Esc still
+ * reaches the PTY promptly while split replies resolve first.
  */
 export class TerminalReplyClassifier {
   #tail = "";
   #inPaste = false;
   #pasteStart: number | undefined;
+
+  /**
+   * Round-1 (D10/sol-6): whether the ONLY held bytes are one ambiguous
+   * trailing bare ESC. The bridge schedules its bounded flush on exactly
+   * this (a genuine lone Escape key resolves within the bound, never held
+   * forever); partial CSI/DCS/OSC introducers and paste carries stay held
+   * unboundedly until the next chunk or a flush, as before.
+   */
+  get hasHeldBareEscape(): boolean {
+    return this.#tail === ESC;
+  }
 
   feed(chunk: string): ClassifiedPart[] {
     const parts: ClassifiedPart[] = [];
@@ -131,8 +154,11 @@ export class TerminalReplyClassifier {
       }
       // s starts with ESC here.
       if (s.length === 1) {
-        // Trailing bare ESC: Alt-key prefix or Esc-to-cancel — input, now.
-        parts.push({ kind: "input", text: s });
+        // Trailing bare ESC: ambiguous (Alt-key/Esc-to-cancel vs the first
+        // byte of a split terminal reply) — hold for the next chunk or a
+        // flush (round-1, sol-6: D10 demands boundary 1 too). A lone ESC is
+        // never lost: `flush` resolves it as one input unit.
+        this.#tail = s;
         return parts;
       }
       const introducer = s[1]!;

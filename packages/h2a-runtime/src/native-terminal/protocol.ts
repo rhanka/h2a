@@ -36,6 +36,30 @@ export type NativeTerminalStopSignal =
   (typeof NATIVE_TERMINAL_STOP_SIGNALS)[number];
 
 /**
+ * Round-1 (D1/L1b): ONE host-observed process in a managed session's
+ * worker tree. Evidence, never a verdict: the host reports what it sees
+ * (its own worker state — never client-side /proc guessing), the DECISION
+ * matches it against the enrolled row. `command` is argv[0] (fallback:
+ * comm); `args` the full argv; `startedAtMs` the process start (the
+ * application incarnation the in-place decision binds to); `ppid` the
+ * parent (lineage membership, not ordering). Shape-identical to the
+ * restore-side `HostProcessSnapshot` (which aliases this type).
+ */
+export type NativeTerminalProcessSnapshot = Readonly<{
+  pid: number;
+  command: string;
+  args: ReadonlyArray<string>;
+  startedAtMs: number;
+  ppid: number;
+}>;
+
+/**
+ * Cap on the worker-tree members reported in one `state` call (the scan
+ * stays bounded even for runaway process groups).
+ */
+export const NATIVE_TERMINAL_MAX_FOREGROUND_PROCESSES = 128;
+
+/**
  * Lot L4-replies (D10) — the bridge's classification is never the final
  * gate: accepted machine replies travel to the host as TYPED units carrying
  * their query correlation plus the controller epoch, session incarnation and
