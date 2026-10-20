@@ -9,7 +9,7 @@ import { inspectNativeHost } from './native-inspection.js';
 import { planVibeEquipment } from './vibe-equipment.js';
 import { isNativeHost, nativeRoot, stateRoot } from './native-paths.js';
 import { inspectVibeDiscovery } from './vibe-discovery.js';
-import { agyWorkspaceScopeDefinition, renderWorkspaceScope } from './plugin.js';
+import { agyWorkspaceScopeDefinition, renderWorkspaceScope, withoutWorkspaceScopeGuardHooks } from './plugin.js';
 import { snapshot, digest, readNativeManifest } from './native-files.js';
 import { h2aPackageRoot, shellQuote } from './vibe-equipment.js';
 export interface NativeConvergenceOptions {
@@ -66,7 +66,7 @@ export function convergeNativeHost(options: NativeConvergenceOptions) {
       ...(ownerKey ? ['--owner-key', ownerKey] : [])].map(shellQuote).join(' ');
     for (const [event, suffix] of host === 'muse' ? [['SessionStart', " --initialize-session true"], ['PreToolUse', '']] : []) {
       if (hooks[event] !== undefined && !Array.isArray(hooks[event])) throw new Error('Invalid native scope hook event');
-      hooks[event] = [...(hooks[event] ?? []).filter((entry: unknown) => !JSON.stringify(entry).includes('workspace-scope-guard.mjs')),
+      hooks[event] = [...withoutWorkspaceScopeGuardHooks(hooks[event] ?? []),
         ...(scopeEnabled ? [{ matcher: '.*', hooks: [{ type: 'command', command: command + suffix, timeout: 15 }] }] : [])];
     }
     const scopeConfig = host === 'muse' ? { ...config, hooks } :

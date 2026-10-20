@@ -9,7 +9,12 @@ const root = resolve('packages/h2a');
 function fixture(t) {
   const dir = fs.mkdtempSync(join(tmpdir(), 'scope-hosts-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
-  const env = { ...process.env, HOME: dir, XDG_RUNTIME_DIR: dir, XDG_CONFIG_HOME: dir, XDG_STATE_HOME: dir,
+  const bin = join(dir, 'bin');
+  fs.mkdirSync(bin);
+  for (const [name, executable] of [['node', process.execPath], ['git', '/usr/bin/git'], ['sh', '/bin/sh']])
+    fs.symlinkSync(executable, join(bin, name));
+  fs.writeFileSync(join(bin, 'agy'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  const env = { ...process.env, PATH: bin, HOME: dir, XDG_RUNTIME_DIR: dir, XDG_CONFIG_HOME: dir, XDG_STATE_HOME: dir,
     CODEX_HOME: join(dir, '.codex'), CLAUDE_CONFIG_DIR: join(dir, '.claude'), VIBE_HOME: join(dir, '.vibe') };
   for (const name of ['CLAUDE_PROJECT_DIR', 'CODEX_WORKSPACE_ROOT', 'H2A_SCOPE_SESSION', 'H2A_SCOPE_OWNER_KEY']) delete env[name];
   const script = `import {runCli} from ${JSON.stringify(join(root, 'dist/index.js'))};
@@ -102,10 +107,61 @@ for (const host of ['vibe', 'agy', 'gemini', 'muse']) {
     fs.writeFileSync(manifestPath, JSON.stringify(manifest));
     const migrated = host === 'muse' ? f.cli(['install-skills', '--host', host]) : f.converge(host);
     assert.equal(migrated.status, 0, migrated.stderr);
-    assert.equal(JSON.parse(migrated.stdout).workspaceScope.supported, false);
+    const report = JSON.parse(migrated.stdout);
+    assert.equal(report.workspaceScope.supported, false);
+    assert.equal(report.installation, 'coherent');
+    assert.ok(report.changed.includes(path), 'migration must rewrite the installed hooks');
+    assert.equal(JSON.parse(fs.readFileSync(manifestPath, 'utf8')).workspaceScope.enabled, false);
     assert.doesNotMatch(fs.readFileSync(path, 'utf8'), /workspace-scope-guard/);
   });
 }
+
+function mixedScopeHooks() {
+  const guard = { type: 'command', command: 'node /fixture/workspace-scope-guard.mjs --initialize-session true' };
+  const personal = { type: 'command', command: 'echo startup-retained', timeout: 7 };
+  const manual = { type: 'command', command: 'node /fixture/deny-manual-h2a-cli.mjs' };
+  const group = { matcher: '.*', timeout: 19, hooks: [guard, personal, manual, guard] };
+  // A mention in metadata is not a guard command; preserve this group intact.
+  const unrelated = { matcher: 'workspace-scope-guard.mjs', hooks: [personal] };
+  return {
+    original: { SessionStart: [group, { hooks: [guard] }, unrelated], PreToolUse: [group, { hooks: [guard] }, unrelated] },
+    retained: { SessionStart: [{ ...group, hooks: [personal, manual] }, unrelated], PreToolUse: [{ ...group, hooks: [personal, manual] }, unrelated] }
+  };
+}
+
+for (const host of ['claude', 'codex', 'gemini', 'agy', 'muse']) {
+  test('opt-in removal preserves personal commands in mixed scope groups for ' + host, t => {
+    const f = fixture(t), path = join(f.dir, 'mixed-hooks.json');
+    const { original, retained } = mixedScopeHooks();
+    for (const mode of ['off', undefined]) {
+      fs.writeFileSync(path, JSON.stringify({ hooks: original }));
+      const args = ['host', 'plugin', '--host', host, '--instance', 'test', '--write', path];
+      if (mode) args.push('--workspace-scope', mode);
+      for (let i = 0; i < 2; i++) {
+        const result = f.cli(args);
+        assert.equal(result.status, 0, result.stderr);
+        const hooks = JSON.parse(fs.readFileSync(path, 'utf8')).hooks;
+        for (const event of ['SessionStart', 'PreToolUse']) assert.deepEqual(hooks[event], retained[event]);
+      }
+    }
+  });
+}
+
+test('opt-in removal preserves personal commands in mixed Muse installation groups', t => {
+  const { original, retained } = mixedScopeHooks();
+  for (const mode of ['off', undefined]) {
+    const f = fixture(t), path = join(f.dir, '.muse/hooks.json');
+    fs.mkdirSync(join(f.dir, '.muse'));
+    fs.writeFileSync(path, JSON.stringify({ hooks: original }));
+    const args = ['install-skills', '--host', 'muse'];
+    if (mode) args.push('--workspace-scope', mode);
+    for (let i = 0; i < 2; i++) {
+      const result = f.cli(args);
+      assert.equal(result.status, 0, result.stderr || result.stdout);
+      assert.deepEqual(JSON.parse(fs.readFileSync(path, 'utf8')).hooks, retained);
+    }
+  }
+});
 
 for (const host of ['claude', 'codex', 'gemini', 'agy', 'muse']) {
   test('opt-in selection: host plugin can remove scope hooks and retain other hooks for ' + host, t => {

@@ -149,6 +149,7 @@ import {
   claudeStopHookEntry,
   renderWorkspaceScope,
   agyWorkspaceScopeDefinition,
+  withoutWorkspaceScopeGuardHooks,
   claudeDriveReceiveHookEntry,
   isH2ADriveReceiveHook,
   isH2ARecordHook,
@@ -5061,8 +5062,7 @@ function mergeStopHooksFile(
   // Keep unrelated hooks, including deny-manual-h2a-cli, unchanged.
   const retainedHooks = { ...existingHooks };
   for (const event of ['SessionStart', 'PreToolUse']) {
-    if (Array.isArray(retainedHooks[event])) retainedHooks[event] = retainedHooks[event].filter(
-      (entry: unknown) => !JSON.stringify(entry).includes('workspace-scope-guard.mjs'));
+    if (Array.isArray(retainedHooks[event])) retainedHooks[event] = withoutWorkspaceScopeGuardHooks(retainedHooks[event]);
   }
   const retained = { ...existing };
   delete retained['sentropic-h2a-workspace-scope'];
