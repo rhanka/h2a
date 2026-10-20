@@ -65,6 +65,7 @@ describe("lot L1b RED: in-place ledger outcomes (attach/defer, never inject)", (
       skipped: 0,
       failed: 0,
       "already-active": 1,
+      attached: 0,
       deferred: 1,
     });
   });
@@ -109,6 +110,7 @@ describe("lot L1a RED: run-scoped restore ledger", () => {
       skipped: 0,
       failed: 0,
       "already-active": 0,
+      attached: 0,
       deferred: 0,
     });
     expect(summarizeRestoreLedger([])).toEqual({
@@ -117,6 +119,7 @@ describe("lot L1a RED: run-scoped restore ledger", () => {
       skipped: 0,
       failed: 0,
       "already-active": 0,
+      attached: 0,
       deferred: 0,
     });
   });
