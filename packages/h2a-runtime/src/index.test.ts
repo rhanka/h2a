@@ -1,6 +1,10 @@
 // @ts-ignore Shared JS test isolation helper.
 import { createPrivateTestDirectory, installNativeTestEnvironment, nativeTestEnvironment, setupNativeTestEnvironment } from "../../h2a/test/helpers/native-isolation.js";
 setupNativeTestEnvironment(afterAll);
+// The prose assertions below pin the English catalog rendering (the French
+// rendering is qualified by the catalog key-set test and the useLang
+// suites); without this the suite depends on the ambient LANG.
+process.env.H2A_LANG = "en";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   mkdirSync,
@@ -284,7 +288,14 @@ describe("main", () => {
     prepareCentralMcpForRestore.mockReset();
     prepareCentralMcpForRestore.mockResolvedValue(undefined);
     restoreLayout.mockReset();
-    restoreLayout.mockReturnValue({ total: 0 });
+    // The real restore() always returns the observed counts; the default
+    // mock mirrors that shape (a missing `observed` is not a real shape).
+    restoreLayout.mockReturnValue({
+      total: 0,
+      windows: [],
+      dropped: 0,
+      observed: { planned: 0, opened: 0, skippedLive: 0, blocked: 0 },
+    });
     process.exitCode = undefined;
     stderrWrite.mockClear();
     stdoutWrite.mockClear();
@@ -520,7 +531,8 @@ describe("main", () => {
     expect(exitCode).toBe(0);
     expect(process.exitCode).not.toBe(1);
     expect(prepareCentralMcpForRestore).toHaveBeenCalledWith({ root: process.cwd() });
-    expect(restoreLayout).toHaveBeenCalledWith({ dryRun: true });
+    // The command always wires the run-scoped ledger callback (pre-existing).
+    expect(restoreLayout).toHaveBeenCalledWith({ dryRun: true, onLedgerEntry: expect.any(Function) });
     expect(stderrWrite.mock.calls.map((c) => String(c[0])).join("")).toContain(
       "central MCP unavailable, falling back to per-session sidecar: central liveness is ambiguous",
     );
