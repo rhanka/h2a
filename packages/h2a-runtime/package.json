@@ -11,6 +11,10 @@
       "types": "./dist/status-projection.d.ts",
       "import": "./dist/status-projection.js"
     },
+    "./human-output": {
+      "types": "./dist/human-output.d.ts",
+      "import": "./dist/human-output.js"
+    },
     "./package.json": "./package.json"
   },
   "dependencies": {
