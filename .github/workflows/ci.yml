@@ -39,6 +39,13 @@ jobs:
       # job below that invokes scripts/test-sandbox.mjs carries this step.
       - name: Provision the L0 test barrier (bubblewrap)
         run: command -v bwrap >/dev/null || { sudo apt-get update && sudo apt-get install -y bubblewrap; } && bwrap --version
+      # Round-2 (code-review astra-7/sol-5): `--version` never qualified the
+      # envelope the suites actually run in. Create the real namespaces once,
+      # with the same flags scripts/test-sandbox.mjs uses (no private net
+      # namespace — see that script for why), so a runner that cannot build
+      # the barrier fails HERE with a clear message instead of mid-suite.
+      - name: Qualify the L0 test barrier (real namespace creation)
+        run: bwrap --unshare-user --unshare-pid --unshare-uts --unshare-ipc --unshare-cgroup --die-with-parent --ro-bind / / --proc /proc --dev /dev --tmpfs /tmp -- true
       - run: bash scripts/check-no-python.sh
       - name: Guard self-tests (positive and negative fixtures)
         run: node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test scripts/check-no-python.test.mjs
@@ -71,6 +78,10 @@ jobs:
       # filesystem barrier in the runner — no unconfined fallback.
       - name: Provision the L0 test barrier (bubblewrap)
         run: command -v bwrap >/dev/null || { sudo apt-get update && sudo apt-get install -y bubblewrap; } && bwrap --version
+      # Round-2 (code-review astra-7/sol-5): qualify the real envelope, not
+      # just `--version` (same flags as scripts/test-sandbox.mjs).
+      - name: Qualify the L0 test barrier (real namespace creation)
+        run: bwrap --unshare-user --unshare-pid --unshare-uts --unshare-ipc --unshare-cgroup --die-with-parent --ro-bind / / --proc /proc --dev /dev --tmpfs /tmp -- true
       - run: npm ci
       - run: npm run build
       # Pin the host oracle to the known-good CLI installed on this host (0.145.0).
@@ -153,6 +164,11 @@ jobs:
       - name: Provision the L0 test barrier (bubblewrap)
         if: runner.os == 'Linux'
         run: command -v bwrap >/dev/null || { sudo apt-get update && sudo apt-get install -y bubblewrap; } && bwrap --version
+      # Round-2 (code-review astra-7/sol-5): qualify the real envelope, not
+      # just `--version` (same flags as scripts/test-sandbox.mjs).
+      - name: Qualify the L0 test barrier (real namespace creation)
+        if: runner.os == 'Linux'
+        run: bwrap --unshare-user --unshare-pid --unshare-uts --unshare-ipc --unshare-cgroup --die-with-parent --ro-bind / / --proc /proc --dev /dev --tmpfs /tmp -- true
       - run: npm ci
       - run: npm run typecheck
       - name: Install the mandatory configuration oracles
@@ -220,6 +236,10 @@ jobs:
       # filesystem barrier in the runner — no unconfined fallback.
       - name: Provision the L0 test barrier (bubblewrap)
         run: command -v bwrap >/dev/null || { sudo apt-get update && sudo apt-get install -y bubblewrap; } && bwrap --version
+      # Round-2 (code-review astra-7/sol-5): qualify the real envelope, not
+      # just `--version` (same flags as scripts/test-sandbox.mjs).
+      - name: Qualify the L0 test barrier (real namespace creation)
+        run: bwrap --unshare-user --unshare-pid --unshare-uts --unshare-ipc --unshare-cgroup --die-with-parent --ro-bind / / --proc /proc --dev /dev --tmpfs /tmp -- true
       - run: npm ci
       - name: Install the mandatory configuration oracles
         run: npm install --global @openai/codex@0.145.0 @anthropic-ai/claude-code@2.1.296

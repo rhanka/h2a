@@ -525,10 +525,7 @@ export async function runAttach(
   };
   const terminate = (): void => {
     detached = true;
-    if (replyFlushTimer !== undefined) {
-      clearTimeout(replyFlushTimer);
-      replyFlushTimer = undefined;
-    }
+    cancelReplyFlush();
     try { resetRelay.flush(); resetModes(); } finally {
       if (isRawCapable) stdin.setRawMode(wasRaw);
       stdin.pause();
@@ -668,11 +665,24 @@ export async function runAttach(
   // functional tests). The timer is cleared on detach/terminate; held bytes
   // are then dropped with the queue.
   let replyFlushTimer: NodeJS.Timeout | undefined;
+  const cancelReplyFlush = (): void => {
+    if (replyFlushTimer === undefined) return;
+    clearTimeout(replyFlushTimer);
+    replyFlushTimer = undefined;
+  };
   const scheduleReplyFlush = (): void => {
     if (!replyClassifier.hasHeldBareEscape || replyFlushTimer !== undefined || detached) return;
     replyFlushTimer = setTimeout(() => {
       replyFlushTimer = undefined;
       if (detached) return;
+      // Round-2 (code-review astra-2): the timer was armed for a bare held
+      // ESC; re-verify before flushing. A chunk that arrived since may have
+      // turned the tail into a partial introducer (a reply split across the
+      // bound) — flushing it as input would type a terminal reply into the
+      // human line and bypass the typed host-revalidated path. Only a still-
+      // bare ESC flushes; a partial stays held for the next chunk (as before
+      // the bounded flush existed), and an empty tail flushes nothing.
+      if (!replyClassifier.hasHeldBareEscape) return;
       for (const part of replyClassifier.flush()) {
         if (part.kind !== "input") continue;
         if (!enqueueInputBytes(Buffer.from(part.text, "utf8"))) return;
@@ -728,6 +738,12 @@ export async function runAttach(
       });
       pendingInputBytes += replyBytes;
     }
+    // Round-2 (code-review astra-2): the feed above may have changed what the
+    // classifier holds (bare ESC -> partial introducer). A pending flush was
+    // armed for the old tail — cancel it so it can never fire on the new one;
+    // `scheduleReplyFlush` re-arms only for a still-bare ESC, and the timer
+    // itself re-verifies at fire time.
+    if (!replyClassifier.hasHeldBareEscape) cancelReplyFlush();
     scheduleReplyFlush();
     pumpInput();
   };

@@ -241,4 +241,26 @@ describe("round-1 P1/P2 (code-review astra-2/5, sol-1/4/5): composition, admissi
     expect(redelivered.outcome).not.toBe("injected");
     expect(ptys.get("alpha")!.writes.length).toBe(writesBefore);
   });
+
+  it("should never re-apply an original key past the old tombstone bound", () => {
+    // Round-2 (code-review astra-3/sol-2): the 4096-tombstone ring forgot old
+    // identifiers, so the original command was submitted a second time after
+    // 4609 distinct requests. An applied key is never readmitted as new
+    // within the host lifetime (host-crash exactly-once stays out of scope).
+    vi.useFakeTimers();
+    vi.setSystemTime(8_000_000);
+    const { spawner, ptys } = stubSpawner();
+    const host = new NativeTerminalHost({ generation: "g", replayBytesPerSession: 1024, registryPath: join(scratch, "r.json"), spawner });
+    createSession(host, "alpha");
+    const first = host.inject("alpha", { text: "original", requestId: "req-original" });
+    expect(first).toMatchObject({ outcome: "injected", automationSeq: 1 });
+    for (let i = 0; i < 4609; i++) {
+      host.inject("alpha", { text: `filler-${i}`, requestId: `req-filler-${i}` });
+    }
+    const writesBefore = ptys.get("alpha")!.writes.length;
+    expect(writesBefore).toBe(4610);
+    const redelivered = host.inject("alpha", { text: "original", requestId: "req-original" });
+    expect(redelivered.outcome).toBe("refused-evicted-request");
+    expect(ptys.get("alpha")!.writes.length).toBe(writesBefore);
+  }, 120_000);
 });
