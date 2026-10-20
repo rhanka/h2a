@@ -14,6 +14,7 @@ function fixture(t, { privatePackage = false } = {}) {
   const own = join(root, 'own'), foreign = join(root, 'foreign');
   const env = { ...process.env, PATH: root + ':' + process.env.PATH, HOME: root, XDG_CONFIG_HOME: root, XDG_STATE_HOME: root, XDG_RUNTIME_DIR: root,
     GIT_CONFIG_GLOBAL: join(root, 'gitconfig'), GIT_CONFIG_NOSYSTEM: '1' };
+  for (const key of ['CLAUDE_PROJECT_DIR', 'CODEX_WORKSPACE_ROOT', 'CLAUDE_PLUGIN_ROOT', 'CODEX_PLUGIN_ROOT', 'H2A_SCOPE_SESSION', 'H2A_SCOPE_OWNER_KEY']) delete env[key];
   fs.writeFileSync(join(root, 'gh'), `#!/usr/bin/env node
 import fs from 'node:fs';
 const args = process.argv.slice(2), root = ${JSON.stringify(root)};
@@ -22,7 +23,23 @@ if (args[0] === 'api') {
     const pulls = root + '/pr.pulls.json';
     if (fs.existsSync(pulls)) process.stdout.write(fs.readFileSync(pulls));
     else process.stdout.write(JSON.stringify({ base: { sha: 'a'.repeat(40) }, head: { sha: 'b'.repeat(40) } }));
-  } else process.stdout.write(fs.readFileSync(root + (args.some(a=>a.includes('ref=aaaa')) ? '/pr.base.json' : '/pr.head.json')));
+  } else {
+    const side = args.some(a=>a.includes('ref=aaaa')) ? 'base' : 'head';
+    const failure = root + '/pr.' + side + '.error.json';
+    if (fs.existsSync(failure)) {
+      const error = JSON.parse(fs.readFileSync(failure, 'utf8'));
+      process.stdout.write(error.stdout ?? '');
+      process.stderr.write(error.stderr ?? '');
+      process.exit(error.status ?? 1);
+    }
+    const manifest = root + '/pr.' + side + '.json';
+    if (!fs.existsSync(manifest)) {
+      console.log(JSON.stringify({ message: 'Not Found', status: '404' }));
+      console.error('gh: Not Found (HTTP 404)');
+      process.exit(1);
+    }
+    process.stdout.write(fs.readFileSync(manifest));
+  }
 } else if (args[1] === 'view') {
   const fields = args[args.indexOf('--json') + 1] ?? '';
   if (fields.includes('baseRefOid') || fields.includes('headRefOid')) { console.error('Unknown JSON field: "baseRefOid"'); process.exit(1); }
@@ -284,6 +301,66 @@ test('remote private package versions and dependency metadata do not cause false
   fs.writeFileSync(join(f.root, 'pr.base.json'), '{"name":"published","version":"1.0.0","metadata":{"version":"1.0.0"}}');
   fs.writeFileSync(join(f.root, 'pr.head.json'), '{"name":"published","version":"1.0.0","metadata":{"version":"1.0.1"}}');
   assert.equal(f.invoke('gh pr merge 327').status, 0);
+});
+
+for (const [name, manifest] of Object.entries({
+  private: { name: 'private-fixture', version: '1.0.0', private: true },
+  'version-less': { name: 'unversioned-fixture' },
+  nameless: { version: '1.0.0' },
+})) test(`an added ${name} remote manifest is allowed after a base 404`, t => {
+  const f = fixture(t); f.grant();
+  fs.writeFileSync(join(f.root, 'pr.diff'), 'diff --git a/packages/new/package.json b/packages/new/package.json\nnew file mode 100644\n--- /dev/null\n+++ b/packages/new/package.json\n');
+  fs.rmSync(join(f.root, 'pr.base.json'));
+  fs.writeFileSync(join(f.root, 'pr.head.json'), JSON.stringify(manifest));
+  const r = f.invoke('gh pr merge -R fixture/foreign 327');
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+});
+
+test('an added publishable remote manifest requires a separate release grant after a base 404', t => {
+  const f = fixture(t); f.grant();
+  fs.writeFileSync(join(f.root, 'pr.diff'), 'diff --git a/packages/new/package.json b/packages/new/package.json\nnew file mode 100644\n--- /dev/null\n+++ b/packages/new/package.json\n');
+  fs.rmSync(join(f.root, 'pr.base.json'));
+  denied(f.invoke('gh pr merge -R fixture/foreign 327'), 'VERSION_BUMP');
+  f.grant({ action: 'release' });
+  const r = f.invoke('gh pr merge -R fixture/foreign 327');
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+});
+
+test('a deleted remote manifest is allowed after a head 404', t => {
+  const f = fixture(t); f.grant();
+  fs.writeFileSync(join(f.root, 'pr.diff'), 'diff --git a/packages/old/package.json b/packages/old/package.json\ndeleted file mode 100644\n--- a/packages/old/package.json\n+++ /dev/null\n');
+  fs.rmSync(join(f.root, 'pr.head.json'));
+  const r = f.invoke('gh pr merge -R fixture/foreign 327');
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+});
+
+test('remote manifest failures other than a confirmed 404 stay unverifiable', t => {
+  const f = fixture(t); f.grant(); f.grant({ action: 'release' });
+  fs.writeFileSync(join(f.root, 'pr.diff'), 'diff --git a/package.json b/package.json\n');
+  for (const side of ['base', 'head']) {
+    const failure = join(f.root, `pr.${side}.error.json`);
+    for (const error of [
+      { stderr: 'gh: Bad credentials (HTTP 401)\n' },
+      { stderr: 'gh: Forbidden (HTTP 403)\n' },
+      { stderr: 'gh: Internal Server Error (HTTP 500)\n' },
+      { stderr: 'dial tcp: network is unreachable\n' },
+      { stderr: 'request timed out\n' },
+      { stderr: 'unexpected response containing 404\n' },
+      { stdout: JSON.stringify({ message: 'Not Found' }) },
+      { status: 0, stdout: '{malformed' },
+    ]) {
+      fs.writeFileSync(failure, JSON.stringify(error));
+      denied(f.invoke('gh pr merge -R fixture/foreign 327'), 'UNVERIFIABLE');
+    }
+    fs.rmSync(failure);
+  }
+});
+
+test('remote manifests missing at both refs stay unverifiable', t => {
+  const f = fixture(t); f.grant();
+  fs.writeFileSync(join(f.root, 'pr.diff'), 'diff --git a/package.json b/package.json\n');
+  for (const side of ['base', 'head']) fs.rmSync(join(f.root, `pr.${side}.json`));
+  denied(f.invoke('gh pr merge -R fixture/foreign 327'), 'UNVERIFIABLE');
 });
 
 test('a remote PR with missing or invalid base/head SHAs stays unverifiable', t => {
