@@ -391,7 +391,17 @@ describe("main", () => {
       "remote",
       expect.objectContaining({ attachedTerminal: true, sessionClass: "human" }),
     );
-    expect(attachLocalSession).toHaveBeenCalledWith("h2a-proj");
+    expect(attachLocalSession).toHaveBeenCalledWith(
+      "h2a-proj",
+      // Lot L4-hint (D11b/c): the launching parent hands the survivor its
+      // recreation + attach lines.
+      {
+        sessionEndHint: {
+          recreation: expect.stringContaining("h2a run"),
+          attach: "h2a attach proj",
+        },
+      },
+    );
     expect(stderrWrite.mock.calls.map((c) => String(c[0])).join("")).not.toContain(
       "attach with: h2a attach proj",
     );
@@ -843,7 +853,18 @@ describe("main", () => {
     try {
       const exitCode = await main(["node", "remote", "attach", "h2a"]);
       expect(exitCode).toBe(0);
-      expect(attachLocalSession).toHaveBeenCalledWith("remote-h2a");
+      expect(attachLocalSession).toHaveBeenCalledWith(
+        "remote-h2a",
+        // Lot L4-hint (D11b/c): the attach carries the row's own recreation
+        // (conversation-less row: no -r) plus the attach line.
+        {
+          sessionEndHint: {
+            recreation:
+              "h2a run 'claude' '/home/u/src/a2a-cli' --name 'h2a' --tmux",
+            attach: "h2a attach h2a",
+          },
+        },
+      );
       expect(attach).not.toHaveBeenCalled();
     } finally {
       rmSync(regPath, { force: true });

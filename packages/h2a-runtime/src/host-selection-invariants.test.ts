@@ -244,7 +244,15 @@ describe("F1 — resume host precedence", () => {
     const code = await main(["node", "h2a", "attach", slug, ...(takeover ? ["--takeover"] : [])]);
 
     expect(code).toBe(0);
-    expect(attachNativeSession).toHaveBeenCalledExactlyOnceWith(`h2a-${slug}`, undefined, { takeover });
+    // Lot L4-hint (D11b/c): the attach carries the row's own recreation
+    // plus the attach line.
+    expect(attachNativeSession).toHaveBeenCalledExactlyOnceWith(`h2a-${slug}`, undefined, {
+      takeover,
+      sessionEndHint: {
+        recreation: expect.stringContaining("h2a run"),
+        attach: `h2a attach ${slug}`,
+      },
+    });
     expect(attachLocalSession).not.toHaveBeenCalled();
   });
 });
