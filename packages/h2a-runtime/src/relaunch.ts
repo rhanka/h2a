@@ -24,6 +24,11 @@ import {
 import { dirname, join } from "node:path";
 
 import { resolveConfigPath } from "./config.js";
+import {
+  decideInPlaceResume,
+  type HostProcessSnapshot,
+} from "./launch-layout.js";
+import type { RegistryEntry } from "./registry.js";
 import { guardTestStateWrite } from "./test-state-guard.js";
 import { isCliProfile, resolveProfile, resumeArgsFor } from "./profiles.js";
 import {
@@ -493,6 +498,13 @@ export type RelaunchCandidate = {
   convId?: string;
   /** why its registry row cannot safely produce a resume conversation */
   unresumableReason?: string;
+  /**
+   * Lot L1b — the native subtree foreground is a live shell holding a
+   * resumable conversation. The sweep SEES the session (no silent hole) but
+   * types nothing into it: planRelaunch always skips shell-state candidates
+   * (the D6(iii) managed-shell adapter does not exist in this RC).
+   */
+  shellState?: boolean;
 };
 
 export type RelaunchAction = {
@@ -585,6 +597,16 @@ export function planRelaunch(
       });
       continue;
     }
+    // Lot L1b — a live shell foreground is never typed into and never
+    // killed: the sweep sees the session, the plan skips it loudly.
+    if (c.shellState === true) {
+      skipped.push({
+        slug: c.slug,
+        reason:
+          "foreground is a live shell (shell-state): resume by hand inside the session — the sweep types nothing and kills nothing",
+      });
+      continue;
+    }
     if (!isRelaunchKillable(c)) {
       skipped.push({
         slug: c.slug,
@@ -633,4 +655,89 @@ export function planRelaunch(
     });
   }
   return { actions, skipped };
+}
+
+/**
+ * Lot L1b — one live native session with its host-observed subtree, as the
+ * D6(i) reader reports it. The registry rows enroll the conversation; the
+ * subtree proves what runs NOW.
+ */
+export type NativeSubtreeSession = {
+  name: string;
+  processes: ReadonlyArray<HostProcessSnapshot>;
+};
+
+/**
+ * Lot L1b — relaunch candidates for live NATIVE sessions (no silent sweep
+ * hole). Each session is matched to its registry row by managed name; the
+ * in-place decision classifies the foreground: a verified CLI becomes an
+ * activatable candidate, a live shell becomes `shellState` (seen, typed
+ * into never, killed never), anything unattributable stays indeterminate
+ * (fail closed toward alive). A session with no registry row is surfaced as
+ * indeterminate, never dropped.
+ */
+export function relaunchCandidatesForNative(
+  sessions: ReadonlyArray<NativeSubtreeSession>,
+  entries: ReadonlyArray<RegistryEntry>,
+): RelaunchCandidate[] {
+  const candidates: RelaunchCandidate[] = [];
+  for (const session of sessions) {
+    const matched = entries.filter((e) => e.tmuxSession === session.name);
+    if (matched.length === 0) {
+      candidates.push({
+        slug: session.name,
+        name: session.name,
+        profile: "unknown",
+        dead: false,
+        activatable: false,
+        indeterminate: true,
+        activelyWorking: false,
+        shellState: false,
+        livenessReason: `native session ${session.name} has no registry entry — relaunch manually`,
+      });
+      continue;
+    }
+    for (const entry of matched) {
+      const decision = decideInPlaceResume({
+        session: session.name,
+        ...(entry.convId !== undefined ? { convId: entry.convId } : {}),
+        hostProcesses: session.processes,
+      });
+      const base = {
+        slug: entry.label ?? session.name,
+        name: session.name,
+        profile: entry.tool ?? "unknown",
+        ...(entry.convId !== undefined ? { convId: entry.convId } : {}),
+        activelyWorking: false,
+      };
+      if (decision?.outcome === "deferred") {
+        candidates.push({
+          ...base,
+          dead: false,
+          activatable: false,
+          indeterminate: false,
+          shellState: true,
+        });
+      } else if (decision?.outcome === "attach") {
+        candidates.push({
+          ...base,
+          dead: false,
+          activatable: true,
+          indeterminate: false,
+          shellState: false,
+        });
+      } else {
+        candidates.push({
+          ...base,
+          dead: false,
+          activatable: false,
+          indeterminate: true,
+          shellState: false,
+          livenessReason:
+            "native subtree foreground is not attributable — left alone (never kill on unknown)",
+        });
+      }
+    }
+  }
+  return candidates;
 }

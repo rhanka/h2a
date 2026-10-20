@@ -465,6 +465,91 @@ export type SessionFacet =
   | "unknown";
 
 /**
+ * Lot L1b (D6 i) — ONE host-observed process in a managed session's subtree.
+ * Evidence, never a verdict: the host reports what it sees (no guessing, no
+ * output parsing), the DECISION in this module matches it against the
+ * enrolled row. `command` is argv[0] (fallback: comm); `args` the full argv
+ * (capped by the host); `startedAtMs` the process start time (the
+ * application incarnation the in-place decision binds to); `ppid` the parent
+ * (lineage membership, not ordering). Absent on old hosts and whenever the
+ * tree is unattestable — callers treat absence as UNKNOWN, never as empty.
+ */
+export interface HostProcessSnapshot {
+  readonly pid: number;
+  readonly command: string;
+  readonly args: ReadonlyArray<string>;
+  readonly startedAtMs: number;
+  readonly ppid: number;
+}
+
+/** Interpreter binaries whose real application is argv[1] (structural, not behavioral). */
+const INTERPRETER_BINARIES: ReadonlySet<string> = new Set([
+  "node",
+  "bun",
+  "deno",
+]);
+
+function binaryBasename(command: string): string {
+  const base = command.split("/").pop() ?? command;
+  return base.toLowerCase();
+}
+
+/**
+ * Lot L1b — the application a host-observed process runs: argv[0]'s binary,
+ * or argv[1]'s when argv[0] is a bare interpreter (installed CLIs are
+ * scripts; `node /…/claude --resume …` IS claude). Pure, structural.
+ */
+export function primaryBinaryName(proc: Pick<HostProcessSnapshot, "command" | "args">): string {
+  const first = binaryBasename(proc.command);
+  if (INTERPRETER_BINARIES.has(first)) {
+    const second = proc.args[1];
+    if (second !== undefined) return binaryBasename(second);
+  }
+  return first;
+}
+
+/**
+ * Lot L1b — match ONE host-observed process against the enrolled row:
+ * a known agent binary holding the row's conversation (when the row names
+ * one) is the live CLI; a second attribution for the same conversation is
+ * ambiguity, never a second owner. Returns the match plus the application
+ * incarnation (process start), or null when nothing attributable runs.
+ */
+export function matchRowConversation(
+  row: Pick<SessionFacetRow, "convId">,
+  processes: ReadonlyArray<HostProcessSnapshot>,
+): HostProcessSnapshot | "ambiguous" | null {
+  const convId = row.convId;
+  const hits = processes.filter(
+    (p) =>
+      AGENT_CLI_TOOLS.has(primaryBinaryName(p)) &&
+      (convId === undefined || p.args.includes(convId)),
+  );
+  if (hits.length === 0) return null;
+  if (hits.length === 1) return hits[0]!;
+  // Same conversation twice (CLI + helper sharing argv) is one owner only
+  // when every hit carries the row's conversation; anything less is refusal.
+  if (convId !== undefined && hits.every((p) => p.args.includes(convId))) {
+    return hits.slice().sort((a, b) => a.startedAtMs - b.startedAtMs)[0]!;
+  }
+  return "ambiguous";
+}
+
+/** Lot L1b — an interactive shell (never a `-c` script runner) in the subtree. */
+export function matchInteractiveShell(
+  processes: ReadonlyArray<HostProcessSnapshot>,
+): HostProcessSnapshot | null {
+  const shells = processes.filter(
+    (p) =>
+      SHELL_TOOLS.has(primaryBinaryName(p)) &&
+      !p.args.includes("-c") &&
+      !p.args.includes("-e"),
+  );
+  if (shells.length === 0) return null;
+  return shells.slice().sort((a, b) => a.startedAtMs - b.startedAtMs)[0]!;
+}
+
+/**
  * Agent CLI tools — the only tools that can hold a live foreground session.
  * Mirrors RegistryTool (registry.ts); a named tool outside this set is never
  * a live agent, no matter the liveness probes.
@@ -505,6 +590,19 @@ export interface SessionFacetRow {
   transcriptPath?: string;
   /** Human label, preserved through the cohort mapping. */
   label?: string;
+  /**
+   * Lot L1b — the enrolled conversation, when the row names one. The host
+   * evidence matches against it; a row without one attributes any single
+   * agent binary in the subtree.
+   */
+  convId?: string;
+  /**
+   * Lot L1b — host-side foreground evidence (subtree snapshot). When
+   * present it TAKES PRECEDENCE over the registry tool and the plan
+   * snapshot bits: the host speaks of what runs NOW. Absent on old hosts
+   * (existing tool/bit rules apply, L1a-compatible).
+   */
+  hostProcesses?: ReadonlyArray<HostProcessSnapshot>;
 }
 
 /** Liveness as the facet contract sees it: any proven-live bit suffices. */
@@ -521,6 +619,16 @@ export function isLiveFacetRow(
  * dead agent without transcript) is unknown — never promoted.
  */
 export function deriveSessionFacet(row: SessionFacetRow): SessionFacet {
+  // Lot L1b — host-side foreground evidence takes precedence: the host
+  // reports what runs NOW, so a stale registry tool or a stale liveness bit
+  // never promotes (a vim foreground is not a live CLI; a live shell is a
+  // shell even when the row says claude). Absent on old hosts → L1a rules.
+  if (row.hostProcesses !== undefined) {
+    const cli = matchRowConversation(row, row.hostProcesses);
+    if (cli !== null && cli !== "ambiguous") return "live-agent-cli";
+    if (matchInteractiveShell(row.hostProcesses) !== null) return "shell";
+    return "unknown";
+  }
   const tool = row.tool;
   if (tool !== undefined && AGENT_CLI_TOOLS.has(tool)) {
     if (isLiveFacetRow(row)) return "live-agent-cli";
@@ -529,6 +637,68 @@ export function deriveSessionFacet(row: SessionFacetRow): SessionFacet {
   }
   if (tool !== undefined && SHELL_TOOLS.has(tool)) return "shell";
   return "unknown";
+}
+
+/**
+ * Lot L1b (D2/D6 i) — the in-place resume DECISION for one live managed row
+ * with host-side foreground evidence. The decision never types anything:
+ * - a verified foreground CLI holding the row's conversation → `attach`
+ *   (the session is already active; the ledger records `already-active`);
+ * - a foreground shell → `deferred` (`needs-adapter`: the D6(iii)
+ *   managed-shell attestation does not exist in this RC, so no keystroke
+ *   may be composed — D2 makes the shortfall visible per session);
+ * - anything else (unknown foreground, ambiguous owners) → `refused`.
+ * The caller (restore) turns `attach` into an attach tab, `deferred` into a
+ * deferred ledger entry, `refused` into the occupied-human refusal path.
+ * Without host evidence (`hostProcesses` absent) there is no decision
+ * (`null` — the caller keeps the L1a behavior).
+ */
+export type InPlaceDecision =
+  | {
+      readonly outcome: "attach";
+      readonly facet: "live-agent-cli";
+      /** Application incarnation the attach binds to (foreground start). */
+      readonly appIncarnation: number;
+      readonly via: string;
+    }
+  | {
+      readonly outcome: "deferred";
+      readonly reason: "needs-adapter";
+      readonly facet: "shell";
+      readonly appIncarnation: number;
+    }
+  | {
+      readonly outcome: "refused";
+      readonly reason: "unknown-foreground" | "ambiguous-cli";
+      readonly facet: "unknown";
+    };
+
+export function decideInPlaceResume(
+  row: Pick<SessionFacetRow, "session" | "convId" | "hostProcesses" | "label">,
+): InPlaceDecision | null {
+  if (row.hostProcesses === undefined) return null;
+  const cli = matchRowConversation(row, row.hostProcesses);
+  if (cli === "ambiguous") {
+    return { outcome: "refused", reason: "ambiguous-cli", facet: "unknown" };
+  }
+  if (cli !== null) {
+    return {
+      outcome: "attach",
+      facet: "live-agent-cli",
+      appIncarnation: cli.startedAtMs,
+      via: `h2a attach ${row.label ?? row.session}`,
+    };
+  }
+  const shell = matchInteractiveShell(row.hostProcesses);
+  if (shell !== null) {
+    return {
+      outcome: "deferred",
+      reason: "needs-adapter",
+      facet: "shell",
+      appIncarnation: shell.startedAtMs,
+    };
+  }
+  return { outcome: "refused", reason: "unknown-foreground", facet: "unknown" };
 }
 
 /** One facet-ed restore candidate: facet plus the labels the cohort keeps. */

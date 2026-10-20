@@ -111,6 +111,46 @@ describe("convOwners", () => {
     expect(owners[0]!.detail).toContain("pid 4242");
   });
 
+  it("refuses a live native conversation owner even when its registry pid is absent", () => {
+    // No pid on the row (hook-enrolled native session): the pid probe cannot
+    // verify it — but the native HOST can (foreground CLI holding conv-1 in
+    // the session's own subtree). Host-verified writers refuse hard, exactly
+    // like pid-verified ones; without host evidence the row stays suspect.
+    writeRegistry([
+      entry({
+        id: "uuid-claude-1",
+        kind: "local-native",
+        tmuxSession: "h2a-projA",
+        convId: "conv-1",
+        source: "hook",
+      }),
+    ]);
+    const owners = convOwners("conv-1", {
+      registryPath: regPath,
+      nativeSessionLiveness: (name) => name === "h2a-projA",
+      nativeSubtrees: [
+        {
+          name: "h2a-projA",
+          processes: [
+            {
+              pid: 4242,
+              command: "claude",
+              args: ["--resume", "conv-1"],
+              startedAtMs: 111,
+              ppid: 100,
+            },
+          ],
+        },
+      ],
+    });
+    expect(owners).toHaveLength(1);
+    expect(owners[0]!.suspect).toBeUndefined();
+    expect(owners[0]).toMatchObject({
+      where: "local",
+      facet: "live-agent-cli",
+    });
+  });
+
   it("treats a hook-enrolled local session as DEAD if last seen before boot (PID reuse after reboot)", () => {
     writeRegistry([
       entry({
