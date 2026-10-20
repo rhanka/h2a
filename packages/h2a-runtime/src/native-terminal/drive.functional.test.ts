@@ -329,4 +329,149 @@ describe.skipIf(process.platform !== "linux")("h2a drive native PTY backchannel"
       }
     }
   }, 15_000);
+
+  // Lot L2: the owner's nominal case — the supervision window stays attached
+  // (controller lease held) while an authorized block is submitted. The old
+  // lease path refused this outright; inject applies it with the lease held.
+  it("should submit an authorized block while its delegated PTY view stays attached", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "d-attached-"));
+    directories.add(directory);
+    const socketPath = join(directory, "host.sock");
+    const configHome = join(directory, "config");
+    const sessionId = "native-drive-attached";
+    const entry = fileURLToPath(new URL("./process.ts", import.meta.url));
+    const opEntry = fileURLToPath(new URL("./op.ts", import.meta.url));
+    const previousSocket = process.env.H2A_NATIVE_SOCKET;
+    const previousConfigHome = process.env.REMOTE_CLI_CONFIG_HOME;
+    const previousActivityWindow = process.env.H2A_WAKE_DEFER_ACTIVITY_MS;
+    process.env.H2A_NATIVE_SOCKET = socketPath;
+    process.env.REMOTE_CLI_CONFIG_HOME = configHome;
+    process.env.H2A_WAKE_DEFER_ACTIVITY_MS = "300";
+
+    const spawnHost: NativeTerminalHostSpawn = (options) => {
+      const child = spawn(process.execPath, [
+        "--import",
+        "tsx",
+        entry,
+        "--socket",
+        options.socketPath,
+        "--generation",
+        options.generation,
+        "--replay-bytes",
+        String(options.replayBytesPerSession),
+        ...(options.registryPath !== undefined ? ["--registry-path", options.registryPath] : []),
+      ], {
+        cwd: dirname(entry),
+        env: process.env,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      children.add(child);
+      return child;
+    };
+    const supervisor = new NativeTerminalHostSupervisor({
+      socketPath,
+      registryPath: join(directory, "host-registry.json"),
+      replayBytesPerSession: 1_024 * 1_024,
+      generationFactory: () => "native-drive-attached",
+      spawnHost,
+    });
+
+    const opDrive = (text: string, requestId: string): { status: number | null; payload: Record<string, unknown> } => {
+      const result = spawnSync(
+        process.execPath,
+        [
+          "--import",
+          "tsx",
+          opEntry,
+          "drive",
+          "--id",
+          sessionId,
+          "--b64",
+          Buffer.from(text, "utf8").toString("base64"),
+          "--request-id",
+          requestId,
+        ],
+        { cwd: dirname(opEntry), env: process.env, encoding: "utf8" },
+      );
+      const line = result.stdout.trim().split("\n").at(-1) ?? "";
+      let payload: Record<string, unknown> = {};
+      try {
+        payload = JSON.parse(line) as Record<string, unknown>;
+      } catch {
+        payload = { unparsable: line };
+      }
+      return { status: result.status, payload };
+    };
+
+    try {
+      const client = await supervisor.client();
+      await client.create({
+        id: sessionId,
+        command: "/bin/sh",
+        args: [
+          "-c",
+          "printf 'attached-ready\\r\\n'; while IFS= read -r line; do printf 'attached-received:%s\\r\\n' \"$line\"; done",
+        ],
+        cwd: directory,
+        env: isolatedNativeTestEnvironment({ PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" }),
+        cols: 80,
+        rows: 24,
+      });
+      await eventually(
+        () => client.readOutput(sessionId, 0),
+        (replay) => replay.chunks.some((chunk) => chunk.data.includes("attached-ready")),
+      );
+
+      // The supervision window attaches and STAYS attached for the whole case.
+      const humanLease = await client.acquireController(sessionId, "attached-window", "human");
+      // Let the attach activity age out of the (short, fixture-only) window.
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      const first = opDrive("[h2a-wake attached-1]", "attached-req-1");
+      assert.equal(first.status, 0);
+      assert.equal(first.payload.outcome, "driven");
+      const seq = first.payload.automationSeq;
+      assert.equal(typeof seq, "number");
+
+      // Idempotent redelivery: same request id returns the original ACK and
+      // the PTY receives the unit exactly once, even with the window held.
+      const second = opDrive("[h2a-wake attached-1]", "attached-req-1");
+      assert.equal(second.status, 0);
+      assert.deepEqual(second.payload, first.payload);
+
+      const replay = await eventually(
+        () => client.readOutput(sessionId, 0),
+        (value) => value.chunks.some((chunk) => chunk.data.includes("[h2a-wake attached-1]")),
+      );
+      assert.equal(
+        replay.chunks.map((chunk) => chunk.data).join("").match(/attached-received:\[h2a-wake attached-1\]/g)?.length,
+        1,
+      );
+      assert.equal((await client.state(sessionId)).controlled, true);
+
+      // Real human typing defers with a typed, retryable reason and zero
+      // bytes — the lease is still held throughout.
+      await client.write(humanLease, "human-typing-now\r");
+      const deferred = opDrive("[h2a-wake must-wait]", "attached-req-2");
+      assert.equal(deferred.status, 0);
+      assert.equal(deferred.payload.outcome, "deferred");
+      assert.equal(deferred.payload.reason, "deferred-recent-human");
+      assert.ok(typeof deferred.payload.retryAfterMs === "number" && (deferred.payload.retryAfterMs as number) > 0);
+      assert.doesNotMatch(
+        (await client.readOutput(sessionId, 0)).chunks.map((chunk) => chunk.data).join(""),
+        /\[h2a-wake must-wait\]/,
+      );
+
+      await client.releaseController(humanLease);
+      assert.equal((await client.state(sessionId)).controlled, false);
+    } finally {
+      supervisor.disconnect();
+      if (previousSocket === undefined) delete process.env.H2A_NATIVE_SOCKET;
+      else process.env.H2A_NATIVE_SOCKET = previousSocket;
+      if (previousConfigHome === undefined) delete process.env.REMOTE_CLI_CONFIG_HOME;
+      else process.env.REMOTE_CLI_CONFIG_HOME = previousConfigHome;
+      if (previousActivityWindow === undefined) delete process.env.H2A_WAKE_DEFER_ACTIVITY_MS;
+      else process.env.H2A_WAKE_DEFER_ACTIVITY_MS = previousActivityWindow;
+    }
+  }, 20_000);
 });

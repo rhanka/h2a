@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
 
 import { writeHostLogLine } from "./crash-safe-log.js";
+import { appendCrashLog } from "../crash-log.js";
 import { HOST_FAULT_COUNTERS, recordHostFault } from "./fault-counters.js";
 import type { PtyHandle, PtySpawner } from "../pty.js";
 // Durable session identity (incl. pgid) lives in the single registry store by
@@ -741,9 +742,63 @@ type SessionRecord = {
   controllerIdentity: NativeTerminalControllerIdentity | null;
   controllerEpoch: number;
   lastHumanActivityAt: number | null;
+  /**
+   * Lot L2: automation writer frontier, independent of the human
+   * controller lease/epoch/frontier. `automationSeq` advances by exactly
+   * one per newly applied injection; `appliedInjections` maps the caller's
+   * idempotency key to its assigned outcome so a redelivery (including
+   * across a client reconnect) returns the original ACK without
+   * re-applying. In-memory only: a host crash loses the map (no
+   * exactly-once across host restarts is claimed).
+   */
+  automationSeq: number;
+  appliedInjections: Map<string, NativeTerminalInjectOutcome>;
   dataSubscription?: { dispose(): void };
   exitSubscription?: { dispose(): void };
 };
+
+/**
+ * Lot L2: outcome of one host-side `inject` decision. `injected` carries
+ * the assigned position on the automation frontier; `deferred-recent-human`
+ * is retryable (`retryAfterMs`); `refused-stale-incarnation` is final for
+ * that incarnation. Never flattened: callers surface the typed outcome.
+ */
+export type NativeTerminalInjectOutcome = Readonly<
+  | { outcome: "injected"; automationSeq: number }
+  | { outcome: "deferred-recent-human"; retryAfterMs: number }
+  | { outcome: "refused-stale-incarnation" }
+>;
+
+export interface NativeTerminalInjectOptions {
+  /** One validated text line (no control characters); submitted with one Enter. */
+  readonly text: string;
+  /** Caller idempotency key: redelivery returns the original outcome. */
+  readonly requestId: string;
+  /** When present, must equal the session's current incarnation. */
+  readonly incarnation?: string;
+  /** Recent-human defer window. Defaults to 4000 ms. */
+  readonly activityWindowMs?: number;
+  /** Audit data only (owner channel is unauthenticated). */
+  readonly actor?: string;
+}
+
+/** Default recent-human defer window for `inject`, in milliseconds. */
+export const NATIVE_TERMINAL_DEFAULT_INJECT_ACTIVITY_WINDOW_MS = 4000;
+
+/** Longest injectable line in characters (payload bound, pinned by tests). */
+export const NATIVE_TERMINAL_MAX_INJECT_TEXT_CHARS = 4096;
+
+/** Idempotency map cap per session; oldest entries are evicted first. */
+export const NATIVE_TERMINAL_MAX_INJECT_OUTCOMES_PER_SESSION = 512;
+
+function isInjectableLine(text: string): boolean {
+  // Parity with the op drive gate (nativeDriveInstruction in op.ts): one
+  // text line, no control/format characters, so an injection can never add
+  // a second line or sequence. The host revalidates even though callers
+  // pre-validate — the host is the final gate.
+  if (text.length === 0 || text.length > NATIVE_TERMINAL_MAX_INJECT_TEXT_CHARS) return false;
+  return !/[\p{Cc}\p{Cf}\u2028\u2029]/u.test(text);
+}
 
 export class NativeTerminalHost {
   readonly #generation: string;
@@ -1016,6 +1071,8 @@ export class NativeTerminalHost {
       controllerIdentity: null,
       controllerEpoch: 0,
       lastHumanActivityAt: null,
+      automationSeq: 0,
+      appliedInjections: new Map(),
     };
     this.#sessions.set(record.id, record);
 
@@ -1229,6 +1286,113 @@ export class NativeTerminalHost {
       incarnation: record.incarnation,
       controllerEpoch: record.controllerEpoch,
     });
+  }
+
+  /**
+   * Lot L2: host-side injection concurrent with an attached window. Applies
+   * one validated line plus one submit under the host's own serialized
+   * handler WITHOUT taking, revoking or stamping the human controller
+   * lease: the attach lease keeps its meaning, and machine input never
+   * stamps `lastHumanActivityAt`. This method is synchronous from decision
+   * to `pty.write`, so no client read-then-write TOCTOU can interleave a
+   * human decision between the safety check and the commit.
+   *
+   * Safety, decided atomically here: recent human activity inside the
+   * window defers (typed, retryable); a stale incarnation refuses with zero
+   * bytes; an unknown session throws (caller maps it to its typed outcome).
+   * Composition evidence beyond the activity window (consumed TUI drafts,
+   * multiline shells) is NOT proven here — the L2-full adapters close that
+   * gap; until then callers must not route untrusted composition through
+   * this path (see the lot report).
+   */
+  inject(id: string, options: NativeTerminalInjectOptions): NativeTerminalInjectOutcome {
+    const record = this.#requireControllableSession(id);
+    const { text, requestId } = options;
+    if (
+      requestId.trim().length === 0 ||
+      requestId.length > NATIVE_TERMINAL_MAX_IDENTIFIER_CHARS
+    ) {
+      throw new RangeError(
+        `terminal inject request id must contain 1-${NATIVE_TERMINAL_MAX_IDENTIFIER_CHARS} characters`,
+      );
+    }
+    if (!isInjectableLine(text)) {
+      throw new RangeError(
+        "terminal inject text must be one non-empty line without control characters",
+      );
+    }
+    // Idempotency: a redelivery (including across a client reconnect)
+    // returns the original outcome and is never re-applied.
+    const prior = record.appliedInjections.get(requestId);
+    if (prior !== undefined) {
+      this.#auditInject(record, options, `inject:${prior.outcome}`, prior, true);
+      return prior;
+    }
+    if (options.incarnation !== undefined && options.incarnation !== record.incarnation) {
+      const outcome = Object.freeze({ outcome: "refused-stale-incarnation" } as const);
+      this.#auditInject(record, options, "inject:refused-stale-incarnation", outcome, false);
+      return outcome;
+    }
+    const activityWindowMs =
+      options.activityWindowMs ?? NATIVE_TERMINAL_DEFAULT_INJECT_ACTIVITY_WINDOW_MS;
+    if (!Number.isSafeInteger(activityWindowMs) || activityWindowMs < 0) {
+      throw new RangeError("terminal inject activity window must be a non-negative safe integer");
+    }
+    const now = Date.now();
+    const activityAt = record.lastHumanActivityAt;
+    if (activityAt !== null && activityWindowMs > 0 && now - activityAt < activityWindowMs) {
+      const outcome = Object.freeze({
+        outcome: "deferred-recent-human",
+        retryAfterMs: activityWindowMs - (now - activityAt),
+      } as const);
+      this.#auditInject(record, options, "inject:deferred-recent-human", outcome, false);
+      return outcome;
+    }
+    const automationSeq = record.automationSeq + 1;
+    try {
+      // One single write: the injected unit can never interleave byte-wise
+      // with a human write chunk on the shared event loop.
+      record.pty.write(`${text}\r`);
+    } catch (error) {
+      // Surfaced, never silently retried under a new identity: a redelivery
+      // with the same request id retries this same unit.
+      this.#auditInject(record, options, "inject:write-failed", undefined, false);
+      throw error;
+    }
+    record.automationSeq = automationSeq;
+    const outcome = Object.freeze({ outcome: "injected", automationSeq } as const);
+    record.appliedInjections.set(requestId, outcome);
+    if (record.appliedInjections.size > NATIVE_TERMINAL_MAX_INJECT_OUTCOMES_PER_SESSION) {
+      const oldest = record.appliedInjections.keys().next();
+      if (!oldest.done) record.appliedInjections.delete(oldest.value);
+    }
+    this.#auditInject(record, options, "inject:injected", outcome, false);
+    return outcome;
+  }
+
+  #auditInject(
+    record: SessionRecord,
+    options: NativeTerminalInjectOptions,
+    reason: string,
+    outcome: NativeTerminalInjectOutcome | undefined,
+    redelivered: boolean,
+  ): void {
+    // Audit data only, never payload content: kind + byte count + outcome.
+    // Best effort (never throws): a failing sink must not break the write path.
+    try {
+      appendCrashLog("cli", {
+        event: "inject",
+        sessionId: record.id,
+        ...(options.actor !== undefined ? { instanceId: options.actor } : {}),
+        reason,
+        detail:
+          `kind=line bytes=${options.text.length} ` +
+          `seq=${outcome?.outcome === "injected" ? outcome.automationSeq : "-"} ` +
+          `epoch=${record.controllerEpoch} redelivered=${redelivered ? "yes" : "no"}`,
+      });
+    } catch {
+      // Audit failures never escape the injection path.
+    }
   }
 
   write(lease: NativeTerminalControllerLease, data: string): void {
