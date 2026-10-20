@@ -40,6 +40,15 @@ import { reportSuiteDurations } from "./report-test-durations.mjs";
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = resolve(HERE, "..");
 
+// Lot L0: self-sandboxing envelope (see the invokedDirectly block at the
+// bottom). Function declaration: callable before its textual definition.
+function ensureSandboxedInvocation(invokedDirectly) {
+  if (!invokedDirectly) return;
+  if (process.env.H2A_TEST_STATE_BARRIER === '1' && process.env.H2A_TEST_STATE_ATTESTATION) return;
+  const sandbox = spawnSync(process.execPath, ['scripts/test-sandbox.mjs', '--', process.execPath, ...process.argv.slice(1)], { stdio: 'inherit', cwd: REPO_ROOT });
+  process.exit(sandbox.status ?? 1);
+}
+
 // A1: la suite vit dans packages/h2a/test (h2a-cli est un stub deprecie, sans tests).
 export const TEST_DIRS = ["packages/h2a/test", "packages/focus-interactive/test"];
 
@@ -487,6 +496,10 @@ function main() {
 // TEST_DIRS / discoverTestFiles to report the run's scope without executing it.
 const invokedDirectly =
   process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+// Lot L0: same self-sandboxing envelope as run-test-gates.mjs — never run
+// tests without the inherited filesystem barrier (separate statement: the
+// C9 contract pins the exact `if (invokedDirectly) { main(); }` shape).
+ensureSandboxedInvocation(invokedDirectly);
 if (invokedDirectly) {
   main();
 }

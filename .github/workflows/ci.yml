@@ -36,7 +36,7 @@ jobs:
           node-version: "22"
       - run: bash scripts/check-no-python.sh
       - name: Guard self-tests (positive and negative fixtures)
-        run: node --test scripts/check-no-python.test.mjs
+        run: node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test scripts/check-no-python.test.mjs
       - name: Replacement-script tests (smoke-live-bus, git-dogfood guard)
         run: |
           bash scripts/test-smoke-live-bus.sh
@@ -73,7 +73,7 @@ jobs:
         run: |
           set -euo pipefail
           unset CODEX_HOME CLAUDE_CONFIG_DIR
-          node --test --test-name-pattern='Codex oracle rejects an invalid array MCP table and accepts the framed table' packages/h2a/test/host-installation-doctor.test.js
+          node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test --test-name-pattern='Codex oracle rejects an invalid array MCP table and accepts the framed table' packages/h2a/test/host-installation-doctor.test.js
       - name: Ask the host what it serves
         run: |
           set -euo pipefail
@@ -144,11 +144,11 @@ jobs:
       - name: Install the mandatory configuration oracles
         run: npm install --global @openai/codex@0.145.0 @anthropic-ai/claude-code@2.1.296
       - name: Verify messaging backends and receive signatures
-        run: node --test packages/h2a/test/send.test.js packages/h2a/test/cluster-mesh-messaging.test.js
+        run: node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test packages/h2a/test/send.test.js packages/h2a/test/cluster-mesh-messaging.test.js
       - run: npm test
       - name: Exercise the native multi-session terminal host
         run: >-
-          npx --no-install vitest run
+          node scripts/test-sandbox.mjs -- npx --no-install vitest run
           packages/h2a-runtime/src/native-terminal/replay-buffer.test.ts
           packages/h2a-runtime/src/native-terminal/host.test.ts
           packages/h2a-runtime/src/native-terminal/server.test.ts
@@ -164,7 +164,7 @@ jobs:
       # environment-fragile — gating it would be a false-red unrelated to these ranges.
       - name: Exercise the llm-mesh / llm-gateway consumer suites
         run: >-
-          npx --no-install vitest run
+          node scripts/test-sandbox.mjs -- npx --no-install vitest run
           packages/h2a-runtime/src/llm-mesh-accounts.test.ts
           packages/h2a-runtime/src/claude-seat-input.test.ts
           packages/h2a-runtime/src/claude-code-cli-runner.test.ts
@@ -206,6 +206,6 @@ jobs:
       - name: Install the mandatory configuration oracles
         run: npm install --global @openai/codex@0.145.0 @anthropic-ai/claude-code@2.1.296
       - name: Verify npm test wiring independently
-        run: node --test packages/h2a/test/run-test-gates.test.js
+        run: node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test packages/h2a/test/run-test-gates.test.js
       - name: Execute the production test entrypoint directly
         run: node scripts/run-test-gates.mjs

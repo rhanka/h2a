@@ -38,6 +38,7 @@ import {
   type LocalSession,
 } from "./tmux.js";
 import type { SessionClass } from "./session-class.js";
+import { guardTestStateWrite } from "./test-state-guard.js";
 import { nativeSessionLiveness } from "./native-host.js";
 import { readBootTimeMs, type DurableProcFrame, readBootId, readMachineId, readPidNamespaceId } from "./proc-identity.js";
 
@@ -1021,6 +1022,9 @@ function saveRegistry(
   preserved: unknown[] = [],
   rebuiltFromCorruptAt?: string,
 ): void {
+  // Lot L0: mutation-point guard — named error, zero bytes outside the
+  // marked test root. Inert outside a marked test run.
+  guardTestStateWrite(path);
   mkdirSync(dirname(path), { recursive: true });
   const tmp = `${path}.tmp.${process.pid}`;
   const body: { version: 1; entries: unknown[]; rebuiltFromCorruptAt?: string } = {
@@ -1071,6 +1075,10 @@ export function withRegistryLock<T>(
     save?: boolean;
   },
 ): T {
+  // Lot L0: mutation-point guard — the lock itself creates directories and
+  // files, so refuse before any lock acquisition. saveRegistry keeps its
+  // own guard as defense in depth.
+  guardTestStateWrite(path);
   return runUnderRegistryLock(acquireFileLock(path), path, fn);
 }
 
@@ -1097,6 +1105,8 @@ export function tryWithRegistryLock<T>(
     save?: boolean;
   },
 ): { ran: true; result: T } | { ran: false } {
+  // Lot L0: same mutation-point guard as withRegistryLock.
+  guardTestStateWrite(path);
   const fd = tryAcquireFileLock(path);
   if (fd === undefined) return { ran: false };
   return { ran: true, result: runUnderRegistryLock(fd, path, fn) };
