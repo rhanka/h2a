@@ -42,6 +42,24 @@ export function agyWorkspaceScopeDefinition(command: string, initialize = false)
     PreToolUse: [{ matcher: '.*', hooks: [{ type: 'command', command, timeout: 15 }] }] };
 }
 
+/** Remove only scope guard commands, retaining mixed groups and their metadata. */
+export function withoutWorkspaceScopeGuardHooks(entries: readonly unknown[]): unknown[] {
+  const isGuard = (hook: unknown): boolean => {
+    if (!hook || typeof hook !== 'object') return false;
+    const command = hook as { type?: unknown; command?: unknown };
+    return command.type === 'command' && typeof command.command === 'string' &&
+      command.command.includes('workspace-scope-guard.mjs');
+  };
+  return entries.flatMap(entry => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return [entry];
+    const group = entry as Record<string, unknown>;
+    if (!Array.isArray(group.hooks)) return isGuard(entry) ? [] : [entry];
+    const hooks = group.hooks.filter(hook => !isGuard(hook));
+    if (hooks.length === group.hooks.length) return [entry];
+    return hooks.length ? [{ ...group, hooks }] : [];
+  });
+}
+
 export type H2AHostPluginMechanism =
   | "claude-settings-hook"
   | "gemini-hooks"
