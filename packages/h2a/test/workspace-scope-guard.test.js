@@ -17,11 +17,20 @@ function fixture(t, { privatePackage = false } = {}) {
   fs.writeFileSync(join(root, 'gh'), `#!/usr/bin/env node
 import fs from 'node:fs';
 const args = process.argv.slice(2), root = ${JSON.stringify(root)};
-if (args[0] === 'api') process.stdout.write(fs.readFileSync(root + (args.some(a=>a.includes('ref=aaaa')) ? '/pr.base.json' : '/pr.head.json')));
-else if (args[1] === 'view') console.log(JSON.stringify({number:327,baseRefOid:'a'.repeat(40),headRefOid:'b'.repeat(40)}));
-else process.stdout.write(fs.readFileSync(root + '/pr.diff'));
+if (args[0] === 'api') {
+  if (args.some(a => a.includes('/pulls/'))) {
+    const pulls = root + '/pr.pulls.json';
+    if (fs.existsSync(pulls)) process.stdout.write(fs.readFileSync(pulls));
+    else process.stdout.write(JSON.stringify({ base: { sha: 'a'.repeat(40) }, head: { sha: 'b'.repeat(40) } }));
+  } else process.stdout.write(fs.readFileSync(root + (args.some(a=>a.includes('ref=aaaa')) ? '/pr.base.json' : '/pr.head.json')));
+} else if (args[1] === 'view') {
+  const fields = args[args.indexOf('--json') + 1] ?? '';
+  if (fields.includes('baseRefOid') || fields.includes('headRefOid')) { console.error('Unknown JSON field: "baseRefOid"'); process.exit(1); }
+  console.log(JSON.stringify({number:327}));
+} else process.stdout.write(fs.readFileSync(root + '/pr.diff'));
 `, { mode: 0o755 });
   for (const name of ['base', 'head']) fs.writeFileSync(join(root, `pr.${name}.json`), '{"name":"published-fixture","version":"1.0.0"}');
+  fs.writeFileSync(join(root, 'pr.pulls.json'), JSON.stringify({ base: { sha: 'a'.repeat(40) }, head: { sha: 'b'.repeat(40) } }));
   fs.writeFileSync(join(root, 'pr.diff'), '');
   function git(dir, ...args) {
     const r = spawnSync('git', ['-C', dir, ...args], { env, encoding: 'utf8' });
@@ -275,6 +284,21 @@ test('remote private package versions and dependency metadata do not cause false
   fs.writeFileSync(join(f.root, 'pr.base.json'), '{"name":"published","version":"1.0.0","metadata":{"version":"1.0.0"}}');
   fs.writeFileSync(join(f.root, 'pr.head.json'), '{"name":"published","version":"1.0.0","metadata":{"version":"1.0.1"}}');
   assert.equal(f.invoke('gh pr merge 327').status, 0);
+});
+
+test('a remote PR with missing or invalid base/head SHAs stays unverifiable', t => {
+  const f = fixture(t); f.grant();
+  fs.writeFileSync(join(f.root, 'pr.diff'), 'diff --git a/package.json b/package.json\n@@ -2 +2 @@\n-  "version": "1.0.0",\n+  "version": "1.0.1",\n');
+  const a = 'a'.repeat(40), b = 'b'.repeat(40);
+  for (const pulls of [
+    JSON.stringify({ head: { sha: b } }),
+    JSON.stringify({ base: { sha: a }, head: {} }),
+    JSON.stringify({ base: { sha: 'not-a-sha' }, head: { sha: b } }),
+    JSON.stringify({ base: { sha: [a] }, head: { sha: b } }),
+  ]) {
+    fs.writeFileSync(join(f.root, 'pr.pulls.json'), pulls);
+    denied(f.invoke('gh pr merge -R fixture/foreign 327'), 'UNVERIFIABLE');
+  }
 });
 
 test('state mutation commands and inline URL rewrites cannot bypass authority', t => {
