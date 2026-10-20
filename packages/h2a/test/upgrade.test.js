@@ -541,37 +541,37 @@ test("performAutoUpgrade M2 FAIL-SAFE: an injected runtime missing a method thro
 // cmdUpgrade — explicit, user-invoked path (no in-place npm i -g fallback).
 // ---------------------------------------------------------------------------
 
-test("cmdUpgrade --check reports without installing", () => {
+test("cmdUpgrade --check reports without installing", async () => {
   const { runtime } = stagedFake({ latest: "999.0.0" });
   let out = "";
-  const rc = cmdUpgrade({ check: "true" }, { stdout: { write: (c) => void (out += c) }, stderr: { write: () => {} } }, runtime);
+  const rc = await cmdUpgrade({ check: "true" }, { stdout: { write: (c) => void (out += c) }, stderr: { write: () => {} } }, runtime);
   assert.equal(rc, 0);
   assert.match(out, /"upgradeAvailable": true/);
 });
 
-test("cmdUpgrade (bare) performs the staged upgrade when one is available", () => {
+test("cmdUpgrade (bare) performs the staged upgrade when one is available", async () => {
   const { runtime, calls } = stagedFake({ latest: "999.0.0" });
   let out = "";
-  const rc = cmdUpgrade({}, { stdout: { write: (c) => void (out += c) }, stderr: { write: () => {} } }, runtime);
+  const rc = await cmdUpgrade({ json: "true" }, { stdout: { write: (c) => void (out += c) }, stderr: { write: () => {} } }, runtime);
   assert.equal(rc, 0);
   assert.equal(calls.swap, 1);
   assert.equal(calls.install, 0, "the staged path must never use in-place npm i -g");
   assert.match(out, /"upgraded": true/);
 });
 
-test("cmdUpgrade (bare) does not upgrade when already current", () => {
+test("cmdUpgrade (bare) does not upgrade when already current", async () => {
   const { runtime, calls } = stagedFake({ latest: "0.0.1" });
   let out = "";
-  const rc = cmdUpgrade({}, { stdout: { write: (c) => void (out += c) }, stderr: { write: () => {} } }, runtime);
+  const rc = await cmdUpgrade({ json: "true" }, { stdout: { write: (c) => void (out += c) }, stderr: { write: () => {} } }, runtime);
   assert.equal(rc, 0);
   assert.equal(calls.swap, 0);
   assert.match(out, /"upgraded": false/);
 });
 
-test("cmdUpgrade (bare) reports retry-later on a propagation defer, without forcing npm i -g", () => {
+test("cmdUpgrade (bare) reports retry-later on a propagation defer, without forcing npm i -g", async () => {
   const { runtime, calls } = stagedFake({ latest: "999.0.0", fetch: { ok: false, error: "not yet on registry" } });
   let out = "";
-  const rc = cmdUpgrade({}, { stdout: { write: (c) => void (out += c) }, stderr: { write: () => {} } }, runtime);
+  const rc = await cmdUpgrade({ json: "true" }, { stdout: { write: (c) => void (out += c) }, stderr: { write: () => {} } }, runtime);
   assert.equal(rc, 0);
   assert.equal(calls.swap, 0);
   assert.equal(calls.install, 0, "explicit upgrade must not fall back to npm i -g on a propagation delay");
@@ -625,7 +625,7 @@ test("canReexec reflects process.execve availability", () => {
 // (M-2) and skipped-locked-stale (R2) — must NOT be quiet, or a wedged/stale lock would be
 // invisible at boot (the visibility B2's acceptance depends on).
 test("isQuietUpgradeOutcome: only benign no-op skips are quiet; M-2 and R2 stale surface at boot", () => {
-  for (const quiet of ["already-current", "skipped-throttled", "skipped-locked"]) {
+  for (const quiet of ["already-current", "registry-unreachable", "skipped-throttled", "skipped-locked"]) {
     assert.equal(isQuietUpgradeOutcome(quiet), true, `${quiet} should be quiet`);
   }
   for (const loud of ["upgraded", "failed", "deferred-propagation", "blocked-undecidable", "skipped-locked-stale"]) {

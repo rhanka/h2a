@@ -1,0 +1,1 @@
+h2a {CURRENT} → 999.0.0: mise à jour effectuée (vérifié: 999.0.0)

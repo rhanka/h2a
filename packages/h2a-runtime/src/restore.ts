@@ -1034,7 +1034,10 @@ export function groupSessions(
   const dropped = sharedSlots.length - placed;
   shared.forEach((tabs, i) => {
     if (tabs.length > 0)
-      windows.push({ title: `fenêtre partagée ${i + 1}`, tabs });
+      windows.push({
+        title: `${humanOutputText("restore.sharedWindow")} ${i + 1}`,
+        tabs,
+      });
   });
 
   return { windows, dropped };
@@ -1058,6 +1061,136 @@ export type RestoreLedgerEntry = {
   remedy?: string;
   at: string;
 };
+
+/**
+ * Lot L6 (D14) — observed outcome counts recomputed from the D2 ledger.
+ * The totals line reports these, never the planned tab count.
+ */
+export type RestoreLedgerSummary = {
+  launched: number;
+  blocked: number;
+  skipped: number;
+  failed: number;
+};
+
+/** Count the observed outcomes in one ledger (machine values in/out). */
+export function summarizeRestoreLedger(
+  entries: ReadonlyArray<RestoreLedgerEntry>,
+): RestoreLedgerSummary {
+  const summary: RestoreLedgerSummary = {
+    launched: 0,
+    blocked: 0,
+    skipped: 0,
+    failed: 0,
+  };
+  for (const entry of entries) summary[entry.outcome] += 1;
+  return summary;
+}
+
+/** Observed launch counts carried back by `restore()` (additive). */
+export type RestoreObserved = {
+  planned: number;
+  opened: number;
+  skippedLive: number;
+  blocked: number;
+};
+
+/** Everything the human plan report renders (machine values + counts). */
+export type RestorePlanView = {
+  windows: LayoutWindow[];
+  total: number;
+  dropped: number;
+  excludedSecondary: string[];
+  excludedUnclassified: string[];
+  facetUpdates: Array<[string, string]>;
+  dryRun: boolean;
+  observed: RestoreObserved;
+};
+
+/**
+ * Lot L6 (D14) — render the whole human plan through the locale catalog.
+ * Static words come from the catalog; titles, labels, cwds, counts and
+ * commands pass through untranslated. One run = one language.
+ */
+export function renderRestorePlan(
+  view: RestorePlanView,
+  locale?: string,
+): string[] {
+  const lines: string[] = [];
+  for (const w of view.windows) {
+    lines.push(`  ${w.title} (${w.tabs.length}):`);
+    for (const t of w.tabs) {
+      const what = t.remoteId
+        ? `SCW:${t.remoteId}`
+        : `${t.tool} (local) [${t.origin === "registry" ? "registry" : "guess"}]`;
+      lines.push(`    - ${t.label}  ${what}  ${t.cwd}`);
+    }
+  }
+  if (view.dropped > 0)
+    lines.push(
+      `  (! ${view.dropped} ${humanOutputText("restore.capDropped", locale)})`,
+    );
+  if (view.excludedSecondary.length > 0)
+    lines.push(
+      `  (! ${view.excludedSecondary.length} ${humanOutputText("restore.excludedSecondary", locale)} — ${humanOutputText("restore.optinHint", locale)} ${view.excludedSecondary.join(", ")})`,
+    );
+  if (view.excludedUnclassified.length > 0)
+    lines.push(
+      `  (! ${view.excludedUnclassified.length} ${humanOutputText("restore.excludedUnclassified", locale)} ${view.excludedUnclassified.join(", ")})`,
+    );
+  if (view.dryRun && view.facetUpdates.length > 0)
+    lines.push(
+      `  (! ${humanOutputText("restore.wouldClassifyPrefix", locale)} ${view.facetUpdates.length} ${humanOutputText("restore.wouldClassifyBody", locale)} ${view.facetUpdates.map(([id, facet]) => `${id}=${facet}`).join(", ")})`,
+    );
+  lines.push(renderRestoreTotals(view.observed, view.dryRun, locale));
+  return lines;
+}
+
+/** The observed totals line (D2 ledger + launch counts, never the plan). */
+export function renderRestoreTotals(
+  observed: RestoreObserved,
+  dryRun: boolean,
+  locale?: string,
+): string {
+  const line =
+    `${humanOutputText("restore.summaryTitle", locale)} ` +
+    `${observed.opened} ${humanOutputText("restore.count.opened", locale)}, ` +
+    `${observed.blocked} ${humanOutputText("restore.count.blocked", locale)}, ` +
+    `${observed.skippedLive} ${humanOutputText("restore.count.skipped", locale)} ` +
+    `(${observed.planned} ${humanOutputText("restore.count.planned", locale)})`;
+  return dryRun ? `${line} (dry-run)` : line;
+}
+
+/**
+ * Lot L6 (D14) — machine form of the D2 ledger for `restore --json`.
+ * Field names are machine values, never localised.
+ */
+export function buildRestoreJsonReport(input: {
+  windows: LayoutWindow[];
+  total: number;
+  observed: RestoreObserved;
+  ledger: RestoreLedgerEntry[];
+  dryRun: boolean;
+  group?: string;
+}): {
+  ok: boolean;
+  dryRun: boolean;
+  group?: string;
+  windows: LayoutWindow[];
+  total: number;
+  observed: RestoreObserved;
+  ledger: RestoreLedgerEntry[];
+} {
+  return {
+    ok: true,
+    dryRun: input.dryRun,
+    ...(input.group !== undefined ? { group: input.group } : {}),
+    windows: input.windows,
+    total: input.total,
+    observed: input.observed,
+    ledger: input.ledger,
+  };
+}
 
 export type RestoreOptions = {
   dryRun?: boolean;
@@ -1100,7 +1233,13 @@ function titleMatches(title: string, query: string): boolean {
 /** Full restore: discover (local) + inject SCW (remote) -> order -> filter -> launch. */
 export function restore(
   opts: RestoreOptions = {},
-): { windows: LayoutWindow[]; total: number; dropped: number } {
+): {
+  windows: LayoutWindow[];
+  total: number;
+  dropped: number;
+  /** Lot L6 (D14): observed launch counts (planned/opened/skipped/blocked). */
+  observed: RestoreObserved;
+} {
   const cfg = getLayoutConfig();
   const stderr = opts.stderr ?? process.stderr;
 
@@ -1128,7 +1267,12 @@ export function restore(
     stderr.write(
       `[h2a] restore refused: the local registry is unreadable (${registryRead.reason}); nothing was launched (fail closed).\n`,
     );
-    return { windows: [], total: 0, dropped: 0 };
+    return {
+      windows: [],
+      total: 0,
+      dropped: 0,
+      observed: { planned: 0, opened: 0, skippedLive: 0, blocked: 0 },
+    };
   }
   const registryEntries = registryRead.entries;
   const evidence = legacySessionEvidence(home);
@@ -1209,9 +1353,9 @@ export function restore(
     if (!e) continue;
     const label = e.label ?? e.id;
     stderr.write(
-      `[h2a] restore skipped "${label}": no resolved conversation id ` +
-        `(convId ${e.convId ? `"${e.convId}"` : "missing"} is not a real conversation); ` +
-        `attach it live with h2a attach ${slugify(label)}\n`,
+      `[h2a] restore skipped "${label}": ${humanOutputText("restore.unresolvedConvId")} ` +
+        `(convId ${e.convId ? `"${e.convId}"` : "missing"} ${humanOutputText("restore.notARealConversation")}); ` +
+        `${humanOutputText("restore.ledger.remedyAttach")} h2a attach ${slugify(label)}\n`,
     );
   }
   // Transcript scans lack a durable human/job marker. They are deliberately
@@ -1221,8 +1365,7 @@ export function restore(
     dropDualHostIdentities(preDualLocal);
   for (const name of ambiguousNames) {
     stderr.write(
-      `[h2a] restore skipped "${name}": recorded on BOTH local hosts (local-tmux AND local-native); ` +
-        "clean up the conflicting registry rows before restoring it\n",
+      `[h2a] restore skipped "${name}": ${humanOutputText("restore.dualHost")}\n`,
     );
   }
   // Bug #3: a session moved to a remote Pod must NOT also be re-launched as a
@@ -1233,7 +1376,7 @@ export function restore(
   );
   if (remoteBacked.length > 0) {
     stderr.write(
-      `[h2a] ${remoteBacked.length} session(s) déjà sur le contrôle distant — pas de relance locale: ${[
+      `[h2a] ${remoteBacked.length} ${humanOutputText("restore.remoteBacked")}: ${[
         ...new Set(remoteBacked.map((s) => s.label ?? s.project)),
       ].join(", ")}\n`,
     );
@@ -1312,38 +1455,17 @@ export function restore(
   if (opts.group) windows = windows.filter((w) => titleMatches(w.title, opts.group!));
 
   const total = windows.reduce((n, w) => n + w.tabs.length, 0);
-  for (const w of windows) {
-    stderr.write(`  ${w.title} (${w.tabs.length}):\n`);
-    for (const t of w.tabs) {
-      const what = t.remoteId
-        ? `SCW:${t.remoteId}`
-        : `${t.tool} (local) [${t.origin === "registry" ? "registry" : "guess"}]`;
-      stderr.write(`    - ${t.label}  ${what}  ${t.cwd}\n`);
-    }
-  }
-  if (dropped > 0 && !opts.group)
-    stderr.write(`  (! ${dropped} session(s) ignorée(s), plafond atteint)\n`);
-  // Lot L5 (D12b) — account the provenance exclusions by name, in dry-run
-  // AND real runs (a silent skip is the A.4 complaint). Secondaries name
-  // the opt-in; unclassified rows are never auto-restored; a dry run also
-  // reports the one-time classifications it did NOT persist.
-  if (excluded.secondary.length > 0)
-    stderr.write(
-      `  (! ${excluded.secondary.length} secondary session(s) excluded by delegation provenance — restore with --include-secondary: ${excluded.secondary.join(", ")})\n`,
-    );
-  if (excluded.unclassified.length > 0)
-    stderr.write(
-      `  (! ${excluded.unclassified.length} unclassified session(s) listed separately, never auto-restored: ${excluded.unclassified.join(", ")})\n`,
-    );
-  if (opts.dryRun && facetUpdates.size > 0)
-    stderr.write(
-      `  (! dry-run: ${facetUpdates.size} row(s) would be classified once and persisted: ${[...facetUpdates].map(([id, facet]) => `${id}=${facet}`).join(", ")})\n`,
-    );
+  // Lot L6 (D14) — observed launch counts, captured from the launcher instead
+  // of re-planned: the totals line reports these, never the planned tabs.
+  let opened = 0;
+  let skippedLiveLaunch = 0;
   if (!opts.dryRun && total > 0) {
-    launchLayout(windows, hostView, stderr, {
+    const launched = launchLayout(windows, hostView, stderr, {
       ...(opts.reattach ? { reattach: true } : {}),
       ...(opts.forceGateway ? { forceGateway: opts.forceGateway } : {}),
     });
+    opened = launched.opened;
+    skippedLiveLaunch = launched.skippedLive.length;
     // Auto-record the launched layout (inspect with `remote layout show`).
     try {
       writeLastLayout(windows, opts.group);
@@ -1351,7 +1473,30 @@ export function restore(
       // best-effort: the windows are open regardless
     }
   }
-  return { windows, total, dropped };
+  const observed: RestoreObserved = {
+    planned: total,
+    opened,
+    skippedLive: skippedLiveLaunch,
+    blocked: occupiedRefusals.length,
+  };
+  // Lot L6 (D14) — the whole human plan renders through the locale catalog
+  // (one run = one language), including the L5 exclusion account.
+  for (const line of renderRestorePlan(
+    {
+      windows,
+      total,
+      // A group-scoped plan hides the unscoped cap note, as before.
+      dropped: opts.group ? 0 : dropped,
+      excludedSecondary: excluded.secondary,
+      excludedUnclassified: excluded.unclassified,
+      facetUpdates: [...facetUpdates],
+      dryRun: opts.dryRun ?? false,
+      observed,
+    },
+  )) {
+    stderr.write(`${line}\n`);
+  }
+  return { windows, total, dropped, observed };
 }
 
 // ---------------------------------------------------------------------------
