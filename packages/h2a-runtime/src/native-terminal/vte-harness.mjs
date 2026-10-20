@@ -34,7 +34,7 @@
  * Zero Python: Node + the named native binaries only.
  */
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, openSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 function required(args, name) {
@@ -82,6 +82,7 @@ async function main() {
     }
   }
   mkdirSync(root, { recursive: true });
+  process.stderr.write(`vte-harness: display=:${display} socket=${socketPath} id=${id}\n`);
   const home = mkdtempSync(join(root, "vte-home-"));
   const xdg = mkdtempSync(join(root, "vte-xdg-"));
   if (!existsSync(fifo)) {
@@ -101,8 +102,17 @@ async function main() {
   process.on("SIGTERM", () => { killAll(); process.exit(143); });
   process.on("SIGINT", () => { killAll(); process.exit(130); });
 
-  // 1. Private virtual display.
+  // 1. Private virtual display. The display number is ours inside the
+  // lot's temp roots, but a SIGKILLed Xvfb leaves its socket+lock behind —
+  // clear that litter first or the next Xvfb refuses a display that looks
+  // (falsely) active.
   const x11Socket = `/tmp/.X11-unix/X${display}`;
+  try {
+    rmSync(x11Socket, { force: true });
+  } catch { /* already absent */ }
+  try {
+    rmSync(`/tmp/.X${display}-lock`, { force: true });
+  } catch { /* already absent */ }
   const xvfb = spawn("Xvfb", [`:${display}`, "-screen", "0", "1280x1024x24"], { stdio: "ignore" });
   cleanup.push(xvfb);
   const deadline = Date.now() + 15_000;
@@ -115,8 +125,40 @@ async function main() {
   // 2. Real VTE under a private bus. The child's stdin comes from the FIFO
   // (test-driven); its stdout stays on the VTE screen so the emulator sees
   // the relayed queries and answers them for real. The harness itself never
-  // opens the FIFO: the test's blocking open rendezvouses with bash's
-  // reader, so no byte is ever split between two readers.
+  // opens the FIFO: the test's O_NONBLOCK writer succeeds as soon as bash
+  // sits blocked in open-for-read (Linux counts a pending reader), so no
+  // byte is ever split between two readers.
+  //
+  // The private bus runs with AppArmor mediation disabled (fixture-only
+  // knob): inside an unprivileged mount namespace the daemon's kernel label
+  // query fails (`Failed to query AppArmor policy: Read-only file system`)
+  // and the gnome-terminal server never starts. The bus is private and
+  // ephemeral; host enforcement is unreachable from the namespace either
+  // way. The config is the machine's own session.conf with that single
+  // element injected (minimal embedded fallback elsewhere).
+  const busConfPath = join(root, `vte-bus-${process.pid}.conf`);
+  let busConf = null;
+  try {
+    const systemConf = readFileSync("/usr/share/dbus-1/session.conf", "utf8");
+    if (systemConf.includes("<busconfig>")) {
+      busConf = systemConf.replace("<busconfig>", '<busconfig>\n  <apparmor mode="disabled"/>');
+    }
+  } catch { /* fall through to the embedded minimal config */ }
+  busConf ??= `<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-BUS Bus Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
+<busconfig>
+  <type>session</type>
+  <apparmor mode="disabled"/>
+  <listen>unix:tmpdir=/tmp</listen>
+  <auth>EXTERNAL</auth>
+  <policy context="default">
+    <allow send_destination="*" eavesdrop="true"/>
+    <allow eavesdrop="true"/>
+    <allow own="*"/>
+  </policy>
+</busconfig>
+`;
+  writeFileSync(busConfPath, busConf);
   const outFd = openSync(outPath, "a");
   const errFd = openSync(errPath, "a");
   const env = {
@@ -127,16 +169,94 @@ async function main() {
     XDG_RUNTIME_DIR: mkdtempSync(join(root, "vte-run-")),
     DISPLAY: `:${display}`,
   };
-  const shellCommand = `exec ${process.execPath} --import ${tsx} ${opTs} attach --id ${id} --socket ${socketPath} < ${fifo}`;
+  // Multiplexer: op attach reads the outer-terminal stream on its stdin,
+  // which must carry BOTH the test-driven human input (fifo) AND the VTE's
+  // answers (pty slave). The shell cannot merge two streams, so a tiny node
+  // pump forwards both into a merged fifo that becomes node's stdin — the
+  // same merged-stream shape as a production pty attach (and as the
+  // deterministic pseudo-VTE tests), where the classifier separates human
+  // from reply. node's stdout stays on the VTE screen so the emulator sees
+  // the relayed queries and answers for real.
+  const muxPath = join(root, `vte-mux-${process.pid}.mjs`);
+  writeFileSync(muxPath, `import { constants, openSync, readSync, writeSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+const [fifoPath, mergedPath] = process.argv.slice(2);
+// The slave may start canonical (line-buffered): answers carry no newline
+// and would never surface. Production attach sets raw on its tty stdin;
+// the mux owns the slave here, so it does the same. Loud failure: without
+// raw mode the test would stall silently.
+const stty = spawnSync("stty", ["-F", "/dev/tty", "raw", "-echo"]);
+if (stty.status !== 0) {
+  process.stderr.write("vte-mux: stty raw failed: " + String(stty.error ?? stty.status) + "\\n");
+  process.exit(1);
+}
+const out = openSync(mergedPath, "w");
+let human = openSync(fifoPath, constants.O_RDONLY | constants.O_NONBLOCK);
+const tty = openSync("/dev/tty", constants.O_RDONLY | constants.O_NONBLOCK);
+const buf = Buffer.alloc(65536);
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+for (;;) {
+  let idle = true;
+  for (const fd of [human, tty]) {
+    let n = -1;
+    try {
+      n = readSync(fd, buf, 0, buf.length, null);
+    } catch (error) {
+      if (error.code === "EAGAIN" || error.code === "EWOULDBLOCK") continue;
+      throw error;
+    }
+    if (n > 0) {
+      writeSync(out, buf.subarray(0, n));
+      idle = false;
+    } else if (n === 0) {
+      // A nonblocking fifo read with no writer yet returns EOF, NOT EAGAIN:
+      // the mux opens its read end before the test opens the writer, so a
+      // first-poll EOF is the expected rendezvous, never a verdict. Close
+      // and re-open (nonblocking: always succeeds) and keep polling for the
+      // writer and its bytes. Only the pty leg's EOF ends the pump.
+      if (fd === human) {
+        try {
+          human = openSync(fifoPath, constants.O_RDONLY | constants.O_NONBLOCK);
+        } catch (error) {
+          if (error.code === "ENOENT") process.exit(0);
+          throw error;
+        }
+      } else process.exit(0);
+    }
+  }
+  if (idle) await sleep(10);
+}
+`);
+  const merged = join(root, `merged-${id}`);
+  if (!existsSync(merged)) {
+    const mk = spawnSync("mkfifo", [merged]);
+    if (mk.status !== 0) throw new Error(`vte-harness: mkfifo merged failed: ${mk.stderr}`);
+  }
+  const shellCommand = `node ${muxPath} ${fifo} ${merged} >> ${errPath} 2>&1 & exec ${process.execPath} --import ${tsx} ${opTs} attach --id ${id} --socket ${socketPath} < ${merged}`;
   const gnome = spawn(
     "dbus-run-session",
-    ["--", "gnome-terminal", "--wait", "--", "bash", "-c", shellCommand],
+    [`--config-file=${busConfPath}`, "--", "gnome-terminal", "--wait", "--", "bash", "-c", shellCommand],
     { env, stdio: ["ignore", outFd, errFd] },
   );
   cleanup.push(gnome);
   gnome.on("exit", (code) => {
+    // Loud on every exit path: the test only sees the FIFO rendezvous, so a
+    // silently-dying gnome would surface as an opaque ENXIO timeout. The
+    // child's own stdout/stderr live in out/err files that die with the run
+    // root — tail them here so the failure cause survives.
+    let errTail = "";
+    try {
+      const content = readFileSync(errPath, "utf8");
+      errTail = content.slice(-1500);
+    } catch { /* err file missing entirely */ }
+    process.stderr.write(`vte-harness: gnome-terminal exited (code ${code}); err tail: ${JSON.stringify(errTail)}\n`);
     killAll();
     process.exitCode = typeof code === "number" ? code : 1;
+  });
+  gnome.on("error", (error) => {
+    process.stderr.write(`vte-harness: gnome-terminal spawn failed: ${error.message}\n`);
+    killAll();
+    process.exitCode = 1;
   });
   // Stay alive as the session supervisor until gnome-terminal exits.
   await new Promise(() => {});
