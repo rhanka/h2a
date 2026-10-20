@@ -10,7 +10,12 @@ import type { H2ALaunchContext, H2ASession } from "../../session.js";
 import { listPresence } from "../local-files/presence.js";
 import type { RelauncherRuntime } from "../drumbeat/relaunchers.js";
 import type { H2ARelauncher } from "../drumbeat/watch.js";
-import type { H2ADriver } from "./index.js";
+import {
+  asDriveOutcome,
+  nativeDriveOutcomeFromOp,
+  type H2ADriveOutcome,
+  type H2ADriver
+} from "./index.js";
 import type {
   ActuationRequest,
   ActuationResult,
@@ -303,10 +308,14 @@ async function defaultDriver(target: ActuationTarget): Promise<H2ADriver> {
         "--id", target.sessionId,
         ...(target.socketPath ? ["--socket", target.socketPath] : []),
         "--b64",
-        Buffer.from(request.instructionLine, "utf8").toString("base64")
-      ]);
-      if (result?.outcome === "unresolved") return undefined;
-      return result?.outcome === "driven";
+        Buffer.from(request.instructionLine, "utf8").toString("base64"),
+        // Lot L2/L3: stable idempotency key when the caller supplies one
+        // (the inbox-wake does); otherwise the op generates one per call.
+        ...(request.requestId !== undefined ? ["--request-id", request.requestId] : [])
+      ]) as { outcome?: unknown; reason?: unknown; retryAfterMs?: unknown; automationSeq?: unknown } | undefined;
+      // Lot L3: map the op JSON to a typed outcome. `unresolved` (no
+      // resolvable target) means this transport does not own the target.
+      return nativeDriveOutcomeFromOp(result ?? {});
     }
   });
 }
@@ -438,14 +447,20 @@ export function createH2aPtyActuator(
       }
       if (state !== "alive") return result(input, "failed");
 
-      let acted = false;
+      // Lot L3: a typed deferred drive is NOT a failure — it stays
+      // "deferred" (retry later) instead of collapsing into "failed".
+      // A boolean driver keeps its legacy meaning (true = acted).
+      let outcome: H2ADriveOutcome | boolean = false;
       try {
         const driver = deps.drivers?.[input.action] ?? await defaultDriver(target);
-        acted = await driver.drive(driverRequest(target, instructionLine));
+        outcome = await driver.drive(driverRequest(target, instructionLine));
       } catch {
-        acted = false;
+        outcome = false;
       }
-      return result(input, acted ? "acted" : "failed", acted ? target : undefined);
+      const typed = asDriveOutcome(outcome);
+      if (typed.outcome === "driven") return result(input, "acted", target);
+      if (typed.outcome === "deferred") return result(input, "deferred", target);
+      return result(input, "failed");
     }
   };
 }

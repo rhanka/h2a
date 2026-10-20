@@ -11,7 +11,22 @@
  */
 import { decideInboxWake, type H2AEnvelope, type H2ALaunchContext } from "@sentropic/h2a";
 
-import { formatSignedDriveInstruction, type H2ADriver } from "./index.js";
+import {
+  asDriveOutcome,
+  formatSignedDriveInstruction,
+  type H2ADriver
+} from "./index.js";
+
+/**
+ * Lot L3: durable pending-wake store. A wake the driver could not deliver
+ * (deferred or failed transport) must survive a sidecar restart: without
+ * this, the restart seed marks the undelivered envelope seen and it is
+ * never retried. The store holds envelope ids only (never content).
+ */
+export interface InboxWakePendingStore {
+  load(): string[];
+  save(ids: string[]): void;
+}
 
 export interface InboxWakeHandlerDeps {
   /** This agent's instance id (signer + drive target — it wakes itself). */
@@ -37,13 +52,37 @@ export interface InboxWakeHandlerDeps {
   /** Clock (drive nonce/at + wake tag). Defaults to `Date.now`. */
   readonly now?: () => number;
   readonly log?: (line: string) => void;
+  /**
+   * Lot L3: durable pending-wake store (envelope ids only). Undelivered
+   * envelopes are saved on every unsuccessful drive and re-surfaced after a
+   * restart. Best effort: store failures never break the wake call.
+   */
+  readonly pendingStore?: InboxWakePendingStore;
 }
 
 /** Returns a handler; calling it injects a wake iff new inbox envelopes exist. */
 export function createInboxWakeHandler(deps: InboxWakeHandlerDeps): () => Promise<boolean> {
   const now = deps.now ?? Date.now;
-  // Seed from the current inbox: boot backlog must not trigger a wake.
-  let seen: string[] = deps.readInbox().map((e) => e.id);
+  const readPending = (): string[] => {
+    try {
+      const ids = deps.pendingStore?.load() ?? [];
+      return Array.isArray(ids) ? ids.filter((id) => typeof id === "string") : [];
+    } catch {
+      return [];
+    }
+  };
+  const writePending = (ids: string[]): void => {
+    try {
+      deps.pendingStore?.save(ids);
+    } catch {
+      // A failing pending store must never break the wake call.
+    }
+  };
+  // Seed from the current inbox: boot backlog must not trigger a wake —
+  // EXCEPT envelopes the previous process saved as pending (undelivered).
+  // Those were never driven, so a restart must retry them, not bury them.
+  const persisted = new Set(readPending());
+  let seen: string[] = deps.readInbox().map((e) => e.id).filter((id) => !persisted.has(id));
   return async () => {
     const decision = decideInboxWake({
       seen,
@@ -60,19 +99,36 @@ export function createInboxWakeHandler(deps: InboxWakeHandlerDeps): () => Promis
     });
     const launchContext = deps.resolveLaunchContext?.();
     const nativeSessionId = deps.resolveNativeSessionId?.();
-    const ok = await deps.driver.drive({
+    // Stable idempotency key for one logical wake: retries of the same
+    // undelivered batch (this tick or after a restart) carry the same key
+    // so the native transport applies the unit once.
+    const outcome = asDriveOutcome(await deps.driver.drive({
       to: nativeSessionId && nativeSessionId.length > 0
         ? nativeSessionId
         : deps.instance,
       instructionLine,
+      requestId: `wake:${decision.fresh[0]}`,
       ...(deps.host ? { host: deps.host } : {}),
       ...(launchContext ? { launchContext } : {})
-    });
-    // Advance `seen` ONLY on a successful drive: a transient failure (no pane,
-    // tmux hiccup) must leave the envelope fresh so the next tick retries it,
-    // instead of marking it seen and never waking on it again.
-    if (ok) seen = decision.seen;
-    deps.log?.(`inbox-wake: ${decision.fresh.length} new envelope(s) → drive ${ok ? "ok" : "failed"}`);
-    return ok;
+    }));
+    // Advance `seen` ONLY on a driven wake: deferred and failed drives keep
+    // the envelopes fresh so the next tick retries them, and the pending
+    // ids are persisted so a restart retries them too — instead of marking
+    // them seen and never waking on them again.
+    if (outcome.outcome === "driven") {
+      seen = decision.seen;
+      writePending([]);
+      deps.log?.(`inbox-wake: ${decision.fresh.length} new envelope(s) → drive ok`);
+      return true;
+    }
+    writePending(decision.fresh.map((e) => e.id));
+    if (outcome.outcome === "deferred") {
+      const retry = outcome.retryAfterMs !== undefined ? `, retry in ${outcome.retryAfterMs}ms` : "";
+      deps.log?.(`inbox-wake: ${decision.fresh.length} new envelope(s) → drive deferred (${outcome.reason}${retry})`);
+    } else {
+      const reason = outcome.outcome === "failed" && outcome.reason !== undefined ? ` (${outcome.reason})` : "";
+      deps.log?.(`inbox-wake: ${decision.fresh.length} new envelope(s) → drive ${outcome.outcome}${reason}`);
+    }
+    return false;
   };
 }

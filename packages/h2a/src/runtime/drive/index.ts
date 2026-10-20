@@ -105,19 +105,88 @@ export interface H2ADriveRequest {
   readonly host?: string;
   readonly instructionLine: string;
   readonly launchContext?: H2ALaunchContext;
+  /**
+   * Lot L2/L3: stable idempotency key for one logical wake. Retries of the
+   * same envelope carry the same key so the native transport applies the
+   * unit once. Omitted for one-shot manual drives (the op generates one).
+   */
+  readonly requestId?: string;
 }
 
+/**
+ * Lot L3: typed drive outcome. A boolean is insufficient anywhere in the
+ * chain: `false` used to conflate "transport not applicable" (try the next
+ * transport) with "deferred, retry later" (STOP — never fall through to a
+ * headless spawn) and with "failed". `driven` carries the optional native
+ * automation sequence for idempotent redelivery checks.
+ */
+export type H2ADriveOutcome =
+  | { readonly outcome: "driven"; readonly automationSeq?: number }
+  | { readonly outcome: "deferred"; readonly reason: string; readonly retryAfterMs?: number }
+  | { readonly outcome: "not-applicable" }
+  | { readonly outcome: "failed"; readonly reason?: string };
+
+export type H2ADriveResult = boolean | H2ADriveOutcome | Promise<boolean | H2ADriveOutcome>;
+
 export interface H2ADriver {
-  drive(request: H2ADriveRequest): boolean | Promise<boolean>;
+  drive(request: H2ADriveRequest): H2ADriveResult;
+}
+
+/** True only for an applied drive — never for deferred/not-applicable/failed. */
+export function isDriven(result: boolean | H2ADriveOutcome): boolean {
+  return result === true || (typeof result === "object" && result !== null && result.outcome === "driven");
+}
+
+/** Normalize any driver result to its typed outcome (legacy booleans included). */
+export function asDriveOutcome(result: boolean | H2ADriveOutcome): H2ADriveOutcome {
+  if (result === true) return { outcome: "driven" };
+  if (result === false) return { outcome: "failed" };
+  return result;
+}
+
+/**
+ * Map one native op drive JSON outcome to the typed chain outcome.
+ * `unresolved` (no resolvable target) means this transport does not own the
+ * target — the legacy backchannel may try. `deferred` stays typed with its
+ * reason so the chain stops instead of falling through to headless.
+ */
+export function nativeDriveOutcomeFromOp(result: {
+  readonly outcome?: unknown;
+  readonly reason?: unknown;
+  readonly retryAfterMs?: unknown;
+  readonly automationSeq?: unknown;
+}): H2ADriveOutcome {
+  if (result.outcome === "driven") {
+    return {
+      outcome: "driven",
+      ...(typeof result.automationSeq === "number" ? { automationSeq: result.automationSeq } : {})
+    };
+  }
+  if (result.outcome === "deferred") {
+    return {
+      outcome: "deferred",
+      reason: typeof result.reason === "string" && result.reason.length > 0 ? result.reason : "deferred",
+      ...(typeof result.retryAfterMs === "number" ? { retryAfterMs: result.retryAfterMs } : {})
+    };
+  }
+  if (result.outcome === "unresolved") return { outcome: "not-applicable" };
+  return {
+    outcome: "failed",
+    ...(typeof result.reason === "string" && result.reason.length > 0 ? { reason: result.reason } : {})
+  };
 }
 
 export type H2ADriverKind = "logging" | "native" | "local-tmux" | "headless" | "auto";
 
 export interface NativeBackchannelDriverOptions {
-  /** Return undefined when this transport does not own the target, so legacy native backchannels may try. */
+  /**
+   * Return undefined when this transport does not own the target, so legacy
+   * native backchannels may try. A typed outcome flows through unchanged
+   * (deferred stops the chain; see `chainDriver`).
+   */
   readonly send?: (
     request: H2ADriveRequest
-  ) => boolean | undefined | Promise<boolean | undefined>;
+  ) => boolean | H2ADriveOutcome | undefined | Promise<boolean | H2ADriveOutcome | undefined>;
   readonly runtime?: RelauncherRuntime;
   readonly log?: (line: string) => void;
 }
@@ -438,6 +507,9 @@ export function nativeBackchannelDriver(
   const runtime = options.runtime ?? defaultRelauncherRuntime;
   return {
     drive(request) {
+      // Legacy boolean paths are preserved verbatim (existing contracts
+      // assert them): a typed outcome from `send` flows through unchanged
+      // so the chain can stop on a deferral.
       const fallback = (): boolean => {
         const command = nativeDriveCommand(request);
         if (!command) {
@@ -450,12 +522,12 @@ export function nativeBackchannelDriver(
       };
       const injected = options.send?.(request);
       if (injected !== undefined) {
-        if (typeof (injected as Promise<boolean | undefined>).then === "function") {
-          return (injected as Promise<boolean | undefined>).then(
-            (result) => result ?? fallback(),
+        if (typeof (injected as Promise<unknown>).then === "function") {
+          return (injected as Promise<boolean | H2ADriveOutcome | undefined>).then(
+            (result): boolean | H2ADriveOutcome => result ?? fallback(),
           );
         }
-        return injected as boolean;
+        return injected as boolean | H2ADriveOutcome;
       }
       return fallback();
     }
@@ -514,16 +586,18 @@ export function localTmuxDriver(options: DriverRuntimeOptions = {}): H2ADriver {
       if (!tmux) return false;
       const target = tmuxTarget(tmux);
       // Don't clobber a human mid-type: if a client attached to this pane's
-      // session was active within the defer window, DEFER (return false). The
-      // inbox-wake dispatcher re-fires each tick while the inbox is non-empty,
-      // so the wake lands as soon as the human pauses/submits — the message is
-      // never lost and the in-progress input is never touched. Fail-open: if
-      // activity can't be read, send (no regression).
+      // session was active within the defer window, DEFER with a typed
+      // outcome. The inbox-wake dispatcher re-fires each tick while the
+      // inbox is non-empty, so the wake lands as soon as the human
+      // pauses/submits — the message is never lost and the in-progress
+      // input is never touched. Fail-open: if activity can't be read, send
+      // (no regression). The typed outcome stops the chain: a deferred
+      // wake must never fall through to a headless spawn.
       if (paneHasRecentHumanActivity(runtime, target)) {
         options.log?.(
           `drive[local-tmux]: ${request.to} -> ${target} DEFERRED (human active in pane)`
         );
-        return false;
+        return { outcome: "deferred", reason: "deferred-tmux-human-active" };
       }
       // shared submit path: literal text + separate Enter(s) (see tmuxSendSubmit).
       const ok = tmuxSendSubmit(runtime, target, request.instructionLine);
@@ -722,11 +796,32 @@ export function remoteDriveServerForStore(
 
 export function chainDriver(...drivers: readonly H2ADriver[]): H2ADriver {
   return {
-    async drive(request) {
-      for (const driver of drivers) {
-        if (await driver.drive(request)) return true;
-      }
-      return false;
+    drive(request) {
+      // Deferred STOPS the chain and surfaces typed: the target was
+      // reached but asked us to retry later. Falling through to the next
+      // transport (in particular a headless spawn) after a deferral would
+      // act behind the human's back. Driven normalizes to `true` and
+      // exhaustion to `false` (legacy boolean contract preserved);
+      // not-applicable and failed move to the next transport.
+      // Sync-preserving: a chain of synchronous drivers stays synchronous
+      // (the `h2a drive` CLI path is synchronous); an async driver result
+      // continues the chain asynchronously.
+      const after = (result: boolean | H2ADriveOutcome): H2ADriveResult => {
+        const outcome = asDriveOutcome(result);
+        if (outcome.outcome === "deferred") return outcome;
+        if (outcome.outcome === "driven") return true;
+        return step();
+      };
+      let index = 0;
+      const step = (): H2ADriveResult => {
+        if (index >= drivers.length) return false;
+        const result = drivers[index++].drive(request);
+        if (typeof (result as Promise<boolean | H2ADriveOutcome>)?.then === "function") {
+          return (result as Promise<boolean | H2ADriveOutcome>).then(after);
+        }
+        return after(result as boolean | H2ADriveOutcome);
+      };
+      return step();
     }
   };
 }
