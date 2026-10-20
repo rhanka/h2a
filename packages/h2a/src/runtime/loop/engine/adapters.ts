@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 import { EventStore, Track } from "@sentropic/track";
 
 import type { H2ALaunchContext } from "../../../session.js";
-import type { H2ADriveRequest, H2ADriver } from "../../drive/index.js";
+import { isDriven, type H2ADriveRequest, type H2ADriver } from "../../drive/index.js";
 import { listDrumbeat, type H2ADrumbeatEntry } from "../../drumbeat/registry.js";
 import {
   defaultRelauncherRuntime,
@@ -828,7 +828,9 @@ export function buildActionSink(opts: {
   const overrideWakeDriver: LoopWakeDriver | undefined = opts.wakeDriver ?? (opts.driver
     ? {
         async drive(request) {
-          return await opts.driver!.drive(request) ? "done" : "deferred-human";
+          // Lot L3: a typed deferred outcome is truthy as a value but means
+          // "not driven" — read it with isDriven, never with truthiness.
+          return isDriven(await opts.driver!.drive(request)) ? "done" : "deferred-human";
         }
       }
     : undefined);
