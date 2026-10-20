@@ -71,7 +71,7 @@
     "@sentropic/contracts": "^0.3.0",
     "@sentropic/events": "^0.2.0",
     "@sentropic/track": "0.98.7",
-    "hono": "^4.13.7",
+    "hono": "^4.13.13",
     "toml-eslint-parser": "0.10.1"
   },
   "peerDependencies": {
