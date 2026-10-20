@@ -99,6 +99,10 @@ import {
   fanoutLabels,
   findLocalSession,
   killLocalSession,
+  isOwnManagedSession,
+  localRelaunchCommand,
+  localResumeHintCommand,
+  localResumeHintArgs,
   localSessionGatewayEnvStatus,
   listLocalSessions,
   listH2aStatusSurfaces,
@@ -5941,8 +5945,12 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                   ...(entry.convId ? { resumeId: entry.convId } : {}),
                 }),
               );
+              // Lot L4-hint (D11d) — name the exact in-PTY action being run
+              // (the profile resume from the single source), never a bare
+              // "already exists".
+              const inPaneResume = localResumeHintCommand(command, args);
               process.stderr.write(
-                `[h2a] already inside ${displaySlug}; running ${profile} resume in this pane\n`,
+                `[h2a] already inside ${displaySlug}; running in this pane: ${inPaneResume}\n`,
               );
               process.exitCode = runLocalCliForeground(command, args);
               return;
@@ -6136,10 +6144,28 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           process.stderr.write(`[h2a] gateway active: ${gateway}\n`);
         }
         if (opts.attach) {
+          // Lot L4-hint (D11b/c) — the launching parent in attached mode
+          // hands the survivor its lines: recreation from the resolved
+          // resume (conversation, workspace, pinned posture/host), attach
+          // for a later detach.
+          const sessionEndHint = {
+            recreation: localRelaunchCommand(
+              profile,
+              entry.cwd,
+              resumeSlug,
+              entry.convId ? ["--resume", entry.convId] : [],
+              {
+                gatewayMode: effectiveGatewayMode,
+                bare: useBare,
+                ...(resumeHost === "local-tmux" ? { tmux: true as const } : {}),
+              },
+            ),
+            attach: `h2a attach ${resumeSlug}`,
+          };
           process.exitCode =
             resumeHost === "native"
-              ? attachNativeSession(name)
-              : attachLocalSession(name);
+              ? attachNativeSession(name, undefined, { sessionEndHint })
+              : attachLocalSession(name, { sessionEndHint });
           return;
         }
         process.stderr.write(`[h2a] attach: h2a attach ${resumeSlug}\n`);
@@ -6534,6 +6560,21 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         ];
         if (existingLocalSessions.length > 0) {
           for (const slug of existingLocalSessions) {
+            // Lot L4-hint (D11d) — `h2a run` for the same managed name
+            // executed inside its own PTY fails naming the in-PTY action
+            // (the profile resume from the single source), never with a bare
+            // "already exists".
+            if (isOwnManagedSession(localSessionName(slug))) {
+              const inPty = localResumeHintCommand(
+                localCliCommand(profile),
+                localResumeHintArgs(profile, opts.resume),
+              );
+              process.stderr.write(
+                `[h2a] ${humanOutputText("hint.runInsideOwnSession")} "${slug}": ` +
+                  `${humanOutputText("hint.resumeInPlace")} ${inPty}\n`,
+              );
+              continue;
+            }
             process.stderr.write(
               `[h2a] local session ${slug} already exists; no new ${profile} was started.\n`,
             );
@@ -7142,10 +7183,36 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           );
           return;
         }
+        // Lot L4-hint (D11b/c) — the launching parent in attached mode hands
+        // the survivor its lines: recreation from THIS launch (profile,
+        // workspace, conversation, pinned posture/host), attach for a
+        // later detach.
+        const recreationBare = resolveClaudeBare(
+          profile,
+          bareChoiceFromOptions(opts) ?? pinnedLaunch?.bare,
+        );
+        const runSessionEndHint = {
+          recreation: localRelaunchCommand(
+            profile,
+            cwd,
+            only.slug,
+            opts.resume !== undefined ? ["--resume", opts.resume] : [],
+            {
+              gatewayMode: launchGatewayMode,
+              bare: recreationBare,
+              ...(sessionHost === "local-tmux" ? { tmux: true as const } : {}),
+            },
+          ),
+          attach: `h2a attach ${only.slug}`,
+        };
         process.exitCode =
           sessionHost === "native"
-            ? attachNativeSession(only.name)
-            : attachLocalSession(only.name);
+            ? attachNativeSession(only.name, undefined, {
+                sessionEndHint: runSessionEndHint,
+              })
+            : attachLocalSession(only.name, {
+                sessionEndHint: runSessionEndHint,
+              });
         return;
         } catch (error) {
           if (!(error instanceof NativeHostCapabilityMismatchError || error instanceof NativeLaunchAdmissionError) || creationAttempted) throw error;
@@ -10448,9 +10515,51 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                 return;
               }
             }
+            // Lot L4-hint (D11b/c) — survivor hints from the durable record:
+            // the attach carries the session, so the row's own resume data
+            // rebuilds the recreation line (conversation, workspace, pinned
+            // posture/host). No row (e.g. a bare tmux session) still gets the
+            // attach line — it needs no registry data.
+            const attachRegistry = loadRegistry();
+            const attachEntry =
+              attachRegistry.state === "ok"
+                ? attachRegistry.entries.find(
+                    (e) => e.tmuxSession === resolution.name,
+                  )
+                : undefined;
+            const attachSessionEndHint = {
+              ...(attachEntry !== undefined
+                ? {
+                    recreation: localRelaunchCommand(
+                      attachEntry.tool,
+                      attachEntry.cwd,
+                      attachEntry.label,
+                      attachEntry.convId ? ["--resume", attachEntry.convId] : [],
+                      {
+                        ...(attachEntry.gatewayMode === "gateway" ||
+                        attachEntry.gatewayMode === "direct"
+                          ? { gatewayMode: attachEntry.gatewayMode }
+                          : {}),
+                        ...(typeof attachEntry.bare === "boolean"
+                          ? { bare: attachEntry.bare }
+                          : {}),
+                        ...(attachEntry.kind === "local-tmux"
+                          ? { tmux: true as const }
+                          : {}),
+                      },
+                    ),
+                  }
+                : {}),
+              attach: `h2a attach ${first}`,
+            };
             process.exitCode = nativeTarget
-              ? attachNativeSession(resolution.name, undefined, { takeover: opts.takeover === true })
-              : attachLocalSession(resolution.name);
+              ? attachNativeSession(resolution.name, undefined, {
+                  takeover: opts.takeover === true,
+                  sessionEndHint: attachSessionEndHint,
+                })
+              : attachLocalSession(resolution.name, {
+                  sessionEndHint: attachSessionEndHint,
+                });
             return;
           }
         }

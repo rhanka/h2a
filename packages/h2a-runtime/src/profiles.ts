@@ -82,6 +82,20 @@ export function resolveProfile(name: string): ProfileConfig {
   return config;
 }
 
+/**
+ * Lot L4-hint (D11) — the single resume-args source for the in-PTY hint,
+ * without the throw: an unknown profile yields no resume args (plain
+ * command), never a crash in the wrapper path.
+ */
+export function resumeArgsForProfileName(
+  profile: string,
+  sessionId: string | true,
+): string[] {
+  const config = (DEFAULT_PROFILES as Readonly<Record<string, ProfileConfig>>)[profile];
+  if (!config) return [];
+  return resumeArgsFor(config, sessionId);
+}
+
 export function withResume(
   config: ProfileConfig,
   sessionId?: string | true,

@@ -58,6 +58,8 @@ import {
 } from "./launch-context.js";
 import { SESSION_CLASS_ENV, type SessionClass } from "./session-class.js";
 import type { TunnelConfig } from "./config.js";
+import { humanOutputText } from "./human-output.js";
+import { resumeArgsForProfileName } from "./profiles.js";
 import {
   statusFromSpawnResult,
   withClientTerminalReset,
@@ -115,10 +117,15 @@ export const REMOTE_TMUX_PROFILE = {
 /**
  * Persistent-box wrapper (local twin of the Pod one): run the CLI, and when it
  * exits drop into a login shell on the workdir instead of ending the tmux
- * session. Invoked as `bash -lc WRAPPER <relaunch> <cli> <args…>`, so the FIRST
- * positional lands in `$0` (the relaunch hint), the CLI in `$1`, args in `$2…`.
+ * session. Invoked as `bash -lc WRAPPER <resumeHint> <managedName> <cli>
+ * <args…>`: `$0` is the pre-rendered in-PTY resume line (profile resume, never
+ * `h2a run` — D11a), `$1` the managed session name exported as
+ * `H2A_MANAGED_SESSION` for the drop-to-shell, `$2` the CLI, args in `$3…`.
+ * The `h2a run …` recreation line belongs to the OUTER terminal after the PTY
+ * itself ends (printed by the survivor, D11b), never in here.
  */
-export const LOCAL_WRAPPER = `relaunch="$0"; cli="$1"; shift
+export const LOCAL_WRAPPER = `resume="$0"; managed="$1"; cli="$2"; shift 2
+export H2A_MANAGED_SESSION="$managed"
 "$cli" "$@"; code=$?
 if [ "\${H2A_NATIVE_TERMINAL:-}" = 1 ]; then
   printf '\\033]777;h2a-reset\\007'
@@ -127,7 +134,7 @@ if [ "\${H2A_NATIVE_TERMINAL:-}" = 1 ]; then
   export PROMPT_COMMAND='h2a_prompt_status=$?; printf "\\033]777;h2a-reset\\007"; (exit "$h2a_prompt_status"); '"\${PROMPT_COMMAND:-:}"
 fi
 printf '\\n[h2a] %s exited (code %s) — shell on %s.\\n' "$cli" "$code" "$PWD"
-printf '[h2a] relaunch: %s   (or Ctrl-D to end this session)\\n' "$relaunch"
+printf '%s\\n' "$resume"
 if [ -t 0 ]; then exec /bin/bash -l; else exit "$code"; fi`;
 
 /**
@@ -175,23 +182,99 @@ export function headlessCommand(
 }
 
 /**
- * The `remote run …` line that recreates this exact local session — shown when
- * the CLI exits so the user can copy-paste it. Pure, exported for tests.
+ * Lot L4-hint (D11) — the in-PTY resume command for a live managed PTY: the
+ * profile's own resume, from the single resume-args source (`profiles.ts`),
+ * never `h2a run`. Plain profile command when no resume args are known.
+ * Pure, exported for tests. Everything is shell-quoted.
+ */
+export function localResumeHintCommand(
+  command: string,
+  resumeArgs: ReadonlyArray<string> = [],
+): string {
+  return [command, ...resumeArgs].map(shellSingleQuote).join(" ");
+}
+
+/**
+ * Lot L4-hint (D11) — the pre-rendered in-PTY resume LINE handed to
+ * LOCAL_WRAPPER as `$0` (the wrapper is bash and cannot read the TS
+ * catalog): `[h2a] resume in this shell: <cmd>   (or Ctrl-D to end this
+ * session)`, in the run's language. The caller resolves the resume args
+ * from the single source (`resumeArgsForProfileName`); an unknown profile
+ * or a missing conversation id falls back to the plain command.
+ */
+export function localResumeHintLine(
+  command: string,
+  resumeArgs: ReadonlyArray<string> = [],
+  locale?: string,
+): string {
+  const cmd = localResumeHintCommand(command, resumeArgs);
+  return `[h2a] ${humanOutputText("hint.resumeInShell", locale)}: ${cmd}   (${humanOutputText("hint.orEndSession", locale)})`;
+}
+
+/**
+ * Lot L4-hint (D11) — resolve the in-PTY resume args for a launch: the
+ * profile's resume argv for a known conversation id, empty (plain command)
+ * otherwise. The session id may be `true` for the profile's most-recent
+ * form where the caller already resolved one.
+ */
+export function localResumeHintArgs(
+  profile: string,
+  resumeId: string | true | undefined,
+): string[] {
+  if (resumeId === undefined) return [];
+  return resumeArgsForProfileName(profile, resumeId);
+}
+
+/**
+ * The `h2a run …` line that recreates this exact local session — printed by
+ * the survivor on the OUTER terminal after the PTY itself ends (D11b), never
+ * inside the live PTY. Pure, exported for tests. Everything is
+ * shell-quoted; only explicitly pinned launch options are preserved
+ * (gateway/bare/host), never the whole launch argv.
  */
 export function localRelaunchCommand(
   profile: string,
   cwd: string,
   label: string | undefined,
   resumeArgs: ReadonlyArray<string> = [],
+  opts: {
+    gatewayMode?: "gateway" | "direct";
+    bare?: boolean;
+    tmux?: boolean;
+  } = {},
 ): string {
   // resumeArgs is the CLI-native resume argv (e.g. ["--resume", id] /
-  // ["resume", id]); the conversation id is its last token, surfaced as `-r`.
+  // ["resume", id]); the conversation id is its last token, surfaced as `-r`
+  // (`h2a run -r` fans out to the profile's own resume argv). Fixed verbs
+  // stay bare; every user-derived value is quoted (D11 defect #4).
   const convId =
     resumeArgs.length > 0 ? resumeArgs[resumeArgs.length - 1] : undefined;
-  let cmd = `h2a run ${profile} ${cwd}`;
-  if (label) cmd += ` --name ${label}`;
-  if (convId && convId !== resumeArgs[0]) cmd += ` -r ${convId}`;
+  const q = shellSingleQuote;
+  let cmd = `h2a run ${q(profile)} ${q(cwd)}`;
+  if (label) cmd += ` --name ${q(label)}`;
+  if (convId && convId !== resumeArgs[0]) cmd += ` -r ${q(convId)}`;
+  if (opts.gatewayMode === "gateway") cmd += " --gw";
+  else if (opts.gatewayMode === "direct") cmd += " --no-gw";
+  if (opts.bare === true) cmd += " --bare";
+  else if (opts.bare === false) cmd += " --no-bare";
+  if (opts.tmux === true) cmd += " --tmux";
   return cmd;
+}
+
+/**
+ * Lot L4-hint (D11d) — is this process running inside the named managed
+ * session's own PTY? True via the tmux display lookup, or via the
+ * `H2A_MANAGED_SESSION` marker the wrapper exports into the persistent
+ * shell (the native PTY has no tmux lookup). Pure-ish (reads env +
+ * optionally one tmux probe), exported for tests.
+ */
+export function isOwnManagedSession(
+  name: string,
+  opts: { env?: NodeJS.ProcessEnv; tmuxSessionIs?: (name: string) => boolean } = {},
+): boolean {
+  const env = opts.env ?? process.env;
+  if (env["H2A_MANAGED_SESSION"] === name) return true;
+  return (opts.tmuxSessionIs ?? currentTmuxSessionIs)(name);
 }
 
 /**
@@ -1011,6 +1094,16 @@ export function startLocalSession(
     };
   }
 
+  // Lot L4-hint (D11a) — the wrapper's `$0` is the pre-rendered in-PTY
+  // resume line (profile resume from the single source, never `h2a run`);
+  // `$1` is the managed name the wrapper exports for the drop-to-shell.
+  // The `h2a run …` recreation line belongs to the outer survivor (D11b).
+  const inPtyResumeLine = terminateOnAgentExit
+    ? undefined
+    : localResumeHintLine(
+        command,
+        localResumeHintArgs(profile, metadata.resumeId),
+      );
   const agentCommand = [
     ...anthopicEnvUnsetCommandPrefix(),
     "/bin/bash",
@@ -1018,15 +1111,7 @@ export function startLocalSession(
     terminateOnAgentExit ? STRUCTURED_LOCAL_WRAPPER : LOCAL_WRAPPER,
     ...(terminateOnAgentExit
       ? [command]
-      : [
-          localRelaunchCommand(
-            profile,
-            cwd,
-            label,
-            metadata.resumeId ? ["--resume", metadata.resumeId] : [],
-          ),
-          command,
-        ]),
+      : [inPtyResumeLine!, name, command]),
     ...args,
   ];
   onCreateAttempt?.();
@@ -2122,13 +2207,42 @@ export async function startH2aWindowVerified(
  * Attach the real terminal to a local tmux session. Blocks until the user
  * detaches (Ctrl-b d) or the session ends. Returns the tmux exit status.
  */
-export function attachLocalSession(name: string): number {
+export function attachLocalSession(
+  name: string,
+  options: {
+    /**
+     * Lot L4-hint (D11b/c) — survivor hints printed on the OUTER terminal
+     * after the attach ends. `recreation` (the `h2a run …` line) prints only
+     * when the session is OBSERVED gone afterwards; the tmux client itself
+     * already reports a plain detach, so no attach line is added here.
+     */
+    sessionEndHint?: { recreation?: string; attach?: string };
+  } = {},
+): number {
   return withClientTerminalReset(() => {
     ensureScrollConfig();
-    const args = process.env.TMUX
+    const inTmux = Boolean(process.env.TMUX);
+    const args = inTmux
       ? ["switch-client", "-t", `=${name}`]
       : ["attach-session", "-t", `=${name}`];
     const r = spawnSync(TMUX, args, { stdio: "inherit" });
+    // Survivor: only the attach-session path can observe the end
+    // (switch-client returns right after switching away). When the session
+    // is gone after the client ends, print the recreation line — never on
+    // a plain detach (tmux already says so).
+    const recreation = !inTmux ? options.sessionEndHint?.recreation : undefined;
+    if (recreation !== undefined) {
+      try {
+        const alive = listLocalSessions().some((s) => s.name === name);
+        if (!alive) {
+          process.stderr.write(
+            `[h2a] ${humanOutputText("hint.sessionEndedRecreate")}\n  ${recreation}\n`,
+          );
+        }
+      } catch {
+        // best-effort: the attach result stands regardless
+      }
+    }
     return statusFromSpawnResult(r);
   });
 }

@@ -308,6 +308,73 @@ describe("native terminal attach recovery", () => {
   );
 });
 
+describe("lot L4-hint RED: survivor hints after the PTY ends", () => {
+  const RECREATION = "h2a run 'claude' '/home/u/my dir' --name 'a' -r 'c'";
+  const ATTACH = "h2a attach a";
+
+  function hintClient(exitAt: number, now: () => number): AttachClient {
+    const lease = {
+      role: "controller",
+      id: "h2a-alpha",
+      generation: "generation-1",
+      incarnation: 1,
+      controllerId: "hint-controller",
+      epoch: 1,
+    } as const;
+    return {
+      async acquireController() { return lease; },
+      async releaseController() { return { controlled: false, controllerEpoch: 1 }; },
+      async readOutput() { return replay(0, ""); },
+      async state() { return now() >= exitAt ? exited() : running(true); },
+      async write() {}, async resize() {}, close() {},
+    };
+  }
+
+  function hintRuntime(
+    stdin: FakeInput,
+    stdout: FakeOutput,
+    now: () => number,
+    advance: (ms: number) => void,
+    exitAt: number,
+  ): NativeTerminalAttachRuntime {
+    return {
+      connect: async () => hintClient(exitAt, now),
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      now,
+      delay: async (ms) => { advance(ms); },
+      onResize: () => {},
+      offResize: () => {},
+    };
+  }
+
+  it("should print the h2a run recreation line only after the PTY itself ends (second Ctrl-D)", async () => {
+    const stdin = new FakeInput();
+    const stdout = new FakeOutput();
+    let now = 0;
+    await runAttach("h2a-alpha", hintRuntime(stdin, stdout, () => now, (ms) => { now += ms; }, 500), {
+      sessionEndHint: { recreation: RECREATION, attach: ATTACH },
+    });
+    const out = stdout.chunks.join("");
+    expect(out).toContain(RECREATION);
+    expect(out).not.toContain(ATTACH);
+  });
+
+  it("should print h2a attach, not a recreation command, on detach", async () => {
+    const stdin = new FakeInput();
+    const stdout = new FakeOutput();
+    let now = 0;
+    const promise = runAttach("h2a-alpha", hintRuntime(stdin, stdout, () => now, (ms) => { now += ms; }, Number.POSITIVE_INFINITY), {
+      sessionEndHint: { recreation: RECREATION, attach: ATTACH },
+    });
+    stdin.emit("data", Buffer.from([0x1c])); // Ctrl-\
+    await promise;
+    const out = stdout.chunks.join("");
+    expect(out).toContain(ATTACH);
+    expect(out).not.toContain("h2a run");
+  });
+});
+
 describe("session exit crash records (revcrashlog constat 2)", () => {
   let root = "";
   let previousStateHome: string | undefined;

@@ -50,7 +50,11 @@ import {
   getLocalSessionDisplayName,
   listLocalSessions,
   killLocalSession,
+  isOwnManagedSession,
   localRelaunchCommand,
+  localResumeHintArgs,
+  localResumeHintCommand,
+  localResumeHintLine,
   localSessionName,
   localSessionPanePid,
   resolveAgentPaneForInstance,
@@ -525,7 +529,19 @@ describe("startLocalSession agent pane metadata", () => {
 
     const newSession = tmuxCalls("new-session")[0]![1] as string[];
     expect(newSession).toContain("--verbose");
-    expect(newSession).toContain("h2a run codex /home/u/src/remote --name worker -r conv-123");
+    // Lot L4-hint (D11a): the wrapper carries the in-PTY resume line, never
+    // the outer `h2a run` recreation (ordinary CLI args stay out of it).
+    // codex resumes via its `resume` subcommand (single source) — the
+    // assertion stays locale-proof by matching the stable fragments.
+    expect(newSession.some((a) => a.includes("h2a run"))).toBe(false);
+    expect(
+      newSession.some(
+        (a) =>
+          a.includes("'resume'") &&
+          a.includes("'conv-123'") &&
+          !a.includes("--verbose"),
+      ),
+    ).toBe(true);
     expect(
       spawnSyncMock.mock.calls.some(
         (call) =>
@@ -1722,10 +1738,26 @@ describe("buildCodexImagePasteBinding", () => {
   });
 });
 
+describe("lot L4-hint RED: relaunch/recreate hints quote and resume in place", () => {
+  it("should quote paths and preserve the resolved resume options in the recreation hint", () => {
+    expect(
+      localRelaunchCommand("claude", "/home/u/my dir", "my label", [
+        "--resume",
+        "conv 1",
+      ]),
+    ).toBe("h2a run 'claude' '/home/u/my dir' --name 'my label' -r 'conv 1'");
+  });
+
+  it("should never print a relaunch line inside a live managed PTY wrapper", () => {
+    expect(LOCAL_WRAPPER).not.toContain("relaunch:");
+    expect(LOCAL_WRAPPER).toContain("H2A_MANAGED_SESSION");
+  });
+});
+
 describe("localRelaunchCommand", () => {
   it("includes profile, cwd and --name", () => {
     expect(localRelaunchCommand("claude", "/home/u/src/surch", "surch")).toBe(
-      "h2a run claude /home/u/src/surch --name surch",
+      "h2a run 'claude' '/home/u/src/surch' --name 'surch'",
     );
   });
 
@@ -1735,19 +1767,94 @@ describe("localRelaunchCommand", () => {
         "--resume",
         "conv-123",
       ]),
-    ).toBe("h2a run claude /home/u/src/surch --name surch -r conv-123");
+    ).toBe(
+      "h2a run 'claude' '/home/u/src/surch' --name 'surch' -r 'conv-123'",
+    );
   });
 
   it("surfaces the conversation id as -r (codex resume subcommand argv)", () => {
     expect(
       localRelaunchCommand("codex", "/home/u/src/x", "x", ["resume", "abc"]),
-    ).toBe("h2a run codex /home/u/src/x --name x -r abc");
+    ).toBe("h2a run 'codex' '/home/u/src/x' --name 'x' -r 'abc'");
   });
 
   it("omits -r when there is no resume arg, and --name when unlabelled", () => {
     expect(localRelaunchCommand("codex", "/home/u/src/x", undefined)).toBe(
-      "h2a run codex /home/u/src/x",
+      "h2a run 'codex' '/home/u/src/x'",
     );
+  });
+
+  it("preserves pinned launch options with quoting", () => {
+    expect(
+      localRelaunchCommand(
+        "claude",
+        "/home/u/my dir",
+        "my label",
+        ["--resume", "conv 1"],
+        { gatewayMode: "gateway", bare: true, tmux: true },
+      ),
+    ).toBe(
+      "h2a run 'claude' '/home/u/my dir' --name 'my label' -r 'conv 1' --gw --bare --tmux",
+    );
+    expect(
+      localRelaunchCommand("codex", "/x", "y", [], {
+        gatewayMode: "direct",
+        bare: false,
+      }),
+    ).toBe("h2a run 'codex' '/x' --name 'y' --no-gw --no-bare");
+  });
+});
+
+describe("lot L4-hint GREEN: in-PTY resume builders and own-session detection", () => {
+  it("should build the profile resume command from the single resume-args source", () => {
+    expect(localResumeHintCommand("claude", ["--resume", "abc"])).toBe(
+      "'claude' '--resume' 'abc'",
+    );
+    expect(localResumeHintCommand("codex", ["resume", "abc"])).toBe(
+      "'codex' 'resume' 'abc'",
+    );
+    expect(localResumeHintCommand("claude", [])).toBe("'claude'");
+  });
+
+  it("should render the localized in-PTY resume line for the wrapper", () => {
+    expect(localResumeHintLine("claude", ["--resume", "abc"], "en")).toBe(
+      "[h2a] resume in this shell: 'claude' '--resume' 'abc'   (or Ctrl-D to end this session)",
+    );
+    expect(localResumeHintLine("claude", ["--resume", "abc"], "fr")).toBe(
+      "[h2a] reprendre dans ce shell: 'claude' '--resume' 'abc'   (ou Ctrl-D pour terminer cette session)",
+    );
+    expect(localResumeHintLine("claude", [], "en")).toBe(
+      "[h2a] resume in this shell: 'claude'   (or Ctrl-D to end this session)",
+    );
+  });
+
+  it("should resolve resume args per profile, empty for unknown profiles", () => {
+    expect(localResumeHintArgs("claude", "abc")).toEqual(["--resume", "abc"]);
+    expect(localResumeHintArgs("codex", "abc")).toEqual(["resume", "abc"]);
+    expect(localResumeHintArgs("muse", "abc")).toEqual(["resume", "abc"]);
+    expect(localResumeHintArgs("claude", undefined)).toEqual([]);
+    expect(localResumeHintArgs("nope", "abc")).toEqual([]);
+  });
+
+  it("should detect its own managed session via env or the tmux lookup", () => {
+    expect(
+      isOwnManagedSession("h2a-x", { env: { H2A_MANAGED_SESSION: "h2a-x" } }),
+    ).toBe(true);
+    expect(
+      isOwnManagedSession("h2a-x", { env: { H2A_MANAGED_SESSION: "h2a-y" } }),
+    ).toBe(false);
+    expect(
+      isOwnManagedSession("h2a-x", {
+        env: {},
+        tmuxSessionIs: (name) => name === "h2a-x",
+      }),
+    ).toBe(true);
+    expect(
+      isOwnManagedSession("h2a-x", {
+        env: {},
+        tmuxSessionIs: () => false,
+      }),
+    ).toBe(false);
   });
 });
 
@@ -1789,36 +1896,69 @@ describe("fanoutLabels", () => {
 });
 
 describe("LOCAL_WRAPPER (real bash) — regression: cli runs with its args", () => {
-  // Invoked as `bash -lc WRAPPER <relaunch> <cli> <args…>`: bash puts the FIRST
-  // positional in $0, so the wrapper must read relaunch=$0, cli=$1, shift once.
-  // Reading $1/$2 (the original bug) ran the FIRST CLI ARG as a command —
-  // `--resume: command not found (127)` — dropping every relaunched session to
-  // a shell. stdin is closed so the trailing `exec bash -l` exits at once.
-  function runWrapper(relaunch: string, cli: string, args: string[]) {
+  // Invoked as `bash -lc WRAPPER <resume> <managed> <cli> <args…>`: bash puts
+  // the FIRST positional in $0, so the wrapper reads resume=$0, managed=$1,
+  // cli=$2, shift 2. Reading $1/$2 (the original bug) ran the FIRST CLI ARG
+  // as a command — `--resume: command not found (127)` — dropping every
+  // relaunched session to a shell. stdin is closed so the trailing
+  // `exec bash -l` exits at once.
+  function runWrapper(
+    resume: string,
+    managed: string,
+    cli: string,
+    args: string[],
+  ) {
     return realSpawnSync(
       "bash",
-      ["-lc", LOCAL_WRAPPER, relaunch, cli, ...args],
+      ["-lc", LOCAL_WRAPPER, resume, managed, cli, ...args],
       { encoding: "utf8", input: "" },
     );
   }
 
   it("runs `echo --resume CONV` (the resume shape that broke) with both args", () => {
-    const r = runWrapper("h2a run claude /x --name remote -r CONV", "echo", [
-      "--resume",
-      "CONV-abc",
-    ]);
+    const r = runWrapper(
+      "[h2a] resume in this shell: 'echo' '--resume' 'CONV-abc'   (or Ctrl-D to end this session)",
+      "h2a-remote",
+      "echo",
+      ["--resume", "CONV-abc"],
+    );
     expect(r.stdout).toContain("--resume CONV-abc"); // echo got BOTH args
     expect(r.stdout).toContain("echo exited (code 0)");
     expect(r.stdout).toContain(
-      "relaunch: h2a run claude /x --name remote -r CONV",
+      "resume in this shell: 'echo' '--resume' 'CONV-abc'",
     );
+    expect(r.stdout).not.toContain("h2a run");
     expect(r.stdout).not.toContain("command not found");
   });
 
   it("runs a no-arg CLI cleanly", () => {
-    const r = runWrapper("h2a run codex /x", "true", []);
+    const r = runWrapper(
+      "[h2a] resume in this shell: 'true'   (or Ctrl-D to end this session)",
+      "h2a-x",
+      "true",
+      [],
+    );
     expect(r.stdout).toContain("true exited (code 0)");
     expect(r.stdout).not.toContain("command not found");
+  });
+
+  it("prints the profile resume command, never h2a run, when the CLI exits inside a live PTY", () => {
+    const r = runWrapper(
+      "[h2a] resume in this shell: 'echo' 'hi'   (or Ctrl-D to end this session)",
+      "h2a-remote",
+      "echo",
+      ["hi"],
+    );
+    expect(r.stdout).not.toContain("h2a run");
+    expect(r.stdout).toMatch(/resume in this shell: .*echo/);
+  });
+
+  it("exports the managed session name into the drop-to-shell", () => {
+    const r = runWrapper("resume-line", "h2a-remote", "bash", [
+      "-c",
+      "echo MANAGED=$H2A_MANAGED_SESSION",
+    ]);
+    expect(r.stdout).toContain("MANAGED=h2a-remote");
   });
 });
 
