@@ -1,29 +1,61 @@
 # Workspace scope guard
 
+The workspace scope guard is **opt-in and off by default on every host**.
+Packaged Claude/Codex hooks keep the manual h2a CLI refusal, but do not register
+the scope guard. Plugin rendering, Codex scaffolding, native installers, doctor
+and upgrade convergence do not activate it without an explicit selection.
+
+**Before any enablement on the owner's machine, qualify it in an isolated lab
+against real workflows: lot worktrees, merges and releases.** Use disposable
+repositories, host profiles and state, exercise ordinary work and recovery from
+refusals, and prove that disabling it restores the workflow. Unit/configuration
+tests alone do not authorize deployment to the owner's machine.
+
 An agent operates in its session workspace. Hand foreign changes to that
 workspace's owning conductor unless the owner has explicitly granted the exact
 operation. Published package versions belong to the owning release lane.
 
 ## Installation and authority
 
-The npm package ships the guard under `hooks/`, with no dependency on a running
-h2a daemon. Claude and Codex plugin hooks register SessionStart and all-tool
-PreToolUse hooks. SessionStart records the host session identity in the launch
+The npm package keeps the guard and its helpers under `hooks/`, with no dependency
+on a running h2a daemon. The optional `hooks/workspace-scope.opt-in.json` fragment
+provides Claude/Codex SessionStart and all-tool PreToolUse hooks; it is not loaded
+by either default plugin manifest. After lab qualification, an owner can merge
+its event entries into an owner-controlled hook configuration, retaining existing
+hooks and supplying the appropriate plugin root environment variable.
+SessionStart records the host session identity in the launch
 workspace; changing tool cwd cannot initialize another workspace. A missing
 binding refuses until the plugin is reloaded.
 
-`h2a host plugin --host claude|codex|gemini|muse --instance SESSION --workspace WORKSPACE
+`h2a host plugin --host claude|codex|gemini|agy|muse --workspace-scope on --instance SESSION --workspace WORKSPACE
 --owner-key /owner-controlled/scope-public.pem --write SETTINGS` installs a command
 with a fixed workspace, session and verification key. `--scaffold DIR` on Codex
 includes that command in the generated marketplace plugin. Run installation from
 the owner's terminal, substituting one host and concrete paths. The key option is
-optional: without a pinned key no grant can authorize an exception. No automatic
+optional and does not enable the guard by itself: without a pinned key no grant can authorize an exception. No automatic
 trust enrollment exists. Packaged Claude/Codex plugins also accept
 `H2A_SCOPE_OWNER_KEY` from the owner-controlled host startup environment. Tool
 payloads, command environment assignments and journal rows cannot select that key.
 
-Vibe installation copies the guard and its helpers and registers a separate strict
-`pre_tool` hook. It does not depend on MCP guard qualification. Each native session
+For Vibe, agy, Gemini's shared agy hook store and Muse, explicitly select
+`h2a install-skills --host HOST --workspace-scope on` after lab qualification.
+Vibe also accepts `--workspace-scope on` with `host plugin --write`.
+The managed manifest records `workspaceScope.enabled: true`; subsequent doctor,
+upgrade and installer convergence preserve that explicit choice. Old manifests
+with only a key/session binding do not count as opt-in. Convergence removes their
+former default scope hooks while retaining unrelated hooks.
+
+To disable it, repeat the installation with `--workspace-scope off`. For hook
+files written by `host plugin`, repeat that command with `--workspace-scope off`
+and the same `--write` target (or Codex `--scaffold` target). For a manually merged
+optional fragment, remove its scope SessionStart/PreToolUse entries. Keep the
+`deny-manual-h2a-cli` entry. Disabling native installation persists
+`workspaceScope.enabled: false`, so later convergence cannot re-enable it.
+Muse project hooks are changed only by an explicit project installation, never
+by doctor/upgrade acting on an implicit cwd.
+
+When enabled, Vibe registers a separate strict `pre_tool` hook. It does not depend
+on MCP guard qualification. Each native session
 is bound once to the hook's launch cwd in the profile's protected
 `.h2a/workspace-scope/sessions.jsonl` journal beneath `.h2a-install`; later tool
 cwd changes cannot rebind it. A second native session can use another repository
@@ -31,9 +63,9 @@ in the same profile. Explicit owner-key selections update the managed manifest;
 ordinary convergence retains them. `--instance` selects lifecycle recording;
 scope grants use the native session identity shown in refusals.
 
-agy convergence installs `SessionStart` and all-tool `PreToolUse` in
+With opt-in selected, agy convergence installs `SessionStart` and all-tool `PreToolUse` in
 `~/.gemini/config/hooks.json` as a named hook definition, independently of
-lifecycle polling. `host plugin --host agy --write SETTINGS` installs the same
+lifecycle polling. `host plugin --host agy --workspace-scope on --instance SESSION --write SETTINGS` installs the same
 startup contract, without pinning an installer session or workspace globally.
 The hook's cwd is the configuration directory. At SessionStart, exactly one
 absolute directory in the host event's `workspacePaths` selects the workspace;
@@ -46,7 +78,7 @@ use agy's flat handler list. It returns `decision: allow|deny`, exit 0. The sche
 and default paths follow [Google's hook contract](https://antigravity.google/docs/hooks).
 
 Muse loads project `WORKSPACE/.muse/hooks.json`. Run `h2a install-skills --host
-muse --owner-key /owner-controlled/scope-public.pem` from each workspace to install
+muse --workspace-scope on --owner-key /owner-controlled/scope-public.pem` from each workspace to install
 its SessionStart binding and PreToolUse guard, retaining unrelated hooks. The
 guard/helper copies live in Muse's managed user profile; the project hook has its
 own manifest and conflict checks. Native Muse `1.4.10-R6427.1` was verified with

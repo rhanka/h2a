@@ -17,7 +17,7 @@ export interface VibeEquipmentOptions {
   repair: boolean; dryRun?: boolean; guard?: string; lifecycle?: string;
   instance?: string; busRoot?: string; status?: string;
   maskingHooks?: readonly string[]; cwd?: string;
-  ownerKey?: string;
+  ownerKey?: string; workspaceScope?: string;
 }
 // Convergence repairs config.toml toward the canonical entry only when no
 // unique valid enabled `h2a` entry exists: absent, duplicated, scalar
@@ -72,6 +72,8 @@ export function planVibeEquipment(options: VibeEquipmentOptions) {
     if (pending.schema !== 1 || pending.host !== 'vibe' || pending.root !== options.root) throw new Error('incompatible interrupted Vibe installation');
     recoverNativeHooks(manifest, pending, snapshot(join(options.root, 'hooks.toml'))?.bytes.toString() ?? '');
   }
+  if (options.workspaceScope !== undefined && !['on', 'off'].includes(options.workspaceScope)) throw new Error('workspace-scope must be on or off');
+  const scopeEnabled = options.workspaceScope === 'on' || options.workspaceScope === undefined && manifest.workspaceScope?.enabled === true;
   const entrypoint = resolve(h2aPackageRoot, 'dist/bin.js');
   if (!snapshot(process.execPath) || !snapshot(entrypoint)) throw new Error('verified Node/h2a entrypoint unavailable');
   const artifacts: NativeArtifact[] = ['vibe-pre-tool.mjs', 'vibe-post-agent.mjs',
@@ -96,7 +98,7 @@ export function planVibeEquipment(options: VibeEquipmentOptions) {
   const effectiveMcpAvailable = repairingNow ? vibeMcpAvailable(effectiveConfig) : options.mcpAvailable;
   const discovery = inspectVibeDiscovery(options.root, options.cwd ?? process.cwd(), effectiveConfig);
   const maskingHooks = options.maskingHooks ?? discovery.maskingHooks;
-  if (maskingHooks.includes('sentropic-h2a-workspace-scope')) throw new Error('Workspace scope guard masked by project hook; cannot claim pre-action protection.');
+  if (scopeEnabled && maskingHooks.includes('sentropic-h2a-workspace-scope')) throw new Error('Workspace scope guard masked by project hook; cannot claim pre-action protection.');
   const observed = { MCP: mcpFingerprint({ mcp: effectiveConfig.mcp_servers ?? [], disabled_tools: effectiveConfig.disabled_tools ?? [], enabled_tools: effectiveConfig.enabled_tools ?? [] }),
     profile: digest(options.root), node: fileFingerprint(process.execPath), entrypoint: fileFingerprint(entrypoint),
     guard: fileFingerprint(artifacts[0].path), lifecycle: fileFingerprint(artifacts[1].path), masking: semanticDigest(maskingHooks),
@@ -121,11 +123,11 @@ export function planVibeEquipment(options: VibeEquipmentOptions) {
   const command = (name: string) => [process.execPath, join(options.state, 'hooks', name)].map(shellQuote).join(' ');
   // The global profile cannot pin one project's cwd or one native session.
   // Keep owner-selected trust; each launch binds its native session separately.
-  const workspaceScope = { session: options.instance ?? manifest.workspaceScope?.session,
+  const workspaceScope = { enabled: scopeEnabled, session: options.instance ?? manifest.workspaceScope?.session,
     ownerKey: options.ownerKey ? resolve(options.ownerKey) : manifest.workspaceScope?.ownerKey };
   const scopeArgs = ['--host', 'vibe', '--session-store', options.state];
   if (workspaceScope.ownerKey) scopeArgs.push('--owner-key', workspaceScope.ownerKey);
-  hooks.push({ name: 'sentropic-h2a-workspace-scope', type: 'pre_tool', match: 're:.*',
+  if (scopeEnabled) hooks.push({ name: 'sentropic-h2a-workspace-scope', type: 'pre_tool', match: 're:.*',
     command: command('workspace-scope-guard.mjs') + ' ' + scopeArgs.map(shellQuote).join(' '), timeout: 15, strict: true });
   if (guardActive) hooks.push({ name: 'sentropic-h2a-deny-manual-cli', type: 'pre_tool', match: 're:(bash|file_system\\.bash|process_start|process\\.start)', command: command('vibe-pre-tool.mjs'), timeout: 5, strict: false });
   if (lifecycle?.enabled) {

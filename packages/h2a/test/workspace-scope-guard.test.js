@@ -616,7 +616,7 @@ for (const host of ['claude','codex','agy','muse','vibe','gemini']) test('R1/R5 
   assert.equal(run(edit).status,0);
 });
 for (const host of ['claude','codex']) test('R5 should authorize grants through the actual packaged ' + host + ' hooks', t => {
-  const f=fixture(t), entries=JSON.parse(fs.readFileSync(resolve('packages/h2a/hooks/hooks.json'),'utf8')).hooks;
+  const f=fixture(t), entries=JSON.parse(fs.readFileSync(resolve('packages/h2a/hooks/workspace-scope.opt-in.json'),'utf8')).hooks;
   f.grant({session:'packaged-native',action:'gh.pr.close'});
   const env={...f.env,H2A_SCOPE_OWNER_KEY:f.key,[host==='claude'?'CLAUDE_PLUGIN_ROOT':'CODEX_PLUGIN_ROOT']:resolve('packages/h2a')};
   delete env[host==='claude'?'CODEX_PLUGIN_ROOT':'CLAUDE_PLUGIN_ROOT'];

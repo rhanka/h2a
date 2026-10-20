@@ -19,7 +19,10 @@ import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export function renderWorkspaceScope(host: string, workspace = process.cwd(), session?: string, ownerKey?: string) {
+export function renderWorkspaceScope(host: string, workspace = process.cwd(), session?: string, ownerKey?: string, enabled = false) {
+  if (!enabled) return {
+    supported: false as const, reason: 'Workspace scope guard is off by default; opt in with --workspace-scope on after isolated lab qualification.'
+  };
   if (!['claude', 'codex', 'gemini', 'vibe', 'agy', 'muse'].includes(host)) return {
     supported: false as const, reason: 'No verified PreToolUse surface; workspace scope is not enforced on this host.'
   };
@@ -37,6 +40,24 @@ export function agyWorkspaceScopeDefinition(command: string, initialize = false)
   return { enabled: true,
     ...(initialize ? { SessionStart: [{ type: 'command', command: command + ' --initialize-session true', timeout: 15 }] } : {}),
     PreToolUse: [{ matcher: '.*', hooks: [{ type: 'command', command, timeout: 15 }] }] };
+}
+
+/** Remove only scope guard commands, retaining mixed groups and their metadata. */
+export function withoutWorkspaceScopeGuardHooks(entries: readonly unknown[]): unknown[] {
+  const isGuard = (hook: unknown): boolean => {
+    if (!hook || typeof hook !== 'object') return false;
+    const command = hook as { type?: unknown; command?: unknown };
+    return command.type === 'command' && typeof command.command === 'string' &&
+      command.command.includes('workspace-scope-guard.mjs');
+  };
+  return entries.flatMap(entry => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return [entry];
+    const group = entry as Record<string, unknown>;
+    if (!Array.isArray(group.hooks)) return isGuard(entry) ? [] : [entry];
+    const hooks = group.hooks.filter(hook => !isGuard(hook));
+    if (hooks.length === group.hooks.length) return [entry];
+    return hooks.length ? [{ ...group, hooks }] : [];
+  });
 }
 
 export type H2AHostPluginMechanism =
@@ -133,6 +154,7 @@ export const H2A_HOST_PLUGIN_HOSTS = Object.keys(H2A_HOST_PLUGIN_TARGETS);
 export interface RenderStopHookOptions {
   readonly instance: string;
   readonly root?: string;
+  readonly workspaceScope?: boolean;
   /** workStatus recorded on stop. Default `paused` (an unexpected stop = relance candidate). */
   readonly status?: string;
 }
@@ -176,7 +198,7 @@ export function renderStopHook(
     `h2a drive receive --to ${options.instance} --stdin --ignore-non-drive` +
     rootArg;
   return {
-    workspaceScope: renderWorkspaceScope(host, process.cwd(), options.instance),
+    workspaceScope: renderWorkspaceScope(host, process.cwd(), options.instance, undefined, options.workspaceScope),
     host: target.host,
     mechanism: target.mechanism,
     push: target.push,
