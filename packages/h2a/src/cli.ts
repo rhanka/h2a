@@ -481,7 +481,7 @@ export function renderCliHelp(): string {
     "  h2a drumbeat watch [--interval-ms <n>] [--max-relances <n>] [--relauncher logging|local-tmux|remote|headless|auto] [--instance <signer> --private-key <pem>] [--decider logging|<command>] [--decider-after <k>] [--decider-enforce] [--root <path>]",
     "  h2a host setup --host <codex|claude|gemini|agy|hermes|opencode|muse|vibe> [--endpoint local|remote] [--url <https://…/mcp>] [--root <path>] [--print | --write <file>] [--force] [--no-wake]   (selects one endpoint; Muse/agy render nonrecommended historical direct paths pending registry bootstrap; Vibe --write installs the interim direct entry pending registry bootstrap (--remove clears it for migration))",
     "  h2a host status [--host <name>]",
-    "  h2a host plugin --host <codex|claude|gemini|agy|hermes|opencode|muse|vibe> --instance <id> [--status <work-status>] [--root <path>] [--write <settings.json|hooks.toml> [--force]] [--scaffold <dir>]   (--write installs the Stop hook for claude|gemini|codex|hermes|opencode; --scaffold writes codex's full local marketplace + trust step; vibe writes its explicit parent-only wrapper to VIBE_HOME/hooks.toml; agy and muse have no qualified native hooks)",
+    "  h2a host plugin --host <codex|claude|gemini|agy|hermes|opencode|muse|vibe> --instance <id> [--status <work-status>] [--root <path>] [--write <settings.json|hooks.toml> [--force]] [--scaffold <dir>] [--workspace-scope on|off]   (--write installs the Stop hook for claude|gemini|codex|hermes|opencode; --scaffold writes codex's full local marketplace + trust step; vibe writes its explicit parent-only wrapper to VIBE_HOME/hooks.toml; workspace scope is off by default and requires isolated lab qualification before opt-in)",
     "  h2a store migrate [--from <v>] [--to <v>] [--sanitize-paths] [--dry-run] [--root <path>]",
     "  h2a store index-launch --root <absolute-path> (derived indexes; original logs retained)",
     "",
@@ -490,7 +490,7 @@ export function renderCliHelp(): string {
     "  h2a conductor [--workspace <id|path>] [--root <path>]   (who is the live conductor/owner of a workspace — derived from presence; conductor=role CONDUCTOR if set, else null; candidates=in-workspace live agents)",
     "  h2a conductor-launch-check [--workspace <id|path>] [--root <path>] [--idle-ms <ms>]   (DRY-RUN: polls track workspace-activity; recommends launching a conductor if work is stalled and none is live — h2a does NOT spawn; launch parked pending spawn policy + remote)",
     "  h2a conductor-launch --workspace <id|path> [--root <path>] [--idle-ms <ms>] [--confirm] [--remote <instance>] [--instance <self>]   (D3 EMIT: if stalled+no conductor, emits a launch-REQUEST envelope to a live remote agent — gated by --confirm + 1/30min/workspace cap; h2a NEVER spawns; remote does the actual spawn)",
-    "  h2a doctor [--root <path>] [--scan <dir>] [--prune] [--repair] [--dry-run] [--host <name>] [--skip-hosts] [--guard on|off] [--lifecycle on|off]   (--repair converges detected host components; --repair --dry-run reports host findings/actions without changing them; --prune deletes host-less/phantom/orphan inbox dirs + stray buses; dry-run by default)",
+    "  h2a doctor [--root <path>] [--scan <dir>] [--prune] [--repair] [--dry-run] [--host <name>] [--skip-hosts] [--guard on|off] [--lifecycle on|off] [--workspace-scope on|off]   (--repair converges detected host components; --repair --dry-run reports host findings/actions without changing them; --prune deletes host-less/phantom/orphan inbox dirs + stray buses; dry-run by default)",
     "  h2a keepalive [--root <path>] [--interval <ms>] [--once]   (external keepalive prober — refreshes presence for agents whose tmux pane is still alive)",
     "  h2a rename --instance <id> --name <name> [--root <path>]   (set a live session's display name so peers can find it via discover --name)",
     "  h2a status [--root <path>] [--scope <s>] [--instance <i>]",
@@ -510,7 +510,7 @@ export function renderCliHelp(): string {
     "  h2a blockage list [--scope <s>] [--active] [--root <path>]",
     "  h2a blockage resolve --instance <id> [--by <id>] [--root <path>]",
     "  h2a sysml verify --json <envelope> --public-key <pem-file> [--by <id>] [--content-integrity --api-base <url> [--auth <token>]]",
-    "  h2a install-skills --host <claude|codex|gemini|agy|muse|vibe> [--scope user|project] [--force]",
+    "  h2a install-skills --host <claude|codex|gemini|agy|muse|vibe> [--scope user|project] [--force] [--workspace-scope on|off]   (native workspace scope guard: opt-in, off by default)",
     "  h2a deploy k8s-sidecar [--instance <id>] [--host <h>] [--root <path>] [--image <ref>] [--cli-version <ver>] [--write <file>]",
     "  h2a deploy k8s-tenant [--namespace <ns>] [--root <path>] [--replicas <n>] [--storage <size>] [--storage-class <sc>] [--lease-ms <ms>] [--image <ref>] [--cli-version <ver>] [--write <file>]",
     "  h2a loop create --name <n> --goal <text> [--auto-tick] [--repo <path[:role]>] [--track <json>] [--agent <host:role:placement> [--launch-stdin]] [--root <path>]",
@@ -4827,6 +4827,10 @@ function cmdHostStatus(
  * relance. Mirrors `host setup` (h2a renders, the host runtime places it).
  */
 function cmdHostPlugin(flags: Record<string, string>, streams: H2ACliStreams): number {
+  if (flags['workspace-scope'] !== undefined && !['on', 'off'].includes(flags['workspace-scope'])) {
+    streams.stderr.write('h2a host plugin: workspace-scope must be on or off\n');
+    return 1;
+  }
   if (!flags.host) {
     streams.stderr.write(
       `h2a host plugin: --host <${H2A_HOST_PLUGIN_HOSTS.join("|")}> is required\n`
@@ -4860,7 +4864,7 @@ function cmdHostPlugin(flags: Record<string, string>, streams: H2ACliStreams): n
     );
     return 1;
   }
-  const workspaceScope = renderWorkspaceScope(flags.host, flags.workspace ?? streams.cwd?.() ?? process.cwd(), flags.instance, flags['owner-key']);
+  const workspaceScope = renderWorkspaceScope(flags.host, flags.workspace ?? streams.cwd?.() ?? process.cwd(), flags.instance, flags['owner-key'], flags['workspace-scope'] === 'on');
   const scopeCommand = workspaceScope.supported ? workspaceScope.command : undefined;
 
   // DEC-113 (D6 done): --scaffold <dir> writes codex's FULL local marketplace —
@@ -4969,7 +4973,8 @@ function cmdHostPlugin(flags: Record<string, string>, streams: H2ACliStreams): n
           host: flags.host,
           written: targetPath,
           mechanism: render.mechanism,
-          hook: ['agy', 'muse'].includes(flags.host) ? "hooks.PreToolUse" : "hooks.Stop + hooks.UserPromptSubmit + hooks.PreToolUse",
+          hook: ['agy', 'muse'].includes(flags.host) ? (scopeCommand ? "hooks.PreToolUse" : "none") :
+            "hooks.Stop + hooks.UserPromptSubmit" + (scopeCommand ? " + hooks.PreToolUse" : ""),
           // codex loads hooks via a plugin (manifest → ./hooks/hooks.json); the
           // file written above is a valid codex hooks.json, but codex still
           // needs the manifest + trust. `--scaffold <dir>` does the full job;
@@ -5052,15 +5057,23 @@ function mergeStopHooksFile(
     ...withoutDriveReceive,
     claudeDriveReceiveHookEntry(receive)
   ];
+  // Remove the former default scope hooks unless this invocation opts in.
+  // Keep unrelated hooks, including deny-manual-h2a-cli, unchanged.
+  const retainedHooks = { ...existingHooks };
+  for (const event of ['SessionStart', 'PreToolUse']) {
+    if (Array.isArray(retainedHooks[event])) retainedHooks[event] = retainedHooks[event].filter(
+      (entry: unknown) => !JSON.stringify(entry).includes('workspace-scope-guard.mjs'));
+  }
+  const retained = { ...existing };
+  delete retained['sentropic-h2a-workspace-scope'];
   const merged: Record<string, unknown> = scopeHost === 'agy' && scopeCommand ? {
-    ...existing, 'sentropic-h2a-workspace-scope': agyWorkspaceScopeDefinition(scopeCommand, true)
+    ...retained, 'sentropic-h2a-workspace-scope': agyWorkspaceScopeDefinition(scopeCommand, true)
   } : {
-    ...existing,
+    ...retained,
     hooks: {
-      ...existingHooks,
+      ...retainedHooks,
       ...(scopeCommand ? { PreToolUse: [
-        ...(Array.isArray(existingHooks.PreToolUse) ? existingHooks.PreToolUse : []).filter(
-          (e: unknown) => !JSON.stringify(e).includes('workspace-scope-guard.mjs')),
+        ...(Array.isArray(retainedHooks.PreToolUse) ? retainedHooks.PreToolUse : []),
         { matcher: '.*', hooks: [{ type: 'command', command: scopeCommand, timeout: 15 }] }
       ] } : {}),
       ...(record ? { Stop: mergedStop } : {}),
@@ -7113,7 +7126,7 @@ function nativeHostReport(host: string, flags: Record<string, string>, repair: b
   return convergeNativeHost({ host, root, cwd, version: currentCliVersion(), skills: collection.skills, renderGemini: renderSkillAsGeminiToml,
     sourcesComplete: collection.sources.every(s => s.dir !== null && s.count > 0), repair, explicitInstall,
     dryRun: flags['dry-run'] === 'true', force: flags.force === 'true', guard: flags.guard, lifecycle: flags.lifecycle,
-    instance: flags.instance, busRoot: flags.root, status: flags.status, ownerKey: flags['owner-key'] });
+    instance: flags.instance, busRoot: flags.root, status: flags.status, ownerKey: flags['owner-key'], workspaceScope: flags['workspace-scope'] });
 }
 
 function cmdInstallSkills(
