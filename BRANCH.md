@@ -1,3 +1,24 @@
+# Workspace scope guard opt-in — fix/scope-guard-opt-in
+
+- Owner order: disable the workspace scope guard by default in every packaged
+  integration; retain its implementation, explicit opt-in and manual CLI hook.
+- Allowed: packaged hooks, host rendering/convergence/CLI, named host/guard
+  regressions, guard documentation, review evidence and this branch record.
+- Confinement: disposable HOME/XDG/TMP under the task-owned cache directory;
+  no owner h2a state, installed binary, native host, Python, Track writes or
+  full repository test suite. No version/dependency changes or attribution.
+- Selection: `--workspace-scope on|off`, off by default. Native manifests retain
+  only explicit boolean enablement; old key/session bindings do not opt in.
+- Qualification: isolated real lot-worktree, merge and release workflows are
+  required before any owner-machine enablement. No such deployment is claimed.
+- RED: default packaged hooks 1 pass / 1 fail; final host regressions against
+  original HEAD implementations 12 pass / 27 fail; no skipped tests.
+- Verification and review outcome: docs/reviews/workspace-scope-guard-opt-in.md.
+- Delivery: conventional commit, rebase onto origin/main, lease push only to
+  fix/scope-guard-opt-in, ready PR with the owner's exact requested title.
+
+# Inherited branch records from origin/main
+
 # Focus edit return — feat/focus-edit-return
 
 ## Objective
