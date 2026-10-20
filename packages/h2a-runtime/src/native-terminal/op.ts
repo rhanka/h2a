@@ -57,6 +57,7 @@ import { TerminalModeTracker } from "./terminal-modes.js";
 import { publishAttachReset } from "./attach-recovery.js";
 import { TerminalResetRelay } from "./reset-relay.js";
 import { appendCrashLog, crashSignalName, installCrashHandlers, type CrashLogEntry } from "../crash-log.js";
+import { humanOutputText } from "../human-output.js";
 
 const DETACH_BYTE = 0x1c; // Ctrl-\
 
@@ -387,10 +388,22 @@ type ActiveAttachConnection = {
  * only this observer/controller connection; the host-owned PTY is never stopped
  * or recreated. Reconnection resumes from the last rendered sequence number.
  */
+/**
+ * Lot L4-hint (D11b/c) — survivor hints for the OUTER terminal, printed
+ * after raw modes are restored. `recreation` (the `h2a run …` line) prints
+ * only when the session end was OBSERVED — never on detach, takeover, or
+ * unproven transport loss. `attach` (the `h2a attach …` line) prints on a
+ * user detach (Ctrl-\ / stdin end).
+ */
+export type SessionEndHint = {
+  recreation?: string;
+  attach?: string;
+};
+
 export async function runAttach(
   id: string,
   runtime: NativeTerminalAttachRuntime = defaultAttachRuntime(socketPathFromEnv()),
-  options: { takeover?: boolean } = {},
+  options: { takeover?: boolean; sessionEndHint?: SessionEndHint } = {},
 ): Promise<number> {
   const stdin = runtime.stdin;
   const stdout = runtime.stdout;
@@ -432,6 +445,12 @@ export async function runAttach(
   const wasRaw = stdin.isRaw === true;
   let detached = false;
   let terminalEnded = false;
+  // Lot L4-hint (D11b/c) — the survivor prints by OBSERVED reason only:
+  // a user detach (Ctrl-\ / stdin end / buffer-full) gets the attach line,
+  // a PROVEN session exit gets the recreation line. Takeover, refusal and
+  // unproven transport loss set neither and print neither hint.
+  let userDetached = false;
+  let sessionExited = false;
   let exitCode = 0;
   let active: ActiveAttachConnection | undefined;
   let transportFailure: unknown;
@@ -533,6 +552,7 @@ export async function runAttach(
     const chunk = Buffer.isBuffer(value) ? Buffer.from(value) : Buffer.from(value);
     if (chunk.includes(DETACH_BYTE)) {
       detached = true;
+      userDetached = true;
       closeActive();
       return;
     }
@@ -543,6 +563,7 @@ export async function runAttach(
       );
       appendCrashLog("attach", { event: "refusal", sessionId: id, reason: "input-buffer-full" });
       detached = true;
+      userDetached = true;
       closeActive();
       return;
     }
@@ -551,7 +572,7 @@ export async function runAttach(
     pumpInput();
   };
   stdin.on("data", onInput);
-  const onEnd = (): void => { detached = true; closeActive(); };
+  const onEnd = (): void => { detached = true; userDetached = true; closeActive(); };
   stdin.on("end", onEnd);
   const resize = (): void => {
     const current = active;
@@ -606,10 +627,12 @@ export async function runAttach(
         { exit: null, stopSignal: null },
         { sessionId: id, reason: "definitive-absence", detail: "session absent at attach; exit code unknown" },
       ));
+      sessionExited = true;
       return 1;
     }
     if (initial.status === "exited") {
       appendCrashLog("attach", sessionExitCrashEntry(initial, { sessionId: id, detail: "session already exited at attach" }));
+      sessionExited = true;
       return initial.exit?.exitCode ?? 0;
     }
     let idlePollMs = ATTACH_IDLE_POLL_MIN_MS;
@@ -636,6 +659,7 @@ export async function runAttach(
             if (state.status === "exited") {
               exitCode = state.exit?.exitCode ?? 0;
               appendCrashLog("attach", sessionExitCrashEntry(state, { sessionId: id, detail: "session exited during reconnect" }));
+              sessionExited = true;
               terminalEnded = true;
               break;
             }
@@ -658,6 +682,7 @@ export async function runAttach(
                 { sessionId: id, reason: "definitive-absence", detail: "session proven absent during reconnect; exit code unknown" },
               ));
               exitCode = 1;
+              sessionExited = true;
               terminalEnded = true;
               break;
             }
@@ -711,6 +736,7 @@ export async function runAttach(
           if (state.status === "exited") {
             exitCode = state.exit?.exitCode ?? 0;
             appendCrashLog("attach", sessionExitCrashEntry(state, { sessionId: id, detail: "session exited during attach" }));
+            sessionExited = true;
             break;
           }
         }
@@ -725,6 +751,7 @@ export async function runAttach(
             { sessionId: id, reason: "definitive-absence", detail: "session proven absent during attach; exit code unknown" },
           ));
           exitCode = 1;
+          sessionExited = true;
           break;
         }
         markTransportFailure(current, error);
@@ -733,7 +760,22 @@ export async function runAttach(
   } finally {
     try {
       resetRelay.flush();
-      if (detached) stdout.write("\r\n[h2a] detached from native session (session keeps running)\r\n");
+      // Lot L4-hint (D11b/c) — the survivor speaks only AFTER the modes are
+      // restored (D11b). A user detach gets the attach command (D11c — the
+      // attach carries the session, so the id always yields a command); an
+      // OBSERVED session exit gets the recreation line when the caller
+      // supplied one. Takeover, refusal and unproven transport loss print
+      // neither: the session lives on (or its end is unproven).
+      if (userDetached) {
+        const attachCmd = options.sessionEndHint?.attach ?? `h2a attach ${id}`;
+        stdout.write(
+          `\r\n[h2a] ${humanOutputText("hint.detachedReattach")} ${attachCmd}\r\n`,
+        );
+      } else if (sessionExited && options.sessionEndHint?.recreation !== undefined) {
+        stdout.write(
+          `\r\n[h2a] ${humanOutputText("hint.sessionEndedRecreate")}\n  ${options.sessionEndHint.recreation}\n`,
+        );
+      }
       resetModes();
     } finally {
       runtime.offTerminate?.(terminate);
@@ -1040,7 +1082,21 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
       }
       owner.client.close();
       // Reconnects retain this owner for the entire interactive operation.
-      return runAttach(id, defaultAttachRuntime(owner.socketPath), { takeover: parsed.flags.get("takeover") === "true" });
+      // Lot L4-hint (D11b/c) — survivor hints ride along as flags (the attach
+      // child owns the outer terminal while attached).
+      const recreationHint = parsed.flags.get("recreation-hint");
+      const attachHint = parsed.flags.get("attach-hint");
+      return runAttach(id, defaultAttachRuntime(owner.socketPath), {
+        takeover: parsed.flags.get("takeover") === "true",
+        ...((recreationHint !== undefined || attachHint !== undefined)
+          ? {
+              sessionEndHint: {
+                ...(recreationHint !== undefined ? { recreation: recreationHint } : {}),
+                ...(attachHint !== undefined ? { attach: attachHint } : {}),
+              },
+            }
+          : {}),
+      });
     }
     case "host-stop": {
       let client: NativeTerminalClient;
