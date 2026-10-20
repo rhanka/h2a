@@ -1,0 +1,56 @@
+[
+  {
+    "id": 1,
+    "name": "Commit dans le worktree du lot",
+    "verdict": "PASS",
+    "detail": "s1.json: commit créé dans tmp/worktrees/lot; parent intact",
+    "durationMs": 817
+  },
+  {
+    "id": 2,
+    "name": "Merge PR package.json et voie release",
+    "verdict": "FAIL",
+    "error": "Non-bump PR refused: UNVERIFIABLE\n\n2 !== 0\n",
+    "stack": "AssertionError [ERR_ASSERTION]: Non-bump PR refused: UNVERIFIABLE\n\n2 !== 0\n\n    at file:///lab-tools/guards.mjs:109:14\n    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)\n    at async scenario (file:///lab-tools/worker.mjs:94:28)\n    at async guardScenarios (file:///lab-tools/guards.mjs:60:3)\n    at async file:///lab-tools/worker.mjs:98:5",
+    "durationMs": 1613
+  },
+  {
+    "id": 3,
+    "name": "Push après bumps upstream déjà publiés",
+    "verdict": "FAIL",
+    "error": "Published upstream bump blocks ordinary push: VERSION_BUMP\n\n2 !== 0\n",
+    "stack": "AssertionError [ERR_ASSERTION]: Published upstream bump blocks ordinary push: VERSION_BUMP\n\n2 !== 0\n\n    at file:///lab-tools/guards.mjs:130:12\n    at async scenario (file:///lab-tools/worker.mjs:94:28)\n    at async guardScenarios (file:///lab-tools/guards.mjs:117:3)\n    at async file:///lab-tools/worker.mjs:98:5",
+    "durationMs": 1065
+  },
+  {
+    "id": 4,
+    "name": "Guard opt-in, protections et auto-protection",
+    "verdict": "FAIL",
+    "error": "Workspace guard active by default: 2 packaged hooks; host installer=true",
+    "stack": "AssertionError [ERR_ASSERTION]: Workspace guard active by default: 2 packaged hooks; host installer=true\n    at file:///lab-tools/guards.mjs:168:12\n    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)\n    at async scenario (file:///lab-tools/worker.mjs:94:28)\n    at async guardScenarios (file:///lab-tools/guards.mjs:140:3)\n    at async file:///lab-tools/worker.mjs:98:5",
+    "durationMs": 133151
+  },
+  {
+    "id": 5,
+    "name": "Send attaché et brouillon humain préservé",
+    "verdict": "FAIL",
+    "error": "Expected values to be strictly deep-equal:\n+ actual - expected\n\n+ [\n+   'Attached recipient wake line: deadline expired; last={\"pid\":16329,\"tty\":true,\"draft\":\"\",\"lines\":[]}',\n+   'Attached recipient wake line: deadline expired; last={\"pid\":16329,\"tty\":true,\"draft\":\"human draft with spaces — do not overwrite\",\"lines\":[]}'\n+ ]\n- []\n",
+    "stack": "AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:\n+ actual - expected\n\n+ [\n+   'Attached recipient wake line: deadline expired; last={\"pid\":16329,\"tty\":true,\"draft\":\"\",\"lines\":[]}',\n+   'Attached recipient wake line: deadline expired; last={\"pid\":16329,\"tty\":true,\"draft\":\"human draft with spaces — do not overwrite\",\"lines\":[]}'\n+ ]\n- []\n\n    at file:///lab-tools/native.mjs:149:14\n    at async scenario (file:///lab-tools/worker.mjs:94:28)\n    at async nativeScenarios (file:///lab-tools/native.mjs:99:3)\n    at async file:///lab-tools/worker.mjs:102:11",
+    "durationMs": 15603
+  },
+  {
+    "id": 6,
+    "name": "Restore après upgrade, sans doublon ni délégué",
+    "verdict": "PASS",
+    "detail": "s6.json: 2 CLIs repris en place; 2 délégués exclus; second restore sans doublon",
+    "durationMs": 12721
+  },
+  {
+    "id": 7,
+    "name": "Sortie upgrade lisible avec convergence des hosts",
+    "verdict": "FAIL",
+    "error": "Escaped JSON wall in user output",
+    "stack": "AssertionError [ERR_ASSERTION]: Escaped JSON wall in user output\n    at readable (file:///lab-tools/support.mjs:26:10)\n    at file:///lab-tools/native.mjs:197:5\n    at scenario (file:///lab-tools/worker.mjs:94:34)\n    at nativeScenarios (file:///lab-tools/native.mjs:194:9)\n    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)\n    at async file:///lab-tools/worker.mjs:102:11",
+    "durationMs": 0
+  }
+]
