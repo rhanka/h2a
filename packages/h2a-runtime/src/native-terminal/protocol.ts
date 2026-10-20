@@ -35,6 +35,50 @@ export const NATIVE_TERMINAL_STOP_SIGNALS = [
 export type NativeTerminalStopSignal =
   (typeof NATIVE_TERMINAL_STOP_SIGNALS)[number];
 
+/**
+ * Lot L4-replies (D10) — the bridge's classification is never the final
+ * gate: accepted machine replies travel to the host as TYPED units carrying
+ * their query correlation plus the controller epoch, session incarnation and
+ * application incarnation the bridge accepted them under. The host
+ * revalidates that correlation atomically in its serialised handler
+ * immediately before `pty.write`. Human keystrokes keep the existing
+ * `write` path and never travel as typed units.
+ */
+export const NATIVE_TERMINAL_REPLY_FAMILIES = [
+  "da",
+  "da2",
+  "xtversion",
+  "decrpm",
+  "cpr",
+  "dsr-status",
+  "decrqss",
+  "kitty",
+  "osc",
+] as const;
+export type NativeTerminalReplyFamily =
+  (typeof NATIVE_TERMINAL_REPLY_FAMILIES)[number];
+
+export type NativeTerminalReplyUnit = Readonly<{
+  family: NativeTerminalReplyFamily;
+  key: string;
+  epoch: number;
+  incarnation: string;
+  appEpoch: number;
+  bytes: string;
+  acceptedAt: number;
+}>;
+
+export const NATIVE_TERMINAL_MAX_REPLY_BYTES = 4_096;
+
+export function isNativeTerminalReplyFamily(
+  value: unknown,
+): value is NativeTerminalReplyFamily {
+  return (
+    typeof value === "string" &&
+    (NATIVE_TERMINAL_REPLY_FAMILIES as readonly string[]).includes(value)
+  );
+}
+
 export function isNativeTerminalStopSignal(
   value: unknown,
 ): value is NativeTerminalStopSignal {
@@ -55,6 +99,7 @@ export type NativeTerminalOperation =
   | "acquire-controller-if-no-recent-human"
   | "release-controller"
   | "write"
+  | "write-reply"
   | "inject"
   | "resize"
   | "stop"
@@ -185,6 +230,7 @@ export function parseNativeTerminalRequest(value: unknown): NativeTerminalReques
     "acquire-controller-if-no-recent-human",
     "release-controller",
     "write",
+    "write-reply",
     "inject",
     "resize",
     "stop",

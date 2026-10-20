@@ -32,6 +32,16 @@ import {
 } from "./replay-buffer.js";
 import { TerminalResetRelay } from "./reset-relay.js";
 import {
+  TERMINAL_REPLY_MAX_OUTSTANDING,
+  TERMINAL_REPLY_QUERY_WINDOW_MS,
+  TerminalQueryScanner,
+  replyQueryKey,
+} from "./terminal-replies.js";
+import type {
+  NativeTerminalReplyFamily,
+  NativeTerminalReplyUnit,
+} from "./protocol.js";
+import {
   NATIVE_TERMINAL_DEFAULT_MAX_SESSIONS,
   NATIVE_TERMINAL_MAX_IDENTIFIER_CHARS,
   NATIVE_TERMINAL_MAX_SESSIONS,
@@ -565,6 +575,26 @@ export type NativeTerminalControllerOptions = Readonly<{
   tty?: string;
 }>;
 
+/**
+ * Lot L4-replies (D10) — the outcome of the host's final-write revalidation
+ * for one bridge-accepted typed reply. `applied` means the unit's query was
+ * still outstanding for the current controller epoch, incarnation AND
+ * application incarnation when the serialised handler ran. Anything else is
+ * swallowed with zero bytes (counted, logged) — the asking CLI is gone, the
+ * controller moved on, or no query was ever emitted.
+ */
+export type NativeTerminalReplyOutcome = Readonly<
+  | { outcome: "applied" }
+  | {
+    outcome: "swallowed";
+    reason:
+      | "stale-epoch"
+      | "stale-incarnation"
+      | "stale-application"
+      | "no-outstanding-query";
+  }
+>;
+
 export type NativeTerminalSessionState = Readonly<{
   id: string;
   generation: string;
@@ -574,6 +604,13 @@ export type NativeTerminalSessionState = Readonly<{
   latestSeq: number;
   exit: NativeTerminalExit | null;
   stopSignal: string | null;
+  /**
+   * Lot L4-replies (D10) — how many CLI→shell transitions (wrapper reset
+   * markers) this PTY has consumed. Typed reply units carry the incarnation
+   * the bridge accepted them under; the bridge also tracks the counter from
+   * the same marker stream, so both sides agree without a round trip.
+   */
+  applicationEpoch: number;
   /**
    * Whether a controller currently holds this session's exclusive input lease.
    * Restore consumers need only this boolean. Attach rescue also exposes the
@@ -753,6 +790,17 @@ type SessionRecord = {
    */
   automationSeq: number;
   appliedInjections: Map<string, NativeTerminalInjectOutcome>;
+  /**
+   * Lot L4-replies (D10) — CLI→shell transitions consumed on this PTY (one
+   * per wrapper reset marker), the query scanner feeding the transition and
+   * query state, and the currently outstanding foreground-app queries
+   * (family+key → first-seen epoch milliseconds). Typed reply units are
+   * revalidated against all three atomically in the serialised `writeReply`
+   * handler, immediately before `pty.write`.
+   */
+  applicationEpoch: number;
+  queryScanner: TerminalQueryScanner;
+  outstandingQueries: Map<string, number>;
   dataSubscription?: { dispose(): void };
   exitSubscription?: { dispose(): void };
 };
@@ -1073,27 +1121,51 @@ export class NativeTerminalHost {
       lastHumanActivityAt: null,
       automationSeq: 0,
       appliedInjections: new Map(),
+      applicationEpoch: 0,
+      queryScanner: new TerminalQueryScanner(),
+      outstandingQueries: new Map(),
     };
     this.#sessions.set(record.id, record);
 
-    // Carry of the previous chunk so a DSR split across chunks is still seen.
-    // At most 3 chars: a full 4-char query can never hide entirely in it.
-    let dsrTail = "";
     const resetRelay = new TerminalResetRelay(
       (data) => { record.replay.append(data); },
       () => record.replay.resetSequence(),
+      () => {
+        // Lot L4-replies (D10): every consumed wrapper reset marker opens a
+        // new application incarnation on this PTY — the asking CLI is gone,
+        // the shell is now the reader — so outstanding queries die with it.
+        record.applicationEpoch += 1;
+        record.outstandingQueries.clear();
+      },
     );
     record.dataSubscription = record.pty.onData((data) => {
       try {
         if (record.exit !== null || data.length === 0) return;
         resetRelay.feed(data);
+        // Lot L4-replies (D10): record the foreground app's queries (chunk-
+        // safe via the scanner carry) so typed reply units can be revalidated
+        // at the final write. Evict oldest first: the map is bounded, and a
+        // query older than the window is stale by definition at match time.
+        const seen = record.queryScanner.feed(data);
+        const now = Date.now();
+        for (const query of seen) {
+          if (!record.outstandingQueries.has(replyQueryKey(query))) {
+            if (record.outstandingQueries.size >= TERMINAL_REPLY_MAX_OUTSTANDING) {
+              const oldest = record.outstandingQueries.keys().next();
+              if (!oldest.done) record.outstandingQueries.delete(oldest.value);
+            }
+            record.outstandingQueries.set(replyQueryKey(query), now);
+          }
+        }
         // Answer Device Status Report cursor queries (ESC[6n) like a real
         // terminal/tmux: TUIs that require a cursor-position report (muse
-        // aborts with "cursor position could not be read" without it).
-        const window = dsrTail + data;
-        dsrTail = window.slice(-3);
-        const queries = window.split("\x1b[6n").length - 1;
-        for (let i = 0; i < queries; i++) {
+        // aborts with "cursor position could not be read" without it). The
+        // host stays the documented responder for the cursor queries it
+        // intercepts: each self-answer consumes the query it answered, so a
+        // duplicate outer CPR arriving later finds no outstanding query and
+        // is swallowed.
+        const cursorQueries = seen.filter((query) => query.family === "cpr").length;
+        for (let i = 0; i < cursorQueries; i++) {
           try {
             record.pty.write("\x1b[1;1R");
           } catch {
@@ -1102,6 +1174,7 @@ export class NativeTerminalHost {
             recordHostFault(HOST_FAULT_COUNTERS.hostPtyWriteBreaks);
             break;
           }
+          record.outstandingQueries.delete(replyQueryKey({ family: "cpr", key: "" }));
         }
       } catch (error) {
         // node-pty delivers this callback on the event loop shared with every
@@ -1402,6 +1475,58 @@ export class NativeTerminalHost {
     const record = this.#requireController(lease);
     if (record.controllerActivity === "human") record.lastHumanActivityAt = Date.now();
     record.pty.write(data);
+  }
+
+  /**
+   * Lot L4-replies (D10) — the final gate for one bridge-accepted typed
+   * reply, revalidated atomically in the serialised handler immediately
+   * before `pty.write`: the unit's query must still be outstanding for the
+   * CURRENT controller epoch, session incarnation AND application
+   * incarnation. A reply the bridge accepted but that is stale by apply
+   * time (asking CLI exited, controller moved on, query never emitted or
+   * already answered/expired) is swallowed with ZERO bytes — counted on the
+   * orphan-reply counter and logged — never typed into the new reader. A
+   * machine reply NEVER stamps `lastHumanActivityAt`; only human `write`
+   * and automation `inject` touch the activity signals.
+   */
+  writeReply(
+    lease: NativeTerminalControllerLease,
+    unit: NativeTerminalReplyUnit,
+  ): NativeTerminalReplyOutcome {
+    // Correlation staleness is NEVER a throw: a typed unit that cannot be
+    // proven current is swallowed with zero bytes (counted, logged) — that
+    // is the whole point of the final gate. Only a broken pty.write throws,
+    // exactly like the human `write` path.
+    const record = this.#sessions.get(lease.id);
+    const generationMismatch =
+      record === undefined || lease.generation !== this.#generation;
+    const swallow = (
+      reason: Extract<NativeTerminalReplyOutcome, { outcome: "swallowed" }>["reason"],
+    ): NativeTerminalReplyOutcome => {
+      recordHostFault(HOST_FAULT_COUNTERS.terminalReplySwallowed);
+      this.#log(
+        `[h2a] swallowed a ${unit.family} terminal reply for session ${lease.id}: ${reason}`,
+      );
+      return { outcome: "swallowed", reason };
+    };
+    if (generationMismatch) return swallow("stale-incarnation");
+    const current = record!;
+    if (current.status !== "running") return swallow("stale-application");
+    if (current.controllerId !== lease.controllerId || unit.epoch !== current.controllerEpoch) {
+      return swallow("stale-epoch");
+    }
+    if (unit.incarnation !== current.incarnation) return swallow("stale-incarnation");
+    if (unit.appEpoch !== current.applicationEpoch) return swallow("stale-application");
+    const key = replyQueryKey(unit);
+    const seenAt = current.outstandingQueries.get(key);
+    if (seenAt === undefined) return swallow("no-outstanding-query");
+    if (Date.now() - seenAt > TERMINAL_REPLY_QUERY_WINDOW_MS) {
+      current.outstandingQueries.delete(key);
+      return swallow("no-outstanding-query");
+    }
+    current.outstandingQueries.delete(key);
+    current.pty.write(unit.bytes);
+    return { outcome: "applied" };
   }
 
   resize(
@@ -2250,6 +2375,7 @@ export class NativeTerminalHost {
       latestSeq: record.replay.latestSeq,
       exit: record.exit,
       stopSignal: record.stopSignal,
+      applicationEpoch: record.applicationEpoch,
       controlled: record.controllerId !== null,
       controllerEpoch: record.controllerEpoch,
       controller: record.controllerIdentity,
