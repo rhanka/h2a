@@ -1,0 +1,77 @@
+{
+  "calls": [
+    {
+      "method": "GET",
+      "url": "/repos/fixture/own/pulls/42.diff"
+    },
+    {
+      "method": "GET",
+      "url": "/repos/fixture/own/pulls/42"
+    },
+    {
+      "method": "GET",
+      "url": "/repos/fixture/own/contents/package.json?ref=d2d1d86815d1a26a0139f8d9e764c3fd7e782b84"
+    },
+    {
+      "method": "GET",
+      "url": "/repos/fixture/own/contents/package.json?ref=3477ec2da00c11f56cbf22a3478d83bf45ba0c4e"
+    },
+    {
+      "method": "PUT",
+      "url": "/repos/fixture/own/pulls/42/merge"
+    },
+    {
+      "method": "GET",
+      "url": "/repos/fixture/own/pulls/42.diff"
+    },
+    {
+      "method": "GET",
+      "url": "/repos/fixture/own/pulls/42"
+    },
+    {
+      "method": "GET",
+      "url": "/repos/fixture/own/contents/package.json?ref=d2d1d86815d1a26a0139f8d9e764c3fd7e782b84"
+    },
+    {
+      "method": "GET",
+      "url": "/repos/fixture/own/contents/package.json?ref=14b599d966033d0c4e7eda05439a6ecdfb7212f8"
+    },
+    {
+      "method": "GET",
+      "url": "/repos/fixture/own/pulls/42.diff"
+    },
+    {
+      "method": "GET",
+      "url": "/repos/fixture/own/pulls/42"
+    },
+    {
+      "method": "GET",
+      "url": "/repos/fixture/own/contents/package.json?ref=d2d1d86815d1a26a0139f8d9e764c3fd7e782b84"
+    },
+    {
+      "method": "GET",
+      "url": "/repos/fixture/own/contents/package.json?ref=14b599d966033d0c4e7eda05439a6ecdfb7212f8"
+    },
+    {
+      "method": "PUT",
+      "url": "/repos/fixture/own/pulls/42/merge"
+    }
+  ],
+  "outcomes": [
+    {
+      "bump": false,
+      "status": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "bump": true,
+      "status": 2,
+      "stdout": "{\"decision\":\"block\",\"code\":\"VERSION_BUMP\",\"reason\":\"[H2A_SCOPE:VERSION_BUMP] gh.pr.merge refused. {\\\"repo\\\":\\\"github.com/fixture/own\\\",\\\"action\\\":\\\"gh.pr.merge\\\",\\\"ref\\\":\\\"42\\\",\\\"session\\\":\\\"s2\\\"} Hand this action to the owning conductor; use the plain explicit form or request an exact recorded owner grant.\",\"repo\":\"github.com/fixture/own\",\"action\":\"gh.pr.merge\",\"ref\":\"42\",\"session\":\"s2\",\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"[H2A_SCOPE:VERSION_BUMP] gh.pr.merge refused. {\\\"repo\\\":\\\"github.com/fixture/own\\\",\\\"action\\\":\\\"gh.pr.merge\\\",\\\"ref\\\":\\\"42\\\",\\\"session\\\":\\\"s2\\\"} Hand this action to the owning conductor; use the plain explicit form or request an exact recorded owner grant.\"}}",
+      "stderr": "[H2A_SCOPE:VERSION_BUMP] gh.pr.merge refused. {\"repo\":\"github.com/fixture/own\",\"action\":\"gh.pr.merge\",\"ref\":\"42\",\"session\":\"s2\"} Hand this action to the owning conductor; use the plain explicit form or request an exact recorded owner grant.\n"
+    }
+  ],
+  "base": "d2d1d86815d1a26a0139f8d9e764c3fd7e782b84",
+  "head": "14b599d966033d0c4e7eda05439a6ecdfb7212f8",
+  "remote": "e4d78d5bbec0bb95e3511ba0b413a42ecae7f7ce"
+}
