@@ -33,7 +33,11 @@ import {
   getLayoutConfig,
   resolveConfigPath,
   type LayoutConfig,
+  type LayoutGroup,
 } from "./config.js";
+// Lot LG (D13) — re-exported so group-config validation lives next to the
+// grouping it guards (the `restore-groups` suite imports both from here).
+export { normalizeLayoutGroups, validateLayoutGroups } from "./config.js";
 import { encodeCwd } from "./convsync.js";
 import {
   classifyRestoreFacet,
@@ -115,6 +119,11 @@ export type DiscoveredSession = {
    * transcript scan is always `unclassified` because it carries no role/class.
    */
   restoreClass: "human" | "unclassified";
+  /**
+   * Lot LG (D13) — registry tags for tag-matcher groups (passthrough from
+   * the registry row; scans carry none).
+   */
+  tags?: string[];
 };
 
 export type LayoutTab = {
@@ -167,6 +176,48 @@ export function selectRemoteTabsForGroups(
   return tabs.filter((t) => t.restoreFacet !== "secondary");
 }
 
+/**
+ * Lot LG (D13) — fill `remote: true` groups from the SCW tabs, first match
+ * wins, exactly one group per tab. A remote group with NO matchers is an
+ * explicit catch-all for the tabs no matcher group claimed (local groups
+ * keep their own shared-window fallback instead). Tabs claimed by no remote
+ * group are left unassigned — the caller reports them, never drops them
+ * silently.
+ */
+export function assignRemoteTabsToGroups(
+  tabs: ReadonlyArray<RemoteTab>,
+  groups: ReadonlyArray<LayoutGroup>,
+): Map<string, RemoteTab[]> {
+  const assigned = new Map<string, RemoteTab[]>();
+  const placed = new Set<RemoteTab>();
+  const put = (title: string, t: RemoteTab): void => {
+    const arr = assigned.get(title) ?? [];
+    arr.push(t);
+    assigned.set(title, arr);
+    placed.add(t);
+  };
+  const matches = (t: RemoteTab, g: LayoutGroup): boolean => {
+    if ((g.projects ?? []).includes(t.label)) return true;
+    for (const raw of g.cwdPrefixes ?? []) {
+      const prefix = raw.length > 1 ? raw.replace(/\/+$/, "") : raw;
+      if (t.cwd === prefix || t.cwd.startsWith(`${prefix}/`)) return true;
+    }
+    return false;
+  };
+  for (const g of groups) {
+    if (g.remote !== true) continue;
+    const hasMatchers =
+      (g.projects?.length ?? 0) > 0 || (g.cwdPrefixes?.length ?? 0) > 0;
+    for (const t of tabs) {
+      if (placed.has(t)) continue;
+      // A matcher-less remote group is the explicit catch-all; otherwise
+      // only a matcher hit claims the tab.
+      if (!hasMatchers || matches(t, g)) put(g.title, t);
+    }
+  }
+  return assigned;
+}
+
 /** Project identity is the whole workspace path below ~/src, never its root. */
 function projectForCwd(src: string, cwd: string): string | undefined {
   const prefix = `${src}/`;
@@ -175,28 +226,55 @@ function projectForCwd(src: string, cwd: string): string | undefined {
   return project || undefined;
 }
 
-/** Discover claude + codex sessions under ~/src/* newer than maxAgeMs. */
+/**
+ * Discover claude + codex sessions under ~/src/* newer than maxAgeMs.
+ *
+ * Lot LG (D13) — `extraRoots` (a local group's `cwdPrefixes` matchers)
+ * extends the scan beyond `~/src`: transcript dirs of every discovery root
+ * are walked, and rows under a group root are exempt from the age cutoff
+ * (the group explicitly asked for that fleet). With no extra roots the walk
+ * and the admission are byte-identical to the ~/src-only scan.
+ */
 export function discoverSessions(
   maxAgeMs: number,
   home: string = homedir(),
+  extraRoots: readonly string[] = [],
 ): DiscoveredSession[] {
   const src = join(home, "src");
   const cutoff = Date.now() - maxAgeMs;
   const out: DiscoveredSession[] = [];
+  // Discovery roots, longest first so a nested group root beats its parent.
+  // `~/src` stays first when lengths tie (it is the default base).
+  const scanBases = [
+    src,
+    ...new Set(
+      extraRoots
+        .map((r) => (r.length > 1 ? r.replace(/\/+$/, "") : r))
+        .filter((r) => r.length > 0 && r !== src),
+    ),
+  ].sort((a, b) => b.length - a.length || (a === src ? -1 : 1));
+  const baseForCwd = (cwd: string): string | undefined =>
+    scanBases.find((base) => cwd === base || cwd.startsWith(`${base}/`));
 
-  // --- claude: <home>/.claude/projects/<encode(~/src/<proj>)…>/<sid>.jsonl ---
+  // --- claude: <home>/.claude/projects/<encode(<base>/<proj>)…>/<sid>.jsonl ---
   const claudeRoot = join(home, ".claude", "projects");
-  const claudePrefix = `${encodeCwd(src)}-`;
+  const claudePrefixes = scanBases.map((base) => ({
+    base,
+    prefix: `${encodeCwd(base)}-`,
+  }));
   if (existsSync(claudeRoot)) {
     for (const dirName of readdirSync(claudeRoot)) {
-      if (!dirName.startsWith(claudePrefix)) continue;
+      const hit = claudePrefixes.find(({ prefix }) =>
+        dirName.startsWith(prefix),
+      );
+      if (!hit) continue;
       // claude encodes the full cwd as "/"→"-"; the remainder after the
-      // ~/src/ prefix IS the project for a direct child of ~/src. Keep it
+      // base prefix IS the project for a direct child of that base. Keep it
       // whole (project names contain "-": sent-tech-design-system) and skip
-      // anything that isn't an existing ~/src/<project> dir (sub-paths encode
-      // ambiguously and the workdir wouldn't exist anyway).
-      const encodedProject = dirName.slice(claudePrefix.length);
-      const fallbackCwd = join(src, encodedProject);
+      // anything that isn't an existing dir (sub-paths encode ambiguously
+      // and the workdir wouldn't exist anyway).
+      const encodedProject = dirName.slice(hit.prefix.length);
+      const fallbackCwd = join(hit.base, encodedProject);
       const dir = join(claudeRoot, dirName);
       let entries: string[];
       try {
@@ -208,7 +286,7 @@ export function discoverSessions(
         if (!f.endsWith(".jsonl")) continue;
         const file = join(dir, f);
         const st = safeStat(file);
-        if (!st || st.mtimeMs < cutoff) continue;
+        if (!st) continue;
         // Claude's transcript records its real cwd. Prefer it so a nested job
         // worktree is not collapsed into its repository root by the lossy
         // slash→dash directory encoding. Old transcripts retain the prior
@@ -216,19 +294,26 @@ export function discoverSessions(
         const meta = firstLineJson(file);
         const transcriptCwd = meta?.cwd ?? meta?.payload?.cwd;
         const cwd =
-          typeof transcriptCwd === "string" && transcriptCwd.startsWith(`${src}/`)
+          typeof transcriptCwd === "string" &&
+          baseForCwd(transcriptCwd) !== undefined
             ? transcriptCwd
             : fallbackCwd;
+        const base = baseForCwd(cwd);
+        if (!base) continue;
+        // Group roots are exempt from the age cutoff; ~/src keeps it.
+        if (st.mtimeMs < cutoff && base === src) continue;
         const cst = safeStat(cwd);
         if (!cst || !statSync(cwd).isDirectory()) continue;
-        const project = projectForCwd(src, cwd);
+        const project = projectForCwd(base, cwd);
         if (!project) continue;
         out.push({
           project,
           mtimeMs: st.mtimeMs,
           tool: "claude",
           sid: f.replace(/\.jsonl$/, ""),
-          cwd: join(src, project),
+          // ~/src rows keep the canonical join (as before); group-root rows
+          // keep their real cwd (no canonical base exists outside ~/src).
+          cwd: base === src ? join(src, project) : cwd,
           restoreClass: "unclassified",
         });
       }
@@ -242,12 +327,16 @@ export function discoverSessions(
       const base = file.split("/").pop() ?? "";
       if (!base.startsWith("rollout-") || !base.endsWith(".jsonl")) continue;
       const st = safeStat(file);
-      if (!st || st.mtimeMs < cutoff) continue;
+      if (!st) continue;
       const meta = firstLineJson(file);
       const cwd: string | undefined = meta?.payload?.cwd;
       const id: string | undefined = meta?.payload?.id;
-      if (!cwd || !id || !cwd.startsWith(`${src}/`)) continue;
-      const project = projectForCwd(src, cwd);
+      if (!cwd || !id) continue;
+      const cwdBase = baseForCwd(cwd);
+      if (!cwdBase) continue;
+      // Group roots are exempt from the age cutoff; ~/src keeps it.
+      if (st.mtimeMs < cutoff && cwdBase === src) continue;
+      const project = projectForCwd(cwdBase, cwd);
       if (!project) continue;
       out.push({
         project,
@@ -644,6 +733,12 @@ export type RegistrySessionsOpts = {
   collectExcluded?: RestoreExclusions;
   /** Admit `secondary` rows (explicit opt-in). Unclassified stay excluded. */
   includeSecondary?: boolean;
+  /**
+   * Lot LG (D13) — extra admission roots for registry rows outside the
+   * default `~/src` scan root (a group `cwdPrefixes` matcher admits them).
+   * The project derives against the matched root.
+   */
+  admissionRoots?: string[];
 };
 
 export function registrySessions(
@@ -692,7 +787,23 @@ export function registrySessions(
         continue;
       }
     }
-    if (!e.cwd.startsWith(`${src}/`)) continue;
+    // Lot LG (D13) — admission roots: a configured `cwdPrefixes` group
+    // matcher admits registry rows outside the default `~/src` scan root.
+    // The project derives against the matched root, so `<root>/<proj>`
+    // restores as project `<proj>`.
+    let projectBase: string | undefined;
+    if (e.cwd.startsWith(`${src}/`)) {
+      projectBase = src;
+    } else {
+      const root = (opts.admissionRoots ?? []).find((candidate) => {
+        const base =
+          candidate.length > 1 ? candidate.replace(/\/+$/, "") : candidate;
+        return e.cwd === base || e.cwd.startsWith(`${base}/`);
+      });
+      if (root !== undefined)
+        projectBase = root.length > 1 ? root.replace(/\/+$/, "") : root;
+    }
+    if (projectBase === undefined) continue;
     // §4.1 unresolved-convId gate: skip ONLY when the row is dead/absent (or
     // its host state is unprovable — an unknown probe is no death
     // certificate, but with no identity there is nothing safe to launch
@@ -725,7 +836,7 @@ export function registrySessions(
     ) {
       continue;
     }
-    const project = projectForCwd(src, e.cwd);
+    const project = projectForCwd(projectBase, e.cwd);
     if (!project) continue;
     const seen = Date.parse(e.lastSeenAt);
     // An attach-live row has NO resolved conversation: its sid stays empty so
@@ -947,10 +1058,67 @@ function* walk(root: string): Generator<string> {
  *   - capped at `maxPerWindow` tabs each,
  *   - keeping the N most recent sessions per project (`multiSession`, def 1).
  */
+/**
+ * Lot LG (D13) — per-group explicit-window cap overflow, accounted per group
+ * (never silently dropped): dropped tabs stay with their group, named.
+ */
+export type GroupCapDrop = {
+  group: string;
+  cap: number;
+  dropped: number;
+  names: string[];
+};
+
+export type GroupedSessions = {
+  windows: LayoutWindow[];
+  dropped: number;
+  /** Explicit non-remote groups that received no tab (when groups exist). */
+  emptyGroups: string[];
+  /** Sessions admitted but matching no explicit group (shared pool). */
+  unmatched: string[];
+  /** Per-explicit-group cap overflow, in config order. */
+  groupCapDrops: GroupCapDrop[];
+};
+
+/** Normalize one matcher prefix (no globs anywhere in LG matching). */
+function normalizeCwdPrefix(prefix: string): string {
+  return prefix.length > 1 ? prefix.replace(/\/+$/, "") : prefix;
+}
+
+/** Exact / path-prefix match for one cwd against one configured prefix. */
+function cwdMatchesPrefix(cwd: string, prefix: string): boolean {
+  const norm = normalizeCwdPrefix(prefix);
+  return cwd === norm || cwd.startsWith(`${norm}/`);
+}
+
+/**
+ * Lot LG (D13) — one explicit local group's hit predicate. `excludeProjects`
+ * vetoes first; then any matcher hits: project equality (checked first),
+ * cwd-prefix locality (nested worktrees included), tool equality, tag
+ * any-of. A group with no matchers matches nothing locally (reported empty).
+ */
+export function groupMatchesSession(
+  s: Pick<DiscoveredSession, "project" | "cwd" | "tool"> &
+    Partial<Pick<DiscoveredSession, "tags">>,
+  g: LayoutGroup,
+): boolean {
+  if (g.excludeProjects !== undefined && g.excludeProjects.includes(s.project)) {
+    return false;
+  }
+  if ((g.projects ?? []).includes(s.project)) return true;
+  for (const prefix of g.cwdPrefixes ?? []) {
+    if (cwdMatchesPrefix(s.cwd, prefix)) return true;
+  }
+  if ((g.tools ?? []).includes(s.tool)) return true;
+  const tags = g.tags ?? [];
+  if (tags.length > 0 && (s.tags ?? []).some((t) => tags.includes(t))) return true;
+  return false;
+}
+
 export function groupSessions(
   sessions: DiscoveredSession[],
   cfg: LayoutConfig,
-): { windows: LayoutWindow[]; dropped: number } {
+): GroupedSessions {
   // newest-first per project, capped per project
   const byProject = new Map<string, DiscoveredSession[]>();
   for (const s of sessions) {
@@ -958,7 +1126,24 @@ export function groupSessions(
     arr.push(s);
     byProject.set(s.project, arr);
   }
-  const slotsFor = (project: string): LayoutTab[] => {
+  const tabFor = (s: DiscoveredSession, i: number): LayoutTab => {
+    const tab: LayoutTab = {
+      cwd: s.cwd,
+      label: s.label ?? (i === 0 ? s.project : `${s.project}#${i + 1}`),
+      tool: s.tool,
+      sid: s.sid,
+    };
+    if (s.origin !== undefined) tab.origin = s.origin;
+    if (s.gatewayMode !== undefined) tab.gatewayMode = s.gatewayMode;
+    if (s.bare !== undefined) tab.bare = s.bare;
+    if (s.hostKind !== undefined) tab.hostKind = s.hostKind;
+    if (s.managedName !== undefined) tab.managedName = s.managedName;
+    if (s.attachLive !== undefined) tab.attachLive = s.attachLive;
+    return tab;
+  };
+  const slotsFor = (
+    project: string,
+  ): Array<{ session: DiscoveredSession; tab: LayoutTab }> => {
     // Per-project cap: explicit override, else the global default. <= 0 = no
     // limit (every live session of the project gets a tab) — `remote restore`
     // then sweeps the WHOLE fleet, duplicates included.
@@ -979,68 +1164,102 @@ export function groupSessions(
     const arr = [...registryBacked, ...scanned].sort(
       (a, b) => b.mtimeMs - a.mtimeMs,
     );
-    return arr.map((s, i) => {
-      const tab: LayoutTab = {
-        cwd: s.cwd,
-        label: s.label ?? (i === 0 ? s.project : `${s.project}#${i + 1}`),
-        tool: s.tool,
-        sid: s.sid,
-      };
-      if (s.origin !== undefined) tab.origin = s.origin;
-      if (s.gatewayMode !== undefined) tab.gatewayMode = s.gatewayMode;
-      if (s.bare !== undefined) tab.bare = s.bare;
-      if (s.hostKind !== undefined) tab.hostKind = s.hostKind;
-      if (s.managedName !== undefined) tab.managedName = s.managedName;
-      if (s.attachLive !== undefined) tab.attachLive = s.attachLive;
-      return tab;
-    });
+    return arr.map((s, i) => ({ session: s, tab: tabFor(s, i) }));
   };
 
-  const grouped = new Set<string>();
+  // Lot LG (D13) — first match wins, exactly one window per session. Sessions
+  // taken by an explicit group (placed or cap-dropped) never reach another
+  // window or the shared pool — a project listed in two groups is placed
+  // once, in the first matching group.
+  const taken = new Set<DiscoveredSession>();
   const windows: LayoutWindow[] = [];
+  const groupCapDrops: GroupCapDrop[] = [];
+  const hasExplicitGroups = cfg.groups.some((g) => !g.remote);
 
   for (const g of cfg.groups) {
     if (g.remote) continue; // remote groups are filled from SCW by the caller
+    // A non-positive global cap means "no limit" (same rule as slotsFor) —
+    // only an explicit per-group maxTabs ever caps an explicit window.
+    const cap =
+      g.maxTabs ??
+      (cfg.maxPerWindow <= 0 ? Number.POSITIVE_INFINITY : cfg.maxPerWindow);
     const tabs: LayoutTab[] = [];
+    const droppedNames: string[] = [];
+    const take = (s: DiscoveredSession, tab: LayoutTab): void => {
+      if (taken.has(s)) return;
+      taken.add(s);
+      if (tabs.length < cap) tabs.push(tab);
+      else droppedNames.push(tab.label);
+    };
+    // Named projects first, in config order (byte-identical to the
+    // projects-only layout for matcher-less configs)...
     for (const project of g.projects ?? []) {
-      grouped.add(project);
-      for (const slot of slotsFor(project)) {
-        if (tabs.length >= cfg.maxPerWindow) break;
-        tabs.push(slot);
-      }
+      for (const { session: s, tab } of slotsFor(project)) take(s, tab);
+      // ...sessions of a named project that the per-project cap cut are still
+      // the group's (legacy silent rule), never shared-pool candidates.
+      for (const s of byProject.get(project) ?? []) taken.add(s);
+    }
+    // ...then the other matchers (cwd prefix, tool, tags) in session order.
+    for (const s of sessions) {
+      if (taken.has(s)) continue;
+      if ((g.projects ?? []).includes(s.project)) continue;
+      if (!groupMatchesSession(s, g)) continue;
+      take(s, tabFor(s, 0));
     }
     if (tabs.length > 0) windows.push({ title: g.title, tabs });
+    if (droppedNames.length > 0) {
+      groupCapDrops.push({
+        group: g.title,
+        cap,
+        dropped: droppedNames.length,
+        names: droppedNames,
+      });
+    }
   }
 
   // remaining projects, most-recent project first, round-robin into shared wins
   const remaining = [...byProject.entries()]
-    .filter(([p]) => !grouped.has(p))
+    .filter(([, arr]) => arr.some((s) => !taken.has(s)))
     .sort((a, b) => projLatest(b[1]) - projLatest(a[1]))
     .map(([p]) => p);
-  const sharedSlots: LayoutTab[] = [];
-  for (const project of remaining) sharedSlots.push(...slotsFor(project));
+  const sharedSlots: Array<{ session: DiscoveredSession; tab: LayoutTab }> = [];
+  for (const project of remaining) {
+    for (const entry of slotsFor(project)) {
+      if (!taken.has(entry.session)) sharedSlots.push(entry);
+    }
+  }
 
-  const shared: LayoutTab[][] = Array.from(
+  const shared: LayoutWindow[] = Array.from(
     { length: Math.max(1, cfg.sharedWindows) },
-    () => [],
+    () => ({ title: "", tabs: [] }),
   );
   const maxShared = cfg.sharedWindows * cfg.maxPerWindow;
   let placed = 0;
-  for (const slot of sharedSlots) {
+  for (const entry of sharedSlots) {
     if (placed >= maxShared) break;
-    shared[placed % cfg.sharedWindows]!.push(slot);
+    taken.add(entry.session);
+    shared[placed % cfg.sharedWindows]!.tabs.push(entry.tab);
     placed++;
   }
   const dropped = sharedSlots.length - placed;
-  shared.forEach((tabs, i) => {
-    if (tabs.length > 0)
+  shared.forEach((win, i) => {
+    if (win.tabs.length > 0)
       windows.push({
         title: `${humanOutputText("restore.sharedWindow")} ${i + 1}`,
-        tabs,
+        tabs: win.tabs,
       });
   });
 
-  return { windows, dropped };
+  const emptyGroups = hasExplicitGroups
+    ? cfg.groups
+        .filter((g) => !g.remote)
+        .map((g) => g.title)
+        .filter((title) => !windows.some((w) => w.title === title))
+    : [];
+  const unmatched = hasExplicitGroups
+    ? sharedSlots.map((entry) => entry.tab.label)
+    : [];
+  return { windows, dropped, emptyGroups, unmatched, groupCapDrops };
 }
 
 function projLatest(arr: DiscoveredSession[]): number {
@@ -1105,6 +1324,14 @@ export type RestorePlanView = {
   facetUpdates: Array<[string, string]>;
   dryRun: boolean;
   observed: RestoreObserved;
+  /**
+   * Lot LG (D13) — explicit-group plan account: per-group cap overflow
+   * (in config order), groups that received no tab, sessions matching no
+   * group. Empty/absent = nothing to report (goldens stay byte-identical).
+   */
+  groupCapDrops?: GroupCapDrop[];
+  emptyGroups?: string[];
+  unmatched?: string[];
 };
 
 /**
@@ -1141,6 +1368,20 @@ export function renderRestorePlan(
   if (view.dryRun && view.facetUpdates.length > 0)
     lines.push(
       `  (! ${humanOutputText("restore.wouldClassifyPrefix", locale)} ${view.facetUpdates.length} ${humanOutputText("restore.wouldClassifyBody", locale)} ${view.facetUpdates.map(([id, facet]) => `${id}=${facet}`).join(", ")})`,
+    );
+  // Lot LG (D13) — the explicit-group plan account, through the catalog.
+  for (const d of view.groupCapDrops ?? []) {
+    lines.push(
+      `  (! ${d.group}: ${d.dropped} ${humanOutputText("restore.groupCapDropped", locale)} ${d.cap}: ${d.names.join(", ")})`,
+    );
+  }
+  if ((view.emptyGroups ?? []).length > 0)
+    lines.push(
+      `  (! ${humanOutputText("restore.emptyGroups", locale)}: ${view.emptyGroups!.join(", ")})`,
+    );
+  if ((view.unmatched ?? []).length > 0)
+    lines.push(
+      `  (! ${humanOutputText("restore.unmatchedSessions", locale)}: ${view.unmatched!.join(", ")})`,
     );
   lines.push(renderRestoreTotals(view.observed, view.dryRun, locale));
   return lines;
@@ -1298,7 +1539,20 @@ export function restore(
       // best-effort: a persistence hiccup must never break restore
     }
   }
-  const scanned = discoverSessions(cfg.maxAgeHours * 3600 * 1000);
+  // Lot LG (D13) — admission roots for discovery: a LOCAL group's
+  // `cwdPrefixes` matcher admits rows outside the default `~/src` scan root
+  // (remote groups are SCW-filled and contribute nothing here). The scan
+  // covers the group roots too, exempt from the age cutoff (a group
+  // explicitly asks for that fleet); the registry read below admits the
+  // same roots.
+  const admissionRoots = cfg.groups.flatMap((g) =>
+    g.remote === true ? [] : (g.cwdPrefixes ?? []),
+  );
+  const scanned = discoverSessions(
+    cfg.maxAgeHours * 3600 * 1000,
+    home,
+    admissionRoots,
+  );
   // ONE host-inventory snapshot for the whole restore (§4.1 / F3): the
   // attach-live gate, the skip notes below AND the layout render consume
   // this same capture — launchLayout has no reader of its own to diverge on.
@@ -1335,6 +1589,7 @@ export function restore(
       {
         collectExcluded: excluded,
         ...(opts.includeSecondary === true ? { includeSecondary: true } : {}),
+        ...(admissionRoots.length > 0 ? { admissionRoots } : {}),
       },
     ),
     scanned,
@@ -1428,17 +1683,49 @@ export function restore(
     refusedSessions.size === 0
       ? sessions
       : sessions.filter((s) => !refusedSessions.has(s.label ?? s.project));
-  const { windows: localWindows, dropped } = groupSessions(launchable, cfg);
+  const {
+    windows: localWindows,
+    dropped,
+    emptyGroups,
+    unmatched: unmatchedLocal,
+    groupCapDrops,
+  } = groupSessions(launchable, cfg);
   const localByTitle = new Map(localWindows.map((w) => [w.title, w]));
 
-  // Remote windows: each `remote: true` group is filled with the SCW tabs.
+  // Remote windows: each `remote: true` group is filled with its OWN slice
+  // of the SCW tabs (first match wins, never the same tab twice). A remote
+  // group with no matchers is the explicit catch-all; tabs claimed by no
+  // remote group join the unmatched plan names instead of vanishing.
+  const remoteAssigned = assignRemoteTabsToGroups(remoteTabs, cfg.groups);
+  const claimedRemote = new Set<RemoteTab>();
+  for (const claimed of remoteAssigned.values()) {
+    for (const t of claimed) claimedRemote.add(t);
+  }
+  const unmatchedRemote = remoteTabs
+    .filter((t) => !claimedRemote.has(t))
+    .map((t) => t.label);
   const remoteByTitle = new Map<string, LayoutWindow>();
   for (const g of cfg.groups) {
     if (!g.remote) continue;
-    const tabs: LayoutTab[] = remoteTabs
-      .slice(0, cfg.maxPerWindow)
-      .map((t) => ({ label: t.label, cwd: t.cwd, remoteId: t.id }));
+    const cap =
+      g.maxTabs ??
+      (cfg.maxPerWindow <= 0 ? Number.POSITIVE_INFINITY : cfg.maxPerWindow);
+    const claimed = remoteAssigned.get(g.title) ?? [];
+    const kept = claimed.slice(0, cap);
+    const tabs: LayoutTab[] = kept.map((t) => ({
+      label: t.label,
+      cwd: t.cwd,
+      remoteId: t.id,
+    }));
     if (tabs.length > 0) remoteByTitle.set(g.title, { title: g.title, tabs });
+    if (claimed.length > kept.length) {
+      groupCapDrops.push({
+        group: g.title,
+        cap,
+        dropped: claimed.length - kept.length,
+        names: claimed.slice(kept.length).map((t) => t.label),
+      });
+    }
   }
 
   // Order: follow cfg.groups (local or remote), then any shared windows.
@@ -1481,6 +1768,7 @@ export function restore(
   };
   // Lot L6 (D14) — the whole human plan renders through the locale catalog
   // (one run = one language), including the L5 exclusion account.
+  // Lot LG (D13) — plus the explicit-group plan account below it.
   for (const line of renderRestorePlan(
     {
       windows,
@@ -1492,6 +1780,12 @@ export function restore(
       facetUpdates: [...facetUpdates],
       dryRun: opts.dryRun ?? false,
       observed,
+      // A group-scoped plan shows only its own cap account, as before.
+      groupCapDrops: opts.group
+        ? groupCapDrops.filter((d) => titleMatches(d.group, opts.group!))
+        : groupCapDrops,
+      emptyGroups: opts.group ? [] : emptyGroups,
+      unmatched: opts.group ? [] : [...unmatchedLocal, ...unmatchedRemote],
     },
   )) {
     stderr.write(`${line}\n`);
