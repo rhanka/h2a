@@ -244,16 +244,28 @@ describe("lot L5 RED: secondaries excluded by provenance (D12)", () => {
   });
 
   it("should exclude remote delegated sessions from the default restore plan", () => {
-    const tabs = selectRemoteTabsForGroups([
-      { id: "r-prim", label: "Primary", cwd: "/w/prim" },
+    // Round-1 (D12c): only positively-classified primaries restore — the
+    // unfaceted row is excluded and named, not admitted.
+    const excludedUnclassified: string[] = [];
+    const tabs = selectRemoteTabsForGroups(
+      [
+        { id: "r-prim", label: "Primary", cwd: "/w/prim", restoreFacet: "primary" },
+        { id: "r-unclass", label: "Unknown", cwd: "/w/unknown" },
+        {
+          id: "r-sec",
+          label: "Delegated",
+          cwd: "/w/delegated",
+          restoreFacet: "secondary",
+        },
+      ],
       {
-        id: "r-sec",
-        label: "Delegated",
-        cwd: "/w/delegated",
-        restoreFacet: "secondary",
+        onExcludedUnclassified: (excluded) => {
+          for (const t of excluded) excludedUnclassified.push(t.id);
+        },
       },
-    ]);
+    );
     expect(tabs.map((t) => t.id)).toEqual(["r-prim"]);
+    expect(excludedUnclassified).toEqual(["r-unclass"]);
     const admitted = selectRemoteTabsForGroups(
       [
         {
