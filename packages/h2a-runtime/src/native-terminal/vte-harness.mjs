@@ -57,7 +57,9 @@ function parseArgv(argv) {
 }
 
 function haveBinary(name) {
-  return spawnSync("command", ["-v", name], { encoding: "utf8" }).status === 0;
+  // `command` is a shell builtin, not an executable: resolve through sh.
+  // `name` is always one of the hardcoded prerequisite names below.
+  return spawnSync("/bin/sh", ["-c", `command -v ${name}`], { encoding: "utf8" }).status === 0;
 }
 
 async function main() {
