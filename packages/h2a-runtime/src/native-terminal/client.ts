@@ -194,6 +194,21 @@ export class NativeTerminalClient {
     await this.#request("write", { lease, data });
   }
 
+  inject(
+    id: string,
+    options: {
+      text: string;
+      requestId: string;
+      incarnation?: string;
+      activityWindowMs?: number;
+      actor?: string;
+    },
+  ): Promise<import("./host.js").NativeTerminalInjectOutcome> {
+    return this.#request("inject", { id, ...options }) as Promise<
+      import("./host.js").NativeTerminalInjectOutcome
+    >;
+  }
+
   async resize(lease: NativeTerminalControllerLease, cols: number, rows: number): Promise<void> {
     await this.#request("resize", { lease, cols, rows });
   }

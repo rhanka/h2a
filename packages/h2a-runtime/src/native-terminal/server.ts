@@ -271,6 +271,35 @@ function dispatch(host: NativeTerminalHost, context: ConnectionContext, request:
       host.write(lease, requiredString(record.data, "terminal input"));
       return null;
     }
+    case "inject": {
+      // Lot L2: lease-free host-side injection. No controller lease is
+      // required, tracked or revoked here — that is the point: the human
+      // window stays attached. All safety is decided inside host.inject.
+      const record = requiredRecord(params, "params");
+      if (record.incarnation !== undefined && typeof record.incarnation !== "string") {
+        throw new TypeError("terminal inject incarnation must be a string");
+      }
+      if (record.activityWindowMs !== undefined && !Number.isSafeInteger(record.activityWindowMs)) {
+        throw new TypeError("terminal inject activity window must be a safe integer");
+      }
+      if (record.actor !== undefined && typeof record.actor !== "string") {
+        throw new TypeError("terminal inject actor must be a string");
+      }
+      const options: {
+        text: string;
+        requestId: string;
+        incarnation?: string;
+        activityWindowMs?: number;
+        actor?: string;
+      } = {
+        text: requiredString(record.text, "terminal inject text"),
+        requestId: requiredIdentifier(record.requestId, "terminal inject request id"),
+      };
+      if (typeof record.incarnation === "string") options.incarnation = record.incarnation;
+      if (typeof record.activityWindowMs === "number") options.activityWindowMs = record.activityWindowMs;
+      if (typeof record.actor === "string") options.actor = record.actor;
+      return host.inject(requiredIdentifier(record.id, "session id"), options);
+    }
     case "resize": {
       const record = requiredRecord(params, "params");
       const lease = ownedLease(context, record);
