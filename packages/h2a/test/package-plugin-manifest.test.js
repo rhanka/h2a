@@ -6,6 +6,19 @@ function json(relative) {
   return JSON.parse(readFileSync(new URL(relative, import.meta.url), "utf8"));
 }
 
+test("default packaged hooks omit the workspace scope guard and retain the manual CLI hook", () => {
+  const { hooks } = json("../hooks/hooks.json");
+  assert.doesNotMatch(JSON.stringify(hooks), /workspace-scope-guard/);
+  assert.deepEqual(hooks.PreToolUse, [{
+    matcher: "Bash",
+    hooks: [{
+      type: "command",
+      command: 'node "${CLAUDE_PLUGIN_ROOT}/hooks/deny-manual-h2a-cli.mjs"',
+      timeout: 5
+    }]
+  }]);
+});
+
 test("the published h2a package carries a singleton h2a MCP endpoint", () => {
   const pkg = json("../package.json");
   const claudeManifest = json("../.claude-plugin/plugin.json");

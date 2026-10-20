@@ -258,7 +258,7 @@ test("host plugin installs only pre-action scope hooks for agy and muse", () => 
   try {
     for (const host of ["agy", "muse"]) {
       let stderr = "";
-      const rc = runCli(["host", "plugin", "--host", host, "--instance", `${host}:p1`, "--write", join(dir, "x.json")], {
+      const rc = runCli(["host", "plugin", "--host", host, "--instance", `${host}:p1`, "--write", join(dir, "x.json"), "--workspace-scope", "on"], {
         stdout: { write: () => {} }, stderr: { write: (c) => void (stderr += c) }
       });
       assert.equal(rc, 0, stderr);
