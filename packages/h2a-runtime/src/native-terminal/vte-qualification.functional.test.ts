@@ -8,13 +8,15 @@
  * through the INNER side (receipt files): the VTE's answers reach the inner
  * reader only when the bridge+host let them through.
  *
- * On a machine without the VTE binaries this file reports INCOMPLETE
- * (loudly, never a silent skip): D10 qualification there is incomplete and
- * the deterministic results in `terminal-replies.functional.test.ts` stand
+ * On a machine without the VTE binaries — or where no X server can run
+ * (the L0 test barrier mounts /tmp/.X11-unix read-only, so Xvfb cannot
+ * create its socket/lock there) — this file reports INCOMPLETE (loudly,
+ * never a silent skip): D10 qualification there is incomplete and the
+ * deterministic results in `terminal-replies.functional.test.ts` stand
  * separately.
  */
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { closeSync, constants, openSync, readFileSync, writeSync } from "node:fs";
+import { closeSync, constants, openSync, readFileSync, rmSync, writeFileSync, writeSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -28,18 +30,37 @@ const E = "\x1b";
 const TUI_QUERIES = `${E}[c${E}[?2026$p${E}[>q`;
 
 function haveBinary(name: string): boolean {
-  return spawnSync("command", ["-v", name], { encoding: "utf8" }).status === 0;
+  // `command` is a shell builtin, not an executable: resolve through sh.
+  return spawnSync("/bin/sh", ["-c", `command -v ${name}`], { encoding: "utf8" }).status === 0;
+}
+
+function canRunXServer(): boolean {
+  // A real VTE needs a real X server, and Xvfb needs a writable
+  // /tmp/.X11-unix (socket + lock file) — the L0 filesystem barrier mounts
+  // it read-only, so no X server can run inside the authorised envelope no
+  // matter which binaries are installed. Probe it directly: fast, honest.
+  try {
+    const probe = join("/tmp/.X11-unix", `.h2a-vte-probe-${process.pid}`);
+    writeFileSync(probe, "probe");
+    rmSync(probe);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 const vteAvailable =
   process.platform === "linux" &&
   haveBinary("Xvfb") &&
   haveBinary("dbus-run-session") &&
-  haveBinary("gnome-terminal");
+  haveBinary("gnome-terminal") &&
+  canRunXServer();
 
 if (!vteAvailable) {
   process.stderr.write(
-    "[h2a] VTE qualification INCOMPLETE: need Xvfb + dbus-run-session + gnome-terminal; " +
+    "[h2a] VTE qualification INCOMPLETE: need Xvfb + dbus-run-session + gnome-terminal " +
+      "AND a writable /tmp/.X11-unix (the L0 barrier mounts it read-only, so Xvfb " +
+      "cannot create its socket/lock there: `Could not create lock file`); " +
       "deterministic results stand separately.\n",
   );
 }
@@ -111,24 +132,39 @@ describe.skipIf(!vteAvailable)("lot L4-replies VTE acceptance (D10)", () => {
     const opTs = fileURLToPath(new URL("./op.ts", import.meta.url));
     const harness = fileURLToPath(new URL("./vte-harness.mjs", import.meta.url));
 
-    async function runHarness(id: string, fifo: string, out: string, err: string): Promise<ChildProcess> {
+    async function runHarness(id: string, fifo: string, out: string, err: string, harnessErr: string): Promise<ChildProcess> {
+      const harnessErrFd = openSync(harnessErr, "a");
       const child = spawn(process.execPath, [harness,
         "--display", freeDisplay(), "--tmp", directory, "--socket", socketPath,
         "--id", id, "--op", opTs, "--tsx", loader,
         "--fifo", fifo, "--out", out, "--err", err,
-      ], { cwd: directory, env, stdio: "ignore" });
+      ], { cwd: directory, env, stdio: ["ignore", "ignore", harnessErrFd] });
       children.push(child);
       return child;
     }
 
-    async function openWriter(fifo: string): Promise<number> {
-      const deadline = Date.now() + 30_000;
+    async function openWriter(fifo: string, harnessErr: string): Promise<number> {
+      const deadline = Date.now() + 60_000;
+      let lastCode: string | undefined;
       for (;;) {
         try {
           return openSync(fifo, constants.O_WRONLY | constants.O_NONBLOCK);
         } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== "ENXIO") throw error;
-          if (Date.now() > deadline) throw new Error("VTE qualification: no FIFO reader came up");
+          const code = (error as NodeJS.ErrnoException).code;
+          lastCode = code;
+          // ENOENT: the harness has not created the FIFO yet; ENXIO: created
+          // but no reader yet (gnome-terminal still coming up). Both are the
+          // expected rendezvous, not failures.
+          if (code !== "ENXIO" && code !== "ENOENT") throw error;
+          if (Date.now() > deadline) {
+            let harnessSaid = "";
+            try {
+              harnessSaid = readFileSync(harnessErr, "utf8");
+            } catch { /* no harness log at all */ }
+            throw new Error(
+              `VTE qualification: no FIFO reader came up (last open error: ${lastCode}; harness said: ${JSON.stringify(harnessSaid.slice(-2000))})`,
+            );
+          }
           await new Promise((resolve) => setTimeout(resolve, 100));
         }
       }
@@ -147,8 +183,9 @@ describe.skipIf(!vteAvailable)("lot L4-replies VTE acceptance (D10)", () => {
       cwd: directory, env: env as Record<string, string>, cols: 80, rows: 24,
     });
     const fifoA = join(directory, "fifo-a");
-    const harnessA = await runHarness("vte-a", fifoA, join(directory, "out-a.log"), join(directory, "err-a.log"));
-    const writerA = await openWriter(fifoA);
+    const harnessErrA = join(directory, "harness-a.log");
+    const harnessA = await runHarness("vte-a", fifoA, join(directory, "out-a.log"), join(directory, "err-a.log"), harnessErrA);
+    const writerA = await openWriter(fifoA, harnessErrA);
     await until(async () => {
       try {
         const content = await readFile(receiptA, "utf8");
@@ -173,8 +210,9 @@ describe.skipIf(!vteAvailable)("lot L4-replies VTE acceptance (D10)", () => {
       cwd: directory, env: { ...env, H2A_NATIVE_TERMINAL: "1" } as Record<string, string>, cols: 80, rows: 24,
     });
     const fifoB = join(directory, "fifo-b");
-    const harnessB = await runHarness("vte-b", fifoB, join(directory, "out-b.log"), join(directory, "err-b.log"));
-    const writerB = await openWriter(fifoB);
+    const harnessErrB = join(directory, "harness-b.log");
+    const harnessB = await runHarness("vte-b", fifoB, join(directory, "out-b.log"), join(directory, "err-b.log"), harnessErrB);
+    const writerB = await openWriter(fifoB, harnessErrB);
     // Let the CLI exit and the VTE's delayed answers arrive, then type.
     await new Promise((resolve) => setTimeout(resolve, 2500));
     writeSync(writerB, "HUMAN-VTE-1\r");
@@ -191,5 +229,5 @@ describe.skipIf(!vteAvailable)("lot L4-replies VTE acceptance (D10)", () => {
     expect(receiptBContent).not.toMatch(/\x1b\[\?[0-9;]*c/);
     expect(receiptBContent).not.toMatch(/\x1b\[\d+;\d+R/);
     expect(receiptBContent).not.toMatch(/\x1b\[\?[0-9;]*\$y/);
-  }, 120_000);
+  }, 240_000);
 });
