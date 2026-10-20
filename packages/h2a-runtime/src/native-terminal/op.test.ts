@@ -47,6 +47,7 @@ type AttachClient = Pick<
   | "acquireController"
   | "releaseController"
   | "write"
+  | "writeReply"
   | "resize"
   | "close"
 >;
@@ -95,7 +96,10 @@ describe("native terminal attach recovery", () => {
       async releaseController() { return { controlled: false, controllerEpoch: 1 }; },
       async readOutput() { const data = chunks[seq++] ?? ""; return replay(seq, data); },
       async state() { return now >= 1000 ? exited() : running(); },
-      async write() {}, async resize() {}, close() {},
+      async write() {},
+      async writeReply() { return { outcome: "applied" }; },
+      async resize() {},
+      close() {},
     };
     await runAttach("h2a-alpha", {
       connect: async () => client,
@@ -129,6 +133,7 @@ describe("native terminal attach recovery", () => {
       },
       async state() { return now >= 1_000 ? exited() : running(true); },
       async write() {},
+      async writeReply() { return { outcome: "applied" }; },
       async resize() {},
       close() {},
     };
@@ -248,6 +253,10 @@ describe("native terminal attach recovery", () => {
             }
             return Promise.resolve();
           },
+          async writeReply(_lease, unit) {
+            writes.push({ connection, data: unit.bytes, unit });
+            return { outcome: "applied" };
+          },
           async resize() {},
           close() {
             if (closed) return;
@@ -326,7 +335,10 @@ describe("lot L4-hint RED: survivor hints after the PTY ends", () => {
       async releaseController() { return { controlled: false, controllerEpoch: 1 }; },
       async readOutput() { return replay(0, ""); },
       async state() { return now() >= exitAt ? exited() : running(true); },
-      async write() {}, async resize() {}, close() {},
+      async write() {},
+      async writeReply() { return { outcome: "applied" }; },
+      async resize() {},
+      close() {},
     };
   }
 
@@ -441,7 +453,10 @@ describe("session exit crash records (revcrashlog constat 2)", () => {
       async acquireController() { throw new Error("must not acquire an exited session"); },
       async releaseController() {},
       async readOutput() { throw new Error("must not read an exited session"); },
-      async write() {}, async resize() {}, close() {},
+      async write() {},
+      async writeReply() { return { outcome: "applied" }; },
+      async resize() {},
+      close() {},
     };
     const code = await runAttach("h2a-alpha", {
       connect: async () => client as never,
@@ -466,7 +481,10 @@ describe("session exit crash records (revcrashlog constat 2)", () => {
       async acquireController() { throw missing; },
       async releaseController() {},
       async readOutput(): Promise<never> { throw missing; },
-      async write() {}, async resize() {}, close() {},
+      async write() {},
+      async writeReply() { return { outcome: "applied" }; },
+      async resize() {},
+      close() {},
     };
     const stdout = new FakeOutput();
     const code = await runAttach("h2a-gone", {

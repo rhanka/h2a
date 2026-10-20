@@ -8,6 +8,9 @@
  * - the pty `onData` guard (`host.ts`);
  * - the pty `onExit` guard (`host.ts`);
  * - the pty DSR reply write (`host.ts`);
+ * - terminal-reply final-write swallows (`host.ts`: a reply the bridge
+ *   accepted but that is stale by apply time is swallowed with zero bytes,
+ *   counted here and logged — the orphan-reply counter);
  * - socket connection errors and client frame destroys (`server.ts`);
  * - the net.Server listener handler (`server.ts`), per classification;
  * - bounded respawn abandonment (`supervisor.ts`);
@@ -28,6 +31,7 @@ export const HOST_FAULT_COUNTERS = {
   hostLogStderrStreamError: "host-log.stderr-stream-error",
   ptyDataCallbackContained: "pty.data-callback-contained",
   ptyExitCallbackContained: "pty.exit-callback-contained",
+  terminalReplySwallowed: "terminal.reply-swallowed",
   serverListenerErrorRecoverable: "server.listener-error-recoverable",
   serverListenerErrorExhausted: "server.listener-error-exhausted",
   serverListenerErrorUnusable: "server.listener-error-unusable",

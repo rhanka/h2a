@@ -398,6 +398,8 @@ describe("NativeTerminalHost", () => {
         latestSeq: 1,
         exit: { exitCode: 7, signal: 15 },
         stopSignal: null,
+        // Lot L4-replies: typed-reply correlation counter (no marker seen).
+        applicationEpoch: 0,
         controlled: false,
         controller: null,
         controllerEpoch: 0,
@@ -412,6 +414,8 @@ describe("NativeTerminalHost", () => {
         latestSeq: 2,
         exit: null,
         stopSignal: null,
+        // Lot L4-replies: typed-reply correlation counter (no marker seen).
+        applicationEpoch: 0,
         controlled: false,
         controller: null,
         controllerEpoch: 0,

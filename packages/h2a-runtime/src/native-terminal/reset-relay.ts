@@ -7,6 +7,7 @@ export class TerminalResetRelay {
   constructor(
     readonly emit: (data: string) => void,
     readonly reset: () => string,
+    readonly onMarker?: () => void,
   ) {}
 
   feed(data: string): void {
@@ -18,6 +19,11 @@ export class TerminalResetRelay {
       if (index > 0) this.emit(remaining.slice(0, index));
       const reset = this.reset();
       if (reset) this.emit(reset);
+      try {
+        this.onMarker?.();
+      } catch {
+        // A marker observer must never break the relay or the modes reset.
+      }
       remaining = remaining.slice(index + NATIVE_TERMINAL_RESET_MARKER.length);
     }
     let carry = Math.min(remaining.length, NATIVE_TERMINAL_RESET_MARKER.length - 1);
