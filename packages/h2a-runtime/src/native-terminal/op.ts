@@ -50,6 +50,7 @@ import type {
   NativeTerminalSessionState,
 } from "./host.js";
 import {
+  TERMINAL_REPLY_BRIDGE_FLUSH_DELAY_MS,
   TerminalReplyClassifier,
   stripTerminalQueries,
   type ClassifiedPart,
@@ -240,7 +241,12 @@ async function withController<T>(
   id: string,
   action: (lease: NativeTerminalControllerLease) => Promise<T>,
 ): Promise<T> {
-  const lease = await client.acquireController(id, `h2a-op-${process.pid}`);
+  // Round-1 (D6): machine acts through the automation activity — never the
+  // human one. A machine paste/resize/enter via a human-stamped lease would
+  // forge human activity AND advance the host's human-input epoch, poisoning
+  // the inject composition gate (and the anti-overwrite window) with bytes
+  // no human composed. Only the attach bridge acquires "human".
+  const lease = await client.acquireController(id, `h2a-op-${process.pid}`, "automation");
   try {
     return await action(lease);
   } finally {
@@ -519,6 +525,10 @@ export async function runAttach(
   };
   const terminate = (): void => {
     detached = true;
+    if (replyFlushTimer !== undefined) {
+      clearTimeout(replyFlushTimer);
+      replyFlushTimer = undefined;
+    }
     try { resetRelay.flush(); resetModes(); } finally {
       if (isRawCapable) stdin.setRawMode(wasRaw);
       stdin.pause();
@@ -633,6 +643,43 @@ export async function runAttach(
     });
   };
 
+  const enqueueInputBytes = (buf: Buffer): boolean => {
+    if (pendingInputBytes + buf.length > ATTACH_PENDING_INPUT_MAX_BYTES) {
+      stdout.write(
+        "\r\n[h2a] native attach input buffer full during reconnect; detaching " +
+          "without stopping the session\r\n",
+      );
+      appendCrashLog("attach", { event: "refusal", sessionId: id, reason: "input-buffer-full" });
+      detached = true;
+      userDetached = true;
+      closeActive();
+      return false;
+    }
+    pendingInput.push({ kind: "bytes", buf });
+    pendingInputBytes += buf.length;
+    return true;
+  };
+  // Round-1 (D10/sol-6): the classifier holds an ambiguous trailing bare
+  // ESC for the next chunk. When no chunk follows — a genuine lone Escape
+  // key — flush it as input after a short bound so the keypress is delayed,
+  // never lost, while split replies arriving in the same burst resolve
+  // first. Partial introducers and paste carries are NEVER flushed here
+  // (their continuation may legitimately arrive later — see the split-reply
+  // functional tests). The timer is cleared on detach/terminate; held bytes
+  // are then dropped with the queue.
+  let replyFlushTimer: NodeJS.Timeout | undefined;
+  const scheduleReplyFlush = (): void => {
+    if (!replyClassifier.hasHeldBareEscape || replyFlushTimer !== undefined || detached) return;
+    replyFlushTimer = setTimeout(() => {
+      replyFlushTimer = undefined;
+      if (detached) return;
+      for (const part of replyClassifier.flush()) {
+        if (part.kind !== "input") continue;
+        if (!enqueueInputBytes(Buffer.from(part.text, "utf8"))) return;
+      }
+      pumpInput();
+    }, TERMINAL_REPLY_BRIDGE_FLUSH_DELAY_MS);
+  };
   const onInput = (value: Buffer | string): void => {
     const chunk = Buffer.isBuffer(value) ? Buffer.from(value) : Buffer.from(value);
     if (chunk.includes(DETACH_BYTE)) {
@@ -648,19 +695,7 @@ export async function runAttach(
     for (const part of replyClassifier.feed(chunk.toString("utf8"))) {
       if (part.kind === "input") {
         const buf = Buffer.from(part.text, "utf8");
-        if (pendingInputBytes + buf.length > ATTACH_PENDING_INPUT_MAX_BYTES) {
-          stdout.write(
-            "\r\n[h2a] native attach input buffer full during reconnect; detaching " +
-              "without stopping the session\r\n",
-          );
-          appendCrashLog("attach", { event: "refusal", sessionId: id, reason: "input-buffer-full" });
-          detached = true;
-          userDetached = true;
-          closeActive();
-          return;
-        }
-        pendingInput.push({ kind: "bytes", buf });
-        pendingInputBytes += buf.length;
+        if (!enqueueInputBytes(buf)) return;
         continue;
       }
       // A machine reply: never plain-written, even to an old host.
@@ -693,6 +728,7 @@ export async function runAttach(
       });
       pendingInputBytes += replyBytes;
     }
+    scheduleReplyFlush();
     pumpInput();
   };
   stdin.on("data", onInput);
@@ -1081,18 +1117,30 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
         });
         return 0;
       }
-      // Lot L2: reimplemented on the lease-free host inject path. Injection
-      // works with a human window attached; only recent human activity
-      // defers (typed, with retryAfterMs). Outcomes are never flattened:
-      // callers distinguish driven / deferred-recent-human / failed.
+      // Round-1 (D5–D7): reimplemented on the lease-free host inject path.
+      // Injection works with a human window attached. The request binds the
+      // session incarnation observed immediately before the commit (a stale
+      // target refuses with zero bytes instead of typing into a recycled
+      // session). Outcomes are never flattened: `driven` carries the
+      // automation seq; every host refusal/deferral stays typed as
+      // `deferred` with its reason so the wake chain STOPS instead of
+      // falling through to tmux/headless (D9); only transport failures
+      // (unknown session, old host without the operation) read `failed`.
       const requestId = parsed.flags.get("request-id") ?? randomUUID();
       const { client } = await owningClient(parsed, target.id);
       try {
+        let incarnation: string | undefined;
+        try {
+          incarnation = (await client.state(target.id)).incarnation;
+        } catch {
+          incarnation = undefined;
+        }
         let outcome: NativeTerminalInjectOutcome;
         try {
           outcome = await client.inject(target.id, {
             text,
             requestId,
+            ...(incarnation !== undefined ? { incarnation } : {}),
             activityWindowMs: nativeDriveActivityWindowMs(),
             actor: `owner-channel/op.js pid=${process.pid}`,
           });
@@ -1111,7 +1159,12 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
           emit({ outcome: "deferred", reason: "deferred-recent-human", retryAfterMs: outcome.retryAfterMs });
           return 0;
         }
-        emit({ outcome: "failed", reason: outcome.outcome });
+        // Every host refusal (stale incarnation, unproven composition,
+        // shell facet, unavailable audit, evicted request) stops the chain
+        // with its typed reason: the native transport owns this target, so
+        // falling through to another terminal or a headless spawn would
+        // type the line where it was never admitted (D9).
+        emit({ outcome: "deferred", reason: outcome.outcome });
         return 0;
       } finally {
         client.close();

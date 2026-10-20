@@ -449,14 +449,27 @@ describe.skipIf(process.platform !== "linux")("h2a drive native PTY backchannel"
       );
       assert.equal((await client.state(sessionId)).controlled, true);
 
-      // Real human typing defers with a typed, retryable reason and zero
-      // bytes — the lease is still held throughout.
+      // Real human typing is never typed over, with zero bytes — the lease
+      // is still held throughout. Round-1 (D6/P1): inside the activity
+      // window the drive defers with a typed, retryable reason
+      // (`deferred-recent-human`); once the window expires the unconsumed
+      // draft may still sit in readline, so the drive refuses
+      // (`refused-unproven-composition`) — an expired timer alone never
+      // proves an empty composer. The op round-trip (tsx startup) may cross
+      // the 300 ms fixture window either way, so both typed non-driven
+      // outcomes are accepted; a `driven` here would be the P1 defect.
       await client.write(humanLease, "human-typing-now\r");
       const deferred = opDrive("[h2a-wake must-wait]", "attached-req-2");
       assert.equal(deferred.status, 0);
       assert.equal(deferred.payload.outcome, "deferred");
-      assert.equal(deferred.payload.reason, "deferred-recent-human");
-      assert.ok(typeof deferred.payload.retryAfterMs === "number" && (deferred.payload.retryAfterMs as number) > 0);
+      assert.ok(
+        deferred.payload.reason === "deferred-recent-human" ||
+          deferred.payload.reason === "refused-unproven-composition",
+        `typed refusal, got ${JSON.stringify(deferred.payload.reason)}`,
+      );
+      if (deferred.payload.reason === "deferred-recent-human") {
+        assert.ok(typeof deferred.payload.retryAfterMs === "number" && (deferred.payload.retryAfterMs as number) > 0);
+      }
       assert.doesNotMatch(
         (await client.readOutput(sessionId, 0)).chunks.map((chunk) => chunk.data).join(""),
         /\[h2a-wake must-wait\]/,
