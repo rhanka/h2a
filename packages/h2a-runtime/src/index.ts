@@ -2754,7 +2754,11 @@ export function printRestoreLedger(
     const status = humanOutputText(
       entry.outcome === "launched"
         ? "restore.ledger.launched"
-        : "restore.ledger.blocked",
+        : entry.outcome === "already-active"
+          ? "restore.ledger.alreadyActive"
+          : entry.outcome === "deferred"
+            ? "restore.ledger.deferred"
+            : "restore.ledger.blocked",
       locale,
     );
     const where = entry.window !== undefined ? ` → ${entry.window}` : "";
@@ -10224,6 +10228,22 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               // best-effort: the refusal notes above already reached stderr
             }
           }
+        }
+        // Lot L1b (D2): the exit status answers "did anything remain
+        // unactioned?" — non-zero iff the ledger is non-empty AND no entry
+        // made progress (no launched, no already-active) AND this is a real
+        // run. A dry run previews only (always zero); an empty ledger means
+        // there was nothing to do (zero); an already-active primary means
+        // the session is up (zero).
+        if (
+          !opts.dryRun &&
+          ledgerEntries.length > 0 &&
+          !ledgerEntries.some(
+            (e) =>
+              e.outcome === "launched" || e.outcome === "already-active",
+          )
+        ) {
+          process.exitCode = 1;
         }
         // Lot L6 (D14): the totals line reports observed outcomes from the
         // D2 ledger and the launch counts — never the planned tab count.

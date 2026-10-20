@@ -72,6 +72,10 @@ export {
   tabCommand,
   type HostViewSnapshot,
 } from "./launch-layout.js";
+import {
+  decideInPlaceResume,
+  type HostProcessSnapshot,
+} from "./launch-layout.js";
 
 export type DiscoveredSession = {
   project: string;
@@ -920,9 +924,18 @@ export function mergeDiscovered(
   ];
   const deduped: DiscoveredSession[] = [];
   const indexByResumeId = new Map<string, number>();
+  const seenAttachIdentity = new Set<string>();
   for (const session of merged) {
     // An empty sid is an attach-only live row, not a resume request.
     if (session.sid.length === 0) {
+      // Lot L1b — resume-UUID dedup never sees attach-only rows, so two
+      // enrolled rows for ONE live terminal (run-enrolled + hook-enrolled
+      // twins) would emit two attach tabs. Dedup by TERMINAL identity
+      // instead: the managed session name, falling back to project+cwd.
+      const identity =
+        session.managedName ?? JSON.stringify([session.project, session.cwd]);
+      if (seenAttachIdentity.has(identity)) continue;
+      seenAttachIdentity.add(identity);
       deduped.push(session);
       continue;
     }
@@ -1274,7 +1287,7 @@ function projLatest(arr: DiscoveredSession[]): number {
  */
 export type RestoreLedgerEntry = {
   session: string;
-  outcome: "launched" | "blocked" | "skipped" | "failed";
+  outcome: "launched" | "blocked" | "skipped" | "failed" | "already-active" | "deferred";
   window?: string;
   reason?: string;
   remedy?: string;
@@ -1290,6 +1303,9 @@ export type RestoreLedgerSummary = {
   blocked: number;
   skipped: number;
   failed: number;
+  /** Lot L1b — observed in-place outcomes (attach/defer, never inject). */
+  "already-active": number;
+  deferred: number;
 };
 
 /** Count the observed outcomes in one ledger (machine values in/out). */
@@ -1301,6 +1317,8 @@ export function summarizeRestoreLedger(
     blocked: 0,
     skipped: 0,
     failed: 0,
+    "already-active": 0,
+    deferred: 0,
   };
   for (const entry of entries) summary[entry.outcome] += 1;
   return summary;
@@ -1448,6 +1466,17 @@ export type RestoreOptions = {
    * path itself.
    */
   onLedgerEntry?: (entry: RestoreLedgerEntry) => void;
+  /**
+   * Lot L1b — host-observed subtrees of live managed terminals, already
+   * fetched by the caller (omit = no host observation; attach-live rows keep
+   * the L1a attach-only path with no ledger entry). Powers the OBSERVED
+   * already-active/deferred ledger outcomes only — restore() never types
+   * into these sessions (the D6(iii) adapter does not exist in this RC).
+   */
+  nativeSubtrees?: ReadonlyArray<{
+    name: string;
+    processes: ReadonlyArray<HostProcessSnapshot>;
+  }>;
   /** Pre-resolved SCW tabs (from `remote ls`), used to fill `remote: true` groups. */
   remoteTabs?: RemoteTab[];
   /**
@@ -1678,6 +1707,45 @@ export function restore(
         `${humanOutputText("restore.ledger.occupiedHuman")} — ` +
         `${humanOutputText("restore.ledger.remedyAttach")} ${r.remedy}\n`,
     );
+  }
+  // Lot L1b — OBSERVED in-place outcomes for attach-live primaries. When the
+  // caller hands restore() the host-observed subtree of a live terminal, the
+  // row is observed, not just attached: a verified foreground CLI records one
+  // `already-active` ledger outcome (the session is already up); a foreground
+  // shell records `deferred` (`needs-adapter` — the D6(iii) managed-shell
+  // adapter does not exist in this RC, so nothing is typed, nothing killed).
+  // Anything else (unknown foreground, ambiguous owners, or no subtree at
+  // all) keeps today's attach-only path with no ledger entry — old hosts stay
+  // L1a-compatible. Attach-live rows carry no resolved conversation (empty
+  // sid), so the subtree alone attributes the foreground.
+  if (opts.nativeSubtrees !== undefined && opts.nativeSubtrees.length > 0) {
+    const subtreeByName = new Map(
+      opts.nativeSubtrees.map((s) => [s.name, s.processes] as const),
+    );
+    for (const s of sessions) {
+      if (s.attachLive !== true || s.managedName === undefined) continue;
+      const processes = subtreeByName.get(s.managedName);
+      if (processes === undefined) continue;
+      const at = new Date().toISOString();
+      const decision = decideInPlaceResume({
+        session: s.label ?? s.project,
+        hostProcesses: processes,
+      });
+      if (decision?.outcome === "attach") {
+        opts.onLedgerEntry?.({
+          session: s.label ?? s.project,
+          outcome: "already-active",
+          at,
+        });
+      } else if (decision?.outcome === "deferred") {
+        opts.onLedgerEntry?.({
+          session: s.label ?? s.project,
+          outcome: "deferred",
+          reason: "needs-adapter",
+          at,
+        });
+      }
+    }
   }
   const launchable =
     refusedSessions.size === 0

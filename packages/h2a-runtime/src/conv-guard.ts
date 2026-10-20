@@ -26,6 +26,8 @@ import {
 import { managedSessionCandidates } from "./tmux.js";
 import {
   deriveSessionFacet,
+  matchRowConversation,
+  type HostProcessSnapshot,
   type SessionFacet,
   type SessionFacetRow,
 } from "./launch-layout.js";
@@ -92,6 +94,17 @@ export type ConvOwnersOpts = LivenessOpts & {
   remoteSessions?: ReadonlyArray<RemoteSessionLite>;
   /** Local project path — enables the workspacePath "suspect" heuristic. */
   cwd?: string;
+  /**
+   * Lot L1b — host-observed subtrees of live native sessions, already
+   * fetched by the caller (omit = no host verification). A no-pid
+   * hook-enrolled row the pid probe cannot verify is promoted from suspect
+   * to a HARD owner only when the native host itself shows a foreground CLI
+   * holding this conversation in that session's own subtree.
+   */
+  nativeSubtrees?: ReadonlyArray<{
+    name: string;
+    processes: ReadonlyArray<HostProcessSnapshot>;
+  }>;
 };
 
 function ownerFromEntry(e: RegistryEntry): ConvOwner {
@@ -143,6 +156,33 @@ function ownerFromEntry(e: RegistryEntry): ConvOwner {
  * nothing — degrading to an empty owner list would read as permission to
  * start a second writer. The caller (guardConvWriters) refuses on it.
  */
+/**
+ * Lot L1b — host-verify one suspect no-pid row: the native host itself must
+ * show a foreground CLI holding this conversation in the row's own session
+ * subtree. Returns the HARD owner (no suspect flag) on verification, null
+ * when there is no subtree, no match, or an ambiguous foreground — the row
+ * then stays suspect, never silently cleared.
+ */
+function verifyNativeSubtreeOwner(
+  e: RegistryEntry,
+  convId: string,
+  subtrees: ConvOwnersOpts["nativeSubtrees"],
+): ConvOwner | null {
+  if (subtrees === undefined) return null;
+  const name = e.tmuxSession;
+  if (name === undefined) return null;
+  const subtree = subtrees.find((s) => s.name === name);
+  if (subtree === undefined) return null;
+  const hit = matchRowConversation({ convId }, subtree.processes);
+  if (hit === null || hit === "ambiguous") return null;
+  return {
+    where: "local",
+    label: e.label ?? e.id.slice(0, 12),
+    detail: `local ${e.tool} process (pid ${hit.pid}) holds this conversation in native session ${name} (host-verified foreground) — exit that CLI first`,
+    facet: "live-agent-cli",
+  };
+}
+
 export function convOwners(
   convId: string,
   opts: ConvOwnersOpts = {},
@@ -169,7 +209,17 @@ export function convOwners(
     // kind "remote" registry entries can be stale (the registry cannot probe
     // the cluster) — opts.remoteSessions, fetched live, is authoritative.
     if (e.kind === "remote") continue;
-    owners.push(ownerFromEntry(e));
+    const owner = ownerFromEntry(e);
+    // Lot L1b — a suspect no-pid hook row the pid probe cannot verify is
+    // promoted to a HARD owner only on host verification: the native host
+    // itself must show a foreground CLI holding THIS conversation in the
+    // row's own session subtree. A stale subtree (no match) keeps the row
+    // suspect — never a silent pass.
+    const verified =
+      owner.suspect === true
+        ? verifyNativeSubtreeOwner(e, convId, opts.nativeSubtrees)
+        : null;
+    owners.push(verified ?? owner);
   }
   for (const s of opts.remoteSessions ?? []) {
     if (s.cliSessionId === convId) {

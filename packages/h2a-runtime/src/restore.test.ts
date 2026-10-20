@@ -157,6 +157,31 @@ describe("registry-first discovery", () => {
     });
   });
 
+  it("emits one attach tab for duplicate unresolved rows of the same terminal", () => {
+    // Two registry rows for ONE live terminal (run-enrolled + hook-enrolled
+    // twins): both are attach-live with an empty sid, so resume-UUID dedup
+    // never sees them. The terminal identity dedups them instead — one
+    // attach action, never two.
+    const mkAttachRow = (tool: "claude" | "codex"): DiscoveredSession => ({
+      project: "projA",
+      mtimeMs: 1_000_000,
+      tool,
+      sid: "",
+      cwd: join(home, "src", "projA"),
+      origin: "registry",
+      label: "projA",
+      hostKind: "local-native",
+      managedName: "h2a-projA",
+      attachLive: true,
+      restoreClass: "human",
+    });
+    const merged = mergeDiscovered(
+      [mkAttachRow("claude"), mkAttachRow("codex")],
+      [],
+    );
+    expect(merged.filter((s) => s.managedName === "h2a-projA")).toHaveLength(1);
+  });
+
   it("skips remote-kind entries and cwds outside ~/src", () => {
     const entries: RegistryEntry[] = [
       registryEntry("projA", { kind: "remote", remoteId: "scw-1" }),

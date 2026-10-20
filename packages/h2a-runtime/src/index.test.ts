@@ -447,6 +447,68 @@ describe("main", () => {
     );
   });
 
+  describe("lot L1b RED: restore exit status (D2)", () => {
+    const AT = "2026-10-20T00:00:00.000Z";
+
+    function blockedRestore() {
+      restoreLayout.mockImplementation((opts: { onLedgerEntry?: (e: unknown) => void }) => {
+        opts.onLedgerEntry?.({
+          session: "a",
+          outcome: "blocked",
+          reason: "occupied-human",
+          at: AT,
+        });
+        return {
+          total: 0,
+          windows: [],
+          dropped: 0,
+          observed: { planned: 0, opened: 0, skippedLive: 0, blocked: 1 },
+        };
+      });
+    }
+
+    it("should exit non-zero when every candidate is blocked", async () => {
+      blockedRestore();
+      const exitCode = await main(["node", "remote", "restore"]);
+      expect(exitCode).toBe(1);
+    });
+
+    it("should exit zero with an empty ledger when no candidates exist", async () => {
+      restoreLayout.mockReturnValue({
+        total: 0,
+        windows: [],
+        dropped: 0,
+        observed: { planned: 0, opened: 0, skippedLive: 0, blocked: 0 },
+      });
+      const exitCode = await main(["node", "remote", "restore"]);
+      expect(exitCode).toBe(0);
+    });
+
+    it("should exit zero for a valid dry-run while reporting blockers as plan data", async () => {
+      blockedRestore();
+      const exitCode = await main(["node", "remote", "restore", "--dry-run"]);
+      expect(exitCode).toBe(0);
+    });
+
+    it("should exit zero when active primaries report already-active outcomes", async () => {
+      restoreLayout.mockImplementation((opts: { onLedgerEntry?: (e: unknown) => void }) => {
+        opts.onLedgerEntry?.({
+          session: "a",
+          outcome: "already-active",
+          at: AT,
+        });
+        return {
+          total: 1,
+          windows: [{ title: "a", tabs: [] }],
+          dropped: 0,
+          observed: { planned: 1, opened: 0, skippedLive: 1, blocked: 0 },
+        };
+      });
+      const exitCode = await main(["node", "remote", "restore"]);
+      expect(exitCode).toBe(0);
+    });
+  });
+
   it("continues restore when central MCP degrades", async () => {
     prepareCentralMcpForRestore.mockResolvedValue({
       status: "degraded",
