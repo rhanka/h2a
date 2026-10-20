@@ -130,6 +130,12 @@ if (process.platform === "linux") {
       "--ro-bind", "/", "/",
       "--dev", "/dev",
       "--proc", "/proc",
+      // Round-1 (astra-9): a PRIVATE /tmp inside the namespace. The host
+      // /tmp stays untouched (never written), while the sandbox gets a
+      // writable X11 space (/tmp/.X11-unix + the X lock files Xvfb needs) —
+      // the VTE qualification harness no longer skips for an unwritable
+      // /tmp. Tests that must write use TMPDIR (bound run-root tmp/).
+      "--tmpfs", "/tmp",
       "--bind", runRoot, runRoot,
       ...viteBindArgs,
       "--chdir", repoRoot,
