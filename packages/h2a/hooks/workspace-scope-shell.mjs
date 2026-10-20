@@ -507,10 +507,13 @@ export function prBump(request) {
   }
   if (!/^\d+$/.test(request.ref)) return undefined;
   const deadline = Date.now() + 10_000;
-  const read = args => {
+  const read = (args, allowMissing = false) => {
     if (Date.now() >= deadline) return;
     const r = spawnSync('gh', args, { encoding: 'utf8', timeout: Math.min(4000, deadline - Date.now()), maxBuffer: 2_000_000 });
-    return r.status === 0 ? r.stdout : undefined;
+    if (r.error) return;
+    if (r.status === 0) return r.stdout;
+    // Only an explicit API 404 proves absence; other failures stay unknown.
+    if (allowMissing && r.status === 1 && r.stderr.trim() === 'gh: Not Found (HTTP 404)') return null;
   };
   const diff = read(['pr', 'diff', request.ref, '--repo', request.repo, '--color', 'never']);
   if (diff === undefined) return;
@@ -526,11 +529,13 @@ export function prBump(request) {
       const shas = [metadata?.base?.sha, metadata?.head?.sha];
       if (!shas.every(s => typeof s === 'string' && /^[a-f0-9]{40,64}$/.test(s))) return;
       const endpoint = `repos/${owner}/${repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}`;
-      const content = ref => read(['api', '--hostname', hostname, `${endpoint}?ref=${ref}`, '-H', 'Accept: application/vnd.github.raw+json']);
+      const content = ref => read(['api', '--hostname', hostname, `${endpoint}?ref=${ref}`, '-H', 'Accept: application/vnd.github.raw+json'], true);
       const before = content(metadata.base.sha), after = content(metadata.head.sha);
-      if (before === undefined || after === undefined) return;
-      JSON.parse(before); JSON.parse(after);
-      if (publishedBump(before, after)) return true;
+      if (before === undefined || after === undefined || before === null && after === null) return;
+      if (before !== null) JSON.parse(before);
+      const next = after === null ? null : JSON.parse(after);
+      if (after === null) continue; // Deleting a manifest does not publish a version.
+      if (before === null ? next.name && next.version && next.private !== true : publishedBump(before, after)) return true;
     } catch { return; }
   }
   return false;
