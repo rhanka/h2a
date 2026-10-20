@@ -1,0 +1,29 @@
+{
+  "calls": [
+    {
+      "method": "GET",
+      "url": "/repos/fixture/own/pulls/42.diff"
+    },
+    {
+      "method": "GET",
+      "url": "/repos/fixture/own/pulls/42.diff"
+    }
+  ],
+  "outcomes": [
+    {
+      "bump": false,
+      "status": 2,
+      "stdout": "{\"decision\":\"block\",\"code\":\"UNVERIFIABLE\",\"reason\":\"[H2A_SCOPE:UNVERIFIABLE] gh.pr.merge refused. {\\\"repo\\\":\\\"github.com/fixture/own\\\",\\\"action\\\":\\\"gh.pr.merge\\\",\\\"ref\\\":\\\"42\\\",\\\"session\\\":\\\"s2\\\"} Hand this action to the owning conductor; use the plain explicit form or request an exact recorded owner grant. Cannot inspect the PR diff.\",\"repo\":\"github.com/fixture/own\",\"action\":\"gh.pr.merge\",\"ref\":\"42\",\"session\":\"s2\",\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"[H2A_SCOPE:UNVERIFIABLE] gh.pr.merge refused. {\\\"repo\\\":\\\"github.com/fixture/own\\\",\\\"action\\\":\\\"gh.pr.merge\\\",\\\"ref\\\":\\\"42\\\",\\\"session\\\":\\\"s2\\\"} Hand this action to the owning conductor; use the plain explicit form or request an exact recorded owner grant. Cannot inspect the PR diff.\"}}",
+      "stderr": "[H2A_SCOPE:UNVERIFIABLE] gh.pr.merge refused. {\"repo\":\"github.com/fixture/own\",\"action\":\"gh.pr.merge\",\"ref\":\"42\",\"session\":\"s2\"} Hand this action to the owning conductor; use the plain explicit form or request an exact recorded owner grant. Cannot inspect the PR diff.\n"
+    },
+    {
+      "bump": true,
+      "status": 2,
+      "stdout": "{\"decision\":\"block\",\"code\":\"UNVERIFIABLE\",\"reason\":\"[H2A_SCOPE:UNVERIFIABLE] gh.pr.merge refused. {\\\"repo\\\":\\\"github.com/fixture/own\\\",\\\"action\\\":\\\"gh.pr.merge\\\",\\\"ref\\\":\\\"42\\\",\\\"session\\\":\\\"s2\\\"} Hand this action to the owning conductor; use the plain explicit form or request an exact recorded owner grant. Cannot inspect the PR diff.\",\"repo\":\"github.com/fixture/own\",\"action\":\"gh.pr.merge\",\"ref\":\"42\",\"session\":\"s2\",\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"[H2A_SCOPE:UNVERIFIABLE] gh.pr.merge refused. {\\\"repo\\\":\\\"github.com/fixture/own\\\",\\\"action\\\":\\\"gh.pr.merge\\\",\\\"ref\\\":\\\"42\\\",\\\"session\\\":\\\"s2\\\"} Hand this action to the owning conductor; use the plain explicit form or request an exact recorded owner grant. Cannot inspect the PR diff.\"}}",
+      "stderr": "[H2A_SCOPE:UNVERIFIABLE] gh.pr.merge refused. {\"repo\":\"github.com/fixture/own\",\"action\":\"gh.pr.merge\",\"ref\":\"42\",\"session\":\"s2\"} Hand this action to the owning conductor; use the plain explicit form or request an exact recorded owner grant. Cannot inspect the PR diff.\n"
+    }
+  ],
+  "base": "22c847ef84be94f7b300b05278394b94d561a76b",
+  "head": "c84c7d5e62007fd413fc6cbc706a610c0e894e3a",
+  "remote": "22c847ef84be94f7b300b05278394b94d561a76b"
+}

@@ -1,0 +1,185 @@
+{
+  "previousHost": "0.98.6",
+  "before": [
+    {
+      "id": "h2a-human-one",
+      "generation": "s6",
+      "incarnation": "c535462e-c6cb-445e-9998-7ac7576b8596",
+      "pid": 17004,
+      "status": "running",
+      "latestSeq": 2,
+      "exit": null,
+      "stopSignal": null,
+      "controlled": false,
+      "controllerEpoch": 0,
+      "controller": null,
+      "lastHumanActivityAt": null
+    },
+    {
+      "id": "h2a-human-two",
+      "generation": "s6",
+      "incarnation": "9c2b586f-894f-4fc1-906d-b59ef41e84fb",
+      "pid": 17013,
+      "status": "running",
+      "latestSeq": 2,
+      "exit": null,
+      "stopSignal": null,
+      "controlled": false,
+      "controllerEpoch": 0,
+      "controller": null,
+      "lastHumanActivityAt": null
+    },
+    {
+      "id": "h2a-delegated-job",
+      "generation": "s6",
+      "incarnation": "11b6ce98-e39c-4534-a78c-f3323f12c2e4",
+      "pid": 17022,
+      "status": "running",
+      "latestSeq": 2,
+      "exit": null,
+      "stopSignal": null,
+      "controlled": false,
+      "controllerEpoch": 0,
+      "controller": null,
+      "lastHumanActivityAt": null
+    },
+    {
+      "id": "h2a-background-worker",
+      "generation": "s6",
+      "incarnation": "acae578d-d3b3-4060-9e2f-3dc04e8f76d7",
+      "pid": 17031,
+      "status": "running",
+      "latestSeq": 2,
+      "exit": null,
+      "stopSignal": null,
+      "controlled": false,
+      "controllerEpoch": 0,
+      "controller": null,
+      "lastHumanActivityAt": null
+    }
+  ],
+  "after": [
+    {
+      "id": "h2a-human-one",
+      "generation": "s6",
+      "incarnation": "c535462e-c6cb-445e-9998-7ac7576b8596",
+      "pid": 17004,
+      "status": "running",
+      "latestSeq": 20,
+      "exit": null,
+      "stopSignal": null,
+      "controlled": true,
+      "controllerEpoch": 1,
+      "controller": {
+        "pid": 17231,
+        "tty": "/dev/pts/6",
+        "since": "2026-10-20T20:15:54.557Z"
+      },
+      "lastHumanActivityAt": 1792527354585
+    },
+    {
+      "id": "h2a-human-two",
+      "generation": "s6",
+      "incarnation": "9c2b586f-894f-4fc1-906d-b59ef41e84fb",
+      "pid": 17013,
+      "status": "running",
+      "latestSeq": 13,
+      "exit": null,
+      "stopSignal": null,
+      "controlled": true,
+      "controllerEpoch": 1,
+      "controller": {
+        "pid": 17233,
+        "tty": "/dev/pts/5",
+        "since": "2026-10-20T20:15:54.552Z"
+      },
+      "lastHumanActivityAt": 1792527354616
+    },
+    {
+      "id": "h2a-delegated-job",
+      "generation": "s6",
+      "incarnation": "11b6ce98-e39c-4534-a78c-f3323f12c2e4",
+      "pid": 17022,
+      "status": "running",
+      "latestSeq": 2,
+      "exit": null,
+      "stopSignal": null,
+      "controlled": false,
+      "controllerEpoch": 0,
+      "controller": null,
+      "lastHumanActivityAt": null
+    },
+    {
+      "id": "h2a-background-worker",
+      "generation": "s6",
+      "incarnation": "acae578d-d3b3-4060-9e2f-3dc04e8f76d7",
+      "pid": 17031,
+      "status": "running",
+      "latestSeq": 2,
+      "exit": null,
+      "stopSignal": null,
+      "controlled": false,
+      "controllerEpoch": 0,
+      "controller": null,
+      "lastHumanActivityAt": null
+    }
+  ],
+  "ping": {
+    "launchFence": true,
+    "generation": "s6",
+    "hostPid": 16985,
+    "protocolVersion": 1
+  },
+  "afterPing": {
+    "launchFence": true,
+    "generation": "s6",
+    "hostPid": 16985,
+    "protocolVersion": 1
+  },
+  "windows": [
+    {
+      "session": "h2a-human-two",
+      "cwd": "/home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/home/src/s6",
+      "command": "h2a attach 'h2a-human-two'",
+      "pid": 17188,
+      "output": "\u001b[1G\u001b[0Jowner-lab> \u001b[12G",
+      "exit": null
+    },
+    {
+      "session": "h2a-human-one",
+      "cwd": "/home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/home/src/s6",
+      "command": "h2a attach 'h2a-human-one'",
+      "pid": 17190,
+      "output": "\u001b[1G\u001b[0Jowner-lab> \u001b[12G",
+      "exit": null
+    }
+  ],
+  "restored": {
+    "command": [
+      "/usr/bin/node",
+      "/home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/prefix/lib/node_modules/@sentropic/h2a/dist/bin.js",
+      "restore",
+      "--no-gw"
+    ],
+    "cwd": "/home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/home/src/s6",
+    "status": 0,
+    "signal": null,
+    "stdout": "",
+    "stderr": "[h2a] restore skipped \"sender\": no resolved conversation id (convId missing is not a real conversation); attach it live with h2a attach sender\n[h2a] restore skipped \"recipient\": no resolved conversation id (convId missing is not a real conversation); attach it live with h2a attach recipient\n  fenêtre partagée 1 (1):\n    - human-two  claude (local) [registry]  /home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/home/src/s6\n  fenêtre partagée 2 (1):\n    - human-one  codex (local) [registry]  /home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/home/src/s6\n[h2a] fenêtre \"fenêtre partagée 1\" (1 onglet(s))\n[h2a] fenêtre \"fenêtre partagée 2\" (1 onglet(s))\n[h2a] 2 onglet(s) relancé(s)\n",
+    "expired": false
+  },
+  "again": {
+    "command": [
+      "/usr/bin/node",
+      "/home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/prefix/lib/node_modules/@sentropic/h2a/dist/bin.js",
+      "restore",
+      "--no-gw"
+    ],
+    "cwd": "/home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/home/src/s6",
+    "status": 0,
+    "signal": null,
+    "stdout": "",
+    "stderr": "[h2a] restore skipped \"sender\": no resolved conversation id (convId missing is not a real conversation); attach it live with h2a attach sender\n[h2a] restore skipped \"recipient\": no resolved conversation id (convId missing is not a real conversation); attach it live with h2a attach recipient\n  fenêtre partagée 1 (1):\n    - human-two  claude (local) [registry]  /home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/home/src/s6\n  fenêtre partagée 2 (1):\n    - human-one  codex (local) [registry]  /home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/home/src/s6\n[h2a] 2 session(s) déjà visibles ou contrôlées ignorées (--reattach rouvre seulement les vues pouvant être attachées sans second contrôleur): human-two, human-one\n[h2a] 2 onglet(s) relancé(s)\n",
+    "expired": false
+  }
+}
