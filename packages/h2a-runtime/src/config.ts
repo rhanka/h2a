@@ -33,12 +33,120 @@ export type TunnelConfig = {
  * A named terminal window in `remote restore`. A LOCAL group lists `projects`
  * (resumed as local tmux sessions). A REMOTE group (`remote: true`) has its tabs
  * filled from the SCW control-plane's live sessions (attached via `--exec`).
+ *
+ * Lot LG (D13) — dedicated groups match by more than project names:
+ * `cwdPrefixes` (absolute path prefixes, also admitting registry rows outside
+ * `~/src` and exempting group scans from the age cutoff), `tools` (known agent
+ * CLI tools), `tags` (any-of equality against the row's registry tags).
+ * `excludeProjects` vetoes a placement; `maxTabs` caps the explicit window
+ * (default: global `maxPerWindow`), overflow reported never silently dropped.
+ * Matchers are exact / path-prefix / segment-prefix only — never globs.
  */
 export type LayoutGroup = {
   title: string;
   projects?: string[];
   remote?: boolean;
+  cwdPrefixes?: string[];
+  tools?: string[];
+  tags?: string[];
+  excludeProjects?: string[];
+  maxTabs?: number;
 };
+
+/** Known agent CLI tools a group `tools` matcher may name. */
+const LAYOUT_GROUP_TOOLS = new Set(["claude", "codex", "agy", "muse", "vibe"]);
+
+/**
+ * Lot LG (D13) — validate explicit group matchers, returning one message per
+ * problem (empty = valid). Title must be a non-empty string with a unique
+ * slug-normalised form; matcher fields must be well-typed (tools restricted
+ * to known CLI tools, maxTabs a positive finite number, cwdPrefixes absolute
+ * paths, remote a boolean).
+ */
+export function validateLayoutGroups(groups: unknown): string[] {
+  const problems: string[] = [];
+  if (!Array.isArray(groups)) return ["layout groups must be an array"];
+  const seen = new Map<string, string>();
+  groups.forEach((g, i) => {
+    const where = `layout.groups[${i}]`;
+    if (!g || typeof g !== "object") {
+      problems.push(`${where} must be an object`);
+      return;
+    }
+    const group = g as Record<string, unknown>;
+    if (typeof group.title !== "string" || group.title.trim().length === 0) {
+      problems.push(`${where}.title must be a non-empty string`);
+    } else {
+      const slug = group.title
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+      const prev = seen.get(slug);
+      if (prev !== undefined) {
+        problems.push(
+          `${where}.title duplicates the slug-normalised title of ${prev} ("${group.title}")`,
+        );
+      } else {
+        seen.set(slug, where);
+      }
+    }
+    for (const field of ["projects", "cwdPrefixes", "tags", "excludeProjects"] as const) {
+      const value = group[field];
+      if (value !== undefined) {
+        if (
+          !Array.isArray(value) ||
+          value.some((v) => typeof v !== "string" || v.length === 0)
+        ) {
+          problems.push(`${where}.${field} must be an array of non-empty strings`);
+        }
+      }
+    }
+    if (group.tools !== undefined) {
+      if (
+        !Array.isArray(group.tools) ||
+        group.tools.some((t) => typeof t !== "string" || !LAYOUT_GROUP_TOOLS.has(t))
+      ) {
+        problems.push(
+          `${where}.tools must be an array of known agent CLI tools (claude, codex, agy, muse, vibe)`,
+        );
+      }
+    }
+    if (group.cwdPrefixes !== undefined && Array.isArray(group.cwdPrefixes)) {
+      for (const prefix of group.cwdPrefixes) {
+        if (typeof prefix === "string" && !prefix.startsWith("/")) {
+          problems.push(`${where}.cwdPrefixes must hold absolute paths ("${prefix}")`);
+        }
+      }
+    }
+    if (group.remote !== undefined && typeof group.remote !== "boolean") {
+      problems.push(`${where}.remote must be a boolean`);
+    }
+    if (group.maxTabs !== undefined) {
+      if (
+        typeof group.maxTabs !== "number" ||
+        !Number.isFinite(group.maxTabs) ||
+        group.maxTabs <= 0
+      ) {
+        problems.push(`${where}.maxTabs must be a positive finite number`);
+      }
+    }
+  });
+  return problems;
+}
+
+/** Normalize validated group matchers (trailing slashes trimmed). */
+export function normalizeLayoutGroups(groups: LayoutGroup[]): LayoutGroup[] {
+  return groups.map((g) => ({
+    ...g,
+    ...(g.cwdPrefixes !== undefined
+      ? {
+          cwdPrefixes: g.cwdPrefixes.map((p) =>
+            p.length > 1 ? p.replace(/\/+$/, "") : p,
+          ),
+        }
+      : {}),
+  }));
+}
 
 /** Layout for `remote restore`: how recent local sessions map to windows/tabs. */
 export type LayoutConfig = {
@@ -609,6 +717,13 @@ export function clearTunnel(): void {
 /** Layout config merged with defaults (used by `remote restore`). */
 export function getLayoutConfig(): LayoutConfig {
   const raw = readRemoteConfig().layout ?? {};
+  // Lot LG (D13): an invalid group config refuses BEFORE anything launches —
+  // restore() calls this first, and the restore command surfaces the refusal.
+  const groups = Array.isArray(raw.groups) ? raw.groups : DEFAULT_LAYOUT.groups;
+  const problems = validateLayoutGroups(groups);
+  if (problems.length > 0) {
+    throw new Error(`invalid layout configuration: ${problems.join("; ")}`);
+  }
   return {
     maxAgeHours: parseLayoutMaxAgeHours(raw.maxAgeHours),
     maxPerWindow:
@@ -627,7 +742,7 @@ export function getLayoutConfig(): LayoutConfig {
       typeof raw.multiSessionDefault === "number"
         ? raw.multiSessionDefault
         : DEFAULT_LAYOUT.multiSessionDefault,
-    groups: Array.isArray(raw.groups) ? raw.groups : DEFAULT_LAYOUT.groups,
+    groups: normalizeLayoutGroups(groups as LayoutGroup[]),
   };
 }
 

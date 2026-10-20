@@ -35,6 +35,9 @@ export const strings: Record<string, string> = {
   "upgrade.hostFailed": "failed",
   "restore.sharedWindow": "shared window",
   "restore.capDropped": "session(s) dropped, cap reached",
+  "restore.groupCapDropped": "tab(s) over group cap",
+  "restore.emptyGroups": "empty configured group(s)",
+  "restore.unmatchedSessions": "session(s) matched by no group",
   "restore.excludedSecondary":
     "secondary session(s) excluded by delegation provenance",
   "restore.optinHint": "restore with --include-secondary:",
