@@ -9991,6 +9991,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     )
     .option("--dry-run", "affiche le layout calculé sans ouvrir de terminaux")
     .option(
+      "--include-secondary",
+      "inclut les sessions secondaires (déléguées) exclues par défaut du plan de restauration",
+    )
+    .option(
       "--reattach",
       "rouvre les sessions tmux déjà visibles; côté PTY natif, rattache une session non contrôlée mais refuse toujours un second contrôleur concurrent",
     )
@@ -10009,6 +10013,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         group: string | undefined,
         opts: {
           dryRun?: boolean;
+          includeSecondary?: boolean;
           reattach?: boolean;
           llmGateway?: boolean;
           gw?: boolean;
@@ -10029,6 +10034,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         const restoreOpts: RestoreOptions = {};
         if (group) restoreOpts.group = group;
         if (opts.dryRun) restoreOpts.dryRun = true;
+        // Lot L5 (D12): explicit opt-in restoring secondary (delegated) rows.
+        if (opts.includeSecondary) restoreOpts.includeSecondary = true;
 
         // Optional restore-launch gateway override. "auto" (no flag) leaves
         // each session on its pinned posture; an existing live session is only
@@ -10058,7 +10065,17 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           restoreOpts.remoteTabs = sessions.map((s) => {
             const wp = s.workspacePath;
             const cwd = wp && existsSync(wp) ? wp : homedir();
-            return { id: s.id, label: projectName(s), cwd };
+            // Lot L5 (D12c): carry the server-reported restore facet when
+            // present so secondary remote rows are excluded by default.
+            const reported = (s as { restoreFacet?: unknown }).restoreFacet;
+            return {
+              id: s.id,
+              label: projectName(s),
+              cwd,
+              ...(reported === "primary" || reported === "secondary"
+                ? { restoreFacet: reported }
+                : {}),
+            };
           });
           if (restoreOpts.remoteTabs.length === 0) {
             process.stderr.write(
