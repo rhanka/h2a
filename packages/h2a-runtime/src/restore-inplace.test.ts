@@ -5,8 +5,10 @@
  * attach-only tab (never a `--resume` second writer). When the caller hands
  * restore() the host-observed subtree for that terminal, the row is
  * OBSERVED, not just attached:
- * - foreground CLI holding the session → one `already-active` ledger outcome
- *   (the session is already up; exit 0);
+ * - foreground CLI holding the session with no attached view → one `attached`
+ *   ledger outcome when the view is (re)opened (round-2 astra-6: a live CLI
+ *   without a view is owed exactly one attach view, never zero tabs);
+ * - foreground CLI with its view → one `already-active` ledger outcome;
  * - foreground shell → one `deferred` (`needs-adapter`) outcome — seen, typed
  *   into never;
  * - an attached persistent shell is never counted as a resumed CLI.
@@ -123,12 +125,11 @@ function primRow(): RegistryEntry {
 }
 
 describe("lot L1b RED: attach-live primaries observed through host subtrees", () => {
-  it("should report one already-active ledger outcome for a foreground CLI session", () => {
+  it("should report one attached ledger outcome for a foreground CLI session with no view", () => {
     writeRegistry([primRow()]);
     const ledger: RestoreLedgerEntry[] = [];
     const result = restore({
       stderr: stderrStream,
-      dryRun: true,
       onLedgerEntry: (e) => {
         ledger.push(e);
       },
@@ -141,14 +142,17 @@ describe("lot L1b RED: attach-live primaries observed through host subtrees", ()
         },
       ],
     });
-    // One observed outcome for the one live primary — already active, so a
-    // second restore stays idempotent (exit 0 via the D2 rule).
+    // Round-2 (astra-6): the verified CLI has no attached view
+    // (controlled:false in the mocked inventory), so the launch pass reopens
+    // exactly one attach view — observed as `attached`, never relaunched
+    // over, never zero tabs with a bare `already-active`.
     expect(ledger).toHaveLength(1);
-    expect(ledger[0]).toMatchObject({ session: "prim", outcome: "already-active" });
-    // ...and exactly one attach tab: observed, never relaunched over.
+    expect(ledger[0]).toMatchObject({ session: "prim", outcome: "attached" });
     const tabs = result.windows.flatMap((w) => w.tabs);
     expect(tabs).toHaveLength(1);
     expect(tabs[0]).toMatchObject({ managedName: PRIM_NAME, attachLive: true });
+    expect(result.total).toBe(1);
+    expect(spawn).toHaveBeenCalledTimes(1);
   });
 
   it("should not count an attached persistent shell as a resumed CLI", () => {

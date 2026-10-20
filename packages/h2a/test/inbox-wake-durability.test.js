@@ -163,3 +163,74 @@ test("two successive batches drive twice under distinct idempotency keys", async
     assert.doesNotMatch(String(req.requestId), /object Object/);
   }
 });
+
+// Round-2 P2 (code-review sol-6): a failing pending store must neither bury
+// a deferred wake on restart nor fail silently. Today store errors collapse
+// to an empty state: the restart seed marks the undelivered envelope seen
+// and it is never retried.
+test("a failing pending store never buries a deferred wake on restart", async (t) => {
+  const inbox = [];
+  let drives = 0;
+  const deferring = { drive: () => { drives += 1; return { outcome: "deferred", reason: "deferred-recent-human", retryAfterMs: 50 }; } };
+  const throwing = {
+    load: () => { throw new Error("simulated disk failure"); },
+    save: () => { throw new Error("simulated disk failure"); }
+  };
+  const logs = [];
+  const deps = () => ({
+    instance: INSTANCE,
+    readInbox: () => inbox,
+    privateKeyPem: PRIV,
+    driver: deferring,
+    pendingStore: throwing,
+    log: (line) => logs.push(line),
+    now
+  });
+  const first = createInboxWakeHandler(deps());
+  inbox.push(envelope("env-buried-1"));
+  assert.equal(await first(), false);
+  assert.equal(drives, 1);
+  // Restart on the same non-empty inbox with the store still failing: the
+  // undelivered envelope must be retried, not seeded as seen.
+  const second = createInboxWakeHandler(deps());
+  assert.equal(await second(), false);
+  assert.equal(drives, 2);
+  assert.ok(logs.some((line) => /pending store/i.test(line)), `failure surfaced, got ${JSON.stringify(logs)}`);
+});
+
+// Round-2 P1: a recent-human deferral asks the sidecar for one coalesced
+// retry after the typed window; final outcomes never schedule.
+test("a recent-human deferral schedules one sidecar retry, final outcomes do not", async (t) => {
+  const inbox = [];
+  const scheduled = [];
+  const driver = {
+    drive: () => ({ outcome: "deferred", reason: "deferred-recent-human", retryAfterMs: 50 })
+  };
+  const handler = createInboxWakeHandler({
+    instance: INSTANCE,
+    readInbox: () => inbox,
+    privateKeyPem: PRIV,
+    driver,
+    scheduleRetry: (ms) => scheduled.push(ms),
+    now
+  });
+  inbox.push(envelope("env-retry-1"));
+  assert.equal(await handler(), false);
+  assert.deepEqual(scheduled, [50]);
+
+  const refused = [];
+  let refusals = 0;
+  const refusing = { drive: () => { refusals += 1; return { outcome: "refused", reason: "refused-no-capability" }; } };
+  const handler2 = createInboxWakeHandler({
+    instance: INSTANCE,
+    readInbox: () => inbox,
+    privateKeyPem: PRIV,
+    driver: refusing,
+    scheduleRetry: (ms) => refused.push(ms),
+    now
+  });
+  inbox.push(envelope("env-retry-2"));
+  assert.equal(await handler2(), false);
+  assert.equal(refusals, 1);
+  assert.deepEqual(refused, []);
+});

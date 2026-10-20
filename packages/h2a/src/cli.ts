@@ -471,7 +471,7 @@ export function renderCliHelp(): string {
     "  h2a outbox put --instance <id> --json <envelope> [--root <path>]",
     "  h2a outbox read --instance <id> [--root <path>]",
     "  h2a mcp-serve [--root <path>] [--backend local|cluster-mesh] [--auto-open [--host <h>] [--instance <id>] [--scope <s>]] [--wake <native|logging>] [--upgrade-check | --auto-upgrade [--no-restart]]   (--auto-open joins the bus at startup; --wake injects a signed h2a-tagged wake into the host on inbox arrival, EVO-1, needs --auto-open; --auto-upgrade self-updates via a non-destructive staged swap, the new version applies on the next launch (the live stdio session is never re-exec'd); --upgrade-check = notice only; both opt-in/no network by default; /h2a disconnect to leave)",
-    "  h2a upgrade [--check] [--json]   (--check: report current vs latest; bare: non-destructive staged self-update, concise catalog line on a TTY, exact JSON contract under --json or off-TTY)",
+    "  h2a upgrade [--check] [--json]   (--check: report current vs latest; bare: non-destructive staged self-update, concise catalog line by default, exact JSON contract under --json)",
     "  h2a remote serve [--port <n>] [--host <h>] [--path </h2a/envelopes>] [--root <path>]",
     "  h2a remote send --url <u> --instance <signer> --private-key <pem> --json <envelope>",
     "  h2a remote mirror-serve [--port <n>] [--host <h>] [--path </h2a/mirror>] [--enrolled-keys-file <json>] [--root <path>]   (EVO-13 instance-mirror ingester; enrolled keys also via H2A_MIRROR_ENROLLED_KEYS base64)",
@@ -1882,17 +1882,17 @@ export function resolveAutoOpen(
  * install of `@latest`. Sync (spawnSync). `runtime` is injectable for tests.
  */
 /**
- * Lot L6 (D14) — whether `--json`-less output renders human. A TTY stdout
- * gets the concise catalog report; anything else (pipe, `--json`) keeps the
- * exact machine contract. The streams seam exposes `isTTY` on fakes.
+ * Lot L6 (D14, round-2 S7) — whether output renders human. Human is the
+ * default everywhere (TTY or pipe): only an explicit `--json` selects the
+ * machine contract. Piped owner-lab captures and human operators alike must
+ * never receive the escaped JSON wall by default.
  */
 export function shouldUseHumanOutput(
   flags: Record<string, string>,
-  streams: H2ACliStreams
+  _streams: H2ACliStreams
 ): boolean {
-  if (flags.json !== undefined) return false;
-  const stdout = streams.stdout as { isTTY?: unknown };
-  return stdout.isTTY === true;
+  void _streams;
+  return flags.json === undefined;
 }
 
 /**
@@ -1951,8 +1951,8 @@ export function renderUpgradeHuman(
 /**
  * `h2a upgrade [--check]` (DEC-107, EVO-8 level 1): explicit self-upgrade.
  * `--check` reports current vs latest (no install) and always stays machine
- * (a query, scriptable). Bare: human catalog report on a TTY (D14a flip),
- * exact JSON contract under `--json` or off-TTY.
+ * (a query, scriptable). Bare: human catalog report by default (round-2 S7),
+ * exact JSON contract under `--json` only.
  * Sync signature retired: the catalog loads asynchronously, so this is now
  * `async` (callers await; `runCli` already forwards promises).
  */
@@ -1972,9 +1972,10 @@ export async function cmdUpgrade(
   // passed, so it always checks fresh and is never throttled for an explicit run.
   const result = performAutoUpgrade(current, { ...(runtime ? { runtime } : {}) });
   const hosts = convergeAfterExplicitUpgrade(result, flags);
-  // Lot L6 (D14): human report on a TTY when the catalog loads; the machine
-  // contract otherwise (and when the catalog is unavailable — callers emit
-  // machine output, never a second hardcoded catalog).
+  // Lot L6 (D14, round-2 S7): human report by default when the catalog
+  // loads; the machine contract under `--json` (and when the catalog is
+  // unavailable — callers emit machine output, never a second hardcoded
+  // catalog).
   if (shouldUseHumanOutput(flags, streams)) {
     const loaded = await loadHumanOutputCatalog();
     if (loaded.ok) {

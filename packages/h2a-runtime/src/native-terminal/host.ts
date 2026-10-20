@@ -280,15 +280,22 @@ function isGoneErrno(error: unknown): boolean {
  * "unknown", never as a state.
  */
 /**
- * Round-1 (D1/L1b): read the worker tree of one session leader's process
- * group as foreground evidence for `state`. The HOST reports its own
- * worker state (never client-side /proc guessing): every returned member
- * carries argv[0] (fallback: comm), the full argv, the start time in ms
- * and the ppid. Best-effort: members that exit mid-scan are skipped;
- * unparseable fields skip that member; a non-Linux platform or an
- * unreadable leader/group returns undefined (unattestable — callers keep
- * `unknown`, never an empty verdict). Bounded to
- * NATIVE_TERMINAL_MAX_FOREGROUND_PROCESSES members.
+ * Round-1 (D1/L1b): read the worker tree of one session as foreground
+ * evidence for `state`. The HOST reports its own worker state (never
+ * client-side /proc guessing): every returned member carries argv[0]
+ * (fallback: comm), the full argv, the start time in ms and the ppid.
+ * Best-effort: members that exit mid-scan are skipped; unparseable fields
+ * skip that member; a non-Linux platform or an unreadable leader/group
+ * returns undefined (unattestable — callers keep `unknown`, never an empty
+ * verdict). Bounded to NATIVE_TERMINAL_MAX_FOREGROUND_PROCESSES members.
+ *
+ * Round-2 (code-review sol-3): the enumerated group is the terminal's real
+ * foreground process group (`tpgid`, field 8 of the leader's stat) — NOT
+ * the leader's own group (field 5). Under job control a foreground job runs
+ * in its own group, so the leader's group sees only the shell while the
+ * live agent CLI sits elsewhere. When the terminal reports no foreground
+ * group (no controlling terminal), the leader's own group is the best-effort
+ * fallback; when neither parses, the session is unattestable.
  */
 function readForegroundProcessSnapshots(
   leaderPid: number,
@@ -300,8 +307,15 @@ function readForegroundProcessSnapshots(
     const splitAt = raw.lastIndexOf(") ");
     if (splitAt < 0) return undefined;
     const rest = raw.slice(splitAt + 2).split(" ");
-    pgrp = Number(rest[2]);
-    if (!Number.isSafeInteger(pgrp) || pgrp <= 0) return undefined;
+    const leaderPgrp = Number(rest[2]);
+    const foregroundPgrp = Number(rest[5]);
+    if (Number.isSafeInteger(foregroundPgrp) && foregroundPgrp > 0) {
+      pgrp = foregroundPgrp;
+    } else if (Number.isSafeInteger(leaderPgrp) && leaderPgrp > 0) {
+      pgrp = leaderPgrp;
+    } else {
+      return undefined;
+    }
   } catch {
     return undefined;
   }
@@ -874,10 +888,11 @@ type SessionRecord = {
    */
   humanInputSeq: number;
   /**
-   * Round-1 (sol-5): tombstoned idempotency keys, oldest first. A
-   * redelivery whose key left the live map is refused, never re-applied.
+   * Round-1 (sol-5): tombstoned idempotency keys. A redelivery whose key
+   * left the live map is refused, never re-applied. Round-2: the set is
+   * unbounded within the host lifetime (see `#rememberEvictedRequest`).
    */
-  evictedRequestIds: string[];
+  evictedRequestIds: Set<string>;
   /**
    * Lot L4-replies (D10) — CLI→shell transitions consumed on this PTY (one
    * per wrapper reset marker), the query scanner feeding the transition and
@@ -942,11 +957,52 @@ export const NATIVE_TERMINAL_MAX_INJECT_TEXT_CHARS = 4096;
 export const NATIVE_TERMINAL_MAX_INJECT_OUTCOMES_PER_SESSION = 512;
 
 /**
- * Round-1 (sol-5): tombstone cap for evicted idempotency keys per session.
- * An evicted key stays refusably known (never re-applied, never silently
- * forgotten) until it ages out of this bounded ring.
+ * Agent CLI binaries: readline-style composers (a D6(ii)-style per-profile
+ * list — extended only with a named profile, never by guessing).
  */
-export const NATIVE_TERMINAL_MAX_EVICTED_INJECT_REQUESTS_PER_SESSION = 4096;
+const INJECT_AGENT_CLI_BINARIES: ReadonlySet<string> = new Set([
+  "claude",
+  "codex",
+  "agy",
+  "muse",
+  "vibe",
+]);
+
+/** Interpreter binaries whose real application is argv[1] (structural). */
+const INJECT_INTERPRETER_BINARIES: ReadonlySet<string> = new Set([
+  "node",
+  "bun",
+  "deno",
+]);
+
+function injectBinaryBasename(command: string): string {
+  const base = command.split("/").pop() ?? command;
+  return base.toLowerCase();
+}
+
+/**
+ * Round-2 P1: whether the host-observed foreground plausibly honors
+ * readline save/submit/restore editing (Ctrl-E/Ctrl-U/Ctrl-Y). Agent CLI
+ * composers qualify, as do node-family runtimes running a script (this
+ * covers script-distributed CLIs and the readline qualification fixture).
+ * Shells, fullscreen programs, bare interpreters (a REPL would execute the
+ * line), REPLs generally, and unattestable foregrounds never qualify — they
+ * keep refusing below, so a wake is never executed as a shell command or
+ * typed into vim. A positive binary is necessary but not sufficient: the
+ * caller must also be idle (past the activity window) with no managed-shell
+ * facet, and the unit still commits atomically in one `pty.write`.
+ */
+function isDraftPreservingForeground(
+  processes: ReadonlyArray<NativeTerminalProcessSnapshot> | undefined,
+): boolean {
+  if (processes === undefined || processes.length === 0) return false;
+  return processes.some((member) => {
+    const first = injectBinaryBasename(member.command);
+    if (INJECT_AGENT_CLI_BINARIES.has(first)) return true;
+    if (INJECT_INTERPRETER_BINARIES.has(first)) return member.args.length > 1;
+    return false;
+  });
+}
 
 function isInjectableLine(text: string): boolean {
   // Parity with the op drive gate (nativeDriveInstruction in op.ts): one
@@ -973,6 +1029,9 @@ export class NativeTerminalHost {
   readonly #findGroupMemberToken: (pgid: number, expectedToken: string) => boolean;
   readonly #groupIsOnlyZombies: (pgid: number) => boolean;
   readonly #readFrame: () => NativeTerminalProcFrame;
+  readonly #readForeground: (
+    leaderPid: number,
+  ) => NativeTerminalProcessSnapshot[] | undefined;
   readonly #pgidGuardCounters = {
     recycled: 0,
     staleBoot: 0,
@@ -1024,6 +1083,13 @@ export class NativeTerminalHost {
      * any pid-based proof is derived from that row — see
      * `#verifyGroupLeaderIdentity`. */
     readFrame?: () => NativeTerminalProcFrame;
+    /** Injectable so unit tests can stand in for the host-side foreground
+     * observation without real PTYs; defaults to the real /proc reader.
+     * Shared by `state` and the injection composition gate so both observe
+     * the same worker tree. */
+    readForegroundSnapshots?: (
+      leaderPid: number,
+    ) => NativeTerminalProcessSnapshot[] | undefined;
   }) {
     if (
       options.generation.trim().length === 0 ||
@@ -1080,6 +1146,8 @@ export class NativeTerminalHost {
       options.findGroupMemberToken ?? groupCarriesSessionToken;
     this.#groupIsOnlyZombies = options.groupIsOnlyZombies ?? groupIsOnlyZombies;
     this.#readFrame = options.readFrame ?? readCurrentProcFrame;
+    this.#readForeground =
+      options.readForegroundSnapshots ?? readForegroundProcessSnapshots;
   }
 
   get generation(): string {
@@ -1231,7 +1299,7 @@ export class NativeTerminalHost {
       automationSeq: 0,
       appliedInjections: new Map(),
       humanInputSeq: 0,
-      evictedRequestIds: [],
+      evictedRequestIds: new Set<string>(),
       applicationEpoch: 0,
       queryScanner: new TerminalQueryScanner(),
       outstandingQueries: new Map(),
@@ -1360,7 +1428,7 @@ export class NativeTerminalHost {
     // `list` — restore fetches it explicitly per live native session.
     // Unattestable stays absent (unknown), never an empty verdict.
     if (record.status === "running") {
-      const foreground = readForegroundProcessSnapshots(record.pty.pid);
+      const foreground = this.#readForeground(record.pty.pid);
       if (foreground !== undefined) {
         return Object.freeze({ ...snapshot, foregroundProcesses: foreground });
       }
@@ -1529,7 +1597,7 @@ export class NativeTerminalHost {
     }
     // A redelivered key that aged out of the live map stays known through
     // its tombstone: refused, never re-applied (D7 — never submit twice).
-    if (record.evictedRequestIds.includes(requestId)) {
+    if (record.evictedRequestIds.has(requestId)) {
       const outcome = Object.freeze({ outcome: "refused-evicted-request" } as const);
       this.#auditInject(record, options, "inject:refused-evicted-request", outcome, true);
       return outcome;
@@ -1561,12 +1629,42 @@ export class NativeTerminalHost {
       this.#auditInject(record, options, "inject:deferred-recent-human", outcome, false);
       return outcome;
     }
+    // Round-2 P1 (D5/D6 positive path): the human typed and went idle, and
+    // the host-observed foreground is a readline-plausible composer holding
+    // no managed-shell facet. The unit submits draft-preservingly in ONE
+    // atomic `pty.write` — Ctrl-E (end of line, mid-line cursor safety),
+    // Ctrl-U (hold the draft aside), the validated text, Enter (submit
+    // exactly the automation line), Ctrl-Y (restore the draft). No human
+    // byte is lost, submitted or executed: the submitted line is exactly
+    // the automation text and the draft settles byte-identical, concurrent
+    // controller writes serialise around the unit without interleaving.
+    // Shells, fullscreen programs, REPLs and unattestable foregrounds fall
+    // through to the refusal below (a wake is never executed as a command).
+    if (record.humanInputSeq > 0 && record.applicationEpoch === 0) {
+      const foreground = this.#readForeground(record.pty.pid);
+      if (isDraftPreservingForeground(foreground)) {
+        const automationSeq = record.automationSeq + 1;
+        try {
+          record.pty.write(`\x05\x15${text}\r\x19`);
+        } catch (error) {
+          this.#auditInject(record, options, "inject:write-failed", undefined, false);
+          throw error;
+        }
+        record.automationSeq = automationSeq;
+        const outcome = Object.freeze({ outcome: "injected", automationSeq } as const);
+        record.appliedInjections.set(requestId, outcome);
+        this.#rememberEvictedRequest(record);
+        this.#auditInject(record, options, "inject:injected-draft-preserved", outcome, false);
+        return outcome;
+      }
+    }
     // D6 composition gate: the host is the only path bytes take into the
     // PTY, so a positive human-input epoch proves a human MAY hold a draft
     // (readline/the TUI may already have consumed the bytes). Without a D6
-    // adapter/observation attestation the request refuses with zero bytes —
-    // neither an expired timer, an empty kernel queue nor UI-readiness is
-    // composition evidence. A zero epoch proves no human draft can exist.
+    // adapter/observation attestation — or a qualifying foreground above —
+    // the request refuses with zero bytes: neither an expired timer, an
+    // empty kernel queue nor UI-readiness is composition evidence. A zero
+    // epoch proves no human draft can exist.
     if (record.humanInputSeq > 0) {
       const outcome = Object.freeze({ outcome: "refused-unproven-composition" } as const);
       this.#auditInject(record, options, "inject:refused-unproven-composition", outcome, false);
@@ -1597,21 +1695,26 @@ export class NativeTerminalHost {
     record.automationSeq = automationSeq;
     const outcome = Object.freeze({ outcome: "injected", automationSeq } as const);
     record.appliedInjections.set(requestId, outcome);
-    if (record.appliedInjections.size > NATIVE_TERMINAL_MAX_INJECT_OUTCOMES_PER_SESSION) {
-      const oldest = record.appliedInjections.keys().next();
-      if (!oldest.done) {
-        record.appliedInjections.delete(oldest.value);
-        record.evictedRequestIds.push(oldest.value);
-        while (
-          record.evictedRequestIds.length >
-          NATIVE_TERMINAL_MAX_EVICTED_INJECT_REQUESTS_PER_SESSION
-        ) {
-          record.evictedRequestIds.shift();
-        }
-      }
-    }
+    this.#rememberEvictedRequest(record);
     this.#auditInject(record, options, "inject:injected", outcome, false);
     return outcome;
+  }
+
+  /**
+   * Round-2 (code-review astra-3/sol-2): evicted idempotency keys stay
+   * refusably known for the host lifetime — never re-applied, never silently
+   * forgotten. The tombstone set is deliberately unbounded: entries are
+   * wake-scale (short caller keys, one per applied injection), while any
+   * bound reintroduces the double-submission the bound exists to prevent
+   * (an old identifier readmitted as new). Host-crash exactly-once stays
+   * out of scope (§5); within one host lifetime no applied key is forgotten.
+   */
+  #rememberEvictedRequest(record: SessionRecord): void {
+    if (record.appliedInjections.size <= NATIVE_TERMINAL_MAX_INJECT_OUTCOMES_PER_SESSION) return;
+    const oldest = record.appliedInjections.keys().next();
+    if (oldest.done) return;
+    record.appliedInjections.delete(oldest.value);
+    record.evictedRequestIds.add(oldest.value);
   }
 
   #auditInject(
