@@ -1,0 +1,1 @@
+h2a {CURRENT} — registry unreachable, staying on the current version

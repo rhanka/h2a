@@ -452,7 +452,7 @@ function sweepUpgradeResidues(prefix: string, lockToken?: string): void {
  * tested once. Do NOT add blocked-undecidable or skipped-locked-stale here.
  */
 export function isQuietUpgradeOutcome(outcome: string): boolean {
-  return outcome === "already-current" || outcome === "skipped-throttled" || outcome === "skipped-locked";
+  return outcome === "already-current" || outcome === "registry-unreachable" || outcome === "skipped-throttled" || outcome === "skipped-locked";
 }
 
 /**
@@ -958,6 +958,9 @@ export interface AutoUpgradeResult {
   readonly outcome:
     | "upgraded"
     | "already-current"
+    // Lot L6 (D14): the registry could not be reached, so currency is
+    // unknown — never reported as already-current.
+    | "registry-unreachable"
     | "deferred-propagation"
     | "failed"
     | "skipped-locked"
@@ -1102,6 +1105,16 @@ export function performAutoUpgrade(
       } catch {
         // best-effort
       }
+    }
+    // Lot L6 (D14): no known latest means the registry was not reached
+    // (fetch returned undefined and no cache proves currency) — currency is
+    // unknown, so this is a distinct outcome, never already-current.
+    if (check.latest === undefined) {
+      return {
+        current,
+        outcome: "registry-unreachable",
+        message: `registry unreachable (no version information for ${H2A_CLI_PACKAGE})`
+      };
     }
     return {
       current,
