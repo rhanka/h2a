@@ -36,14 +36,17 @@ import {
 } from "./config.js";
 import { encodeCwd } from "./convsync.js";
 import {
+  classifyRestoreFacet,
   isManagedLocalKind,
   loadRegistry,
   looksLikeConversationUuid,
   persistReconciledConvIds,
+  persistRestoreFacets,
   resolveManagedHost,
   type ManagedHostProbeResult,
   type RawRow,
   type RegistryEntry,
+  type RestoreFacet,
 } from "./registry.js";
 import {
   listLocalSessions,
@@ -138,7 +141,31 @@ export type LayoutTab = {
 export type LayoutWindow = { title: string; tabs: LayoutTab[] };
 
 /** A pre-resolved SCW tab for a remote group (built by the caller from `remote ls`). */
-export type RemoteTab = { id: string; label: string; cwd: string };
+export type RemoteTab = {
+  id: string;
+  label: string;
+  cwd: string;
+  /**
+   * Lot L5 (D12c) — durable restore facet when the control plane reports
+   * one. Absent = unclassified remote row (admitted as today until the
+   * server reports facets); `secondary` rows are excluded from the default
+   * plan and restored only with the opt-in.
+   */
+  restoreFacet?: RestoreFacet;
+};
+
+/**
+ * Lot L5 (D12c) — remote-tab selection per group (D12). Secondary remote
+ * rows are excluded from the default plan; the explicit opt-in admits them.
+ * Unclassified rows (no facet reported) are admitted as today.
+ */
+export function selectRemoteTabsForGroups(
+  tabs: ReadonlyArray<RemoteTab>,
+  opts: { includeSecondary?: boolean } = {},
+): RemoteTab[] {
+  if (opts.includeSecondary === true) return tabs.slice();
+  return tabs.filter((t) => t.restoreFacet !== "secondary");
+}
 
 /** Project identity is the whole workspace path below ~/src, never its root. */
 function projectForCwd(src: string, cwd: string): string | undefined {
@@ -601,6 +628,24 @@ function managedHostProbes(liveView: ManagedLiveLookup | undefined): {
  * attach/relaunch target) instead of silently trusting the valid row alone.
  * Defaults to `[]` so every existing plain-array test caller is unaffected.
  */
+/**
+ * Lot L5 (D12b) — where the default plan accounts the rows it excludes by
+ * provenance. `secondary` rows restore only with the opt-in; `unclassified`
+ * rows (no facet, no delegation) are listed separately and never
+ * auto-restored.
+ */
+export type RestoreExclusions = {
+  secondary: string[];
+  unclassified: string[];
+};
+
+export type RegistrySessionsOpts = {
+  /** Collect the excluded rows by name (dry-run/opt-in reporting). */
+  collectExcluded?: RestoreExclusions;
+  /** Admit `secondary` rows (explicit opt-in). Unclassified stay excluded. */
+  includeSecondary?: boolean;
+};
+
 export function registrySessions(
   home: string = homedir(),
   // No default read: restore() owns the ONE registry read and refuses on an
@@ -610,6 +655,7 @@ export function registrySessions(
   evidence: LegacySessionEvidence = legacySessionEvidence(home),
   liveView?: ManagedLiveLookup,
   unreadable: readonly RawRow[] = [],
+  opts: RegistrySessionsOpts = {},
 ): DiscoveredSession[] {
   const src = join(home, "src");
   const out: DiscoveredSession[] = [];
@@ -625,6 +671,27 @@ export function registrySessions(
     // Only human dev sessions are restorable — never delegated jobs or explicit
     // background launches (they had no human in front of them).
     if (!isHumanFacingSession(e, evidence)) continue;
+    // Lot L5 (D12) — provenance gate: the default plan admits only
+    // positively-classified primaries. Secondary rows are accounted and
+    // restore only with the opt-in; unclassified rows are listed separately
+    // and never auto-restored (transcript/legacy evidence never proves a
+    // primary). A persisted facet wins; otherwise the one-time pure
+    // classification decides (restore() persists it).
+    const facet = e.restoreFacet ?? classifyRestoreFacet(e);
+    if (facet !== "primary") {
+      const name = e.label ?? e.id;
+      if (facet === "secondary") {
+        if (opts.includeSecondary === true) {
+          // Explicit opt-in: fall through, admitted below.
+        } else {
+          opts.collectExcluded?.secondary.push(name);
+          continue;
+        }
+      } else {
+        opts.collectExcluded?.unclassified.push(name);
+        continue;
+      }
+    }
     if (!e.cwd.startsWith(`${src}/`)) continue;
     // §4.1 unresolved-convId gate: skip ONLY when the row is dead/absent (or
     // its host state is unprovable — an unknown probe is no death
@@ -997,6 +1064,11 @@ export type RestoreOptions = {
   /** Launch only the group whose title matches (exact or slug-normalized). */
   group?: string;
   /**
+   * Lot L5 (D12) — admit `secondary` (delegated) rows. Unclassified rows
+   * stay excluded: promotion is explicit, never an opt-in side effect.
+   */
+  includeSecondary?: boolean;
+  /**
    * Lot L1a: receives every blocked/skipped ledger entry (occupied-human
    * refusals). The caller owns persistence — restore() never picks a record
    * path itself.
@@ -1034,7 +1106,10 @@ export function restore(
 
   // Remote tabs resolved by the caller from `remote ls` (fill `remote: true`
   // groups). Computed up-front so they can ALSO dedup the local discovery.
-  const remoteTabs = opts.remoteTabs ?? [];
+  // Lot L5 (D12c): secondary remote tabs are excluded from the default plan.
+  const remoteTabs = selectRemoteTabsForGroups(opts.remoteTabs ?? [], {
+    ...(opts.includeSecondary === true ? { includeSecondary: true } : {}),
+  });
 
   // Local windows (groups + shared) — durable registry rows are the truth.
   // Liveness cannot be a pre-classification filter: a dead tmux session is the
@@ -1085,6 +1160,24 @@ export function restore(
   // this same capture — launchLayout has no reader of its own to diverge on.
   const hostView = captureHostViewSnapshot();
   const liveView = managedLiveLookupFromSnapshot(hostView);
+  // Lot L5 (D12b) — one-time legacy classification by evidence, persisted
+  // once (same pattern as reconciled convIds). Only rows WITHOUT a facet
+  // are stamped; an explicit facet is never overwritten. Skipped on
+  // --dry-run (a preview stays side-effect-free) but REPORTED below.
+  const facetUpdates = new Map<string, RestoreFacet>();
+  for (const e of registryEntries) {
+    if (e.restoreFacet !== undefined) continue;
+    const facet = classifyRestoreFacet(e);
+    if (facet !== undefined) facetUpdates.set(e.id, facet);
+  }
+  if (!opts.dryRun && facetUpdates.size > 0) {
+    try {
+      persistRestoreFacets(facetUpdates);
+    } catch {
+      // best-effort: a persistence hiccup must never break restore
+    }
+  }
+  const excluded: RestoreExclusions = { secondary: [], unclassified: [] };
   const allDiscovered = mergeDiscovered(
     registrySessions(
       home,
@@ -1095,6 +1188,10 @@ export function restore(
       // PART A/A2: the unreadable rows from this SAME read, so a valid row +
       // an unreadable twin poisons that one identity's host resolution.
       registryRead.unreadable,
+      {
+        collectExcluded: excluded,
+        ...(opts.includeSecondary === true ? { includeSecondary: true } : {}),
+      },
     ),
     scanned,
   );
@@ -1226,6 +1323,22 @@ export function restore(
   }
   if (dropped > 0 && !opts.group)
     stderr.write(`  (! ${dropped} session(s) ignorée(s), plafond atteint)\n`);
+  // Lot L5 (D12b) — account the provenance exclusions by name, in dry-run
+  // AND real runs (a silent skip is the A.4 complaint). Secondaries name
+  // the opt-in; unclassified rows are never auto-restored; a dry run also
+  // reports the one-time classifications it did NOT persist.
+  if (excluded.secondary.length > 0)
+    stderr.write(
+      `  (! ${excluded.secondary.length} secondary session(s) excluded by delegation provenance — restore with --include-secondary: ${excluded.secondary.join(", ")})\n`,
+    );
+  if (excluded.unclassified.length > 0)
+    stderr.write(
+      `  (! ${excluded.unclassified.length} unclassified session(s) listed separately, never auto-restored: ${excluded.unclassified.join(", ")})\n`,
+    );
+  if (opts.dryRun && facetUpdates.size > 0)
+    stderr.write(
+      `  (! dry-run: ${facetUpdates.size} row(s) would be classified once and persisted: ${[...facetUpdates].map(([id, facet]) => `${id}=${facet}`).join(", ")})\n`,
+    );
   if (!opts.dryRun && total > 0) {
     launchLayout(windows, hostView, stderr, {
       ...(opts.reattach ? { reattach: true } : {}),
