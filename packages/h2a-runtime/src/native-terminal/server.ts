@@ -23,11 +23,14 @@ import {
   NATIVE_TERMINAL_MAX_PENDING_RESPONSE_BYTES_PER_CONNECTION,
   NATIVE_TERMINAL_MAX_PENDING_RESPONSE_BYTES_TOTAL,
   NATIVE_TERMINAL_MAX_PENDING_RESPONSES_PER_CONNECTION,
+  NATIVE_TERMINAL_MAX_REPLY_BYTES,
   NATIVE_TERMINAL_PROTOCOL_VERSION,
+  isNativeTerminalReplyFamily,
   isNativeTerminalStopSignal,
   isRecord,
   parseNativeTerminalRequest,
   type NativeTerminalErrorResponse,
+  type NativeTerminalReplyUnit,
   type NativeTerminalRequest,
   type NativeTerminalResponse,
 } from "./protocol.js";
@@ -167,6 +170,39 @@ function ownedLease(context: ConnectionContext, params: unknown): NativeTerminal
   return lease;
 }
 
+/**
+ * Lot L4-replies (D10) — validate one bridge-accepted typed reply unit.
+ * Shape failures are operation failures (the bridge misbehaved); staleness
+ * is NOT a failure — the host returns a swallowed outcome the bridge counts.
+ */
+function replyUnit(params: unknown): NativeTerminalReplyUnit {
+  const record = requiredRecord(params, "params");
+  const value = requiredRecord(record.unit, "reply unit");
+  const family = value.family;
+  if (!isNativeTerminalReplyFamily(family)) {
+    throw new TypeError("reply unit family must be a known terminal reply family");
+  }
+  const key = value.key;
+  if (typeof key !== "string" || key.length > NATIVE_TERMINAL_MAX_IDENTIFIER_CHARS) {
+    throw new TypeError("reply unit key must be a short string");
+  }
+  const bytes = value.bytes;
+  if (typeof bytes !== "string" || bytes.length === 0 || bytes.length > NATIVE_TERMINAL_MAX_REPLY_BYTES) {
+    throw new TypeError(
+      `reply unit bytes must be a non-empty string of at most ${NATIVE_TERMINAL_MAX_REPLY_BYTES} characters`,
+    );
+  }
+  return {
+    family,
+    key,
+    epoch: requiredNonNegativeInteger(value.epoch, "reply unit epoch"),
+    incarnation: requiredIdentifier(value.incarnation, "reply unit incarnation"),
+    appEpoch: requiredNonNegativeInteger(value.appEpoch, "reply unit application epoch"),
+    bytes,
+    acceptedAt: requiredNonNegativeInteger(value.acceptedAt, "reply unit accepted-at"),
+  };
+}
+
 function createOptions(params: unknown): NativeTerminalCreateOptions {
   const options = requiredRecord(params, "create params");
   if (!Array.isArray(options.args) || !options.args.every((arg) => typeof arg === "string")) {
@@ -270,6 +306,11 @@ function dispatch(host: NativeTerminalHost, context: ConnectionContext, request:
       const lease = ownedLease(context, record);
       host.write(lease, requiredString(record.data, "terminal input"));
       return null;
+    }
+    case "write-reply": {
+      const record = requiredRecord(params, "params");
+      const lease = ownedLease(context, record);
+      return host.writeReply(lease, replyUnit(record));
     }
     case "inject": {
       // Lot L2: lease-free host-side injection. No controller lease is

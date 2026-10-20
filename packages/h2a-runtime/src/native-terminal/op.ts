@@ -41,12 +41,19 @@ import {
   NATIVE_TERMINAL_INTERACTIVE_READ_TIMEOUT_MS,
   NATIVE_TERMINAL_PROTOCOL_VERSION,
   NativeTerminalRemoteError,
+  type NativeTerminalReplyUnit,
 } from "./protocol.js";
 import type {
   NativeTerminalControllerLease,
   NativeTerminalInjectOutcome,
+  NativeTerminalReplyOutcome,
   NativeTerminalSessionState,
 } from "./host.js";
+import {
+  TerminalReplyClassifier,
+  stripTerminalQueries,
+  type ClassifiedPart,
+} from "./terminal-replies.js";
 import { NativeTerminalHostSupervisor } from "./supervisor.js";
 import { proveNativeTerminalEndpointAbsent } from "./server.js";
 import { defaultNativeTerminalSocketPath, knownNativeTerminalSocketPaths,
@@ -308,6 +315,7 @@ type NativeTerminalAttachClient = Pick<
   | "acquireController"
   | "releaseController"
   | "write"
+  | "writeReply"
   | "resize"
   | "close"
 >;
@@ -423,7 +431,13 @@ export async function runAttach(
   };
   // Older protocol-v1 hosts relay the wrapper marker verbatim. New hosts
   // consume it themselves so detached sessions also return to a clean shell.
-  let resetRelay = new TerminalResetRelay(relayOutput, () => modes.resetSequence());
+  // Lot L4-replies (D10): every consumed marker also opens a new application
+  // incarnation for the typed-reply correlation (suppressed while feeding a
+  // gap repaint: repainted markers are history the host already counted).
+  const countMarker = (): void => {
+    if (!suppressMarkerCount) appEpoch += 1;
+  };
+  let resetRelay = new TerminalResetRelay(relayOutput, () => modes.resetSequence(), countMarker);
   const resetModes = (): void => {
     if (modesSuspended) return;
     modesSuspended = true;
@@ -456,8 +470,28 @@ export async function runAttach(
   let transportFailure: unknown;
   let recoveryAnnounced = false;
   let pendingInputBytes = 0;
-  const pendingInput: Buffer[] = [];
+  type PendingAttachAction =
+    | { kind: "bytes"; buf: Buffer }
+    | {
+      kind: "reply";
+      family: NativeTerminalReplyUnit["family"];
+      key: string;
+      bytes: string;
+      acceptedAt: number;
+    };
+  const pendingInput: PendingAttachAction[] = [];
   let inputPump: Promise<void> | undefined;
+  // Lot L4-replies (D10): the bridge's own application-incarnation counter,
+  // advanced by every wrapper reset marker the relayed output carries and
+  // healed from the host's authoritative state (evicted markers never reach
+  // the bridge). Typed units carry it; the host revalidates it at apply.
+  let appEpoch = 0;
+  // An old host without the `write-reply` operation cannot gate typed units:
+  // replies are then swallowed locally (fail closed, never plain-written)
+  // instead of round-tripping a guaranteed rejection.
+  let hostNoReplySupport = false;
+  let suppressMarkerCount = false;
+  const replyClassifier = new TerminalReplyClassifier();
   let takeoverPending = options.takeover === true;
   let tty = "not-a-tty";
   try { tty = readlinkSync("/proc/self/fd/0"); } catch { /* Non-Linux terminal. */ }
@@ -524,18 +558,69 @@ export async function runAttach(
       while (!detached && pendingInput.length > 0) {
         const current = active;
         if (current === undefined) return;
-        const chunk = pendingInput[0]!;
+        const action = pendingInput[0]!;
+        const actionBytes = action.kind === "bytes"
+          ? action.buf.length
+          : Buffer.byteLength(action.bytes, "utf8");
         try {
-          await current.client.write(current.lease, chunk.toString("utf8"));
+          if (action.kind === "bytes") {
+            await current.client.write(current.lease, action.buf.toString("utf8"));
+          } else {
+            // The typed unit is assembled at SEND time from the current
+            // lease and application incarnation: classification only decided
+            // the bytes are a machine reply. The host is the final gate.
+            const unit: NativeTerminalReplyUnit = {
+              family: action.family,
+              key: action.key,
+              epoch: current.lease.epoch,
+              incarnation: current.lease.incarnation,
+              appEpoch,
+              bytes: action.bytes,
+              acceptedAt: action.acceptedAt,
+            };
+            const outcome: NativeTerminalReplyOutcome = await current.client.writeReply(
+              current.lease,
+              unit,
+            );
+            if (outcome.outcome === "swallowed") {
+              appendCrashLog("attach", {
+                event: "reply-swallowed",
+                sessionId: id,
+                reason: outcome.reason,
+              });
+            }
+          }
           pendingInput.shift();
-          pendingInputBytes -= chunk.length;
+          pendingInputBytes -= actionBytes;
         } catch (error) {
+          if (action.kind === "reply" && error instanceof NativeTerminalRemoteError) {
+            // A typed-unit REJECTION (stale lease, or an old host without
+            // `write-reply`) swallows the reply with zero bytes and lets the
+            // human queue keep flowing in order — never a plain write.
+            pendingInput.shift();
+            pendingInputBytes -= actionBytes;
+            const message = error instanceof Error ? error.message : String(error);
+            if (message.includes("unknown terminal operation") && !hostNoReplySupport) {
+              hostNoReplySupport = true;
+              stdout.write(
+                "\r\n[h2a] terminal host predates typed replies; machine replies " +
+                  "are swallowed, never typed\r\n",
+              );
+            }
+            appendCrashLog("attach", {
+              event: "reply-swallowed",
+              sessionId: id,
+              reason: "rejected",
+              detail: message.slice(0, 160),
+            });
+            continue;
+          }
           // The host may have accepted the write before the response path
           // broke. Drop this ONE uncertain chunk with an explicit warning;
           // replaying it could duplicate a command. Later queued input stays
           // ordered and is delivered only after a fresh exclusive lease.
           pendingInput.shift();
-          pendingInputBytes -= chunk.length;
+          pendingInputBytes -= actionBytes;
           markTransportFailure(current, error, true);
           return;
         }
@@ -556,19 +641,58 @@ export async function runAttach(
       closeActive();
       return;
     }
-    if (pendingInputBytes + chunk.length > ATTACH_PENDING_INPUT_MAX_BYTES) {
-      stdout.write(
-        "\r\n[h2a] native attach input buffer full during reconnect; detaching " +
-          "without stopping the session\r\n",
-      );
-      appendCrashLog("attach", { event: "refusal", sessionId: id, reason: "input-buffer-full" });
-      detached = true;
-      userDetached = true;
-      closeActive();
-      return;
+    // Lot L4-replies (D10): split outer-terminal bytes into human input
+    // (existing `write` path, verbatim, ordered) and machine replies (typed
+    // units the host revalidates before writing). On ambiguity the bytes stay
+    // human — the classifier only routes positively-identified replies.
+    for (const part of replyClassifier.feed(chunk.toString("utf8"))) {
+      if (part.kind === "input") {
+        const buf = Buffer.from(part.text, "utf8");
+        if (pendingInputBytes + buf.length > ATTACH_PENDING_INPUT_MAX_BYTES) {
+          stdout.write(
+            "\r\n[h2a] native attach input buffer full during reconnect; detaching " +
+              "without stopping the session\r\n",
+          );
+          appendCrashLog("attach", { event: "refusal", sessionId: id, reason: "input-buffer-full" });
+          detached = true;
+          userDetached = true;
+          closeActive();
+          return;
+        }
+        pendingInput.push({ kind: "bytes", buf });
+        pendingInputBytes += buf.length;
+        continue;
+      }
+      // A machine reply: never plain-written, even to an old host.
+      if (hostNoReplySupport || active === undefined) {
+        appendCrashLog("attach", {
+          event: "reply-swallowed",
+          sessionId: id,
+          reason: hostNoReplySupport ? "old-host" : "no-controller",
+        });
+        continue;
+      }
+      const replyBytes = Buffer.byteLength(part.text, "utf8");
+      if (pendingInputBytes + replyBytes > ATTACH_PENDING_INPUT_MAX_BYTES) {
+        stdout.write(
+          "\r\n[h2a] native attach input buffer full during reconnect; detaching " +
+            "without stopping the session\r\n",
+        );
+        appendCrashLog("attach", { event: "refusal", sessionId: id, reason: "input-buffer-full" });
+        detached = true;
+        userDetached = true;
+        closeActive();
+        return;
+      }
+      pendingInput.push({
+        kind: "reply",
+        family: part.family,
+        key: part.key,
+        bytes: part.text,
+        acceptedAt: runtime.now(),
+      });
+      pendingInputBytes += replyBytes;
     }
-    pendingInput.push(chunk);
-    pendingInputBytes += chunk.length;
     pumpInput();
   };
   stdin.on("data", onInput);
@@ -598,6 +722,12 @@ export async function runAttach(
         "human",
         { takeover: takeoverPending, pid: process.pid, tty },
       );
+      // Lot L4-replies (D10): every (re)connect heals the bridge's
+      // application incarnation from the host's authoritative counter, so a
+      // marker evicted before this attach cannot strand typed units stale.
+      if (typeof state.applicationEpoch === "number") {
+        appEpoch = Math.max(appEpoch, state.applicationEpoch);
+      }
       // A reconnect must never take the terminal back from a newer attach.
       takeoverPending = false;
       active = { client, lease };
@@ -708,15 +838,38 @@ export async function runAttach(
         if (replay.gap) {
           resetModes();
           modes = new TerminalModeTracker();
-          resetRelay = new TerminalResetRelay(relayOutput, () => modes.resetSequence());
+          resetRelay = new TerminalResetRelay(relayOutput, () => modes.resetSequence(), countMarker);
           modesSuspended = false;
           if (replay.terminalModePrefix) {
             resetRelay.feed(replay.terminalModePrefix);
           }
-        }
-        for (const chunk of replay.chunks) {
-          resetRelay.feed(chunk.data);
-          seq = chunk.seq;
+          // Lot L4-replies (D10(b)): the gap repaint carries queries the new
+          // reader never asked — the outer would answer stale queries
+          // straight into its input line. Strip them from the RELAYED paint
+          // only: modes/saveReset still see the original bytes, and seq still
+          // jumps to the latest retained chunk. Marker counting is suppressed
+          // for this feed: repainted markers are history the host already
+          // counted, and the state poll below heals any evicted ones.
+          let paint = "";
+          for (const chunk of replay.chunks) {
+            paint += chunk.data;
+            if (!modesSuspended) modes.feed(chunk.data);
+            saveReset();
+          }
+          suppressMarkerCount = true;
+          try {
+            resetRelay.feed(stripTerminalQueries(paint));
+          } finally {
+            suppressMarkerCount = false;
+          }
+          if (replay.chunks.length > 0) {
+            seq = replay.chunks[replay.chunks.length - 1]!.seq;
+          }
+        } else {
+          for (const chunk of replay.chunks) {
+            resetRelay.feed(chunk.data);
+            seq = chunk.seq;
+          }
         }
         seq = replay.latestSeq;
         if (replay.chunks.length === 0) {
@@ -732,6 +885,13 @@ export async function runAttach(
         if (runtime.now() >= nextStatePollAt) {
           const state = await current.client.state(id);
           nextStatePollAt = runtime.now() + ATTACH_STATE_POLL_MS;
+          // Lot L4-replies (D10): heal the bridge's application incarnation
+          // from the host's authoritative counter (evicted markers never
+          // reach the relay). Never moves backwards: the local count is exact
+          // for everything the bridge actually relayed.
+          if (typeof state.applicationEpoch === "number") {
+            appEpoch = Math.max(appEpoch, state.applicationEpoch);
+          }
           if (controllerChanged(state, current.lease)) break;
           if (state.status === "exited") {
             exitCode = state.exit?.exitCode ?? 0;

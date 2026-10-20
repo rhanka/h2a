@@ -9,6 +9,7 @@ import type {
   NativeTerminalCreateOptions,
   NativeTerminalObserverAttachment,
   NativeTerminalReplay,
+  NativeTerminalReplyOutcome,
   NativeTerminalSessionState,
 } from "./host.js";
 import {
@@ -18,6 +19,7 @@ import {
   NativeTerminalRemoteError,
   parseNativeTerminalResponse,
   type NativeTerminalPing,
+  type NativeTerminalReplyUnit,
   type NativeTerminalRequest,
   type NativeTerminalStopSignal,
 } from "./protocol.js";
@@ -192,6 +194,22 @@ export class NativeTerminalClient {
 
   async write(lease: NativeTerminalControllerLease, data: string): Promise<void> {
     await this.#request("write", { lease, data });
+  }
+
+  /**
+   * Lot L4-replies (D10) — send one bridge-accepted machine reply as a typed
+   * unit. The host revalidates the correlation atomically before `pty.write`
+   * and returns the outcome; stale units are swallowed with zero bytes.
+   */
+  async writeReply(
+    lease: NativeTerminalControllerLease,
+    unit: NativeTerminalReplyUnit,
+  ): Promise<NativeTerminalReplyOutcome> {
+    const outcome = await this.#request("write-reply", { lease, unit });
+    if (typeof outcome !== "object" || outcome === null || !("outcome" in outcome)) {
+      throw new Error("terminal host write-reply returned a malformed outcome");
+    }
+    return outcome as NativeTerminalReplyOutcome;
   }
 
   inject(
