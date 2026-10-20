@@ -24,6 +24,7 @@ import {
 import { dirname, join } from "node:path";
 
 import { resolveConfigPath } from "./config.js";
+import { guardTestStateWrite } from "./test-state-guard.js";
 import { isCliProfile, resolveProfile, resumeArgsFor } from "./profiles.js";
 import {
   cpuRateMsPerSecond,
@@ -113,6 +114,13 @@ export function tryAcquireResumeLaunchClaim(
 ): ResumeLaunchClaim | undefined {
   if (convId.length === 0) throw new Error("resume launch claim requires a conversation id");
   const root = options.root ?? resolveResumeLaunchClaimRoot();
+  // Lot L0: mutation-point guard — fail closed (no claim) outside the
+  // marked test root, before creating anything. Inert outside marked runs.
+  try {
+    guardTestStateWrite(root);
+  } catch {
+    return undefined;
+  }
   const pidAlive = options.pidAlive ?? defaultPidAlive;
   mkdirSync(root, { recursive: true });
   const key = createHash("sha256").update(convId).digest("hex");

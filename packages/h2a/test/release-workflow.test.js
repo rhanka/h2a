@@ -282,7 +282,7 @@ test("R8.2 (2): publish checks out the verify-gated SHA, never a mutable tag nam
 
 test("R8.1/R8.3 (3): verify runs the trust root BEFORE npm test, then the packaged-artifact smoke", () => {
   const verify = job("verify");
-  const trustRoot = firstStepIndex(verify, "node --test packages/h2a/test/run-test-gates.test.js");
+  const trustRoot = firstStepIndex(verify, "node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test packages/h2a/test/run-test-gates.test.js");
   const npmTest = firstStepIndex(verify, "npm test");
   const smoke = firstStepIndex(verify, "npm run smoke:artifact -- --tarballs dist-tarballs");
   assert.ok(
@@ -607,7 +607,7 @@ test("R8.1/R8.3/R8.4: the mandatory verify steps are UNCONDITIONAL — a disable
   // the total-unconditionality test below.)
   const verify = job("verify");
   const mandatory = new Map([
-    ["node --test packages/h2a/test/run-test-gates.test.js", "the trust root"],
+    ["node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test packages/h2a/test/run-test-gates.test.js", "the trust root"],
     ["npm test", "the full gate suite (h2a + runtime TS suites)"],
     ["npm run smoke:artifact -- --tarballs dist-tarballs", "the packaged-artifact smoke"],
   ]);

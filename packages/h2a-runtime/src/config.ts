@@ -12,6 +12,7 @@ import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 
 import type { SessionTarget } from "./protocol-local.js";
+import { guardTestStateWrite } from "./test-state-guard.js";
 
 /**
  * How the CLI reaches the control-plane when the configured URL is not directly
@@ -352,6 +353,13 @@ export interface ConfigHomeMigration {
  */
 export function migrateConfigHomeIfNeeded(now: number): ConfigHomeMigration {
   const home = sentropicHome();
+  // Lot L0: the migration writes under the config home — refuse it before
+  // any backup/copy outside the marked test root.
+  try {
+    guardTestStateWrite(join(home, LEGACY_CONFIG_DIR));
+  } catch (error) {
+    return { migrated: false, reason: (error as Error).message };
+  }
   const legacy = join(home, LEGACY_CONFIG_DIR);
   const canonical = join(home, CANONICAL_CONFIG_DIR);
 
@@ -464,6 +472,9 @@ export function readRemoteConfig(): RemoteCliConfig {
 
 export function writeRemoteConfig(config: RemoteCliConfig): void {
   const path = resolveConfigPath();
+  // Lot L0: mutation-point guard — named error, zero bytes outside the
+  // marked test root. Inert outside a marked test run.
+  guardTestStateWrite(path);
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, JSON.stringify(config, null, 2), "utf8");
 }
