@@ -16,7 +16,8 @@
  * separately.
  */
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { closeSync, constants, openSync, readFileSync, rmSync, writeFileSync, writeSync } from "node:fs";
+import { closeSync, constants, existsSync, openSync, readFileSync, rmSync, writeFileSync, writeSync } from "node:fs";
+import { connect } from "node:net";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -88,11 +89,24 @@ async function until(accept: () => boolean | Promise<boolean>, ms = 30_000): Pro
   }
 }
 
-function freeDisplay(): string {
+function displayLive(n: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = connect(`/tmp/.X11-unix/X${n}`);
+    socket.on("connect", () => { socket.destroy(); resolve(true); });
+    socket.on("error", () => resolve(false));
+  });
+}
+
+async function freeDisplay(): Promise<string> {
+  // A SIGKILLed Xvfb leaves its socket+lock behind: a stat-only check would
+  // treat a dead display as taken until :91–:99 are all exhausted. Probe
+  // whether a server actually listens; reclaim the stale ones (the whole
+  // :91–:99 range is the harness's own). A live server keeps its display.
   for (let n = 91; n < 100; n++) {
-    try {
-      readFileSync(`/tmp/.X11-unix/X${n}`);
-    } catch {
+    if (!existsSync(`/tmp/.X11-unix/X${n}`)) return String(n);
+    if (!(await displayLive(n))) {
+      try { rmSync(`/tmp/.X11-unix/X${n}`, { force: true }); } catch { /* already gone */ }
+      try { rmSync(`/tmp/.X${n}-lock`, { force: true }); } catch { /* already gone */ }
       return String(n);
     }
   }
@@ -135,7 +149,7 @@ describe.skipIf(!vteAvailable)("lot L4-replies VTE acceptance (D10)", () => {
     async function runHarness(id: string, fifo: string, out: string, err: string, harnessErr: string): Promise<ChildProcess> {
       const harnessErrFd = openSync(harnessErr, "a");
       const child = spawn(process.execPath, [harness,
-        "--display", freeDisplay(), "--tmp", directory, "--socket", socketPath,
+        "--display", await freeDisplay(), "--tmp", directory, "--socket", socketPath,
         "--id", id, "--op", opTs, "--tsx", loader,
         "--fifo", fifo, "--out", out, "--err", err,
       ], { cwd: directory, env, stdio: ["ignore", "ignore", harnessErrFd] });
@@ -176,31 +190,53 @@ describe.skipIf(!vteAvailable)("lot L4-replies VTE acceptance (D10)", () => {
       id: "vte-a", command: process.execPath,
       args: ["-e", `process.stdin.setRawMode(true); process.stdin.resume();
         const fs = require('node:fs');
+        // A real VTE cold-boots (server + portals + a11y) in seconds while
+        // the host's reply window is 5s: re-ask every second. Answers to
+        // cold-start asks arrive past the window and are swallowed by
+        // design (the stale key is dropped); once the VTE is warm an
+        // ask/answer pair completes inside the window and the receipt below
+        // proves a live query was really answered. The until() still bounds
+        // the assertion; the 60s cap outlives every cold start here.
         process.stdout.write(${JSON.stringify(`${E}[c`)});
-        setTimeout(() => process.exit(0), 4000);
+        const ask = setInterval(() => process.stdout.write(${JSON.stringify(`${E}[c`)}), 1000);
+        setTimeout(() => { clearInterval(ask); process.exit(0); }, 60000);
         try { fs.unlinkSync(${JSON.stringify(receiptA)}); } catch {}
-        process.stdin.on('data', (b) => fs.appendFileSync(${JSON.stringify(receiptA)}, JSON.stringify(String(b)) + '\\n'));`],
+        // Self-terminate on the first DA answer: ending the session drives
+        // the detach cascade (bridge, node, gnome, harness) the test waits
+        // for below. The append is synchronous, so the receipt update the
+        // until() polls is already on disk before the exit fires.
+        process.stdin.on('data', (b) => {
+          fs.appendFileSync(${JSON.stringify(receiptA)}, JSON.stringify(String(b)) + '\\n');
+          if (String(b).includes('\\u001b[?')) setTimeout(() => { clearInterval(ask); process.exit(0); }, 300);
+        });`],
       cwd: directory, env: env as Record<string, string>, cols: 80, rows: 24,
     });
     const fifoA = join(directory, "fifo-a");
     const harnessErrA = join(directory, "harness-a.log");
     const harnessA = await runHarness("vte-a", fifoA, join(directory, "out-a.log"), join(directory, "err-a.log"), harnessErrA);
     const writerA = await openWriter(fifoA, harnessErrA);
+    // The receipt logs JSON.stringify'd chunks, so a DA answer lands as the
+    // six ASCII chars \u001b — never a raw ESC. Match that escaped form
+    // (phase B's receipt goes through cat, raw bytes, hence raw regexes).
     await until(async () => {
       try {
         const content = await readFile(receiptA, "utf8");
-        return /\x1b\[\?[0-9;]*c/.test(content);
+        return /\\u001b\[\?[0-9;]*c/.test(content);
       } catch { return false; }
     });
     // The VTE answered for real: the live TUI reply crossed while outstanding.
     const receiptAContent = await readFile(receiptA, "utf8");
-    expect(receiptAContent).toMatch(/\x1b\[\?[0-9;]*c/);
+    expect(receiptAContent).toMatch(/\\u001b\[\?[0-9;]*c/);
     closeSync(writerA);
     await until(() => harnessA.exitCode !== null);
 
     // Phase B (A.3): the TUI exits at once; the post-CLI reader (byte logger)
-    // must stay clean while human bytes cross verbatim and ordered.
-    const wrapper = LOCAL_WRAPPER.replace("exec /bin/bash -l", `exec /usr/bin/tee ${receiptB}`);
+    // must stay clean while human bytes cross verbatim and ordered. cat, not
+    // tee: tee's stdio is fully buffered to files, so a killed logger loses
+    // everything still in its user-space buffer and the receipt stays empty.
+    // cat read()s and write()s straight through, so every byte the session
+    // received is already in the kernel (durable past the kill) when read.
+    const wrapper = LOCAL_WRAPPER.replace("exec /bin/bash -l", `exec /bin/cat >> ${receiptB}`);
     await client.create({
       id: "vte-b", command: "/bin/bash",
       args: ["--noprofile", "--norc", "-c", wrapper,
@@ -213,13 +249,23 @@ describe.skipIf(!vteAvailable)("lot L4-replies VTE acceptance (D10)", () => {
     const harnessErrB = join(directory, "harness-b.log");
     const harnessB = await runHarness("vte-b", fifoB, join(directory, "out-b.log"), join(directory, "err-b.log"), harnessErrB);
     const writerB = await openWriter(fifoB, harnessErrB);
-    // Let the CLI exit and the VTE's delayed answers arrive, then type.
-    await new Promise((resolve) => setTimeout(resolve, 2500));
+    // Type only once the bridge holds the session's input lease: a fixed
+    // sleep races gnome's cold start (server + portals take seconds), and
+    // bytes typed pre-attach would still be queued when the test tears the
+    // session down. Lease-held also outlasts the 200ms CLI, so the VTE's
+    // delayed answers are already in flight — exactly what phase B swallows.
+    await until(async () => (await client.state("vte-b")).controlled);
     writeSync(writerB, "HUMAN-VTE-1\r");
     await new Promise((resolve) => setTimeout(resolve, 500));
     writeSync(writerB, "HUMAN-VTE-2\r");
     await new Promise((resolve) => setTimeout(resolve, 500));
     closeSync(writerB);
+    // The post-CLI logger (tee) survives the CLI by design, so the session
+    // never ends on its own: stop it explicitly. The bridge detaches, node
+    // exits, gnome exits, and the harness follows — the cascade the until
+    // below waits for.
+    const stateB = await client.state("vte-b");
+    await client.stopIfIncarnation("vte-b", stateB.generation, stateB.incarnation);
     await until(() => harnessB.exitCode !== null);
     const receiptBContent = await readFile(receiptB, "utf8");
     expect(receiptBContent).toContain("HUMAN-VTE-1");
