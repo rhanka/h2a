@@ -7,20 +7,17 @@ setupNativeTestEnvironment(afterAll);
  * The registry is REAL, pointed at a scratch file via the config mock; live
  * local writers are simulated with kind "local" + pid = process.pid (alive).
  */
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Scratch dir inside the package (never /tmp), like the other test suites.
-const SCRATCH = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "..",
-  ".test-scratch",
-  "conv-guard-wiring",
-);
-const CONFIG_PATH = join(SCRATCH, "config.json");
-const REGISTRY_PATH = join(SCRATCH, "registry.json");
+// Round-1 L0 same-class repair (code-review sol-8): suite scratch lives
+// under the private TMPDIR (the test-sandbox barrier mounts the package
+// read-only), never in the package's `.test-scratch`.
+let SCRATCH: string;
+let CONFIG_PATH: string;
+let REGISTRY_PATH: string;
 const ORIGINAL_ANTHROPIC_BASE_URL = process.env.ANTHROPIC_BASE_URL;
 const ORIGINAL_ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const ORIGINAL_ANTHROPIC_AUTH_TOKEN = process.env.ANTHROPIC_AUTH_TOKEN;
@@ -106,6 +103,11 @@ vi.mock("./tmux.js", async (importOriginal) => {
   HEADLESS_WRAPPER: actual.HEADLESS_WRAPPER,
   HEADLESS_TERMINAL_SIZE: actual.HEADLESS_TERMINAL_SIZE,
   localRelaunchCommand: actual.localRelaunchCommand,
+  // Pure resume-hint helper used by the in-place resume path (pre-existing
+  // gap: the PR commit that introduced the hint did not extend this
+  // enumerated mock, so the resume tests died loudly on the mock).
+  localResumeHintCommand: actual.localResumeHintCommand,
+  isOwnManagedSession: actual.isOwnManagedSession,
   procReaderDeps: actual.procReaderDeps,
   tmuxAvailable: () => true,
   startLocalSession,
@@ -306,6 +308,9 @@ function stderrText(): string {
 }
 
 beforeEach(() => {
+  SCRATCH = mkdtempSync(join(tmpdir(), "h2a-conv-guard-wiring-"));
+  CONFIG_PATH = join(SCRATCH, "config.json");
+  REGISTRY_PATH = join(SCRATCH, "registry.json");
   mkdirSync(SCRATCH, { recursive: true });
   rmSync(join(SCRATCH, "resume-launch-claims"), {
     recursive: true,

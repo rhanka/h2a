@@ -1,6 +1,6 @@
-import { mkdirSync, rmSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -20,14 +20,13 @@ import {
   wakeRelaunchedSession,
 } from "./relaunch.js";
 
-const CLAIM_ROOT = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "..",
-  ".test-scratch",
-  "resume-launch-claims",
-);
+// Round-1 L0 same-class repair (code-review sol-8): claim roots live under
+// the private TMPDIR (the test-sandbox barrier mounts the package
+// read-only), never in the package's `.test-scratch`.
+let CLAIM_ROOT: string;
 
 beforeEach(() => {
+  CLAIM_ROOT = mkdtempSync(join(tmpdir(), "h2a-resume-launch-claims-"));
   rmSync(CLAIM_ROOT, { recursive: true, force: true });
   mkdirSync(CLAIM_ROOT, { recursive: true });
 });
