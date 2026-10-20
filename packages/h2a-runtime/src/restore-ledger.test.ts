@@ -9,6 +9,7 @@ import {
   writeRestoreLedgerRecord,
   type RestoreLedgerEntry,
 } from "./index.js";
+import { summarizeRestoreLedger } from "./restore.js";
 
 const scratchRoots: string[] = [];
 
@@ -48,5 +49,26 @@ describe("lot L1a RED: run-scoped restore ledger", () => {
     expect(fr[0]).not.toBe(en[0]);
     expect(fr[1]).not.toBe(en[1]);
     expect(fr.join("\n")).not.toContain(en[0]);
+  });
+
+  it("should count observed restore outcomes instead of planned tabs", () => {
+    // The D2 ledger drives the totals: observed outcomes, never the plan.
+    const entries: RestoreLedgerEntry[] = [
+      { session: "a", outcome: "launched", window: "W1", at: "2026-10-20T00:00:00.000Z" },
+      { session: "b", outcome: "blocked", reason: "occupied-human", at: "2026-10-20T00:00:00.000Z" },
+      { session: "c", outcome: "launched", window: "W1", at: "2026-10-20T00:00:00.000Z" },
+    ];
+    expect(summarizeRestoreLedger(entries)).toEqual({
+      launched: 2,
+      blocked: 1,
+      skipped: 0,
+      failed: 0,
+    });
+    expect(summarizeRestoreLedger([])).toEqual({
+      launched: 0,
+      blocked: 0,
+      skipped: 0,
+      failed: 0,
+    });
   });
 });

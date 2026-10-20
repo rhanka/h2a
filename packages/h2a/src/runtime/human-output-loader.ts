@@ -46,13 +46,32 @@ export async function loadHumanOutputCatalog(
       detail: error instanceof Error ? error.message : String(error)
     };
   }
+  // Lot L6 (D14): with no explicit locale the catalog resolves through the
+  // runtime's own env rule (H2A_LANG > LC_ALL > LC_MESSAGES > LANG, BCP-47
+  // primary tag, default on unknown) — H never reimplements it.
+  let resolved = locale;
+  if (resolved === undefined) {
+    const resolveLocale = (runtime as { resolveHumanOutputLocale?: unknown }).resolveHumanOutputLocale;
+    if (typeof resolveLocale !== "function") {
+      return { ok: false, reason: "human-output-unavailable", detail: "resolveHumanOutputLocale is not a function" };
+    }
+    try {
+      resolved = (resolveLocale as () => string)();
+    } catch (error) {
+      return {
+        ok: false,
+        reason: "human-output-unavailable",
+        detail: error instanceof Error ? error.message : String(error)
+      };
+    }
+  }
   const getCatalog = (runtime as { getHumanOutputCatalog?: unknown }).getHumanOutputCatalog;
   if (typeof getCatalog !== "function") {
     return { ok: false, reason: "human-output-unavailable", detail: "getHumanOutputCatalog is not a function" };
   }
   let catalog: unknown;
   try {
-    catalog = (getCatalog as (locale?: string) => unknown)(locale);
+    catalog = (getCatalog as (locale?: string) => unknown)(resolved);
   } catch (error) {
     return {
       ok: false,

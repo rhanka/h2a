@@ -20,6 +20,7 @@ import { join } from "node:path";
 import { localSessionName, slugify, type LocalSession } from "./tmux.js";
 import type { LayoutTab, LayoutWindow } from "./restore.js";
 import type { RegistryTool } from "./registry.js";
+import { humanOutputText } from "./human-output.js";
 
 /**
  * The ONE host inventory snapshot a restore plan runs on: BOTH inventories
@@ -257,13 +258,15 @@ export function launchLayout(
       if (t.hostKind === "local-native") {
         const exact = t.managedName ?? `h2a-${slug}`;
         if (ambiguousNativeNames.has(exact)) {
-          stderr.write(`[h2a] restore: ambiguous-owner for "${t.label}"; refusing attach or recreation\n`);
+          stderr.write(
+            `[h2a] restore: ${humanOutputText("restore.ambiguousOwner")} "${t.label}"; ${humanOutputText("restore.refuseAttachRecreate")}\n`,
+          );
           continue;
         }
         if (nativeSessionsByName === undefined ||
           (hostView.native.known && hostView.native.complete === false && !nativeSessionsByName.has(exact))) {
           stderr.write(
-            `[h2a] restore: native host state UNKNOWN — "${t.label}" neither relaunched nor attached (fail closed)\n`,
+            `[h2a] restore: ${humanOutputText("restore.unknownHostNoAttach")} — "${t.label}"\n`,
           );
           continue;
         }
@@ -284,7 +287,7 @@ export function launchLayout(
             // running && view unknown (host predates the visibility bit):
             // preserve the process, report, never relaunch.
             stderr.write(
-              `[h2a] restore: controller visibility UNKNOWN for running native session "${t.label}"; attach manually: h2a attach ${exact}\n`,
+              `[h2a] restore: ${humanOutputText("restore.controllerUnknown")} "${t.label}"; ${humanOutputText("restore.attachManually")}: h2a attach ${exact}\n`,
             );
             continue;
           }
@@ -298,7 +301,7 @@ export function launchLayout(
         // Dead/absent on a KNOWN native view.
         if (t.attachLive) {
           stderr.write(
-            `[h2a] restore: "${t.label}" was live at plan time but is gone; no resolved conversation exists to relaunch it\n`,
+            `[h2a] restore: "${t.label}" ${humanOutputText("restore.vanishedLive")}\n`,
           );
           continue;
         }
@@ -334,7 +337,7 @@ export function launchLayout(
         }
         if (t.attachLive) {
           stderr.write(
-            `[h2a] restore: "${t.label}" was live at plan time but is gone; no resolved conversation exists to relaunch it\n`,
+            `[h2a] restore: "${t.label}" ${humanOutputText("restore.vanishedLive")}\n`,
           );
           continue;
         }
@@ -358,8 +361,8 @@ export function launchLayout(
       if (names) {
         skippedLive.push(t.label);
         stderr.write(
-          `[h2a] restore skipped "${t.label}": local session slug is ambiguous (${names.sort().join(", ")}); ` +
-            `attach explicitly with h2a attach ${names.sort()[0]} or h2a attach ${names.sort()[1]}\n`,
+          `[h2a] restore skipped "${t.label}": ${humanOutputText("restore.ambiguousSlug")} (${names.sort().join(", ")}); ` +
+            `${humanOutputText("restore.attachExplicitly")} h2a attach ${names.sort()[0]} ${humanOutputText("restore.wordOr")} h2a attach ${names.sort()[1]}\n`,
         );
         continue;
       }
@@ -374,7 +377,7 @@ export function launchLayout(
         // The tab would LAUNCH — but the native host state is unknown, so a
         // homonymous live native session cannot be ruled out. Fail closed.
         stderr.write(
-          `[h2a] restore: native host state UNKNOWN — "${t.label}" not launched (fail closed)\n`,
+          `[h2a] restore: ${humanOutputText("restore.unknownHost")} — "${t.label}"\n`,
         );
         continue;
       }
@@ -416,7 +419,7 @@ export function launchLayout(
     args.push("--", "bash", "-lc", DISPATCHER, "remote-restore", mapPath);
 
     stderr.write(
-      `[h2a] fenêtre "${win.title}" (${activeTabs.length} onglet(s))\n`,
+      `[h2a] ${humanOutputText("restore.windowOpened")} "${win.title}" (${activeTabs.length} ${humanOutputText("restore.count.tabs")})\n`,
     );
     // Surface gnome-terminal errors (e.g. "Failed to get screen…") instead of
     // silently claiming the window opened.
@@ -435,8 +438,8 @@ export function launchLayout(
 
   if (skippedLive.length > 0) {
     stderr.write(
-      `[h2a] ${skippedLive.length} session(s) déjà visibles ou contrôlées ignorées` +
-      ` (--reattach rouvre seulement les vues pouvant être attachées sans second contrôleur): ${skippedLive.join(", ")}\n`,
+      `[h2a] ${skippedLive.length} ${humanOutputText("restore.skippedLive")}` +
+      ` (${humanOutputText("restore.skippedLiveHint")}): ${skippedLive.join(", ")}\n`,
     );
   }
 

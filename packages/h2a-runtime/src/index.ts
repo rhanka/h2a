@@ -196,11 +196,13 @@ import {
   wakeRelaunchedSession,
 } from "./relaunch.js";
 import {
+  buildRestoreJsonReport,
   isHumanFacingSession,
   legacySessionEvidence,
   readConversationCustomTitle,
   readLastLayout,
   reconcileRunConvIds,
+  renderRestoreTotals,
   restore as restoreLayout,
   type LegacySessionEvidence,
   type RestoreLedgerEntry,
@@ -9995,6 +9997,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       "inclut les sessions secondaires (déléguées) exclues par défaut du plan de restauration",
     )
     .option(
+      "--json",
+      "machine form of the D2 ledger (field names are machine values, never localised)",
+    )
+    .option(
       "--reattach",
       "rouvre les sessions tmux déjà visibles; côté PTY natif, rattache une session non contrôlée mais refuse toujours un second contrôleur concurrent",
     )
@@ -10013,6 +10019,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         group: string | undefined,
         opts: {
           dryRun?: boolean;
+          json?: boolean;
           includeSecondary?: boolean;
           reattach?: boolean;
           llmGateway?: boolean;
@@ -10054,7 +10061,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         const centralMcp = await prepareCentralMcpForRestore({ root: process.cwd() });
         if (centralMcp?.status === "degraded") {
           process.stderr.write(
-            `[h2a] central MCP unavailable, falling back to per-session sidecar: ${centralMcp.reason}\n`,
+            `[h2a] ${humanOutputText("restore.centralDegraded")}: ${centralMcp.reason}\n`,
           );
         }
 
@@ -10079,7 +10086,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           });
           if (restoreOpts.remoteTabs.length === 0) {
             process.stderr.write(
-              "[h2a] aucune session SCW (h2a ls vide) pour le groupe remote\n",
+              `[h2a] ${humanOutputText("restore.noRemoteSessions")}\n`,
             );
           }
         }
@@ -10105,7 +10112,25 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         restoreOpts.onLedgerEntry = (entry) => {
           ledgerEntries.push(entry);
         };
-        const { total } = restoreLayout(restoreOpts);
+        const {
+          total,
+          observed,
+          windows: plannedWindows,
+        } = restoreLayout(restoreOpts);
+        if (opts.json) {
+          // Lot L6 (D14): machine form of the D2 ledger — field names are
+          // machine values, never localised. Human lines stay on stderr.
+          process.stdout.write(
+            `${JSON.stringify(buildRestoreJsonReport({
+              windows: plannedWindows,
+              total,
+              observed,
+              ledger: ledgerEntries,
+              dryRun: Boolean(opts.dryRun),
+              ...(group !== undefined ? { group } : {}),
+            }), null, 2)}\n`,
+          );
+        }
         if (ledgerEntries.length > 0) {
           for (const line of printRestoreLedger(ledgerEntries)) {
             process.stderr.write(`[h2a] ${line}\n`);
@@ -10123,13 +10148,15 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             }
           }
         }
-        if (total === 0) {
+        // Lot L6 (D14): the totals line reports observed outcomes from the
+        // D2 ledger and the launch counts — never the planned tab count.
+        if (total === 0 && observed.blocked === 0) {
           process.stderr.write(
-            `[h2a] rien à relancer${group ? ` pour le groupe "${group}"` : ""}\n`,
+            `[h2a] ${humanOutputText("restore.nothingToDo")}${group ? ` ("${group}")` : ""}\n`,
           );
-        } else {
+        } else if (!opts.json) {
           process.stderr.write(
-            `[h2a] ${total} onglet(s)${opts.dryRun ? " (dry-run, rien ouvert)" : " relancé(s)"}\n`,
+            `[h2a] ${renderRestoreTotals(observed, Boolean(opts.dryRun))}\n`,
           );
         }
       },
