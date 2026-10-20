@@ -1,0 +1,17 @@
+{
+  "description": "Optional workspace scope guard. Qualify in an isolated lab before explicitly enabling.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": ".*",
+        "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT:-${CODEX_PLUGIN_ROOT}}/hooks/workspace-scope-guard.mjs\" --initialize-session true", "timeout": 15 }]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT:-${CODEX_PLUGIN_ROOT}}/hooks/workspace-scope-guard.mjs\"", "timeout": 15 }]
+      }
+    ]
+  }
+}

@@ -11,25 +11,128 @@ function fixture(t) {
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const env = { ...process.env, HOME: dir, XDG_RUNTIME_DIR: dir, XDG_CONFIG_HOME: dir, XDG_STATE_HOME: dir,
     CODEX_HOME: join(dir, '.codex'), CLAUDE_CONFIG_DIR: join(dir, '.claude'), VIBE_HOME: join(dir, '.vibe') };
+  for (const name of ['CLAUDE_PROJECT_DIR', 'CODEX_WORKSPACE_ROOT', 'H2A_SCOPE_SESSION', 'H2A_SCOPE_OWNER_KEY']) delete env[name];
   const script = `import {runCli} from ${JSON.stringify(join(root, 'dist/index.js'))};
     const rc=await runCli(JSON.parse(process.env.SCOPE_ARGS),{cwd:()=>process.cwd(),stdout:process.stdout,stderr:process.stderr});process.exitCode=rc;`;
   const cli = args => spawnSync(process.execPath, ['--input-type=module', '-e', script],
     { cwd: dir, env: { ...env, SCOPE_ARGS: JSON.stringify(args) }, encoding: 'utf8' });
-  return { dir, env, cli };
+  const converge = host => spawnSync(process.execPath, ['--input-type=module', '-e',
+    `import {convergeNativeHost} from ${JSON.stringify(join(root, 'dist/hosts/native-convergence.js'))};
+     console.log(JSON.stringify(convergeNativeHost({host:${JSON.stringify(host)},version:'test',skills:[],renderGemini:()=>'',repair:true})));`],
+    { cwd: dir, env, encoding: 'utf8' });
+  return { dir, env, cli, converge };
 }
 test('packaged Claude and Codex plugins expose session binding and all-tool scope hooks', () => {
-  const hooks = JSON.parse(fs.readFileSync(join(root, 'hooks/hooks.json'), 'utf8')).hooks;
+  const hooks = JSON.parse(fs.readFileSync(join(root, 'hooks/workspace-scope.opt-in.json'), 'utf8')).hooks;
   assert.ok(hooks.SessionStart.some(e => JSON.stringify(e).includes('workspace-scope-guard')));
   const scope = hooks.PreToolUse.find(e => JSON.stringify(e).includes('workspace-scope-guard'));
   assert.equal(scope.matcher, '.*');
   assert.equal(JSON.parse(fs.readFileSync(join(root, '.codex-plugin/plugin.json'), 'utf8')).hooks, './hooks/hooks.json');
 });
+
+for (const host of ['claude', 'codex', 'gemini', 'agy', 'muse', 'vibe']) {
+  test('opt-in default: host plugin omits scope hooks for ' + host, t => {
+    const f = fixture(t);
+    const rendered = f.cli(['host', 'plugin', '--host', host, '--instance', 'test']);
+    assert.equal(rendered.status, 0, rendered.stderr);
+    const report = JSON.parse(rendered.stdout);
+    assert.equal(report.workspaceScope.supported, false);
+    assert.equal(report.workspaceScope.command, undefined);
+    assert.doesNotMatch(report.rendered ?? report.record ?? '', /workspace-scope-guard/);
+    const path = host === 'vibe' ? join(f.dir, '.vibe/hooks.toml') : join(f.dir, 'hooks.json');
+    const written = f.cli(['host', 'plugin', '--host', host, '--instance', 'test', '--write', path]);
+    assert.equal(written.status, 0, written.stderr);
+    assert.doesNotMatch(fs.readFileSync(path, 'utf8'), /workspace-scope-guard/);
+  });
+}
+
+test('opt-in default: Codex scaffold omits scope hooks', t => {
+  const f = fixture(t), target = join(f.dir, 'marketplace');
+  const r = f.cli(['host', 'plugin', '--host', 'codex', '--instance', 'test', '--scaffold', target]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.doesNotMatch(fs.readFileSync(join(target, 'plugins/h2a-drumbeat/hooks/hooks.json'), 'utf8'), /workspace-scope-guard/);
+});
+
+for (const host of ['vibe', 'agy', 'gemini', 'muse']) {
+  test('opt-in default: installation and convergence omit scope hooks for ' + host, t => {
+    const f = fixture(t);
+    const installed = f.cli(['install-skills', '--host', host]);
+    assert.equal(installed.status, 0, installed.stderr);
+    assert.equal(JSON.parse(installed.stdout).workspaceScope.supported, false);
+    const path = host === 'vibe' ? join(f.dir, '.vibe/hooks.toml') : host === 'muse'
+      ? join(f.dir, '.muse/hooks.json') : join(f.dir, '.gemini/config/hooks.json');
+    if (fs.existsSync(path)) assert.doesNotMatch(fs.readFileSync(path, 'utf8'), /workspace-scope-guard/);
+    const repeated = f.cli(['install-skills', '--host', host]);
+    assert.equal(repeated.status, 0, repeated.stderr);
+    if (fs.existsSync(path)) assert.doesNotMatch(fs.readFileSync(path, 'utf8'), /workspace-scope-guard/);
+    const repaired = f.converge(host);
+    assert.equal(repaired.status, 0, repaired.stderr);
+    assert.equal(JSON.parse(repaired.stdout).workspaceScope.supported, false);
+    if (fs.existsSync(path)) assert.doesNotMatch(fs.readFileSync(path, 'utf8'), /workspace-scope-guard/);
+  });
+
+  test('opt-in selection: native ' + host + ' retains explicit on and off through convergence', t => {
+    const f = fixture(t);
+    const path = host === 'vibe' ? join(f.dir, '.vibe/hooks.toml') : host === 'muse'
+      ? join(f.dir, '.muse/hooks.json') : join(f.dir, '.gemini/config/hooks.json');
+    for (const [mode, enabled] of [['on', true], [undefined, true], ['off', false], [undefined, false]]) {
+      const args = ['install-skills', '--host', host];
+      if (mode) args.push('--workspace-scope', mode);
+      const r = f.cli(args);
+      assert.equal(r.status, 0, r.stderr);
+      const source = fs.readFileSync(path, 'utf8');
+      assert.equal(JSON.parse(r.stdout).workspaceScope.supported, enabled);
+      if (enabled) assert.match(source, /workspace-scope-guard/);
+      else assert.doesNotMatch(source, /workspace-scope-guard/);
+    }
+  });
+
+  test('opt-in migration: legacy ' + host + ' bindings do not authorize activation', t => {
+    const f = fixture(t);
+    const path = host === 'vibe' ? join(f.dir, '.vibe/hooks.toml') : host === 'muse'
+      ? join(f.dir, '.muse/hooks.json') : join(f.dir, '.gemini/config/hooks.json');
+    const profile = host === 'vibe' ? join(f.dir, '.vibe') : host === 'muse'
+      ? join(f.dir, '.config/muse') : join(f.dir, '.gemini');
+    const state = join(profile, ['agy', 'gemini'].includes(host) ? '.h2a-install-agy' : '.h2a-install');
+    const manifestPath = join(state, ['agy', 'gemini'].includes(host) ? 'shared-owner.json' : 'manifest.json');
+    const on = f.cli(['install-skills', '--host', host, '--workspace-scope', 'on']);
+    assert.equal(on.status, 0, on.stderr);
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    delete manifest.workspaceScope.enabled;
+    fs.writeFileSync(manifestPath, JSON.stringify(manifest));
+    const migrated = host === 'muse' ? f.cli(['install-skills', '--host', host]) : f.converge(host);
+    assert.equal(migrated.status, 0, migrated.stderr);
+    assert.equal(JSON.parse(migrated.stdout).workspaceScope.supported, false);
+    assert.doesNotMatch(fs.readFileSync(path, 'utf8'), /workspace-scope-guard/);
+  });
+}
+
+for (const host of ['claude', 'codex', 'gemini', 'agy', 'muse']) {
+  test('opt-in selection: host plugin can remove scope hooks and retain other hooks for ' + host, t => {
+    const f = fixture(t), path = join(f.dir, 'hooks.json');
+    const personal = { matcher: 'Bash', hooks: [{ type: 'command', command: 'echo retained' }] };
+    fs.writeFileSync(path, JSON.stringify({ hooks: { PreToolUse: [personal] } }));
+    const args = ['host', 'plugin', '--host', host, '--instance', 'test', '--write', path];
+    const on = f.cli([...args, '--workspace-scope', 'on']);
+    assert.equal(on.status, 0, on.stderr);
+    assert.match(fs.readFileSync(path, 'utf8'), /workspace-scope-guard/);
+    const off = f.cli([...args, '--workspace-scope', 'off']);
+    assert.equal(off.status, 0, off.stderr);
+    const source = fs.readFileSync(path, 'utf8');
+    assert.doesNotMatch(source, /workspace-scope-guard/);
+    assert.deepEqual(JSON.parse(source).hooks.PreToolUse, [personal]);
+    const again = f.cli(args);
+    assert.equal(again.status, 0, again.stderr);
+    assert.doesNotMatch(fs.readFileSync(path, 'utf8'), /workspace-scope-guard/);
+  });
+}
+
 test('host plugin writes an idempotent scope hook, pins workspace/session and preserves other hooks', t => {
   const f = fixture(t), path = join(f.dir, 'settings.json');
   fs.writeFileSync(path, JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'echo retained' }] }] } }));
   for (const host of ['claude', 'codex', 'gemini']) {
     const args = ['host', 'plugin', '--host', host, '--instance', 'test-instance', '--write', path,
-      '--workspace', f.dir, '--owner-key', join(f.dir, 'owner.pub')];
+      '--workspace', f.dir, '--owner-key', join(f.dir, 'owner.pub'), '--workspace-scope', 'on'];
     for (let i = 0; i < 2; i++) { const r = f.cli(args); assert.equal(r.status, 0, r.stderr); }
     const hooks = JSON.parse(fs.readFileSync(path, 'utf8')).hooks.PreToolUse;
     assert.equal(hooks.length, 2);
@@ -45,14 +148,14 @@ test('host plugin writes an idempotent scope hook, pins workspace/session and pr
 });
 test('codex scaffold includes a runnable workspace scope guard', t => {
   const f = fixture(t), target = join(f.dir, 'marketplace');
-  const r = f.cli(['host', 'plugin', '--host', 'codex', '--instance', 'test', '--scaffold', target]);
+  const r = f.cli(['host', 'plugin', '--host', 'codex', '--instance', 'test', '--scaffold', target, '--workspace-scope', 'on']);
   assert.equal(r.status, 0, r.stderr);
   const hooks = JSON.parse(fs.readFileSync(join(target, 'plugins/h2a-drumbeat/hooks/hooks.json'), 'utf8')).hooks;
   assert.ok(hooks.PreToolUse.some(e => JSON.stringify(e).includes('workspace-scope-guard')));
 });
 test('vibe installation ships an independent strict scope hook without MCP guard qualification', t => {
   const f = fixture(t), vibe = join(f.dir, '.vibe'); fs.mkdirSync(vibe);
-  const r = f.cli(['install-skills', '--host', 'vibe']);
+  const r = f.cli(['install-skills', '--host', 'vibe', '--workspace-scope', 'on']);
   assert.equal(r.status, 0, r.stderr);
   const hooks = fs.readFileSync(join(vibe, 'hooks.toml'), 'utf8');
   assert.match(hooks, /sentropic-h2a-workspace-scope/); assert.match(hooks, /strict = true/);
@@ -69,7 +172,7 @@ test('vibe installation ships an independent strict scope hook without MCP guard
 test('R1 should support the verified Muse project PreToolUse surface', t => {
   const f = fixture(t);
   for (const host of ['muse']) {
-    const r = f.cli(['host', 'plugin', '--host', host, '--instance', 'test']);
+    const r = f.cli(['host', 'plugin', '--host', host, '--instance', 'test', '--workspace-scope', 'on']);
     assert.equal(r.status, 0, r.stderr);
     assert.equal(JSON.parse(r.stdout).workspaceScope.supported, true);
     assert.match(JSON.parse(r.stdout).workspaceScope.command, /--host' 'muse/);
@@ -80,13 +183,15 @@ test('vibe refuses to claim protection when a project hook masks the scope guard
   const f = fixture(t); f.env.VIBE_HOME = join(f.dir, 'profile');
   fs.mkdirSync(join(f.dir, '.vibe'));
   fs.writeFileSync(join(f.dir, '.vibe/hooks.toml'), '[[hooks]]\nname="sentropic-h2a-workspace-scope"\ntype="pre_tool"\ncommand="true"\n');
-  const r = f.cli(['install-skills', '--host', 'vibe']);
+  const off = f.cli(['install-skills', '--host', 'vibe']);
+  assert.equal(off.status, 0, off.stderr);
+  const r = f.cli(['install-skills', '--host', 'vibe', '--workspace-scope', 'on']);
   assert.notEqual(r.status, 0); assert.match(r.stderr, /scope.*mask|mask.*scope/i);
 });
 
 test('R1 should install and execute the agy all-tool hook with native payloads', t => {
   const f = fixture(t), path = join(f.dir, 'hooks.json');
-  const r = f.cli(['host','plugin','--host','agy','--instance','agy-session','--write',path,'--workspace',f.dir]);
+  const r = f.cli(['host','plugin','--host','agy','--instance','agy-session','--write',path,'--workspace',f.dir,'--workspace-scope','on']);
   assert.equal(r.status,0,r.stderr);
   const config = JSON.parse(fs.readFileSync(path,'utf8'));
   const hooks = config['sentropic-h2a-workspace-scope'];
@@ -109,7 +214,7 @@ test('R5 should refresh explicit Vibe session/key selections without pinning a g
   const f = fixture(t), vibe = f.env.VIBE_HOME; fs.mkdirSync(vibe);
   assert.equal(f.cli(['install-skills','--host','vibe']).status,0);
   const key=join(f.dir,'owner.pub');
-  const r=f.cli(['host','plugin','--host','vibe','--instance','selected-session','--owner-key',key,'--write',join(vibe,'hooks.toml')]);
+  const r=f.cli(['host','plugin','--host','vibe','--instance','selected-session','--owner-key',key,'--write',join(vibe,'hooks.toml'),'--workspace-scope','on']);
   assert.equal(r.status,0,r.stderr);
   const source=fs.readFileSync(join(vibe,'hooks.toml'),'utf8');
   assert.ok(source.includes('selected-session')); assert.ok(source.includes(key));
@@ -129,7 +234,7 @@ test('R1 should converge agy startup binding and pre-action hooks on a temporary
   const f=fixture(t); fs.mkdirSync(join(f.dir,'.gemini'));
   fs.mkdirSync(join(f.dir,'.gemini/config'));
   fs.writeFileSync(join(f.dir,'.gemini/config/hooks.json'), JSON.stringify({ personal: { PreInvocation: [{ command: 'echo retained' }] } }));
-  const r=f.cli(['install-skills','--host','agy']); assert.equal(r.status,0,r.stderr);
+  const r=f.cli(['install-skills','--host','agy','--workspace-scope','on']); assert.equal(r.status,0,r.stderr);
   const path=join(f.dir,'.gemini/config/hooks.json'); assert.ok(fs.existsSync(path),'missing native agy hooks');
   const config=JSON.parse(fs.readFileSync(path,'utf8'));
   assert.equal(config.personal.PreInvocation[0].command, 'echo retained');
@@ -140,7 +245,7 @@ test('R1 should converge agy startup binding and pre-action hooks on a temporary
 });
 
 test('R1 should install Muse project hooks and execute the native denial protocol', t => {
-  const f=fixture(t); const r=f.cli(['install-skills','--host','muse']); assert.equal(r.status,0,r.stderr);
+  const f=fixture(t); const r=f.cli(['install-skills','--host','muse','--workspace-scope','on']); assert.equal(r.status,0,r.stderr);
   const path=join(f.dir,'.muse/hooks.json'); assert.ok(fs.existsSync(path),'missing Muse project hooks');
   const hooks=JSON.parse(fs.readFileSync(path,'utf8')).hooks;
   const run=(event,input)=>spawnSync('sh',['-c',hooks[event].find(e=>JSON.stringify(e).includes('workspace-scope')).hooks[0].command],{
@@ -154,7 +259,7 @@ test('R1 should install Muse project hooks and execute the native denial protoco
 
 for(const host of ['agy','muse']) test('R5 should retain the explicit owner key across ' + host + ' convergence', t => {
   const f=fixture(t), key=join(f.dir,'owner.pub');
-  const first=f.cli(['install-skills','--host',host,'--owner-key',key]);assert.equal(first.status,0,first.stderr);
+  const first=f.cli(['install-skills','--host',host,'--owner-key',key,'--workspace-scope','on']);assert.equal(first.status,0,first.stderr);
   const next=f.cli(['install-skills','--host',host]);assert.equal(next.status,0,next.stderr);
   const path=host==='muse'?join(f.dir,'.muse/hooks.json'):join(f.dir,'.gemini/config/hooks.json');
   assert.ok(fs.readFileSync(path,'utf8').includes(key),'owner key selection was lost');
@@ -163,8 +268,8 @@ for(const host of ['agy','muse']) test('R5 should retain the explicit owner key 
 for (const install of ['install-skills','host-plugin']) test('T3 R1 should bind agy from workspacePaths at global hook cwd: ' + install, t => {
   const f=fixture(t), configDir=join(f.dir,'.gemini/config'), path=join(configDir,'hooks.json');
   fs.mkdirSync(configDir,{recursive:true});
-  const args=install==='install-skills'?['install-skills','--host','agy']:
-    ['host','plugin','--host','agy','--instance','installer-only','--workspace',f.dir,'--write',path];
+  const args=install==='install-skills'?['install-skills','--host','agy','--workspace-scope','on']:
+    ['host','plugin','--host','agy','--instance','installer-only','--workspace',f.dir,'--write',path,'--workspace-scope','on'];
   const installed=f.cli(args); assert.equal(installed.status,0,installed.stderr);
   const hooks=JSON.parse(fs.readFileSync(path,'utf8'))['sentropic-h2a-workspace-scope'];
   assert.ok(hooks.SessionStart?.length,'missing agy SessionStart');
