@@ -13,6 +13,7 @@ import {
   decideRelaunchSafety,
   isRelaunchKillable,
   planRelaunch,
+  relaunchCandidatesForNative,
   relaunchContinuationPrompt,
   resumeCommandFor,
   tryAcquireResumeLaunchClaim,
@@ -316,6 +317,48 @@ describe("planRelaunch", () => {
     ]);
     expect(plan.actions).toEqual([]);
     expect(plan.skipped[0]?.reason).toMatch(/activatable/);
+  });
+
+  it("covers native shell-state sessions in the relaunch sweep", () => {
+    // A live native shell holding a resumable conversation: the sweep sees
+    // it (no silent hole), types nothing into it, and never kills it.
+    const candidates = relaunchCandidatesForNative(
+      [
+        {
+          name: "h2a-projA",
+          status: "running",
+          processes: [
+            { pid: 7, command: "bash", args: ["-l"], startedAtMs: 1, ppid: 1 },
+          ],
+        },
+      ],
+      [
+        {
+          id: "e-1",
+          tool: "claude",
+          kind: "local-native",
+          cwd: "/home/u/src/projA",
+          label: "projA",
+          tmuxSession: "h2a-projA",
+          convId: "conv-1",
+          enrolledAt: "2026-06-07T10:00:00.000Z",
+          lastSeenAt: "2026-06-07T10:00:00.000Z",
+          source: "hook",
+        },
+      ],
+    );
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toMatchObject({
+      slug: "projA",
+      name: "h2a-projA",
+      profile: "claude",
+      convId: "conv-1",
+      shellState: true,
+    });
+    const plan = planRelaunch(candidates);
+    expect(plan.actions).toEqual([]);
+    expect(plan.skipped).toHaveLength(1);
+    expect(plan.skipped[0]?.reason).toMatch(/shell/);
   });
 
   it("never force-relaunches an actively working worker", () => {
