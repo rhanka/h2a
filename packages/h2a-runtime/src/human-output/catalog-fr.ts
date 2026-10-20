@@ -34,6 +34,9 @@ export const strings: Record<string, string> = {
   "upgrade.hostFailed": "échoué",
   "restore.sharedWindow": "fenêtre partagée",
   "restore.capDropped": "session(s) ignorée(s), plafond atteint",
+  "restore.groupCapDropped": "onglet(s) au-delà du plafond du groupe",
+  "restore.emptyGroups": "groupe(s) configuré(s) vide(s)",
+  "restore.unmatchedSessions": "session(s) sans groupe correspondant",
   "restore.excludedSecondary": "session(s) secondaire(s) exclue(s) — délégation",
   "restore.optinHint": "restaurer avec --include-secondary :",
   "restore.excludedUnclassified":

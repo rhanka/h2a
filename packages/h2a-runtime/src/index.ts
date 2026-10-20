@@ -10033,7 +10033,17 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             .toLowerCase()
             .replace(/[^a-z0-9]+/g, "-")
             .replace(/^-+|-+$/g, "");
-        const cfg = getLayoutConfig();
+        // Lot LG (D13) — an invalid group config refuses BEFORE anything
+        // launches: surface the refusal as a one-line human error, never a
+        // raw stack.
+        let cfg;
+        try {
+          cfg = getLayoutConfig();
+        } catch (error) {
+          process.stderr.write(`[h2a] ${(error as Error).message}.\n`);
+          process.exitCode = 1;
+          return;
+        }
         const needRemote = cfg.groups.some(
           (g) => g.remote && (!group || norm(g.title) === norm(group)),
         );
