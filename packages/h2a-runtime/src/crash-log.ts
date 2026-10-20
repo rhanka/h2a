@@ -45,6 +45,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
+import { guardTestStateWrite } from "./test-state-guard.js";
 
 export const CRASH_LOG_COMPONENTS = ["cli", "attach", "mcp-server"] as const;
 export type CrashLogComponent = (typeof CRASH_LOG_COMPONENTS)[number];
@@ -157,6 +158,11 @@ const PATH_ENV_KEYS = new Set([
   "XDG_RUNTIME_DIR",
   "XDG_STATE_HOME",
   "XDG_CONFIG_HOME",
+  // Lot L0: launcher/attestation infrastructure paths, not credentials.
+  "H2A_TEST_STATE_ROOT",
+  "H2A_TEST_STATE_ATTESTATION",
+  "H2A_TEST_STATE_BARRIER",
+  "H2A_TEST_OWNER_HOME",
 ]);
 
 /**
@@ -437,6 +443,15 @@ export function appendCrashLog(
   entry: CrashLogEntry,
   logPath: string = resolveCrashLogPath(component),
 ): boolean {
+  // Lot L0: mutation-point guard — refused before any directory, lock or
+  // file is created, even for caller-supplied explicit paths. Inert outside
+  // a marked test run. Never throws: contention-style false, counted by
+  // the caller as a drop.
+  try {
+    guardTestStateWrite(logPath);
+  } catch {
+    return false;
+  }
   let lockFd: number | undefined;
   const lockPath = `${logPath}.lock`;
   const token = `${process.pid}:${randomUUID()}`;

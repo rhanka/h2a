@@ -51,6 +51,7 @@ import {
 } from "./tmux.js";
 import type { SessionClass } from "./session-class.js";
 import { listNativeSessions } from "./native-host.js";
+import { guardTestStateWrite } from "./test-state-guard.js";
 
 // Compatibility re-exports: the layout renderer lives in launch-layout.ts —
 // a module WITHOUT reader access (F3) — but callers keep importing it here.
@@ -1204,6 +1205,9 @@ export function writeLastLayout(
     })),
   };
   const path = lastLayoutPath();
+  // Lot L0: mutation-point guard — named error, zero bytes outside the
+  // marked test root. Inert outside a marked test run.
+  guardTestStateWrite(path);
   mkdirSync(dirname(path), { recursive: true });
   const tmp = `${path}.tmp.${process.pid}`;
   writeFileSync(tmp, JSON.stringify(data, null, 2), "utf8");

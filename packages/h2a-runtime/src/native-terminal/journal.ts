@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isMainThread, parentPort, Worker, workerData } from "node:worker_threads";
+import { guardTestStateWrite } from "../test-state-guard.js";
 
 export const MAX_HOST_JOURNAL_BYTES = 1024 * 1024;
 export const HOST_JOURNAL_DRAIN_MS = 100;
@@ -37,7 +38,10 @@ export function getRuntimeVersion(): string {
 const runtimeDirectory = resolve(fileURLToPath(new URL("../", import.meta.url)));
 const pathEnvironment = new Set(["HOME", "PATH", "PWD", "OLDPWD", "TMPDIR", "NODE_PATH", "TERM", "LANG",
   "XDG_RUNTIME_DIR", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "REMOTE_CLI_CONFIG_HOME", "H2A_SESSION_HOST", "H2A_NATIVE_SOCKET",
-  "H2A_TEST_QUALIFICATION_ROOT"]);
+  "H2A_TEST_QUALIFICATION_ROOT",
+  // Lot L0: launcher/attestation infrastructure paths, not credentials —
+  // redacting them would destroy path evidence in diagnostics.
+  "H2A_TEST_STATE_ROOT", "H2A_TEST_STATE_ATTESTATION", "H2A_TEST_STATE_BARRIER", "H2A_TEST_OWNER_HOME"]);
 function safeText(value: string): string {
   let result = value.slice(0, 4096);
   for (const [key, secret] of Object.entries(process.env)) {
@@ -130,6 +134,13 @@ function writeAll(fd: number, text: string): void {
  * reclamation. An orphan lock conservatively causes counted drops until removed
  * by its owner/operator; it never authorizes concurrent unlocked rotation. */
 export function appendHostJournal(entry: HostJournalEntry, logPath = resolveHostJournalPath()): boolean {
+  // Lot L0: mutation-point guard — refused before any directory, lock or
+  // file is created, even for caller-supplied explicit paths.
+  try {
+    guardTestStateWrite(logPath);
+  } catch {
+    return false;
+  }
   let lockFd: number | undefined;
   const lockPath = `${logPath}.lock`, token = `${process.pid}:${randomUUID()}`;
   try {
