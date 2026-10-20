@@ -1,0 +1,13 @@
+[
+  {
+    "session": "h2a-recipient",
+    "cwd": "/home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/home/src/recipient",
+    "command": "h2a attach 'h2a-recipient'",
+    "pid": 16373,
+    "output": "[h2a] config home migrated /home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/remote/.config/sentropic/remote-cli -> /home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/remote/.config/sentropic/h2a (+compat symlink, backup /home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/remote/.config/sentropic/remote-cli.bak.1792527331075)\r\n\u001b[1G\u001b[0Jowner-lab> \u001b[12Ghuman draft with spaces — do not overwrite",
+    "exit": {
+      "exitCode": 0,
+      "signal": 1
+    }
+  }
+]

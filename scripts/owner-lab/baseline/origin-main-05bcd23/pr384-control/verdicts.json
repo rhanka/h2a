@@ -1,0 +1,15 @@
+[
+  {
+    "id": 1,
+    "name": "Commit dans le worktree du lot",
+    "verdict": "FAIL",
+    "error": "Not selected for this diagnostic run; no qualification evidence"
+  },
+  {
+    "id": 2,
+    "name": "Merge PR package.json et voie release",
+    "verdict": "PASS",
+    "detail": "s2.json: non-bump fusionné; bump bloqué puis fusionné par grant release",
+    "durationMs": 3812
+  }
+]

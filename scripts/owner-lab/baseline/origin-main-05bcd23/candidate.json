@@ -1,0 +1,455 @@
+{
+  "sha": "05bcd23ccf79fcd865ac4085e6d681bfc0103bec",
+  "ref": "origin/main",
+  "mode": "source",
+  "node": "v22.22.1",
+  "manifests": [
+    {
+      "file": "sentropic-focus-0.5.0.tgz",
+      "manifest": {
+        "name": "@sentropic/focus",
+        "version": "0.5.0",
+        "description": "Focused-session document runtime (FocusSnapshot): the concrete decision-dossier document model + deterministic terminal/MD/HTML renderers + a /track read binding over @sentropic/track/read + a /cli read-only driver (stp focus). Read-only snapshot render-core; markdown injected by the host, HTML sanitized by the host. (Focus-M1 L3)",
+        "type": "module",
+        "license": "MIT",
+        "repository": {
+          "type": "git",
+          "url": "git+https://github.com/rhanka/h2a.git",
+          "directory": "packages/focus"
+        },
+        "homepage": "https://github.com/rhanka/h2a/tree/main/packages/focus#readme",
+        "main": "./dist/index.js",
+        "types": "./dist/index.d.ts",
+        "exports": {
+          "./package.json": "./package.json",
+          "./editing": {
+            "types": "./dist/editing/index.d.ts",
+            "import": "./dist/editing/index.js"
+          },
+          "./schemas/focus-edit-return.v1": "./schemas/focus-edit-return.v1.schema.json",
+          "./schemas/focus-editing-manifest.v1": "./schemas/focus-editing-manifest.v1.schema.json",
+          ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+          },
+          "./track": {
+            "types": "./dist/track/index.d.ts",
+            "import": "./dist/track/index.js"
+          },
+          "./cli": {
+            "types": "./dist/cli/index.d.ts",
+            "import": "./dist/cli/index.js"
+          },
+          "./validate": {
+            "types": "./dist/validation/index.d.ts",
+            "import": "./dist/validation/index.js"
+          },
+          "./registry/manifest": "./registry/entries.v1.json",
+          "./registry/definitions": {
+            "types": "./dist/registry/definitions.d.ts",
+            "import": "./dist/registry/definitions.js"
+          },
+          "./schemas/decision-dossier-document.v1": "./schemas/decision-dossier-document.v1.schema.json",
+          "./schemas/decision-dossier-document.v2": "./schemas/decision-dossier-document.v2.schema.json"
+        },
+        "files": [
+          "dist",
+          "registry/entries.v1.json",
+          "schemas/",
+          "skills/",
+          "README.md",
+          "LICENSE"
+        ],
+        "publishConfig": {
+          "access": "public"
+        },
+        "sideEffects": false,
+        "scripts": {
+          "build": "tsc -p tsconfig.json",
+          "typecheck": "tsc --noEmit -p tsconfig.json",
+          "test": "vitest run",
+          "prepack": "npm run build",
+          "registry:sync": "node scripts/sync-registry-entry.mjs"
+        },
+        "dependencies": {
+          "@lezer/markdown": "1.8.0",
+          "@noble/hashes": "2.0.1",
+          "@sentropic/track": "^0.98.6",
+          "yaml": "2.9.0"
+        },
+        "devDependencies": {
+          "@types/node": "^22.19.19",
+          "typescript": "^5.9.3",
+          "vitest": "^4.1.11"
+        }
+      },
+      "sha256": "d1bd70fa9f3c2430afbc69a370b7b13f112dc1974e871d1e3a00a8387d4d0a73",
+      "upgrade": false
+    },
+    {
+      "file": "sentropic-h2a-0.98.7.tgz",
+      "manifest": {
+        "name": "@sentropic/h2a",
+        "version": "0.98.7",
+        "description": "h2a — the unified CLI + core for human-to-agent coordination.",
+        "license": "MIT",
+        "type": "module",
+        "main": "./dist/index.js",
+        "types": "./dist/index.d.ts",
+        "keywords": [
+          "h2a",
+          "human-in-the-loop",
+          "multi-agent",
+          "coordination",
+          "negotiation"
+        ],
+        "repository": {
+          "type": "git",
+          "url": "git+https://github.com/rhanka/h2a.git",
+          "directory": "packages/h2a"
+        },
+        "homepage": "https://github.com/rhanka/h2a#readme",
+        "bugs": {
+          "url": "https://github.com/rhanka/h2a/issues"
+        },
+        "exports": {
+          ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+          },
+          "./agy-claude": {
+            "types": "./dist/runtime/agy-claude.d.ts",
+            "import": "./dist/runtime/agy-claude.js"
+          }
+        },
+        "files": [
+          ".claude-plugin",
+          ".codex-plugin",
+          ".mcp.json",
+          "dist",
+          "fixtures",
+          "skills",
+          "schema",
+          "focus-app",
+          "hooks",
+          "scripts",
+          "focus-kit/renderer.html",
+          "focus-kit/renderer-manifest.json",
+          "focus-kit/validator.mjs",
+          "focus-kit/dossier.template.json",
+          "focus-kit/dossier.schema.json",
+          "focus-kit/dossier.v2.schema.json",
+          "focus-kit/dossier.evidence.template.json",
+          "focus-kit/ecosystem.json"
+        ],
+        "publishConfig": {
+          "access": "public"
+        },
+        "bin": {
+          "h2a": "dist/bin.js"
+        },
+        "scripts": {
+          "build": "node ../../scripts/clean-workspace-dist.mjs && tsc -b --force && node ../../scripts/copy-vendored-engram-live.mjs",
+          "prepack": "node ../../scripts/check-focus-app.mjs && node ../../scripts/build-focus-dossier.mjs --check && chmod +x dist/bin.js"
+        },
+        "dependencies": {
+          "@sentropic/focus": "0.5.0",
+          "@hono/mcp": "^0.3.0",
+          "@hono/node-server": "^2.0.12",
+          "@modelcontextprotocol/sdk": "^1.30.0",
+          "@sentropic/cluster-mesh": "0.16.0",
+          "@sentropic/contracts": "^0.3.0",
+          "@sentropic/events": "^0.2.0",
+          "@sentropic/track": "0.98.7",
+          "hono": "^4.13.13",
+          "toml-eslint-parser": "0.10.1"
+        },
+        "peerDependencies": {
+          "@sentropic/h2a-runtime": "0.98.7"
+        }
+      },
+      "sha256": "eca5598c7d4080cef903e5c87c201cd29ce2adb7ea07760b6b2d2a95f1e44fae",
+      "upgrade": false
+    },
+    {
+      "file": "sentropic-h2a-cli-0.98.7.tgz",
+      "manifest": {
+        "name": "@sentropic/h2a-cli",
+        "version": "0.98.7",
+        "description": "DEPRECATED — fusionné dans @sentropic/h2a. Installez @sentropic/h2a.",
+        "license": "MIT",
+        "type": "module",
+        "main": "./dist/index.js",
+        "types": "./dist/index.d.ts",
+        "keywords": [
+          "h2a",
+          "cli",
+          "mcp",
+          "codex",
+          "claude",
+          "gemini"
+        ],
+        "repository": {
+          "type": "git",
+          "url": "git+https://github.com/rhanka/h2a.git",
+          "directory": "packages/h2a-cli"
+        },
+        "homepage": "https://github.com/rhanka/h2a#readme",
+        "bugs": {
+          "url": "https://github.com/rhanka/h2a/issues"
+        },
+        "exports": {
+          ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+          }
+        },
+        "files": [
+          "dist"
+        ],
+        "dependencies": {
+          "@sentropic/h2a": "0.98.7"
+        },
+        "publishConfig": {
+          "access": "public"
+        },
+        "bin": {
+          "h2a": "dist/bin.js"
+        },
+        "scripts": {
+          "prepack": "chmod +x dist/bin.js"
+        }
+      },
+      "sha256": "7051d288c7e135d672dd6a6f2a6a12ffe0e7dbd4c5d5c4be2e1a2b131f7ffcb2",
+      "upgrade": false
+    },
+    {
+      "file": "sentropic-h2a-runtime-0.98.7.tgz",
+      "manifest": {
+        "name": "@sentropic/h2a-runtime",
+        "version": "0.98.7",
+        "type": "module",
+        "exports": {
+          ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+          },
+          "./status": {
+            "types": "./dist/status-projection.d.ts",
+            "import": "./dist/status-projection.js"
+          },
+          "./package.json": "./package.json"
+        },
+        "dependencies": {
+          "@aws-sdk/client-s3": "^3.1075.0",
+          "@hono/node-server": "^2.0.12",
+          "@sentropic/cluster-mesh": "0.16.0",
+          "@sentropic/llm-gateway": "0.20.0",
+          "@sentropic/llm-mesh": "0.26.0",
+          "@xterm/headless": "^6.0.0",
+          "ajv": "^8.20.0",
+          "ajv-formats": "^3.0.1",
+          "commander": "^15.0.0",
+          "hono": "^4.13.13",
+          "node-pty": "^1.1.0",
+          "ws": "^8.20.1"
+        },
+        "devDependencies": {
+          "@types/node": "^22.19.18",
+          "@types/ws": "^8.18.1",
+          "tsup": "^8.5.1",
+          "tsx": "^4.21.0"
+        },
+        "files": [
+          "dist",
+          "README.md"
+        ],
+        "publishConfig": {
+          "access": "public"
+        },
+        "repository": {
+          "type": "git",
+          "url": "git+https://github.com/rhanka/h2a.git",
+          "directory": "packages/h2a-runtime"
+        },
+        "homepage": "https://github.com/rhanka/h2a#readme",
+        "bugs": {
+          "url": "https://github.com/rhanka/h2a/issues"
+        },
+        "license": "MIT",
+        "description": "h2a heavy runtime (sessions / k8s / tunnel, node-pty + aws-sdk). Lazily imported by @sentropic/h2a; installed separately.",
+        "main": "./dist/index.js",
+        "types": "./dist/index.d.ts",
+        "scripts": {
+          "build": "node ../../scripts/clean-workspace-dist.mjs && tsc -b --force && node ../../scripts/copy-vendored-engram-live.mjs"
+        }
+      },
+      "sha256": "6eb5ebdccd3fc59d821300d9d375f23a30bb3050723a0ce03c033817049620aa",
+      "upgrade": false
+    },
+    {
+      "file": "sentropic-track-0.98.7.tgz",
+      "manifest": {
+        "name": "@sentropic/track",
+        "version": "0.98.7",
+        "description": "Typed product-backlog and spec/plan/UAT system of record for the sentropic ecosystem (record-only MVP).",
+        "license": "MIT",
+        "author": "Fabien Antoine",
+        "homepage": "https://github.com/rhanka/h2a/tree/main/packages/track#readme",
+        "repository": {
+          "type": "git",
+          "url": "git+https://github.com/rhanka/h2a.git",
+          "directory": "packages/track"
+        },
+        "bugs": {
+          "url": "https://github.com/rhanka/h2a/issues"
+        },
+        "keywords": [
+          "backlog",
+          "spec",
+          "acceptance",
+          "event-sourcing",
+          "system-of-record",
+          "wsjf",
+          "cli"
+        ],
+        "type": "module",
+        "publishConfig": {
+          "access": "public"
+        },
+        "engines": {
+          "node": ">=20"
+        },
+        "bin": {
+          "track": "dist/cli/bin.js",
+          "track-mcp": "dist/mcp/cli.js"
+        },
+        "exports": {
+          ".": "./dist/index.js",
+          "./package.json": "./package.json",
+          "./read": "./dist/read/index.js",
+          "./ingest": "./dist/ingest/index.js",
+          "./seam": "./dist/ingest/seam-schema.js",
+          "./report/friendly": {
+            "types": "./dist/report/friendly.d.ts",
+            "import": "./dist/report/friendly.js"
+          },
+          "./mcp": {
+            "types": "./dist/mcp/serve.d.ts",
+            "import": "./dist/mcp/serve.js"
+          }
+        },
+        "files": [
+          "dist",
+          "skills"
+        ],
+        "scripts": {
+          "build": "node ../../scripts/clean-workspace-dist.mjs && tsc -p tsconfig.build.json && node -e \"require('node:fs').mkdirSync('dist/focus-vendor/registry',{recursive:true});require('node:fs').copyFileSync('../focus/registry/entries.v1.json','dist/focus-vendor/registry/entries.v1.json')\"",
+          "typecheck": "tsc -p tsconfig.json --noEmit",
+          "lint": "tsc -p tsconfig.json --noEmit",
+          "test": "vitest run",
+          "test:watch": "vitest",
+          "dev": "tsx src/cli/index.ts",
+          "prepublishOnly": "npm run build"
+        },
+        "dependencies": {
+          "@modelcontextprotocol/sdk": "^1.30.0",
+          "ulid": "^3.0.2"
+        },
+        "devDependencies": {
+          "@types/node": "^25.9.1",
+          "tsx": "^4.22.4",
+          "typescript": "^6.0.3",
+          "vitest": "^4.1.11"
+        }
+      },
+      "sha256": "c2010930d35c9236b538633b1ebb66e8adc2ca6d189dc64522cde3afdd0a23ca",
+      "upgrade": false
+    },
+    {
+      "file": "owner-lab-upgrade-fixture.tgz",
+      "manifest": {
+        "name": "@sentropic/h2a",
+        "version": "9999.0.0",
+        "description": "h2a — the unified CLI + core for human-to-agent coordination.",
+        "license": "MIT",
+        "type": "module",
+        "main": "./dist/index.js",
+        "types": "./dist/index.d.ts",
+        "keywords": [
+          "h2a",
+          "human-in-the-loop",
+          "multi-agent",
+          "coordination",
+          "negotiation"
+        ],
+        "repository": {
+          "type": "git",
+          "url": "git+https://github.com/rhanka/h2a.git",
+          "directory": "packages/h2a"
+        },
+        "homepage": "https://github.com/rhanka/h2a#readme",
+        "bugs": {
+          "url": "https://github.com/rhanka/h2a/issues"
+        },
+        "exports": {
+          ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+          },
+          "./agy-claude": {
+            "types": "./dist/runtime/agy-claude.d.ts",
+            "import": "./dist/runtime/agy-claude.js"
+          }
+        },
+        "files": [
+          ".claude-plugin",
+          ".codex-plugin",
+          ".mcp.json",
+          "dist",
+          "fixtures",
+          "skills",
+          "schema",
+          "focus-app",
+          "hooks",
+          "scripts",
+          "focus-kit/renderer.html",
+          "focus-kit/renderer-manifest.json",
+          "focus-kit/validator.mjs",
+          "focus-kit/dossier.template.json",
+          "focus-kit/dossier.schema.json",
+          "focus-kit/dossier.v2.schema.json",
+          "focus-kit/dossier.evidence.template.json",
+          "focus-kit/ecosystem.json"
+        ],
+        "publishConfig": {
+          "access": "public"
+        },
+        "bin": {
+          "h2a": "dist/bin.js"
+        },
+        "scripts": {
+          "build": "node ../../scripts/clean-workspace-dist.mjs && tsc -b --force && node ../../scripts/copy-vendored-engram-live.mjs",
+          "prepack": "node ../../scripts/check-focus-app.mjs && node ../../scripts/build-focus-dossier.mjs --check && chmod +x dist/bin.js"
+        },
+        "dependencies": {
+          "@sentropic/focus": "0.5.0",
+          "@hono/mcp": "^0.3.0",
+          "@hono/node-server": "^2.0.12",
+          "@modelcontextprotocol/sdk": "^1.30.0",
+          "@sentropic/cluster-mesh": "0.16.0",
+          "@sentropic/contracts": "^0.3.0",
+          "@sentropic/events": "^0.2.0",
+          "@sentropic/track": "0.98.7",
+          "hono": "^4.13.13",
+          "toml-eslint-parser": "0.10.1"
+        },
+        "peerDependencies": {
+          "@sentropic/h2a-runtime": "0.98.7"
+        }
+      },
+      "upgrade": true,
+      "sha256": "258076a91c37598be9335ef9f438db8158504c8c74fb869cfe22d79354399b28"
+    }
+  ]
+}
