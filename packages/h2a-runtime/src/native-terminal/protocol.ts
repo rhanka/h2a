@@ -55,6 +55,7 @@ export type NativeTerminalOperation =
   | "acquire-controller-if-no-recent-human"
   | "release-controller"
   | "write"
+  | "inject"
   | "resize"
   | "stop"
   | "stop-if-incarnation";
@@ -184,6 +185,7 @@ export function parseNativeTerminalRequest(value: unknown): NativeTerminalReques
     "acquire-controller-if-no-recent-human",
     "release-controller",
     "write",
+    "inject",
     "resize",
     "stop",
     "stop-if-incarnation",

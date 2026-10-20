@@ -17,6 +17,7 @@
  *                                     generic failure as proof of death
  *   create  --id X --cwd D [--cols N --rows N] [--env-file F] -- cmd args...
  *   drive   --target I --b64 TEXT      resolve a native session and submit TEXT
+ *                                     [--request-id R for idempotent retry]
  *   write   --id X --b64 TEXT         raw keystrokes (base64, controller-scoped)
  *   paste   --id X --b64 TEXT         ONE bracketed-paste block (tmux paste -p twin)
  *   enter   --id X                    submit (CR)
@@ -29,6 +30,7 @@
  *                                     (detach: Ctrl-\\ ; exits when session exits)
  *   host-stop                         SIGTERM the host process (sessions stop)
  */
+import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, readlinkSync, writeSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -42,6 +44,7 @@ import {
 } from "./protocol.js";
 import type {
   NativeTerminalControllerLease,
+  NativeTerminalInjectOutcome,
   NativeTerminalSessionState,
 } from "./host.js";
 import { NativeTerminalHostSupervisor } from "./supervisor.js";
@@ -876,33 +879,41 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
         });
         return 0;
       }
+      // Lot L2: reimplemented on the lease-free host inject path. Injection
+      // works with a human window attached; only recent human activity
+      // defers (typed, with retryAfterMs). Outcomes are never flattened:
+      // callers distinguish driven / deferred-recent-human / failed.
+      const requestId = parsed.flags.get("request-id") ?? randomUUID();
       const { client } = await owningClient(parsed, target.id);
       try {
-        let lease: NativeTerminalControllerLease;
+        let outcome: NativeTerminalInjectOutcome;
         try {
-          // This is one host-side operation. An older host that does not
-          // support it rejects the request, which is deliberately deferred.
-          lease = await client.acquireAutomationControllerIfNoRecentHuman(
-            target.id,
-            `h2a-drive-${process.pid}`,
-            nativeDriveActivityWindowMs(),
-          );
-        } catch {
-          emit({ outcome: "deferred" });
+          outcome = await client.inject(target.id, {
+            text,
+            requestId,
+            activityWindowMs: nativeDriveActivityWindowMs(),
+            actor: `owner-channel/op.js pid=${process.pid}`,
+          });
+        } catch (error) {
+          // Unknown session (or an old host without the operation): the
+          // target cannot take bytes. A stale registry row resolves to a
+          // dead session; the wake layer re-resolves and retries.
+          emit({ outcome: "failed", reason: `inject failed: ${(error as Error).message}` });
           return 0;
         }
-        try {
-          // One validated text line plus one submit CR: no bracketed-paste or
-          // embedded controls can turn this into multiple terminal actions.
-          await client.write(lease, `${text}\r`);
-        } finally {
-          await client.releaseController(lease).catch(() => {});
+        if (outcome.outcome === "injected") {
+          emit({ outcome: "driven", automationSeq: outcome.automationSeq });
+          return 0;
         }
+        if (outcome.outcome === "deferred-recent-human") {
+          emit({ outcome: "deferred", reason: "deferred-recent-human", retryAfterMs: outcome.retryAfterMs });
+          return 0;
+        }
+        emit({ outcome: "failed", reason: outcome.outcome });
+        return 0;
       } finally {
         client.close();
       }
-      emit({ outcome: "driven" });
-      return 0;
     }
     case "write":
     case "paste": {

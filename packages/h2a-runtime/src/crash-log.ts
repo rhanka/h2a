@@ -65,7 +65,8 @@ export type CrashLogEvent =
   | "signal"
   | "stop"
   | "exit"
-  | "dropped";
+  | "dropped"
+  | "inject";
 
 export interface CrashLogEntry {
   readonly event: CrashLogEvent;
@@ -271,6 +272,9 @@ function sanitizeEvent(event: CrashLogEvent): CrashLogEvent {
     "stop",
     "exit",
     "dropped",
+    // Lot L2: host-side injection audit record (kind/bytes/outcome only,
+    // never payload content). Keep in sync with the union above.
+    "inject",
   ];
   return known.includes(event) ? event : "exit";
 }
