@@ -127,3 +127,39 @@ test("a typed deferred outcome stops the chain instead of reading as driven", as
   assert.notEqual(result, true);
   assert.equal(secondCalled, 0);
 });
+
+// Round-1 P1 (code-review astra-1 / sol-2): two distinct envelope batches
+// must carry distinct stable idempotency keys and two writes. Today both
+// requests interpolate the envelope object (`wake:[object Object]`), so a
+// deduping transport applies only the first write while the handler still
+// marks the second batch seen.
+test("two successive batches drive twice under distinct idempotency keys", async (t) => {
+  const fs = fileStore();
+  t.after(fs.cleanup);
+  const inbox = [];
+  const requests = [];
+  const driver = {
+    drive: (req) => {
+      requests.push(req);
+      return true;
+    }
+  };
+  const wake = createInboxWakeHandler({
+    instance: INSTANCE,
+    readInbox: () => inbox,
+    privateKeyPem: PRIV,
+    driver,
+    pendingStore: fs.store,
+    now
+  });
+  inbox.push(envelope("env-batch-1"));
+  assert.equal(await wake(), true);
+  inbox.push(envelope("env-batch-2"));
+  assert.equal(await wake(), true);
+  assert.equal(requests.length, 2);
+  assert.notEqual(requests[0].requestId, requests[1].requestId);
+  for (const req of requests) {
+    assert.match(req.requestId, /^wake:[0-9a-f]{16,64}$/);
+    assert.doesNotMatch(String(req.requestId), /object Object/);
+  }
+});
