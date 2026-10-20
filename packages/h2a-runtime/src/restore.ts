@@ -1351,17 +1351,23 @@ export function summarizeRestoreLedger(
 /**
  * Round-1 (D2): the restore exit status. A dry run previews only (always
  * zero); an empty ledger means there was nothing to do (zero);
- * `already-active`/`attached`/`launched` satisfy the objective (zero). The
- * run fails (1) when at least one candidate ends `blocked` or `failed` —
- * even when another candidate progressed (reviewer finding c): a blocked
- * objective must never be masked by a sibling's success.
+ * `already-active`/`attached`/`launched`/`skipped` satisfy the objective
+ * (zero). The run fails (1) when at least one candidate ends `blocked`,
+ * `failed` or `deferred` — even when another candidate progressed (reviewer
+ * finding c, round-2 astra-5/sol-4): an unsatisfied objective must never be
+ * masked by a sibling's success. A deferred shell without its adapter, an
+ * unknown foreground and a stale host are all unsatisfied objectives.
  */
 export function restoreExitCode(
   entries: ReadonlyArray<RestoreLedgerEntry>,
   opts: { dryRun?: boolean } = {},
 ): number {
   if (opts.dryRun === true) return 0;
-  return entries.some((e) => e.outcome === "blocked" || e.outcome === "failed") ? 1 : 0;
+  return entries.some(
+    (e) => e.outcome === "blocked" || e.outcome === "failed" || e.outcome === "deferred",
+  )
+    ? 1
+    : 0;
 }
 
 /**
@@ -1770,10 +1776,32 @@ export function restore(
   // would otherwise record `already-active`. Attach-live primaries carry no
   // resolved conversation (empty sid), so the subtree alone attributes the
   // foreground; rows with a resolved conversation additionally bind it
-  // (the CLI must hold THIS row's conversation). A verified foreground CLI
-  // records one `already-active` ledger outcome (the session is already
-  // up). Unknown foregrounds, ambiguous owners, or no subtree at all keep
-  // the attach-only path — old hosts stay compatible.
+  // (the CLI must hold THIS row's conversation).
+  //
+  // Round-2 (astra-4/astra-6) — a verified foreground CLI is `already-active`
+  // only when its view already exists (`controlled` in this plan's
+  // snapshot); with no attached view the launch pass below reopens exactly
+  // one attach view (observed as `attached`, never relaunched over). A
+  // refused foreground (unknown program, ambiguous owners) is never
+  // promoted to `already-active`: with a view it records `already-active`
+  // carrying the conserved refusal reason, without one it takes the same
+  // attach-view path with that reason — zero bytes typed either way. No
+  // subtree at all keeps the attach-only path — old hosts stay compatible.
+  const controlledByManagedName = new Map<string, boolean | undefined>();
+  if (hostView.native.known) {
+    for (const view of hostView.native.sessions) {
+      controlledByManagedName.set(view.name, view.controlled);
+    }
+  }
+  // Refused (unknown/ambiguous) foregrounds that still get their live view:
+  // session name -> typed reason, attached at dispatch time so the ledger
+  // conserves the unknown instead of claiming a verified CLI.
+  const refusedViewReasons = new Map<string, string>();
+  // Sessions decided to need no launch (their view already exists): they
+  // leave the launch set. Deferred sessions stay IN the plan (their tab is
+  // shown; a real run still reopens their view) — only the exit status
+  // records the unsatisfied objective.
+  const decidedNoLaunch = new Set<string>();
   if (opts.nativeSubtrees !== undefined && opts.nativeSubtrees.length > 0) {
     const subtreeByName = new Map(
       opts.nativeSubtrees.map((s) => [s.name, s.processes] as const),
@@ -1783,35 +1811,57 @@ export function restore(
       const processes = subtreeByName.get(s.managedName);
       if (processes === undefined) continue;
       const at = new Date().toISOString();
+      const name = s.label ?? s.project;
+      const controlled = controlledByManagedName.get(s.managedName);
       const decision = decideInPlaceResume({
-        session: s.label ?? s.project,
+        session: name,
         hostProcesses: processes,
         ...(s.sid.length > 0 ? { convId: s.sid } : {}),
       });
       if (decision?.outcome === "attach") {
-        emitLedgerEntry({
-          session: s.label ?? s.project,
-          outcome: "already-active",
-          at,
-        });
+        if (controlled !== false) {
+          emitLedgerEntry({
+            session: name,
+            outcome: "already-active",
+            at,
+          });
+          decidedNoLaunch.add(name);
+        }
+        // controlled === false: the view is (re)opened by the launch pass
+        // below — one attach tab, observed as `attached`.
       } else if (decision?.outcome === "deferred") {
         emitLedgerEntry({
-          session: s.label ?? s.project,
+          session: name,
           outcome: "deferred",
           reason: "needs-adapter",
           at,
         });
+      } else if (decision?.outcome === "refused") {
+        if (controlled === false) {
+          refusedViewReasons.set(name, decision.reason);
+        } else {
+          emitLedgerEntry({
+            session: name,
+            outcome: "already-active",
+            reason: decision.reason,
+            at,
+          });
+          decidedNoLaunch.add(name);
+        }
       }
     }
   }
   // A restorable row that is a live-agent-cli AND provably live on its
   // persisted host (this plan's snapshot) is never relaunched over the live
-  // CLI: it records one `already-active` ledger outcome with a per-session
-  // `h2a attach` remedy and leaves the launch set (re-running restore right
-  // after a successful restore exits 0). Rows the subtree pass already
-  // recorded keep their observed outcome; attach-live rows keep their
-  // attach-only path (exempt here); dead/unknown rows are untouched.
+  // CLI. Round-2 (astra-6): only rows whose view already exists leave the
+  // launch set (`already-active` + per-session `h2a attach` remedy —
+  // re-running restore right after a successful restore exits 0). A live
+  // CLI with no attached view stays launchable so the launch pass reopens
+  // exactly one attach view for it; rows the subtree pass already recorded
+  // keep their observed outcome; attach-live rows keep their attach-only
+  // path (exempt here); dead/unknown rows are untouched.
   const facetRows: SessionFacetRow[] = [];
+  const controlledBySession = new Map<string, boolean | undefined>();
   for (const s of sessions) {
     if (s.attachLive === true) continue;
     if (s.hostKind === undefined || s.managedName === undefined) continue;
@@ -1825,32 +1875,40 @@ export function restore(
     else row.pidAlive = true;
     if (s.label !== undefined) row.label = s.label;
     facetRows.push(row);
+    controlledBySession.set(row.session, controlledByManagedName.get(s.managedName));
   }
   const occupiedRefusals = resolveOccupiedHumanRefusals(
     facetRows,
     isLiveFacetRow,
   );
-  const refusedSessions = new Set(
-    occupiedRefusals.map((r) => r.session),
-  );
   for (const r of occupiedRefusals) {
     if (recordedLedgerSessions.has(r.session)) continue;
+    // A live CLI with no attached view keeps its attach-view path below —
+    // refusing the relaunch must not remove the view. Unknown or old-host
+    // visibility keeps the fail-closed refusal (already-active, no window).
+    if (controlledBySession.get(r.session) === false) continue;
     emitLedgerEntry({
       session: r.session,
       outcome: "already-active",
       remedy: r.remedy,
       at: new Date().toISOString(),
     });
+    decidedNoLaunch.add(r.session);
     stderr.write(
       `[h2a] restore "${r.session}": ` +
         `${humanOutputText("restore.ledger.alreadyActive")} — ` +
         `${humanOutputText("restore.ledger.remedyAttach")} ${r.remedy}\n`,
     );
   }
+  // Sessions whose view already exists never reach the launcher; every other
+  // session — including live uncontrolled ones owed exactly one attach view
+  // and deferred shells whose tab the plan still shows — flows to the launch
+  // pass, which observes each dispatch. The dispatch callback below skips
+  // recorded names, so one session still yields exactly one ledger line.
   const launchable =
-    refusedSessions.size === 0
+    decidedNoLaunch.size === 0
       ? sessions
-      : sessions.filter((s) => !refusedSessions.has(s.label ?? s.project));
+      : sessions.filter((s) => !decidedNoLaunch.has(s.label ?? s.project));
   const {
     windows: localWindows,
     dropped,
@@ -1931,10 +1989,16 @@ export function restore(
       onDispatch: (windowTitle, dispatch) => {
         const name = dispatch.tab.label;
         if (recordedLedgerSessions.has(name)) return;
+        // Round-2 (astra-4): a view reopened over a refused foreground
+        // carries the conserved refusal reason — the ledger never claims a
+        // verified CLI there.
+        const refusedReason =
+          dispatch.kind === "attach" ? refusedViewReasons.get(name) : undefined;
         emitLedgerEntry({
           session: name,
           outcome: dispatch.kind === "attach" ? "attached" : "launched",
           window: windowTitle,
+          ...(refusedReason !== undefined ? { reason: refusedReason } : {}),
           at: new Date().toISOString(),
         });
       },

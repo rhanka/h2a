@@ -125,7 +125,20 @@ if (process.platform === "linux") {
   result = spawnSync(
     "bwrap",
     [
-      "--unshare-all",
+      // Round-2 (code-review astra-7/sol-5): explicit namespaces WITHOUT a
+      // private network namespace. The L0 barrier is a filesystem + process
+      // barrier (D16: private mount namespace, only the run root writable,
+      // the workspace read-only) — it never required net isolation, and
+      // creating a net namespace forces a loopback setup (`RTM_NEWADDR`)
+      // the CI runners refuse (`Operation not permitted`), failing every
+      // suite before its first test. Sharing the host network keeps host
+      // loopback usable for the TCP-loopback tests (central-mcp and
+      // friends bind 127.0.0.1); confinement of writes is unchanged.
+      "--unshare-user",
+      "--unshare-pid",
+      "--unshare-uts",
+      "--unshare-ipc",
+      "--unshare-cgroup",
       "--die-with-parent",
       "--ro-bind", "/", "/",
       "--dev", "/dev",

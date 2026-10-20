@@ -255,7 +255,7 @@ describe("round-1 (astra-3/sol-7) — one ledger outcome per candidate, exit hon
     });
   }
 
-  it("KNOWN_CONV_LIVE_PRIMARY_RECORDS_ALREADY_ACTIVE_NOT_BLOCKED_AND_EXITS_ZERO", () => {
+  it("KNOWN_CONV_LIVE_PRIMARY_UNCONTROLLED_OPENS_EXACTLY_ONE_ATTACH_VIEW", () => {
     writeRegistry([knownRow()]);
     listNativeSessions.mockReturnValue([
       { id: KNOWN_NAME, pid: 4242, status: "running", exit: null, controlled: false },
@@ -269,14 +269,80 @@ describe("round-1 (astra-3/sol-7) — one ledger outcome per candidate, exit hon
       },
     });
 
-    // The session is already up: no relaunch over the live CLI, no tab, one
-    // `already-active` ledger outcome (probe B: `blocked:occupied-human`
-    // with exit 1 was the defect).
+    // Round-2 (code-review astra-6): a live CLI with a known conversation
+    // but NO attached view must reopen exactly one attach view — never zero
+    // tabs with `already-active` (the round-1 regression: every live-agent-cli
+    // name left the plan regardless of controlled:false). No relaunch over
+    // the live CLI: the dispatched tab is attach-only.
+    expect(ledger).toHaveLength(1);
+    expect(ledger[0]).toMatchObject({ session: "known", outcome: "attached" });
+    expect(result.total).toBe(1);
+    expect(spawn).toHaveBeenCalledTimes(1);
+    const lines = launchedMapLines();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain(`h2a attach '${KNOWN_NAME}'`);
+    expect(lines.join("\n")).not.toMatch(/h2a run|--resume|--replace/);
+    expect(restoreExitCode(ledger, {})).toBe(0);
+  });
+
+  it("KNOWN_CONV_LIVE_PRIMARY_CONTROLLED_RECORDS_ALREADY_ACTIVE_WITH_NO_TAB", () => {
+    writeRegistry([knownRow()]);
+    listNativeSessions.mockReturnValue([
+      { id: KNOWN_NAME, pid: 4242, status: "running", exit: null, controlled: true },
+    ]);
+
+    const ledger: RestoreLedgerEntry[] = [];
+    const result = restore({
+      stderr: stderrStream,
+      onLedgerEntry: (e) => {
+        ledger.push(e);
+      },
+    });
+
+    // The view already exists: no second controller, no tab, one
+    // `already-active` ledger outcome with the attach remedy.
     expect(ledger).toHaveLength(1);
     expect(ledger[0]).toMatchObject({ session: "known", outcome: "already-active" });
     expect(ledger[0]!.remedy).toMatch(/h2a attach/);
     expect(result.total).toBe(0);
     expect(spawn).not.toHaveBeenCalled();
+    expect(restoreExitCode(ledger, {})).toBe(0);
+  });
+
+  it("KNOWN_CONV_UNKNOWN_FOREGROUND_NEVER_PROMOTES_WRAPPER_LIVENESS_TO_CLI_ACTIVE", () => {
+    writeRegistry([knownRow()]);
+    listNativeSessions.mockReturnValue([
+      { id: KNOWN_NAME, pid: 4242, status: "running", exit: null, controlled: false },
+    ]);
+
+    const ledger: RestoreLedgerEntry[] = [];
+    const result = restore({
+      stderr: stderrStream,
+      nativeSubtrees: [
+        {
+          name: KNOWN_NAME,
+          processes: [
+            { pid: 9999, command: "vim", args: ["vim", "notes.txt"], startedAtMs: 1, ppid: 4242 },
+          ],
+        },
+      ],
+      onLedgerEntry: (e) => {
+        ledger.push(e);
+      },
+    });
+
+    // Round-2 (code-review astra-4): an explicitly unknown foreground (vim,
+    // not the enrolled CLI) is refused for typing — and the refusal stays in
+    // the ledger. Wrapper liveness is never promoted to `already-active`.
+    // The live PTY still gets its view (attach-only, zero bytes typed).
+    expect(ledger).toHaveLength(1);
+    expect(ledger[0]).toMatchObject({ session: "known", outcome: "attached" });
+    expect(ledger[0]!.reason).toMatch(/unknown-foreground/);
+    expect(result.total).toBe(1);
+    expect(spawn).toHaveBeenCalledTimes(1);
+    const lines = launchedMapLines();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain(`h2a attach '${KNOWN_NAME}'`);
     expect(restoreExitCode(ledger, {})).toBe(0);
   });
 
@@ -311,6 +377,26 @@ describe("round-1 (astra-3/sol-7) — one ledger outcome per candidate, exit hon
         ],
         {},
       ),
+    ).toBe(0);
+    // Round-2 (code-review astra-5/sol-4): an unsatisfied deferred objective
+    // fails the run — even beside a success, and even for needs-adapter.
+    expect(
+      restoreExitCode([{ session: "prim", outcome: "deferred", reason: "needs-adapter", at }], {}),
+    ).toBe(1);
+    expect(
+      restoreExitCode(
+        [
+          { session: "a", outcome: "launched", window: "w", at },
+          { session: "prim", outcome: "deferred", reason: "needs-adapter", at },
+        ],
+        {},
+      ),
+    ).toBe(1);
+    // A deferred dry-run still previews only: zero.
+    expect(
+      restoreExitCode([{ session: "prim", outcome: "deferred", reason: "needs-adapter", at }], {
+        dryRun: true,
+      }),
     ).toBe(0);
     expect(restoreExitCode([], {})).toBe(0);
     expect(

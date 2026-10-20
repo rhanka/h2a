@@ -317,6 +317,67 @@ describe("native terminal attach recovery", () => {
   );
 });
 
+describe("round-2 (code-review astra-2): a lone-Escape timer must not flush a reply-in-progress", () => {
+  it("holds a split terminal reply past the lone-Escape bound instead of typing it", async () => {
+    // Genuine lone Escape resolves within the bound; a reply split so its
+    // continuation arrives after the bound must still take the typed path.
+    // Real timers: the defect is the wall-clock race itself.
+    vi.useRealTimers();
+    const stdin = new FakeInput();
+    const stdout = new FakeOutput();
+    const writes: string[] = [];
+    const replies: string[] = [];
+    let done = false;
+    const lease = {
+      role: "controller",
+      id: "h2a-alpha",
+      generation: "generation-1",
+      incarnation: 1,
+      controllerId: "esc-controller",
+      epoch: 1,
+    } as const;
+    const client: AttachClient = {
+      async acquireController() { return lease; },
+      async releaseController() { return { controlled: false, controllerEpoch: 1 }; },
+      async readOutput() { return replay(0, ""); },
+      async state() { return done ? exited() : running(true); },
+      async write(_lease, data) { writes.push(data); },
+      async writeReply(_lease, unit) {
+        replies.push(unit.bytes);
+        return { outcome: "applied" };
+      },
+      async resize() {},
+      close() {},
+    };
+    const runtime: NativeTerminalAttachRuntime = {
+      connect: async () => client,
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      now: () => Date.now(),
+      delay: async (ms) => { await new Promise((resolve) => setTimeout(resolve, ms)); },
+      onResize: () => {},
+      offResize: () => {},
+    };
+    const run = runAttach("h2a-alpha", runtime);
+    const settle = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    await settle(50);
+    stdin.emit("data", Buffer.from("\x1b"));
+    await settle(10);
+    stdin.emit("data", Buffer.from("[?1;"));
+    // Cross the lone-Escape bound (25ms) with an incomplete CSI held: the
+    // timer must re-verify instead of flushing the partial reply as input.
+    await settle(120);
+    stdin.emit("data", Buffer.from("2c"));
+    await settle(150);
+    done = true;
+    await run;
+    // The complete DA reply took the typed host-revalidated path exactly
+    // once; no partial reply bytes were ever typed as human input.
+    expect(replies).toEqual(["\x1b[?1;2c"]);
+    expect(writes.join("")).not.toContain("[?1;");
+  }, 30_000);
+});
+
 describe("lot L4-hint RED: survivor hints after the PTY ends", () => {
   const RECREATION = "h2a run 'claude' '/home/u/my dir' --name 'a' -r 'c'";
   const ATTACH = "h2a attach a";

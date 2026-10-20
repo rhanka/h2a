@@ -197,3 +197,21 @@ test("L6 RED: should render the catalog language for a non-French non-English lo
   assert.ok(!out.includes("{"), "fallback is human, never JSON");
   assert.equal(out, golden("upgrade-human-already-current.en.txt", CURRENT), "unknown locale falls back to the default catalog");
 });
+
+test("round-2 S7: should render human output on piped stdout without --json", async () => {
+  // The owner-lab captures upgrade output through pipes (never a TTY) and
+  // refuses both the escaped JSON wall and JSON by default. Human is the
+  // default everywhere; only --json selects the machine contract.
+  for (const lang of ["en", "fr"]) {
+    const capture = { out: "", err: "" };
+    const rc = await withLang(lang, () =>
+      h2a.cmdUpgrade(
+        { "skip-hosts": "true" },
+        pipeStreams(capture),
+        fakeRuntime(CURRENT),
+      ),
+    );
+    assert.equal(rc, 0);
+    assert.equal(capture.out, golden(`upgrade-human-already-current.${lang}.txt`, CURRENT));
+  }
+});
