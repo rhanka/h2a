@@ -24,6 +24,11 @@ import {
   type RegistryEntry,
 } from "./registry.js";
 import { managedSessionCandidates } from "./tmux.js";
+import {
+  deriveSessionFacet,
+  type SessionFacet,
+  type SessionFacetRow,
+} from "./launch-layout.js";
 
 export type ConvOwnerWhere = "local-tmux" | "local" | "remote";
 
@@ -35,7 +40,40 @@ export type ConvOwner = {
   detail: string;
   /** true = cwd-only heuristic (no cliSessionId) — warn, do not refuse. */
   suspect?: boolean;
+  /**
+   * Lot L1a foreground facet of the holder, when provable. A live agent row
+   * derives `live-agent-cli` through the shared contract; a suspect (cwd
+   * heuristic, no liveness proof) carries NO facet — unknown is preserved,
+   * never promoted.
+   */
+  facet?: SessionFacet;
 };
+
+/**
+ * Lot L1a — parse one facet-ed owner line
+ * (`facet:<facet> owner:<owner> session:<session>`). Returns the line with
+ * the facet normalized: an unrecognized facet parses as `unknown` (kept,
+ * never promoted), and a line missing any field is not a facet line (null).
+ */
+export function parseFacetLine(
+  line: string,
+): { facet: SessionFacet; owner: string; session: string } | null {
+  const match = /^facet:(\S+)\s+owner:(\S+)\s+session:(\S+)\s*$/.exec(line);
+  if (!match) return null;
+  const facet = match[1]!;
+  const owner = match[2]!;
+  const session = match[3]!;
+  if (owner.length === 0 || session.length === 0) return null;
+  // Fail closed: only the contract's known facets survive; anything else is
+  // kept as `unknown`, never promoted to a live facet.
+  const known: SessionFacet =
+    facet === "live-agent-cli" ||
+    facet === "shell" ||
+    facet === "consumable-transcript"
+      ? facet
+      : "unknown";
+  return { facet: known, owner, session };
+}
 
 /** The subset of listRemoteSessions() rows the guard needs. */
 export type RemoteSessionLite = {
@@ -57,6 +95,18 @@ export type ConvOwnersOpts = LivenessOpts & {
 };
 
 function ownerFromEntry(e: RegistryEntry): ConvOwner {
+  // Lot L1a: entries reaching here passed the isLive filter, so the facet
+  // derives through the shared contract — except the unverifiable no-pid
+  // row, which derives `unknown` (preserved, stamped nowhere).
+  const facetRow: SessionFacetRow =
+    e.kind === "local-tmux"
+      ? { session: e.tmuxSession ?? e.id, tool: e.tool, tmuxLive: true }
+      : {
+          session: e.id,
+          tool: e.tool,
+          ...(e.pid !== undefined ? { pidAlive: true } : {}),
+        };
+  const facet = deriveSessionFacet(facetRow);
   if (e.kind === "local-tmux") {
     const slug = e.label ?? e.id;
     const candidates = managedSessionCandidates(e.id);
@@ -68,6 +118,7 @@ function ownerFromEntry(e: RegistryEntry): ConvOwner {
       where: "local-tmux",
       label: slug,
       detail: `local tmux session ${session} (${e.tool}, cwd ${e.cwd}) — stop it first: ${stop}`,
+      ...(facet === "unknown" ? {} : { facet }),
     };
   }
   return {
@@ -79,6 +130,7 @@ function ownerFromEntry(e: RegistryEntry): ConvOwner {
     // a relaunch; only verifiable writers (live tmux / pid+cmdline / remote)
     // refuse. A pid'd entry that reached here passed the liveness check → hard.
     ...(e.pid === undefined ? { suspect: true } : {}),
+    ...(facet === "unknown" ? {} : { facet }),
   };
 }
 
@@ -125,6 +177,10 @@ export function convOwners(
         where: "remote",
         label: s.displayName ?? s.id,
         detail: `remote session ${s.id}${s.workspacePath ? ` (${s.workspacePath})` : ""} is on this conversation — stop it first: h2a stop ${s.id}`,
+        // A cliSessionId match proves a live CLI holds this conversation even
+        // though the remote row carries no tool name — stamp the facet
+        // directly (out-of-band proof, not a promotion of an unknown).
+        facet: "live-agent-cli",
       });
     } else if (
       s.cliSessionId === undefined &&
@@ -147,7 +203,12 @@ export function formatConvConflict(
   convId: string,
   owners: ReadonlyArray<ConvOwner>,
 ): string {
-  const lines = owners.map((o) => `  - [${o.where}] ${o.label}: ${o.detail}`);
+  // Lot L1a: the facet rides along only when the owner proved one — a
+  // suspect (unknown preserved) prints exactly as before.
+  const lines = owners.map(
+    (o) =>
+      `  - [${o.where}] ${o.label}${o.facet !== undefined ? ` (${o.facet})` : ""}: ${o.detail}`,
+  );
   return (
     `[h2a] conversation ${convId} already has a live writer:\n` +
     `${lines.join("\n")}\n` +

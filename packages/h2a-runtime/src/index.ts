@@ -203,8 +203,13 @@ import {
   reconcileRunConvIds,
   restore as restoreLayout,
   type LegacySessionEvidence,
+  type RestoreLedgerEntry,
   type RestoreOptions,
 } from "./restore.js";
+import {
+  humanOutputText,
+  resolveHumanOutputLocale,
+} from "./human-output.js";
 import { getLayoutConfig } from "./config.js";
 import { resolvePinnedLaunchEntries } from "./resume-launch-options.js";
 import {
@@ -2689,6 +2694,79 @@ function isCommanderNonErrorCode(code: string): boolean {
     code === "commander.helpDisplayed" ||
     code === "commander.version" ||
     code === "commander.executeSubCommandAsync"
+  );
+}
+
+/**
+ * Lot L1a — run-scoped restore ledger (CLI side). The record is machine
+ * values only and is written ONLY to the caller-supplied path — there is no
+ * default location. Human lines render at print time through the locale
+ * catalog.
+ */
+export type { RestoreLedgerEntry };
+
+/** Append one entry to the in-memory ledger (immutable). */
+export function appendRestoreLedgerEntry(
+  entries: ReadonlyArray<RestoreLedgerEntry>,
+  entry: RestoreLedgerEntry,
+): RestoreLedgerEntry[] {
+  return [...entries, entry];
+}
+
+/**
+ * Persist the ledger record. Refuses an empty path: without an explicit
+ * run-scoped record path the ledger is never written anywhere.
+ */
+export function writeRestoreLedgerRecord(
+  recordPath: string,
+  entries: ReadonlyArray<RestoreLedgerEntry>,
+): void {
+  if (recordPath.length === 0) {
+    throw new Error(
+      "writeRestoreLedgerRecord: refusing to write the restore ledger " +
+        "without an explicit run-scoped record path (no default location)",
+    );
+  }
+  mkdirSync(dirname(recordPath), { recursive: true });
+  writeFileSync(
+    recordPath,
+    JSON.stringify({ version: 1, entries }, null, 2),
+    "utf8",
+  );
+}
+
+/**
+ * Render the ledger through the locale catalog: static status words come
+ * from the catalog, machine values (session, window, reason, remedy) pass
+ * through untranslated.
+ */
+export function printRestoreLedger(
+  entries: ReadonlyArray<RestoreLedgerEntry>,
+  locale: string = resolveHumanOutputLocale(),
+): string[] {
+  return entries.map((entry) => {
+    const status = humanOutputText(
+      entry.outcome === "launched"
+        ? "restore.ledger.launched"
+        : "restore.ledger.blocked",
+      locale,
+    );
+    const where = entry.window !== undefined ? ` → ${entry.window}` : "";
+    const why =
+      entry.reason !== undefined
+        ? ` (${entry.reason}${entry.remedy !== undefined ? ` — ${entry.remedy}` : ""})`
+        : "";
+    return `${status}: ${entry.session}${where}${why}`;
+  });
+}
+
+/** Run-scoped record path for one restore invocation (never a default). */
+export function restoreLedgerRecordPath(): string {
+  const base = process.env.XDG_RUNTIME_DIR ?? tmpdir();
+  return join(
+    base,
+    "h2a",
+    `restore-ledger-${process.pid}-${Date.now()}.json`,
   );
 }
 
@@ -10004,7 +10082,30 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             return;
           }
         }
+        // Lot L1a: collect the blocked ledger entries (occupied-human
+        // refusals) for the run-scoped record + catalog print below.
+        const ledgerEntries: RestoreLedgerEntry[] = [];
+        restoreOpts.onLedgerEntry = (entry) => {
+          ledgerEntries.push(entry);
+        };
         const { total } = restoreLayout(restoreOpts);
+        if (ledgerEntries.length > 0) {
+          for (const line of printRestoreLedger(ledgerEntries)) {
+            process.stderr.write(`[h2a] ${line}\n`);
+          }
+          // A dry run previews — only a real run persists the record, and
+          // only to this invocation's run-scoped path (never a default).
+          if (!opts.dryRun) {
+            try {
+              writeRestoreLedgerRecord(
+                restoreLedgerRecordPath(),
+                ledgerEntries,
+              );
+            } catch {
+              // best-effort: the refusal notes above already reached stderr
+            }
+          }
+        }
         if (total === 0) {
           process.stderr.write(
             `[h2a] rien à relancer${group ? ` pour le groupe "${group}"` : ""}\n`,

@@ -19,6 +19,7 @@ import { join } from "node:path";
 
 import { localSessionName, slugify, type LocalSession } from "./tmux.js";
 import type { LayoutTab, LayoutWindow } from "./restore.js";
+import type { RegistryTool } from "./registry.js";
 
 /**
  * The ONE host inventory snapshot a restore plan runs on: BOTH inventories
@@ -440,4 +441,197 @@ export function launchLayout(
   }
 
   return { opened, skippedLive };
+}
+
+// ---------------------------------------------------------------------------
+// Lot L1a — foreground-facet contract.
+//
+// The facet vocabulary is OWNED here (this module stays pure: no host
+// readers, F3): conv-guard.ts annotates conflict owners through
+// deriveSessionFacet, and restore.ts's registry×2 merge consumes
+// getRestoreCandidates/resolveOccupiedHumanRefusals so a session filtered to
+// a live agent tool is never treated as an inert attach target. Unknown tools
+// stay `unknown` — never promoted to a live facet (fail closed).
+// ---------------------------------------------------------------------------
+
+/** Foreground facet of one restore row: what a human (or transcript) holds. */
+export type SessionFacet =
+  | "live-agent-cli"
+  | "shell"
+  | "consumable-transcript"
+  | "unknown";
+
+/**
+ * Agent CLI tools — the only tools that can hold a live foreground session.
+ * Mirrors RegistryTool (registry.ts); a named tool outside this set is never
+ * a live agent, no matter the liveness probes.
+ */
+const AGENT_CLI_TOOLS: ReadonlySet<string> = new Set<string>([
+  "claude",
+  "codex",
+  "agy",
+  "muse",
+  "vibe",
+] satisfies readonly RegistryTool[]);
+
+/** Plain interactive shells: attached, never resumed or relaunched as agents. */
+const SHELL_TOOLS: ReadonlySet<string> = new Set([
+  "sh",
+  "bash",
+  "zsh",
+  "fish",
+  "dash",
+  "ksh",
+  "shell",
+]);
+
+/** One restore row as the facet contract sees it. */
+export interface SessionFacetRow {
+  /** Stable session handle (registry label, managed name, or project). */
+  session: string;
+  /** Agent CLI tool, shell name, or anything else (fail closed → unknown). */
+  tool?: string;
+  /** Persisted terminal host kind, when known. */
+  kind?: string;
+  /** Live on its tmux / native host (plan snapshot bits). */
+  tmuxLive?: boolean;
+  pidAlive?: boolean;
+  /** Out-of-band liveness proof (e.g. a convId match on a remote session). */
+  live?: boolean;
+  /** Transcript path backing a consumable (dead) row. */
+  transcriptPath?: string;
+  /** Human label, preserved through the cohort mapping. */
+  label?: string;
+}
+
+/** Liveness as the facet contract sees it: any proven-live bit suffices. */
+export function isLiveFacetRow(
+  row: Pick<SessionFacetRow, "tmuxLive" | "pidAlive" | "live">,
+): boolean {
+  return row.tmuxLive === true || row.pidAlive === true || row.live === true;
+}
+
+/**
+ * Derive the foreground facet of one row. Agent tool + proven live =
+ * live-agent-cli; agent tool + transcript but nothing live =
+ * consumable-transcript; shells stay shells; anything else (unknown tool,
+ * dead agent without transcript) is unknown — never promoted.
+ */
+export function deriveSessionFacet(row: SessionFacetRow): SessionFacet {
+  const tool = row.tool;
+  if (tool !== undefined && AGENT_CLI_TOOLS.has(tool)) {
+    if (isLiveFacetRow(row)) return "live-agent-cli";
+    if (row.transcriptPath !== undefined) return "consumable-transcript";
+    return "unknown";
+  }
+  if (tool !== undefined && SHELL_TOOLS.has(tool)) return "shell";
+  return "unknown";
+}
+
+/** One facet-ed restore candidate: facet plus the labels the cohort keeps. */
+export interface FacetCandidate {
+  session: string;
+  facet: SessionFacet;
+  tool?: string;
+  label?: string;
+  transcriptPath?: string;
+}
+
+/**
+ * Facet a whole side-window cohort (B1): one candidate per row, labels and
+ * transcript anchors preserved — the catalog facet labels resolve at print
+ * time, so the rows themselves stay machine values.
+ */
+export function getRestoreCandidates(
+  rows: ReadonlyArray<SessionFacetRow>,
+): FacetCandidate[] {
+  return rows.map((row) => {
+    const candidate: FacetCandidate = {
+      session: row.session,
+      facet: deriveSessionFacet(row),
+    };
+    if (row.tool !== undefined) candidate.tool = row.tool;
+    if (row.label !== undefined) candidate.label = row.label;
+    if (row.transcriptPath !== undefined) {
+      candidate.transcriptPath = row.transcriptPath;
+    }
+    return candidate;
+  });
+}
+
+/** One side-window already holding a session (attach-next affinity input). */
+export interface LaunchedWindowRef {
+  sid?: string;
+  session?: string;
+  windowName: string;
+}
+
+/**
+ * `attach-next` affinity: the window that already holds the session wins;
+ * otherwise the first candidate window; undefined when there is no window.
+ */
+export function resolveAttachNextTarget(
+  session: string,
+  launched: ReadonlyArray<LaunchedWindowRef>,
+  candidates: ReadonlyArray<string>,
+): string | undefined {
+  const hit = launched.find(
+    (ref) => ref.session === session || ref.sid === session,
+  );
+  if (hit !== undefined) return hit.windowName;
+  return candidates[0];
+}
+
+/** One resume snapshot backing a session (resume-identity input). */
+export interface ResumeSnapshotRow {
+  snapshotId: string;
+  session: string;
+  alive: boolean;
+  startedAt: string;
+}
+
+/**
+ * Collapse duplicate resume snapshots to ONE exact identity: live first,
+ * then newest startedAt, then the smallest snapshotId (deterministic
+ * tiebreak). An empty list is unusable — throw, never invent an identity.
+ */
+export function resolveResumeCandidate(
+  snapshots: ReadonlyArray<ResumeSnapshotRow>,
+): ResumeSnapshotRow {
+  if (snapshots.length === 0) {
+    throw new Error(
+      "resolveResumeCandidate: no usable resume snapshot (empty snapshot list)",
+    );
+  }
+  const ranked = snapshots.slice().sort((a, b) => {
+    if (a.alive !== b.alive) return a.alive ? -1 : 1;
+    if (a.startedAt !== b.startedAt) return a.startedAt < b.startedAt ? 1 : -1;
+    if (a.snapshotId === b.snapshotId) return 0;
+    return a.snapshotId < b.snapshotId ? -1 : 1;
+  });
+  return ranked[0]!;
+}
+
+/** One hard occupied-human refusal: never relaunch over a live human CLI. */
+export interface OccupiedHumanRefusal {
+  session: string;
+  /** Per-session remedy naming the attach command for this session. */
+  remedy: string;
+}
+
+/**
+ * Hard occupied-human gate: every live-agent-cli row the caller proves live
+ * is refused with a per-session `h2a attach <slug>` remedy. Shells,
+ * consumable transcripts and unknown rows never refuse here.
+ */
+export function resolveOccupiedHumanRefusals(
+  rows: ReadonlyArray<SessionFacetRow>,
+  isLive: (row: SessionFacetRow) => boolean,
+): OccupiedHumanRefusal[] {
+  return rows
+    .filter((row) => deriveSessionFacet(row) === "live-agent-cli" && isLive(row))
+    .map((row) => ({
+      session: row.session,
+      remedy: `h2a attach ${slugify(row.label ?? row.session)}`,
+    }));
 }
