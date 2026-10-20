@@ -13,6 +13,7 @@ import { homedir } from "node:os";
 
 import type { SessionTarget } from "./protocol-local.js";
 import { guardTestStateWrite } from "./test-state-guard.js";
+import { humanOutputText } from "./human-output.js";
 
 /**
  * How the CLI reaches the control-plane when the configured URL is not directly
@@ -47,6 +48,18 @@ export type LayoutGroup = {
   projects?: string[];
   remote?: boolean;
   cwdPrefixes?: string[];
+  /**
+   * Round-1 (D13): segment-aware prefix of the `projectForCwd` key. `h2a`
+   * matches `h2a/tmp/worktrees/ptycode` but never `h2a2/x` (whole segments
+   * only — exact / path-prefix / segment-prefix, never globs).
+   */
+  projectPrefixes?: string[];
+  /**
+   * Round-1 (D13): exact session-label match (the tab label). One of the
+   * contract matchers alongside `projects`, `cwdPrefixes` and
+   * `projectPrefixes`.
+   */
+  labels?: string[];
   tools?: string[];
   tags?: string[];
   excludeProjects?: string[];
@@ -90,7 +103,7 @@ export function validateLayoutGroups(groups: unknown): string[] {
         seen.set(slug, where);
       }
     }
-    for (const field of ["projects", "cwdPrefixes", "tags", "excludeProjects"] as const) {
+    for (const field of ["projects", "cwdPrefixes", "projectPrefixes", "labels", "tags", "excludeProjects"] as const) {
       const value = group[field];
       if (value !== undefined) {
         if (
@@ -99,6 +112,24 @@ export function validateLayoutGroups(groups: unknown): string[] {
         ) {
           problems.push(`${where}.${field} must be an array of non-empty strings`);
         }
+      }
+    }
+    // Round-1 (D13e): unknown matcher keys refuse loudly — a misspelled
+    // matcher must never degrade to a silently empty group.
+    for (const key of Object.keys(group)) {
+      if (
+        key !== "title" &&
+        key !== "projects" &&
+        key !== "remote" &&
+        key !== "cwdPrefixes" &&
+        key !== "projectPrefixes" &&
+        key !== "labels" &&
+        key !== "tools" &&
+        key !== "tags" &&
+        key !== "excludeProjects" &&
+        key !== "maxTabs"
+      ) {
+        problems.push(`${where} has an unknown key "${key}"`);
       }
     }
     if (group.tools !== undefined) {
@@ -719,10 +750,12 @@ export function getLayoutConfig(): LayoutConfig {
   const raw = readRemoteConfig().layout ?? {};
   // Lot LG (D13): an invalid group config refuses BEFORE anything launches —
   // restore() calls this first, and the restore command surfaces the refusal.
-  const groups = Array.isArray(raw.groups) ? raw.groups : DEFAULT_LAYOUT.groups;
+  // Round-1 (D13e): a non-array `groups` value refuses instead of silently
+  // falling back to the default (which would hide a broken config).
+  const groups = raw.groups === undefined ? DEFAULT_LAYOUT.groups : raw.groups;
   const problems = validateLayoutGroups(groups);
   if (problems.length > 0) {
-    throw new Error(`invalid layout configuration: ${problems.join("; ")}`);
+    throw new Error(`${humanOutputText("restore.config.invalidLayout")}: ${problems.join("; ")}`);
   }
   return {
     maxAgeHours: parseLayoutMaxAgeHours(raw.maxAgeHours),

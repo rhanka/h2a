@@ -41,6 +41,7 @@ import { sleepSync, type PromptDeliveryDeps } from "./prompt-delivery.js";
 import { SESSION_CLASS_ENV, type SessionClass } from "./session-class.js";
 import { withAttachTerminalRecovery } from "./native-terminal/attach-recovery.js";
 import { appendCrashLog } from "./crash-log.js";
+import type { NativeTerminalProcessSnapshot } from "./native-terminal/protocol.js";
 
 const OP_TIMEOUT_MS = 15_000;
 const H2A_NATIVE_TARGET_SESSION_ENV = "H2A_NATIVE_TARGET_SESSION";
@@ -77,6 +78,12 @@ export type NativeSessionState = {
   readonly pid: number;
   readonly status: "running" | "stopping" | "exited";
   readonly exit: { readonly exitCode: number; readonly signal?: number } | null;
+  /**
+   * Round-1 (D1/L1b): the host-observed foreground worker tree, served by
+   * the session's own host on `state`. Absent on old hosts and whenever the
+   * tree is unattestable — callers keep `unknown`, never an empty verdict.
+   */
+  readonly foregroundProcesses?: ReadonlyArray<NativeTerminalProcessSnapshot>;
   /**
    * Controller-visibility bit (never the controller's identity): true when an
    * exclusive input controller is attached. OPTIONAL because an older running

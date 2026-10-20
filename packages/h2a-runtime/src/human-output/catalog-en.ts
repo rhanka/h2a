@@ -45,6 +45,8 @@ export const strings: Record<string, string> = {
   "restore.emptyGroups": "empty configured group(s)",
   "restore.unmatchedSessions": "session(s) matched by no group",
   "restore.ledger.deferred": "Deferred",
+  "restore.ledger.attached": "Attached",
+  "restore.config.invalidLayout": "invalid layout configuration",
   "restore.inPlaceDeferred": "in-place resume deferred (managed shell adapter unavailable)",
   "restore.inPlaceRefused": "in-place resume refused (unknown foreground application)",
   "restore.excludedSecondary":
