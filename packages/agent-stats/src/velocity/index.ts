@@ -18,3 +18,5 @@ export * from "./schedule.js";
 export * from "./plan-input.js";
 export * from "./knowledge.js";
 export * from "./report.js";
+export * from "./actuals.js";
+export * from "./calibration.js";
