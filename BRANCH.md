@@ -6,6 +6,7 @@
 - RED: guard probes 500 instead of 1; resume/ten-resume cases cancel at 10/32 s; concurrent recovery refuses publication-lock timeout; scope request absent; fleet adoption 2/10 failures; restore provenance 3/36 failures.
 - Implementation: filter conversation before liveness, bounded healthy-successor adoption, single probe only for an absent pathname under lock, own systemd scope before PTY admission with visible fallback, reject delegation and unconfirmed legacy restore.
 - Qualification: named test files only; no skip accepted. Real systemd OOM survival and spontaneous machine reboot cause are outside this confinement's evidence.
+- Verification: 229 selected tests pass with zero skips; runtime TypeScript build passes. Final lab: host entry 797 ms; five crash resumes 3,948 ms; ten resumes 3,118 ms; worst registry overhead +38 ms.
 - Delivery: conventional English commit without trailers; rebase origin/main, lease push only this branch, ready PR. Detailed commands and results: docs/reviews/native-host-crash-recovery.md.
 - Review: no author-complementary installed-h2a review can access real state; record selection-failed, no consensus claimed.
 
