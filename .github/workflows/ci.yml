@@ -37,8 +37,13 @@ jobs:
       # Round-1 (code-review astra-8/sol-9): install AND qualify the L0
       # filesystem barrier in the runner — no unconfined fallback. Every
       # job below that invokes scripts/test-sandbox.mjs carries this step.
+      # Round-3 (reviews pr382-r3): Ubuntu 24.04+ runners restrict unprivileged user
+      # namespaces via AppArmor, which fails the barrier AND its qualification below
+      # with "bwrap: setting up uid map: Permission denied". Lifting the knob where it
+      # exists is provisioning, not a fallback: the barrier stays mandatory and the
+      # real-namespace qualification still fails the job closed when it cannot run.
       - name: Provision the L0 test barrier (bubblewrap)
-        run: command -v bwrap >/dev/null || { sudo apt-get update && sudo apt-get install -y bubblewrap uidmap; } && bwrap --version
+        run: command -v bwrap >/dev/null || { sudo apt-get update && sudo apt-get install -y bubblewrap uidmap; } && bwrap --version && if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi
       # Round-2 (code-review astra-7/sol-5): `--version` never qualified the
       # envelope the suites actually run in. Create the real namespaces once,
       # with the same flags scripts/test-sandbox.mjs uses (no private net
@@ -76,8 +81,13 @@ jobs:
           cache: npm
       # Round-1 (code-review astra-8/sol-9): install AND qualify the L0
       # filesystem barrier in the runner — no unconfined fallback.
+      # Round-3 (reviews pr382-r3): Ubuntu 24.04+ runners restrict unprivileged user
+      # namespaces via AppArmor, which fails the barrier AND its qualification below
+      # with "bwrap: setting up uid map: Permission denied". Lifting the knob where it
+      # exists is provisioning, not a fallback: the barrier stays mandatory and the
+      # real-namespace qualification still fails the job closed when it cannot run.
       - name: Provision the L0 test barrier (bubblewrap)
-        run: command -v bwrap >/dev/null || { sudo apt-get update && sudo apt-get install -y bubblewrap uidmap; } && bwrap --version
+        run: command -v bwrap >/dev/null || { sudo apt-get update && sudo apt-get install -y bubblewrap uidmap; } && bwrap --version && if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi
       # Round-2 (code-review astra-7/sol-5): qualify the real envelope, not
       # just `--version` (same flags as scripts/test-sandbox.mjs).
       - name: Qualify the L0 test barrier (real namespace creation)
@@ -161,9 +171,14 @@ jobs:
           cache: npm
       # Round-1 (code-review astra-8/sol-9): install AND qualify the L0
       # filesystem barrier in the runner — no unconfined fallback.
+      # Round-3 (reviews pr382-r3): Ubuntu 24.04+ runners restrict unprivileged user
+      # namespaces via AppArmor, which fails the barrier AND its qualification below
+      # with "bwrap: setting up uid map: Permission denied". Lifting the knob where it
+      # exists is provisioning, not a fallback: the barrier stays mandatory and the
+      # real-namespace qualification still fails the job closed when it cannot run.
       - name: Provision the L0 test barrier (bubblewrap)
         if: runner.os == 'Linux'
-        run: command -v bwrap >/dev/null || { sudo apt-get update && sudo apt-get install -y bubblewrap uidmap; } && bwrap --version
+        run: command -v bwrap >/dev/null || { sudo apt-get update && sudo apt-get install -y bubblewrap uidmap; } && bwrap --version && if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi
       # Round-2 (code-review astra-7/sol-5): qualify the real envelope, not
       # just `--version` (same flags as scripts/test-sandbox.mjs).
       - name: Qualify the L0 test barrier (real namespace creation)
@@ -234,8 +249,13 @@ jobs:
           cache: npm
       # Round-1 (code-review astra-8/sol-9): install AND qualify the L0
       # filesystem barrier in the runner — no unconfined fallback.
+      # Round-3 (reviews pr382-r3): Ubuntu 24.04+ runners restrict unprivileged user
+      # namespaces via AppArmor, which fails the barrier AND its qualification below
+      # with "bwrap: setting up uid map: Permission denied". Lifting the knob where it
+      # exists is provisioning, not a fallback: the barrier stays mandatory and the
+      # real-namespace qualification still fails the job closed when it cannot run.
       - name: Provision the L0 test barrier (bubblewrap)
-        run: command -v bwrap >/dev/null || { sudo apt-get update && sudo apt-get install -y bubblewrap uidmap; } && bwrap --version
+        run: command -v bwrap >/dev/null || { sudo apt-get update && sudo apt-get install -y bubblewrap uidmap; } && bwrap --version && if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi
       # Round-2 (code-review astra-7/sol-5): qualify the real envelope, not
       # just `--version` (same flags as scripts/test-sandbox.mjs).
       - name: Qualify the L0 test barrier (real namespace creation)
