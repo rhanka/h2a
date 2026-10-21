@@ -1084,6 +1084,7 @@ function sentinelRunnerSource({ brokenId, dropInLoop, dropAtEntry, executionProo
   source = source.replaceAll("'./test-execution-evidence.mjs'", JSON.stringify(pathToFileURL(resolve(REPO_ROOT, 'scripts/test-execution-evidence.mjs')).href))
   source = source.replaceAll("'./test-inventory.mjs'", JSON.stringify(pathToFileURL(resolve(REPO_ROOT, 'scripts/test-inventory.mjs')).href))
   source = source.replaceAll("'./report-test-durations.mjs'", JSON.stringify(pathToFileURL(resolve(REPO_ROOT, 'scripts/report-test-durations.mjs')).href))
+  source = source.replaceAll("'./historical-test-ref.mjs'", JSON.stringify(pathToFileURL(resolve(REPO_ROOT, 'scripts/historical-test-ref.mjs')).href))
   source = source.replace("const inventory = readInventory(REPO_ROOT)", "const inventory = {}").replace("policyFor(REPO_ROOT, inventory, 'runtime')", "{}")
   const beforeRoot = source
   source = source.replace("const REPO_ROOT = resolve(HERE, '..')", 'const REPO_ROOT = HERE')
