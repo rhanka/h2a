@@ -34,7 +34,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
-      - name: Measure CLI I/O on an otherwise idle disposable VM
+      - name: Measure CLI I/O on an otherwise idle disposable VM (no-systemd witness)
         env:
           MODE: ${{ matrix.mode }}
         shell: bash
@@ -43,6 +43,23 @@ jobs:
           export TMPDIR="$(mktemp -d "$RUNNER_TEMP/h2a-startup-XXXXXX")"
           trap 'rm -rf "$TMPDIR"' EXIT
           node --test --test-name-pattern="startup-matrix: $MODE," scripts/owner-lab/startup-matrix.qualification.mjs
+      # R3 P2 effective-systemd path on the same disposable VM: real user
+      # manager bus, same budgets, effective cgroup readout. Fresh/resume
+      # only (restore is reported separately); the no-systemd leg above stays
+      # the witness.
+      - name: Measure CLI I/O on the effective systemd path with cgroup readout
+        if: matrix.mode == 'fresh' || matrix.mode == 'resume'
+        env:
+          MODE: ${{ matrix.mode }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          export TMPDIR="$(mktemp -d "$RUNNER_TEMP/h2a-startup-systemd-XXXXXX")"
+          trap 'rm -rf "$TMPDIR"' EXIT
+          sudo loginctl enable-linger "$(id -un)"
+          sudo systemctl start "user@$(id -u).service"
+          export H2A_LAB_DISPOSABLE_BUS="unix:path=/run/user/$(id -u)/bus"
+          node --test --test-name-pattern="startup-matrix-systemd: $MODE," scripts/owner-lab/startup-matrix.qualification.mjs
   effective-cgroups:
     runs-on: ubuntu-latest
     timeout-minutes: 10

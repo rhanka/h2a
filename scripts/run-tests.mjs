@@ -28,7 +28,27 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
+
+// Disposable-TMPDIR guarantee (PR #390 R3 P1): `npm test` never inherits a
+// bare /tmp TMPDIR into the confinement assertion in restart-lab.js.
+function ensureDisposableTmpdir() {
+  const current = process.env.TMPDIR;
+  try {
+    if (current && resolve(current) !== "/tmp" && resolve(current) !== "/" && existsSync(current)) return current;
+  } catch { /* fall through and create */ }
+  const parent = process.env.RUNNER_TEMP && existsSync(process.env.RUNNER_TEMP)
+    ? process.env.RUNNER_TEMP
+    : (() => { const base = join(homedir(), ".cache-tmp", "h2a-test"); mkdirSync(base, { recursive: true }); return base; })();
+  const dir = mkdtempSync(join(parent, "h2a-tests-"));
+  process.env.TMPDIR = dir;
+  process.env.TMP = dir;
+  process.env.TEMP = dir;
+  process.once("exit", () => { try { rmSync(dir, { recursive: true, force: true }); } catch {} });
+  return dir;
+}
+
+ensureDisposableTmpdir();
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 

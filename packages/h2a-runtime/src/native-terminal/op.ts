@@ -862,6 +862,88 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
       emit(state);
       return 0;
     }
+    case "launch": {
+      // R3 P1 single-fork fast path: ensure-host + admit + probe + create
+      // share ONE client and ONE inventory in ONE Node process. Admission
+      // and identity proofs stay under the host lock: an incomplete
+      // inventory still refuses, and a fenced create re-checks admission
+      // atomically like "create" does. Emits the host identity together
+      // with the session state so callers skip their pid re-probes.
+      const fenced = parsed.flags.has("incarnation") || parsed.flags.has("fenced");
+      const selected = parsed.flags.has("socket")
+        ? { client: await connectExisting(socketPath), socketPath }
+        : await selectLaunchClient(fenced);
+      const client = selected.client;
+      const launchSocket = selected.socketPath;
+      try {
+        const ping = await client.ping();
+        if (fenced && ping.launchFence !== true) {
+          emit({ code: "native-host-capability-mismatch", socketPath: launchSocket,
+            hostPid: ping.hostPid, generation: ping.generation, launchFence: false });
+          return 0;
+        }
+        const inventory = await inventoryFor({ ...parsed, flags: new Map() });
+        const id = required(parsed, "id");
+        const ids = [id, ...(parsed.flags.has("sidecar") ? [required(parsed, "sidecar")]
+          : !id.endsWith(".h2a") ? [`${id}.h2a`] : [])];
+        const collision = inventory.sessions.find(session => ids.includes(session.id) &&
+          (session.status !== "exited" || session.socketPath !== launchSocket));
+        if (collision) {
+          emit({ code: "native-name-collision", id: collision.id, socketPath: collision.socketPath,
+            hostPid: ping.hostPid, generation: ping.generation, launchFence: ping.launchFence === true });
+          return 0;
+        }
+        if (!inventory.complete) {
+          emit({ code: "native-inventory-unknown",
+            hosts: inventory.hosts.map(({ socketPath: p, reason }) => ({ socketPath: p, reason })),
+            hostPid: ping.hostPid, generation: ping.generation, launchFence: ping.launchFence === true });
+          return 0;
+        }
+        const existing = inventory.sessions.find(session => session.id === id && session.status !== "exited" &&
+          session.socketPath === launchSocket);
+        if (existing && parsed.flags.get("refuse-existing") !== "true") {
+          const { socketPath: _droppedSocket, ...existingRest } = existing;
+          emit({ ...existingRest, hostPid: ping.hostPid, socketPath: launchSocket, generation: ping.generation,
+            launchFence: ping.launchFence === true, adopted: true });
+          return 0;
+        }
+        if (existing && parsed.flags.get("refuse-existing") === "true") {
+          emit({ code: "native-name-collision", id: existing.id, socketPath: launchSocket,
+            hostPid: ping.hostPid, generation: ping.generation, launchFence: ping.launchFence === true });
+          return 0;
+        }
+        const cwd = required(parsed, "cwd");
+        const cols = Number(parsed.flags.get("cols") ?? 160);
+        const rows = Number(parsed.flags.get("rows") ?? 48);
+        const envFile = parsed.flags.get("env-file");
+        const env = envFile !== undefined
+          ? (JSON.parse(readFileSync(envFile, "utf8")) as Record<string, string>)
+          : Object.fromEntries(
+              Object.entries(process.env).filter(
+                (entry): entry is [string, string] => entry[1] !== undefined,
+              ),
+            );
+        if (parsed.command.length === 0) throw new Error("launch requires -- command");
+        const state = await client.create({
+          ...(parsed.flags.has("incarnation") ? { launchFence: {
+            generation: required(parsed, "generation"), incarnation: required(parsed, "incarnation"),
+          } } : {}),
+          id,
+          command: parsed.command[0]!,
+          args: parsed.command.slice(1),
+          cwd,
+          env,
+          cols,
+          rows,
+        });
+        const { socketPath: _droppedStateSocket, generation: _droppedStateGeneration, ...stateRest } = state as Record<string, unknown>;
+        emit({ ...stateRest, hostPid: ping.hostPid, socketPath: launchSocket, generation: ping.generation,
+          launchFence: ping.launchFence === true });
+        return 0;
+      } finally {
+        client.close();
+      }
+    }
     case "drive": {
       const target: NativeDriveSessionResolution = parsed.flags.has("id")
         ? { state: "found", id: required(parsed, "id") } : nativeDriveSessionId(required(parsed, "target"));

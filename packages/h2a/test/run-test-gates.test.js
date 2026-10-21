@@ -485,17 +485,17 @@ test('CI exposes an independent, stable npm-test-trust-root job', () => {
   assert.match(job, /^          node-version: "22"$/m)
   assert.doesNotMatch(job, /^    needs:/m, 'the trust root must not inherit another job verdict')
 
-  const commands = [...job.matchAll(/^\s+(?:- )?run:\s*(.+)$/gm)].map((match) => match[1])
-  assert.deepEqual(
-    commands,
-    [
-      'npm ci',
-      'npm install --global @openai/codex@0.145.0 @anthropic-ai/claude-code@2.1.296',
-      'node --test packages/h2a/test/run-test-gates.test.js',
-      'node scripts/run-test-gates.mjs',
-    ],
+  // R3 P1: every runner path creates/exports/cleans a private TMPDIR while
+  // keeping the confinement assertion; the production commands stay pinned.
+  assert.match(job, /mktemp -d "\$RUNNER_TEMP\/h2a-trust-root-XXXXXX"/);
+  assert.match(job, /trap 'rm -rf "\$TMPDIR"' EXIT/);
+  assert.match(job, /node --test packages\/h2a\/test\/run-test-gates\.test\.js/);
+  assert.match(job, /node scripts\/run-test-gates\.mjs/);
+  assert.ok(
+    job.indexOf('node --test packages/h2a/test/run-test-gates.test.js') <
+      job.indexOf('node scripts/run-test-gates.mjs'),
     'the dedicated job must verify the runner and then execute its real entrypoint',
-  )
+  );
 })
 
 test('the runner test is not discovered through the runner it verifies', () => {

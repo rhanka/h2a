@@ -134,9 +134,18 @@ jobs:
       # can escape it even if ci.yml is blind.
       - name: Test npm test gate runner directly (trust root)
         shell: bash
-        run: node --test packages/h2a/test/run-test-gates.test.js
-      - run: npm test
+        run: |
+          set -euo pipefail
+          export TMPDIR="$(mktemp -d "$RUNNER_TEMP/h2a-verify-XXXXXX")"
+          trap 'rm -rf "$TMPDIR"' EXIT
+          node --test packages/h2a/test/run-test-gates.test.js
+      - name: Run npm test with a disposable TMPDIR
         shell: bash
+        run: |
+          set -euo pipefail
+          export TMPDIR="$(mktemp -d "$RUNNER_TEMP/h2a-verify-XXXXXX")"
+          trap 'rm -rf "$TMPDIR"' EXIT
+          npm test
       # Keep stable manifests in Git; stamp only this disposable checkout.
       # Both matrix legs smoke the same RC versions and exact internal pins.
       - name: Prepare tag version and RC pins
