@@ -231,6 +231,15 @@ export function nativeTestEnvironment(root, overrides = {}) {
     XDG_RUNTIME_DIR: root, XDG_STATE_HOME: join(root, "state"), XDG_CONFIG_HOME: join(root, "config"),
     H2A_NATIVE_SOCKET: join(root, "host.sock"), REMOTE_CLI_CONFIG_HOME: join(root, "config"),
     TMPDIR: join(root, "tmp"), TMUX_TMPDIR: root, H2A_ROOT: join(root, "store"), ...overrides };
+  // Carry the barrier triple into the fixture env itself (not only into
+  // child_process spawns): children launched outside the spawn guard (PTY,
+  // tmux) run the same import-time gate and must verify inside this barrier
+  // instead of refusing for a missing attestation. Explicit overrides win;
+  // without a triple in this process nothing is added and the gate still
+  // refuses unconfined invocations.
+  for (const key of ["H2A_TEST_STATE_ROOT", "H2A_TEST_STATE_ATTESTATION", "H2A_TEST_STATE_BARRIER"]) {
+    if (env[key] === undefined && process.env[key] !== undefined) env[key] = process.env[key];
+  }
   assertIsolatedEnvironment(env);
   for (const key of ["HOME", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "REMOTE_CLI_CONFIG_HOME", "TMPDIR"])
     mkdirSync(env[key], { recursive: true, mode: 0o700 });
@@ -616,10 +625,15 @@ if (globalThis[importConfinement] === false) {
   // Roots are established only when this process is not already isolated:
   // a fixture child spawned with a deliberate isolated env (socket, state
   // roots) must keep it — re-rooting it would redirect its state writes
-  // away from the fixture the test observes.
+  // away from the fixture the test observes. The deliberately empty
+  // H2A_NATIVE_SOCKET form (foreign-host probe fixtures) is isolated too:
+  // use the same operation-tolerant gate as the spawn guard, not the
+  // strict environment gate (which requires a non-empty socket and would
+  // re-root every proof/op/host child of those fixtures onto a fresh
+  // worker root with an empty proc view).
   let alreadyIsolated = false;
   try {
-    assertIsolatedEnvironment(process.env);
+    assertIsolatedNativeOperation(process.env);
     alreadyIsolated = true;
   } catch {
     alreadyIsolated = false;
@@ -627,6 +641,11 @@ if (globalThis[importConfinement] === false) {
   if (!alreadyIsolated && attestedStateRoot !== undefined) {
     const workerRoot = mkdtempSync(join(attestedStateRoot, "w-"));
     installNativeTestEnvironment(nativeTestEnvironment(workerRoot));
+    // A fresh worker root replaces every state root: drop owner-carried
+    // optional handles (host log, tmux) that the process-view assert below
+    // would otherwise refuse as paths outside confinement.
+    delete process.env.H2A_NATIVE_HOST_LOG;
+    process.env.TMUX = "";
   }
 }
 
