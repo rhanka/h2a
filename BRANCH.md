@@ -489,7 +489,9 @@ inventory in `.h2a/build/seat_model_inventory.md` (untracked).
 - [x] Gate: frozen selection replay, decimal weights, hindsight/availability refusal, sparse support, selection+baseline, regime mismatch, integer round 1/3/3.
 
 ## L4 — dependency/capacity scenarios
-- [ ] velocity/{schedule,plan-input}.ts and velocity-schedule.test.ts, T-V18..22; whole-graph trials and explicit gates, real one/two-lane mini-plan.
+- [x] Sources: `velocity/{schedule,plan-input}.ts`.
+- [x] T-V18..T-V22 RED: 1 failed suite, 0 tests, missing `schedule.js`/`plan-input.js`. GREEN direct 8/8; lane `{"passed":8,"excluded":0}`.
+- [x] Gate: 10+8 then 3 min → 13 min at capacity 2, 21 min at capacity 1; edge forces serial; shared reviewer queue + one common shock; seeded trials vs summed P80; cycle invalid; no unconditional date on open gate; remaining never negative.
 
 ## L5 — knowledge/planning/report consumption
 - [ ] Spec §6 L5 exact code/artifacts/three source skills; T-V23..27, clean consumer/cold planning UAT and exact Track collateral files.
