@@ -484,7 +484,9 @@ inventory in `.h2a/build/seat_model_inventory.md` (untracked).
 - [x] Gate: controlled prospective producer smoke (`run-smoke.jsonl` start + terminal) and wave manifest join/refusal; no historical attribution invented (all unattributed without receipts).
 
 ## L3 — deterministic comparables
-- [ ] Spec §6 L3 exact files and forecast/estimate/matching tests, T-V13..17/T-V37; exact decimal weights and separate round coverage.
+- [x] Sources: `velocity/{comparables,cohort,forecast,estimate}.ts`.
+- [x] T-V13..T-V17/T-V37 RED: 3 failed suites, 0 tests, missing L3 modules. GREEN direct 13/13; lane `{"passed":13,"excluded":0}`.
+- [x] Gate: frozen selection replay, decimal weights, hindsight/availability refusal, sparse support, selection+baseline, regime mismatch, integer round 1/3/3.
 
 ## L4 — dependency/capacity scenarios
 - [ ] velocity/{schedule,plan-input}.ts and velocity-schedule.test.ts, T-V18..22; whole-graph trials and explicit gates, real one/two-lane mini-plan.
