@@ -11,6 +11,7 @@
     "src"
   ],
   "exclude": [
-    "src/vendor/engram-live/*.js"
+    "src/vendor/engram-live/*.js",
+    "src/vendor/agent-stats/*.js"
   ]
 }

@@ -504,8 +504,9 @@ inventory in `.h2a/build/seat_model_inventory.md` (untracked).
 - [x] Gate: immutable forecast preserved, idempotent merge join, censored/abandoned/rework visible, future leakage refused, coverage/MAE/bias/abstention published, universal refusal flagged, AI kept on better loss, rounds joined by lot+round ID; shadow until prospective report.
 
 ## L7 — packaged command and target receipt
-- [ ] Spec §6 L7 exact vendor/CLI/golden/workflow/attestation paths and targeted tests; T-V33..35/T-V39.
-- [ ] Gate: clean temporary tarball executable; producer → existing attestation → target actual; public-contract wrapper; no workstation milestone from CI proof.
+- [x] Sources: `packages/h2a/src/velocity-cli.ts` (vendor facade, no runtime/gateway/memory), `packages/agent-stats/src/velocity/install.ts`, `scripts/{vendor-agent-stats,check-agent-stats-vendor,record-velocity-install}.mjs`, vendor `packages/h2a/src/vendor/agent-stats/` + manifest, `packages/h2a/{package.json (engram 0.21.0 + vendor hooks),tsconfig,cli.ts,cmdEstimate,cli-contract.ts,cli-command-map.ts (estimate→OBSERVE)}`, goldens `cli-verbs 100→101` + `version-matrix` + `README` + `cli-contract.test expected/happy-path`, docs `cli-contract.md`, release `release.yml (estimate smoke)` + `release-candidate.mjs (installations/ci-runner.json)` + `knowledge/velocity/installations.json`.
+- [x] T-V33..T-V35/T-V39 RED: install 1 failed suite/0 tests; h2a Node 0 tests before facade. GREEN: install direct 3/3 + lane 3/3; `velocity-cli` + `install-receipt` lane 6/6; contract/map/routing/skills/release lane 157 passed + 1 authorized (`keepalive` non-test G2); public-contract gate exit 0.
+- [x] Gate: `npm pack -w @sentropic/h2a` 2.4M tarball OK; built `dist/bin.js estimate --fixture` → Sol 9918/13240/46770 + `installedAt unknown` exit 0; registry install blocked by unpublished `@sentropic/focus@0.5.0` (pre-existing, 0.3.0 + RCs only); T-V39 10:00→10:06 = 360 s, CI receipt never proves workstation; lane reports `check-agent-stats-vendor OK`.
 
 ## Feedback Loop
 - [x] Upstream blocker: engram local HEAD `8f19554cea3a4397fd66a90c7e9fd5ea54c81626` contains no planned contract; GitHub main contents endpoint returns HTTP 404 on 2026-10-18. Asked owner for publication SHA/path; no substitute created.

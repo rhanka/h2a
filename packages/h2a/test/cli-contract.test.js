@@ -337,6 +337,8 @@ function buildHappyArgv(verb, ctx) {
       return ["--help"];
     case "explain":
       return ["explain"];
+    case "estimate":
+      return ["estimate"];
     case "hosts":
       return ["hosts"];
     case "mcp-tools":
@@ -1546,6 +1548,7 @@ test("H2A_CLI_VERB_CONTRACTS covers every dispatchable verb (smoke)", () => {
     // (which diffs the golden against the built H2A_CLI_VERB_CONTRACTS) and by
     // the count guard in test/cli-command-map.test.js, which additionally covers
     // the two hand-written counts that neither the script nor this array reads.
+    "estimate",
     "explain",
     "hosts",
     "mcp-tools",

@@ -629,6 +629,22 @@ jobs:
           ' "$out"
           echo "smoke-passed=true" >> "$GITHUB_OUTPUT"
 
+      # Velocity L7: run the estimate fixture through the exact installed
+      # executable and capture target-bound install evidence (no workstation
+      # claim; CI-runner proof only). Additive; release conditions unchanged.
+      - name: Velocity estimate smoke on the installed executable
+        if: steps.post-publish-smoke.outputs.smoke-passed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          install_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          h2a --version
+          h2a estimate --fixture packages/agent-stats/tests/fixtures/velocity/github-sample.json
+          install_completed_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          smoke_completed_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          mkdir -p release-attestation
+          node -e 'require("node:fs").writeFileSync("release-attestation/velocity-smoke.json", JSON.stringify({ targetId: "ci", installStartedAt: process.argv[2], installCompletedAt: process.argv[3], smokeCompletedAt: process.argv[4] }) + "\n")' "$install_started_at" "$install_completed_at" "$smoke_completed_at"
+
       # Unconditional for both paths: stable runs record their own result too.
       # Only a successful RC push run with next + smoke proof can authorize promotion.
       - name: Record release attestation after the install smoke
