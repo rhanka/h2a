@@ -56,11 +56,17 @@ jobs:
           echo "sha=${sha}" >> "$GITHUB_OUTPUT"
           echo "Resolved release SHA: ${sha}"
 
+  native-recovery:
+    needs: resolve-release-sha
+    uses: ./.github/workflows/native-recovery.yml
+    with:
+      ref: ${{ needs.resolve-release-sha.outputs.release-sha }}
+
   verify:
     # SPEC 0.98.5 R8.4 (gel total): verify runs for EVERY publication path —
     # tag pushes AND backfill dispatches. The old `if: github.event_name == 'push'`
     # let a backfill publish with zero tests on the same workflow.
-    needs: resolve-release-sha
+    needs: [resolve-release-sha, native-recovery]
     runs-on: ${{ matrix.os }}
     # SPEC 0.98.5 R8: verify now also runs the runtime TypeScript suites
     # (npm test) and the packaged-artifact smoke; 15 minutes no longer fits.

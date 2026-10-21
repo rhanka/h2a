@@ -1,0 +1,42 @@
+name: Native recovery qualification
+on:
+  pull_request:
+    paths:
+      - 'packages/h2a-runtime/src/native-terminal/**'
+      - 'packages/h2a/test/*startup*'
+      - 'packages/h2a/test/native-host-crash-recovery.test.js'
+      - 'packages/h2a/test/helpers/restart-lab.js'
+      - 'scripts/owner-lab/**'
+      - '.github/workflows/native-recovery.yml'
+  workflow_call:
+    inputs:
+      ref:
+        required: true
+        type: string
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  effective-cgroups:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Qualify on the disposable VM user manager, with hard worker limits
+        shell: bash
+        run: |
+          set -euo pipefail
+          export TMPDIR="$(mktemp -d "$RUNNER_TEMP/h2a-recovery-XXXXXX")"
+          trap 'rm -rf "$TMPDIR"' EXIT
+          sudo loginctl enable-linger "$(id -un)"
+          sudo systemctl start "user@$(id -u).service"
+          export H2A_LAB_DISPOSABLE_BUS="unix:path=/run/user/$(id -u)/bus"
+          node --test scripts/owner-lab/isolation.qualification.mjs
