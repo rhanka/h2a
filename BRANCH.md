@@ -499,7 +499,9 @@ inventory in `.h2a/build/seat_model_inventory.md` (untracked).
 - [x] Gate: clean-consumer + cold planning UAT in tests; Track collateral direct 85/85; via lane 85/85 after lane copies `docs/specs/examples` + `plan/velocity-pilot` (lane fix, T-V00-I still 28/28).
 
 ## L6 — actuals/calibration
-- [ ] velocity/{actuals,calibration}.ts, CLI and exact tests; T-V28..32/T-V38, immutable chronological feedback; shadow until prospective calibration.
+- [x] Sources: `velocity/{actuals,calibration}.ts`, CLI `describeVelocityCalibration`.
+- [x] T-V28..T-V32/T-V38 RED: 2 failed suites, 0 tests, missing `actuals.js`/`calibration.js`. GREEN direct 9/9; lane `{"passed":9,"excluded":0}`.
+- [x] Gate: immutable forecast preserved, idempotent merge join, censored/abandoned/rework visible, future leakage refused, coverage/MAE/bias/abstention published, universal refusal flagged, AI kept on better loss, rounds joined by lot+round ID; shadow until prospective report.
 
 ## L7 — packaged command and target receipt
 - [ ] Spec §6 L7 exact vendor/CLI/golden/workflow/attestation paths and targeted tests; T-V33..35/T-V39.
