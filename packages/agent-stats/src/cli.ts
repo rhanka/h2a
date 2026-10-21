@@ -187,3 +187,8 @@ export function registerAgentStatsCommands(program: Command): void {
 export function describeVelocityReference(): string {
   return "pr-open-to-merge descriptive; installedAt unknown until target proof";
 }
+
+/** Pure L6 surface: shadow calibration citation (no I/O). */
+export function describeVelocityCalibration(): string {
+  return "calibration shadow until first prospective report";
+}
