@@ -1,4 +1,16 @@
 name: Native recovery qualification
+# R4 (conductor decision 21/10) gate structure for #390:
+# BLOCKING — (a) crash/lock/bounded-startup scope: the startup-matrix
+#   registry-delta (<=500 ms) and committed-baseline non-regression gates
+#   (startup-baselines.json + margin; the 1 s sleep mutation must fail them),
+#   plus the incident scenarios (effective-cgroups, incl. the
+#   conversation-filter / publication-contention / worker-scope /
+#   startup-overhead mutations, all of which must go RED on mutation).
+# REPORTED — (b) native-CLI parity (median <= +250 ms, p95 <= +500 ms) is a
+#   tracked objective owned by spec/open-parity: every matrix cell publishes
+#   its paired overhead and delta to target in diagnostics and the job
+#   summary, but nothing asserts it. It becomes BLOCKING when that lane
+#   lands; until then the release workflow requires (a) + incidents only.
 on:
   pull_request:
     paths:
