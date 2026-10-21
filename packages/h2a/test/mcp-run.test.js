@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { PassThrough } from "node:stream";
 import test from "node:test";
 
@@ -15,9 +16,20 @@ import {
   validateH2aRunRequest
 } from "../dist/index.js";
 
+// Scratch workspaces live under the package's overlaid .test-scratch
+// (writable inside the L0 barrier, gitignored outside it): the barrier
+// mounts the checkout read-only, and the product refuses OS-tmpdir paths
+// as durable agent workspaces (see withUnsafeTemporaryWorkspace below,
+// which deliberately keeps tmpdir to prove the refusal).
+function packageScratchRoot() {
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..", ".test-scratch");
+  mkdirSync(root, { recursive: true });
+  return root;
+}
+
 function withWorkspace(fn) {
   const workspaceRoot = realpathSync(process.cwd());
-  const workspace = mkdtempSync(join(workspaceRoot, ".h2a-run-test-"));
+  const workspace = mkdtempSync(join(packageScratchRoot(), ".h2a-run-test-"));
   const storeRoot = mkdtempSync(join(tmpdir(), "h2a-run-store-"));
   try {
     return fn({ workspaceRoot, workspace, storeRoot });
@@ -39,7 +51,7 @@ function withUnsafeTemporaryWorkspace(fn) {
 
 async function withWorkspaceAsync(fn) {
   const workspaceRoot = realpathSync(process.cwd());
-  const workspace = mkdtempSync(join(workspaceRoot, ".h2a-run-test-"));
+  const workspace = mkdtempSync(join(packageScratchRoot(), ".h2a-run-test-"));
   const storeRoot = mkdtempSync(join(tmpdir(), "h2a-run-store-"));
   try {
     return await fn({ workspaceRoot, workspace, storeRoot });
