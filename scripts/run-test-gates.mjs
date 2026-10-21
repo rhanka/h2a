@@ -62,7 +62,7 @@
  * separate direct CI test enforces that the reporter cannot grade its own exam.
  */
 import { spawnSync } from 'node:child_process'
-import { readdirSync, readFileSync, realpathSync, rmSync, mkdirSync, mkdtempSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, realpathSync, rmSync, mkdirSync, mkdtempSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { fileURLToPath, pathToFileURL } from 'node:url'
