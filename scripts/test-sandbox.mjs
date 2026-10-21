@@ -17,7 +17,7 @@
  * setup/preload gate; this launcher is the only authorised envelope.
  */
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, copyFileSync, cpSync, mkdtempSync, mkdirSync, openSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -87,6 +87,54 @@ for (const rel of viteCacheBinds) {
   } catch { /* best effort */ }
 }
 
+// Round-3 (reviews pr382-r3): the gate builds inside the barrier (STEPS
+// pins `npm run build` as the first gate step and the envelope mandates
+// confinement — `npm run build` under the barrier failed EROFS on runners
+// cleaning packages/track/dist). dist/ trees and tsc .tsbuildinfo sidecars
+// are gitignored build outputs, never real state: overlay writable per-run
+// shadows over them exactly like the caches above, so `clean + tsc -b`
+// works confined while the checkout stays untouched. Nothing else in the
+// workspace becomes writable — confinement is preserved, not weakened.
+// Package names are enumerated, never hardcoded.
+const buildOutputBinds = [];
+for (const pkgDir of readdirSync(join(repoRoot, "packages"), { withFileTypes: true })) {
+  if (!pkgDir.isDirectory()) continue;
+  const repoDist = join(repoRoot, "packages", pkgDir.name, "dist");
+  const shadowDist = join(runRoot, "dist-shadow", pkgDir.name);
+  try {
+    mkdirSync(repoDist, { recursive: true, mode: 0o700 });
+  } catch { /* best effort */ }
+  try {
+    mkdirSync(shadowDist, { recursive: true, mode: 0o700 });
+  } catch { /* best effort */ }
+  // Pre-populate the shadow with the checkout's build output: tests import
+  // compiled dist, so an empty shadow would hide it. The gate rebuilds
+  // inside anyway (STEPS pins the build first); direct vitest runs reuse a
+  // fresh checkout build. Stale inputs rebuild — tsc validates buildinfo.
+  try {
+    cpSync(repoDist, shadowDist, { recursive: true });
+  } catch { /* best effort */ }
+  buildOutputBinds.push("--bind", shadowDist, repoDist);
+  // tsc -b records buildinfo next to the project; copy the checkout's so
+  // incremental builds keep working, falling back to an empty file (sound
+  // full rebuild — tsc treats it as no info).
+  const repoInfo = join(repoRoot, "packages", pkgDir.name, "tsconfig.tsbuildinfo");
+  const shadowInfo = join(runRoot, "dist-shadow", `${pkgDir.name}.tsbuildinfo`);
+  try {
+    copyFileSync(repoInfo, shadowInfo);
+  } catch {
+    try {
+      const handle = openSync(shadowInfo, "a", 0o600);
+      closeSync(handle);
+    } catch { /* best effort */ }
+  }
+  try {
+    const handle = openSync(repoInfo, "a", 0o600);
+    closeSync(handle);
+  } catch { /* best effort */ }
+  buildOutputBinds.push("--bind", shadowInfo, repoInfo);
+}
+
 const childEnv = {
   ...process.env,
   TMPDIR: join(runRoot, "tmp"),
@@ -122,6 +170,7 @@ if (process.platform === "linux") {
     failIncomplete("bubblewrap (bwrap) is unavailable on this Linux machine");
   }
   const viteBindArgs = viteCacheBinds.flatMap((rel) => ["--bind", join(runRoot, "cache", rel), join(repoRoot, rel)]);
+  const distBindArgs = buildOutputBinds.slice();
   result = spawnSync(
     "bwrap",
     [
@@ -151,6 +200,7 @@ if (process.platform === "linux") {
       "--tmpfs", "/tmp",
       "--bind", runRoot, runRoot,
       ...viteBindArgs,
+      ...distBindArgs,
       "--chdir", repoRoot,
       "--", ...command,
     ],
