@@ -32,7 +32,7 @@ test(
     assert.equal(result.status, 0, `${result.stdout || ""}${result.stderr || ""}`);
     assert.match(result.stdout, /PTY natif \(défaut\) ou tmux legacy/);
     assert.match(result.stdout, /PTY vivante non\s+contrôlée est rattachée/);
-    assert.match(result.stdout, /refuse toujours un\s+second contrôleur concurrent/);
+    assert.match(result.stdout, /refuse toujours\s+un\s+second contrôleur concurrent/);
     } finally { rmSync(scratch, { recursive: true, force: true }); }
   }
 );
