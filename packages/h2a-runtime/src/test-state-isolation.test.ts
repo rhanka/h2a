@@ -23,10 +23,13 @@ import {
 import { tryAcquireResumeLaunchClaim } from "./relaunch.js";
 import { writeLastLayout } from "./restore.js";
 import {
+  applyTestStateOverlays,
   assertConfinedTestEnvironment,
   assertTestEnvironmentIsolated,
   guardTestStateWrite,
   isTestStateMarked,
+  TEST_STATE_BARRIER_ENV,
+  TEST_STATE_OVERLAYS_ENV,
   TEST_STATE_ROOT_ENV,
   TestStateRefusalError,
 } from "./test-state-guard.js";
@@ -80,6 +83,69 @@ describe("lot L0: mutation-point guard", () => {
     const fixture = freshFixture();
     markRoot(join(fixture, "allowed"));
     expect(() => guardTestStateWrite(join(fixture, "elsewhere", "x.log"))).toThrow(TestStateRefusalError);
+  });
+
+  it("should translate a barrier-overlay checkout path into the marked root", () => {
+    const fixture = freshFixture();
+    const allowed = join(fixture, "allowed");
+    markRoot(allowed);
+    const savedBarrier = process.env[TEST_STATE_BARRIER_ENV];
+    const savedOverlays = process.env[TEST_STATE_OVERLAYS_ENV];
+    try {
+      process.env[TEST_STATE_BARRIER_ENV] = "1";
+      process.env[TEST_STATE_OVERLAYS_ENV] = JSON.stringify([
+        { path: join(fixture, "checkout-scratch"), shadow: join(allowed, "shadow") },
+      ]);
+      // Overlay-backed checkout write: admitted (lands in the run root).
+      expect(() =>
+        guardTestStateWrite(join(fixture, "checkout-scratch", "suite", "registry.json")),
+      ).not.toThrow();
+      expect(applyTestStateOverlays(join(fixture, "checkout-scratch", "suite", "x"))).toBe(
+        join(allowed, "shadow", "suite", "x"),
+      );
+      // Non-listed checkout path: still refused.
+      expect(() => guardTestStateWrite(join(fixture, "other", "x.log"))).toThrow(TestStateRefusalError);
+      // Shadow outside the marked root: entry ignored, still refused.
+      process.env[TEST_STATE_OVERLAYS_ENV] = JSON.stringify([
+        { path: join(fixture, "checkout-scratch"), shadow: join(fixture, "outside") },
+      ]);
+      expect(() => guardTestStateWrite(join(fixture, "checkout-scratch", "x.log"))).toThrow(
+        TestStateRefusalError,
+      );
+      // Malformed mapping: ignored (fail closed, refuse as usual).
+      process.env[TEST_STATE_OVERLAYS_ENV] = "not-json{{";
+      expect(() => guardTestStateWrite(join(fixture, "checkout-scratch", "x.log"))).toThrow(
+        TestStateRefusalError,
+      );
+    } finally {
+      if (savedBarrier === undefined) delete process.env[TEST_STATE_BARRIER_ENV];
+      else process.env[TEST_STATE_BARRIER_ENV] = savedBarrier;
+      if (savedOverlays === undefined) delete process.env[TEST_STATE_OVERLAYS_ENV];
+      else process.env[TEST_STATE_OVERLAYS_ENV] = savedOverlays;
+    }
+  });
+
+  it("should ignore the overlay mapping without an active barrier", () => {
+    const fixture = freshFixture();
+    const allowed = join(fixture, "allowed");
+    markRoot(allowed);
+    const savedBarrier = process.env[TEST_STATE_BARRIER_ENV];
+    const savedOverlays = process.env[TEST_STATE_OVERLAYS_ENV];
+    try {
+      // No barrier: no bind mount exists, the checkout path is real — refuse.
+      delete process.env[TEST_STATE_BARRIER_ENV];
+      process.env[TEST_STATE_OVERLAYS_ENV] = JSON.stringify([
+        { path: join(fixture, "checkout-scratch"), shadow: join(allowed, "shadow") },
+      ]);
+      expect(() => guardTestStateWrite(join(fixture, "checkout-scratch", "x.log"))).toThrow(
+        TestStateRefusalError,
+      );
+    } finally {
+      if (savedBarrier === undefined) delete process.env[TEST_STATE_BARRIER_ENV];
+      else process.env[TEST_STATE_BARRIER_ENV] = savedBarrier;
+      if (savedOverlays === undefined) delete process.env[TEST_STATE_OVERLAYS_ENV];
+      else process.env[TEST_STATE_OVERLAYS_ENV] = savedOverlays;
+    }
   });
 
   it("should refuse an explicit crash-log writer path outside the test state root before creating anything", () => {

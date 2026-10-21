@@ -58,6 +58,11 @@ function seedClaudeScan(project: string, sid: string): string {
   return cwd;
 }
 
+// Round-3 P1: the helper denotes human-launched rows, so it carries the
+// recorded human initiator the restore plan requires (bare `human` rows
+// without one are excluded as unclassified). The two evidence-only tests
+// below pin the other side: transcript/live-tmux evidence without
+// provenance is listed as unclassified, never emitted.
 function registryEntry(project: string, over: Partial<RegistryEntry> = {}): RegistryEntry {
   const now = new Date().toISOString();
   return {
@@ -70,6 +75,7 @@ function registryEntry(project: string, over: Partial<RegistryEntry> = {}): Regi
     lastSeenAt: now,
     source: "run",
     sessionClass: "human",
+    launchInitiator: "human",
     ...over,
   };
 }
@@ -215,20 +221,30 @@ describe("registry-first discovery", () => {
     ]);
   });
 
-  it("classifies a legacy line with its real Claude transcript as human", () => {
+  it("lists a legacy line with a real Claude transcript as unclassified, never emitted", () => {
+    // Round-3 P1: a transcript proves a conversation exists, never a human
+    // initiator — the row is recognized (listed) but not auto-restored.
     const cwd = seedClaudeScan("legacy-transcript", "conv-legacy");
     const legacy = registryEntry("legacy-transcript", { convId: "conv-legacy" });
     delete legacy.sessionClass;
+    delete legacy.launchInitiator;
+    const excluded = { secondary: [] as string[], unclassified: [] as string[] };
 
     expect(
-      registrySessions(home, [legacy], undefined, { home, liveTmuxSessions: [] }),
-    ).toMatchObject([{ project: "legacy-transcript", cwd }]);
+      registrySessions(home, [legacy], undefined, { home, liveTmuxSessions: [] }, undefined, [], { collectExcluded: excluded }),
+    ).toEqual([]);
+    expect(excluded.unclassified).toEqual(["id-legacy-transcript"]);
+    expect(cwd).toBe(legacy.cwd);
   });
 
-  it("classifies a legacy line bound to a live tmux session as human", () => {
+  it("lists a legacy line bound to a live tmux session as unclassified, never emitted", () => {
+    // Round-3 P1: live-tmux evidence proves existence, never a human
+    // initiator — the row is recognized (listed) but not auto-restored.
     const legacy = registryEntry("legacy-tmux", { convId: "conv-legacy" });
     delete legacy.sessionClass;
+    delete legacy.launchInitiator;
     mkdirSync(legacy.cwd, { recursive: true });
+    const excluded = { secondary: [] as string[], unclassified: [] as string[] };
 
     expect(
       registrySessions(home, [legacy], undefined, {
@@ -240,8 +256,9 @@ describe("registry-first discovery", () => {
             profile: legacy.tool,
           },
         ],
-      }),
-    ).toMatchObject([{ project: "legacy-tmux" }]);
+      }, undefined, [], { collectExcluded: excluded }),
+    ).toEqual([]);
+    expect(excluded.unclassified).toEqual(["id-legacy-tmux"]);
   });
 
   it("fails closed for a legacy line with no transcript or live tmux evidence", () => {

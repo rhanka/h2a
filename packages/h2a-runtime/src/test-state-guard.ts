@@ -16,6 +16,7 @@ import { isAbsolute, join, relative, resolve } from "node:path";
 export const TEST_STATE_ROOT_ENV = "H2A_TEST_STATE_ROOT";
 export const TEST_STATE_ATTESTATION_ENV = "H2A_TEST_STATE_ATTESTATION";
 export const TEST_STATE_BARRIER_ENV = "H2A_TEST_STATE_BARRIER";
+export const TEST_STATE_OVERLAYS_ENV = "H2A_TEST_STATE_OVERLAYS";
 
 export class TestStateRefusalError extends Error {
   constructor(destination: string) {
@@ -82,11 +83,79 @@ function isWithinRoot(effective: string, root: string): boolean {
   return rel === "" || (!rel.startsWith("..") && !rel.startsWith("/"));
 }
 
+export type TestStateOverlay = {
+  /** Checkout-visible path physically backed by `shadow` inside the barrier. */
+  path: string;
+  /** Writable per-run backing dir (must resolve inside the marked root). */
+  shadow: string;
+};
+
+/**
+ * Launcher-declared overlay mapping (scripts/test-sandbox.mjs): JSON array
+ * of {path, shadow} pairs. Malformed entries never throw — they are
+ * ignored, so the check below refuses exactly as without the mapping
+ * (fail closed). A mapping can only redirect INTO the marked root, never
+ * out of it (shadows outside the root are ignored).
+ */
+export function readTestStateOverlays(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): TestStateOverlay[] {
+  const raw = env[TEST_STATE_OVERLAYS_ENV];
+  if (raw === undefined || raw.length === 0) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw) as unknown;
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  const overlays: TestStateOverlay[] = [];
+  for (const entry of parsed) {
+    if (
+      typeof entry !== "object" ||
+      entry === null ||
+      typeof (entry as { path?: unknown }).path !== "string" ||
+      typeof (entry as { shadow?: unknown }).shadow !== "string"
+    ) {
+      continue;
+    }
+    const { path, shadow } = entry as { path: string; shadow: string };
+    if (!isAbsolute(path) || !isAbsolute(shadow)) continue;
+    overlays.push({ path: resolve(path), shadow: resolve(shadow) });
+  }
+  return overlays;
+}
+
+/**
+ * Translate a barrier-overlay checkout path to its run-root backing dir.
+ * Inert unless the barrier is active in `env`: outside the barrier no bind
+ * mount exists, so the checkout path is real and must be refused as usual.
+ * Entries whose shadow falls outside the marked root are ignored.
+ */
+export function applyTestStateOverlays(
+  destination: string,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): string {
+  if (env[TEST_STATE_BARRIER_ENV] !== "1") return destination;
+  const root = testStateRoot(env);
+  if (root === undefined) return destination;
+  const absolute = resolve(destination);
+  for (const overlay of readTestStateOverlays(env)) {
+    if (!isWithinRoot(overlay.shadow, resolve(root))) continue;
+    const rel = relative(overlay.path, absolute);
+    if (rel === "" || (!rel.startsWith("..") && !rel.startsWith("/"))) {
+      return join(overlay.shadow, rel);
+    }
+  }
+  return destination;
+}
+
 /**
  * Mutation-point check. Inert when unmarked. When marked, throws
  * TestStateRefusalError unless the effective destination (symlinks
- * followed) is inside the marked root. Callers that must never throw
- * catch it and fail closed (drop the row, return false/undefined).
+ * followed, barrier overlays translated) is inside the marked root.
+ * Callers that must never throw catch it and fail closed (drop the row,
+ * return false/undefined).
  */
 export function guardTestStateWrite(
   destination: string,
@@ -97,6 +166,7 @@ export function guardTestStateWrite(
   if (!isAbsolute(destination)) {
     throw new TestStateRefusalError(destination);
   }
+  destination = applyTestStateOverlays(destination, env);
   let effectiveRoot: string;
   try {
     effectiveRoot = realpathSync(root);

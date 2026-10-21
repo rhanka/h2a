@@ -131,10 +131,42 @@ function resolvedPath(path, depth = 0, boundary) {
   return current;
 }
 
-export function assertPrivateQualificationPath(path, root) {
+/**
+ * Round-3 CI repair: translate barrier-overlay checkout paths to their
+ * run-root backing dir before enforcing the qualification root. The mapping
+ * is launcher-declared (H2A_TEST_STATE_OVERLAYS, JSON [{path, shadow}]) and
+ * honored ONLY with the barrier active and only when the shadow resolves
+ * inside the asserted root — a mapping can only redirect INTO confinement,
+ * never out. Malformed entries are ignored (fail closed, refuse as usual).
+ */
+export function applyTestStateOverlays(candidate, env = process.env, root = nativeQualificationRoot) {
+  if (env.H2A_TEST_STATE_BARRIER !== "1") return candidate;
+  let parsed;
+  try {
+    parsed = JSON.parse(env.H2A_TEST_STATE_OVERLAYS ?? "");
+  } catch {
+    return candidate;
+  }
+  if (!Array.isArray(parsed)) return candidate;
+  const absolute = resolve(candidate);
+  const actualRoot = resolve(root);
+  for (const entry of parsed) {
+    if (typeof entry !== "object" || entry === null
+      || typeof entry.path !== "string" || typeof entry.shadow !== "string") continue;
+    if (!isAbsolute(entry.path) || !isAbsolute(entry.shadow)) continue;
+    const shadow = resolve(entry.shadow);
+    const shadowRel = relative(actualRoot, shadow);
+    if (!(shadowRel === "" || (!shadowRel.startsWith("..") && !shadowRel.startsWith("/")))) continue;
+    const rel = relative(resolve(entry.path), absolute);
+    if (rel === "" || (!rel.startsWith("..") && !rel.startsWith("/"))) return join(shadow, rel);
+  }
+  return candidate;
+}
+
+export function assertPrivateQualificationPath(path, root, env = process.env) {
   const actualRoot = resolvedPath(root, 0, resolve(root));
   assert.equal(actualRoot, resolve(root), "REFUSING aliased qualification root before mutation");
-  const actual = resolvedPath(path, 0, actualRoot);
+  const actual = resolvedPath(applyTestStateOverlays(path, env, root), 0, actualRoot);
   const rel = relative(actualRoot, actual);
   assert.ok(rel === "" || (!rel.startsWith("..") && !rel.startsWith("/")),
     `REFUSING path outside qualification root: ${actual}`);
@@ -182,7 +214,20 @@ export function assertIsolatedNativeOperation(env, root = nativeQualificationRoo
 // A complete child fixture never inherits owner configuration or socket overrides.
 export function nativeTestEnvironment(root, overrides = {}) {
   assertPrivateQualificationPath(root, nativeQualificationRoot);
-  const env = { ...(nativeQualificationRoot.startsWith("/tmp/") ? { H2A_TEST_QUALIFICATION_ROOT: nativeQualificationRoot } : {}), PATH: "/usr/bin:/bin", TERM: "xterm-256color", HOME: join(root, "home"),
+  // Round-3 CI repair: the fixture PATH keeps the toolchain directory of the
+  // node running the tests (shebang `#!/usr/bin/env node` children, npm
+  // lifecycle `node ...` scripts) ahead of the minimal /usr/bin:/bin. A
+  // hardcoded /usr/bin:/bin only works where the OS ships a node there —
+  // hosted CI runners carry it beside the runner-selected node instead.
+  const toolDir = dirname(process.execPath);
+  const fixturePath = toolDir === "/usr/bin" || toolDir === "/bin" ? "/usr/bin:/bin" : `${toolDir}:/usr/bin:/bin`;
+  // The barrier-overlay mapping is launcher-declared confinement metadata
+  // (like H2A_TEST_QUALIFICATION_ROOT above): fixture children enforce the
+  // same translated guards, so it travels with the fixture env.
+  const overlayPassthrough = process.env.H2A_TEST_STATE_OVERLAYS !== undefined
+    ? { H2A_TEST_STATE_OVERLAYS: process.env.H2A_TEST_STATE_OVERLAYS }
+    : {};
+  const env = { ...(nativeQualificationRoot.startsWith("/tmp/") ? { H2A_TEST_QUALIFICATION_ROOT: nativeQualificationRoot } : {}), ...overlayPassthrough, PATH: fixturePath, TERM: "xterm-256color", HOME: join(root, "home"),
     XDG_RUNTIME_DIR: root, XDG_STATE_HOME: join(root, "state"), XDG_CONFIG_HOME: join(root, "config"),
     H2A_NATIVE_SOCKET: join(root, "host.sock"), REMOTE_CLI_CONFIG_HOME: join(root, "config"),
     TMPDIR: join(root, "tmp"), TMUX_TMPDIR: root, H2A_ROOT: join(root, "store"), ...overrides };
@@ -267,7 +312,7 @@ function guardedEnvironment(command, args, env, cwd = process.cwd()) {
   // a different way than its confined parent. Propagate the triple (when
   // this process has it) so children verify inside the same barrier. An
   // unconfined parent has nothing to propagate and the gate still refuses.
-  for (const key of ["H2A_TEST_STATE_ROOT", "H2A_TEST_STATE_ATTESTATION", "H2A_TEST_STATE_BARRIER"]) {
+  for (const key of ["H2A_TEST_STATE_ROOT", "H2A_TEST_STATE_ATTESTATION", "H2A_TEST_STATE_BARRIER", "H2A_TEST_STATE_OVERLAYS"]) {
     if (prepared[key] === undefined && process.env[key] !== undefined) prepared[key] = process.env[key];
   }
   assert.ok(!closedProcessRoots.has(prepared.H2A_TEST_OWNED_PROC_ROOT), "REFUSING spawn after native fixture teardown");

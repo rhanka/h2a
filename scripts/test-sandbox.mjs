@@ -135,6 +135,65 @@ for (const pkgDir of readdirSync(join(repoRoot, "packages"), { withFileTypes: tr
   buildOutputBinds.push("--bind", shadowInfo, repoInfo);
 }
 
+// Round-3 CI repair: per-package `.test-scratch` overlays. Test suites
+// scratch under `<package>/.test-scratch/<suite>` (a checkout-relative
+// idiom that predates the barrier); inside the barrier the checkout is
+// read-only, so every `mkdirSync(SCRATCH_ROOT, {recursive:true})` failed
+// and ~300 tests reddened on runners (locally masked wherever the dir
+// already existed). Like `tmp/` and `dist/` above, the launcher pre-creates
+// the checkout mount point (gitignored) and binds a fresh per-run shadow
+// over it: writes land in the run root (removed with it), the checkout
+// stays untouched, and parallel workers keep sharing one scratch root as
+// before. Shadows are NOT pre-populated (scratch starts empty by contract);
+// no suite reads committed fixtures from `.test-scratch`.
+const scratchBinds = [];
+// Checkout-relative scratch idioms predating the barrier, as
+// (package-subdir, dirname) pairs: `src/*.test.ts` suites scratch next to
+// the test file (`src/.cfg-test`, `src/.auth-test`), the rest one level up
+// (`<pkg>/.test-scratch/<suite>`). Empty mount points are git-invisible;
+// the .gitignore entries cover crash residue.
+const scratchLocs = [["", ".test-scratch"], ["src", ".cfg-test"], ["src", ".auth-test"], ["src", ".stack-test"]];
+for (const pkgDir of readdirSync(join(repoRoot, "packages"), { withFileTypes: true })) {
+  if (!pkgDir.isDirectory()) continue;
+  for (const [subdir, scratchName] of scratchLocs) {
+    // Never invent a package subdir that is not there (no `src/` in
+    // packages that have none): a missing bind target would fail bwrap.
+    try {
+      readdirSync(join(repoRoot, "packages", pkgDir.name, subdir));
+    } catch {
+      continue;
+    }
+    const repoScratch = join(repoRoot, "packages", pkgDir.name, subdir, scratchName);
+    const shadowScratch = join(runRoot, "scratch-shadow", `${pkgDir.name}-${subdir || "pkg"}${scratchName}`);
+    try {
+      mkdirSync(repoScratch, { recursive: true, mode: 0o700 });
+    } catch { /* best effort */ }
+    try {
+      mkdirSync(shadowScratch, { recursive: true, mode: 0o700 });
+    } catch { /* best effort */ }
+    // Pre-populate the shadow with the checkout's committed fixtures: some
+    // suites READ committed files under these roots (forward-*, sync-b1,
+    // workspace-merge, …), so an empty shadow would hide them. Writes still
+    // land in the shadow (the checkout stays untouched); tests that need a
+    // fresh dir mkdtemp their own subdir as before.
+    try {
+      cpSync(repoScratch, shadowScratch, { recursive: true });
+    } catch { /* best effort */ }
+    scratchBinds.push("--bind", shadowScratch, repoScratch);
+  }
+}
+
+// Declared overlay mapping for the in-barrier path guards (runtime
+// test-state-guard.ts + the JS isolation helper): a checkout path under a
+// listed `path` is physically backed by `shadow` (inside the run root), so
+// guards translate before enforcing "inside the marked root". Entries are
+// honored only with the barrier active and only when the shadow resolves
+// inside the asserted root — a mapping can only redirect INTO confinement.
+const overlayEntries = [];
+for (let i = 0; i < scratchBinds.length; i += 3) {
+  overlayEntries.push({ path: scratchBinds[i + 2], shadow: scratchBinds[i + 1] });
+}
+
 const childEnv = {
   ...process.env,
   TMPDIR: join(runRoot, "tmp"),
@@ -147,6 +206,7 @@ const childEnv = {
   H2A_TEST_STATE_ROOT: runRoot,
   H2A_TEST_STATE_ATTESTATION: attestationPath,
   H2A_TEST_STATE_BARRIER: "1",
+  H2A_TEST_STATE_OVERLAYS: JSON.stringify(overlayEntries),
   // String-only owner-home reference for negative-control assertions
   // (assert a resolved path is NOT under it). Never read or written.
   H2A_TEST_OWNER_HOME: homedir(),
@@ -201,6 +261,7 @@ if (process.platform === "linux") {
       "--bind", runRoot, runRoot,
       ...viteBindArgs,
       ...distBindArgs,
+      ...scratchBinds,
       "--chdir", repoRoot,
       "--", ...command,
     ],
