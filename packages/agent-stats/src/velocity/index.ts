@@ -16,3 +16,5 @@ export * from "./forecast.js";
 export * from "./estimate.js";
 export * from "./schedule.js";
 export * from "./plan-input.js";
+export * from "./knowledge.js";
+export * from "./report.js";
