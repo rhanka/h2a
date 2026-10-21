@@ -112,9 +112,14 @@ jobs:
       # Round-3 (reviews pr382-r3): NO `if:` on any verify step — verify runs
       # ubuntu-only, and a conditional step is one edit away from disabling
       # the gate behind a green workflow. The step is unconditional.
+      # Round-3 (reviews pr382-r3): Ubuntu 24.04+ runners restrict unprivileged user
+      # namespaces via AppArmor, which fails the barrier AND its qualification below
+      # with "bwrap: setting up uid map: Permission denied". Lifting the knob where it
+      # exists is provisioning, not a fallback: the barrier stays mandatory and the
+      # real-namespace qualification still fails the job closed when it cannot run.
       - name: Provision the L0 test barrier (bubblewrap)
         shell: bash
-        run: command -v bwrap >/dev/null || { sudo apt-get update && sudo apt-get install -y bubblewrap uidmap; } && bwrap --version
+        run: command -v bwrap >/dev/null || { sudo apt-get update && sudo apt-get install -y bubblewrap uidmap; } && bwrap --version && if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi
 
       - name: Prove effective Node version and release checkout
         shell: bash

@@ -494,9 +494,11 @@ test('CI exposes an independent, stable npm-test-trust-root job', () => {
       // test-sandbox invocation — no unconfined fallback. Round-3
       // (reviews pr382-r3): the provision installs uidmap too (the
       // newuidmap/newgidmap helpers unprivileged uid mapping needs on
-      // runners), and the real-namespace qualification step is pinned here
-      // so it can never silently drop out of the job.
-      'command -v bwrap >/dev/null || { sudo apt-get update && sudo apt-get install -y bubblewrap uidmap; } && bwrap --version',
+      // runners) and lifts the Ubuntu 24.04+ AppArmor unprivileged-userns
+      // restriction where the knob exists (provisioning, not a fallback),
+      // and the real-namespace qualification step is pinned here so it can
+      // never silently drop out of the job.
+      'command -v bwrap >/dev/null || { sudo apt-get update && sudo apt-get install -y bubblewrap uidmap; } && bwrap --version && if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi',
       'bwrap --unshare-user --unshare-pid --unshare-uts --unshare-ipc --unshare-cgroup --die-with-parent --ro-bind / / --proc /proc --dev /dev --tmpfs /tmp -- true',
       'npm ci',
       'npm install --global @openai/codex@0.145.0 @anthropic-ai/claude-code@2.1.296',

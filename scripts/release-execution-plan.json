@@ -80,7 +80,7 @@
       {
         "shell": "bash",
         "run": [
-          "command -v bwrap >/dev/null || { sudo apt-get update && sudo apt-get install -y bubblewrap uidmap; } && bwrap --version"
+          "command -v bwrap >/dev/null || { sudo apt-get update && sudo apt-get install -y bubblewrap uidmap; } && bwrap --version && if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi"
         ]
       },
       {
