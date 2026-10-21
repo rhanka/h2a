@@ -326,6 +326,41 @@ if (result.error) {
   process.stderr.write(`test-sandbox: barrier spawn failed: ${result.error.message}\n`);
   process.exit(1);
 }
+// Artifact exchange: the run root is deleted below, so a workflow step that
+// must collect files after the run (e.g. a CI artifact upload) designates
+// an exchange dir via FOCUS_METRICS_OUT (ephemeral CI temp, never owner
+// state). Publish `<tmp>/**/metrics.json` there as `<out>/<parent>/metrics.json`
+// BEFORE cleanup. Tests stay fully confined (they only ever write the run
+// root); publication is the authorized launcher's act. Best effort: a
+// missing/empty exchange never fails the run.
+if (process.env.FOCUS_METRICS_OUT) {
+  try {
+    const out = process.env.FOCUS_METRICS_OUT;
+    const walk = (dir, depth) => {
+      if (depth > 4) return [];
+      let found = [];
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) found = found.concat(walk(full, depth + 1));
+        else if (entry.isFile() && entry.name === "metrics.json") found.push(full);
+      }
+      return found;
+    };
+    // The run-root tmp AND every worker tmp: fixture environments redirect
+    // TMPDIR to their worker root (`w-*/tmp`), so metrics may land there.
+    const roots = [join(runRoot, "tmp")];
+    for (const entry of readdirSync(runRoot, { withFileTypes: true })) {
+      if (entry.isDirectory() && entry.name.startsWith("w-")) roots.push(join(runRoot, entry.name, "tmp"));
+    }
+    for (const rootDir of roots) {
+      for (const file of walk(rootDir, 0)) {
+        const destDir = join(out, file.split("/").at(-2) ?? "metrics");
+        mkdirSync(destDir, { recursive: true, mode: 0o700 });
+        copyFileSync(file, join(destDir, "metrics.json"));
+      }
+    }
+  } catch { /* best effort */ }
+}
 cleanup();
 if (result.status === 0) process.stdout.write(reportNote);
 process.exit(result.status ?? 1);
