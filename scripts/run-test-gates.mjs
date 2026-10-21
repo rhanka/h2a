@@ -68,6 +68,7 @@ import { performance } from 'node:perf_hooks'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { TEST_DIRS, discoverTestFiles, listNodeTrackSuiteFiles, NODE_TRACK_EXECUTION_REPORT, verifyNodeTrackExecution } from './run-tests.mjs'
 import { discoverSuites, verifyExecutionReport, readInventory, inventoryFailures } from './test-execution-evidence.mjs'
+import { ensureHistoricalGitRef, LEGACY_HOST_REF } from './historical-test-ref.mjs'
 import { policyFor, readDeclaredNonTests } from './test-inventory.mjs'
 import { tmpdir } from 'node:os'
 import { reportSuiteDurations } from './report-test-durations.mjs'
@@ -80,6 +81,11 @@ const REPO_ROOT = resolve(HERE, '..')
 function ensureSandboxedInvocation(invokedDirectly) {
   if (!invokedDirectly) return
   if (process.env.H2A_TEST_STATE_BARRIER === '1' && process.env.H2A_TEST_STATE_ATTESTATION) return
+  // Provision git-written state BEFORE the barrier (see run-tests.mjs):
+  // the legacy-host scenarios need a historical ref that only `git fetch`
+  // provides. This is the outermost unconfined moment of `npm test`
+  // (nested invocations inherit the barrier and skip this branch).
+  ensureHistoricalGitRef(REPO_ROOT, LEGACY_HOST_REF)
   const sandbox = spawnSync(process.execPath, ['scripts/test-sandbox.mjs', '--', process.execPath, ...process.argv.slice(1)], { stdio: 'inherit', cwd: REPO_ROOT })
   process.exit(sandbox.status ?? 1)
 }

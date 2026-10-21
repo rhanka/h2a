@@ -45,6 +45,11 @@ export const REPO_ROOT = resolve(HERE, "..");
 function ensureSandboxedInvocation(invokedDirectly) {
   if (!invokedDirectly) return;
   if (process.env.H2A_TEST_STATE_BARRIER === '1' && process.env.H2A_TEST_STATE_ATTESTATION) return;
+  // Provision git-written state BEFORE the barrier: the legacy-host
+  // scenarios need a historical ref that only `git fetch` provides, and
+  // the barrier mounts the checkout read-only. A missing ref is a hard
+  // failure inside, so surface fetch errors here, unconfined.
+  ensureHistoricalGitRef(REPO_ROOT, LEGACY_HOST_REF);
   const sandbox = spawnSync(process.execPath, ['scripts/test-sandbox.mjs', '--', process.execPath, ...process.argv.slice(1)], { stdio: 'inherit', cwd: REPO_ROOT });
   process.exit(sandbox.status ?? 1);
 }
