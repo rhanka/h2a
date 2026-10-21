@@ -27,6 +27,13 @@ detailed:
 - Update `BRANCH.md` checkboxes WITHIN each commit.
 - Multi-need work → multi-branch with a root `PLAN.md` (waves ≤4 orthogonal branches).
 
+## Velocity pilot launch path (checkout-only, explicit receipts)
+
+For velocity pilot author, reviewer and correction runs, invoke the explicit
+checkout-only producer `scripts/velocity-run.mjs` with `--repo/--lot/--run/--role/--candidate/--receipts`.
+It persists `run.started` before dispatch and appends at most one terminal
+record. Join its emitted `.jsonl` receipts; never hand-author a receipt fixture.
+
 ## Completes with track
 
 harness OWNS the BRANCH.md (the master plan artifact) and EMITS `WorkEvent`s; **track** ingests them and

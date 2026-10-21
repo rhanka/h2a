@@ -479,8 +479,9 @@ inventory in `.h2a/build/seat_model_inventory.md` (untracked).
 - [x] First measured output: Astra 9918/46770/108177 s, Sol 9918/13240/46770 s; enriched 1777/3617/23992 s, older 860/12636/244338 s; scenarios Sol 10642.6/14264.2/47794.2 s, Astra 10729.6/47794.2/109201.2 s; all `descriptive`, `calibrated:false`; `installedAt: unknown` separate from `mergedAt`.
 
 ## L2 — execution evidence
-- [ ] Spec §6 L2 exact files, T-V07..12/T-V36; producer launch → sink → normalized observations and review-wave lifecycle.
-- [ ] Gate: controlled prospective pilot/wave plus agent-stats.test.ts / agent-stats-h2a-evidence.test.ts, no historical attribution invented.
+- [x] Sources: `velocity/{lifecycle,ci,join,intervals,run-receipt,run-producer,review-rounds}.ts`, bounded `types.ts` extension, `scripts/velocity-run.mjs`, plan SKILL pilot launch path.
+- [x] T-V07..T-V12/T-V36 RED: 5 failed suites, 0 tests, missing L2 modules. GREEN direct 20/20; lane 5 files `{"passed":20,"excluded":0}`; collateral `agent-stats.test.ts` + `agent-stats-h2a-evidence.test.ts` 22/22.
+- [x] Gate: controlled prospective producer smoke (`run-smoke.jsonl` start + terminal) and wave manifest join/refusal; no historical attribution invented (all unattributed without receipts).
 
 ## L3 — deterministic comparables
 - [ ] Spec §6 L3 exact files and forecast/estimate/matching tests, T-V13..17/T-V37; exact decimal weights and separate round coverage.

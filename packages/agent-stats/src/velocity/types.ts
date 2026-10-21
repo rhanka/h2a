@@ -49,3 +49,13 @@ export interface CiMetrics {
   envelopeSeconds: number;
   workflowSpanSeconds: number;
 }
+
+/** Bounded L2 extension: explicit run roles and round identity (no inference). */
+export type VelocityRunRole = "author" | "reviewer" | "correction";
+
+export interface VelocityLotSlot {
+  repo: string;
+  prNumber: number | string;
+  lotOccurrence: string;
+  slotKey: string;
+}
