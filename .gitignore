@@ -7,6 +7,13 @@
 tmp/
 .q/
 .remote/
+# Per-package test scratch roots (see scripts/test-sandbox.mjs: inside the
+# filesystem barrier they are overlaid by writable per-run shadows, so the
+# checkout stays untouched; outside the barrier they stay local litter).
+packages/*/.test-scratch/
+packages/*/src/.cfg-test/
+packages/*/src/.auth-test/
+packages/*/src/.stack-test/
 .worktrees/
 node_modules/
 packages/*/dist/

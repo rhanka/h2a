@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, writeFileSync, existsSync, rmSync, mkdirSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, dirname, join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { validateDecisionDossierForPresentation } from '@sentropic/focus/validate'
@@ -285,8 +285,13 @@ test('checks diagram-core visible text through the readability gate before repla
 
 test('ships only runtime assets and builds from an extracted npm tarball', () => isolated((root) => {
   const packageDir = fileURLToPath(new URL('../', import.meta.url))
+  // Round-3 (reviews pr382-r3): the running node's directory leads PATH —
+  // nested spawns on CI runners otherwise resolve npm through a PATH that
+  // no longer carries the toolchain pin (ENOENT with status null), which
+  // would read as a packaging failure. npm ships beside node everywhere.
   const packed = spawnSync('npm', ['pack', '--ignore-scripts', '--json', '--pack-destination', root, packageDir], {
-    encoding: 'utf8', maxBuffer: 8 * 1024 * 1024, env: { ...process.env, HOME: root, XDG_RUNTIME_DIR: root },
+    encoding: 'utf8', maxBuffer: 8 * 1024 * 1024, env: { ...process.env, HOME: root, XDG_RUNTIME_DIR: root,
+      PATH: `${dirname(process.execPath)}${delimiter}${process.env.PATH ?? ''}` },
   })
   assert.equal(packed.status, 0, packed.stderr)
   const [pkg] = JSON.parse(packed.stdout)

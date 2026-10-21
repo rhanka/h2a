@@ -676,6 +676,14 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     const [betaGuardianPid, betaCliPid, betaGrandchildPid] = await createStubbornWorkload(client, "beta", directory);
     processGroups.add(betaGuardianPid);
 
+    // A PTY master opened through /dev/ptmx reads back as "/dev/ptmx" on a
+    // plain host, but as "/dev/pts/ptmx" inside the L0 filesystem barrier
+    // (bubblewrap --dev mounts a private devtmpfs). Both spellings denote a
+    // foreign master for this hygiene check.
+    function isPtmxTarget(target: string): boolean {
+      return target === "/dev/ptmx" || target === "/dev/pts/ptmx";
+    }
+
     async function ptmxFds(pid: number): Promise<number[]> {
       const fdDir = `/proc/${pid}/fd`;
       const entries = await readdir(fdDir);
@@ -683,7 +691,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       for (const entry of entries) {
         try {
           const target = await readlink(join(fdDir, entry));
-          if (target === "/dev/ptmx") {
+          if (isPtmxTarget(target)) {
             fds.push(Number(entry));
           }
         } catch {
@@ -700,7 +708,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       for (const entry of entries) {
         try {
           const target = await readlink(join(fdDir, entry));
-          if (target === "/dev/ptmx") {
+          if (isPtmxTarget(target)) {
             const fdinfo = await readFile(`/proc/${hostPid}/fdinfo/${entry}`, "utf8");
             const match = fdinfo.match(/^flags:\s+([0-7]+)/m);
             const flags = match ? parseInt(match[1]!, 8) : 0;

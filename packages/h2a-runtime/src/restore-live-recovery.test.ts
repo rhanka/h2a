@@ -66,6 +66,9 @@ const layoutCfg = {
 };
 
 /** §6 fixture: a live native run row whose convId IS its label (broken). */
+// Round-3 P1: the row denotes a human-launched session, so it carries the
+// recorded human initiator the restore plan requires (bare `human` rows
+// without one are excluded as unclassified).
 const brokenLiveNativeRow = (): RegistryEntry => ({
   id: "h-infra",
   label: "h-infra",
@@ -75,6 +78,7 @@ const brokenLiveNativeRow = (): RegistryEntry => ({
   cwd: `${HOME}/src/proj`,
   tmuxSession: "h2a-h-infra",
   sessionClass: "human",
+  launchInitiator: "human",
   source: "run",
   enrolledAt: iso,
   lastSeenAt: iso,

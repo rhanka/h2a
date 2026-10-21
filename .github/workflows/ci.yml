@@ -184,6 +184,12 @@ jobs:
       - name: Qualify the L0 test barrier (real namespace creation)
         if: runner.os == 'Linux'
         run: bwrap --unshare-user --unshare-pid --unshare-uts --unshare-ipc --unshare-cgroup --die-with-parent --ro-bind / / --proc /proc --dev /dev --tmpfs /tmp -- true
+      # The VTE qualification suite (vte-qualification.functional.test.ts)
+      # refuses to skip on Linux: a missing X/VTE stack must read red, not
+      # hidden. Provisioning the stack is setup, not a fallback.
+      - name: Provision the VTE qualification stack (Xvfb, dbus, gnome-terminal)
+        if: runner.os == 'Linux'
+        run: command -v gnome-terminal >/dev/null || { sudo apt-get update && sudo apt-get install -y --no-install-recommends xvfb dbus-x11 gnome-terminal; } && command -v Xvfb && command -v dbus-run-session && command -v gnome-terminal
       - run: npm ci
       - run: npm run typecheck
       - name: Install the mandatory configuration oracles
