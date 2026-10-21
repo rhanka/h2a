@@ -1,14 +1,20 @@
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { buildH2aRunInvocation, executeH2aRunWithSpawn, handleH2aRun, validateH2aRunRequest, createH2aRunLauncher } from "../dist/runtime/mcp/agent-launch.js";
 import { runCli } from "../dist/cli.js";
 
 function workspace(fn) {
-  const dir = mkdtempSync(join(process.cwd(), ".agy-workspace-"));
+  // Scratch under the package's overlaid .test-scratch (writable inside the
+  // L0 barrier, gitignored outside it) — never the OS tmpdir, whose paths
+  // the product deliberately refuses as durable agent workspaces.
+  const scratchRoot = join(dirname(fileURLToPath(import.meta.url)), "..", ".test-scratch");
+  mkdirSync(scratchRoot, { recursive: true });
+  const dir = mkdtempSync(join(scratchRoot, ".agy-workspace-"));
   try { return fn(dir); } finally { rmSync(dir, { recursive: true, force: true }); }
 }
 const request = workspace => ({ profile: "agy", name: "agy-review", workspace, prompt: "challenge this; $(must-not-run)", background: true,
