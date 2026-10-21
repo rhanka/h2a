@@ -23,6 +23,10 @@ async function sample(t, rows, concurrency, state, mode, serial, isolation = "fa
     const bus = process.env.H2A_LAB_DISPOSABLE_BUS;
     assert.ok(bus?.startsWith("unix:path=/run/user/"), "the disposable VM must supply its user manager bus");
     f.env.DBUS_SESSION_BUS_ADDRESS = bus;
+    // Explicit worker ceiling (same mechanism as isolation.qualification):
+    // proves per-session scopes + bounds the disposable VM. The tiny
+    // deterministic CLI needs a few MiB; 512 MiB never OOMs it.
+    f.env.H2A_NATIVE_SESSION_MEMORY_MAX = String(512 * 1024 ** 2);
   }
   try {
     const project = join(f.env.HOME, 'src/owner-project'); mkdirSync(project, { recursive: true });
