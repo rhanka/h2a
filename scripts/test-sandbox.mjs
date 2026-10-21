@@ -194,6 +194,23 @@ for (let i = 0; i < scratchBinds.length; i += 3) {
   overlayEntries.push({ path: scratchBinds[i + 2], shadow: scratchBinds[i + 1] });
 }
 
+// Offline distribution fixtures (focus-kit distribution-increments) copy
+// locked registry tarballs OUT of the ambient npm cache: they expect the
+// workflow-warmed cache (`npm ci` runs before tests, HOME is the real home
+// there). Inside the barrier HOME is the run root, so the cache would read
+// cold. Hardlink-seed the run-root cache from the real one (best effort):
+// reads resolve instantly with ~zero disk, npm writes land on fresh inodes
+// in the shadow (cacache never mutates content in place), and the real
+// cache is never written. A missing/foreign seed reads cold, as today.
+try {
+  const realCache = join(homedir(), ".npm", "_cacache");
+  readdirSync(realCache);
+  const seedCache = join(runRoot, "home", ".npm", "_cacache");
+  mkdirSync(seedCache, { recursive: true, mode: 0o700 });
+  const linkCopy = spawnSync("cp", ["-al", `${realCache}/.`, seedCache], { encoding: "utf8" });
+  if (linkCopy.status !== 0) throw new Error(linkCopy.stderr || "cp -al failed");
+} catch { /* best effort: cold cache, today's behaviour */ }
+
 const childEnv = {
   ...process.env,
   TMPDIR: join(runRoot, "tmp"),
@@ -207,6 +224,11 @@ const childEnv = {
   H2A_TEST_STATE_ATTESTATION: attestationPath,
   H2A_TEST_STATE_BARRIER: "1",
   H2A_TEST_STATE_OVERLAYS: JSON.stringify(overlayEntries),
+  // Offline distribution fixtures resolve locked tarballs from
+  // `npm_config_cache ?? HOME/.npm`; the worker HOME varies per fixture,
+  // so pin the cache to the seeded run-root copy (warm when the seed
+  // succeeded, cold-but-writable otherwise — never the real home).
+  npm_config_cache: join(runRoot, "home", ".npm"),
   // String-only owner-home reference for negative-control assertions
   // (assert a resolved path is NOT under it). Never read or written.
   H2A_TEST_OWNER_HOME: homedir(),
