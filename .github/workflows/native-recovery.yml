@@ -48,7 +48,7 @@ jobs:
         env:
           MODE: ${{ matrix.mode }}
         shell: bash
-        run: node --test --test-name-pattern="startup-matrix: $MODE," scripts/owner-lab/startup-matrix.qualification.mjs
+        run: 'node --test --test-name-pattern="startup-matrix: $MODE," scripts/owner-lab/startup-matrix.qualification.mjs'
       # R3 P2 effective-systemd path on the same disposable VM: real user
       # manager bus, same budgets, effective cgroup readout. Fresh/resume
       # only (restore is reported separately); the no-systemd leg above stays
