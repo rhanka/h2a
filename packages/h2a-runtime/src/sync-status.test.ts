@@ -1,6 +1,7 @@
 /**
  * Phase B3 — sync-status tests.
- * Scratch dir: packages/remote-cli/.test-scratch/sync-status/
+ * Scratch dir: packages/h2a-runtime/.test-scratch/sync-status/
+ * (was packages/remote-cli/…, a package path that no longer exists).
  * Never uses /tmp.
  * Isolation: sets HOME to a temp dir so ~/.remote/sync-status writes go there.
  */
@@ -33,7 +34,7 @@ import {
 
 const SCRATCH_BASE = join(
   process.cwd(),
-  "packages/remote-cli/.test-scratch/sync-status",
+  "packages/h2a-runtime/.test-scratch/sync-status",
 );
 
 let tmpHome: string;

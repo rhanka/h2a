@@ -20,9 +20,12 @@ const { mockSpawnSync, mockGetTunnel, mockLocalConvStat, mockRemoteConvStat, moc
     const mkdtempSyncReal = require("fs").mkdtempSync as (prefix: string) => string;
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const pathJoin = require("path").join as (...args: string[]) => string;
-    // Scratch under the package dir, never /tmp (project policy).
-    // process.cwd() = packages/remote-cli/ when vitest runs.
-    const SCRATCH_ROOT_TMPDIR = pathJoin(process.cwd(), ".test-scratch", "sync-b1");
+    // Scratch under the package dir, never /tmp (project policy). The
+    // pinned gate runs vitest from the repo root; an in-package run starts
+    // inside the package — anchor to the package dir in both cases.
+    const cwd = process.cwd();
+    const pkgRoot = cwd.endsWith(pathJoin("packages", "h2a-runtime")) ? cwd : pathJoin(cwd, "packages", "h2a-runtime");
+    const SCRATCH_ROOT_TMPDIR = pathJoin(pkgRoot, ".test-scratch", "sync-b1");
     mkdirSyncReal(SCRATCH_ROOT_TMPDIR, { recursive: true });
     const TEST_HOME = mkdtempSyncReal(pathJoin(SCRATCH_ROOT_TMPDIR, "home-"));
     return {

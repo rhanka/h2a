@@ -6711,12 +6711,13 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         // agent later emits a Claude SessionStart hook. Stamp this through tmux
         // so that hook cannot reclassify it as a human session.
         // Round-3 P1 (reviews pr382-r3, owner verbatim): an attached
-        // terminal is NOT proof of a human initiator. The human class
-        // requires a live TTY on the invoker's own stdio AND no managed
-        // agent marker in its environment (REMOTE_JOB_ID or a
-        // H2A_SESSION_CLASS=background stamp inherited from a delegating
-        // PTY). The initiator is recorded alongside and kept across
-        // hooks/resumes — an undetermined origin is never human by default.
+        // terminal is NOT proof of a human initiator — so the initiator is
+        // derived and recorded alongside (undefined when undetermined, kept
+        // across hooks/resumes, never human by default). The session CLASS
+        // keeps tracking launch modality only (attach ⇒ human-class): every
+        // restore/injection decision additionally requires a recorded human
+        // initiator (classifyRestoreFacet), so a piped attach enrolls as
+        // human/unproven and stays excluded from auto-restore.
         const launchInitiator = deriveLaunchInitiator({
           background: opts.background === true,
           headless: opts.headless === true,
@@ -6728,13 +6729,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           stdoutIsTTY: process.stdout.isTTY,
         });
         const sessionClass = deriveSessionClass({
-          background: opts.background === true || launchInitiator === "agent",
+          background: opts.background === true,
           headless: opts.headless === true,
-          humanTerminal:
-            opts.attachedTerminal !== false &&
-            process.stdin.isTTY === true &&
-            process.stdout.isTTY === true &&
-            launchInitiator !== "agent",
+          humanTerminal: opts.attachedTerminal !== false,
         });
         let activeGateway: string | undefined;
         const h2a = getH2aConfig();

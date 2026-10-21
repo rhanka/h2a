@@ -39,6 +39,11 @@ const evidence: LegacySessionEvidence = {
   liveTmuxSessions: [],
 };
 
+// Round-3 P1: a row the restore plan decides on is a POSITIVELY provenanced
+// human row (recorded human initiator). Bare `sessionClass: "human"` rows
+// without an initiator are excluded from the plan as unclassified (pinned
+// by restore-provenance-r3.test.ts) and have no restore-side host decision
+// to be symmetric about — the symmetry below binds admitted rows.
 const row = (over: Partial<RegistryEntry> = {}): RegistryEntry => ({
   id: "lane",
   label: "lane",
@@ -48,6 +53,7 @@ const row = (over: Partial<RegistryEntry> = {}): RegistryEntry => ({
   cwd: `${HOME}/src/proj`,
   tmuxSession: "h2a-lane",
   sessionClass: "human",
+  launchInitiator: "human",
   source: "run",
   enrolledAt: iso,
   lastSeenAt: iso,
