@@ -12,70 +12,9 @@ import { pathToFileURL } from 'node:url';
 import { NativeTerminalClient } from '../../h2a-runtime/dist/native-terminal/client.js';
 import { convOwners } from '../../h2a-runtime/dist/conv-guard.js';
 
+import { fixture, eventually, usable } from './helpers/restart-lab.js';
 const repo = resolve(import.meta.dirname, '../../..');
 const hostEntry = join(repo, 'packages/h2a-runtime/dist/native-terminal/process.js');
-const cli = join(repo, 'packages/h2a/dist/bin.js');
-const tracker = `import {appendFileSync,readFileSync,symlinkSync} from 'node:fs';
-const start=readFileSync('/proc/self/stat','utf8').split(') ')[1].split(' ')[19];
-appendFileSync(process.env.LAB_PIDS,JSON.stringify({pid:process.pid,start,args:process.argv})+'\\n');
-try{symlinkSync('/proc/'+process.pid,process.env.H2A_TEST_PROC_ROOT+'/'+process.pid)}catch(e){if(e.code!=='EEXIST')throw e}
-`;
-
-function fixture(t) {
-  assert.ok(process.env.TMPDIR && resolve(process.env.TMPDIR) !== '/tmp', 'Supply a disposable TMPDIR');
-  const root = mkdtempSync(join(tmpdir(), 'r-'));
-  const env = { PATH: join(root, 'bin') + ':/usr/bin:/bin', HOME: join(root, 'home'), TMPDIR: root,
-    XDG_RUNTIME_DIR: root, TMUX_TMPDIR: root, TMUX: '', XDG_CONFIG_HOME: join(root, 'config'), XDG_STATE_HOME: join(root, 'state'),
-    XDG_CACHE_HOME: join(root, 'cache'), REMOTE_CLI_CONFIG_HOME: join(root, 'config'),
-    H2A_ROOT: join(root, 'store'), H2A_MCP_CENTRAL: 'off', H2A_NATIVE_SOCKET: join(root, 'h'), H2A_TEST_PROC_ROOT: join(root, 'proc'),
-    DBUS_SESSION_BUS_ADDRESS: 'unix:path=' + join(root, 'no-bus'), LAB_PIDS: join(root, 'pids'), TERM: 'xterm-256color',
-    NODE_OPTIONS: '--import=' + pathToFileURL(join(root, 'track.mjs')).href };
-  for (const key of ['HOME', 'XDG_CONFIG_HOME', 'XDG_STATE_HOME', 'XDG_CACHE_HOME', 'H2A_TEST_PROC_ROOT'])
-    mkdirSync(env[key], { recursive: true, mode: 0o700 });
-  mkdirSync(join(root, 'bin'));
-  writeFileSync(join(root, 'track.mjs'), tracker);
-  writeFileSync(join(root, 'agent.mjs'), "process.stdout.write('agent-ready\\n');process.stdin.resume();setInterval(()=>{},1000);\n");
-  writeFileSync(join(root, 'bin/codex'), `#!/bin/sh\nexec '${process.execPath}' '${join(root, 'agent.mjs')}' "$@"\n`, { mode: 0o700 });
-  const registry = join(env.REMOTE_CLI_CONFIG_HOME, '.config/sentropic/h2a/registry.json');
-  mkdirSync(resolve(registry, '..'), { recursive: true });
-  const children = [];
-  function start(args, entry = cli, extra = {}) {
-    const child = spawn(process.execPath, [entry, ...args], { cwd: env.HOME, env: { ...env, ...extra }, stdio: ['ignore', 'pipe', 'pipe'] });
-    children.push(child);
-    let stdout = '', stderr = '';
-    child.stdout.on('data', b => { stdout += b; }); child.stderr.on('data', b => { stderr += b; });
-    const done = once(child, 'close').then(([code, signal]) => ({ code, signal, stdout, stderr }));
-    return { child, done, output: () => ({ stdout, stderr }) };
-  }
-  const recorded = () => existsSync(env.LAB_PIDS) ? readFileSync(env.LAB_PIDS, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse) : [];
-  t.after(async () => {
-    for (const { pid, start } of recorded().reverse()) {
-      try {
-        const stat = readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ')[1].split(' ');
-        if (stat[19] === start && !['Z', 'X'].includes(stat[0])) process.kill(pid, 'SIGKILL');
-      } catch (e) { if (!['ENOENT', 'ESRCH'].includes(e.code)) throw e; }
-    }
-    await Promise.all(children.map(child => child.exitCode === null && child.signalCode === null ? once(child, 'close') : undefined));
-    rmSync(root, { recursive: true, force: true });
-    assert.equal(existsSync(root), false);
-  });
-  const entries = n => Array.from({ length: n }, (_, i) => ({ id: `old-${i}`, tool: 'codex', kind: 'local-native',
-    cwd: env.HOME, tmuxSession: `h2a-old-${i}`, convId: `other-${i}`, source: 'run', sessionClass: 'human',
-    enrolledAt: new Date().toISOString(), lastSeenAt: new Date().toISOString() }));
-  const save = rows => writeFileSync(registry, JSON.stringify({ version: 1, entries: rows }));
-  const resume = i => start(['run', 'codex', env.HOME, '--resume', `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
-    '--name', `lab-${i}`, '--background', '--no-attach', '--no-h2a', '--no-gw', '--bare']);
-  return { root, env, registry, start, recorded, entries, save, resume };
-}
-
-async function eventually(read, predicate, ms = 5000) {
-  const deadline = performance.now() + ms;
-  let value;
-  do { try { value = await read(); if (predicate(value)) return value; } catch { /* Retry readiness only. */ }
-    await pause(10);
-  } while (performance.now() < deadline);
-  assert.fail(`Readiness did not converge: ${JSON.stringify(value)}`);
-}
 
 test('startup-latency: conversation guard probes only the requested conversation among 500 rows', t => {
   const f = fixture(t); f.save([...f.entries(499), { ...f.entries(1)[0], id: 'target', convId: 'target-conversation' }]);
@@ -84,6 +23,71 @@ test('startup-latency: conversation guard probes only the requested conversation
     nativeSessionLiveness: name => { probes.push(name); return false; } }), []);
   assert.equal(probes.length, 1, `Probed ${probes.length} sessions for one conversation`);
   assert.equal(probes[0], 'h2a-old-0');
+});
+
+test('startup-latency: real run --resume probes one matching owner and no foreign conversation', { timeout: 10000 }, async t => {
+  const f = fixture(t);
+  const target = { ...f.entries(1)[0], id: 'target', tmuxSession: 'h2a-target',
+    convId: '00000000-0000-4000-8000-000000000071' };
+  f.save([...f.mixed(499), target]);
+  const result = await f.resume(71).done;
+  assert.equal(result.code, 0, result.stderr + result.stdout);
+  await usable(f, 'h2a-lab-71');
+  const owners = f.recorded().filter(r => r.args[1]?.endsWith('/op.js') && r.args[2] === 'probe' && r.args[4] !== 'h2a-lab-71');
+  assert.deepEqual(owners.map(r => r.args[4]), ['h2a-target']);
+  t.diagnostic(JSON.stringify({ rows: 500, ownerProbes: owners.length, cliExchange: true }));
+});
+
+test('startup-latency: real resume refuses an unreadable matching row before starting a CLI', { timeout: 10000 }, async t => {
+  const f = fixture(t); f.save([...f.mixed(499), { id: 'broken', convId: '00000000-0000-4000-8000-000000000072' }]);
+  const result = await f.resume(72).done;
+  assert.equal(result.code, 1, result.stderr + result.stdout);
+  assert.match(result.stderr, /unreadable|unknown/i);
+  assert.equal(f.recorded().filter(r => r.args[1] === join(f.root, 'agent.mjs')).length, 0);
+});
+
+test('sessions-never-start: fresh and resume reach CLI I/O with 451 owner-shaped mixed rows', { timeout: 10000 }, async t => {
+  const f = fixture(t); f.save(f.mixed(451));
+  const begun = performance.now();
+  const fresh = await f.start(['run', 'codex', f.env.HOME, '--name', 'fresh-owner',
+    '--background', '--no-attach', '--no-h2a', '--no-gw', '--bare']).done;
+  assert.equal(fresh.code, 0, fresh.stderr);
+  await usable(f, 'h2a-fresh-owner');
+  const freshMs = Math.round(performance.now() - begun);
+  const resumeBegun = performance.now();
+  const resumed = await f.resume(451).done;
+  assert.equal(resumed.code, 0, resumed.stderr);
+  await usable(f, 'h2a-lab-451');
+  assert.ok(f.recorded().filter(r => r.args[2] === 'probe').every(r => ['h2a-fresh-owner', 'h2a-lab-451'].includes(r.args[4])));
+  t.diagnostic(JSON.stringify({ rows: 451, classes: 'human/background/legacy/exited/worktree/undetermined', freshMs,
+    resumeMs: Math.round(performance.now() - resumeBegun), cliExchanges: 2 }));
+});
+
+test('crash-recovery: ten concurrent read-only absence proofs converge after SIGKILL', { timeout: 12000 }, async t => {
+  const f = fixture(t); f.save([]);
+  const old = f.start(['--socket', f.env.H2A_NATIVE_SOCKET, '--registry-path', f.registry], hostEntry);
+  const client = await eventually(() => NativeTerminalClient.connect(f.env.H2A_NATIVE_SOCKET), Boolean); await client.ping(); client.close();
+  old.child.kill('SIGKILL'); await old.done;
+  const entry = join(f.root, 'absence.mjs');
+  writeFileSync(entry, `import {proveNativeTerminalEndpointAbsent} from ${JSON.stringify(pathToFileURL(join(repo, 'packages/h2a-runtime/dist/native-terminal/server.js')).href)};
+    if(!await proveNativeTerminalEndpointAbsent(process.env.H2A_NATIVE_SOCKET,{code:'ECONNREFUSED'}))process.exitCode=1;`);
+  const begun = performance.now();
+  const results = await Promise.all(Array.from({ length: 10 }, () => f.start([], entry).done));
+  t.diagnostic(JSON.stringify({ absenceProofs: 10, elapsedMs: Math.round(performance.now() - begun), codes: results.map(r => r.code) }));
+  assert.ok(results.every(r => r.code === 0), JSON.stringify(results));
+  assert.ok(existsSync(f.env.H2A_NATIVE_SOCKET), 'A read-only proof must not unlink the socket');
+});
+
+test('oom-isolation: a refused session scope never executes a worker inside the host scope', async t => {
+  const f = fixture(t);
+  const marker = join(f.root, 'worker-started');
+  const worker = join(f.root, 'worker.mjs');
+  writeFileSync(worker, `import {writeFileSync} from 'node:fs';writeFileSync(${JSON.stringify(marker)},'unsafe');`);
+  const entry = join(repo, 'packages/h2a-runtime/dist/native-terminal/session-scope.js');
+  const result = await f.start([process.execPath, worker], entry).done;
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /session memory isolation failed/);
+  assert.equal(existsSync(marker), false);
 });
 
 test('startup-latency: one resume with 500 registry rows reaches host start within 2 seconds', { timeout: 10000 }, async t => {
@@ -106,6 +110,7 @@ test('crash-recovery: five concurrent resume clients recover one SIGKILLed host'
   const results = await Promise.all(Array.from({ length: 5 }, (_, i) => f.resume(i + 1).done));
   t.diagnostic(JSON.stringify({ scenario: 'crash-recovery', elapsedMs: Math.round(performance.now() - begun), codes: results.map(r => r.code) }));
   assert.ok(results.every(r => r.code === 0), JSON.stringify(results));
+  await Promise.all(Array.from({ length: 5 }, (_, i) => usable(f, `h2a-lab-${i + 1}`)));
   client = await NativeTerminalClient.connect(f.env.H2A_NATIVE_SOCKET);
   try {
     assert.notEqual((await client.ping()).hostPid, before.hostPid);
