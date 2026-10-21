@@ -102,6 +102,9 @@ function makeFixture({ oneRegistrySessionLive }) {
       ? { source: "hook" }
       : { source: "run", tmuxSession: `h2a-${label}` }),
     sessionClass: "human",
+    // Round-3 provenance contract (registry.classifyRestoreFacet): a human
+    // session restores as primary only with a human launch initiator.
+    launchInitiator: "human",
     enrolledAt: at,
     lastSeenAt: at,
   }));
