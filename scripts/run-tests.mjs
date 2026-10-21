@@ -33,17 +33,24 @@ import { homedir, tmpdir } from "node:os";
 // Disposable-TMPDIR guarantee (PR #390 R3 P1): `npm test` never inherits a
 // bare /tmp TMPDIR into the confinement assertion in restart-lab.js.
 function ensureDisposableTmpdir() {
+  // Same dual-guard contract as run-test-gates.mjs: TMPDIR set and != /tmp,
+  // and the dir admitted as H2A_TEST_QUALIFICATION_ROOT
+  // ($HOME/.cache-tmp/h2a-test/run-*).
+  const qualPattern = /^\/home\/[^/]+\/\.cache-tmp\/h2a-test\/run-[A-Za-z0-9]+$/;
   const current = process.env.TMPDIR;
   try {
-    if (current && resolve(current) !== "/tmp" && resolve(current) !== "/" && existsSync(current)) return current;
+    if (current && qualPattern.test(resolve(current)) && existsSync(current)) {
+      if (!process.env.H2A_TEST_QUALIFICATION_ROOT) process.env.H2A_TEST_QUALIFICATION_ROOT = resolve(current);
+      return resolve(current);
+    }
   } catch { /* fall through and create */ }
-  const parent = process.env.RUNNER_TEMP && existsSync(process.env.RUNNER_TEMP)
-    ? process.env.RUNNER_TEMP
-    : (() => { const base = join(homedir(), ".cache-tmp", "h2a-test"); mkdirSync(base, { recursive: true }); return base; })();
-  const dir = mkdtempSync(join(parent, "h2a-tests-"));
+  const base = join(homedir(), ".cache-tmp", "h2a-test");
+  mkdirSync(base, { recursive: true });
+  const dir = mkdtempSync(join(base, "run-"));
   process.env.TMPDIR = dir;
   process.env.TMP = dir;
   process.env.TEMP = dir;
+  process.env.H2A_TEST_QUALIFICATION_ROOT = dir;
   process.once("exit", () => { try { rmSync(dir, { recursive: true, force: true }); } catch {} });
   return dir;
 }
