@@ -57,6 +57,18 @@ type ConnectionContext = {
   readonly leases: Map<string, NativeTerminalControllerLease>;
   readonly responseBudget: ResponseQueueBudget;
   buffer: string;
+  /**
+   * Round-3: byte length of `buffer`, maintained incrementally (O(line) per
+   * consumed frame) so the size cap below never scans the whole backlog.
+   */
+  bufferBytes: number;
+  /**
+   * Round-3: whether `buffer` currently holds a terminating newline.
+   * Maintained alongside the loop (set on newline-carrying appends, cleared
+   * when the loop proves none remains) so newline-free garbage never pays
+   * a full backlog scan per chunk.
+   */
+  bufferHasNewline: boolean;
   pendingResponseBytes: number;
   pendingResponses: number;
 };
@@ -483,12 +495,39 @@ function writeError(context: ConnectionContext, id: unknown, code: NativeTermina
 }
 
 function consumeFrames(host: NativeTerminalHost, context: ConnectionContext, chunk: string): void {
+  // Round-3 (publish-rehearsal faulty-connection bound): a chunk with no
+  // newline joining a backlog with no newline can complete no frame — only
+  // the size cap matters, decided here in O(chunk) without touching the
+  // backlog. The old code ran the extraction loop (full backlog newline
+  // scan) on every chunk, so 32MB+ of garbage cost O(backlog^2) before the
+  // end-of-call check and starved the 5s faulty-peer bound under load.
+  // Same verdicts, same errors, same counters — the loop and both destroy
+  // branches below are untouched. Every early `return` below leaves a
+  // destroyed connection, so the flag needs no recompute on those paths.
+  const chunkBytes = Buffer.byteLength(chunk);
+  const chunkNewline = chunk.indexOf("\n") !== -1;
+  if (!chunkNewline && !context.bufferHasNewline) {
+    context.buffer += chunk;
+    context.bufferBytes += chunkBytes;
+    if (context.bufferBytes > NATIVE_TERMINAL_MAX_FRAME_BYTES) {
+      writeError(context, "invalid", "invalid-request", new Error("terminal request exceeds the frame limit"));
+      recordHostFault(HOST_FAULT_COUNTERS.hostClientFrameDestroys);
+      context.socket.destroy();
+    }
+    return;
+  }
   context.buffer += chunk;
+  context.bufferBytes += chunkBytes;
+  if (chunkNewline) context.bufferHasNewline = true;
   for (;;) {
     const newline = context.buffer.indexOf("\n");
-    if (newline < 0) break;
+    if (newline < 0) {
+      context.bufferHasNewline = false;
+      break;
+    }
     const line = context.buffer.slice(0, newline);
     context.buffer = context.buffer.slice(newline + 1);
+    context.bufferBytes -= Buffer.byteLength(line) + 1;
     if (line.length === 0) continue;
     if (Buffer.byteLength(line) > NATIVE_TERMINAL_MAX_FRAME_BYTES) {
       writeError(context, "invalid", "invalid-request", new Error("terminal request exceeds the frame limit"));
@@ -523,7 +562,7 @@ function consumeFrames(host: NativeTerminalHost, context: ConnectionContext, chu
       if (!writeError(context, request.id, "operation-failed", error)) return;
     }
   }
-  if (Buffer.byteLength(context.buffer) > NATIVE_TERMINAL_MAX_FRAME_BYTES) {
+  if (context.bufferBytes > NATIVE_TERMINAL_MAX_FRAME_BYTES) {
     writeError(context, "invalid", "invalid-request", new Error("terminal request exceeds the frame limit"));
     recordHostFault(HOST_FAULT_COUNTERS.hostClientFrameDestroys);
     context.socket.destroy();
@@ -1425,6 +1464,8 @@ async function initializeNativeTerminalHostServer(options: {
       leases: new Map(),
       responseBudget,
       buffer: "",
+      bufferBytes: 0,
+      bufferHasNewline: false,
       pendingResponseBytes: 0,
       pendingResponses: 0,
     };
