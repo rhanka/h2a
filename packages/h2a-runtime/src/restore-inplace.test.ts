@@ -73,6 +73,8 @@ function row(over: Partial<RegistryEntry> & { id: string }): RegistryEntry {
     kind: "local-native",
     cwd: join(home, "src", "projA"),
     sessionClass: "human",
+    // Round-3 P1: declared human primaries carry the recorded initiator.
+    launchInitiator: "human",
     source: "run",
     enrolledAt: iso,
     lastSeenAt: iso,

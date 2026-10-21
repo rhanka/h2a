@@ -57,6 +57,11 @@ function registryEntry(
     lastSeenAt: now,
     source: "run",
     sessionClass: "human",
+    // Round-3 P1: human rows in these tests carry the recorded human
+    // launch initiator — the positive proof restore now requires. Rows
+    // that must read as legacy/unproven override with
+    // `launchInitiator: undefined`.
+    launchInitiator: "human",
     ...over,
   };
 }
@@ -195,12 +200,29 @@ describe("lot L5 RED: secondaries excluded by provenance (D12)", () => {
   it("should not promote a classless legacy transcript to a primary session", () => {
     // Transcript/legacy evidence may prove a conversation exists, never a
     // primary: a classless row classifies to no facet (unclassified).
+    // Round-3 P1: a human class WITHOUT a recorded human initiator is
+    // equally unclassified — the old attached-terminal default never proves
+    // a human initiator.
     expect(
       classifyRestoreFacet({ sessionClass: undefined, role: undefined }),
     ).toBeUndefined();
     expect(
       classifyRestoreFacet({ sessionClass: "human", role: undefined }),
+    ).toBeUndefined();
+    expect(
+      classifyRestoreFacet({
+        sessionClass: "human",
+        role: undefined,
+        launchInitiator: "human",
+      }),
     ).toBe("primary");
+    expect(
+      classifyRestoreFacet({
+        sessionClass: "human",
+        role: undefined,
+        launchInitiator: "agent",
+      }),
+    ).toBeUndefined();
     expect(
       classifyRestoreFacet({
         sessionClass: "human",

@@ -173,6 +173,8 @@ describe("lot LG RED: dedicated configurable restore groups (D13)", () => {
       lastSeenAt: "2026-10-20T00:00:00.000Z",
       source: "run",
       sessionClass: "human",
+      // Round-3 P1: declared human primaries carry the recorded initiator.
+      launchInitiator: "human",
     } as const;
     const admitted = registrySessions(home, [{ ...entry }], undefined, undefined, undefined, [], {
       admissionRoots: [root],

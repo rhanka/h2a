@@ -264,3 +264,63 @@ describe("round-1 P1/P2 (code-review astra-2/5, sol-1/4/5): composition, admissi
     expect(ptys.get("alpha")!.writes.length).toBe(writesBefore);
   }, 120_000);
 });
+
+describe("round-3 P1 (reviews pr382-r3): no process-name composer assumption for interpreter runtimes", () => {
+  const CTRL_E = String.fromCharCode(0x05);
+  const CTRL_U = String.fromCharCode(0x15);
+  const CTRL_Y = String.fromCharCode(0x19);
+  function hostWithForeground(foreground: { command: string; args: string[] }): {
+    host: NativeTerminalHost;
+    ptys: Map<string, StubPty>;
+  } {
+    const { spawner, ptys } = stubSpawner();
+    const host = new NativeTerminalHost({
+      generation: "g",
+      replayBytesPerSession: 1024,
+      registryPath: join(scratch, "r.json"),
+      spawner,
+      readForegroundSnapshots: () => [
+        { pid: 4242, command: foreground.command, args: foreground.args, startedAtMs: 1, ppid: 4241 },
+      ],
+    });
+    return { host, ptys };
+  }
+
+  function idleHumanDraft(host: NativeTerminalHost, id: string, draft: string): void {
+    createSession(host, id);
+    const lease = host.acquireController(id, "human-window", "human");
+    host.write(lease, draft);
+    // The activity window expires with the draft still unsubmitted: an
+    // expired timer alone never proves an empty composer.
+    vi.setSystemTime(Date.now() + 30_000);
+  }
+
+  // `args` is the full argv including argv[0] (as read from /proc/<pid>/cmdline).
+  it.each([
+    { command: "node", args: ["node", "app.mjs"] },
+    { command: "node", args: ["node", "--interactive", "--eval", "0"] },
+    { command: "node", args: ["node"] },
+    { command: "bun", args: ["bun", "app.ts"] },
+    { command: "deno", args: ["deno", "run", "app.ts"] },
+  ])("should refuse with zero machine bytes on unattested $command foreground ($args)", ({ command, args }) => {
+    vi.useFakeTimers();
+    vi.setSystemTime(9_000_000);
+    const { host, ptys } = hostWithForeground({ command, args });
+    idleHumanDraft(host, "alpha", "human-draft");
+    const outcome = host.inject("alpha", { text: "[h2a-wake r3]", requestId: "req-r3" });
+    expect(outcome.outcome).toBe("refused-unproven-composition");
+    // Only the human bytes reached the PTY: the draft is intact, nothing
+    // was submitted or executed on its behalf.
+    expect(ptys.get("alpha")!.writes).toEqual(["human-draft"]);
+  });
+
+  it("should still drive an attested agent-CLI foreground with the draft preserved", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(9_100_000);
+    const { host, ptys } = hostWithForeground({ command: "claude", args: ["claude"] });
+    idleHumanDraft(host, "alpha", "human-draft");
+    const outcome = host.inject("alpha", { text: "[h2a-wake r3]", requestId: "req-r3" });
+    expect(outcome).toMatchObject({ outcome: "injected" });
+    expect(ptys.get("alpha")!.writes).toEqual(["human-draft", CTRL_E + CTRL_U + "[h2a-wake r3]\r" + CTRL_Y]);
+  });
+});

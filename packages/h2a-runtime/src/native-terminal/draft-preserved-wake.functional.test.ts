@@ -1,11 +1,13 @@
 /**
- * Round-2 P1 (code-review astra-1/sol-1): a wake must reach an attached
- * recipient whose composer holds an idle human draft — without typing over
- * the human. Real native PTY + real Node readline (the lab's TUI shape):
- * the draft is typed through the held human lease and never submitted, the
- * activity window expires, then op `drive` delivers the signed wake line.
- * Settled state: exactly one new submitted line (the wake), the draft
- * byte-identical, the human window still attached and accepting input.
+ * Round-3 P1 (reviews pr382-r3): a wake must NOT reach an attached
+ * recipient through an unattested foreground — even when the composer
+ * really is readline. Real native PTY + real Node readline: the draft is
+ * typed through the held human lease and never submitted, the activity
+ * window expires, then op `drive` defers with zero bytes (a node script's
+ * real application is unattestable from the outside: REPL, TUI, or worse).
+ * Settled state: zero new submitted lines, the draft byte-identical, the
+ * human window still attached and accepting input. Only attested profiles
+ * are driven (D5/D6).
  */
 import { isolatedNativeTestEnvironment, spawnIsolatedNative as spawn, spawnSyncIsolatedNative as spawnSync, setupNativeTestEnvironment } from "../../../h2a/test/helpers/native-isolation.js";
 setupNativeTestEnvironment(afterAll);
@@ -68,8 +70,8 @@ process.stdin.on('data', () => setImmediate(persist));
 rl.setPrompt('lab-fixture> '); rl.prompt(); persist();
 `;
 
-describe.skipIf(process.platform !== "linux")("round-2 P1: wake an attached readline composer holding an idle draft", () => {
-  it("delivers the wake on its own line with the human draft intact", async () => {
+describe.skipIf(process.platform !== "linux")("round-3 P1: an unattested node foreground defers with the human draft intact", () => {
+  it("defers the wake with zero bytes and keeps the idle draft intact", async () => {
     const directory = await mkdtemp(join(tmpdir(), "r2-wake-draft-"));
     directories.add(directory);
     const socketPath = join(directory, "host.sock");
@@ -173,18 +175,22 @@ describe.skipIf(process.platform !== "linux")("round-2 P1: wake an attached read
         expect(result.status).toBe(0);
         const payload = JSON.parse(String(result.stdout).trim().split("\n").at(-1)) as {
           outcome: string;
+          reason?: string;
         };
-        expect(payload.outcome).toBe("driven");
+        // Round-3 P1 (reviews pr382-r3): a node foreground is unattestable
+        // by process name — a script may be a REPL (which would execute the
+        // line) or a TUI with unknown bindings — so the drive defers with
+        // zero bytes even though the composer is really readline. Only
+        // attested profiles are driven (D5/D6).
+        expect(payload.outcome).toBe("deferred");
+        expect(payload.reason).toBe("refused-unproven-composition");
 
-        const settled = await eventually(
-          () => readState(),
-          (state) => state !== undefined && state.lines.some((line) => line.includes("h2a-wake")),
-          "wake line submitted",
-        );
+        // Zero machine bytes: the wake was never submitted and the idle
+        // draft is byte-identical.
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        const settled = await readState();
         expect(settled).toBeDefined();
-        expect(settled!.lines).toHaveLength(1);
-        expect(settled!.lines[0]).toContain("[h2a-wake r2-draft]");
-        expect(settled!.lines.every((line) => !line.includes(draft))).toBe(true);
+        expect(settled!.lines).toHaveLength(0);
         expect(settled!.draft).toBe(draft);
         expect((await client.state(sessionId)).controlled).toBe(true);
         // The original human window still accepts input afterwards.
