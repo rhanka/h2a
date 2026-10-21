@@ -48,7 +48,9 @@ jobs:
       # only (restore is reported separately); the no-systemd leg above stays
       # the witness.
       - name: Measure CLI I/O on the effective systemd path with cgroup readout
-        if: matrix.mode == 'fresh' || matrix.mode == 'resume'
+        # Always run even when the fallback witness fails its absolute budget,
+        # so the effective path is proven (or fails) on its own evidence.
+        if: always() && (matrix.mode == 'fresh' || matrix.mode == 'resume')
         env:
           MODE: ${{ matrix.mode }}
         shell: bash
