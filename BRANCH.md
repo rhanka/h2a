@@ -465,13 +465,18 @@ inventory in `.h2a/build/seat_model_inventory.md` (untracked).
 - [x] Record/verify all fixture digests; documentary gate: two spec reviews plus fixture integrity, no behaviour RED for copied facts.
 
 ## L0-C — contract and execution bootstrap
-- [ ] gr-conductor: publish profiles/repo-knowledge/1/{profile,timing.schema,engram-mapping,manifest}.json and validator at a full immutable engram commit; DS/Engram compatibility review and T-V00-C RED/GREEN.
-- [ ] h2a: copy upstream bytes and pin publication; offline velocity-contract.test.ts reproduces upstream verdicts.
+- [x] UNBLOCK 20/10: engram 0.21.0 published. Entry `@sentropic/engram/time-reference` (ESM + CJS), gitHead `fa3e8645366a71703a04b9eab7ca757e805edf1a`, integrity `sha512-CrHVxemSzxfrnotl1ZNrSzIePIbTapII6HIJj5GRqwViHyhbWItTduw/ybQvM8AQsV99xmqHHoEwhLESFitzAw==` verified via `npm view` + tarball sha512 match=true. Exact `0.21.0` pinned in `packages/agent-stats/package.json` + lock.
+- [x] h2a: `packages/agent-stats/src/velocity/contract.ts` imports the time-reference contract from the published package only (no local engram checkout copy). Offline `packages/agent-stats/tests/velocity-contract.test.ts` reproduces upstream verdicts (closed DTOs, nearest-rank/weighted-ecdf, exact nEff numerator/denominator, separate milestones, snapshot-bytes auth, receipt binding, calendar-valid UTC).
 - [x] h2a: T-V00-I RED/GREEN in velocity-test-lane.test.js, private environments, candidate sources/fixtures/goldens, checkout builds, exact selectors and skip accounting.
-- [ ] Gate: published artifact + offline pin + isolated runner; no placeholder permits L1.
+- [x] T-V00-C RED: `npx --no-install vitest run --config vitest.config.ts tests/velocity-contract.test.ts` in `packages/agent-stats` → 1 failed suite, 0 tests, `Cannot find module '../src/velocity/contract.js'`.
+- [x] T-V00-C GREEN direct: same command → 1 passed, 6 passed. Lane `node scripts/velocity-test-lane.mjs --package agent-stats --file tests/velocity-contract.test.ts` → LANE checkout, `npm ci` exit 0, vitest exit 0, `{"passed":6,"excluded":0}`.
+- [x] Gate: published artifact + exact pin + isolated runner; L1 unblocked.
 
 ## L1 — measured reference
-- [ ] Spec §6 L1 exact source paths; velocity-observations.test.ts / velocity-github.test.ts, T-V01..06 RED/GREEN; bounded live manifest, both bootstrap scenarios.
+- [x] Sources: `packages/agent-stats/src/velocity/{types,observations,github,measure,index}.ts`, exports in `src/index.ts`, thin `scripts/velocity.mjs`, `src/cli.ts` surface (`velocity-reference` + `describeVelocityReference`).
+- [x] T-V01..T-V06 RED: `vitest run tests/velocity-observations.test.ts tests/velocity-github.test.ts` → 2 failed suites, 0 tests, missing `observations.js`/`github.js`.
+- [x] T-V01..T-V06 GREEN direct: 3 files (contract + L1) 21 passed; lane `--package agent-stats --file tests/velocity-observations.test.ts --file tests/velocity-github.test.ts` → `{"passed":15,"excluded":0}`.
+- [x] First measured output: Astra 9918/46770/108177 s, Sol 9918/13240/46770 s; enriched 1777/3617/23992 s, older 860/12636/244338 s; scenarios Sol 10642.6/14264.2/47794.2 s, Astra 10729.6/47794.2/109201.2 s; all `descriptive`, `calibrated:false`; `installedAt: unknown` separate from `mergedAt`.
 
 ## L2 — execution evidence
 - [ ] Spec §6 L2 exact files, T-V07..12/T-V36; producer launch → sink → normalized observations and review-wave lifecycle.

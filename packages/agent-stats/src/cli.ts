@@ -174,4 +174,16 @@ export function registerAgentStatsCommands(program: Command): void {
         console.error(`project-graph: static studio exported to ${studioOut}`);
       }
     });
+
+  agentStats
+    .command("velocity-reference")
+    .description("Describe the frozen measured velocity reference (descriptive, offline)")
+    .action(() => {
+      console.log("velocity-reference: descriptive PR-open-to-merge; installedAt unknown until target proof");
+    });
+}
+
+/** Pure L1 surface: one-line citation for the planning agent (no I/O). */
+export function describeVelocityReference(): string {
+  return "pr-open-to-merge descriptive; installedAt unknown until target proof";
 }
