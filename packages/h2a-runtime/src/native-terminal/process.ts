@@ -16,6 +16,7 @@ import {
 } from "./protocol.js";
 import { startNativeTerminalHostServer, type NativeTerminalListenerFailure } from "./server.js";
 import { NativeTerminalPublicationRefusal } from "./publication-refusal.js";
+import { isolateNativeTerminalHost } from "./host-scope.js";
 
 type ProcessOptions = {
   socketPath: string;
@@ -140,6 +141,11 @@ export async function runNativeTerminalHostProcess(argv: ReadonlyArray<string>):
       codePath,
       socket: options.socketPath,
     });
+
+    const isolation = await isolateNativeTerminalHost();
+    if (!isolation.isolated) {
+      writeHostLogLine(`systemd scope unavailable (${isolation.reason}); host remains in its inherited memory cgroup`);
+    }
 
     const host = new NativeTerminalHost({
       generation: options.generation,

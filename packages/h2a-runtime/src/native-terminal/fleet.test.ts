@@ -6,6 +6,20 @@ const session = { id: "h2a-worker", status: "running", pid: 123, generation: "g"
 const endpoints = ["/private/native-terminal.sock", "/private/native-terminal.lf1.sock"];
 
 describe("native fleet ownership", () => {
+  it.each(["live-owner", "lock-timeout"])("should adopt a healthy successor after a raced %s absence proof", async (failure) => {
+    let attempts = 0;
+    const client = { list: async () => [session] } as unknown as NativeTerminalClient;
+    const inventory = await collectNativeInventory([endpoints[0]!], async () => {
+      if (attempts++ === 0) throw Object.assign(new Error("old host died"), { code: "ECONNREFUSED" });
+      return client;
+    }, async () => {
+      if (failure === "lock-timeout") throw new Error("publication lock timed out");
+      return false;
+    });
+    expect(inventory.complete).toBe(true);
+    expect(resolveNativeOwner(session.id, inventory)).toMatchObject({ state: "found", client });
+    expect(attempts).toBe(2);
+  });
   for (const owner of endpoints) {
     it(`should retain the client and socket owning a session on ${owner}`, async () => {
       const clients = new Map(endpoints.map(path => [path, { list: async () => path === owner ? [session] : [] }]));

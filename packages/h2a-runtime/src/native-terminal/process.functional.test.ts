@@ -683,7 +683,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       for (const entry of entries) {
         try {
           const target = await readlink(join(fdDir, entry));
-          if (target === "/dev/ptmx") {
+          if (target === "/dev/ptmx" || target === "/dev/pts/ptmx") {
             fds.push(Number(entry));
           }
         } catch {
@@ -700,7 +700,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
       for (const entry of entries) {
         try {
           const target = await readlink(join(fdDir, entry));
-          if (target === "/dev/ptmx") {
+          if (target === "/dev/ptmx" || target === "/dev/pts/ptmx") {
             const fdinfo = await readFile(`/proc/${hostPid}/fdinfo/${entry}`, "utf8");
             const match = fdinfo.match(/^flags:\s+([0-7]+)/m);
             const flags = match ? parseInt(match[1]!, 8) : 0;
