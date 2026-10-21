@@ -1140,8 +1140,9 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
       // session). Outcomes are never flattened: `driven` carries the
       // automation seq; every host refusal/deferral stays typed as
       // `deferred` with its reason so the wake chain STOPS instead of
-      // falling through to tmux/headless (D9); only transport failures
-      // (unknown session, old host without the operation) read `failed`.
+      // falling through to tmux/headless (D9). An old host without the
+      // operation falls back to the pre-Round-1 lease mechanism below; only
+      // an unknown session reads `failed`.
       const requestId = parsed.flags.get("request-id") ?? randomUUID();
       const { client } = await owningClient(parsed, target.id);
       try {
@@ -1161,9 +1162,39 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
             actor: `owner-channel/op.js pid=${process.pid}`,
           });
         } catch (error) {
-          // Unknown session (or an old host without the operation): the
-          // target cannot take bytes. A stale registry row resolves to a
-          // dead session; the wake layer re-resolves and retries.
+          // An old host without the inject operation keeps the pre-Round-1
+          // lease mechanism: acquire an automation controller and type one
+          // validated line plus submit CR (the cross-generation contract —
+          // historical hosts must still drive). Same degraded idiom as the
+          // attach write-reply path (unknown terminal operation).
+          if (error instanceof NativeTerminalRemoteError
+            && (error as Error).message.includes("unknown terminal operation")) {
+            let lease: NativeTerminalControllerLease;
+            try {
+              // This is one host-side operation. An older host that does not
+              // support it rejects the request, which is deliberately deferred.
+              lease = await client.acquireAutomationControllerIfNoRecentHuman(
+                target.id,
+                `h2a-drive-${process.pid}`,
+                nativeDriveActivityWindowMs(),
+              );
+            } catch {
+              emit({ outcome: "deferred" });
+              return 0;
+            }
+            try {
+              // One validated text line plus one submit CR: no bracketed-paste or
+              // embedded controls can turn this into multiple terminal actions.
+              await client.write(lease, `${text}\r`);
+            } finally {
+              await client.releaseController(lease).catch(() => {});
+            }
+            emit({ outcome: "driven" });
+            return 0;
+          }
+          // Unknown session: the target cannot take bytes. A stale registry
+          // row resolves to a dead session; the wake layer re-resolves and
+          // retries.
           emit({ outcome: "failed", reason: `inject failed: ${(error as Error).message}` });
           return 0;
         }
