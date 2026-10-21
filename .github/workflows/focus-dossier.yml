@@ -46,7 +46,11 @@ jobs:
         run: node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test packages/h2a/focus-kit/test/evidence-memory.test.mjs
       - name: Frozen H1 evidence reactivity and memory policy
         env:
-          TMPDIR: ${{ runner.temp }}
+          # The L0 barrier deletes the run root after the step, so the
+          # launcher publishes <tmp>/**/metrics.json to this exchange dir
+          # before cleanup (see scripts/test-sandbox.mjs); the upload glob
+          # below collects <exchange>/focus-evidence-performance-*/metrics.json.
+          FOCUS_METRICS_OUT: ${{ runner.temp }}
         run: node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test packages/h2a/focus-kit/test/evidence-performance-browser.test.mjs
       - name: Retain raw H1 performance samples and artifact hashes
         if: always()
