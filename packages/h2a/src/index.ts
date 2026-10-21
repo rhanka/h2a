@@ -837,10 +837,13 @@ export {
   formatSignedDriveInstruction,
   headlessDriver,
   latestLaunchContext,
+  asDriveOutcome,
+  isDriven,
   localTmuxDriver,
   loggingDriver,
-  nativeDriveCommand,
   nativeBackchannelDriver,
+  nativeDriveCommand,
+  nativeDriveOutcomeFromOp,
   parseSignedDriveInstruction,
   remoteDriveRejectionStatus,
   remoteDriveServerForStore,
@@ -855,11 +858,13 @@ export {
   type H2ADriveAuthorizeReason,
   type H2ADriveAuthorizeResult,
   type H2ADriveInstructionPayload,
+  type H2ADriveOutcome,
   type H2ADriveReceiveReason,
   type H2ADriveReceiveResult,
   type H2ADriveRemoteReason,
   type H2ADriveRemoteResult,
   type H2ADriveRequest,
+  type H2ADriveResult,
   type H2ADriveVerifyReason,
   type H2ADriveVerifyResult,
   type H2ADriver,
@@ -873,7 +878,8 @@ export {
   type VerifySignedDriveInstructionOptions
 } from "./runtime/drive/index.js";
 
-export { createInboxWakeHandler, type InboxWakeHandlerDeps } from "./runtime/drive/inbox-wake.js";
+export { createInboxWakeHandler, type InboxWakeHandlerDeps, type InboxWakePendingStore } from "./runtime/drive/inbox-wake.js";
+export { readPendingIdsFile } from "./runtime/mcp/pending-ids.js";
 export type { H2aClusterMeshOuterDeps } from "./runtime/drive/cluster-mesh-outer.js";
 
 export async function createH2aClusterMeshOuter(
@@ -1015,7 +1021,7 @@ export {
   type UpgradeDiagnosticsRecord
 } from "./runtime/upgrade/index.js";
 
-export { cmdKeepalive, cmdUpgrade, cmdOrg, cmdCoach, keepaliveOnce, cmdConductorLaunch, cmdPresenceReap, cmdWakeRequest, MCP_UPGRADE_WORKER_SOURCE } from "./cli.js";
+export { cmdKeepalive, cmdUpgrade, cmdOrg, cmdCoach, keepaliveOnce, cmdConductorLaunch, cmdPresenceReap, cmdWakeRequest, MCP_UPGRADE_WORKER_SOURCE, renderUpgradeHuman, shouldUseHumanOutput } from "./cli.js";
 
 export {
   conductorFor,

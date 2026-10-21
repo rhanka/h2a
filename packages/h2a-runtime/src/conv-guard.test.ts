@@ -1,18 +1,16 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { convOwners, formatConvConflict, guardConvWriters } from "./conv-guard.js";
 import type { RegistryEntry } from "./registry.js";
 
-// Scratch dir inside the package (never /tmp), like the other test suites.
-const SCRATCH_ROOT = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "..",
-  ".test-scratch",
-  "conv-guard",
-);
+// Round-1 (code-review sol-8): suite scratch lives under the private TMPDIR
+// (the test-sandbox barrier mounts the package read-only), never in the
+// package's `.test-scratch`. The pure conv-guard-facet suite is NOT a
+// substitute for this wiring qualification.
+const SCRATCH_PREFIX = "h2a-conv-guard-";
 
 let scratch: string;
 let regPath: string;
@@ -22,8 +20,7 @@ const stderr = vi
   .mockImplementation(() => true);
 
 beforeEach(() => {
-  mkdirSync(SCRATCH_ROOT, { recursive: true });
-  scratch = mkdtempSync(join(SCRATCH_ROOT, "g-"));
+  scratch = mkdtempSync(join(tmpdir(), SCRATCH_PREFIX));
   regPath = join(scratch, "registry.json");
   stderr.mockClear();
 });
@@ -109,6 +106,46 @@ describe("convOwners", () => {
     expect(owners).toHaveLength(1);
     expect(owners[0]).toMatchObject({ where: "local" });
     expect(owners[0]!.detail).toContain("pid 4242");
+  });
+
+  it("refuses a live native conversation owner even when its registry pid is absent", () => {
+    // No pid on the row (hook-enrolled native session): the pid probe cannot
+    // verify it — but the native HOST can (foreground CLI holding conv-1 in
+    // the session's own subtree). Host-verified writers refuse hard, exactly
+    // like pid-verified ones; without host evidence the row stays suspect.
+    writeRegistry([
+      entry({
+        id: "uuid-claude-1",
+        kind: "local-native",
+        tmuxSession: "h2a-projA",
+        convId: "conv-1",
+        source: "hook",
+      }),
+    ]);
+    const owners = convOwners("conv-1", {
+      registryPath: regPath,
+      nativeSessionLiveness: (name) => name === "h2a-projA",
+      nativeSubtrees: [
+        {
+          name: "h2a-projA",
+          processes: [
+            {
+              pid: 4242,
+              command: "claude",
+              args: ["--resume", "conv-1"],
+              startedAtMs: 111,
+              ppid: 100,
+            },
+          ],
+        },
+      ],
+    });
+    expect(owners).toHaveLength(1);
+    expect(owners[0]!.suspect).toBeUndefined();
+    expect(owners[0]).toMatchObject({
+      where: "local",
+      facet: "live-agent-cli",
+    });
   });
 
   it("treats a hook-enrolled local session as DEAD if last seen before boot (PID reuse after reboot)", () => {

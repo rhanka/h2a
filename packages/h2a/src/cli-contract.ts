@@ -538,12 +538,12 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
   },
   {
     verb: "upgrade",
-    outputShape: "action",
+    outputShape: "text",
     exitCodes: [0, 1],
     requiredFlags: [],
-    optionalFlags: ["check"],
+    optionalFlags: ["check", "json", "repair"],
     description:
-      "Self-upgrade the global `@sentropic/h2a` (EVO-8, DEC-107). `--check` reports `{current, latest, upgradeAvailable}` without installing; bare runs `npm i -g @sentropic/h2a@latest`. Exit 1 if the install fails."
+      "Self-upgrade the global `@sentropic/h2a` (EVO-8, DEC-107). `--check` reports `{current, latest, upgradeAvailable}` without installing; bare runs the staged self-update (one concise catalog line by default; `--json`: `{ok, current, latest, upgraded, hosts, reason}` with structured host summaries and the split `already current` vs `registry unreachable` reasons). `--repair` confirms the host converge step (`--skip-hosts` skips it). Exit 1 if the install fails."
   },
 
   {

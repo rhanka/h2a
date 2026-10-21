@@ -1,6 +1,10 @@
 // @ts-ignore Shared JS test isolation helper.
 import { createPrivateTestDirectory, installNativeTestEnvironment, nativeTestEnvironment, setupNativeTestEnvironment } from "../../h2a/test/helpers/native-isolation.js";
 setupNativeTestEnvironment(afterAll);
+// The prose assertions below pin the English catalog rendering (the French
+// rendering is qualified by the catalog key-set test and the useLang
+// suites); without this the suite depends on the ambient LANG.
+process.env.H2A_LANG = "en";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   mkdirSync,
@@ -284,7 +288,14 @@ describe("main", () => {
     prepareCentralMcpForRestore.mockReset();
     prepareCentralMcpForRestore.mockResolvedValue(undefined);
     restoreLayout.mockReset();
-    restoreLayout.mockReturnValue({ total: 0 });
+    // The real restore() always returns the observed counts; the default
+    // mock mirrors that shape (a missing `observed` is not a real shape).
+    restoreLayout.mockReturnValue({
+      total: 0,
+      windows: [],
+      dropped: 0,
+      observed: { planned: 0, opened: 0, skippedLive: 0, blocked: 0 },
+    });
     process.exitCode = undefined;
     stderrWrite.mockClear();
     stdoutWrite.mockClear();
@@ -391,7 +402,17 @@ describe("main", () => {
       "remote",
       expect.objectContaining({ attachedTerminal: true, sessionClass: "human" }),
     );
-    expect(attachLocalSession).toHaveBeenCalledWith("h2a-proj");
+    expect(attachLocalSession).toHaveBeenCalledWith(
+      "h2a-proj",
+      // Lot L4-hint (D11b/c): the launching parent hands the survivor its
+      // recreation + attach lines.
+      {
+        sessionEndHint: {
+          recreation: expect.stringContaining("h2a run"),
+          attach: "h2a attach proj",
+        },
+      },
+    );
     expect(stderrWrite.mock.calls.map((c) => String(c[0])).join("")).not.toContain(
       "attach with: h2a attach proj",
     );
@@ -437,6 +458,68 @@ describe("main", () => {
     );
   });
 
+  describe("lot L1b RED: restore exit status (D2)", () => {
+    const AT = "2026-10-20T00:00:00.000Z";
+
+    function blockedRestore() {
+      restoreLayout.mockImplementation((opts: { onLedgerEntry?: (e: unknown) => void }) => {
+        opts.onLedgerEntry?.({
+          session: "a",
+          outcome: "blocked",
+          reason: "occupied-human",
+          at: AT,
+        });
+        return {
+          total: 0,
+          windows: [],
+          dropped: 0,
+          observed: { planned: 0, opened: 0, skippedLive: 0, blocked: 1 },
+        };
+      });
+    }
+
+    it("should exit non-zero when every candidate is blocked", async () => {
+      blockedRestore();
+      const exitCode = await main(["node", "remote", "restore"]);
+      expect(exitCode).toBe(1);
+    });
+
+    it("should exit zero with an empty ledger when no candidates exist", async () => {
+      restoreLayout.mockReturnValue({
+        total: 0,
+        windows: [],
+        dropped: 0,
+        observed: { planned: 0, opened: 0, skippedLive: 0, blocked: 0 },
+      });
+      const exitCode = await main(["node", "remote", "restore"]);
+      expect(exitCode).toBe(0);
+    });
+
+    it("should exit zero for a valid dry-run while reporting blockers as plan data", async () => {
+      blockedRestore();
+      const exitCode = await main(["node", "remote", "restore", "--dry-run"]);
+      expect(exitCode).toBe(0);
+    });
+
+    it("should exit zero when active primaries report already-active outcomes", async () => {
+      restoreLayout.mockImplementation((opts: { onLedgerEntry?: (e: unknown) => void }) => {
+        opts.onLedgerEntry?.({
+          session: "a",
+          outcome: "already-active",
+          at: AT,
+        });
+        return {
+          total: 1,
+          windows: [{ title: "a", tabs: [] }],
+          dropped: 0,
+          observed: { planned: 1, opened: 0, skippedLive: 1, blocked: 0 },
+        };
+      });
+      const exitCode = await main(["node", "remote", "restore"]);
+      expect(exitCode).toBe(0);
+    });
+  });
+
   it("continues restore when central MCP degrades", async () => {
     prepareCentralMcpForRestore.mockResolvedValue({
       status: "degraded",
@@ -448,7 +531,8 @@ describe("main", () => {
     expect(exitCode).toBe(0);
     expect(process.exitCode).not.toBe(1);
     expect(prepareCentralMcpForRestore).toHaveBeenCalledWith({ root: process.cwd() });
-    expect(restoreLayout).toHaveBeenCalledWith({ dryRun: true });
+    // The command always wires the run-scoped ledger callback (pre-existing).
+    expect(restoreLayout).toHaveBeenCalledWith({ dryRun: true, onLedgerEntry: expect.any(Function) });
     expect(stderrWrite.mock.calls.map((c) => String(c[0])).join("")).toContain(
       "central MCP unavailable, falling back to per-session sidecar: central liveness is ambiguous",
     );
@@ -843,7 +927,18 @@ describe("main", () => {
     try {
       const exitCode = await main(["node", "remote", "attach", "h2a"]);
       expect(exitCode).toBe(0);
-      expect(attachLocalSession).toHaveBeenCalledWith("remote-h2a");
+      expect(attachLocalSession).toHaveBeenCalledWith(
+        "remote-h2a",
+        // Lot L4-hint (D11b/c): the attach carries the row's own recreation
+        // (conversation-less row: no -r) plus the attach line.
+        {
+          sessionEndHint: {
+            recreation:
+              "h2a run 'claude' '/home/u/src/a2a-cli' --name 'h2a' --tmux",
+            attach: "h2a attach h2a",
+          },
+        },
+      );
       expect(attach).not.toHaveBeenCalled();
     } finally {
       rmSync(regPath, { force: true });

@@ -34,11 +34,28 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { discoverSuites, readInventory, verifyExecutionReport, inventoryFailures } from "./test-execution-evidence.mjs";
 import { policyFor, readDeclaredNonTests } from "./test-inventory.mjs";
-import { ensureHistoricalGitRef, LEGACY_HOST_REF } from "./historical-test-ref.mjs";
+import { ensureHistoricalGitRef, IDENTITY_BASE_REF, LEGACY_HOST_REF } from "./historical-test-ref.mjs";
 import { reportSuiteDurations } from "./report-test-durations.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = resolve(HERE, "..");
+
+// Lot L0: self-sandboxing envelope (see the invokedDirectly block at the
+// bottom). Function declaration: callable before its textual definition.
+function ensureSandboxedInvocation(invokedDirectly) {
+  if (!invokedDirectly) return;
+  if (process.env.H2A_TEST_STATE_BARRIER === '1' && process.env.H2A_TEST_STATE_ATTESTATION) return;
+  // Provision git-written state BEFORE the barrier: the legacy-host
+  // scenarios need a historical ref that only `git fetch` provides, and
+  // the barrier mounts the checkout read-only. A missing ref is a hard
+  // failure inside, so surface fetch errors here, unconfined.
+  ensureHistoricalGitRef(REPO_ROOT, LEGACY_HOST_REF);
+  // The identity lane archives a second historical ref at module load; fetch
+  // it here too — inside the barrier .git is read-only (EROFS on FETCH_HEAD).
+  ensureHistoricalGitRef(REPO_ROOT, IDENTITY_BASE_REF);
+  const sandbox = spawnSync(process.execPath, ['scripts/test-sandbox.mjs', '--', process.execPath, ...process.argv.slice(1)], { stdio: 'inherit', cwd: REPO_ROOT });
+  process.exit(sandbox.status ?? 1);
+}
 
 // A1: la suite vit dans packages/h2a/test (h2a-cli est un stub deprecie, sans tests).
 export const TEST_DIRS = ["packages/h2a/test", "packages/focus-interactive/test"];
@@ -487,6 +504,10 @@ function main() {
 // TEST_DIRS / discoverTestFiles to report the run's scope without executing it.
 const invokedDirectly =
   process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+// Lot L0: same self-sandboxing envelope as run-test-gates.mjs — never run
+// tests without the inherited filesystem barrier (separate statement: the
+// C9 contract pins the exact `if (invokedDirectly) { main(); }` shape).
+ensureSandboxedInvocation(invokedDirectly);
 if (invokedDirectly) {
   main();
 }

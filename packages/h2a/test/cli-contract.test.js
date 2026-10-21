@@ -1663,7 +1663,7 @@ for (const contract of H2A_CLI_VERB_CONTRACTS) {
     });
     continue;
   }
-  test(`${contract.verb} emits a ${contract.outputShape} envelope on the happy path`, (t) => {
+  test(`${contract.verb} emits a ${contract.outputShape} envelope on the happy path`, async (t) => {
     if (contract.outputShape === "stream") {
       t.skip(`${contract.verb}: stream shape without a registered streaming harness (ASYNC_HAPPY_PATHS)`);
       return;
@@ -1700,9 +1700,9 @@ for (const contract of H2A_CLI_VERB_CONTRACTS) {
       const streams = captureStreams(dir);
       let rc;
       if (contract.verb === "upgrade") {
-        rc = cmdUpgrade({}, streams, injectedUpgradeRuntime(dir));
+        rc = await cmdUpgrade({}, streams, injectedUpgradeRuntime(dir));
       } else {
-        rc = runCli(
+        rc = await runCli(
           argv,
           streams,
           contract.verb === "host setup"

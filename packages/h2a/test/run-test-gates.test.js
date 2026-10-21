@@ -489,9 +489,20 @@ test('CI exposes an independent, stable npm-test-trust-root job', () => {
   assert.deepEqual(
     commands,
     [
+      // Round-1 (code-review astra-8/sol-9, wonder-P3): the job provisions
+      // AND qualifies the L0 filesystem barrier (bubblewrap) before any
+      // test-sandbox invocation — no unconfined fallback. Round-3
+      // (reviews pr382-r3): the provision installs uidmap too (the
+      // newuidmap/newgidmap helpers unprivileged uid mapping needs on
+      // runners) and lifts the Ubuntu 24.04+ AppArmor unprivileged-userns
+      // restriction where the knob exists (provisioning, not a fallback),
+      // and the real-namespace qualification step is pinned here so it can
+      // never silently drop out of the job.
+      'command -v bwrap >/dev/null || { sudo apt-get update && sudo apt-get install -y bubblewrap uidmap; } && bwrap --version && if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi',
+      'bwrap --unshare-user --unshare-pid --unshare-uts --unshare-ipc --unshare-cgroup --die-with-parent --ro-bind / / --proc /proc --dev /dev --tmpfs /tmp -- true',
       'npm ci',
       'npm install --global @openai/codex@0.145.0 @anthropic-ai/claude-code@2.1.296',
-      'node --test packages/h2a/test/run-test-gates.test.js',
+      'node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test packages/h2a/test/run-test-gates.test.js',
       'node scripts/run-test-gates.mjs',
     ],
     'the dedicated job must verify the runner and then execute its real entrypoint',
@@ -857,10 +868,15 @@ test('R8.1 execution (lab): through the pinned config, a filter or skip that rem
     }
     // The gate's own reading of the run: the command's exit code AND the
     // execution proof the runner would apply to the report the run wrote.
+    // Round-3 (reviews pr382-r3): hermetic interpreter like the discovery
+    // probe above — a nested `/usr/bin/env node` shebang resolution fails
+    // on runners whose PATH does not carry node into the spawn (127 with
+    // `env: 'node': No such file or directory`), which would read as a gate
+    // failure. Same binary, same pinned config, explicit interpreter.
     const runGate = (configPath) => {
       const reportPath = join(lab, 'report.json')
       rmSync(reportPath, { force: true })
-      const run = spawnSync('node_modules/.bin/vitest', ['run', '--config', configPath], {
+      const run = spawnSync(process.execPath, [resolve(REPO_ROOT, 'node_modules', 'vitest', 'vitest.mjs'), 'run', '--config', configPath], {
         cwd: REPO_ROOT,
         encoding: 'utf8',
         timeout: 120_000,
@@ -1068,6 +1084,7 @@ function sentinelRunnerSource({ brokenId, dropInLoop, dropAtEntry, executionProo
   source = source.replaceAll("'./test-execution-evidence.mjs'", JSON.stringify(pathToFileURL(resolve(REPO_ROOT, 'scripts/test-execution-evidence.mjs')).href))
   source = source.replaceAll("'./test-inventory.mjs'", JSON.stringify(pathToFileURL(resolve(REPO_ROOT, 'scripts/test-inventory.mjs')).href))
   source = source.replaceAll("'./report-test-durations.mjs'", JSON.stringify(pathToFileURL(resolve(REPO_ROOT, 'scripts/report-test-durations.mjs')).href))
+  source = source.replaceAll("'./historical-test-ref.mjs'", JSON.stringify(pathToFileURL(resolve(REPO_ROOT, 'scripts/historical-test-ref.mjs')).href))
   source = source.replace("const inventory = readInventory(REPO_ROOT)", "const inventory = {}").replace("policyFor(REPO_ROOT, inventory, 'runtime')", "{}")
   const beforeRoot = source
   source = source.replace("const REPO_ROOT = resolve(HERE, '..')", 'const REPO_ROOT = HERE')

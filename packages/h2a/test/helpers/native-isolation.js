@@ -9,16 +9,72 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 // Test-only short root for deep worktrees whose AF_UNIX paths would overflow.
 // The runner creates it with mkdtemp; every child carries the same boundary.
-const shortQualificationRoot = process.env.H2A_TEST_QUALIFICATION_ROOT;
-if (shortQualificationRoot !== undefined) {
-  assert.ok(/^\/tmp\/h2a-qual-[A-Za-z0-9]+$/.test(shortQualificationRoot), "REFUSING invalid short qualification root");
-  const info = lstatSync(shortQualificationRoot);
-  assert.ok(info.isDirectory() && !info.isSymbolicLink() && info.uid === process.getuid() && (info.mode & 0o777) === 0o700,
-    "REFUSING non-private short qualification root");
+//
+// Lot L0: when the authorised launcher marks the run (H2A_TEST_STATE_ROOT +
+// attestation), the qualification root is that run root — never the real
+// /tmp (owner /tmp rule) and never the repo checkout (read-only under the
+// filesystem barrier). Otherwise the legacy /tmp short-root contract holds.
+function readAttestedStateRoot() {
+  const marker = process.env.H2A_TEST_STATE_ROOT;
+  const attestationPath = process.env.H2A_TEST_STATE_ATTESTATION;
+  if (!marker || !attestationPath) return undefined;
+  let parsed;
+  try {
+    parsed = JSON.parse(fs.readFileSync(attestationPath, "utf8"));
+  } catch {
+    return undefined;
+  }
+  if (!parsed || typeof parsed !== "object" || parsed.version !== 1
+    || typeof parsed.root !== "string" || typeof parsed.nonce !== "string"
+    || parsed.nonce.length < 16 || resolve(parsed.root) !== resolve(marker)) {
+    return undefined;
+  }
+  return marker;
+}
+/**
+ * Round-3 (reviews pr382-r3): the sanctioned T10 namespace-qualification
+ * entry. scripts/run-namespace-qualification.mjs must observe REAL host PID
+ * and network namespaces, so it cannot run inside the filesystem barrier
+ * (bwrap would nest namespaces and invalidate the qualification). It marks
+ * its run with H2A_TEST_QUALIFICATION_ROOT pointing at a caller-owned
+ * private 0700 dir, and all fixture state roots derive from it — real state
+ * stays untouched. This is a bounded exemption, not a fallback: any other
+ * unconfined invocation still refuses below.
+ */
+function readValidQualificationRoot(env = process.env) {
+  const shortQualificationRoot = env.H2A_TEST_QUALIFICATION_ROOT;
+  if (shortQualificationRoot === undefined) return undefined;
+  if (!/^\/tmp\/h2a-qual-[A-Za-z0-9]+$/.test(shortQualificationRoot)) return undefined;
+  let info;
+  try {
+    info = lstatSync(shortQualificationRoot);
+  } catch {
+    return undefined;
+  }
+  if (!info.isDirectory() || info.isSymbolicLink() || info.uid !== process.getuid() || (info.mode & 0o777) !== 0o700) {
+    return undefined;
+  }
+  return shortQualificationRoot;
+}
+export function assertConfinedTestEnvironment(env = process.env) {
+  if (readAttestedStateRoot() === undefined && readValidQualificationRoot(env) === undefined) {
+    throw new Error("REFUSING unconfined test run before test evaluation: no valid test-state attestation (run through scripts/test-sandbox.mjs)");
+  }
+  if (env.H2A_TEST_STATE_BARRIER !== "1" && readValidQualificationRoot(env) === undefined) {
+    throw new Error("REFUSING unconfined test run before test evaluation: filesystem barrier not active (run through scripts/test-sandbox.mjs)");
+  }
+}
+const attestedStateRoot = readAttestedStateRoot();
+const shortQualificationRoot = readValidQualificationRoot();
+if (shortQualificationRoot !== undefined && attestedStateRoot === undefined) {
+  assert.ok(typeof shortQualificationRoot === "string" && shortQualificationRoot.length > 0, "REFUSING invalid short qualification root");
+}
+if (attestedStateRoot !== undefined) {
+  mkdirSync(attestedStateRoot, { recursive: true, mode: 0o700 });
 }
 // The repo default must also fit the historical host's longer staging name,
 // including a mkdtemp suffix and seven-digit PID in deeply nested worktrees.
-export const nativeQualificationRoot = shortQualificationRoot ?? resolve(import.meta.dirname, "../../../../.q");
+export const nativeQualificationRoot = attestedStateRoot ?? shortQualificationRoot ?? resolve(import.meta.dirname, "../../../../.q");
 
 const ownerHome = os.userInfo?.()?.homedir ?? os.homedir();
 const ownerUid = os.userInfo?.()?.uid;
@@ -32,11 +88,18 @@ function rejectOwnerPath(path) {
     ownerHome ? join(ownerHome, ".config") : undefined,
     ownerHome ? join(ownerHome, "h2a-workspace") : undefined,
   ].filter(Boolean);
+  // Lot L0: the owner /tmp rule mandates run roots under
+  // ~/.cache-tmp/h2a-test/, which the historical cache ban below would
+  // refuse. Carve out exactly the launcher-attested run root (a private
+  // mkdtemp dir tied to this run by attestation); every other h2a-* cache
+  // path stays banned.
+  const attested = typeof readAttestedStateRoot === "function" ? readAttestedStateRoot() : undefined;
+  const underAttested = attested !== undefined && (path === attested || path.startsWith(`${attested}/`));
 
   assert.ok(
     !exactForbidden.includes(path) &&
     !prefixForbidden.some(root => path === root || path.startsWith(`${root}/`)) &&
-    (!ownerHome || !path.startsWith(join(ownerHome, ".cache-tmp/h2a-"))),
+    (underAttested || !ownerHome || !path.startsWith(join(ownerHome, ".cache-tmp/h2a-"))),
     `REFUSING owner path before filesystem access: ${path}`);
 }
 
@@ -68,10 +131,42 @@ function resolvedPath(path, depth = 0, boundary) {
   return current;
 }
 
-export function assertPrivateQualificationPath(path, root) {
+/**
+ * Round-3 CI repair: translate barrier-overlay checkout paths to their
+ * run-root backing dir before enforcing the qualification root. The mapping
+ * is launcher-declared (H2A_TEST_STATE_OVERLAYS, JSON [{path, shadow}]) and
+ * honored ONLY with the barrier active and only when the shadow resolves
+ * inside the asserted root — a mapping can only redirect INTO confinement,
+ * never out. Malformed entries are ignored (fail closed, refuse as usual).
+ */
+export function applyTestStateOverlays(candidate, env = process.env, root = nativeQualificationRoot) {
+  if (env.H2A_TEST_STATE_BARRIER !== "1") return candidate;
+  let parsed;
+  try {
+    parsed = JSON.parse(env.H2A_TEST_STATE_OVERLAYS ?? "");
+  } catch {
+    return candidate;
+  }
+  if (!Array.isArray(parsed)) return candidate;
+  const absolute = resolve(candidate);
+  const actualRoot = resolve(root);
+  for (const entry of parsed) {
+    if (typeof entry !== "object" || entry === null
+      || typeof entry.path !== "string" || typeof entry.shadow !== "string") continue;
+    if (!isAbsolute(entry.path) || !isAbsolute(entry.shadow)) continue;
+    const shadow = resolve(entry.shadow);
+    const shadowRel = relative(actualRoot, shadow);
+    if (!(shadowRel === "" || (!shadowRel.startsWith("..") && !shadowRel.startsWith("/")))) continue;
+    const rel = relative(resolve(entry.path), absolute);
+    if (rel === "" || (!rel.startsWith("..") && !rel.startsWith("/"))) return join(shadow, rel);
+  }
+  return candidate;
+}
+
+export function assertPrivateQualificationPath(path, root, env = process.env) {
   const actualRoot = resolvedPath(root, 0, resolve(root));
   assert.equal(actualRoot, resolve(root), "REFUSING aliased qualification root before mutation");
-  const actual = resolvedPath(path, 0, actualRoot);
+  const actual = resolvedPath(applyTestStateOverlays(path, env, root), 0, actualRoot);
   const rel = relative(actualRoot, actual);
   assert.ok(rel === "" || (!rel.startsWith("..") && !rel.startsWith("/")),
     `REFUSING path outside qualification root: ${actual}`);
@@ -119,10 +214,32 @@ export function assertIsolatedNativeOperation(env, root = nativeQualificationRoo
 // A complete child fixture never inherits owner configuration or socket overrides.
 export function nativeTestEnvironment(root, overrides = {}) {
   assertPrivateQualificationPath(root, nativeQualificationRoot);
-  const env = { ...(nativeQualificationRoot.startsWith("/tmp/") ? { H2A_TEST_QUALIFICATION_ROOT: nativeQualificationRoot } : {}), PATH: "/usr/bin:/bin", TERM: "xterm-256color", HOME: join(root, "home"),
+  // Round-3 CI repair: the fixture PATH keeps the toolchain directory of the
+  // node running the tests (shebang `#!/usr/bin/env node` children, npm
+  // lifecycle `node ...` scripts) ahead of the minimal /usr/bin:/bin. A
+  // hardcoded /usr/bin:/bin only works where the OS ships a node there —
+  // hosted CI runners carry it beside the runner-selected node instead.
+  const toolDir = dirname(process.execPath);
+  const fixturePath = toolDir === "/usr/bin" || toolDir === "/bin" ? "/usr/bin:/bin" : `${toolDir}:/usr/bin:/bin`;
+  // The barrier-overlay mapping is launcher-declared confinement metadata
+  // (like H2A_TEST_QUALIFICATION_ROOT above): fixture children enforce the
+  // same translated guards, so it travels with the fixture env.
+  const overlayPassthrough = process.env.H2A_TEST_STATE_OVERLAYS !== undefined
+    ? { H2A_TEST_STATE_OVERLAYS: process.env.H2A_TEST_STATE_OVERLAYS }
+    : {};
+  const env = { ...(nativeQualificationRoot.startsWith("/tmp/") ? { H2A_TEST_QUALIFICATION_ROOT: nativeQualificationRoot } : {}), ...overlayPassthrough, PATH: fixturePath, TERM: "xterm-256color", HOME: join(root, "home"),
     XDG_RUNTIME_DIR: root, XDG_STATE_HOME: join(root, "state"), XDG_CONFIG_HOME: join(root, "config"),
     H2A_NATIVE_SOCKET: join(root, "host.sock"), REMOTE_CLI_CONFIG_HOME: join(root, "config"),
     TMPDIR: join(root, "tmp"), TMUX_TMPDIR: root, H2A_ROOT: join(root, "store"), ...overrides };
+  // Carry the barrier triple into the fixture env itself (not only into
+  // child_process spawns): children launched outside the spawn guard (PTY,
+  // tmux) run the same import-time gate and must verify inside this barrier
+  // instead of refusing for a missing attestation. Explicit overrides win;
+  // without a triple in this process nothing is added and the gate still
+  // refuses unconfined invocations.
+  for (const key of ["H2A_TEST_STATE_ROOT", "H2A_TEST_STATE_ATTESTATION", "H2A_TEST_STATE_BARRIER"]) {
+    if (env[key] === undefined && process.env[key] !== undefined) env[key] = process.env[key];
+  }
   assertIsolatedEnvironment(env);
   for (const key of ["HOME", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "REMOTE_CLI_CONFIG_HOME", "TMPDIR"])
     mkdirSync(env[key], { recursive: true, mode: 0o700 });
@@ -199,6 +316,14 @@ function guardedEnvironment(command, args, env, cwd = process.cwd()) {
   const options = env.NODE_OPTIONS ?? "";
   const prepared = privateProcessEnvironment({ ...env,
     NODE_OPTIONS: options.includes(preload) ? options : `${options} ${preload}`.trim() });
+  // Lot L0: Node children run this same preload through NODE_OPTIONS, so a
+  // child without the confinement triple would fail the import-time gate in
+  // a different way than its confined parent. Propagate the triple (when
+  // this process has it) so children verify inside the same barrier. An
+  // unconfined parent has nothing to propagate and the gate still refuses.
+  for (const key of ["H2A_TEST_STATE_ROOT", "H2A_TEST_STATE_ATTESTATION", "H2A_TEST_STATE_BARRIER", "H2A_TEST_STATE_OVERLAYS"]) {
+    if (prepared[key] === undefined && process.env[key] !== undefined) prepared[key] = process.env[key];
+  }
   assert.ok(!closedProcessRoots.has(prepared.H2A_TEST_OWNED_PROC_ROOT), "REFUSING spawn after native fixture teardown");
   return prepared;
 }
@@ -329,14 +454,24 @@ export function installNativeTestSpawnGuard() {
     }
     return result;
   };
+  // Lot L0: preserve Node's overload contract — only a missing args or an
+  // options object normalizes; any other non-array args (a number, a string)
+  // must still throw exactly as the unpatched spawnSync would (the a5
+  // execution-evidence control pins the throw for a malformed step).
+  function normalizeSyncArgs(args, options) {
+    if (args === undefined || (typeof args === "object" && args !== null && !Array.isArray(args))) {
+      return [[], args];
+    }
+    return [args, options];
+  }
   childProcess.spawnSync = function (command, args, options) {
-    if (!Array.isArray(args)) { options = args; args = []; }
+    [args, options] = normalizeSyncArgs(args, options);
     const env = guardedEnvironment(command, args, options?.env ?? process.env, options?.cwd);
     return actualSpawnSync(command, args, { ...options, env });
   };
   // Node's sync exec helpers retain an internal spawnSync reference.
   childProcess.execFileSync = function (command, args, options) {
-    if (!Array.isArray(args)) { options = args; args = []; }
+    [args, options] = normalizeSyncArgs(args, options);
     const env = guardedEnvironment(command, args, options?.env ?? process.env, options?.cwd);
     return actualExecFileSync(command, args, { ...options, env });
   };
@@ -472,6 +607,53 @@ export async function waitForPrivateNativeProcesses(env) {
     if (alive.length === 0) return;
     assert.ok(Date.now() < deadline, `fixture processes still writing after host shutdown: ${alive.join(", ")}`);
     await new Promise(resolve => setTimeout(resolve, 10));
+  }
+}
+
+// Lot L0: importing this preload establishes the isolated worker roots
+// immediately and refuses an unconfined invocation before any test or product
+// module above is evaluated. Idempotent per process (Symbol.for survives
+// vitest's fresh module registries inside one worker).
+const importConfinement = Symbol.for("h2a.test.importConfinement");
+if (globalThis[importConfinement] === undefined) {
+  globalThis[importConfinement] = false;
+}
+if (globalThis[importConfinement] === false) {
+  globalThis[importConfinement] = true;
+  // The gate always runs: no attestation + barrier, no test evaluation.
+  assertConfinedTestEnvironment(process.env);
+  // Roots are established only when this process is not already isolated:
+  // a fixture child spawned with a deliberate isolated env (socket, state
+  // roots) must keep it — re-rooting it would redirect its state writes
+  // away from the fixture the test observes. The deliberately empty
+  // H2A_NATIVE_SOCKET form (foreign-host probe fixtures) is isolated too:
+  // use the same operation-tolerant gate as the spawn guard, not the
+  // strict environment gate (which requires a non-empty socket and would
+  // re-root every proof/op/host child of those fixtures onto a fresh
+  // worker root with an empty proc view).
+  let alreadyIsolated = false;
+  try {
+    assertIsolatedNativeOperation(process.env);
+    alreadyIsolated = true;
+  } catch {
+    alreadyIsolated = false;
+  }
+  if (!alreadyIsolated && attestedStateRoot !== undefined) {
+    const workerRoot = mkdtempSync(join(attestedStateRoot, "w-"));
+    // Backstop, not a takeover: fill only the isolation keys this process
+    // lacks. A deliberate foreign env (release-candidate fixtures with fake
+    // PATH binaries, owner-style HOME) keeps every custom value —
+    // overwriting it here used to redirect those children onto worker state
+    // (lost fake git, empty proc view) and break their suites.
+    const backstop = nativeTestEnvironment(workerRoot);
+    for (const [key, value] of Object.entries(backstop)) {
+      if (process.env[key] === undefined && value !== undefined) process.env[key] = value;
+    }
+    // A fresh worker root replaces every state root: drop owner-carried
+    // optional handles (host log, tmux) that the process-view assert below
+    // would otherwise refuse as paths outside confinement.
+    delete process.env.H2A_NATIVE_HOST_LOG;
+    process.env.TMUX = "";
   }
 }
 

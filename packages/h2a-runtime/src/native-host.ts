@@ -27,7 +27,8 @@ import {
   headlessCommand,
   LOCAL_WRAPPER,
   STRUCTURED_LOCAL_WRAPPER,
-  localRelaunchCommand,
+  localResumeHintArgs,
+  localResumeHintLine,
   localSessionName,
   procReaderDeps,
   slugify,
@@ -40,6 +41,7 @@ import { sleepSync, type PromptDeliveryDeps } from "./prompt-delivery.js";
 import { SESSION_CLASS_ENV, type SessionClass } from "./session-class.js";
 import { withAttachTerminalRecovery } from "./native-terminal/attach-recovery.js";
 import { appendCrashLog } from "./crash-log.js";
+import type { NativeTerminalProcessSnapshot } from "./native-terminal/protocol.js";
 
 const OP_TIMEOUT_MS = 15_000;
 const H2A_NATIVE_TARGET_SESSION_ENV = "H2A_NATIVE_TARGET_SESSION";
@@ -76,6 +78,12 @@ export type NativeSessionState = {
   readonly pid: number;
   readonly status: "running" | "stopping" | "exited";
   readonly exit: { readonly exitCode: number; readonly signal?: number } | null;
+  /**
+   * Round-1 (D1/L1b): the host-observed foreground worker tree, served by
+   * the session's own host on `state`. Absent on old hosts and whenever the
+   * tree is unattestable — callers keep `unknown`, never an empty verdict.
+   */
+  readonly foregroundProcesses?: ReadonlyArray<NativeTerminalProcessSnapshot>;
   /**
    * Controller-visibility bit (never the controller's identity): true when an
    * exclusive input controller is attached. OPTIONAL because an older running
@@ -379,18 +387,19 @@ export function startNativeSession(
     }
     return { name, slug, pid: existing.session.pid };
   }
+  // Lot L4-hint (D11a) — same wrapper contract as the tmux path: `$0` is
+  // the pre-rendered in-PTY resume line, `$1` the managed session name.
   const agentCommand = metadata.terminateOnAgentExit
     ? ["/bin/bash", "-lc", STRUCTURED_LOCAL_WRAPPER, command, ...args]
     : [
         "/bin/bash",
         "-lc",
         LOCAL_WRAPPER,
-        localRelaunchCommand(
-          profile,
-          cwd,
-          label,
-          metadata.resumeId ? ["--resume", metadata.resumeId] : [],
+        localResumeHintLine(
+          command,
+          localResumeHintArgs(profile, metadata.resumeId),
         ),
+        name,
         command,
         ...args,
       ];
@@ -799,9 +808,24 @@ function nativeReadinessPidMatches(pid: number, ownerPid: number): boolean {
  * Foreground interactive attach on the CURRENT terminal (tmux attach twin).
  * Blocks until the session exits or the user detaches with Ctrl-\.
  */
-export function attachNativeSession(name: string, socketPath?: string, options: { takeover?: boolean } = {}): number {
+export function attachNativeSession(
+  name: string,
+  socketPath?: string,
+  options: {
+    takeover?: boolean;
+    /**
+     * Lot L4-hint (D11b/c) — survivor hints for the OUTER terminal, carried
+     * to the attach child as flags (the child owns the terminal while
+     * attached). `recreation` prints only on an OBSERVED session exit, never
+     * on detach/takeover/unproven loss; `attach` prints on user detach.
+     */
+    sessionEndHint?: { recreation?: string; attach?: string };
+  } = {},
+): number {
   const r = withAttachTerminalRecovery((env) =>
-    spawnSync(process.execPath, [opEntryPath(), "attach", "--id", name, ...(socketPath ? ["--socket", socketPath] : []), ...(options.takeover ? ["--takeover"] : [])], {
+    spawnSync(process.execPath, [opEntryPath(), "attach", "--id", name, ...(socketPath ? ["--socket", socketPath] : []), ...(options.takeover ? ["--takeover"] : []),
+      ...(options.sessionEndHint?.recreation !== undefined ? ["--recreation-hint", options.sessionEndHint.recreation] : []),
+      ...(options.sessionEndHint?.attach !== undefined ? ["--attach-hint", options.sessionEndHint.attach] : [])], {
       stdio: "inherit", env,
     }));
   return r.status ?? 1;

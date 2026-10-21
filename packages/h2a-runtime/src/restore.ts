@@ -20,26 +20,38 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import {
+  isLiveFacetRow,
   launchLayout,
+  resolveOccupiedHumanRefusals,
   tabCommand,
   type HostViewSnapshot,
+  type SessionFacetRow,
 } from "./launch-layout.js";
+import { humanOutputText } from "./human-output.js";
 
 import {
   getLayoutConfig,
   resolveConfigPath,
   type LayoutConfig,
+  type LayoutGroup,
 } from "./config.js";
+// Lot LG (D13) — re-exported so group-config validation lives next to the
+// grouping it guards (the `restore-groups` suite imports both from here).
+export { normalizeLayoutGroups, validateLayoutGroups } from "./config.js";
 import { encodeCwd } from "./convsync.js";
 import {
+  classifyRestoreFacet,
+  hasDelegationProvenance,
   isManagedLocalKind,
   loadRegistry,
   looksLikeConversationUuid,
   persistReconciledConvIds,
+  persistRestoreFacets,
   resolveManagedHost,
   type ManagedHostProbeResult,
   type RawRow,
   type RegistryEntry,
+  type RestoreFacet,
 } from "./registry.js";
 import {
   listLocalSessions,
@@ -50,7 +62,8 @@ import {
   type LocalSession,
 } from "./tmux.js";
 import type { SessionClass } from "./session-class.js";
-import { listNativeSessions } from "./native-host.js";
+import { listNativeSessions, nativeSessionState } from "./native-host.js";
+import { guardTestStateWrite } from "./test-state-guard.js";
 
 // Compatibility re-exports: the layout renderer lives in launch-layout.ts —
 // a module WITHOUT reader access (F3) — but callers keep importing it here.
@@ -59,6 +72,10 @@ export {
   launchLayout,
   tabCommand,
   type HostViewSnapshot,
+} from "./launch-layout.js";
+import {
+  decideInPlaceResume,
+  type HostProcessSnapshot,
 } from "./launch-layout.js";
 
 export type DiscoveredSession = {
@@ -107,6 +124,11 @@ export type DiscoveredSession = {
    * transcript scan is always `unclassified` because it carries no role/class.
    */
   restoreClass: "human" | "unclassified";
+  /**
+   * Lot LG (D13) — registry tags for tag-matcher groups (passthrough from
+   * the registry row; scans carry none).
+   */
+  tags?: string[];
 };
 
 export type LayoutTab = {
@@ -133,7 +155,81 @@ export type LayoutTab = {
 export type LayoutWindow = { title: string; tabs: LayoutTab[] };
 
 /** A pre-resolved SCW tab for a remote group (built by the caller from `remote ls`). */
-export type RemoteTab = { id: string; label: string; cwd: string };
+export type RemoteTab = {
+  id: string;
+  label: string;
+  cwd: string;
+  /**
+   * Round-1 (D12c) — durable restore facet when the control plane reports
+   * one. Absent = unclassified remote row: excluded from the default plan
+   * and named (only positively-classified primaries restore); `secondary`
+   * rows are excluded from the default plan and restored only with the
+   * opt-in.
+   */
+  restoreFacet?: RestoreFacet;
+};
+
+/**
+ * Round-1 (D12c) — remote-tab selection per group (D12). Only
+ * positively-classified primaries restore by default; `secondary` rows
+ * need the explicit opt-in, and unclassified rows (no facet reported) are
+ * excluded and named until the server reports facets. The opt-in admits
+ * secondaries only — unclassified rows are never an opt-in side effect.
+ */
+export function selectRemoteTabsForGroups(
+  tabs: ReadonlyArray<RemoteTab>,
+  opts: { includeSecondary?: boolean; onExcludedUnclassified?: (tabs: RemoteTab[]) => void } = {},
+): RemoteTab[] {
+  const excludedUnclassified = tabs.filter((t) => t.restoreFacet === undefined);
+  if (excludedUnclassified.length > 0) {
+    opts.onExcludedUnclassified?.(excludedUnclassified);
+  }
+  const classified = tabs.filter((t) => t.restoreFacet !== undefined);
+  if (opts.includeSecondary === true) return classified.slice();
+  return classified.filter((t) => t.restoreFacet !== "secondary");
+}
+
+/**
+ * Lot LG (D13) — fill `remote: true` groups from the SCW tabs, first match
+ * wins, exactly one group per tab. A remote group with NO matchers is an
+ * explicit catch-all for the tabs no matcher group claimed (local groups
+ * keep their own shared-window fallback instead). Tabs claimed by no remote
+ * group are left unassigned — the caller reports them, never drops them
+ * silently.
+ */
+export function assignRemoteTabsToGroups(
+  tabs: ReadonlyArray<RemoteTab>,
+  groups: ReadonlyArray<LayoutGroup>,
+): Map<string, RemoteTab[]> {
+  const assigned = new Map<string, RemoteTab[]>();
+  const placed = new Set<RemoteTab>();
+  const put = (title: string, t: RemoteTab): void => {
+    const arr = assigned.get(title) ?? [];
+    arr.push(t);
+    assigned.set(title, arr);
+    placed.add(t);
+  };
+  const matches = (t: RemoteTab, g: LayoutGroup): boolean => {
+    if ((g.projects ?? []).includes(t.label)) return true;
+    for (const raw of g.cwdPrefixes ?? []) {
+      const prefix = raw.length > 1 ? raw.replace(/\/+$/, "") : raw;
+      if (t.cwd === prefix || t.cwd.startsWith(`${prefix}/`)) return true;
+    }
+    return false;
+  };
+  for (const g of groups) {
+    if (g.remote !== true) continue;
+    const hasMatchers =
+      (g.projects?.length ?? 0) > 0 || (g.cwdPrefixes?.length ?? 0) > 0;
+    for (const t of tabs) {
+      if (placed.has(t)) continue;
+      // A matcher-less remote group is the explicit catch-all; otherwise
+      // only a matcher hit claims the tab.
+      if (!hasMatchers || matches(t, g)) put(g.title, t);
+    }
+  }
+  return assigned;
+}
 
 /** Project identity is the whole workspace path below ~/src, never its root. */
 function projectForCwd(src: string, cwd: string): string | undefined {
@@ -143,28 +239,55 @@ function projectForCwd(src: string, cwd: string): string | undefined {
   return project || undefined;
 }
 
-/** Discover claude + codex sessions under ~/src/* newer than maxAgeMs. */
+/**
+ * Discover claude + codex sessions under ~/src/* newer than maxAgeMs.
+ *
+ * Lot LG (D13) — `extraRoots` (a local group's `cwdPrefixes` matchers)
+ * extends the scan beyond `~/src`: transcript dirs of every discovery root
+ * are walked, and rows under a group root are exempt from the age cutoff
+ * (the group explicitly asked for that fleet). With no extra roots the walk
+ * and the admission are byte-identical to the ~/src-only scan.
+ */
 export function discoverSessions(
   maxAgeMs: number,
   home: string = homedir(),
+  extraRoots: readonly string[] = [],
 ): DiscoveredSession[] {
   const src = join(home, "src");
   const cutoff = Date.now() - maxAgeMs;
   const out: DiscoveredSession[] = [];
+  // Discovery roots, longest first so a nested group root beats its parent.
+  // `~/src` stays first when lengths tie (it is the default base).
+  const scanBases = [
+    src,
+    ...new Set(
+      extraRoots
+        .map((r) => (r.length > 1 ? r.replace(/\/+$/, "") : r))
+        .filter((r) => r.length > 0 && r !== src),
+    ),
+  ].sort((a, b) => b.length - a.length || (a === src ? -1 : 1));
+  const baseForCwd = (cwd: string): string | undefined =>
+    scanBases.find((base) => cwd === base || cwd.startsWith(`${base}/`));
 
-  // --- claude: <home>/.claude/projects/<encode(~/src/<proj>)…>/<sid>.jsonl ---
+  // --- claude: <home>/.claude/projects/<encode(<base>/<proj>)…>/<sid>.jsonl ---
   const claudeRoot = join(home, ".claude", "projects");
-  const claudePrefix = `${encodeCwd(src)}-`;
+  const claudePrefixes = scanBases.map((base) => ({
+    base,
+    prefix: `${encodeCwd(base)}-`,
+  }));
   if (existsSync(claudeRoot)) {
     for (const dirName of readdirSync(claudeRoot)) {
-      if (!dirName.startsWith(claudePrefix)) continue;
+      const hit = claudePrefixes.find(({ prefix }) =>
+        dirName.startsWith(prefix),
+      );
+      if (!hit) continue;
       // claude encodes the full cwd as "/"→"-"; the remainder after the
-      // ~/src/ prefix IS the project for a direct child of ~/src. Keep it
+      // base prefix IS the project for a direct child of that base. Keep it
       // whole (project names contain "-": sent-tech-design-system) and skip
-      // anything that isn't an existing ~/src/<project> dir (sub-paths encode
-      // ambiguously and the workdir wouldn't exist anyway).
-      const encodedProject = dirName.slice(claudePrefix.length);
-      const fallbackCwd = join(src, encodedProject);
+      // anything that isn't an existing dir (sub-paths encode ambiguously
+      // and the workdir wouldn't exist anyway).
+      const encodedProject = dirName.slice(hit.prefix.length);
+      const fallbackCwd = join(hit.base, encodedProject);
       const dir = join(claudeRoot, dirName);
       let entries: string[];
       try {
@@ -176,7 +299,7 @@ export function discoverSessions(
         if (!f.endsWith(".jsonl")) continue;
         const file = join(dir, f);
         const st = safeStat(file);
-        if (!st || st.mtimeMs < cutoff) continue;
+        if (!st) continue;
         // Claude's transcript records its real cwd. Prefer it so a nested job
         // worktree is not collapsed into its repository root by the lossy
         // slash→dash directory encoding. Old transcripts retain the prior
@@ -184,19 +307,26 @@ export function discoverSessions(
         const meta = firstLineJson(file);
         const transcriptCwd = meta?.cwd ?? meta?.payload?.cwd;
         const cwd =
-          typeof transcriptCwd === "string" && transcriptCwd.startsWith(`${src}/`)
+          typeof transcriptCwd === "string" &&
+          baseForCwd(transcriptCwd) !== undefined
             ? transcriptCwd
             : fallbackCwd;
+        const base = baseForCwd(cwd);
+        if (!base) continue;
+        // Group roots are exempt from the age cutoff; ~/src keeps it.
+        if (st.mtimeMs < cutoff && base === src) continue;
         const cst = safeStat(cwd);
         if (!cst || !statSync(cwd).isDirectory()) continue;
-        const project = projectForCwd(src, cwd);
+        const project = projectForCwd(base, cwd);
         if (!project) continue;
         out.push({
           project,
           mtimeMs: st.mtimeMs,
           tool: "claude",
           sid: f.replace(/\.jsonl$/, ""),
-          cwd: join(src, project),
+          // ~/src rows keep the canonical join (as before); group-root rows
+          // keep their real cwd (no canonical base exists outside ~/src).
+          cwd: base === src ? join(src, project) : cwd,
           restoreClass: "unclassified",
         });
       }
@@ -210,12 +340,16 @@ export function discoverSessions(
       const base = file.split("/").pop() ?? "";
       if (!base.startsWith("rollout-") || !base.endsWith(".jsonl")) continue;
       const st = safeStat(file);
-      if (!st || st.mtimeMs < cutoff) continue;
+      if (!st) continue;
       const meta = firstLineJson(file);
       const cwd: string | undefined = meta?.payload?.cwd;
       const id: string | undefined = meta?.payload?.id;
-      if (!cwd || !id || !cwd.startsWith(`${src}/`)) continue;
-      const project = projectForCwd(src, cwd);
+      if (!cwd || !id) continue;
+      const cwdBase = baseForCwd(cwd);
+      if (!cwdBase) continue;
+      // Group roots are exempt from the age cutoff; ~/src keeps it.
+      if (st.mtimeMs < cutoff && cwdBase === src) continue;
+      const project = projectForCwd(cwdBase, cwd);
       if (!project) continue;
       out.push({
         project,
@@ -297,6 +431,11 @@ function hasLiveTmuxEvidence(
 /**
  * Classify a legacy registry record from evidence held outside the registry.
  * Absence is not proof of a human: anything inconclusive is background.
+ * Round-3 P1 (reviews pr382-r3, owner verbatim): a transcript or a live
+ * tmux row proves a conversation EXISTS but never proves a HUMAN initiator —
+ * classless rows with such evidence stay `background` here (never human by
+ * default); restore() still LISTS them as unclassified with an explicit
+ * recovery path instead of silently dropping them.
  */
 export function deriveLegacySessionClass(
   e: RegistryEntry,
@@ -305,9 +444,25 @@ export function deriveLegacySessionClass(
   if (e.endedAt !== undefined || e.role === "job") return "background";
   if (e.sessionClass !== undefined) return e.sessionClass;
   if (evidence.humanConfirmedIds?.has(e.id)) return "human";
-  if (hasLegacyTranscript(e, evidence.home)) return "human";
-  if (hasLiveTmuxEvidence(e, evidence.liveTmuxSessions)) return "human";
   return "background";
+}
+
+/**
+ * Round-3 P1 — out-of-registry or declared evidence that a row MIGHT be a
+ * human session without proving it: an explicit human class, an explicit
+ * human confirmation, a legacy transcript, or a live tmux row. Used by
+ * restore() to LIST such rows as unclassified (never silently dropped,
+ * never auto-restored) instead of promoting them.
+ */
+export function hasLegacyHumanEvidence(
+  e: RegistryEntry,
+  evidence: LegacySessionEvidence,
+): boolean {
+  if (e.sessionClass === "human") return true;
+  if (evidence.humanConfirmedIds?.has(e.id)) return true;
+  if (hasLegacyTranscript(e, evidence.home)) return true;
+  if (hasLiveTmuxEvidence(e, evidence.liveTmuxSessions)) return true;
+  return false;
 }
 
 /** Restore gate: only explicit or externally proven human sessions are restorable. */
@@ -596,6 +751,30 @@ function managedHostProbes(liveView: ManagedLiveLookup | undefined): {
  * attach/relaunch target) instead of silently trusting the valid row alone.
  * Defaults to `[]` so every existing plain-array test caller is unaffected.
  */
+/**
+ * Lot L5 (D12b) — where the default plan accounts the rows it excludes by
+ * provenance. `secondary` rows restore only with the opt-in; `unclassified`
+ * rows (no facet, no delegation) are listed separately and never
+ * auto-restored.
+ */
+export type RestoreExclusions = {
+  secondary: string[];
+  unclassified: string[];
+};
+
+export type RegistrySessionsOpts = {
+  /** Collect the excluded rows by name (dry-run/opt-in reporting). */
+  collectExcluded?: RestoreExclusions;
+  /** Admit `secondary` rows (explicit opt-in). Unclassified stay excluded. */
+  includeSecondary?: boolean;
+  /**
+   * Lot LG (D13) — extra admission roots for registry rows outside the
+   * default `~/src` scan root (a group `cwdPrefixes` matcher admits them).
+   * The project derives against the matched root.
+   */
+  admissionRoots?: string[];
+};
+
 export function registrySessions(
   home: string = homedir(),
   // No default read: restore() owns the ONE registry read and refuses on an
@@ -605,6 +784,7 @@ export function registrySessions(
   evidence: LegacySessionEvidence = legacySessionEvidence(home),
   liveView?: ManagedLiveLookup,
   unreadable: readonly RawRow[] = [],
+  opts: RegistrySessionsOpts = {},
 ): DiscoveredSession[] {
   const src = join(home, "src");
   const out: DiscoveredSession[] = [];
@@ -619,8 +799,60 @@ export function registrySessions(
     if (e.kind === "remote") continue; // remote groups are filled from SCW
     // Only human dev sessions are restorable — never delegated jobs or explicit
     // background launches (they had no human in front of them).
-    if (!isHumanFacingSession(e, evidence)) continue;
-    if (!e.cwd.startsWith(`${src}/`)) continue;
+    if (!isHumanFacingSession(e, evidence)) {
+      // Round-3 P1: delegation provenance falls THROUGH to the facet gate
+      // below (D12: secondary by construction — the default plan lists it
+      // as secondary and only the explicit opt-in admits it, including
+      // classless legacy delegated rows). A row with human-ish evidence
+      // (explicit human class, confirmation, transcript, live tmux) but no
+      // human proof is LISTED as unclassified — never silently dropped,
+      // never auto-restored. Pure background rows without delegation or
+      // evidence stay silent.
+      if (!hasDelegationProvenance(e)) {
+        if (hasLegacyHumanEvidence(e, evidence)) {
+          opts.collectExcluded?.unclassified.push(e.label ?? e.id);
+        }
+        continue;
+      }
+    }
+    // Lot L5 (D12) — provenance gate: the default plan admits only
+    // positively-classified primaries. Secondary rows are accounted and
+    // restore only with the opt-in; unclassified rows are listed separately
+    // and never auto-restored (transcript/legacy evidence never proves a
+    // primary). A persisted facet wins; otherwise the one-time pure
+    // classification decides (restore() persists it).
+    const facet = e.restoreFacet ?? classifyRestoreFacet(e);
+    if (facet !== "primary") {
+      const name = e.label ?? e.id;
+      if (facet === "secondary") {
+        if (opts.includeSecondary === true) {
+          // Explicit opt-in: fall through, admitted below.
+        } else {
+          opts.collectExcluded?.secondary.push(name);
+          continue;
+        }
+      } else {
+        opts.collectExcluded?.unclassified.push(name);
+        continue;
+      }
+    }
+    // Lot LG (D13) — admission roots: a configured `cwdPrefixes` group
+    // matcher admits registry rows outside the default `~/src` scan root.
+    // The project derives against the matched root, so `<root>/<proj>`
+    // restores as project `<proj>`.
+    let projectBase: string | undefined;
+    if (e.cwd.startsWith(`${src}/`)) {
+      projectBase = src;
+    } else {
+      const root = (opts.admissionRoots ?? []).find((candidate) => {
+        const base =
+          candidate.length > 1 ? candidate.replace(/\/+$/, "") : candidate;
+        return e.cwd === base || e.cwd.startsWith(`${base}/`);
+      });
+      if (root !== undefined)
+        projectBase = root.length > 1 ? root.replace(/\/+$/, "") : root;
+    }
+    if (projectBase === undefined) continue;
     // §4.1 unresolved-convId gate: skip ONLY when the row is dead/absent (or
     // its host state is unprovable — an unknown probe is no death
     // certificate, but with no identity there is nothing safe to launch
@@ -653,7 +885,7 @@ export function registrySessions(
     ) {
       continue;
     }
-    const project = projectForCwd(src, e.cwd);
+    const project = projectForCwd(projectBase, e.cwd);
     if (!project) continue;
     const seen = Date.parse(e.lastSeenAt);
     // An attach-live row has NO resolved conversation: its sid stays empty so
@@ -737,9 +969,18 @@ export function mergeDiscovered(
   ];
   const deduped: DiscoveredSession[] = [];
   const indexByResumeId = new Map<string, number>();
+  const seenAttachIdentity = new Set<string>();
   for (const session of merged) {
     // An empty sid is an attach-only live row, not a resume request.
     if (session.sid.length === 0) {
+      // Lot L1b — resume-UUID dedup never sees attach-only rows, so two
+      // enrolled rows for ONE live terminal (run-enrolled + hook-enrolled
+      // twins) would emit two attach tabs. Dedup by TERMINAL identity
+      // instead: the managed session name, falling back to project+cwd.
+      const identity =
+        session.managedName ?? JSON.stringify([session.project, session.cwd]);
+      if (seenAttachIdentity.has(identity)) continue;
+      seenAttachIdentity.add(identity);
       deduped.push(session);
       continue;
     }
@@ -875,10 +1116,73 @@ function* walk(root: string): Generator<string> {
  *   - capped at `maxPerWindow` tabs each,
  *   - keeping the N most recent sessions per project (`multiSession`, def 1).
  */
+/**
+ * Lot LG (D13) — per-group explicit-window cap overflow, accounted per group
+ * (never silently dropped): dropped tabs stay with their group, named.
+ */
+export type GroupCapDrop = {
+  group: string;
+  cap: number;
+  dropped: number;
+  names: string[];
+};
+
+export type GroupedSessions = {
+  windows: LayoutWindow[];
+  dropped: number;
+  /** Explicit non-remote groups that received no tab (when groups exist). */
+  emptyGroups: string[];
+  /** Sessions admitted but matching no explicit group (shared pool). */
+  unmatched: string[];
+  /** Per-explicit-group cap overflow, in config order. */
+  groupCapDrops: GroupCapDrop[];
+};
+
+/** Normalize one matcher prefix (no globs anywhere in LG matching). */
+function normalizeCwdPrefix(prefix: string): string {
+  return prefix.length > 1 ? prefix.replace(/\/+$/, "") : prefix;
+}
+
+/** Exact / path-prefix match for one cwd against one configured prefix. */
+function cwdMatchesPrefix(cwd: string, prefix: string): boolean {
+  const norm = normalizeCwdPrefix(prefix);
+  return cwd === norm || cwd.startsWith(`${norm}/`);
+}
+
+/**
+ * Round-1 (D13) — one explicit local group's hit predicate.
+ * `excludeProjects` vetoes first; then any matcher hits: project equality
+ * (checked first), cwd-prefix locality (nested worktrees included),
+ * project-prefix segments (`h2a` matches `h2a/x`, never `h2a2/x`), exact
+ * session-label equality, tool equality, tag any-of. A group with no
+ * matchers matches nothing locally (reported empty).
+ */
+export function groupMatchesSession(
+  s: Pick<DiscoveredSession, "project" | "cwd" | "tool" | "label"> &
+    Partial<Pick<DiscoveredSession, "tags">>,
+  g: LayoutGroup,
+): boolean {
+  if (g.excludeProjects !== undefined && g.excludeProjects.includes(s.project)) {
+    return false;
+  }
+  if ((g.projects ?? []).includes(s.project)) return true;
+  for (const prefix of g.cwdPrefixes ?? []) {
+    if (cwdMatchesPrefix(s.cwd, prefix)) return true;
+  }
+  for (const prefix of g.projectPrefixes ?? []) {
+    if (s.project === prefix || s.project.startsWith(`${prefix}/`)) return true;
+  }
+  if (s.label !== undefined && (g.labels ?? []).includes(s.label)) return true;
+  if ((g.tools ?? []).includes(s.tool)) return true;
+  const tags = g.tags ?? [];
+  if (tags.length > 0 && (s.tags ?? []).some((t) => tags.includes(t))) return true;
+  return false;
+}
+
 export function groupSessions(
   sessions: DiscoveredSession[],
   cfg: LayoutConfig,
-): { windows: LayoutWindow[]; dropped: number } {
+): GroupedSessions {
   // newest-first per project, capped per project
   const byProject = new Map<string, DiscoveredSession[]>();
   for (const s of sessions) {
@@ -886,7 +1190,24 @@ export function groupSessions(
     arr.push(s);
     byProject.set(s.project, arr);
   }
-  const slotsFor = (project: string): LayoutTab[] => {
+  const tabFor = (s: DiscoveredSession, i: number): LayoutTab => {
+    const tab: LayoutTab = {
+      cwd: s.cwd,
+      label: s.label ?? (i === 0 ? s.project : `${s.project}#${i + 1}`),
+      tool: s.tool,
+      sid: s.sid,
+    };
+    if (s.origin !== undefined) tab.origin = s.origin;
+    if (s.gatewayMode !== undefined) tab.gatewayMode = s.gatewayMode;
+    if (s.bare !== undefined) tab.bare = s.bare;
+    if (s.hostKind !== undefined) tab.hostKind = s.hostKind;
+    if (s.managedName !== undefined) tab.managedName = s.managedName;
+    if (s.attachLive !== undefined) tab.attachLive = s.attachLive;
+    return tab;
+  };
+  const slotsFor = (
+    project: string,
+  ): Array<{ session: DiscoveredSession; tab: LayoutTab }> => {
     // Per-project cap: explicit override, else the global default. <= 0 = no
     // limit (every live session of the project gets a tab) — `remote restore`
     // then sweeps the WHOLE fleet, duplicates included.
@@ -907,65 +1228,102 @@ export function groupSessions(
     const arr = [...registryBacked, ...scanned].sort(
       (a, b) => b.mtimeMs - a.mtimeMs,
     );
-    return arr.map((s, i) => {
-      const tab: LayoutTab = {
-        cwd: s.cwd,
-        label: s.label ?? (i === 0 ? s.project : `${s.project}#${i + 1}`),
-        tool: s.tool,
-        sid: s.sid,
-      };
-      if (s.origin !== undefined) tab.origin = s.origin;
-      if (s.gatewayMode !== undefined) tab.gatewayMode = s.gatewayMode;
-      if (s.bare !== undefined) tab.bare = s.bare;
-      if (s.hostKind !== undefined) tab.hostKind = s.hostKind;
-      if (s.managedName !== undefined) tab.managedName = s.managedName;
-      if (s.attachLive !== undefined) tab.attachLive = s.attachLive;
-      return tab;
-    });
+    return arr.map((s, i) => ({ session: s, tab: tabFor(s, i) }));
   };
 
-  const grouped = new Set<string>();
+  // Lot LG (D13) — first match wins, exactly one window per session. Sessions
+  // taken by an explicit group (placed or cap-dropped) never reach another
+  // window or the shared pool — a project listed in two groups is placed
+  // once, in the first matching group.
+  const taken = new Set<DiscoveredSession>();
   const windows: LayoutWindow[] = [];
+  const groupCapDrops: GroupCapDrop[] = [];
+  const hasExplicitGroups = cfg.groups.some((g) => !g.remote);
 
   for (const g of cfg.groups) {
     if (g.remote) continue; // remote groups are filled from SCW by the caller
+    // A non-positive global cap means "no limit" (same rule as slotsFor) —
+    // only an explicit per-group maxTabs ever caps an explicit window.
+    const cap =
+      g.maxTabs ??
+      (cfg.maxPerWindow <= 0 ? Number.POSITIVE_INFINITY : cfg.maxPerWindow);
     const tabs: LayoutTab[] = [];
+    const droppedNames: string[] = [];
+    const take = (s: DiscoveredSession, tab: LayoutTab): void => {
+      if (taken.has(s)) return;
+      taken.add(s);
+      if (tabs.length < cap) tabs.push(tab);
+      else droppedNames.push(tab.label);
+    };
+    // Named projects first, in config order (byte-identical to the
+    // projects-only layout for matcher-less configs)...
     for (const project of g.projects ?? []) {
-      grouped.add(project);
-      for (const slot of slotsFor(project)) {
-        if (tabs.length >= cfg.maxPerWindow) break;
-        tabs.push(slot);
-      }
+      for (const { session: s, tab } of slotsFor(project)) take(s, tab);
+      // ...sessions of a named project that the per-project cap cut are still
+      // the group's (legacy silent rule), never shared-pool candidates.
+      for (const s of byProject.get(project) ?? []) taken.add(s);
+    }
+    // ...then the other matchers (cwd prefix, tool, tags) in session order.
+    for (const s of sessions) {
+      if (taken.has(s)) continue;
+      if ((g.projects ?? []).includes(s.project)) continue;
+      if (!groupMatchesSession(s, g)) continue;
+      take(s, tabFor(s, 0));
     }
     if (tabs.length > 0) windows.push({ title: g.title, tabs });
+    if (droppedNames.length > 0) {
+      groupCapDrops.push({
+        group: g.title,
+        cap,
+        dropped: droppedNames.length,
+        names: droppedNames,
+      });
+    }
   }
 
   // remaining projects, most-recent project first, round-robin into shared wins
   const remaining = [...byProject.entries()]
-    .filter(([p]) => !grouped.has(p))
+    .filter(([, arr]) => arr.some((s) => !taken.has(s)))
     .sort((a, b) => projLatest(b[1]) - projLatest(a[1]))
     .map(([p]) => p);
-  const sharedSlots: LayoutTab[] = [];
-  for (const project of remaining) sharedSlots.push(...slotsFor(project));
+  const sharedSlots: Array<{ session: DiscoveredSession; tab: LayoutTab }> = [];
+  for (const project of remaining) {
+    for (const entry of slotsFor(project)) {
+      if (!taken.has(entry.session)) sharedSlots.push(entry);
+    }
+  }
 
-  const shared: LayoutTab[][] = Array.from(
+  const shared: LayoutWindow[] = Array.from(
     { length: Math.max(1, cfg.sharedWindows) },
-    () => [],
+    () => ({ title: "", tabs: [] }),
   );
   const maxShared = cfg.sharedWindows * cfg.maxPerWindow;
   let placed = 0;
-  for (const slot of sharedSlots) {
+  for (const entry of sharedSlots) {
     if (placed >= maxShared) break;
-    shared[placed % cfg.sharedWindows]!.push(slot);
+    taken.add(entry.session);
+    shared[placed % cfg.sharedWindows]!.tabs.push(entry.tab);
     placed++;
   }
   const dropped = sharedSlots.length - placed;
-  shared.forEach((tabs, i) => {
-    if (tabs.length > 0)
-      windows.push({ title: `fenêtre partagée ${i + 1}`, tabs });
+  shared.forEach((win, i) => {
+    if (win.tabs.length > 0)
+      windows.push({
+        title: `${humanOutputText("restore.sharedWindow")} ${i + 1}`,
+        tabs: win.tabs,
+      });
   });
 
-  return { windows, dropped };
+  const emptyGroups = hasExplicitGroups
+    ? cfg.groups
+        .filter((g) => !g.remote)
+        .map((g) => g.title)
+        .filter((title) => !windows.some((w) => w.title === title))
+    : [];
+  const unmatched = hasExplicitGroups
+    ? sharedSlots.map((entry) => entry.tab.label)
+    : [];
+  return { windows, dropped, emptyGroups, unmatched, groupCapDrops };
 }
 
 function projLatest(arr: DiscoveredSession[]): number {
@@ -973,10 +1331,357 @@ function projLatest(arr: DiscoveredSession[]): number {
 }
 
 
+/**
+ * Lot L1a — one run-scoped restore ledger entry. Machine values only; the
+ * human lines render at print time through the locale catalog, so the record
+ * is never an impl-chosen default location away from the caller's path.
+ */
+export type RestoreLedgerEntry = {
+  session: string;
+  outcome:
+    | "launched"
+    | "blocked"
+    | "skipped"
+    | "failed"
+    | "already-active"
+    | "attached"
+    | "deferred";
+  window?: string;
+  reason?: string;
+  remedy?: string;
+  at: string;
+};
+
+/**
+ * Lot L6 (D14) — observed outcome counts recomputed from the D2 ledger.
+ * The totals line reports these, never the planned tab count.
+ */
+export type RestoreLedgerSummary = {
+  launched: number;
+  blocked: number;
+  skipped: number;
+  failed: number;
+  /** Lot L1b — observed in-place outcomes (attach/defer, never inject). */
+  "already-active": number;
+  /** Round-1 (D2) — observed attach-view dispatches. */
+  attached: number;
+  deferred: number;
+};
+
+/** Count the observed outcomes in one ledger (machine values in/out). */
+export function summarizeRestoreLedger(
+  entries: ReadonlyArray<RestoreLedgerEntry>,
+): RestoreLedgerSummary {
+  const summary: RestoreLedgerSummary = {
+    launched: 0,
+    blocked: 0,
+    skipped: 0,
+    failed: 0,
+    "already-active": 0,
+    attached: 0,
+    deferred: 0,
+  };
+  for (const entry of entries) summary[entry.outcome] += 1;
+  return summary;
+}
+
+/**
+ * Round-1 (D2): the restore exit status. A dry run previews only (always
+ * zero); an empty ledger means there was nothing to do (zero);
+ * `already-active`/`attached`/`launched`/`skipped` satisfy the objective
+ * (zero). The run fails (1) when at least one candidate ends `blocked`,
+ * `failed` or `deferred` — even when another candidate progressed (reviewer
+ * finding c, round-2 astra-5/sol-4): an unsatisfied objective must never be
+ * masked by a sibling's success. A deferred shell without its adapter, an
+ * unknown foreground and a stale host are all unsatisfied objectives.
+ */
+export function restoreExitCode(
+  entries: ReadonlyArray<RestoreLedgerEntry>,
+  opts: { dryRun?: boolean } = {},
+): number {
+  if (opts.dryRun === true) return 0;
+  return entries.some(
+    (e) => e.outcome === "blocked" || e.outcome === "failed" || e.outcome === "deferred",
+  )
+    ? 1
+    : 0;
+}
+
+/**
+ * Round-1 (D1b/D4a): the product producer for `nativeSubtrees`. Best-effort
+ * host observation for every live native session: the foreground worker
+ * tree served by each session's own host on `state`. Sessions the host
+ * cannot observe (old host, unreadable /proc, non-Linux) are omitted —
+ * callers keep `unknown` for them, never an empty verdict. Throws nothing:
+ * a failed probe degrades to no observation for that session.
+ */
+export function fetchNativeForegroundSubtrees(
+  names: ReadonlyArray<string>,
+): Array<{ name: string; processes: HostProcessSnapshot[] }> {
+  const subtrees: Array<{ name: string; processes: HostProcessSnapshot[] }> = [];
+  for (const name of names) {
+    try {
+      const processes = probeForegroundProcesses(name);
+      if (processes !== undefined) {
+        subtrees.push({ name, processes: processes.slice() });
+      }
+    } catch {
+      // Unattestable — omit (unknown), never an empty verdict.
+      continue;
+    }
+  }
+  return subtrees;
+}
+
+/** One per-session foreground read; undefined = unattestable, never empty. */
+function probeForegroundProcesses(
+  name: string,
+): ReadonlyArray<HostProcessSnapshot> | undefined {
+  const probe = nativeSessionState(name);
+  const session = probe.state === "found" ? probe.session : undefined;
+  return session?.status === "running" ? session.foregroundProcesses : undefined;
+}
+
+/**
+ * Round-3 P2 (reviews pr382-r3) — select restore-relevant native targets
+ * BEFORE any liveness probe, from the durable registry alone (no I/O, no
+ * probes). Only rows that can restore on a native host are named: managed
+ * `local-native` rows with a positively-classified primary facet (a
+ * persisted `primary` facet, or a human class with a recorded human
+ * initiator — the same one-time classification `registrySessions`
+ * applies), plus `secondary` rows under the explicit opt-in. Delegated,
+ * background/job, classless and terminal-rule rows are never named, so
+ * they cost zero probes downstream. Names are the managed session names
+ * `registrySessions` resolves against (`tmuxSession`, else the slug's
+ * managed name).
+ */
+export function selectRestoreNativeTargets(
+  entries: readonly RegistryEntry[],
+  opts: { includeSecondary?: boolean } = {},
+): string[] {
+  const names = new Set<string>();
+  for (const e of entries) {
+    if (e.kind !== "local-native") continue;
+    const facet = e.restoreFacet ?? classifyRestoreFacet(e);
+    if (facet === "primary") {
+      // Relevant: admitted by the default plan.
+    } else if (facet === "secondary" && opts.includeSecondary === true) {
+      // Relevant: admitted by the explicit opt-in.
+    } else {
+      continue;
+    }
+    names.add(e.tmuxSession ?? localSessionName(e.id));
+  }
+  return [...names];
+}
+
+/**
+ * Round-3 P2 — the restore preamble: select the relevant native targets
+ * first, intersect them with the ONE batch inventory, then probe ONLY
+ * those (each probe is one `state` read served by the session's own host).
+ * Excluded rows cost zero probes; an unreadable inventory yields no
+ * observation (callers keep `unknown`), never an empty verdict. Throws
+ * nothing. `listRunningNative`/`probeForeground` are injectable so tests
+ * count probes without touching real hosts.
+ */
+export function fetchSelectedNativeSubtrees(
+  entries: readonly RegistryEntry[],
+  opts: {
+    includeSecondary?: boolean;
+    listRunningNative?: () => string[];
+    probeForeground?: (
+      name: string,
+    ) => ReadonlyArray<HostProcessSnapshot> | undefined;
+  } = {},
+): Array<{ name: string; processes: HostProcessSnapshot[] }> {
+  const wanted = selectRestoreNativeTargets(entries, opts);
+  if (wanted.length === 0) return [];
+  let running: Set<string>;
+  try {
+    running = new Set(
+      (opts.listRunningNative ?? defaultListRunningNative)(),
+    );
+  } catch {
+    // No inventory — no observation (unknown), zero probes.
+    return [];
+  }
+  const probe = opts.probeForeground ?? probeForegroundProcesses;
+  const subtrees: Array<{ name: string; processes: HostProcessSnapshot[] }> = [];
+  for (const name of wanted) {
+    if (!running.has(name)) continue;
+    try {
+      const processes = probe(name);
+      if (processes !== undefined) {
+        subtrees.push({ name, processes: processes.slice() });
+      }
+    } catch {
+      // Unattestable — omit (unknown), never an empty verdict.
+      continue;
+    }
+  }
+  return subtrees;
+}
+
+/** The one batch inventory the preamble intersects the selection with. */
+function defaultListRunningNative(): string[] {
+  return listNativeSessions()
+    .filter((s) => s.status === "running")
+    .map((s) => s.id);
+}
+
+/** Observed launch counts carried back by `restore()` (additive). */
+export type RestoreObserved = {
+  planned: number;
+  opened: number;
+  skippedLive: number;
+  blocked: number;
+};
+
+/** Everything the human plan report renders (machine values + counts). */
+export type RestorePlanView = {
+  windows: LayoutWindow[];
+  total: number;
+  dropped: number;
+  excludedSecondary: string[];
+  excludedUnclassified: string[];
+  facetUpdates: Array<[string, string]>;
+  dryRun: boolean;
+  observed: RestoreObserved;
+  /**
+   * Lot LG (D13) — explicit-group plan account: per-group cap overflow
+   * (in config order), groups that received no tab, sessions matching no
+   * group. Empty/absent = nothing to report (goldens stay byte-identical).
+   */
+  groupCapDrops?: GroupCapDrop[];
+  emptyGroups?: string[];
+  unmatched?: string[];
+};
+
+/**
+ * Lot L6 (D14) — render the whole human plan through the locale catalog.
+ * Static words come from the catalog; titles, labels, cwds, counts and
+ * commands pass through untranslated. One run = one language.
+ */
+export function renderRestorePlan(
+  view: RestorePlanView,
+  locale?: string,
+): string[] {
+  const lines: string[] = [];
+  for (const w of view.windows) {
+    lines.push(`  ${w.title} (${w.tabs.length}):`);
+    for (const t of w.tabs) {
+      const what = t.remoteId
+        ? `SCW:${t.remoteId}`
+        : `${t.tool} (local) [${t.origin === "registry" ? "registry" : "guess"}]`;
+      lines.push(`    - ${t.label}  ${what}  ${t.cwd}`);
+    }
+  }
+  if (view.dropped > 0)
+    lines.push(
+      `  (! ${view.dropped} ${humanOutputText("restore.capDropped", locale)})`,
+    );
+  if (view.excludedSecondary.length > 0)
+    lines.push(
+      `  (! ${view.excludedSecondary.length} ${humanOutputText("restore.excludedSecondary", locale)} — ${humanOutputText("restore.optinHint", locale)} ${view.excludedSecondary.join(", ")})`,
+    );
+  if (view.excludedUnclassified.length > 0)
+    lines.push(
+      `  (! ${view.excludedUnclassified.length} ${humanOutputText("restore.excludedUnclassified", locale)} ${view.excludedUnclassified.join(", ")})`,
+    );
+  if (view.dryRun && view.facetUpdates.length > 0)
+    lines.push(
+      `  (! ${humanOutputText("restore.wouldClassifyPrefix", locale)} ${view.facetUpdates.length} ${humanOutputText("restore.wouldClassifyBody", locale)} ${view.facetUpdates.map(([id, facet]) => `${id}=${facet}`).join(", ")})`,
+    );
+  // Lot LG (D13) — the explicit-group plan account, through the catalog.
+  for (const d of view.groupCapDrops ?? []) {
+    lines.push(
+      `  (! ${d.group}: ${d.dropped} ${humanOutputText("restore.groupCapDropped", locale)} ${d.cap}: ${d.names.join(", ")})`,
+    );
+  }
+  if ((view.emptyGroups ?? []).length > 0)
+    lines.push(
+      `  (! ${humanOutputText("restore.emptyGroups", locale)}: ${view.emptyGroups!.join(", ")})`,
+    );
+  if ((view.unmatched ?? []).length > 0)
+    lines.push(
+      `  (! ${humanOutputText("restore.unmatchedSessions", locale)}: ${view.unmatched!.join(", ")})`,
+    );
+  lines.push(renderRestoreTotals(view.observed, view.dryRun, locale));
+  return lines;
+}
+
+/** The observed totals line (D2 ledger + launch counts, never the plan). */
+export function renderRestoreTotals(
+  observed: RestoreObserved,
+  dryRun: boolean,
+  locale?: string,
+): string {
+  const line =
+    `${humanOutputText("restore.summaryTitle", locale)} ` +
+    `${observed.opened} ${humanOutputText("restore.count.opened", locale)}, ` +
+    `${observed.blocked} ${humanOutputText("restore.count.blocked", locale)}, ` +
+    `${observed.skippedLive} ${humanOutputText("restore.count.skipped", locale)} ` +
+    `(${observed.planned} ${humanOutputText("restore.count.planned", locale)})`;
+  return dryRun ? `${line} (dry-run)` : line;
+}
+
+/**
+ * Lot L6 (D14) — machine form of the D2 ledger for `restore --json`.
+ * Field names are machine values, never localised.
+ */
+export function buildRestoreJsonReport(input: {
+  windows: LayoutWindow[];
+  total: number;
+  observed: RestoreObserved;
+  ledger: RestoreLedgerEntry[];
+  dryRun: boolean;
+  group?: string;
+}): {
+  ok: boolean;
+  dryRun: boolean;
+  group?: string;
+  windows: LayoutWindow[];
+  total: number;
+  observed: RestoreObserved;
+  ledger: RestoreLedgerEntry[];
+} {
+  return {
+    ok: true,
+    dryRun: input.dryRun,
+    ...(input.group !== undefined ? { group: input.group } : {}),
+    windows: input.windows,
+    total: input.total,
+    observed: input.observed,
+    ledger: input.ledger,
+  };
+}
+
 export type RestoreOptions = {
   dryRun?: boolean;
   /** Launch only the group whose title matches (exact or slug-normalized). */
   group?: string;
+  /**
+   * Lot L5 (D12) — admit `secondary` (delegated) rows. Unclassified rows
+   * stay excluded: promotion is explicit, never an opt-in side effect.
+   */
+  includeSecondary?: boolean;
+  /**
+   * Lot L1a: receives every blocked/skipped ledger entry (occupied-human
+   * refusals). The caller owns persistence — restore() never picks a record
+   * path itself.
+   */
+  onLedgerEntry?: (entry: RestoreLedgerEntry) => void;
+  /**
+   * Lot L1b — host-observed subtrees of live managed terminals, already
+   * fetched by the caller (omit = no host observation; attach-live rows keep
+   * the L1a attach-only path with no ledger entry). Powers the OBSERVED
+   * already-active/deferred ledger outcomes only — restore() never types
+   * into these sessions (the D6(iii) adapter does not exist in this RC).
+   */
+  nativeSubtrees?: ReadonlyArray<{
+    name: string;
+    processes: ReadonlyArray<HostProcessSnapshot>;
+  }>;
   /** Pre-resolved SCW tabs (from `remote ls`), used to fill `remote: true` groups. */
   remoteTabs?: RemoteTab[];
   /**
@@ -1003,13 +1708,28 @@ function titleMatches(title: string, query: string): boolean {
 /** Full restore: discover (local) + inject SCW (remote) -> order -> filter -> launch. */
 export function restore(
   opts: RestoreOptions = {},
-): { windows: LayoutWindow[]; total: number; dropped: number } {
+): {
+  windows: LayoutWindow[];
+  total: number;
+  dropped: number;
+  /** Lot L6 (D14): observed launch counts (planned/opened/skipped/blocked). */
+  observed: RestoreObserved;
+} {
   const cfg = getLayoutConfig();
   const stderr = opts.stderr ?? process.stderr;
 
   // Remote tabs resolved by the caller from `remote ls` (fill `remote: true`
   // groups). Computed up-front so they can ALSO dedup the local discovery.
-  const remoteTabs = opts.remoteTabs ?? [];
+  // Round-1 (D12c): only positively-classified primaries restore; secondary
+  // rows need the opt-in and unclassified rows are excluded and NAMED (they
+  // join the unmatched plan account below — never silently dropped).
+  const excludedUnclassifiedRemote: string[] = [];
+  const remoteTabs = selectRemoteTabsForGroups(opts.remoteTabs ?? [], {
+    ...(opts.includeSecondary === true ? { includeSecondary: true } : {}),
+    onExcludedUnclassified: (excluded) => {
+      for (const t of excluded) excludedUnclassifiedRemote.push(t.label);
+    },
+  });
 
   // Local windows (groups + shared) — durable registry rows are the truth.
   // Liveness cannot be a pre-classification filter: a dead tmux session is the
@@ -1028,7 +1748,12 @@ export function restore(
     stderr.write(
       `[h2a] restore refused: the local registry is unreadable (${registryRead.reason}); nothing was launched (fail closed).\n`,
     );
-    return { windows: [], total: 0, dropped: 0 };
+    return {
+      windows: [],
+      total: 0,
+      dropped: 0,
+      observed: { planned: 0, opened: 0, skippedLive: 0, blocked: 0 },
+    };
   }
   const registryEntries = registryRead.entries;
   const evidence = legacySessionEvidence(home);
@@ -1054,12 +1779,43 @@ export function restore(
       // best-effort: a persistence hiccup must never break restore
     }
   }
-  const scanned = discoverSessions(cfg.maxAgeHours * 3600 * 1000);
+  // Lot LG (D13) — admission roots for discovery: a LOCAL group's
+  // `cwdPrefixes` matcher admits rows outside the default `~/src` scan root
+  // (remote groups are SCW-filled and contribute nothing here). The scan
+  // covers the group roots too, exempt from the age cutoff (a group
+  // explicitly asks for that fleet); the registry read below admits the
+  // same roots.
+  const admissionRoots = cfg.groups.flatMap((g) =>
+    g.remote === true ? [] : (g.cwdPrefixes ?? []),
+  );
+  const scanned = discoverSessions(
+    cfg.maxAgeHours * 3600 * 1000,
+    home,
+    admissionRoots,
+  );
   // ONE host-inventory snapshot for the whole restore (§4.1 / F3): the
   // attach-live gate, the skip notes below AND the layout render consume
   // this same capture — launchLayout has no reader of its own to diverge on.
   const hostView = captureHostViewSnapshot();
   const liveView = managedLiveLookupFromSnapshot(hostView);
+  // Lot L5 (D12b) — one-time legacy classification by evidence, persisted
+  // once (same pattern as reconciled convIds). Only rows WITHOUT a facet
+  // are stamped; an explicit facet is never overwritten. Skipped on
+  // --dry-run (a preview stays side-effect-free) but REPORTED below.
+  const facetUpdates = new Map<string, RestoreFacet>();
+  for (const e of registryEntries) {
+    if (e.restoreFacet !== undefined) continue;
+    const facet = classifyRestoreFacet(e);
+    if (facet !== undefined) facetUpdates.set(e.id, facet);
+  }
+  if (!opts.dryRun && facetUpdates.size > 0) {
+    try {
+      persistRestoreFacets(facetUpdates);
+    } catch {
+      // best-effort: a persistence hiccup must never break restore
+    }
+  }
+  const excluded: RestoreExclusions = { secondary: [], unclassified: [] };
   const allDiscovered = mergeDiscovered(
     registrySessions(
       home,
@@ -1070,6 +1826,11 @@ export function restore(
       // PART A/A2: the unreadable rows from this SAME read, so a valid row +
       // an unreadable twin poisons that one identity's host resolution.
       registryRead.unreadable,
+      {
+        collectExcluded: excluded,
+        ...(opts.includeSecondary === true ? { includeSecondary: true } : {}),
+        ...(admissionRoots.length > 0 ? { admissionRoots } : {}),
+      },
     ),
     scanned,
   );
@@ -1087,9 +1848,9 @@ export function restore(
     if (!e) continue;
     const label = e.label ?? e.id;
     stderr.write(
-      `[h2a] restore skipped "${label}": no resolved conversation id ` +
-        `(convId ${e.convId ? `"${e.convId}"` : "missing"} is not a real conversation); ` +
-        `attach it live with h2a attach ${slugify(label)}\n`,
+      `[h2a] restore skipped "${label}": ${humanOutputText("restore.unresolvedConvId")} ` +
+        `(convId ${e.convId ? `"${e.convId}"` : "missing"} ${humanOutputText("restore.notARealConversation")}); ` +
+        `${humanOutputText("restore.ledger.remedyAttach")} h2a attach ${slugify(label)}\n`,
     );
   }
   // Transcript scans lack a durable human/job marker. They are deliberately
@@ -1099,8 +1860,7 @@ export function restore(
     dropDualHostIdentities(preDualLocal);
   for (const name of ambiguousNames) {
     stderr.write(
-      `[h2a] restore skipped "${name}": recorded on BOTH local hosts (local-tmux AND local-native); ` +
-        "clean up the conflicting registry rows before restoring it\n",
+      `[h2a] restore skipped "${name}": ${humanOutputText("restore.dualHost")}\n`,
     );
   }
   // Bug #3: a session moved to a remote Pod must NOT also be re-launched as a
@@ -1111,22 +1871,229 @@ export function restore(
   );
   if (remoteBacked.length > 0) {
     stderr.write(
-      `[h2a] ${remoteBacked.length} session(s) déjà sur le contrôle distant — pas de relance locale: ${[
+      `[h2a] ${remoteBacked.length} ${humanOutputText("restore.remoteBacked")}: ${[
         ...new Set(remoteBacked.map((s) => s.label ?? s.project)),
       ].join(", ")}\n`,
     );
   }
-  const { windows: localWindows, dropped } = groupSessions(sessions, cfg);
+  // Round-1 (D2): live sessions need no relaunch — they are already up.
+  // Sessions already recorded are never recorded twice downstream (the
+  // facet proof below and the post-launch dispatch pass skip them).
+  const recordedLedgerSessions = new Set<string>();
+  let blockedLedgerCount = 0;
+  const emitLedgerEntry = (entry: RestoreLedgerEntry): void => {
+    recordedLedgerSessions.add(entry.session);
+    if (entry.outcome === "blocked") blockedLedgerCount += 1;
+    opts.onLedgerEntry?.(entry);
+  };
+  // Round-1 (D2/reviewer finding c): dual-host ambiguous rows fail closed —
+  // the objective is NOT satisfied (no relaunch, no attach; the rows need
+  // human cleanup), so each records one `blocked` outcome with the
+  // dual-host reason. This keeps the exit predicate honest: a blocked
+  // objective fails the run even when another candidate progressed.
+  for (const name of ambiguousNames) {
+    emitLedgerEntry({
+      session: name,
+      outcome: "blocked",
+      reason: "dual-host",
+      at: new Date().toISOString(),
+    });
+  }
+  // Round-1 (D1–D4) — OBSERVED in-place outcomes from the host-observed
+  // subtree of a live terminal. This is the strongest evidence, so it
+  // records first: a foreground shell binds `deferred` (`needs-adapter` —
+  // the D6(iii) managed-shell adapter does not exist in this RC, so nothing
+  // is typed, nothing killed) even when the tool+live-host proof below
+  // would otherwise record `already-active`. Attach-live primaries carry no
+  // resolved conversation (empty sid), so the subtree alone attributes the
+  // foreground; rows with a resolved conversation additionally bind it
+  // (the CLI must hold THIS row's conversation).
+  //
+  // Round-2 (astra-4/astra-6) — a verified foreground CLI is `already-active`
+  // only when its view already exists (`controlled` in this plan's
+  // snapshot); with no attached view the launch pass below reopens exactly
+  // one attach view (observed as `attached`, never relaunched over). A
+  // refused foreground (unknown program, ambiguous owners) is never
+  // promoted to `already-active`: with a view it records `deferred`
+  // carrying the conserved refusal reason (round-3 P2 — an unsatisfied
+  // objective, so the exit status fails), without one it takes the same
+  // attach-view path with that reason — zero bytes typed either way. No
+  // subtree at all keeps the attach-only path — old hosts stay compatible.
+  const controlledByManagedName = new Map<string, boolean | undefined>();
+  if (hostView.native.known) {
+    for (const view of hostView.native.sessions) {
+      controlledByManagedName.set(view.name, view.controlled);
+    }
+  }
+  // Refused (unknown/ambiguous) foregrounds that still get their live view:
+  // session name -> typed reason, attached at dispatch time so the ledger
+  // conserves the unknown instead of claiming a verified CLI.
+  const refusedViewReasons = new Map<string, string>();
+  // Sessions decided to need no launch (their view already exists): they
+  // leave the launch set. Deferred sessions stay IN the plan (their tab is
+  // shown; a real run still reopens their view) — only the exit status
+  // records the unsatisfied objective.
+  const decidedNoLaunch = new Set<string>();
+  if (opts.nativeSubtrees !== undefined && opts.nativeSubtrees.length > 0) {
+    const subtreeByName = new Map(
+      opts.nativeSubtrees.map((s) => [s.name, s.processes] as const),
+    );
+    for (const s of sessions) {
+      if (s.managedName === undefined) continue;
+      const processes = subtreeByName.get(s.managedName);
+      if (processes === undefined) continue;
+      const at = new Date().toISOString();
+      const name = s.label ?? s.project;
+      const controlled = controlledByManagedName.get(s.managedName);
+      const decision = decideInPlaceResume({
+        session: name,
+        hostProcesses: processes,
+        ...(s.sid.length > 0 ? { convId: s.sid } : {}),
+      });
+      if (decision?.outcome === "attach") {
+        if (controlled !== false) {
+          emitLedgerEntry({
+            session: name,
+            outcome: "already-active",
+            at,
+          });
+          decidedNoLaunch.add(name);
+        }
+        // controlled === false: the view is (re)opened by the launch pass
+        // below — one attach tab, observed as `attached`.
+      } else if (decision?.outcome === "deferred") {
+        emitLedgerEntry({
+          session: name,
+          outcome: "deferred",
+          reason: "needs-adapter",
+          at,
+        });
+      } else if (decision?.outcome === "refused") {
+        if (controlled === false) {
+          refusedViewReasons.set(name, decision.reason);
+        } else {
+          // Round-3 P2 (reviews pr382-r3): an unknown/ambiguous foreground
+          // WITH an attached view is a DEFERRED objective, never
+          // already-active — no CLI was observed (D1/D2/D3/D18), so the
+          // exit status must fail. The existing view is kept (no relaunch
+          // over it); zero bytes are typed either way.
+          emitLedgerEntry({
+            session: name,
+            outcome: "deferred",
+            reason: decision.reason,
+            at,
+          });
+          decidedNoLaunch.add(name);
+        }
+      }
+    }
+  }
+  // A restorable row that is a live-agent-cli AND provably live on its
+  // persisted host (this plan's snapshot) is never relaunched over the live
+  // CLI. Round-2 (astra-6): only rows whose view already exists leave the
+  // launch set (`already-active` + per-session `h2a attach` remedy —
+  // re-running restore right after a successful restore exits 0). A live
+  // CLI with no attached view stays launchable so the launch pass reopens
+  // exactly one attach view for it; rows the subtree pass already recorded
+  // keep their observed outcome; attach-live rows keep their attach-only
+  // path (exempt here); dead/unknown rows are untouched.
+  const facetRows: SessionFacetRow[] = [];
+  const controlledBySession = new Map<string, boolean | undefined>();
+  for (const s of sessions) {
+    if (s.attachLive === true) continue;
+    if (s.hostKind === undefined || s.managedName === undefined) continue;
+    if (liveView(s.hostKind, [s.managedName]).state !== "live") continue;
+    const row: SessionFacetRow = {
+      session: s.label ?? s.project,
+      tool: s.tool,
+      kind: s.hostKind,
+    };
+    if (s.hostKind === "local-tmux") row.tmuxLive = true;
+    else row.pidAlive = true;
+    if (s.label !== undefined) row.label = s.label;
+    facetRows.push(row);
+    controlledBySession.set(row.session, controlledByManagedName.get(s.managedName));
+  }
+  const occupiedRefusals = resolveOccupiedHumanRefusals(
+    facetRows,
+    isLiveFacetRow,
+  );
+  for (const r of occupiedRefusals) {
+    if (recordedLedgerSessions.has(r.session)) continue;
+    // A live CLI with no attached view keeps its attach-view path below —
+    // refusing the relaunch must not remove the view. Unknown or old-host
+    // visibility keeps the fail-closed refusal (already-active, no window).
+    if (controlledBySession.get(r.session) === false) continue;
+    emitLedgerEntry({
+      session: r.session,
+      outcome: "already-active",
+      remedy: r.remedy,
+      at: new Date().toISOString(),
+    });
+    decidedNoLaunch.add(r.session);
+    stderr.write(
+      `[h2a] restore "${r.session}": ` +
+        `${humanOutputText("restore.ledger.alreadyActive")} — ` +
+        `${humanOutputText("restore.ledger.remedyAttach")} ${r.remedy}\n`,
+    );
+  }
+  // Sessions whose view already exists never reach the launcher; every other
+  // session — including live uncontrolled ones owed exactly one attach view
+  // and deferred shells whose tab the plan still shows — flows to the launch
+  // pass, which observes each dispatch. The dispatch callback below skips
+  // recorded names, so one session still yields exactly one ledger line.
+  const launchable =
+    decidedNoLaunch.size === 0
+      ? sessions
+      : sessions.filter((s) => !decidedNoLaunch.has(s.label ?? s.project));
+  const {
+    windows: localWindows,
+    dropped,
+    emptyGroups,
+    unmatched: unmatchedLocal,
+    groupCapDrops,
+  } = groupSessions(launchable, cfg);
   const localByTitle = new Map(localWindows.map((w) => [w.title, w]));
 
-  // Remote windows: each `remote: true` group is filled with the SCW tabs.
+  // Remote windows: each `remote: true` group is filled with its OWN slice
+  // of the SCW tabs (first match wins, never the same tab twice). A remote
+  // group with no matchers is the explicit catch-all; tabs claimed by no
+  // remote group join the unmatched plan names instead of vanishing.
+  const remoteAssigned = assignRemoteTabsToGroups(remoteTabs, cfg.groups);
+  const claimedRemote = new Set<RemoteTab>();
+  for (const claimed of remoteAssigned.values()) {
+    for (const t of claimed) claimedRemote.add(t);
+  }
+  const unmatchedRemote = remoteTabs
+    .filter((t) => !claimedRemote.has(t))
+    .map((t) => t.label);
+  // Round-1 (D12c): unclassified remote rows excluded above are named here,
+  // alongside tabs no remote group claimed — excluded, never silent.
+  for (const label of excludedUnclassifiedRemote) {
+    if (!unmatchedRemote.includes(label)) unmatchedRemote.push(label);
+  }
   const remoteByTitle = new Map<string, LayoutWindow>();
   for (const g of cfg.groups) {
     if (!g.remote) continue;
-    const tabs: LayoutTab[] = remoteTabs
-      .slice(0, cfg.maxPerWindow)
-      .map((t) => ({ label: t.label, cwd: t.cwd, remoteId: t.id }));
+    const cap =
+      g.maxTabs ??
+      (cfg.maxPerWindow <= 0 ? Number.POSITIVE_INFINITY : cfg.maxPerWindow);
+    const claimed = remoteAssigned.get(g.title) ?? [];
+    const kept = claimed.slice(0, cap);
+    const tabs: LayoutTab[] = kept.map((t) => ({
+      label: t.label,
+      cwd: t.cwd,
+      remoteId: t.id,
+    }));
     if (tabs.length > 0) remoteByTitle.set(g.title, { title: g.title, tabs });
+    if (claimed.length > kept.length) {
+      groupCapDrops.push({
+        group: g.title,
+        cap,
+        dropped: claimed.length - kept.length,
+        names: claimed.slice(kept.length).map((t) => t.label),
+      });
+    }
   }
 
   // Order: follow cfg.groups (local or remote), then any shared windows.
@@ -1143,22 +2110,38 @@ export function restore(
   if (opts.group) windows = windows.filter((w) => titleMatches(w.title, opts.group!));
 
   const total = windows.reduce((n, w) => n + w.tabs.length, 0);
-  for (const w of windows) {
-    stderr.write(`  ${w.title} (${w.tabs.length}):\n`);
-    for (const t of w.tabs) {
-      const what = t.remoteId
-        ? `SCW:${t.remoteId}`
-        : `${t.tool} (local) [${t.origin === "registry" ? "registry" : "guess"}]`;
-      stderr.write(`    - ${t.label}  ${what}  ${t.cwd}\n`);
-    }
-  }
-  if (dropped > 0 && !opts.group)
-    stderr.write(`  (! ${dropped} session(s) ignorée(s), plafond atteint)\n`);
+  // Lot L6 (D14) — observed launch counts, captured from the launcher instead
+  // of re-planned: the totals line reports these, never the planned tabs.
+  // Round-1 (D2): every dispatched tab is observed here and records one
+  // ledger outcome (`attached` for an attach view, `launched` for a fresh
+  // relaunch) — one line per candidate, never planned. Rows the plan pass
+  // already recorded (already-active/deferred/blocked) keep their observed
+  // outcome and are never recorded twice.
+  let opened = 0;
+  let skippedLiveLaunch = 0;
   if (!opts.dryRun && total > 0) {
-    launchLayout(windows, hostView, stderr, {
+    const launched = launchLayout(windows, hostView, stderr, {
       ...(opts.reattach ? { reattach: true } : {}),
       ...(opts.forceGateway ? { forceGateway: opts.forceGateway } : {}),
+      onDispatch: (windowTitle, dispatch) => {
+        const name = dispatch.tab.label;
+        if (recordedLedgerSessions.has(name)) return;
+        // Round-2 (astra-4): a view reopened over a refused foreground
+        // carries the conserved refusal reason — the ledger never claims a
+        // verified CLI there.
+        const refusedReason =
+          dispatch.kind === "attach" ? refusedViewReasons.get(name) : undefined;
+        emitLedgerEntry({
+          session: name,
+          outcome: dispatch.kind === "attach" ? "attached" : "launched",
+          window: windowTitle,
+          ...(refusedReason !== undefined ? { reason: refusedReason } : {}),
+          at: new Date().toISOString(),
+        });
+      },
     });
+    opened = launched.opened;
+    skippedLiveLaunch = launched.skippedLive.length;
     // Auto-record the launched layout (inspect with `remote layout show`).
     try {
       writeLastLayout(windows, opts.group);
@@ -1166,7 +2149,37 @@ export function restore(
       // best-effort: the windows are open regardless
     }
   }
-  return { windows, total, dropped };
+  const observed: RestoreObserved = {
+    planned: total,
+    opened,
+    skippedLive: skippedLiveLaunch,
+    blocked: blockedLedgerCount,
+  };
+  // Lot L6 (D14) — the whole human plan renders through the locale catalog
+  // (one run = one language), including the L5 exclusion account.
+  // Lot LG (D13) — plus the explicit-group plan account below it.
+  for (const line of renderRestorePlan(
+    {
+      windows,
+      total,
+      // A group-scoped plan hides the unscoped cap note, as before.
+      dropped: opts.group ? 0 : dropped,
+      excludedSecondary: excluded.secondary,
+      excludedUnclassified: excluded.unclassified,
+      facetUpdates: [...facetUpdates],
+      dryRun: opts.dryRun ?? false,
+      observed,
+      // A group-scoped plan shows only its own cap account, as before.
+      groupCapDrops: opts.group
+        ? groupCapDrops.filter((d) => titleMatches(d.group, opts.group!))
+        : groupCapDrops,
+      emptyGroups: opts.group ? [] : emptyGroups,
+      unmatched: opts.group ? [] : [...unmatchedLocal, ...unmatchedRemote],
+    },
+  )) {
+    stderr.write(`${line}\n`);
+  }
+  return { windows, total, dropped, observed };
 }
 
 // ---------------------------------------------------------------------------
@@ -1204,6 +2217,9 @@ export function writeLastLayout(
     })),
   };
   const path = lastLayoutPath();
+  // Lot L0: mutation-point guard — named error, zero bytes outside the
+  // marked test root. Inert outside a marked test run.
+  guardTestStateWrite(path);
   mkdirSync(dirname(path), { recursive: true });
   const tmp = `${path}.tmp.${process.pid}`;
   writeFileSync(tmp, JSON.stringify(data, null, 2), "utf8");

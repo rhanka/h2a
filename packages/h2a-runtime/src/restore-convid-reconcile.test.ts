@@ -25,6 +25,10 @@ const UUID = {
   canevas: "42936d7a-c954-4fe8-ad02-70c60be42104",
 } as const;
 
+// Round-3 P1: both builders denote human-launched sessions, so they carry
+// the recorded human initiator the restore plan requires (bare `human`
+// rows without one are excluded as unclassified; the join-only tests above
+// never read the initiator).
 function runEntry(over: Partial<RegistryEntry> = {}): RegistryEntry {
   const now = new Date().toISOString();
   return {
@@ -36,6 +40,7 @@ function runEntry(over: Partial<RegistryEntry> = {}): RegistryEntry {
     enrolledAt: now,
     lastSeenAt: now,
     sessionClass: "human",
+    launchInitiator: "human",
     ...over,
   };
 }
@@ -52,6 +57,7 @@ function hookEntry(convId: string, over: Partial<RegistryEntry> = {}): RegistryE
     enrolledAt: now,
     lastSeenAt: now,
     sessionClass: "human",
+    launchInitiator: "human",
     ...over,
   };
 }

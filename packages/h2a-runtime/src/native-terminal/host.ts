@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
 
 import { writeHostLogLine } from "./crash-safe-log.js";
+import { appendCrashLog } from "../crash-log.js";
 import { HOST_FAULT_COUNTERS, recordHostFault } from "./fault-counters.js";
 import type { PtyHandle, PtySpawner } from "../pty.js";
 // Durable session identity (incl. pgid) lives in the single registry store by
@@ -22,7 +23,7 @@ import {
 } from "../registry.js";
 // The pid-namespace/boot/machine anchor a durable row is only re-provable
 // within — the SAME definition the row was written with (see proc-identity.ts).
-import { readBootId, readMachineId, readPidNamespaceId, readProcessStartTime } from "../proc-identity.js";
+import { readBootId, readBootTimeMs, readMachineId, readPidNamespaceId, readProcessStartTime } from "../proc-identity.js";
 export { readProcessStartTime };
 import {
   TerminalReplayBuffer,
@@ -31,7 +32,19 @@ import {
 } from "./replay-buffer.js";
 import { TerminalResetRelay } from "./reset-relay.js";
 import {
+  TERMINAL_REPLY_MAX_OUTSTANDING,
+  TERMINAL_REPLY_QUERY_WINDOW_MS,
+  TerminalQueryScanner,
+  replyQueryKey,
+} from "./terminal-replies.js";
+import type {
+  NativeTerminalProcessSnapshot,
+  NativeTerminalReplyFamily,
+  NativeTerminalReplyUnit,
+} from "./protocol.js";
+import {
   NATIVE_TERMINAL_DEFAULT_MAX_SESSIONS,
+  NATIVE_TERMINAL_MAX_FOREGROUND_PROCESSES,
   NATIVE_TERMINAL_MAX_IDENTIFIER_CHARS,
   NATIVE_TERMINAL_MAX_SESSIONS,
   type NativeTerminalStopSignal,
@@ -266,6 +279,82 @@ function isGoneErrno(error: unknown): boolean {
  * undefined when the line cannot be parsed — the caller must treat that as
  * "unknown", never as a state.
  */
+/**
+ * Round-1 (D1/L1b): read the worker tree of one session as foreground
+ * evidence for `state`. The HOST reports its own worker state (never
+ * client-side /proc guessing): every returned member carries argv[0]
+ * (fallback: comm), the full argv, the start time in ms and the ppid.
+ * Best-effort: members that exit mid-scan are skipped; unparseable fields
+ * skip that member; a non-Linux platform or an unreadable leader/group
+ * returns undefined (unattestable — callers keep `unknown`, never an empty
+ * verdict). Bounded to NATIVE_TERMINAL_MAX_FOREGROUND_PROCESSES members.
+ *
+ * Round-2 (code-review sol-3): the enumerated group is the terminal's real
+ * foreground process group (`tpgid`, field 8 of the leader's stat) — NOT
+ * the leader's own group (field 5). Under job control a foreground job runs
+ * in its own group, so the leader's group sees only the shell while the
+ * live agent CLI sits elsewhere. When the terminal reports no foreground
+ * group (no controlling terminal), the leader's own group is the best-effort
+ * fallback; when neither parses, the session is unattestable.
+ */
+function readForegroundProcessSnapshots(
+  leaderPid: number,
+): NativeTerminalProcessSnapshot[] | undefined {
+  if (process.platform !== "linux") return undefined;
+  let pgrp: number;
+  try {
+    const raw = readFileSync(`/proc/${leaderPid}/stat`, "utf8");
+    const splitAt = raw.lastIndexOf(") ");
+    if (splitAt < 0) return undefined;
+    const rest = raw.slice(splitAt + 2).split(" ");
+    const leaderPgrp = Number(rest[2]);
+    const foregroundPgrp = Number(rest[5]);
+    if (Number.isSafeInteger(foregroundPgrp) && foregroundPgrp > 0) {
+      pgrp = foregroundPgrp;
+    } else if (Number.isSafeInteger(leaderPgrp) && leaderPgrp > 0) {
+      pgrp = leaderPgrp;
+    } else {
+      return undefined;
+    }
+  } catch {
+    return undefined;
+  }
+  const bootMs = readBootTimeMs();
+  if (bootMs === undefined) return undefined;
+  const snapshots: NativeTerminalProcessSnapshot[] = [];
+  for (const pid of listProcessGroupMemberPids(pgrp)) {
+    if (snapshots.length >= NATIVE_TERMINAL_MAX_FOREGROUND_PROCESSES) break;
+    try {
+      const raw = readFileSync(`/proc/${pid}/stat`, "utf8");
+      const splitAt = raw.lastIndexOf(") ");
+      if (splitAt < 0) continue;
+      const comm = raw.slice(raw.indexOf("(") + 1, splitAt);
+      const rest = raw.slice(splitAt + 2).split(" ");
+      const ppid = Number(rest[1]);
+      const startTicks = Number(rest[19]);
+      if (!Number.isSafeInteger(ppid) || ppid < 0) continue;
+      if (!Number.isFinite(startTicks) || startTicks < 0) continue;
+      const uptimeRaw = readFileSync("/proc/uptime", "utf8");
+      const uptimeSeconds = Number(uptimeRaw.trim().split(/\s+/)[0]);
+      if (!Number.isFinite(uptimeSeconds) || startTicks / 100 > uptimeSeconds) continue;
+      const cmdline = readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0").filter((s) => s.length > 0);
+      const command = cmdline[0] ?? comm;
+      if (command.length === 0) continue;
+      snapshots.push({
+        pid,
+        command,
+        args: cmdline,
+        startedAtMs: Math.round(bootMs + (startTicks / 100) * 1000),
+        ppid,
+      });
+    } catch {
+      // Exited mid-scan; never a verdict.
+      continue;
+    }
+  }
+  return snapshots;
+}
+
 function parseStatStateAndPgrp(
   raw: string,
 ): { state: string; pgrp: number } | undefined {
@@ -564,6 +653,26 @@ export type NativeTerminalControllerOptions = Readonly<{
   tty?: string;
 }>;
 
+/**
+ * Lot L4-replies (D10) — the outcome of the host's final-write revalidation
+ * for one bridge-accepted typed reply. `applied` means the unit's query was
+ * still outstanding for the current controller epoch, incarnation AND
+ * application incarnation when the serialised handler ran. Anything else is
+ * swallowed with zero bytes (counted, logged) — the asking CLI is gone, the
+ * controller moved on, or no query was ever emitted.
+ */
+export type NativeTerminalReplyOutcome = Readonly<
+  | { outcome: "applied" }
+  | {
+    outcome: "swallowed";
+    reason:
+      | "stale-epoch"
+      | "stale-incarnation"
+      | "stale-application"
+      | "no-outstanding-query";
+  }
+>;
+
 export type NativeTerminalSessionState = Readonly<{
   id: string;
   generation: string;
@@ -573,6 +682,13 @@ export type NativeTerminalSessionState = Readonly<{
   latestSeq: number;
   exit: NativeTerminalExit | null;
   stopSignal: string | null;
+  /**
+   * Lot L4-replies (D10) — how many CLI→shell transitions (wrapper reset
+   * markers) this PTY has consumed. Typed reply units carry the incarnation
+   * the bridge accepted them under; the bridge also tracks the counter from
+   * the same marker stream, so both sides agree without a round trip.
+   */
+  applicationEpoch: number;
   /**
    * Whether a controller currently holds this session's exclusive input lease.
    * Restore consumers need only this boolean. Attach rescue also exposes the
@@ -588,6 +704,14 @@ export type NativeTerminalSessionState = Readonly<{
    * has been observed since this host created the session.
    */
   lastHumanActivityAt?: number | null;
+  /**
+   * Round-1 (D1/L1b): the host-observed worker tree of this session's
+   * process group (foreground evidence for restore/in-place decisions).
+   * Absent when unattestable (non-Linux host, unreadable /proc, old host
+   * without this field) — callers keep `unknown`, never an empty verdict.
+   * Present-but-empty means the group scan proved no member attributable.
+   */
+  foregroundProcesses?: NativeTerminalProcessSnapshot[];
 }>;
 
 export type NativeTerminalReplay = Readonly<{
@@ -741,9 +865,147 @@ type SessionRecord = {
   controllerIdentity: NativeTerminalControllerIdentity | null;
   controllerEpoch: number;
   lastHumanActivityAt: number | null;
+  /**
+   * Lot L2: automation writer frontier, independent of the human
+   * controller lease/epoch/frontier. `automationSeq` advances by exactly
+   * one per newly applied injection; `appliedInjections` maps the caller's
+   * idempotency key to its assigned outcome so a redelivery (including
+   * across a client reconnect) returns the original ACK without
+   * re-applying. In-memory only: a host crash loses the map (no
+   * exactly-once across host restarts is claimed).
+   */
+  automationSeq: number;
+  appliedInjections: Map<string, NativeTerminalInjectOutcome>;
+  /**
+   * Round-1 (D6/D7): host-observed human composition epoch. Counts every
+   * human-controller write chunk forwarded into this session. The host is
+   * the only path bytes take into the PTY, so zero here proves no human
+   * draft can exist; any positive count without a D6 adapter/observation
+   * attestation refuses injection (an expired timer alone never proves an
+   * empty composer — bytes already consumed by readline/the TUI are
+   * invisible to the host). Machine writes (automation activity, inject,
+   * replies) never advance it.
+   */
+  humanInputSeq: number;
+  /**
+   * Round-1 (sol-5): tombstoned idempotency keys. A redelivery whose key
+   * left the live map is refused, never re-applied. Round-2: the set is
+   * unbounded within the host lifetime (see `#rememberEvictedRequest`).
+   */
+  evictedRequestIds: Set<string>;
+  /**
+   * Lot L4-replies (D10) — CLI→shell transitions consumed on this PTY (one
+   * per wrapper reset marker), the query scanner feeding the transition and
+   * query state, and the currently outstanding foreground-app queries
+   * (family+key → first-seen epoch milliseconds). Typed reply units are
+   * revalidated against all three atomically in the serialised `writeReply`
+   * handler, immediately before `pty.write`.
+   */
+  applicationEpoch: number;
+  queryScanner: TerminalQueryScanner;
+  outstandingQueries: Map<string, number>;
   dataSubscription?: { dispose(): void };
   exitSubscription?: { dispose(): void };
 };
+
+/**
+ * Round-1 (code-review astra-2/5, sol-1/4/5): outcome of one host-side
+ * `inject` decision. `injected` carries the assigned position on the
+ * automation frontier; `deferred-recent-human` is retryable
+ * (`retryAfterMs`); every `refused-*` outcome is final for the request and
+ * writes zero bytes. `refused-unproven-composition` fires when human bytes
+ * were forwarded in this session without D6 composition evidence (an
+ * expired timer alone never proves an empty composer);
+ * `refused-facet` fires when the managed-shell foreground holds the PTY
+ * without an adapter attestation; `refused-audit-unavailable` fires when
+ * the durable admission record cannot be written (fail before mutation);
+ * `refused-evicted-request` fires when a redelivered idempotency key fell
+ * out of the live map (an old identifier is refused, never re-applied);
+ * `refused-stale-incarnation` is final for that incarnation. Never
+ * flattened: callers surface the typed outcome.
+ */
+export type NativeTerminalInjectOutcome = Readonly<
+  | { outcome: "injected"; automationSeq: number }
+  | { outcome: "deferred-recent-human"; retryAfterMs: number }
+  | { outcome: "refused-stale-incarnation" }
+  | { outcome: "refused-unproven-composition" }
+  | { outcome: "refused-facet" }
+  | { outcome: "refused-audit-unavailable" }
+  | { outcome: "refused-evicted-request" }
+>;
+
+export interface NativeTerminalInjectOptions {
+  /** One validated text line (no control characters); submitted with one Enter. */
+  readonly text: string;
+  /** Caller idempotency key: redelivery returns the original outcome. */
+  readonly requestId: string;
+  /** When present, must equal the session's current incarnation. */
+  readonly incarnation?: string;
+  /** Recent-human defer window. Defaults to 4000 ms. */
+  readonly activityWindowMs?: number;
+  /** Audit data only (owner channel is unauthenticated). */
+  readonly actor?: string;
+}
+
+/** Default recent-human defer window for `inject`, in milliseconds. */
+export const NATIVE_TERMINAL_DEFAULT_INJECT_ACTIVITY_WINDOW_MS = 4000;
+
+/** Longest injectable line in characters (payload bound, pinned by tests). */
+export const NATIVE_TERMINAL_MAX_INJECT_TEXT_CHARS = 4096;
+
+/** Idempotency map cap per session; oldest entries are evicted first. */
+export const NATIVE_TERMINAL_MAX_INJECT_OUTCOMES_PER_SESSION = 512;
+
+/**
+ * Attested agent CLI binaries: readline-style composers (a D6(ii)-style
+ * per-profile list — extended only with a named profile, never by guessing).
+ * Round-3 P1 (reviews pr382-r3): interpreter runtimes (node/bun/deno) NEVER
+ * qualify by process name, even when argv names a script. A script's real
+ * application is unattestable from the outside: it may be a REPL (which
+ * would execute the line), a TUI whose bindings differ (Ctrl-U clears with
+ * no Ctrl-Y to restore), or anything else holding an unknown draft. Only
+ * attested profiles are driven; every other foreground with a possible
+ * human draft refuses below with zero bytes (D5/D6).
+ */
+const INJECT_AGENT_CLI_BINARIES: ReadonlySet<string> = new Set([
+  "claude",
+  "codex",
+  "agy",
+  "muse",
+  "vibe",
+]);
+
+function injectBinaryBasename(command: string): string {
+  const base = command.split("/").pop() ?? command;
+  return base.toLowerCase();
+}
+
+/**
+ * Whether the host-observed foreground is an attested draft-preserving
+ * composer. Agent CLI composers qualify; shells, fullscreen programs,
+ * interpreter runtimes (node/bun/deno, with or without a script — a REPL
+ * would execute the line and a script's bindings are unattestable),
+ * and unattestable foregrounds never qualify — they keep refusing below,
+ * so a wake is never executed as a shell command or typed into vim.
+ * A positive binary is necessary but not sufficient: the caller must also
+ * be idle (past the activity window) with no managed-shell facet, and the
+ * unit still commits atomically in one `pty.write`.
+ */
+function isDraftPreservingForeground(
+  processes: ReadonlyArray<NativeTerminalProcessSnapshot> | undefined,
+): boolean {
+  if (processes === undefined || processes.length === 0) return false;
+  return processes.some((member) => INJECT_AGENT_CLI_BINARIES.has(injectBinaryBasename(member.command)));
+}
+
+function isInjectableLine(text: string): boolean {
+  // Parity with the op drive gate (nativeDriveInstruction in op.ts): one
+  // text line, no control/format characters, so an injection can never add
+  // a second line or sequence. The host revalidates even though callers
+  // pre-validate — the host is the final gate.
+  if (text.length === 0 || text.length > NATIVE_TERMINAL_MAX_INJECT_TEXT_CHARS) return false;
+  return !/[\p{Cc}\p{Cf}\u2028\u2029]/u.test(text);
+}
 
 export class NativeTerminalHost {
   readonly #generation: string;
@@ -761,6 +1023,9 @@ export class NativeTerminalHost {
   readonly #findGroupMemberToken: (pgid: number, expectedToken: string) => boolean;
   readonly #groupIsOnlyZombies: (pgid: number) => boolean;
   readonly #readFrame: () => NativeTerminalProcFrame;
+  readonly #readForeground: (
+    leaderPid: number,
+  ) => NativeTerminalProcessSnapshot[] | undefined;
   readonly #pgidGuardCounters = {
     recycled: 0,
     staleBoot: 0,
@@ -812,6 +1077,13 @@ export class NativeTerminalHost {
      * any pid-based proof is derived from that row — see
      * `#verifyGroupLeaderIdentity`. */
     readFrame?: () => NativeTerminalProcFrame;
+    /** Injectable so unit tests can stand in for the host-side foreground
+     * observation without real PTYs; defaults to the real /proc reader.
+     * Shared by `state` and the injection composition gate so both observe
+     * the same worker tree. */
+    readForegroundSnapshots?: (
+      leaderPid: number,
+    ) => NativeTerminalProcessSnapshot[] | undefined;
   }) {
     if (
       options.generation.trim().length === 0 ||
@@ -868,6 +1140,8 @@ export class NativeTerminalHost {
       options.findGroupMemberToken ?? groupCarriesSessionToken;
     this.#groupIsOnlyZombies = options.groupIsOnlyZombies ?? groupIsOnlyZombies;
     this.#readFrame = options.readFrame ?? readCurrentProcFrame;
+    this.#readForeground =
+      options.readForegroundSnapshots ?? readForegroundProcessSnapshots;
   }
 
   get generation(): string {
@@ -1016,27 +1290,55 @@ export class NativeTerminalHost {
       controllerIdentity: null,
       controllerEpoch: 0,
       lastHumanActivityAt: null,
+      automationSeq: 0,
+      appliedInjections: new Map(),
+      humanInputSeq: 0,
+      evictedRequestIds: new Set<string>(),
+      applicationEpoch: 0,
+      queryScanner: new TerminalQueryScanner(),
+      outstandingQueries: new Map(),
     };
     this.#sessions.set(record.id, record);
 
-    // Carry of the previous chunk so a DSR split across chunks is still seen.
-    // At most 3 chars: a full 4-char query can never hide entirely in it.
-    let dsrTail = "";
     const resetRelay = new TerminalResetRelay(
       (data) => { record.replay.append(data); },
       () => record.replay.resetSequence(),
+      () => {
+        // Lot L4-replies (D10): every consumed wrapper reset marker opens a
+        // new application incarnation on this PTY — the asking CLI is gone,
+        // the shell is now the reader — so outstanding queries die with it.
+        record.applicationEpoch += 1;
+        record.outstandingQueries.clear();
+      },
     );
     record.dataSubscription = record.pty.onData((data) => {
       try {
         if (record.exit !== null || data.length === 0) return;
         resetRelay.feed(data);
+        // Lot L4-replies (D10): record the foreground app's queries (chunk-
+        // safe via the scanner carry) so typed reply units can be revalidated
+        // at the final write. Evict oldest first: the map is bounded, and a
+        // query older than the window is stale by definition at match time.
+        const seen = record.queryScanner.feed(data);
+        const now = Date.now();
+        for (const query of seen) {
+          if (!record.outstandingQueries.has(replyQueryKey(query))) {
+            if (record.outstandingQueries.size >= TERMINAL_REPLY_MAX_OUTSTANDING) {
+              const oldest = record.outstandingQueries.keys().next();
+              if (!oldest.done) record.outstandingQueries.delete(oldest.value);
+            }
+            record.outstandingQueries.set(replyQueryKey(query), now);
+          }
+        }
         // Answer Device Status Report cursor queries (ESC[6n) like a real
         // terminal/tmux: TUIs that require a cursor-position report (muse
-        // aborts with "cursor position could not be read" without it).
-        const window = dsrTail + data;
-        dsrTail = window.slice(-3);
-        const queries = window.split("\x1b[6n").length - 1;
-        for (let i = 0; i < queries; i++) {
+        // aborts with "cursor position could not be read" without it). The
+        // host stays the documented responder for the cursor queries it
+        // intercepts: each self-answer consumes the query it answered, so a
+        // duplicate outer CPR arriving later finds no outstanding query and
+        // is swallowed.
+        const cursorQueries = seen.filter((query) => query.family === "cpr").length;
+        for (let i = 0; i < cursorQueries; i++) {
           try {
             record.pty.write("\x1b[1;1R");
           } catch {
@@ -1045,6 +1347,7 @@ export class NativeTerminalHost {
             recordHostFault(HOST_FAULT_COUNTERS.hostPtyWriteBreaks);
             break;
           }
+          record.outstandingQueries.delete(replyQueryKey({ family: "cpr", key: "" }));
         }
       } catch (error) {
         // node-pty delivers this callback on the event loop shared with every
@@ -1112,7 +1415,19 @@ export class NativeTerminalHost {
   }
 
   state(id: string): NativeTerminalSessionState {
-    return this.#snapshot(this.#requireSession(id));
+    const record = this.#requireSession(id);
+    const snapshot = this.#snapshot(record);
+    // Round-1 (D1/L1b): foreground evidence is a per-call host observation
+    // (a /proc group scan), not part of the cheap `#snapshot` used by
+    // `list` — restore fetches it explicitly per live native session.
+    // Unattestable stays absent (unknown), never an empty verdict.
+    if (record.status === "running") {
+      const foreground = this.#readForeground(record.pty.pid);
+      if (foreground !== undefined) {
+        return Object.freeze({ ...snapshot, foregroundProcesses: foreground });
+      }
+    }
+    return snapshot;
   }
 
   readOutput(id: string, afterSeq: number): NativeTerminalReplay {
@@ -1231,13 +1546,265 @@ export class NativeTerminalHost {
     });
   }
 
+  /**
+   * Round-1 (D5–D7): host-side injection concurrent with an attached window.
+   * Applies one validated line plus one submit under the host's own
+   * serialized handler WITHOUT taking, revoking or stamping the human
+   * controller lease: the attach lease keeps its meaning, and machine
+   * input never stamps `lastHumanActivityAt`. This method is synchronous
+   * from decision to `pty.write`, so no client read-then-write TOCTOU can
+   * interleave a human decision between the safety check and the commit.
+   *
+   * Safety, decided atomically here, in order: the durable admission
+   * record is written BEFORE any mutation (an unwritable audit refuses
+   * with zero bytes); recent human activity inside the window defers
+   * (typed, retryable); human bytes forwarded without D6 composition
+   * evidence refuse (an expired timer alone never proves an empty
+   * composer); a managed-shell foreground without an adapter attestation
+   * refuses (facet mismatch — never submit a CLI line into a shell
+   * prompt); a stale incarnation refuses; an evicted idempotency key is
+   * refused, never re-applied; an unknown session throws (caller maps it
+   * to its typed outcome).
+   */
+  inject(id: string, options: NativeTerminalInjectOptions): NativeTerminalInjectOutcome {
+    const record = this.#requireControllableSession(id);
+    const { text, requestId } = options;
+    if (
+      requestId.trim().length === 0 ||
+      requestId.length > NATIVE_TERMINAL_MAX_IDENTIFIER_CHARS
+    ) {
+      throw new RangeError(
+        `terminal inject request id must contain 1-${NATIVE_TERMINAL_MAX_IDENTIFIER_CHARS} characters`,
+      );
+    }
+    if (!isInjectableLine(text)) {
+      throw new RangeError(
+        "terminal inject text must be one non-empty line without control characters",
+      );
+    }
+    // Idempotency: a redelivery (including across a client reconnect)
+    // returns the original outcome and is never re-applied.
+    const prior = record.appliedInjections.get(requestId);
+    if (prior !== undefined) {
+      this.#auditInject(record, options, `inject:${prior.outcome}`, prior, true);
+      return prior;
+    }
+    // A redelivered key that aged out of the live map stays known through
+    // its tombstone: refused, never re-applied (D7 — never submit twice).
+    if (record.evictedRequestIds.has(requestId)) {
+      const outcome = Object.freeze({ outcome: "refused-evicted-request" } as const);
+      this.#auditInject(record, options, "inject:refused-evicted-request", outcome, true);
+      return outcome;
+    }
+    if (options.incarnation !== undefined && options.incarnation !== record.incarnation) {
+      const outcome = Object.freeze({ outcome: "refused-stale-incarnation" } as const);
+      this.#auditInject(record, options, "inject:refused-stale-incarnation", outcome, false);
+      return outcome;
+    }
+    // D7 durable admission BEFORE mutation: the attempt itself is recorded
+    // durably before any byte is written. When admission cannot be
+    // recorded, the operation refuses with zero bytes.
+    const admitted = this.#auditInject(record, options, "inject:admission", undefined, false);
+    if (!admitted) {
+      return Object.freeze({ outcome: "refused-audit-unavailable" } as const);
+    }
+    const activityWindowMs =
+      options.activityWindowMs ?? NATIVE_TERMINAL_DEFAULT_INJECT_ACTIVITY_WINDOW_MS;
+    if (!Number.isSafeInteger(activityWindowMs) || activityWindowMs < 0) {
+      throw new RangeError("terminal inject activity window must be a non-negative safe integer");
+    }
+    const now = Date.now();
+    const activityAt = record.lastHumanActivityAt;
+    if (activityAt !== null && activityWindowMs > 0 && now - activityAt < activityWindowMs) {
+      const outcome = Object.freeze({
+        outcome: "deferred-recent-human",
+        retryAfterMs: activityWindowMs - (now - activityAt),
+      } as const);
+      this.#auditInject(record, options, "inject:deferred-recent-human", outcome, false);
+      return outcome;
+    }
+    // Round-2 P1, narrowed round-3 (D5/D6 positive path): the human typed
+    // and went idle, and the host-observed foreground is an ATTESTED
+    // composer (named agent-CLI profile — never an interpreter runtime)
+    // holding no managed-shell facet. The unit submits draft-preservingly in ONE
+    // atomic `pty.write` — Ctrl-E (end of line, mid-line cursor safety),
+    // Ctrl-U (hold the draft aside), the validated text, Enter (submit
+    // exactly the automation line), Ctrl-Y (restore the draft). No human
+    // byte is lost, submitted or executed: the submitted line is exactly
+    // the automation text and the draft settles byte-identical, concurrent
+    // controller writes serialise around the unit without interleaving.
+    // Shells, fullscreen programs, REPLs and unattestable foregrounds fall
+    // through to the refusal below (a wake is never executed as a command).
+    if (record.humanInputSeq > 0 && record.applicationEpoch === 0) {
+      const foreground = this.#readForeground(record.pty.pid);
+      if (isDraftPreservingForeground(foreground)) {
+        const automationSeq = record.automationSeq + 1;
+        try {
+          record.pty.write(`\x05\x15${text}\r\x19`);
+        } catch (error) {
+          this.#auditInject(record, options, "inject:write-failed", undefined, false);
+          throw error;
+        }
+        record.automationSeq = automationSeq;
+        const outcome = Object.freeze({ outcome: "injected", automationSeq } as const);
+        record.appliedInjections.set(requestId, outcome);
+        this.#rememberEvictedRequest(record);
+        this.#auditInject(record, options, "inject:injected-draft-preserved", outcome, false);
+        return outcome;
+      }
+    }
+    // D6 composition gate: the host is the only path bytes take into the
+    // PTY, so a positive human-input epoch proves a human MAY hold a draft
+    // (readline/the TUI may already have consumed the bytes). Without a D6
+    // adapter/observation attestation — or a qualifying foreground above —
+    // the request refuses with zero bytes: neither an expired timer, an
+    // empty kernel queue nor UI-readiness is composition evidence. A zero
+    // epoch proves no human draft can exist.
+    if (record.humanInputSeq > 0) {
+      const outcome = Object.freeze({ outcome: "refused-unproven-composition" } as const);
+      this.#auditInject(record, options, "inject:refused-unproven-composition", outcome, false);
+      return outcome;
+    }
+    // D6 facet gate: a consumed wrapper reset marker proves the managed
+    // shell now holds the foreground (the CLI exited). Submitting a CLI
+    // line into that shell prompt without an adapter attestation refuses
+    // with zero bytes. Unmanaged sessions never emit the marker (unknown
+    // foreground stays admissible here — the readiness proof, not a guess,
+    // is what the L1b wiring adds per candidate).
+    if (record.applicationEpoch > 0) {
+      const outcome = Object.freeze({ outcome: "refused-facet" } as const);
+      this.#auditInject(record, options, "inject:refused-facet", outcome, false);
+      return outcome;
+    }
+    const automationSeq = record.automationSeq + 1;
+    try {
+      // One single write: the injected unit can never interleave byte-wise
+      // with a human write chunk on the shared event loop.
+      record.pty.write(`${text}\r`);
+    } catch (error) {
+      // Surfaced, never silently retried under a new identity: a redelivery
+      // with the same request id retries this same unit.
+      this.#auditInject(record, options, "inject:write-failed", undefined, false);
+      throw error;
+    }
+    record.automationSeq = automationSeq;
+    const outcome = Object.freeze({ outcome: "injected", automationSeq } as const);
+    record.appliedInjections.set(requestId, outcome);
+    this.#rememberEvictedRequest(record);
+    this.#auditInject(record, options, "inject:injected", outcome, false);
+    return outcome;
+  }
+
+  /**
+   * Round-2 (code-review astra-3/sol-2): evicted idempotency keys stay
+   * refusably known for the host lifetime — never re-applied, never silently
+   * forgotten. The tombstone set is deliberately unbounded: entries are
+   * wake-scale (short caller keys, one per applied injection), while any
+   * bound reintroduces the double-submission the bound exists to prevent
+   * (an old identifier readmitted as new). Host-crash exactly-once stays
+   * out of scope (§5); within one host lifetime no applied key is forgotten.
+   */
+  #rememberEvictedRequest(record: SessionRecord): void {
+    if (record.appliedInjections.size <= NATIVE_TERMINAL_MAX_INJECT_OUTCOMES_PER_SESSION) return;
+    const oldest = record.appliedInjections.keys().next();
+    if (oldest.done) return;
+    record.appliedInjections.delete(oldest.value);
+    record.evictedRequestIds.add(oldest.value);
+  }
+
+  #auditInject(
+    record: SessionRecord,
+    options: NativeTerminalInjectOptions,
+    reason: string,
+    outcome: NativeTerminalInjectOutcome | undefined,
+    redelivered: boolean,
+  ): boolean {
+    // Audit data only, never payload content: kind + byte count + outcome.
+    // Returns whether the row was durably recorded (the admission gate
+    // refuses mutation on false). Never throws: a failing sink reads as
+    // "not admitted", never as a write-path crash.
+    try {
+      return appendCrashLog("cli", {
+        event: "inject",
+        sessionId: record.id,
+        ...(options.actor !== undefined ? { instanceId: options.actor } : {}),
+        reason,
+        detail:
+          `kind=line bytes=${options.text.length} ` +
+          `seq=${outcome?.outcome === "injected" ? outcome.automationSeq : "-"} ` +
+          `epoch=${record.controllerEpoch} redelivered=${redelivered ? "yes" : "no"}`,
+      });
+    } catch {
+      // Audit failures never escape the injection path.
+      return false;
+    }
+  }
+
   write(lease: NativeTerminalControllerLease, data: string): void {
     if (data.length === 0) {
       throw new RangeError("terminal input must not be empty");
     }
     const record = this.#requireController(lease);
-    if (record.controllerActivity === "human") record.lastHumanActivityAt = Date.now();
+    if (record.controllerActivity === "human") {
+      record.lastHumanActivityAt = Date.now();
+      // Round-1 (D6): every human-controller chunk advances the
+      // host-observed composition epoch — the inject gate reads it, and
+      // machine writes (automation activity) never touch it.
+      record.humanInputSeq += 1;
+    }
     record.pty.write(data);
+  }
+
+  /**
+   * Lot L4-replies (D10) — the final gate for one bridge-accepted typed
+   * reply, revalidated atomically in the serialised handler immediately
+   * before `pty.write`: the unit's query must still be outstanding for the
+   * CURRENT controller epoch, session incarnation AND application
+   * incarnation. A reply the bridge accepted but that is stale by apply
+   * time (asking CLI exited, controller moved on, query never emitted or
+   * already answered/expired) is swallowed with ZERO bytes — counted on the
+   * orphan-reply counter and logged — never typed into the new reader. A
+   * machine reply NEVER stamps `lastHumanActivityAt`; only human `write`
+   * and automation `inject` touch the activity signals.
+   */
+  writeReply(
+    lease: NativeTerminalControllerLease,
+    unit: NativeTerminalReplyUnit,
+  ): NativeTerminalReplyOutcome {
+    // Correlation staleness is NEVER a throw: a typed unit that cannot be
+    // proven current is swallowed with zero bytes (counted, logged) — that
+    // is the whole point of the final gate. Only a broken pty.write throws,
+    // exactly like the human `write` path.
+    const record = this.#sessions.get(lease.id);
+    const generationMismatch =
+      record === undefined || lease.generation !== this.#generation;
+    const swallow = (
+      reason: Extract<NativeTerminalReplyOutcome, { outcome: "swallowed" }>["reason"],
+    ): NativeTerminalReplyOutcome => {
+      recordHostFault(HOST_FAULT_COUNTERS.terminalReplySwallowed);
+      this.#log(
+        `[h2a] swallowed a ${unit.family} terminal reply for session ${lease.id}: ${reason}`,
+      );
+      return { outcome: "swallowed", reason };
+    };
+    if (generationMismatch) return swallow("stale-incarnation");
+    const current = record!;
+    if (current.status !== "running") return swallow("stale-application");
+    if (current.controllerId !== lease.controllerId || unit.epoch !== current.controllerEpoch) {
+      return swallow("stale-epoch");
+    }
+    if (unit.incarnation !== current.incarnation) return swallow("stale-incarnation");
+    if (unit.appEpoch !== current.applicationEpoch) return swallow("stale-application");
+    const key = replyQueryKey(unit);
+    const seenAt = current.outstandingQueries.get(key);
+    if (seenAt === undefined) return swallow("no-outstanding-query");
+    if (Date.now() - seenAt > TERMINAL_REPLY_QUERY_WINDOW_MS) {
+      current.outstandingQueries.delete(key);
+      return swallow("no-outstanding-query");
+    }
+    current.outstandingQueries.delete(key);
+    current.pty.write(unit.bytes);
+    return { outcome: "applied" };
   }
 
   resize(
@@ -2086,6 +2653,7 @@ export class NativeTerminalHost {
       latestSeq: record.replay.latestSeq,
       exit: record.exit,
       stopSignal: record.stopSignal,
+      applicationEpoch: record.applicationEpoch,
       controlled: record.controllerId !== null,
       controllerEpoch: record.controllerEpoch,
       controller: record.controllerIdentity,

@@ -45,6 +45,9 @@ const CONV_ID = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
 
 const iso = new Date().toISOString();
 
+// Round-3 P1: both builders denote human-launched sessions, so they carry
+// the recorded human initiator the restore plan requires (bare `human`
+// rows without one are excluded as unclassified).
 const nativeEntry = (over: Partial<RegistryEntry> = {}): RegistryEntry => ({
   id: SLUG,
   label: SLUG,
@@ -54,6 +57,7 @@ const nativeEntry = (over: Partial<RegistryEntry> = {}): RegistryEntry => ({
   convId: CONV_ID,
   tmuxSession: NATIVE_NAME,
   sessionClass: "human",
+  launchInitiator: "human",
   source: "run",
   enrolledAt: iso,
   lastSeenAt: iso,
@@ -69,6 +73,7 @@ const tmuxEntry = (over: Partial<RegistryEntry> = {}): RegistryEntry => ({
   convId: CONV_ID,
   tmuxSession: "h2a-tmux-lane",
   sessionClass: "human",
+  launchInitiator: "human",
   source: "run",
   enrolledAt: iso,
   lastSeenAt: iso,

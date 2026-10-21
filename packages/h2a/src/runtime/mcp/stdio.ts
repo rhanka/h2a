@@ -1,12 +1,14 @@
 import { createInterface } from "node:readline";
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { linkSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { linkSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import type { Readable, Writable } from "node:stream";
 
 import type { H2AWorkspaceRef } from "@sentropic/h2a";
 
 import { createInboxWakeHandler } from "../drive/inbox-wake.js";
+import { readPendingIdsFile } from "./pending-ids.js";
 import {
   detectLocalLaunchContext,
   detectTmuxLaunchContext,
@@ -600,11 +602,63 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
   function armInboxWake(cfg: AutoOpenConfig, wakeCfg: NonNullable<RunMcpStdioOptions["wake"]>): void {
     const wakeInstance = cfg.instance;
     const wakeStore = createLocalStore({ root });
+    // Round-1 (code-review astra-4/sol-3, D9): durable pending-wake state
+    // PER RECIPIENT (envelope ids only, mode 0600). A single root-level
+    // file let one sidecar's success erase another sidecar's deferred wake;
+    // one file per instance keeps every recipient's pending batch isolated.
+    // Published atomically (tmp file + rename) so a crash mid-write never
+    // leaves a truncated store behind. The pre-round-1 shared path is read
+    // once as a migration source, then cleared.
+    const safeInstance = wakeInstance.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 64) || "default";
+    const pendingPath = join(root, `inbox-wake-pending.${safeInstance}.json`);
+    const legacyPendingPath = join(root, "inbox-wake-pending.json");
+    // Round-3 P2 (reviews pr382-r3): absent reads as empty; unreadable
+    // THROWS so the handler's pendingUnreadable branch propagates the
+    // uncertainty (retry from scratch) instead of burying a deferred wake.
+    const readIdsFile = (path: string): string[] => readPendingIdsFile(path);
+    // Round-2 P1: one coalesced, bounded retry after a recent-human
+    // deferral (transient). A fresh inbox arrival resets the budget; past
+    // it the wake stays pending for the next arrival or restart instead of
+    // polling forever. The timer never keeps the sidecar alive on its own.
+    let wakeRetryTimer: NodeJS.Timeout | undefined;
+    let wakeRetryAttempts = 0;
+    const scheduleWakeRetry = (retryAfterMs: number): void => {
+      if (wakeRetryTimer !== undefined) return;
+      if (wakeRetryAttempts >= 8) return;
+      const delay = Math.max(0, Math.min(retryAfterMs + 250, 30_000));
+      wakeRetryTimer = setTimeout(() => {
+        wakeRetryTimer = undefined;
+        wakeRetryAttempts += 1;
+        void wake();
+      }, delay);
+      wakeRetryTimer.unref?.();
+    };
     const wake = createInboxWakeHandler({
       instance: wakeInstance,
       readInbox: () => wakeStore.readInbox(wakeInstance),
       privateKeyPem: wakeCfg.privateKeyPem,
       driver: wakeCfg.driver,
+      scheduleRetry: scheduleWakeRetry,
+      pendingStore: {
+        load: () => {
+          const ids = readIdsFile(pendingPath);
+          const legacy = readIdsFile(legacyPendingPath);
+          return legacy.length > 0 ? [...new Set([...legacy, ...ids])] : ids;
+        },
+        save: (ids: string[]) => {
+          // Throws propagate to the handler, which surfaces them on its log
+          // and keeps the wake memory-only (round-2 sol-6) — a failing
+          // pending store never breaks the wake call itself.
+          const tmp = `${pendingPath}.tmp.${process.pid}`;
+          writeFileSync(tmp, JSON.stringify(ids), { mode: 0o600 });
+          renameSync(tmp, pendingPath);
+          try {
+            unlinkSync(legacyPendingPath);
+          } catch {
+            // No legacy file, or already migrated — nothing to do.
+          }
+        }
+      },
       ...(cfg.host !== undefined ? { host: cfg.host } : {}),
       // Self-wake targets THIS process's OWN tmux pane (inherited $TMUX_PANE).
       resolveLaunchContext: () =>
@@ -619,9 +673,33 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
       log: (line) => stderr.write(`h2a mcp-serve: ${line}\n`)
     });
     server.notifications.setOnInboxArrival((instance) => {
-      if (instance === wakeInstance) void wake();
+      if (instance === wakeInstance) {
+        // A fresh arrival renews the retry budget for its own batch.
+        wakeRetryAttempts = 0;
+        void wake();
+      }
     });
     stderr.write(`h2a mcp-serve: inbox-wake armed for ${wakeInstance}\n`);
+    // Round-2 (D9): a previous process may have persisted a pending
+    // (undelivered) batch and then died. The fresh handler above already
+    // exempts those ids from the boot-backlog seed, so one prompt retry
+    // delivers them instead of waiting for an arrival that may never come.
+    // No pending file, no backlog wake: a clean start stays quiet.
+    // Round-3 P2: an UNREADABLE pending file schedules the same recovery —
+    // the pending set is unknown (not empty), so the inbox is retried from
+    // scratch instead of staying quiet over a possibly-buried wake.
+    let bootPending = false;
+    try {
+      bootPending = readIdsFile(pendingPath).length > 0;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      stderr.write(`h2a mcp-serve: ${message} — retrying inbox from scratch\n`);
+      bootPending = true;
+    }
+    if (bootPending) {
+      const pendingTimer = setTimeout(() => void wake(), 1000);
+      pendingTimer.unref?.();
+    }
   }
 
   // Eager auto-open: identity was resolved synchronously before the transport

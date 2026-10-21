@@ -19,8 +19,8 @@
  *    snapshot for launchLayout.
  */
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const listLocalSessions = vi.hoisted(() => vi.fn());
@@ -49,15 +49,14 @@ vi.mock("node:os", async (importOriginal) => {
   return { ...actual, homedir: homedirMock };
 });
 
-const { restore } = await import("./restore.js");
+const { restore, restoreExitCode } = await import("./restore.js");
 type RegistryEntry = import("./registry.js").RegistryEntry;
+type RestoreLedgerEntry = import("./restore.js").RestoreLedgerEntry;
 
-const SCRATCH_ROOT = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "..",
-  ".test-scratch",
-  "restore-wiring",
-);
+// Round-1 L0 same-class repair (code-review sol-8): suite scratch lives
+// under the private TMPDIR, never in the package's .test-scratch (which the
+// L0 filesystem barrier mounts read-only).
+const SCRATCH_PREFIX = "h2a-restore-wiring-";
 
 const AMBIG_NAME = "h2a-h-infra";
 const LEGIT_NAME = "h2a-legit";
@@ -85,6 +84,8 @@ function row(over: Partial<RegistryEntry> & { id: string }): RegistryEntry {
     kind: "local-native",
     cwd: join(home, "src", "proj"),
     sessionClass: "human",
+    // Round-3 P1: declared human primaries carry the recorded initiator.
+    launchInitiator: "human",
     source: "run",
     enrolledAt: iso,
     lastSeenAt: iso,
@@ -111,8 +112,7 @@ function launchedMapLines(): string[] {
 }
 
 beforeEach(() => {
-  mkdirSync(SCRATCH_ROOT, { recursive: true });
-  scratch = mkdtempSync(join(SCRATCH_ROOT, "w-"));
+  scratch = mkdtempSync(join(tmpdir(), SCRATCH_PREFIX));
   home = join(scratch, "home");
   mkdirSync(join(home, "src", "proj"), { recursive: true });
   homedirMock.mockReset().mockReturnValue(home);
@@ -169,8 +169,12 @@ describe("F4 — dual-host ambiguity is dropped from the WIRED plan, not only re
 
 describe("F3 — the launch decides from the plan's ONE snapshot", () => {
   it("RESTORE_LIVE_AT_PLAN_TIME_IS_ATTACHED_NEVER_RELAUNCHED_ON_A_DIVERGENT_SECOND_READ", () => {
+    // Round-1: the row carries an UNRESOLVED conversation (label-as-convId,
+    // no hook match) so it is attach-live — the only row kind that takes an
+    // attach view. A resolved-conv live row is already-active with no tab
+    // (round-1 astra-3/sol-7 probe B, tested below).
     writeRegistry([
-      row({ id: "legit", label: "legit", kind: "local-native", convId: CONV_C, tmuxSession: LEGIT_NAME }),
+      row({ id: "legit", label: "legit", kind: "local-native", convId: "legit", tmuxSession: LEGIT_NAME }),
     ]);
     // The native inventory answers LIVE exactly once (the plan snapshot);
     // any SECOND read sees an empty host. With the single-snapshot wiring
@@ -183,7 +187,13 @@ describe("F3 — the launch decides from the plan's ONE snapshot", () => {
       ])
       .mockReturnValue([]);
 
-    const result = restore({ stderr: stderrStream });
+    const ledger: import("./restore.js").RestoreLedgerEntry[] = [];
+    const result = restore({
+      stderr: stderrStream,
+      onLedgerEntry: (e) => {
+        ledger.push(e);
+      },
+    });
 
     // The ONE inventory read is itself the wiring invariant.
     expect(listNativeSessions).toHaveBeenCalledTimes(1);
@@ -195,6 +205,9 @@ describe("F3 — the launch decides from the plan's ONE snapshot", () => {
     // --replace on a session that was live at plan time.
     expect(lines[0]).toContain(`h2a attach '${LEGIT_NAME}'`);
     expect(lines.join("\n")).not.toMatch(/h2a run|--resume|--replace/);
+    // Round-1 (D2): the observed attach view records one `attached` outcome.
+    expect(ledger).toHaveLength(1);
+    expect(ledger[0]).toMatchObject({ session: "legit", outcome: "attached" });
   });
 });
 
@@ -228,5 +241,205 @@ describe("PART A (sol-2, per-row) — a valid row + an UNREADABLE TWIN of the SA
     expect(tabs).toHaveLength(0);
     expect(result.total).toBe(0);
     expect(spawn).not.toHaveBeenCalled();
+  });
+});
+
+describe("round-1 (astra-3/sol-7) — one ledger outcome per candidate, exit honors blockers", () => {
+  const KNOWN_NAME = "h2a-known-conv";
+  /** A primary whose conversation uuid IS known: resolved, never attach-live. */
+  function knownRow(): RegistryEntry {
+    return row({
+      id: "known",
+      label: "known",
+      kind: "local-native",
+      convId: CONV_C,
+      tmuxSession: KNOWN_NAME,
+    });
+  }
+
+  it("KNOWN_CONV_LIVE_PRIMARY_UNCONTROLLED_OPENS_EXACTLY_ONE_ATTACH_VIEW", () => {
+    writeRegistry([knownRow()]);
+    listNativeSessions.mockReturnValue([
+      { id: KNOWN_NAME, pid: 4242, status: "running", exit: null, controlled: false },
+    ]);
+
+    const ledger: RestoreLedgerEntry[] = [];
+    const result = restore({
+      stderr: stderrStream,
+      onLedgerEntry: (e) => {
+        ledger.push(e);
+      },
+    });
+
+    // Round-2 (code-review astra-6): a live CLI with a known conversation
+    // but NO attached view must reopen exactly one attach view — never zero
+    // tabs with `already-active` (the round-1 regression: every live-agent-cli
+    // name left the plan regardless of controlled:false). No relaunch over
+    // the live CLI: the dispatched tab is attach-only.
+    expect(ledger).toHaveLength(1);
+    expect(ledger[0]).toMatchObject({ session: "known", outcome: "attached" });
+    expect(result.total).toBe(1);
+    expect(spawn).toHaveBeenCalledTimes(1);
+    const lines = launchedMapLines();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain(`h2a attach '${KNOWN_NAME}'`);
+    expect(lines.join("\n")).not.toMatch(/h2a run|--resume|--replace/);
+    expect(restoreExitCode(ledger, {})).toBe(0);
+  });
+
+  it("KNOWN_CONV_LIVE_PRIMARY_CONTROLLED_RECORDS_ALREADY_ACTIVE_WITH_NO_TAB", () => {
+    writeRegistry([knownRow()]);
+    listNativeSessions.mockReturnValue([
+      { id: KNOWN_NAME, pid: 4242, status: "running", exit: null, controlled: true },
+    ]);
+
+    const ledger: RestoreLedgerEntry[] = [];
+    const result = restore({
+      stderr: stderrStream,
+      onLedgerEntry: (e) => {
+        ledger.push(e);
+      },
+    });
+
+    // The view already exists: no second controller, no tab, one
+    // `already-active` ledger outcome with the attach remedy.
+    expect(ledger).toHaveLength(1);
+    expect(ledger[0]).toMatchObject({ session: "known", outcome: "already-active" });
+    expect(ledger[0]!.remedy).toMatch(/h2a attach/);
+    expect(result.total).toBe(0);
+    expect(spawn).not.toHaveBeenCalled();
+    expect(restoreExitCode(ledger, {})).toBe(0);
+  });
+
+  it("KNOWN_CONV_UNKNOWN_FOREGROUND_NEVER_PROMOTES_WRAPPER_LIVENESS_TO_CLI_ACTIVE", () => {
+    writeRegistry([knownRow()]);
+    listNativeSessions.mockReturnValue([
+      { id: KNOWN_NAME, pid: 4242, status: "running", exit: null, controlled: false },
+    ]);
+
+    const ledger: RestoreLedgerEntry[] = [];
+    const result = restore({
+      stderr: stderrStream,
+      nativeSubtrees: [
+        {
+          name: KNOWN_NAME,
+          processes: [
+            { pid: 9999, command: "vim", args: ["vim", "notes.txt"], startedAtMs: 1, ppid: 4242 },
+          ],
+        },
+      ],
+      onLedgerEntry: (e) => {
+        ledger.push(e);
+      },
+    });
+
+    // Round-2 (code-review astra-4): an explicitly unknown foreground (vim,
+    // not the enrolled CLI) is refused for typing — and the refusal stays in
+    // the ledger. Wrapper liveness is never promoted to `already-active`.
+    // The live PTY still gets its view (attach-only, zero bytes typed).
+    expect(ledger).toHaveLength(1);
+    expect(ledger[0]).toMatchObject({ session: "known", outcome: "attached" });
+    expect(ledger[0]!.reason).toMatch(/unknown-foreground/);
+    expect(result.total).toBe(1);
+    expect(spawn).toHaveBeenCalledTimes(1);
+    const lines = launchedMapLines();
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain(`h2a attach '${KNOWN_NAME}'`);
+    expect(restoreExitCode(ledger, {})).toBe(0);
+  });
+
+  it("KNOWN_CONV_UNKNOWN_FOREGROUND_WITH_ATTACHED_VIEW_DEFERS_WITH_NONZERO_EXIT", () => {
+    // Round-3 P2 (reviews pr382-r3): the same unknown foreground (vim) but
+    // WITH an attached view (controlled) is a DEFERRED objective — no CLI
+    // was observed (D1/D2/D3/D18), so the ledger records deferred with the
+    // conserved reason and the exit status fails. Never already-active.
+    writeRegistry([knownRow()]);
+    listNativeSessions.mockReturnValue([
+      { id: KNOWN_NAME, pid: 4242, status: "running", exit: null, controlled: true },
+    ]);
+
+    const ledger: RestoreLedgerEntry[] = [];
+    const result = restore({
+      stderr: stderrStream,
+      nativeSubtrees: [
+        {
+          name: KNOWN_NAME,
+          processes: [
+            { pid: 9999, command: "vim", args: ["vim", "notes.txt"], startedAtMs: 1, ppid: 4242 },
+          ],
+        },
+      ],
+      onLedgerEntry: (e) => {
+        ledger.push(e);
+      },
+    });
+
+    expect(ledger).toHaveLength(1);
+    expect(ledger[0]).toMatchObject({ session: "known", outcome: "deferred" });
+    expect(ledger[0]!.reason).toMatch(/unknown-foreground/);
+    // The existing view is not relaunched over: zero tabs, zero spawns.
+    expect(result.total).toBe(0);
+    expect(spawn).toHaveBeenCalledTimes(0);
+    expect(restoreExitCode(ledger, {})).toBe(1);
+  });
+
+  it("RESTORE_EXIT_CODE_FAILS_ON_BLOCKED_EVEN_WHEN_ANOTHER_CANDIDATE_PROGRESSED", () => {
+    const at = new Date().toISOString();
+    // Progress elsewhere never masks a blocked objective (reviewer finding c).
+    expect(
+      restoreExitCode(
+        [
+          { session: "a", outcome: "launched", at },
+          { session: "b", outcome: "blocked", reason: "dual-host", at },
+        ],
+        {},
+      ),
+    ).toBe(1);
+    expect(
+      restoreExitCode(
+        [
+          { session: "a", outcome: "already-active", at },
+          { session: "b", outcome: "blocked", reason: "occupied-human", at },
+        ],
+        {},
+      ),
+    ).toBe(1);
+    // attached/already-active/launched satisfy the objective; empty ledgers
+    // and dry runs stay zero.
+    expect(
+      restoreExitCode(
+        [
+          { session: "a", outcome: "attached", window: "w", at },
+          { session: "b", outcome: "launched", window: "w", at },
+        ],
+        {},
+      ),
+    ).toBe(0);
+    // Round-2 (code-review astra-5/sol-4): an unsatisfied deferred objective
+    // fails the run — even beside a success, and even for needs-adapter.
+    expect(
+      restoreExitCode([{ session: "prim", outcome: "deferred", reason: "needs-adapter", at }], {}),
+    ).toBe(1);
+    expect(
+      restoreExitCode(
+        [
+          { session: "a", outcome: "launched", window: "w", at },
+          { session: "prim", outcome: "deferred", reason: "needs-adapter", at },
+        ],
+        {},
+      ),
+    ).toBe(1);
+    // A deferred dry-run still previews only: zero.
+    expect(
+      restoreExitCode([{ session: "prim", outcome: "deferred", reason: "needs-adapter", at }], {
+        dryRun: true,
+      }),
+    ).toBe(0);
+    expect(restoreExitCode([], {})).toBe(0);
+    expect(
+      restoreExitCode([{ session: "b", outcome: "blocked", reason: "dual-host", at }], {
+        dryRun: true,
+      }),
+    ).toBe(0);
   });
 });

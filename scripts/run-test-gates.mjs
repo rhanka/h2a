@@ -68,12 +68,30 @@ import { performance } from 'node:perf_hooks'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { TEST_DIRS, discoverTestFiles, listNodeTrackSuiteFiles, NODE_TRACK_EXECUTION_REPORT, verifyNodeTrackExecution } from './run-tests.mjs'
 import { discoverSuites, verifyExecutionReport, readInventory, inventoryFailures } from './test-execution-evidence.mjs'
+import { ensureHistoricalGitRef, IDENTITY_BASE_REF, LEGACY_HOST_REF } from './historical-test-ref.mjs'
 import { policyFor, readDeclaredNonTests } from './test-inventory.mjs'
 import { tmpdir } from 'node:os'
 import { reportSuiteDurations } from './report-test-durations.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(HERE, '..')
+
+// Lot L0: self-sandboxing envelope (see the invokedDirectly block at the
+// bottom). Callable before its textual definition (function declaration).
+function ensureSandboxedInvocation(invokedDirectly) {
+  if (!invokedDirectly) return
+  if (process.env.H2A_TEST_STATE_BARRIER === '1' && process.env.H2A_TEST_STATE_ATTESTATION) return
+  // Provision git-written state BEFORE the barrier (see run-tests.mjs):
+  // the legacy-host scenarios need a historical ref that only `git fetch`
+  // provides. This is the outermost unconfined moment of `npm test`
+  // (nested invocations inherit the barrier and skip this branch).
+  ensureHistoricalGitRef(REPO_ROOT, LEGACY_HOST_REF)
+  // The identity lane archives a second historical ref at module load; fetch
+  // it here too — inside the barrier .git is read-only (EROFS on FETCH_HEAD).
+  ensureHistoricalGitRef(REPO_ROOT, IDENTITY_BASE_REF)
+  const sandbox = spawnSync(process.execPath, ['scripts/test-sandbox.mjs', '--', process.execPath, ...process.argv.slice(1)], { stdio: 'inherit', cwd: REPO_ROOT })
+  process.exit(sandbox.status ?? 1)
+}
 const RUNTIME_SRC = resolve(REPO_ROOT, 'packages', 'h2a-runtime', 'src')
 // SPEC 0.98.5 R8 (round-7 review finding P1): the h2a-runtime gate must prove
 // EXECUTION, not discovery. The pinned vitest config writes its JSON report
@@ -563,6 +581,11 @@ export function runGates(steps, options = {}) {
 }
 
 const invokedDirectly = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href
+// Lot L0: every gate runs inside the filesystem barrier. When invoked
+// directly without an inherited attestation + barrier (i.e. not launched
+// through scripts/test-sandbox.mjs), re-exec through it with identical argv
+// instead of running tests unconfined. Never falls back to an unconfined run.
+ensureSandboxedInvocation(invokedDirectly)
 if (invokedDirectly) {
   process.exit(runGates(STEPS))
 }

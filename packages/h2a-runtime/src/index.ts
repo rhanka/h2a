@@ -99,6 +99,10 @@ import {
   fanoutLabels,
   findLocalSession,
   killLocalSession,
+  isOwnManagedSession,
+  localRelaunchCommand,
+  localResumeHintCommand,
+  localResumeHintArgs,
   localSessionGatewayEnvStatus,
   listLocalSessions,
   listH2aStatusSurfaces,
@@ -152,6 +156,7 @@ import {
   driveNativeInstruction,
   killNativeSessionIfIncarnation,
   killNativeSessionTree,
+  listNativeSessions,
   nativeHostAvailable,
   nativePromptDeliveryDeps,
   nativeSessionLiveness,
@@ -186,25 +191,42 @@ import {
   type AgentLaunchEffort,
 } from "./agent-launch-args.js";
 import { resolveGatewayModelAlias } from "./gateway-model-catalog/model-catalog.js";
-import { deriveSessionClass } from "./session-class.js";
+import {
+  deriveLaunchInitiator,
+  deriveSessionClass,
+  SESSION_CLASS_ENV,
+  sessionClassFromEnv,
+} from "./session-class.js";
 import type { ProcView } from "./proc-cpu.js";
 import {
   isRelaunchKillable,
   planRelaunch,
+  relaunchCandidatesForNative,
   relaunchContinuationPrompt,
   tryAcquireResumeLaunchClaim,
   wakeRelaunchedSession,
+  type RelaunchCandidate,
 } from "./relaunch.js";
 import {
+  buildRestoreJsonReport,
+  fetchNativeForegroundSubtrees,
+  fetchSelectedNativeSubtrees,
   isHumanFacingSession,
   legacySessionEvidence,
   readConversationCustomTitle,
   readLastLayout,
   reconcileRunConvIds,
+  renderRestoreTotals,
   restore as restoreLayout,
+  restoreExitCode,
   type LegacySessionEvidence,
+  type RestoreLedgerEntry,
   type RestoreOptions,
 } from "./restore.js";
+import {
+  humanOutputText,
+  resolveHumanOutputLocale,
+} from "./human-output.js";
 import { getLayoutConfig } from "./config.js";
 import { resolvePinnedLaunchEntries } from "./resume-launch-options.js";
 import {
@@ -327,8 +349,11 @@ import {
   type ConductorLaunchRequest,
 } from "./conductor-launch.js";
 import { defaultLocalH2aRoot } from "./h2a-bridge.js";
-import { refuseCullExecution, runIdentityCullDryRun } from "./identity-cull/cull.js";
-import { guardConvWriters } from "./conv-guard.js";
+// identity-cull is imported lazily at its verb below: cull.js needs the
+// core identity fence (`@sentropic/h2a`), which must never become a
+// load-time edge of this barrel — isolated installs of this package have
+// no core beside them.
+import { guardConvWriters, type ConvOwnersOpts } from "./conv-guard.js";
 import {
   handleClaudeHook,
   installClaudeHooks,
@@ -2692,6 +2717,85 @@ function isCommanderNonErrorCode(code: string): boolean {
   );
 }
 
+/**
+ * Lot L1a — run-scoped restore ledger (CLI side). The record is machine
+ * values only and is written ONLY to the caller-supplied path — there is no
+ * default location. Human lines render at print time through the locale
+ * catalog.
+ */
+export type { RestoreLedgerEntry };
+
+/** Append one entry to the in-memory ledger (immutable). */
+export function appendRestoreLedgerEntry(
+  entries: ReadonlyArray<RestoreLedgerEntry>,
+  entry: RestoreLedgerEntry,
+): RestoreLedgerEntry[] {
+  return [...entries, entry];
+}
+
+/**
+ * Persist the ledger record. Refuses an empty path: without an explicit
+ * run-scoped record path the ledger is never written anywhere.
+ */
+export function writeRestoreLedgerRecord(
+  recordPath: string,
+  entries: ReadonlyArray<RestoreLedgerEntry>,
+): void {
+  if (recordPath.length === 0) {
+    throw new Error(
+      "writeRestoreLedgerRecord: refusing to write the restore ledger " +
+        "without an explicit run-scoped record path (no default location)",
+    );
+  }
+  mkdirSync(dirname(recordPath), { recursive: true });
+  writeFileSync(
+    recordPath,
+    JSON.stringify({ version: 1, entries }, null, 2),
+    "utf8",
+  );
+}
+
+/**
+ * Render the ledger through the locale catalog: static status words come
+ * from the catalog, machine values (session, window, reason, remedy) pass
+ * through untranslated.
+ */
+export function printRestoreLedger(
+  entries: ReadonlyArray<RestoreLedgerEntry>,
+  locale: string = resolveHumanOutputLocale(),
+): string[] {
+  return entries.map((entry) => {
+    const status = humanOutputText(
+      entry.outcome === "launched"
+        ? "restore.ledger.launched"
+        : entry.outcome === "already-active"
+          ? "restore.ledger.alreadyActive"
+          : entry.outcome === "attached"
+            ? "restore.ledger.attached"
+            : entry.outcome === "deferred"
+              ? "restore.ledger.deferred"
+              : "restore.ledger.blocked",
+      locale,
+    );
+    const where = entry.window !== undefined ? ` → ${entry.window}` : "";
+    const why =
+      entry.reason !== undefined
+        ? ` (${entry.reason}${entry.remedy !== undefined ? ` — ${entry.remedy}` : ""})`
+        : "";
+    return `${status}: ${entry.session}${where}${why}`;
+  });
+}
+
+/** Run-scoped record path for one restore invocation (never a default). */
+export function restoreLedgerRecordPath(): string {
+  const base = process.env.XDG_RUNTIME_DIR ?? tmpdir();
+  return join(
+    base,
+    "h2a",
+    `restore-ledger-${process.pid}-${Date.now()}.json`,
+  );
+}
+
 export async function main(argv: ReadonlyArray<string>): Promise<number> {
   // Passive fatal-path witness on the real entry path (see
   // installCliWitnessOnce): observes via uncaughtExceptionMonitor, so the
@@ -2825,9 +2929,17 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .option("--execute", "refuse destructive execution; no bypass exists")
     .option("--root <path>", "DEF h2a root (default: H2A_ROOT or ~/h2a-workspace/.h2a)")
     .option("--output <path>", "new external directory for the proof packet")
-    .action((opts: { dryRun?: boolean; execute?: boolean; root?: string; output?: string }) => {
+    .action(async (opts: { dryRun?: boolean; execute?: boolean; root?: string; output?: string }) => {
+      let cull: typeof import("./identity-cull/cull.js");
+      try {
+        cull = await import("./identity-cull/cull.js");
+      } catch (error) {
+        process.stderr.write(`[h2a] identity cull unavailable: ${error instanceof Error ? error.message : String(error)}\n`);
+        process.exitCode = 1;
+        return;
+      }
       if (opts.execute) {
-        const refusal = refuseCullExecution();
+        const refusal = cull.refuseCullExecution();
         process.stderr.write(`[h2a] identity cull refused: ${refusal.refusalCodes.join(", ")}\n`);
         process.exitCode = 2;
         return;
@@ -2835,7 +2947,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       const defRoot = opts.root ?? process.env.H2A_ROOT ?? defaultLocalH2aRoot();
       const outputDir = opts.output ?? join(tmpdir(), `h2a-identity-cull-${randomUUID()}`);
       try {
-        const result = runIdentityCullDryRun({
+        const result = cull.runIdentityCullDryRun({
           defRoot,
           pinRoot: join(homedir(), "src", "a2a-cli"),
           outputDir,
@@ -5861,8 +5973,12 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                   ...(entry.convId ? { resumeId: entry.convId } : {}),
                 }),
               );
+              // Lot L4-hint (D11d) — name the exact in-PTY action being run
+              // (the profile resume from the single source), never a bare
+              // "already exists".
+              const inPaneResume = localResumeHintCommand(command, args);
               process.stderr.write(
-                `[h2a] already inside ${displaySlug}; running ${profile} resume in this pane\n`,
+                `[h2a] already inside ${displaySlug}; running in this pane: ${inPaneResume}\n`,
               );
               process.exitCode = runLocalCliForeground(command, args);
               return;
@@ -6056,10 +6172,28 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           process.stderr.write(`[h2a] gateway active: ${gateway}\n`);
         }
         if (opts.attach) {
+          // Lot L4-hint (D11b/c) — the launching parent in attached mode
+          // hands the survivor its lines: recreation from the resolved
+          // resume (conversation, workspace, pinned posture/host), attach
+          // for a later detach.
+          const sessionEndHint = {
+            recreation: localRelaunchCommand(
+              profile,
+              entry.cwd,
+              resumeSlug,
+              entry.convId ? ["--resume", entry.convId] : [],
+              {
+                gatewayMode: effectiveGatewayMode,
+                bare: useBare,
+                ...(resumeHost === "local-tmux" ? { tmux: true as const } : {}),
+              },
+            ),
+            attach: `h2a attach ${resumeSlug}`,
+          };
           process.exitCode =
             resumeHost === "native"
-              ? attachNativeSession(name)
-              : attachLocalSession(name);
+              ? attachNativeSession(name, undefined, { sessionEndHint })
+              : attachLocalSession(name, { sessionEndHint });
           return;
         }
         process.stderr.write(`[h2a] attach: h2a attach ${resumeSlug}\n`);
@@ -6125,6 +6259,14 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       "--background",
       "classify this detached session as a background worker excluded from human restore",
     )
+    .option(
+      "--primary",
+      "declare this session a primary (restored by default; refuses with delegation provenance)",
+    )
+    .option(
+      "--secondary",
+      "declare this session a secondary (restored only with the restore opt-in)",
+    )
     .option("--json", "emit one machine-readable h2a.run.result object")
     .option(
       "--llm-gateway",
@@ -6163,6 +6305,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           effort?: string;
           headless?: boolean;
           background?: boolean;
+          primary?: boolean;
+          secondary?: boolean;
           json?: boolean;
           llmGateway?: boolean;
           gw?: boolean;
@@ -6184,6 +6328,13 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           process.stderr.write(
             `[h2a] structured run supports only claude|codex|agy|muse (got "${profile}")\n`,
           );
+          process.exitCode = 2;
+          return;
+        }
+        // Round-1 (D12a): an explicitly declared restore facet travels to
+        // enrollment; declaring both is a usage error (refuse before launch).
+        if (opts.primary === true && opts.secondary === true) {
+          process.stderr.write("[h2a] --primary and --secondary are mutually exclusive\n");
           process.exitCode = 2;
           return;
         }
@@ -6454,6 +6605,21 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         ];
         if (existingLocalSessions.length > 0) {
           for (const slug of existingLocalSessions) {
+            // Lot L4-hint (D11d) — `h2a run` for the same managed name
+            // executed inside its own PTY fails naming the in-PTY action
+            // (the profile resume from the single source), never with a bare
+            // "already exists".
+            if (isOwnManagedSession(localSessionName(slug))) {
+              const inPty = localResumeHintCommand(
+                localCliCommand(profile),
+                localResumeHintArgs(profile, opts.resume),
+              );
+              process.stderr.write(
+                `[h2a] ${humanOutputText("hint.runInsideOwnSession")} "${slug}": ` +
+                  `${humanOutputText("hint.resumeInPlace")} ${inPty}\n`,
+              );
+              continue;
+            }
             process.stderr.write(
               `[h2a] local session ${slug} already exists; no new ${profile} was started.\n`,
             );
@@ -6479,11 +6645,45 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         }
         // Single-writer guard: refuse to resume a conversation another live
         // session (local registry / remote pod) is already writing.
+        // Round-1 (D4a): the guard also receives the host-observed native
+        // subtrees, so a proven-live local-native owner refuses even when
+        // its registry pid is absent (best-effort, never throws).
         if (opts.resume) {
+          let resumeSubtrees: ConvOwnersOpts["nativeSubtrees"] | undefined;
+          // Round-3 P2 (reviews pr382-r3): the guard verifies a suspect
+          // owner against its OWN session subtree, so only native sessions
+          // named by registry rows holding THIS conversation are probed —
+          // every other session costs zero probes. Equivalent outcomes:
+          // rows without a managed native name can never verify by subtree.
+          try {
+            const read = loadRegistry();
+            const names =
+              read.state === "ok"
+                ? [
+                    ...new Set(
+                      read.entries
+                        .filter(
+                          (e) =>
+                            e.kind === "local-native" &&
+                            e.convId === opts.resume &&
+                            e.tmuxSession !== undefined,
+                        )
+                        .map((e) => e.tmuxSession as string),
+                    ),
+                  ]
+                : [];
+            if (names.length > 0) {
+              const fetched = fetchNativeForegroundSubtrees(names);
+              if (fetched.length > 0) resumeSubtrees = fetched;
+            }
+          } catch {
+            resumeSubtrees = undefined;
+          }
           const ok = await guardConvWriters({
             convId: opts.resume,
             cwd,
             ...(opts.force ? { force: true } : {}),
+            ...(resumeSubtrees !== undefined ? { nativeSubtrees: resumeSubtrees } : {}),
             fetchRemoteSessions: async () => {
               const url = getConfiguredRemoteOptional();
               return url ? await listRemoteSessions(url) : [];
@@ -6521,6 +6721,24 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         // A detached/background or run-once launch is a worker, even when its
         // agent later emits a Claude SessionStart hook. Stamp this through tmux
         // so that hook cannot reclassify it as a human session.
+        // Round-3 P1 (reviews pr382-r3, owner verbatim): an attached
+        // terminal is NOT proof of a human initiator — so the initiator is
+        // derived and recorded alongside (undefined when undetermined, kept
+        // across hooks/resumes, never human by default). The session CLASS
+        // keeps tracking launch modality only (attach ⇒ human-class): every
+        // restore/injection decision additionally requires a recorded human
+        // initiator (classifyRestoreFacet), so a piped attach enrolls as
+        // human/unproven and stays excluded from auto-restore.
+        const launchInitiator = deriveLaunchInitiator({
+          background: opts.background === true,
+          headless: opts.headless === true,
+          secondary: opts.secondary === true,
+          primary: opts.primary === true,
+          envJobId: process.env[JOB_ID_ENV],
+          envSessionClass: sessionClassFromEnv(process.env[SESSION_CLASS_ENV]),
+          stdinIsTTY: process.stdin.isTTY,
+          stdoutIsTTY: process.stdout.isTTY,
+        });
         const sessionClass = deriveSessionClass({
           background: opts.background === true,
           headless: opts.headless === true,
@@ -6965,6 +7183,18 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             cwd,
             sessionClass,
             ...(opts.resume !== undefined ? { convId: opts.resume } : {}),
+            // Round-3 P1: record the launch initiator at launch (kept
+            // across hooks/resumes by the registry; never defaulted).
+            ...(launchInitiator !== undefined
+              ? { launchInitiator }
+              : {}),
+            // Round-1 (D12a): an explicitly declared facet overrides the
+            // sessionClass/delegation default at enrollment.
+            ...(opts.primary === true
+              ? { restoreFacet: "primary" as const }
+              : opts.secondary === true
+                ? { restoreFacet: "secondary" as const }
+                : {}),
             gatewayMode: launchGatewayMode,
             bare: useBare,
           });
@@ -7062,10 +7292,36 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           );
           return;
         }
+        // Lot L4-hint (D11b/c) — the launching parent in attached mode hands
+        // the survivor its lines: recreation from THIS launch (profile,
+        // workspace, conversation, pinned posture/host), attach for a
+        // later detach.
+        const recreationBare = resolveClaudeBare(
+          profile,
+          bareChoiceFromOptions(opts) ?? pinnedLaunch?.bare,
+        );
+        const runSessionEndHint = {
+          recreation: localRelaunchCommand(
+            profile,
+            cwd,
+            only.slug,
+            opts.resume !== undefined ? ["--resume", opts.resume] : [],
+            {
+              gatewayMode: launchGatewayMode,
+              bare: recreationBare,
+              ...(sessionHost === "local-tmux" ? { tmux: true as const } : {}),
+            },
+          ),
+          attach: `h2a attach ${only.slug}`,
+        };
         process.exitCode =
           sessionHost === "native"
-            ? attachNativeSession(only.name)
-            : attachLocalSession(only.name);
+            ? attachNativeSession(only.name, undefined, {
+                sessionEndHint: runSessionEndHint,
+              })
+            : attachLocalSession(only.name, {
+                sessionEndHint: runSessionEndHint,
+              });
         return;
         } catch (error) {
           if (!(error instanceof NativeHostCapabilityMismatchError || error instanceof NativeLaunchAdmissionError) || creationAttempted) throw error;
@@ -9202,8 +9458,26 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           )
         : undefined;
       const entryByTmuxSession = new Map<string, RegistryEntry>();
+      // Round-1 (D3): the bare sweep covers live native sessions with the
+      // same in-place rule — activatable CLI and shell-state rows are seen
+      // and skipped loudly (never typed into, never killed); unattributable
+      // rows fail closed toward alive. Dead native rows stay manual (no
+      // relaunch form is guessed for them here).
+      let nativeSweepCandidates: RelaunchCandidate[] = [];
+      try {
+        const liveNative = listNativeSessions().filter((s) => s.status === "running");
+        if (liveNative.length > 0) {
+          nativeSweepCandidates = relaunchCandidatesForNative(
+            fetchNativeForegroundSubtrees(liveNative.map((s) => s.id)),
+            registryEntries,
+          );
+        }
+      } catch {
+        // Best-effort: the sweep degrades to tmux-only, never to a guess.
+        nativeSweepCandidates = [];
+      }
       const plan = planRelaunch(
-        sessions.map((s) => ({
+        [...sessions.map((s) => ({
           ...(() => {
             const matches = registryEntriesForLocalTmuxTarget(
               s.name,
@@ -9248,6 +9522,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             return { ...safety, livenessReason: safety.reason };
           })(),
         })),
+        ...nativeSweepCandidates,
+      ],
         {
           ...(forced ? { force: true } : {}),
           ...(opts.all && !opts.includeAgents
@@ -9913,6 +10189,14 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     )
     .option("--dry-run", "affiche le layout calculé sans ouvrir de terminaux")
     .option(
+      "--include-secondary",
+      "inclut les sessions secondaires (déléguées) exclues par défaut du plan de restauration",
+    )
+    .option(
+      "--json",
+      "machine form of the D2 ledger (field names are machine values, never localised)",
+    )
+    .option(
       "--reattach",
       "rouvre les sessions tmux déjà visibles; côté PTY natif, rattache une session non contrôlée mais refuse toujours un second contrôleur concurrent",
     )
@@ -9931,6 +10215,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         group: string | undefined,
         opts: {
           dryRun?: boolean;
+          json?: boolean;
+          includeSecondary?: boolean;
           reattach?: boolean;
           llmGateway?: boolean;
           gw?: boolean;
@@ -9943,7 +10229,17 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             .toLowerCase()
             .replace(/[^a-z0-9]+/g, "-")
             .replace(/^-+|-+$/g, "");
-        const cfg = getLayoutConfig();
+        // Lot LG (D13) — an invalid group config refuses BEFORE anything
+        // launches: surface the refusal as a one-line human error, never a
+        // raw stack.
+        let cfg;
+        try {
+          cfg = getLayoutConfig();
+        } catch (error) {
+          process.stderr.write(`[h2a] ${(error as Error).message}.\n`);
+          process.exitCode = 1;
+          return;
+        }
         const needRemote = cfg.groups.some(
           (g) => g.remote && (!group || norm(g.title) === norm(group)),
         );
@@ -9951,6 +10247,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         const restoreOpts: RestoreOptions = {};
         if (group) restoreOpts.group = group;
         if (opts.dryRun) restoreOpts.dryRun = true;
+        // Lot L5 (D12): explicit opt-in restoring secondary (delegated) rows.
+        if (opts.includeSecondary) restoreOpts.includeSecondary = true;
 
         // Optional restore-launch gateway override. "auto" (no flag) leaves
         // each session on its pinned posture; an existing live session is only
@@ -9969,7 +10267,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         const centralMcp = await prepareCentralMcpForRestore({ root: process.cwd() });
         if (centralMcp?.status === "degraded") {
           process.stderr.write(
-            `[h2a] central MCP unavailable, falling back to per-session sidecar: ${centralMcp.reason}\n`,
+            `[h2a] ${humanOutputText("restore.centralDegraded")}: ${centralMcp.reason}\n`,
           );
         }
 
@@ -9980,16 +10278,47 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           restoreOpts.remoteTabs = sessions.map((s) => {
             const wp = s.workspacePath;
             const cwd = wp && existsSync(wp) ? wp : homedir();
-            return { id: s.id, label: projectName(s), cwd };
+            // Lot L5 (D12c): carry the server-reported restore facet when
+            // present so secondary remote rows are excluded by default.
+            const reported = (s as { restoreFacet?: unknown }).restoreFacet;
+            return {
+              id: s.id,
+              label: projectName(s),
+              cwd,
+              ...(reported === "primary" || reported === "secondary"
+                ? { restoreFacet: reported }
+                : {}),
+            };
           });
           if (restoreOpts.remoteTabs.length === 0) {
             process.stderr.write(
-              "[h2a] aucune session SCW (h2a ls vide) pour le groupe remote\n",
+              `[h2a] ${humanOutputText("restore.noRemoteSessions")}\n`,
             );
           }
         }
 
         if (opts.reattach) restoreOpts.reattach = true;
+        // Round-1 (D1b/D4a), narrowed round-3 P2 (reviews pr382-r3): the
+        // product producer for `nativeSubtrees`. The relevant native
+        // targets are selected from the registry FIRST (positively-
+        // classified primaries, opt-in secondaries); only those,
+        // intersected with the one batch inventory, are probed — excluded
+        // rows cost zero probes. Unattestable sessions are omitted
+        // (unknown, never empty). Never throws: a failed discovery
+        // degrades to no observation at all.
+        try {
+          const read = loadRegistry();
+          if (read.state === "ok") {
+            const subtrees = fetchSelectedNativeSubtrees(read.entries, {
+              ...(opts.includeSecondary === true
+                ? { includeSecondary: true as const }
+                : {}),
+            });
+            if (subtrees.length > 0) restoreOpts.nativeSubtrees = subtrees;
+          }
+        } catch {
+          // No host observation — restore() keeps unknown like old hosts.
+        }
         // Forced-direct restore must NOT spin up the gateway; otherwise prepare
         // it as before (no-op when the gateway is disabled).
         if (forceGateway !== "direct") {
@@ -10004,14 +10333,64 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             return;
           }
         }
-        const { total } = restoreLayout(restoreOpts);
-        if (total === 0) {
-          process.stderr.write(
-            `[h2a] rien à relancer${group ? ` pour le groupe "${group}"` : ""}\n`,
+        // Lot L1a: collect the blocked ledger entries (occupied-human
+        // refusals) for the run-scoped record + catalog print below.
+        const ledgerEntries: RestoreLedgerEntry[] = [];
+        restoreOpts.onLedgerEntry = (entry) => {
+          ledgerEntries.push(entry);
+        };
+        const {
+          total,
+          observed,
+          windows: plannedWindows,
+        } = restoreLayout(restoreOpts);
+        if (opts.json) {
+          // Lot L6 (D14): machine form of the D2 ledger — field names are
+          // machine values, never localised. Human lines stay on stderr.
+          process.stdout.write(
+            `${JSON.stringify(buildRestoreJsonReport({
+              windows: plannedWindows,
+              total,
+              observed,
+              ledger: ledgerEntries,
+              dryRun: Boolean(opts.dryRun),
+              ...(group !== undefined ? { group } : {}),
+            }), null, 2)}\n`,
           );
-        } else {
+        }
+        if (ledgerEntries.length > 0) {
+          for (const line of printRestoreLedger(ledgerEntries)) {
+            process.stderr.write(`[h2a] ${line}\n`);
+          }
+          // A dry run previews — only a real run persists the record, and
+          // only to this invocation's run-scoped path (never a default).
+          if (!opts.dryRun) {
+            try {
+              writeRestoreLedgerRecord(
+                restoreLedgerRecordPath(),
+                ledgerEntries,
+              );
+            } catch {
+              // best-effort: the refusal notes above already reached stderr
+            }
+          }
+        }
+        // Round-1 (D2): the exit status answers "did anything remain
+        // unactioned?" — via restoreExitCode (non-zero iff a candidate ends
+        // blocked/failed, even when another progressed; dry-run always
+        // zero). already-active/attached/launched satisfy the objective.
+        if (restoreExitCode(ledgerEntries, { dryRun: Boolean(opts.dryRun) }) !== 0) {
+          process.exitCode = 1;
+        }
+        // Lot L6 (D14): the totals line reports observed outcomes from the
+        // D2 ledger and the launch counts — never the planned tab count.
+        if (total === 0 && observed.blocked === 0) {
           process.stderr.write(
-            `[h2a] ${total} onglet(s)${opts.dryRun ? " (dry-run, rien ouvert)" : " relancé(s)"}\n`,
+            `[h2a] ${humanOutputText("restore.nothingToDo")}${group ? ` ("${group}")` : ""}\n`,
+          );
+        } else if (!opts.json) {
+          process.stderr.write(
+            `[h2a] ${renderRestoreTotals(observed, Boolean(opts.dryRun))}\n`,
           );
         }
       },
@@ -10293,9 +10672,51 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                 return;
               }
             }
+            // Lot L4-hint (D11b/c) — survivor hints from the durable record:
+            // the attach carries the session, so the row's own resume data
+            // rebuilds the recreation line (conversation, workspace, pinned
+            // posture/host). No row (e.g. a bare tmux session) still gets the
+            // attach line — it needs no registry data.
+            const attachRegistry = loadRegistry();
+            const attachEntry =
+              attachRegistry.state === "ok"
+                ? attachRegistry.entries.find(
+                    (e) => e.tmuxSession === resolution.name,
+                  )
+                : undefined;
+            const attachSessionEndHint = {
+              ...(attachEntry !== undefined
+                ? {
+                    recreation: localRelaunchCommand(
+                      attachEntry.tool,
+                      attachEntry.cwd,
+                      attachEntry.label,
+                      attachEntry.convId ? ["--resume", attachEntry.convId] : [],
+                      {
+                        ...(attachEntry.gatewayMode === "gateway" ||
+                        attachEntry.gatewayMode === "direct"
+                          ? { gatewayMode: attachEntry.gatewayMode }
+                          : {}),
+                        ...(typeof attachEntry.bare === "boolean"
+                          ? { bare: attachEntry.bare }
+                          : {}),
+                        ...(attachEntry.kind === "local-tmux"
+                          ? { tmux: true as const }
+                          : {}),
+                      },
+                    ),
+                  }
+                : {}),
+              attach: `h2a attach ${first}`,
+            };
             process.exitCode = nativeTarget
-              ? attachNativeSession(resolution.name, undefined, { takeover: opts.takeover === true })
-              : attachLocalSession(resolution.name);
+              ? attachNativeSession(resolution.name, undefined, {
+                  takeover: opts.takeover === true,
+                  sessionEndHint: attachSessionEndHint,
+                })
+              : attachLocalSession(resolution.name, {
+                  sessionEndHint: attachSessionEndHint,
+                });
             return;
           }
         }

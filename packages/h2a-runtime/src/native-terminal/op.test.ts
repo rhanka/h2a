@@ -47,6 +47,7 @@ type AttachClient = Pick<
   | "acquireController"
   | "releaseController"
   | "write"
+  | "writeReply"
   | "resize"
   | "close"
 >;
@@ -95,7 +96,10 @@ describe("native terminal attach recovery", () => {
       async releaseController() { return { controlled: false, controllerEpoch: 1 }; },
       async readOutput() { const data = chunks[seq++] ?? ""; return replay(seq, data); },
       async state() { return now >= 1000 ? exited() : running(); },
-      async write() {}, async resize() {}, close() {},
+      async write() {},
+      async writeReply() { return { outcome: "applied" }; },
+      async resize() {},
+      close() {},
     };
     await runAttach("h2a-alpha", {
       connect: async () => client,
@@ -129,6 +133,7 @@ describe("native terminal attach recovery", () => {
       },
       async state() { return now >= 1_000 ? exited() : running(true); },
       async write() {},
+      async writeReply() { return { outcome: "applied" }; },
       async resize() {},
       close() {},
     };
@@ -248,6 +253,10 @@ describe("native terminal attach recovery", () => {
             }
             return Promise.resolve();
           },
+          async writeReply(_lease, unit) {
+            writes.push({ connection, data: unit.bytes, unit });
+            return { outcome: "applied" };
+          },
           async resize() {},
           close() {
             if (closed) return;
@@ -306,6 +315,137 @@ describe("native terminal attach recovery", () => {
       expect(reads.filter((read) => read.connection === 2).length).toBeLessThan(8);
     },
   );
+});
+
+describe("round-2 (code-review astra-2): a lone-Escape timer must not flush a reply-in-progress", () => {
+  it("holds a split terminal reply past the lone-Escape bound instead of typing it", async () => {
+    // Genuine lone Escape resolves within the bound; a reply split so its
+    // continuation arrives after the bound must still take the typed path.
+    // Real timers: the defect is the wall-clock race itself.
+    vi.useRealTimers();
+    const stdin = new FakeInput();
+    const stdout = new FakeOutput();
+    const writes: string[] = [];
+    const replies: string[] = [];
+    let done = false;
+    const lease = {
+      role: "controller",
+      id: "h2a-alpha",
+      generation: "generation-1",
+      incarnation: 1,
+      controllerId: "esc-controller",
+      epoch: 1,
+    } as const;
+    const client: AttachClient = {
+      async acquireController() { return lease; },
+      async releaseController() { return { controlled: false, controllerEpoch: 1 }; },
+      async readOutput() { return replay(0, ""); },
+      async state() { return done ? exited() : running(true); },
+      async write(_lease, data) { writes.push(data); },
+      async writeReply(_lease, unit) {
+        replies.push(unit.bytes);
+        return { outcome: "applied" };
+      },
+      async resize() {},
+      close() {},
+    };
+    const runtime: NativeTerminalAttachRuntime = {
+      connect: async () => client,
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      now: () => Date.now(),
+      delay: async (ms) => { await new Promise((resolve) => setTimeout(resolve, ms)); },
+      onResize: () => {},
+      offResize: () => {},
+    };
+    const run = runAttach("h2a-alpha", runtime);
+    const settle = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    await settle(50);
+    stdin.emit("data", Buffer.from("\x1b"));
+    await settle(10);
+    stdin.emit("data", Buffer.from("[?1;"));
+    // Cross the lone-Escape bound (25ms) with an incomplete CSI held: the
+    // timer must re-verify instead of flushing the partial reply as input.
+    await settle(120);
+    stdin.emit("data", Buffer.from("2c"));
+    await settle(150);
+    done = true;
+    await run;
+    // The complete DA reply took the typed host-revalidated path exactly
+    // once; no partial reply bytes were ever typed as human input.
+    expect(replies).toEqual(["\x1b[?1;2c"]);
+    expect(writes.join("")).not.toContain("[?1;");
+  }, 30_000);
+});
+
+describe("lot L4-hint RED: survivor hints after the PTY ends", () => {
+  const RECREATION = "h2a run 'claude' '/home/u/my dir' --name 'a' -r 'c'";
+  const ATTACH = "h2a attach a";
+
+  function hintClient(exitAt: number, now: () => number): AttachClient {
+    const lease = {
+      role: "controller",
+      id: "h2a-alpha",
+      generation: "generation-1",
+      incarnation: 1,
+      controllerId: "hint-controller",
+      epoch: 1,
+    } as const;
+    return {
+      async acquireController() { return lease; },
+      async releaseController() { return { controlled: false, controllerEpoch: 1 }; },
+      async readOutput() { return replay(0, ""); },
+      async state() { return now() >= exitAt ? exited() : running(true); },
+      async write() {},
+      async writeReply() { return { outcome: "applied" }; },
+      async resize() {},
+      close() {},
+    };
+  }
+
+  function hintRuntime(
+    stdin: FakeInput,
+    stdout: FakeOutput,
+    now: () => number,
+    advance: (ms: number) => void,
+    exitAt: number,
+  ): NativeTerminalAttachRuntime {
+    return {
+      connect: async () => hintClient(exitAt, now),
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      now,
+      delay: async (ms) => { advance(ms); },
+      onResize: () => {},
+      offResize: () => {},
+    };
+  }
+
+  it("should print the h2a run recreation line only after the PTY itself ends (second Ctrl-D)", async () => {
+    const stdin = new FakeInput();
+    const stdout = new FakeOutput();
+    let now = 0;
+    await runAttach("h2a-alpha", hintRuntime(stdin, stdout, () => now, (ms) => { now += ms; }, 500), {
+      sessionEndHint: { recreation: RECREATION, attach: ATTACH },
+    });
+    const out = stdout.chunks.join("");
+    expect(out).toContain(RECREATION);
+    expect(out).not.toContain(ATTACH);
+  });
+
+  it("should print h2a attach, not a recreation command, on detach", async () => {
+    const stdin = new FakeInput();
+    const stdout = new FakeOutput();
+    let now = 0;
+    const promise = runAttach("h2a-alpha", hintRuntime(stdin, stdout, () => now, (ms) => { now += ms; }, Number.POSITIVE_INFINITY), {
+      sessionEndHint: { recreation: RECREATION, attach: ATTACH },
+    });
+    stdin.emit("data", Buffer.from([0x1c])); // Ctrl-\
+    await promise;
+    const out = stdout.chunks.join("");
+    expect(out).toContain(ATTACH);
+    expect(out).not.toContain("h2a run");
+  });
 });
 
 describe("session exit crash records (revcrashlog constat 2)", () => {
@@ -374,7 +514,10 @@ describe("session exit crash records (revcrashlog constat 2)", () => {
       async acquireController() { throw new Error("must not acquire an exited session"); },
       async releaseController() {},
       async readOutput() { throw new Error("must not read an exited session"); },
-      async write() {}, async resize() {}, close() {},
+      async write() {},
+      async writeReply() { return { outcome: "applied" }; },
+      async resize() {},
+      close() {},
     };
     const code = await runAttach("h2a-alpha", {
       connect: async () => client as never,
@@ -399,7 +542,10 @@ describe("session exit crash records (revcrashlog constat 2)", () => {
       async acquireController() { throw missing; },
       async releaseController() {},
       async readOutput(): Promise<never> { throw missing; },
-      async write() {}, async resize() {}, close() {},
+      async write() {},
+      async writeReply() { return { outcome: "applied" }; },
+      async resize() {},
+      close() {},
     };
     const stdout = new FakeOutput();
     const code = await runAttach("h2a-gone", {

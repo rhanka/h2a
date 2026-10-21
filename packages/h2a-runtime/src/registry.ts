@@ -37,7 +37,8 @@ import {
   tmuxAvailable,
   type LocalSession,
 } from "./tmux.js";
-import type { SessionClass } from "./session-class.js";
+import type { LaunchInitiator, SessionClass } from "./session-class.js";
+import { guardTestStateWrite } from "./test-state-guard.js";
 import { nativeSessionLiveness } from "./native-host.js";
 import { readBootTimeMs, type DurableProcFrame, readBootId, readMachineId, readPidNamespaceId } from "./proc-identity.js";
 
@@ -66,6 +67,69 @@ export type JobState = "pending" | "running" | "throttled" | "done" | "failed";
 export type RegistrySessionClass = SessionClass;
 /** Provenance admitted to the owner-scoped status projection. */
 export type DelegationOrigin = "mcp:h2a_run" | "cli:h2a-delegate";
+
+/**
+ * Lot L5 (D12a) — durable restore facet, independent of `sessionClass`.
+ * `primary` rows are the owner's foreground sessions; `secondary` rows are
+ * delegated/second-plane work (any delegation provenance makes a session
+ * secondary by construction). Absent = unclassified legacy row (never
+ * auto-restored; promotion is explicit and recorded once). Enrollment
+ * rejects `primary` combined with any delegation field.
+ */
+export type RestoreFacet = "primary" | "secondary";
+
+/** Anything that proves a row is delegated/second-plane work. */
+export function hasDelegationProvenance(
+  e: Partial<
+    Pick<
+      RegistryEntry,
+      | "delegationOrigin"
+      | "delegatorInstance"
+      | "delegatorTmuxSession"
+      | "parent"
+      | "role"
+    >
+  >,
+): boolean {
+  return (
+    e.delegationOrigin !== undefined ||
+    e.delegatorInstance !== undefined ||
+    e.delegatorTmuxSession !== undefined ||
+    e.parent !== undefined ||
+    e.role === "job"
+  );
+}
+
+/**
+ * Lot L5 (D12b) — one-time legacy classification by evidence, pure (no I/O).
+ * Any delegation field ⇒ `secondary`; `role:"job"`/`background` ⇒ no facet
+ * (excluded as today by the human-facing gate); an explicit human class with
+ * no delegation AND a recorded human launch initiator ⇒ `primary`.
+ * Anything else (classless, no delegation, or a human class without a
+ * recorded human initiator — including every legacy row stamped `human` by
+ * the old attached-terminal default) is unclassified: transcript/legacy
+ * evidence may prove a conversation exists but never proves `primary` and
+ * never erases provenance. Round-3 P1 (reviews pr382-r3, owner verbatim):
+ * an attached terminal is NOT proof of a human initiator.
+ */
+export function classifyRestoreFacet(
+  e: Pick<RegistryEntry, "sessionClass" | "role"> &
+    Partial<
+      Pick<
+        RegistryEntry,
+        | "delegationOrigin"
+        | "delegatorInstance"
+        | "delegatorTmuxSession"
+        | "parent"
+        | "launchInitiator"
+      >
+    >,
+): RestoreFacet | undefined {
+  if (hasDelegationProvenance(e)) return "secondary";
+  if (e.role === "job" || e.sessionClass === "background") return undefined;
+  if (e.sessionClass === "human" && e.launchInitiator === "human") return "primary";
+  return undefined;
+}
 
 /**
  * Rate-limit ("throttled") bookkeeping for a HEADLESS LOCAL job whose agent CLI
@@ -201,6 +265,23 @@ export type RegistryEntry = {
   /** Required on every new enrollment; absent only on legacy rows (fail closed). */
   sessionClass?: RegistrySessionClass;
   /**
+   * Round-3 P1 (reviews pr382-r3, owner verbatim) — WHO launched the
+   * session, recorded at launch and kept across hooks/resumes. Absent on
+   * legacy rows (written before this attribution existed): those stay
+   * unclassified, never human by default. Never erased by a later event:
+   * re-enrollment keeps a recorded initiator unless an explicit new one is
+   * supplied. No name/path filter participates in this decision.
+   */
+  launchInitiator?: LaunchInitiator;
+  /**
+   * Lot L5 (D12a) — durable restore facet. Set at launch by the facet
+   * derivation in `applyEnroll` (or explicit); absent only on legacy rows,
+   * which restore() classifies once and persists. Never erased by a later
+   * event: re-enrollment keeps an explicit facet unless delegation provenance
+   * (input or previous row) forces `secondary`.
+   */
+  restoreFacet?: RestoreFacet;
+  /**
    * Durable delegation provenance.  A background session alone is deliberately
    * not treated as delegated work: it must say which trusted launch surface
    * created it and which owner session requested it.
@@ -276,6 +357,17 @@ export type EnrollInput = {
   source: RegistrySource;
   /** Required so every new durable record is restore-classified at creation. */
   sessionClass: RegistrySessionClass;
+  /**
+   * Round-3 P1 — the recorded launch initiator, when the launcher derived
+   * one (absent = unknown; applyEnroll keeps a previously recorded one).
+   */
+  launchInitiator?: LaunchInitiator;
+  /**
+   * Lot L5 (D12a) — explicit restore facet. `--primary` with any delegation
+   * provenance (input or already stored for this id) is refused; an explicit
+   * `secondary` sticks even without delegation fields.
+   */
+  restoreFacet?: RestoreFacet;
   delegationOrigin?: DelegationOrigin;
   delegatorInstance?: string;
   delegatorTmuxSession?: string;
@@ -972,6 +1064,9 @@ function isRegistryEntry(raw: unknown): raw is RegistryEntry {
     (e.sessionClass === undefined ||
       e.sessionClass === "human" ||
       e.sessionClass === "background") &&
+    (e.launchInitiator === undefined ||
+      e.launchInitiator === "human" ||
+      e.launchInitiator === "agent") &&
     (e.role === undefined || e.role === "job") &&
     // A job marked human is an invalid/tampered record, never a restoreable
     // exception. Historical jobs without a class remain readable but fail closed.
@@ -1021,6 +1116,9 @@ function saveRegistry(
   preserved: unknown[] = [],
   rebuiltFromCorruptAt?: string,
 ): void {
+  // Lot L0: mutation-point guard — named error, zero bytes outside the
+  // marked test root. Inert outside a marked test run.
+  guardTestStateWrite(path);
   mkdirSync(dirname(path), { recursive: true });
   const tmp = `${path}.tmp.${process.pid}`;
   const body: { version: 1; entries: unknown[]; rebuiltFromCorruptAt?: string } = {
@@ -1071,6 +1169,10 @@ export function withRegistryLock<T>(
     save?: boolean;
   },
 ): T {
+  // Lot L0: mutation-point guard — the lock itself creates directories and
+  // files, so refuse before any lock acquisition. saveRegistry keeps its
+  // own guard as defense in depth.
+  guardTestStateWrite(path);
   return runUnderRegistryLock(acquireFileLock(path), path, fn);
 }
 
@@ -1097,6 +1199,8 @@ export function tryWithRegistryLock<T>(
     save?: boolean;
   },
 ): { ran: true; result: T } | { ran: false } {
+  // Lot L0: same mutation-point guard as withRegistryLock.
+  guardTestStateWrite(path);
   const fd = tryAcquireFileLock(path);
   if (fd === undefined) return { ran: false };
   return { ran: true, result: runUnderRegistryLock(fd, path, fn) };
@@ -1220,6 +1324,18 @@ function assertEnrollmentClass(input: EnrollInput): void {
   if (input.role === "job" && input.sessionClass !== "background") {
     throw new Error("registry job enrollment requires sessionClass: background");
   }
+  // Lot L5 (D12a): an explicit primary combined with delegation provenance
+  // is refused — a delegated row is secondary by construction. (Provenance
+  // already stored for this id is re-checked in applyEnroll, which sees the
+  // previous row.)
+  if (
+    input.restoreFacet === "primary" &&
+    hasDelegationProvenance(input)
+  ) {
+    throw new Error(
+      'registry enrollment refused: restoreFacet "primary" combined with delegation provenance (delegationOrigin/delegator/parent/role "job"); enroll as secondary or drop the provenance',
+    );
+  }
 }
 
 /**
@@ -1255,6 +1371,11 @@ function applyEnroll(
   const pid = input.pid ?? prev?.pid;
   if (pid !== undefined) entry.pid = pid;
   entry.sessionClass = input.sessionClass;
+  // Round-3 P1 — the launch initiator is recorded once and kept across
+  // hooks/resumes: a re-enrollment without one never erases a recorded one,
+  // and an undetermined origin is never promoted to a human intention.
+  const launchInitiator = input.launchInitiator ?? prev?.launchInitiator;
+  if (launchInitiator !== undefined) entry.launchInitiator = launchInitiator;
   const delegationOrigin = input.delegationOrigin ?? prev?.delegationOrigin;
   if (delegationOrigin !== undefined) entry.delegationOrigin = delegationOrigin;
   const delegatorInstance = input.delegatorInstance ?? prev?.delegatorInstance;
@@ -1300,9 +1421,75 @@ function applyEnroll(
   } else {
     entry.restorePinned = shouldPreserveByRestorePin(entry);
   }
+  // Lot L5 (D12a) — durable restore facet. Delegation provenance on the input
+  // OR the previous row forces `secondary` (never erased by a later event);
+  // an explicit input facet sticks otherwise; a human row with no delegation
+  // anywhere derives `primary` ONLY with a recorded human launch initiator
+  // (round-3 P1: the old attached-terminal default never proves a human).
+  // Background/job rows carry no facet (excluded as today by the
+  // human-facing gate).
+  const mergedDelegationOrigin =
+    input.delegationOrigin ?? prev?.delegationOrigin;
+  const mergedDelegatorInstance =
+    input.delegatorInstance ?? prev?.delegatorInstance;
+  const mergedDelegatorTmuxSession =
+    input.delegatorTmuxSession ?? prev?.delegatorTmuxSession;
+  const mergedParent = input.parent ?? prev?.parent;
+  const mergedRole = input.role ?? prev?.role;
+  const mergedDelegation = hasDelegationProvenance({
+    ...(mergedDelegationOrigin !== undefined
+      ? { delegationOrigin: mergedDelegationOrigin }
+      : {}),
+    ...(mergedDelegatorInstance !== undefined
+      ? { delegatorInstance: mergedDelegatorInstance }
+      : {}),
+    ...(mergedDelegatorTmuxSession !== undefined
+      ? { delegatorTmuxSession: mergedDelegatorTmuxSession }
+      : {}),
+    ...(mergedParent !== undefined ? { parent: mergedParent } : {}),
+    ...(mergedRole !== undefined ? { role: mergedRole } : {}),
+  });
+  let restoreFacet: RestoreFacet | undefined;
+  if (input.restoreFacet !== undefined) restoreFacet = input.restoreFacet;
+  else if (mergedDelegation) restoreFacet = "secondary";
+  else if (prev?.restoreFacet !== undefined) restoreFacet = prev.restoreFacet;
+  else if (input.sessionClass === "human" && launchInitiator === "human") {
+    restoreFacet = "primary";
+  }
+  if (restoreFacet !== undefined) entry.restoreFacet = restoreFacet;
+  // A later event promoting a provenance-carrying row to primary is refused:
+  // promotion of a delegated row is explicit elsewhere, never silent here.
+  if (entry.restoreFacet === "primary" && mergedDelegation) {
+    throw new Error(
+      'registry enrollment refused: restoreFacet "primary" combined with delegation provenance (delegationOrigin/delegator/parent/role "job"); enroll as secondary or drop the provenance',
+    );
+  }
   if (idx >= 0) entries[idx] = entry;
   else entries.push(entry);
   return entry;
+}
+
+/**
+ * Lot L5 (D12b) — stamp a one-time classification onto rows that predate the
+ * facet field. Only rows WITHOUT a facet are touched: an explicit facet is
+ * never overwritten by a later event.
+ */
+export function persistRestoreFacets(
+  updates: ReadonlyMap<string, RestoreFacet>,
+  opts: { path?: string } = {},
+): number {
+  const path = opts.path ?? resolveRegistryPath();
+  return withRegistryLock(path, (entries) => {
+    let stamped = 0;
+    for (const [id, facet] of updates) {
+      const entry = entries.find((e) => e.id === id);
+      if (entry && entry.restoreFacet === undefined) {
+        entry.restoreFacet = facet;
+        stamped += 1;
+      }
+    }
+    return { entries, result: stamped };
+  });
 }
 
 /**
@@ -1658,6 +1845,18 @@ export function enrollFromRun(args: {
   gatewayMode?: "gateway" | "direct";
   bare?: boolean;
   sessionClass: RegistrySessionClass;
+  /**
+   * Round-1 (D12a): explicitly declared restore facet (--primary /
+   * --secondary on `h2a run`). Overrides the sessionClass/delegation
+   * default; `primary` combined with delegation provenance refuses (the
+   * enroll guard fails closed — enroll as secondary or drop the provenance).
+   */
+  restoreFacet?: RestoreFacet;
+  /**
+   * Round-3 P1: the launch initiator derived by the launcher (absent =
+   * unknown; a recorded one is kept across hooks/resumes by applyEnroll).
+   */
+  launchInitiator?: LaunchInitiator;
   delegationOrigin?: DelegationOrigin;
   delegatorInstance?: string;
   delegatorTmuxSession?: string;
@@ -1682,6 +1881,9 @@ export function enrollFromRun(args: {
       label: args.slug,
       tmuxSession: args.tmuxSession,
       sessionClass: args.sessionClass,
+      ...(args.launchInitiator !== undefined
+        ? { launchInitiator: args.launchInitiator }
+        : {}),
       ...(args.pid !== undefined ? { pid: args.pid } : {}),
       ...(args.delegationOrigin !== undefined
         ? { delegationOrigin: args.delegationOrigin }
@@ -1695,6 +1897,7 @@ export function enrollFromRun(args: {
       ...(args.convId !== undefined ? { convId: args.convId } : {}),
       ...(args.gatewayMode !== undefined ? { gatewayMode: args.gatewayMode } : {}),
       ...(args.bare !== undefined ? { bare: args.bare } : {}),
+      ...(args.restoreFacet !== undefined ? { restoreFacet: args.restoreFacet } : {}),
     });
   } catch {
     // best-effort: the tmux session is up regardless

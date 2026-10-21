@@ -12,6 +12,8 @@ import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 
 import type { SessionTarget } from "./protocol-local.js";
+import { guardTestStateWrite } from "./test-state-guard.js";
+import { humanOutputText } from "./human-output.js";
 
 /**
  * How the CLI reaches the control-plane when the configured URL is not directly
@@ -32,12 +34,155 @@ export type TunnelConfig = {
  * A named terminal window in `remote restore`. A LOCAL group lists `projects`
  * (resumed as local tmux sessions). A REMOTE group (`remote: true`) has its tabs
  * filled from the SCW control-plane's live sessions (attached via `--exec`).
+ *
+ * Lot LG (D13) — dedicated groups match by more than project names:
+ * `cwdPrefixes` (absolute path prefixes, also admitting registry rows outside
+ * `~/src` and exempting group scans from the age cutoff), `tools` (known agent
+ * CLI tools), `tags` (any-of equality against the row's registry tags).
+ * `excludeProjects` vetoes a placement; `maxTabs` caps the explicit window
+ * (default: global `maxPerWindow`), overflow reported never silently dropped.
+ * Matchers are exact / path-prefix / segment-prefix only — never globs.
+ *
+ * Round-3 amendment (reviews pr382-r3, P3): `tools`, `tags`,
+ * `excludeProjects` and `maxTabs` exceed the D13(a) proposition set — see
+ * docs/restore-group-matchers-amendment.md, which binds each of them to its
+ * D13 clause instead of removing tested behavior.
  */
 export type LayoutGroup = {
   title: string;
   projects?: string[];
   remote?: boolean;
+  cwdPrefixes?: string[];
+  /**
+   * Round-1 (D13): segment-aware prefix of the `projectForCwd` key. `h2a`
+   * matches `h2a/tmp/worktrees/ptycode` but never `h2a2/x` (whole segments
+   * only — exact / path-prefix / segment-prefix, never globs).
+   */
+  projectPrefixes?: string[];
+  /**
+   * Round-1 (D13): exact session-label match (the tab label). One of the
+   * contract matchers alongside `projects`, `cwdPrefixes` and
+   * `projectPrefixes`.
+   */
+  labels?: string[];
+  tools?: string[];
+  tags?: string[];
+  excludeProjects?: string[];
+  maxTabs?: number;
 };
+
+/** Known agent CLI tools a group `tools` matcher may name. */
+const LAYOUT_GROUP_TOOLS = new Set(["claude", "codex", "agy", "muse", "vibe"]);
+
+/**
+ * Lot LG (D13) — validate explicit group matchers, returning one message per
+ * problem (empty = valid). Title must be a non-empty string with a unique
+ * slug-normalised form; matcher fields must be well-typed (tools restricted
+ * to known CLI tools, maxTabs a positive finite number, cwdPrefixes absolute
+ * paths, remote a boolean).
+ */
+export function validateLayoutGroups(groups: unknown): string[] {
+  const problems: string[] = [];
+  if (!Array.isArray(groups)) return ["layout groups must be an array"];
+  const seen = new Map<string, string>();
+  groups.forEach((g, i) => {
+    const where = `layout.groups[${i}]`;
+    if (!g || typeof g !== "object") {
+      problems.push(`${where} must be an object`);
+      return;
+    }
+    const group = g as Record<string, unknown>;
+    if (typeof group.title !== "string" || group.title.trim().length === 0) {
+      problems.push(`${where}.title must be a non-empty string`);
+    } else {
+      const slug = group.title
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+      const prev = seen.get(slug);
+      if (prev !== undefined) {
+        problems.push(
+          `${where}.title duplicates the slug-normalised title of ${prev} ("${group.title}")`,
+        );
+      } else {
+        seen.set(slug, where);
+      }
+    }
+    for (const field of ["projects", "cwdPrefixes", "projectPrefixes", "labels", "tags", "excludeProjects"] as const) {
+      const value = group[field];
+      if (value !== undefined) {
+        if (
+          !Array.isArray(value) ||
+          value.some((v) => typeof v !== "string" || v.length === 0)
+        ) {
+          problems.push(`${where}.${field} must be an array of non-empty strings`);
+        }
+      }
+    }
+    // Round-1 (D13e): unknown matcher keys refuse loudly — a misspelled
+    // matcher must never degrade to a silently empty group.
+    for (const key of Object.keys(group)) {
+      if (
+        key !== "title" &&
+        key !== "projects" &&
+        key !== "remote" &&
+        key !== "cwdPrefixes" &&
+        key !== "projectPrefixes" &&
+        key !== "labels" &&
+        key !== "tools" &&
+        key !== "tags" &&
+        key !== "excludeProjects" &&
+        key !== "maxTabs"
+      ) {
+        problems.push(`${where} has an unknown key "${key}"`);
+      }
+    }
+    if (group.tools !== undefined) {
+      if (
+        !Array.isArray(group.tools) ||
+        group.tools.some((t) => typeof t !== "string" || !LAYOUT_GROUP_TOOLS.has(t))
+      ) {
+        problems.push(
+          `${where}.tools must be an array of known agent CLI tools (claude, codex, agy, muse, vibe)`,
+        );
+      }
+    }
+    if (group.cwdPrefixes !== undefined && Array.isArray(group.cwdPrefixes)) {
+      for (const prefix of group.cwdPrefixes) {
+        if (typeof prefix === "string" && !prefix.startsWith("/")) {
+          problems.push(`${where}.cwdPrefixes must hold absolute paths ("${prefix}")`);
+        }
+      }
+    }
+    if (group.remote !== undefined && typeof group.remote !== "boolean") {
+      problems.push(`${where}.remote must be a boolean`);
+    }
+    if (group.maxTabs !== undefined) {
+      if (
+        typeof group.maxTabs !== "number" ||
+        !Number.isFinite(group.maxTabs) ||
+        group.maxTabs <= 0
+      ) {
+        problems.push(`${where}.maxTabs must be a positive finite number`);
+      }
+    }
+  });
+  return problems;
+}
+
+/** Normalize validated group matchers (trailing slashes trimmed). */
+export function normalizeLayoutGroups(groups: LayoutGroup[]): LayoutGroup[] {
+  return groups.map((g) => ({
+    ...g,
+    ...(g.cwdPrefixes !== undefined
+      ? {
+          cwdPrefixes: g.cwdPrefixes.map((p) =>
+            p.length > 1 ? p.replace(/\/+$/, "") : p,
+          ),
+        }
+      : {}),
+  }));
+}
 
 /** Layout for `remote restore`: how recent local sessions map to windows/tabs. */
 export type LayoutConfig = {
@@ -352,6 +497,13 @@ export interface ConfigHomeMigration {
  */
 export function migrateConfigHomeIfNeeded(now: number): ConfigHomeMigration {
   const home = sentropicHome();
+  // Lot L0: the migration writes under the config home — refuse it before
+  // any backup/copy outside the marked test root.
+  try {
+    guardTestStateWrite(join(home, LEGACY_CONFIG_DIR));
+  } catch (error) {
+    return { migrated: false, reason: (error as Error).message };
+  }
   const legacy = join(home, LEGACY_CONFIG_DIR);
   const canonical = join(home, CANONICAL_CONFIG_DIR);
 
@@ -464,6 +616,9 @@ export function readRemoteConfig(): RemoteCliConfig {
 
 export function writeRemoteConfig(config: RemoteCliConfig): void {
   const path = resolveConfigPath();
+  // Lot L0: mutation-point guard — named error, zero bytes outside the
+  // marked test root. Inert outside a marked test run.
+  guardTestStateWrite(path);
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, JSON.stringify(config, null, 2), "utf8");
 }
@@ -598,6 +753,15 @@ export function clearTunnel(): void {
 /** Layout config merged with defaults (used by `remote restore`). */
 export function getLayoutConfig(): LayoutConfig {
   const raw = readRemoteConfig().layout ?? {};
+  // Lot LG (D13): an invalid group config refuses BEFORE anything launches —
+  // restore() calls this first, and the restore command surfaces the refusal.
+  // Round-1 (D13e): a non-array `groups` value refuses instead of silently
+  // falling back to the default (which would hide a broken config).
+  const groups = raw.groups === undefined ? DEFAULT_LAYOUT.groups : raw.groups;
+  const problems = validateLayoutGroups(groups);
+  if (problems.length > 0) {
+    throw new Error(`${humanOutputText("restore.config.invalidLayout")}: ${problems.join("; ")}`);
+  }
   return {
     maxAgeHours: parseLayoutMaxAgeHours(raw.maxAgeHours),
     maxPerWindow:
@@ -616,7 +780,7 @@ export function getLayoutConfig(): LayoutConfig {
       typeof raw.multiSessionDefault === "number"
         ? raw.multiSessionDefault
         : DEFAULT_LAYOUT.multiSessionDefault,
-    groups: Array.isArray(raw.groups) ? raw.groups : DEFAULT_LAYOUT.groups,
+    groups: normalizeLayoutGroups(groups as LayoutGroup[]),
   };
 }
 

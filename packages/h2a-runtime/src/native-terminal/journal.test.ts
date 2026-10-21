@@ -263,7 +263,13 @@ describe("native host life journal", () => {
     it(`should canonicalize verified stack files and redact an existing ${kind} sentinel`, () => {
       const f = fixture(), sentinel = "pQ7r4V9n2M6x8Z5s", source = fileURLToPath(new URL("../", import.meta.url));
       expect(Object.values(process.env).some(value => value?.includes(sentinel))).toBe(false);
-      const target = join(f.root, `${sentinel}.mjs`), alias = join(source, `r2-${kind}-${sentinel}.mjs`);
+      // Aliases must sit inside the runtime directory (src/) for the
+      // canonicalization rule to bite — under the filesystem barrier src/
+      // is read-only, so they are planted in the overlaid per-run shadow
+      // (scripts/test-sandbox.mjs), still inside src/ for realpath.
+      const aliasBase = join(source, ".stack-test");
+      mkdirSync(aliasBase, { recursive: true, mode: 0o700 });
+      const target = join(f.root, `${sentinel}.mjs`), alias = join(aliasBase, `r2-${kind}-${sentinel}.mjs`);
       writeFileSync(target, "export {};\n");
       let path: string;
       if (kind === "traversal") path = `${source}../../../${relative(repo, target)}`;

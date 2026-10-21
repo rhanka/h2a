@@ -1,13 +1,44 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   groupSessions,
   registrySessions,
+  selectRemoteTabsForGroups,
   type DiscoveredSession,
+  type LegacySessionEvidence,
+  type RestoreExclusions,
 } from "./restore.js";
-import type { RegistryEntry } from "./registry.js";
+import {
+  classifyRestoreFacet,
+  type RegistryEntry,
+} from "./registry.js";
 import { DEFAULT_LAYOUT } from "./config.js";
+import { encodeCwd } from "./convsync.js";
+
+const scratchDirs: string[] = [];
+
+afterEach(() => {
+  for (const dir of scratchDirs.splice(0)) {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/** A fake HOME under the test run root holding a real transcript file. */
+function homeWithTranscript(cwd: string, convId: string): string {
+  const home = mkdtempSync(join(tmpdir(), "h2a-l5-home-"));
+  scratchDirs.push(home);
+  const dir = join(home, ".claude", "projects", encodeCwd(cwd));
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, `${convId}.jsonl`), '{"type":"summary","summary":"review"}\n');
+  return home;
+}
+
+function newExclusions(): RestoreExclusions {
+  return { secondary: [], unclassified: [] };
+}
 
 const HOME = "/home/u";
 
@@ -26,6 +57,11 @@ function registryEntry(
     lastSeenAt: now,
     source: "run",
     sessionClass: "human",
+    // Round-3 P1: human rows in these tests carry the recorded human
+    // launch initiator — the positive proof restore now requires. Rows
+    // that must read as legacy/unproven override with
+    // `launchInitiator: undefined`.
+    launchInitiator: "human",
     ...over,
   };
 }
@@ -100,5 +136,196 @@ describe("h2a restore — human-facing session preservation (defect repro)", () 
     ];
     const projects = registrySessions(HOME, entries).map((s) => s.project);
     expect(projects).toEqual(["human"]);
+  });
+});
+
+describe("lot L5 RED: secondaries excluded by provenance (D12)", () => {
+  it("should exclude a delegated review with a visible terminal and a valid transcript", () => {
+    // A delegated review: explicitly human, live on its terminal, real
+    // transcript on disk — but delegation provenance makes it secondary,
+    // never a primary restore tab.
+    const home = mkdtempSync(join(tmpdir(), "h2a-l5-home-"));
+    scratchDirs.push(home);
+    const cwd = join(home, "src", "review");
+    const convId = "conv-delegated-review";
+    mkdirSync(join(home, ".claude", "projects", encodeCwd(cwd)), {
+      recursive: true,
+    });
+    writeFileSync(
+      join(home, ".claude", "projects", encodeCwd(cwd), `${convId}.jsonl`),
+      '{"type":"summary","summary":"delegated review"}\n',
+    );
+    const delegated = registryEntry("review", {
+      id: "id-delegated-review",
+      label: "review",
+      cwd,
+      convId,
+      tmuxSession: "h2a-review",
+      sessionClass: "human",
+      delegationOrigin: "mcp:h2a_run",
+      parent: "job-parent-1",
+    });
+    const evidence: LegacySessionEvidence = {
+      home,
+      liveTmuxSessions: [{ name: "h2a-review", path: cwd, profile: "claude" }],
+    };
+    const excluded = newExclusions();
+    const sessions = registrySessions(home, [delegated], undefined, evidence, undefined, [], {
+      collectExcluded: excluded,
+    });
+    expect(sessions).toHaveLength(0);
+    expect(excluded.secondary).toEqual(["review"]);
+    expect(excluded.unclassified).toEqual([]);
+  });
+
+  it("should exclude an attached delegated session with delegationOrigin or parent set", () => {
+    const byOrigin = registryEntry("via-origin", {
+      label: "via-origin",
+      sessionClass: "human",
+      delegationOrigin: "cli:h2a-delegate",
+    });
+    const byParent = registryEntry("via-parent", {
+      label: "via-parent",
+      sessionClass: "human",
+      parent: "job-parent-9",
+    });
+    const excluded = newExclusions();
+    const sessions = registrySessions(HOME, [byOrigin, byParent], undefined, undefined, undefined, [], {
+      collectExcluded: excluded,
+    });
+    expect(sessions).toHaveLength(0);
+    expect(excluded.secondary.sort()).toEqual(["via-origin", "via-parent"]);
+  });
+
+  it("should not promote a classless legacy transcript to a primary session", () => {
+    // Transcript/legacy evidence may prove a conversation exists, never a
+    // primary: a classless row classifies to no facet (unclassified).
+    // Round-3 P1: a human class WITHOUT a recorded human initiator is
+    // equally unclassified — the old attached-terminal default never proves
+    // a human initiator.
+    expect(
+      classifyRestoreFacet({ sessionClass: undefined, role: undefined }),
+    ).toBeUndefined();
+    expect(
+      classifyRestoreFacet({ sessionClass: "human", role: undefined }),
+    ).toBeUndefined();
+    expect(
+      classifyRestoreFacet({
+        sessionClass: "human",
+        role: undefined,
+        launchInitiator: "human",
+      }),
+    ).toBe("primary");
+    expect(
+      classifyRestoreFacet({
+        sessionClass: "human",
+        role: undefined,
+        launchInitiator: "agent",
+      }),
+    ).toBeUndefined();
+    expect(
+      classifyRestoreFacet({
+        sessionClass: "human",
+        role: undefined,
+        delegationOrigin: "mcp:h2a_run",
+      }),
+    ).toBe("secondary");
+    expect(
+      classifyRestoreFacet({ sessionClass: "background", role: undefined }),
+    ).toBeUndefined();
+    // role:"job" IS delegation provenance (D12a) — secondary by construction.
+    expect(
+      classifyRestoreFacet({ sessionClass: undefined, role: "job" }),
+    ).toBe("secondary");
+  });
+
+  it("should exclude a legacy classless delegated row even when a transcript exists", () => {
+    const cwd = join(HOME, "src", "old-review");
+    const convId = "conv-old-review";
+    const home = homeWithTranscript(cwd, convId);
+    const row = registryEntry("old-review", {
+      label: "old-review",
+      cwd,
+      convId,
+      tmuxSession: "h2a-old-review",
+    });
+    delete row.sessionClass;
+    row.delegationOrigin = "mcp:h2a_run";
+    const excluded = newExclusions();
+    const sessions = registrySessions(
+      HOME,
+      [row],
+      undefined,
+      { home, liveTmuxSessions: [] },
+      undefined,
+      [],
+      { collectExcluded: excluded },
+    );
+    expect(sessions).toHaveLength(0);
+    expect(excluded.secondary).toEqual(["old-review"]);
+  });
+
+  it("should exclude remote delegated sessions from the default restore plan", () => {
+    // Round-1 (D12c): only positively-classified primaries restore — the
+    // unfaceted row is excluded and named, not admitted.
+    const excludedUnclassified: string[] = [];
+    const tabs = selectRemoteTabsForGroups(
+      [
+        { id: "r-prim", label: "Primary", cwd: "/w/prim", restoreFacet: "primary" },
+        { id: "r-unclass", label: "Unknown", cwd: "/w/unknown" },
+        {
+          id: "r-sec",
+          label: "Delegated",
+          cwd: "/w/delegated",
+          restoreFacet: "secondary",
+        },
+      ],
+      {
+        onExcludedUnclassified: (excluded) => {
+          for (const t of excluded) excludedUnclassified.push(t.id);
+        },
+      },
+    );
+    expect(tabs.map((t) => t.id)).toEqual(["r-prim"]);
+    expect(excludedUnclassified).toEqual(["r-unclass"]);
+    const admitted = selectRemoteTabsForGroups(
+      [
+        {
+          id: "r-sec",
+          label: "Delegated",
+          cwd: "/w/delegated",
+          restoreFacet: "secondary",
+        },
+      ],
+      { includeSecondary: true },
+    );
+    expect(admitted.map((t) => t.id)).toEqual(["r-sec"]);
+  });
+
+  it("should list excluded secondaries by name and restore them only with the opt-in", () => {
+    const secondary = registryEntry("delegated", {
+      label: "delegated",
+      sessionClass: "human",
+      delegationOrigin: "cli:h2a-delegate",
+    });
+    const primary = registryEntry("primary", {
+      label: "primary",
+      sessionClass: "human",
+    });
+    const excluded = newExclusions();
+    const planned = registrySessions(HOME, [secondary, primary], undefined, undefined, undefined, [], {
+      collectExcluded: excluded,
+    });
+    expect(planned.map((s) => s.label).sort()).toEqual(["primary"]);
+    expect(excluded.secondary).toEqual(["delegated"]);
+    // Explicit opt-in restores the secondary alongside the primary.
+    const admitted = registrySessions(HOME, [secondary, primary], undefined, undefined, undefined, [], {
+      collectExcluded: newExclusions(),
+      includeSecondary: true,
+    });
+    expect(admitted.map((s) => s.label).sort()).toEqual([
+      "delegated",
+      "primary",
+    ]);
   });
 });

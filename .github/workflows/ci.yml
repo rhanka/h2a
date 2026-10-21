@@ -34,9 +34,26 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      # Round-1 (code-review astra-8/sol-9): install AND qualify the L0
+      # filesystem barrier in the runner — no unconfined fallback. Every
+      # job below that invokes scripts/test-sandbox.mjs carries this step.
+      # Round-3 (reviews pr382-r3): Ubuntu 24.04+ runners restrict unprivileged user
+      # namespaces via AppArmor, which fails the barrier AND its qualification below
+      # with "bwrap: setting up uid map: Permission denied". Lifting the knob where it
+      # exists is provisioning, not a fallback: the barrier stays mandatory and the
+      # real-namespace qualification still fails the job closed when it cannot run.
+      - name: Provision the L0 test barrier (bubblewrap)
+        run: command -v bwrap >/dev/null || { sudo apt-get update && sudo apt-get install -y bubblewrap uidmap; } && bwrap --version && if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi
+      # Round-2 (code-review astra-7/sol-5): `--version` never qualified the
+      # envelope the suites actually run in. Create the real namespaces once,
+      # with the same flags scripts/test-sandbox.mjs uses (no private net
+      # namespace — see that script for why), so a runner that cannot build
+      # the barrier fails HERE with a clear message instead of mid-suite.
+      - name: Qualify the L0 test barrier (real namespace creation)
+        run: bwrap --unshare-user --unshare-pid --unshare-uts --unshare-ipc --unshare-cgroup --die-with-parent --ro-bind / / --proc /proc --dev /dev --tmpfs /tmp -- true
       - run: bash scripts/check-no-python.sh
       - name: Guard self-tests (positive and negative fixtures)
-        run: node --test scripts/check-no-python.test.mjs
+        run: node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test scripts/check-no-python.test.mjs
       - name: Replacement-script tests (smoke-live-bus, git-dogfood guard)
         run: |
           bash scripts/test-smoke-live-bus.sh
@@ -62,6 +79,19 @@ jobs:
         with:
           node-version: "22"
           cache: npm
+      # Round-1 (code-review astra-8/sol-9): install AND qualify the L0
+      # filesystem barrier in the runner — no unconfined fallback.
+      # Round-3 (reviews pr382-r3): Ubuntu 24.04+ runners restrict unprivileged user
+      # namespaces via AppArmor, which fails the barrier AND its qualification below
+      # with "bwrap: setting up uid map: Permission denied". Lifting the knob where it
+      # exists is provisioning, not a fallback: the barrier stays mandatory and the
+      # real-namespace qualification still fails the job closed when it cannot run.
+      - name: Provision the L0 test barrier (bubblewrap)
+        run: command -v bwrap >/dev/null || { sudo apt-get update && sudo apt-get install -y bubblewrap uidmap; } && bwrap --version && if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi
+      # Round-2 (code-review astra-7/sol-5): qualify the real envelope, not
+      # just `--version` (same flags as scripts/test-sandbox.mjs).
+      - name: Qualify the L0 test barrier (real namespace creation)
+        run: bwrap --unshare-user --unshare-pid --unshare-uts --unshare-ipc --unshare-cgroup --die-with-parent --ro-bind / / --proc /proc --dev /dev --tmpfs /tmp -- true
       - run: npm ci
       - run: npm run build
       # Pin the host oracle to the known-good CLI installed on this host (0.145.0).
@@ -73,7 +103,7 @@ jobs:
         run: |
           set -euo pipefail
           unset CODEX_HOME CLAUDE_CONFIG_DIR
-          node --test --test-name-pattern='Codex oracle rejects an invalid array MCP table and accepts the framed table' packages/h2a/test/host-installation-doctor.test.js
+          node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test --test-name-pattern='Codex oracle rejects an invalid array MCP table and accepts the framed table' packages/h2a/test/host-installation-doctor.test.js
       - name: Ask the host what it serves
         run: |
           set -euo pipefail
@@ -139,16 +169,37 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           cache: npm
+      # Round-1 (code-review astra-8/sol-9): install AND qualify the L0
+      # filesystem barrier in the runner — no unconfined fallback.
+      # Round-3 (reviews pr382-r3): Ubuntu 24.04+ runners restrict unprivileged user
+      # namespaces via AppArmor, which fails the barrier AND its qualification below
+      # with "bwrap: setting up uid map: Permission denied". Lifting the knob where it
+      # exists is provisioning, not a fallback: the barrier stays mandatory and the
+      # real-namespace qualification still fails the job closed when it cannot run.
+      - name: Provision the L0 test barrier (bubblewrap)
+        if: runner.os == 'Linux'
+        run: command -v bwrap >/dev/null || { sudo apt-get update && sudo apt-get install -y bubblewrap uidmap; } && bwrap --version && if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi
+      # Round-2 (code-review astra-7/sol-5): qualify the real envelope, not
+      # just `--version` (same flags as scripts/test-sandbox.mjs).
+      - name: Qualify the L0 test barrier (real namespace creation)
+        if: runner.os == 'Linux'
+        run: bwrap --unshare-user --unshare-pid --unshare-uts --unshare-ipc --unshare-cgroup --die-with-parent --ro-bind / / --proc /proc --dev /dev --tmpfs /tmp -- true
+      # The VTE qualification suite (vte-qualification.functional.test.ts)
+      # refuses to skip on Linux: a missing X/VTE stack must read red, not
+      # hidden. Provisioning the stack is setup, not a fallback.
+      - name: Provision the VTE qualification stack (Xvfb, dbus, gnome-terminal)
+        if: runner.os == 'Linux'
+        run: command -v gnome-terminal >/dev/null || { sudo apt-get update && sudo apt-get install -y --no-install-recommends xvfb dbus-x11 gnome-terminal; } && command -v Xvfb && command -v dbus-run-session && command -v gnome-terminal
       - run: npm ci
       - run: npm run typecheck
       - name: Install the mandatory configuration oracles
         run: npm install --global @openai/codex@0.145.0 @anthropic-ai/claude-code@2.1.296
       - name: Verify messaging backends and receive signatures
-        run: node --test packages/h2a/test/send.test.js packages/h2a/test/cluster-mesh-messaging.test.js
+        run: node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test packages/h2a/test/send.test.js packages/h2a/test/cluster-mesh-messaging.test.js
       - run: npm test
       - name: Exercise the native multi-session terminal host
         run: >-
-          npx --no-install vitest run
+          node scripts/test-sandbox.mjs -- npx --no-install vitest run
           packages/h2a-runtime/src/native-terminal/replay-buffer.test.ts
           packages/h2a-runtime/src/native-terminal/host.test.ts
           packages/h2a-runtime/src/native-terminal/server.test.ts
@@ -164,7 +215,7 @@ jobs:
       # environment-fragile — gating it would be a false-red unrelated to these ranges.
       - name: Exercise the llm-mesh / llm-gateway consumer suites
         run: >-
-          npx --no-install vitest run
+          node scripts/test-sandbox.mjs -- npx --no-install vitest run
           packages/h2a-runtime/src/llm-mesh-accounts.test.ts
           packages/h2a-runtime/src/claude-seat-input.test.ts
           packages/h2a-runtime/src/claude-code-cli-runner.test.ts
@@ -202,10 +253,23 @@ jobs:
         with:
           node-version: "22"
           cache: npm
+      # Round-1 (code-review astra-8/sol-9): install AND qualify the L0
+      # filesystem barrier in the runner — no unconfined fallback.
+      # Round-3 (reviews pr382-r3): Ubuntu 24.04+ runners restrict unprivileged user
+      # namespaces via AppArmor, which fails the barrier AND its qualification below
+      # with "bwrap: setting up uid map: Permission denied". Lifting the knob where it
+      # exists is provisioning, not a fallback: the barrier stays mandatory and the
+      # real-namespace qualification still fails the job closed when it cannot run.
+      - name: Provision the L0 test barrier (bubblewrap)
+        run: command -v bwrap >/dev/null || { sudo apt-get update && sudo apt-get install -y bubblewrap uidmap; } && bwrap --version && if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi
+      # Round-2 (code-review astra-7/sol-5): qualify the real envelope, not
+      # just `--version` (same flags as scripts/test-sandbox.mjs).
+      - name: Qualify the L0 test barrier (real namespace creation)
+        run: bwrap --unshare-user --unshare-pid --unshare-uts --unshare-ipc --unshare-cgroup --die-with-parent --ro-bind / / --proc /proc --dev /dev --tmpfs /tmp -- true
       - run: npm ci
       - name: Install the mandatory configuration oracles
         run: npm install --global @openai/codex@0.145.0 @anthropic-ai/claude-code@2.1.296
       - name: Verify npm test wiring independently
-        run: node --test packages/h2a/test/run-test-gates.test.js
+        run: node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test packages/h2a/test/run-test-gates.test.js
       - name: Execute the production test entrypoint directly
         run: node scripts/run-test-gates.mjs

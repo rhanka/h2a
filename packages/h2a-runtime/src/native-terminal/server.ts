@@ -23,11 +23,14 @@ import {
   NATIVE_TERMINAL_MAX_PENDING_RESPONSE_BYTES_PER_CONNECTION,
   NATIVE_TERMINAL_MAX_PENDING_RESPONSE_BYTES_TOTAL,
   NATIVE_TERMINAL_MAX_PENDING_RESPONSES_PER_CONNECTION,
+  NATIVE_TERMINAL_MAX_REPLY_BYTES,
   NATIVE_TERMINAL_PROTOCOL_VERSION,
+  isNativeTerminalReplyFamily,
   isNativeTerminalStopSignal,
   isRecord,
   parseNativeTerminalRequest,
   type NativeTerminalErrorResponse,
+  type NativeTerminalReplyUnit,
   type NativeTerminalRequest,
   type NativeTerminalResponse,
 } from "./protocol.js";
@@ -54,6 +57,18 @@ type ConnectionContext = {
   readonly leases: Map<string, NativeTerminalControllerLease>;
   readonly responseBudget: ResponseQueueBudget;
   buffer: string;
+  /**
+   * Round-3: byte length of `buffer`, maintained incrementally (O(line) per
+   * consumed frame) so the size cap below never scans the whole backlog.
+   */
+  bufferBytes: number;
+  /**
+   * Round-3: whether `buffer` currently holds a terminating newline.
+   * Maintained alongside the loop (set on newline-carrying appends, cleared
+   * when the loop proves none remains) so newline-free garbage never pays
+   * a full backlog scan per chunk.
+   */
+  bufferHasNewline: boolean;
   pendingResponseBytes: number;
   pendingResponses: number;
 };
@@ -167,6 +182,39 @@ function ownedLease(context: ConnectionContext, params: unknown): NativeTerminal
   return lease;
 }
 
+/**
+ * Lot L4-replies (D10) — validate one bridge-accepted typed reply unit.
+ * Shape failures are operation failures (the bridge misbehaved); staleness
+ * is NOT a failure — the host returns a swallowed outcome the bridge counts.
+ */
+function replyUnit(params: unknown): NativeTerminalReplyUnit {
+  const record = requiredRecord(params, "params");
+  const value = requiredRecord(record.unit, "reply unit");
+  const family = value.family;
+  if (!isNativeTerminalReplyFamily(family)) {
+    throw new TypeError("reply unit family must be a known terminal reply family");
+  }
+  const key = value.key;
+  if (typeof key !== "string" || key.length > NATIVE_TERMINAL_MAX_IDENTIFIER_CHARS) {
+    throw new TypeError("reply unit key must be a short string");
+  }
+  const bytes = value.bytes;
+  if (typeof bytes !== "string" || bytes.length === 0 || bytes.length > NATIVE_TERMINAL_MAX_REPLY_BYTES) {
+    throw new TypeError(
+      `reply unit bytes must be a non-empty string of at most ${NATIVE_TERMINAL_MAX_REPLY_BYTES} characters`,
+    );
+  }
+  return {
+    family,
+    key,
+    epoch: requiredNonNegativeInteger(value.epoch, "reply unit epoch"),
+    incarnation: requiredIdentifier(value.incarnation, "reply unit incarnation"),
+    appEpoch: requiredNonNegativeInteger(value.appEpoch, "reply unit application epoch"),
+    bytes,
+    acceptedAt: requiredNonNegativeInteger(value.acceptedAt, "reply unit accepted-at"),
+  };
+}
+
 function createOptions(params: unknown): NativeTerminalCreateOptions {
   const options = requiredRecord(params, "create params");
   if (!Array.isArray(options.args) || !options.args.every((arg) => typeof arg === "string")) {
@@ -270,6 +318,40 @@ function dispatch(host: NativeTerminalHost, context: ConnectionContext, request:
       const lease = ownedLease(context, record);
       host.write(lease, requiredString(record.data, "terminal input"));
       return null;
+    }
+    case "write-reply": {
+      const record = requiredRecord(params, "params");
+      const lease = ownedLease(context, record);
+      return host.writeReply(lease, replyUnit(record));
+    }
+    case "inject": {
+      // Lot L2: lease-free host-side injection. No controller lease is
+      // required, tracked or revoked here — that is the point: the human
+      // window stays attached. All safety is decided inside host.inject.
+      const record = requiredRecord(params, "params");
+      if (record.incarnation !== undefined && typeof record.incarnation !== "string") {
+        throw new TypeError("terminal inject incarnation must be a string");
+      }
+      if (record.activityWindowMs !== undefined && !Number.isSafeInteger(record.activityWindowMs)) {
+        throw new TypeError("terminal inject activity window must be a safe integer");
+      }
+      if (record.actor !== undefined && typeof record.actor !== "string") {
+        throw new TypeError("terminal inject actor must be a string");
+      }
+      const options: {
+        text: string;
+        requestId: string;
+        incarnation?: string;
+        activityWindowMs?: number;
+        actor?: string;
+      } = {
+        text: requiredString(record.text, "terminal inject text"),
+        requestId: requiredIdentifier(record.requestId, "terminal inject request id"),
+      };
+      if (typeof record.incarnation === "string") options.incarnation = record.incarnation;
+      if (typeof record.activityWindowMs === "number") options.activityWindowMs = record.activityWindowMs;
+      if (typeof record.actor === "string") options.actor = record.actor;
+      return host.inject(requiredIdentifier(record.id, "session id"), options);
     }
     case "resize": {
       const record = requiredRecord(params, "params");
@@ -413,12 +495,39 @@ function writeError(context: ConnectionContext, id: unknown, code: NativeTermina
 }
 
 function consumeFrames(host: NativeTerminalHost, context: ConnectionContext, chunk: string): void {
+  // Round-3 (publish-rehearsal faulty-connection bound): a chunk with no
+  // newline joining a backlog with no newline can complete no frame — only
+  // the size cap matters, decided here in O(chunk) without touching the
+  // backlog. The old code ran the extraction loop (full backlog newline
+  // scan) on every chunk, so 32MB+ of garbage cost O(backlog^2) before the
+  // end-of-call check and starved the 5s faulty-peer bound under load.
+  // Same verdicts, same errors, same counters — the loop and both destroy
+  // branches below are untouched. Every early `return` below leaves a
+  // destroyed connection, so the flag needs no recompute on those paths.
+  const chunkBytes = Buffer.byteLength(chunk);
+  const chunkNewline = chunk.indexOf("\n") !== -1;
+  if (!chunkNewline && !context.bufferHasNewline) {
+    context.buffer += chunk;
+    context.bufferBytes += chunkBytes;
+    if (context.bufferBytes > NATIVE_TERMINAL_MAX_FRAME_BYTES) {
+      writeError(context, "invalid", "invalid-request", new Error("terminal request exceeds the frame limit"));
+      recordHostFault(HOST_FAULT_COUNTERS.hostClientFrameDestroys);
+      context.socket.destroy();
+    }
+    return;
+  }
   context.buffer += chunk;
+  context.bufferBytes += chunkBytes;
+  if (chunkNewline) context.bufferHasNewline = true;
   for (;;) {
     const newline = context.buffer.indexOf("\n");
-    if (newline < 0) break;
+    if (newline < 0) {
+      context.bufferHasNewline = false;
+      break;
+    }
     const line = context.buffer.slice(0, newline);
     context.buffer = context.buffer.slice(newline + 1);
+    context.bufferBytes -= Buffer.byteLength(line) + 1;
     if (line.length === 0) continue;
     if (Buffer.byteLength(line) > NATIVE_TERMINAL_MAX_FRAME_BYTES) {
       writeError(context, "invalid", "invalid-request", new Error("terminal request exceeds the frame limit"));
@@ -453,7 +562,7 @@ function consumeFrames(host: NativeTerminalHost, context: ConnectionContext, chu
       if (!writeError(context, request.id, "operation-failed", error)) return;
     }
   }
-  if (Buffer.byteLength(context.buffer) > NATIVE_TERMINAL_MAX_FRAME_BYTES) {
+  if (context.bufferBytes > NATIVE_TERMINAL_MAX_FRAME_BYTES) {
     writeError(context, "invalid", "invalid-request", new Error("terminal request exceeds the frame limit"));
     recordHostFault(HOST_FAULT_COUNTERS.hostClientFrameDestroys);
     context.socket.destroy();
@@ -1355,6 +1464,8 @@ async function initializeNativeTerminalHostServer(options: {
       leases: new Map(),
       responseBudget,
       buffer: "",
+      bufferBytes: 0,
+      bufferHasNewline: false,
       pendingResponseBytes: 0,
       pendingResponses: 0,
     };

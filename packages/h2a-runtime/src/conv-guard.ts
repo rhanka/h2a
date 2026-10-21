@@ -24,6 +24,13 @@ import {
   type RegistryEntry,
 } from "./registry.js";
 import { managedSessionCandidates } from "./tmux.js";
+import {
+  deriveSessionFacet,
+  matchRowConversation,
+  type HostProcessSnapshot,
+  type SessionFacet,
+  type SessionFacetRow,
+} from "./launch-layout.js";
 
 export type ConvOwnerWhere = "local-tmux" | "local" | "remote";
 
@@ -35,7 +42,40 @@ export type ConvOwner = {
   detail: string;
   /** true = cwd-only heuristic (no cliSessionId) — warn, do not refuse. */
   suspect?: boolean;
+  /**
+   * Lot L1a foreground facet of the holder, when provable. A live agent row
+   * derives `live-agent-cli` through the shared contract; a suspect (cwd
+   * heuristic, no liveness proof) carries NO facet — unknown is preserved,
+   * never promoted.
+   */
+  facet?: SessionFacet;
 };
+
+/**
+ * Lot L1a — parse one facet-ed owner line
+ * (`facet:<facet> owner:<owner> session:<session>`). Returns the line with
+ * the facet normalized: an unrecognized facet parses as `unknown` (kept,
+ * never promoted), and a line missing any field is not a facet line (null).
+ */
+export function parseFacetLine(
+  line: string,
+): { facet: SessionFacet; owner: string; session: string } | null {
+  const match = /^facet:(\S+)\s+owner:(\S+)\s+session:(\S+)\s*$/.exec(line);
+  if (!match) return null;
+  const facet = match[1]!;
+  const owner = match[2]!;
+  const session = match[3]!;
+  if (owner.length === 0 || session.length === 0) return null;
+  // Fail closed: only the contract's known facets survive; anything else is
+  // kept as `unknown`, never promoted to a live facet.
+  const known: SessionFacet =
+    facet === "live-agent-cli" ||
+    facet === "shell" ||
+    facet === "consumable-transcript"
+      ? facet
+      : "unknown";
+  return { facet: known, owner, session };
+}
 
 /** The subset of listRemoteSessions() rows the guard needs. */
 export type RemoteSessionLite = {
@@ -54,9 +94,32 @@ export type ConvOwnersOpts = LivenessOpts & {
   remoteSessions?: ReadonlyArray<RemoteSessionLite>;
   /** Local project path — enables the workspacePath "suspect" heuristic. */
   cwd?: string;
+  /**
+   * Lot L1b — host-observed subtrees of live native sessions, already
+   * fetched by the caller (omit = no host verification). A no-pid
+   * hook-enrolled row the pid probe cannot verify is promoted from suspect
+   * to a HARD owner only when the native host itself shows a foreground CLI
+   * holding this conversation in that session's own subtree.
+   */
+  nativeSubtrees?: ReadonlyArray<{
+    name: string;
+    processes: ReadonlyArray<HostProcessSnapshot>;
+  }>;
 };
 
 function ownerFromEntry(e: RegistryEntry): ConvOwner {
+  // Lot L1a: entries reaching here passed the isLive filter, so the facet
+  // derives through the shared contract — except the unverifiable no-pid
+  // row, which derives `unknown` (preserved, stamped nowhere).
+  const facetRow: SessionFacetRow =
+    e.kind === "local-tmux"
+      ? { session: e.tmuxSession ?? e.id, tool: e.tool, tmuxLive: true }
+      : {
+          session: e.id,
+          tool: e.tool,
+          ...(e.pid !== undefined ? { pidAlive: true } : {}),
+        };
+  const facet = deriveSessionFacet(facetRow);
   if (e.kind === "local-tmux") {
     const slug = e.label ?? e.id;
     const candidates = managedSessionCandidates(e.id);
@@ -68,6 +131,7 @@ function ownerFromEntry(e: RegistryEntry): ConvOwner {
       where: "local-tmux",
       label: slug,
       detail: `local tmux session ${session} (${e.tool}, cwd ${e.cwd}) — stop it first: ${stop}`,
+      ...(facet === "unknown" ? {} : { facet }),
     };
   }
   return {
@@ -79,6 +143,7 @@ function ownerFromEntry(e: RegistryEntry): ConvOwner {
     // a relaunch; only verifiable writers (live tmux / pid+cmdline / remote)
     // refuse. A pid'd entry that reached here passed the liveness check → hard.
     ...(e.pid === undefined ? { suspect: true } : {}),
+    ...(facet === "unknown" ? {} : { facet }),
   };
 }
 
@@ -91,6 +156,33 @@ function ownerFromEntry(e: RegistryEntry): ConvOwner {
  * nothing — degrading to an empty owner list would read as permission to
  * start a second writer. The caller (guardConvWriters) refuses on it.
  */
+/**
+ * Lot L1b — host-verify one suspect no-pid row: the native host itself must
+ * show a foreground CLI holding this conversation in the row's own session
+ * subtree. Returns the HARD owner (no suspect flag) on verification, null
+ * when there is no subtree, no match, or an ambiguous foreground — the row
+ * then stays suspect, never silently cleared.
+ */
+function verifyNativeSubtreeOwner(
+  e: RegistryEntry,
+  convId: string,
+  subtrees: ConvOwnersOpts["nativeSubtrees"],
+): ConvOwner | null {
+  if (subtrees === undefined) return null;
+  const name = e.tmuxSession;
+  if (name === undefined) return null;
+  const subtree = subtrees.find((s) => s.name === name);
+  if (subtree === undefined) return null;
+  const hit = matchRowConversation({ convId }, subtree.processes);
+  if (hit === null || hit === "ambiguous") return null;
+  return {
+    where: "local",
+    label: e.label ?? e.id.slice(0, 12),
+    detail: `local ${e.tool} process (pid ${hit.pid}) holds this conversation in native session ${name} (host-verified foreground) — exit that CLI first`,
+    facet: "live-agent-cli",
+  };
+}
+
 export function convOwners(
   convId: string,
   opts: ConvOwnersOpts = {},
@@ -117,7 +209,17 @@ export function convOwners(
     // kind "remote" registry entries can be stale (the registry cannot probe
     // the cluster) — opts.remoteSessions, fetched live, is authoritative.
     if (e.kind === "remote") continue;
-    owners.push(ownerFromEntry(e));
+    const owner = ownerFromEntry(e);
+    // Lot L1b — a suspect no-pid hook row the pid probe cannot verify is
+    // promoted to a HARD owner only on host verification: the native host
+    // itself must show a foreground CLI holding THIS conversation in the
+    // row's own session subtree. A stale subtree (no match) keeps the row
+    // suspect — never a silent pass.
+    const verified =
+      owner.suspect === true
+        ? verifyNativeSubtreeOwner(e, convId, opts.nativeSubtrees)
+        : null;
+    owners.push(verified ?? owner);
   }
   for (const s of opts.remoteSessions ?? []) {
     if (s.cliSessionId === convId) {
@@ -125,6 +227,10 @@ export function convOwners(
         where: "remote",
         label: s.displayName ?? s.id,
         detail: `remote session ${s.id}${s.workspacePath ? ` (${s.workspacePath})` : ""} is on this conversation — stop it first: h2a stop ${s.id}`,
+        // A cliSessionId match proves a live CLI holds this conversation even
+        // though the remote row carries no tool name — stamp the facet
+        // directly (out-of-band proof, not a promotion of an unknown).
+        facet: "live-agent-cli",
       });
     } else if (
       s.cliSessionId === undefined &&
@@ -147,7 +253,12 @@ export function formatConvConflict(
   convId: string,
   owners: ReadonlyArray<ConvOwner>,
 ): string {
-  const lines = owners.map((o) => `  - [${o.where}] ${o.label}: ${o.detail}`);
+  // Lot L1a: the facet rides along only when the owner proved one — a
+  // suspect (unknown preserved) prints exactly as before.
+  const lines = owners.map(
+    (o) =>
+      `  - [${o.where}] ${o.label}${o.facet !== undefined ? ` (${o.facet})` : ""}: ${o.detail}`,
+  );
   return (
     `[h2a] conversation ${convId} already has a live writer:\n` +
     `${lines.join("\n")}\n` +
@@ -162,6 +273,12 @@ export type GuardConvWritersArgs = LivenessOpts & {
   cwd: string;
   /** Registry entry id to ignore (the entry the caller is creating/reviving). */
   excludeId?: string;
+  /**
+   * Round-1 (D4a): host-observed subtrees of live native sessions (see
+   * `ConvOwnersOpts.nativeSubtrees`). A proven-live local-native owner
+   * refuses even when its registry pid is absent; omitted keeps unknown.
+   */
+  nativeSubtrees?: ConvOwnersOpts["nativeSubtrees"];
   /** Override the refusal (still warns). */
   force?: boolean;
   /**
@@ -198,6 +315,7 @@ export async function guardConvWriters(
     ...(args.pidAlive ? { pidAlive: args.pidAlive } : {}),
     ...(args.bootTimeMs !== undefined ? { bootTimeMs: args.bootTimeMs } : {}),
     ...(args.processCmdline ? { processCmdline: args.processCmdline } : {}),
+    ...(args.nativeSubtrees !== undefined ? { nativeSubtrees: args.nativeSubtrees } : {}),
   });
   if (owners === "unknown") {
     // The registry could not be read: the guard cannot PROVE the absence of

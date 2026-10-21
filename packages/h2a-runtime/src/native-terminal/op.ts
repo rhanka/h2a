@@ -17,6 +17,7 @@
  *                                     generic failure as proof of death
  *   create  --id X --cwd D [--cols N --rows N] [--env-file F] -- cmd args...
  *   drive   --target I --b64 TEXT      resolve a native session and submit TEXT
+ *                                     [--request-id R for idempotent retry]
  *   write   --id X --b64 TEXT         raw keystrokes (base64, controller-scoped)
  *   paste   --id X --b64 TEXT         ONE bracketed-paste block (tmux paste -p twin)
  *   enter   --id X                    submit (CR)
@@ -29,6 +30,7 @@
  *                                     (detach: Ctrl-\\ ; exits when session exits)
  *   host-stop                         SIGTERM the host process (sessions stop)
  */
+import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, readlinkSync, writeSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -39,11 +41,20 @@ import {
   NATIVE_TERMINAL_INTERACTIVE_READ_TIMEOUT_MS,
   NATIVE_TERMINAL_PROTOCOL_VERSION,
   NativeTerminalRemoteError,
+  type NativeTerminalReplyUnit,
 } from "./protocol.js";
 import type {
   NativeTerminalControllerLease,
+  NativeTerminalInjectOutcome,
+  NativeTerminalReplyOutcome,
   NativeTerminalSessionState,
 } from "./host.js";
+import {
+  TERMINAL_REPLY_BRIDGE_FLUSH_DELAY_MS,
+  TerminalReplyClassifier,
+  stripTerminalQueries,
+  type ClassifiedPart,
+} from "./terminal-replies.js";
 import { NativeTerminalHostSupervisor } from "./supervisor.js";
 import { proveNativeTerminalEndpointAbsent } from "./server.js";
 import { defaultNativeTerminalSocketPath, knownNativeTerminalSocketPaths,
@@ -54,6 +65,7 @@ import { TerminalModeTracker } from "./terminal-modes.js";
 import { publishAttachReset } from "./attach-recovery.js";
 import { TerminalResetRelay } from "./reset-relay.js";
 import { appendCrashLog, crashSignalName, installCrashHandlers, type CrashLogEntry } from "../crash-log.js";
+import { humanOutputText } from "../human-output.js";
 
 const DETACH_BYTE = 0x1c; // Ctrl-\
 
@@ -229,7 +241,12 @@ async function withController<T>(
   id: string,
   action: (lease: NativeTerminalControllerLease) => Promise<T>,
 ): Promise<T> {
-  const lease = await client.acquireController(id, `h2a-op-${process.pid}`);
+  // Round-1 (D6): machine acts through the automation activity — never the
+  // human one. A machine paste/resize/enter via a human-stamped lease would
+  // forge human activity AND advance the host's human-input epoch, poisoning
+  // the inject composition gate (and the anti-overwrite window) with bytes
+  // no human composed. Only the attach bridge acquires "human".
+  const lease = await client.acquireController(id, `h2a-op-${process.pid}`, "automation");
   try {
     return await action(lease);
   } finally {
@@ -304,6 +321,7 @@ type NativeTerminalAttachClient = Pick<
   | "acquireController"
   | "releaseController"
   | "write"
+  | "writeReply"
   | "resize"
   | "close"
 >;
@@ -384,10 +402,22 @@ type ActiveAttachConnection = {
  * only this observer/controller connection; the host-owned PTY is never stopped
  * or recreated. Reconnection resumes from the last rendered sequence number.
  */
+/**
+ * Lot L4-hint (D11b/c) — survivor hints for the OUTER terminal, printed
+ * after raw modes are restored. `recreation` (the `h2a run …` line) prints
+ * only when the session end was OBSERVED — never on detach, takeover, or
+ * unproven transport loss. `attach` (the `h2a attach …` line) prints on a
+ * user detach (Ctrl-\ / stdin end).
+ */
+export type SessionEndHint = {
+  recreation?: string;
+  attach?: string;
+};
+
 export async function runAttach(
   id: string,
   runtime: NativeTerminalAttachRuntime = defaultAttachRuntime(socketPathFromEnv()),
-  options: { takeover?: boolean } = {},
+  options: { takeover?: boolean; sessionEndHint?: SessionEndHint } = {},
 ): Promise<number> {
   const stdin = runtime.stdin;
   const stdout = runtime.stdout;
@@ -407,7 +437,13 @@ export async function runAttach(
   };
   // Older protocol-v1 hosts relay the wrapper marker verbatim. New hosts
   // consume it themselves so detached sessions also return to a clean shell.
-  let resetRelay = new TerminalResetRelay(relayOutput, () => modes.resetSequence());
+  // Lot L4-replies (D10): every consumed marker also opens a new application
+  // incarnation for the typed-reply correlation (suppressed while feeding a
+  // gap repaint: repainted markers are history the host already counted).
+  const countMarker = (): void => {
+    if (!suppressMarkerCount) appEpoch += 1;
+  };
+  let resetRelay = new TerminalResetRelay(relayOutput, () => modes.resetSequence(), countMarker);
   const resetModes = (): void => {
     if (modesSuspended) return;
     modesSuspended = true;
@@ -429,13 +465,39 @@ export async function runAttach(
   const wasRaw = stdin.isRaw === true;
   let detached = false;
   let terminalEnded = false;
+  // Lot L4-hint (D11b/c) — the survivor prints by OBSERVED reason only:
+  // a user detach (Ctrl-\ / stdin end / buffer-full) gets the attach line,
+  // a PROVEN session exit gets the recreation line. Takeover, refusal and
+  // unproven transport loss set neither and print neither hint.
+  let userDetached = false;
+  let sessionExited = false;
   let exitCode = 0;
   let active: ActiveAttachConnection | undefined;
   let transportFailure: unknown;
   let recoveryAnnounced = false;
   let pendingInputBytes = 0;
-  const pendingInput: Buffer[] = [];
+  type PendingAttachAction =
+    | { kind: "bytes"; buf: Buffer }
+    | {
+      kind: "reply";
+      family: NativeTerminalReplyUnit["family"];
+      key: string;
+      bytes: string;
+      acceptedAt: number;
+    };
+  const pendingInput: PendingAttachAction[] = [];
   let inputPump: Promise<void> | undefined;
+  // Lot L4-replies (D10): the bridge's own application-incarnation counter,
+  // advanced by every wrapper reset marker the relayed output carries and
+  // healed from the host's authoritative state (evicted markers never reach
+  // the bridge). Typed units carry it; the host revalidates it at apply.
+  let appEpoch = 0;
+  // An old host without the `write-reply` operation cannot gate typed units:
+  // replies are then swallowed locally (fail closed, never plain-written)
+  // instead of round-tripping a guaranteed rejection.
+  let hostNoReplySupport = false;
+  let suppressMarkerCount = false;
+  const replyClassifier = new TerminalReplyClassifier();
   let takeoverPending = options.takeover === true;
   let tty = "not-a-tty";
   try { tty = readlinkSync("/proc/self/fd/0"); } catch { /* Non-Linux terminal. */ }
@@ -463,6 +525,7 @@ export async function runAttach(
   };
   const terminate = (): void => {
     detached = true;
+    cancelReplyFlush();
     try { resetRelay.flush(); resetModes(); } finally {
       if (isRawCapable) stdin.setRawMode(wasRaw);
       stdin.pause();
@@ -502,18 +565,69 @@ export async function runAttach(
       while (!detached && pendingInput.length > 0) {
         const current = active;
         if (current === undefined) return;
-        const chunk = pendingInput[0]!;
+        const action = pendingInput[0]!;
+        const actionBytes = action.kind === "bytes"
+          ? action.buf.length
+          : Buffer.byteLength(action.bytes, "utf8");
         try {
-          await current.client.write(current.lease, chunk.toString("utf8"));
+          if (action.kind === "bytes") {
+            await current.client.write(current.lease, action.buf.toString("utf8"));
+          } else {
+            // The typed unit is assembled at SEND time from the current
+            // lease and application incarnation: classification only decided
+            // the bytes are a machine reply. The host is the final gate.
+            const unit: NativeTerminalReplyUnit = {
+              family: action.family,
+              key: action.key,
+              epoch: current.lease.epoch,
+              incarnation: current.lease.incarnation,
+              appEpoch,
+              bytes: action.bytes,
+              acceptedAt: action.acceptedAt,
+            };
+            const outcome: NativeTerminalReplyOutcome = await current.client.writeReply(
+              current.lease,
+              unit,
+            );
+            if (outcome.outcome === "swallowed") {
+              appendCrashLog("attach", {
+                event: "reply-swallowed",
+                sessionId: id,
+                reason: outcome.reason,
+              });
+            }
+          }
           pendingInput.shift();
-          pendingInputBytes -= chunk.length;
+          pendingInputBytes -= actionBytes;
         } catch (error) {
+          if (action.kind === "reply" && error instanceof NativeTerminalRemoteError) {
+            // A typed-unit REJECTION (stale lease, or an old host without
+            // `write-reply`) swallows the reply with zero bytes and lets the
+            // human queue keep flowing in order — never a plain write.
+            pendingInput.shift();
+            pendingInputBytes -= actionBytes;
+            const message = error instanceof Error ? error.message : String(error);
+            if (message.includes("unknown terminal operation") && !hostNoReplySupport) {
+              hostNoReplySupport = true;
+              stdout.write(
+                "\r\n[h2a] terminal host predates typed replies; machine replies " +
+                  "are swallowed, never typed\r\n",
+              );
+            }
+            appendCrashLog("attach", {
+              event: "reply-swallowed",
+              sessionId: id,
+              reason: "rejected",
+              detail: message.slice(0, 160),
+            });
+            continue;
+          }
           // The host may have accepted the write before the response path
           // broke. Drop this ONE uncertain chunk with an explicit warning;
           // replaying it could duplicate a command. Later queued input stays
           // ordered and is delivered only after a fresh exclusive lease.
           pendingInput.shift();
-          pendingInputBytes -= chunk.length;
+          pendingInputBytes -= actionBytes;
           markTransportFailure(current, error, true);
           return;
         }
@@ -526,29 +640,115 @@ export async function runAttach(
     });
   };
 
-  const onInput = (value: Buffer | string): void => {
-    const chunk = Buffer.isBuffer(value) ? Buffer.from(value) : Buffer.from(value);
-    if (chunk.includes(DETACH_BYTE)) {
-      detached = true;
-      closeActive();
-      return;
-    }
-    if (pendingInputBytes + chunk.length > ATTACH_PENDING_INPUT_MAX_BYTES) {
+  const enqueueInputBytes = (buf: Buffer): boolean => {
+    if (pendingInputBytes + buf.length > ATTACH_PENDING_INPUT_MAX_BYTES) {
       stdout.write(
         "\r\n[h2a] native attach input buffer full during reconnect; detaching " +
           "without stopping the session\r\n",
       );
       appendCrashLog("attach", { event: "refusal", sessionId: id, reason: "input-buffer-full" });
       detached = true;
+      userDetached = true;
+      closeActive();
+      return false;
+    }
+    pendingInput.push({ kind: "bytes", buf });
+    pendingInputBytes += buf.length;
+    return true;
+  };
+  // Round-1 (D10/sol-6): the classifier holds an ambiguous trailing bare
+  // ESC for the next chunk. When no chunk follows — a genuine lone Escape
+  // key — flush it as input after a short bound so the keypress is delayed,
+  // never lost, while split replies arriving in the same burst resolve
+  // first. Partial introducers and paste carries are NEVER flushed here
+  // (their continuation may legitimately arrive later — see the split-reply
+  // functional tests). The timer is cleared on detach/terminate; held bytes
+  // are then dropped with the queue.
+  let replyFlushTimer: NodeJS.Timeout | undefined;
+  const cancelReplyFlush = (): void => {
+    if (replyFlushTimer === undefined) return;
+    clearTimeout(replyFlushTimer);
+    replyFlushTimer = undefined;
+  };
+  const scheduleReplyFlush = (): void => {
+    if (!replyClassifier.hasHeldBareEscape || replyFlushTimer !== undefined || detached) return;
+    replyFlushTimer = setTimeout(() => {
+      replyFlushTimer = undefined;
+      if (detached) return;
+      // Round-2 (code-review astra-2): the timer was armed for a bare held
+      // ESC; re-verify before flushing. A chunk that arrived since may have
+      // turned the tail into a partial introducer (a reply split across the
+      // bound) — flushing it as input would type a terminal reply into the
+      // human line and bypass the typed host-revalidated path. Only a still-
+      // bare ESC flushes; a partial stays held for the next chunk (as before
+      // the bounded flush existed), and an empty tail flushes nothing.
+      if (!replyClassifier.hasHeldBareEscape) return;
+      for (const part of replyClassifier.flush()) {
+        if (part.kind !== "input") continue;
+        if (!enqueueInputBytes(Buffer.from(part.text, "utf8"))) return;
+      }
+      pumpInput();
+    }, TERMINAL_REPLY_BRIDGE_FLUSH_DELAY_MS);
+  };
+  const onInput = (value: Buffer | string): void => {
+    const chunk = Buffer.isBuffer(value) ? Buffer.from(value) : Buffer.from(value);
+    if (chunk.includes(DETACH_BYTE)) {
+      detached = true;
+      userDetached = true;
       closeActive();
       return;
     }
-    pendingInput.push(chunk);
-    pendingInputBytes += chunk.length;
+    // Lot L4-replies (D10): split outer-terminal bytes into human input
+    // (existing `write` path, verbatim, ordered) and machine replies (typed
+    // units the host revalidates before writing). On ambiguity the bytes stay
+    // human — the classifier only routes positively-identified replies.
+    for (const part of replyClassifier.feed(chunk.toString("utf8"))) {
+      if (part.kind === "input") {
+        const buf = Buffer.from(part.text, "utf8");
+        if (!enqueueInputBytes(buf)) return;
+        continue;
+      }
+      // A machine reply: never plain-written, even to an old host.
+      if (hostNoReplySupport || active === undefined) {
+        appendCrashLog("attach", {
+          event: "reply-swallowed",
+          sessionId: id,
+          reason: hostNoReplySupport ? "old-host" : "no-controller",
+        });
+        continue;
+      }
+      const replyBytes = Buffer.byteLength(part.text, "utf8");
+      if (pendingInputBytes + replyBytes > ATTACH_PENDING_INPUT_MAX_BYTES) {
+        stdout.write(
+          "\r\n[h2a] native attach input buffer full during reconnect; detaching " +
+            "without stopping the session\r\n",
+        );
+        appendCrashLog("attach", { event: "refusal", sessionId: id, reason: "input-buffer-full" });
+        detached = true;
+        userDetached = true;
+        closeActive();
+        return;
+      }
+      pendingInput.push({
+        kind: "reply",
+        family: part.family,
+        key: part.key,
+        bytes: part.text,
+        acceptedAt: runtime.now(),
+      });
+      pendingInputBytes += replyBytes;
+    }
+    // Round-2 (code-review astra-2): the feed above may have changed what the
+    // classifier holds (bare ESC -> partial introducer). A pending flush was
+    // armed for the old tail — cancel it so it can never fire on the new one;
+    // `scheduleReplyFlush` re-arms only for a still-bare ESC, and the timer
+    // itself re-verifies at fire time.
+    if (!replyClassifier.hasHeldBareEscape) cancelReplyFlush();
+    scheduleReplyFlush();
     pumpInput();
   };
   stdin.on("data", onInput);
-  const onEnd = (): void => { detached = true; closeActive(); };
+  const onEnd = (): void => { detached = true; userDetached = true; closeActive(); };
   stdin.on("end", onEnd);
   const resize = (): void => {
     const current = active;
@@ -574,6 +774,12 @@ export async function runAttach(
         "human",
         { takeover: takeoverPending, pid: process.pid, tty },
       );
+      // Lot L4-replies (D10): every (re)connect heals the bridge's
+      // application incarnation from the host's authoritative counter, so a
+      // marker evicted before this attach cannot strand typed units stale.
+      if (typeof state.applicationEpoch === "number") {
+        appEpoch = Math.max(appEpoch, state.applicationEpoch);
+      }
       // A reconnect must never take the terminal back from a newer attach.
       takeoverPending = false;
       active = { client, lease };
@@ -603,10 +809,12 @@ export async function runAttach(
         { exit: null, stopSignal: null },
         { sessionId: id, reason: "definitive-absence", detail: "session absent at attach; exit code unknown" },
       ));
+      sessionExited = true;
       return 1;
     }
     if (initial.status === "exited") {
       appendCrashLog("attach", sessionExitCrashEntry(initial, { sessionId: id, detail: "session already exited at attach" }));
+      sessionExited = true;
       return initial.exit?.exitCode ?? 0;
     }
     let idlePollMs = ATTACH_IDLE_POLL_MIN_MS;
@@ -633,6 +841,7 @@ export async function runAttach(
             if (state.status === "exited") {
               exitCode = state.exit?.exitCode ?? 0;
               appendCrashLog("attach", sessionExitCrashEntry(state, { sessionId: id, detail: "session exited during reconnect" }));
+              sessionExited = true;
               terminalEnded = true;
               break;
             }
@@ -655,6 +864,7 @@ export async function runAttach(
                 { sessionId: id, reason: "definitive-absence", detail: "session proven absent during reconnect; exit code unknown" },
               ));
               exitCode = 1;
+              sessionExited = true;
               terminalEnded = true;
               break;
             }
@@ -680,15 +890,38 @@ export async function runAttach(
         if (replay.gap) {
           resetModes();
           modes = new TerminalModeTracker();
-          resetRelay = new TerminalResetRelay(relayOutput, () => modes.resetSequence());
+          resetRelay = new TerminalResetRelay(relayOutput, () => modes.resetSequence(), countMarker);
           modesSuspended = false;
           if (replay.terminalModePrefix) {
             resetRelay.feed(replay.terminalModePrefix);
           }
-        }
-        for (const chunk of replay.chunks) {
-          resetRelay.feed(chunk.data);
-          seq = chunk.seq;
+          // Lot L4-replies (D10(b)): the gap repaint carries queries the new
+          // reader never asked — the outer would answer stale queries
+          // straight into its input line. Strip them from the RELAYED paint
+          // only: modes/saveReset still see the original bytes, and seq still
+          // jumps to the latest retained chunk. Marker counting is suppressed
+          // for this feed: repainted markers are history the host already
+          // counted, and the state poll below heals any evicted ones.
+          let paint = "";
+          for (const chunk of replay.chunks) {
+            paint += chunk.data;
+            if (!modesSuspended) modes.feed(chunk.data);
+            saveReset();
+          }
+          suppressMarkerCount = true;
+          try {
+            resetRelay.feed(stripTerminalQueries(paint));
+          } finally {
+            suppressMarkerCount = false;
+          }
+          if (replay.chunks.length > 0) {
+            seq = replay.chunks[replay.chunks.length - 1]!.seq;
+          }
+        } else {
+          for (const chunk of replay.chunks) {
+            resetRelay.feed(chunk.data);
+            seq = chunk.seq;
+          }
         }
         seq = replay.latestSeq;
         if (replay.chunks.length === 0) {
@@ -704,10 +937,18 @@ export async function runAttach(
         if (runtime.now() >= nextStatePollAt) {
           const state = await current.client.state(id);
           nextStatePollAt = runtime.now() + ATTACH_STATE_POLL_MS;
+          // Lot L4-replies (D10): heal the bridge's application incarnation
+          // from the host's authoritative counter (evicted markers never
+          // reach the relay). Never moves backwards: the local count is exact
+          // for everything the bridge actually relayed.
+          if (typeof state.applicationEpoch === "number") {
+            appEpoch = Math.max(appEpoch, state.applicationEpoch);
+          }
           if (controllerChanged(state, current.lease)) break;
           if (state.status === "exited") {
             exitCode = state.exit?.exitCode ?? 0;
             appendCrashLog("attach", sessionExitCrashEntry(state, { sessionId: id, detail: "session exited during attach" }));
+            sessionExited = true;
             break;
           }
         }
@@ -722,6 +963,7 @@ export async function runAttach(
             { sessionId: id, reason: "definitive-absence", detail: "session proven absent during attach; exit code unknown" },
           ));
           exitCode = 1;
+          sessionExited = true;
           break;
         }
         markTransportFailure(current, error);
@@ -730,7 +972,22 @@ export async function runAttach(
   } finally {
     try {
       resetRelay.flush();
-      if (detached) stdout.write("\r\n[h2a] detached from native session (session keeps running)\r\n");
+      // Lot L4-hint (D11b/c) — the survivor speaks only AFTER the modes are
+      // restored (D11b). A user detach gets the attach command (D11c — the
+      // attach carries the session, so the id always yields a command); an
+      // OBSERVED session exit gets the recreation line when the caller
+      // supplied one. Takeover, refusal and unproven transport loss print
+      // neither: the session lives on (or its end is unproven).
+      if (userDetached) {
+        const attachCmd = options.sessionEndHint?.attach ?? `h2a attach ${id}`;
+        stdout.write(
+          `\r\n[h2a] ${humanOutputText("hint.detachedReattach")} ${attachCmd}\r\n`,
+        );
+      } else if (sessionExited && options.sessionEndHint?.recreation !== undefined) {
+        stdout.write(
+          `\r\n[h2a] ${humanOutputText("hint.sessionEndedRecreate")}\n  ${options.sessionEndHint.recreation}\n`,
+        );
+      }
       resetModes();
     } finally {
       runtime.offTerminate?.(terminate);
@@ -876,33 +1133,89 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
         });
         return 0;
       }
+      // Round-1 (D5–D7): reimplemented on the lease-free host inject path.
+      // Injection works with a human window attached. The request binds the
+      // session incarnation observed immediately before the commit (a stale
+      // target refuses with zero bytes instead of typing into a recycled
+      // session). Outcomes are never flattened: `driven` carries the
+      // automation seq; every host refusal/deferral stays typed as
+      // `deferred` with its reason so the wake chain STOPS instead of
+      // falling through to tmux/headless (D9). An old host without the
+      // operation falls back to the pre-Round-1 lease mechanism below; only
+      // an unknown session reads `failed`.
+      const requestId = parsed.flags.get("request-id") ?? randomUUID();
       const { client } = await owningClient(parsed, target.id);
       try {
-        let lease: NativeTerminalControllerLease;
+        let incarnation: string | undefined;
         try {
-          // This is one host-side operation. An older host that does not
-          // support it rejects the request, which is deliberately deferred.
-          lease = await client.acquireAutomationControllerIfNoRecentHuman(
-            target.id,
-            `h2a-drive-${process.pid}`,
-            nativeDriveActivityWindowMs(),
-          );
+          incarnation = (await client.state(target.id)).incarnation;
         } catch {
-          emit({ outcome: "deferred" });
+          incarnation = undefined;
+        }
+        let outcome: NativeTerminalInjectOutcome;
+        try {
+          outcome = await client.inject(target.id, {
+            text,
+            requestId,
+            ...(incarnation !== undefined ? { incarnation } : {}),
+            activityWindowMs: nativeDriveActivityWindowMs(),
+            actor: `owner-channel/op.js pid=${process.pid}`,
+          });
+        } catch (error) {
+          // An old host without the inject operation keeps the pre-Round-1
+          // lease mechanism: acquire an automation controller and type one
+          // validated line plus submit CR (the cross-generation contract —
+          // historical hosts must still drive). Same degraded idiom as the
+          // attach write-reply path (unknown terminal operation).
+          if (error instanceof NativeTerminalRemoteError
+            && (error as Error).message.includes("unknown terminal operation")) {
+            let lease: NativeTerminalControllerLease;
+            try {
+              // This is one host-side operation. An older host that does not
+              // support it rejects the request, which is deliberately deferred.
+              lease = await client.acquireAutomationControllerIfNoRecentHuman(
+                target.id,
+                `h2a-drive-${process.pid}`,
+                nativeDriveActivityWindowMs(),
+              );
+            } catch {
+              emit({ outcome: "deferred" });
+              return 0;
+            }
+            try {
+              // One validated text line plus one submit CR: no bracketed-paste or
+              // embedded controls can turn this into multiple terminal actions.
+              await client.write(lease, `${text}\r`);
+            } finally {
+              await client.releaseController(lease).catch(() => {});
+            }
+            emit({ outcome: "driven" });
+            return 0;
+          }
+          // Unknown session: the target cannot take bytes. A stale registry
+          // row resolves to a dead session; the wake layer re-resolves and
+          // retries.
+          emit({ outcome: "failed", reason: `inject failed: ${(error as Error).message}` });
           return 0;
         }
-        try {
-          // One validated text line plus one submit CR: no bracketed-paste or
-          // embedded controls can turn this into multiple terminal actions.
-          await client.write(lease, `${text}\r`);
-        } finally {
-          await client.releaseController(lease).catch(() => {});
+        if (outcome.outcome === "injected") {
+          emit({ outcome: "driven", automationSeq: outcome.automationSeq });
+          return 0;
         }
+        if (outcome.outcome === "deferred-recent-human") {
+          emit({ outcome: "deferred", reason: "deferred-recent-human", retryAfterMs: outcome.retryAfterMs });
+          return 0;
+        }
+        // Every host refusal (stale incarnation, unproven composition,
+        // shell facet, unavailable audit, evicted request) stops the chain
+        // with its typed reason: the native transport owns this target, so
+        // falling through to another terminal or a headless spawn would
+        // type the line where it was never admitted (D9).
+        emit({ outcome: "deferred", reason: outcome.outcome });
+        return 0;
       } finally {
         client.close();
       }
-      emit({ outcome: "driven" });
-      return 0;
     }
     case "write":
     case "paste": {
@@ -1029,7 +1342,21 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
       }
       owner.client.close();
       // Reconnects retain this owner for the entire interactive operation.
-      return runAttach(id, defaultAttachRuntime(owner.socketPath), { takeover: parsed.flags.get("takeover") === "true" });
+      // Lot L4-hint (D11b/c) — survivor hints ride along as flags (the attach
+      // child owns the outer terminal while attached).
+      const recreationHint = parsed.flags.get("recreation-hint");
+      const attachHint = parsed.flags.get("attach-hint");
+      return runAttach(id, defaultAttachRuntime(owner.socketPath), {
+        takeover: parsed.flags.get("takeover") === "true",
+        ...((recreationHint !== undefined || attachHint !== undefined)
+          ? {
+              sessionEndHint: {
+                ...(recreationHint !== undefined ? { recreation: recreationHint } : {}),
+                ...(attachHint !== undefined ? { attach: attachHint } : {}),
+              },
+            }
+          : {}),
+      });
     }
     case "host-stop": {
       let client: NativeTerminalClient;

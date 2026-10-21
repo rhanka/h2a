@@ -80,6 +80,12 @@
       {
         "shell": "bash",
         "run": [
+          "command -v bwrap >/dev/null || { sudo apt-get update && sudo apt-get install -y bubblewrap uidmap; } && bwrap --version && if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi"
+        ]
+      },
+      {
+        "shell": "bash",
+        "run": [
           "set -euo pipefail",
           "node -e 'if (process.versions.node.split(\".\")[0] !== process.argv[1]) process.exit(1)' \"${{ matrix.node }}\"",
           "test \"$(git rev-parse HEAD)\" = \"${{ needs.resolve-release-sha.outputs.release-sha }}\"",
@@ -113,7 +119,7 @@
       {
         "shell": "bash",
         "run": [
-          "node --test packages/h2a/test/run-test-gates.test.js"
+          "node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test packages/h2a/test/run-test-gates.test.js"
         ]
       },
       {

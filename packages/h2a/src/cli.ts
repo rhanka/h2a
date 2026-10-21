@@ -84,7 +84,8 @@ import { nativeSkillArtifacts } from "./hosts/native-skills.js";
 import { NATIVE_QUESTION_GUIDANCE } from "./hosts/native-questions.js";
 import { assertNativePath, atomicNativeWrite, snapshot as snapshotNativeFile } from "./hosts/native-files.js";
 import { clearVibeDirectRemoved, editVibeMcpServers, setVibeDirectRemoved, VIBE_MCP_NAME, type VibeMcpEntry } from "./hosts/vibe-mcp.js";
-import { convergeAfterExplicitUpgrade } from "./hosts/upgrade-equipment.js";
+import { convergeAfterExplicitUpgrade, type ConvergedHosts } from "./hosts/upgrade-equipment.js";
+import { loadHumanOutputCatalog } from "./runtime/human-output-loader.js";
 import { captureHostOperatorNotices } from "./hosts/operator-notices.js";
 
 import {
@@ -235,12 +236,15 @@ import {
   chainDriver,
   formatSignedDriveInstruction,
   headlessDriver,
+  isDriven,
   localTmuxDriver,
   loggingDriver,
   nativeBackchannelDriver,
+  nativeDriveOutcomeFromOp,
   remoteDriveServerForStore,
   verifyDriveOnReceive,
   type H2ADriveInstructionPayload,
+  type H2ADriveOutcome,
   type H2ADriver,
   type H2ADriverKind
 } from "./runtime/drive/index.js";
@@ -255,6 +259,7 @@ import {
   H2A_AUTO_UPGRADE_CHECK_TTL_MS,
   H2A_REEXEC_GUARD_ENV,
   H2A_UPGRADE_CHECK_TTL_MS,
+  type AutoUpgradeResult,
   type UpgradeRuntime
 } from "./runtime/upgrade/index.js";
 import {
@@ -466,7 +471,7 @@ export function renderCliHelp(): string {
     "  h2a outbox put --instance <id> --json <envelope> [--root <path>]",
     "  h2a outbox read --instance <id> [--root <path>]",
     "  h2a mcp-serve [--root <path>] [--backend local|cluster-mesh] [--auto-open [--host <h>] [--instance <id>] [--scope <s>]] [--wake <native|logging>] [--upgrade-check | --auto-upgrade [--no-restart]]   (--auto-open joins the bus at startup; --wake injects a signed h2a-tagged wake into the host on inbox arrival, EVO-1, needs --auto-open; --auto-upgrade self-updates via a non-destructive staged swap, the new version applies on the next launch (the live stdio session is never re-exec'd); --upgrade-check = notice only; both opt-in/no network by default; /h2a disconnect to leave)",
-    "  h2a upgrade [--check]   (--check: report current vs latest; bare: non-destructive staged self-update)",
+    "  h2a upgrade [--check] [--json]   (--check: report current vs latest; bare: non-destructive staged self-update, concise catalog line by default, exact JSON contract under --json)",
     "  h2a remote serve [--port <n>] [--host <h>] [--path </h2a/envelopes>] [--root <path>]",
     "  h2a remote send --url <u> --instance <signer> --private-key <pem> --json <envelope>",
     "  h2a remote mirror-serve [--port <n>] [--host <h>] [--path </h2a/mirror>] [--enrolled-keys-file <json>] [--root <path>]   (EVO-13 instance-mirror ingester; enrolled keys also via H2A_MIRROR_ENROLLED_KEYS base64)",
@@ -1876,11 +1881,86 @@ export function resolveAutoOpen(
  * `--check` reports current vs latest (no install); bare runs the global
  * install of `@latest`. Sync (spawnSync). `runtime` is injectable for tests.
  */
-export function cmdUpgrade(
+/**
+ * Lot L6 (D14, round-2 S7) — whether output renders human. Human is the
+ * default everywhere (TTY or pipe): only an explicit `--json` selects the
+ * machine contract. Piped owner-lab captures and human operators alike must
+ * never receive the escaped JSON wall by default.
+ */
+export function shouldUseHumanOutput(
+  flags: Record<string, string>,
+  _streams: H2ACliStreams
+): boolean {
+  void _streams;
+  return flags.json === undefined;
+}
+
+/**
+ * Lot L6 (D14) — pure human upgrade report. Static words come from the
+ * locale catalog (`strings`), machine values (versions, counts, host names,
+ * log paths) pass through untranslated. One outcome = a short line budget:
+ * the header always fits one line; per-host lines print only when hosts did
+ * not all converge.
+ */
+export function renderUpgradeHuman(
+  result: AutoUpgradeResult,
+  hosts: ConvergedHosts,
+  strings: Record<string, string>
+): string[] {
+  const t = (key: string): string => strings[key] ?? key;
+  const logSuffix =
+    result.logPath && existsSync(result.logPath)
+      ? ` (${t("upgrade.details")}: ${result.logPath})`
+      : "";
+  const skippedHosts = "skipped" in hosts;
+  const hostTotal = !skippedHosts ? hosts.hosts.length : 0;
+  const hostOk = !skippedHosts
+    ? hosts.hosts.filter((h) => h.ok).length
+    : 0;
+  const convergedFragment =
+    !skippedHosts && hostTotal > 0 && hostOk === hostTotal
+      ? `, ${t("upgrade.hostsConverged")}: ${hostOk}/${hostTotal} ${t("upgrade.hostOk")}`
+      : "";
+  const lines: string[] = [];
+  if (result.outcome === "upgraded") {
+    lines.push(
+      `h2a ${result.current} → ${result.target}: ${t("upgrade.upgradedTo")} (${t("upgrade.verified")}: ${result.verifiedVersion})${convergedFragment}${logSuffix}`
+    );
+  } else if (result.outcome === "already-current") {
+    lines.push(`h2a ${result.current} — ${t("upgrade.alreadyCurrent")}${convergedFragment}${logSuffix}`);
+  } else if (result.outcome === "registry-unreachable") {
+    lines.push(`h2a ${result.current} — ${t("upgrade.registryUnreachable")}${logSuffix}`);
+  } else if (result.outcome === "deferred-propagation") {
+    lines.push(`h2a ${result.current} → ${result.target}: ${t("upgrade.deferredPropagation")}${logSuffix}`);
+  } else {
+    lines.push(`h2a ${result.current} — ${t("upgrade.failed")}: ${result.message}${logSuffix}`);
+  }
+  // Per-host detail only when convergence did not complete silently: the
+  // counted summary stays, raw child streams never surface.
+  if (!skippedHosts && hostTotal > 0 && hostOk !== hostTotal) {
+    for (const h of hosts.hosts) {
+      lines.push(`${h.host}: ${h.ok ? t("upgrade.hostOk") : t("upgrade.hostFailed")}`);
+    }
+    lines.push(
+      `${t("upgrade.hostsPartial")}: ${hostOk}/${hostTotal} ${t("upgrade.hostOk")}${logSuffix}`
+    );
+  }
+  return lines;
+}
+
+/**
+ * `h2a upgrade [--check]` (DEC-107, EVO-8 level 1): explicit self-upgrade.
+ * `--check` reports current vs latest (no install) and always stays machine
+ * (a query, scriptable). Bare: human catalog report by default (round-2 S7),
+ * exact JSON contract under `--json` only.
+ * Sync signature retired: the catalog loads asynchronously, so this is now
+ * `async` (callers await; `runCli` already forwards promises).
+ */
+export async function cmdUpgrade(
   flags: Record<string, string>,
   streams: H2ACliStreams,
   runtime?: UpgradeRuntime
-): number {
+): Promise<number> {
   const current = currentCliVersion();
   if (flags.check !== undefined) {
     const result = checkUpgrade(current, { ...(runtime ? { runtime } : {}), force: true });
@@ -1892,15 +1972,38 @@ export function cmdUpgrade(
   // passed, so it always checks fresh and is never throttled for an explicit run.
   const result = performAutoUpgrade(current, { ...(runtime ? { runtime } : {}) });
   const hosts = convergeAfterExplicitUpgrade(result, flags);
+  // Lot L6 (D14, round-2 S7): human report by default when the catalog
+  // loads; the machine contract under `--json` (and when the catalog is
+  // unavailable — callers emit machine output, never a second hardcoded
+  // catalog).
+  if (shouldUseHumanOutput(flags, streams)) {
+    const loaded = await loadHumanOutputCatalog();
+    if (loaded.ok) {
+      for (const line of renderUpgradeHuman(result, hosts, { ...loaded.catalog.strings })) {
+        streams.stdout.write(`${line}\n`);
+      }
+      return result.outcome === "failed" ? 1 : 0;
+    }
+  }
+  // Split reason vocabulary (stated --json schema change): the registry being
+  // unreachable is no longer conflated with already-current.
+  const reason =
+    result.outcome === "already-current"
+      ? "already current"
+      : result.outcome === "registry-unreachable"
+        ? "registry unreachable"
+        : result.outcome === "deferred-propagation"
+          ? "update published but not yet installable; retry later"
+          : result.message;
   if (result.outcome === "upgraded") {
     streams.stdout.write(
       `${JSON.stringify({ ok: true, current, latest: result.target, upgraded: true, verified: result.verifiedVersion, package: H2A_CLI_PACKAGE, hosts, ...(result.logPath ? { log: result.logPath } : {}) }, null, 2)}\n`
     );
     return 0;
   }
-  if (result.outcome === "already-current") {
+  if (result.outcome === "already-current" || result.outcome === "registry-unreachable") {
     streams.stdout.write(
-      `${JSON.stringify({ ok: true, current, latest: result.target ?? current, upgraded: false, hosts, reason: "already current or registry unreachable" }, null, 2)}\n`
+      `${JSON.stringify({ ok: true, current, latest: result.target ?? current, upgraded: false, hosts, reason }, null, 2)}\n`
     );
     return 0;
   }
@@ -1909,13 +2012,13 @@ export function cmdUpgrade(
   // the staged path retries on a later run. Nothing was mutated.
   if (result.outcome === "deferred-propagation") {
     streams.stdout.write(
-      `${JSON.stringify({ ok: true, current, latest: result.target, upgraded: false, hosts, reason: "update published but not yet installable; retry later", ...(result.logPath ? { log: result.logPath } : {}) }, null, 2)}\n`
+      `${JSON.stringify({ ok: true, current, latest: result.target, upgraded: false, hosts, reason, ...(result.logPath ? { log: result.logPath } : {}) }, null, 2)}\n`
     );
     return 0;
   }
   // skipped-locked / failed.
   streams.stdout.write(
-    `${JSON.stringify({ ok: false, current, latest: result.target, upgraded: false, outcome: result.outcome, reason: result.message, ...(result.logPath ? { log: result.logPath } : {}) }, null, 2)}\n`
+    `${JSON.stringify({ ok: false, current, latest: result.target, upgraded: false, outcome: result.outcome, reason, ...(result.logPath ? { log: result.logPath } : {}) }, null, 2)}\n`
   );
   return 1;
 }
@@ -3762,19 +3865,14 @@ function buildDriveDriver(kind: H2ADriverKind, log: (line: string) => void): H2A
     case "headless":
       return headlessDriver({ log });
     case "auto":
-      return {
-        drive(request) {
-          for (const driver of [
-            nativePtyBackchannelDriver(log),
-            localTmuxDriver({ log }),
-            headlessDriver({ log })
-          ]) {
-            const result = driver.drive(request);
-            if (result === true) return true;
-          }
-          return false;
-        }
-      };
+      // Lot L3: the shared chain — a deferred native/tmux drive STOPS the
+      // chain (never falls through to headless); only not-applicable and
+      // failed move to the next transport.
+      return chainDriver(
+        nativePtyBackchannelDriver(log),
+        localTmuxDriver({ log }),
+        headlessDriver({ log })
+      );
   }
 }
 
@@ -3825,23 +3923,38 @@ function nativePtyBackchannelDriver(log: (line: string) => void): H2ADriver {
           request.to,
           "--b64",
           Buffer.from(request.instructionLine, "utf8").toString("base64"),
+          // Lot L2/L3: stable idempotency key for one logical wake — the
+          // op defaults to a fresh key per call when omitted.
+          ...(request.requestId !== undefined ? ["--request-id", request.requestId] : []),
         ],
         { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
       );
-      let outcome: string | undefined;
+      let payload: { outcome?: unknown; reason?: unknown; retryAfterMs?: unknown; automationSeq?: unknown } | undefined;
       if (result.status === 0) {
         try {
           const line = result.stdout.trim().split("\n").at(-1);
-          const payload = line ? JSON.parse(line) as { outcome?: unknown } : undefined;
-          outcome = typeof payload?.outcome === "string" ? payload.outcome : undefined;
+          payload = line ? (JSON.parse(line) as typeof payload) : undefined;
         } catch {
-          outcome = undefined;
+          payload = undefined;
         }
       }
-      if (outcome === "unresolved") return undefined;
-      const ok = outcome === "driven";
-      log(`drive[native-pty]: ${request.to} (${ok ? "ok" : "failed"})`);
-      return ok;
+      // Lot L3: map the op JSON to a typed chain outcome. `unresolved`
+      // means this transport does not own the target (legacy backchannels
+      // may try); `deferred` stays typed so the chain STOPS instead of
+      // falling through to a headless spawn.
+      const outcome = nativeDriveOutcomeFromOp(payload ?? {});
+      if (outcome.outcome === "driven") {
+        log(`drive[native-pty]: ${request.to} (ok)`);
+      } else if (outcome.outcome === "deferred") {
+        const retry = outcome.retryAfterMs !== undefined ? `, retry in ${outcome.retryAfterMs}ms` : "";
+        log(`drive[native-pty]: ${request.to} (DEFERRED ${outcome.reason}${retry})`);
+      } else if (outcome.outcome === "not-applicable") {
+        log(`drive[native-pty]: no native target for ${request.to}`);
+        return undefined;
+      } else {
+        log(`drive[native-pty]: ${request.to} (failed${outcome.reason ? ` ${outcome.reason}` : ""})`);
+      }
+      return outcome;
     },
   });
 }
@@ -3943,7 +4056,9 @@ function cmdDrive(flags: Record<string, string>, streams: H2ACliStreams): number
     streams.stderr.write("h2a drive: async driver unavailable in synchronous CLI path\n");
     return 1;
   }
-  const driven = result === true;
+  // Lot L3: a typed deferred outcome is NOT driven (exit 2, retry later) —
+  // and it already stopped the chain, so no headless spawn happened.
+  const driven = isDriven(result as boolean | H2ADriveOutcome);
   streams.stdout.write(
     `${JSON.stringify(
       {

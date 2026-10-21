@@ -281,11 +281,13 @@ describe.skipIf(process.platform !== "linux")("native attach terminal modes on r
     const wrapper = LOCAL_WRAPPER.replace("exec /bin/bash -l", "exec /bin/bash --noprofile --norc -i");
     const f = await fixture(4096, {
       command: "/bin/bash",
-      args: ["--noprofile", "--norc", "-c", wrapper, "relaunch-fixture", process.execPath,
+      args: ["--noprofile", "--norc", "-c", wrapper,
+        "[h2a] resume in this shell: node -e <fixture>   (or Ctrl-D to end this session)",
+        "h2a-fixture", process.execPath,
         "-e", `process.stdout.write(${JSON.stringify(ENABLE)});`],
     });
     const outer = f.attach();
-    await until(() => outer.output().includes("[h2a] relaunch:"));
+    await until(() => outer.output().includes("[h2a] resume in this shell:"));
     outer.pin();
     expect(outer.output()).toContain(`${RESET}\r`);
     expect(outer.output().indexOf(RESET)).toBeLessThan(outer.output().indexOf("[h2a]"));

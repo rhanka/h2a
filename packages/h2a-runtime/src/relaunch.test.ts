@@ -1,6 +1,6 @@
-import { mkdirSync, rmSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -13,20 +13,20 @@ import {
   decideRelaunchSafety,
   isRelaunchKillable,
   planRelaunch,
+  relaunchCandidatesForNative,
   relaunchContinuationPrompt,
   resumeCommandFor,
   tryAcquireResumeLaunchClaim,
   wakeRelaunchedSession,
 } from "./relaunch.js";
 
-const CLAIM_ROOT = join(
-  dirname(fileURLToPath(import.meta.url)),
-  "..",
-  ".test-scratch",
-  "resume-launch-claims",
-);
+// Round-1 L0 same-class repair (code-review sol-8): claim roots live under
+// the private TMPDIR (the test-sandbox barrier mounts the package
+// read-only), never in the package's `.test-scratch`.
+let CLAIM_ROOT: string;
 
 beforeEach(() => {
+  CLAIM_ROOT = mkdtempSync(join(tmpdir(), "h2a-resume-launch-claims-"));
   rmSync(CLAIM_ROOT, { recursive: true, force: true });
   mkdirSync(CLAIM_ROOT, { recursive: true });
 });
@@ -316,6 +316,48 @@ describe("planRelaunch", () => {
     ]);
     expect(plan.actions).toEqual([]);
     expect(plan.skipped[0]?.reason).toMatch(/activatable/);
+  });
+
+  it("covers native shell-state sessions in the relaunch sweep", () => {
+    // A live native shell holding a resumable conversation: the sweep sees
+    // it (no silent hole), types nothing into it, and never kills it.
+    const candidates = relaunchCandidatesForNative(
+      [
+        {
+          name: "h2a-projA",
+          status: "running",
+          processes: [
+            { pid: 7, command: "bash", args: ["-l"], startedAtMs: 1, ppid: 1 },
+          ],
+        },
+      ],
+      [
+        {
+          id: "e-1",
+          tool: "claude",
+          kind: "local-native",
+          cwd: "/home/u/src/projA",
+          label: "projA",
+          tmuxSession: "h2a-projA",
+          convId: "conv-1",
+          enrolledAt: "2026-06-07T10:00:00.000Z",
+          lastSeenAt: "2026-06-07T10:00:00.000Z",
+          source: "hook",
+        },
+      ],
+    );
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toMatchObject({
+      slug: "projA",
+      name: "h2a-projA",
+      profile: "claude",
+      convId: "conv-1",
+      shellState: true,
+    });
+    const plan = planRelaunch(candidates);
+    expect(plan.actions).toEqual([]);
+    expect(plan.skipped).toHaveLength(1);
+    expect(plan.skipped[0]?.reason).toMatch(/shell/);
   });
 
   it("never force-relaunches an actively working worker", () => {

@@ -33,6 +33,13 @@ jobs:
         with:
           node-version: "22"
           cache: npm
+      # Round-1 (code-review astra-8/sol-9): install AND qualify the L0
+      # filesystem barrier in the runner — no unconfined fallback.
+      # Round-3 (reviews pr382-r3): Ubuntu 24.04+ runners restrict unprivileged user
+      # namespaces via AppArmor ("bwrap: setting up uid map: Permission denied").
+      # Lifting the knob where it exists is provisioning, not a fallback.
+      - name: Provision the L0 test barrier (bubblewrap)
+        run: command -v bwrap >/dev/null || { sudo apt-get update && sudo apt-get install -y bubblewrap uidmap; } && bwrap --version && if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi
       - name: Run the latest Codex host oracle
         id: detector
         continue-on-error: true
@@ -51,7 +58,7 @@ jobs:
           echo "detected_version=$detected_version" >> "$GITHUB_OUTPUT"
 
           unset CODEX_HOME CLAUDE_CONFIG_DIR
-          node --test --test-name-pattern='Codex oracle rejects an invalid array MCP table and accepts the framed table' packages/h2a/test/host-installation-doctor.test.js
+          node scripts/test-sandbox.mjs -- node --import ./packages/h2a/test/helpers/native-isolation.js --test --test-name-pattern='Codex oracle rejects an invalid array MCP table and accepts the framed table' packages/h2a/test/host-installation-doctor.test.js
           bash docs/uat/probe-oracle.sh
           bash docs/uat/probe-presence.sh
 
