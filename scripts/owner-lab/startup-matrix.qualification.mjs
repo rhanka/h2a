@@ -14,7 +14,7 @@ const quantile = (values, q) => [...values].sort((a, b) => a - b)[Math.ceil(valu
 async function sample(t, rows, concurrency, state, mode, serial) {
   const f = fixture(t);
   try {
-    const project = join(f.env.HOME, 'src/project'); mkdirSync(project, { recursive: true });
+    const project = join(f.env.HOME, 'src/owner-project'); mkdirSync(project, { recursive: true });
     const targets = Array.from({ length: concurrency }, (_, i) => ({
       ...f.entries(1)[0], id: `target-${i}`, label: `target-${i}`, tmuxSession: `h2a-target-${i}`,
       cwd: project, convId: `00000000-0000-4000-8000-${String(serial * 10 + i).padStart(12, '0')}`,
@@ -22,8 +22,11 @@ async function sample(t, rows, concurrency, state, mode, serial) {
     }));
     // The 0/50/500 axis counts unrelated historical rows. Restore additionally
     // needs N durable human targets; its exact total is emitted, never hidden.
-    f.save([...f.mixed(rows).map(row => ({ ...row, lastSeenAt: '2020-01-01T00:00:00Z' })), ...(mode === 'restore' ? targets : [])]);
+    f.save([...f.mixed(rows), ...(mode === 'restore' ? targets : [])]);
     if (mode === 'restore') {
+      writeFileSync(join(resolve(f.registry, '..'), 'config.json'), JSON.stringify({ layout: {
+        groups: [{ title: 'qualification-owner', projects: ['owner-project'] }],
+      } }));
       // Replace only the GUI boundary. Execute the actual commands emitted by
       // restore, via a private h2a shim, on the real run/PTY implementation.
       writeFileSync(join(f.root, 'bin/h2a'), `#!/bin/sh\nexec '${process.execPath}' '${cli}' "$@" --background --no-attach --no-h2a\n`, { mode: 0o700 });
@@ -56,7 +59,7 @@ async function sample(t, rows, concurrency, state, mode, serial) {
     const before = f.recorded().length;
     const begun = performance.now();
     if (mode === 'restore') {
-      const result = await f.start(['restore', '--no-gw']).done;
+      const result = await f.start(['restore', 'qualification-owner', '--no-gw']).done;
       assert.equal(result.code, 0, result.stderr + result.stdout);
     } else {
       const results = await Promise.all(targets.map(target => f.start(['run', 'codex', project,
