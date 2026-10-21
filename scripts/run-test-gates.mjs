@@ -68,7 +68,7 @@ import { performance } from 'node:perf_hooks'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { TEST_DIRS, discoverTestFiles, listNodeTrackSuiteFiles, NODE_TRACK_EXECUTION_REPORT, verifyNodeTrackExecution } from './run-tests.mjs'
 import { discoverSuites, verifyExecutionReport, readInventory, inventoryFailures } from './test-execution-evidence.mjs'
-import { ensureHistoricalGitRef, LEGACY_HOST_REF } from './historical-test-ref.mjs'
+import { ensureHistoricalGitRef, IDENTITY_BASE_REF, LEGACY_HOST_REF } from './historical-test-ref.mjs'
 import { policyFor, readDeclaredNonTests } from './test-inventory.mjs'
 import { tmpdir } from 'node:os'
 import { reportSuiteDurations } from './report-test-durations.mjs'
@@ -86,6 +86,9 @@ function ensureSandboxedInvocation(invokedDirectly) {
   // provides. This is the outermost unconfined moment of `npm test`
   // (nested invocations inherit the barrier and skip this branch).
   ensureHistoricalGitRef(REPO_ROOT, LEGACY_HOST_REF)
+  // The identity lane archives a second historical ref at module load; fetch
+  // it here too — inside the barrier .git is read-only (EROFS on FETCH_HEAD).
+  ensureHistoricalGitRef(REPO_ROOT, IDENTITY_BASE_REF)
   const sandbox = spawnSync(process.execPath, ['scripts/test-sandbox.mjs', '--', process.execPath, ...process.argv.slice(1)], { stdio: 'inherit', cwd: REPO_ROOT })
   process.exit(sandbox.status ?? 1)
 }
