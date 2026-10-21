@@ -485,10 +485,14 @@ test('CI exposes an independent, stable npm-test-trust-root job', () => {
   assert.match(job, /^          node-version: "22"$/m)
   assert.doesNotMatch(job, /^    needs:/m, 'the trust root must not inherit another job verdict')
 
-  // R3 P1: every runner path creates/exports/cleans a private TMPDIR while
-  // keeping the confinement assertion; the production commands stay pinned.
-  assert.match(job, /mktemp -d "\$RUNNER_TEMP\/h2a-trust-root-XXXXXX"/);
-  assert.match(job, /trap 'rm -rf "\$TMPDIR"' EXIT/);
+  // R3 P1: every runner path creates/exports/cleans a private TMPDIR admitted
+  // by both confinement guards (restart-lab TMPDIR != /tmp, native-isolation
+  // $HOME/.cache-tmp/h2a-test/run-* qualification root) while keeping the
+  // confinement assertion; the production commands stay pinned exactly.
+  assert.match(job, /mktemp -d "\$HOME\/\.cache-tmp\/h2a-test\/run-XXXXXX"/);
+  assert.match(job, /H2A_TEST_QUALIFICATION_ROOT=\$DIR/);
+  assert.match(job, /GITHUB_ENV/);
+  assert.match(job, /Clean the disposable TMPDIR/);
   assert.match(job, /node --test packages\/h2a\/test\/run-test-gates\.test\.js/);
   assert.match(job, /node scripts\/run-test-gates\.mjs/);
   assert.ok(

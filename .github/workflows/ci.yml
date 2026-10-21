@@ -145,13 +145,21 @@ jobs:
         run: npm install --global @openai/codex@0.145.0 @anthropic-ai/claude-code@2.1.296
       - name: Verify messaging backends and receive signatures
         run: node --test packages/h2a/test/send.test.js packages/h2a/test/cluster-mesh-messaging.test.js
-      - name: Run the full test gates with a disposable TMPDIR
+      - name: Create a disposable TMPDIR admitted by both confinement guards
         shell: bash
         run: |
           set -euo pipefail
-          export TMPDIR="$(mktemp -d "$RUNNER_TEMP/h2a-gates-XXXXXX")"
-          trap 'rm -rf "$TMPDIR"' EXIT
-          npm test
+          mkdir -p -m 0700 "$HOME/.cache-tmp/h2a-test"
+          DIR="$(mktemp -d "$HOME/.cache-tmp/h2a-test/run-XXXXXX")"
+          echo "TMPDIR=$DIR" >> "$GITHUB_ENV"
+          echo "TMP=$DIR" >> "$GITHUB_ENV"
+          echo "TEMP=$DIR" >> "$GITHUB_ENV"
+          echo "H2A_TEST_QUALIFICATION_ROOT=$DIR" >> "$GITHUB_ENV"
+      - run: npm test
+      - name: Clean the disposable TMPDIR
+        if: always()
+        shell: bash
+        run: if [ -n "${TMPDIR:-}" ]; then rm -rf "$TMPDIR"; fi
       - name: Exercise the native multi-session terminal host
         run: >-
           npx --no-install vitest run
@@ -211,17 +219,21 @@ jobs:
       - run: npm ci
       - name: Install the mandatory configuration oracles
         run: npm install --global @openai/codex@0.145.0 @anthropic-ai/claude-code@2.1.296
+      - name: Create a disposable TMPDIR admitted by both confinement guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p -m 0700 "$HOME/.cache-tmp/h2a-test"
+          DIR="$(mktemp -d "$HOME/.cache-tmp/h2a-test/run-XXXXXX")"
+          echo "TMPDIR=$DIR" >> "$GITHUB_ENV"
+          echo "TMP=$DIR" >> "$GITHUB_ENV"
+          echo "TEMP=$DIR" >> "$GITHUB_ENV"
+          echo "H2A_TEST_QUALIFICATION_ROOT=$DIR" >> "$GITHUB_ENV"
       - name: Verify npm test wiring independently
-        shell: bash
-        run: |
-          set -euo pipefail
-          export TMPDIR="$(mktemp -d "$RUNNER_TEMP/h2a-trust-root-XXXXXX")"
-          trap 'rm -rf "$TMPDIR"' EXIT
-          node --test packages/h2a/test/run-test-gates.test.js
+        run: node --test packages/h2a/test/run-test-gates.test.js
       - name: Execute the production test entrypoint directly
+        run: node scripts/run-test-gates.mjs
+      - name: Clean the disposable TMPDIR
+        if: always()
         shell: bash
-        run: |
-          set -euo pipefail
-          export TMPDIR="$(mktemp -d "$RUNNER_TEMP/h2a-trust-root-XXXXXX")"
-          trap 'rm -rf "$TMPDIR"' EXIT
-          node scripts/run-test-gates.mjs
+        run: if [ -n "${TMPDIR:-}" ]; then rm -rf "$TMPDIR"; fi
