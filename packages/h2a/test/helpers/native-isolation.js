@@ -640,7 +640,15 @@ if (globalThis[importConfinement] === false) {
   }
   if (!alreadyIsolated && attestedStateRoot !== undefined) {
     const workerRoot = mkdtempSync(join(attestedStateRoot, "w-"));
-    installNativeTestEnvironment(nativeTestEnvironment(workerRoot));
+    // Backstop, not a takeover: fill only the isolation keys this process
+    // lacks. A deliberate foreign env (release-candidate fixtures with fake
+    // PATH binaries, owner-style HOME) keeps every custom value —
+    // overwriting it here used to redirect those children onto worker state
+    // (lost fake git, empty proc view) and break their suites.
+    const backstop = nativeTestEnvironment(workerRoot);
+    for (const [key, value] of Object.entries(backstop)) {
+      if (process.env[key] === undefined && value !== undefined) process.env[key] = value;
+    }
     // A fresh worker root replaces every state root: drop owner-carried
     // optional handles (host log, tmux) that the process-view assert below
     // would otherwise refuse as paths outside confinement.
