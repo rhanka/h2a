@@ -957,8 +957,15 @@ export const NATIVE_TERMINAL_MAX_INJECT_TEXT_CHARS = 4096;
 export const NATIVE_TERMINAL_MAX_INJECT_OUTCOMES_PER_SESSION = 512;
 
 /**
- * Agent CLI binaries: readline-style composers (a D6(ii)-style per-profile
- * list — extended only with a named profile, never by guessing).
+ * Attested agent CLI binaries: readline-style composers (a D6(ii)-style
+ * per-profile list — extended only with a named profile, never by guessing).
+ * Round-3 P1 (reviews pr382-r3): interpreter runtimes (node/bun/deno) NEVER
+ * qualify by process name, even when argv names a script. A script's real
+ * application is unattestable from the outside: it may be a REPL (which
+ * would execute the line), a TUI whose bindings differ (Ctrl-U clears with
+ * no Ctrl-Y to restore), or anything else holding an unknown draft. Only
+ * attested profiles are driven; every other foreground with a possible
+ * human draft refuses below with zero bytes (D5/D6).
  */
 const INJECT_AGENT_CLI_BINARIES: ReadonlySet<string> = new Set([
   "claude",
@@ -968,40 +975,27 @@ const INJECT_AGENT_CLI_BINARIES: ReadonlySet<string> = new Set([
   "vibe",
 ]);
 
-/** Interpreter binaries whose real application is argv[1] (structural). */
-const INJECT_INTERPRETER_BINARIES: ReadonlySet<string> = new Set([
-  "node",
-  "bun",
-  "deno",
-]);
-
 function injectBinaryBasename(command: string): string {
   const base = command.split("/").pop() ?? command;
   return base.toLowerCase();
 }
 
 /**
- * Round-2 P1: whether the host-observed foreground plausibly honors
- * readline save/submit/restore editing (Ctrl-E/Ctrl-U/Ctrl-Y). Agent CLI
- * composers qualify, as do node-family runtimes running a script (this
- * covers script-distributed CLIs and the readline qualification fixture).
- * Shells, fullscreen programs, bare interpreters (a REPL would execute the
- * line), REPLs generally, and unattestable foregrounds never qualify — they
- * keep refusing below, so a wake is never executed as a shell command or
- * typed into vim. A positive binary is necessary but not sufficient: the
- * caller must also be idle (past the activity window) with no managed-shell
- * facet, and the unit still commits atomically in one `pty.write`.
+ * Whether the host-observed foreground is an attested draft-preserving
+ * composer. Agent CLI composers qualify; shells, fullscreen programs,
+ * interpreter runtimes (node/bun/deno, with or without a script — a REPL
+ * would execute the line and a script's bindings are unattestable),
+ * and unattestable foregrounds never qualify — they keep refusing below,
+ * so a wake is never executed as a shell command or typed into vim.
+ * A positive binary is necessary but not sufficient: the caller must also
+ * be idle (past the activity window) with no managed-shell facet, and the
+ * unit still commits atomically in one `pty.write`.
  */
 function isDraftPreservingForeground(
   processes: ReadonlyArray<NativeTerminalProcessSnapshot> | undefined,
 ): boolean {
   if (processes === undefined || processes.length === 0) return false;
-  return processes.some((member) => {
-    const first = injectBinaryBasename(member.command);
-    if (INJECT_AGENT_CLI_BINARIES.has(first)) return true;
-    if (INJECT_INTERPRETER_BINARIES.has(first)) return member.args.length > 1;
-    return false;
-  });
+  return processes.some((member) => INJECT_AGENT_CLI_BINARIES.has(injectBinaryBasename(member.command)));
 }
 
 function isInjectableLine(text: string): boolean {
@@ -1629,9 +1623,10 @@ export class NativeTerminalHost {
       this.#auditInject(record, options, "inject:deferred-recent-human", outcome, false);
       return outcome;
     }
-    // Round-2 P1 (D5/D6 positive path): the human typed and went idle, and
-    // the host-observed foreground is a readline-plausible composer holding
-    // no managed-shell facet. The unit submits draft-preservingly in ONE
+    // Round-2 P1, narrowed round-3 (D5/D6 positive path): the human typed
+    // and went idle, and the host-observed foreground is an ATTESTED
+    // composer (named agent-CLI profile — never an interpreter runtime)
+    // holding no managed-shell facet. The unit submits draft-preservingly in ONE
     // atomic `pty.write` — Ctrl-E (end of line, mid-line cursor safety),
     // Ctrl-U (hold the draft aside), the validated text, Enter (submit
     // exactly the automation line), Ctrl-Y (restore the draft). No human

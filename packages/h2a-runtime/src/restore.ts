@@ -41,6 +41,7 @@ export { normalizeLayoutGroups, validateLayoutGroups } from "./config.js";
 import { encodeCwd } from "./convsync.js";
 import {
   classifyRestoreFacet,
+  hasDelegationProvenance,
   isManagedLocalKind,
   loadRegistry,
   looksLikeConversationUuid,
@@ -430,6 +431,11 @@ function hasLiveTmuxEvidence(
 /**
  * Classify a legacy registry record from evidence held outside the registry.
  * Absence is not proof of a human: anything inconclusive is background.
+ * Round-3 P1 (reviews pr382-r3, owner verbatim): a transcript or a live
+ * tmux row proves a conversation EXISTS but never proves a HUMAN initiator —
+ * classless rows with such evidence stay `background` here (never human by
+ * default); restore() still LISTS them as unclassified with an explicit
+ * recovery path instead of silently dropping them.
  */
 export function deriveLegacySessionClass(
   e: RegistryEntry,
@@ -438,9 +444,25 @@ export function deriveLegacySessionClass(
   if (e.endedAt !== undefined || e.role === "job") return "background";
   if (e.sessionClass !== undefined) return e.sessionClass;
   if (evidence.humanConfirmedIds?.has(e.id)) return "human";
-  if (hasLegacyTranscript(e, evidence.home)) return "human";
-  if (hasLiveTmuxEvidence(e, evidence.liveTmuxSessions)) return "human";
   return "background";
+}
+
+/**
+ * Round-3 P1 — out-of-registry or declared evidence that a row MIGHT be a
+ * human session without proving it: an explicit human class, an explicit
+ * human confirmation, a legacy transcript, or a live tmux row. Used by
+ * restore() to LIST such rows as unclassified (never silently dropped,
+ * never auto-restored) instead of promoting them.
+ */
+export function hasLegacyHumanEvidence(
+  e: RegistryEntry,
+  evidence: LegacySessionEvidence,
+): boolean {
+  if (e.sessionClass === "human") return true;
+  if (evidence.humanConfirmedIds?.has(e.id)) return true;
+  if (hasLegacyTranscript(e, evidence.home)) return true;
+  if (hasLiveTmuxEvidence(e, evidence.liveTmuxSessions)) return true;
+  return false;
 }
 
 /** Restore gate: only explicit or externally proven human sessions are restorable. */
@@ -777,7 +799,22 @@ export function registrySessions(
     if (e.kind === "remote") continue; // remote groups are filled from SCW
     // Only human dev sessions are restorable — never delegated jobs or explicit
     // background launches (they had no human in front of them).
-    if (!isHumanFacingSession(e, evidence)) continue;
+    if (!isHumanFacingSession(e, evidence)) {
+      // Round-3 P1: delegation provenance falls THROUGH to the facet gate
+      // below (D12: secondary by construction — the default plan lists it
+      // as secondary and only the explicit opt-in admits it, including
+      // classless legacy delegated rows). A row with human-ish evidence
+      // (explicit human class, confirmation, transcript, live tmux) but no
+      // human proof is LISTED as unclassified — never silently dropped,
+      // never auto-restored. Pure background rows without delegation or
+      // evidence stay silent.
+      if (!hasDelegationProvenance(e)) {
+        if (hasLegacyHumanEvidence(e, evidence)) {
+          opts.collectExcluded?.unclassified.push(e.label ?? e.id);
+        }
+        continue;
+      }
+    }
     // Lot L5 (D12) — provenance gate: the default plan admits only
     // positively-classified primaries. Secondary rows are accounted and
     // restore only with the opt-in; unclassified rows are listed separately
@@ -1384,9 +1421,7 @@ export function fetchNativeForegroundSubtrees(
   const subtrees: Array<{ name: string; processes: HostProcessSnapshot[] }> = [];
   for (const name of names) {
     try {
-      const probe = nativeSessionState(name);
-      const session = probe.state === "found" ? probe.session : undefined;
-      const processes = session?.status === "running" ? session.foregroundProcesses : undefined;
+      const processes = probeForegroundProcesses(name);
       if (processes !== undefined) {
         subtrees.push({ name, processes: processes.slice() });
       }
@@ -1396,6 +1431,102 @@ export function fetchNativeForegroundSubtrees(
     }
   }
   return subtrees;
+}
+
+/** One per-session foreground read; undefined = unattestable, never empty. */
+function probeForegroundProcesses(
+  name: string,
+): ReadonlyArray<HostProcessSnapshot> | undefined {
+  const probe = nativeSessionState(name);
+  const session = probe.state === "found" ? probe.session : undefined;
+  return session?.status === "running" ? session.foregroundProcesses : undefined;
+}
+
+/**
+ * Round-3 P2 (reviews pr382-r3) — select restore-relevant native targets
+ * BEFORE any liveness probe, from the durable registry alone (no I/O, no
+ * probes). Only rows that can restore on a native host are named: managed
+ * `local-native` rows with a positively-classified primary facet (a
+ * persisted `primary` facet, or a human class with a recorded human
+ * initiator — the same one-time classification `registrySessions`
+ * applies), plus `secondary` rows under the explicit opt-in. Delegated,
+ * background/job, classless and terminal-rule rows are never named, so
+ * they cost zero probes downstream. Names are the managed session names
+ * `registrySessions` resolves against (`tmuxSession`, else the slug's
+ * managed name).
+ */
+export function selectRestoreNativeTargets(
+  entries: readonly RegistryEntry[],
+  opts: { includeSecondary?: boolean } = {},
+): string[] {
+  const names = new Set<string>();
+  for (const e of entries) {
+    if (e.kind !== "local-native") continue;
+    const facet = e.restoreFacet ?? classifyRestoreFacet(e);
+    if (facet === "primary") {
+      // Relevant: admitted by the default plan.
+    } else if (facet === "secondary" && opts.includeSecondary === true) {
+      // Relevant: admitted by the explicit opt-in.
+    } else {
+      continue;
+    }
+    names.add(e.tmuxSession ?? localSessionName(e.id));
+  }
+  return [...names];
+}
+
+/**
+ * Round-3 P2 — the restore preamble: select the relevant native targets
+ * first, intersect them with the ONE batch inventory, then probe ONLY
+ * those (each probe is one `state` read served by the session's own host).
+ * Excluded rows cost zero probes; an unreadable inventory yields no
+ * observation (callers keep `unknown`), never an empty verdict. Throws
+ * nothing. `listRunningNative`/`probeForeground` are injectable so tests
+ * count probes without touching real hosts.
+ */
+export function fetchSelectedNativeSubtrees(
+  entries: readonly RegistryEntry[],
+  opts: {
+    includeSecondary?: boolean;
+    listRunningNative?: () => string[];
+    probeForeground?: (
+      name: string,
+    ) => ReadonlyArray<HostProcessSnapshot> | undefined;
+  } = {},
+): Array<{ name: string; processes: HostProcessSnapshot[] }> {
+  const wanted = selectRestoreNativeTargets(entries, opts);
+  if (wanted.length === 0) return [];
+  let running: Set<string>;
+  try {
+    running = new Set(
+      (opts.listRunningNative ?? defaultListRunningNative)(),
+    );
+  } catch {
+    // No inventory — no observation (unknown), zero probes.
+    return [];
+  }
+  const probe = opts.probeForeground ?? probeForegroundProcesses;
+  const subtrees: Array<{ name: string; processes: HostProcessSnapshot[] }> = [];
+  for (const name of wanted) {
+    if (!running.has(name)) continue;
+    try {
+      const processes = probe(name);
+      if (processes !== undefined) {
+        subtrees.push({ name, processes: processes.slice() });
+      }
+    } catch {
+      // Unattestable — omit (unknown), never an empty verdict.
+      continue;
+    }
+  }
+  return subtrees;
+}
+
+/** The one batch inventory the preamble intersects the selection with. */
+function defaultListRunningNative(): string[] {
+  return listNativeSessions()
+    .filter((s) => s.status === "running")
+    .map((s) => s.id);
 }
 
 /** Observed launch counts carried back by `restore()` (additive). */
@@ -1783,8 +1914,9 @@ export function restore(
   // snapshot); with no attached view the launch pass below reopens exactly
   // one attach view (observed as `attached`, never relaunched over). A
   // refused foreground (unknown program, ambiguous owners) is never
-  // promoted to `already-active`: with a view it records `already-active`
-  // carrying the conserved refusal reason, without one it takes the same
+  // promoted to `already-active`: with a view it records `deferred`
+  // carrying the conserved refusal reason (round-3 P2 — an unsatisfied
+  // objective, so the exit status fails), without one it takes the same
   // attach-view path with that reason — zero bytes typed either way. No
   // subtree at all keeps the attach-only path — old hosts stay compatible.
   const controlledByManagedName = new Map<string, boolean | undefined>();
@@ -1840,9 +1972,14 @@ export function restore(
         if (controlled === false) {
           refusedViewReasons.set(name, decision.reason);
         } else {
+          // Round-3 P2 (reviews pr382-r3): an unknown/ambiguous foreground
+          // WITH an attached view is a DEFERRED objective, never
+          // already-active — no CLI was observed (D1/D2/D3/D18), so the
+          // exit status must fail. The existing view is kept (no relaunch
+          // over it); zero bytes are typed either way.
           emitLedgerEntry({
             session: name,
-            outcome: "already-active",
+            outcome: "deferred",
             reason: decision.reason,
             at,
           });

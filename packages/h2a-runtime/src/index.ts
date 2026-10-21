@@ -191,7 +191,12 @@ import {
   type AgentLaunchEffort,
 } from "./agent-launch-args.js";
 import { resolveGatewayModelAlias } from "./gateway-model-catalog/model-catalog.js";
-import { deriveSessionClass } from "./session-class.js";
+import {
+  deriveLaunchInitiator,
+  deriveSessionClass,
+  SESSION_CLASS_ENV,
+  sessionClassFromEnv,
+} from "./session-class.js";
 import type { ProcView } from "./proc-cpu.js";
 import {
   isRelaunchKillable,
@@ -205,6 +210,7 @@ import {
 import {
   buildRestoreJsonReport,
   fetchNativeForegroundSubtrees,
+  fetchSelectedNativeSubtrees,
   isHumanFacingSession,
   legacySessionEvidence,
   readConversationCustomTitle,
@@ -6633,12 +6639,32 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         // its registry pid is absent (best-effort, never throws).
         if (opts.resume) {
           let resumeSubtrees: ConvOwnersOpts["nativeSubtrees"] | undefined;
+          // Round-3 P2 (reviews pr382-r3): the guard verifies a suspect
+          // owner against its OWN session subtree, so only native sessions
+          // named by registry rows holding THIS conversation are probed —
+          // every other session costs zero probes. Equivalent outcomes:
+          // rows without a managed native name can never verify by subtree.
           try {
-            const nativeNames = listNativeSessions()
-              .filter((s) => s.status === "running")
-              .map((s) => s.id);
-            const fetched = fetchNativeForegroundSubtrees(nativeNames);
-            if (fetched.length > 0) resumeSubtrees = fetched;
+            const read = loadRegistry();
+            const names =
+              read.state === "ok"
+                ? [
+                    ...new Set(
+                      read.entries
+                        .filter(
+                          (e) =>
+                            e.kind === "local-native" &&
+                            e.convId === opts.resume &&
+                            e.tmuxSession !== undefined,
+                        )
+                        .map((e) => e.tmuxSession as string),
+                    ),
+                  ]
+                : [];
+            if (names.length > 0) {
+              const fetched = fetchNativeForegroundSubtrees(names);
+              if (fetched.length > 0) resumeSubtrees = fetched;
+            }
           } catch {
             resumeSubtrees = undefined;
           }
@@ -6684,10 +6710,31 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         // A detached/background or run-once launch is a worker, even when its
         // agent later emits a Claude SessionStart hook. Stamp this through tmux
         // so that hook cannot reclassify it as a human session.
-        const sessionClass = deriveSessionClass({
+        // Round-3 P1 (reviews pr382-r3, owner verbatim): an attached
+        // terminal is NOT proof of a human initiator. The human class
+        // requires a live TTY on the invoker's own stdio AND no managed
+        // agent marker in its environment (REMOTE_JOB_ID or a
+        // H2A_SESSION_CLASS=background stamp inherited from a delegating
+        // PTY). The initiator is recorded alongside and kept across
+        // hooks/resumes — an undetermined origin is never human by default.
+        const launchInitiator = deriveLaunchInitiator({
           background: opts.background === true,
           headless: opts.headless === true,
-          humanTerminal: opts.attachedTerminal !== false,
+          secondary: opts.secondary === true,
+          primary: opts.primary === true,
+          envJobId: process.env[JOB_ID_ENV],
+          envSessionClass: sessionClassFromEnv(process.env[SESSION_CLASS_ENV]),
+          stdinIsTTY: process.stdin.isTTY,
+          stdoutIsTTY: process.stdout.isTTY,
+        });
+        const sessionClass = deriveSessionClass({
+          background: opts.background === true || launchInitiator === "agent",
+          headless: opts.headless === true,
+          humanTerminal:
+            opts.attachedTerminal !== false &&
+            process.stdin.isTTY === true &&
+            process.stdout.isTTY === true &&
+            launchInitiator !== "agent",
         });
         let activeGateway: string | undefined;
         const h2a = getH2aConfig();
@@ -7128,6 +7175,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             cwd,
             sessionClass,
             ...(opts.resume !== undefined ? { convId: opts.resume } : {}),
+            // Round-3 P1: record the launch initiator at launch (kept
+            // across hooks/resumes by the registry; never defaulted).
+            ...(launchInitiator !== undefined
+              ? { launchInitiator }
+              : {}),
             // Round-1 (D12a): an explicitly declared facet overrides the
             // sessionClass/delegation default at enrollment.
             ...(opts.primary === true
@@ -10238,17 +10290,24 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         }
 
         if (opts.reattach) restoreOpts.reattach = true;
-        // Round-1 (D1b/D4a): the product producer for `nativeSubtrees`.
-        // Best-effort host observation for every live native session (its
-        // own host's `state` foreground evidence); unattestable sessions
-        // are omitted (unknown, never empty). Never throws: a failed
-        // discovery degrades to no observation at all.
+        // Round-1 (D1b/D4a), narrowed round-3 P2 (reviews pr382-r3): the
+        // product producer for `nativeSubtrees`. The relevant native
+        // targets are selected from the registry FIRST (positively-
+        // classified primaries, opt-in secondaries); only those,
+        // intersected with the one batch inventory, are probed — excluded
+        // rows cost zero probes. Unattestable sessions are omitted
+        // (unknown, never empty). Never throws: a failed discovery
+        // degrades to no observation at all.
         try {
-          const nativeNames = listNativeSessions()
-            .filter((s) => s.status === "running")
-            .map((s) => s.id);
-          const subtrees = fetchNativeForegroundSubtrees(nativeNames);
-          if (subtrees.length > 0) restoreOpts.nativeSubtrees = subtrees;
+          const read = loadRegistry();
+          if (read.state === "ok") {
+            const subtrees = fetchSelectedNativeSubtrees(read.entries, {
+              ...(opts.includeSecondary === true
+                ? { includeSecondary: true as const }
+                : {}),
+            });
+            if (subtrees.length > 0) restoreOpts.nativeSubtrees = subtrees;
+          }
         } catch {
           // No host observation — restore() keeps unknown like old hosts.
         }

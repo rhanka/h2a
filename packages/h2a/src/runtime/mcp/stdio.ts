@@ -8,6 +8,7 @@ import type { Readable, Writable } from "node:stream";
 import type { H2AWorkspaceRef } from "@sentropic/h2a";
 
 import { createInboxWakeHandler } from "../drive/inbox-wake.js";
+import { readPendingIdsFile } from "./pending-ids.js";
 import {
   detectLocalLaunchContext,
   detectTmuxLaunchContext,
@@ -611,14 +612,10 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
     const safeInstance = wakeInstance.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 64) || "default";
     const pendingPath = join(root, `inbox-wake-pending.${safeInstance}.json`);
     const legacyPendingPath = join(root, "inbox-wake-pending.json");
-    const readIdsFile = (path: string): string[] => {
-      try {
-        const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
-        return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : [];
-      } catch {
-        return [];
-      }
-    };
+    // Round-3 P2 (reviews pr382-r3): absent reads as empty; unreadable
+    // THROWS so the handler's pendingUnreadable branch propagates the
+    // uncertainty (retry from scratch) instead of burying a deferred wake.
+    const readIdsFile = (path: string): string[] => readPendingIdsFile(path);
     // Round-2 P1: one coalesced, bounded retry after a recent-human
     // deferral (transient). A fresh inbox arrival resets the budget; past
     // it the wake stays pending for the next arrival or restart instead of
@@ -688,7 +685,18 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
     // exempts those ids from the boot-backlog seed, so one prompt retry
     // delivers them instead of waiting for an arrival that may never come.
     // No pending file, no backlog wake: a clean start stays quiet.
-    if (readIdsFile(pendingPath).length > 0) {
+    // Round-3 P2: an UNREADABLE pending file schedules the same recovery —
+    // the pending set is unknown (not empty), so the inbox is retried from
+    // scratch instead of staying quiet over a possibly-buried wake.
+    let bootPending = false;
+    try {
+      bootPending = readIdsFile(pendingPath).length > 0;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      stderr.write(`h2a mcp-serve: ${message} — retrying inbox from scratch\n`);
+      bootPending = true;
+    }
+    if (bootPending) {
       const pendingTimer = setTimeout(() => void wake(), 1000);
       pendingTimer.unref?.();
     }
