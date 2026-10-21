@@ -80,7 +80,7 @@ export function createLane({ sourceRoot = repository, selection, inheritedEnv = 
       }
     };
     for (const name of ['package.json', 'package-lock.json', 'tsconfig.json', 'tsconfig.base.json', 'vitest.config.mjs',
-      'packages', 'apps', 'scripts', 'docs/contracts/golden', 'knowledge', '.github', '.claude-plugin']) if (fs.existsSync(join(sourceRoot, name))) copy(name);
+      'packages', 'apps', 'scripts', 'docs/contracts/golden', 'docs/specs/examples', 'knowledge', 'plan/velocity-pilot', '.github', '.claude-plugin']) if (fs.existsSync(join(sourceRoot, name))) copy(name);
     if (!fs.existsSync(join(checkout, guard))) throw Error('missing isolation guard fixture');
     // These git reads do not use or copy the owner's Git configuration.
     const { result: revision } = invoke({ command: 'rtk', args: ['git', 'rev-parse', 'HEAD'] }, { cwd: sourceRoot, env, encoding: 'utf8' });

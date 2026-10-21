@@ -494,7 +494,9 @@ inventory in `.h2a/build/seat_model_inventory.md` (untracked).
 - [x] Gate: 10+8 then 3 min → 13 min at capacity 2, 21 min at capacity 1; edge forces serial; shared reviewer queue + one common shock; seeded trials vs summed P80; cycle invalid; no unconditional date on open gate; remaining never negative.
 
 ## L5 — knowledge/planning/report consumption
-- [ ] Spec §6 L5 exact code/artifacts/three source skills; T-V23..27, clean consumer/cold planning UAT and exact Track collateral files.
+- [x] Sources: `velocity/{knowledge,report}.ts` (+ `ReportPlanInput` rename fixing TS2308); artifacts `knowledge/{manifest,profiles/repo-knowledge,velocity/observations,series,graph}.json`, `plan/velocity-pilot/{knowledge-lock,forecasts/F001}.json`; skill edits `harness/plan` (L2 launch + L5 consumption) and `harness/track-report` (L5 offline card). Third spec path `packages/track/skills/track-report/SKILL.md` absent in this base (source-gap, not created).
+- [x] T-V23..T-V27 RED: 2 failed suites, 0 tests, missing `knowledge.js`/`report.js`. GREEN direct 8/8; lane `{"passed":8,"excluded":0}`.
+- [x] Gate: clean-consumer + cold planning UAT in tests; Track collateral direct 85/85; via lane 85/85 after lane copies `docs/specs/examples` + `plan/velocity-pilot` (lane fix, T-V00-I still 28/28).
 
 ## L6 — actuals/calibration
 - [ ] velocity/{actuals,calibration}.ts, CLI and exact tests; T-V28..32/T-V38, immutable chronological feedback; shadow until prospective calibration.

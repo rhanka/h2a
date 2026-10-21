@@ -34,6 +34,14 @@ checkout-only producer `scripts/velocity-run.mjs` with `--repo/--lot/--run/--rol
 It persists `run.started` before dispatch and appends at most one terminal
 record. Join its emitted `.jsonl` receipts; never hand-author a receipt fixture.
 
+## Velocity reference consumption (L5)
+
+Read `plan/velocity-pilot/knowledge-lock.json` and the lot forecast card
+before sizing: cite comparables with inclusion/exclusion reasons, keep
+`mergedAt` and `installedAt: unknown` separate, and record forecast review
+rounds with coverage or an explicit abstention. Never turn a forecast into a
+merge, deploy, routing or acceptance authorization.
+
 ## Completes with track
 
 harness OWNS the BRANCH.md (the master plan artifact) and EMITS `WorkEvent`s; **track** ingests them and

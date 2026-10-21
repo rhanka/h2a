@@ -1,0 +1,1 @@
+{"quantileMethod":"nearest-rank/1","series":[{"cohort":"astra-merged-desc/1","metric":"pr_open_to_merge","support":"descriptive"},{"cohort":"sol-created-desc/1","metric":"pr_open_to_merge","support":"descriptive"}]}
