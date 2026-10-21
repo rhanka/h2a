@@ -850,3 +850,4 @@ export {
   type AgentStatsReport,
   type SessionsReport,
 } from "./report.js";
+export * from "./velocity/index.js";

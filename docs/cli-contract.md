@@ -37,6 +37,14 @@ Stderr lines always follow the form `h2a <verb> [sub]: <message>` so callers can
 - **Exit codes**: `0`, `1`, `3`.
 - **Description**: Read-only projection of the same h2a tenant into Track context. `storeRoot` and `workspaceRoot` are realpaths; entries are ordinal-sorted, restricted to the requested workspace, capped at 100 entries / 128 KiB, and report an `omitted` count. Inbox bodies are never emitted. This leaf command never calls Track.
 
+### Velocity estimator
+
+#### `h2a estimate [--fixture <path>]`
+
+- **Envelope**: `resource`.
+- **Exit codes**: `0`, `1`.
+- **Description**: Describe the frozen measured velocity reference offline (PR-open-to-merge, installedAt unknown until target proof). Never starts the runtime, gateway or memory service.
+
 ### Focus Web
 
 #### `h2a focus serve [--repo <path>] [--track-events <path>] [--host <host>] [--port <0-65535>]`

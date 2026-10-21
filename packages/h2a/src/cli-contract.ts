@@ -102,6 +102,17 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
       "Print the h2a command map grouped by operator intention — one line per group and per verb, core and runtime."
   },
 
+  // --- velocity estimator (L7 installed entrypoint, offline, no runtime) ---
+  {
+    verb: "estimate",
+    outputShape: "resource",
+    exitCodes: [0, 1],
+    requiredFlags: [],
+    optionalFlags: ["fixture"],
+    description:
+      "Describe the frozen measured velocity reference offline (PR-open-to-merge, installedAt unknown until target proof)."
+  },
+
   // --- registry / hosts / tooling discovery ---
   {
     verb: "hosts",
