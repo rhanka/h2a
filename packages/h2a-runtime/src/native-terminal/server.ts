@@ -950,12 +950,12 @@ function readPublicationFrame(readFrame: ReadProcessFrame): DurableProcFrame {
  * lock (active-host and durable-owner checks still precede it, inode recheck
  * still follows). Every attempt has its own timer and a shared global budget.
  * Abort destroys the socket and cancels the interval before the lock releases. */
-async function repeatedlyRefusesConnection(socketPath: string, socketPresent: boolean, signal?: AbortSignal): Promise<boolean> {
+async function repeatedlyRefusesConnection(socketPath: string, socketPresent: boolean, signal?: AbortSignal, provenDeadOwner = false): Promise<boolean> {
   const deadline = new AbortController();
   const timer = setTimeout(() => deadline.abort(new NativeTerminalPublicationRefusal("H2A_ENDPOINT_PROBE_TIMEOUT")), 2_000);
   const bounded = signal ? AbortSignal.any([signal, deadline.signal]) : deadline.signal;
   try {
-    const attempts = socketPresent ? 5 : 1;
+    const attempts = socketPresent && !provenDeadOwner ? 5 : 1;
     for (let attempt = 0; attempt < attempts; attempt++) {
       bounded.throwIfAborted();
       const refusal = await new Promise<boolean>((resolve, reject) => {
@@ -1080,7 +1080,14 @@ async function proveEndpointAbsentUnderLock(
   const ownersDead = uniqueOwners.every(owner => owner.startTime !== undefined && ownerProbe(owner) === "dead");
   const sidecarProvesDeath = sidecarVerdict === "stale-boot" || (sidecarVerdict === "current" && ownersDead);
   // Even a run of refusals cannot prove a new, unattributed holder dead.
-  if (!await repeatedlyRefusesConnection(socketPath, socket !== undefined, signal)) return false;
+  // With an inode-matched, current-frame sidecar and every attributed owner
+  // positively dead, waiting cannot add identity evidence. Publication is
+  // serialized by this same lock and the inode is checked again below. Keep
+  // the full observation window for legacy/unattributed sockets; never turn
+  // an unknown identity into this fast path. Read-only proofs keep the inode.
+  const provenDeadOwner = socket !== undefined && sidecar !== undefined &&
+    sidecarVerdict === "current" && ownersDead && sameNativeTerminalSocket(socket, sidecar);
+  if (!await repeatedlyRefusesConnection(socketPath, socket !== undefined, signal, provenDeadOwner)) return false;
   let preBootInode = false;
   try {
     const final = await abortable(lstat(socketPath), signal);

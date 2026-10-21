@@ -9,18 +9,40 @@ import { setTimeout as delay } from "node:timers/promises";
  * MemoryHigh is a soft pressure threshold, never a session-killing limit.
  */
 export async function isolateNativeTerminalHost(): Promise<{ isolated: boolean; reason?: string }> {
+  return isolateScope("native", ["MemoryHigh", "t", String(Math.floor(totalmem() * 0.75))], "avoid");
+}
+
+/** Separate every CLI tree from the host and from other human sessions.
+ * The default hard ceiling is 8 GiB (or 1/4 of physical RAM on smaller hosts).
+ * A lower explicit ceiling supports disposable qualification without pressure
+ * on the surrounding machine. Swap is bounded independently.
+ */
+export async function isolateNativeTerminalSession(): Promise<{ isolated: boolean; reason?: string }> {
+  const defaultMax = Math.min(8 * 1024 ** 3, Math.floor(totalmem() / 4));
+  const requested = Number(process.env.H2A_NATIVE_SESSION_MEMORY_MAX ?? defaultMax);
+  if (!Number.isSafeInteger(requested) || requested < 16 * 1024 ** 2 || requested > defaultMax) {
+    return { isolated: false, reason: "invalid H2A_NATIVE_SESSION_MEMORY_MAX" };
+  }
+  return isolateScope("session", [
+    "MemoryHigh", "t", String(Math.floor(requested * 0.8)),
+    "MemoryMax", "t", String(requested),
+    "MemorySwapMax", "t", "0",
+  ], "none");
+}
+
+async function isolateScope(kind: "native" | "session", limits: string[], oomPreference: string): Promise<{ isolated: boolean; reason?: string }> {
   if (process.platform !== "linux") return { isolated: false, reason: "systemd scopes require Linux" };
-  const unit = `h2a-native-${process.pid}-${randomUUID()}.scope`;
+  const unit = `h2a-${kind}-${process.pid}-${randomUUID()}.scope`;
   const result = spawnSync("busctl", [
     "--user", "--timeout=750ms", "call",
     "org.freedesktop.systemd1", "/org/freedesktop/systemd1",
     "org.freedesktop.systemd1.Manager", "StartTransientUnit", "ssa(sv)a(sa(sv))",
-    unit, "fail", "5",
-    "Description", "s", "h2a native terminal host",
+    unit, "fail", String(4 + limits.length / 3),
+    "Description", "s", `h2a ${kind} terminal`,
     "Slice", "s", "app.slice",
     "PIDs", "au", "1", String(process.pid),
-    "ManagedOOMPreference", "s", "avoid",
-    "MemoryHigh", "t", String(Math.floor(totalmem() * 0.75)),
+    "ManagedOOMPreference", "s", oomPreference,
+    ...limits,
     "0",
   ], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 1_000, maxBuffer: 4096 });
   if (result.error || result.status !== 0) {

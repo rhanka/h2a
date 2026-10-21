@@ -144,14 +144,18 @@ export async function runNativeTerminalHostProcess(argv: ReadonlyArray<string>):
 
     const isolation = await isolateNativeTerminalHost();
     if (!isolation.isolated) {
-      writeHostLogLine(`systemd scope unavailable (${isolation.reason}); host remains in its inherited memory cgroup`);
+      writeHostLogLine(`systemd scope unavailable (${isolation.reason}); host and sessions remain in the inherited memory cgroup; per-session memory limits are unavailable`);
     }
 
     const host = new NativeTerminalHost({
       generation: options.generation,
       replayBytesPerSession: options.replayBytesPerSession,
       maxSessions: options.maxSessions,
-      spawner: nodePtySpawner,
+      spawner: isolation.isolated ? (ptyOptions) => nodePtySpawner({
+        ...ptyOptions,
+        command: process.execPath,
+        args: [fileURLToPath(new URL("./session-scope.js", import.meta.url)), ptyOptions.command, ...ptyOptions.args],
+      }) : nodePtySpawner,
       socketPath: options.socketPath,
       ...(options.registryPath !== undefined ? { registryPath: options.registryPath } : {}),
     });

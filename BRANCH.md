@@ -1,5 +1,18 @@
 # Native host crash recovery — fix/native-host-crash-recovery
 
+## Round 2 — brief-fixrestart-r2.md
+
+- Scope extends to per-session memory scopes, actual CLI I/O lab matrix, isolated hosted-VM cgroup qualification and mandatory release wiring; no version/dependency change.
+- Private TMPDIR: /home/antoinefa/.cache-tmp/h2a-test/run-NDLCse; real owner state/bus untouched. Namespaces denied (unshare plus three bwrap attempts), cgroup mount read-only; local memory faults forbidden and not attempted.
+- RED: ten read-only proofs after SIGKILL: 4 success / 6 publication lock timeouts in 5,208 ms. GREEN: ten success in 294 ms, socket retained. Fast path requires inode-matched current-frame sidecar and every owner positively dead.
+- Real run --resume: 500 mixed rows, one relevant owner probe, successful CLI input acknowledgement; matching unreadable row still refuses before CLI launch.
+- Session memory domains: host remains protected; every CLI moves to a sibling scope before exec with MemoryMax <=8 GiB (<=1/4 physical RAM), MemoryHigh at 80% of its ceiling and MemorySwapMax=0. Scope refusal prevents CLI execution inside the protected host. If host systemd isolation is unavailable, original detached fallback remains explicitly unprotected in host logs.
+- Mandatory matrix: fresh/resume/actual restore command execution, unrelated registry 0/50/500, concurrency 1/5/10, host live/absent/health-checked then SIGKILL; three paired direct-CLI I/O samples, median/p95/probe/helper counts, +500 ms registry budget. Restore adds N required human target rows; total rows are emitted explicitly.
+- Provenance RED kept for #382: legacy agent transcript is human on rc.4, expected background; exact initiator provenance and explicit legacy recovery remain the #382 handoff. Never infer human from transcript, name or path.
+- Qualification in progress; report final command outputs and remaining unproven isolation/direct-CLI parity honestly.
+
+## Round 1 (historical evidence)
+
 - Objective: investigate the 20 October incident independently; ship bounded startup, concurrent recovery, terminal cgroup separation and owner-only restore.
 - Scope: runtime conv-guard, native-terminal/{fleet,op,server,process,host-scope}, restore; named regressions, native test isolation, execution inventory, branch/review evidence.
 - Confinement: private TMPDIR /home/antoinefa/.cache-tmp/h2a-test/run-2jadsY; no installed binary, owner state/bus/processes, Python, full suite, Track writes or main mutation. Preserve supplied untracked scripts/owner-lab/restart.test.mjs.
