@@ -1,5 +1,9 @@
 # Native host crash recovery — preuves du correctif
 
+Le présent document conserve le premier tour. La qualification étendue,
+les cgroups réels sur VM jetable et les 81 configurations de démarrage sont
+dans le [rapport R2](native-host-crash-recovery-r2.md).
+
 Branche : `fix/native-host-crash-recovery`. Implémentation examinée :
 `99cc14a3f` ; base `40693473a`. Aucun binaire installé ni état h2a réel lu ou
 modifié. Le script initial non suivi `scripts/owner-lab/restart.test.mjs` et le
