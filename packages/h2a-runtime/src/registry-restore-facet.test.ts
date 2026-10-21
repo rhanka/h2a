@@ -115,10 +115,28 @@ describe("lot L5 RED: persisted restore facet (D12a)", () => {
       },
       path,
     );
-    // A legacy row predating the facet field classifies once to primary…
+    // Round-3 P1: a legacy human row WITHOUT a recorded initiator derives
+    // NO facet (unclassified — the old attached-terminal default never
+    // proves a human initiator)…
     const before = readEntry(path, "legacy-human");
-    expect(before.restoreFacet).toBe("primary");
-    // …and an explicit secondary is never overwritten by a later event.
+    expect(before.restoreFacet).toBeUndefined();
+    expect(before.launchInitiator).toBeUndefined();
+    // …while a human row WITH a recorded human initiator classifies to
+    // primary, and an explicit secondary is never overwritten by a later
+    // event.
+    enroll(
+      {
+        id: "proven-human",
+        tool: "claude",
+        kind: "local-tmux",
+        cwd: "/tmp/fake/proj",
+        source: "run",
+        sessionClass: "human",
+        launchInitiator: "human",
+      },
+      path,
+    );
+    expect(readEntry(path, "proven-human").restoreFacet).toBe("primary");
     enroll(
       {
         id: "explicit-sec",
@@ -138,6 +156,41 @@ describe("lot L5 RED: persisted restore facet (D12a)", () => {
     expect(readEntry(path, "explicit-sec").restoreFacet).toBe("secondary");
     expect(
       classifyRestoreFacet(readEntry(path, "legacy-human")),
+    ).toBeUndefined();
+    expect(
+      classifyRestoreFacet(readEntry(path, "proven-human")),
     ).toBe("primary");
+  });
+
+  it("should keep a recorded launch initiator across re-enrollment without one", () => {
+    const path = freshRegistryPath();
+    enroll(
+      {
+        id: "sess-keep",
+        tool: "claude",
+        kind: "local-tmux",
+        cwd: "/tmp/fake/proj",
+        source: "run",
+        sessionClass: "human",
+        launchInitiator: "human",
+      },
+      path,
+    );
+    // A resume/hook re-enrollment that knows nothing of the initiator must
+    // neither erase it nor change the derived facet.
+    enroll(
+      {
+        id: "sess-keep",
+        tool: "claude",
+        kind: "local-tmux",
+        cwd: "/tmp/fake/proj",
+        source: "hook",
+        sessionClass: "human",
+      },
+      path,
+    );
+    const entry = readEntry(path, "sess-keep");
+    expect(entry.launchInitiator).toBe("human");
+    expect(entry.restoreFacet).toBe("primary");
   });
 });

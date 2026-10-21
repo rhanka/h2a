@@ -879,6 +879,7 @@ export {
 } from "./runtime/drive/index.js";
 
 export { createInboxWakeHandler, type InboxWakeHandlerDeps, type InboxWakePendingStore } from "./runtime/drive/inbox-wake.js";
+export { readPendingIdsFile } from "./runtime/mcp/pending-ids.js";
 export type { H2aClusterMeshOuterDeps } from "./runtime/drive/cluster-mesh-outer.js";
 
 export async function createH2aClusterMeshOuter(

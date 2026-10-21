@@ -42,6 +42,11 @@ export type TunnelConfig = {
  * `excludeProjects` vetoes a placement; `maxTabs` caps the explicit window
  * (default: global `maxPerWindow`), overflow reported never silently dropped.
  * Matchers are exact / path-prefix / segment-prefix only — never globs.
+ *
+ * Round-3 amendment (reviews pr382-r3, P3): `tools`, `tags`,
+ * `excludeProjects` and `maxTabs` exceed the D13(a) proposition set — see
+ * docs/restore-group-matchers-amendment.md, which binds each of them to its
+ * D13 clause instead of removing tested behavior.
  */
 export type LayoutGroup = {
   title: string;

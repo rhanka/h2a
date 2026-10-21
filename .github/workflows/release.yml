@@ -109,10 +109,12 @@ jobs:
 
       # Round-1 (code-review astra-8/sol-9): install AND qualify the L0
       # filesystem barrier in the runner — no unconfined fallback.
+      # Round-3 (reviews pr382-r3): NO `if:` on any verify step — verify runs
+      # ubuntu-only, and a conditional step is one edit away from disabling
+      # the gate behind a green workflow. The step is unconditional.
       - name: Provision the L0 test barrier (bubblewrap)
-        if: runner.os == 'Linux'
         shell: bash
-        run: command -v bwrap >/dev/null || { sudo apt-get update && sudo apt-get install -y bubblewrap; } && bwrap --version
+        run: command -v bwrap >/dev/null || { sudo apt-get update && sudo apt-get install -y bubblewrap uidmap; } && bwrap --version
 
       - name: Prove effective Node version and release checkout
         shell: bash

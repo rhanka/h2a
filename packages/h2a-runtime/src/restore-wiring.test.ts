@@ -84,6 +84,8 @@ function row(over: Partial<RegistryEntry> & { id: string }): RegistryEntry {
     kind: "local-native",
     cwd: join(home, "src", "proj"),
     sessionClass: "human",
+    // Round-3 P1: declared human primaries carry the recorded initiator.
+    launchInitiator: "human",
     source: "run",
     enrolledAt: iso,
     lastSeenAt: iso,
@@ -344,6 +346,41 @@ describe("round-1 (astra-3/sol-7) — one ledger outcome per candidate, exit hon
     expect(lines).toHaveLength(1);
     expect(lines[0]).toContain(`h2a attach '${KNOWN_NAME}'`);
     expect(restoreExitCode(ledger, {})).toBe(0);
+  });
+
+  it("KNOWN_CONV_UNKNOWN_FOREGROUND_WITH_ATTACHED_VIEW_DEFERS_WITH_NONZERO_EXIT", () => {
+    // Round-3 P2 (reviews pr382-r3): the same unknown foreground (vim) but
+    // WITH an attached view (controlled) is a DEFERRED objective — no CLI
+    // was observed (D1/D2/D3/D18), so the ledger records deferred with the
+    // conserved reason and the exit status fails. Never already-active.
+    writeRegistry([knownRow()]);
+    listNativeSessions.mockReturnValue([
+      { id: KNOWN_NAME, pid: 4242, status: "running", exit: null, controlled: true },
+    ]);
+
+    const ledger: RestoreLedgerEntry[] = [];
+    const result = restore({
+      stderr: stderrStream,
+      nativeSubtrees: [
+        {
+          name: KNOWN_NAME,
+          processes: [
+            { pid: 9999, command: "vim", args: ["vim", "notes.txt"], startedAtMs: 1, ppid: 4242 },
+          ],
+        },
+      ],
+      onLedgerEntry: (e) => {
+        ledger.push(e);
+      },
+    });
+
+    expect(ledger).toHaveLength(1);
+    expect(ledger[0]).toMatchObject({ session: "known", outcome: "deferred" });
+    expect(ledger[0]!.reason).toMatch(/unknown-foreground/);
+    // The existing view is not relaunched over: zero tabs, zero spawns.
+    expect(result.total).toBe(0);
+    expect(spawn).toHaveBeenCalledTimes(0);
+    expect(restoreExitCode(ledger, {})).toBe(1);
   });
 
   it("RESTORE_EXIT_CODE_FAILS_ON_BLOCKED_EVEN_WHEN_ANOTHER_CANDIDATE_PROGRESSED", () => {

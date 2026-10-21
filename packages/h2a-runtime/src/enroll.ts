@@ -33,6 +33,7 @@ import { emitJobDone, type EmitJobDoneResult } from "./h2a-jobs.js";
 import {
   SESSION_CLASS_ENV,
   sessionClassFromEnv,
+  type LaunchInitiator,
 } from "./session-class.js";
 
 // ---------------------------------------------------------------------------
@@ -69,6 +70,29 @@ export type HookResult = {
   /** The job id this hook resolved/finished (diagnostics/tests only). */
   jobId?: string;
 };
+
+/**
+ * Round-3 P1 — the launch initiator a hook enrollment carries. Managed
+ * markers in the hook's own environment win (a hook firing inside a
+ * delegated agent PTY is agent-initiated even when a run row exists);
+ * otherwise the initiator recorded at launch is inherited from the run row
+ * holding this conversation (kept across hooks); otherwise unknown — never
+ * defaulted to human. Pure over the passed snapshot (best-effort: callers
+ * pass [] when the registry is unreadable).
+ */
+export function hookLaunchInitiator(
+  env: Record<string, string | undefined>,
+  entries: ReadonlyArray<RegistryEntry>,
+  convId: string,
+): LaunchInitiator | undefined {
+  if (env.REMOTE_JOB_ID) return "agent";
+  const cls = sessionClassFromEnv(env[SESSION_CLASS_ENV]);
+  if (cls === "background") return "agent";
+  if (cls === "human") return "human";
+  return entries.find(
+    (e) => e.source === "run" && e.convId === convId && e.launchInitiator !== undefined,
+  )?.launchInitiator;
+}
 
 /** Injectable so tests never touch the real ~/h2a-workspace / process.env. */
 export type HandleClaudeHookOpts = {
@@ -191,6 +215,15 @@ export function handleClaudeHook(
           return { ok: true, jobId: job.id };
         }
       }
+      // Round-3 P1: keep the recorded launch initiator across hooks — a
+      // hook enrollment inherits it from the run row holding this
+      // conversation (managed markers in the hook env win), never defaults.
+      const startRead = loadRegistry(registryPath);
+      const startInitiator = hookLaunchInitiator(
+        env,
+        startRead.state === "ok" ? startRead.entries : [],
+        id,
+      );
       enroll(
         {
           id,
@@ -200,6 +233,7 @@ export function handleClaudeHook(
           convId: id,
           source: "hook",
           sessionClass,
+          ...(startInitiator !== undefined ? { launchInitiator: startInitiator } : {}),
         },
         registryPath,
       );
@@ -235,6 +269,13 @@ export function handleClaudeHook(
     // Not a job — enroll-if-missing so the end of an unknown session still
     // leaves a (terminated) trace, then mark it ended.
     if (!markEnded(id, registryPath)) {
+      // Round-3 P1: same initiator inheritance as claude-start (endRead is
+      // this call's registry snapshot).
+      const endInitiator = hookLaunchInitiator(
+        env,
+        endRead.state === "ok" ? endRead.entries : [],
+        id,
+      );
       enroll(
         {
           id,
@@ -244,6 +285,7 @@ export function handleClaudeHook(
           convId: id,
           source: "hook",
           sessionClass,
+          ...(endInitiator !== undefined ? { launchInitiator: endInitiator } : {}),
         },
         registryPath,
       );
