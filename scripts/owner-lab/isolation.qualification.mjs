@@ -63,6 +63,13 @@ test('oom-isolation: effective sibling cgroups survive launcher death and a boun
     const memoryMax = Number(readFileSync(join(controller, 'memory.max'), 'utf8'));
     const swapMax = Number(readFileSync(join(controller, 'memory.swap.max'), 'utf8'));
     assert.equal(memoryMax, 128 * 1024 ** 2); assert.equal(swapMax, 0);
+    // Force the HARD-limit path deterministically, rather than spending the
+    // test in MemoryHigh reclaim/throttling. This changes only our disposable
+    // worker unit, retains the verified 128 MiB ceiling and zero swap, and
+    // never raises the surrounding VM's resource limits.
+    const hardFault = manager(['set-property', '--runtime', workerGroup.split('/').at(-1), 'MemoryHigh=infinity']);
+    assert.equal(hardFault.status, 0, hardFault.stderr);
+    assert.equal(readFileSync(join(controller, 'memory.high'), 'utf8').trim(), 'max');
     const lease = await client.acquireController('h2a-lab-3', 'bounded-fault');
     await client.write(lease, 'memory-fault\n');
     const events = await eventually(() => readFileSync(join(controller, 'memory.events'), 'utf8'), value => /oom_kill [1-9]/.test(value));
@@ -70,6 +77,6 @@ test('oom-isolation: effective sibling cgroups survive launcher death and a boun
     assert.equal((await client.ping()).hostPid, hostPid);
     await usable(f, 'h2a-human-1', 'after-worker-oom');
     await usable(f, 'h2a-lab-2', 'other-human-after-oom');
-    t.diagnostic(JSON.stringify({ launcherGroup, hostGroup, workerGroup, memoryMax, swapMax, events, humanExchanges: 2 }));
+    t.diagnostic(JSON.stringify({ launcherGroup, hostGroup, workerGroup, memoryMax, swapMax, faultMemoryHigh: 'max', events, humanExchanges: 2 }));
   } finally { client.close(); }
 });
