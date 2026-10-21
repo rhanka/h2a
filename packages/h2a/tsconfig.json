@@ -12,13 +12,5 @@
   ],
   "exclude": [
     "src/vendor/engram-live/*.js"
-  ],
-  // The agy-claude leaf contract lives in the runtime (anti-cycle: the
-  // runtime must not import the core). This edge orders `tsc -b` so the
-  // runtime's declarations exist before the core checks its re-export.
-  "references": [
-    {
-      "path": "../h2a-runtime"
-    }
   ]
 }
