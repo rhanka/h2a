@@ -17,6 +17,32 @@ on:
 permissions:
   contents: read
 jobs:
+  startup-matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [fresh, resume, restore]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Measure CLI I/O on an otherwise idle disposable VM
+        env:
+          MODE: ${{ matrix.mode }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          export TMPDIR="$(mktemp -d "$RUNNER_TEMP/h2a-startup-XXXXXX")"
+          trap 'rm -rf "$TMPDIR"' EXIT
+          node --test --test-name-pattern="startup-matrix: $MODE," scripts/owner-lab/startup-matrix.qualification.mjs
   effective-cgroups:
     runs-on: ubuntu-latest
     timeout-minutes: 10

@@ -158,7 +158,8 @@
     "native terminal socket path limits should reject a socket path over the kernel sun_path budget with a clear error",
     "native terminal socket path limits should reject a publishable path whose longer staged sibling would overflow at bind",
     "native terminal socket path limits should reject a client connect to an over-limit socket path before dialing",
-    "native terminal socket path limits should compute a short private default socket path"
+    "native terminal socket path limits should compute a short private default socket path",
+    "should bound work by bytes received for a fragmented request"
   ],
   "packages/h2a-runtime/src/native-terminal/supervisor.test.ts": [],
   "packages/h2a-runtime/src/native-terminal/terminal-modes.functional.test.ts": [],
@@ -907,34 +908,5 @@
     "stable refuses an RC proof missing focus or carrying a wrong focus version",
     "publish sanity refuses legacy four-package preparation and stale focus versions before publication",
     "five-package prepare hands the independent focus version to the publication sanity gate"
-  ],
-  "packages/h2a/test/native-startup-matrix.test.js": [
-    "startup-matrix: fresh, 1 requests, host live, registry 0/50/500",
-    "startup-matrix: fresh, 1 requests, host absent, registry 0/50/500",
-    "startup-matrix: fresh, 1 requests, host killed, registry 0/50/500",
-    "startup-matrix: fresh, 5 requests, host live, registry 0/50/500",
-    "startup-matrix: fresh, 5 requests, host absent, registry 0/50/500",
-    "startup-matrix: fresh, 5 requests, host killed, registry 0/50/500",
-    "startup-matrix: fresh, 10 requests, host live, registry 0/50/500",
-    "startup-matrix: fresh, 10 requests, host absent, registry 0/50/500",
-    "startup-matrix: fresh, 10 requests, host killed, registry 0/50/500",
-    "startup-matrix: resume, 1 requests, host live, registry 0/50/500",
-    "startup-matrix: resume, 1 requests, host absent, registry 0/50/500",
-    "startup-matrix: resume, 1 requests, host killed, registry 0/50/500",
-    "startup-matrix: resume, 5 requests, host live, registry 0/50/500",
-    "startup-matrix: resume, 5 requests, host absent, registry 0/50/500",
-    "startup-matrix: resume, 5 requests, host killed, registry 0/50/500",
-    "startup-matrix: resume, 10 requests, host live, registry 0/50/500",
-    "startup-matrix: resume, 10 requests, host absent, registry 0/50/500",
-    "startup-matrix: resume, 10 requests, host killed, registry 0/50/500",
-    "startup-matrix: restore, 1 requests, host live, registry 0/50/500",
-    "startup-matrix: restore, 1 requests, host absent, registry 0/50/500",
-    "startup-matrix: restore, 1 requests, host killed, registry 0/50/500",
-    "startup-matrix: restore, 5 requests, host live, registry 0/50/500",
-    "startup-matrix: restore, 5 requests, host absent, registry 0/50/500",
-    "startup-matrix: restore, 5 requests, host killed, registry 0/50/500",
-    "startup-matrix: restore, 10 requests, host live, registry 0/50/500",
-    "startup-matrix: restore, 10 requests, host absent, registry 0/50/500",
-    "startup-matrix: restore, 10 requests, host killed, registry 0/50/500"
   ]
 }

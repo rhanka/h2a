@@ -106,6 +106,27 @@ function createOptions(id: string) {
   } as const;
 }
 
+it("should bound work by bytes received for a fragmented request", async () => {
+  const { server, socketPath, client } = await service();
+  const connection = once(server.server, "connection");
+  const wire = createConnection(socketPath);
+  cleanup.push(async () => { wire.destroy(); });
+  await once(wire, "connect");
+  const [accepted] = await connection;
+  const original = Buffer.byteLength;
+  let scanned = 0;
+  const measure = vi.spyOn(Buffer, "byteLength").mockImplementation((value, encoding) => {
+    if (typeof value === "string" && /^x+$/.test(value)) scanned += value.length;
+    return original(value, encoding);
+  });
+  try {
+    for (let i = 0; i < 64; i++) (accepted as Socket).emit("data", "x".repeat(31));
+    expect(scanned).toBeLessThanOrEqual(64 * 31 * 3);
+    (accepted as Socket).emit("data", "\n");
+    expect((await client.ping()).generation).toBe("unit-generation");
+  } finally { measure.mockRestore(); }
+});
+
 async function eventually<T>(read: () => Promise<T>, accept: (value: T) => boolean): Promise<T> {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     const value = await read();
