@@ -29,6 +29,15 @@ export async function collectNativeInventory(
       } catch (proofError) {
         error = new Error(`${error instanceof Error ? error.message : String(error)}; absence proof failed: ${proofError instanceof Error ? proofError.message : String(proofError)}`);
       }
+      // A successor can publish while the serialized absence proof waits.
+      // Reconnect once before treating that earlier connect failure as unknown.
+      try {
+        const client = await connect(socketPath);
+        const sessions = await client.list();
+        inventory.hosts.push({ socketPath, client });
+        inventory.sessions.push(...sessions.map(session => ({ ...session, socketPath })));
+        continue;
+      } catch { /* No healthy successor: preserve the proof's fail-closed diagnostic. */ }
       inventory.complete = false;
       inventory.hosts.push({ socketPath, reason: error instanceof Error ? error.message : String(error) });
     }

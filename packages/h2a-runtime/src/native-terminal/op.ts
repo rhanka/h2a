@@ -205,11 +205,16 @@ async function launchClient(socketPath: string): Promise<NativeTerminalClient> {
   try { return await connectExisting(socketPath); }
   catch (error) {
     let absent = false;
-    try { absent = await proveNativeTerminalEndpointAbsent(socketPath, error); }
+    // Launch-only reclamation: inventories never remove the stale inode.
+    try { absent = await proveNativeTerminalEndpointAbsent(socketPath, error, undefined, undefined, true); }
     catch (proofError) {
       error = new Error(`${error instanceof Error ? error.message : String(error)}; absence proof failed: ${proofError instanceof Error ? proofError.message : String(proofError)}`);
     }
     if (absent) return ensureClient(socketPath);
+    // Publication may have completed while the absence proof held/waited for
+    // its lock. A fresh handshake can adopt that winner without any takeover.
+    try { return await connectExisting(socketPath); }
+    catch { /* Still uncertain: retain the original proof failure below. */ }
     throw Object.assign(new Error(`${socketPath}: ${error instanceof Error ? error.message : String(error)}; owner death is unproven. Inspect endpoint permissions and the owning process identity, restore probe access, then retry; do not remove a socket or lock while ownership is unproven.`), { socketPath });
   }
 }
