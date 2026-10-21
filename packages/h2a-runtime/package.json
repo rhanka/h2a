@@ -15,10 +15,6 @@
       "types": "./dist/human-output.d.ts",
       "import": "./dist/human-output.js"
     },
-    "./agy-claude": {
-      "types": "./dist/agy-claude.d.ts",
-      "import": "./dist/agy-claude.js"
-    },
     "./package.json": "./package.json"
   },
   "dependencies": {

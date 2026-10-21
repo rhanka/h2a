@@ -1,8 +1,11 @@
-// AGY/Claude shared contract. This module is a leaf: node builtins only,
-// so importing it must not load either CLI entry point and must not create
-// a package cycle. (Moved here from `@sentropic/h2a` — the runtime used to
-// re-export the core's copy, an undeclared runtime→core edge that broke
-// isolated installs of this package; the core now re-exports this copy.)
+// AGY/Claude shared contract — VENDORED copy of
+// `packages/h2a/src/runtime/agy-claude.ts` (see agy-claude-vendor-sync.test.ts).
+// Why vendored instead of imported: this module is a leaf (node builtins
+// only) that both the runtime and the core need; a cross-package import in
+// either direction creates an undeclared edge that breaks isolated installs
+// of this package (MODULE_NOT_FOUND at host startup) or an unorderable
+// typecheck cycle. Edit the CORE copy first, then sync this file exactly
+// (the sync test fails closed on any drift).
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
