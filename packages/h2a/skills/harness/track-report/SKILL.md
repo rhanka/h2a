@@ -411,3 +411,12 @@ guidance as an enforcement mechanism.
 Spec: `docs/specs/2026-07-29-track-report-period.md`.
 Shape reference: `docs/specs/examples/track-report-contextual.md`.
 Deterministic input: `docs/specs/examples/track-report-raw.txt`.
+
+## Velocity forecast card (L5, offline)
+
+Read the pinned forecast card beside the plan when present: cite P50/P80/P95
+elapsed with support, mergedAt and installedAt as separate milestones, and
+forecast review rounds with coverage or abstention. Keep the four validated
+sections, WP linkage, period selectors, stage/status columns and handles;
+stay offline (no GitHub, model or writer). Never render open-to-merge as
+remaining dev or an installed date.
