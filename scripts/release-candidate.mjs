@@ -81,6 +81,16 @@ function attest() {
   mkdirSync('release-attestation', { recursive: true })
   writeFileSync('release-attestation/attestation.json', JSON.stringify(record, null, 2) + '\n')
   console.log(`Recorded ${record.kind} attestation for run ${record.runId}, tree ${record.sourceTree}`)
+  try {
+    const smoke = JSON.parse(readFileSync('release-attestation/velocity-smoke.json', 'utf8'))
+    mkdirSync('release-attestation/installations', { recursive: true })
+    writeFileSync(
+      'release-attestation/installations/ci-runner.json',
+      JSON.stringify({ schema: 'velocity-install/1', targetId: 'ci', installedAt: smoke.smokeCompletedAt ?? 'unknown' }, null, 2) + '\n',
+    )
+  } catch {
+    // No velocity smoke evidence: no target receipt (CI-runner proof only, never a workstation claim).
+  }
 }
 
 function requireRc() {
