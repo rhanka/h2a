@@ -868,10 +868,15 @@ test('R8.1 execution (lab): through the pinned config, a filter or skip that rem
     }
     // The gate's own reading of the run: the command's exit code AND the
     // execution proof the runner would apply to the report the run wrote.
+    // Round-3 (reviews pr382-r3): hermetic interpreter like the discovery
+    // probe above — a nested `/usr/bin/env node` shebang resolution fails
+    // on runners whose PATH does not carry node into the spawn (127 with
+    // `env: 'node': No such file or directory`), which would read as a gate
+    // failure. Same binary, same pinned config, explicit interpreter.
     const runGate = (configPath) => {
       const reportPath = join(lab, 'report.json')
       rmSync(reportPath, { force: true })
-      const run = spawnSync('node_modules/.bin/vitest', ['run', '--config', configPath], {
+      const run = spawnSync(process.execPath, [resolve(REPO_ROOT, 'node_modules', 'vitest', 'vitest.mjs'), 'run', '--config', configPath], {
         cwd: REPO_ROOT,
         encoding: 'utf8',
         timeout: 120_000,

@@ -22,8 +22,11 @@ jobs:
       - run: npm run build
       # Round-1 (code-review astra-8/sol-9): install AND qualify the L0
       # filesystem barrier in the runner — no unconfined fallback.
+      # Round-3 (reviews pr382-r3): Ubuntu 24.04+ runners restrict unprivileged user
+      # namespaces via AppArmor ("bwrap: setting up uid map: Permission denied").
+      # Lifting the knob where it exists is provisioning, not a fallback.
       - name: Provision the L0 test barrier (bubblewrap)
-        run: command -v bwrap >/dev/null || { sudo apt-get update && sudo apt-get install -y bubblewrap; } && bwrap --version
+        run: command -v bwrap >/dev/null || { sudo apt-get update && sudo apt-get install -y bubblewrap uidmap; } && bwrap --version && if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi
       - name: Prepare the exact frozen evidence corpus Git objects
         run: node packages/h2a/focus-kit/test/prepare-evidence-corpus.mjs
       - name: Verify corpus preparation from a depth-one checkout

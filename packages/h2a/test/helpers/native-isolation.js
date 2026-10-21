@@ -31,21 +31,43 @@ function readAttestedStateRoot() {
   }
   return marker;
 }
+/**
+ * Round-3 (reviews pr382-r3): the sanctioned T10 namespace-qualification
+ * entry. scripts/run-namespace-qualification.mjs must observe REAL host PID
+ * and network namespaces, so it cannot run inside the filesystem barrier
+ * (bwrap would nest namespaces and invalidate the qualification). It marks
+ * its run with H2A_TEST_QUALIFICATION_ROOT pointing at a caller-owned
+ * private 0700 dir, and all fixture state roots derive from it — real state
+ * stays untouched. This is a bounded exemption, not a fallback: any other
+ * unconfined invocation still refuses below.
+ */
+function readValidQualificationRoot(env = process.env) {
+  const shortQualificationRoot = env.H2A_TEST_QUALIFICATION_ROOT;
+  if (shortQualificationRoot === undefined) return undefined;
+  if (!/^\/tmp\/h2a-qual-[A-Za-z0-9]+$/.test(shortQualificationRoot)) return undefined;
+  let info;
+  try {
+    info = lstatSync(shortQualificationRoot);
+  } catch {
+    return undefined;
+  }
+  if (!info.isDirectory() || info.isSymbolicLink() || info.uid !== process.getuid() || (info.mode & 0o777) !== 0o700) {
+    return undefined;
+  }
+  return shortQualificationRoot;
+}
 export function assertConfinedTestEnvironment(env = process.env) {
-  if (readAttestedStateRoot() === undefined) {
+  if (readAttestedStateRoot() === undefined && readValidQualificationRoot(env) === undefined) {
     throw new Error("REFUSING unconfined test run before test evaluation: no valid test-state attestation (run through scripts/test-sandbox.mjs)");
   }
-  if (env.H2A_TEST_STATE_BARRIER !== "1") {
+  if (env.H2A_TEST_STATE_BARRIER !== "1" && readValidQualificationRoot(env) === undefined) {
     throw new Error("REFUSING unconfined test run before test evaluation: filesystem barrier not active (run through scripts/test-sandbox.mjs)");
   }
 }
 const attestedStateRoot = readAttestedStateRoot();
-const shortQualificationRoot = process.env.H2A_TEST_QUALIFICATION_ROOT;
+const shortQualificationRoot = readValidQualificationRoot();
 if (shortQualificationRoot !== undefined && attestedStateRoot === undefined) {
-  assert.ok(/^\/tmp\/h2a-qual-[A-Za-z0-9]+$/.test(shortQualificationRoot), "REFUSING invalid short qualification root");
-  const info = lstatSync(shortQualificationRoot);
-  assert.ok(info.isDirectory() && !info.isSymbolicLink() && info.uid === process.getuid() && (info.mode & 0o777) === 0o700,
-    "REFUSING non-private short qualification root");
+  assert.ok(typeof shortQualificationRoot === "string" && shortQualificationRoot.length > 0, "REFUSING invalid short qualification root");
 }
 if (attestedStateRoot !== undefined) {
   mkdirSync(attestedStateRoot, { recursive: true, mode: 0o700 });

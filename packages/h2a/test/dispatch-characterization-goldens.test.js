@@ -50,7 +50,7 @@ const BIN = join(REPO_ROOT, "packages", "h2a", "dist", "bin.js");
 // previous 14,127-byte stream and SHA-256 byte-for-byte.
 // Workspace scope opt-in adds three selection flags and default/qualification
 // wording (+182 bytes). Removing those changes restores the 14,229-byte stream.
-const CORE_HELP_SHA256 = "5de555ce408802c4cd7cfe3d7fef10d766d7de24df22f44cac4fd684bfe580d0";
+const CORE_HELP_SHA256 = "b334f596bb791203982e2e279d452f5626af816691f062e9bf436b04fa4fe936";
 const RUNTIME_MISSING =
   "ce verbe requiert le runtime h2a (sessions / k8s / tunnel).\n" +
   "  Répare l'installation lockstep : npm i -g @sentropic/h2a@latest\n";
@@ -152,7 +152,9 @@ function assertCoreHelp(result) {
   // + 183 for h2a focus build/template; existing help and dispatch stay identical.
   // + 102 for the h2a focus feedback retain|apply usage line.
   // + 182 for workspace scope opt-in flags and default/qualification wording.
-  assert.equal(Buffer.byteLength(result.stdout), 14411);
+  // + 76 for the upgrade --json machine contract wording (branch commit
+  // 8fffc724e shipped the flag and its help line without re-baselining).
+  assert.equal(Buffer.byteLength(result.stdout), 14487);
 }
 
 function assertMissingRuntime(result, firstToken) {
