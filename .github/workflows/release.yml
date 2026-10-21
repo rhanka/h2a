@@ -57,6 +57,12 @@ jobs:
           echo "Resolved release SHA: ${sha}"
 
   native-recovery:
+    # R4 (c): the release keeps requiring the BLOCKING crash/lock/
+    # bounded-startup scope — registry-delta + committed-baseline
+    # non-regression gates and the incident scenarios — while native-CLI
+    # parity stays REPORTED (spec/open-parity). Parity becomes blocking only
+    # when that lane lands; see native-recovery.yml header and
+    # docs/specs/native-host-crash-recovery/open-parity.md.
     needs: resolve-release-sha
     uses: ./.github/workflows/native-recovery.yml
     with:
