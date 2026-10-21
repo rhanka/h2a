@@ -39,4 +39,5 @@ jobs:
           sudo loginctl enable-linger "$(id -un)"
           sudo systemctl start "user@$(id -u).service"
           export H2A_LAB_DISPOSABLE_BUS="unix:path=/run/user/$(id -u)/bus"
+          node scripts/owner-lab/mutations.mjs
           node --test scripts/owner-lab/isolation.qualification.mjs
