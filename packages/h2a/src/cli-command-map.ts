@@ -180,6 +180,7 @@ const CORE_GROUP_BY_FIRST_WORD: Readonly<Record<string, H2ACommandGroupId>> = {
   sessions: "OBSERVE",
   status: "OBSERVE",
   canevas: "OBSERVE",
+  estimate: "OBSERVE",
 
   // Coordinate — study rows "Coordinate directly", "Hand work to an agent",
   // plus § Specialist "`h2a loop …`, `h2a conductor …`, `h2a drumbeat …`,

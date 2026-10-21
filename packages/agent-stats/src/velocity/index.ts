@@ -20,3 +20,4 @@ export * from "./knowledge.js";
 export * from "./report.js";
 export * from "./actuals.js";
 export * from "./calibration.js";
+export * from "./install.js";

@@ -75,6 +75,7 @@ import { runCli as runTrackCli, type CliIO } from "@sentropic/track";
 // `install-skills` renders `harness-<name>` from it (no hard-coded list, no
 // skill copies committed here; SOURCE UNIQUE = the installed npm package).
 import { runHarnessCli, HARNESS_SKILLS } from "./vendor/harness/index.js";
+import { runEstimateFixture as runEstimateFixtureSync } from "./velocity-cli.js";
 import { buildLaunchIndex } from "./runtime/local-files/launch-index.js";
 import { renderCommandMap } from "./cli-command-map.js";
 import { resolveHostConfigRoot } from "./runtime/host-config-root.js";
@@ -7568,6 +7569,37 @@ export async function runTrackMcpServe(
   }
 }
 
+function cmdEstimate(
+  argv: readonly string[],
+  streams: H2ACliStreams
+): number {
+  let fixture: string | undefined;
+  for (let index = 0; index < argv.length; index += 1) {
+    const token = argv[index];
+    if (token === "--fixture" && index + 1 < argv.length) {
+      fixture = argv[index + 1];
+      index += 1;
+    } else {
+      streams.stderr.write(`h2a estimate: unsupported argument: ${token}\n`);
+      return 1;
+    }
+  }
+  try {
+    if (fixture) {
+      const result = runEstimateFixtureSync(fixture);
+      streams.stdout.write(`${JSON.stringify(result)}\n`);
+      return 0;
+    }
+    streams.stdout.write(
+      `${JSON.stringify({ metric: "pr_open_to_merge", support: "descriptive", calibrated: false, installedAt: "unknown" })}\n`
+    );
+    return 0;
+  } catch (err) {
+    streams.stderr.write(`h2a estimate: ${(err as Error).message}\n`);
+    return 1;
+  }
+}
+
 function cmdReportContext(
   flags: Record<string, string>,
   streams: H2ACliStreams
@@ -7776,6 +7808,8 @@ export function runCli(
   }
 
   if (command === "report-context") return cmdReportContext(flags, streams);
+
+  if (command === "estimate") return cmdEstimate(argv.slice(1), streams);
 
   if (command === "init") return cmdInit(flags, streams);
   if (command === "register") return cmdRegister(flags, streams);
