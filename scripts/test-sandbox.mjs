@@ -229,6 +229,20 @@ const childEnv = {
   // so pin the cache to the seeded run-root copy (warm when the seed
   // succeeded, cold-but-writable otherwise — never the real home).
   npm_config_cache: join(runRoot, "home", ".npm"),
+  // Browser fixtures launch Playwright from the workflow-installed browsers
+  // (default ~/.cache/ms-playwright). Inside the barrier HOME is the run
+  // root, so the launch would read an empty path. Point Playwright at the
+  // real install when it exists (binaries are read-only at launch; profiles
+  // and dumps go to tmp). Absent install: unset, today's error stands.
+  ...(() => {
+    try {
+      const browsers = join(homedir(), ".cache", "ms-playwright");
+      readdirSync(browsers);
+      return { PLAYWRIGHT_BROWSERS_PATH: browsers };
+    } catch {
+      return {};
+    }
+  })(),
   // String-only owner-home reference for negative-control assertions
   // (assert a resolved path is NOT under it). Never read or written.
   H2A_TEST_OWNER_HOME: homedir(),
