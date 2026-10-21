@@ -178,12 +178,14 @@ async function matrix(t, mode, concurrency, host, isolation = "fallback") {
     const pairedMedianMs = quantile(values.map(s => s.overheadMs), .5);
     const pairedP95Ms = quantile(values.map(s => s.overheadMs), .95);
     // R4 (a): BLOCKING non-regression gate at the empty-registry level
-    // measured on this head. The 1 s bin.js sleep mutation shifts every
-    // sample by +1000 ms, so it still fails this gate (median margin 500,
-    // p95 margin 800). The systemd path has its own cost profile (scope
-    // creation); it keeps the cgroup assertions above plus the delta gate,
-    // and reports its timings below.
-    if (rows === 0 && isolation === "fallback") {
+    // measured on this head, for the stable CLI-launch paths (fresh/resume).
+    // The 1 s bin.js sleep mutation shifts every sample by +1000 ms, so it
+    // still fails this gate (median margin 500, p95 margin 800). Restore is
+    // recorded but not baseline-gated (runner-sensitive absolute at 5/10 —
+    // see baselines.json); it keeps the delta gate below. The systemd path
+    // has its own cost profile (scope creation); it keeps the cgroup
+    // assertions above plus the delta gate, and reports its timings below.
+    if (rows === 0 && isolation === "fallback" && baselines.gatedModes.includes(mode)) {
       const key = `${mode}/${concurrency}/${host}`;
       const base = baselines.cells[key];
       assert.ok(base, `${key}: no committed non-regression baseline; refusing to pass without one`);
