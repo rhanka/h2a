@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
-import { fixture, eventually, usable } from './helpers/restart-lab.js';
-import { NativeTerminalClient } from '../../h2a-runtime/dist/native-terminal/client.js';
+import { fixture, eventually, usable } from '../../packages/h2a/test/helpers/restart-lab.js';
+import { NativeTerminalClient } from '../../packages/h2a-runtime/dist/native-terminal/client.js';
 
-const repo = resolve(import.meta.dirname, '../../..');
+const repo = resolve(import.meta.dirname, '../..');
 const hostEntry = join(repo, 'packages/h2a-runtime/dist/native-terminal/process.js');
 const cli = join(repo, 'packages/h2a/dist/bin.js');
 const quantile = (values, q) => [...values].sort((a, b) => a - b)[Math.ceil(values.length * q) - 1];
@@ -89,28 +89,52 @@ async function sample(t, rows, concurrency, state, mode, serial) {
 }
 
 let serial = 1;
-for (const mode of ['fresh', 'resume', 'restore']) {
-  for (const concurrency of [1, 5, 10]) for (const host of ['live', 'absent', 'killed']) {
-    test(`startup-matrix: ${mode}, ${concurrency} requests, host ${host}, registry 0/50/500`, { timeout: 120000 }, async t => {
-      const samples = new Map([0, 50, 500].map(rows => [rows, []]));
-      // Alternate registry sizes in paired rounds, avoiding a warmed-only full registry.
-      for (let round = 0; round < 3; round++) for (const rows of round % 2 ? [500, 50, 0] : [0, 50, 500]) {
-        const result = await sample(t, rows, concurrency, host, mode, serial++);
-        samples.get(rows).push(result);
-        t.diagnostic(JSON.stringify({ scenario: 'startup-matrix-sample', ...result }));
-      }
-      const empty = quantile(samples.get(0).map(s => s.usableMs), .5);
-      for (const [rows, values] of samples) {
-        const medianMs = quantile(values.map(s => s.usableMs), .5);
-        const p95Ms = quantile(values.map(s => s.usableMs), .95);
-        const deltaMs = medianMs - empty;
-        t.diagnostic(JSON.stringify({ scenario: 'startup-matrix-summary', mode, concurrency, host, rows,
-          medianMs, p95Ms, directMedianMs: quantile(values.map(s => s.directMs), .5),
-          pairedOverheadMedianMs: quantile(values.map(s => s.overheadMs), .5),
-          pairedOverheadP95Ms: quantile(values.map(s => s.overheadMs), .95), deltaMs, registryBudgetMs: 500,
-          probes: values.map(s => s.probes), opHelpers: values.map(s => s.opHelpers), nodeProcesses: values.map(s => s.nodeProcesses) }));
-        assert.ok(deltaMs <= 500, `${mode}/${concurrency}/${host}/${rows}: registry overhead ${deltaMs} > 500 ms`);
-      }
-    });
+async function matrix(t, mode, concurrency, host) {
+  const samples = new Map([0, 50, 500].map(rows => [rows, []]));
+  // Alternate registry sizes in paired rounds, avoiding a warmed-only full registry.
+  for (let round = 0; round < 3; round++) for (const rows of round % 2 ? [500, 50, 0] : [0, 50, 500]) {
+    const result = await sample(t, rows, concurrency, host, mode, serial++);
+    samples.get(rows).push(result);
+    t.diagnostic(JSON.stringify({ scenario: 'startup-matrix-sample', ...result }));
+  }
+  const empty = quantile(samples.get(0).map(s => s.usableMs), .5);
+  for (const [rows, values] of samples) {
+    const medianMs = quantile(values.map(s => s.usableMs), .5);
+    const p95Ms = quantile(values.map(s => s.usableMs), .95);
+    const deltaMs = medianMs - empty;
+    t.diagnostic(JSON.stringify({ scenario: 'startup-matrix-summary', mode, concurrency, host, rows,
+      medianMs, p95Ms, directMedianMs: quantile(values.map(s => s.directMs), .5),
+      pairedOverheadMedianMs: quantile(values.map(s => s.overheadMs), .5),
+      pairedOverheadP95Ms: quantile(values.map(s => s.overheadMs), .95), deltaMs, registryBudgetMs: 500,
+      probes: values.map(s => s.probes), opHelpers: values.map(s => s.opHelpers), nodeProcesses: values.map(s => s.nodeProcesses) }));
+    assert.ok(deltaMs <= 500, `${mode}/${concurrency}/${host}/${rows}: registry overhead ${deltaMs} > 500 ms`);
   }
 }
+
+test("startup-matrix: fresh, 1 requests, host live, registry 0/50/500", { timeout: 120000 }, t => matrix(t, "fresh", 1, "live"));
+test("startup-matrix: fresh, 1 requests, host absent, registry 0/50/500", { timeout: 120000 }, t => matrix(t, "fresh", 1, "absent"));
+test("startup-matrix: fresh, 1 requests, host killed, registry 0/50/500", { timeout: 120000 }, t => matrix(t, "fresh", 1, "killed"));
+test("startup-matrix: fresh, 5 requests, host live, registry 0/50/500", { timeout: 120000 }, t => matrix(t, "fresh", 5, "live"));
+test("startup-matrix: fresh, 5 requests, host absent, registry 0/50/500", { timeout: 120000 }, t => matrix(t, "fresh", 5, "absent"));
+test("startup-matrix: fresh, 5 requests, host killed, registry 0/50/500", { timeout: 120000 }, t => matrix(t, "fresh", 5, "killed"));
+test("startup-matrix: fresh, 10 requests, host live, registry 0/50/500", { timeout: 120000 }, t => matrix(t, "fresh", 10, "live"));
+test("startup-matrix: fresh, 10 requests, host absent, registry 0/50/500", { timeout: 120000 }, t => matrix(t, "fresh", 10, "absent"));
+test("startup-matrix: fresh, 10 requests, host killed, registry 0/50/500", { timeout: 120000 }, t => matrix(t, "fresh", 10, "killed"));
+test("startup-matrix: resume, 1 requests, host live, registry 0/50/500", { timeout: 120000 }, t => matrix(t, "resume", 1, "live"));
+test("startup-matrix: resume, 1 requests, host absent, registry 0/50/500", { timeout: 120000 }, t => matrix(t, "resume", 1, "absent"));
+test("startup-matrix: resume, 1 requests, host killed, registry 0/50/500", { timeout: 120000 }, t => matrix(t, "resume", 1, "killed"));
+test("startup-matrix: resume, 5 requests, host live, registry 0/50/500", { timeout: 120000 }, t => matrix(t, "resume", 5, "live"));
+test("startup-matrix: resume, 5 requests, host absent, registry 0/50/500", { timeout: 120000 }, t => matrix(t, "resume", 5, "absent"));
+test("startup-matrix: resume, 5 requests, host killed, registry 0/50/500", { timeout: 120000 }, t => matrix(t, "resume", 5, "killed"));
+test("startup-matrix: resume, 10 requests, host live, registry 0/50/500", { timeout: 120000 }, t => matrix(t, "resume", 10, "live"));
+test("startup-matrix: resume, 10 requests, host absent, registry 0/50/500", { timeout: 120000 }, t => matrix(t, "resume", 10, "absent"));
+test("startup-matrix: resume, 10 requests, host killed, registry 0/50/500", { timeout: 120000 }, t => matrix(t, "resume", 10, "killed"));
+test("startup-matrix: restore, 1 requests, host live, registry 0/50/500", { timeout: 120000 }, t => matrix(t, "restore", 1, "live"));
+test("startup-matrix: restore, 1 requests, host absent, registry 0/50/500", { timeout: 120000 }, t => matrix(t, "restore", 1, "absent"));
+test("startup-matrix: restore, 1 requests, host killed, registry 0/50/500", { timeout: 120000 }, t => matrix(t, "restore", 1, "killed"));
+test("startup-matrix: restore, 5 requests, host live, registry 0/50/500", { timeout: 120000 }, t => matrix(t, "restore", 5, "live"));
+test("startup-matrix: restore, 5 requests, host absent, registry 0/50/500", { timeout: 120000 }, t => matrix(t, "restore", 5, "absent"));
+test("startup-matrix: restore, 5 requests, host killed, registry 0/50/500", { timeout: 120000 }, t => matrix(t, "restore", 5, "killed"));
+test("startup-matrix: restore, 10 requests, host live, registry 0/50/500", { timeout: 120000 }, t => matrix(t, "restore", 10, "live"));
+test("startup-matrix: restore, 10 requests, host absent, registry 0/50/500", { timeout: 120000 }, t => matrix(t, "restore", 10, "absent"));
+test("startup-matrix: restore, 10 requests, host killed, registry 0/50/500", { timeout: 120000 }, t => matrix(t, "restore", 10, "killed"));

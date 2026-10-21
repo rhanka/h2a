@@ -6,6 +6,17 @@ const session = { id: "h2a-worker", status: "running", pid: 123, generation: "g"
 const endpoints = ["/private/native-terminal.sock", "/private/native-terminal.lf1.sock"];
 
 describe("native fleet ownership", () => {
+  it("should wait for a positively live publisher to finish before adopting it", async () => {
+    let attempts = 0;
+    const client = { list: async () => [session] } as unknown as NativeTerminalClient;
+    const inventory = await collectNativeInventory([endpoints[0]!], async () => {
+      if (++attempts < 4) throw Object.assign(new Error("not published yet"), { code: "ECONNREFUSED" });
+      return client;
+    }, async () => { throw Object.assign(new Error("publisher starting"), { code: "H2A_ENDPOINT_LIVE_OWNER" }); });
+    expect(inventory.complete).toBe(true);
+    expect(resolveNativeOwner(session.id, inventory)).toMatchObject({ state: "found", client });
+    expect(attempts).toBe(4);
+  });
   it.each(["live-owner", "lock-timeout"])("should adopt a healthy successor after a raced %s absence proof", async (failure) => {
     let attempts = 0;
     const client = { list: async () => [session] } as unknown as NativeTerminalClient;
