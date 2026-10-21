@@ -689,19 +689,22 @@ async function recordEndpointOwner(socketPath: string, socket: NativeTerminalSoc
  * ENOENT/ECONNREFUSED are candidates, never proof by themselves. Serialize
  * with publication and re-read both the socket and its durable process
  * identity. A live or unreadable owner keeps the endpoint unknown.
- * No socket is removed by an inventory; publication owns reclamation.
+ * Inventories use the read-only default. A launch can explicitly reclaim the
+ * proven-dead inode under this same lock, so subsequent starters do not each
+ * repeat the one-second stale-inode proof ahead of the new publisher.
  */
 export async function proveNativeTerminalEndpointAbsent(
   socketPath: string,
   failure: unknown,
   readFrame: ReadProcessFrame = readProcessFrame,
   ownerProbe: NativeTerminalOwnerHostProbe = defaultOwnerHostProbe,
+  reclaimStaleSocket = false,
 ): Promise<boolean> {
   const code = (failure as NodeJS.ErrnoException | undefined)?.code;
   if (code !== "ENOENT" && code !== "ECONNREFUSED") return false;
   await ensurePrivateSocketDirectory(socketPath);
   return withSocketPublicationLock(socketPath,
-    signal => proveEndpointAbsentUnderLock(socketPath, signal, readPublicationFrame(readFrame), ownerProbe));
+    signal => proveEndpointAbsentUnderLock(socketPath, signal, readPublicationFrame(readFrame), ownerProbe, reclaimStaleSocket));
 }
 
 function canonicalizePath(targetPath: string): string | undefined {
@@ -942,15 +945,18 @@ function readPublicationFrame(readFrame: ReadProcessFrame): DurableProcFrame {
   return frame;
 }
 
-/** A refused connect says only that nobody accepts now. All five refusals
- * must complete within the global budget; every attempt has its own timer.
+/** A refused connect says only that nobody accepts now. An existing inode
+ * needs all five refusals; a missing pathname needs one under the publication
+ * lock (active-host and durable-owner checks still precede it, inode recheck
+ * still follows). Every attempt has its own timer and a shared global budget.
  * Abort destroys the socket and cancels the interval before the lock releases. */
 async function repeatedlyRefusesConnection(socketPath: string, socketPresent: boolean, signal?: AbortSignal): Promise<boolean> {
   const deadline = new AbortController();
   const timer = setTimeout(() => deadline.abort(new NativeTerminalPublicationRefusal("H2A_ENDPOINT_PROBE_TIMEOUT")), 2_000);
   const bounded = signal ? AbortSignal.any([signal, deadline.signal]) : deadline.signal;
   try {
-    for (let attempt = 0; attempt < 5; attempt++) {
+    const attempts = socketPresent ? 5 : 1;
+    for (let attempt = 0; attempt < attempts; attempt++) {
       bounded.throwIfAborted();
       const refusal = await new Promise<boolean>((resolve, reject) => {
         const connection = createConnection(socketPath);
@@ -971,7 +977,7 @@ async function repeatedlyRefusesConnection(socketPath: string, socketPresent: bo
         });
       });
       if (!refusal) return false;
-      if (attempt < 4) {
+      if (attempt < attempts - 1) {
         await new Promise<void>((resolve, reject) => {
           const cancel = () => { clearTimeout(interval); reject(bounded.reason); };
           const interval = setTimeout(() => { bounded.removeEventListener("abort", cancel); resolve(); }, 250);
@@ -992,6 +998,7 @@ async function proveEndpointAbsentUnderLock(
   signal: AbortSignal | undefined,
   currentFrame: DurableProcFrame,
   ownerProbe: NativeTerminalOwnerHostProbe = defaultOwnerHostProbe,
+  reclaimStaleSocket = false,
 ): Promise<boolean> {
   signal?.throwIfAborted();
   let socket: NativeTerminalSocketIdentity | undefined;
@@ -1099,6 +1106,11 @@ async function proveEndpointAbsentUnderLock(
   } else if (socket && !sidecarProvesDeath && staleProof !== undefined) {
     await recordEndpointOwner(socketPath, socket, { pid: staleProof.ownerHostPid!, startTime: staleProof.ownerHostStartTime }, signal, currentFrame,
       { bootId: staleProof.pgidBootId, pidNamespace: staleProof.pgidPidNamespace, machineId: staleProof.pgidMachineId });
+  }
+  if (socket && reclaimStaleSocket) {
+    unlinkOwnedPath(socketPath, socket);
+    try { await abortable(lstat(socketPath), signal); return false; }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
   }
   return true;
 }

@@ -1,3 +1,16 @@
+# Native host crash recovery — fix/native-host-crash-recovery
+
+- Objective: investigate the 20 October incident independently; ship bounded startup, concurrent recovery, terminal cgroup separation and owner-only restore.
+- Scope: runtime conv-guard, native-terminal/{fleet,op,server,process,host-scope}, restore; named regressions, native test isolation, execution inventory, branch/review evidence.
+- Confinement: private TMPDIR /home/antoinefa/.cache-tmp/h2a-test/run-2jadsY; no installed binary, owner state/bus/processes, Python, full suite, Track writes or main mutation. Preserve supplied untracked scripts/owner-lab/restart.test.mjs.
+- RED: guard probes 500 instead of 1; resume/ten-resume cases cancel at 10/32 s; concurrent recovery refuses publication-lock timeout; scope request absent; fleet adoption 2/10 failures; restore provenance 3/36 failures.
+- Implementation: filter conversation before liveness, bounded healthy-successor adoption, single probe only for an absent pathname under lock, own systemd scope before PTY admission with visible fallback, reject delegation and unconfirmed legacy restore.
+- Qualification: named test files only; no skip accepted. Real systemd OOM survival and spontaneous machine reboot cause are outside this confinement's evidence.
+- Delivery: conventional English commit without trailers; rebase origin/main, lease push only this branch, ready PR. Detailed commands and results: docs/reviews/native-host-crash-recovery.md.
+- Review: no author-complementary installed-h2a review can access real state; record selection-failed, no consensus claimed.
+
+# Inherited origin/main branch records
+
 # Workspace scope guard opt-in — fix/scope-guard-opt-in
 
 - Owner order: disable the workspace scope guard by default in every packaged

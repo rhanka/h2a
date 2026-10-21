@@ -60,6 +60,7 @@
   "packages/h2a-runtime/src/native-terminal/client.test.ts": [],
   "packages/h2a-runtime/src/native-terminal/drive.functional.test.ts": [],
   "packages/h2a-runtime/src/native-terminal/fleet.test.ts": [],
+  "packages/h2a-runtime/src/native-terminal/host-scope.test.ts": [],
   "packages/h2a-runtime/src/native-terminal/host.test.ts": [
     "NativeTerminalHost should use reserved launch ownership and reject a different host before spawning",
     "NativeTerminalHost should keep output and exit lifecycle independent across sessions",
@@ -192,6 +193,7 @@
   "packages/h2a-runtime/src/restore-launch.test.ts": [],
   "packages/h2a-runtime/src/restore-live-recovery.test.ts": [],
   "packages/h2a-runtime/src/restore-wiring.test.ts": [],
+  "packages/h2a-runtime/src/restore-provenance.test.ts": [],
   "packages/h2a-runtime/src/restore.test.ts": [],
   "packages/h2a-runtime/src/routing-preferences.test.ts": [],
   "packages/h2a-runtime/src/run-ws-surface.test.ts": [],
@@ -792,6 +794,14 @@
   "packages/h2a/test/native-host-convergence.test.js": [
     "doctor dry-run is empty of writes; explicit lifecycle is independent of MCP and preserves off/on",
     "guard rejects fixture qualification, retains stale-code choice, and suspends on observable MCP loss"
+  ],
+  "packages/h2a/test/native-host-crash-recovery.test.js": [
+    "startup-latency: conversation guard probes only the requested conversation among 500 rows",
+    "startup-latency: one resume with 500 registry rows reaches host start within 2 seconds",
+    "crash-recovery: five concurrent resume clients recover one SIGKILLed host",
+    "startup-latency: restoring ten resumes with 500 registry rows converges within 30 seconds",
+    "oom-isolation: host requests its own protected systemd scope before admitting PTYs",
+    "startup-latency: fresh, resume and restore add at most 500 ms with 500 mixed rows"
   ],
   "packages/h2a/test/native-host-equipment.test.js": [
     "Vibe installs resources under VIBE_HOME, requires force for managed edits and preserves unknown skills",

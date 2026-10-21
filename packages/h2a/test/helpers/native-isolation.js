@@ -11,7 +11,9 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 // The runner creates it with mkdtemp; every child carries the same boundary.
 const shortQualificationRoot = process.env.H2A_TEST_QUALIFICATION_ROOT;
 if (shortQualificationRoot !== undefined) {
-  assert.ok(/^\/tmp\/h2a-qual-[A-Za-z0-9]+$/.test(shortQualificationRoot), "REFUSING invalid short qualification root");
+  assert.ok(/^\/tmp\/h2a-qual-[A-Za-z0-9]+$/.test(shortQualificationRoot) ||
+    /^\/home\/[^/]+\/\.cache-tmp\/h2a-test\/run-[A-Za-z0-9]+$/.test(shortQualificationRoot),
+  "REFUSING invalid short qualification root");
   const info = lstatSync(shortQualificationRoot);
   assert.ok(info.isDirectory() && !info.isSymbolicLink() && info.uid === process.getuid() && (info.mode & 0o777) === 0o700,
     "REFUSING non-private short qualification root");
@@ -36,7 +38,8 @@ function rejectOwnerPath(path) {
   assert.ok(
     !exactForbidden.includes(path) &&
     !prefixForbidden.some(root => path === root || path.startsWith(`${root}/`)) &&
-    (!ownerHome || !path.startsWith(join(ownerHome, ".cache-tmp/h2a-"))),
+    (!ownerHome || !path.startsWith(join(ownerHome, ".cache-tmp/h2a-")) ||
+      (shortQualificationRoot && (path === shortQualificationRoot || path.startsWith(`${shortQualificationRoot}/`)))),
     `REFUSING owner path before filesystem access: ${path}`);
 }
 
@@ -119,10 +122,11 @@ export function assertIsolatedNativeOperation(env, root = nativeQualificationRoo
 // A complete child fixture never inherits owner configuration or socket overrides.
 export function nativeTestEnvironment(root, overrides = {}) {
   assertPrivateQualificationPath(root, nativeQualificationRoot);
-  const env = { ...(nativeQualificationRoot.startsWith("/tmp/") ? { H2A_TEST_QUALIFICATION_ROOT: nativeQualificationRoot } : {}), PATH: "/usr/bin:/bin", TERM: "xterm-256color", HOME: join(root, "home"),
+  const env = { ...(shortQualificationRoot ? { H2A_TEST_QUALIFICATION_ROOT: shortQualificationRoot } : {}), PATH: "/usr/bin:/bin", TERM: "xterm-256color", HOME: join(root, "home"),
     XDG_RUNTIME_DIR: root, XDG_STATE_HOME: join(root, "state"), XDG_CONFIG_HOME: join(root, "config"),
     H2A_NATIVE_SOCKET: join(root, "host.sock"), REMOTE_CLI_CONFIG_HOME: join(root, "config"),
-    TMPDIR: join(root, "tmp"), TMUX_TMPDIR: root, H2A_ROOT: join(root, "store"), ...overrides };
+    TMPDIR: join(root, "tmp"), TMUX_TMPDIR: root, H2A_ROOT: join(root, "store"),
+    DBUS_SESSION_BUS_ADDRESS: `unix:path=${join(root, "no-bus")}`, ...overrides };
   assertIsolatedEnvironment(env);
   for (const key of ["HOME", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "REMOTE_CLI_CONFIG_HOME", "TMPDIR"])
     mkdirSync(env[key], { recursive: true, mode: 0o700 });

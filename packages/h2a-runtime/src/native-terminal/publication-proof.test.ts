@@ -3,7 +3,7 @@ import { createPrivateTestDirectory, setupNativeTestEnvironment, spawnIsolatedNa
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { once } from "node:events";
 import { createHash, randomUUID } from "node:crypto";
-import { readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { chmod, mkdtemp, rm } from "node:fs/promises";
 import { createConnection, Socket } from "node:net";
 import { dirname, join } from "node:path";
@@ -95,6 +95,18 @@ function assertLocked(path: string) {
 }
 
 describe("publication proof v5", () => {
+  it.each(["dead", "alive", "unresolvable"] as const)("should reclaim a launch endpoint only with a dead owner, observed %s", async verdict => {
+    const path = await endpoint();
+    await boundSocket(path, true); sidecar(path);
+    expect(await proveNativeTerminalEndpointAbsent(path, { code: "ECONNREFUSED" }, () => current, () => verdict, true))
+      .toBe(verdict === "dead");
+    expect(existsSync(path)).toBe(verdict !== "dead");
+  });
+  it("should prove a missing pathname with one refusal under the publication lock", async () => {
+    const path = await endpoint();
+    expect(await absent(path, () => current)).toBe(true);
+    expect(vi.mocked(createConnection)).toHaveBeenCalledTimes(1);
+  });
   it("should refuse coded when machine-id is unreadable", async () => {
     const path = await endpoint(); const probe = vi.fn(() => "dead" as const);
     const read = vi.fn(() => ({ ...current, machineId: undefined }));
