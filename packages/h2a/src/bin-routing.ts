@@ -12,7 +12,15 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { H2A_CLI_VERB_CONTRACTS } from "./cli-contract.js";
-import { TRACK_FACADE_VERBS } from "./cli.js";
+// R3 P1: light routing — bin.ts statically imports this module before
+// deciding whether the heavy `./cli.js` monolith is needed at all, so this
+// module must NOT import `./cli.js` (7884 lines). The facade list below
+// duplicates the canonical `TRACK_FACADE_VERBS` in `cli.js`; the
+// `anti-drift: façade track ⊆ verbes natifs` test pins them in sync.
+const TRACK_FACADE_VERBS: ReadonlySet<string> = new Set<string>([
+  "decision", "report", "accept", "blocker", "item", "query",
+  "consolidate", "priority", "branch", "focus", "ingest", "restructure", "snapshot",
+]);
 
 // Verbes gérés DIRECTEMENT dans bin.ts (branches async). Ils sont tous déjà des
 // premiers-mots du contrat, mais on les liste pour que le routage ne dépende

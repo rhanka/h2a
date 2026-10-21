@@ -32,3 +32,26 @@ red('publication-contention', join(runtime, 'native-terminal/server.js'), 'ten c
 red('worker-scope', join(runtime, 'native-terminal/process.js'), undefined,
   code => code.replace('spawner: isolation.isolated ?', 'spawner: false ?'),
   /h2a-native-/);
+// R3 P1 negative control: a 1 s sleep in the packaged bin.js must fail the
+// absolute native-CLI qualification (fresh/resume median <= 250 ms). This
+// proves the gate is sensitive to a registry-independent slowdown (the R2
+// blind spot: only the registry-delta was asserted, so a common slowdown
+// passed). Runs one matrix cell; timeout covers 9 paired samples.
+{
+  const binJs = resolve('packages/h2a/dist/bin.js');
+  const original = readFileSync(binJs, 'utf8');
+  const changed = original.replace('#!/usr/bin/env node',
+    '#!/usr/bin/env node\nawait new Promise(resolve => setTimeout(resolve, 1000));');
+  assert.notEqual(changed, original, 'startup-overhead: mutation did not apply');
+  try {
+    writeFileSync(binJs, changed);
+    const args = ['--test', '--test-name-pattern=startup-matrix: fresh, 1 requests, host live,',
+      'scripts/owner-lab/startup-matrix.qualification.mjs'];
+    const result = spawnSync(process.execPath, args, { env: process.env, encoding: 'utf8', timeout: 300000 });
+    assert.equal(result.error, undefined, 'startup-overhead: infrastructure error');
+    assert.notEqual(result.status, 0, 'startup-overhead: 1 s slowdown escaped the absolute gate');
+    assert.match(result.stdout + result.stderr, /paired native-CLI overhead/,
+      'startup-overhead: failed for the wrong reason');
+    console.log(`startup-overhead: RED detected (exit ${result.status}); artifact restored`);
+  } finally { writeFileSync(binJs, original); }
+}

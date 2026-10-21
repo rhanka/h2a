@@ -145,7 +145,13 @@ jobs:
         run: npm install --global @openai/codex@0.145.0 @anthropic-ai/claude-code@2.1.296
       - name: Verify messaging backends and receive signatures
         run: node --test packages/h2a/test/send.test.js packages/h2a/test/cluster-mesh-messaging.test.js
-      - run: npm test
+      - name: Run the full test gates with a disposable TMPDIR
+        shell: bash
+        run: |
+          set -euo pipefail
+          export TMPDIR="$(mktemp -d "$RUNNER_TEMP/h2a-gates-XXXXXX")"
+          trap 'rm -rf "$TMPDIR"' EXIT
+          npm test
       - name: Exercise the native multi-session terminal host
         run: >-
           npx --no-install vitest run
@@ -206,6 +212,16 @@ jobs:
       - name: Install the mandatory configuration oracles
         run: npm install --global @openai/codex@0.145.0 @anthropic-ai/claude-code@2.1.296
       - name: Verify npm test wiring independently
-        run: node --test packages/h2a/test/run-test-gates.test.js
+        shell: bash
+        run: |
+          set -euo pipefail
+          export TMPDIR="$(mktemp -d "$RUNNER_TEMP/h2a-trust-root-XXXXXX")"
+          trap 'rm -rf "$TMPDIR"' EXIT
+          node --test packages/h2a/test/run-test-gates.test.js
       - name: Execute the production test entrypoint directly
-        run: node scripts/run-test-gates.mjs
+        shell: bash
+        run: |
+          set -euo pipefail
+          export TMPDIR="$(mktemp -d "$RUNNER_TEMP/h2a-trust-root-XXXXXX")"
+          trap 'rm -rf "$TMPDIR"' EXIT
+          node scripts/run-test-gates.mjs

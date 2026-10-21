@@ -11,8 +11,19 @@ const hostEntry = join(repo, 'packages/h2a-runtime/dist/native-terminal/process.
 const cli = join(repo, 'packages/h2a/dist/bin.js');
 const quantile = (values, q) => [...values].sort((a, b) => a - b)[Math.ceil(values.length * q) - 1];
 
-async function sample(t, rows, concurrency, state, mode, serial) {
+async function sample(t, rows, concurrency, state, mode, serial, isolation = "fallback") {
   const f = fixture(t);
+  // R3 P2 effective-systemd path: on the disposable CI VM, use the real user
+  // manager bus so the host/workers land in their own scopes; the fallback
+  // (no-bus) remains the separate witness. Systemd samples assert the
+  // effective cgroups, not only systemd-run arguments.
+  if (isolation === "systemd") {
+    assert.equal(process.env.GITHUB_ACTIONS, "true", "systemd matrix requires a disposable GitHub hosted VM");
+    assert.equal(process.env.RUNNER_ENVIRONMENT, "github-hosted", "self-hosted workstations are forbidden");
+    const bus = process.env.H2A_LAB_DISPOSABLE_BUS;
+    assert.ok(bus?.startsWith("unix:path=/run/user/"), "the disposable VM must supply its user manager bus");
+    f.env.DBUS_SESSION_BUS_ADDRESS = bus;
+  }
   try {
     const project = join(f.env.HOME, 'src/owner-project'); mkdirSync(project, { recursive: true });
     const targets = Array.from({ length: concurrency }, (_, i) => ({
@@ -84,6 +95,18 @@ async function sample(t, rows, concurrency, state, mode, serial) {
         catch (error) { if (error.code === 'ENOENT') return false; throw error; }
       });
       assert.deepEqual(liveHosts.map(row => row.pid), [hostPid]);
+      if (isolation === "systemd") {
+        const cgroupOf = (pid) => readFileSync(`/proc/${pid}/cgroup`, "utf8").trim().split("::")[1] ?? "";
+        const hostGroup = cgroupOf(hostPid);
+        assert.match(hostGroup, /\/h2a-native-.*\.scope$/, `host not in its own scope: ${hostGroup}`);
+        for (const target of targets) {
+          const st = await client.state(target.tmuxSession);
+          const workerGroup = cgroupOf(st.pid);
+          assert.match(workerGroup, /\/h2a-session-.*\.scope$/, `worker not in its own scope: ${workerGroup}`);
+          assert.notEqual(workerGroup, hostGroup, "worker shares the host scope");
+        }
+        t.diagnostic(JSON.stringify({ scenario: "startup-matrix-cgroups", mode, concurrency, host: state, rows, hostGroup }));
+      }
     } finally { client.close(); }
     return { unrelatedRows: rows, totalRegistryRowsAtStart: rows + (mode === 'restore' ? concurrency : 0),
       concurrency, host: state, mode, directMs, usableMs, overheadMs: usableMs - directMs,
@@ -92,11 +115,11 @@ async function sample(t, rows, concurrency, state, mode, serial) {
 }
 
 let serial = 1;
-async function matrix(t, mode, concurrency, host) {
+async function matrix(t, mode, concurrency, host, isolation = "fallback") {
   const samples = new Map([0, 50, 500].map(rows => [rows, []]));
   // Alternate registry sizes in paired rounds, avoiding a warmed-only full registry.
   for (let round = 0; round < 3; round++) for (const rows of round % 2 ? [500, 50, 0] : [0, 50, 500]) {
-    const result = await sample(t, rows, concurrency, host, mode, serial++);
+    const result = await sample(t, rows, concurrency, host, mode, serial++, isolation);
     samples.get(rows).push(result);
     t.diagnostic(JSON.stringify({ scenario: 'startup-matrix-sample', ...result }));
   }
@@ -111,6 +134,23 @@ async function matrix(t, mode, concurrency, host) {
       pairedOverheadP95Ms: quantile(values.map(s => s.overheadMs), .95), deltaMs, registryBudgetMs: 500,
       probes: values.map(s => s.probes), opHelpers: values.map(s => s.opHelpers), nodeProcesses: values.map(s => s.nodeProcesses) }));
     assert.ok(deltaMs <= 500, `${mode}/${concurrency}/${host}/${rows}: registry overhead ${deltaMs} > 500 ms`);
+    // R3 P1 absolute native-CLI budget (distinct from the registry-delta
+    // budget above): paired overhead vs the same deterministic CLI launched
+    // directly. Fresh/resume are BLOCKING (median <= 250 ms, p95 <= 500 ms);
+    // restore is reported separately with its own diagnostic (no absolute
+    // gate: it replays a full terminal/GUI restoration per tab).
+    const pairedMedianMs = quantile(values.map(s => s.overheadMs), .5);
+    const pairedP95Ms = quantile(values.map(s => s.overheadMs), .95);
+    if (mode === "fresh" || mode === "resume") {
+      assert.ok(pairedMedianMs <= 250,
+        `${mode}/${concurrency}/${host}/${rows}: paired native-CLI overhead median ${pairedMedianMs} > 250 ms`);
+      assert.ok(pairedP95Ms <= 500,
+        `${mode}/${concurrency}/${host}/${rows}: paired native-CLI overhead p95 ${pairedP95Ms} > 500 ms`);
+    } else {
+      t.diagnostic(JSON.stringify({ scenario: "startup-matrix-restore-report", mode, concurrency, host, rows,
+        pairedOverheadMedianMs: pairedMedianMs, pairedOverheadP95Ms: pairedP95Ms,
+        note: "reported separately; no absolute gate" }));
+    }
   }
 }
 
@@ -141,3 +181,9 @@ test("startup-matrix: restore, 5 requests, host killed, registry 0/50/500", { ti
 test("startup-matrix: restore, 10 requests, host live, registry 0/50/500", { timeout: 120000 }, t => matrix(t, "restore", 10, "live"));
 test("startup-matrix: restore, 10 requests, host absent, registry 0/50/500", { timeout: 120000 }, t => matrix(t, "restore", 10, "absent"));
 test("startup-matrix: restore, 10 requests, host killed, registry 0/50/500", { timeout: 120000 }, t => matrix(t, "restore", 10, "killed"));
+// R3 P2 effective-systemd path (disposable CI VM only): same budgets plus
+// effective cgroup readout. The no-systemd fallback above stays the witness.
+test("startup-matrix-systemd: fresh, 1 requests, host live, registry 0/50/500", { timeout: 180000 }, t => matrix(t, "fresh", 1, "live", "systemd"));
+test("startup-matrix-systemd: fresh, 1 requests, host killed, registry 0/50/500", { timeout: 180000 }, t => matrix(t, "fresh", 1, "killed", "systemd"));
+test("startup-matrix-systemd: resume, 1 requests, host live, registry 0/50/500", { timeout: 180000 }, t => matrix(t, "resume", 1, "live", "systemd"));
+test("startup-matrix-systemd: resume, 1 requests, host killed, registry 0/50/500", { timeout: 180000 }, t => matrix(t, "resume", 1, "killed", "systemd"));

@@ -69,8 +69,30 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { TEST_DIRS, discoverTestFiles, listNodeTrackSuiteFiles, NODE_TRACK_EXECUTION_REPORT, verifyNodeTrackExecution } from './run-tests.mjs'
 import { discoverSuites, verifyExecutionReport, readInventory, inventoryFailures } from './test-execution-evidence.mjs'
 import { policyFor, readDeclaredNonTests } from './test-inventory.mjs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { reportSuiteDurations } from './report-test-durations.mjs'
+
+// Disposable-TMPDIR guarantee (PR #390 R3 P1): every runner path creates,
+// exports and cleans a private TMPDIR; the confinement assertion in
+// packages/h2a/test/helpers/restart-lab.js stays intact.
+function ensureDisposableTmpdir() {
+  const current = process.env.TMPDIR;
+  try {
+    if (current && resolve(current) !== '/tmp' && resolve(current) !== '/' && existsSync(current)) return current;
+  } catch { /* fall through and create */ }
+  const parent = process.env.RUNNER_TEMP && existsSync(process.env.RUNNER_TEMP)
+    ? process.env.RUNNER_TEMP
+    : (() => { const base = join(homedir(), '.cache-tmp', 'h2a-test'); mkdirSync(base, { recursive: true }); return base; })();
+  const dir = mkdtempSync(join(parent, 'h2a-gates-'));
+  process.env.TMPDIR = dir;
+  process.env.TMP = dir;
+  process.env.TEMP = dir;
+  const clean = () => { try { rmSync(dir, { recursive: true, force: true }); } catch {} };
+  process.once('exit', clean);
+  return dir;
+}
+
+ensureDisposableTmpdir();
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(HERE, '..')

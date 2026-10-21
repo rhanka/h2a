@@ -439,6 +439,130 @@ export function startNativeSession(
   }
 }
 
+export type NativeSingleShotResult = NativeStartResult & {
+  readonly socketPath: string;
+  readonly generation: string;
+  readonly workerPid?: number | undefined;
+};
+
+/**
+ * R3 P1 single-fork fast path for `run` (fresh/resume): ONE `op.js launch`
+ * invocation shares one async client and one inventory for ensure-host +
+ * admit + probe + create, and returns pid/identity so callers skip their
+ * re-probes. Admission stays atomic under the host lock: a
+ * `native-name-collision` or `native-inventory-unknown` payload throws the
+ * same certified refusal as the multi-fork path (no check removed without
+ * an atomic equivalent). With `beforeCreate`, one fenced `ensure-host`
+ * precedes the launch so the launch-guard ownership (generation +
+ * incarnation) is still recorded before creation: 2 forks instead of 5+.
+ */
+export function startNativeSessionSingleShot(
+  profile: string,
+  command: string,
+  cwd: string,
+  args: ReadonlyArray<string> = [],
+  label?: string,
+  metadata: NativeLaunchMetadata = {},
+): NativeSingleShotResult {
+  const slug = slugify(label ?? cwd);
+  const name = localSessionName(slug);
+  const agentCommand = metadata.terminateOnAgentExit
+    ? ["/bin/bash", "-lc", STRUCTURED_LOCAL_WRAPPER, command, ...args]
+    : [
+        "/bin/bash",
+        "-lc",
+        LOCAL_WRAPPER,
+        localRelaunchCommand(
+          profile,
+          cwd,
+          label,
+          metadata.resumeId ? ["--resume", metadata.resumeId] : [],
+        ),
+        command,
+        ...args,
+      ];
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(metadata.seat?.childEnv ?? process.env)) {
+    if (value !== undefined) env[key] = value;
+  }
+  env["TERM"] = "xterm-256color";
+  env["H2A_NATIVE_TERMINAL"] = "1";
+  if (metadata.sessionClass !== undefined) {
+    env[SESSION_CLASS_ENV] = metadata.sessionClass;
+  }
+  const envDir = mkdtempSync(join(tmpdir(), "h2a-native-env-"));
+  const envFile = join(envDir, "env.json");
+  try {
+    writeFileSync(envFile, JSON.stringify(env), { mode: 0o600, flag: "wx" });
+    // Fenced path (launch-guard): pin generation first so `beforeCreate`
+    // still records ownership before the creation it guards.
+    let fencedArgs: string[] = [];
+    if (metadata.beforeCreate) {
+      const selected = ensureNativeHost({ fenced: true });
+      const { generation, launchFence, hostPid, socketPath } = selected;
+      if (!launchFence) throw new NativeHostCapabilityMismatchError({ generation, hostPid, socketPath });
+      const incarnation = randomUUID();
+      metadata.beforeCreate({ name, generation, incarnation, socketPath });
+      fencedArgs = ["--socket", socketPath, "--generation", generation, "--incarnation", incarnation,
+        "--sidecar", nativeSidecarName(name)];
+    }
+    // Always fenced: the multi-fork path always certified launchFence
+    // via preflight/prepare, so the single fork must too (no silent downgrade).
+    const { payload } = runOp([
+      "launch",
+      ...fencedArgs,
+      ...(!metadata.beforeCreate ? ["--sidecar", nativeSidecarName(name)] : []),
+      ...(metadata.refuseExisting ? ["--refuse-existing", "true"] : []),
+      "--fenced", "true",
+      "--id",
+      name,
+      "--cwd",
+      cwd,
+      "--cols",
+      String(HEADLESS_TERMINAL_SIZE.cols),
+      "--rows",
+      String(HEADLESS_TERMINAL_SIZE.rows),
+      "--env-file",
+      envFile,
+      "--",
+      ...agentCommand,
+    ], { onCreateAttempt: metadata.onCreateAttempt });
+    const record = payload as (NativeSessionState & { code?: string; id?: string;
+      socketPath?: string; hostPid?: number; generation?: string;
+      launchFence?: boolean; adopted?: boolean; reason?: string; hosts?: unknown } | undefined);
+    if (!record || typeof record.pid !== "number") {
+      if (record?.code === "native-host-capability-mismatch") {
+        const host = { generation: typeof record.generation === "string" ? record.generation : "",
+          hostPid: typeof record.hostPid === "number" ? record.hostPid : 0,
+          socketPath: record.socketPath ?? "" };
+        appendCrashLog("cli", { event: "refusal", sessionId: name, instanceId: host.generation,
+          reason: "native-host-capability-mismatch", detail: host.socketPath });
+        throw new NativeHostCapabilityMismatchError(host);
+      }
+      if (record?.code === "native-name-collision") {
+        if (metadata.beforeCreate) throw new NativeLaunchAdmissionError({ code: "native-name-collision",
+          id: record.id ?? name, ...(record.socketPath ? { socketPath: record.socketPath } : {}) });
+        throw new Error(`native session ${slug} already exists; no agent was started`);
+      }
+      if (record?.code === "native-inventory-unknown") {
+        appendCrashLog("cli", { event: "refusal", sessionId: name, reason: "native-inventory-unknown",
+          detail: "launch refused before creation" });
+        throw new NativeLaunchAdmissionError({ code: "native-inventory-unknown",
+          ...(record.socketPath ? { socketPath: record.socketPath } : {}), hosts: record.hosts });
+      }
+      throw new Error(`native host did not return a session state for ${slug}`);
+    }
+    const socketPath = record.socketPath ?? "";
+    const generation = typeof (record as { generation?: unknown }).generation === "string"
+      ? (record as { generation: string }).generation : "";
+    let workerPid: number | undefined;
+    try { workerPid = readWorkerPid(record.pid, procReaderDeps()); } catch { workerPid = undefined; }
+    return { name, slug, pid: record.pid, socketPath, generation, ...(workerPid !== undefined ? { workerPid } : {}) };
+  } finally {
+    rmSync(envDir, { recursive: true, force: true });
+  }
+}
+
 /** sendKeysLiteral twin: raw keystrokes, no interpretation. */
 export function nativeSendKeysLiteral(name: string, text: string, socketPath?: string): boolean {
   const { status } = runOp(

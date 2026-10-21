@@ -164,6 +164,7 @@ import {
   startNativeH2aSidecar,
   startNativeHeadlessSession,
   startNativeSession,
+  startNativeSessionSingleShot,
   NativeHostCapabilityMismatchError,
   NativeLaunchAdmissionError,
   type NativeLaunchOwnership,
@@ -6378,9 +6379,12 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           }
         };
         try {
-        if (structuredLaunch && sessionHost === "native") {
-          for (const label of labels) preflightNativeLaunch(localSessionName(slugify(label ?? cwd)));
-        }
+        // R3 P1: no separate preflight fork. The single-shot launch below
+        // performs fenced ensure-host + admission atomically in its own
+        // fork (same certified refusals, no check removed without an atomic
+        // equivalent), so a preflight here would only re-pay Node startup
+        // and an inventory for the same verdict.
+        void preflightNativeLaunch;
         const reservedTmuxSlugs = tmuxAvailable()
           ? existingLocalSessionSlugs(labels, cwd)
           : [];
@@ -6629,6 +6633,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           }
           let name: string;
           let slug: string;
+          // R3 P1: pid/identity returned by the single-shot launch; the
+          // re-probes below prefer these and skip their forks.
+          let launchedPid: number | undefined;
+          let launchedWorkerPid: number | undefined;
           let outputLog: string | undefined;
           let resultJson: string | undefined;
           let agentPane: string | undefined;
@@ -6691,7 +6699,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               ));
             }
           } else if (sessionHost === "native") {
-            ({ name, slug } = startNativeSession(
+            // R3 P1: single-fork launch (one shared async client + one
+            // inventory); returns pid/identity so the re-probes below are skipped.
+            ({ name, slug, pid: launchedPid, workerPid: launchedWorkerPid } = startNativeSessionSingleShot(
               profile,
               command,
               cwd,
@@ -6923,15 +6933,18 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               sleepSync(50);
             }
           }
+          // R3 P1: prefer the pid/identity returned by the single-shot
+          // launch (no fork); fall back to probes only when absent (e.g.
+          // tmux path or adopted pre-existing session without a fresh pid).
           const pid =
             sessionHost === "native"
-              ? nativeSessionPid(name)
+              ? (launchedPid ?? nativeSessionPid(name))
               : agentPane
                 ? localSessionPanePid(agentPane)
                 : undefined;
           const workerPid =
             sessionHost === "native"
-              ? nativeWorkerPid(name)
+              ? (launchedWorkerPid ?? nativeWorkerPid(name))
               : agentPane !== undefined
                 ? paneWorkerPid(agentPane)
                 : undefined;
