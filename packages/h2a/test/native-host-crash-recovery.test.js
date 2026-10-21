@@ -1,13 +1,9 @@
 // Isolated incident lab: no installed h2a, provider, user bus or owner process.
 // Mandatory Node discovery/release regression. Run after the build with a private TMPDIR.
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
-import { once } from 'node:events';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
-import { setTimeout as pause } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 import { NativeTerminalClient } from '../../h2a-runtime/dist/native-terminal/client.js';
 import { convOwners } from '../../h2a-runtime/dist/conv-guard.js';
@@ -30,7 +26,10 @@ test('startup-latency: real run --resume probes one matching owner and no foreig
   const target = { ...f.entries(1)[0], id: 'target', tmuxSession: 'h2a-target',
     convId: '00000000-0000-4000-8000-000000000071' };
   f.save([...f.mixed(499), target]);
-  const result = await f.resume(71).done;
+  const run = f.resume(71);
+  await eventually(() => ({ code: run.child.exitCode,
+    ownerProbes: f.recorded().filter(r => r.args[2] === 'probe').map(r => r.args[4]) }), r => r.code !== null);
+  const result = await run.done;
   assert.equal(result.code, 0, result.stderr + result.stdout);
   await usable(f, 'h2a-lab-71');
   const owners = f.recorded().filter(r => r.args[1]?.endsWith('/op.js') && r.args[2] === 'probe' && r.args[4] !== 'h2a-lab-71');
