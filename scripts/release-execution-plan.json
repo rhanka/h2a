@@ -123,14 +123,33 @@
       {
         "shell": "bash",
         "run": [
+          "set -euo pipefail",
+          "mkdir -p -m 0700 \"$HOME/.cache-tmp/h2a-test\"",
+          "DIR=\"$(mktemp -d \"$HOME/.cache-tmp/h2a-test/run-XXXXXX\")\"",
+          "echo \"TMPDIR=$DIR\" >> \"$GITHUB_ENV\"",
+          "echo \"TMP=$DIR\" >> \"$GITHUB_ENV\"",
+          "echo \"TEMP=$DIR\" >> \"$GITHUB_ENV\"",
+          "echo \"H2A_TEST_QUALIFICATION_ROOT=$DIR\" >> \"$GITHUB_ENV\"",
+          ""
+        ]
+      },
+      {
+        "shell": "bash",
+        "run": [
           "node --test packages/h2a/test/run-test-gates.test.js"
         ]
       },
       {
+        "shell": "bash",
         "run": [
           "npm test"
-        ],
-        "shell": "bash"
+        ]
+      },
+      {
+        "shell": "bash",
+        "run": [
+          "if [ -n \"${TMPDIR:-}\" ]; then rm -rf \"$TMPDIR\"; fi"
+        ]
       },
       {
         "shell": "bash",

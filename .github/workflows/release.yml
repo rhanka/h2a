@@ -132,20 +132,28 @@ jobs:
       # SPEC 0.98.5 R8.1: the trust root runs BEFORE npm test, at this same
       # SHA, so the gate runner cannot grade its own exam and no publication
       # can escape it even if ci.yml is blind.
+      - name: Create a disposable TMPDIR admitted by both confinement guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p -m 0700 "$HOME/.cache-tmp/h2a-test"
+          DIR="$(mktemp -d "$HOME/.cache-tmp/h2a-test/run-XXXXXX")"
+          echo "TMPDIR=$DIR" >> "$GITHUB_ENV"
+          echo "TMP=$DIR" >> "$GITHUB_ENV"
+          echo "TEMP=$DIR" >> "$GITHUB_ENV"
+          echo "H2A_TEST_QUALIFICATION_ROOT=$DIR" >> "$GITHUB_ENV"
       - name: Test npm test gate runner directly (trust root)
         shell: bash
-        run: |
-          set -euo pipefail
-          export TMPDIR="$(mktemp -d "$RUNNER_TEMP/h2a-verify-XXXXXX")"
-          trap 'rm -rf "$TMPDIR"' EXIT
-          node --test packages/h2a/test/run-test-gates.test.js
+        run: node --test packages/h2a/test/run-test-gates.test.js
       - name: Run npm test with a disposable TMPDIR
         shell: bash
-        run: |
-          set -euo pipefail
-          export TMPDIR="$(mktemp -d "$RUNNER_TEMP/h2a-verify-XXXXXX")"
-          trap 'rm -rf "$TMPDIR"' EXIT
-          npm test
+        run: npm test
+      # Unconditional by R8 design (no `if:`): with a passing gate the
+      # directory is removed here; on a failed gate the disposable VM that
+      # owns it is discarded, so nothing shared can accumulate.
+      - name: Clean the disposable TMPDIR
+        shell: bash
+        run: if [ -n "${TMPDIR:-}" ]; then rm -rf "$TMPDIR"; fi
       # Keep stable manifests in Git; stamp only this disposable checkout.
       # Both matrix legs smoke the same RC versions and exact internal pins.
       - name: Prepare tag version and RC pins

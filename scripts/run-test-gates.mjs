@@ -76,17 +76,26 @@ import { reportSuiteDurations } from './report-test-durations.mjs'
 // exports and cleans a private TMPDIR; the confinement assertion in
 // packages/h2a/test/helpers/restart-lab.js stays intact.
 function ensureDisposableTmpdir() {
+  // Both guards must hold: restart-lab.js requires TMPDIR set and != /tmp,
+  // and native-isolation.js only admits H2A_TEST_QUALIFICATION_ROOT under
+  // /tmp/h2a-qual-* (forbidden by the owner no-/tmp rule) or
+  // $HOME/.cache-tmp/h2a-test/run-*. So the disposable dir always lives
+  // under $HOME/.cache-tmp/h2a-test/run-*, locally and on CI.
+  const qualPattern = /^\/home\/[^/]+\/\.cache-tmp\/h2a-test\/run-[A-Za-z0-9]+$/;
   const current = process.env.TMPDIR;
   try {
-    if (current && resolve(current) !== '/tmp' && resolve(current) !== '/' && existsSync(current)) return current;
+    if (current && qualPattern.test(resolve(current)) && existsSync(current)) {
+      if (!process.env.H2A_TEST_QUALIFICATION_ROOT) process.env.H2A_TEST_QUALIFICATION_ROOT = resolve(current);
+      return resolve(current);
+    }
   } catch { /* fall through and create */ }
-  const parent = process.env.RUNNER_TEMP && existsSync(process.env.RUNNER_TEMP)
-    ? process.env.RUNNER_TEMP
-    : (() => { const base = join(homedir(), '.cache-tmp', 'h2a-test'); mkdirSync(base, { recursive: true }); return base; })();
-  const dir = mkdtempSync(join(parent, 'h2a-gates-'));
+  const base = join(homedir(), '.cache-tmp', 'h2a-test');
+  mkdirSync(base, { recursive: true });
+  const dir = mkdtempSync(join(base, 'run-'));
   process.env.TMPDIR = dir;
   process.env.TMP = dir;
   process.env.TEMP = dir;
+  process.env.H2A_TEST_QUALIFICATION_ROOT = dir;
   const clean = () => { try { rmSync(dir, { recursive: true, force: true }); } catch {} };
   process.once('exit', clean);
   return dir;
