@@ -31,8 +31,18 @@
       }
     ]
   },
-  "verify": {
+  "native-recovery": {
     "needs": "resolve-release-sha",
+    "uses": "./.github/workflows/native-recovery.yml",
+    "with": {
+      "ref": "${{ needs.resolve-release-sha.outputs.release-sha }}"
+    }
+  },
+  "verify": {
+    "needs": [
+      "resolve-release-sha",
+      "native-recovery"
+    ],
     "runs-on": "${{ matrix.os }}",
     "timeout-minutes": 30,
     "outputs": {

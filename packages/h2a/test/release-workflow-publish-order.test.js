@@ -79,7 +79,7 @@ test("release workflow supports a backfill dispatch for an existing tag", () => 
   // only the immutable SHA's verified artifact. Comments prove no behavior.
   const verify = parsed.jobs.verify;
   assert.equal(verify.if, undefined, "backfills must run verify too");
-  assert.equal(verify.needs, "resolve-release-sha");
+  assert.deepEqual(verify.needs, ["resolve-release-sha", "native-recovery"]);
   assert.equal(verify.steps.find((step) => step.uses === "actions/checkout@v4").with.ref,
     "${{ needs.resolve-release-sha.outputs.release-sha }}");
   const publish = parsed.jobs.publish;

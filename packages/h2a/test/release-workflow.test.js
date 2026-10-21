@@ -659,6 +659,14 @@ test("R8/R8.4: EVERY step of the workflow is UNCONDITIONAL — the only sanction
 test("no publication path bypasses verify: publish needs verify and nothing else publishes", () => {
   for (const [id, job_] of Object.entries(WORKFLOW.jobs)) {
     if (id === "verify" || id === "resolve-release-sha") continue;
+    if (id === "native-recovery") {
+      assert.equal(job_.uses, "./.github/workflows/native-recovery.yml");
+      assert.equal(job_.needs, "resolve-release-sha");
+      assert.equal(job_.with.ref, "${{ needs.resolve-release-sha.outputs.release-sha }}");
+      assert.equal(job_.if, undefined);
+      assert.ok(needsJob(job("verify"), id), "verify must wait for the incident qualification");
+      continue; // Qualification precedes verify; it cannot publish.
+    }
     assert.ok(
       needsVerify(job_),
       `the ${id} job must depend on verify`,

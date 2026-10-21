@@ -54,7 +54,10 @@ test('sessions-never-start: fresh and resume reach CLI I/O with 451 owner-shaped
   await usable(f, 'h2a-fresh-owner');
   const freshMs = Math.round(performance.now() - begun);
   const resumeBegun = performance.now();
-  const resumed = await f.resume(451).done;
+  const run = f.resume(451);
+  await eventually(() => ({ code: run.child.exitCode,
+    probes: f.recorded().filter(r => r.args[2] === 'probe').map(r => r.args[4]) }), r => r.code !== null);
+  const resumed = await run.done;
   assert.equal(resumed.code, 0, resumed.stderr);
   await usable(f, 'h2a-lab-451');
   assert.ok(f.recorded().filter(r => r.args[2] === 'probe').every(r => ['h2a-fresh-owner', 'h2a-lab-451'].includes(r.args[4])));
