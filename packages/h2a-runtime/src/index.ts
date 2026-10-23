@@ -328,7 +328,10 @@ import {
   type ConductorLaunchRequest,
 } from "./conductor-launch.js";
 import { defaultLocalH2aRoot } from "./h2a-bridge.js";
-import { refuseCullExecution, runIdentityCullDryRun } from "./identity-cull/cull.js";
+// identity-cull is imported lazily at its verb below: cull.js needs the
+// core identity fence (`@sentropic/h2a`), which must never become a
+// load-time edge of this barrel — isolated installs of this package have
+// no core beside them.
 import { guardConvWriters } from "./conv-guard.js";
 import {
   handleClaudeHook,
@@ -2826,9 +2829,17 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .option("--execute", "refuse destructive execution; no bypass exists")
     .option("--root <path>", "DEF h2a root (default: H2A_ROOT or ~/h2a-workspace/.h2a)")
     .option("--output <path>", "new external directory for the proof packet")
-    .action((opts: { dryRun?: boolean; execute?: boolean; root?: string; output?: string }) => {
+    .action(async (opts: { dryRun?: boolean; execute?: boolean; root?: string; output?: string }) => {
+      let cull: typeof import("./identity-cull/cull.js");
+      try {
+        cull = await import("./identity-cull/cull.js");
+      } catch (error) {
+        process.stderr.write(`[h2a] identity cull unavailable: ${error instanceof Error ? error.message : String(error)}\n`);
+        process.exitCode = 1;
+        return;
+      }
       if (opts.execute) {
-        const refusal = refuseCullExecution();
+        const refusal = cull.refuseCullExecution();
         process.stderr.write(`[h2a] identity cull refused: ${refusal.refusalCodes.join(", ")}\n`);
         process.exitCode = 2;
         return;
@@ -2836,7 +2847,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       const defRoot = opts.root ?? process.env.H2A_ROOT ?? defaultLocalH2aRoot();
       const outputDir = opts.output ?? join(tmpdir(), `h2a-identity-cull-${randomUUID()}`);
       try {
-        const result = runIdentityCullDryRun({
+        const result = cull.runIdentityCullDryRun({
           defRoot,
           pinRoot: join(homedir(), "src", "a2a-cli"),
           outputDir,
