@@ -88,7 +88,8 @@ function runAsync(label: string, promise: Promise<number>): void {
 // Heavy native handlers load ONLY for native verbs (top-level await on a
 // conditional: runtime verbs and --version never start these imports).
 const __needsNativeHandlers =
-  !shouldDispatchRuntime(argv) && argv[0] !== "--version" && argv[0] !== "-v" && argv[0] !== "version";
+  !shouldDispatchRuntime(argv) && argv[0] !== "--version" && argv[0] !== "-v" && argv[0] !== "version" &&
+  argv[0] !== "__operator-break";
 const [__cliMod, __focusMod, __ptMod] = __needsNativeHandlers
   ? await Promise.all([cli(), focusServe(), phaseTrace()])
   : [undefined, undefined, undefined] as const;
@@ -100,7 +101,19 @@ const {
 } = (__cliMod ?? {}) as unknown as CliModule;
 const { runFocusServeCli } = (__focusMod ?? {}) as unknown as FocusServeModule;
 const { createMcpTrace, setActiveMcpTrace } = (__ptMod ?? {}) as unknown as PhaseTraceModule;
-if (shouldDispatchRuntime(argv)) {
+// Hidden operator-break plumbing for the runtime CLI (`identity unlock` /
+// `lock break`). The runtime package must not import core, so it spawns this
+// verb and relays stdio/exit byte-for-byte. First-word native (never
+// dispatched), hidden from the contract and `--help`. Light dynamic import:
+// never the heavy CLI monolith (__needsNativeHandlers stays false for this
+// argv because shouldDispatchRuntime answers true for it).
+if (argv[0] === "__operator-break") {
+  const { runIdentityOperatorBreak } = await import("./identity-operator-break.js");
+  process.exitCode = runIdentityOperatorBreak(argv.slice(1), {
+    stdout: process.stdout,
+    stderr: process.stderr,
+  });
+} else if (shouldDispatchRuntime(argv)) {
   runAsync(`runtime:${argv[0]}`, dispatchRuntime());
 } else if (argv[0] === "--version" || argv[0] === "-v" || argv[0] === "version") {
   process.stdout.write(`${readOwnVersion()}\n`);

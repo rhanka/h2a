@@ -1,15 +1,25 @@
 /**
- * Runtime-side central MCP lifecycle. The core package remains the sole owner
- * of marker validation, reclaim, and server startup; this module only selects
- * a persisted endpoint, asks core for protected liveness facts, and starts the
- * existing foreground command as a detached child when necessary.
+ * Runtime-side central MCP lifecycle. This module owns its end of the
+ * central contract: endpoint selection, marker read/validation, HTTP
+ * liveness ping, and starting the existing foreground serve command as a
+ * detached child when necessary. It deliberately never names the core
+ * package: host-config rendering stays a core command invoked over the
+ * `h2a` binary (the same spawn pattern used for `mcp-central-serve`
+ * below), so isolated installs of this package keep working and degrade
+ * cleanly where core is absent.
+ *
+ * Cross-package constants below (env names, marker directory/file, ping
+ * path, file mode) mirror the core contract values. They are pinned by the
+ * vitest suite in this directory, which exercises them against real
+ * markers and a real HTTP peer.
  */
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
   chmodSync,
   closeSync,
   constants,
   existsSync,
+  lstatSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -42,22 +52,6 @@ type CentralPing =
   | Readonly<{ kind: "dead" }>
   | Readonly<{ kind: "ambiguous" }>;
 
-type CoreCentralMcp = Readonly<{
-  H2A_MCP_CENTRAL_ENV: string;
-  H2A_MCP_CENTRAL_ENDPOINT_ENV: string;
-  centralMcpPing(endpoint: string, timeoutMs?: number): Promise<CentralPing>;
-  readCentralMcpMarker(): CentralMarker | undefined;
-  runCli(
-    argv: readonly string[],
-    streams: {
-      stdout: Pick<typeof process.stdout, "write">;
-      stderr: Pick<typeof process.stderr, "write">;
-      cwd?: () => string;
-    },
-    options?: unknown,
-  ): number;
-}>;
-
 export type CentralMcpPreparation =
   | Readonly<{ status: "central"; endpoint: string; generation: string }>
   | Readonly<{ status: "degraded"; reason: string }>;
@@ -66,27 +60,144 @@ type HostConfigSnapshot =
   | Readonly<{ exists: true; contents: string }>
   | Readonly<{ exists: false }>;
 
-let coreCentralMcp: Promise<CoreCentralMcp> | undefined;
+/** Test seam mirroring the core marker-path options. Production always uses
+ *  `/run/user/<uid>`; the path is never env-derived. */
+export interface CentralMcpPaths {
+  readonly runtimeBase?: string;
+}
 
-function loadCoreCentralMcp(): Promise<CoreCentralMcp> {
-  // Keep the core/runtime boundary dynamic. Core already reaches runtime via a
-  // string-specifier seam for central marker ownership checks, so a static
-  // runtime dependency here would turn that boundary into a hard cycle.
-  const corePackage: string = "@sentropic/h2a";
-  coreCentralMcp ??= import(corePackage).then((core) => {
-    const candidate = core as Partial<CoreCentralMcp>;
-    if (
-      typeof candidate.H2A_MCP_CENTRAL_ENV !== "string" ||
-      typeof candidate.H2A_MCP_CENTRAL_ENDPOINT_ENV !== "string" ||
-      typeof candidate.centralMcpPing !== "function" ||
-      typeof candidate.readCentralMcpMarker !== "function" ||
-      typeof candidate.runCli !== "function"
-    ) {
-      throw new Error("@sentropic/h2a does not expose the central MCP runtime surface");
-    }
-    return candidate as CoreCentralMcp;
-  });
-  return coreCentralMcp;
+// Stable cross-package contract values (mirrored from core; pinned by the
+// vitest suite in this directory against real markers and a real HTTP peer).
+export const H2A_MCP_CENTRAL_ENV = "H2A_MCP_CENTRAL";
+export const H2A_MCP_CENTRAL_ENDPOINT_ENV = "H2A_MCP_CENTRAL_ENDPOINT";
+const CENTRAL_RUNTIME_DIRECTORY = "h2a-mcp-central";
+const CENTRAL_MARKER_FILE = "marker.json";
+const CENTRAL_PING_PATH = "/_h2a-central/ping";
+const CENTRAL_LIVENESS_TIMEOUT_MS = 1_500;
+const CENTRAL_HOST_SETUP_TIMEOUT_MS = 60_000;
+
+function currentUid(): number {
+  if (typeof process.getuid !== "function") {
+    throw new Error(`${H2A_MCP_CENTRAL_ENDPOINT_ENV} requires a current uid`);
+  }
+  return process.getuid();
+}
+
+function centralMcpMarkerPath(paths: CentralMcpPaths = {}): string {
+  const base = paths.runtimeBase ?? join("/run/user", String(currentUid()));
+  return join(base, CENTRAL_RUNTIME_DIRECTORY, CENTRAL_MARKER_FILE);
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  return hostname === "127.0.0.1" || hostname === "::1" || hostname === "[::1]" || hostname === "localhost";
+}
+
+function parseCentralMcpEndpoint(value: string | undefined): string {
+  if (!value || value.trim().length === 0) {
+    throw new Error(`${H2A_MCP_CENTRAL_ENDPOINT_ENV} must be a non-empty absolute http URL`);
+  }
+  let endpoint: URL;
+  try {
+    endpoint = new URL(value);
+  } catch {
+    throw new Error(`${H2A_MCP_CENTRAL_ENDPOINT_ENV} must be a non-empty absolute http URL`);
+  }
+  if (
+    endpoint.protocol !== "http:" ||
+    !isLoopbackHostname(endpoint.hostname) ||
+    !endpoint.port ||
+    Number(endpoint.port) < 1 ||
+    Number(endpoint.port) > 65_535 ||
+    endpoint.username ||
+    endpoint.password ||
+    endpoint.search ||
+    endpoint.hash
+  ) {
+    throw new Error(`${H2A_MCP_CENTRAL_ENDPOINT_ENV} must be an absolute http URL with an explicit port`);
+  }
+  return endpoint.href;
+}
+
+function errorHasCode(error: unknown, expectedCode: string): boolean {
+  let current = error;
+  for (let depth = 0; depth < 4 && current && typeof current === "object"; depth += 1) {
+    if ((current as NodeJS.ErrnoException).code === expectedCode) return true;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
+export async function centralMcpPing(endpoint: string, timeoutMs = CENTRAL_LIVENESS_TIMEOUT_MS): Promise<CentralPing> {
+  const canonicalEndpoint = parseCentralMcpEndpoint(endpoint);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const pingUrl = new URL(CENTRAL_PING_PATH, canonicalEndpoint).href;
+  return fetch(pingUrl, { signal: controller.signal }).then(
+    async (response) => {
+      clearTimeout(timeout);
+      if (!response.ok) return { kind: "dead" } as const;
+      try {
+        const body = (await response.json()) as { generation?: unknown };
+        return typeof body.generation === "string" && body.generation.length > 0
+          ? { kind: "generation", generation: body.generation } as const
+          : ({ kind: "dead" } as const);
+      } catch {
+        return { kind: "dead" } as const;
+      }
+    },
+    (error: unknown) => {
+      clearTimeout(timeout);
+      // ECONNREFUSED is the only transport failure that positively proves no
+      // listener owns this registration. Timeouts and all other errors are not.
+      return (errorHasCode(error, "ECONNREFUSED") ? { kind: "dead" } : { kind: "ambiguous" }) as CentralPing;
+    },
+  );
+}
+
+/**
+ * Read the protected central marker without exposing its token to callers
+ * that only need liveness/generation metadata. A missing marker is the sole
+ * non-error absence case; malformed or insecure state remains a hard failure.
+ */
+export function readCentralMcpMarker(paths: CentralMcpPaths = {}): CentralMarker | undefined {
+  const path = centralMcpMarkerPath(paths);
+  let info;
+  try {
+    info = lstatSync(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+  if (!info.isFile()) throw new Error(`central MCP marker is not a regular file: ${path}`);
+  if (info.uid !== currentUid()) throw new Error(`central MCP marker is not owned by the current user: ${path}`);
+  if ((info.mode & 0o777) !== 0o600) throw new Error(`central MCP marker must have mode 0600: ${path}`);
+  let value: Partial<CentralMarker & { token: string }>;
+  try {
+    value = JSON.parse(readFileSync(path, "utf8")) as Partial<CentralMarker & { token: string }>;
+  } catch {
+    throw new Error(`central MCP marker is malformed: ${path}`);
+  }
+  if (
+    typeof value.endpoint !== "string" ||
+    typeof value.generation !== "string" ||
+    value.generation.length === 0 ||
+    typeof value.pid !== "number" ||
+    typeof value.startedAt !== "string" ||
+    typeof value.token !== "string" ||
+    value.token.length === 0
+  ) {
+    throw new Error(`central MCP marker is malformed: ${path}`);
+  }
+  try {
+    return {
+      endpoint: parseCentralMcpEndpoint(value.endpoint),
+      generation: value.generation,
+      pid: value.pid,
+      startedAt: value.startedAt,
+    };
+  } catch {
+    throw new Error(`central MCP marker is malformed: ${path}`);
+  }
 }
 
 function delay(milliseconds: number): Promise<void> {
@@ -178,7 +289,7 @@ function centralLogFile(): string {
 }
 
 async function waitForCentralStart(
-  core: CoreCentralMcp,
+  paths: CentralMcpPaths,
   endpoint: string,
   spawnFailure: () => Error | undefined,
 ): Promise<{ endpoint: string; generation: string }> {
@@ -190,9 +301,9 @@ async function waitForCentralStart(
       appendCrashLog("mcp-server", { event: "startupError", reason: "spawn-failed", detail: failure.message });
       throw failure;
     }
-    const ping = await core.centralMcpPing(endpoint, CENTRAL_START_POLL_MS);
+    const ping = await centralMcpPing(endpoint, CENTRAL_START_POLL_MS);
     if (ping.kind === "generation") {
-      const marker = core.readCentralMcpMarker();
+      const marker = readCentralMcpMarker(paths);
       if (marker?.endpoint === endpoint && marker.generation === ping.generation) {
         return { endpoint, generation: ping.generation };
       }
@@ -211,14 +322,14 @@ async function waitForCentralStart(
  * command, never by this runtime wrapper.
  */
 export async function ensureCentralMcp(
-  options: Readonly<{ root?: string }> = {},
+  options: Readonly<{ root?: string; paths?: CentralMcpPaths }> = {},
 ): Promise<Readonly<{ endpoint: string; generation: string }> | undefined> {
   const endpoint = configuredCentralEndpoint();
   if (!endpoint) return undefined;
-  const core = await loadCoreCentralMcp();
-  const marker = core.readCentralMcpMarker();
+  const paths = options.paths ?? {};
+  const marker = readCentralMcpMarker(paths);
   if (marker) {
-    const ping = await core.centralMcpPing(marker.endpoint);
+    const ping = await centralMcpPing(marker.endpoint);
     if (ping.kind === "ambiguous") {
       appendCrashLog("mcp-server", { event: "refusal", instanceId: marker.generation, reason: "ambiguous-liveness", detail: marker.endpoint });
       throw new Error(`central MCP liveness at ${marker.endpoint} is ambiguous; refusing to start another server`);
@@ -247,8 +358,8 @@ export async function ensureCentralMcp(
         stdio: ["ignore", logFd, logFd],
         env: {
           ...process.env,
-          [core.H2A_MCP_CENTRAL_ENV]: "1",
-          [core.H2A_MCP_CENTRAL_ENDPOINT_ENV]: endpoint,
+          [H2A_MCP_CENTRAL_ENV]: "1",
+          [H2A_MCP_CENTRAL_ENDPOINT_ENV]: endpoint,
         },
       },
     );
@@ -272,7 +383,7 @@ export async function ensureCentralMcp(
   } finally {
     closeSync(logFd);
   }
-  return waitForCentralStart(core, endpoint, () => spawnError);
+  return waitForCentralStart(paths, endpoint, () => spawnError);
 }
 
 function profileMcpConfig(profile: string, cwd: string): { host: string; path: string } | undefined {
@@ -298,34 +409,9 @@ function profileMcpConfig(profile: string, cwd: string): { host: string; path: s
   }
 }
 
-function coherentHostSetupReport(host: string): unknown {
-  return {
-    ok: true,
-    repair: false,
-    dryRun: false,
-    sessionFreshnessGuarantee: "runtime central MCP writer",
-    nativeCommandFailureLimit: "runtime central MCP writer",
-    version: "runtime-central-mcp",
-    hosts: [{
-      host,
-      ok: true,
-      findings: [],
-      diagnostics: [],
-      changed: [],
-      preserved: [],
-      failures: [],
-      unverifiable: [],
-      unrepaired: [],
-      coherencePaths: [],
-      plannedActions: [],
-      repairMarkerPath: "",
-    }],
-  };
-}
-
-function activateCentralMcpEnvironment(core: CoreCentralMcp, endpoint: string): void {
-  process.env[core.H2A_MCP_CENTRAL_ENV] = "1";
-  process.env[core.H2A_MCP_CENTRAL_ENDPOINT_ENV] = endpoint;
+function activateCentralMcpEnvironment(endpoint: string): void {
+  process.env[H2A_MCP_CENTRAL_ENV] = "1";
+  process.env[H2A_MCP_CENTRAL_ENDPOINT_ENV] = endpoint;
 }
 
 function deactivateCentralMcpEnvironment(): void {
@@ -352,31 +438,54 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/**
+ * Render the host config through the core CLI over the `h2a` binary (never an
+ * in-process core import). Output stays captured (quiet launch path); a
+ * nonzero exit degrades to the per-session sidecar exactly like before. The
+ * real installation doctor runs here instead of the former always-ok stub, so
+ * a genuinely incoherent host setup now surfaces as degraded-with-reason
+ * rather than a masked central — still fail-closed, never a crash.
+ */
+function writeHostConfig(target: { host: string; path: string }, cwd: string): void {
+  let status: number | null = null;
+  let spawnError: Error | undefined;
+  try {
+    const result = spawnSync(
+      "h2a",
+      ["host", "setup", "--host", target.host, "--write", target.path],
+      { cwd, stdio: "pipe", encoding: "utf8", timeout: CENTRAL_HOST_SETUP_TIMEOUT_MS },
+    );
+    status = result.status;
+    spawnError = result.error;
+  } catch (error) {
+    spawnError = error instanceof Error ? error : new Error(String(error));
+  }
+  if (status !== 0) {
+    throw new Error(
+      `central MCP could not write the ${target.host} host config at ${target.path}` +
+      (spawnError ? ` (${spawnError.message})` : ""),
+    );
+  }
+}
+
 /** Ensure central MCP and rewrite the launched host's existing MCP config path. */
 export async function prepareCentralMcpForLaunch(options: Readonly<{
   root?: string;
   profile: string;
   cwd: string;
+  paths?: CentralMcpPaths;
 }>): Promise<CentralMcpPreparation | undefined> {
   let hostConfig: { path: string; snapshot: HostConfigSnapshot } | undefined;
   try {
-    const central = await ensureCentralMcp({ ...(options.root ? { root: options.root } : {}) });
+    const central = await ensureCentralMcp({
+      ...(options.root ? { root: options.root } : {}),
+      ...(options.paths ? { paths: options.paths } : {}),
+    });
     if (!central) return undefined;
-    const core = await loadCoreCentralMcp();
     const target = profileMcpConfig(options.profile, options.cwd);
     if (target) hostConfig = { path: target.path, snapshot: captureHostConfig(target.path) };
-    activateCentralMcpEnvironment(core, central.endpoint);
-    if (target) {
-      const quiet = { stdout: { write: () => true }, stderr: { write: () => true }, cwd: () => options.cwd };
-      const code = core.runCli(
-        ["host", "setup", "--host", target.host, "--write", target.path],
-        quiet,
-        { doctorHostInstallations: () => coherentHostSetupReport(target.host) },
-      );
-      if (code !== 0) {
-        throw new Error(`central MCP could not write the ${target.host} host config at ${target.path}`);
-      }
-    }
+    activateCentralMcpEnvironment(central.endpoint);
+    if (target) writeHostConfig(target, options.cwd);
     return { status: "central", ...central };
   } catch (error) {
     deactivateCentralMcpEnvironment();
@@ -394,12 +503,12 @@ export async function prepareCentralMcpForLaunch(options: Readonly<{
 
 /** Restore launches inherit these values; each re-entered run rewrites its host config. */
 export async function prepareCentralMcpForRestore(
-  options: Readonly<{ root?: string }> = {},
+  options: Readonly<{ root?: string; paths?: CentralMcpPaths }> = {},
 ): Promise<CentralMcpPreparation | undefined> {
   try {
     const central = await ensureCentralMcp(options);
     if (!central) return undefined;
-    activateCentralMcpEnvironment(await loadCoreCentralMcp(), central.endpoint);
+    activateCentralMcpEnvironment(central.endpoint);
     return { status: "central", ...central };
   } catch (error) {
     deactivateCentralMcpEnvironment();
