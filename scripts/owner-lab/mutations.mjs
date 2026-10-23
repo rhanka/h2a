@@ -41,6 +41,11 @@ red('worker-scope', join(runtime, 'native-terminal/process.js'), undefined,
 // systemd were referenceOnly/reported, so the mutation passed there).
 // Parity itself is REPORTED, never asserted — the mutation must be caught by
 // the non-regression baseline, not by the parity report.
+// R6: the 20-request incident cell joins through its self-calibrating bin.js
+// startup probe (same-run `node -e` control): the sleep shifts the probe by
+// the full +1000 ms while the control never crosses bin.js. The cell's wall
+// ceiling stays blind by design (it only catches gross stalls), so the probe
+// is asserted here — not the wall.
 {
   const binJs = resolve('packages/h2a/dist/bin.js');
   const original = readFileSync(binJs, 'utf8');
@@ -62,6 +67,16 @@ red('worker-scope', join(runtime, 'native-terminal/process.js'), undefined,
       assert.match(result.stdout + result.stderr, /non-regression overhead/,
         `startup-overhead(${pattern}): failed for the wrong reason`);
       console.log(`startup-overhead(${pattern}): RED detected (exit ${result.status})`);
+    }
+    {
+      const args = ['--test', '--test-name-pattern=incident-20-resume',
+        'packages/h2a/test/incident-20-resume.test.js'];
+      const result = spawnSync(process.execPath, args, { env: process.env, encoding: 'utf8', timeout: 300000 });
+      assert.equal(result.error, undefined, 'startup-overhead(incident-20): infrastructure error');
+      assert.notEqual(result.status, 0, 'startup-overhead(incident-20): 1 s slowdown escaped the startup probe');
+      assert.match(result.stdout + result.stderr, /bin\.js startup overhead/,
+        'startup-overhead(incident-20): failed for the wrong reason');
+      console.log(`startup-overhead(incident-20): RED detected (exit ${result.status})`);
     }
     console.log('startup-overhead: every gated path fails the 1 s mutation; artifact restored');
   } finally { writeFileSync(binJs, original); }
