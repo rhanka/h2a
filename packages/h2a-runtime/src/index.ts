@@ -328,6 +328,7 @@ import {
   type ConductorLaunchRequest,
 } from "./conductor-launch.js";
 import { defaultLocalH2aRoot } from "./h2a-bridge.js";
+import { operatorBreak as operatorBreakToCore } from "./identity-operator-break.js";
 // identity-cull is imported lazily at its verb below: cull.js needs the
 // core identity fence (`@sentropic/h2a`), which must never become a
 // load-time edge of this barrel — isolated installs of this package have
@@ -2784,19 +2785,12 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .command("identity")
     .description("Inspect identity bindings or unlock a token-fenced identity lock");
 
-  const operatorBreak = async (lockPath: string, token: string, assertDead: boolean): Promise<void> => {
-    const { breakLockAsOperator, breakIdentityLockAsOperator } = await import("@sentropic/h2a");
-    const identityLock=basename(lockPath)==='.lock' && basename(dirname(lockPath)) === 'identity';
-    const breaker = identityLock ? breakIdentityLockAsOperator : breakLockAsOperator;
-    const result = breaker(lockPath, { expectToken: token, assertDead });
-    process.stdout.write(`${JSON.stringify({ path: identityLock ? 'identity/.lock' : lockPath, ...result })}\n`);
-    if (!result.broken) {
-      process.stderr.write(`[h2a] lock break refused: ${result.reason}${result.pid !== undefined ? ` (pid ${result.pid})` : ""}\n`);
-      if (result.reason === "assert-dead-required") {
-        process.stderr.write("[h2a] verify the holder has stopped, then explicitly pass --assert-dead; no PID is killed\n");
-      }
-      process.exitCode = 1;
-    }
+  // Operator break delegates to the core CLI's hidden `__operator-break`
+  // plumbing (same `h2a`-binary spawn pattern as central-mcp): this package
+  // must not import `@sentropic/h2a`, and the relay keeps stdio/exit codes
+  // byte-for-byte identical where core is installed.
+  const operatorBreak = (lockPath: string, token: string, assertDead: boolean): void => {
+    operatorBreakToCore(lockPath, token, assertDead, (code) => { process.exitCode = code; });
   };
 
   identityCommand
