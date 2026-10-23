@@ -156,10 +156,6 @@ jobs:
           echo "TEMP=$DIR" >> "$GITHUB_ENV"
           echo "H2A_TEST_QUALIFICATION_ROOT=$DIR" >> "$GITHUB_ENV"
       - run: npm test
-      - name: Clean the disposable TMPDIR
-        if: always()
-        shell: bash
-        run: if [ -n "${TMPDIR:-}" ]; then rm -rf "$TMPDIR"; fi
       - name: Exercise the native multi-session terminal host
         run: >-
           npx --no-install vitest run
@@ -198,6 +194,13 @@ jobs:
       # migration P2: le contrat public (surface MCP/CLI + anti-cycle core) ne doit pas dériver sans bump
       - run: bash scripts/check-public-contract.sh
         if: runner.os == 'Linux'
+      # TMPDIR cleanup AFTER the last consumer (all test legs above read
+      # TMPDIR/TMP/TEMP/H2A_TEST_QUALIFICATION_ROOT): no step runs with a
+      # missing TMPDIR. always() so a red gate still cleans the VM.
+      - name: Clean the disposable TMPDIR
+        if: always()
+        shell: bash
+        run: if [ -n "${TMPDIR:-}" ]; then rm -rf "$TMPDIR"; fi
 
   # Stable, independently requireable trust root for `npm test`.
   #

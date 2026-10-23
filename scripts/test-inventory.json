@@ -490,6 +490,9 @@
   "packages/h2a/test/identity-schema.test.js": [],
   "packages/h2a/test/identity-state.test.js": [],
   "packages/h2a/test/identity.test.js": [],
+  "packages/h2a/test/incident-20-resume.test.js": [
+    "incident-20-resume: 20 concurrent resumes over 214 owner-shaped rows with 100 dead background rows, host SIGKILLed"
+  ],
   "packages/h2a/test/index.test.js": [],
   "packages/h2a/test/install-skills-hosts.test.js": [
     "install-skills user scope follows configured Claude and Codex roots",

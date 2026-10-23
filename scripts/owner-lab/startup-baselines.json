@@ -1,9 +1,8 @@
 {
-  "_comment": "R4 (conductor decision 21/10): #390 merges on crash/lock/bounded-startup scope; native-CLI parity is a REPORTED objective owned by spec/open-parity, not a merge gate. This file anchors the BLOCKING non-regression gate: usableMs (time to usable CLI I/O) at EMPTY registry (rows=0), no-systemd witness, measured on CI run 39540422206 at head bcdfe0d75 (ubuntu-latest, Node 22). The gate adds an explicit margin (median +500ms, p95 +800ms): small enough that the 1s bin.js sleep mutation still fails it (every sample shifts +1000ms), loose enough for routine VM noise. Restore rows 50/500 and fresh/resume growth stay bounded by the separate blocking registry-delta gate (<=500ms vs empty). Keys: mode/concurrency/host.",
+  "_comment": "R5: BLOCKING non-regression gate over EVERY committed mode/state (fresh, resume, restore on fallback; fresh/resume 1 live/killed on systemd) + the 20-request incident cell. usableMs (time to usable CLI I/O) at EMPTY registry (rows=0; incident cell: 214-row owner-shaped registry, see incident20), measured on CI (ubuntu-latest, Node 22). The gate adds an explicit margin (median +500ms, p95 +800ms): small enough that the 1s bin.js sleep mutation still fails every gated cell (every sample shifts +1000ms), loose enough for routine VM noise. Native-CLI parity stays REPORTED (spec/open-parity). Keys: mode/concurrency/host; systemd cells carry the effective-scope cost profile.",
   "source": { "ciRun": 39540422206, "head": "bcdfe0d75", "os": "ubuntu-latest", "node": "22", "isolation": "fallback", "rows": 0, "metric": "usableMs" },
   "margin": { "medianMs": 500, "p95Ms": 800 },
-  "gatedModes": ["fresh", "resume"],
-  "referenceOnly": "restore cells are RECORDED (same source run) but not baseline-gated: restore replays a full terminal/GUI restoration per tab and its absolute level at concurrency 5/10 shifts by +700..+2000 ms between identical-code runs (CI 39541830502 vs the source run), so a tight absolute gate would train everyone to read red as noise. Restore stays bounded by the BLOCKING registry-delta gate (<=500 ms vs empty) and its parity stays REPORTED.",
+  "gatedModes": ["fresh", "resume", "restore"],
   "cells": {
     "fresh/1/live": { "medianMs": 775, "p95Ms": 815 },
     "fresh/1/absent": { "medianMs": 897, "p95Ms": 904 },
@@ -32,5 +31,18 @@
     "restore/10/live": { "medianMs": 3509, "p95Ms": 3514 },
     "restore/10/absent": { "medianMs": 3633, "p95Ms": 4197 },
     "restore/10/killed": { "medianMs": 4147, "p95Ms": 4230 }
+  },
+  "systemdSource": { "ciRun": 39543626965, "head": "e2090a899", "os": "ubuntu-latest", "node": "22", "isolation": "systemd", "rows": 0, "metric": "usableMs" },
+  "systemdCells": {
+    "fresh/1/live": { "medianMs": 796, "p95Ms": 819 },
+    "fresh/1/killed": { "medianMs": 919, "p95Ms": 925 },
+    "resume/1/live": { "medianMs": 792, "p95Ms": 793 },
+    "resume/1/killed": { "medianMs": 923, "p95Ms": 933 }
+  },
+  "incident20": {
+    "_comment": "Sol R4 reproduction (isolated lab, deterministic CLI, private HOME/XDG/socket): 214-row registry (100 dead background rows + 20 target conversations), host SIGKILLed, 20 concurrent resumes. 20/20 usable, 1 host, 0 lock timeout, +87 ms vs empty registry (budget +500). BLOCKING cell below.",
+    "source": { "review": "pr390-r4-sol", "rows": 214, "concurrency": 20, "host": "killed", "metric": "usableMs" },
+    "medianMs": 3082,
+    "p95Ms": 3680
   }
 }
