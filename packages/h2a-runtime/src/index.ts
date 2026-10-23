@@ -164,6 +164,7 @@ import {
   startNativeH2aSidecar,
   startNativeHeadlessSession,
   startNativeSession,
+  startNativeSessionSingleShot,
   NativeHostCapabilityMismatchError,
   NativeLaunchAdmissionError,
   type NativeLaunchOwnership,
@@ -327,7 +328,11 @@ import {
   type ConductorLaunchRequest,
 } from "./conductor-launch.js";
 import { defaultLocalH2aRoot } from "./h2a-bridge.js";
-import { refuseCullExecution, runIdentityCullDryRun } from "./identity-cull/cull.js";
+import { operatorBreak as operatorBreakToCore } from "./identity-operator-break.js";
+// identity-cull is imported lazily at its verb below: cull.js needs the
+// core identity fence (`@sentropic/h2a`), which must never become a
+// load-time edge of this barrel — isolated installs of this package have
+// no core beside them.
 import { guardConvWriters } from "./conv-guard.js";
 import {
   handleClaudeHook,
@@ -2780,19 +2785,12 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .command("identity")
     .description("Inspect identity bindings or unlock a token-fenced identity lock");
 
-  const operatorBreak = async (lockPath: string, token: string, assertDead: boolean): Promise<void> => {
-    const { breakLockAsOperator, breakIdentityLockAsOperator } = await import("@sentropic/h2a");
-    const identityLock=basename(lockPath)==='.lock' && basename(dirname(lockPath)) === 'identity';
-    const breaker = identityLock ? breakIdentityLockAsOperator : breakLockAsOperator;
-    const result = breaker(lockPath, { expectToken: token, assertDead });
-    process.stdout.write(`${JSON.stringify({ path: identityLock ? 'identity/.lock' : lockPath, ...result })}\n`);
-    if (!result.broken) {
-      process.stderr.write(`[h2a] lock break refused: ${result.reason}${result.pid !== undefined ? ` (pid ${result.pid})` : ""}\n`);
-      if (result.reason === "assert-dead-required") {
-        process.stderr.write("[h2a] verify the holder has stopped, then explicitly pass --assert-dead; no PID is killed\n");
-      }
-      process.exitCode = 1;
-    }
+  // Operator break delegates to the core CLI's hidden `__operator-break`
+  // plumbing (same `h2a`-binary spawn pattern as central-mcp): this package
+  // must not import `@sentropic/h2a`, and the relay keeps stdio/exit codes
+  // byte-for-byte identical where core is installed.
+  const operatorBreak = (lockPath: string, token: string, assertDead: boolean): void => {
+    operatorBreakToCore(lockPath, token, assertDead, (code) => { process.exitCode = code; });
   };
 
   identityCommand
@@ -2825,9 +2823,17 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .option("--execute", "refuse destructive execution; no bypass exists")
     .option("--root <path>", "DEF h2a root (default: H2A_ROOT or ~/h2a-workspace/.h2a)")
     .option("--output <path>", "new external directory for the proof packet")
-    .action((opts: { dryRun?: boolean; execute?: boolean; root?: string; output?: string }) => {
+    .action(async (opts: { dryRun?: boolean; execute?: boolean; root?: string; output?: string }) => {
+      let cull: typeof import("./identity-cull/cull.js");
+      try {
+        cull = await import("./identity-cull/cull.js");
+      } catch (error) {
+        process.stderr.write(`[h2a] identity cull unavailable: ${error instanceof Error ? error.message : String(error)}\n`);
+        process.exitCode = 1;
+        return;
+      }
       if (opts.execute) {
-        const refusal = refuseCullExecution();
+        const refusal = cull.refuseCullExecution();
         process.stderr.write(`[h2a] identity cull refused: ${refusal.refusalCodes.join(", ")}\n`);
         process.exitCode = 2;
         return;
@@ -2835,7 +2841,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       const defRoot = opts.root ?? process.env.H2A_ROOT ?? defaultLocalH2aRoot();
       const outputDir = opts.output ?? join(tmpdir(), `h2a-identity-cull-${randomUUID()}`);
       try {
-        const result = runIdentityCullDryRun({
+        const result = cull.runIdentityCullDryRun({
           defRoot,
           pinRoot: join(homedir(), "src", "a2a-cli"),
           outputDir,
@@ -6378,9 +6384,12 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           }
         };
         try {
-        if (structuredLaunch && sessionHost === "native") {
-          for (const label of labels) preflightNativeLaunch(localSessionName(slugify(label ?? cwd)));
-        }
+        // R3 P1: no separate preflight fork. The single-shot launch below
+        // performs fenced ensure-host + admission atomically in its own
+        // fork (same certified refusals, no check removed without an atomic
+        // equivalent), so a preflight here would only re-pay Node startup
+        // and an inventory for the same verdict.
+        void preflightNativeLaunch;
         const reservedTmuxSlugs = tmuxAvailable()
           ? existingLocalSessionSlugs(labels, cwd)
           : [];
@@ -6629,6 +6638,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           }
           let name: string;
           let slug: string;
+          // R3 P1: pid/identity returned by the single-shot launch; the
+          // re-probes below prefer these and skip their forks.
+          let launchedPid: number | undefined;
+          let launchedWorkerPid: number | undefined;
           let outputLog: string | undefined;
           let resultJson: string | undefined;
           let agentPane: string | undefined;
@@ -6691,7 +6704,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               ));
             }
           } else if (sessionHost === "native") {
-            ({ name, slug } = startNativeSession(
+            // R3 P1: single-fork launch (one shared async client + one
+            // inventory); returns pid/identity so the re-probes below are skipped.
+            ({ name, slug, pid: launchedPid, workerPid: launchedWorkerPid } = startNativeSessionSingleShot(
               profile,
               command,
               cwd,
@@ -6923,15 +6938,18 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               sleepSync(50);
             }
           }
+          // R3 P1: prefer the pid/identity returned by the single-shot
+          // launch (no fork); fall back to probes only when absent (e.g.
+          // tmux path or adopted pre-existing session without a fresh pid).
           const pid =
             sessionHost === "native"
-              ? nativeSessionPid(name)
+              ? (launchedPid ?? nativeSessionPid(name))
               : agentPane
                 ? localSessionPanePid(agentPane)
                 : undefined;
           const workerPid =
             sessionHost === "native"
-              ? nativeWorkerPid(name)
+              ? (launchedWorkerPid ?? nativeWorkerPid(name))
               : agentPane !== undefined
                 ? paneWorkerPid(agentPane)
                 : undefined;

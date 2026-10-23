@@ -40,6 +40,7 @@
   "packages/h2a-runtime/src/host-decision-symmetry.test.ts": [],
   "packages/h2a-runtime/src/host-selection-invariants.test.ts": [],
   "packages/h2a-runtime/src/identity-cull/cull.test.ts": [],
+  "packages/h2a-runtime/src/identity-operator-break.test.ts": [],
   "packages/h2a-runtime/src/index.test.ts": [],
   "packages/h2a-runtime/src/interactive-throttle.test.ts": [],
   "packages/h2a-runtime/src/launch-context.test.ts": [],
@@ -60,6 +61,7 @@
   "packages/h2a-runtime/src/native-terminal/client.test.ts": [],
   "packages/h2a-runtime/src/native-terminal/drive.functional.test.ts": [],
   "packages/h2a-runtime/src/native-terminal/fleet.test.ts": [],
+  "packages/h2a-runtime/src/native-terminal/host-scope.test.ts": [],
   "packages/h2a-runtime/src/native-terminal/host.test.ts": [
     "NativeTerminalHost should use reserved launch ownership and reject a different host before spawning",
     "NativeTerminalHost should keep output and exit lifecycle independent across sessions",
@@ -157,7 +159,8 @@
     "native terminal socket path limits should reject a socket path over the kernel sun_path budget with a clear error",
     "native terminal socket path limits should reject a publishable path whose longer staged sibling would overflow at bind",
     "native terminal socket path limits should reject a client connect to an over-limit socket path before dialing",
-    "native terminal socket path limits should compute a short private default socket path"
+    "native terminal socket path limits should compute a short private default socket path",
+    "should bound work by bytes received for a fragmented request"
   ],
   "packages/h2a-runtime/src/native-terminal/supervisor.test.ts": [],
   "packages/h2a-runtime/src/native-terminal/terminal-modes.functional.test.ts": [],
@@ -192,6 +195,7 @@
   "packages/h2a-runtime/src/restore-launch.test.ts": [],
   "packages/h2a-runtime/src/restore-live-recovery.test.ts": [],
   "packages/h2a-runtime/src/restore-wiring.test.ts": [],
+  "packages/h2a-runtime/src/restore-provenance.test.ts": [],
   "packages/h2a-runtime/src/restore.test.ts": [],
   "packages/h2a-runtime/src/routing-preferences.test.ts": [],
   "packages/h2a-runtime/src/run-ws-surface.test.ts": [],
@@ -482,11 +486,15 @@
   "packages/h2a/test/identity-bindings.test.js": [],
   "packages/h2a/test/identity-live-wiring.test.js": [],
   "packages/h2a/test/identity-migration.test.js": [],
+  "packages/h2a/test/identity-operator-break.test.js": [],
   "packages/h2a/test/identity-readers.test.js": [],
   "packages/h2a/test/identity-resolver.test.js": [],
   "packages/h2a/test/identity-schema.test.js": [],
   "packages/h2a/test/identity-state.test.js": [],
   "packages/h2a/test/identity.test.js": [],
+  "packages/h2a/test/incident-20-resume.test.js": [
+    "incident-20-resume: 20 concurrent resumes over 214 owner-shaped rows with 100 dead background rows, host SIGKILLed"
+  ],
   "packages/h2a/test/index.test.js": [],
   "packages/h2a/test/install-skills-hosts.test.js": [
     "install-skills user scope follows configured Claude and Codex roots",
@@ -705,7 +713,7 @@
     "R8.2: the artifact manifest is TIED to the resolved SHA, and publish re-checks the tie before publishing",
     "R8.2/R8.4: no step anywhere may swallow its own failure (continue-on-error)",
     "R8.1/R8.3/R8.4: the mandatory verify steps are UNCONDITIONAL — a disabled gate still reads green",
-    "R8/R8.4: EVERY step of the workflow is UNCONDITIONAL — the only sanctioned `if` is the single-leg upload",
+    "R8/R8.4: EVERY step of the workflow is UNCONDITIONAL — the only sanctioned `if`s are the single-leg upload and the R6 cleanup",
     "no publication path bypasses verify: publish needs verify and nothing else publishes"
   ],
   "packages/h2a/test/remote-accept.test.js": [],
@@ -792,6 +800,19 @@
   "packages/h2a/test/native-host-convergence.test.js": [
     "doctor dry-run is empty of writes; explicit lifecycle is independent of MCP and preserves off/on",
     "guard rejects fixture qualification, retains stale-code choice, and suspends on observable MCP loss"
+  ],
+  "packages/h2a/test/native-host-crash-recovery.test.js": [
+    "startup-latency: conversation guard probes only the requested conversation among 500 rows",
+    "startup-latency: real run --resume probes one matching owner and no foreign conversation",
+    "startup-latency: real resume refuses an unreadable matching row before starting a CLI",
+    "sessions-never-start: fresh and resume reach CLI I/O with 451 owner-shaped mixed rows",
+    "crash-recovery: ten concurrent read-only absence proofs converge after SIGKILL",
+    "oom-isolation: a refused session scope never executes a worker inside the host scope",
+    "startup-latency: one resume with 500 registry rows reaches host start within 2 seconds",
+    "crash-recovery: five concurrent resume clients recover one SIGKILLed host",
+    "startup-latency: restoring ten resumes with 500 registry rows converges within 30 seconds",
+    "oom-isolation: host requests its own protected systemd scope before admitting PTYs",
+    "startup-latency: fresh, resume and restore add at most 500 ms with 500 mixed rows"
   ],
   "packages/h2a/test/native-host-equipment.test.js": [
     "Vibe installs resources under VIBE_HOME, requires force for managed edits and preserves unknown skills",

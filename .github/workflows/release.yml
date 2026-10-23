@@ -56,11 +56,23 @@ jobs:
           echo "sha=${sha}" >> "$GITHUB_OUTPUT"
           echo "Resolved release SHA: ${sha}"
 
+  native-recovery:
+    # R4 (c): the release keeps requiring the BLOCKING crash/lock/
+    # bounded-startup scope — registry-delta + committed-baseline
+    # non-regression gates and the incident scenarios — while native-CLI
+    # parity stays REPORTED (spec/open-parity). Parity becomes blocking only
+    # when that lane lands; see native-recovery.yml header and
+    # docs/specs/native-host-crash-recovery/open-parity.md.
+    needs: resolve-release-sha
+    uses: ./.github/workflows/native-recovery.yml
+    with:
+      ref: ${{ needs.resolve-release-sha.outputs.release-sha }}
+
   verify:
     # SPEC 0.98.5 R8.4 (gel total): verify runs for EVERY publication path —
     # tag pushes AND backfill dispatches. The old `if: github.event_name == 'push'`
     # let a backfill publish with zero tests on the same workflow.
-    needs: resolve-release-sha
+    needs: [resolve-release-sha, native-recovery]
     runs-on: ${{ matrix.os }}
     # SPEC 0.98.5 R8: verify now also runs the runtime TypeScript suites
     # (npm test) and the packaged-artifact smoke; 15 minutes no longer fits.
@@ -126,11 +138,22 @@ jobs:
       # SPEC 0.98.5 R8.1: the trust root runs BEFORE npm test, at this same
       # SHA, so the gate runner cannot grade its own exam and no publication
       # can escape it even if ci.yml is blind.
+      - name: Create a disposable TMPDIR admitted by both confinement guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p -m 0700 "$HOME/.cache-tmp/h2a-test"
+          DIR="$(mktemp -d "$HOME/.cache-tmp/h2a-test/run-XXXXXX")"
+          echo "TMPDIR=$DIR" >> "$GITHUB_ENV"
+          echo "TMP=$DIR" >> "$GITHUB_ENV"
+          echo "TEMP=$DIR" >> "$GITHUB_ENV"
+          echo "H2A_TEST_QUALIFICATION_ROOT=$DIR" >> "$GITHUB_ENV"
       - name: Test npm test gate runner directly (trust root)
         shell: bash
         run: node --test packages/h2a/test/run-test-gates.test.js
-      - run: npm test
+      - name: Run npm test with a disposable TMPDIR
         shell: bash
+        run: npm test
       # Keep stable manifests in Git; stamp only this disposable checkout.
       # Both matrix legs smoke the same RC versions and exact internal pins.
       - name: Prepare tag version and RC pins
@@ -169,6 +192,18 @@ jobs:
           name: release-tarballs
           path: dist-tarballs/
           if-no-files-found: error
+      # TMPDIR cleanup AFTER the last consumer (trust root, npm test, pack,
+      # smoke all read TMPDIR/TMP/TEMP/H2A_TEST_QUALIFICATION_ROOT): no step
+      # runs with a missing TMPDIR. R6: `if: always()` (R8 exception #2) — an
+      # implicit `success()` skipped this cleanup after a failed `npm test`,
+      # leaving the disposable TMPDIR behind on exactly the runs that most
+      # need post-mortem hygiene; with a passing gate the directory is removed
+      # here, on a failed gate the removal still runs (the disposable VM that
+      # owns it is discarded, so nothing shared can accumulate).
+      - name: Clean the disposable TMPDIR
+        if: always()
+        shell: bash
+        run: if [ -n "${TMPDIR:-}" ]; then rm -rf "$TMPDIR"; fi
 
   publish:
     needs: verify

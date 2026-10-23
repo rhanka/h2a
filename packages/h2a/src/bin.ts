@@ -6,29 +6,31 @@ import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 
 import {
-  cmdKeepalive,
-  runCli,
-  runCentralMcpConnect,
-  runCentralMcpServe,
-  runDriveServe,
-  runMcpServe,
-  runRemoteSend,
-  runRemoteServe,
-  runMirrorServe,
-  runMirrorPush,
-  runCanevasServeCli,
-  runTrackMcpServe,
-  runDrumbeatRelanceInbox,
-  runDrumbeatWatch,
-  runLoopEngineCli,
-  runSysmlVerify
-} from "./cli.js";
-import {
   dispatchRuntime,
   shouldDispatchRuntime
 } from "./bin-routing.js";
-import { runFocusServeCli } from "./runtime/focus/serve.js";
-import { createMcpTrace, setActiveMcpTrace } from "./runtime/mcp/phase-trace.js";
+// R3 P1: the heavy CLI monolith (`./cli.js`, 7884 lines) plus focus serve
+// and phase-trace are loaded LAZILY per verb. `run`/`restore` (runtime
+// verbs) pay only light routing + the runtime import; they never load the
+// native-verb handlers. Behavior is unchanged: same modules, deferred.
+type CliModule = typeof import("./cli.js");
+let cachedCli: Promise<CliModule> | undefined;
+function cli(): Promise<CliModule> {
+  cachedCli ??= import("./cli.js");
+  return cachedCli;
+}
+type FocusServeModule = typeof import("./runtime/focus/serve.js");
+let cachedFocusServe: Promise<FocusServeModule> | undefined;
+function focusServe(): Promise<FocusServeModule> {
+  cachedFocusServe ??= import("./runtime/focus/serve.js");
+  return cachedFocusServe;
+}
+type PhaseTraceModule = typeof import("./runtime/mcp/phase-trace.js");
+let cachedPhaseTrace: Promise<PhaseTraceModule> | undefined;
+function phaseTrace(): Promise<PhaseTraceModule> {
+  cachedPhaseTrace ??= import("./runtime/mcp/phase-trace.js");
+  return cachedPhaseTrace;
+}
 
 const argv = process.argv.slice(2);
 
@@ -79,7 +81,41 @@ function runAsync(label: string, promise: Promise<number>): void {
 
 // `mcp-serve` and `h2a remote serve/send` are async (long-running loop or network);
 // the synchronous `runCli` cannot represent them, so we dispatch directly here.
-if (argv[0] === "--version" || argv[0] === "-v" || argv[0] === "version") {
+// R3 P1 fast path: runtime verbs (run/restore/ls/...) leave through light
+// routing + the runtime dynamic import WITHOUT loading the heavy native CLI
+// monolith below. Native verbs fall through and pay it as before.
+//
+// Heavy native handlers load ONLY for native verbs (top-level await on a
+// conditional: runtime verbs and --version never start these imports).
+const __needsNativeHandlers =
+  !shouldDispatchRuntime(argv) && argv[0] !== "--version" && argv[0] !== "-v" && argv[0] !== "version" &&
+  argv[0] !== "__operator-break";
+const [__cliMod, __focusMod, __ptMod] = __needsNativeHandlers
+  ? await Promise.all([cli(), focusServe(), phaseTrace()])
+  : [undefined, undefined, undefined] as const;
+const {
+  cmdKeepalive, runCli, runCentralMcpConnect, runCentralMcpServe, runDriveServe,
+  runMcpServe, runRemoteSend, runRemoteServe, runMirrorServe, runMirrorPush,
+  runCanevasServeCli, runTrackMcpServe, runDrumbeatRelanceInbox, runDrumbeatWatch,
+  runLoopEngineCli, runSysmlVerify,
+} = (__cliMod ?? {}) as unknown as CliModule;
+const { runFocusServeCli } = (__focusMod ?? {}) as unknown as FocusServeModule;
+const { createMcpTrace, setActiveMcpTrace } = (__ptMod ?? {}) as unknown as PhaseTraceModule;
+// Hidden operator-break plumbing for the runtime CLI (`identity unlock` /
+// `lock break`). The runtime package must not import core, so it spawns this
+// verb and relays stdio/exit byte-for-byte. First-word native (never
+// dispatched), hidden from the contract and `--help`. Light dynamic import:
+// never the heavy CLI monolith (__needsNativeHandlers stays false for this
+// argv because shouldDispatchRuntime answers true for it).
+if (argv[0] === "__operator-break") {
+  const { runIdentityOperatorBreak } = await import("./identity-operator-break.js");
+  process.exitCode = runIdentityOperatorBreak(argv.slice(1), {
+    stdout: process.stdout,
+    stderr: process.stderr,
+  });
+} else if (shouldDispatchRuntime(argv)) {
+  runAsync(`runtime:${argv[0]}`, dispatchRuntime());
+} else if (argv[0] === "--version" || argv[0] === "-v" || argv[0] === "version") {
   process.stdout.write(`${readOwnVersion()}\n`);
   process.exitCode = 0;
 } else if (argv[0] === "mcp-serve") {

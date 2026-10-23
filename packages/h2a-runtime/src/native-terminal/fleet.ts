@@ -1,5 +1,20 @@
 import type { NativeTerminalClient } from "./client.js";
 import type { NativeTerminalSessionState } from "./host.js";
+import { NATIVE_TERMINAL_HEALTH_TIMEOUT_MS } from "./protocol.js";
+import { setTimeout as delay } from "node:timers/promises";
+
+/** Only a positively identified live publisher earns a short publication wait.
+ * This retries read-only handshakes, never absence proofs or host creation. */
+export async function readNativeTerminalSuccessor<T>(read: () => Promise<T>, publisherObserved: boolean): Promise<T> {
+  const deadline = Date.now() + (publisherObserved ? NATIVE_TERMINAL_HEALTH_TIMEOUT_MS : 0);
+  for (;;) {
+    try { return await read(); }
+    catch (error) {
+      if (Date.now() >= deadline) throw error;
+      await delay(10);
+    }
+  }
+}
 
 export type NativeInventory = {
   complete: boolean;
@@ -21,14 +36,28 @@ export async function collectNativeInventory(
       inventory.hosts.push({ socketPath, client });
       inventory.sessions.push(...sessions.map(session => ({ ...session, socketPath })));
     } catch (error) {
+      let publisherObserved = false;
       try {
         if (await proveAbsent?.(socketPath, error)) {
           inventory.hosts.push({ socketPath, absent: true });
           continue;
         }
       } catch (proofError) {
+        publisherObserved = (proofError as NodeJS.ErrnoException)?.code === "H2A_ENDPOINT_LIVE_OWNER";
         error = new Error(`${error instanceof Error ? error.message : String(error)}; absence proof failed: ${proofError instanceof Error ? proofError.message : String(proofError)}`);
       }
+      // A successor can publish while the serialized absence proof waits.
+      // Reconnect once before treating that earlier connect failure as unknown.
+      try {
+        const { client, sessions } = await readNativeTerminalSuccessor(async () => {
+          const client = await connect(socketPath);
+          try { return { client, sessions: await client.list() }; }
+          catch (failure) { client.close(); throw failure; }
+        }, publisherObserved);
+        inventory.hosts.push({ socketPath, client });
+        inventory.sessions.push(...sessions.map(session => ({ ...session, socketPath })));
+        continue;
+      } catch { /* No healthy successor: preserve the proof's fail-closed diagnostic. */ }
       inventory.complete = false;
       inventory.hosts.push({ socketPath, reason: error instanceof Error ? error.message : String(error) });
     }

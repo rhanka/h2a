@@ -10,6 +10,12 @@ import {
   runIdentityCullDryRun,
   verifyHeldDescriptorCas,
 } from "./cull.js";
+import { withIdentityFenceSync } from "./identity-fence.js";
+// Interop pin: the runtime-owned fence must publish a hold the CORE v2
+// parser accepts as a live-holder lock (and release it back to absent).
+// Relative dist import on purpose: no package literal, test-only, the
+// shipped cull.js never names the core package.
+import { readIdentityLock } from "../../../h2a/dist/runtime/local-files/identity-fence.js";
 
 const scratchRoots: string[] = [];
 
@@ -335,6 +341,47 @@ describe("identity cull execution guard", () => {
     })).toEqual({ state: "STAGING_VERIFIED" });
     expect(renameCalled).toBe(false);
     expect(existsSync(join(base, ".lock"))).toBe(false);
+  });
+
+  it("aborts the held-descriptor CAS when the canonical lock stays held", { timeout: 20000 }, () => {
+    const base = mkdtempSync(join(tmpdir(), "h2a-identity-cas-held-"));
+    scratchRoots.push(base);
+    const bindingPath = join(base, "bindings.jsonl");
+    const initial = Buffer.from(`${JSON.stringify(row())}\n`);
+    writeFileSync(bindingPath, initial);
+    let renameCalled = false;
+    // An outer hold on the same lock (a live holder: our own pid) forces the
+    // staging verification through its bounded wait, which must fail closed.
+    const result = withIdentityFenceSync(join(base, ".lock"), () =>
+      verifyHeldDescriptorCas({
+        bindingPath,
+        expectedSize: initial.length,
+        expectedSha256: `sha256:${createHash("sha256").update(initial).digest("hex")}`,
+        writerInventory: canonicalBindingWriterInventory,
+        rename: () => { renameCalled = true; },
+      }),
+    );
+    expect(result).toEqual({ state: "ABORTED", reason: "CANONICAL_BINDING_FENCE_UNAVAILABLE" });
+    expect(renameCalled).toBe(false);
+  });
+
+  it("publishes a hold the core v2 parser accepts as a live-holder lock", () => {
+    const base = mkdtempSync(join(tmpdir(), "h2a-identity-cas-parity-"));
+    scratchRoots.push(base);
+    const lockPath = join(base, ".lock");
+    withIdentityFenceSync(lockPath, () => {
+      const read = readIdentityLock(lockPath);
+      expect(typeof read).toBe("object");
+      if (typeof read === "object" && "kind" in read && read.kind === "v2") {
+        expect(read.rec.recordVersion).toBe(2);
+        expect(read.rec.protocol).toBe("identity-binding-fence-v1");
+        expect(read.rec.publication).toBe("link");
+        expect(read.rec.pid).toBe(process.pid);
+      } else {
+        expect.unreachable(`core parser rejected the runtime hold: ${JSON.stringify(read)}`);
+      }
+    });
+    expect(readIdentityLock(lockPath)).toBe("absent");
   });
 
   it("aborts the held-descriptor CAS when a binding writer bypass is present", () => {

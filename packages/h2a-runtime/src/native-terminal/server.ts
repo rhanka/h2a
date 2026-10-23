@@ -53,7 +53,8 @@ type ConnectionContext = {
   readonly socket: Socket;
   readonly leases: Map<string, NativeTerminalControllerLease>;
   readonly responseBudget: ResponseQueueBudget;
-  buffer: string;
+  buffer: string[];
+  bufferBytes: number;
   pendingResponseBytes: number;
   pendingResponses: number;
 };
@@ -413,19 +414,24 @@ function writeError(context: ConnectionContext, id: unknown, code: NativeTermina
 }
 
 function consumeFrames(host: NativeTerminalHost, context: ConnectionContext, chunk: string): void {
-  context.buffer += chunk;
-  for (;;) {
-    const newline = context.buffer.indexOf("\n");
-    if (newline < 0) break;
-    const line = context.buffer.slice(0, newline);
-    context.buffer = context.buffer.slice(newline + 1);
-    if (line.length === 0) continue;
-    if (Buffer.byteLength(line) > NATIVE_TERMINAL_MAX_FRAME_BYTES) {
+  const fragments = chunk.split("\n");
+  for (let index = 0; index < fragments.length; index++) {
+    const fragment = fragments[index]!;
+    context.bufferBytes += Buffer.byteLength(fragment);
+    if (context.bufferBytes > NATIVE_TERMINAL_MAX_FRAME_BYTES) {
       writeError(context, "invalid", "invalid-request", new Error("terminal request exceeds the frame limit"));
       recordHostFault(HOST_FAULT_COUNTERS.hostClientFrameDestroys);
       context.socket.destroy();
       return;
     }
+    if (fragment.length > 0) context.buffer.push(fragment);
+    if (index === fragments.length - 1) break;
+    // Join once per complete frame. Repeatedly flattening/rescanning an
+    // unfinished frame made fragmented oversized input quadratic.
+    const line = context.buffer.join("");
+    context.buffer = [];
+    context.bufferBytes = 0;
+    if (line.length === 0) continue;
     let raw: unknown;
     try {
       raw = JSON.parse(line);
@@ -452,11 +458,6 @@ function consumeFrames(host: NativeTerminalHost, context: ConnectionContext, chu
     } catch (error) {
       if (!writeError(context, request.id, "operation-failed", error)) return;
     }
-  }
-  if (Buffer.byteLength(context.buffer) > NATIVE_TERMINAL_MAX_FRAME_BYTES) {
-    writeError(context, "invalid", "invalid-request", new Error("terminal request exceeds the frame limit"));
-    recordHostFault(HOST_FAULT_COUNTERS.hostClientFrameDestroys);
-    context.socket.destroy();
   }
 }
 
@@ -689,19 +690,22 @@ async function recordEndpointOwner(socketPath: string, socket: NativeTerminalSoc
  * ENOENT/ECONNREFUSED are candidates, never proof by themselves. Serialize
  * with publication and re-read both the socket and its durable process
  * identity. A live or unreadable owner keeps the endpoint unknown.
- * No socket is removed by an inventory; publication owns reclamation.
+ * Inventories use the read-only default. A launch can explicitly reclaim the
+ * proven-dead inode under this same lock, so subsequent starters do not each
+ * repeat the one-second stale-inode proof ahead of the new publisher.
  */
 export async function proveNativeTerminalEndpointAbsent(
   socketPath: string,
   failure: unknown,
   readFrame: ReadProcessFrame = readProcessFrame,
   ownerProbe: NativeTerminalOwnerHostProbe = defaultOwnerHostProbe,
+  reclaimStaleSocket = false,
 ): Promise<boolean> {
   const code = (failure as NodeJS.ErrnoException | undefined)?.code;
   if (code !== "ENOENT" && code !== "ECONNREFUSED") return false;
   await ensurePrivateSocketDirectory(socketPath);
   return withSocketPublicationLock(socketPath,
-    signal => proveEndpointAbsentUnderLock(socketPath, signal, readPublicationFrame(readFrame), ownerProbe));
+    signal => proveEndpointAbsentUnderLock(socketPath, signal, readPublicationFrame(readFrame), ownerProbe, reclaimStaleSocket));
 }
 
 function canonicalizePath(targetPath: string): string | undefined {
@@ -942,15 +946,18 @@ function readPublicationFrame(readFrame: ReadProcessFrame): DurableProcFrame {
   return frame;
 }
 
-/** A refused connect says only that nobody accepts now. All five refusals
- * must complete within the global budget; every attempt has its own timer.
+/** A refused connect says only that nobody accepts now. An existing inode
+ * needs all five refusals; a missing pathname needs one under the publication
+ * lock (active-host and durable-owner checks still precede it, inode recheck
+ * still follows). Every attempt has its own timer and a shared global budget.
  * Abort destroys the socket and cancels the interval before the lock releases. */
-async function repeatedlyRefusesConnection(socketPath: string, socketPresent: boolean, signal?: AbortSignal): Promise<boolean> {
+async function repeatedlyRefusesConnection(socketPath: string, socketPresent: boolean, signal?: AbortSignal, provenDeadOwner = false): Promise<boolean> {
   const deadline = new AbortController();
   const timer = setTimeout(() => deadline.abort(new NativeTerminalPublicationRefusal("H2A_ENDPOINT_PROBE_TIMEOUT")), 2_000);
   const bounded = signal ? AbortSignal.any([signal, deadline.signal]) : deadline.signal;
   try {
-    for (let attempt = 0; attempt < 5; attempt++) {
+    const attempts = socketPresent && !provenDeadOwner ? 5 : 1;
+    for (let attempt = 0; attempt < attempts; attempt++) {
       bounded.throwIfAborted();
       const refusal = await new Promise<boolean>((resolve, reject) => {
         const connection = createConnection(socketPath);
@@ -971,7 +978,7 @@ async function repeatedlyRefusesConnection(socketPath: string, socketPresent: bo
         });
       });
       if (!refusal) return false;
-      if (attempt < 4) {
+      if (attempt < attempts - 1) {
         await new Promise<void>((resolve, reject) => {
           const cancel = () => { clearTimeout(interval); reject(bounded.reason); };
           const interval = setTimeout(() => { bounded.removeEventListener("abort", cancel); resolve(); }, 250);
@@ -992,6 +999,7 @@ async function proveEndpointAbsentUnderLock(
   signal: AbortSignal | undefined,
   currentFrame: DurableProcFrame,
   ownerProbe: NativeTerminalOwnerHostProbe = defaultOwnerHostProbe,
+  reclaimStaleSocket = false,
 ): Promise<boolean> {
   signal?.throwIfAborted();
   let socket: NativeTerminalSocketIdentity | undefined;
@@ -1073,7 +1081,14 @@ async function proveEndpointAbsentUnderLock(
   const ownersDead = uniqueOwners.every(owner => owner.startTime !== undefined && ownerProbe(owner) === "dead");
   const sidecarProvesDeath = sidecarVerdict === "stale-boot" || (sidecarVerdict === "current" && ownersDead);
   // Even a run of refusals cannot prove a new, unattributed holder dead.
-  if (!await repeatedlyRefusesConnection(socketPath, socket !== undefined, signal)) return false;
+  // With an inode-matched, current-frame sidecar and every attributed owner
+  // positively dead, waiting cannot add identity evidence. Publication is
+  // serialized by this same lock and the inode is checked again below. Keep
+  // the full observation window for legacy/unattributed sockets; never turn
+  // an unknown identity into this fast path. Read-only proofs keep the inode.
+  const provenDeadOwner = socket !== undefined && sidecar !== undefined &&
+    sidecarVerdict === "current" && ownersDead && sameNativeTerminalSocket(socket, sidecar);
+  if (!await repeatedlyRefusesConnection(socketPath, socket !== undefined, signal, provenDeadOwner)) return false;
   let preBootInode = false;
   try {
     const final = await abortable(lstat(socketPath), signal);
@@ -1099,6 +1114,11 @@ async function proveEndpointAbsentUnderLock(
   } else if (socket && !sidecarProvesDeath && staleProof !== undefined) {
     await recordEndpointOwner(socketPath, socket, { pid: staleProof.ownerHostPid!, startTime: staleProof.ownerHostStartTime }, signal, currentFrame,
       { bootId: staleProof.pgidBootId, pidNamespace: staleProof.pgidPidNamespace, machineId: staleProof.pgidMachineId });
+  }
+  if (socket && reclaimStaleSocket) {
+    unlinkOwnedPath(socketPath, socket);
+    try { await abortable(lstat(socketPath), signal); return false; }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
   }
   return true;
 }
@@ -1354,7 +1374,8 @@ async function initializeNativeTerminalHostServer(options: {
       socket,
       leases: new Map(),
       responseBudget,
-      buffer: "",
+      buffer: [],
+      bufferBytes: 0,
       pendingResponseBytes: 0,
       pendingResponses: 0,
     };
