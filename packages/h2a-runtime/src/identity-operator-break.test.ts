@@ -73,6 +73,19 @@ describe("operator break delegation (no core import)", () => {
     expect(writes.join("")).toMatch(/cannot delegate.*EACCES/);
   });
 
+  it("spawns the dispatching core entry directly when core exported it (no PATH)", () => {
+    const { runner, spawn, codes } = runnerWith({
+      env: { H2A_CORE_ENTRY: "/repo/packages/h2a/dist/bin.js" },
+    });
+    operatorBreak("/store/identity/.lock", "tok", false, () => {}, runner);
+    expect(spawn).toHaveBeenCalledTimes(1);
+    const [command, args] = spawn.mock.calls[0] as [string, string[]];
+    expect(command).toBe(process.execPath);
+    expect(args).toEqual(["/repo/packages/h2a/dist/bin.js", OPERATOR_BREAK_VERB,
+      "--lock", "/store/identity/.lock", "--token", "tok"]);
+    expect(codes).toEqual([0]);
+  });
+
   it("refuses without spawning when already delegated (skew guard)", () => {
     const { runner, spawn, codes, writes } = runnerWith({
       env: { [OPERATOR_BREAK_HOP_ENV]: "1" },
