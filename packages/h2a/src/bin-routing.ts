@@ -331,5 +331,13 @@ export async function dispatchRuntime(
     return 64;
   }
   // dispatchH2a = main(argv) : commander attend process.argv ([node, script, …]).
+  // The runtime's operator delegation (`identity unlock` / `lock break`)
+  // spawns back into this entry (hidden `__operator-break` plumbing) instead
+  // of importing this package: hand it the exact entry path so the spawn
+  // never depends on PATH and always hits the lockstep core. Same-process
+  // dispatch, so exporting it on process.env is the channel (the runtime
+  // falls back to `h2a` on PATH when unset: standalone runtime + separately
+  // installed core, or a clean refusal without core).
+  process.env.H2A_CORE_ENTRY = fileURLToPath(new URL("./bin.js", import.meta.url));
   return dispatch(process.argv);
 }

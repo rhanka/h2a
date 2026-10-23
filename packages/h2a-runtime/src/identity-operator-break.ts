@@ -21,6 +21,22 @@ import { spawnSync } from "node:child_process";
 
 export const OPERATOR_BREAK_VERB = "__operator-break";
 export const OPERATOR_BREAK_HOP_ENV = "H2A_OPERATOR_BREAK_HOP";
+/**
+ * Set by core on `process.env` when it dispatches to this runtime
+ * (same-process dispatch): the exact core entry implementing the hidden
+ * plumbing. Spawning it via `process.execPath` never depends on PATH and
+ * always hits the lockstep core — which matters in test/dev checkouts where
+ * no `h2a` binary is installed.
+ */
+export const CORE_ENTRY_ENV = "H2A_CORE_ENTRY";
+
+export function coreSpawnTarget(env: NodeJS.ProcessEnv): { command: string; prefixArgs: string[] } {
+  const entry = env[CORE_ENTRY_ENV];
+  if (typeof entry === "string" && entry.length > 0) {
+    return { command: process.execPath, prefixArgs: [entry] };
+  }
+  return { command: "h2a", prefixArgs: [] };
+}
 
 export interface OperatorBreakRunner {
   spawn: typeof spawnSync;
@@ -50,7 +66,9 @@ export function operatorBreak(
     runner.setExitCode(1);
     return;
   }
+  const target = coreSpawnTarget(runner.env);
   const args = [
+    ...target.prefixArgs,
     OPERATOR_BREAK_VERB,
     "--lock", lockPath,
     "--token", token,
@@ -60,7 +78,7 @@ export function operatorBreak(
   // for invalid arguments. Both shapes mean the delegation cannot run.
   let result: ReturnType<typeof spawnSync>;
   try {
-    result = runner.spawn("h2a", args, {
+    result = runner.spawn(target.command, args, {
       stdio: "inherit",
       env: { ...runner.env, [OPERATOR_BREAK_HOP_ENV]: "1" },
     });
