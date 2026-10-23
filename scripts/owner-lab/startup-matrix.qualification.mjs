@@ -7,12 +7,14 @@ import { fixture, eventually, usable } from '../../packages/h2a/test/helpers/res
 import { NativeTerminalClient } from '../../packages/h2a-runtime/dist/native-terminal/client.js';
 
 const repo = resolve(import.meta.dirname, '../..');
-// R4 (conductor decision 21/10): BLOCKING non-regression baselines at the
-// level measured on this head (startup-baselines.json: CI run, head,
-// medians/p95 per mode/state/concurrency at empty registry + explicit
-// margin). Native-CLI parity (median <= +250 ms, p95 <= +500 ms) is a
-// REPORTED tracked objective owned by spec/open-parity — published by every
-// cell, never asserted here. It becomes blocking when that lane lands.
+// R5: BLOCKING non-regression baselines over every committed mode/state
+// (startup-baselines.json: fresh/resume/restore cells + systemdCells for the
+// effective-scope path + incident20 for the 20-request owner incident, each
+// with measured medians/p95 at empty registry — incident20: 214-row
+// owner-shaped registry — plus explicit margin). Native-CLI parity
+// (median <= +250 ms, p95 <= +500 ms) is a REPORTED tracked objective owned
+// by spec/open-parity — published by every cell, never asserted here. It
+// becomes blocking when that lane lands.
 const baselines = JSON.parse(readFileSync(join(repo, 'scripts/owner-lab/startup-baselines.json'), 'utf8'));
 const PARITY_TARGET_MEDIAN_MS = 250;
 const PARITY_TARGET_P95_MS = 500;
@@ -169,7 +171,7 @@ async function matrix(t, mode, concurrency, host, isolation = "fallback") {
     const medianMs = quantile(values.map(s => s.usableMs), .5);
     const p95Ms = quantile(values.map(s => s.usableMs), .95);
     const deltaMs = medianMs - empty;
-    t.diagnostic(JSON.stringify({ scenario: 'startup-matrix-summary', mode, concurrency, host, rows,
+    t.diagnostic(JSON.stringify({ scenario: 'startup-matrix-summary', mode, concurrency, host, rows, isolation,
       medianMs, p95Ms, directMedianMs: quantile(values.map(s => s.directMs), .5),
       pairedOverheadMedianMs: quantile(values.map(s => s.overheadMs), .5),
       pairedOverheadP95Ms: quantile(values.map(s => s.overheadMs), .95), deltaMs, registryBudgetMs: 500,
@@ -177,22 +179,27 @@ async function matrix(t, mode, concurrency, host, isolation = "fallback") {
     assert.ok(deltaMs <= 500, `${mode}/${concurrency}/${host}/${rows}: registry overhead ${deltaMs} > 500 ms`);
     const pairedMedianMs = quantile(values.map(s => s.overheadMs), .5);
     const pairedP95Ms = quantile(values.map(s => s.overheadMs), .95);
-    // R4 (a): BLOCKING non-regression gate at the empty-registry level
-    // measured on this head, for the stable CLI-launch paths (fresh/resume).
-    // The 1 s bin.js sleep mutation shifts every sample by +1000 ms, so it
-    // still fails this gate (median margin 500, p95 margin 800). Restore is
-    // recorded but not baseline-gated (runner-sensitive absolute at 5/10 —
-    // see baselines.json); it keeps the delta gate below. The systemd path
-    // has its own cost profile (scope creation); it keeps the cgroup
-    // assertions above plus the delta gate, and reports its timings below.
-    if (rows === 0 && isolation === "fallback" && baselines.gatedModes.includes(mode)) {
+    // R5: BLOCKING non-regression gate at the empty-registry level for
+    // EVERY committed mode/state — fresh/resume/restore on fallback (cells),
+    // fresh/resume 1 live/killed on systemd (systemdCells, effective-scope
+    // cost profile). The 1 s bin.js sleep mutation shifts every sample by
+    // +1000 ms, so it fails each gated cell (median margin 500, p95 margin
+    // 800). Restore is now gated like fresh/resume (R4 referenceOnly lifted
+    // per R5); it keeps the delta gate below as well.
+    if (rows === 0 && baselines.gatedModes.includes(mode)) {
       const key = `${mode}/${concurrency}/${host}`;
-      const base = baselines.cells[key];
-      assert.ok(base, `${key}: no committed non-regression baseline; refusing to pass without one`);
-      assert.ok(medianMs <= base.medianMs + baselines.margin.medianMs,
-        `${key}/0: non-regression overhead median ${medianMs} exceeds committed baseline ${base.medianMs} + ${baselines.margin.medianMs} ms`);
-      assert.ok(p95Ms <= base.p95Ms + baselines.margin.p95Ms,
-        `${key}/0: non-regression overhead p95 ${p95Ms} exceeds committed baseline ${base.p95Ms} + ${baselines.margin.p95Ms} ms`);
+      const base = isolation === "systemd" ? baselines.systemdCells?.[key] : baselines.cells[key];
+      if (isolation === "systemd" && base === undefined) {
+        // No committed systemd cell for this combination (systemd tests only
+        // cover fresh/resume 1 live/killed): cgroup assertions above plus the
+        // delta gate still apply; nothing absolute to assert here.
+      } else {
+        assert.ok(base, `${key}/${isolation}: no committed non-regression baseline; refusing to pass without one`);
+        assert.ok(medianMs <= base.medianMs + baselines.margin.medianMs,
+          `${key}/${isolation}/0: non-regression overhead median ${medianMs} exceeds committed baseline ${base.medianMs} + ${baselines.margin.medianMs} ms`);
+        assert.ok(p95Ms <= base.p95Ms + baselines.margin.p95Ms,
+          `${key}/${isolation}/0: non-regression overhead p95 ${p95Ms} exceeds committed baseline ${base.p95Ms} + ${baselines.margin.p95Ms} ms`);
+      }
     }
     // R4 (b): native-CLI parity stays a REPORTED check — published paired
     // overhead and delta to target for every mode (fresh/resume/restore) and

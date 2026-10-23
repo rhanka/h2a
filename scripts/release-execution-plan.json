@@ -147,12 +147,6 @@
       },
       {
         "shell": "bash",
-        "run": [
-          "if [ -n \"${TMPDIR:-}\" ]; then rm -rf \"$TMPDIR\"; fi"
-        ]
-      },
-      {
-        "shell": "bash",
         "env": {
           "BACKFILL_VERSION": "${{ inputs.backfill-version }}"
         },
@@ -191,6 +185,12 @@
           "path": "dist-tarballs/",
           "if-no-files-found": "error"
         }
+      },
+      {
+        "shell": "bash",
+        "run": [
+          "if [ -n \"${TMPDIR:-}\" ]; then rm -rf \"$TMPDIR\"; fi"
+        ]
       }
     ]
   },

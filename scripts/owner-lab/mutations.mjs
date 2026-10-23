@@ -32,13 +32,15 @@ red('publication-contention', join(runtime, 'native-terminal/server.js'), 'ten c
 red('worker-scope', join(runtime, 'native-terminal/process.js'), undefined,
   code => code.replace('spawner: isolation.isolated ?', 'spawner: false ?'),
   /h2a-native-/);
-// R4 (a) negative control: a 1 s sleep in the packaged bin.js must fail the
-// BLOCKING non-regression gate (committed empty-registry baseline + margin).
-// This proves the gate is sensitive to a registry-independent slowdown (the
-// R2 blind spot: only the registry-delta was asserted, so a common slowdown
-// passed). Parity itself is REPORTED, never asserted — the mutation must be
-// caught by the non-regression baseline, not by the parity report.
-// Runs one matrix cell; timeout covers 9 paired samples.
+// R5 negative control: a 1 s sleep in the packaged bin.js must fail the
+// BLOCKING non-regression gate of EVERY committed mode/state (fresh, resume,
+// restore on fallback; fresh/resume 1 live/killed on systemd — one cell each
+// below). This proves the gate is sensitive to a registry-independent
+// slowdown on each path (the R2 blind spot: only the registry-delta was
+// asserted, so a common slowdown passed; the R4 blind spot: restore and
+// systemd were referenceOnly/reported, so the mutation passed there).
+// Parity itself is REPORTED, never asserted — the mutation must be caught by
+// the non-regression baseline, not by the parity report.
 {
   const binJs = resolve('packages/h2a/dist/bin.js');
   const original = readFileSync(binJs, 'utf8');
@@ -47,13 +49,20 @@ red('worker-scope', join(runtime, 'native-terminal/process.js'), undefined,
   assert.notEqual(changed, original, 'startup-overhead: mutation did not apply');
   try {
     writeFileSync(binJs, changed);
-    const args = ['--test', '--test-name-pattern=startup-matrix: fresh, 1 requests, host live,',
-      'scripts/owner-lab/startup-matrix.qualification.mjs'];
-    const result = spawnSync(process.execPath, args, { env: process.env, encoding: 'utf8', timeout: 300000 });
-    assert.equal(result.error, undefined, 'startup-overhead: infrastructure error');
-    assert.notEqual(result.status, 0, 'startup-overhead: 1 s slowdown escaped the non-regression gate');
-    assert.match(result.stdout + result.stderr, /non-regression overhead/,
-      'startup-overhead: failed for the wrong reason');
-    console.log(`startup-overhead: RED detected (exit ${result.status}); artifact restored`);
+    for (const pattern of [
+      'startup-matrix: fresh, 1 requests, host live,',
+      'startup-matrix: restore, 1 requests, host live,',
+      'startup-matrix-systemd: fresh, 1 requests, host live,',
+    ]) {
+      const args = ['--test', '--test-name-pattern=' + pattern,
+        'scripts/owner-lab/startup-matrix.qualification.mjs'];
+      const result = spawnSync(process.execPath, args, { env: process.env, encoding: 'utf8', timeout: 300000 });
+      assert.equal(result.error, undefined, `startup-overhead(${pattern}): infrastructure error`);
+      assert.notEqual(result.status, 0, `startup-overhead(${pattern}): 1 s slowdown escaped the non-regression gate`);
+      assert.match(result.stdout + result.stderr, /non-regression overhead/,
+        `startup-overhead(${pattern}): failed for the wrong reason`);
+      console.log(`startup-overhead(${pattern}): RED detected (exit ${result.status})`);
+    }
+    console.log('startup-overhead: every gated path fails the 1 s mutation; artifact restored');
   } finally { writeFileSync(binJs, original); }
 }
