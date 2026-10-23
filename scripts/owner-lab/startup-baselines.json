@@ -40,9 +40,9 @@
     "resume/1/killed": { "medianMs": 923, "p95Ms": 933 }
   },
   "incident20": {
-    "_comment": "Sol R4 reproduction (isolated lab, deterministic CLI, private HOME/XDG/socket): 214-row registry (100 dead background rows + 20 target conversations), host SIGKILLed, 20 concurrent resumes. 20/20 usable, 1 host, 0 lock timeout, +87 ms vs empty registry (budget +500). BLOCKING cell below.",
-    "source": { "review": "pr390-r4-sol", "rows": 214, "concurrency": 20, "host": "killed", "metric": "usableMs" },
-    "medianMs": 3082,
-    "p95Ms": 3680
+    "_comment": "20-request owner incident (Sol R4 reproduction shape: isolated lab, deterministic CLI, private HOME/XDG/socket; 214-row registry with 100 dead background rows + 20 target conversations, host SIGKILLed, 20 concurrent resumes). BLOCKING cell asserts the runner-robust properties (20/20 usable, single host, zero lock timeout, registry delta <=500 ms — green on 3/3 CI VMs and local). The absolute below is CI-anchored at the MAX observed over CI run 39950116414 (this head): trust-root 5495/5721, build-22 8426/8998, build-24 6893/7047 — 20-way wall time varies ~3000 ms across shared CI VMs, so the absolute is a catastrophic-regression ceiling, not a tight gate; +1 s sensitivity on every runner is owned by the matrix absolute gates (proven per-runner by mutations.mjs on CI) and arithmetically (margin 500/800 < 1000 ms shift).",
+    "source": { "ciRun": 39950116414, "head": "5242f8574", "os": "ubuntu-latest", "node": "22", "rows": 214, "concurrency": 20, "host": "killed", "metric": "usableMs" },
+    "medianMs": 8426,
+    "p95Ms": 8998
   }
 }
