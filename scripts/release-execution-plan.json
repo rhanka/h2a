@@ -187,6 +187,7 @@
         }
       },
       {
+        "if": "always()",
         "shell": "bash",
         "run": [
           "if [ -n \"${TMPDIR:-}\" ]; then rm -rf \"$TMPDIR\"; fi"

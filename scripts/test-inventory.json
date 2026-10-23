@@ -713,7 +713,7 @@
     "R8.2: the artifact manifest is TIED to the resolved SHA, and publish re-checks the tie before publishing",
     "R8.2/R8.4: no step anywhere may swallow its own failure (continue-on-error)",
     "R8.1/R8.3/R8.4: the mandatory verify steps are UNCONDITIONAL — a disabled gate still reads green",
-    "R8/R8.4: EVERY step of the workflow is UNCONDITIONAL — the only sanctioned `if` is the single-leg upload",
+    "R8/R8.4: EVERY step of the workflow is UNCONDITIONAL — the only sanctioned `if`s are the single-leg upload and the R6 cleanup",
     "no publication path bypasses verify: publish needs verify and nothing else publishes"
   ],
   "packages/h2a/test/remote-accept.test.js": [],

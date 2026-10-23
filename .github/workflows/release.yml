@@ -194,11 +194,14 @@ jobs:
           if-no-files-found: error
       # TMPDIR cleanup AFTER the last consumer (trust root, npm test, pack,
       # smoke all read TMPDIR/TMP/TEMP/H2A_TEST_QUALIFICATION_ROOT): no step
-      # runs with a missing TMPDIR. Unconditional by R8 design (no `if:`):
-      # with a passing gate the directory is removed here; on a failed gate
-      # the disposable VM that owns it is discarded, so nothing shared can
-      # accumulate.
+      # runs with a missing TMPDIR. R6: `if: always()` (R8 exception #2) — an
+      # implicit `success()` skipped this cleanup after a failed `npm test`,
+      # leaving the disposable TMPDIR behind on exactly the runs that most
+      # need post-mortem hygiene; with a passing gate the directory is removed
+      # here, on a failed gate the removal still runs (the disposable VM that
+      # owns it is discarded, so nothing shared can accumulate).
       - name: Clean the disposable TMPDIR
+        if: always()
         shell: bash
         run: if [ -n "${TMPDIR:-}" ]; then rm -rf "$TMPDIR"; fi
 
