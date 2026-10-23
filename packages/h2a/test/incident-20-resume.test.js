@@ -1,5 +1,14 @@
 // R5 blocking incident cell: 20 concurrent resumes over Sol's owner-shaped
-// registry (214 rows incl. 100 dead background rows, host SIGKILLed).
+// registry (214 rows incl. 100 dead background rows, host SIGKILLED).
+// R6: the absolute wall-time ceiling stays (catastrophic-regression ceiling,
+// CI-anchored at the slow-runner max), but the +1 s catcher is now a
+// self-calibrating RELATIVE gate: bin.js `--version` startup against a
+// same-run `node -e` control. The sleep after the shebang shifts every bin.js
+// invocation by +1000 ms while the control never crosses bin.js, so the
+// difference shifts by the full +1000 ms — twice the margin — while runner
+// speed cancels out. Batch wall and per-request overhead both inherit
+// host-election contention noise (the R5 blind spot); bare process startup
+// varies by ~±100 ms, so no committed per-runner numbers are needed.
 // Isolated lab only: deterministic CLI, private HOME/XDG/socket, no provider,
 // no user bus, no owner state. Run after the build with a private TMPDIR.
 import assert from 'node:assert/strict';
@@ -74,13 +83,55 @@ test('incident-20-resume: 20 concurrent resumes over 214 owner-shaped rows with 
     return usableMs;
   }
 
+  // R6 +1 s catcher FIRST (fail-fast): bin.js startup probe against a
+  // same-run unmutated control. The sleep after the shebang shifts EVERY
+  // bin.js invocation by +1000 ms — including `--version`, which otherwise
+  // parses argv and exits without touching the registry, the host election,
+  // or any session. The control (`node -e`, same runner, same minute) never
+  // crosses bin.js, so a uniform CLI slowdown shifts the difference by the
+  // full +1000 ms — twice the margin — while runner speed cancels out. Batch
+  // wall and per-request overhead both inherit host-election contention
+  // noise (locally ±400 ms, ±1500 ms across CI runners: the R5 blind spot),
+  // but bare process startup varies by ~±100 ms, so no committed per-runner
+  // numbers are needed. Cheap and deterministic, so it runs before the
+  // expensive 20-way rounds.
+  const { spawnSync } = await import('node:child_process');
+  const binJs = join(repo, 'packages/h2a/dist/bin.js');
+  function startupSample(args) {
+    const samples = [];
+    for (let i = 0; i < 20; i++) {
+      const begun = performance.now();
+      const result = spawnSync(process.execPath, args, { encoding: 'utf8', timeout: 30000 });
+      assert.equal(result.error, undefined, `startup probe infrastructure error: ${result.error}`);
+      assert.equal(result.status, 0, `startup probe failed: ${result.stderr}`);
+      samples.push(performance.now() - begun);
+    }
+    return samples;
+  }
+  const probe = startupSample([binJs, '--version']);
+  const control = startupSample(['-e', '']);
+  const probeMedian = quantile(probe, 0.5);
+  const probeP95 = quantile(probe, 0.95);
+  const controlMedian = quantile(control, 0.5);
+  const controlP95 = quantile(control, 0.95);
+  const startupOverheadMedian = Math.round(probeMedian - controlMedian);
+  const startupOverheadP95 = Math.round(probeP95 - controlP95);
+  t.diagnostic(JSON.stringify({ scenario: 'incident-20-startup-probe', probeMedianMs: Math.round(probeMedian),
+    probeP95Ms: Math.round(probeP95), controlMedianMs: Math.round(controlMedian),
+    controlP95Ms: Math.round(controlP95), startupOverheadMedianMs: startupOverheadMedian,
+    startupOverheadP95Ms: startupOverheadP95 }));
+  assert.ok(startupOverheadMedian <= baselines.margin.medianMs,
+    `incident-20 bin.js startup overhead median ${startupOverheadMedian} exceeds same-run control + ${baselines.margin.medianMs} ms`);
+  assert.ok(startupOverheadP95 <= baselines.margin.p95Ms,
+    `incident-20 bin.js startup overhead p95 ${startupOverheadP95} exceeds same-run control + ${baselines.margin.p95Ms} ms`);
+
   // Warmup round (discarded): the first fixture pays one-time costs (module
   // hook compilation, tmpdir creation) that would otherwise inflate whichever
   // round runs first.
   await round(999, 0);
   // Empty-registry reference (paired delta gate, budget +500 ms).
   const emptyMs = await round(0, 0);
-  // Three loaded rounds: median/p95 against the committed incident baseline.
+  // Three loaded rounds: wall against the catastrophic ceiling.
   const loaded = [];
   for (const serial of [1, 2, 3]) loaded.push(await round(serial, 194));
   const medianMs = quantile(loaded, 0.5);
@@ -93,8 +144,10 @@ test('incident-20-resume: 20 concurrent resumes over 214 owner-shaped rows with 
   assert.ok(deltaMs <= 500, `20 resumes added ${deltaMs} ms over 214 rows (budget +500 ms)`);
   const base = baselines.incident20;
   assert.ok(base, 'no committed 20-request incident baseline; refusing to pass without one');
+  // Catastrophic ceiling (unchanged R5 absolute, slow-CI max): a gross stall
+  // trips the cell even if the startup probe somehow did not.
   assert.ok(medianMs <= base.medianMs + baselines.margin.medianMs,
-    `incident-20 median ${medianMs} exceeds committed baseline ${base.medianMs} + ${baselines.margin.medianMs} ms`);
+    `incident-20 median ${medianMs} exceeds committed ceiling ${base.medianMs} + ${baselines.margin.medianMs} ms`);
   assert.ok(p95Ms <= base.p95Ms + baselines.margin.p95Ms,
-    `incident-20 p95 ${p95Ms} exceeds committed baseline ${base.p95Ms} + ${baselines.margin.p95Ms} ms`);
+    `incident-20 p95 ${p95Ms} exceeds committed ceiling ${base.p95Ms} + ${baselines.margin.p95Ms} ms`);
 });
