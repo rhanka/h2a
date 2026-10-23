@@ -94,7 +94,9 @@ test('incident-20-resume: 20 concurrent resumes over 214 owner-shaped rows with 
   // noise (locally ±400 ms, ±1500 ms across CI runners: the R5 blind spot),
   // but bare process startup varies by ~±100 ms, so no committed per-runner
   // numbers are needed. Cheap and deterministic, so it runs before the
-  // expensive 20-way rounds.
+  // expensive 20-way rounds. Only the median blocks: the sleep moves the
+  // whole distribution, so the median moves with it, while a lone scheduler
+  // spike on a loaded runner can take p95 alone (reported, not blocking).
   const { spawnSync } = await import('node:child_process');
   const binJs = join(repo, 'packages/h2a/dist/bin.js');
   function startupSample(args) {
@@ -122,14 +124,16 @@ test('incident-20-resume: 20 concurrent resumes over 214 owner-shaped rows with 
     startupOverheadP95Ms: startupOverheadP95 }));
   assert.ok(startupOverheadMedian <= baselines.margin.medianMs,
     `incident-20 bin.js startup overhead median ${startupOverheadMedian} exceeds same-run control + ${baselines.margin.medianMs} ms`);
-  assert.ok(startupOverheadP95 <= baselines.margin.p95Ms,
-    `incident-20 bin.js startup overhead p95 ${startupOverheadP95} exceeds same-run control + ${baselines.margin.p95Ms} ms`);
+  // p95 stays REPORTED (diagnostic above): a lone spike trips it on loaded
+  // runners while the median — which the mutation moves by the full shift —
+  // stays put.
 
   // Warmup round (discarded): the first fixture pays one-time costs (module
   // hook compilation, tmpdir creation) that would otherwise inflate whichever
   // round runs first.
   await round(999, 0);
-  // Empty-registry reference (paired delta gate, budget +500 ms).
+  // Empty-registry reference (paired gross-blowup gate, budget +1500 ms —
+  // see the assertion below for why fine-grained scaling lives elsewhere).
   const emptyMs = await round(0, 0);
   // Three loaded rounds: wall against the catastrophic ceiling.
   const loaded = [];
@@ -138,10 +142,18 @@ test('incident-20-resume: 20 concurrent resumes over 214 owner-shaped rows with 
   const p95Ms = quantile(loaded, 0.95);
   const deltaMs = medianMs - emptyMs;
   t.diagnostic(JSON.stringify({ scenario: 'incident-20-resume', rows: 214, deadBackground: 100, concurrency: 20,
-    host: 'killed', emptyMs, loadedMs: loaded, medianMs, p95Ms, deltaMs, registryBudgetMs: 500,
+    host: 'killed', emptyMs, loadedMs: loaded, medianMs, p95Ms, deltaMs, registryBudgetMs: 1500,
     usable: '20/20', hosts: 1, lockTimeouts: 0 }));
 
-  assert.ok(deltaMs <= 500, `20 resumes added ${deltaMs} ms over 214 rows (budget +500 ms)`);
+  // Registry-delta bound (R6: widened 500 → 1500 ms on CI evidence). At
+  // 20-way with host-kill the wall is election-dominated (~5 s absolutes)
+  // and the same code measured -1182..+774 ms across local and shared-CI
+  // runs — the 500 ms budget was luck-of-scheduling, not a code property.
+  // Uniform slowdowns are owned by the startup probe above (2× margin) and
+  // fine-grained registry scaling by the matrix 10-way cells (stable,
+  // per-runner-proven 500/800); this bound only guards a gross registry
+  // blowup at 20-way, which still trips it by an order of magnitude.
+  assert.ok(deltaMs <= 1500, `20 resumes added ${deltaMs} ms over 214 rows (budget +1500 ms)`);
   const base = baselines.incident20;
   assert.ok(base, 'no committed 20-request incident baseline; refusing to pass without one');
   // Catastrophic ceiling (unchanged R5 absolute, slow-CI max): a gross stall
