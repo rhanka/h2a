@@ -622,7 +622,7 @@ test("R8.1/R8.3/R8.4: the mandatory verify steps are UNCONDITIONAL — a disable
   }
 });
 
-test("R8/R8.4: EVERY step of the workflow is UNCONDITIONAL — the only sanctioned `if` is the single-leg upload", () => {
+test("R8/R8.4: EVERY step of the workflow is UNCONDITIONAL — the only sanctioned `if`s are the single-leg upload and the R6 cleanup", () => {
   // Round-7 review finding P2: `if: false` on verify's setup-node kept every
   // assertion above green — both legs then ran the runner's default Node
   // while the matrix still claimed both legs. The round-3 mandatory pin covered
@@ -630,11 +630,15 @@ test("R8/R8.4: EVERY step of the workflow is UNCONDITIONAL — the only sanction
   // dependency (npm ci, the pack/checksums step) could be disabled with one
   // `if:` line while the workflow kept reading green. The invariant is
   // therefore STRUCTURAL and TOTAL: NO step of ANY job may carry an `if:`,
-  // with exactly one sanctioned exception — verify's single-leg upload
+  // with exactly two sanctioned exceptions — verify's single-leg upload
   // (actions/upload-artifact forbids duplicate artifact names, and a missing
   // upload fails publish's download step fail-closed; it cannot silently
-  // read green). The exception's condition is pinned exactly, so any other
-  // condition — including `if: false` — fails here.
+  // read green) and the R6 TMPDIR cleanup (`if: always()`: the implicit
+  // `success()` skipped the cleanup after a failed gate, leaving the
+  // disposable TMPDIR behind on exactly the runs needing hygiene; `always()`
+  // can only run MORE cleanup, never less gate). Each exception's condition
+  // is pinned exactly, so any other condition — including `if: false` —
+  // fails here.
   for (const [id, job_] of Object.entries(WORKFLOW.jobs)) {
     for (const step of job_.steps ?? []) {
       const isVerifyUpload =
@@ -644,6 +648,16 @@ test("R8/R8.4: EVERY step of the workflow is UNCONDITIONAL — the only sanction
           step.if,
           "matrix.node == '22'",
           "the single-leg upload condition is pinned exactly: any other condition can drop the artifact leg — and with it the bytes publish consumes — behind a green workflow",
+        );
+        continue;
+      }
+      const isVerifyCleanup =
+        id === "verify" && step.name === "Clean the disposable TMPDIR";
+      if (isVerifyCleanup) {
+        assert.equal(
+          step.if,
+          "always()",
+          "the TMPDIR cleanup condition is pinned exactly: only unconditional-always cleanup is sanctioned — any gate-skipping condition fails here",
         );
         continue;
       }
