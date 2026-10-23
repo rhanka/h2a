@@ -24,7 +24,10 @@ const TRACK_FACADE_VERBS: ReadonlySet<string> = new Set<string>([
 
 // Verbes gérés DIRECTEMENT dans bin.ts (branches async). Ils sont tous déjà des
 // premiers-mots du contrat, mais on les liste pour que le routage ne dépende
-// jamais de cette coïncidence.
+// jamais de cette coïncidence. Exception documentée : `__operator-break` est
+// le plumbing caché des verbes operator du runtime (`identity unlock` /
+// `lock break`) — natif mais volontairement hors contrat et hors aide, pour
+// que le runtime ne nomme jamais ce package.
 const BIN_HARD_NATIVE_FIRST_WORDS: readonly string[] = [
   "mcp-serve",
   "mcp-central-serve",
@@ -35,7 +38,8 @@ const BIN_HARD_NATIVE_FIRST_WORDS: readonly string[] = [
   "drumbeat",
   "sysml",
   "keepalive",
-  "loop"
+  "loop",
+  "__operator-break"
 ];
 
 /**
