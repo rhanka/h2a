@@ -48,7 +48,7 @@ import { NativeTerminalHostSupervisor } from "./supervisor.js";
 import { proveNativeTerminalEndpointAbsent } from "./server.js";
 import { defaultNativeTerminalSocketPath, knownNativeTerminalSocketPaths,
   inspectPrivateNativeTerminalSocket, sameNativeTerminalSocket } from "./socket-path.js";
-import { collectNativeInventory, readNativeTerminalSuccessor, resolveNativeOwner, type NativeInventory } from "./fleet.js";
+import { collectNativeInventory, publicationContenderObserved, readNativeTerminalSuccessor, resolveNativeOwner, type NativeInventory } from "./fleet.js";
 import { renderTerminalScreen } from "./screen.js";
 import { TerminalModeTracker } from "./terminal-modes.js";
 import { publishAttachReset } from "./attach-recovery.js";
@@ -209,7 +209,7 @@ async function launchClient(socketPath: string): Promise<NativeTerminalClient> {
     // Launch-only reclamation: inventories never remove the stale inode.
     try { absent = await proveNativeTerminalEndpointAbsent(socketPath, error, undefined, undefined, true); }
     catch (proofError) {
-      publisherObserved = (proofError as NodeJS.ErrnoException)?.code === "H2A_ENDPOINT_LIVE_OWNER";
+      publisherObserved = publicationContenderObserved(proofError);
       error = new Error(`${error instanceof Error ? error.message : String(error)}; absence proof failed: ${proofError instanceof Error ? proofError.message : String(proofError)}`);
     }
     if (absent) return ensureClient(socketPath);
