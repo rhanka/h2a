@@ -17,6 +17,17 @@ describe("native fleet ownership", () => {
     expect(resolveNativeOwner(session.id, inventory)).toMatchObject({ state: "found", client });
     expect(attempts).toBe(4);
   });
+  it("should wait for a successor that is still publishing after a lock-timeout absence proof", async () => {
+    let attempts = 0;
+    const client = { list: async () => [session] } as unknown as NativeTerminalClient;
+    const inventory = await collectNativeInventory([endpoints[0]!], async () => {
+      if (++attempts < 5) throw Object.assign(new Error("not published yet"), { code: "ECONNREFUSED" });
+      return client;
+    }, async () => { throw Object.assign(new Error("terminal socket publication lock timed out"), { code: "H2A_PUBLICATION_LOCK_TIMEOUT" }); });
+    expect(inventory.complete).toBe(true);
+    expect(resolveNativeOwner(session.id, inventory)).toMatchObject({ state: "found", client });
+    expect(attempts).toBe(5);
+  });
   it.each(["live-owner", "lock-timeout"])("should adopt a healthy successor after a raced %s absence proof", async (failure) => {
     let attempts = 0;
     const client = { list: async () => [session] } as unknown as NativeTerminalClient;
