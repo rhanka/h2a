@@ -79,6 +79,31 @@ const closedRow = (scenario, pair, overrides = {}) => ({
   sent: true, delivered: false, received: false, woke: false,
   replied: false, replyDelivered: false, ...overrides });
 
+test('L3/L12: a sender shard requires all six refusal pairs and never satisfies the full matrix', () => {
+  const scenario = 'refusal:replayed-wake';
+  const rows = CLIS.map(receiver => closedRow(scenario, `claude:${receiver}`,
+    { phaseAReplyDelivered: true, refusalRejected: true, secondReply: false }));
+  assert.equal(verifyScenarioMatrix(rows, scenario, 'claude').pass, true);
+  assert.equal(verifyScenarioMatrix(rows, scenario).pass, false);
+  assert.equal(verifyScenarioMatrix(rows.slice(1), scenario, 'claude').pass, false);
+  assert.throws(() => verifyScenarioMatrix(rows, scenario, 'unknown'), /unknown scenario sender/);
+});
+
+test('L3 CI partitions preserve every polling period, Node version and ordered refusal pair', async () => {
+  const { parse } = await import('yaml');
+  const workflow = parse(fs.readFileSync(join(repo, '.github/workflows/cross-cli-messaging.yml'), 'utf8'));
+  const polling = workflow.jobs['polling-controls'].strategy.matrix;
+  assert.deepEqual(polling.node, ['22', '24']);
+  assert.deepEqual(polling.period.map(Number), [1000, 5000, 15000, 45000, 90000]);
+  const refusal = workflow.jobs['refusal-matrix'].strategy.matrix;
+  assert.deepEqual(refusal.node, ['22', '24']);
+  assert.deepEqual(refusal.senders.flatMap(group => group.split(' ')), CLIS);
+  assert.deepEqual(refusal.scenario, ['refusal:unsigned-wake', 'refusal:misaddressed-wake', 'refusal:replayed-wake']);
+  const { SCENARIO_ROWS } = await import('./xcli-scenarios.mjs');
+  assert.deepEqual([...workflow.jobs['scenario-matrix'].strategy.matrix.scenario, ...refusal.scenario].sort(),
+    [...SCENARIO_ROWS].sort());
+});
+
 test('L12: clean fail-closed unavailability rows classify scenario-OK', () => {
   for (const state of UNAVAILABILITY_STATES) {
     const verdict = classifyScenarioRow(`unavailability:${state}`, closedRow(`unavailability:${state}`));
