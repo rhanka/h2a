@@ -1266,8 +1266,8 @@ async function happyTrackMcp() {
   }
 }
 
-// Exercise the real bridge dispatch and its complete stdio wire surface. This
-// contract case does not qualify the separately tracked central-route policy.
+// Exercise the admitted central shim and its complete stdio wire surface.
+// The private marker admits attachment; the embedded catalogue needs no host.
 async function happyRegistryBridgeServe() {
   const { dir, root } = freshRoot("h2a-contract-registry-");
   const config = join(dir, "host.json"), lock = join(dir, "host.lock.json");
@@ -1277,13 +1277,20 @@ async function happyRegistryBridgeServe() {
     assert.equal(await runCli(["registry", "bootstrap", "install", "--host", "claude",
       "--config", config, "--lock", lock], bootstrap, {}), 0, bootstrap.stderrText);
     const configBefore = readFileSync(config), lockBefore = readFileSync(lock);
-    const env = { ...process.env, H2A_ROOT: root, H2A_MCP_CENTRAL: "0", CLAUDE_CODE_SESSION_ID: "" };
+    const runtimeBase = join(dir, "runtime-base");
+    const markerDir = join(runtimeBase, "h2a-mcp-central");
+    mkdirSync(markerDir, { recursive: true, mode: 0o700 });
+    writeFileSync(join(markerDir, "marker.json"), JSON.stringify({
+      endpoint: "http://127.0.0.1:9/", generation: "contract-fixture", pid: process.pid,
+      startedAt: new Date().toISOString(), token: "contract-fixture-token", protocol: 2, root
+    }), { mode: 0o600 });
+    const env = { ...process.env, H2A_ROOT: root, H2A_MCP_CENTRAL: "1", CLAUDE_CODE_SESSION_ID: "contract-fixture" };
     for (const key of ["HOME", "XDG_RUNTIME_DIR", "XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_DATA_HOME",
       "XDG_CACHE_HOME", "REMOTE_CLI_CONFIG_HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "TMPDIR"]) {
       env[key] = join(dir, key.toLowerCase()); mkdirSync(env[key], { mode: 0o700 });
     }
     child = spawn(process.execPath, [BIN_PATH, "registry-bridge", "serve", "--host", "claude",
-      "--profile", "default", "--lock", lock, "--root", root], {
+      "--profile", "default", "--lock", lock, "--root", root, "--runtime-base", runtimeBase], {
       cwd: dir, env, stdio: ["pipe", "pipe", "pipe"]
     });
     closed = new Promise((done, reject) => {
@@ -1301,6 +1308,7 @@ async function happyRegistryBridgeServe() {
     assert.equal(initialized.id, 1);
     assert.equal(typeof initialized.result?.protocolVersion, "string");
     assert.equal(initialized.result?.serverInfo?.name, "@sentropic/h2a");
+    assert.equal(initialized.result?.capabilities?.tools?.listChanged, true, "central shim fingerprint");
     child.stdin.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
     child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }) + "\n");
     const frames = () => out.split("\n").filter(line => line.trim()).map(line => JSON.parse(line));
