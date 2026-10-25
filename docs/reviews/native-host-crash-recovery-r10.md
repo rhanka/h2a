@@ -4,7 +4,7 @@ review-author:
   host: codex
   model: unknown
   effort: unknown
-target-ref: 4f6f0257d8c7053a0eda46c3c74a268c7eb7f023
+target-ref: f78e36f64d63a2a53335128fc25440436ad67660
 observed-failure: "Identité exacte modèle/effort non fournie ; transport de revue h2a installé interdit par le confinement. Aucun nouveau consensus indépendant revendiqué."
 ---
 
@@ -54,7 +54,7 @@ Le profil huit instances représente **160 reprises simultanées sur huit CPU**.
 | Delta registre | +1500 ms | +1500 ms, inchangé |
 | Sonde médiane contre node -e | +500 ms | +500 ms, inchangé |
 
-Le pilote choisit ce profil seulement pour huit enfants et huit CPU disponibles ; l'enfant vérifie l'affinité disponible. Les autres exécutions gardent la référence CI. Les gates fresh/resume/restore et systemd restent inchangés. **Les reviewers acceptent ou rejettent cette nouvelle enveloppe et la définition de charge ; aucune clôture de réception n'est présumée.**
+Le pilote choisit ce profil seulement pour huit enfants et huit CPU disponibles ; l'enfant vérifie l'affinité disponible. Les autres exécutions gardent la référence CI. Les références et assertions absolues fresh/resume/restore et systemd restent inchangées ; leur sensibilité à une régression uniforme est renforcée ci-dessous. **Les reviewers acceptent ou rejettent cette nouvelle enveloppe et la définition de charge ; aucune clôture de réception n'est présumée.**
 
 ## Qualification finale — quatre et huit instances séparées
 
@@ -87,6 +87,16 @@ Solos : médianes **710 / 687 / 702 ms**, p95 **735 / 705 / 738 ms**, deltas **+
 | Sécurité | audit-security-debt : **exit 0**, zéro moderate+ ; lockfile et registre d'exceptions inchangés. |
 | Layering | **130 modules JS**, zéro import exécutable runtime vers core. |
 | Isolation / release | Code host-scope/process/session-scope, cleanup always() et contrats exacts inchangés. Les matrices systemd et défaut mémoire restent dans la VM CI jetable. |
+
+## Correction du contrôle négatif après la première CI
+
+Sur b5733c473, effective-cgroups échoue réellement : la mutation +1 s de fresh/1/live passe sous l'ancienne borne absolue. La matrice saine sur le même SHA mesure **205 ms médiane / 287 ms p95** ; ajouter une seconde peut donc rester sous **775 + 500 = 1275 ms**. En local, l'ancien gate rejetait déjà la mutation à **1344 ms** : cette différence de runner explique pourquoi le témoin CI est indispensable.
+
+Le commit **f78e36f** garde toutes les assertions et références absolues et ajoute à **chaque cellule** mode/état/isolation le contrôle bin.js --version contre node -e indépendant, avec la borne existante **500 ms**, comme pour l'incident. La parité native reste reportée. Aucune borne n'est augmentée pour réparer cette CI.
+
+- Mutations privées fallback fresh / resume / restore : **trois rejets attendus**, surcharges **1119 / 1109 / 1107 ms > 500 ms**, binaire restauré dans finally.
+- Mêmes trois cellules saines : **3 PASS, 0 FAIL, 0 skip** ; inventaire d'exécution, release et isolation des spawns : **69 PASS, 0 FAIL, 0 skip** (rejeu de contrats, pas 69 nouveaux tests).
+- Le chemin systemd et les cgroups effectifs restent vérifiés dans la nouvelle VM CI ; aucun bus réel ou test mémoire du poste n'est utilisé localement.
 
 La CI du commit livré est suivie jusqu'à son état terminal ; son résultat et ses liens figurent dans le corps de PR. Aucun nouveau consensus indépendant n'est revendiqué : le skill de revue impose une identité complémentaire exacte et le transport installé, indisponibles dans ce confinement.
 
