@@ -1,3 +1,12 @@
+# R10 — native host recovery under concurrent load
+
+- Scope: the three R9 findings on PR #390; startup election expiry, responsive native creation, failed-list connection ownership and their measured startup costs. No dependency/version/workflow/scope-policy changes.
+- R10-EX1: the directly coupled runtime/registry/client/CLI changes and regression witnesses exceed 150 lines and six files. The public synchronous registry contract and its 4 s best-effort boundary stay intact; native creation waits asynchronously before spawn, then uses that same synchronous durable-write section. Revert the R10 commits to roll back.
+- Every incident fixture now disposes its own processes after all original usability/host/helper/timeout assertions. The former end-of-test cleanup retained up to 100 agents per instance and changed the background load between reference and measured cells.
+- Default and four-instance gates stay 8926/9798 ms, registry delta 1500 ms and startup probe 500 ms. The separately quantified eight-instance/eight-CPU profile proposes frozen calibration maxima 9692/9896 ms plus the existing 500/800 ms margins: 10192/10696 ms. This acceptance proposal and the fixture-lifetime correction are explicit in the PR for reviewers to accept or reject; no owner acceptance is inferred.
+- RED/GREEN commands, complete measurements, qualification limits and review selection status: docs/reviews/native-host-crash-recovery-r10.md and native-host-crash-recovery-r10-metrics.json. No new independent consensus is claimed; installed h2a/owner state access remains forbidden.
+- Private TMPDIR: /home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg; HOME/XDG/socket/process fixtures only. Remove it at delivery after preserving evidence. No Python, attribution trailer or local memory-fault test.
+
 # Native host crash recovery — fix/native-host-crash-recovery
 
 ## Round 2 — brief-fixrestart-r2.md
