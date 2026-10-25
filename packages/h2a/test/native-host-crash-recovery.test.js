@@ -1,16 +1,157 @@
 // Isolated incident lab: no installed h2a, provider, user bus or owner process.
 // Mandatory Node discovery/release regression. Run after the build with a private TMPDIR.
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
 import { pathToFileURL } from 'node:url';
+import { createConnection, createServer } from 'node:net';
+import { once } from 'node:events';
+import { setTimeout as pause } from 'node:timers/promises';
+import { acquireFileLock, releaseFileLock } from '../../h2a-runtime/dist/file-lock.js';
 import { NativeTerminalClient } from '../../h2a-runtime/dist/native-terminal/client.js';
 import { convOwners } from '../../h2a-runtime/dist/conv-guard.js';
 
 import { fixture, eventually, usable } from './helpers/restart-lab.js';
 const repo = resolve(import.meta.dirname, '../../..');
 const hostEntry = join(repo, 'packages/h2a-runtime/dist/native-terminal/process.js');
+
+test('crash-recovery: contended registry creation keeps the host responsive without spawning an unrecorded PTY', { timeout: 10000 }, async t => {
+  const f = fixture(t); f.save([]);
+  f.start(['--socket', f.env.H2A_NATIVE_SOCKET, '--registry-path', f.registry], hostEntry);
+  const client = await eventually(() => NativeTerminalClient.connect(f.env.H2A_NATIVE_SOCKET), Boolean);
+  const observer = await NativeTerminalClient.connect(f.env.H2A_NATIVE_SOCKET);
+  const fd = acquireFileLock(f.registry);
+  assert.notEqual(fd, undefined);
+  let held = true;
+  const release = () => { if (held) { held = false; releaseFileLock(fd, f.registry); } };
+  const timer = setTimeout(release, 800);
+  const creating = client.create({ id: 'blocked', command: process.execPath, args: [join(f.root, 'agent.mjs')],
+    cwd: f.env.HOME, env: f.env, cols: 80, rows: 24 });
+  let listed;
+  const listing = client.list().then(sessions => { listed = sessions; return sessions; });
+  try {
+    await pause(100);
+    await observer.ping(250);
+    assert.equal(held, true, 'the host must answer while another registry writer still owns the lock');
+    assert.equal(listed, undefined, 'one connection must retain request ordering while create waits');
+    assert.equal(f.recorded().filter(row => row.args[1] === join(f.root, 'agent.mjs')).length, 0,
+      'waiting for the registry must precede spawning the PTY');
+    release();
+    assert.equal((await creating).id, 'blocked');
+    assert.deepEqual((await listing).map(session => session.id), ['blocked']);
+    await usable(f, 'blocked');
+  } finally {
+    clearTimeout(timer); release();
+    await creating.catch(() => {});
+    await listing.catch(() => {});
+    client.close(); observer.close();
+  }
+});
+
+test('crash-recovery: a disconnected creation waiter never spawns after the registry lock is released', { timeout: 10000 }, async t => {
+  const f = fixture(t); f.save([]);
+  f.start(['--socket', f.env.H2A_NATIVE_SOCKET, '--registry-path', f.registry], hostEntry);
+  const client = await eventually(() => NativeTerminalClient.connect(f.env.H2A_NATIVE_SOCKET), Boolean);
+  const observer = await NativeTerminalClient.connect(f.env.H2A_NATIVE_SOCKET);
+  const fd = acquireFileLock(f.registry);
+  assert.notEqual(fd, undefined);
+  let held = true;
+  try {
+    const result = client.create({ id: 'cancelled', command: process.execPath, args: [join(f.root, 'agent.mjs')],
+      cwd: f.env.HOME, env: f.env, cols: 80, rows: 24 }).catch(error => error);
+    await pause(100);
+    client.close();
+    assert.match((await result).message, /closed/);
+    await pause(50);
+    releaseFileLock(fd, f.registry); held = false;
+    await pause(100);
+    assert.deepEqual(await observer.list(), []);
+    assert.equal(f.recorded().filter(row => row.args[1] === join(f.root, 'agent.mjs')).length, 0);
+  } finally {
+    if (held) releaseFileLock(fd, f.registry);
+    client.close(); observer.close();
+  }
+});
+
+test('crash-recovery: an overflowing creation queue is disconnected without spawning queued PTYs', { timeout: 10000 }, async t => {
+  const f = fixture(t); f.save([]);
+  f.start(['--socket', f.env.H2A_NATIVE_SOCKET, '--registry-path', f.registry], hostEntry);
+  const observer = await eventually(() => NativeTerminalClient.connect(f.env.H2A_NATIVE_SOCKET), Boolean);
+  const fd = acquireFileLock(f.registry);
+  assert.notEqual(fd, undefined);
+  const socket = createConnection(f.env.H2A_NATIVE_SOCKET);
+  socket.on('error', () => {});
+  try {
+    await once(socket, 'connect');
+    socket.write(Array.from({ length: 65 }, (_, i) => JSON.stringify({ version: 1, id: String(i), operation: 'create',
+      params: { id: 'overflow-' + i, command: process.execPath, args: [join(f.root, 'agent.mjs')],
+        cwd: f.env.HOME, env: f.env, cols: 80, rows: 24 } }) + '\n').join(''));
+    await eventually(() => socket.destroyed, Boolean);
+    await observer.ping(250);
+  } finally { releaseFileLock(fd, f.registry); socket.destroy(); }
+  try {
+    await pause(100);
+    assert.deepEqual(await observer.list(), []);
+    assert.equal(f.recorded().filter(row => row.args[1] === join(f.root, 'agent.mjs')).length, 0);
+  } finally { observer.close(); }
+});
+
+test('startup-latency: a direct native resume does not initialize account enrollment or screen rendering', { timeout: 10000 }, async t => {
+  const f = fixture(t); f.save([]);
+  const guard = join(f.root, 'unused-components.mjs');
+  writeFileSync(guard, `import {registerHooks} from 'node:module';
+    registerHooks({resolve(specifier,context,next){
+      if(['@sentropic/cluster-mesh/llm-mesh/facade','@xterm/headless','@hono/node-server','hono','hono/streaming'].includes(specifier))
+        throw new Error('unneeded startup component: '+specifier);
+      return next(specifier,context);
+    }});`);
+  const result = await f.start(['run', 'codex', f.env.HOME, '--resume', '00000000-0000-4000-8000-000000000073',
+    '--name', 'direct', '--background', '--no-attach', '--no-h2a', '--no-gw', '--bare'], undefined,
+    { NODE_OPTIONS: f.env.NODE_OPTIONS + ' --import=' + pathToFileURL(guard).href }).done;
+  assert.equal(result.code, 0, result.stderr);
+  await usable(f, 'h2a-direct');
+});
+
+test('crash-recovery: async probe closes a timed-out list connection and exits after a successful retry', { timeout: 12000 }, async t => {
+  const f = fixture(t);
+  const sockets = new Set();
+  let lists = 0;
+  const server = createServer(socket => {
+    sockets.add(socket);
+    socket.on('close', () => sockets.delete(socket));
+    let buffer = '';
+    socket.on('data', chunk => {
+      buffer += chunk;
+      while (buffer.includes('\n')) {
+        const end = buffer.indexOf('\n');
+        const request = JSON.parse(buffer.slice(0, end));
+        buffer = buffer.slice(end + 1);
+        if (request.operation === 'list' && ++lists === 1) continue;
+        const result = request.operation === 'ping'
+          ? { protocolVersion: 1, generation: 'private-host', hostPid: process.pid }
+          : [];
+        socket.write(JSON.stringify({ version: 1, id: request.id, ok: true, result }) + '\n');
+      }
+    });
+  });
+  t.after(async () => {
+    for (const socket of sockets) socket.destroy();
+    await new Promise(resolve => server.close(resolve));
+  });
+  server.listen(f.env.H2A_NATIVE_SOCKET);
+  await once(server, 'listening');
+  chmodSync(f.env.H2A_NATIVE_SOCKET, 0o600);
+  const entry = join(f.root, 'probe.mjs');
+  writeFileSync(entry, `import {probeNativeSession} from ${JSON.stringify(pathToFileURL(join(repo, 'packages/h2a-runtime/dist/native-terminal/op.js')).href)};
+    console.log(JSON.stringify(await probeNativeSession('missing',process.env.H2A_NATIVE_SOCKET)));`);
+  const probe = f.start([], entry);
+  await eventually(() => probe.output().stdout, output => output.includes('"verdict":"dead"'), 8000);
+  assert.ok(lists >= 2, 'the first list must time out and a successor must answer');
+  await eventually(() => sockets.size, count => count === 0, 500);
+  const result = await probe.done;
+  assert.equal(result.code, 0, result.stderr);
+});
 
 test('startup-latency: conversation guard probes only the requested conversation among 500 rows', t => {
   const f = fixture(t); f.save([...f.entries(499), { ...f.entries(1)[0], id: 'target', convId: 'target-conversation' }]);

@@ -1,11 +1,8 @@
-import { serve } from "@hono/node-server";
 import {
   REMOTE_PROTOCOL_VERSION,
   REMOTE_SCHEMA_VERSION,
   type RemoteEventEnvelope,
 } from "./protocol-local.js";
-import { Hono } from "hono";
-import { streamSSE } from "hono/streaming";
 
 import { resolveProfile, withResume, type ProfileConfig } from "./profiles.js";
 import { nodePtySpawner, type PtyHandle, type PtySpawner } from "./pty.js";
@@ -88,6 +85,9 @@ export type RunResult = {
 };
 
 export async function run(options: RunOptions): Promise<RunResult> {
+  const [{ serve }, { Hono }, { streamSSE }] = await Promise.all([
+    import("@hono/node-server"), import("hono"), import("hono/streaming"),
+  ]);
   const profile = withResume(resolveProfile(options.profile), options.resume);
   const randomId = options.randomId ?? defaultRandomId;
   const clock = options.clock ?? (() => new Date());

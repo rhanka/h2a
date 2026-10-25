@@ -26,6 +26,7 @@ import { dirname, join } from "node:path";
 import { getLayoutConfig, resolveConfigPath } from "./config.js";
 import {
   acquireFileLock,
+  acquireFileLockAsync,
   releaseFileLock,
   tryAcquireFileLock,
 } from "./file-lock.js";
@@ -1063,6 +1064,23 @@ function saveRegistry(
  * storm), we proceed WITHOUT it rather than block a hook — best-effort,
  * last-writer-wins as before. Exported for tests.
  */
+const nativeCreationTurns = new Set<string>();
+
+/** Wait before PTY spawn, then run the existing synchronous creation and
+ * durable write in that same turn. Retains the registry's 4 s best-effort
+ * contract; no await is allowed inside operation. */
+export async function withNativeCreationRegistryTurn<T>(path: string, operation: () => T, signal?: AbortSignal): Promise<T> {
+  const fd = await acquireFileLockAsync(path, signal);
+  try {
+    signal?.throwIfAborted();
+    nativeCreationTurns.add(path);
+    return operation();
+  } finally {
+    nativeCreationTurns.delete(path);
+    if (fd !== undefined) releaseFileLock(fd, path);
+  }
+}
+
 export function withRegistryLock<T>(
   path: string,
   fn: (entries: RegistryEntry[]) => {
@@ -1071,7 +1089,7 @@ export function withRegistryLock<T>(
     save?: boolean;
   },
 ): T {
-  return runUnderRegistryLock(acquireFileLock(path), path, fn);
+  return runUnderRegistryLock(nativeCreationTurns.has(path) ? undefined : acquireFileLock(path), path, fn);
 }
 
 /**
