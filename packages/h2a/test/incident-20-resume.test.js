@@ -86,6 +86,10 @@ test('incident-20-resume: 20 concurrent resumes over 214 owner-shaped rows with 
     } finally { check.close(); }
     // No publication-lock contention timeout may hide in a relaunch log.
     for (const r of results) assert.doesNotMatch(r.stderr + r.stdout, /timed out/i);
+    // Finish this fixture before the next measurement. t.after remains the
+    // failure-path cleanup; retaining its agents would turn the fifth cell
+    // into a different load from the reference (100 agents per instance).
+    await f.dispose();
     return usableMs;
   }
 

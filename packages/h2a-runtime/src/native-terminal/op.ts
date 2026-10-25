@@ -240,8 +240,20 @@ async function launchClient(socketPath: string): Promise<NativeTerminalClient> {
   let failure: unknown;
   try { return await connectExisting(socketPath); }
   catch (error) { failure = error; }
-  return withNativeTerminalStartupLock(socketPath, () => launchClientUnderLock(socketPath, failure),
-    signal => connectExisting(socketPath, true, signal));
+  try {
+    return await withNativeTerminalStartupLock(socketPath, () => launchClientUnderLock(socketPath, failure),
+      signal => connectExisting(socketPath, true, signal));
+  } catch (error) {
+    // Election expiry is contention, just like publication-lock expiry. The
+    // elected publisher can finish as our acquisition deadline expires. Spend
+    // the existing successor-health budget on read-only adoption; never use
+    // this failure as an absence proof or permission to spawn another host.
+    if ((error as Error)?.name === "TimeoutError" || publicationContenderObserved(error)) {
+      try { return await readNativeTerminalSuccessor(() => connectExisting(socketPath), true); }
+      catch { /* Preserve the original fail-closed election diagnostic. */ }
+    }
+    throw error;
+  }
 }
 
 async function launchClientUnderLock(socketPath: string, error: unknown): Promise<NativeTerminalClient> {

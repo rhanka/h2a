@@ -46,7 +46,9 @@ export async function collectNativeInventory(
   for (const socketPath of endpoints) {
     try {
       const client = await connect(socketPath);
-      const sessions = await client.list();
+      let sessions;
+      try { sessions = await client.list(); }
+      catch (error) { client.close(); throw error; }
       inventory.hosts.push({ socketPath, client });
       inventory.sessions.push(...sessions.map(session => ({ ...session, socketPath })));
     } catch (error) {

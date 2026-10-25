@@ -1,5 +1,5 @@
 /** Account enrollment and public CLI presentation through cluster-mesh. */
-import { homedir, hostname } from "node:os";
+import { homedir } from "node:os";
 import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -8,6 +8,8 @@ import type { AccountPublic } from "@sentropic/cluster-mesh/llm-mesh/enrollment"
 import { readPrivateSeatFile, resolveSeatEnrollmentProvider } from "./cli-seat-codecs.js";
 import { SeatMaterializationError, validateSeatBundleForMaterialization } from "./cli-seat-materialization.js";
 import { SEAT_BUNDLE_MAX_BYTES, SEAT_PACKAGE_PROVIDER_ID, type SeatCli5, type SyntheticSeatBundleV1 } from "./cli-seat-fixtures.js";
+import { llmMeshOwnerScopeRef } from "./gateway-host/config-file.js";
+export { llmMeshOwnerScopeRef };
 
 import {
   MAX_CLAUDE_INPUT_BYTES,
@@ -176,11 +178,6 @@ export function createCliLlmMeshFacade(): LlmMeshAdministrativeFacade {
     mode: "cli",
     legacyAccountOwnerScopeRef: llmMeshOwnerScopeRef(),
   });
-}
-
-/** Stable local owner used both at enrollment and by gateway-authenticated routing. */
-export function llmMeshOwnerScopeRef(): string {
-  return process.env.H2A_LLM_MESH_OWNER_SCOPE?.trim() || `cli:${hostname()}`;
 }
 
 function openEnrollmentBrowser(url: string): void {
