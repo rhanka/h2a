@@ -26,7 +26,7 @@ import { loadM17Partition } from "./m17-ci-evidence.mjs";
  * represented by this root gate. Do not quote this runner as a whole-monorepo
  * test count.
  */
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -139,7 +139,7 @@ export function verifyNodeTrackExecution(report, requiredFiles) {
   return verifyExecutionReport(report, requiredFiles, policyFor(REPO_ROOT, readInventory(REPO_ROOT), "node"));
 }
 
-function main() {
+async function main() {
   process.umask(0o022);
   // Each configured directory is REQUIRED, in the sense of main's original
   // contract: an unavailable directory, or one with no .test.js files at all,
@@ -436,6 +436,34 @@ function main() {
     return existsSync(local) ? local : join(REPO_ROOT, "node_modules", "vitest", "vitest.mjs");
   }
 
+  function runIndependentSuite(name, command, args, cwd, env) {
+    return new Promise((done) => {
+      let child, timer, finished = false;
+      const finish = (code) => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(timer);
+        done(code);
+      };
+      try {
+        child = spawn(command, args, { cwd, env, stdio: "inherit" });
+        child.once("error", (error) => {
+          process.stderr.write(`run-tests: ${name}: ${error.message}\n`);
+          finish(1);
+        });
+        child.once("close", (code) => finish(code ?? 1));
+        timer = setTimeout(() => {
+          child.kill("SIGKILL");
+          process.stderr.write(`run-tests: ${name} HUNG — the test run exceeded ${RUN_TIMEOUT_MS}ms and was killed.\n`);
+          finish(124);
+        }, RUN_TIMEOUT_MS);
+      } catch (error) {
+        process.stderr.write(`run-tests: ${name}: ${error.message}\n`);
+        finish(1);
+      }
+    });
+  }
+
   const nodeReport = join(testRoot, "node.json");
   const trackReport = join(testRoot, "track.json");
   // One JSON evidence report per Vitest suite: every suite uses the same
@@ -451,10 +479,13 @@ function main() {
     const nodeStatus = runSuite("Node test suite", process.execPath,
       [join(REPO_ROOT, "scripts/run-node-tests.mjs"), "--test", "--test-reporter=spec", `--test-reporter=${join(REPO_ROOT, "scripts/node-evidence-reporter.mjs")}`, "--test-reporter-destination=stdout", `--test-reporter-destination=${nodeReport}`, ...m17Partition.local],
       REPO_ROOT, trackFixtureEnv, NODE_TIMEOUT_MS);
-    const vitestStatuses = vitestSuites.map((suite) => {
+    // These suites use distinct temporary state and evidence files. Start
+    // them after Node's protocol/package phase, together with the identity
+    // lane, so their individual deadlines do not accumulate at the outer gate.
+    const independent = await Promise.all([...vitestSuites.map(async (suite) => {
       const cwd = join(REPO_ROOT, suite.dir);
       const configArgs = suite.config === undefined ? [] : ["--config", suite.config];
-      const status = runSuite(
+      const status = await runIndependentSuite(
         `${suite.name} Vitest suite`,
         process.execPath,
         [vitestEntrypoint(cwd), "run", ...configArgs, "--reporter=default", "--reporter=json", `--outputFile=${vitestReportFor(suite)}`, ...suite.files.map((file) => join(suite.testDir ?? "src", file))],
@@ -467,14 +498,15 @@ function main() {
         process.stderr.write(`WARNING: ${suite.name}: suite timing unavailable (missing or malformed report).\n`);
       }
       return status;
-    });
+    }), runIndependentSuite("Identity lane suite", process.execPath,
+      [join(REPO_ROOT, "packages/h2a/test/helpers/identity-isolated-run.mjs"), ...LANE_TEST_FILES],
+      REPO_ROOT, trackFixtureEnv)]);
+    const vitestStatuses = independent.slice(0, vitestSuites.length);
     // Lane-scoped identity-lock suites (LANE_TEST_FILES): the isolated lane
     // they require exists only inside identity-isolated-run.mjs, which builds
     // it (previous-release bindings + lane TMPDIR) and runs exactly these
     // files under the lane guard. Gated on exit status like the Vitest suites.
-    const laneStatus = runSuite("Identity lane suite", process.execPath,
-      [join(REPO_ROOT, "packages/h2a/test/helpers/identity-isolated-run.mjs"), ...LANE_TEST_FILES],
-      REPO_ROOT, trackFixtureEnv);
+    const laneStatus = independent[vitestSuites.length];
     let reports;
     try { reports = [nodeReport, trackReport].map((path) => JSON.parse(readFileSync(path, "utf8"))); }
     catch { reports = []; }
