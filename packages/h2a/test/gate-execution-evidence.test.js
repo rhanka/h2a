@@ -67,7 +67,7 @@ for (const [name, mutate] of [
   ['inert entry', (s) => s.replace('if (invokedDirectly) {\n  main();', 'if (false) {\n  main();')],
   ['filtered Node names', (s) => s.replace('"--test",', '"--test", "--test-name-pattern=ABSENT",')],
   ['omitted native suite', (s) => s.replace('!LANE_TEST_FILES.includes(normalized)', 'normalized.endsWith("native-inventory-absence.test.js")')],
-  ['omitted Track execution', (s) => s.replace('const vitestStatuses = vitestSuites.map((suite) => {', 'const vitestStatuses = [].map((suite) => {')],
+  ['omitted Track execution', (s) => s.replace('...vitestSuites.map(async (suite) => {', '...vitestSuites.filter((suite) => suite.name !== "Track").map(async (suite) => {')],
 ]) test(`A04: production entry rejects ${name}`, () => {
   const mutant = mutate(nodeTrack); assert.notEqual(mutant, nodeTrack, 'mutation must apply')
   assert.throws(() => observeNodeTrackEntry(mutant, repo))
