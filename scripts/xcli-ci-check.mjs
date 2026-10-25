@@ -51,7 +51,8 @@ export function buildCampaignReceipt({ campaignRoot, sha, gate, repoRoot, cliVer
         try { verifyReceiverIdleInput(cell); return true; } catch { return false; }
       }) },
       noPostSendHarnessInput: repetitions.length > 0 && repetitions.every(cell => cell.noPostSendHarnessInput === true),
-      wakeReplications: row.scenario === 'probe' ? repetitions.map(cell => ({ woke: cell.woke, wakeWindows: cell.wakeWindows })) : undefined,
+      wakeReplications: row.scenario === 'probe' ? repetitions.map(cell => ({ woke: cell.woke, wakeWindows: cell.wakeWindows,
+        budgetMs: cell.budgetMs, startedAt: cell.startedAt, noPostSendHarnessInput: cell.noPostSendHarnessInput })) : undefined,
       scenarioExecuted: repetitions.length > 0 && repetitions.every(cell => cell.scenario === row.scenario && cell.senderScriptOk && cell.receiverScriptOk),
       caps: { sessionsDebited: repetitions.length * 2 },
       cleanup: { secretWipe: repetitions.length > 0 && repetitions.every(cell => cell.secretWipe === true && cell.parentSecretWipe === true),
@@ -136,6 +137,31 @@ export function verifySimulation(receipt, negative = false, sender) {
 // with margins exceeding the recorded timestamp uncertainty. Intended release
 // offsets are not a substitute for observed wake injections.
 export const WAKE_SEPARATION_MARGIN_MS = 500;
+export function verifyWakePhases(cell) {
+  const w = cell.wakeWindows ?? {};
+  const failures = [];
+  const fields = ['barrierAt', 'deliveryAt', 'withholdAt', 'releaseAt', 'wakeAt', 'firstReadAt',
+    'w0Ms', 'w1Ms', 'dMs', 'releaseOffsetMs', 'notifyIntervalMs', 'timestampUncertaintyMs',
+    'preBarrierReads', 'baselineReads', 'withheldReads'];
+  if (!fields.every(key => Number.isSafeInteger(w[key]) && w[key] >= 0) ||
+      w.w0Ms === 0 || w.w1Ms === 0 || w.dMs === 0 || w.notifyIntervalMs === 0 ||
+      !Number.isSafeInteger(cell.budgetMs) || !Number.isFinite(Date.parse(cell.startedAt))) {
+    return ['wake phase measurements missing'];
+  }
+  if (w.withholdAt > w.deliveryAt || w.deliveryAt - w.barrierAt < w.w0Ms ||
+      w.releaseAt - w.deliveryAt < w.w1Ms + w.releaseOffsetMs ||
+      w.wakeAt < w.releaseAt || w.firstReadAt < w.wakeAt || w.firstReadAt - w.wakeAt > w.dMs ||
+      w.preBarrierReads !== 0 || w.baselineReads !== 0 || w.withheldReads !== 0 ||
+      cell.noPostSendHarnessInput !== true) failures.push('wake phase ordering or read counts invalid');
+  const deadline = Date.parse(cell.startedAt) + cell.budgetMs;
+  if (w.releaseAt + w.notifyIntervalMs + 100 + w.dMs > deadline ||
+      w.wakeAt + w.dMs > deadline || w.firstReadAt > deadline) failures.push('wake-window-unfunded');
+  const journal = w.inputJournal;
+  if (journal?.correlated !== true || journal?.onlyWakeInput !== true || journal?.writes !== 2 ||
+      !Number.isSafeInteger(journal.lineAt) || journal.lineAt < w.releaseAt ||
+      journal.lineAt >= journal.submitAt || journal.submitAt !== w.wakeAt) failures.push('wake-input-unproven');
+  return failures;
+}
 export function verifyWakeBatch(cells) {
   const failures = [];
   if (!Array.isArray(cells) || cells.length < 3) {
@@ -144,6 +170,7 @@ export function verifyWakeBatch(cells) {
   }
   for (const [index, cell] of cells.entries()) {
     if (cell.woke !== true) failures.push(`rep ${index}: no stage-7 credit without cell-level phases 1-3`);
+    failures.push(...verifyWakePhases(cell).map(f => `rep ${index}: ${f}`));
     for (const key of ["barrierAt", "deliveryAt", "releaseAt", "wakeAt", "firstReadAt", "dMs"]) {
       if (!Number.isFinite(cell.wakeWindows?.[key])) failures.push(`rep ${index}: wakeWindows.${key} not witnessed`);
     }
@@ -158,7 +185,9 @@ export function verifyWakeBatch(cells) {
   for (let i = 0; i < rel.length && !separated; i++) for (let j = 0; j < rel.length && !separated; j++) {
     if (i === j) continue;
     const a = rel[i], b = rel[j];
-    if (b.bStart + WAKE_SEPARATION_MARGIN_MS <= a.aStart && a.aEnd + WAKE_SEPARATION_MARGIN_MS <= b.bEnd) separated = true;
+    const uncertainty = Math.max(cells[i].wakeWindows.timestampUncertaintyMs, cells[j].wakeWindows.timestampUncertaintyMs);
+    const margin = Math.max(WAKE_SEPARATION_MARGIN_MS, uncertainty + 1);
+    if (b.bStart + margin <= a.aStart && a.aEnd + margin <= b.bEnd) separated = true;
   }
   if (!separated) failures.push("wake-phase-separation-unproven: no acceptance window lies strictly inside another withheld window with margin");
   return { pass: failures.length === 0, failures };
