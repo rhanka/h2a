@@ -64,10 +64,13 @@ test('L3: polling periods and phases across the control matrix fail stage 7', ()
     for (const div of [0, 1, 2]) combos.push([period, Math.round(period * div / 3)]);
   const rows = [];
   for (const [period, phase] of combos) {
+    // Fund the complete negative experiment under the original-clock guard.
+    // The former 30 s control relied on the post-launch clock reset. These
+    // cells must still exit 2 and fail stage 7 with the same W0/W1/D.
     const { status, cells } = runWakeCell(['--pair', 'claude:codex',
-      '--poll', `periodic:${period}:${phase}`, '--timeout-ms', '30000']);
+      '--poll', `periodic:${period}:${phase}`, '--timeout-ms', '45000']);
     const cell = cells[0];
-    rows.push({ period, phase, status: cell.status, woke: cell.woke, wakeFailure: cell.wakeFailure });
+    rows.push({ period, phase, budgetMs: cell.budgetMs, status: cell.status, woke: cell.woke, wakeFailure: cell.wakeFailure });
     assert.equal(status, 2, `period ${period} phase ${phase}: must fail the command`);
     assert.equal(cell.status, 'simulated-KO', `period ${period} phase ${phase}: must not pass`);
     assert.equal(cell.woke, false, `period ${period} phase ${phase}: no wake credit`);
@@ -83,7 +86,7 @@ test('L3: polling periods and phases across the control matrix fail stage 7', ()
     }
   }
   console.log('L3 polling matrix (period ms, phase ms, status, woke, mechanism):');
-  for (const row of rows) console.log(`  ${row.period} ${row.phase} ${row.status} woke=${row.woke} ${row.wakeFailure}`);
+  for (const row of rows) console.log(`  ${row.period} ${row.phase} budget=${row.budgetMs} ${row.status} woke=${row.woke} ${row.wakeFailure}`);
 });
 
 test('L3: a slow poller whose first read lands after the wake still fails stage 7', () => {
@@ -155,7 +158,7 @@ test('L3: overlapping-window replications earn no batch credit, late release fai
 
 test('L3: a withheld-forever twin shows no qualifying read', () => {
   const { status, cells } = runWakeCell(['--pair', 'claude:codex',
-    '--withhold-forever', '--timeout-ms', '30000']);
+    '--withhold-forever', '--timeout-ms', '45000']);
   const cell = cells[0];
   assert.equal(status, 2, 'without a released wake the cell must fail');
   assert.ok(!cell.received, 'no qualifying read without a released wake');
