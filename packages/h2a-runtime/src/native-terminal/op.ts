@@ -237,30 +237,28 @@ async function selectLaunchClient(fenced: boolean): Promise<{ client: NativeTerm
 }
 
 async function launchClient(socketPath: string): Promise<NativeTerminalClient> {
+  let failure: unknown;
   try { return await connectExisting(socketPath); }
-  catch { /* Elect a launcher only after the healthy fast path fails. */ }
-  return withNativeTerminalStartupLock(socketPath, () => launchClientUnderLock(socketPath),
+  catch (error) { failure = error; }
+  return withNativeTerminalStartupLock(socketPath, () => launchClientUnderLock(socketPath, failure),
     signal => connectExisting(socketPath, true, signal));
 }
 
-async function launchClientUnderLock(socketPath: string): Promise<NativeTerminalClient> {
-  try { return await connectExisting(socketPath); }
-  catch (error) {
-    let absent = false;
-    let publisherObserved = false;
-    // Launch-only reclamation: inventories never remove the stale inode.
-    try { absent = await proveNativeTerminalEndpointAbsent(socketPath, error, undefined, undefined, true); }
-    catch (proofError) {
-      publisherObserved = publicationContenderObserved(proofError);
-      error = new Error(`${error instanceof Error ? error.message : String(error)}; absence proof failed: ${proofError instanceof Error ? proofError.message : String(proofError)}`);
-    }
-    if (absent) return ensureClient(socketPath);
-    // Publication may have completed while the absence proof held/waited for
-    // its lock. A fresh handshake can adopt that winner without any takeover.
-    try { return await readNativeTerminalSuccessor(() => connectExisting(socketPath), publisherObserved); }
-    catch { /* Still uncertain: retain the original proof failure below. */ }
-    throw Object.assign(new Error(`${socketPath}: ${error instanceof Error ? error.message : String(error)}; owner death is unproven. Inspect endpoint permissions and the owning process identity, restore probe access, then retry; do not remove a socket or lock while ownership is unproven.`), { socketPath });
+async function launchClientUnderLock(socketPath: string, error: unknown): Promise<NativeTerminalClient> {
+  let absent = false;
+  let publisherObserved = false;
+  // Launch-only reclamation: inventories never remove the stale inode.
+  try { absent = await proveNativeTerminalEndpointAbsent(socketPath, error, undefined, undefined, true); }
+  catch (proofError) {
+    publisherObserved = publicationContenderObserved(proofError);
+    error = new Error(`${error instanceof Error ? error.message : String(error)}; absence proof failed: ${proofError instanceof Error ? proofError.message : String(proofError)}`);
   }
+  if (absent) return ensureClient(socketPath);
+  // Publication may have completed while the absence proof held/waited for
+  // its lock. A fresh handshake can adopt that winner without any takeover.
+  try { return await readNativeTerminalSuccessor(() => connectExisting(socketPath), publisherObserved); }
+  catch { /* Still uncertain: retain the original proof failure below. */ }
+  throw Object.assign(new Error(`${socketPath}: ${error instanceof Error ? error.message : String(error)}; owner death is unproven. Inspect endpoint permissions and the owning process identity, restore probe access, then retry; do not remove a socket or lock while ownership is unproven.`), { socketPath });
 }
 
 async function ensureClient(socketPath: string): Promise<NativeTerminalClient> {
