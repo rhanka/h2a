@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { LANE_TEST_FILES } from '../../../../scripts/run-tests.mjs'
 
-export function observeNodeTrackEntry(source, repoRoot, { preparedNpmCache = false } = {}) {
+export function observeNodeTrackEntry(source, repoRoot, { preparedNpmCache = false, parallel = false, failedSuite } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'node-track-observation-'))
   try {
     for (const dir of ['scripts', 'packages/h2a/test', 'packages/focus-interactive/test', 'packages/track/src', 'packages/agent-stats/tests', 'packages/focus/tests', 'legacy/packages/h2a-runtime/dist/native-terminal', 'home', 'run']) mkdirSync(join(root, dir), { recursive: true })
@@ -39,6 +39,7 @@ export function observeNodeTrackEntry(source, repoRoot, { preparedNpmCache = fal
     // entry, commands, loop, evidence validation and exit aggregation.
     writeFileSync(join(root, 'mock-spawn.mjs'), `
 import cp from 'node:child_process';
+import {EventEmitter} from 'node:events';
 import {syncBuiltinESMExports} from 'node:module';
 import {writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
@@ -53,10 +54,11 @@ cp.spawnSync=(command,args,options)=>{
     observed.push('Fixtures');writeFileSync(${JSON.stringify(markers)},JSON.stringify(observed));
     return {status:0,stdout:JSON.stringify({env:{MH_L5_ARTIFACTS:root+'/published',MH_L6_NATIVE_ASSETS:root+'/native'},owned:[]})};
   }
+  if (${parallel} && !args.includes('--test') && !options.asyncSuite) return {status:124};
   if (typeof args[0] === 'string' && args[0].endsWith('identity-isolated-run.mjs')) {
     if(command!==process.execPath || args.some((arg)=>/name-pattern|skip-pattern|test-only/.test(arg)) || JSON.stringify(args.slice(1))!==JSON.stringify(laneFiles)) throw Error('lane suite omitted or filtered required lane files');
     observed.push('Lane');writeFileSync(${JSON.stringify(markers)},JSON.stringify(observed));
-    return {status:0};
+    return {status:${failedSuite === 'Lane' ? 1 : 0}};
   }
   const node=args.includes('--test');
   if(!options.env.MH_L5_ARTIFACTS || !options.env.MH_L6_NATIVE_ASSETS) throw Error('mandatory MH fixtures were not passed to the suites');
@@ -68,7 +70,18 @@ cp.spawnSync=(command,args,options)=>{
   if(!path || (node && !args.some((arg)=>arg.includes('node-evidence-reporter.mjs'))) || (!node && !args.includes('--reporter=json'))) throw Error('no execution reporter');
   writeFileSync(path,JSON.stringify({success:true,numTotalTests:actual.length,numPassedTests:actual.length,numFailedTests:0,numPendingTests:0,numTodoTests:0,testResults:actual.map((name)=>({name,status:'passed',assertionResults:[{fullName:'required execution',status:'passed'}]}))}));
   observed.push(node?'Node':suite);writeFileSync(${JSON.stringify(markers)},JSON.stringify(observed));
-  return {status:0};
+  return {status:suite===${JSON.stringify(failedSuite ?? '')}?1:0};
+};
+let launched=0;
+cp.spawn=(command,args,options)=>{
+  launched++;
+  const child=new EventEmitter();child.kill=()=>true;
+  process.nextTick(()=>{
+    if (${parallel} && launched!==4) throw Error('independent suites were serialized');
+    const result=cp.spawnSync(command,args,{...options,asyncSuite:true});
+    child.emit('close',result.status,null);
+  });
+  return child;
 };syncBuiltinESMExports();
 `)
     const env = { ...process.env, HOME: join(root, 'home'), XDG_RUNTIME_DIR: join(root, 'run'), XDG_CONFIG_HOME: join(root, 'home/.config'), XDG_STATE_HOME: join(root, 'home/.local/state'), TMPDIR: root, H2A_TEST_LEGACY_HOST_DIR: join(root, 'legacy') }
@@ -76,7 +89,7 @@ cp.spawnSync=(command,args,options)=>{
     delete env.H2A_TEST_REPORT_PATH
     if (preparedNpmCache) { delete env.npm_config_cache; delete env.NPM_CONFIG_CACHE }
     const result = spawnSync(process.execPath, ['--import', join(root, 'mock-spawn.mjs'), join(root, 'scripts/run-tests.mjs')], { cwd: root, env, encoding: 'utf8', timeout: 30_000 })
-    assert.equal(result.status, 0, `Node/Track production entry did not prove execution:\n${result.stdout}${result.stderr}`)
+    assert.equal(result.status, failedSuite ? 1 : 0, `Node/Track production entry did not prove execution:\n${result.stdout}${result.stderr}`)
     assert.deepEqual(JSON.parse(readFileSync(markers, 'utf8')), ['Fixtures', 'Node', 'Track', 'AgentStats', 'Focus', 'Lane'], 'each production suite must actually reach the execution boundary after its prerequisites')
   } finally { rmSync(root, { recursive: true, force: true }) }
 }
