@@ -959,3 +959,17 @@ red/green receipts, qualification limits and cleanup evidence.
 - origin/main is already an ancestor; no rebase required. Receipt absence
   remains the expected refusal. Commands, measured costs and review limits:
   [round-6 evidence](docs/2026-10-19-fix379-r6.md).
+
+## PR #379 — owner restart (2026-10-25)
+
+- Owner explicitly authorizes `--force-with-lease` to
+  `origin HEAD:feat/live-cross-cli-messaging` only. Main is already an
+  ancestor (`40693473a`); no additional rebase is necessary.
+- Patch compatible security advisories in a lockfile-only commit, with
+  no suppression. Pace simulated identity polling within the unchanged
+  MCP-call cap; the CI session-paths failure is reproduced and fixed.
+- Complete L3's missing private-host PTY input witness and enforce each
+  replication's actual phases and release offset inside its original budget.
+  Keep all real-login qualification and trusted receipts conductor-owned.
+- French audit with source anchors, RED/GREEN commands and remaining
+  external qualification: [restart evidence](docs/2026-10-25-pr379-restart.md).
