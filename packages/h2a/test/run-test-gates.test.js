@@ -1501,3 +1501,11 @@ test('C9 A01/A03/A04: effective config and versioned test inventory are mandator
 test('C9 A04: execute the effective Node/Track entry and observe both required suites', () => {
   observeNodeTrackEntry(readFileSync(resolve(REPO_ROOT, 'scripts/run-tests.mjs'), 'utf8'), REPO_ROOT)
 })
+
+test('independent post-Node suites start without spending each other\'s execution budget', () => {
+  observeNodeTrackEntry(readFileSync(resolve(REPO_ROOT, 'scripts/run-tests.mjs'), 'utf8'), REPO_ROOT, { parallel: true })
+})
+
+test('a failed parallel suite remains failed and every independent suite still executes', () => {
+  observeNodeTrackEntry(readFileSync(resolve(REPO_ROOT, 'scripts/run-tests.mjs'), 'utf8'), REPO_ROOT, { parallel: true, failedSuite: 'Focus' })
+})
