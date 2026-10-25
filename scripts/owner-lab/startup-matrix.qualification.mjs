@@ -1,5 +1,6 @@
 // Mandatory startup qualification. No provider CLI, real user bus or owner state.
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
@@ -34,6 +35,32 @@ function reportParity(entry) {
 const hostEntry = join(repo, 'packages/h2a-runtime/dist/native-terminal/process.js');
 const cli = join(repo, 'packages/h2a/dist/bin.js');
 const quantile = (values, q) => [...values].sort((a, b) => a - b)[Math.ceil(values.length * q) - 1];
+
+// R10 made real startup faster than the old absolute reference. Keep every
+// absolute gate below, and retain +1 s sensitivity on fast runners with the
+// same independent bin.js/control comparison as the incident cell. Execute
+// it for every mode/state/isolation, before the expensive I/O measurements.
+function verifyStartupProbe(t, mode, concurrency, host, isolation) {
+  function measure(args) {
+    const values = [];
+    for (let i = 0; i < 5; i++) {
+      const begun = performance.now();
+      const result = spawnSync(process.execPath, args, { encoding: 'utf8', timeout: 30000 });
+      assert.equal(result.error, undefined, `startup probe infrastructure error: ${result.error}`);
+      assert.equal(result.status, 0, `startup probe failed: ${result.stderr}`);
+      values.push(performance.now() - begun);
+    }
+    return quantile(values, .5);
+  }
+  const probeMedianMs = measure([cli, '--version']);
+  const controlMedianMs = measure(['-e', '']);
+  const overheadMs = Math.round(probeMedianMs - controlMedianMs);
+  t.diagnostic(JSON.stringify({ scenario: 'startup-matrix-startup-probe', mode, concurrency, host, isolation,
+    probeMedianMs: Math.round(probeMedianMs), controlMedianMs: Math.round(controlMedianMs),
+    startupOverheadMedianMs: overheadMs, budgetMs: baselines.margin.medianMs }));
+  assert.ok(overheadMs <= baselines.margin.medianMs,
+    `${mode}/${concurrency}/${host}/${isolation}: non-regression overhead startup median ${overheadMs} exceeds same-run control + ${baselines.margin.medianMs} ms`);
+}
 
 async function sample(t, rows, concurrency, state, mode, serial, isolation = "fallback") {
   const f = fixture(t);
@@ -159,6 +186,7 @@ async function sample(t, rows, concurrency, state, mode, serial, isolation = "fa
 
 let serial = 1;
 async function matrix(t, mode, concurrency, host, isolation = "fallback") {
+  verifyStartupProbe(t, mode, concurrency, host, isolation);
   const samples = new Map([0, 50, 500].map(rows => [rows, []]));
   // Alternate registry sizes in paired rounds, avoiding a warmed-only full registry.
   for (let round = 0; round < 3; round++) for (const rows of round % 2 ? [500, 50, 0] : [0, 50, 500]) {
