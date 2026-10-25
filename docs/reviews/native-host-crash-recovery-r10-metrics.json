@@ -1,0 +1,2047 @@
+{
+  "schemaVersion": 1,
+  "codeRef": "4f6f0257d8c7053a0eda46c3c74a268c7eb7f023",
+  "generatedAt": "2026-10-25T20:09:48.340Z",
+  "confinement": {
+    "tmpdir": "/home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg",
+    "scope": "Private HOME/XDG/socket fixtures; only spawned PIDs; no installed h2a, Python or local memory-fault test",
+    "cleanup": "The temporary directory is removed at delivery; confirmation is in the final report."
+  },
+  "bounds": {
+    "default": {
+      "medianMs": 8926,
+      "p95Ms": 9798
+    },
+    "eightInstanceProposal": {
+      "medianMs": 10192,
+      "p95Ms": 10696
+    },
+    "registryDeltaMs": 1500,
+    "startupProbeMedianMs": 500
+  },
+  "runs": [
+    {
+      "name": "r9-exact-red",
+      "codeRef": "61271bd24",
+      "command": "rtk taskset -c 0-7 node scripts/owner-lab/incident-load.mjs 1 8",
+      "exitCode": 1,
+      "samples": [
+        {
+          "round": 1,
+          "instance": 1,
+          "code": 1,
+          "pass": false,
+          "diagnostics": [
+            "  error: `[{\"code\":1,\"stderr\":\"start target-1-0: native host state is unknown: The operation was aborted due to timeout. Refusing to risk a second writer (fail closed). Inspect the named endpoint permissions and owning process identity, restore probe access, then retry; do not remove sockets or locks while ownership is unproven.\\\\n\"},{\"code\":1,\"stderr\":\"start target-1-1: native host state is unknown: The operation was aborted due to timeout. Refusing to risk a second writer (fail closed). Inspect the named endpoint permissions and owning process identity, restore probe access, then retry; do not remove sockets or locks while ownership is unproven.\\\\n\"},{\"code\":0,\"stderr\":\"[h2a] local session target-1-2 started (codex --resume 00000000-0000-4000-8000-000000000022 in /home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/r-YA4Wz2/home/src/owner-project)\\\\n[h2a] attach with: h2a attach target-1-2\\\\n\"},{\"code\":1,\"stderr\":\"start target-1-3: native host state is unknown: The operation was aborted due to timeout. Refusing to risk a second writer (fail closed). Inspect the named endpoint permissions and owning process identity, restore probe access, then retry; do not remove sockets or locks while ownership is unproven.\\\\n\"},{\"code\":0,\"stderr\":\"[h2a] local session target-1-4 started (codex --resume 00000000-0000-4000-8000-000000000024 in /home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/r-YA4Wz2/home/src/owner-project)\\\\n[h2a] attach with: h2a attach target-1-4\\\\n\"},{\"code\":1,\"stderr\":\"start target-1-5: native host state is unknown: The operation was aborted due to timeout. Refusing to risk a second writer (fail closed). Inspect the named endpoint permissions and owning process identity, restore probe access, then retry; do not remove sockets or locks while ownership is unproven.\\\\n\"},{\"code\":1,\"stderr\":\"start target-1-6: native host state is unknown: The operation was aborted due to timeout. Refusing to risk a second writer (fail closed). Inspect the named endpoint permissions and owning process identity, restore probe access, then retry; do not remove sockets or locks while ownership is unproven.\\\\n\"},{\"code\":1,\"stderr\":\" use \\\\u0000h2a-terminal-lock-2478cd54661cbabf6377b6b543652802ff534d628f56369082a9b42635884412. Refusing to risk a second writer (fail closed). Inspect the named endpoint permissions and owning process identity, restore probe access, then retry; do not remove sockets or locks while ownership is unproven.\\\\n\"},{\"code\":1,\"stderr\":\"start target-1-8: native host state is unknown: The operation was aborted due to timeout. Refusing to risk a second writer (fail closed). Inspect the named endpoint permissions and owning process identity, restore probe access, then retry; do not remove sockets or locks while ownership is unproven.\\\\n\"},{\"code\":1,\"stderr\":\"uch file or directory, lstat '/home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/r-YA4Wz2/h'. Refusing to risk a second writer (fail closed). Inspect the named endpoint permissions and owning process identity, restore probe access, then retry; do not remove sockets or locks while ownership is unproven.\\\\n\"},{\"code\":1,\"stderr\":\"tart target-1-10: native host state is unknown: The operation was aborted due to timeout. Refusing to risk a second writer (fail closed). Inspect the named endpoint permissions and owning process identity, restore probe access, then retry; do not remove sockets or locks while ownership is unproven.\\\\n\"},{\"code\":0,\"stderr\":\"[h2a] local session target-1-11 started (codex --resume 00000000-0000-4000-8000-000000000031 in /home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/r-YA4Wz2/home/src/owner-project)\\\\n[h2a] attach with: h2a attach target-1-11\\\\n\"},{\"code\":0,\"stderr\":\"[h2a] local session target-1-12 started (codex --resume 00000000-0000-4000-8000-000000000032 in /home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/r-YA4Wz2/home/src/owner-project)\\\\n[h2a] attach with: h2a attach target-1-12\\\\n\"},{\"code\":1,\"stderr\":\"tart target-1-13: native host state is unknown: The operation was aborted due to timeout. Refusing to risk a second writer (fail closed). Inspect the named endpoint permissions and owning process identity, restore probe access, then retry; do not remove sockets or locks while ownership is unproven.\\\\n\"},{\"code\":1,\"stderr\":\"tart target-1-14: native host state is unknown: The operation was aborted due to timeout. Refusing to risk a second writer (fail closed). Inspect the named endpoint permissions and owning process identity, restore probe access, then retry; do not remove sockets or locks while ownership is unproven.\\\\n\"},{\"code\":1,\"stderr\":\"tart target-1-15: native host state is unknown: The operation was aborted due to timeout. Refusing to risk a second writer (fail closed). Inspect the named endpoint permissions and owning process identity, restore probe access, then retry; do not remove sockets or locks while ownership is unproven.\\\\n\"},{\"code\":1,\"stderr\":\"tart target-1-16: native host state is unknown: The operation was aborted due to timeout. Refusing to risk a second writer (fail closed). Inspect the named endpoint permissions and owning process identity, restore probe access, then retry; do not remove sockets or locks while ownership is unproven.\\\\n\"},{\"code\":1,\"stderr\":\"tart target-1-17: native host state is unknown: The operation was aborted due to timeout. Refusing to risk a second writer (fail closed). Inspect the named endpoint permissions and owning process identity, restore probe access, then retry; do not remove sockets or locks while ownership is unproven.\\\\n\"},{\"code\":0,\"stderr\":\"[h2a] local session target-1-18 started (codex --resume 00000000-0000-4000-8000-000000000038 in /home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/r-YA4Wz2/home/src/owner-project)\\\\n[h2a] attach with: h2a attach target-1-18\\\\n\"},{\"code\":0,\"stderr\":\"[h2a] local session target-1-19 started (codex --resume 00000000-0000-4000-8000-000000000039 in /home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/r-YA4Wz2/home/src/owner-project)\\\\n[h2a] attach with: h2a attach target-1-19\\\\n\"}]`",
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":221,\"probeP95Ms\":264,\"controlMedianMs\":60,\"controlP95Ms\":79,\"startupOverheadMedianMs\":162,\"startupOverheadP95Ms\":185}",
+            "# pass 0",
+            "# fail 1",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 1,
+          "instance": 2,
+          "code": 1,
+          "pass": false,
+          "diagnostics": [
+            "  error: `[{\"code\":0,\"stderr\":\"[h2a] local session target-1-0 started (codex --resume 00000000-0000-4000-8000-000000000020 in /home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/r-IgwLoI/home/src/owner-project)\\\\n[h2a] attach with: h2a attach target-1-0\\\\n\"},{\"code\":1,\"stderr\":\"start target-1-1: native host state is unknown: The operation was aborted due to timeout. Refusing to risk a second writer (fail closed). Inspect the named endpoint permissions and owning process identity, restore probe access, then retry; do not remove sockets or locks while ownership is unproven.\\\\n\"},{\"code\":0,\"stderr\":\"[h2a] local session target-1-2 started (codex --resume 00000000-0000-4000-8000-000000000022 in /home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/r-IgwLoI/home/src/owner-project)\\\\n[h2a] attach with: h2a attach target-1-2\\\\n\"},{\"code\":1,\"stderr\":\"uch file or directory, lstat '/home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/r-IgwLoI/h'. Refusing to risk a second writer (fail closed). Inspect the named endpoint permissions and owning process identity, restore probe access, then retry; do not remove sockets or locks while ownership is unproven.\\\\n\"},{\"code\":0,\"stderr\":\"[h2a] local session target-1-4 started (codex --resume 00000000-0000-4000-8000-000000000024 in /home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/r-IgwLoI/home/src/owner-project)\\\\n[h2a] attach with: h2a attach target-1-4\\\\n\"},{\"code\":1,\"stderr\":\"start target-1-5: native host state is unknown: The operation was aborted due to timeout. Refusing to risk a second writer (fail closed). Inspect the named endpoint permissions and owning process identity, restore probe access, then retry; do not remove sockets or locks while ownership is unproven.\\\\n\"},{\"code\":0,\"stderr\":\"[h2a] local session target-1-6 started (codex --resume 00000000-0000-4000-8000-000000000026 in /home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/r-IgwLoI/home/src/owner-project)\\\\n[h2a] attach with: h2a attach target-1-6\\\\n\"},{\"code\":0,\"stderr\":\"[h2a] local session target-1-7 started (codex --resume 00000000-0000-4000-8000-000000000027 in /home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/r-IgwLoI/home/src/owner-project)\\\\n[h2a] attach with: h2a attach target-1-7\\\\n\"},{\"code\":0,\"stderr\":\"[h2a] local session target-1-8 started (codex --resume 00000000-0000-4000-8000-000000000028 in /home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/r-IgwLoI/home/src/owner-project)\\\\n[h2a] attach with: h2a attach target-1-8\\\\n\"},{\"code\":1,\"stderr\":\"start target-1-9: native host state is unknown: The operation was aborted due to timeout. Refusing to risk a second writer (fail closed). Inspect the named endpoint permissions and owning process identity, restore probe access, then retry; do not remove sockets or locks while ownership is unproven.\\\\n\"},{\"code\":0,\"stderr\":\"[h2a] local session target-1-10 started (codex --resume 00000000-0000-4000-8000-000000000030 in /home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/r-IgwLoI/home/src/owner-project)\\\\n[h2a] attach with: h2a attach target-1-10\\\\n\"},{\"code\":1,\"stderr\":\"tart target-1-11: native host state is unknown: The operation was aborted due to timeout. Refusing to risk a second writer (fail closed). Inspect the named endpoint permissions and owning process identity, restore probe access, then retry; do not remove sockets or locks while ownership is unproven.\\\\n\"},{\"code\":1,\"stderr\":\"tart target-1-12: native host state is unknown: The operation was aborted due to timeout. Refusing to risk a second writer (fail closed). Inspect the named endpoint permissions and owning process identity, restore probe access, then retry; do not remove sockets or locks while ownership is unproven.\\\\n\"},{\"code\":1,\"stderr\":\"tart target-1-13: native host state is unknown: The operation was aborted due to timeout. Refusing to risk a second writer (fail closed). Inspect the named endpoint permissions and owning process identity, restore probe access, then retry; do not remove sockets or locks while ownership is unproven.\\\\n\"},{\"code\":1,\"stderr\":\"tart target-1-14: native host state is unknown: The operation was aborted due to timeout. Refusing to risk a second writer (fail closed). Inspect the named endpoint permissions and owning process identity, restore probe access, then retry; do not remove sockets or locks while ownership is unproven.\\\\n\"},{\"code\":0,\"stderr\":\"[h2a] local session target-1-15 started (codex --resume 00000000-0000-4000-8000-000000000035 in /home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/r-IgwLoI/home/src/owner-project)\\\\n[h2a] attach with: h2a attach target-1-15\\\\n\"},{\"code\":1,\"stderr\":\"tart target-1-16: native host state is unknown: The operation was aborted due to timeout. Refusing to risk a second writer (fail closed). Inspect the named endpoint permissions and owning process identity, restore probe access, then retry; do not remove sockets or locks while ownership is unproven.\\\\n\"},{\"code\":0,\"stderr\":\"[h2a] local session target-1-17 started (codex --resume 00000000-0000-4000-8000-000000000037 in /home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/r-IgwLoI/home/src/owner-project)\\\\n[h2a] attach with: h2a attach target-1-17\\\\n\"},{\"code\":0,\"stderr\":\"[h2a] local session target-1-18 started (codex --resume 00000000-0000-4000-8000-000000000038 in /home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/r-IgwLoI/home/src/owner-project)\\\\n[h2a] attach with: h2a attach target-1-18\\\\n\"},{\"code\":1,\"stderr\":\"tart target-1-19: native host state is unknown: The operation was aborted due to timeout. Refusing to risk a second writer (fail closed). Inspect the named endpoint permissions and owning process identity, restore probe access, then retry; do not remove sockets or locks while ownership is unproven.\\\\n\"}]`",
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":221,\"probeP95Ms\":258,\"controlMedianMs\":60,\"controlP95Ms\":68,\"startupOverheadMedianMs\":161,\"startupOverheadP95Ms\":190}",
+            "# pass 0",
+            "# fail 1",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 1,
+          "instance": 3,
+          "code": 1,
+          "pass": false,
+          "diagnostics": [
+            "  error: 'incident-20 p95 12285 exceeds committed ceiling 8998 + 800 ms'",
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":227,\"probeP95Ms\":251,\"controlMedianMs\":62,\"controlP95Ms\":116,\"startupOverheadMedianMs\":165,\"startupOverheadP95Ms\":136}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":9624,\"loadedMs\":[12285,5054,5104],\"medianMs\":5104,\"p95Ms\":12285,\"deltaMs\":-4520,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 0",
+            "# fail 1",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 1,
+          "instance": 4,
+          "code": 1,
+          "pass": false,
+          "diagnostics": [
+            "  error: 'incident-20 p95 14976 exceeds committed ceiling 8998 + 800 ms'",
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":226,\"probeP95Ms\":249,\"controlMedianMs\":59,\"controlP95Ms\":76,\"startupOverheadMedianMs\":167,\"startupOverheadP95Ms\":173}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":11585,\"loadedMs\":[14976,5829,5933],\"medianMs\":5933,\"p95Ms\":14976,\"deltaMs\":-5652,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 0",
+            "# fail 1",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 1,
+          "instance": 5,
+          "code": 1,
+          "pass": false,
+          "diagnostics": [
+            "  error: `[{\"code\":0,\"stderr\":\"[h2a] local session target-1-0 started (codex --resume 00000000-0000-4000-8000-000000000020 in /home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/r-n28J4l/home/src/owner-project)\\\\n[h2a] attach with: h2a attach target-1-0\\\\n\"},{\"code\":0,\"stderr\":\"[h2a] local session target-1-1 started (codex --resume 00000000-0000-4000-8000-000000000021 in /home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/r-n28J4l/home/src/owner-project)\\\\n[h2a] attach with: h2a attach target-1-1\\\\n\"},{\"code\":0,\"stderr\":\"[h2a] local session target-1-2 started (codex --resume 00000000-0000-4000-8000-000000000022 in /home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/r-n28J4l/home/src/owner-project)\\\\n[h2a] attach with: h2a attach target-1-2\\\\n\"},{\"code\":0,\"stderr\":\"[h2a] local session target-1-3 started (codex --resume 00000000-0000-4000-8000-000000000023 in /home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/r-n28J4l/home/src/owner-project)\\\\n[h2a] attach with: h2a attach target-1-3\\\\n\"},{\"code\":0,\"stderr\":\"[h2a] local session target-1-4 started (codex --resume 00000000-0000-4000-8000-000000000024 in /home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/r-n28J4l/home/src/owner-project)\\\\n[h2a] attach with: h2a attach target-1-4\\\\n\"},{\"code\":0,\"stderr\":\"[h2a] local session target-1-5 started (codex --resume 00000000-0000-4000-8000-000000000025 in /home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/r-n28J4l/home/src/owner-project)\\\\n[h2a] attach with: h2a attach target-1-5\\\\n\"},{\"code\":0,\"stderr\":\"[h2a] local session target-1-6 started (codex --resume 00000000-0000-4000-8000-000000000026 in /home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/r-n28J4l/home/src/owner-project)\\\\n[h2a] attach with: h2a attach target-1-6\\\\n\"},{\"code\":0,\"stderr\":\"[h2a] local session target-1-7 started (codex --resume 00000000-0000-4000-8000-000000000027 in /home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/r-n28J4l/home/src/owner-project)\\\\n[h2a] attach with: h2a attach target-1-7\\\\n\"},{\"code\":1,\"stderr\":\"start target-1-8: native host state is unknown: The operation was aborted due to timeout. Refusing to risk a second writer (fail closed). Inspect the named endpoint permissions and owning process identity, restore probe access, then retry; do not remove sockets or locks while ownership is unproven.\\\\n\"},{\"code\":0,\"stderr\":\"[h2a] local session target-1-9 started (codex --resume 00000000-0000-4000-8000-000000000029 in /home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/r-n28J4l/home/src/owner-project)\\\\n[h2a] attach with: h2a attach target-1-9\\\\n\"},{\"code\":0,\"stderr\":\"[h2a] local session target-1-10 started (codex --resume 00000000-0000-4000-8000-000000000030 in /home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/r-n28J4l/home/src/owner-project)\\\\n[h2a] attach with: h2a attach target-1-10\\\\n\"},{\"code\":1,\"stderr\":\"tart target-1-11: native host state is unknown: The operation was aborted due to timeout. Refusing to risk a second writer (fail closed). Inspect the named endpoint permissions and owning process identity, restore probe access, then retry; do not remove sockets or locks while ownership is unproven.\\\\n\"},{\"code\":0,\"stderr\":\"[h2a] local session target-1-12 started (codex --resume 00000000-0000-4000-8000-000000000032 in /home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/r-n28J4l/home/src/owner-project)\\\\n[h2a] attach with: h2a attach target-1-12\\\\n\"},{\"code\":0,\"stderr\":\"[h2a] local session target-1-13 started (codex --resume 00000000-0000-4000-8000-000000000033 in /home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/r-n28J4l/home/src/owner-project)\\\\n[h2a] attach with: h2a attach target-1-13\\\\n\"},{\"code\":0,\"stderr\":\"[h2a] local session target-1-14 started (codex --resume 00000000-0000-4000-8000-000000000034 in /home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/r-n28J4l/home/src/owner-project)\\\\n[h2a] attach with: h2a attach target-1-14\\\\n\"},{\"code\":0,\"stderr\":\"[h2a] local session target-1-15 started (codex --resume 00000000-0000-4000-8000-000000000035 in /home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/r-n28J4l/home/src/owner-project)\\\\n[h2a] attach with: h2a attach target-1-15\\\\n\"},{\"code\":1,\"stderr\":\" use \\\\u0000h2a-terminal-lock-6174833cbcc07770a6ca234a42411714ea12e79b07dbd6b15bba6b732f04c8ae. Refusing to risk a second writer (fail closed). Inspect the named endpoint permissions and owning process identity, restore probe access, then retry; do not remove sockets or locks while ownership is unproven.\\\\n\"},{\"code\":0,\"stderr\":\"[h2a] local session target-1-17 started (codex --resume 00000000-0000-4000-8000-000000000037 in /home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/r-n28J4l/home/src/owner-project)\\\\n[h2a] attach with: h2a attach target-1-17\\\\n\"},{\"code\":1,\"stderr\":\"uch file or directory, lstat '/home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/r-n28J4l/h'. Refusing to risk a second writer (fail closed). Inspect the named endpoint permissions and owning process identity, restore probe access, then retry; do not remove sockets or locks while ownership is unproven.\\\\n\"},{\"code\":0,\"stderr\":\"[h2a] local session target-1-19 started (codex --resume 00000000-0000-4000-8000-000000000039 in /home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/r-n28J4l/home/src/owner-project)\\\\n[h2a] attach with: h2a attach target-1-19\\\\n\"}]`",
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":225,\"probeP95Ms\":245,\"controlMedianMs\":61,\"controlP95Ms\":69,\"startupOverheadMedianMs\":164,\"startupOverheadP95Ms\":177}",
+            "# pass 0",
+            "# fail 1",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 1,
+          "instance": 6,
+          "code": 1,
+          "pass": false,
+          "diagnostics": [
+            "  error: 'incident-20 p95 15418 exceeds committed ceiling 8998 + 800 ms'",
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":225,\"probeP95Ms\":253,\"controlMedianMs\":59,\"controlP95Ms\":68,\"startupOverheadMedianMs\":166,\"startupOverheadP95Ms\":186}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":11218,\"loadedMs\":[15418,5840,5768],\"medianMs\":5840,\"p95Ms\":15418,\"deltaMs\":-5378,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 0",
+            "# fail 1",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 1,
+          "instance": 7,
+          "code": 1,
+          "pass": false,
+          "diagnostics": [
+            "  error: 'incident-20 p95 14570 exceeds committed ceiling 8998 + 800 ms'",
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":222,\"probeP95Ms\":242,\"controlMedianMs\":62,\"controlP95Ms\":73,\"startupOverheadMedianMs\":160,\"startupOverheadP95Ms\":169}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":11605,\"loadedMs\":[14570,5680,5754],\"medianMs\":5754,\"p95Ms\":14570,\"deltaMs\":-5851,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 0",
+            "# fail 1",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 1,
+          "instance": 8,
+          "code": 1,
+          "pass": false,
+          "diagnostics": [
+            "  error: 'Readiness did not converge: {\"generation\":\"4cc7401e-e650-4b91-a5e8-c9d19aade25b\",\"incarnation\":\"857b9ade-ccca-4ada-a3e4-537259047d02\",\"chunks\":[],\"gap\":null,\"latestSeq\":0}'",
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":233,\"probeP95Ms\":259,\"controlMedianMs\":66,\"controlP95Ms\":798,\"startupOverheadMedianMs\":167,\"startupOverheadP95Ms\":-539}",
+            "# pass 0",
+            "# fail 1",
+            "# skipped 0"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "r9-clean-control",
+      "codeRef": "61271bd24 sources through a private TypeScript/Node loader; identical per-fixture teardown",
+      "command": "rtk env INCIDENT_PRIVATE_FILE=\"$TMPDIR/clean-old.test.mjs\" taskset -c 0-7 node \"$TMPDIR/private-load.mjs\" 1 8",
+      "exitCode": 1,
+      "samples": [
+        {
+          "round": 1,
+          "instance": 1,
+          "code": 1,
+          "pass": false,
+          "diagnostics": [
+            "  error: 'incident-20 median 11353 exceeds committed ceiling 8426 + 500 ms'",
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":205,\"probeP95Ms\":258,\"controlMedianMs\":60,\"controlP95Ms\":90,\"startupOverheadMedianMs\":145,\"startupOverheadP95Ms\":168}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":12938,\"loadedMs\":[11628,11353,11341],\"medianMs\":11353,\"p95Ms\":11628,\"deltaMs\":-1585,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 0",
+            "# fail 1",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 1,
+          "instance": 2,
+          "code": 1,
+          "pass": false,
+          "diagnostics": [
+            "  error: 'incident-20 median 10545 exceeds committed ceiling 8426 + 500 ms'",
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":223,\"probeP95Ms\":298,\"controlMedianMs\":61,\"controlP95Ms\":514,\"startupOverheadMedianMs\":162,\"startupOverheadP95Ms\":-216}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":10655,\"loadedMs\":[10545,10758,7180],\"medianMs\":10545,\"p95Ms\":10758,\"deltaMs\":-110,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 0",
+            "# fail 1",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 1,
+          "instance": 3,
+          "code": 1,
+          "pass": false,
+          "diagnostics": [
+            "  error: 'incident-20 median 10439 exceeds committed ceiling 8426 + 500 ms'",
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":215,\"probeP95Ms\":256,\"controlMedianMs\":62,\"controlP95Ms\":127,\"startupOverheadMedianMs\":153,\"startupOverheadP95Ms\":129}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":10872,\"loadedMs\":[10439,10869,9020],\"medianMs\":10439,\"p95Ms\":10869,\"deltaMs\":-433,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 0",
+            "# fail 1",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 1,
+          "instance": 4,
+          "code": 1,
+          "pass": false,
+          "diagnostics": [
+            "  error: 'incident-20 median 10189 exceeds committed ceiling 8426 + 500 ms'",
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":212,\"probeP95Ms\":304,\"controlMedianMs\":59,\"controlP95Ms\":387,\"startupOverheadMedianMs\":153,\"startupOverheadP95Ms\":-83}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":10614,\"loadedMs\":[10189,10947,7864],\"medianMs\":10189,\"p95Ms\":10947,\"deltaMs\":-425,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 0",
+            "# fail 1",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 1,
+          "instance": 5,
+          "code": 1,
+          "pass": false,
+          "diagnostics": [
+            "  error: 'incident-20 median 11700 exceeds committed ceiling 8426 + 500 ms'",
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":205,\"probeP95Ms\":276,\"controlMedianMs\":63,\"controlP95Ms\":74,\"startupOverheadMedianMs\":142,\"startupOverheadP95Ms\":202}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":12790,\"loadedMs\":[11919,11632,11700],\"medianMs\":11700,\"p95Ms\":11919,\"deltaMs\":-1090,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 0",
+            "# fail 1",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 1,
+          "instance": 6,
+          "code": 1,
+          "pass": false,
+          "diagnostics": [
+            "  error: 'incident-20 median 10937 exceeds committed ceiling 8426 + 500 ms'",
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":216,\"probeP95Ms\":265,\"controlMedianMs\":61,\"controlP95Ms\":71,\"startupOverheadMedianMs\":155,\"startupOverheadP95Ms\":194}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":12094,\"loadedMs\":[10937,11062,10935],\"medianMs\":10937,\"p95Ms\":11062,\"deltaMs\":-1157,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 0",
+            "# fail 1",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 1,
+          "instance": 7,
+          "code": 1,
+          "pass": false,
+          "diagnostics": [
+            "  error: 'incident-20 median 11495 exceeds committed ceiling 8426 + 500 ms'",
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":204,\"probeP95Ms\":241,\"controlMedianMs\":59,\"controlP95Ms\":79,\"startupOverheadMedianMs\":145,\"startupOverheadP95Ms\":162}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":12622,\"loadedMs\":[11805,11495,11234],\"medianMs\":11495,\"p95Ms\":11805,\"deltaMs\":-1127,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 0",
+            "# fail 1",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 1,
+          "instance": 8,
+          "code": 1,
+          "pass": false,
+          "diagnostics": [
+            "  error: 'incident-20 median 11362 exceeds committed ceiling 8426 + 500 ms'",
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":206,\"probeP95Ms\":252,\"controlMedianMs\":59,\"controlP95Ms\":80,\"startupOverheadMedianMs\":147,\"startupOverheadP95Ms\":172}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":12368,\"loadedMs\":[11339,11362,11576],\"medianMs\":11362,\"p95Ms\":11576,\"deltaMs\":-1006,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 0",
+            "# fail 1",
+            "# skipped 0"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "calibration-eight",
+      "codeRef": "ea32c665ad15967db600ccc897f7b8f2d8d8a703",
+      "command": "rtk taskset -c 0-7 node scripts/owner-lab/incident-load.mjs 5 8 (original default ceilings)",
+      "exitCode": 1,
+      "samples": [
+        {
+          "round": 1,
+          "instance": 1,
+          "code": 1,
+          "pass": false,
+          "diagnostics": [
+            "  error: 'incident-20 median 9181 exceeds committed ceiling 8426 + 500 ms'",
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":194,\"probeP95Ms\":201,\"controlMedianMs\":62,\"controlP95Ms\":100,\"startupOverheadMedianMs\":132,\"startupOverheadP95Ms\":101}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":9282,\"loadedMs\":[8959,9181,9246],\"medianMs\":9181,\"p95Ms\":9246,\"deltaMs\":-101,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 0",
+            "# fail 1",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 1,
+          "instance": 2,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":196,\"probeP95Ms\":224,\"controlMedianMs\":66,\"controlP95Ms\":85,\"startupOverheadMedianMs\":130,\"startupOverheadP95Ms\":139}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":9060,\"loadedMs\":[8494,8432,8640],\"medianMs\":8494,\"p95Ms\":8640,\"deltaMs\":-566,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 1,
+          "instance": 3,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":199,\"probeP95Ms\":217,\"controlMedianMs\":59,\"controlP95Ms\":76,\"startupOverheadMedianMs\":141,\"startupOverheadP95Ms\":141}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":9264,\"loadedMs\":[8685,8673,8475],\"medianMs\":8673,\"p95Ms\":8685,\"deltaMs\":-591,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 1,
+          "instance": 4,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":189,\"probeP95Ms\":210,\"controlMedianMs\":61,\"controlP95Ms\":89,\"startupOverheadMedianMs\":128,\"startupOverheadP95Ms\":121}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":9227,\"loadedMs\":[8829,8774,9060],\"medianMs\":8829,\"p95Ms\":9060,\"deltaMs\":-398,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 1,
+          "instance": 5,
+          "code": 1,
+          "pass": false,
+          "diagnostics": [
+            "  error: 'incident-20 median 9147 exceeds committed ceiling 8426 + 500 ms'",
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":198,\"probeP95Ms\":247,\"controlMedianMs\":58,\"controlP95Ms\":76,\"startupOverheadMedianMs\":141,\"startupOverheadP95Ms\":170}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":8748,\"loadedMs\":[9147,9000,9373],\"medianMs\":9147,\"p95Ms\":9373,\"deltaMs\":399,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 0",
+            "# fail 1",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 1,
+          "instance": 6,
+          "code": 1,
+          "pass": false,
+          "diagnostics": [
+            "  error: 'incident-20 median 9095 exceeds committed ceiling 8426 + 500 ms'",
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":198,\"probeP95Ms\":248,\"controlMedianMs\":59,\"controlP95Ms\":86,\"startupOverheadMedianMs\":139,\"startupOverheadP95Ms\":162}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":9028,\"loadedMs\":[9037,9401,9095],\"medianMs\":9095,\"p95Ms\":9401,\"deltaMs\":67,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 0",
+            "# fail 1",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 1,
+          "instance": 7,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":194,\"probeP95Ms\":253,\"controlMedianMs\":62,\"controlP95Ms\":125,\"startupOverheadMedianMs\":132,\"startupOverheadP95Ms\":128}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":8111,\"loadedMs\":[8128,8214,5494],\"medianMs\":8128,\"p95Ms\":8214,\"deltaMs\":17,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 1,
+          "instance": 8,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":197,\"probeP95Ms\":211,\"controlMedianMs\":64,\"controlP95Ms\":90,\"startupOverheadMedianMs\":133,\"startupOverheadP95Ms\":121}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":9060,\"loadedMs\":[8727,7906,6917],\"medianMs\":7906,\"p95Ms\":8727,\"deltaMs\":-1154,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 2,
+          "instance": 1,
+          "code": 1,
+          "pass": false,
+          "diagnostics": [
+            "  error: 'incident-20 median 9392 exceeds committed ceiling 8426 + 500 ms'",
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":204,\"probeP95Ms\":228,\"controlMedianMs\":60,\"controlP95Ms\":85,\"startupOverheadMedianMs\":144,\"startupOverheadP95Ms\":142}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":9114,\"loadedMs\":[9236,9392,9624],\"medianMs\":9392,\"p95Ms\":9624,\"deltaMs\":278,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 0",
+            "# fail 1",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 2,
+          "instance": 2,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":207,\"probeP95Ms\":219,\"controlMedianMs\":62,\"controlP95Ms\":72,\"startupOverheadMedianMs\":145,\"startupOverheadP95Ms\":147}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":8712,\"loadedMs\":[8349,8586,9490],\"medianMs\":8586,\"p95Ms\":9490,\"deltaMs\":-126,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 2,
+          "instance": 3,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":214,\"probeP95Ms\":284,\"controlMedianMs\":59,\"controlP95Ms\":478,\"startupOverheadMedianMs\":156,\"startupOverheadP95Ms\":-194}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":8149,\"loadedMs\":[8505,9125,4834],\"medianMs\":8505,\"p95Ms\":9125,\"deltaMs\":356,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 2,
+          "instance": 4,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":210,\"probeP95Ms\":273,\"controlMedianMs\":62,\"controlP95Ms\":75,\"startupOverheadMedianMs\":148,\"startupOverheadP95Ms\":198}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":8080,\"loadedMs\":[8164,7775,8736],\"medianMs\":8164,\"p95Ms\":8736,\"deltaMs\":84,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 2,
+          "instance": 5,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":209,\"probeP95Ms\":278,\"controlMedianMs\":60,\"controlP95Ms\":77,\"startupOverheadMedianMs\":149,\"startupOverheadP95Ms\":201}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":8378,\"loadedMs\":[8237,8396,8311],\"medianMs\":8311,\"p95Ms\":8396,\"deltaMs\":-67,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 2,
+          "instance": 6,
+          "code": 1,
+          "pass": false,
+          "diagnostics": [
+            "  error: 'incident-20 median 9158 exceeds committed ceiling 8426 + 500 ms'",
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":209,\"probeP95Ms\":235,\"controlMedianMs\":59,\"controlP95Ms\":63,\"startupOverheadMedianMs\":151,\"startupOverheadP95Ms\":172}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":8945,\"loadedMs\":[9017,9280,9158],\"medianMs\":9158,\"p95Ms\":9280,\"deltaMs\":213,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 0",
+            "# fail 1",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 2,
+          "instance": 7,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":212,\"probeP95Ms\":257,\"controlMedianMs\":62,\"controlP95Ms\":73,\"startupOverheadMedianMs\":151,\"startupOverheadP95Ms\":184}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":8782,\"loadedMs\":[9001,8750,8685],\"medianMs\":8750,\"p95Ms\":9001,\"deltaMs\":-32,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 2,
+          "instance": 8,
+          "code": 1,
+          "pass": false,
+          "diagnostics": [
+            "  error: 'incident-20 median 9138 exceeds committed ceiling 8426 + 500 ms'",
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":205,\"probeP95Ms\":242,\"controlMedianMs\":60,\"controlP95Ms\":71,\"startupOverheadMedianMs\":144,\"startupOverheadP95Ms\":171}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":8795,\"loadedMs\":[9021,9138,9318],\"medianMs\":9138,\"p95Ms\":9318,\"deltaMs\":343,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 0",
+            "# fail 1",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 3,
+          "instance": 1,
+          "code": 1,
+          "pass": false,
+          "diagnostics": [
+            "  error: 'incident-20 median 8951 exceeds committed ceiling 8426 + 500 ms'",
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":211,\"probeP95Ms\":284,\"controlMedianMs\":59,\"controlP95Ms\":71,\"startupOverheadMedianMs\":152,\"startupOverheadP95Ms\":214}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":9214,\"loadedMs\":[8951,9139,8630],\"medianMs\":8951,\"p95Ms\":9139,\"deltaMs\":-263,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 0",
+            "# fail 1",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 3,
+          "instance": 2,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":217,\"probeP95Ms\":264,\"controlMedianMs\":60,\"controlP95Ms\":79,\"startupOverheadMedianMs\":156,\"startupOverheadP95Ms\":185}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":8338,\"loadedMs\":[8727,8874,5105],\"medianMs\":8727,\"p95Ms\":8874,\"deltaMs\":389,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 3,
+          "instance": 3,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":217,\"probeP95Ms\":278,\"controlMedianMs\":59,\"controlP95Ms\":74,\"startupOverheadMedianMs\":158,\"startupOverheadP95Ms\":204}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":8697,\"loadedMs\":[8460,8066,8375],\"medianMs\":8375,\"p95Ms\":8460,\"deltaMs\":-322,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 3,
+          "instance": 4,
+          "code": 1,
+          "pass": false,
+          "diagnostics": [
+            "  error: 'incident-20 median 9094 exceeds committed ceiling 8426 + 500 ms'",
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":211,\"probeP95Ms\":248,\"controlMedianMs\":64,\"controlP95Ms\":72,\"startupOverheadMedianMs\":147,\"startupOverheadP95Ms\":176}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":9455,\"loadedMs\":[9570,9094,8985],\"medianMs\":9094,\"p95Ms\":9570,\"deltaMs\":-361,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 0",
+            "# fail 1",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 3,
+          "instance": 5,
+          "code": 1,
+          "pass": false,
+          "diagnostics": [
+            "  error: 'incident-20 median 9257 exceeds committed ceiling 8426 + 500 ms'",
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":211,\"probeP95Ms\":254,\"controlMedianMs\":59,\"controlP95Ms\":64,\"startupOverheadMedianMs\":152,\"startupOverheadP95Ms\":190}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":9054,\"loadedMs\":[9252,9257,9423],\"medianMs\":9257,\"p95Ms\":9423,\"deltaMs\":203,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 0",
+            "# fail 1",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 3,
+          "instance": 6,
+          "code": 1,
+          "pass": false,
+          "diagnostics": [
+            "  error: 'incident-20 median 9249 exceeds committed ceiling 8426 + 500 ms'",
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":211,\"probeP95Ms\":264,\"controlMedianMs\":59,\"controlP95Ms\":92,\"startupOverheadMedianMs\":153,\"startupOverheadP95Ms\":171}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":8831,\"loadedMs\":[9332,9249,8794],\"medianMs\":9249,\"p95Ms\":9332,\"deltaMs\":418,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 0",
+            "# fail 1",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 3,
+          "instance": 7,
+          "code": 1,
+          "pass": false,
+          "diagnostics": [
+            "  error: 'incident-20 median 9347 exceeds committed ceiling 8426 + 500 ms'",
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":206,\"probeP95Ms\":255,\"controlMedianMs\":58,\"controlP95Ms\":69,\"startupOverheadMedianMs\":148,\"startupOverheadP95Ms\":187}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":9074,\"loadedMs\":[9347,9445,9092],\"medianMs\":9347,\"p95Ms\":9445,\"deltaMs\":273,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 0",
+            "# fail 1",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 3,
+          "instance": 8,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":217,\"probeP95Ms\":249,\"controlMedianMs\":60,\"controlP95Ms\":69,\"startupOverheadMedianMs\":157,\"startupOverheadP95Ms\":180}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":7966,\"loadedMs\":[8238,8046,5952],\"medianMs\":8046,\"p95Ms\":8238,\"deltaMs\":80,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 4,
+          "instance": 1,
+          "code": 1,
+          "pass": false,
+          "diagnostics": [
+            "  error: 'incident-20 median 9032 exceeds committed ceiling 8426 + 500 ms'",
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":203,\"probeP95Ms\":222,\"controlMedianMs\":60,\"controlP95Ms\":92,\"startupOverheadMedianMs\":144,\"startupOverheadP95Ms\":129}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":8715,\"loadedMs\":[9001,9032,9327],\"medianMs\":9032,\"p95Ms\":9327,\"deltaMs\":317,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 0",
+            "# fail 1",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 4,
+          "instance": 2,
+          "code": 1,
+          "pass": false,
+          "diagnostics": [
+            "  error: 'incident-20 median 8936 exceeds committed ceiling 8426 + 500 ms'",
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":207,\"probeP95Ms\":268,\"controlMedianMs\":65,\"controlP95Ms\":168,\"startupOverheadMedianMs\":142,\"startupOverheadP95Ms\":100}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":7939,\"loadedMs\":[8936,9319,4712],\"medianMs\":8936,\"p95Ms\":9319,\"deltaMs\":997,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 0",
+            "# fail 1",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 4,
+          "instance": 3,
+          "code": 1,
+          "pass": false,
+          "diagnostics": [
+            "  error: 'incident-20 median 9210 exceeds committed ceiling 8426 + 500 ms'",
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":203,\"probeP95Ms\":241,\"controlMedianMs\":66,\"controlP95Ms\":80,\"startupOverheadMedianMs\":137,\"startupOverheadP95Ms\":161}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":8881,\"loadedMs\":[8997,9210,9816],\"medianMs\":9210,\"p95Ms\":9816,\"deltaMs\":329,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 0",
+            "# fail 1",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 4,
+          "instance": 4,
+          "code": 1,
+          "pass": false,
+          "diagnostics": [
+            "  error: 'incident-20 median 9508 exceeds committed ceiling 8426 + 500 ms'",
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":203,\"probeP95Ms\":230,\"controlMedianMs\":66,\"controlP95Ms\":80,\"startupOverheadMedianMs\":138,\"startupOverheadP95Ms\":150}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":9440,\"loadedMs\":[9217,9536,9508],\"medianMs\":9508,\"p95Ms\":9536,\"deltaMs\":68,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 0",
+            "# fail 1",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 4,
+          "instance": 5,
+          "code": 1,
+          "pass": false,
+          "diagnostics": [
+            "  error: 'incident-20 median 9504 exceeds committed ceiling 8426 + 500 ms'",
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":202,\"probeP95Ms\":235,\"controlMedianMs\":66,\"controlP95Ms\":79,\"startupOverheadMedianMs\":136,\"startupOverheadP95Ms\":155}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":9118,\"loadedMs\":[9331,9670,9504],\"medianMs\":9504,\"p95Ms\":9670,\"deltaMs\":386,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 0",
+            "# fail 1",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 4,
+          "instance": 6,
+          "code": 1,
+          "pass": false,
+          "diagnostics": [
+            "  error: 'incident-20 median 9317 exceeds committed ceiling 8426 + 500 ms'",
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":204,\"probeP95Ms\":242,\"controlMedianMs\":61,\"controlP95Ms\":81,\"startupOverheadMedianMs\":144,\"startupOverheadP95Ms\":161}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":8734,\"loadedMs\":[9463,9261,9317],\"medianMs\":9317,\"p95Ms\":9463,\"deltaMs\":583,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 0",
+            "# fail 1",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 4,
+          "instance": 7,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":202,\"probeP95Ms\":230,\"controlMedianMs\":71,\"controlP95Ms\":107,\"startupOverheadMedianMs\":131,\"startupOverheadP95Ms\":123}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":8587,\"loadedMs\":[8418,8437,8974],\"medianMs\":8437,\"p95Ms\":8974,\"deltaMs\":-150,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 4,
+          "instance": 8,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":200,\"probeP95Ms\":227,\"controlMedianMs\":64,\"controlP95Ms\":90,\"startupOverheadMedianMs\":136,\"startupOverheadP95Ms\":137}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":9346,\"loadedMs\":[9147,8633,8588],\"medianMs\":8633,\"p95Ms\":9147,\"deltaMs\":-713,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 5,
+          "instance": 1,
+          "code": 1,
+          "pass": false,
+          "diagnostics": [
+            "  error: 'incident-20 median 9107 exceeds committed ceiling 8426 + 500 ms'",
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":202,\"probeP95Ms\":235,\"controlMedianMs\":61,\"controlP95Ms\":80,\"startupOverheadMedianMs\":141,\"startupOverheadP95Ms\":156}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":9604,\"loadedMs\":[9567,9107,9047],\"medianMs\":9107,\"p95Ms\":9567,\"deltaMs\":-497,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 0",
+            "# fail 1",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 5,
+          "instance": 2,
+          "code": 1,
+          "pass": false,
+          "diagnostics": [
+            "  error: 'incident-20 median 8990 exceeds committed ceiling 8426 + 500 ms'",
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":205,\"probeP95Ms\":274,\"controlMedianMs\":61,\"controlP95Ms\":72,\"startupOverheadMedianMs\":144,\"startupOverheadP95Ms\":202}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":9882,\"loadedMs\":[8848,9410,8990],\"medianMs\":8990,\"p95Ms\":9410,\"deltaMs\":-892,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 0",
+            "# fail 1",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 5,
+          "instance": 3,
+          "code": 1,
+          "pass": false,
+          "diagnostics": [
+            "  error: 'incident-20 median 9258 exceeds committed ceiling 8426 + 500 ms'",
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":206,\"probeP95Ms\":246,\"controlMedianMs\":66,\"controlP95Ms\":91,\"startupOverheadMedianMs\":140,\"startupOverheadP95Ms\":156}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":8988,\"loadedMs\":[9258,9727,9152],\"medianMs\":9258,\"p95Ms\":9727,\"deltaMs\":270,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 0",
+            "# fail 1",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 5,
+          "instance": 4,
+          "code": 1,
+          "pass": false,
+          "diagnostics": [
+            "  error: 'incident-20 median 9409 exceeds committed ceiling 8426 + 500 ms'",
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":205,\"probeP95Ms\":267,\"controlMedianMs\":60,\"controlP95Ms\":72,\"startupOverheadMedianMs\":145,\"startupOverheadP95Ms\":194}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":9335,\"loadedMs\":[9896,9409,9333],\"medianMs\":9409,\"p95Ms\":9896,\"deltaMs\":74,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 0",
+            "# fail 1",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 5,
+          "instance": 5,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":205,\"probeP95Ms\":265,\"controlMedianMs\":61,\"controlP95Ms\":74,\"startupOverheadMedianMs\":143,\"startupOverheadP95Ms\":191}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":9611,\"loadedMs\":[9626,8800,8420],\"medianMs\":8800,\"p95Ms\":9626,\"deltaMs\":-811,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 5,
+          "instance": 6,
+          "code": 1,
+          "pass": false,
+          "diagnostics": [
+            "  error: 'incident-20 median 9692 exceeds committed ceiling 8426 + 500 ms'",
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":201,\"probeP95Ms\":234,\"controlMedianMs\":62,\"controlP95Ms\":81,\"startupOverheadMedianMs\":139,\"startupOverheadP95Ms\":153}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":9863,\"loadedMs\":[9692,9727,9045],\"medianMs\":9692,\"p95Ms\":9727,\"deltaMs\":-171,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 0",
+            "# fail 1",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 5,
+          "instance": 7,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":208,\"probeP95Ms\":270,\"controlMedianMs\":62,\"controlP95Ms\":72,\"startupOverheadMedianMs\":146,\"startupOverheadP95Ms\":198}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":9792,\"loadedMs\":[9590,8658,7856],\"medianMs\":8658,\"p95Ms\":9590,\"deltaMs\":-1134,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 5,
+          "instance": 8,
+          "code": 1,
+          "pass": false,
+          "diagnostics": [
+            "  error: 'incident-20 median 9589 exceeds committed ceiling 8426 + 500 ms'",
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":208,\"probeP95Ms\":242,\"controlMedianMs\":60,\"controlP95Ms\":75,\"startupOverheadMedianMs\":149,\"startupOverheadP95Ms\":167}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"host\":\"killed\",\"emptyMs\":9850,\"loadedMs\":[9774,9589,9451],\"medianMs\":9589,\"p95Ms\":9774,\"deltaMs\":-261,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 0",
+            "# fail 1",
+            "# skipped 0"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "verification-eight",
+      "codeRef": "4f6f0257d8c7053a0eda46c3c74a268c7eb7f023",
+      "command": "rtk taskset -c 0-7 node scripts/owner-lab/incident-load.mjs 5 8",
+      "exitCode": 0,
+      "samples": [
+        {
+          "round": 1,
+          "instance": 1,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":191,\"probeP95Ms\":214,\"controlMedianMs\":60,\"controlP95Ms\":67,\"startupOverheadMedianMs\":131,\"startupOverheadP95Ms\":147}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"8x20/8cpu\",\"host\":\"killed\",\"emptyMs\":8678,\"loadedMs\":[8875,9284,9074],\"medianMs\":9074,\"p95Ms\":9284,\"deltaMs\":396,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 1,
+          "instance": 2,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":190,\"probeP95Ms\":231,\"controlMedianMs\":60,\"controlP95Ms\":66,\"startupOverheadMedianMs\":129,\"startupOverheadP95Ms\":164}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"8x20/8cpu\",\"host\":\"killed\",\"emptyMs\":9067,\"loadedMs\":[9002,8655,8025],\"medianMs\":8655,\"p95Ms\":9002,\"deltaMs\":-412,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 1,
+          "instance": 3,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":193,\"probeP95Ms\":213,\"controlMedianMs\":60,\"controlP95Ms\":67,\"startupOverheadMedianMs\":133,\"startupOverheadP95Ms\":146}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"8x20/8cpu\",\"host\":\"killed\",\"emptyMs\":9091,\"loadedMs\":[9051,8926,9466],\"medianMs\":9051,\"p95Ms\":9466,\"deltaMs\":-40,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 1,
+          "instance": 4,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":190,\"probeP95Ms\":213,\"controlMedianMs\":60,\"controlP95Ms\":68,\"startupOverheadMedianMs\":130,\"startupOverheadP95Ms\":145}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"8x20/8cpu\",\"host\":\"killed\",\"emptyMs\":9235,\"loadedMs\":[9155,9236,9343],\"medianMs\":9236,\"p95Ms\":9343,\"deltaMs\":1,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 1,
+          "instance": 5,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":197,\"probeP95Ms\":230,\"controlMedianMs\":60,\"controlP95Ms\":64,\"startupOverheadMedianMs\":137,\"startupOverheadP95Ms\":166}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"8x20/8cpu\",\"host\":\"killed\",\"emptyMs\":8602,\"loadedMs\":[8964,9356,9187],\"medianMs\":9187,\"p95Ms\":9356,\"deltaMs\":585,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 1,
+          "instance": 6,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":202,\"probeP95Ms\":221,\"controlMedianMs\":61,\"controlP95Ms\":72,\"startupOverheadMedianMs\":141,\"startupOverheadP95Ms\":150}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"8x20/8cpu\",\"host\":\"killed\",\"emptyMs\":7833,\"loadedMs\":[7516,8483,8219],\"medianMs\":8219,\"p95Ms\":8483,\"deltaMs\":386,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 1,
+          "instance": 7,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":199,\"probeP95Ms\":212,\"controlMedianMs\":60,\"controlP95Ms\":68,\"startupOverheadMedianMs\":139,\"startupOverheadP95Ms\":144}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"8x20/8cpu\",\"host\":\"killed\",\"emptyMs\":9013,\"loadedMs\":[9181,9189,9100],\"medianMs\":9181,\"p95Ms\":9189,\"deltaMs\":168,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 1,
+          "instance": 8,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":191,\"probeP95Ms\":202,\"controlMedianMs\":60,\"controlP95Ms\":67,\"startupOverheadMedianMs\":131,\"startupOverheadP95Ms\":135}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"8x20/8cpu\",\"host\":\"killed\",\"emptyMs\":8242,\"loadedMs\":[8171,7536,7096],\"medianMs\":7536,\"p95Ms\":8171,\"deltaMs\":-706,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 2,
+          "instance": 1,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":203,\"probeP95Ms\":229,\"controlMedianMs\":59,\"controlP95Ms\":65,\"startupOverheadMedianMs\":143,\"startupOverheadP95Ms\":163}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"8x20/8cpu\",\"host\":\"killed\",\"emptyMs\":9348,\"loadedMs\":[9081,9256,8840],\"medianMs\":9081,\"p95Ms\":9256,\"deltaMs\":-267,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 2,
+          "instance": 2,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":198,\"probeP95Ms\":223,\"controlMedianMs\":60,\"controlP95Ms\":65,\"startupOverheadMedianMs\":139,\"startupOverheadP95Ms\":158}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"8x20/8cpu\",\"host\":\"killed\",\"emptyMs\":9563,\"loadedMs\":[8970,9028,8775],\"medianMs\":8970,\"p95Ms\":9028,\"deltaMs\":-593,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 2,
+          "instance": 3,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":207,\"probeP95Ms\":219,\"controlMedianMs\":59,\"controlP95Ms\":72,\"startupOverheadMedianMs\":147,\"startupOverheadP95Ms\":147}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"8x20/8cpu\",\"host\":\"killed\",\"emptyMs\":8710,\"loadedMs\":[8191,7984,7588],\"medianMs\":7984,\"p95Ms\":8191,\"deltaMs\":-726,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 2,
+          "instance": 4,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":201,\"probeP95Ms\":221,\"controlMedianMs\":59,\"controlP95Ms\":61,\"startupOverheadMedianMs\":142,\"startupOverheadP95Ms\":159}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"8x20/8cpu\",\"host\":\"killed\",\"emptyMs\":9059,\"loadedMs\":[9115,9036,8900],\"medianMs\":9036,\"p95Ms\":9115,\"deltaMs\":-23,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 2,
+          "instance": 5,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":201,\"probeP95Ms\":216,\"controlMedianMs\":59,\"controlP95Ms\":61,\"startupOverheadMedianMs\":142,\"startupOverheadP95Ms\":155}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"8x20/8cpu\",\"host\":\"killed\",\"emptyMs\":9480,\"loadedMs\":[9075,8914,8869],\"medianMs\":8914,\"p95Ms\":9075,\"deltaMs\":-566,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 2,
+          "instance": 6,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":201,\"probeP95Ms\":207,\"controlMedianMs\":60,\"controlP95Ms\":64,\"startupOverheadMedianMs\":142,\"startupOverheadP95Ms\":143}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"8x20/8cpu\",\"host\":\"killed\",\"emptyMs\":9622,\"loadedMs\":[9385,8981,8746],\"medianMs\":8981,\"p95Ms\":9385,\"deltaMs\":-641,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 2,
+          "instance": 7,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":200,\"probeP95Ms\":211,\"controlMedianMs\":60,\"controlP95Ms\":75,\"startupOverheadMedianMs\":139,\"startupOverheadP95Ms\":137}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"8x20/8cpu\",\"host\":\"killed\",\"emptyMs\":8278,\"loadedMs\":[8326,8305,6325],\"medianMs\":8305,\"p95Ms\":8326,\"deltaMs\":27,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 2,
+          "instance": 8,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":198,\"probeP95Ms\":217,\"controlMedianMs\":60,\"controlP95Ms\":64,\"startupOverheadMedianMs\":138,\"startupOverheadP95Ms\":152}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"8x20/8cpu\",\"host\":\"killed\",\"emptyMs\":9364,\"loadedMs\":[8809,8984,9064],\"medianMs\":8984,\"p95Ms\":9064,\"deltaMs\":-380,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 3,
+          "instance": 1,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":202,\"probeP95Ms\":221,\"controlMedianMs\":59,\"controlP95Ms\":66,\"startupOverheadMedianMs\":143,\"startupOverheadP95Ms\":155}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"8x20/8cpu\",\"host\":\"killed\",\"emptyMs\":8709,\"loadedMs\":[9125,8820,8611],\"medianMs\":8820,\"p95Ms\":9125,\"deltaMs\":111,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 3,
+          "instance": 2,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":206,\"probeP95Ms\":243,\"controlMedianMs\":60,\"controlP95Ms\":433,\"startupOverheadMedianMs\":146,\"startupOverheadP95Ms\":-190}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"8x20/8cpu\",\"host\":\"killed\",\"emptyMs\":7986,\"loadedMs\":[7980,8622,6444],\"medianMs\":7980,\"p95Ms\":8622,\"deltaMs\":-6,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 3,
+          "instance": 3,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":202,\"probeP95Ms\":224,\"controlMedianMs\":59,\"controlP95Ms\":67,\"startupOverheadMedianMs\":143,\"startupOverheadP95Ms\":157}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"8x20/8cpu\",\"host\":\"killed\",\"emptyMs\":8999,\"loadedMs\":[9077,9033,9091],\"medianMs\":9077,\"p95Ms\":9091,\"deltaMs\":78,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 3,
+          "instance": 4,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":201,\"probeP95Ms\":218,\"controlMedianMs\":60,\"controlP95Ms\":66,\"startupOverheadMedianMs\":141,\"startupOverheadP95Ms\":152}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"8x20/8cpu\",\"host\":\"killed\",\"emptyMs\":9214,\"loadedMs\":[9321,9163,9438],\"medianMs\":9321,\"p95Ms\":9438,\"deltaMs\":107,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 3,
+          "instance": 5,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":204,\"probeP95Ms\":228,\"controlMedianMs\":59,\"controlP95Ms\":65,\"startupOverheadMedianMs\":144,\"startupOverheadP95Ms\":163}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"8x20/8cpu\",\"host\":\"killed\",\"emptyMs\":9293,\"loadedMs\":[8766,8912,9294],\"medianMs\":8912,\"p95Ms\":9294,\"deltaMs\":-381,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 3,
+          "instance": 6,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":201,\"probeP95Ms\":237,\"controlMedianMs\":64,\"controlP95Ms\":74,\"startupOverheadMedianMs\":137,\"startupOverheadP95Ms\":163}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"8x20/8cpu\",\"host\":\"killed\",\"emptyMs\":8511,\"loadedMs\":[8035,7844,8155],\"medianMs\":8035,\"p95Ms\":8155,\"deltaMs\":-476,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 3,
+          "instance": 7,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":203,\"probeP95Ms\":251,\"controlMedianMs\":60,\"controlP95Ms\":73,\"startupOverheadMedianMs\":144,\"startupOverheadP95Ms\":178}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"8x20/8cpu\",\"host\":\"killed\",\"emptyMs\":8192,\"loadedMs\":[8483,8590,6608],\"medianMs\":8483,\"p95Ms\":8590,\"deltaMs\":291,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 3,
+          "instance": 8,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":207,\"probeP95Ms\":223,\"controlMedianMs\":62,\"controlP95Ms\":190,\"startupOverheadMedianMs\":145,\"startupOverheadP95Ms\":33}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"8x20/8cpu\",\"host\":\"killed\",\"emptyMs\":7976,\"loadedMs\":[8418,7949,6467],\"medianMs\":7949,\"p95Ms\":8418,\"deltaMs\":-27,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 4,
+          "instance": 1,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":203,\"probeP95Ms\":243,\"controlMedianMs\":60,\"controlP95Ms\":66,\"startupOverheadMedianMs\":143,\"startupOverheadP95Ms\":177}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"8x20/8cpu\",\"host\":\"killed\",\"emptyMs\":9270,\"loadedMs\":[8954,8751,8644],\"medianMs\":8751,\"p95Ms\":8954,\"deltaMs\":-519,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 4,
+          "instance": 2,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":206,\"probeP95Ms\":224,\"controlMedianMs\":59,\"controlP95Ms\":66,\"startupOverheadMedianMs\":147,\"startupOverheadP95Ms\":158}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"8x20/8cpu\",\"host\":\"killed\",\"emptyMs\":8992,\"loadedMs\":[8822,8422,8806],\"medianMs\":8806,\"p95Ms\":8822,\"deltaMs\":-186,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 4,
+          "instance": 3,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":207,\"probeP95Ms\":240,\"controlMedianMs\":59,\"controlP95Ms\":64,\"startupOverheadMedianMs\":149,\"startupOverheadP95Ms\":175}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"8x20/8cpu\",\"host\":\"killed\",\"emptyMs\":9078,\"loadedMs\":[8501,8633,8142],\"medianMs\":8501,\"p95Ms\":8633,\"deltaMs\":-577,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 4,
+          "instance": 4,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":206,\"probeP95Ms\":241,\"controlMedianMs\":60,\"controlP95Ms\":62,\"startupOverheadMedianMs\":147,\"startupOverheadP95Ms\":179}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"8x20/8cpu\",\"host\":\"killed\",\"emptyMs\":9194,\"loadedMs\":[8860,9177,8379],\"medianMs\":8860,\"p95Ms\":9177,\"deltaMs\":-334,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 4,
+          "instance": 5,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":205,\"probeP95Ms\":254,\"controlMedianMs\":59,\"controlP95Ms\":66,\"startupOverheadMedianMs\":146,\"startupOverheadP95Ms\":189}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"8x20/8cpu\",\"host\":\"killed\",\"emptyMs\":9394,\"loadedMs\":[9059,8743,8363],\"medianMs\":8743,\"p95Ms\":9059,\"deltaMs\":-651,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 4,
+          "instance": 6,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":209,\"probeP95Ms\":242,\"controlMedianMs\":58,\"controlP95Ms\":78,\"startupOverheadMedianMs\":151,\"startupOverheadP95Ms\":163}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"8x20/8cpu\",\"host\":\"killed\",\"emptyMs\":7765,\"loadedMs\":[7974,7706,6479],\"medianMs\":7706,\"p95Ms\":7974,\"deltaMs\":-59,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 4,
+          "instance": 7,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":214,\"probeP95Ms\":238,\"controlMedianMs\":59,\"controlP95Ms\":65,\"startupOverheadMedianMs\":156,\"startupOverheadP95Ms\":173}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"8x20/8cpu\",\"host\":\"killed\",\"emptyMs\":8548,\"loadedMs\":[8995,8135,7465],\"medianMs\":8135,\"p95Ms\":8995,\"deltaMs\":-413,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 4,
+          "instance": 8,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":212,\"probeP95Ms\":278,\"controlMedianMs\":63,\"controlP95Ms\":1136,\"startupOverheadMedianMs\":149,\"startupOverheadP95Ms\":-858}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"8x20/8cpu\",\"host\":\"killed\",\"emptyMs\":9086,\"loadedMs\":[8815,8587,3587],\"medianMs\":8587,\"p95Ms\":8815,\"deltaMs\":-499,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 5,
+          "instance": 1,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":203,\"probeP95Ms\":230,\"controlMedianMs\":60,\"controlP95Ms\":79,\"startupOverheadMedianMs\":143,\"startupOverheadP95Ms\":151}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"8x20/8cpu\",\"host\":\"killed\",\"emptyMs\":8662,\"loadedMs\":[8710,8721,8860],\"medianMs\":8721,\"p95Ms\":8860,\"deltaMs\":59,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 5,
+          "instance": 2,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":208,\"probeP95Ms\":258,\"controlMedianMs\":73,\"controlP95Ms\":872,\"startupOverheadMedianMs\":135,\"startupOverheadP95Ms\":-614}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"8x20/8cpu\",\"host\":\"killed\",\"emptyMs\":8435,\"loadedMs\":[8845,8505,4793],\"medianMs\":8505,\"p95Ms\":8845,\"deltaMs\":70,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 5,
+          "instance": 3,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":204,\"probeP95Ms\":245,\"controlMedianMs\":68,\"controlP95Ms\":80,\"startupOverheadMedianMs\":136,\"startupOverheadP95Ms\":165}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"8x20/8cpu\",\"host\":\"killed\",\"emptyMs\":9377,\"loadedMs\":[9658,9410,8819],\"medianMs\":9410,\"p95Ms\":9658,\"deltaMs\":33,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 5,
+          "instance": 4,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":205,\"probeP95Ms\":222,\"controlMedianMs\":63,\"controlP95Ms\":84,\"startupOverheadMedianMs\":141,\"startupOverheadP95Ms\":138}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"8x20/8cpu\",\"host\":\"killed\",\"emptyMs\":9499,\"loadedMs\":[8770,8640,8801],\"medianMs\":8770,\"p95Ms\":8801,\"deltaMs\":-729,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 5,
+          "instance": 5,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":207,\"probeP95Ms\":225,\"controlMedianMs\":64,\"controlP95Ms\":77,\"startupOverheadMedianMs\":143,\"startupOverheadP95Ms\":148}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"8x20/8cpu\",\"host\":\"killed\",\"emptyMs\":9099,\"loadedMs\":[9389,8761,8918],\"medianMs\":8918,\"p95Ms\":9389,\"deltaMs\":-181,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 5,
+          "instance": 6,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":207,\"probeP95Ms\":239,\"controlMedianMs\":67,\"controlP95Ms\":80,\"startupOverheadMedianMs\":140,\"startupOverheadP95Ms\":159}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"8x20/8cpu\",\"host\":\"killed\",\"emptyMs\":7806,\"loadedMs\":[8124,8321,8208],\"medianMs\":8208,\"p95Ms\":8321,\"deltaMs\":402,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 5,
+          "instance": 7,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":207,\"probeP95Ms\":219,\"controlMedianMs\":64,\"controlP95Ms\":90,\"startupOverheadMedianMs\":143,\"startupOverheadP95Ms\":129}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"8x20/8cpu\",\"host\":\"killed\",\"emptyMs\":9141,\"loadedMs\":[9106,9126,9180],\"medianMs\":9126,\"p95Ms\":9180,\"deltaMs\":-15,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 5,
+          "instance": 8,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":202,\"probeP95Ms\":245,\"controlMedianMs\":67,\"controlP95Ms\":80,\"startupOverheadMedianMs\":135,\"startupOverheadP95Ms\":165}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"8x20/8cpu\",\"host\":\"killed\",\"emptyMs\":8393,\"loadedMs\":[8298,8309,8337],\"medianMs\":8309,\"p95Ms\":8337,\"deltaMs\":-84,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "verification-four",
+      "codeRef": "4f6f0257d8c7053a0eda46c3c74a268c7eb7f023",
+      "command": "rtk taskset -c 0-7 node scripts/owner-lab/incident-load.mjs 5 4",
+      "exitCode": 0,
+      "samples": [
+        {
+          "round": 1,
+          "instance": 1,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":160,\"probeP95Ms\":177,\"controlMedianMs\":51,\"controlP95Ms\":55,\"startupOverheadMedianMs\":109,\"startupOverheadP95Ms\":122}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"default\",\"host\":\"killed\",\"emptyMs\":4669,\"loadedMs\":[4621,4755,4721],\"medianMs\":4721,\"p95Ms\":4755,\"deltaMs\":52,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 1,
+          "instance": 2,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":161,\"probeP95Ms\":180,\"controlMedianMs\":50,\"controlP95Ms\":55,\"startupOverheadMedianMs\":110,\"startupOverheadP95Ms\":125}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"default\",\"host\":\"killed\",\"emptyMs\":4364,\"loadedMs\":[4246,4430,4842],\"medianMs\":4430,\"p95Ms\":4842,\"deltaMs\":66,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 1,
+          "instance": 3,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":163,\"probeP95Ms\":182,\"controlMedianMs\":51,\"controlP95Ms\":53,\"startupOverheadMedianMs\":112,\"startupOverheadP95Ms\":129}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"default\",\"host\":\"killed\",\"emptyMs\":4686,\"loadedMs\":[4553,4664,4289],\"medianMs\":4553,\"p95Ms\":4664,\"deltaMs\":-133,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 1,
+          "instance": 4,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":161,\"probeP95Ms\":176,\"controlMedianMs\":51,\"controlP95Ms\":54,\"startupOverheadMedianMs\":110,\"startupOverheadP95Ms\":123}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"default\",\"host\":\"killed\",\"emptyMs\":4383,\"loadedMs\":[3804,4403,4074],\"medianMs\":4074,\"p95Ms\":4403,\"deltaMs\":-309,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 2,
+          "instance": 1,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":161,\"probeP95Ms\":177,\"controlMedianMs\":53,\"controlP95Ms\":55,\"startupOverheadMedianMs\":108,\"startupOverheadP95Ms\":122}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"default\",\"host\":\"killed\",\"emptyMs\":4709,\"loadedMs\":[4575,4807,4811],\"medianMs\":4807,\"p95Ms\":4811,\"deltaMs\":98,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 2,
+          "instance": 2,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":161,\"probeP95Ms\":178,\"controlMedianMs\":53,\"controlP95Ms\":55,\"startupOverheadMedianMs\":109,\"startupOverheadP95Ms\":123}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"default\",\"host\":\"killed\",\"emptyMs\":4353,\"loadedMs\":[4370,4433,4713],\"medianMs\":4433,\"p95Ms\":4713,\"deltaMs\":80,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 2,
+          "instance": 3,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":161,\"probeP95Ms\":177,\"controlMedianMs\":53,\"controlP95Ms\":59,\"startupOverheadMedianMs\":109,\"startupOverheadP95Ms\":118}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"default\",\"host\":\"killed\",\"emptyMs\":4848,\"loadedMs\":[4789,4493,4746],\"medianMs\":4746,\"p95Ms\":4789,\"deltaMs\":-102,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 2,
+          "instance": 4,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":162,\"probeP95Ms\":179,\"controlMedianMs\":53,\"controlP95Ms\":58,\"startupOverheadMedianMs\":109,\"startupOverheadP95Ms\":121}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"default\",\"host\":\"killed\",\"emptyMs\":4742,\"loadedMs\":[4771,4706,4770],\"medianMs\":4770,\"p95Ms\":4771,\"deltaMs\":28,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 3,
+          "instance": 1,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":164,\"probeP95Ms\":189,\"controlMedianMs\":53,\"controlP95Ms\":62,\"startupOverheadMedianMs\":111,\"startupOverheadP95Ms\":128}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"default\",\"host\":\"killed\",\"emptyMs\":4752,\"loadedMs\":[4676,4797,4898],\"medianMs\":4797,\"p95Ms\":4898,\"deltaMs\":45,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 3,
+          "instance": 2,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":167,\"probeP95Ms\":191,\"controlMedianMs\":54,\"controlP95Ms\":59,\"startupOverheadMedianMs\":114,\"startupOverheadP95Ms\":132}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"default\",\"host\":\"killed\",\"emptyMs\":4713,\"loadedMs\":[4666,4583,4746],\"medianMs\":4666,\"p95Ms\":4746,\"deltaMs\":-47,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 3,
+          "instance": 3,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":169,\"probeP95Ms\":191,\"controlMedianMs\":53,\"controlP95Ms\":63,\"startupOverheadMedianMs\":116,\"startupOverheadP95Ms\":128}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"default\",\"host\":\"killed\",\"emptyMs\":4750,\"loadedMs\":[4642,4753,4413],\"medianMs\":4642,\"p95Ms\":4753,\"deltaMs\":-108,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 3,
+          "instance": 4,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":164,\"probeP95Ms\":187,\"controlMedianMs\":53,\"controlP95Ms\":60,\"startupOverheadMedianMs\":111,\"startupOverheadP95Ms\":126}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"default\",\"host\":\"killed\",\"emptyMs\":4691,\"loadedMs\":[4532,4865,4792],\"medianMs\":4792,\"p95Ms\":4865,\"deltaMs\":101,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 4,
+          "instance": 1,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":166,\"probeP95Ms\":185,\"controlMedianMs\":52,\"controlP95Ms\":61,\"startupOverheadMedianMs\":115,\"startupOverheadP95Ms\":124}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"default\",\"host\":\"killed\",\"emptyMs\":4765,\"loadedMs\":[4854,4795,4834],\"medianMs\":4834,\"p95Ms\":4854,\"deltaMs\":69,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 4,
+          "instance": 2,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":166,\"probeP95Ms\":188,\"controlMedianMs\":52,\"controlP95Ms\":58,\"startupOverheadMedianMs\":113,\"startupOverheadP95Ms\":131}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"default\",\"host\":\"killed\",\"emptyMs\":4490,\"loadedMs\":[4357,4306,4793],\"medianMs\":4357,\"p95Ms\":4793,\"deltaMs\":-133,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 4,
+          "instance": 3,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":166,\"probeP95Ms\":186,\"controlMedianMs\":52,\"controlP95Ms\":59,\"startupOverheadMedianMs\":113,\"startupOverheadP95Ms\":127}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"default\",\"host\":\"killed\",\"emptyMs\":4791,\"loadedMs\":[4767,4788,4827],\"medianMs\":4788,\"p95Ms\":4827,\"deltaMs\":-3,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 4,
+          "instance": 4,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":167,\"probeP95Ms\":185,\"controlMedianMs\":54,\"controlP95Ms\":60,\"startupOverheadMedianMs\":113,\"startupOverheadP95Ms\":125}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"default\",\"host\":\"killed\",\"emptyMs\":4622,\"loadedMs\":[4821,4829,4823],\"medianMs\":4823,\"p95Ms\":4829,\"deltaMs\":201,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 5,
+          "instance": 1,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":163,\"probeP95Ms\":195,\"controlMedianMs\":51,\"controlP95Ms\":55,\"startupOverheadMedianMs\":112,\"startupOverheadP95Ms\":140}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"default\",\"host\":\"killed\",\"emptyMs\":4741,\"loadedMs\":[4649,4545,4624],\"medianMs\":4624,\"p95Ms\":4649,\"deltaMs\":-117,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 5,
+          "instance": 2,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":164,\"probeP95Ms\":185,\"controlMedianMs\":52,\"controlP95Ms\":57,\"startupOverheadMedianMs\":113,\"startupOverheadP95Ms\":129}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"default\",\"host\":\"killed\",\"emptyMs\":4693,\"loadedMs\":[4651,4368,4753],\"medianMs\":4651,\"p95Ms\":4753,\"deltaMs\":-42,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 5,
+          "instance": 3,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":168,\"probeP95Ms\":198,\"controlMedianMs\":53,\"controlP95Ms\":63,\"startupOverheadMedianMs\":115,\"startupOverheadP95Ms\":135}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"default\",\"host\":\"killed\",\"emptyMs\":4445,\"loadedMs\":[4611,4510,4396],\"medianMs\":4510,\"p95Ms\":4611,\"deltaMs\":65,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 5,
+          "instance": 4,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":165,\"probeP95Ms\":186,\"controlMedianMs\":55,\"controlP95Ms\":60,\"startupOverheadMedianMs\":110,\"startupOverheadP95Ms\":126}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"default\",\"host\":\"killed\",\"emptyMs\":4654,\"loadedMs\":[4199,4700,4677],\"medianMs\":4677,\"p95Ms\":4700,\"deltaMs\":23,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "verification-solo",
+      "codeRef": "4f6f0257d8c7053a0eda46c3c74a268c7eb7f023",
+      "command": "rtk node scripts/owner-lab/incident-load.mjs 3 1",
+      "exitCode": 0,
+      "samples": [
+        {
+          "round": 1,
+          "instance": 1,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":160,\"probeP95Ms\":177,\"controlMedianMs\":58,\"controlP95Ms\":71,\"startupOverheadMedianMs\":102,\"startupOverheadP95Ms\":105}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"default\",\"host\":\"killed\",\"emptyMs\":633,\"loadedMs\":[710,707,735],\"medianMs\":710,\"p95Ms\":735,\"deltaMs\":77,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 2,
+          "instance": 1,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":159,\"probeP95Ms\":180,\"controlMedianMs\":56,\"controlP95Ms\":60,\"startupOverheadMedianMs\":104,\"startupOverheadP95Ms\":119}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"default\",\"host\":\"killed\",\"emptyMs\":676,\"loadedMs\":[705,671,687],\"medianMs\":687,\"p95Ms\":705,\"deltaMs\":11,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        },
+        {
+          "round": 3,
+          "instance": 1,
+          "code": 0,
+          "pass": true,
+          "diagnostics": [
+            "# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":163,\"probeP95Ms\":183,\"controlMedianMs\":56,\"controlP95Ms\":60,\"startupOverheadMedianMs\":107,\"startupOverheadP95Ms\":123}",
+            "# {\"scenario\":\"incident-20-resume\",\"rows\":214,\"deadBackground\":100,\"concurrency\":20,\"loadProfile\":\"default\",\"host\":\"killed\",\"emptyMs\":684,\"loadedMs\":[669,702,738],\"medianMs\":702,\"p95Ms\":738,\"deltaMs\":18,\"registryBudgetMs\":1500,\"usable\":\"20/20\",\"hosts\":1,\"lockTimeouts\":0}",
+            "# pass 1",
+            "# fail 0",
+            "# skipped 0"
+          ]
+        }
+      ]
+    }
+  ],
+  "intermediate": [
+    {
+      "name": "tree-eight",
+      "acceptedQualification": false,
+      "passed": 0,
+      "total": 8,
+      "errors": [
+        "  error: 'incident-20 median 9548 exceeds committed ceiling 8426 + 500 ms'",
+        "  error: '[{\"code\":1,\"stderr\":\"start target-1-0: native host state is unknown: The operation was aborted due to timeout. Refusing to risk a second writer (fail closed). Inspect the named endpoint permissions and owning process identity, restore probe access, then retry; do not remove sockets or locks while ownership is unproven.\\\\n\"},{\"code\":1,\"stderr\":\"start target-1-1: native host state is unkno",
+        "  error: `[{\"code\":1,\"stderr\":\"start target-1-0: native host state is unknown: The operation was aborted due to timeout. Refusing to risk a second writer (fail closed). Inspect the named endpoint permissions and owning process identity, restore probe access, then retry; do not remove sockets or locks while ownership is unproven.\\\\n\"},{\"code\":1,\"stderr\":\"uch file or directory, lstat '/home/antoinef",
+        "  error: 'incident-20 median 9445 exceeds committed ceiling 8426 + 500 ms'",
+        "  error: 'incident-20 p95 10008 exceeds committed ceiling 8998 + 800 ms'",
+        "  error: 'incident-20 p95 12384 exceeds committed ceiling 8998 + 800 ms'",
+        "  error: 'incident-20 p95 12654 exceeds committed ceiling 8998 + 800 ms'",
+        "  error: '[{\"code\":1,\"stderr\":\"start target-1-0: native host state is unknown: The operation was aborted due to timeout. Refusing to risk a second writer (fail closed). Inspect the named endpoint permissions and owning process identity, restore probe access, then retry; do not remove sockets or locks while ownership is unproven.\\\\n\"},{\"code\":0,\"stderr\":\"[h2a] local session target-1-1 started (code"
+      ]
+    },
+    {
+      "name": "screen-eight",
+      "acceptedQualification": false,
+      "passed": 2,
+      "total": 8,
+      "errors": [
+        "  error: 'incident-20 p95 10115 exceeds committed ceiling 8998 + 800 ms'",
+        "  error: '[{\"code\":0,\"stderr\":\"[h2a] local session target-1-0 started (codex --resume 00000000-0000-4000-8000-000000000020 in /home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/r-f0A5Gq/home/src/owner-project)\\\\n[h2a] attach with: h2a attach target-1-0\\\\n\"},{\"code\":0,\"stderr\":\"[h2a] local session target-1-1 started (codex --resume 00000000-0000-4000-8000-000000000021 in /home/antoinefa/.cache-tmp/h2a-",
+        "  error: 'incident-20 p95 12106 exceeds committed ceiling 8998 + 800 ms'",
+        "  error: `[{\"code\":1,\"stderr\":\"start target-1-0: native host state is unknown: The operation was aborted due to timeout. Refusing to risk a second writer (fail closed). Inspect the named endpoint permissions and owning process identity, restore probe access, then retry; do not remove sockets or locks while ownership is unproven.\\\\n\"},{\"code\":1,\"stderr\":\" use \\\\u0000h2a-terminal-lock-7dce35c3d7e8b8",
+        "  error: `[{\"code\":1,\"stderr\":\"start target-1-0: native host state is unknown: The operation was aborted due to timeout. Refusing to risk a second writer (fail closed). Inspect the named endpoint permissions and owning process identity, restore probe access, then retry; do not remove sockets or locks while ownership is unproven.\\\\n\"},{\"code\":1,\"stderr\":\"start target-1-1: native host state is unkno",
+        "  error: `[{\"code\":1,\"stderr\":\"start target-1-0: native host state is unknown: The operation was aborted due to timeout. Refusing to risk a second writer (fail closed). Inspect the named endpoint permissions and owning process identity, restore probe access, then retry; do not remove sockets or locks while ownership is unproven.\\\\n\"},{\"code\":1,\"stderr\":\" use \\\\u0000h2a-terminal-lock-7dfc411e00a495"
+      ]
+    },
+    {
+      "name": "lazy-eight",
+      "acceptedQualification": false,
+      "passed": 0,
+      "total": 8,
+      "errors": [
+        "  error: `[{\"code\":1,\"stderr\":\"start target-1-0: native host state is unknown: The operation was aborted due to timeout. Refusing to risk a second writer (fail closed). Inspect the named endpoint permissions and owning process identity, restore probe access, then retry; do not remove sockets or locks while ownership is unproven.\\\\n\"},{\"code\":1,\"stderr\":\" use \\\\u0000h2a-terminal-lock-34aea1a601d094",
+        "  error: '[{\"code\":0,\"stderr\":\"[h2a] local session target-1-0 started (codex --resume 00000000-0000-4000-8000-000000000020 in /home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/r-Lii23m/home/src/owner-project)\\\\n[h2a] attach with: h2a attach target-1-0\\\\n\"},{\"code\":1,\"stderr\":\"start target-1-1: native host state is unknown: The operation was aborted due to timeout. Refusing to risk a second writer (fa",
+        "  error: `[{\"code\":1,\"stderr\":\"uch file or directory, lstat '/home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/r-Hwp0YW/h'. Refusing to risk a second writer (fail closed). Inspect the named endpoint permissions and owning process identity, restore probe access, then retry; do not remove sockets or locks while ownership is unproven.\\\\n\"},{\"code\":1,\"stderr\":\"start target-1-1: native host state is unkno",
+        "  error: 'incident-20 p95 13274 exceeds committed ceiling 8998 + 800 ms'",
+        "  error: `[{\"code\":1,\"stderr\":\"start target-1-0: native host state is unknown: The operation was aborted due to timeout. Refusing to risk a second writer (fail closed). Inspect the named endpoint permissions and owning process identity, restore probe access, then retry; do not remove sockets or locks while ownership is unproven.\\\\n\"},{\"code\":0,\"stderr\":\"[h2a] local session target-1-1 started (code",
+        "  error: 'incident-20 p95 12654 exceeds committed ceiling 8998 + 800 ms'",
+        "  error: '[{\"code\":1,\"stderr\":\"start target-1-0: native host state is unknown: The operation was aborted due to timeout. Refusing to risk a second writer (fail closed). Inspect the named endpoint permissions and owning process identity, restore probe access, then retry; do not remove sockets or locks while ownership is unproven.\\\\n\"},{\"code\":0,\"stderr\":\"[h2a] local session target-1-1 started (code",
+        "  error: 'incident-20 p95 13999 exceeds committed ceiling 8998 + 800 ms'"
+      ]
+    },
+    {
+      "name": "http-eight",
+      "acceptedQualification": false,
+      "passed": 1,
+      "total": 8,
+      "errors": [
+        "  error: 'incident-20 p95 12185 exceeds committed ceiling 8998 + 800 ms'",
+        "  error: 'Readiness did not converge: undefined'",
+        "  error: `[{\"code\":1,\"stderr\":\"start target-1-0: native host state is unknown: The operation was aborted due to timeout. Refusing to risk a second writer (fail closed). Inspect the named endpoint permissions and owning process identity, restore probe access, then retry; do not remove sockets or locks while ownership is unproven.\\\\n\"},{\"code\":1,\"stderr\":\"start target-1-1: native host state is unkno",
+        "  error: 'incident-20 p95 11996 exceeds committed ceiling 8998 + 800 ms'",
+        "  error: '[{\"code\":1,\"stderr\":\"start target-1-0: native host state is unknown: The operation was aborted due to timeout. Refusing to risk a second writer (fail closed). Inspect the named endpoint permissions and owning process identity, restore probe access, then retry; do not remove sockets or locks while ownership is unproven.\\\\n\"},{\"code\":0,\"stderr\":\"[h2a] local session target-1-1 started (code",
+        "  error: '[{\"code\":0,\"stderr\":\"[h2a] local session target-1-0 started (codex --resume 00000000-0000-4000-8000-000000000020 in /home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/r-YpIVlZ/home/src/owner-project)\\\\n[h2a] attach with: h2a attach target-1-0\\\\n\"},{\"code\":0,\"stderr\":\"[h2a] local session target-1-1 started (codex --resume 00000000-0000-4000-8000-000000000021 in /home/antoinefa/.cache-tmp/h2a-",
+        "  error: 'incident-20 p95 10046 exceeds committed ceiling 8998 + 800 ms'"
+      ]
+    },
+    {
+      "name": "backoff-eight",
+      "acceptedQualification": false,
+      "passed": 1,
+      "total": 8,
+      "errors": [
+        "  error: `[{\"code\":1,\"stderr\":\"start target-1-0: native host state is unknown: The operation was aborted due to timeout. Refusing to risk a second writer (fail closed). Inspect the named endpoint permissions and owning process identity, restore probe access, then retry; do not remove sockets or locks while ownership is unproven.\\\\n\"},{\"code\":1,\"stderr\":\"start target-1-1: native host state is unkno",
+        "  error: `[{\"code\":1,\"stderr\":\"start target-1-0: native host state is unknown: The operation was aborted due to timeout. Refusing to risk a second writer (fail closed). Inspect the named endpoint permissions and owning process identity, restore probe access, then retry; do not remove sockets or locks while ownership is unproven.\\\\n\"},{\"code\":1,\"stderr\":\"start target-1-1: native host state is unkno",
+        "  error: 'incident-20 median 9173 exceeds committed ceiling 8426 + 500 ms'",
+        "  error: 'Readiness did not converge: {\"generation\":\"35225f1f-033c-42e7-b9ed-aee298ed8764\",\"incarnation\":\"648e6c64-2128-4e27-8f33-eaec1823579d\",\"chunks\":[],\"gap\":null,\"latestSeq\":0}'",
+        "  error: 'incident-20 p95 10789 exceeds committed ceiling 8998 + 800 ms'",
+        "  error: 'incident-20 median 9178 exceeds committed ceiling 8426 + 500 ms'",
+        "  error: '[{\"code\":0,\"stderr\":\"[h2a] local session target-2-0 started (codex --resume 00000000-0000-4000-8000-000000000040 in /home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/r-AbvvN3/home/src/owner-project)\\\\n[h2a] attach with: h2a attach target-2-0\\\\n\"},{\"code\":0,\"stderr\":\"[h2a] local session target-2-1 started (codex --resume 00000000-0000-4000-8000-000000000041 in /home/antoinefa/.cache-tmp/h2a-"
+      ]
+    },
+    {
+      "name": "responsive-eight",
+      "acceptedQualification": false,
+      "passed": 0,
+      "total": 8,
+      "errors": [
+        "  error: '[{\"code\":1,\"stderr\":\"start target-1-0: native host state is unknown: The operation was aborted due to timeout. Refusing to risk a second writer (fail closed). Inspect the named endpoint permissions and owning process identity, restore probe access, then retry; do not remove sockets or locks while ownership is unproven.\\\\n\"},{\"code\":1,\"stderr\":\"start target-1-1: native host state is unkno",
+        "  error: '20 resumes added 3243 ms over 214 rows (budget +1500 ms)'",
+        "  error: '20 resumes added 2696 ms over 214 rows (budget +1500 ms)'",
+        "  error: '20 resumes added 1863 ms over 214 rows (budget +1500 ms)'",
+        "  error: '20 resumes added 1516 ms over 214 rows (budget +1500 ms)'",
+        "  error: `[{\"code\":1,\"stderr\":\"start target-1-0: native host state is unknown: The operation was aborted due to timeout. Refusing to risk a second writer (fail closed). Inspect the named endpoint permissions and owning process identity, restore probe access, then retry; do not remove sockets or locks while ownership is unproven.\\\\n\"},{\"code\":1,\"stderr\":\"start target-1-1: native host state is unkno",
+        "  error: `[{\"code\":0,\"stderr\":\"[h2a] local session target-3-0 started (codex --resume 00000000-0000-4000-8000-000000000060 in /home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/r-pAKkFZ/home/src/owner-project)\\\\n[h2a] attach with: h2a attach target-3-0\\\\n\"},{\"code\":0,\"stderr\":\"[h2a] local session target-3-1 started (codex --resume 00000000-0000-4000-8000-000000000061 in /home/antoinefa/.cache-tmp/h2a-",
+        "  error: `[{\"code\":0,\"stderr\":\"[h2a] local session target-3-0 started (codex --resume 00000000-0000-4000-8000-000000000060 in /home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/r-Lc4Mjs/home/src/owner-project)\\\\n[h2a] attach with: h2a attach target-3-0\\\\n\"},{\"code\":0,\"stderr\":\"[h2a] local session target-3-1 started (codex --resume 00000000-0000-4000-8000-000000000061 in /home/antoinefa/.cache-tmp/h2a-"
+      ]
+    },
+    {
+      "name": "final-four",
+      "acceptedQualification": false,
+      "passed": 16,
+      "total": 20,
+      "errors": [
+        "  error: '[{\"code\":0,\"stderr\":\"[h2a] local session target-2-0 started (codex --resume 00000000-0000-4000-8000-000000000040 in /home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/r-9ze81m/home/src/owner-project)\\\\n[h2a] attach with: h2a attach target-2-0\\\\n\"},{\"code\":0,\"stderr\":\"[h2a] local session target-2-1 started (codex --resume 00000000-0000-4000-8000-000000000041 in /home/antoinefa/.cache-tmp/h2a-",
+        "  error: '[{\"code\":0,\"stderr\":\"[h2a] local session target-2-0 started (codex --resume 00000000-0000-4000-8000-000000000040 in /home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/r-FsB1F2/home/src/owner-project)\\\\n[h2a] attach with: h2a attach target-2-0\\\\n\"},{\"code\":0,\"stderr\":\"[h2a] local session target-2-1 started (codex --resume 00000000-0000-4000-8000-000000000041 in /home/antoinefa/.cache-tmp/h2a-",
+        "  error: '[{\"code\":0,\"stderr\":\"[h2a] local session target-2-0 started (codex --resume 00000000-0000-4000-8000-000000000040 in /home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/r-TaTkM9/home/src/owner-project)\\\\n[h2a] attach with: h2a attach target-2-0\\\\n\"},{\"code\":0,\"stderr\":\"[h2a] local session target-2-1 started (codex --resume 00000000-0000-4000-8000-000000000041 in /home/antoinefa/.cache-tmp/h2a-",
+        "  error: '[{\"code\":0,\"stderr\":\"[h2a] local session target-2-0 started (codex --resume 00000000-0000-4000-8000-000000000040 in /home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/r-Dkrcg3/home/src/owner-project)\\\\n[h2a] attach with: h2a attach target-2-0\\\\n\"},{\"code\":0,\"stderr\":\"[h2a] local session target-2-1 started (codex --resume 00000000-0000-4000-8000-000000000041 in /home/antoinefa/.cache-tmp/h2a-"
+      ]
+    },
+    {
+      "name": "clean-new-eight",
+      "acceptedQualification": false,
+      "passed": 2,
+      "total": 8,
+      "errors": [
+        "  error: 'incident-20 median 9227 exceeds committed ceiling 8426 + 500 ms'",
+        "  error: 'incident-20 median 9081 exceeds committed ceiling 8426 + 500 ms'",
+        "  error: 'incident-20 median 8988 exceeds committed ceiling 8426 + 500 ms'",
+        "  error: 'incident-20 median 9473 exceeds committed ceiling 8426 + 500 ms'",
+        "  error: 'incident-20 median 9233 exceeds committed ceiling 8426 + 500 ms'",
+        "  error: 'incident-20 median 9442 exceeds committed ceiling 8426 + 500 ms'"
+      ]
+    },
+    {
+      "name": "clean-raw-eight",
+      "acceptedQualification": false,
+      "passed": 5,
+      "total": 8,
+      "errors": [
+        "  error: 'incident-20 median 9014 exceeds committed ceiling 8426 + 500 ms'",
+        "  error: 'incident-20 median 9114 exceeds committed ceiling 8426 + 500 ms'",
+        "  error: 'incident-20 median 9047 exceeds committed ceiling 8426 + 500 ms'"
+      ]
+    },
+    {
+      "name": "qualified-four",
+      "acceptedQualification": false,
+      "passed": 20,
+      "total": 20,
+      "errors": []
+    },
+    {
+      "name": "qualified-eight",
+      "acceptedQualification": false,
+      "passed": 40,
+      "total": 40,
+      "errors": []
+    }
+  ],
+  "regressions": [
+    {
+      "name": "leak-red",
+      "output": "TAP version 13\n# Subtest: crash-recovery: async probe closes a timed-out list connection and exits after a successful retry\nnot ok 1 - crash-recovery: async probe closes a timed-out list connection and exits after a successful retry\n  ---\n  duration_ms: 5639.85499\n  type: 'test'\n  location: '/home/antoinefa/src/h2a/tmp/worktrees/fix-restart/packages/h2a/test/native-host-crash-recovery.test.js:17:1'\n  failureType: 'testCodeFailure'\n  error: 'Readiness did not converge: 1'\n  code: 'ERR_ASSERTION'\n  name: 'AssertionError'\n  operator: 'fail'\n  stack: |-\n    eventually (file:///home/antoinefa/src/h2a/tmp/worktrees/fix-restart/packages/h2a/test/helpers/restart-lab.js:102:10)\n    async TestContext.<anonymous> (file:///home/antoinefa/src/h2a/tmp/worktrees/fix-restart/packages/h2a/test/native-host-crash-recovery.test.js:52:3)\n    async Test.run (node:internal/test_runner/test:1054:7)\n    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 0\n# fail 1\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 5755.697446\n"
+    },
+    {
+      "name": "leak-green",
+      "output": "TAP version 13\n# Subtest: crash-recovery: async probe closes a timed-out list connection and exits after a successful retry\nok 1 - crash-recovery: async probe closes a timed-out list connection and exits after a successful retry\n  ---\n  duration_ms: 5126.507827\n  type: 'test'\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 5238.842562\n"
+    },
+    {
+      "name": "fleet-red",
+      "output": " RUN  v4.1.12 /home/antoinefa/src/h2a/tmp/worktrees/fix-restart\n ❯ packages/h2a-runtime/src/native-terminal/fleet.test.ts (13 tests | 1 failed) 67ms\n     × should close a failed inventory connection before adopting its successor 7ms\n Test Files  1 failed (1)\n      Tests  1 failed | 12 passed (13)\n   Start at  15:03:36\n   Duration  310ms (transform 58ms, setup 51ms, import 34ms, tests 67ms, environment 0ms)\nnpm warn Unknown builtin config \"globalignorefile\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\n⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯\n FAIL  packages/h2a-runtime/src/native-terminal/fleet.test.ts > native fleet ownership > should close a failed inventory connection before adopting its successor\nAssertionError: expected \"vi.fn()\" to be called once, but got 0 times\n ❯ packages/h2a-runtime/src/native-terminal/fleet.test.ts:15:26\n     13|     const inventory = await collectNativeInventory([endpoints[0]!], co…\n     14|     expect(resolveNativeOwner(\"missing\", inventory)).toEqual({ state: …\n     15|     expect(failed.close).toHaveBeenCalledOnce();\n       |                          ^\n     16|     expect(successor.close).not.toHaveBeenCalled();\n     17|     expect(inventory.hosts[0]!.client).toBe(successor);\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯\n"
+    },
+    {
+      "name": "fleet-green",
+      "output": " RUN  v4.1.12 /home/antoinefa/src/h2a/tmp/worktrees/fix-restart\n Test Files  1 passed (1)\n      Tests  13 passed (13)\n   Start at  15:05:44\n   Duration  344ms (transform 49ms, setup 37ms, import 35ms, tests 67ms, environment 0ms)\nnpm warn Unknown builtin config \"globalignorefile\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\n"
+    },
+    {
+      "name": "election-red",
+      "output": " RUN  v4.1.12 /home/antoinefa/src/h2a/tmp/worktrees/fix-restart\n ❯ packages/h2a-runtime/src/native-terminal/op-probe.test.ts (3 tests | 1 failed | 2 skipped) 9ms\n   × should adopt a healthy successor after the startup election's contention deadline 8ms\n Test Files  1 failed (1)\n      Tests  1 failed | 2 skipped (3)\n   Start at  15:43:49\n   Duration  481ms (transform 241ms, setup 38ms, import 281ms, tests 9ms, environment 0ms)\nnpm warn Unknown builtin config \"globalignorefile\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\n⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯\n FAIL  packages/h2a-runtime/src/native-terminal/op-probe.test.ts > should adopt a healthy successor after the startup election's contention deadline\nTimeoutError: The operation was aborted due to timeout\n ❯ withNativeTerminalStartupLock packages/h2a-runtime/src/native-terminal/op-probe.test.ts:19:38\n     17| vi.mock(\"./server.js\", async original => ({ ...await original<object>(…\n     18|   withNativeTerminalStartupLock: async (_path: string, operation: () =…\n     19|     if (state.electionTimeout) throw new DOMException(\"The operation w…\n       |                                      ^\n     20|     return operation();\n     21|   },\n ❯ launchClient packages/h2a-runtime/src/native-terminal/op.ts:243:10\n ❯ probeNativeSession packages/h2a-runtime/src/native-terminal/op.ts:188:33\n ❯ packages/h2a-runtime/src/native-terminal/op-probe.test.ts:35:16\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯\n"
+    },
+    {
+      "name": "election-final",
+      "output": "npm warn Unknown builtin config \"globalignorefile\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\n\n RUN  v4.1.12 /home/antoinefa/src/h2a/tmp/worktrees/fix-restart\n\n\n Test Files  1 passed (1)\n      Tests  4 passed (4)\n   Start at  15:48:10\n   Duration  1.51s (transform 243ms, setup 37ms, import 286ms, tests 1.02s, environment 0ms)\n\n"
+    },
+    {
+      "name": "successor-budget-red",
+      "output": "npm warn Unknown builtin config \"globalignorefile\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\n\n RUN  v4.1.12 /home/antoinefa/src/h2a/tmp/worktrees/fix-restart\n\n ❯ packages/h2a-runtime/src/native-terminal/op-probe.test.ts (5 tests | 1 failed | 4 skipped) 2013ms\n   × should not pay a five-second suspended-host ping after election expiry 2012ms\n\n⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯\n\n FAIL  packages/h2a-runtime/src/native-terminal/op-probe.test.ts > should not pay a five-second suspended-host ping after election expiry\nAssertionError: expected Error: successor health exceeded 2000ms to match object { name: 'TimeoutError' }\n\n- Expected\n+ Received\n\n- {\n-   \"name\": \"TimeoutError\",\n+ Error {\n+   \"message\": \"successor health exceeded 2000ms\",\n  }\n\n ❯ packages/h2a-runtime/src/native-terminal/op-probe.test.ts:61:8\n     59|       probeNativeSession(\"target\", \"/private/a\", true),\n     60|       new Promise((_, reject) => { timer = setTimeout(() => reject(new…\n     61|     ])).rejects.toMatchObject({ name: \"TimeoutError\" });\n       |        ^\n     62|   } finally {\n     63|     clearTimeout(timer!); state.electionTimeout = false; state.connect…\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯\n\n\n Test Files  1 failed (1)\n      Tests  1 failed | 4 skipped (5)\n   Start at  15:59:04\n   Duration  2.51s (transform 243ms, setup 44ms, import 289ms, tests 2.01s, environment 0ms)\n\n"
+    },
+    {
+      "name": "successor-budget-green",
+      "output": "npm warn Unknown builtin config \"globalignorefile\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\n\n RUN  v4.1.12 /home/antoinefa/src/h2a/tmp/worktrees/fix-restart\n\n\n Test Files  2 passed (2)\n      Tests  7 passed (7)\n   Start at  15:59:20\n   Duration  2.75s (transform 262ms, setup 54ms, import 355ms, tests 2.03s, environment 0ms)\n\n"
+    },
+    {
+      "name": "responsive-red",
+      "output": "TAP version 13\n# Subtest: crash-recovery: contended registry creation keeps the host responsive without spawning an unrecorded PTY\nnot ok 1 - crash-recovery: contended registry creation keeps the host responsive without spawning an unrecorded PTY\n  ---\n  duration_ms: 493.072925\n  type: 'test'\n  location: '/home/antoinefa/src/h2a/tmp/worktrees/fix-restart/packages/h2a/test/native-host-crash-recovery.test.js:19:1'\n  failureType: 'testCodeFailure'\n  error: 'terminal host ping request timed out after 250ms'\n  code: 'ERR_TEST_FAILURE'\n  name: 'NativeTerminalRequestTimeoutError'\n  stack: |-\n    Timeout._onTimeout (file:///home/antoinefa/src/h2a/tmp/worktrees/fix-restart/packages/h2a-runtime/dist/native-terminal/client.js:156:24)\n    listOnTimeout (node:internal/timers:585:17)\n    process.processTimers (node:internal/timers:521:7)\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 0\n# fail 1\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 612.674897\n"
+    },
+    {
+      "name": "fixes-green",
+      "output": "TAP version 13\n# Subtest: crash-recovery: contended registry creation keeps the host responsive without spawning an unrecorded PTY\nok 1 - crash-recovery: contended registry creation keeps the host responsive without spawning an unrecorded PTY\n  ---\n  duration_ms: 341.530093\n  type: 'test'\n  ...\n# Subtest: crash-recovery: a disconnected creation waiter never spawns after the registry lock is released\nok 2 - crash-recovery: a disconnected creation waiter never spawns after the registry lock is released\n  ---\n  duration_ms: 377.24273\n  type: 'test'\n  ...\n# Subtest: startup-latency: a direct native resume does not initialize account enrollment or screen rendering\nok 3 - startup-latency: a direct native resume does not initialize account enrollment or screen rendering\n  ---\n  duration_ms: 523.530331\n  type: 'test'\n  ...\n# Subtest: crash-recovery: async probe closes a timed-out list connection and exits after a successful retry\nok 4 - crash-recovery: async probe closes a timed-out list connection and exits after a successful retry\n  ---\n  duration_ms: 5120.011029\n  type: 'test'\n  ...\n1..4\n# tests 4\n# suites 0\n# pass 4\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 6471.34999\n"
+    },
+    {
+      "name": "worker-red",
+      "output": " RUN  v4.1.12 /home/antoinefa/src/h2a/tmp/worktrees/fix-restart\n ❯ packages/h2a-runtime/src/native-worker-proc.test.ts (1 test | 1 failed) 9ms\n   × should resolve a native worker through every parent thread without scanning unrelated processes 8ms\n Test Files  1 failed (1)\n      Tests  1 failed (1)\n   Start at  15:08:51\n   Duration  350ms (transform 141ms, setup 40ms, import 147ms, tests 9ms, environment 0ms)\nnpm warn Unknown builtin config \"globalignorefile\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\n⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯\n FAIL  packages/h2a-runtime/src/native-worker-proc.test.ts > should resolve a native worker through every parent thread without scanning unrelated processes\nAssertionError: expected [ 100, 101, 102, 999 ] to deeply equal [ 100, 101, 102 ]\n- Expected\n+ Received\n  [\n    100,\n    101,\n    102,\n+   999,\n  ]\n ❯ packages/h2a-runtime/src/native-worker-proc.test.ts:27:54\n     25|   setTestProcReaderRoot(root);\n     26|   const deps = procReaderDeps(100);\n     27|   expect([...deps.listPids()].sort((a, b) => a - b)).toEqual([100, 101…\n       |                                                      ^\n     28|   expect(readWorkerPid(100, deps)).toBe(102);\n     29| });\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯\n"
+    },
+    {
+      "name": "tree-targeted",
+      "output": " RUN  v4.1.12 /home/antoinefa/src/h2a/tmp/worktrees/fix-restart\n Test Files  2 passed (2)\n      Tests  98 passed (98)\n   Start at  15:10:26\n   Duration  1.51s (transform 302ms, setup 59ms, import 338ms, tests 775ms, environment 0ms)\nnpm warn Unknown builtin config \"globalignorefile\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\n"
+    },
+    {
+      "name": "tmux-red",
+      "output": " RUN  v4.1.12 /home/antoinefa/src/h2a/tmp/worktrees/fix-restart\n ❯ packages/h2a-runtime/src/tmux.test.ts (95 tests | 1 failed | 94 skipped) 11ms\n     × detects a duplicate name before any new-session effect 9ms\n Test Files  1 failed (1)\n      Tests  1 failed | 94 skipped (95)\n   Start at  15:41:50\n   Duration  341ms (transform 154ms, setup 39ms, import 162ms, tests 11ms, environment 0ms)\nnpm warn Unknown builtin config \"globalignorefile\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\n⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯\n FAIL  packages/h2a-runtime/src/tmux.test.ts > existingLocalSessionSlugs > detects a duplicate name before any new-session effect\nAssertionError: expected [ [ 'tmux', [ '-V' ], …(1) ], …(1) ] to have a length of 1 but got 2\n- Expected\n+ Received\n- 1\n+ 2\n ❯ packages/h2a-runtime/src/tmux.test.ts:880:29\n    878|     ).toEqual([\"existing\"]);\n    879|     expect(tmuxCalls(\"new-session\")).toHaveLength(0);\n    880|     expect(tmuxCalls(\"-V\")).toHaveLength(1);\n       |                             ^\n    881|     expect(tmuxCalls(\"list-sessions\")).toHaveLength(1);\n    882|   });\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯\n"
+    },
+    {
+      "name": "handshake-red",
+      "output": " RUN  v4.1.12 /home/antoinefa/src/h2a/tmp/worktrees/fix-restart\n ❯ packages/h2a-runtime/src/native-terminal/publication-proof.test.ts (32 tests | 1 failed | 31 skipped) 531ms\n     × should avoid a handshake storm while waiting for one startup publisher 528ms\n Test Files  1 failed (1)\n      Tests  1 failed | 31 skipped (32)\n   Start at  15:17:41\n   Duration  1.23s (transform 466ms, setup 39ms, import 511ms, tests 531ms, environment 0ms)\nnpm warn Unknown builtin config \"globalignorefile\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\n⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯\n FAIL  packages/h2a-runtime/src/native-terminal/publication-proof.test.ts > publication proof v5 > should avoid a handshake storm while waiting for one startup publisher\nAssertionError: expected 168 to be less than or equal to 80\n ❯ packages/h2a-runtime/src/native-terminal/publication-proof.test.ts:115:40\n    113|         .toEqual(Array(8).fill(42));\n    114|       expect(launch).not.toHaveBeenCalled();\n    115|       expect(health.mock.calls.length).toBeLessThanOrEqual(80);\n       |                                        ^\n    116|     } finally { release(); await holder; }\n    117|   });\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯\n"
+    },
+    {
+      "name": "handshake-green",
+      "output": " RUN  v4.1.12 /home/antoinefa/src/h2a/tmp/worktrees/fix-restart\n Test Files  1 passed (1)\n      Tests  32 passed (32)\n   Start at  15:17:59\n   Duration  18.82s (transform 332ms, setup 34ms, import 400ms, tests 18.25s, environment 0ms)\nnpm warn Unknown builtin config \"globalignorefile\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\n"
+    },
+    {
+      "name": "queue-green",
+      "output": "TAP version 13\n# Subtest: crash-recovery: an overflowing creation queue is disconnected without spawning queued PTYs\nok 1 - crash-recovery: an overflowing creation queue is disconnected without spawning queued PTYs\n  ---\n  duration_ms: 271.561195\n  type: 'test'\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 413.050999\n"
+    },
+    {
+      "name": "mutation-final",
+      "output": "TAP version 13\n# Subtest: incident-20-resume: 20 concurrent resumes over 214 owner-shaped rows with 100 dead background rows, host SIGKILLed\nnot ok 1 - incident-20-resume: 20 concurrent resumes over 214 owner-shaped rows with 100 dead background rows, host SIGKILLed\n  ---\n  duration_ms: 26346.524738\n  type: 'test'\n  location: '/home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/mutant-incident.test.mjs:29:1'\n  failureType: 'testCodeFailure'\n  error: 'incident-20 bin.js startup overhead median 1199 exceeds same-run control + 500 ms'\n  code: 'ERR_ASSERTION'\n  name: 'AssertionError'\n  expected: true\n  actual: false\n  operator: '=='\n  stack: |-\n    TestContext.<anonymous> (file:///home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/mutant-incident.test.mjs:131:10)\n    async Test.run (node:internal/test_runner/test:1054:7)\n    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)\n  ...\n# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":1260,\"probeP95Ms\":1268,\"controlMedianMs\":61,\"controlP95Ms\":72,\"startupOverheadMedianMs\":1199,\"startupOverheadP95Ms\":1196}\n1..1\n# tests 1\n# suites 0\n# pass 0\n# fail 1\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 26514.884283\n"
+    },
+    {
+      "name": "mutation-profile",
+      "output": "TAP version 13\n# Subtest: incident-20-resume: 20 concurrent resumes over 214 owner-shaped rows with 100 dead background rows, host SIGKILLed\nnot ok 1 - incident-20-resume: 20 concurrent resumes over 214 owner-shaped rows with 100 dead background rows, host SIGKILLed\n  ---\n  duration_ms: 25677.90571\n  type: 'test'\n  location: '/home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/mutant-incident-profile.test.mjs:33:1'\n  failureType: 'testCodeFailure'\n  error: 'incident-20 bin.js startup overhead median 1150 exceeds same-run control + 500 ms'\n  code: 'ERR_ASSERTION'\n  name: 'AssertionError'\n  expected: true\n  actual: false\n  operator: '=='\n  stack: |-\n    TestContext.<anonymous> (file:///home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg/mutant-incident-profile.test.mjs:139:10)\n    async Test.run (node:internal/test_runner/test:1054:7)\n    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)\n  ...\n# {\"scenario\":\"incident-20-startup-probe\",\"probeMedianMs\":1212,\"probeP95Ms\":1275,\"controlMedianMs\":62,\"controlP95Ms\":65,\"startupOverheadMedianMs\":1150,\"startupOverheadP95Ms\":1210}\n1..1\n# tests 1\n# suites 0\n# pass 0\n# fail 1\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 25803.584918\n"
+    },
+    {
+      "name": "node-verified",
+      "output": "TAP version 13\n# Subtest: crash-recovery: contended registry creation keeps the host responsive without spawning an unrecorded PTY\nok 1 - crash-recovery: contended registry creation keeps the host responsive without spawning an unrecorded PTY\n  ---\n  duration_ms: 365.340829\n  type: 'test'\n  ...\n# Subtest: crash-recovery: a disconnected creation waiter never spawns after the registry lock is released\nok 2 - crash-recovery: a disconnected creation waiter never spawns after the registry lock is released\n  ---\n  duration_ms: 373.775988\n  type: 'test'\n  ...\n# Subtest: crash-recovery: an overflowing creation queue is disconnected without spawning queued PTYs\nok 3 - crash-recovery: an overflowing creation queue is disconnected without spawning queued PTYs\n  ---\n  duration_ms: 241.830601\n  type: 'test'\n  ...\n# Subtest: startup-latency: a direct native resume does not initialize account enrollment or screen rendering\nok 4 - startup-latency: a direct native resume does not initialize account enrollment or screen rendering\n  ---\n  duration_ms: 476.389853\n  type: 'test'\n  ...\n# Subtest: crash-recovery: async probe closes a timed-out list connection and exits after a successful retry\nok 5 - crash-recovery: async probe closes a timed-out list connection and exits after a successful retry\n  ---\n  duration_ms: 5120.199287\n  type: 'test'\n  ...\n# Subtest: startup-latency: conversation guard probes only the requested conversation among 500 rows\nok 6 - startup-latency: conversation guard probes only the requested conversation among 500 rows\n  ---\n  duration_ms: 3.614491\n  type: 'test'\n  ...\n# Subtest: startup-latency: real run --resume probes one matching owner and no foreign conversation\nok 7 - startup-latency: real run --resume probes one matching owner and no foreign conversation\n  ---\n  duration_ms: 625.35489\n  type: 'test'\n  ...\n# {\"rows\":500,\"ownerProbes\":1,\"cliExchange\":true}\n# Subtest: startup-latency: real resume refuses an unreadable matching row before starting a CLI\nok 8 - startup-latency: real resume refuses an unreadable matching row before starting a CLI\n  ---\n  duration_ms: 226.442781\n  type: 'test'\n  ...\n# Subtest: sessions-never-start: fresh and resume reach CLI I/O with 451 owner-shaped mixed rows\nok 9 - sessions-never-start: fresh and resume reach CLI I/O with 451 owner-shaped mixed rows\n  ---\n  duration_ms: 836.978611\n  type: 'test'\n  ...\n# {\"rows\":451,\"classes\":\"human/background/legacy/exited/worktree/undetermined\",\"freshMs\":500,\"resumeMs\":331,\"cliExchanges\":2}\n# Subtest: crash-recovery: ten concurrent read-only absence proofs converge after SIGKILL\nok 10 - crash-recovery: ten concurrent read-only absence proofs converge after SIGKILL\n  ---\n  duration_ms: 373.943393\n  type: 'test'\n  ...\n# {\"absenceProofs\":10,\"elapsedMs\":255,\"codes\":[0,0,0,0,0,0,0,0,0,0]}\n# Subtest: oom-isolation: a refused session scope never executes a worker inside the host scope\nok 11 - oom-isolation: a refused session scope never executes a worker inside the host scope\n  ---\n  duration_ms: 91.57194\n  type: 'test'\n  ...\n# Subtest: startup-latency: one resume with 500 registry rows reaches host start within 2 seconds\nok 12 - startup-latency: one resume with 500 registry rows reaches host start within 2 seconds\n  ---\n  duration_ms: 372.469751\n  type: 'test'\n  ...\n# {\"scenario\":\"startup-latency\",\"hostStartMs\":286,\"stdout\":\"\",\"stderr\":\"\"}\n# Subtest: crash-recovery: five concurrent resume clients recover one SIGKILLed host\nok 13 - crash-recovery: five concurrent resume clients recover one SIGKILLed host\n  ---\n  duration_ms: 708.301593\n  type: 'test'\n  ...\n# {\"scenario\":\"crash-recovery\",\"elapsedMs\":453,\"codes\":[0,0,0,0,0]}\n# Subtest: startup-latency: restoring ten resumes with 500 registry rows converges within 30 seconds\nok 14 - startup-latency: restoring ten resumes with 500 registry rows converges within 30 seconds\n  ---\n  duration_ms: 560.723465\n  type: 'test'\n  ...\n# {\"scenario\":\"startup-latency-restore\",\"elapsedMs\":554,\"codes\":[0,0,0,0,0,0,0,0,0,0]}\n# Subtest: oom-isolation: host requests its own protected systemd scope before admitting PTYs\nok 15 - oom-isolation: host requests its own protected systemd scope before admitting PTYs\n  ---\n  duration_ms: 408.163144\n  type: 'test'\n  ...\n# Subtest: startup-latency: fresh, resume and restore add at most 500 ms with 500 mixed rows\nok 16 - startup-latency: fresh, resume and restore add at most 500 ms with 500 mixed rows\n  ---\n  duration_ms: 4951.471108\n  type: 'test'\n  ...\n# {\"scenario\":\"fresh\",\"emptyMs\":[223,205,245],\"registry500Ms\":[222,239,259],\"overheadMs\":16}\n# {\"scenario\":\"resume\",\"emptyMs\":[234,209,213],\"registry500Ms\":[225,216,218],\"overheadMs\":5}\n# {\"scenario\":\"restore\",\"emptyMs\":[299,307,313],\"registry500Ms\":[303,307,317],\"overheadMs\":0}\n# Subtest: should bound cross-process publication lock contention at 5 seconds and release only its own resources\nok 17 - should bound cross-process publication lock contention at 5 seconds and release only its own resources\n  ---\n  duration_ms: 5276.988174\n  type: 'test'\n  ...\n# Subtest: should release the startup election when its launcher is SIGKILLed\nok 18 - should release the startup election when its launcher is SIGKILLed\n  ---\n  duration_ms: 233.911773\n  type: 'test'\n  ...\n# Subtest: should admit only one owning host under simultaneous cross-process publication\nok 19 - should admit only one owning host under simultaneous cross-process publication\n  ---\n  duration_ms: 308.125085\n  type: 'test'\n  ...\n# Subtest: R8.4 gel total: verify has no event filter — every publication path is gated\nok 20 - R8.4 gel total: verify has no event filter — every publication path is gated\n  ---\n  duration_ms: 1.46186\n  type: 'test'\n  ...\n# Subtest: R8.1: verify keeps the Node 22+24 matrix — both legs EFFECTIVE\nok 21 - R8.1: verify keeps the Node 22+24 matrix — both legs EFFECTIVE\n  ---\n  duration_ms: 1.231667\n  type: 'test'\n  ...\n# Subtest: R8.1: the matrix legs are EFFECTIVE — verify's setup-node must run exactly ${{ matrix.node }}\nok 22 - R8.1: the matrix legs are EFFECTIVE — verify's setup-node must run exactly ${{ matrix.node }}\n  ---\n  duration_ms: 0.163698\n  type: 'test'\n  ...\n# Subtest: R8.2 (1): publish proceeds only on an observed verify success, never a skip\nok 23 - R8.2 (1): publish proceeds only on an observed verify success, never a skip\n  ---\n  duration_ms: 0.112702\n  type: 'test'\n  ...\n# Subtest: R8.2/R8.4: no publish step may disable itself, and the integrity checks run before the first npm publish\nok 24 - R8.2/R8.4: no publish step may disable itself, and the integrity checks run before the first npm publish\n  ---\n  duration_ms: 0.28157\n  type: 'test'\n  ...\n# Subtest: R8.2: the publish integrity control is pinned COMMAND BY COMMAND — a check that cannot fail is not a check\nok 25 - R8.2: the publish integrity control is pinned COMMAND BY COMMAND — a check that cannot fail is not a check\n  ---\n  duration_ms: 0.230474\n  type: 'test'\n  ...\n# Subtest: R8.2 TOCTOU + race: the SHA is resolved ONCE in a prior job; verify consumes it and never resolves\nok 26 - R8.2 TOCTOU + race: the SHA is resolved ONCE in a prior job; verify consumes it and never resolves\n  ---\n  duration_ms: 0.188876\n  type: 'test'\n  ...\n# Subtest: R8.2 (2): publish checks out the verify-gated SHA, never a mutable tag name\nok 27 - R8.2 (2): publish checks out the verify-gated SHA, never a mutable tag name\n  ---\n  duration_ms: 0.156444\n  type: 'test'\n  ...\n# Subtest: R8.1/R8.3 (3): verify runs the trust root BEFORE npm test, then the packaged-artifact smoke\nok 28 - R8.1/R8.3 (3): verify runs the trust root BEFORE npm test, then the packaged-artifact smoke\n  ---\n  duration_ms: 0.310263\n  type: 'test'\n  ...\n# Subtest: R8.2: verify packs the four lockstep packages, records sha256, uploads them as artifacts\nok 29 - R8.2: verify packs the four lockstep packages, records sha256, uploads them as artifacts\n  ---\n  duration_ms: 0.423277\n  type: 'test'\n  ...\n# Subtest: R8.2: the pack step is pinned COMMAND BY COMMAND — a manifest that stops covering a tarball is a changed line\nok 30 - R8.2: the pack step is pinned COMMAND BY COMMAND — a manifest that stops covering a tarball is a changed line\n  ---\n  duration_ms: 0.218761\n  type: 'test'\n  ...\n# Subtest: R8.2: the sha256 manifest covers the FOUR lockstep tarballs — generation AND consumption are EXECUTED\nok 31 - R8.2: the sha256 manifest covers the FOUR lockstep tarballs — generation AND consumption are EXECUTED\n  ---\n  duration_ms: 150.797184\n  type: 'test'\n  ...\n# Subtest: R8.2 (4): publish downloads the verify-built tarballs and verifies every sha256 before publishing\nok 32 - R8.2 (4): publish downloads the verify-built tarballs and verifies every sha256 before publishing\n  ---\n  duration_ms: 0.362883\n  type: 'test'\n  ...\n# Subtest: R8.2 (0.98.6 git-shorthand incident): every npm publish tarball arg is an unambiguous ./ file spec\nok 33 - R8.2 (0.98.6 git-shorthand incident): every npm publish tarball arg is an unambiguous ./ file spec\n  ---\n  duration_ms: 0.390895\n  type: 'test'\n  ...\n# Subtest: R8.2: @sentropic/track publishes the VERIFIED tarball bytes — pinned COMMAND BY COMMAND\nok 34 - R8.2: @sentropic/track publishes the VERIFIED tarball bytes — pinned COMMAND BY COMMAND\n  ---\n  duration_ms: 0.179348\n  type: 'test'\n  ...\n# Subtest: R8.2: the artifact manifest is TIED to the resolved SHA, and publish re-checks the tie before publishing\nok 35 - R8.2: the artifact manifest is TIED to the resolved SHA, and publish re-checks the tie before publishing\n  ---\n  duration_ms: 0.134553\n  type: 'test'\n  ...\n# Subtest: R8.2/R8.4: no step anywhere may swallow its own failure (continue-on-error)\nok 36 - R8.2/R8.4: no step anywhere may swallow its own failure (continue-on-error)\n  ---\n  duration_ms: 0.238208\n  type: 'test'\n  ...\n# Subtest: R8.1/R8.3/R8.4: the mandatory verify steps are UNCONDITIONAL — a disabled gate still reads green\nok 37 - R8.1/R8.3/R8.4: the mandatory verify steps are UNCONDITIONAL — a disabled gate still reads green\n  ---\n  duration_ms: 0.139953\n  type: 'test'\n  ...\n# Subtest: R8/R8.4: EVERY step of the workflow is UNCONDITIONAL — the only sanctioned `if`s are the single-leg upload and the R6 cleanup\nok 38 - R8/R8.4: EVERY step of the workflow is UNCONDITIONAL — the only sanctioned `if`s are the single-leg upload and the R6 cleanup\n  ---\n  duration_ms: 0.206268\n  type: 'test'\n  ...\n# Subtest: no publication path bypasses verify: publish needs verify and nothing else publishes\nok 39 - no publication path bypasses verify: publish needs verify and nothing else publishes\n  ---\n  duration_ms: 0.188494\n  type: 'test'\n  ...\n# Subtest: C9: the complete execution plan preserves context, SHA, Node, bytes and every publication route\nok 40 - C9: the complete execution plan preserves context, SHA, Node, bytes and every publication route\n  ---\n  duration_ms: 1.267214\n  type: 'test'\n  ...\n# Subtest: C9 A09: a comment-shaped line inside a quoted script cannot hide another publication\nok 41 - C9 A09: a comment-shaped line inside a quoted script cannot hide another publication\n  ---\n  duration_ms: 0.76015\n  type: 'test'\n  ...\n# Subtest: release validates exact internal versions before packing and before publishing\nok 42 - release validates exact internal versions before packing and before publishing\n  ---\n  duration_ms: 0.22322\n  type: 'test'\n  ...\n# Subtest: CI budgets leave headroom above the measured fifteen-minute integration run\nok 43 - CI budgets leave headroom above the measured fifteen-minute integration run\n  ---\n  duration_ms: 1.703605\n  type: 'test'\n  ...\n# Subtest: suite timing ranks Node and Vitest evidence and warns about slow suites\nok 44 - suite timing ranks Node and Vitest evidence and warns about slow suites\n  ---\n  duration_ms: 0.77046\n  type: 'test'\n  ...\n# Subtest: Node timing counts top-level durations once and preserves execution verdicts\nok 45 - Node timing counts top-level durations once and preserves execution verdicts\n  ---\n  duration_ms: 1.218302\n  type: 'test'\n  ...\n# Subtest: gate prints suite timing even when execution fails, without upgrading the verdict\nok 46 - gate prints suite timing even when execution fails, without upgrading the verdict\n  ---\n  duration_ms: 73.955607\n  type: 'test'\n  ...\n# Subtest: negative control: all steps passing yields exit 0\nok 47 - negative control: all steps passing yields exit 0\n  ---\n  duration_ms: 123.916783\n  type: 'test'\n  ...\n# Subtest: M1: a failed step must yield exit 1, never a pass\nok 48 - M1: a failed step must yield exit 1, never a pass\n  ---\n  duration_ms: 121.585737\n  type: 'test'\n  ...\n# Subtest: M1 at the unit: verdictFor never calls a non-zero code passed\nok 49 - M1 at the unit: verdictFor never calls a non-zero code passed\n  ---\n  duration_ms: 0.353154\n  type: 'test'\n  ...\n# Subtest: M4: a skipped step must yield exit 1, never a pass\nok 50 - M4: a skipped step must yield exit 1, never a pass\n  ---\n  duration_ms: 71.218067\n  type: 'test'\n  ...\n# Subtest: exit rule: exit 0 requires every step to have passed\nok 51 - exit rule: exit 0 requires every step to have passed\n  ---\n  duration_ms: 0.412216\n  type: 'test'\n  ...\n# Subtest: exit rule: a lone skipped step is enough to fail the run\nok 52 - exit rule: a lone skipped step is enough to fail the run\n  ---\n  duration_ms: 0.372601\n  type: 'test'\n  ...\n# Subtest: a skipped step is never reported as passed\nok 53 - a skipped step is never reported as passed\n  ---\n  duration_ms: 61.335073\n  type: 'test'\n  ...\n# Subtest: a timed-out step is named as a non-verdict and later steps still run\nok 54 - a timed-out step is named as a non-verdict and later steps still run\n  ---\n  duration_ms: 116.368571\n  type: 'test'\n  ...\n# Subtest: every step appears in the summary, including after a failure\nok 55 - every step appears in the summary, including after a failure\n  ---\n  duration_ms: 243.835182\n  type: 'test'\n  ...\n# Subtest: a later step still runs after an earlier one fails\nok 56 - a later step still runs after an earlier one fails\n  ---\n  duration_ms: 128.644146\n  type: 'test'\n  ...\n# Subtest: spawn-error is a failure, not a pass\nok 57 - spawn-error is a failure, not a pass\n  ---\n  duration_ms: 2.395536\n  type: 'test'\n  ...\n# Subtest: death by signal is a failure, not a pass\nok 58 - death by signal is a failure, not a pass\n  ---\n  duration_ms: 62.488243\n  type: 'test'\n  ...\n# Subtest: a5: a throwing step is reported, and later steps are still reported\nok 59 - a5: a throwing step is reported, and later steps are still reported\n  ---\n  duration_ms: 62.128637\n  type: 'test'\n  ...\n# Subtest: a10: an empty step list must never report success\nok 60 - a10: an empty step list must never report success\n  ---\n  duration_ms: 0.230213\n  type: 'test'\n  ...\n# Subtest: inconclusive is distinct from both passed and failed, and still fails the run\nok 61 - inconclusive is distinct from both passed and failed, and still fails the run\n  ---\n  duration_ms: 128.438971\n  type: 'test'\n  ...\n# Subtest: the raw exit code is printed next to every verdict\nok 62 - the raw exit code is printed next to every verdict\n  ---\n  duration_ms: 146.569209\n  type: 'test'\n  ...\n# Subtest: failures are rendered twice, so dropping one rendering cannot hide them\nok 63 - failures are rendered twice, so dropping one rendering cannot hide them\n  ---\n  duration_ms: 69.682959\n  type: 'test'\n  ...\n# Subtest: classifyRun maps spawnSync results to reportable codes\nok 64 - classifyRun maps spawnSync results to reportable codes\n  ---\n  duration_ms: 0.212009\n  type: 'test'\n  ...\n# Subtest: the real STEPS list is non-empty and contains the test runner\nok 65 - the real STEPS list is non-empty and contains the test runner\n  ---\n  duration_ms: 0.165261\n  type: 'test'\n  ...\n# Subtest: package.json wires npm test to the production gate entrypoint\nok 66 - package.json wires npm test to the production gate entrypoint\n  ---\n  duration_ms: 0.05341\n  type: 'test'\n  ...\n# Subtest: the real STEPS list invokes the exact production commands\nok 67 - the real STEPS list invokes the exact production commands\n  ---\n  duration_ms: 1.513388\n  type: 'test'\n  ...\n# Subtest: CI exposes an independent, stable npm-test-trust-root job\nok 68 - CI exposes an independent, stable npm-test-trust-root job\n  ---\n  duration_ms: 0.347784\n  type: 'test'\n  ...\n# Subtest: the runner test is not discovered through the runner it verifies\nok 69 - the runner test is not discovered through the runner it verifies\n  ---\n  duration_ms: 1.037953\n  type: 'test'\n  ...\n# Subtest: R8.1: a dedicated h2a-runtime step exists and runs the exact pinned command\nok 70 - R8.1: a dedicated h2a-runtime step exists and runs the exact pinned command\n  ---\n  duration_ms: 0.162706\n  type: 'test'\n  ...\n# Subtest: R8.1: the pinned vitest config exists and covers src/**/*.test.ts\nok 71 - R8.1: the pinned vitest config exists and covers src/**/*.test.ts\n  ---\n  duration_ms: 0.174278\n  type: 'test'\n  ...\n# Subtest: R8.1: EFFECTIVE discovery — the pinned config must actually discover every runtime *.test.ts\nok 72 - R8.1: EFFECTIVE discovery — the pinned config must actually discover every runtime *.test.ts\n  ---\n  duration_ms: 559.7214\n  type: 'test'\n  ...\n# Subtest: R8.1 execution: the h2a-runtime step carries an EXECUTION proof, not just a command\nok 73 - R8.1 execution: the h2a-runtime step carries an EXECUTION proof, not just a command\n  ---\n  duration_ms: 14.392087\n  type: 'test'\n  ...\n# Subtest: R8.1 execution: the pinned config wires the report the gate verifies — and no test-removing option hides in it\nok 74 - R8.1 execution: the pinned config wires the report the gate verifies — and no test-removing option hides in it\n  ---\n  duration_ms: 0.511632\n  type: 'test'\n  ...\n# Subtest: R8.1 execution: verifyRuntimeExecution grades reports by executed identity and count\nok 75 - R8.1 execution: verifyRuntimeExecution grades reports by executed identity and count\n  ---\n  duration_ms: 2.514681\n  type: 'test'\n  ...\n# Subtest: R8.1 execution (lab): through the pinned config, a filter or skip that removes a required test turns the gate red\nok 76 - R8.1 execution (lab): through the pinned config, a filter or skip that removes a required test turns the gate red\n  ---\n  duration_ms: 3480.819638\n  type: 'test'\n  ...\n# Subtest: R8.1: the trust root is green on the real runner\nok 77 - R8.1: the trust root is green on the real runner\n  ---\n  duration_ms: 0.454084\n  type: 'test'\n  ...\n# Subtest: R8.1 negative control: a rigged runner returning 0 without running the suites fails the trust root\nok 78 - R8.1 negative control: a rigged runner returning 0 without running the suites fails the trust root\n  ---\n  duration_ms: 0.314832\n  type: 'test'\n  ...\n# Subtest: R8.1 execution: direct invocation of the runner entry is OBSERVED — an inert entry cannot pass\nok 79 - R8.1 execution: direct invocation of the runner entry is OBSERVED — an inert entry cannot pass\n  ---\n  duration_ms: 1480.063217\n  type: 'test'\n  ...\n# Subtest: R8.1 execution: a step dropped by the loop cannot launder the run — the round-3 bypass\nok 80 - R8.1 execution: a step dropped by the loop cannot launder the run — the round-3 bypass\n  ---\n  duration_ms: 715.175385\n  type: 'test'\n  ...\n# Subtest: R8.1 execution: a step dropped BEFORE the loop cannot launder the run — the round-4 entry filter\nok 81 - R8.1 execution: a step dropped BEFORE the loop cannot launder the run — the round-4 entry filter\n  ---\n  duration_ms: 693.209549\n  type: 'test'\n  ...\n# Subtest: R8.1 execution (runner lab): the runner refuses a green exit over an absent, stale or holed report\nok 82 - R8.1 execution (runner lab): the runner refuses a green exit over an absent, stale or holed report\n  ---\n  duration_ms: 3155.922228\n  type: 'test'\n  ...\n# Subtest: C9 A01/A03/A04: effective config and versioned test inventory are mandatory\nok 83 - C9 A01/A03/A04: effective config and versioned test inventory are mandatory\n  ---\n  duration_ms: 764.950941\n  type: 'test'\n  ...\n# Subtest: C9 A04: execute the effective Node/Track entry and observe both required suites\nok 84 - C9 A04: execute the effective Node/Track entry and observe both required suites\n  ---\n  duration_ms: 365.444625\n  type: 'test'\n  ...\n1..84\n# tests 84\n# suites 0\n# pass 84\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 15888.052465\n"
+    },
+    {
+      "name": "security",
+      "output": "security debt gate passed: 0 moderate+ finding(s) exactly matched by the register.\n"
+    },
+    {
+      "name": "build-final",
+      "output": "> node ../../scripts/clean-workspace-dist.mjs && tsc -p tsconfig.build.json && node -e \"require('node:fs').mkdirSync('dist/focus-vendor/registry',{recursive:true});require('node:fs').copyFileSync('../focus/registry/entries.v1.json','dist/focus-vendor/registry/entries.v1.json')\"\nvendor-engram-live mirror OK\nnpm warn Unknown builtin config \"globalignorefile\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\nnpm warn Unknown builtin config \"globalignorefile\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\nnpm warn Unknown env config \"globalignorefile\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\nnpm warn Unknown builtin config \"globalignorefile\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\nnpm warn Unknown env config \"globalignorefile\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\n"
+    },
+    {
+      "name": "successor-budget-green-final",
+      "output": "npm warn Unknown builtin config \"globalignorefile\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\n\n RUN  v4.1.12 /home/antoinefa/src/h2a/tmp/worktrees/fix-restart\n\n\n Test Files  2 passed (2)\n      Tests  7 passed (7)\n   Start at  15:59:20\n   Duration  2.75s (transform 262ms, setup 54ms, import 355ms, tests 2.03s, environment 0ms)\n\n"
+    },
+    {
+      "name": "build-verified",
+      "output": "> node ../../scripts/clean-workspace-dist.mjs && tsc -p tsconfig.build.json && node -e \"require('node:fs').mkdirSync('dist/focus-vendor/registry',{recursive:true});require('node:fs').copyFileSync('../focus/registry/entries.v1.json','dist/focus-vendor/registry/entries.v1.json')\"\nvendor-engram-live mirror OK\nnpm warn Unknown builtin config \"globalignorefile\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\nnpm warn Unknown builtin config \"globalignorefile\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\nnpm warn Unknown env config \"globalignorefile\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\nnpm warn Unknown builtin config \"globalignorefile\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\nnpm warn Unknown env config \"globalignorefile\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\n"
+    }
+  ],
+  "targetedTests": {
+    "runtimeCommand": "rtk npx vitest run packages/h2a-runtime/src/{file-lock,registry,conv-guard,conv-guard-wiring,native-host,native-host-reuse,native-host-async,agy-launch,index,tmux,proc-cpu,run,llm-mesh-accounts,cli-seat-enrollment,cli-seat-runtime-wiring}.test.ts packages/h2a-runtime/src/native-terminal/{publication-proof,fleet,op-launch-abort,op-probe,screen,host,server,client,upgrade.functional}.test.ts packages/h2a-runtime/src/gateway-host/{daemon,config-file,native-tools}.test.ts --maxWorkers=2 --reporter=json",
+    "combinedPassed": 609,
+    "combinedFailed": 0,
+    "combinedPending": 0,
+    "supplementalCommand": "rtk npx vitest run packages/h2a-runtime/src/native-terminal/{op-probe,op-launch-abort}.test.ts --maxWorkers=1",
+    "supplementalPassed": 7,
+    "uniquePassed": 610,
+    "files": [
+      {
+        "file": "packages/h2a-runtime/src/agy-launch.test.ts",
+        "passed": 12,
+        "status": "passed"
+      },
+      {
+        "file": "packages/h2a-runtime/src/cli-seat-enrollment.test.ts",
+        "passed": 26,
+        "status": "passed"
+      },
+      {
+        "file": "packages/h2a-runtime/src/cli-seat-runtime-wiring.test.ts",
+        "passed": 15,
+        "status": "passed"
+      },
+      {
+        "file": "packages/h2a-runtime/src/conv-guard-wiring.test.ts",
+        "passed": 61,
+        "status": "passed"
+      },
+      {
+        "file": "packages/h2a-runtime/src/conv-guard.test.ts",
+        "passed": 19,
+        "status": "passed"
+      },
+      {
+        "file": "packages/h2a-runtime/src/file-lock.test.ts",
+        "passed": 1,
+        "status": "passed"
+      },
+      {
+        "file": "packages/h2a-runtime/src/index.test.ts",
+        "passed": 62,
+        "status": "passed"
+      },
+      {
+        "file": "packages/h2a-runtime/src/llm-mesh-accounts.test.ts",
+        "passed": 40,
+        "status": "passed"
+      },
+      {
+        "file": "packages/h2a-runtime/src/native-host-async.test.ts",
+        "passed": 3,
+        "status": "passed"
+      },
+      {
+        "file": "packages/h2a-runtime/src/native-host-reuse.test.ts",
+        "passed": 6,
+        "status": "passed"
+      },
+      {
+        "file": "packages/h2a-runtime/src/native-host.test.ts",
+        "passed": 14,
+        "status": "passed"
+      },
+      {
+        "file": "packages/h2a-runtime/src/proc-cpu.test.ts",
+        "passed": 13,
+        "status": "passed"
+      },
+      {
+        "file": "packages/h2a-runtime/src/registry.test.ts",
+        "passed": 69,
+        "status": "passed"
+      },
+      {
+        "file": "packages/h2a-runtime/src/run.test.ts",
+        "passed": 4,
+        "status": "passed"
+      },
+      {
+        "file": "packages/h2a-runtime/src/tmux.test.ts",
+        "passed": 95,
+        "status": "passed"
+      },
+      {
+        "file": "packages/h2a-runtime/src/gateway-host/config-file.test.ts",
+        "passed": 1,
+        "status": "passed"
+      },
+      {
+        "file": "packages/h2a-runtime/src/gateway-host/daemon.test.ts",
+        "passed": 6,
+        "status": "passed"
+      },
+      {
+        "file": "packages/h2a-runtime/src/gateway-host/native-tools.test.ts",
+        "passed": 4,
+        "status": "passed"
+      },
+      {
+        "file": "packages/h2a-runtime/src/native-terminal/client.test.ts",
+        "passed": 2,
+        "status": "passed"
+      },
+      {
+        "file": "packages/h2a-runtime/src/native-terminal/fleet.test.ts",
+        "passed": 13,
+        "status": "passed"
+      },
+      {
+        "file": "packages/h2a-runtime/src/native-terminal/host.test.ts",
+        "passed": 59,
+        "status": "passed"
+      },
+      {
+        "file": "packages/h2a-runtime/src/native-terminal/op-launch-abort.test.ts",
+        "passed": 2,
+        "status": "passed"
+      },
+      {
+        "file": "packages/h2a-runtime/src/native-terminal/op-probe.test.ts",
+        "passed": 4,
+        "status": "passed"
+      },
+      {
+        "file": "packages/h2a-runtime/src/native-terminal/publication-proof.test.ts",
+        "passed": 32,
+        "status": "passed"
+      },
+      {
+        "file": "packages/h2a-runtime/src/native-terminal/screen.test.ts",
+        "passed": 3,
+        "status": "passed"
+      },
+      {
+        "file": "packages/h2a-runtime/src/native-terminal/server.test.ts",
+        "passed": 40,
+        "status": "passed"
+      },
+      {
+        "file": "packages/h2a-runtime/src/native-terminal/upgrade.functional.test.ts",
+        "passed": 3,
+        "status": "passed"
+      }
+    ],
+    "nodeCommand": "rtk node --test packages/h2a/test/{publication-lock,native-host-crash-recovery,release-workflow,run-test-gates}.test.js",
+    "nodePassed": 84,
+    "nodeFailed": 0,
+    "nodeSkipped": 0
+  },
+  "layering": {
+    "modules": 130,
+    "runtimeToCoreImports": []
+  }
+}
