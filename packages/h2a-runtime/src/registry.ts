@@ -1081,7 +1081,7 @@ export function withRegistryLock<T>(
  * later or gives up.
  *
  * Why this variant exists: taking the lock costs up to LOCK_MAX_WAIT_MS of
- * BUSY-WAIT (see file-lock.ts), which is fine for a CLI act and unacceptable on
+ * synchronous waiting (see file-lock.ts), which is fine for a CLI act and unacceptable on
  * a long-lived server's event loop. A hygiene-only mutation there is better
  * postponed than paid for in frozen I/O — see the PTY-exit prune in
  * native-terminal/host.ts. Note the asymmetry with `withRegistryLock`, which
