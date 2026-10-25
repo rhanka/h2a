@@ -4,7 +4,7 @@ review-author:
   host: codex
   model: unknown
   effort: unknown
-target-ref: 743340e031bc61959a1439ea27b096d199c687d5
+target-ref: 66fe5035e75ac7ece8241bd8fdf4765260520a46
 observed-failure: "Identité exacte modèle/effort non fournie et transport de revue h2a installé interdit par le confinement. Aucun nouveau consensus de pairs revendiqué."
 ---
 
@@ -32,6 +32,12 @@ Aucun changement de file-lock.ts, des preuves d'identité, des plafonds, des sco
 
 Les tentatives d'éviter des écritures d'identité identiques n'ont pas suffi et ont été retirées. L'élection seule et la seule suppression d'une sonde laissaient des rouges. Une première série longue du chemin partagé a aussi exposé l'attente sérialisée des contrôles de santé ; elle n'est pas comptée comme verte. La série finale utilise l'adoption parallèle et tous les garde-fous finaux.
 
+## Réparation des contrats CI
+
+La première tête 4c7b96768 a terminé avec 17 checks verts et trois rouges (Node 22/24 et trust-root), sur les mêmes trois régressions. Le verrou d’élection réexécutait une connexion avant la preuve : un host SIGSTOP payait trois pings de 5 s, atteignait le plafond global 15 s et perdait le refus structuré. Le chemin élu réutilise maintenant l’échec initial et relit la preuve sous le verrou de publication ; aucun timeout n’est augmenté. Le test dédié reproduit **3 pings au lieu de 2** avant correction, puis passe. Les deux scénarios historiques exacts **SIGSTOP / historique suspendu passent : 2 PASS, 0 FAIL, 0 skip** avec l’host 89bbd9af^ construit dans le TMPDIR privé.
+
+La sonde tmux reste synchrone comme avant R9, conservant la couche de simulation de son garde et le diagnostic de registre illisible ; le chemin natif garde les opérations partagées. Les **63 tests** de sondes et conv-guard-wiring passent, sans changer leurs assertions. Toute la qualification ci-dessous a été répétée après ces corrections.
+
 ## Qualification finale — cinq tours, quatre instances, CPU 0–7
 
 Dans l'archive construite, avec TMPDIR privé :
@@ -46,26 +52,26 @@ Temps en ms ; les trois durées chargées sont les sorties diagnostiques du test
 
 | Tour.instance | Référence | Trois tours chargés | Médiane | p95 | Delta | Verdict |
 |---|---:|---|---:|---:|---:|---|
-| 1.1 | 5570 | 5898 / 6232 / 6343 | 6232 | 6343 | +662 | PASS |
-| 1.2 | 5535 | 5931 / 6003 / 6131 | 6003 | 6131 | +468 | PASS |
-| 1.3 | 5500 | 5672 / 6131 / 6251 | 6131 | 6251 | +631 | PASS |
-| 1.4 | 5704 | 5857 / 6209 / 6377 | 6209 | 6377 | +505 | PASS |
-| 2.1 | 5737 | 5914 / 5909 / 6249 | 5914 | 6249 | +177 | PASS |
-| 2.2 | 5765 | 5595 / 5899 / 6110 | 5899 | 6110 | +134 | PASS |
-| 2.3 | 5772 | 5876 / 5902 / 6161 | 5902 | 6161 | +130 | PASS |
-| 2.4 | 5752 | 5949 / 5774 / 5953 | 5949 | 5953 | +197 | PASS |
-| 3.1 | 5216 | 5203 / 4763 / 4302 | 4763 | 5203 | -453 | PASS |
-| 3.2 | 5633 | 5678 / 5584 / 5341 | 5584 | 5678 | -49 | PASS |
-| 3.3 | 5539 | 5635 / 5521 / 5587 | 5587 | 5635 | +48 | PASS |
-| 3.4 | 5378 | 5233 / 5566 / 5627 | 5566 | 5627 | +188 | PASS |
-| 4.1 | 5599 | 5628 / 6127 / 6209 | 6127 | 6209 | +528 | PASS |
-| 4.2 | 5761 | 5831 / 5703 / 6297 | 5831 | 6297 | +70 | PASS |
-| 4.3 | 5624 | 5800 / 6159 / 6117 | 6117 | 6159 | +493 | PASS |
-| 4.4 | 5672 | 5960 / 6112 / 6420 | 6112 | 6420 | +440 | PASS |
-| 5.1 | 5746 | 5862 / 6061 / 6246 | 6061 | 6246 | +315 | PASS |
-| 5.2 | 5747 | 5827 / 6083 / 6220 | 6083 | 6220 | +336 | PASS |
-| 5.3 | 5797 | 5975 / 5980 / 6163 | 5980 | 6163 | +183 | PASS |
-| 5.4 | 5763 | 5830 / 6131 / 6247 | 6131 | 6247 | +368 | PASS |
+| 1.1 | 5467 | 5729 / 5893 / 5979 | 5893 | 5979 | +426 | PASS |
+| 1.2 | 5576 | 5575 / 5947 / 5787 | 5787 | 5947 | +211 | PASS |
+| 1.3 | 5666 | 5142 / 4682 / 5531 | 5142 | 5531 | -524 | PASS |
+| 1.4 | 5401 | 5544 / 5967 / 5982 | 5967 | 5982 | +566 | PASS |
+| 2.1 | 5362 | 5715 / 5247 / 5796 | 5715 | 5796 | +353 | PASS |
+| 2.2 | 4979 | 5650 / 5778 / 5833 | 5778 | 5833 | +799 | PASS |
+| 2.3 | 5597 | 5774 / 5793 / 5866 | 5793 | 5866 | +196 | PASS |
+| 2.4 | 5515 | 5761 / 5733 / 5704 | 5733 | 5761 | +218 | PASS |
+| 3.1 | 5669 | 5785 / 5778 / 6085 | 5785 | 6085 | +116 | PASS |
+| 3.2 | 5620 | 5162 / 5447 / 5676 | 5447 | 5676 | -173 | PASS |
+| 3.3 | 5681 | 5635 / 5820 / 5986 | 5820 | 5986 | +139 | PASS |
+| 3.4 | 5354 | 5731 / 5795 / 5945 | 5795 | 5945 | +441 | PASS |
+| 4.1 | 5415 | 5609 / 5887 / 6173 | 5887 | 6173 | +472 | PASS |
+| 4.2 | 5522 | 5690 / 5899 / 6211 | 5899 | 6211 | +377 | PASS |
+| 4.3 | 5536 | 5448 / 5716 / 6095 | 5716 | 6095 | +180 | PASS |
+| 4.4 | 5484 | 5746 / 5642 / 6021 | 5746 | 6021 | +262 | PASS |
+| 5.1 | 5277 | 5426 / 5575 / 5790 | 5575 | 5790 | +298 | PASS |
+| 5.2 | 5124 | 5315 / 5271 / 5171 | 5271 | 5315 | +147 | PASS |
+| 5.3 | 5001 | 5254 / 5151 / 4012 | 5151 | 5254 | +150 | PASS |
+| 5.4 | 5383 | 5948 / 5203 / 4413 | 5203 | 5948 | -180 | PASS |
 
 Le [pilote commis](../../scripts/owner-lab/incident-load.mjs) attend toutes les instances avant le tour suivant, garde un journal par instance et exige un vrai passage avec zéro skip. L'affinité du parent s'applique aux enfants.
 
@@ -75,20 +81,20 @@ Le [pilote commis](../../scripts/owner-lab/incident-load.mjs) attend toutes les 
 
 | Solo | Médiane | p95 | Delta | Verdict |
 |---|---:|---:|---:|---|
-| 1 | 883 | 910 | +14 | PASS |
-| 2 | 912 | 945 | +49 | PASS |
-| 3 | 901 | 944 | +45 | PASS |
+| 1 | 779 | 803 | +21 | PASS |
+| 2 | 862 | 863 | +26 | PASS |
+| 3 | 855 | 862 | +111 | PASS |
 
 Mutation privée : insérer `Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,1000)` après le shebang de l'archive `packages/h2a/dist/bin.js`, puis `rtk node --test packages/h2a/test/incident-20-resume.test.js`. **Exit 1 attendu : surcharge médiane 1 120 > 500 ms**, témoin node indépendant, zéro skip. Binaire restauré dans finally et identité des octets vérifiée.
 
 ## Autres contrôles
 
 - Build du worktree et de l'archive : `rtk npm run build` → **exit 0**.
-- Runtime, 13 fichiers ciblés, `--maxWorkers=2 --reporter=json` : **234 PASS, 0 FAIL, 0 pending/todo** : file-lock, registry, conv-guard, native-host, native-host-reuse, native-host-async, agy-launch, index, publication-proof, fleet, op-launch-abort, op-probe et upgrade.functional. Couverture nouvelle : annulation à 15 s, horloge expirée avant timer, absence de create après annulation, fermeture des deux endpoints et verdict unknown conservé.
+- Runtime, 14 fichiers ciblés, `--maxWorkers=2 --reporter=json` : **296 PASS, 0 FAIL, 0 pending/todo** : file-lock, registry, conv-guard, conv-guard-wiring, native-host, native-host-reuse, native-host-async, agy-launch, index, publication-proof, fleet, op-launch-abort, op-probe et upgrade.functional. Couverture nouvelle : annulation à 15 s, horloge expirée avant timer, absence de create après annulation, fermeture des deux endpoints et verdict unknown conservé.
 - `rtk node --test packages/h2a/test/{publication-lock,native-host-crash-recovery,release-workflow,run-test-gates}.test.js` → **79 PASS, 0 FAIL, 0 skip**. Inclut libération de l'élection après SIGKILL et contrats publication, crash, release et trust-root inchangés.
 - `rtk node scripts/audit-security-debt.mjs` → **exit 0**, `security debt gate passed: 0 moderate+ finding(s) exactly matched by the register.`
 - Inspection des **130 modules JS** du runtime dist : **zéro import runtime→core**.
-- Adaptation des mocks de trois suites au même verdict async : aucune assertion retirée. Invariants hôte : **16 PASS**, les **2 TODO historiques** restent inchangés. Une exécution supplémentaire de supervisor donne 16 PASS et **1 skip explicite historique** ; ce skip n'est pas inclus dans les 234 tests acceptés. Aucun saut dû à l'absence de l'état réel n'est accepté.
+- Adaptation des mocks de trois suites au même verdict async : aucune assertion retirée. Invariants hôte : **16 PASS**, les **2 TODO historiques** restent inchangés. Une exécution supplémentaire de supervisor donne 16 PASS et **1 skip explicite historique** ; ce skip n'est pas inclus dans les 296 tests acceptés. Aucun saut dû à l'absence de l'état réel n'est accepté.
 - Un lancement de Vitest en parallèle d'une fixture proc a découvert des copies par ses liens cwd sous .q ; cette invocation n'est pas comptée. Le rejeu cible uniquement les vrais fichiers (`--exclude '**/.q/**'`, aucune suppression de test) et passe.
 
 La CI du SHA final, dont les matrices fresh/resume/restore, le contrôle +1 s et les cgroups effectifs, est suivie jusqu'à son état terminal dans le corps de PR. Aucun test de pression mémoire n'a été exécuté sur le poste.
