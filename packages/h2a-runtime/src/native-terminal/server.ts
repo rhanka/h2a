@@ -513,10 +513,14 @@ async function socketPublicationLockSecret(socketPath: string, signal?: AbortSig
   return secret;
 }
 
-async function acquireSocketPublicationLock(socketPath: string, signal?: AbortSignal): Promise<Server> {
+function acquireSocketPublicationLock(socketPath: string, signal?: AbortSignal, startup?: boolean): Promise<Server>;
+function acquireSocketPublicationLock<T>(socketPath: string, signal: AbortSignal | undefined, startup: boolean,
+  readReady: (signal?: AbortSignal) => Promise<T>): Promise<Server | { ready: T }>;
+async function acquireSocketPublicationLock<T>(socketPath: string, signal?: AbortSignal, startup = false,
+  readReady?: (signal?: AbortSignal) => Promise<T>): Promise<Server | { ready: T }> {
   const secret = await socketPublicationLockSecret(socketPath, signal);
   const address = `\0h2a-terminal-lock-${createHash("sha256")
-    .update(`${process.getuid?.() ?? "unknown"}:${socketPath}:${secret}`)
+    .update(`${process.getuid?.() ?? "unknown"}:${socketPath}:${secret}${startup ? ":startup" : ""}`)
     .digest("hex")}`;
   const deadline = Date.now() + SOCKET_PUBLICATION_LOCK_TIMEOUT_MS;
   for (;;) {
@@ -539,10 +543,38 @@ async function acquireSocketPublicationLock(socketPath: string, signal?: AbortSi
       ) {
         throw error;
       }
+      if (readReady) {
+        try { return { ready: await abortable(readReady(signal), signal) }; }
+        catch { signal?.throwIfAborted(); }
+      }
       await abortable(new Promise((resolve) =>
         setTimeout(resolve, SOCKET_PUBLICATION_LOCK_RETRY_MS)
       ), signal);
     }
+  }
+}
+
+/** Elect one launcher through readiness, rather than spawning a herd of hosts
+ * behind the publication lock. This is a separate abstract socket: the child
+ * must still acquire the publication lock and prove absence itself. Kernel
+ * ownership releases the election if the launcher dies. Acquisition keeps the
+ * existing 5 s contention bound; the operation retains its own proof/startup
+ * deadlines. Contenders can adopt a healthy publisher in parallel, without
+ * queueing health RPCs under this lock. No absence verdict is shared. */
+export async function withNativeTerminalStartupLock<T>(socketPath: string, operation: () => Promise<T>,
+  readReady?: (signal?: AbortSignal) => Promise<T>): Promise<T> {
+  await ensurePrivateSocketDirectory(socketPath);
+  const signal = AbortSignal.timeout(SOCKET_PUBLICATION_LOCK_TIMEOUT_MS);
+  const acquired = readReady
+    ? await acquireSocketPublicationLock(socketPath, signal, true, readReady)
+    : await acquireSocketPublicationLock(socketPath, signal, true);
+  if ("ready" in acquired) return acquired.ready;
+  const lock = acquired;
+  try { return await operation(); }
+  finally {
+    await abortable(new Promise<void>((resolve, reject) => {
+      lock.close(error => error ? reject(error) : resolve());
+    }), AbortSignal.timeout(SOCKET_PUBLICATION_CLEANUP_TIMEOUT_MS));
   }
 }
 

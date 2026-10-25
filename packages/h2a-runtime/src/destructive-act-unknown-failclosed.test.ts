@@ -69,6 +69,7 @@ vi.mock("./native-host.js", async (importOriginal) => {
     ...actual,
     nativeSessionLiveness,
     nativeSessionState,
+    nativeSessionStateAsync: async (name: string) => nativeSessionState(name),
     nativeHostAvailable,
     startNativeSession,
     attachNativeSession,

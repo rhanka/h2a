@@ -36,6 +36,14 @@ function writeRegistry(entries: RegistryEntry[]): void {
   writeFileSync(regPath, JSON.stringify({ version: 1, entries }), "utf8");
 }
 
+it.each([false, true, "unknown"] as const)("should preserve a supplied native liveness verdict of %s in the run guard", async verdict => {
+  writeRegistry([entry({ kind: "local-native", convId: "native-conversation", tmuxSession: "h2a-native", pid: 424242 })]);
+  const nativeSessionLiveness = vi.fn(() => verdict);
+  expect(await guardConvWriters({ convId: "native-conversation", cwd: "/project", registryPath: regPath,
+    nativeSessionLiveness })).toBe(verdict === false);
+  expect(nativeSessionLiveness).toHaveBeenCalledExactlyOnceWith("h2a-native");
+});
+
 const NOW = "2026-06-07T10:00:00.000Z";
 
 function entry(over: Partial<RegistryEntry>): RegistryEntry {

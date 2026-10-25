@@ -71,7 +71,13 @@ test('incident-20-resume: 20 concurrent resumes over 214 owner-shaped rows with 
     const check = await NativeTerminalClient.connect(f.env.H2A_NATIVE_SOCKET);
     try {
       assert.equal((await check.list()).filter(row => row.status === 'running').length, 20);
-      const liveHosts = f.recorded().filter(row => row.args[1] === hostEntry).filter(row => {
+      const candidates = f.recorded().filter(row => row.args[1] === hostEntry);
+      assert.equal(candidates.length, 2, 'startup must elect one replacement, without spawning losing hosts');
+      const probes = f.recorded().filter(row => row.args[1]?.endsWith('/native-terminal/op.js') && row.args[2] === 'probe');
+      assert.equal(probes.length, 0, 'the same target name must reuse its in-process proof, without probe helpers');
+      assert.equal(f.recorded().filter(row => row.args[1]?.endsWith('/native-terminal/op.js') && row.args[2] === 'launch').length,
+        0, 'launch must share the CLI process that already loaded its native client');
+      const liveHosts = candidates.filter(row => {
         try { return !/\) [ZX] /.test(readFileSync(`/proc/${row.pid}/stat`, 'utf8')); }
         catch (error) { if (error.code === 'ENOENT') return false; throw error; }
       });
