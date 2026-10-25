@@ -13,7 +13,7 @@ import * as registry from "../registry.js";
 import { readProcessFrame } from "../proc-identity.js";
 import { NativeTerminalHost, defaultOwnerHostProbe, readProcessStartTime, posixProcessGroupReaper } from "./host.js";
 import { NativeTerminalClient } from "./client.js";
-import { proveNativeTerminalEndpointAbsent, startNativeTerminalHostServer } from "./server.js";
+import { proveNativeTerminalEndpointAbsent, startNativeTerminalHostServer, withNativeTerminalStartupLock } from "./server.js";
 
 vi.mock("node:net", async original => {
   const net = await original<typeof import("node:net")>();
@@ -95,6 +95,37 @@ function assertLocked(path: string) {
 }
 
 describe("publication proof v5", () => {
+  it("should let waiting launchers adopt a healthy publisher without queueing behind another health check", async () => {
+    const path = await endpoint();
+    let release!: () => void;
+    let entered!: () => void;
+    const ready = new Promise<void>(resolve => { entered = resolve; });
+    const holder = withNativeTerminalStartupLock(path, () => new Promise<void>(resolve => { release = resolve; entered(); }));
+    await ready;
+    const launch = vi.fn(async () => 0);
+    try {
+      expect(await withNativeTerminalStartupLock(path, launch, async () => 42)).toBe(42);
+      expect(launch).not.toHaveBeenCalled();
+    } finally { release(); await holder; }
+  }, 8000);
+  it("should serialize launchers through publication and release the election on failure", async () => {
+    const path = await endpoint();
+    let active = 0;
+    const failure = new Error("launcher failed");
+    const attempts = Array.from({ length: 5 }, (_, i) => withNativeTerminalStartupLock(path, async () => {
+      expect(active++).toBe(0);
+      try {
+        // The child publisher uses a distinct lock and still does its proof.
+        expect(await absent(path)).toBe(true);
+        if (i === 0) throw failure;
+        return i;
+      } finally { active--; }
+    }));
+    const results = await Promise.allSettled(attempts);
+    expect(results[0]).toEqual({ status: "rejected", reason: failure });
+    expect(results.slice(1)).toEqual([1, 2, 3, 4].map(value => ({ status: "fulfilled", value })));
+    await withNativeTerminalStartupLock(path, () => start(path, () => current));
+  });
   it.each(["dead", "alive", "unresolvable"] as const)("should reclaim a launch endpoint only with a dead owner, observed %s", async verdict => {
     const path = await endpoint();
     await boundSocket(path, true); sidecar(path);

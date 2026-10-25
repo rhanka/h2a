@@ -157,6 +157,7 @@ import {
   nativeSessionLiveness,
   nativeSessionPid,
   nativeSessionState,
+  nativeSessionStateAsync,
   nativeTreeCpuMs,
   nativeWorkerPid,
   preflightNativeLaunch,
@@ -6384,11 +6385,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           }
         };
         try {
-        // R3 P1: no separate preflight fork. The single-shot launch below
-        // performs fenced ensure-host + admission atomically in its own
-        // fork (same certified refusals, no check removed without an atomic
-        // equivalent), so a preflight here would only re-pay Node startup
-        // and an inventory for the same verdict.
+        // No separate preflight fork: the in-process name probe below prepares
+        // the host for a native run. The single-shot launch still performs its
+        // fenced admission with a fresh inventory before creating any session.
         void preflightNativeLaunch;
         const reservedTmuxSlugs = tmuxAvailable()
           ? existingLocalSessionSlugs(labels, cwd)
@@ -6431,14 +6430,14 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         // twin over a live-but-unprovable native writer (sol-F3): the same
         // fail-closed rule as resolveManagedHost's rule 4 applies — refuse
         // to launch on an unprovable host state.
-        const nativeExistence = labels
+        const nativeExistence = await Promise.all(labels
           .map((label) => slugify(label ?? cwd))
-          .map((slug) => {
-            const detail = nativeSessionState(localSessionName(slug));
+          .map(async (slug) => {
+            const detail = await nativeSessionStateAsync(localSessionName(slug), sessionHost === "native");
             const probe: ManagedHostProbeResult = detail.state === "unknown" ? "unknown"
               : detail.state === "found" && detail.session.status === "running" ? "live" : "dead";
             return { slug, probe, reason: detail.state === "unknown" ? detail.reason : undefined };
-          });
+          }));
         const unknownNativeSlugs = nativeExistence
           .filter((probed) => probed.probe === "unknown");
         if (unknownNativeSlugs.length > 0) {
@@ -6489,9 +6488,16 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         // Single-writer guard: refuse to resume a conversation another live
         // session (local registry / remote pod) is already writing.
         if (opts.resume) {
+          // Reuse this operation's certified name verdict for that SAME
+          // session. Other conversation owners still require their own probe.
+          // Creation rechecks the complete inventory and name admission at
+          // the host, so this snapshot never authorizes a colliding create.
+          const nativeLivenessByName = new Map(nativeExistence.map(({ slug, probe }) =>
+            [localSessionName(slug), probe === "dead" ? false : probe === "live" ? true : "unknown"] as const));
           const ok = await guardConvWriters({
             convId: opts.resume,
             cwd,
+            nativeSessionLiveness: name => nativeLivenessByName.get(name) ?? nativeSessionLiveness(name),
             ...(opts.force ? { force: true } : {}),
             fetchRemoteSessions: async () => {
               const url = getConfiguredRemoteOptional();
@@ -6704,9 +6710,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               ));
             }
           } else if (sessionHost === "native") {
-            // R3 P1: single-fork launch (one shared async client + one
-            // inventory); returns pid/identity so the re-probes below are skipped.
-            ({ name, slug, pid: launchedPid, workerPid: launchedWorkerPid } = startNativeSessionSingleShot(
+            // One in-process async operation, with a fresh admission inventory;
+            // returns pid/identity so the re-probes below are skipped.
+            ({ name, slug, pid: launchedPid, workerPid: launchedWorkerPid } = await startNativeSessionSingleShot(
               profile,
               command,
               cwd,
