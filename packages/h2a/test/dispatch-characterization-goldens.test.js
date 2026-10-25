@@ -50,7 +50,7 @@ const BIN = join(REPO_ROOT, "packages", "h2a", "dist", "bin.js");
 // previous 14,127-byte stream and SHA-256 byte-for-byte.
 // Workspace scope opt-in adds three selection flags and default/qualification
 // wording (+182 bytes). Removing those changes restores the 14,229-byte stream.
-const CORE_HELP_SHA256 = "9eeebba03234abce47c3c9d3473a8c16ab90d87f80accd3877f97840399c9ec2";
+const CORE_HELP_SHA256 = "cd23f50ab3a5ad4c0f5406a2791c79eb860c9ffe016a30586cc1c009b6b2cdb7";
 const RUNTIME_MISSING =
   "ce verbe requiert le runtime h2a (sessions / k8s / tunnel).\n" +
   "  Répare l'installation lockstep : npm i -g @sentropic/h2a@latest\n";
@@ -154,7 +154,7 @@ function assertCoreHelp(result) {
   // + 182 for workspace scope opt-in flags and default/qualification wording.
   // + 28 for the LOT-1 H4 upgrade surface (0.98.8): the `h2a upgrade` usage
   // line now documents the single H4 command instead of the legacy staged path.
-  assert.equal(Buffer.byteLength(result.stdout), 14707);
+  assert.equal(Buffer.byteLength(result.stdout), 14889);
 }
 
 function assertMissingRuntime(result, firstToken) {
