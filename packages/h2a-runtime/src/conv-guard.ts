@@ -200,6 +200,7 @@ export async function guardConvWriters(
     ...(args.pidAlive ? { pidAlive: args.pidAlive } : {}),
     ...(args.bootTimeMs !== undefined ? { bootTimeMs: args.bootTimeMs } : {}),
     ...(args.processCmdline ? { processCmdline: args.processCmdline } : {}),
+    ...(args.nativeSessionLiveness ? { nativeSessionLiveness: args.nativeSessionLiveness } : {}),
   });
   if (owners === "unknown") {
     // The registry could not be read: the guard cannot PROVE the absence of
