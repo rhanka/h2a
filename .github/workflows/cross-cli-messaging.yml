@@ -44,6 +44,7 @@ jobs:
           scripts/xcli-process-review.test.mjs scripts/xcli-trusted-artifact.test.mjs
           scripts/xcli-evidence-scan.test.mjs scripts/xcli-packaged-review.test.mjs
           scripts/xcli-npm-oracles.test.mjs scripts/xcli-runtime-runner.test.mjs
+          scripts/xcli-identity-pacing.test.mjs
 
   simulated-messaging:
     runs-on: ubuntu-latest

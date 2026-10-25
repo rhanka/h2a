@@ -94,7 +94,9 @@ await call('initialize', { protocolVersion: '2024-11-05', capabilities: {}, clie
 mcp.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n');
 await call('tools/list', {});
 const identity = await waitForIdentity(() => tool('h2a_identity_status', {}),
-  () => new Promise(r => setTimeout(r, 50)));
+  // Readiness may spend several seconds activating the signer on a busy
+  // runner. Preserve the per-session MCP cap for the scenario's actual calls.
+  () => new Promise(r => setTimeout(r, 1000)));
 assert.equal(identity.state, 'identity_ready');
 assert.equal(identity.signingAvailable, true);
 const instance = identity.instance;
