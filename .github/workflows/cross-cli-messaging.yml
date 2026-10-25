@@ -74,7 +74,7 @@ jobs:
       # the ci-check step, which fails a partial or non-green matrix itself.
       - name: Exercise six ordered pairs in this sender shard with three repetitions each
         run: >-
-          node scripts/qualify-cross-cli.mjs --simulated --sender "${{ matrix.sender }}" --timeout-ms 45000
+          node scripts/qualify-cross-cli.mjs --simulated --sender "${{ matrix.sender }}" --timeout-ms 60000
           --wake-release-offsets-ms 0,6000,1000
           --output "${{ runner.temp }}/xcli-simulated.json" || code=$?;
           if [ "${code:-0}" -ne 0 ] && [ "${code:-0}" -ne 2 ]; then exit "$code"; fi
@@ -91,6 +91,29 @@ jobs:
           name: xcli-simulated-node-${{ matrix.node }}-${{ matrix.sender }}
           path: ${{ runner.temp }}/xcli-simulated.json
           if-no-files-found: error
+
+  polling-controls:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["22", "24"]
+        period: ["1000", "5000", "15000", "45000", "90000"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - name: Use runner temporary storage
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - run: npm ci --ignore-scripts
+      - run: node scripts/xcli-node-headers.mjs
+      - name: Require all three phases for this fixed polling period to fail stage 7
+        env:
+          XCLI_POLL_PERIOD_MS: ${{ matrix.period }}
+        run: node --test scripts/xcli-polling-controls.test.mjs
 
   native-configuration-oracles:
     runs-on: ubuntu-latest
@@ -207,8 +230,7 @@ jobs:
       matrix:
         node: ["22", "24"]
         scenario: ["unavailability:stopped-receiver", "unavailability:unknown-instance",
-          "unavailability:identity-never-ready", "refusal:unsigned-wake",
-          "refusal:misaddressed-wake", "refusal:replayed-wake",
+          "unavailability:identity-never-ready",
           "loop:lifecycle", "loop:join-unknown", "loop:report-without-join",
           "loop:report-after-done", "negotiation:flow", "negotiation:offer-unknown",
           "negotiation:stabilize-without-offer", "negotiation:replayed-stabilization",
@@ -248,6 +270,58 @@ jobs:
         with:
           name: xcli-scenario-node-${{ matrix.node }}-${{ strategy.job-index }}
           path: ${{ runner.temp }}/xcli-scenario.json
+          if-no-files-found: error
+
+  # Refusal rows first prove a live wake. Fund W0=W1=13 s and D=3 s inside
+  # each original 60 s cell budget. Two complete sender groups keep every
+  # row's 36 ordered pairs inside the unchanged 30-minute job budget.
+  refusal-matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["22", "24"]
+        scenario: ["refusal:unsigned-wake", "refusal:misaddressed-wake", "refusal:replayed-wake"]
+        senders: ["claude codex agy", "gemini muse vibe"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - name: Use runner temporary storage
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - run: npm ci --ignore-scripts
+      - run: node scripts/xcli-node-headers.mjs
+      - name: Prove and verify all ordered pairs in this sender group
+        env:
+          XCLI_SENDERS: ${{ matrix.senders }}
+          XCLI_SCENARIO: ${{ matrix.scenario }}
+        run: |
+          for xcli_sender in $XCLI_SENDERS; do
+            code=0
+            output="$RUNNER_TEMP/xcli-refusal-$xcli_sender.json"
+            node scripts/qualify-cross-cli.mjs --simulated --sender "$xcli_sender" --timeout-ms 60000 \
+              --scenario "$XCLI_SCENARIO" --output "$output" || code=$?
+            if [ "$code" -ne 0 ] && [ "$code" -ne 2 ]; then exit "$code"; fi
+            node scripts/xcli-scenarios.mjs --check "$output" --only "$XCLI_SCENARIO" --sender "$xcli_sender"
+          done
+      - name: Scan publication files
+        id: evidence-scan
+        if: always()
+        env:
+          XCLI_SENDERS: ${{ matrix.senders }}
+        run: |
+          for xcli_sender in $XCLI_SENDERS; do
+            node scripts/xcli-evidence-scan.mjs "$RUNNER_TEMP/xcli-refusal-$xcli_sender.json"
+          done
+      - name: Preserve safe refusal evidence
+        if: always() && steps.evidence-scan.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcli-refusal-node-${{ matrix.node }}-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/xcli-refusal-*.json
           if-no-files-found: error
 
   # Lot L11 receipt gate (SPEC v3 §7.1): no secrets present, fork-safe. On

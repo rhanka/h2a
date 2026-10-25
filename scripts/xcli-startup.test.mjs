@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { environment, sourceBuild, repo } from './xcli-lab.mjs';
 import { parseWakeWindows } from './qualify-cross-cli.mjs';
+import { verifyWakePhases } from './xcli-ci-check.mjs';
 
 // A real startup dialog may render its choice before it starts accepting keys.
 // No login or provider is used; after consent this runs the signed product path.
@@ -56,7 +57,7 @@ process.stdin.on('data', input);
     const result = spawnSync(process.execPath, [worker, '--worker'], {
       cwd: root, env: { ...environment(join(root, 'worker')), H2A_TEST_QUALIFICATION_ROOT: root },
       input: JSON.stringify({ sender: 'claude', receiver: 'claude', root, build: built.path,
-        executables, timeoutMs: 30000, simulated: true,
+        executables, timeoutMs: 60000, simulated: true,
         wake: parseWakeWindows(undefined, true), releaseOffsetMs: 0 }),
       encoding: 'utf8', timeout: 90000, maxBuffer: 1024 * 1024,
     });
@@ -65,6 +66,7 @@ process.stdin.on('data', input);
     assert.notEqual(cell.cleanupFailed, true, JSON.stringify(cell.cleanupErrors));
     assert.equal(fs.readdirSync(root).filter(name => name.startsWith('c-')).length, 0);
     assert.equal(cell.status, 'simulated-OK', JSON.stringify(cell));
+    assert.deepEqual(verifyWakePhases(cell), [], 'the startup consumer must fund and witness all cell-level phases');
     assert.equal(cell.noPostSendHarnessInput, true);
     assert.deepEqual(cell.evidence.filter(e => e.event === 'startup-ui').map(e => e.action),
       ['trust-empty-workspace', 'trust-empty-workspace']);
