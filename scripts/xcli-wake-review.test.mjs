@@ -25,7 +25,7 @@ console.log(JSON.stringify({sender:r.sender,receiver:r.receiver,scenario:'probe'
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
-for (const poll of ['single:18000', 'periodic:60000:17000']) test(`L3 poller counterexample: ${poll} ignores the wake and must fail`, () => {
+for (const poll of ['single:18000', 'periodic:60000:17000']) test(`L3 poller counterexample: ${poll} reads while the delayed wake is withheld`, () => {
   const root = fs.mkdtempSync(join(tmpdir(), 'xcli-wake-review-'));
   try {
     let script = join(repo, 'scripts/qualify-cross-cli.mjs');
@@ -37,13 +37,15 @@ for (const poll of ['single:18000', 'periodic:60000:17000']) test(`L3 poller cou
     }
     const output = join(root, 'result.json');
     const result = spawnSync(process.execPath, [script, '--simulated', '--pair', 'claude:codex', '--poll', poll,
-      '--timeout-ms', '90000', '--mcp-call-cap', '1000', '--output', output], {
+      '--wake-release-offsets-ms', '15000', '--timeout-ms', '90000', '--mcp-call-cap', '1000', '--output', output], {
       env: { ...environment(join(root, 'env')), TMPDIR: tmpdir() }, encoding: 'utf8', timeout: 120000, maxBuffer: 4 * 1024 * 1024,
     });
     const cell = JSON.parse(fs.readFileSync(output)).cells[0];
     assert.equal(result.status, 2, JSON.stringify({ status: cell.status, woke: cell.woke }));
     assert.equal(cell.received, true, 'the wake-ignoring poller read the delivered envelope');
     assert.equal(cell.woke, false);
-    assert.equal(cell.wakeFailure, 'wake-phase-separation-unproven');
+    assert.equal(cell.wakeFailure, 'wake-polling-detected');
+    assert.ok(cell.wakeWindows.baselineReads + cell.wakeWindows.withheldReads > 0,
+      'the fixed polling tick must be witnessed before release, independently of startup speed');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

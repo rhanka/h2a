@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { environment } from './xcli-lab.mjs';
-import { verifySimulation, verifyWakeBatch } from './xcli-ci-check.mjs';
+import { verifySimulation, verifyWakeBatch, verifyWakePhases } from './xcli-ci-check.mjs';
 
 // Lot L3 helpers: run one simulated cell with wake-protocol flags and return
 // the receipt's first cell. Every run uses temp dirs only, never real state.
@@ -109,19 +109,24 @@ test('L3 unit: overlapping acceptance windows earn no batch credit', () => {
   // Spec §3.3(b2) literal numbers: W0 = W1 = 10 s, D = 3 s, actual wake
   // injections at 21 / 21.414 / 21.732 s after the barrier, first polling
   // read at 23 s in every repetition, all wakes ignored, no earlier read.
-  const rep = (wakeS, readS) => ({ woke: true,
-    wakeWindows: { barrierAt: 0, deliveryAt: (wakeS - 10.3) * 1000, releaseAt: (wakeS - 0.3) * 1000,
-      wakeAt: wakeS * 1000, firstReadAt: readS * 1000, dMs: 3000 } });
+  const rep = (wakeS, readS, deliveryS = wakeS - 10.3, releaseS = wakeS - 0.3) => ({ woke: true,
+    startedAt: new Date(0).toISOString(), budgetMs: 90000, noPostSendHarnessInput: true,
+    wakeWindows: { barrierAt: 0, deliveryAt: Math.round(deliveryS * 1000), releaseAt: Math.round(releaseS * 1000),
+      wakeAt: Math.round(wakeS * 1000), firstReadAt: readS * 1000, dMs: 3000,
+      w0Ms: 10000, w1Ms: 10000, withholdAt: 0, releaseOffsetMs: Math.round((releaseS - deliveryS - 10) * 1000),
+      notifyIntervalMs: 100, timestampUncertaintyMs: 1, preBarrierReads: 0, baselineReads: 0, withheldReads: 0,
+      inputJournal: { correlated: true, onlyWakeInput: true, writes: 2,
+        lineAt: Math.round(wakeS * 1000) - 100, submitAt: Math.round(wakeS * 1000) } } });
   const overlapping = [rep(21, 23), rep(21.414, 23), rep(21.732, 23)];
+  for (const cell of overlapping) assert.deepEqual(verifyWakePhases(cell), [],
+    'each repetition passes the cell-level ordering, delay and withheld-window conditions');
   const refused = verifyWakeBatch(overlapping);
   assert.equal(refused.pass, false, 'overlapping windows must earn no stage-7 credit');
   assert.ok(refused.failures.some(f => f.includes('wake-phase-separation-unproven')));
   // A properly separated batch passes: the early acceptance window lies
   // strictly inside the later withheld window with margin.
   const separated = [
-    { woke: true, wakeWindows: { barrierAt: 0, deliveryAt: 10000, releaseAt: 20000, wakeAt: 21000, firstReadAt: 22000, dMs: 3000 } },
-    { woke: true, wakeWindows: { barrierAt: 0, deliveryAt: 10000, releaseAt: 40000, wakeAt: 41000, firstReadAt: 42000, dMs: 3000 } },
-    { woke: true, wakeWindows: { barrierAt: 0, deliveryAt: 10000, releaseAt: 60000, wakeAt: 61000, firstReadAt: 62000, dMs: 3000 } },
+    rep(21, 22, 10, 20), rep(41, 42, 10, 40), rep(61, 62, 10, 60),
   ];
   assert.equal(verifyWakeBatch(separated).pass, true, 'a separated batch must pass');
   assert.equal(verifyWakeBatch(separated.slice(0, 2)).pass, false, 'fewer than 3 replications earns no credit');
@@ -142,7 +147,7 @@ test('L3: overlapping-window replications earn no batch credit, late release fai
   // Second run: same polling schedule, later withheld window containing the
   // whole earlier acceptance window — the read lands while wake is withheld.
   const late = runWakeCell(['--pair', 'claude:codex',
-    '--poll', 'single:24000', '--wake-windows', '10000,10000,3000',
+    '--poll', 'single:23000', '--wake-windows', '10000,10000,3000',
     '--wake-release-offsets-ms', '15000', '--timeout-ms', '90000']);
   assert.equal(late.cells[0].woke, false, 'a read during the withheld phase proves polling');
   assert.equal(late.cells[0].wakeFailure, 'wake-polling-detected');
@@ -156,6 +161,15 @@ test('L3: a withheld-forever twin shows no qualifying read', () => {
   assert.ok(!cell.received, 'no qualifying read without a released wake');
   assert.equal(cell.woke, false);
   assert.equal(cell.wakeFailure, 'wake-withheld-forever');
+});
+
+test('L3: an unfunded replication offset blocks before the sender is launched', () => {
+  const { status, cells } = runWakeCell(['--pair', 'claude:codex',
+    '--wake-release-offsets-ms', '60000', '--timeout-ms', '30000']);
+  assert.equal(status, 2);
+  assert.equal(cells[0].blocker, 'wake-window-unfunded');
+  assert.notEqual(cells[0].woke, true);
+  assert.notEqual(cells[0].senderMcp, true);
 });
 
 test('L3: a replayed wake produces at most one qualifying read', () => {
