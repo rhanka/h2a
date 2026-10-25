@@ -31,7 +31,7 @@ const option = (name, fallback) => {
 };
 // Lot L3 wake protocol (§3.3): closed flag grammar. Timings are PROPOSITION
 // values (ratified under D2); relations and refusals are normative.
-const SIM_WAKE_DEFAULTS = { w0Ms: 2000, w1Ms: 13000, dMs: 3000 };
+const SIM_WAKE_DEFAULTS = { w0Ms: 13000, w1Ms: 13000, dMs: 3000 };
 const REAL_WAKE_DEFAULTS = { w0Ms: 15000, w1Ms: 15000, dMs: 3000 };
 export function parseWakeWindows(raw, simulated) {
   const fallback = simulated ? SIM_WAKE_DEFAULTS : REAL_WAKE_DEFAULTS;
@@ -542,13 +542,16 @@ async function worker() {
     // drive, D released delay. Window sizes are PROPOSITION values (D2);
     // relations and refusals are normative. A cell that cannot fund W0+W1+D
     // inside its budget is blocked (wake-window-unfunded), never shortened.
-    const { w0Ms, w1Ms, dMs } = wake;
+    // Unavailability rows claim no wake. Keep their fault observation budget
+    // separate from the three-phase experiment required by probe/refusal.
+    const claimsWake = scenario.kind !== 'unavailability';
+    const { w0Ms, w1Ms, dMs } = claimsWake ? wake : { w0Ms: 0, w1Ms: 0, dMs: 0 };
     row.budgetMs = timeoutMs;
     row.wakeWindows = { w0Ms, w1Ms, dMs, barrierAt, releaseOffsetMs, notifyIntervalMs, timestampUncertaintyMs: 1,
       deliveryAt: null, withholdAt: null, releaseAt: null, wakeAt: null, firstReadAt: null,
       baselineReads: 0, preBarrierReads: 0, withheldReads: 0 };
     row.wakeClaim = 'no wake claimed (no durable delivery)';
-    if (timeoutMs - (barrierAt - started) < w0Ms + w1Ms + releaseOffsetMs + notifyIntervalMs + 100 + dMs) {
+    if (claimsWake && timeoutMs - (barrierAt - started) < w0Ms + w1Ms + releaseOffsetMs + notifyIntervalMs + 100 + dMs) {
       row.blocker = 'wake-window-unfunded'; return row;
     }
     // Withhold the product drive at the harness-owned private host BEFORE any
@@ -617,7 +620,7 @@ async function worker() {
     } else {
       row.wakeWindows.deliveryAt = deliveryAt;
       let releaseAt = deliveryAt + w1Ms + releaseOffsetMs;
-      if (releaseAt + notifyIntervalMs + 100 + dMs > deadline) {
+      if (claimsWake && releaseAt + notifyIntervalMs + 100 + dMs > deadline) {
         row.blocker = 'wake-window-unfunded'; return row;
       }
       row.wakeWindows.plannedReleaseAt = releaseAt;
@@ -731,6 +734,7 @@ async function worker() {
     if (scenario.kind === 'unavailability' && !row.blocker && !row.received && !row.woke && !row.replyDelivered) {
       row.durableOnly = scenario.state === 'stopped-receiver' && row.delivered === true;
       row.blocker = expectedScenarioBlocker(scenario);
+      row.wakeClaim = 'no wake claimed (unavailable peer)';
     }
     // Lot L12: refusal twins. Phase A proved the runner live (reply
     // delivered); phase B injects the faulty wake and requires rejection —
@@ -998,7 +1002,7 @@ async function main() {
     : CLIS.flatMap(sender => CLIS.map(receiver => ({ sender, receiver })))
       .filter(p => (!selected || `${p.sender}:${p.receiver}` === selected) && (!selectedSender || p.sender === selectedSender));
   assert.ok(pairs.length, 'unknown --pair');
-  const timeoutMs = Number(option('--timeout-ms', simulated ? '30000' : '60000'));
+  const timeoutMs = Number(option('--timeout-ms', '60000'));
   assert.ok(Number.isSafeInteger(timeoutMs) && timeoutMs >= 1000 && timeoutMs <= 180000, 'invalid bounded timeout');
   // Lot L12: scripted scenario dispatch. Unknown specs fail fast here —
   // the worker never sees them.
@@ -1243,7 +1247,8 @@ async function main() {
   const result = { version: 1, mode: simulated ? 'simulated-model' : 'real-cli', sha, node: process.version,
     command: ['node', 'scripts/qualify-cross-cli.mjs', ...redactedArgs].join(' '),
     root, build: built,
-    harnessDigests: Object.fromEntries(['qualify-cross-cli.mjs', 'xcli-lab.mjs', 'xcli-proxy.mjs', 'xcli-terminal.mjs', 'xcli-simulated-model.mjs'].map(name =>
+    harnessDigests: Object.fromEntries(['qualify-cross-cli.mjs', 'xcli-lab.mjs', 'xcli-proxy.mjs', 'xcli-terminal.mjs',
+      'xcli-simulated-model.mjs', 'xcli-wake-host.mjs', 'xcli-ci-check.mjs'].map(name =>
       [name, createHash('sha256').update(fs.readFileSync(join(repo, 'scripts', name))).digest('hex')])),
     seatMode, caps, capsStatus: 'proposition-pending-D2',
     ledgerTotals: renderSeatLedger(ledger), ledgerRefusals: ledger.refusals, preflights,

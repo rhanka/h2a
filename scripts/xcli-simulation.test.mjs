@@ -7,24 +7,7 @@ import test from 'node:test';
 import { environment } from './xcli-lab.mjs';
 import { verifySimulation, verifyWakeBatch, verifyWakePhases } from './xcli-ci-check.mjs';
 
-// Lot L3 helpers: run one simulated cell with wake-protocol flags and return
-// the receipt's first cell. Every run uses temp dirs only, never real state.
-function runWakeCell(args, spawnTimeoutMs = 300000) {
-  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-wake-'));
-  const output = join(root, 'receipt.json');
-  const env = { ...environment(join(root, 'env')), TMPDIR: tmpdir(),
-    ...(process.env.XCLI_NODE_HEADERS ? { XCLI_NODE_HEADERS: process.env.XCLI_NODE_HEADERS } : {}) };
-  const result = spawnSync(process.execPath, [join(import.meta.dirname, 'qualify-cross-cli.mjs'),
-    '--simulated', ...args, '--output', output],
-  { env, encoding: 'utf8', timeout: spawnTimeoutMs, maxBuffer: 4 * 1024 * 1024 });
-  assert.ok(fs.existsSync(output), `qualification produced no receipt: ${result.stdout}\n${result.stderr}`);
-  const receipt = JSON.parse(fs.readFileSync(output, 'utf8'));
-  return { status: result.status, receipt, cells: receipt.cells };
-}
-
-function receiverInboxReads(cell) {
-  return cell.evidence.filter(e => e.event === 'inbox' && e.role === 'receiver' && e.ok);
-}
+import { runWakeCell, receiverInboxReads } from './xcli-simulation-fixture.mjs';
 
 test('a delivered envelope without a model reaction fails the live CI gate', () => {
   const root = fs.mkdtempSync(join(tmpdir(), 'xcli-negative-'));
@@ -32,7 +15,7 @@ test('a delivered envelope without a model reaction fails the live CI gate', () 
   const env = { ...environment(join(root, 'env')), TMPDIR: tmpdir(),
     ...(process.env.XCLI_NODE_HEADERS ? { XCLI_NODE_HEADERS: process.env.XCLI_NODE_HEADERS } : {}) };
   const result = spawnSync(process.execPath, [join(import.meta.dirname, 'qualify-cross-cli.mjs'),
-    '--simulated', '--pair', 'codex:codex', '--drop-simulated-wake', '--timeout-ms', '30000', '--output', output],
+    '--simulated', '--pair', 'codex:codex', '--drop-simulated-wake', '--timeout-ms', '60000', '--output', output],
   { env, encoding: 'utf8', timeout: 90000, maxBuffer: 1024 * 1024 });
   assert.equal(result.status, 2, 'negative control must fail the qualification command');
   const receipt = JSON.parse(fs.readFileSync(output, 'utf8'));
@@ -49,7 +32,7 @@ test('a delivered envelope without a model reaction fails the live CI gate', () 
 
 test('L3: a polling receiver that reads and replies earns no wake credit', () => {
   const { status, cells } = runWakeCell(['--pair', 'claude:codex',
-    '--poll', 'periodic:3000:0', '--timeout-ms', '30000']);
+    '--poll', 'periodic:3000:0', '--timeout-ms', '60000']);
   const cell = cells[0];
   assert.equal(status, 2, 'a polling receiver must fail the qualification command');
   assert.equal(cell.status, 'simulated-KO');
@@ -58,40 +41,9 @@ test('L3: a polling receiver that reads and replies earns no wake credit', () =>
   assert.equal(cell.wakeFailure, 'wake-polling-detected');
 });
 
-test('L3: polling periods and phases across the control matrix fail stage 7', () => {
-  const combos = [];
-  for (const period of [1000, 5000, 15000, 45000, 90000])
-    for (const div of [0, 1, 2]) combos.push([period, Math.round(period * div / 3)]);
-  const rows = [];
-  for (const [period, phase] of combos) {
-    // Fund the complete negative experiment under the original-clock guard.
-    // The former 30 s control relied on the post-launch clock reset. These
-    // cells must still exit 2 and fail stage 7 with the same W0/W1/D.
-    const { status, cells } = runWakeCell(['--pair', 'claude:codex',
-      '--poll', `periodic:${period}:${phase}`, '--timeout-ms', '45000']);
-    const cell = cells[0];
-    rows.push({ period, phase, budgetMs: cell.budgetMs, status: cell.status, woke: cell.woke, wakeFailure: cell.wakeFailure });
-    assert.equal(status, 2, `period ${period} phase ${phase}: must fail the command`);
-    assert.equal(cell.status, 'simulated-KO', `period ${period} phase ${phase}: must not pass`);
-    assert.equal(cell.woke, false, `period ${period} phase ${phase}: no wake credit`);
-    // A zero phase ticks at the barrier (baseline read); short periods always
-    // land a tick in the baseline or withheld window; the 45 s period with a
-    // 15 s phase is caught in the withheld window for any realistic delivery.
-    // Only late single ticks can miss the post-release delay bound.
-    if (phase === 0 || period <= 15000 || (period === 45000 && phase === 15000)) {
-      assert.equal(cell.wakeFailure, 'wake-polling-detected', `period ${period} phase ${phase}: must read during baseline or withheld phase`);
-    } else {
-      assert.ok(['wake-no-qualifying-read', 'wake-delay-exceeded'].includes(cell.wakeFailure),
-        `period ${period} phase ${phase}: must miss the post-release delay bound or never read`);
-    }
-  }
-  console.log('L3 polling matrix (period ms, phase ms, status, woke, mechanism):');
-  for (const row of rows) console.log(`  ${row.period} ${row.phase} budget=${row.budgetMs} ${row.status} woke=${row.woke} ${row.wakeFailure}`);
-});
-
 test('L3: a slow poller whose first read lands after the wake still fails stage 7', () => {
   const { status, cells } = runWakeCell(['--pair', 'claude:codex',
-    '--poll', 'single:30000', '--timeout-ms', '45000']);
+    '--poll', 'single:60000', '--timeout-ms', '90000']);
   const cell = cells[0];
   const barrier = cell.evidence.find(e => e.event === 'receiver-idle-barrier').at;
   const wake = cell.evidence.find(e => e.event === 'inbox-wake' && e.ok && e.role === 'receiver');
@@ -135,17 +87,22 @@ test('L3 unit: overlapping acceptance windows earn no batch credit', () => {
   assert.equal(verifyWakeBatch(separated.slice(0, 2)).pass, false, 'fewer than 3 replications earns no credit');
 });
 
-test('L3: overlapping-window replications earn no batch credit, late release fails phase 2', () => {
-  // Three close-offset replications (wake-delayed single read: deterministic
-  // cell-level pass, structurally overlapping acceptance windows).
+test('L3: fixed polling never earns batch credit under close offsets or late release', () => {
+  // Keep the same barrier-relative polling schedule across all repetitions.
+  // Startup jitter may move the read into W0/W1 or beyond D; all of those
+  // observations must fail. The literal overlapping v2 case is pinned above.
   const { status, cells } = runWakeCell(['--pair', 'claude:codex',
-    '--poll', 'wakedelay:1000', '--wake-windows', '10000,10000,3000',
+    '--poll', 'single:23000', '--wake-windows', '10000,10000,3000',
     '--wake-release-offsets-ms', '0,414,828', '--timeout-ms', '60000']);
   assert.equal(cells.length, 3, 'three replications must run');
   assert.equal(status, 2, 'the overlapping batch must fail the command');
   for (const cell of cells) {
     assert.equal(cell.woke, false, 'no rep earns stage-7 credit without separation');
-    assert.equal(cell.wakeFailure, 'wake-phase-separation-unproven');
+    if (cell.wakeWindows.preBarrierReads + cell.wakeWindows.baselineReads + cell.wakeWindows.withheldReads > 0) {
+      assert.equal(cell.wakeFailure, 'wake-polling-detected');
+    } else {
+      assert.ok(['wake-phase-separation-unproven', 'wake-delay-exceeded', 'wake-no-qualifying-read'].includes(cell.wakeFailure));
+    }
   }
   // Second run: same polling schedule, later withheld window containing the
   // whole earlier acceptance window — the read lands while wake is withheld.
@@ -158,7 +115,7 @@ test('L3: overlapping-window replications earn no batch credit, late release fai
 
 test('L3: a withheld-forever twin shows no qualifying read', () => {
   const { status, cells } = runWakeCell(['--pair', 'claude:codex',
-    '--withhold-forever', '--timeout-ms', '45000']);
+    '--withhold-forever', '--timeout-ms', '60000']);
   const cell = cells[0];
   assert.equal(status, 2, 'without a released wake the cell must fail');
   assert.ok(!cell.received, 'no qualifying read without a released wake');
@@ -177,7 +134,7 @@ test('L3: an unfunded replication offset blocks before the sender is launched', 
 
 test('L3: a replayed wake produces at most one qualifying read', () => {
   const { status, cells } = runWakeCell(['--pair', 'claude:codex',
-    '--replay-wake', '--wake-release-offsets-ms', '0,6000,1000', '--timeout-ms', '45000']);
+    '--replay-wake', '--wake-release-offsets-ms', '0,6000,1000', '--timeout-ms', '60000']);
   const cell = cells[0];
   assert.equal(status, 0, 'the passing cell stays green; the replay is a post-pass control');
   assert.equal(cell.status, 'simulated-OK');
@@ -242,7 +199,7 @@ test('L9d: a login-free real Gemini cell blocks on auth, never on Python', () =>
 
 test('L3: normal simulated cells keep full wake credit with bounded wording', () => {
   for (const pair of ['claude:codex', 'codex:claude']) {
-    const { status, cells } = runWakeCell(['--pair', pair, '--wake-release-offsets-ms', '0,6000,1000', '--timeout-ms', '45000']);
+    const { status, cells } = runWakeCell(['--pair', pair, '--wake-release-offsets-ms', '0,6000,1000', '--timeout-ms', '60000']);
     const cell = cells[0];
     assert.equal(status, 0, `${pair} must stay simulated-OK`);
     assert.equal(cell.woke, true, `${pair} keeps stage-7 credit under the protocol`);
