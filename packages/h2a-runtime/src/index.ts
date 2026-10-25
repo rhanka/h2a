@@ -6433,7 +6433,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         const nativeExistence = await Promise.all(labels
           .map((label) => slugify(label ?? cwd))
           .map(async (slug) => {
-            const detail = await nativeSessionStateAsync(localSessionName(slug), sessionHost === "native");
+            const detail = sessionHost === "native"
+              ? await nativeSessionStateAsync(localSessionName(slug), true)
+              : nativeSessionState(localSessionName(slug));
             const probe: ManagedHostProbeResult = detail.state === "unknown" ? "unknown"
               : detail.state === "found" && detail.session.status === "running" ? "live" : "dead";
             return { slug, probe, reason: detail.state === "unknown" ? detail.reason : undefined };
