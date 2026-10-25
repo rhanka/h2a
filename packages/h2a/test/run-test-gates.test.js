@@ -1665,3 +1665,10 @@ test('L0 trust root: neutralising ledger enforcement cannot hide the independent
     assert.ok(verify(report).some(f => f.includes('RED -> observed GREEN')), 'the npm gate must reject a swallowed assertion');
   } finally { rmSync(lab, { recursive: true, force: true }); }
 });
+test('independent post-Node suites start without spending each other\'s execution budget', () => {
+  observeNodeTrackEntry(readFileSync(resolve(REPO_ROOT, 'scripts/run-tests.mjs'), 'utf8'), REPO_ROOT, { parallel: true })
+})
+
+test('a failed parallel suite remains failed and every independent suite still executes', () => {
+  observeNodeTrackEntry(readFileSync(resolve(REPO_ROOT, 'scripts/run-tests.mjs'), 'utf8'), REPO_ROOT, { parallel: true, failedSuite: 'Focus' })
+})
