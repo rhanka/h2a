@@ -53,7 +53,7 @@ const BIN = join(REPO_ROOT, "packages", "h2a", "dist", "bin.js");
 // Integrated head (LOT-3/LOT-5 registry verbs): the core help gains the
 // `registry catalog`, `registry bootstrap` and `hosted-lock` usage lines
 // (+501 bytes).
-const CORE_HELP_SHA256 = "2f3cfec26afa69d9993711716b222efdd2148796d35da0ede1bddd6313e4c01e";
+const CORE_HELP_SHA256 = "b993a5237f5c098340ffe7531d36d7bab0109125106a0041698267ba1e8d8615";
 
 const RUNTIME_MISSING =
   "ce verbe requiert le runtime h2a (sessions / k8s / tunnel).\n" +
