@@ -15,6 +15,7 @@ import { loadSeatManifest, resolveCampaignPair, createCampaignLedger, loadCampai
   runSeatPreflight } from './xcli-seats.mjs';
 import { startupTerminal } from './xcli-terminal.mjs';
 import { verifyWakeBatch } from './xcli-ci-check.mjs';
+import { correlateWakeInput } from './xcli-wake-host.mjs';
 import { buildSupervisor, supervisedCommand, supervisorResult } from './xcli-process-supervisor.mjs';
 import { scanEvidenceText } from './xcli-evidence-scan.mjs';
 import { parseScenario, expectedScenarioBlocker, UNKNOWN_INSTANCE, validateScriptSteps,
@@ -31,7 +32,7 @@ const option = (name, fallback) => {
 // Lot L3 wake protocol (§3.3): closed flag grammar. Timings are PROPOSITION
 // values (ratified under D2); relations and refusals are normative.
 const SIM_WAKE_DEFAULTS = { w0Ms: 2000, w1Ms: 13000, dMs: 3000 };
-const REAL_WAKE_DEFAULTS = { w0Ms: 5000, w1Ms: 15000, dMs: 20000 };
+const REAL_WAKE_DEFAULTS = { w0Ms: 15000, w1Ms: 15000, dMs: 3000 };
 export function parseWakeWindows(raw, simulated) {
   const fallback = simulated ? SIM_WAKE_DEFAULTS : REAL_WAKE_DEFAULTS;
   if (raw === undefined) return { ...fallback };
@@ -144,12 +145,16 @@ async function worker() {
   // exec observer and replaces this view before any campaign publication.
   const execJournal = join(cell, 'exec-journal.jsonl');
   recordExec(execJournal, { pid: process.pid, path: resolve(process.argv[1] ?? process.execPath), tag: 'harness' });
-  const hostEnv = { ...environment(cell), H2A_TEST_QUALIFICATION_ROOT: root };
+  const inputJournal = join(cell, 'native-input.jsonl');
+  const hostEnv = { ...environment(cell), H2A_TEST_QUALIFICATION_ROOT: root,
+    XCLI_CELL: cell, XCLI_BUILD: build, XCLI_INPUT_JOURNAL: inputJournal };
   Object.assign(process.env, hostEnv);
   const isolation = await import(pathToFileURL(join(build, 'packages/h2a/test/helpers/native-isolation.js')));
   const { NativeTerminalClient } = await import(pathToFileURL(join(build, 'packages/h2a-runtime/dist/native-terminal/client.js')));
   const { enroll } = await import(pathToFileURL(join(build, 'packages/h2a-runtime/dist/registry.js')));
-  const { createLocalStore } = await import(pathToFileURL(join(build, 'packages/h2a/dist/index.js')));
+  const product = await import(pathToFileURL(join(build, 'packages/h2a/dist/index.js')));
+  const { createLocalStore, H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS } = product;
+  const notifyIntervalMs = simulated ? 100 : H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS;
   const { paneIsReady } = await import(pathToFileURL(join(build, 'packages/h2a-runtime/dist/prompt-delivery.js')));
   const { stripAnsi } = await import(pathToFileURL(join(build, 'packages/h2a-runtime/dist/native-terminal/op.js')));
   const row = { sender, receiver, scenario: scenario.key, status: 'blocked', senderMcp: null, receiverMcp: null,
@@ -166,7 +171,7 @@ async function worker() {
   const store = createLocalStore({ root: hostEnv.H2A_ROOT });
   const bin = join(build, 'packages/h2a/dist/bin.js');
   const proxy = join(repo, 'scripts/xcli-proxy.mjs');
-  const started = Date.now();
+  const started = Date.parse(row.startedAt);
   let cancelled = false;
   const cancel = () => { cancelled = true; };
   process.on('SIGTERM', cancel);
@@ -207,7 +212,7 @@ async function worker() {
       // must see the same owned-process view, never unrelated owner processes.
       H2A_TEST_PROC_ROOT: process.env.H2A_TEST_PROC_ROOT,
       H2A_TEST_OWNED_PROC_ROOT: process.env.H2A_TEST_OWNED_PROC_ROOT,
-      ...(simulated ? { H2A_NOTIFY_INTERVAL_MS: '100' } : {}),
+      H2A_NOTIFY_INTERVAL_MS: String(notifyIntervalMs),
       H2A_MCP_TRACE: '1',
       ...(dropWake ? { XCLI_DROP_WAKE: '1' } : {}),
     };
@@ -358,7 +363,8 @@ async function worker() {
       if (pythonEntrypoint(executables[cli])) { row.blocker = `python-entrypoint-forbidden:${cli}`; return row; }
     }
     host = isolation.spawnIsolatedNative(process.execPath,
-      [join(build, 'packages/h2a-runtime/dist/native-terminal/process.js'), '--socket', hostEnv.H2A_NATIVE_SOCKET,
+      ['--import', join(repo, 'scripts/xcli-wake-host.mjs'),
+        join(build, 'packages/h2a-runtime/dist/native-terminal/process.js'), '--socket', hostEnv.H2A_NATIVE_SOCKET,
         '--generation', 'xcli-private', '--registry-path', registry],
       { env: hostEnv, stdio: ['ignore', 'ignore', 'pipe'] });
     host.stderr.resume(); // discard, never persist raw errors
@@ -537,13 +543,12 @@ async function worker() {
     // relations and refusals are normative. A cell that cannot fund W0+W1+D
     // inside its budget is blocked (wake-window-unfunded), never shortened.
     const { w0Ms, w1Ms, dMs } = wake;
-    const notifyIntervalMs = simulated ? 100 : 0; // 0 = product default, recorded but unset
     row.budgetMs = timeoutMs;
-    row.wakeWindows = { w0Ms, w1Ms, dMs, barrierAt, releaseOffsetMs, notifyIntervalMs,
+    row.wakeWindows = { w0Ms, w1Ms, dMs, barrierAt, releaseOffsetMs, notifyIntervalMs, timestampUncertaintyMs: 1,
       deliveryAt: null, withholdAt: null, releaseAt: null, wakeAt: null, firstReadAt: null,
-      baselineReads: 0, preBarrierReads: 0 };
+      baselineReads: 0, preBarrierReads: 0, withheldReads: 0 };
     row.wakeClaim = 'no wake claimed (no durable delivery)';
-    if (timeoutMs - (barrierAt - started) < w0Ms + w1Ms + dMs) {
+    if (timeoutMs - (barrierAt - started) < w0Ms + w1Ms + releaseOffsetMs + notifyIntervalMs + 100 + dMs) {
       row.blocker = 'wake-window-unfunded'; return row;
     }
     // Withhold the product drive at the harness-owned private host BEFORE any
@@ -583,7 +588,7 @@ async function worker() {
       ? UNKNOWN_INSTANCE : readiness.instance;
     const senderPrompt = `Qualification h2a. Use only h2a MCP tools. Call h2a_identity_status until identity_ready (stop if identity_failed), then h2a_send once, to exactly ${sendTarget}, message exactly ${PROBE}. Finish your turn. Never use shell, files, other agents or any non-h2a tool.`;
     const s = await launch(sender, 'sender', senderPrompt);
-    const deadline = Date.now() + timeoutMs;
+    const deadline = started + timeoutMs;
     // Phase 2a: wait for the signed send and durable delivery. No reply break
     // here: the withheld-window observation must run its full course.
     let send = null, deliveryAt = 0;
@@ -611,8 +616,11 @@ async function worker() {
       if (!row.blocker) row.failure = row.sent ? 'live-receive-not-observed' : 'sender-send-not-observed';
     } else {
       row.wakeWindows.deliveryAt = deliveryAt;
-      const releaseAt = deliveryAt + w1Ms + releaseOffsetMs;
-      row.wakeWindows.releaseAt = withholdForever ? null : releaseAt;
+      let releaseAt = deliveryAt + w1Ms + releaseOffsetMs;
+      if (releaseAt + notifyIntervalMs + 100 + dMs > deadline) {
+        row.blocker = 'wake-window-unfunded'; return row;
+      }
+      row.wakeWindows.plannedReleaseAt = releaseAt;
       // Phase 2b: withheld window. The probe is already readable in the
       // inbox; any receiver read before release proves polling.
       while (Date.now() < Math.min(releaseAt, deadline)) {
@@ -623,16 +631,23 @@ async function worker() {
       }
       const preBarrierReads = receiverReads(0, barrierAt);
       const baselineReads = receiverReads(barrierAt, deliveryAt);
-      const withheldReads = receiverReads(deliveryAt, withholdForever ? Infinity : releaseAt);
       row.wakeWindows.preBarrierReads = preBarrierReads.length;
       row.wakeWindows.baselineReads = baselineReads.length;
       if (!withholdForever && !row.blocker) {
         try {
-          await client.releaseController(withholdLease); withholdLease = null;
-          row.evidence.push({ event: 'wake-release', at: Date.now() });
+          const lease = withholdLease;
+          await client.releaseController(lease); withholdLease = null;
+          const released = readEvents(inputJournal).find(e => e.event === 'release' && e.id === lease.id &&
+            e.incarnation === lease.incarnation && e.epoch === lease.epoch);
+          if (!released) throw new Error('wake release not witnessed');
+          releaseAt = released.at;
+          row.wakeWindows.releaseAt = releaseAt;
+          row.evidence.push({ event: 'wake-release', at: releaseAt });
         }
         catch { row.blocker = 'wake-withhold-unavailable'; }
       }
+      const withheldReads = receiverReads(deliveryAt, withholdForever ? Infinity : releaseAt);
+      row.wakeWindows.withheldReads = withheldReads.length;
       // Phase 3: released window. Wait for the product wake, the qualifying
       // read and the signed reply — plus first-wake/read tracking.
       let firstWakeOk = null, firstRead = null;
@@ -665,15 +680,24 @@ async function worker() {
         row.woke = false;
       } else {
         row.wakeClaim = `withheld-protocol, periods ≤ ${w1Ms}ms excluded, single replication (no batch separation); varying-phase polling not excluded`;
-        row.wakeWindows.wakeAt = firstWakeOk?.at ?? null;
+        const probe = store.readInbox(readiness.instance).find(e => e.id === send.envelopeId);
+        const journal = correlateWakeInput(readEvents(inputJournal), { target: r.state, barrierAt, releaseAt,
+          send, receiver: readiness.instance, probe, product, store });
+        row.wakeWindows.inputJournal = journal;
+        row.evidence.push({ event: 'wake-input-proof', at: Date.now(), ...journal });
+        row.wakeWindows.wakeAt = journal.correlated ? journal.submitAt : null;
         row.wakeWindows.firstReadAt = firstRead?.at ?? null;
         const firstReadHasProbe = Boolean(firstRead?.envelopes?.some(v => v.id === send.envelopeId &&
           v.from === send.from && v.to === readiness.instance && v.kind === 'probe'));
         if (preBarrierReads.length || baselineReads.length || withheldReads.length) row.wakeFailure = 'wake-polling-detected';
         else if (!firstWakeOk) row.wakeFailure = 'wake-no-qualifying-read';
+        else if (!journal.correlated || !journal.onlyWakeInput) row.wakeFailure = 'wake-input-unproven';
         else if (!firstRead || !firstReadHasProbe) row.wakeFailure = 'wake-no-qualifying-read';
-        else if (firstRead.at < firstWakeOk.at || firstRead.at - firstWakeOk.at > dMs) row.wakeFailure = 'wake-delay-exceeded';
-        row.woke = Boolean(row.received && firstReadHasProbe && !row.wakeFailure && row.noPostSendHarnessInput);
+        else if (firstRead.at < journal.submitAt || firstRead.at - journal.submitAt > dMs) row.wakeFailure = 'wake-delay-exceeded';
+        else if (journal.submitAt + dMs > deadline || releaseAt + notifyIntervalMs + 100 + dMs > deadline) {
+          row.blocker = 'wake-window-unfunded';
+        }
+        row.woke = Boolean(row.received && firstReadHasProbe && !row.blocker && !row.wakeFailure && row.noPostSendHarnessInput);
       }
       // Control (d): replay the exact witnessed wake line after a pass. The
       // duplicate must produce no second qualifying read and no second reply.
@@ -986,7 +1010,6 @@ async function main() {
   const replayWake = process.argv.includes('--replay-wake');
   const releaseOffsets = parseOffsets(option('--wake-release-offsets-ms'));
   assert.ok(!withholdForever || releaseOffsets.length === 1, '--withhold-forever runs a single cell');
-  const notifyIntervalMs = simulated ? 100 : 0; // 0 = product default, recorded but not set
   const runs = [];
   const baseRuns = (manifest || authHomeAlias) ? seatRuns : pairs;
   for (const base of baseRuns) for (const releaseOffsetMs of releaseOffsets) {
