@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { LANE_TEST_FILES } from '../../../../scripts/run-tests.mjs'
 
-export function observeNodeTrackEntry(source, repoRoot, { preparedNpmCache = false, nodeBucketFault, parallel = false, failedSuite } = {}) {
+export function observeNodeTrackEntry(source, repoRoot, { preparedNpmCache = false, nodeBucketFault, parallel = false, boundedWorkers = false, failedSuite } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'node-track-observation-'))
   try {
     for (const dir of ['scripts', 'packages/h2a/test', 'packages/focus-interactive/test', 'packages/track/src', 'packages/agent-stats/tests', 'packages/focus/tests', 'legacy/packages/h2a-runtime/dist/native-terminal', 'home', 'run']) mkdirSync(join(root, dir), { recursive: true })
@@ -63,6 +63,8 @@ cp.spawnSync=(command,args,options)=>{
   }
   const node=args.includes('--test');
   const bucket=node?(args.some(arg=>arg.endsWith('/drive-consent-index.test.js'))?'corpus':args.some(arg=>arg.endsWith('/native-inventory-absence.test.js'))?'native':'rest'):null;
+  if (${boundedWorkers} && !node && !args.includes('--maxWorkers=1')) throw Error('parallel suites must share the CPU budget');
+  if(!options.env.MH_L5_ARTIFACTS || !options.env.MH_L6_NATIVE_ASSETS) throw Error('mandatory MH fixtures were not passed to the suites');
   const suite=options.cwd.endsWith('packages/agent-stats')?'AgentStats':(options.cwd.endsWith('packages/focus')?'Focus':'Track');
   const actual=node ? args.filter((arg)=>arg.endsWith('.test.js')).map((arg)=>resolve(options.cwd,arg)) : args.filter((arg)=>arg.endsWith('.test.ts')||arg.endsWith('.spec.ts')).map((arg)=>resolve(options.cwd,arg));
   const required=(node?files.filter(file=>bucket==='corpus'?file.endsWith('/drive-consent-index.test.js'):bucket==='native'?file.includes('/native-'):!file.endsWith('/drive-consent-index.test.js')&&!file.includes('/native-')):(suite==='AgentStats'?[agentStats]:(suite==='Focus'?[focus]:[track]))).map((file)=>resolve(root,file));
