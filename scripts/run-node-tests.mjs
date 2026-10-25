@@ -61,7 +61,13 @@ const bulkNames = ['mh-l6-package.test.js', 'mh-l6-runtime-package.test.js',
   'drive-consent-index.test.js', 'candidate-artifacts.test.js', 'mh-l1-package.test.js',
   'mh-l6-components.test.js', 'mh-l6-entry.test.js', 'mh-l6-native.test.js', 'mh-l6-native-copy.test.js'];
 const bulk = bulkNames.flatMap(name => files.filter(file => basename(file) === name));
-const remaining = files.filter(file => !standalone.includes(file) && !bulk.includes(file) && !backend.includes(file));
+// The native inventory and packaging seam take several minutes on CI. Start
+// them with the protocol pool, so their tail cannot postpone every bulk file.
+// Preserve the cold-start and bulk barriers, worker count and complete scope.
+const longProtocols = ['native-inventory-absence.test.js', 'succession-lock-seam-guard.test.js']
+  .flatMap(name => files.filter(file => basename(file) === name));
+const remaining = [...longProtocols, ...files.filter(file => !standalone.includes(file) && !bulk.includes(file)
+  && !backend.includes(file) && !longProtocols.includes(file))];
 async function* execute(group, workers = concurrency) {
   if (!group.length) return;
   yield* run({ files: group, isolation: 'process', concurrency: workers,
