@@ -37,8 +37,12 @@ test('L11: a branch-only campaign without a receipt reports pending qualificatio
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 const stages = () => Object.fromEntries(STAGE_KEYS.map(key => [key, true]));
-const replications = () => [20000, 28000, 24000].map(releaseAt => ({ woke: true, wakeWindows: {
-  barrierAt: 0, deliveryAt: 10000, releaseAt, wakeAt: releaseAt + 1000, firstReadAt: releaseAt + 2000, dMs: 3000 } }));
+const replications = () => [20000, 28000, 24000].map(releaseAt => ({ woke: true,
+  budgetMs: 45000, startedAt: new Date(0).toISOString(), noPostSendHarnessInput: true,
+  wakeWindows: { barrierAt: 0, deliveryAt: 10000, releaseAt, wakeAt: releaseAt + 1000, firstReadAt: releaseAt + 2000,
+    w0Ms: 10000, w1Ms: 10000, dMs: 3000, withholdAt: 0, releaseOffsetMs: releaseAt - 20000,
+    notifyIntervalMs: 100, timestampUncertaintyMs: 1, preBarrierReads: 0, baselineReads: 0, withheldReads: 0,
+    inputJournal: { correlated: true, onlyWakeInput: true, writes: 2, lineAt: releaseAt + 900, submitAt: releaseAt + 1000 } } }));
 
 function cliVersions() {
   return {
