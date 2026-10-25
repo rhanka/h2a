@@ -73,7 +73,8 @@ configuration sans login ni appel modèle.
 ```sh
 node --test scripts/xcli-lab.test.mjs scripts/xcli-proxy.test.mjs \
   scripts/xcli-simulation.test.mjs scripts/xcli-gemini-registry.test.mjs
-node scripts/qualify-cross-cli.mjs --simulated --timeout-ms 45000 \
+node --test scripts/xcli-polling-controls.test.mjs
+node scripts/qualify-cross-cli.mjs --simulated --timeout-ms 60000 \
   --wake-release-offsets-ms 0,6000,1000 --output /tmp/xcli-sim.json
 node scripts/xcli-ci-check.mjs /tmp/xcli-sim.json
 ```

@@ -149,6 +149,7 @@ export function verifyWakePhases(cell) {
     return ['wake phase measurements missing'];
   }
   if (w.withholdAt > w.deliveryAt || w.deliveryAt - w.barrierAt < w.w0Ms ||
+      w.w0Ms < w.w1Ms ||
       w.releaseAt - w.deliveryAt < w.w1Ms + w.releaseOffsetMs ||
       w.wakeAt < w.releaseAt || w.firstReadAt < w.wakeAt || w.firstReadAt - w.wakeAt > w.dMs ||
       w.preBarrierReads !== 0 || w.baselineReads !== 0 || w.withheldReads !== 0 ||

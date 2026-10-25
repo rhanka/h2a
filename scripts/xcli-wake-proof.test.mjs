@@ -9,11 +9,11 @@ import { verifyWakeBatch } from './xcli-ci-check.mjs';
 import { journalNativeInput, correlateWakeInput } from './xcli-wake-host.mjs';
 import { sourceBuild, PROBE } from './xcli-lab.mjs';
 
-const batch = () => [20000, 28000, 24000].map(releaseAt => ({
-  woke: true, budgetMs: 45000, startedAt: new Date(0).toISOString(), noPostSendHarnessInput: true,
-  wakeWindows: { barrierAt: 5000, w0Ms: 2000, w1Ms: 13000, dMs: 3000,
-    releaseOffsetMs: releaseAt - 20000, notifyIntervalMs: 100, timestampUncertaintyMs: 1,
-    deliveryAt: 7000, withholdAt: 5000, releaseAt, wakeAt: releaseAt + 200,
+const batch = () => [26000, 34000, 30000].map(releaseAt => ({
+  woke: true, budgetMs: 60000, startedAt: new Date(0).toISOString(), noPostSendHarnessInput: true,
+  wakeWindows: { barrierAt: 0, w0Ms: 13000, w1Ms: 13000, dMs: 3000,
+    releaseOffsetMs: releaseAt - 26000, notifyIntervalMs: 100, timestampUncertaintyMs: 1,
+    deliveryAt: 13000, withholdAt: 0, releaseAt, wakeAt: releaseAt + 200,
     firstReadAt: releaseAt + 400, preBarrierReads: 0, baselineReads: 0, withheldReads: 0,
     inputJournal: { correlated: true, onlyWakeInput: true, writes: 2,
       lineAt: releaseAt + 100, submitAt: releaseAt + 200 } },
@@ -49,6 +49,12 @@ test('L3 rejects credit when release/read ordering or the measured phases are in
 
 test('L3 accepts a funded, journal-correlated separated batch', () => {
   assert.equal(verifyWakeBatch(batch()).pass, true);
+});
+
+test('L3 baseline covers every polling period named in the exclusion claim', () => {
+  const cells = batch();
+  cells[0].wakeWindows.w0Ms = 2000;
+  assert.equal(verifyWakeBatch(cells).pass, false, 'W0 must cover the claimed W1 exclusion period');
 });
 
 test('L3 journals successful host writes and rejects uncorrelated or additional input', async () => {

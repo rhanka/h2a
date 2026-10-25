@@ -147,14 +147,15 @@ export function classifyInventoryRow(parsed, row) {
 
 // Full S-matrix verdict: all 36 ordered pairs scenario-OK on every row.
 // Extra cells are ignored; missing or failing cells are named.
-export function verifyScenarioMatrix(cells, only) {
+export function verifyScenarioMatrix(cells, only, sender) {
   const failures = [];
   assert.ok(Array.isArray(cells), 'scenario cells required');
+  assert.ok(sender === undefined || CLIS.includes(sender), 'unknown scenario sender shard');
   const rows = only ? [parseScenario(only).key] : [...SCENARIO_ROWS];
   if (only) assert.ok(SCENARIO_ROWS.includes(rows[0]), `unknown-scenario:${only}`);
   const pairOf = cell => cell.pair ?? `${cell.sender}:${cell.receiver}`;
   const byKey = new Map(cells.map(cell => [`${cell.scenario}:${pairOf(cell)}`, cell]));
-  const allPairs = CLIS.flatMap(sender => CLIS.map(receiver => `${sender}:${receiver}`));
+  const allPairs = (sender ? [sender] : CLIS).flatMap(from => CLIS.map(receiver => `${from}:${receiver}`));
   for (const scenario of rows) {
     for (const pair of allPairs) {
       const row = byKey.get(`${scenario}:${pair}`);
@@ -511,8 +512,10 @@ if (invokedAsCli) {
   assert.ok(checkIndex !== -1, 'usage: xcli-scenarios.mjs --check <qualification.json>');
   const output = JSON.parse(fs.readFileSync(process.argv[checkIndex + 1], 'utf8'));
   const onlyIndex = process.argv.indexOf('--only');
+  const senderIndex = process.argv.indexOf('--sender');
   const verdict = verifyScenarioMatrix(output.cells ?? [],
-    onlyIndex === -1 ? undefined : process.argv[onlyIndex + 1]);
+    onlyIndex === -1 ? undefined : process.argv[onlyIndex + 1],
+    senderIndex === -1 ? undefined : process.argv[senderIndex + 1]);
   console.log(JSON.stringify({ pass: verdict.pass, failures: verdict.failures.slice(0, 20),
     failureCount: verdict.failures.length }));
   process.exitCode = verdict.pass ? 0 : 1;

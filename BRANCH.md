@@ -971,5 +971,10 @@ red/green receipts, qualification limits and cleanup evidence.
 - Complete L3's missing private-host PTY input witness and enforce each
   replication's actual phases and release offset inside its original budget.
   Keep all real-login qualification and trusted receipts conductor-owned.
+- Enforce W0 >= the W1 exclusion claim: simulated windows are 13/13/3 s,
+  explicitly funded at 60 s. Retain fixed barrier-relative polling in the
+  counterexamples. Split polling periods and refusal sender groups in CI,
+  preserving all 15 phase combinations and all 36 ordered scenario pairs
+  without increasing any job timeout. Unavailability rows claim no wake.
 - French audit with source anchors, RED/GREEN commands and remaining
   external qualification: [restart evidence](docs/2026-10-25-pr379-restart.md).
