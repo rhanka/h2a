@@ -166,6 +166,28 @@ function overlappingCampaign(t, failing = false) {
   return {result,files,evidence:JSON.parse(fs.readFileSync(report,'utf8'))};
 }
 
+test('long protocol files start first while every other protocol precedes bulk installs', t => {
+  const root = fs.mkdtempSync(join(tmpdir(), 'node-long-protocol-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const started = join(root, 'started.jsonl'), report = join(root, 'evidence.json');
+  const names = ['a-short.test.js', 'native-inventory-absence.test.js', 'succession-lock-seam-guard.test.js', 'mh-l6-package.test.js'];
+  const files = names.map(name => join(root, name));
+  for (const [index, file] of files.entries()) fs.writeFileSync(file, `
+    const {test}=require('node:test'),fs=require('node:fs');
+    fs.appendFileSync(${JSON.stringify(started)},${JSON.stringify(index + '\n')});
+    test('actual priority case ${index}',()=>{});`);
+  const env = { ...process.env }; delete env.NODE_TEST_CONTEXT;
+  const result = spawnSync(process.execPath, [resolve('scripts/run-node-tests.mjs'), '--test', '--test-concurrency=1',
+    '--test-reporter=spec', `--test-reporter=${resolve('scripts/node-evidence-reporter.mjs')}`,
+    '--test-reporter-destination=stdout', `--test-reporter-destination=${report}`, ...files], { env, encoding: 'utf8', timeout: 15_000 });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.equal(fs.readFileSync(started, 'utf8'), '1\n2\n0\n3\n');
+  const evidence = JSON.parse(fs.readFileSync(report, 'utf8'));
+  assert.equal(evidence.success, true);
+  assert.equal(evidence.numPassedTests, files.length);
+  for (const file of files) assert.ok(evidence.testResults.some(row => row.name === file && row.assertionResults.some(a => a.status === 'passed')));
+});
+
 test('the long backend overlaps remaining suites while bulk packages retain their protocol barrier',t=>{
   const {result,files,evidence}=overlappingCampaign(t);
   assert.equal(result.status,0,result.stdout+result.stderr);
