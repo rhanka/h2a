@@ -14,6 +14,7 @@
 import assert from 'node:assert/strict';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { availableParallelism } from 'node:os';
 import test from 'node:test';
 import { NativeTerminalClient } from '../../h2a-runtime/dist/native-terminal/client.js';
 import { fixture, eventually, usable } from './helpers/restart-lab.js';
@@ -23,6 +24,9 @@ const hostEntry = join(repo, 'packages/h2a-runtime/dist/native-terminal/process.
 const baselines = JSON.parse(
   readFileSync(join(repo, 'scripts/owner-lab/startup-baselines.json'), 'utf8'),
 );
+const loadProfile = process.env.H2A_LAB_INCIDENT_LOAD_PROFILE || 'default';
+assert.ok(['default', '8x20/8cpu'].includes(loadProfile), `unknown incident load profile: ${loadProfile}`);
+if (loadProfile === '8x20/8cpu') assert.equal(availableParallelism(), 8, 'eight-instance baseline requires eight CPUs');
 
 const quantile = (values, q) => [...values].sort((a, b) => a - b)[Math.ceil(values.length * q) - 1];
 
@@ -152,6 +156,7 @@ test('incident-20-resume: 20 concurrent resumes over 214 owner-shaped rows with 
   const p95Ms = quantile(loaded, 0.95);
   const deltaMs = medianMs - emptyMs;
   t.diagnostic(JSON.stringify({ scenario: 'incident-20-resume', rows: 214, deadBackground: 100, concurrency: 20,
+    loadProfile,
     host: 'killed', emptyMs, loadedMs: loaded, medianMs, p95Ms, deltaMs, registryBudgetMs: 1500,
     usable: '20/20', hosts: 1, lockTimeouts: 0 }));
 
@@ -164,7 +169,11 @@ test('incident-20-resume: 20 concurrent resumes over 214 owner-shaped rows with 
   // per-runner-proven 500/800); this bound only guards a gross registry
   // blowup at 20-way, which still trips it by an order of magnitude.
   assert.ok(deltaMs <= 1500, `20 resumes added ${deltaMs} ms over 214 rows (budget +1500 ms)`);
-  const base = baselines.incident20;
+  // The original CI/default ceiling remains unchanged. The 160-request stress
+  // profile has its own frozen five-round measurement, with the SAME 500/800
+  // margins. Registry delta, startup probe and every correctness assertion are
+  // shared. See the R10 review dossier for the measured acceptance proposal.
+  const base = loadProfile === '8x20/8cpu' ? baselines.incident20Loaded8 : baselines.incident20;
   assert.ok(base, 'no committed 20-request incident baseline; refusing to pass without one');
   // Catastrophic ceiling (unchanged R5 absolute, slow-CI max): a gross stall
   // trips the cell even if the startup probe somehow did not.

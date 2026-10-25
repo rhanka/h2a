@@ -37,6 +37,7 @@ import { NativeTerminalClient } from "./client.js";
 import { loadRegistry, registryEntriesForNativeTarget } from "../registry.js";
 import {
   NATIVE_TERMINAL_INTERACTIVE_READ_TIMEOUT_MS,
+  NATIVE_TERMINAL_HEALTH_TIMEOUT_MS,
   NATIVE_TERMINAL_PROTOCOL_VERSION,
   NativeTerminalRemoteError,
 } from "./protocol.js";
@@ -148,7 +149,9 @@ export function closeAllNativeTerminalOpClients(): void {
 }
 
 async function connectExisting(socketPath: string, tracked = true, signal?: AbortSignal): Promise<NativeTerminalClient> {
+  signal?.throwIfAborted();
   const identity = await inspectPrivateNativeTerminalSocket(socketPath);
+  signal?.throwIfAborted();
   const client = await NativeTerminalClient.connect(socketPath);
   if (tracked) openClients.add(client);
   const abort = () => client.close();
@@ -249,7 +252,8 @@ async function launchClient(socketPath: string): Promise<NativeTerminalClient> {
     // the existing successor-health budget on read-only adoption; never use
     // this failure as an absence proof or permission to spawn another host.
     if ((error as Error)?.name === "TimeoutError" || publicationContenderObserved(error)) {
-      try { return await readNativeTerminalSuccessor(() => connectExisting(socketPath), true); }
+      const successorSignal = AbortSignal.timeout(NATIVE_TERMINAL_HEALTH_TIMEOUT_MS);
+      try { return await readNativeTerminalSuccessor(() => connectExisting(socketPath, true, successorSignal), true); }
       catch { /* Preserve the original fail-closed election diagnostic. */ }
     }
     throw error;
