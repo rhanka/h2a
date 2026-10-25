@@ -2,15 +2,17 @@ import { expect, it, vi } from "vitest";
 import { NATIVE_TERMINAL_PROTOCOL_VERSION } from "./protocol.js";
 
 const state = vi.hoisted(() => ({ clients: [] as Array<{ close: ReturnType<typeof vi.fn> }>, hung: false, pings: 0,
-  electionTimeout: false, connectFailures: 0 }));
+  electionTimeout: false, connectFailures: 0, blackHole: false }));
 vi.mock("./client.js", () => ({ NativeTerminalClient: { connect: async () => {
   if (state.connectFailures > 0) { state.connectFailures--; throw Object.assign(new Error("not published"), { code: "ENOENT" }); }
+  let rejectPing: ((error: Error) => void) | undefined;
   const client = { ping: async () => {
     state.pings++;
+    if (state.blackHole) return new Promise((_resolve, reject) => { rejectPing = reject; });
     if (state.hung) throw Object.assign(new Error("terminal host ping request timed out after 5000ms"), { code: "ETIMEDOUT" });
     return { protocolVersion: NATIVE_TERMINAL_PROTOCOL_VERSION, generation: "g", hostPid: 123, launchFence: true };
   },
-    list: async () => [], close: vi.fn() };
+    list: async () => [], close: vi.fn(() => rejectPing?.(new Error("terminal host client closed"))) };
   state.clients.push(client);
   return client;
 } } }));
@@ -46,6 +48,21 @@ it("should keep election expiry fail-closed when no healthy successor answers", 
   try {
     await expect(probeNativeSession("target", "/private/a", true)).rejects.toMatchObject({ name: "TimeoutError" });
   } finally { state.electionTimeout = false; state.connectFailures = 0; closeAllNativeTerminalOpClients(); }
+});
+
+it("should not pay a five-second suspended-host ping after election expiry", async () => {
+  state.electionTimeout = true; state.connectFailures = 1; state.blackHole = true;
+  const before = state.clients.length;
+  let timer: ReturnType<typeof setTimeout>;
+  try {
+    await expect(Promise.race([
+      probeNativeSession("target", "/private/a", true),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("successor health exceeded 2000ms")), 2000); }),
+    ])).rejects.toMatchObject({ name: "TimeoutError" });
+  } finally {
+    clearTimeout(timer!); state.electionTimeout = false; state.connectFailures = 0; state.blackHole = false;
+    closeAllNativeTerminalOpClients(); state.clients.splice(before);
+  }
 });
 
 it("should close both prepared endpoints and inventory clients before an in-process probe returns", async () => {
