@@ -601,7 +601,7 @@ export async function startNativeSessionSingleShot(
     const generation = typeof (record as { generation?: unknown }).generation === "string"
       ? (record as { generation: string }).generation : "";
     let workerPid: number | undefined;
-    try { workerPid = readWorkerPid(record.pid, procReaderDeps()); } catch { workerPid = undefined; }
+    try { workerPid = readWorkerPid(record.pid, procReaderDeps(record.pid)); } catch { workerPid = undefined; }
     return { name, slug, pid: record.pid, socketPath, generation, ...(workerPid !== undefined ? { workerPid } : {}) };
   } finally {
     rmSync(envDir, { recursive: true, force: true });

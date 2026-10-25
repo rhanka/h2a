@@ -18,6 +18,7 @@
 
 import { closeSync, mkdirSync, openSync, rmSync, statSync } from "node:fs";
 import { dirname } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 
 /** Retry parameters for the lockfile (bounded — a deadlock must never hang a hook). */
 export const LOCK_STALE_MS = 10_000; // a lockfile older than this is assumed orphaned
@@ -81,6 +82,18 @@ export function acquireFileLock(path: string): number | undefined {
     if (fd !== undefined) return fd;
     if (Date.now() >= deadline) return undefined; // give up, proceed best-effort
     sleepSync(LOCK_RETRY_MS);
+  }
+}
+
+/** Same acquisition and deadline, while keeping a server's I/O responsive. */
+export async function acquireFileLockAsync(path: string, signal?: AbortSignal): Promise<number | undefined> {
+  const deadline = Date.now() + LOCK_MAX_WAIT_MS;
+  for (;;) {
+    signal?.throwIfAborted();
+    const fd = tryAcquireFileLock(path);
+    if (fd !== undefined) return fd;
+    if (Date.now() >= deadline) return undefined;
+    await delay(LOCK_RETRY_MS, undefined, { signal });
   }
 }
 

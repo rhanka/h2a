@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -43,6 +44,7 @@ import {
   clearPaneComposer,
   ensureHeadlessTerminal,
   pasteLiteralBlock,
+  procReaderDeps,
   cleanupHeadlessPromptFile,
   ensureManagedTmuxProfile,
   existingLocalSessionSlugs,
@@ -60,6 +62,7 @@ import {
   sendKeysLiteral,
   sessionAttachedCount,
   sessionRelaunchSafety,
+  setTestProcReaderRoot,
   setLocalSessionDisplayName,
   startLocalSession,
   startHeadlessSession,
@@ -70,6 +73,35 @@ import {
   startH2aWindowVerified,
   validateManagedTmuxProfile,
 } from "./tmux.js";
+import { readWorkerPid } from "./proc-cpu.js";
+
+describe("native worker process view", () => {
+  it("should resolve every parent thread's children without scanning unrelated processes", () => {
+    const root = mkdtempSync(join(tmpdir(), "worker-proc-"));
+    function processRow(pid: number, ppid: number, cpu: number, threads: Record<string, string>) {
+      const directory = join(root, String(pid));
+      mkdirSync(join(directory, "task"), { recursive: true });
+      writeFileSync(join(directory, "stat"), `${pid} (worker) S ${ppid} 0 0 0 0 0 0 0 0 0 ${cpu} 0 0 0 0 0 0 0 10 0`);
+      for (const [tid, children] of Object.entries(threads)) {
+        mkdirSync(join(directory, "task", tid));
+        writeFileSync(join(directory, "task", tid, "children"), children);
+      }
+    }
+    try {
+      processRow(100, 1, 1, { 100: "101", 110: "102" });
+      processRow(101, 100, 2, { 101: "" });
+      processRow(102, 100, 50, { 102: "" });
+      processRow(999, 1, 9999, { 999: "" });
+      setTestProcReaderRoot(root);
+      const deps = procReaderDeps(100);
+      expect([...deps.listPids()].sort((a, b) => a - b)).toEqual([100, 101, 102]);
+      expect(readWorkerPid(100, deps)).toBe(102);
+      rmSync(join(root, "100", "task"), { recursive: true });
+      writeFileSync(join(root, "100", "task"), "unreadable task directory");
+      expect(deps.listPids()).toEqual([]);
+    } finally { setTestProcReaderRoot(undefined); rmSync(root, { recursive: true, force: true }); }
+  });
+});
 
 // child_process is mocked module-wide (above); the wrapper regression test needs
 // the REAL spawnSync to actually run bash.
@@ -845,6 +877,8 @@ describe("existingLocalSessionSlugs", () => {
       ),
     ).toEqual(["existing"]);
     expect(tmuxCalls("new-session")).toHaveLength(0);
+    expect(tmuxCalls("-V")).toHaveLength(1);
+    expect(tmuxCalls("list-sessions")).toHaveLength(1);
   });
 });
 

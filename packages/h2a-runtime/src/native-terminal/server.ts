@@ -50,6 +50,10 @@ import {
 import { NativeTerminalPublicationRefusal } from "./publication-refusal.js";
 
 type ConnectionContext = {
+  readonly abort: AbortController;
+  pendingOperation?: Promise<void>;
+  pendingRequests: number;
+  pendingRequestBytes: number;
   readonly socket: Socket;
   readonly leases: Map<string, NativeTerminalControllerLease>;
   readonly responseBudget: ResponseQueueBudget;
@@ -214,7 +218,7 @@ function dispatch(host: NativeTerminalHost, context: ConnectionContext, request:
         protocolVersion: NATIVE_TERMINAL_PROTOCOL_VERSION,
       };
     case "create":
-      return host.create(createOptions(params));
+      return host.createAsync(createOptions(params), context.abort.signal);
     case "list":
       return host.list();
     case "state":
@@ -447,17 +451,42 @@ function consumeFrames(host: NativeTerminalHost, context: ConnectionContext, chu
       if (!writeError(context, id, "invalid-request", error)) return;
       continue;
     }
-    try {
-      const response: NativeTerminalResponse = {
-        version: NATIVE_TERMINAL_PROTOCOL_VERSION,
-        id: request.id,
-        ok: true,
-        result: dispatch(host, context, request),
-      };
-      if (!writeResponse(context, response)) return;
-    } catch (error) {
-      if (!writeError(context, request.id, "operation-failed", error)) return;
+    const requestBytes = Buffer.byteLength(line);
+    if (context.pendingRequests >= NATIVE_TERMINAL_MAX_PENDING_RESPONSES_PER_CONNECTION ||
+      context.pendingRequestBytes + context.pendingResponseBytes + requestBytes > NATIVE_TERMINAL_MAX_PENDING_RESPONSE_BYTES_PER_CONNECTION ||
+      context.responseBudget.pendingBytes + requestBytes > NATIVE_TERMINAL_MAX_PENDING_RESPONSE_BYTES_TOTAL) {
+      context.abort.abort(new Error("terminal request queue exceeds its budget"));
+      context.socket.destroy();
+      return;
     }
+    const respond = (): void | Promise<void> => {
+      if (context.socket.destroyed) return;
+      const success = (result: unknown) => { writeResponse(context, {
+        version: NATIVE_TERMINAL_PROTOCOL_VERSION, id: request.id, ok: true, result,
+      }); };
+      const failure = (error: unknown) => { writeError(context, request.id, "operation-failed", error); };
+      try {
+        const result = dispatch(host, context, request);
+        if (result instanceof Promise) return result.then(success, failure);
+        success(result);
+      } catch (error) { failure(error); }
+    };
+    // Preserve request order on one connection, while another connection can
+    // still ping/read during an asynchronous creation's registry-lock wait.
+    const operation = context.pendingOperation ? context.pendingOperation.then(respond) : respond();
+    if (operation instanceof Promise) {
+      context.pendingRequests++;
+      context.pendingRequestBytes += requestBytes;
+      context.responseBudget.pendingBytes += requestBytes;
+      const pending = operation.catch(() => { context.socket.destroy(); }).finally(() => {
+        context.pendingRequests--;
+        context.pendingRequestBytes -= requestBytes;
+        context.responseBudget.pendingBytes -= requestBytes;
+        if (context.pendingOperation === pending) delete context.pendingOperation;
+      });
+      context.pendingOperation = pending;
+    }
+    if (context.socket.destroyed) return;
   }
 }
 
@@ -523,6 +552,7 @@ async function acquireSocketPublicationLock<T>(socketPath: string, signal?: Abor
     .update(`${process.getuid?.() ?? "unknown"}:${socketPath}:${secret}${startup ? ":startup" : ""}`)
     .digest("hex")}`;
   const deadline = Date.now() + SOCKET_PUBLICATION_LOCK_TIMEOUT_MS;
+  let retryMs = SOCKET_PUBLICATION_LOCK_RETRY_MS;
   for (;;) {
     signal?.throwIfAborted();
     const lock = createServer(socket => socket.destroy());
@@ -548,8 +578,13 @@ async function acquireSocketPublicationLock<T>(socketPath: string, signal?: Abor
         catch { signal?.throwIfAborted(); }
       }
       await abortable(new Promise((resolve) =>
-        setTimeout(resolve, SOCKET_PUBLICATION_LOCK_RETRY_MS)
+        setTimeout(resolve, retryMs)
       ), signal);
+      // Election losers only need to observe the one publisher. Repeating the
+      // bind and filesystem/health handshake at a fixed rate in every launcher
+      // competes with that publisher under load. Keep the same deadline and
+      // immediate first adoption attempt; bound subsequent polling to 100 ms.
+      if (startup) retryMs = Math.min(retryMs * 2, 100);
     }
   }
 }
@@ -1403,6 +1438,9 @@ async function initializeNativeTerminalHostServer(options: {
     // record and publication lock must finish before health/PTY admission.
     if (!readyForRequests) socket.pause();
     const context: ConnectionContext = {
+      abort: new AbortController(),
+      pendingRequests: 0,
+      pendingRequestBytes: 0,
       socket,
       leases: new Map(),
       responseBudget,
@@ -1422,14 +1460,16 @@ async function initializeNativeTerminalHostServer(options: {
     socket.on("data", (chunk: string) => {
       try {
         consumeFrames(options.host, context, chunk);
-      } catch {
+      } catch (error) {
         // R7.5 named exemption: a bad client costs only this connection;
         // count frame destroys instead of logging every malformed stream.
         recordHostFault(HOST_FAULT_COUNTERS.hostClientFrameDestroys);
+        context.abort.abort(error);
         socket.destroy();
       }
     });
     socket.on("close", () => {
+      context.abort.abort(new Error("terminal client disconnected before creation"));
       releaseAllPendingResponses(context);
       releaseConnectionLeases(options.host, context);
       sockets.delete(socket);

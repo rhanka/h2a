@@ -6,6 +6,17 @@ const session = { id: "h2a-worker", status: "running", pid: 123, generation: "g"
 const endpoints = ["/private/native-terminal.sock", "/private/native-terminal.lf1.sock"];
 
 describe("native fleet ownership", () => {
+  it("should close a failed inventory connection before adopting its successor", async () => {
+    const failed = { list: vi.fn().mockRejectedValue(new Error("list timed out")), close: vi.fn() };
+    const successor = { list: async () => [], close: vi.fn() };
+    const connect = vi.fn().mockResolvedValueOnce(failed).mockResolvedValue(successor);
+    const inventory = await collectNativeInventory([endpoints[0]!], connect);
+    expect(resolveNativeOwner("missing", inventory)).toEqual({ state: "absent" });
+    expect(failed.close).toHaveBeenCalledOnce();
+    expect(successor.close).not.toHaveBeenCalled();
+    expect(inventory.hosts[0]!.client).toBe(successor);
+    successor.close();
+  });
   it("should wait for a positively live publisher to finish before adopting it", async () => {
     let attempts = 0;
     const client = { list: async () => [session] } as unknown as NativeTerminalClient;

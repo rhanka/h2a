@@ -443,14 +443,6 @@ import {
   type CliProfile,
 } from "./protocol-local.js";
 import {
-  enrollViaFacade,
-  enrollSeatConsumerViaFacade,
-  formatLlmMeshAccountError,
-  formatLlmMeshAccountList,
-  listAccountsViaFacade,
-  removeAccountViaFacade,
-} from "./llm-mesh-accounts.js";
-import {
   readLlmMeshConfig,
   updateLlmMeshRoutingConfig,
 } from "./gateway-host/config-file.js";
@@ -6389,9 +6381,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         // the host for a native run. The single-shot launch still performs its
         // fenced admission with a fresh inventory before creating any session.
         void preflightNativeLaunch;
-        const reservedTmuxSlugs = tmuxAvailable()
-          ? existingLocalSessionSlugs(labels, cwd)
-          : [];
+        const reservedTmuxSlugs = existingLocalSessionSlugs(labels, cwd);
         // The inventory and this decision are separate reads: a structured
         // launch can leave a name visible just before its last tmux process
         // exits. Re-probe every canonical/legacy spelling and reclaim the slug
@@ -10853,6 +10843,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         }
         try {
           const source = opts.from ?? (opts.cli ? "cli" : opts.token ? "token" : "oauth");
+          const { enrollViaFacade } = await import("./llm-mesh-accounts.js");
           const account = source === "oauth"
             ? await enrollViaFacade(normalized, { ...(opts.configRef ? { configRef: opts.configRef } : {}), from: "oauth" })
             : await enrollSeatConsumerViaFacade(normalized, { from: source as "cli" | "token", ...(opts.seatProfile ? { seatProfile: opts.seatProfile } : {}) });
@@ -10884,6 +10875,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .description("List public accounts owned by this local llm-mesh scope")
     .option("--json", "emit public account metadata as JSON")
     .action(async (opts: { json?: boolean }) => {
+      const { listAccountsViaFacade, formatLlmMeshAccountList, formatLlmMeshAccountError } = await import("./llm-mesh-accounts.js");
       try {
         const accounts = await listAccountsViaFacade();
         process.stdout.write(`${formatLlmMeshAccountList(accounts, opts.json === true)}\n`);
@@ -10900,6 +10892,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .aliases(["rm", "unenroll"])
     .description("Remove one account owned by this local llm-mesh scope")
     .action(async (accountId: string) => {
+      const { removeAccountViaFacade, formatLlmMeshAccountError } = await import("./llm-mesh-accounts.js");
       try {
         const result = await removeAccountViaFacade(accountId);
         process.stdout.write(`[h2a] llm-mesh account: removed ${result.accountId}\n`);
@@ -11329,7 +11322,10 @@ export { ensureCentralMcp } from "./central-mcp.js";
 export * from "./cli-seat-fixtures.js";
 export * from "./cli-seat-codecs.js";
 export * from "./cli-seat-materialization.js";
-export { enrollSeatConsumerViaFacade } from "./llm-mesh-accounts.js";
+// Keep the public async consumer contract without loading account providers in
+// every local crash-recovery launcher before it can elect its native host.
+export const enrollSeatConsumerViaFacade: typeof import("./llm-mesh-accounts.js").enrollSeatConsumerViaFacade =
+  async (...args) => (await import("./llm-mesh-accounts.js")).enrollSeatConsumerViaFacade(...args);
 export type { LlmMeshSeatImporter, SeatConsumerProfileInput, SeatConsumerParsers, SeatConsumerEnrollmentOptions } from "./llm-mesh-accounts.js";
 
 /**

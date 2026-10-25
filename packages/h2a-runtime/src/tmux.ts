@@ -506,10 +506,11 @@ export function existingLocalSessionSlugs(
   labels: ReadonlyArray<string | undefined>,
   cwd: string,
 ): string[] {
+  const sessions = listLocalSessions();
   return labels
     .map((label) => {
       const slug = slugify(label ?? cwd);
-      return resolveLocalSessionSlug(slug).kind !== "missing" ? slug : undefined;
+      return resolveLocalSessionSlug(slug, sessions).kind !== "missing" ? slug : undefined;
     })
     .filter((slug): slug is string => slug !== undefined);
 }
@@ -2571,11 +2572,37 @@ export function setTestProcReaderRoot(root: string | undefined): void {
   testProcRootForTests = root;
 }
 
-export function procReaderDeps(): ProcReaderDeps {
+export function procReaderDeps(rootPid?: number): ProcReaderDeps {
   const procRoot = testProcRootForTests ?? "/proc";
   return {
     listPids: () => {
       try {
+        // A newly created native PTY needs only its own worker, not a fleet
+        // census in every concurrent launcher. Include children of ALL threads
+        // (Linux's children file is per-thread); attribution still checks the
+        // parent edges and process stats in readWorkerPid's snapshot.
+        if (rootPid !== undefined) {
+          if (!Number.isSafeInteger(rootPid) || rootPid <= 0) return [];
+          const seen = new Set<number>();
+          const pending = [rootPid];
+          while (pending.length > 0) {
+            const pid = pending.pop()!;
+            if (seen.has(pid)) continue;
+            seen.add(pid);
+            try {
+              const task = join(procRoot, String(pid), "task");
+              for (const tid of readdirSync(task)) {
+                const children = readFileSync(join(task, tid, "children"), "utf8");
+                for (const child of children.trim().split(/\s+/).map(Number)) {
+                  if (Number.isSafeInteger(child) && child > 0) pending.push(child);
+                }
+              }
+            } catch (error) {
+              if (!["ENOENT", "ESRCH"].includes((error as NodeJS.ErrnoException).code ?? "")) return [];
+            }
+          }
+          return [...seen];
+        }
         return readdirSync(procRoot)
           .map((entry) => Number.parseInt(entry, 10))
           .filter((value) => Number.isInteger(value) && value > 0);

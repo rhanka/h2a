@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   advanceJob,
@@ -21,10 +21,12 @@ import {
   touchEntry,
   tryClaimSlot,
   withRegistryLock,
+  withNativeCreationRegistryTurn,
   type RegistryEntry,
 } from "./registry.js";
 import { DEFAULT_LAYOUT } from "./config.js";
 import { readMachineId } from "./proc-identity.js";
+import { acquireFileLock, releaseFileLock } from "./file-lock.js";
 
 // Scratch dir inside the package (never /tmp), like the other test suites.
 const SCRATCH_ROOT = join(
@@ -56,6 +58,21 @@ const baseInput = {
   tmuxSession: "remote-projA",
   sessionClass: "background" as const,
 };
+
+it("should retain the registry's four-second best-effort boundary without releasing another writer's lock", async () => {
+  const fd = acquireFileLock(regPath)!;
+  vi.useFakeTimers();
+  try {
+    const write = vi.fn(() => enroll(baseInput, regPath));
+    const result = withNativeCreationRegistryTurn(regPath, write);
+    await vi.advanceTimersByTimeAsync(3999);
+    expect(write).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect((await result).id).toBe(baseInput.id);
+    expect(write).toHaveBeenCalledOnce();
+    expect(existsSync(`${regPath}.lock`)).toBe(true);
+  } finally { vi.useRealTimers(); releaseFileLock(fd, regPath); }
+});
 
 
 /** Unwrap the 3-state read for round-trip assertions (read must be "ok"). */

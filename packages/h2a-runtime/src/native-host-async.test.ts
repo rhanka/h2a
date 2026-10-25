@@ -8,6 +8,11 @@ vi.mock("./native-terminal/op.js", () => ({
   runNativeTerminalOp: native.operation, closeAllNativeTerminalOpClients: native.close, probeNativeSession: native.probe,
 }));
 vi.mock("./proc-cpu.js", async original => ({ ...await original<object>(), readWorkerPid: () => undefined }));
+vi.mock("./tmux.js", async original => {
+  const actual = await original<typeof import("./tmux.js")>();
+  return { ...actual, procReaderDeps: vi.fn(actual.procReaderDeps) };
+});
+const { procReaderDeps } = await import("./tmux.js");
 const { startNativeSessionSingleShot, nativeSessionStateAsync } = await import("./native-host.js");
 let root: string;
 beforeEach(() => {
@@ -24,6 +29,7 @@ it("should return the direct operation's session identity without a launch helpe
   const onCreateAttempt = vi.fn();
   expect(await launch(onCreateAttempt)).toMatchObject({ name: "h2a-async-target", pid: 123, generation: "g" });
   expect(onCreateAttempt).toHaveBeenCalledOnce();
+  expect(procReaderDeps).toHaveBeenCalledExactlyOnceWith(123);
   expect(native.close).toHaveBeenCalled();
 });
 

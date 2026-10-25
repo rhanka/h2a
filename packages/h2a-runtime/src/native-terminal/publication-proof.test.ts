@@ -95,6 +95,26 @@ function assertLocked(path: string) {
 }
 
 describe("publication proof v5", () => {
+  it("should avoid a handshake storm while waiting for one startup publisher", async () => {
+    const path = await endpoint();
+    let release!: () => void;
+    let entered!: () => void;
+    const ready = new Promise<void>(resolve => { entered = resolve; });
+    const holder = withNativeTerminalStartupLock(path, () => new Promise<void>(resolve => { release = resolve; entered(); }));
+    await ready;
+    const publishedAt = Date.now() + 500;
+    const health = vi.fn(async () => {
+      if (Date.now() < publishedAt) throw new Error("publisher not ready");
+      return 42;
+    });
+    try {
+      const launch = vi.fn(async () => 0);
+      expect(await Promise.all(Array.from({ length: 8 }, () => withNativeTerminalStartupLock(path, launch, health))))
+        .toEqual(Array(8).fill(42));
+      expect(launch).not.toHaveBeenCalled();
+      expect(health.mock.calls.length).toBeLessThanOrEqual(80);
+    } finally { release(); await holder; }
+  });
   it("should let waiting launchers adopt a healthy publisher without queueing behind another health check", async () => {
     const path = await endpoint();
     let release!: () => void;
