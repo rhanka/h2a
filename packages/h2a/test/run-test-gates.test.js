@@ -1672,3 +1672,7 @@ test('independent post-Node suites start without spending each other\'s executio
 test('a failed parallel suite remains failed and every independent suite still executes', () => {
   observeNodeTrackEntry(readFileSync(resolve(REPO_ROOT, 'scripts/run-tests.mjs'), 'utf8'), REPO_ROOT, { parallel: true, failedSuite: 'Focus' })
 })
+
+test('parallel Vitest suites each use one worker without dropping their required files', () => {
+  observeNodeTrackEntry(readFileSync(resolve(REPO_ROOT, 'scripts/run-tests.mjs'), 'utf8'), REPO_ROOT, { parallel: true, boundedWorkers: true })
+})
