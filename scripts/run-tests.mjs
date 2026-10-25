@@ -488,7 +488,9 @@ async function main() {
       const status = await runIndependentSuite(
         `${suite.name} Vitest suite`,
         process.execPath,
-        [vitestEntrypoint(cwd), "run", ...configArgs, "--reporter=default", "--reporter=json", `--outputFile=${vitestReportFor(suite)}`, ...suite.files.map((file) => join(suite.testDir ?? "src", file))],
+        // Three Vitest processes share the runner with the identity lane.
+        // One file worker each avoids three independent all-CPU pools.
+        [vitestEntrypoint(cwd), "run", ...configArgs, "--maxWorkers=1", "--reporter=default", "--reporter=json", `--outputFile=${vitestReportFor(suite)}`, ...suite.files.map((file) => join(suite.testDir ?? "src", file))],
         cwd,
         trackTestEnv,
       );
