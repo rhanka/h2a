@@ -1,0 +1,46 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-authority.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-ppSk1l
+case: all cases in explicit file
+TAP version 13
+# Subtest: F should authorize the bound controller on its transaction
+ok 1 - F should authorize the bound controller on its transaction
+  ---
+  duration_ms: 320.538602
+  type: 'test'
+  ...
+# Subtest: F should authorize an explicitly presented matching controller
+ok 2 - F should authorize an explicitly presented matching controller
+  ---
+  duration_ms: 158.379874
+  type: 'test'
+  ...
+# Subtest: F should refuse a foreign controller with a CLI-level reason
+ok 3 - F should refuse a foreign controller with a CLI-level reason
+  ---
+  duration_ms: 56.052423
+  type: 'test'
+  ...
+# Subtest: F should refuse a controller revoked by delegation
+ok 4 - F should refuse a controller revoked by delegation
+  ---
+  duration_ms: 65.695335
+  type: 'test'
+  ...
+# Subtest: F should refuse an invalid authority envelope instead of guessing
+ok 5 - F should refuse an invalid authority envelope instead of guessing
+  ---
+  duration_ms: 297.809386
+  type: 'test'
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 5
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1036.649149
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-authority.test.js"],"code":0,"signal":null,"tests":5,"invalid":false,"spawned":1,"leftovers":[]}
