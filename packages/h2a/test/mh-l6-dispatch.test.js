@@ -68,6 +68,17 @@ test('F should check CLI authority before the engine on abort', async t => {
   assert.throws(() => abortUpgrade({ store: live, upgradeId: 'two', controller: foreign() }), /upgrade_authority_foreign/);
 });
 
+test('F should check CLI authority before the engine on compensate', async t => {
+  const { compensateUpgrade } = await api();
+  assert.equal(typeof compensateUpgrade, 'function', 'upgrade compensate dispatch required');
+  const { store } = prepared(t);
+  store.select('one'); store.delegate('one', foreign());
+  assert.throws(() => compensateUpgrade({ store, upgradeId: 'one', component: 'mcp' }), /upgrade_authority_revoked/);
+  const { store: live } = prepared(t, 'two');
+  assert.throws(() => compensateUpgrade({ store: live, upgradeId: 'two', component: 'gateway', controller: foreign() }), /upgrade_authority_foreign/);
+  assert.throws(() => compensateUpgrade({ store: live, upgradeId: 'missing', component: 'mcp' }), /upgrade_not_found/);
+});
+
 test('F should refuse an invalid dispatch envelope instead of guessing', async t => {
   const { resumeUpgrade, abortUpgrade } = await api(), { store } = prepared(t);
   for (const args of [null, 42, 'dispatch', [], { store }, { upgradeId: 'one' }, { store, upgradeId: 42 },
