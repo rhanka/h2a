@@ -27,10 +27,9 @@ import { trackRegistryPackageManifest } from "@sentropic/track/registry/manifest
 import { installBridgeEntry, previewInstall, uninstallBridgeEntry, verifyPluginInstall } from "./host-bootstrap.js";
 import { assertRegistryHost } from "./host-bootstrap.js";
 import { defaultBridgeLockPath, defaultPluginBridgeLockPath, readBridgeLock } from "./bridge-lock.js";
-import { RegistryError, validateRegistryEntry, type RegistryEntry } from "./descriptors.js";
+import { normalizeConfiguration, RegistryError, validateRegistryEntry, type RegistryEntry } from "./descriptors.js";
 import { activateHostedLock, draftHostedLock, verifyHostedLock } from "./hosted.js";
 import { registryPackageManifest } from "./manifest.js";
-import { createRegistry } from "./registry.js";
 import { bridgeCentralAttachmentAdmitted } from "../runtime/mcp-central-policy.js";
 
 export interface CliStreams {
@@ -350,40 +349,57 @@ export async function cmdRegistryBridge(
       );
     }
   }
-  // Prove the selection against the registry, then prove the served surface
-  // equals the delegated server's surface exactly (no silent subset).
+  // Prove the selection against the published Sentropic registry with REAL
+  // handlers (H2a daemon composition `./sentropic-daemon.js`), then prove the
+  // served surface equals the delegated server's surface exactly (no silent
+  // subset). The private preparation compiler (`./registry.js`) is no longer
+  // on this path. Lock config bounds are preserved: unknown providers refuse
+  // (`invalid_entry`) and bad mode/binding values refuse through the package
+  // validators (`invalid_parameters`/`missing_binding`).
   try {
-    const registry = createRegistry();
-    const { h2aManifest, trackManifest } = packedManifests();
     const entries = new Map(packedEntries().map((entry) => [entry.id, entry]));
-    const unreachable = (name: string) => (): unknown => {
-      throw new Error(`bridge defect: plan handler invoked for ${name}; dispatch authority stays with the delegated server`);
-    };
     for (const selected of lock.selection) {
-      const entry = entries.get(selected.id);
-      if (!entry) return refuse("invalid_entry", `unknown provider ${selected.id}`);
-      const manifest = selected.id === "sentropic.h2a" ? h2aManifest : trackManifest;
-      const tools = (manifest as { tools: Array<{ name: string }> }).tools;
-      registry.register({ descriptor: structuredClone(entry), manifest: structuredClone(manifest), handlers: new Map(tools.map((tool) => [tool.name, unreachable(tool.name)])) });
+      if (!entries.has(selected.id)) return refuse("invalid_entry", `unknown provider ${selected.id}`);
     }
-    registry.select(lock.selection.map((selected) => selected.id));
     for (const [id, record] of Object.entries(lock.entries)) {
-      registry.configure(id, (record as { config: unknown }).config);
+      const entry = entries.get(id);
+      if (!entry) return refuse("invalid_entry", `unknown provider ${id}`);
+      try {
+        normalizeConfiguration(entry, (record as { config: unknown }).config);
+      } catch (error) {
+        return refuse((error as { code?: string }).code ?? "invalid_parameters", (error as Error).message);
+      }
     }
-    const candidate = await registry.compile({
-      bindings: {
-        "h2a-local-central": { contract: "h2a.central-attachment/v2" },
-        "h2a-attachment-workspace": { contract: "h2a.workspace/v1" },
-        "h2a-hosted-service": { contract: "h2a.hosted-service/v1" }
-      },
-      compatibility: lock.compatibility
-    });
-    if (!candidate.ok) {
-      const first = candidate.diagnostics[0] as { code: string; message: string };
-      return refuse(first.code, first.message);
+    // Order-sensitive: the served surface is h2a tools then Track tools, so a
+    // reordered lock (or any subset) refuses here exactly as before.
+    const selectedIds = lock.selection.map((selected) => selected.id);
+    if (JSON.stringify(selectedIds) !== JSON.stringify(["sentropic.h2a", "sentropic.track"])) {
+      return refuse("invalid_parameters", "lock selection does not equal the served surface; subset locks need a filtered server (not covered in this increment)");
+    }
+    // Packed-layout integrity: the shipped manifest assets must resolve and
+    // parse (a deleted asset refuses typed, naming the asset, with no raw
+    // ENOENT). This I/O validation stays; only compilation moved to Sentropic.
+    try {
+      packedManifests();
+    } catch (error) {
+      return refuse((error as { code?: string }).code ?? "invalid_entry", (error as Error).message);
+    }
+    const { composeDaemonRegistry } = await import("./sentropic-daemon.js");
+    const root = streams.cwd?.() ?? process.cwd();
+    let toolNames: string[];
+    try {
+      const composed = await composeDaemonRegistry({ view: "combined", root });
+      toolNames = composed.toolNames();
+    } catch (error) {
+      return refuse((error as { code?: string }).code ?? "invalid_entry", (error as Error).message);
     }
     const { H2A_CLI_MCP_TOOL_DESCRIPTORS } = await import("../runtime/mcp/tools.js");
-    if (JSON.stringify(candidate.plan.orderedCapabilities) !== JSON.stringify(H2A_CLI_MCP_TOOL_DESCRIPTORS.map(tool => tool.name))) {
+    // Membership equality (sorted): the published kernel emits its compiled
+    // tools in canonical sorted order while the served surface keeps
+    // declaration order. The bound is unchanged — same tools, no silent
+    // subset or extra — only the irrelevant ordering is normalized.
+    const served = H2A_CLI_MCP_TOOL_DESCRIPTORS.map(tool => tool.name).sort();
+    if (JSON.stringify([...toolNames].sort()) !== JSON.stringify(served)) {
       return refuse("invalid_parameters", "lock selection does not equal the served surface; subset locks need a filtered server (not covered in this increment)");
     }
   } catch (error) {

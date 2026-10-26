@@ -75,9 +75,12 @@
     "@hono/mcp": "^0.3.0",
     "@hono/node-server": "^2.0.12",
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "@sentropic/cluster-mesh": "0.16.0",
+    "@sentropic/cluster-mesh": "0.22.4",
     "@sentropic/contracts": "^0.3.0",
     "@sentropic/events": "^0.2.0",
+    "@sentropic/llm-gateway": "0.20.0",
+    "@sentropic/llm-mesh": "0.26.0",
+    "@sentropic/mcp-platform": "0.4.0",
     "@sentropic/track": "0.98.7",
     "hono": "^4.13.13",
     "toml-eslint-parser": "0.10.1"
