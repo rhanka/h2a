@@ -1,60 +1,60 @@
-command: /home/antoinefa/.nvm/versions/node/v24.18.0/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-observers.test.js
-node: v24.18.0
-private root: /tmp/mh-l6-test-oCyXWG
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-observers.test.js
+node: v24.22.0
+private root: /tmp/mh-l6-test-GUAzN2
 case: all cases in explicit file
 TAP version 13
 # Subtest: B2 should observe four live legacy closures on the real published 0.98.5 and fence
 ok 1 - B2 should observe four live legacy closures on the real published 0.98.5 and fence
   ---
-  duration_ms: 226.907113
+  duration_ms: 227.094129
   type: 'test'
   ...
 # Subtest: B2 should observe four live legacy closures on the real published 0.98.6 and fence
 ok 2 - B2 should observe four live legacy closures on the real published 0.98.6 and fence
   ---
-  duration_ms: 219.964425
+  duration_ms: 222.714104
   type: 'test'
   ...
 # Subtest: B2 should refuse an invalid observer envelope instead of observing
 ok 3 - B2 should refuse an invalid observer envelope instead of observing
   ---
-  duration_ms: 0.628213
+  duration_ms: 0.62672
   type: 'test'
   ...
 # Subtest: B2 should refuse a legacy tree outside the expected published version
 ok 4 - B2 should refuse a legacy tree outside the expected published version
   ---
-  duration_ms: 31.018824
+  duration_ms: 29.851033
   type: 'test'
   ...
 # Subtest: B2 should record owner_liveness_unknown for the published .5 and .6 without inventing provenance
 ok 5 - B2 should record owner_liveness_unknown for the published .5 and .6 without inventing provenance
   ---
-  duration_ms: 60.363015
+  duration_ms: 56.994619
   type: 'test'
   ...
 # Subtest: B2 should report unfenced while a live legacy worker still holds the tree
 ok 6 - B2 should report unfenced while a live legacy worker still holds the tree
   ---
-  duration_ms: 525.250982
+  duration_ms: 529.003864
   type: 'test'
   ...
 # Subtest: B2 should report unfenced when a relaunch source still references the legacy root
 ok 7 - B2 should report unfenced when a relaunch source still references the legacy root
   ---
-  duration_ms: 224.657588
+  duration_ms: 230.5634
   type: 'test'
   ...
 # Subtest: B2 should report unfenced when future starts still resolve to the legacy entry
 ok 8 - B2 should report unfenced when future starts still resolve to the legacy entry
   ---
-  duration_ms: 219.059061
+  duration_ms: 222.172033
   type: 'test'
   ...
 # Subtest: B2 should report unfenced when the managed tree reaches back into the legacy installer
 ok 9 - B2 should report unfenced when the managed tree reaches back into the legacy installer
   ---
-  duration_ms: 220.100611
+  duration_ms: 225.429756
   type: 'test'
   ...
 1..9
@@ -65,6 +65,6 @@ ok 9 - B2 should report unfenced when the managed tree reaches back into the leg
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 1770.015575
+# duration_ms 1785.622793
 
-receipt: {"command":["/home/antoinefa/.nvm/versions/node/v24.18.0/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-observers.test.js"],"code":0,"signal":null,"tests":9,"invalid":false,"spawned":9,"leftovers":[]}
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-observers.test.js"],"code":0,"signal":null,"tests":9,"invalid":false,"spawned":9,"leftovers":[]}

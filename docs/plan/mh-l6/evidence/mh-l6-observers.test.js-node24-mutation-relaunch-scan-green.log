@@ -1,12 +1,12 @@
-command: /home/antoinefa/.nvm/versions/node/v24.18.0/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-observers.test.js
-node: v24.18.0
-private root: /tmp/mh-l6-test-MF8a7P
+command: /home/antoinefa/.cache-tmp/h2a-test/run-MZp8CW/artifact-roots/mh-l5-artifacts-VtlOXp/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-observers.test.js
+node: v24.21.0
+private root: /tmp/mh-l6-test-Ob3h0h
 case: B2 should report unfenced when a relaunch source still references the legacy root
 TAP version 13
 # Subtest: B2 should report unfenced when a relaunch source still references the legacy root
 ok 1 - B2 should report unfenced when a relaunch source still references the legacy root
   ---
-  duration_ms: 225.783929
+  duration_ms: 233.49043
   type: 'test'
   ...
 1..1
@@ -17,6 +17,6 @@ ok 1 - B2 should report unfenced when a relaunch source still references the leg
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 264.055703
+# duration_ms 278.094904
 
-receipt: {"command":["/home/antoinefa/.nvm/versions/node/v24.18.0/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-observers.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":2,"leftovers":[]}
+receipt: {"command":["/home/antoinefa/.cache-tmp/h2a-test/run-MZp8CW/artifact-roots/mh-l5-artifacts-VtlOXp/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-observers.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":2,"leftovers":[]}
