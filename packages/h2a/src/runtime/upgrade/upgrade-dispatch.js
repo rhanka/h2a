@@ -139,10 +139,13 @@ export function previewUnmanage(envelope = {}) {
 
 // Component-scoped compensation routing for `h2a upgrade compensate`.
 // Authority-checked read of the named transaction, then the component
-// disposition. The component compensation engine (U05/U08 depth) does not
-// exist in this lane, so a well-routed request is recorded as explicitly
-// incomplete (exit 2), never as done and never as a silent no-op. This
-// function mutates nothing: no journal write, no install, no spawn.
+// disposition. The component compensation engine exists and is proven at
+// handover depth (`prepareCompensation`/`compensateCold`, M24/M25); what is
+// missing in this lane is the H4 upgrade-to-component routing (no COMPLETED
+// precedent, no upgradeId-to-component mapping), so a well-routed request
+// is recorded as explicitly incomplete (exit 2), never as done and never
+// as a silent no-op. This function mutates nothing: no journal write, no
+// install, no spawn.
 const COMPONENTS = ['mcp', 'gateway'];
 
 export function compensateUpgrade(envelope = {}) {
