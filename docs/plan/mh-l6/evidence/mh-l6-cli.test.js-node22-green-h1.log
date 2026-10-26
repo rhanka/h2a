@@ -1,0 +1,70 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-cli.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-dZ6C22
+case: all cases in explicit file
+TAP version 13
+# Subtest: F should parse the run and check forms
+ok 1 - F should parse the run and check forms
+  ---
+  duration_ms: 2.427199
+  type: 'test'
+  ...
+# Subtest: F should parse resume abort and compensate with their required arguments
+ok 2 - F should parse resume abort and compensate with their required arguments
+  ---
+  duration_ms: 0.2391
+  type: 'test'
+  ...
+# Subtest: F should show help for the help forms
+ok 3 - F should show help for the help forms
+  ---
+  duration_ms: 0.177314
+  type: 'test'
+  ...
+# Subtest: F should refuse unknown flags and misplaced options instead of guessing
+ok 4 - F should refuse unknown flags and misplaced options instead of guessing
+  ---
+  duration_ms: 0.461519
+  type: 'test'
+  ...
+# Subtest: F should require the transaction identity for resume abort and compensate
+ok 5 - F should require the transaction identity for resume abort and compensate
+  ---
+  duration_ms: 0.195749
+  type: 'test'
+  ...
+# Subtest: F should require a known component for compensation
+ok 6 - F should require a known component for compensation
+  ---
+  duration_ms: 0.14303
+  type: 'test'
+  ...
+# Subtest: F should refuse an invalid CLI envelope instead of guessing
+ok 7 - F should refuse an invalid CLI envelope instead of guessing
+  ---
+  duration_ms: 0.351402
+  type: 'test'
+  ...
+# Subtest: F should map success failure and deferral to exit codes
+ok 8 - F should map success failure and deferral to exit codes
+  ---
+  duration_ms: 0.129213
+  type: 'test'
+  ...
+# Subtest: F should make deferral blocking under strict
+ok 9 - F should make deferral blocking under strict
+  ---
+  duration_ms: 0.257184
+  type: 'test'
+  ...
+1..9
+# tests 9
+# suites 0
+# pass 9
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 109.635447
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-cli.test.js"],"code":0,"signal":null,"tests":9,"invalid":false,"spawned":1,"leftovers":[]}
