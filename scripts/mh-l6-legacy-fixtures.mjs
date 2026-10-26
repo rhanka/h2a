@@ -15,7 +15,11 @@ import { join } from 'node:path';
 const source = fs.realpathSync(process.argv[2] ?? '');
 if (!source || source === fs.realpathSync('.')) throw new Error('read_only_artifacts_dir_required');
 const pin = JSON.parse(fs.readFileSync('docs/plan/mh-l6/legacy-integrity.json', 'utf8'));
-const root = fs.mkdtempSync('/tmp/mh-l5-artifacts-');
+// MH_L5_ARTIFACTS_ROOT overrides the private root (owner rule: never the
+// real /tmp); unset keeps the historical /tmp prefix.
+const root = process.env.MH_L5_ARTIFACTS_ROOT
+  ? fs.mkdtempSync(join(process.env.MH_L5_ARTIFACTS_ROOT, 'mh-l5-artifacts-'))
+  : fs.mkdtempSync('/tmp/mh-l5-artifacts-');
 const receipt = { source, verified: [] };
 for (const [file, record] of Object.entries(pin.files)) {
   const bytes = fs.readFileSync(join(source, file));
