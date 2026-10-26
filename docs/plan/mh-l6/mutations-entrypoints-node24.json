@@ -1,0 +1,33 @@
+{
+  "node": "v24.21.0",
+  "files": [
+    {
+      "path": "packages/h2a/src/runtime/upgrade/image-execution.js",
+      "sha256": "a86ee9b9950976e249ecf92f118341847c921134b3074c565f3ee80949952b58"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/upgrade/image-execution.js",
+      "sha256": "9c33445d4ce97e3378e7cc69d7a1bd08cc8d8cebaf1c9f65174499ad072f5c59"
+    }
+  ],
+  "results": [
+    {
+      "name": "exec-wrap",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-entrypoints.test.js-node24-entrypoints-exec-wrap-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-entrypoints.test.js-node24-entrypoints-exec-wrap-green.log",
+      "restored": true
+    },
+    {
+      "name": "shell-scan",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-entrypoints.test.js-node24-entrypoints-shell-scan-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-entrypoints.test.js-node24-entrypoints-shell-scan-green.log",
+      "restored": true
+    },
+    {
+      "name": "bare-guard",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-entrypoints.test.js-node24-entrypoints-bare-guard-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-entrypoints.test.js-node24-entrypoints-bare-guard-green.log",
+      "restored": true
+    }
+  ]
+}
