@@ -1,52 +1,7 @@
-command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mcp-central-hosts.test.js
+command: /usr/bin/node --test --test-reporter=tap test/mcp-central-hosts.test.js
 node: v22.22.1
-private root: /tmp/mh-l6-test-B0Mcdp
+private root: /tmp/mh-l6-test-s3KQtr
 case: all cases in explicit file
-TAP version 13
-# Subtest: H1: shipped manifest stays empty for all native CLIs
-ok 1 - H1: shipped manifest stays empty for all native CLIs
-  ---
-  duration_ms: 1.674461
-  type: 'test'
-  ...
-# Subtest: H1: per-host adapters qualify their own fixture entries only
-ok 2 - H1: per-host adapters qualify their own fixture entries only
-  ---
-  duration_ms: 0.284616
-  type: 'test'
-  ...
-# Subtest: H1: host-less entries still mean Claude
-ok 3 - H1: host-less entries still mean Claude
-  ---
-  duration_ms: 0.146325
-  type: 'test'
-  ...
-# Subtest: H1: routing admits each qualified host and refuses the rest
-ok 4 - H1: routing admits each qualified host and refuses the rest
-  ---
-  duration_ms: 1.466921
-  type: 'test'
-  ...
-# Subtest: H1: attachment contexts round-trip per host with isolated sessions
-ok 5 - H1: attachment contexts round-trip per host with isolated sessions
-  ---
-  duration_ms: 2.132805
-  type: 'test'
-  ...
-# Subtest: H1: Claude requires its native session id, foreign flags are refused
-ok 6 - H1: Claude requires its native session id, foreign flags are refused
-  ---
-  duration_ms: 0.628092
-  type: 'test'
-  ...
-1..6
-# tests 6
-# suites 0
-# pass 6
-# fail 0
-# cancelled 0
-# skipped 0
-# todo 0
-# duration_ms 129.093937
+Could not find 'test/mcp-central-hosts.test.js'
 
-receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mcp-central-hosts.test.js"],"code":0,"signal":null,"tests":6,"invalid":false,"spawned":1,"leftovers":[]}
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","test/mcp-central-hosts.test.js"],"code":1,"signal":null,"tests":0,"invalid":true,"spawned":0,"leftovers":[]}
