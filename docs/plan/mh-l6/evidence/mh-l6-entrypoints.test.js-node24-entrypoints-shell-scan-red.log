@@ -1,0 +1,39 @@
+command: /home/antoinefa/.cache-tmp/h2a-test/run-MZp8CW/artifact-roots/mh-l5-artifacts-VtlOXp/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-entrypoints.test.js
+node: v24.21.0
+private root: /tmp/mh-l6-test-BgDYAg
+case: E2b3 should refuse an image entry through async shell exec
+TAP version 13
+# Subtest: E2b3 should refuse an image entry through async shell exec
+not ok 1 - E2b3 should refuse an image entry through async shell exec
+  ---
+  duration_ms: 3545.85585
+  type: 'test'
+  location: '/home/antoinefa/.cache-tmp/h2a-test/run-MZp8CW/qual-roots/mh-l3-qualification-19cu0a/source/packages/h2a/test/mh-l6-entrypoints.test.js:16:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    10 !== 1
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 1
+  actual: 10
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/antoinefa/.cache-tmp/h2a-test/run-MZp8CW/qual-roots/mh-l3-qualification-19cu0a/source/packages/h2a/test/mh-l6-entrypoints.test.js:61:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    async Test.run (node:internal/test_runner/test:1409:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 3864.886344
+
+receipt: {"command":["/home/antoinefa/.cache-tmp/h2a-test/run-MZp8CW/artifact-roots/mh-l5-artifacts-VtlOXp/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-entrypoints.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":2,"leftovers":[]}

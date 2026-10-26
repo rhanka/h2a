@@ -1,0 +1,144 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-entrypoints.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-735keu
+case: all cases in explicit file
+TAP version 13
+# Subtest: E2b3 should refuse an image entry through async shell exec
+not ok 1 - E2b3 should refuse an image entry through async shell exec
+  ---
+  duration_ms: 3321.645489
+  type: 'test'
+  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l6-entrypoints.test.js:16:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    10 !== 1
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 1
+  actual: 10
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l6-entrypoints.test.js:61:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: E2b3 should pass an external shell command through exec untouched
+ok 2 - E2b3 should pass an external shell command through exec untouched
+  ---
+  duration_ms: 996.021302
+  type: 'test'
+  ...
+# Subtest: E2b3 should refuse an image entry through sync shell exec
+not ok 3 - E2b3 should refuse an image entry through sync shell exec
+  ---
+  duration_ms: 1273.460703
+  type: 'test'
+  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l6-entrypoints.test.js:16:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    10 !== 1
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 1
+  actual: 10
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l6-entrypoints.test.js:75:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: E2b3 should pass an external shell command through execSync untouched
+ok 4 - E2b3 should pass an external shell command through execSync untouched
+  ---
+  duration_ms: 1070.337346
+  type: 'test'
+  ...
+# Subtest: E2b3 should refuse a bare image entry through execFile
+not ok 5 - E2b3 should refuse a bare image entry through execFile
+  ---
+  duration_ms: 1038.104401
+  type: 'test'
+  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l6-entrypoints.test.js:16:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    10 !== 1
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 1
+  actual: 10
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l6-entrypoints.test.js:89:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: E2b3 should pass a bare external program through execFile untouched
+ok 6 - E2b3 should pass a bare external program through execFile untouched
+  ---
+  duration_ms: 1040.690419
+  type: 'test'
+  ...
+# Subtest: E2b3 should refuse a bare image entry through spawn
+not ok 7 - E2b3 should refuse a bare image entry through spawn
+  ---
+  duration_ms: 1007.014225
+  type: 'test'
+  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l6-entrypoints.test.js:16:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    10 !== 1
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 1
+  actual: 10
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l6-entrypoints.test.js:103:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: E2b3 should pass a bare external shell command through spawn untouched
+ok 8 - E2b3 should pass a bare external shell command through spawn untouched
+  ---
+  duration_ms: 1005.047162
+  type: 'test'
+  ...
+# Subtest: E2b3 should refuse an eval worker before it can evaluate
+ok 9 - E2b3 should refuse an eval worker before it can evaluate
+  ---
+  duration_ms: 1097.164036
+  type: 'test'
+  ...
+# Subtest: E2b3 should refuse published legacy bytes loaded as image code
+ok 10 - E2b3 should refuse published legacy bytes loaded as image code
+  ---
+  duration_ms: 1081.169778
+  type: 'test'
+  ...
+1..10
+# tests 10
+# suites 0
+# pass 6
+# fail 4
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 13460.231992
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-entrypoints.test.js"],"code":1,"signal":null,"tests":10,"invalid":false,"spawned":2,"leftovers":[]}
