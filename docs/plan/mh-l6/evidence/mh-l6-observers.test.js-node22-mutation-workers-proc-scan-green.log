@@ -1,12 +1,12 @@
 command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-observers.test.js
 node: v22.22.1
-private root: /tmp/mh-l6-test-cCaewr
+private root: /tmp/mh-l6-test-xz6MQE
 case: B2 should report unfenced while a live legacy worker still holds the tree
 TAP version 13
 # Subtest: B2 should report unfenced while a live legacy worker still holds the tree
 ok 1 - B2 should report unfenced while a live legacy worker still holds the tree
   ---
-  duration_ms: 597.993046
+  duration_ms: 620.415379
   type: 'test'
   ...
 1..1
@@ -17,6 +17,6 @@ ok 1 - B2 should report unfenced while a live legacy worker still holds the tree
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 704.707954
+# duration_ms 725.623316
 
 receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-observers.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":4,"leftovers":[]}

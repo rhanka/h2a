@@ -1,12 +1,12 @@
-command: /home/antoinefa/.nvm/versions/node/v24.18.0/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-observers.test.js
-node: v24.18.0
-private root: /tmp/mh-l6-test-lTgCgq
+command: /home/antoinefa/.cache-tmp/h2a-test/run-MZp8CW/artifact-roots/mh-l5-artifacts-VtlOXp/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-observers.test.js
+node: v24.21.0
+private root: /tmp/mh-l6-test-S8Nctc
 case: B2 should report unfenced when future starts still resolve to the legacy entry
 TAP version 13
 # Subtest: B2 should report unfenced when future starts still resolve to the legacy entry
 ok 1 - B2 should report unfenced when future starts still resolve to the legacy entry
   ---
-  duration_ms: 229.952304
+  duration_ms: 236.352808
   type: 'test'
   ...
 1..1
@@ -17,6 +17,6 @@ ok 1 - B2 should report unfenced when future starts still resolve to the legacy 
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 265.508527
+# duration_ms 281.493883
 
-receipt: {"command":["/home/antoinefa/.nvm/versions/node/v24.18.0/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-observers.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":2,"leftovers":[]}
+receipt: {"command":["/home/antoinefa/.cache-tmp/h2a-test/run-MZp8CW/artifact-roots/mh-l5-artifacts-VtlOXp/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-observers.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":2,"leftovers":[]}
