@@ -8,18 +8,9 @@ import { UpgradeStore } from '../dist/runtime/upgrade/h4-store.js';
 import { installationFixture } from './helpers/mh-l6-installation.js';
 import { readState, replaceState } from '../src/runtime/handover/state.js';
 import { digest } from '../src/runtime/handover/wire.js';
+import { replyWithBudget as reply } from './helpers/mh-l6-ipc-budget.mjs';
 const test = (name, fn) => { if (!process.env.MH_L6_CASE || name === process.env.MH_L6_CASE) nodeTest(name, fn); };
 const worker = new URL('./helpers/mh-l6-controller.mjs', import.meta.url).href;
-function reply(child) {
-  return new Promise((resolve, reject) => {
-    const cleanup = () => { clearTimeout(timer); child.off('message', message); child.off('close', close); child.off('error', error); };
-    const message = value => { cleanup(); resolve(value); };
-    const close = () => { cleanup(); reject(new Error('controller_closed_before_reply')); };
-    const error = value => { cleanup(); reject(value); };
-    const timer = setTimeout(() => { cleanup(); reject(new Error('controller_reply_budget_exceeded')); }, 5000);
-    child.once('message', message); child.once('close', close); child.once('error', error);
-  });
-}
 function fixture(t) {
   assert.equal(typeof UpgradeStore.prototype.delegate, 'function', 'durable target delegation required');
   const f = installationFixture(); t.after(() => f.close());
