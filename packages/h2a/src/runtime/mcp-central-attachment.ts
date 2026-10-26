@@ -45,7 +45,7 @@ export function openCentralAttachment(
     !(CENTRAL_ATTACHMENT_ENV as readonly string[]).includes(key) &&
     !key.startsWith("H2A_NATIVE_") && !key.startsWith("H2A_MCP_READY_")
   ));
-  const serving = runMcpServe({ ...context.flags, root, host: "claude" }, {
+  const serving = runMcpServe({ ...context.flags, root, host: context.host }, {
     stdin: input, stdout: output, stderr: process.stderr,
     cwd: () => workspace,
     env: { ...daemonEnvironment, ...context.env, H2A_ROOT: root },
