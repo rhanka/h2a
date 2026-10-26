@@ -35,10 +35,13 @@ async function withAttachment(fn) {
   }
 }
 
-test("R2 service: attachment dispatch serves coordination through the registry plan", async () => {
+test("R2 service: attachment dispatch serves coordination (identity fast-path, real handler)", async () => {
   await withAttachment(async ({ handle }) => {
+    // `h2a_identity_status` keeps the historical sync fast-path (H1
+    // internals read it synchronously); plan routing for coordination tools
+    // is proven by the handler_error code assertions below.
     const raw = await handle.mcp.callTool("h2a_identity_status", {});
-    assert.ok(raw && typeof raw === "object" && "content" in raw, "identity status answers through the plan");
+    assert.ok(raw && typeof raw === "object" && "content" in raw, "identity status answers");
     const parsed = JSON.parse(raw.content[0].text);
     assert.ok(
       ["identity_disabled", "identity_pending", "identity_ready", "identity_failed"].includes(parsed.state),
