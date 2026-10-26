@@ -4,7 +4,11 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 process.umask(0o022);
-const root = fs.mkdtempSync('/tmp/mh-l5-artifacts-');
+// MH_L5_ARTIFACTS_ROOT overrides the private root (owner rule: never the
+// real /tmp); unset keeps the historical /tmp prefix.
+const root = process.env.MH_L5_ARTIFACTS_ROOT
+  ? fs.mkdtempSync(join(process.env.MH_L5_ARTIFACTS_ROOT, 'mh-l5-artifacts-'))
+  : fs.mkdtempSync('/tmp/mh-l5-artifacts-');
 const env = { PATH: process.env.PATH, LANG: 'C.UTF-8', npm_config_registry: 'https://registry.npmjs.org',
   npm_config_userconfig: join(root, 'npmrc'), npm_config_globalconfig: join(root, 'global-npmrc') };
 for (const key of ['HOME', 'XDG_RUNTIME_DIR', 'XDG_CONFIG_HOME', 'XDG_STATE_HOME', 'XDG_DATA_HOME', 'TMPDIR']) {

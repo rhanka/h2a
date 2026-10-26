@@ -25,8 +25,10 @@ if (process.env.MH_L6_NATIVE_ASSETS) {
 }
 if (process.env.MH_L5_ARTIFACTS) {
   const root = fs.realpathSync(process.env.MH_L5_ARTIFACTS);
-  if (!root.startsWith('/tmp/mh-l5-artifacts-')) throw new Error('private_artifacts_required');
+  const alternate = process.env.MH_L5_ARTIFACTS_ROOT ? fs.realpathSync(process.env.MH_L5_ARTIFACTS_ROOT) : null;
+  if (!root.startsWith('/tmp/mh-l5-artifacts-') && !(alternate && root.startsWith(alternate))) throw new Error('private_artifacts_required');
   env.MH_L5_ARTIFACTS = root;
+  if (alternate) env.MH_L5_ARTIFACTS_ROOT = alternate;
 }
 const args = runner === 'node' ? ['--test', '--test-reporter=tap', file] : [resolve('node_modules/vitest/vitest.mjs'), 'run', file];
 const command = [process.execPath, ...args];
