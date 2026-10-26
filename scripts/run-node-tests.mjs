@@ -27,10 +27,11 @@ assert.ok(files.length > 0 && files.every(file => file.endsWith('.test.js')), 'e
 assert.equal(new Set(files).size, files.length, 'duplicate test files');
 assert.equal(args.length, fixed.size + destinations.length + concurrencyArgs.length + files.length, 'unsupported runner option');
 const reportPath = destinations[0].slice('--test-reporter-destination='.length);
-// A file can itself spawn compilers, npm installers or many protocol actors.
-// Keep the production pool at two files; multiplying it by the CPU count
-// oversubscribes those child trees and spends bounded startup budgets waiting.
-const concurrency = concurrencyArgs.length ? Number(concurrencyArgs[0].split('=')[1]) : Math.min(2, availableParallelism());
+const concurrency = concurrencyArgs.length ? Number(concurrencyArgs[0].split('=')[1]) : availableParallelism();
+// Package files spawn npm installers and compilers themselves. Bound that
+// nested work without throttling the hundreds of ordinary protocol files.
+// An explicit test-runner override still governs both phases.
+const bulkConcurrency = concurrencyArgs.length ? concurrency : Math.min(2, concurrency);
 const interval = Number(process.env.H2A_TEST_NODE_PROGRESS_MS ?? 30_000);
 assert.ok(Number.isFinite(interval) && interval > 0, 'positive progress interval required');
 const pending = new Map(), fileSet = new Set(files);
@@ -48,7 +49,7 @@ ChildProcess.prototype.spawn = function (options) {
   }
   return result;
 };
-const progress = setInterval(() => process.stderr.write(`[node-test-progress] ${JSON.stringify({ concurrency, completed,
+const progress = setInterval(() => process.stderr.write(`[node-test-progress] ${JSON.stringify({ concurrency, bulkConcurrency, completed,
   active: [...pending].map(([child, row]) => ({ file: row.file, pid: child.pid, elapsedMs: Math.round(performance.now() - row.started),
     exitCode: child.exitCode, signalCode: child.signalCode })) })}\n`), interval).unref();
 // These fixtures qualify bounded cold startup and authenticated handover.
@@ -90,7 +91,7 @@ async function* merge(sources) {
 async function* schedule() {
   for (const file of standalone) yield* execute([file]);
   if (!backend.length || concurrency === 1) {
-    yield* execute(backend); yield* execute(remaining); yield* execute(bulk);
+    yield* execute(backend); yield* execute(remaining); yield* execute(bulk, bulkConcurrency);
     return;
   }
   // M17's shared lock serializes its eight actors. Reserve one file worker
@@ -104,7 +105,7 @@ async function* schedule() {
   })());
   const other = Readable.from((async function* () {
     yield* execute(remaining, backendDone ? concurrency : concurrency - 1);
-    yield* execute(bulk, backendDone ? concurrency : concurrency - 1);
+    yield* execute(bulk, backendDone ? bulkConcurrency : Math.min(bulkConcurrency, concurrency - 1));
   })());
   yield* merge([campaign, other]);
 }
