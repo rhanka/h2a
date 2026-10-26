@@ -20,7 +20,8 @@ function assertGraph(workflow) {
   for (const step of producer.steps) {
     assert.equal(step.if, undefined); assert.equal(step['continue-on-error'], undefined);
   }
-  assert.deepEqual(producer.steps.filter(s => s.run).map(s => s.run), ['npm ci', 'npm run build', 'node scripts/ci-bulk-proof.mjs']);
+  assert.deepEqual(producer.steps.filter(s => s.run).map(s => s.run), ['npm ci', 'npm run build',
+    'node --test packages/h2a/test/bulk-ci-evidence.test.js', 'node scripts/ci-bulk-proof.mjs']);
   assert.deepEqual(producer.steps.find(s => s.uses === 'actions/upload-artifact@v4').with,
     {name:'bulk-${{ github.run_id }}-${{ github.run_attempt }}-node${{ matrix.node }}',path:'tmp/bulk-export/proof.json','if-no-files-found':'error','retention-days':7});
   for (const name of ['build-and-test', 'npm-test-trust-root']) {
@@ -44,6 +45,7 @@ test('bulk CI negative controls reject skipped-green, optional and foreign-profi
     ['needs.bulk-qualification.result','needs.bulk-qualification.outputs.optional'],
     ['name: bulk-${{ github.run_id }}-${{ github.run_attempt }}-node22','name: bulk-last-success-node22'],
     ['H2A_TEST_CI_BULK_REPORT:', 'OPTIONAL_BULK_REPORT:'],
+    ['run: node --test packages/h2a/test/bulk-ci-evidence.test.js', 'run: true'],
     ['      - name: Require both complete bulk qualifications\n','      - name: Require both complete bulk qualifications\n        if: false\n'],
     ['      - name: Execute every bulk packaging and corpus case\n','      - name: Execute every bulk packaging and corpus case\n        continue-on-error: true\n'],
     ['          path: tmp/bulk-export/proof.json\n          if-no-files-found: error','          path: tmp/bulk-export/proof.json\n          if-no-files-found: warn'],
@@ -130,6 +132,7 @@ test('bulk producer runs every case and seals only after successful execution an
     for(const file of ['scripts/bulk-ci-evidence.mjs','scripts/bulk-test-files.mjs','scripts/bulk-test-inventory.json','scripts/ci-bulk-proof.mjs',
       'scripts/m17-ci-evidence.mjs','scripts/ci-m17-proof.mjs','scripts/run-node-tests.mjs','scripts/node-evidence-reporter.mjs','scripts/test-execution-evidence.mjs','scripts/test-inventory.mjs',
       'scripts/ci-owned-process.mjs','packages/h2a/test/helpers/native-isolation.js',
+      '.github/workflows/ci.yml','packages/h2a/test/bulk-ci-evidence.test.js',
       ...['image','wire','formats','schemas'].map(n=>`packages/h2a/src/runtime/handover/${n}.js`)]) {
       fs.mkdirSync(join(root,file,'..'),{recursive:true});fs.copyFileSync(join(source,file),join(root,file));
     }
