@@ -1,0 +1,34 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-ipc-budget.test.js
+node: v24.22.0
+private root: /tmp/mh-l6-test-42zcjW
+case: all cases in explicit file
+TAP version 13
+# Subtest: M17 oracle: a healthy child still answers within the unchanged budget
+ok 1 - M17 oracle: a healthy child still answers within the unchanged budget
+  ---
+  duration_ms: 41.162725
+  type: 'test'
+  ...
+# Subtest: M17 oracle: budget expiry on a live unscheduled child reports alive evidence
+ok 2 - M17 oracle: budget expiry on a live unscheduled child reports alive evidence
+  ---
+  duration_ms: 5004.65385
+  type: 'test'
+  ...
+# Subtest: M17 oracle: a dead child keeps the closed-before-reply verdict
+ok 3 - M17 oracle: a dead child keeps the closed-before-reply verdict
+  ---
+  duration_ms: 3.413235
+  type: 'test'
+  ...
+1..3
+# tests 3
+# suites 0
+# pass 3
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 5099.92586
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-ipc-budget.test.js"],"code":0,"signal":null,"tests":3,"invalid":false,"spawned":5,"leftovers":[]}
