@@ -4,7 +4,11 @@ import fs from 'node:fs';
 import { spawnSync, execFileSync } from 'node:child_process';
 import { join, dirname } from 'node:path';
 process.umask(0o022);
-const directory = fs.mkdtempSync('/tmp/mh-l3-qualification-'), source = join(directory, 'source');
+// MH_L3_QUALIFICATION_ROOT overrides the private root (owner rule: never the
+// real /tmp); unset keeps the historical /tmp prefix.
+const directory = process.env.MH_L3_QUALIFICATION_ROOT
+  ? fs.mkdtempSync(join(fs.realpathSync(process.env.MH_L3_QUALIFICATION_ROOT), 'mh-l3-qualification-'))
+  : fs.mkdtempSync('/tmp/mh-l3-qualification-'), source = join(directory, 'source');
 fs.mkdirSync(source, { mode: 0o755 });
 const files = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], { encoding: 'utf8' }).split('\0').filter(Boolean);
 for (const path of files) {
