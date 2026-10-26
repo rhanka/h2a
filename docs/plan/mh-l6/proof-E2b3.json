@@ -1,0 +1,42 @@
+{
+  "source": "/home/antoinefa/.cache-tmp/h2a-test/run-MZp8CW/qual-roots/mh-l3-qualification-19cu0a/source",
+  "worktree": "/home/antoinefa/src/h2a/tmp/worktrees/mh-l0",
+  "files": [
+    {
+      "path": "packages/h2a/src/runtime/upgrade/image-execution.js",
+      "sha256": "a86ee9b9950976e249ecf92f118341847c921134b3074c565f3ee80949952b58"
+    },
+    {
+      "path": "packages/h2a/test/mh-l6-entrypoints.test.js",
+      "sha256": "0ace631324daa453d47c01e25d042788c7f9012b229c1120affc5e30099b3b91"
+    },
+    {
+      "path": "packages/h2a/test/helpers/mh-l6-entrypoints-harness.mjs",
+      "sha256": "ab7a019c60c40f85e75a5a786af51a20d00b638d484a6e16c774fffdb3376073"
+    },
+    {
+      "path": "scripts/mh-l6-entrypoints-mutate.mjs",
+      "sha256": "15dca3d92161fc31a788bb7fb164567effab33eb0874bfc167360fd9e03a166d"
+    },
+    {
+      "path": "scripts/mh-l6-test.mjs",
+      "sha256": "2ca930a60b1d5d8399e3dc10bb4341936cd6ce75cb5216e69dfca0dbc004893a"
+    }
+  ],
+  "compiled": {
+    "path": "packages/h2a/dist/runtime/upgrade/image-execution.js",
+    "sha256": "9c33445d4ce97e3378e7cc69d7a1bd08cc8d8cebaf1c9f65174499ad072f5c59"
+  },
+  "profiles": [
+    {
+      "major": 22,
+      "tests": 10,
+      "mutations": 3
+    },
+    {
+      "major": 24,
+      "tests": 10,
+      "mutations": 3
+    }
+  ]
+}
