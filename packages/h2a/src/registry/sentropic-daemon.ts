@@ -40,8 +40,11 @@
  *   Authenticated attachment bindings and lock selection stay H2b/S3 scope;
  *   this module makes no bridge/native acceptance claim.
  *
- * No `mcp-central-*.ts` change: this module is consumed from the registry
- * service path (`cli-registry.ts` bridge preflight) and directly by tests.
+ * Round 2: the shared central service dispatches through this plan. The
+ * attachment hook (`../runtime/mcp-central-attachment.js`
+ * `wrapMcpServerWithDaemonRegistry`) binds the per-attachment server behind
+ * the composed views, so context, identity and fencing stay with the H1
+ * attachment while selection/denial come from the Sentropic plan.
  */
 
 import { createClusterMeshModules } from "@sentropic/cluster-mesh";
@@ -54,7 +57,7 @@ import type {
 import { computeManifestDigest } from "@sentropic/mcp-platform/tool-configuration";
 import { authorizeDispatch } from "@sentropic/mcp-platform/transport/dispatch";
 import { TRACK_READ_TOOL_DESCRIPTORS } from "@sentropic/track/mcp";
-import { createMcpServer } from "../runtime/mcp/server.js";
+import { createMcpServer, isMcpTransportResult, type McpServer } from "../runtime/mcp/server.js";
 import { H2A_CLI_MCP_TOOL_DESCRIPTORS } from "../runtime/mcp/tools.js";
 
 /** Pinned to the published facade; asserted by the H2a daemon tests. */
@@ -157,7 +160,18 @@ function buildManifest(
   } as Manifest;
 }
 
-type McpServerLike = ReturnType<typeof createMcpServer>;
+/**
+ * The attachment's own dispatch, captured BEFORE the registry wrapper is
+ * installed. The adapter delegates execution to it, so identity guards,
+ * participant fencing, store and workspace stay with the H1 attachment;
+ * only selection and denial come from the composed plan. Passing the bound
+ * function (not the server object) keeps the wrapper from recursing into
+ * itself once `server.callTool` is replaced.
+ */
+export type DaemonRawCallTool = (
+  name: string,
+  args: Record<string, unknown>
+) => unknown | Promise<unknown>;
 
 function contentText(raw: unknown): { text: string; hint?: string } | null {
   if (raw === null || typeof raw !== "object" || !("content" in raw)) return null;
@@ -169,7 +183,7 @@ function contentText(raw: unknown): { text: string; hint?: string } | null {
   return { text: first, ...(typeof second === "string" ? { hint: second } : {}) };
 }
 
-function buildAdapter(manifest: Manifest, connectorId: string, server: McpServerLike): Adapter {
+function buildAdapter(manifest: Manifest, connectorId: string, rawCallTool: DaemonRawCallTool): Adapter {
   return {
     appId: manifest.appId,
     connectorId,
@@ -193,7 +207,7 @@ function buildAdapter(manifest: Manifest, connectorId: string, server: McpServer
       }
       let raw: unknown;
       try {
-        raw = await server.callTool(name, (req.input ?? {}) as Record<string, unknown>);
+        raw = await rawCallTool(name, (req.input ?? {}) as Record<string, unknown>);
       } catch (error) {
         return {
           ok: false,
@@ -212,6 +226,22 @@ function buildAdapter(manifest: Manifest, connectorId: string, server: McpServer
           auditId: "h2a-daemon-local",
           redactionClass: "none",
           error: { code: "handler_error", message: parsed?.text ?? JSON.stringify(raw).slice(0, 500), retriable: false }
+        };
+      }
+      // Coordination handlers also report business refusals as
+      // `McpErrorResult { error: string }` (no `content`/`isError` envelope):
+      // `h2a_send` without a signing identity, `h2a_register_instance`
+      // without a registration, `h2a_session_open` without args. Those are
+      // failures, never `ok:true` payloads.
+      if (
+        raw !== null && typeof raw === "object" && !isMcpTransportResult(raw) &&
+        typeof (raw as { error?: unknown }).error === "string"
+      ) {
+        return {
+          ok: false,
+          auditId: "h2a-daemon-local",
+          redactionClass: "none",
+          error: { code: "handler_error", message: (raw as { error: string }).error, retriable: false }
         };
       }
       const parsed = contentText(raw);
@@ -240,7 +270,7 @@ function buildAdapter(manifest: Manifest, connectorId: string, server: McpServer
   } as Adapter;
 }
 
-function buildLoadedDefinition(manifest: Manifest, connectorId: string, server: McpServerLike): LoadedDefinition {
+function buildLoadedDefinition(manifest: Manifest, connectorId: string, rawCallTool: DaemonRawCallTool): LoadedDefinition {
   const handlers: Record<string, { handlerId: string; capabilityRef: string; configSchema: unknown }> = {};
   const toolValues: Record<string, { handlerId: string; values: Record<string, unknown> }> = {};
   for (const tool of manifest.tools) {
@@ -252,7 +282,7 @@ function buildLoadedDefinition(manifest: Manifest, connectorId: string, server: 
   }
   return {
     manifest,
-    adapter: buildAdapter(manifest, connectorId, server),
+    adapter: buildAdapter(manifest, connectorId, rawCallTool),
     parameterSchema: { properties: {} },
     handlers,
     requiredPorts: [],
@@ -268,20 +298,24 @@ function buildLoadedDefinition(manifest: Manifest, connectorId: string, server: 
 
 const LOCAL_PRINCIPAL = { sub: "h2a-daemon-local", clientId: "h2a-daemon", scopes: [], claims: [] };
 
-export async function composeDaemonRegistry(options: ComposeDaemonOptions): Promise<{
+export interface ComposedDaemonRegistry {
   facade: ReturnType<typeof createMcpRegistry>;
   compiled: CompiledMcpRegistry;
   catalog: () => Array<{ providerId: string; version: string; capabilities: string[] }>;
   toolNames: () => string[];
   dispatch: (toolName: string, args: Record<string, unknown>) => Promise<DaemonDispatchResult>;
-}> {
-  const server = createMcpServer({
-    root: options.root,
-    workspaceRoot: options.workspaceRoot ?? options.root,
-    storeInitialize: false,
-    sessions: { autoHeartbeat: false }
-  });
+}
 
+/**
+ * Compose one view around an ALREADY-BOUND server dispatch (the attachment's
+ * own `callTool`, captured before wrapping). Execution stays in that server
+ * — store, workspace, identity, participant fencing — while the compiled
+ * Sentropic plan decides selection and denial.
+ */
+export async function composeDaemonRegistryForServer(
+  rawCallTool: DaemonRawCallTool,
+  options: ComposeDaemonOptions
+): Promise<ComposedDaemonRegistry> {
   const wantCoordination = options.view === "coordination" || options.view === "combined";
   const wantTrack = options.view === "track" || options.view === "combined";
 
@@ -291,7 +325,7 @@ export async function composeDaemonRegistry(options: ComposeDaemonOptions): Prom
       buildLoadedDefinition(
         buildManifest("sentropic.h2a", "@sentropic/h2a", "h2a coordination", coordinationTools(), false),
         "h2a-coordination",
-        server
+        rawCallTool
       )
     );
   }
@@ -300,7 +334,7 @@ export async function composeDaemonRegistry(options: ComposeDaemonOptions): Prom
       buildLoadedDefinition(
         buildManifest("sentropic.track", "@sentropic/track", "track reads", trackTools(), true),
         "track-read",
-        server
+        rawCallTool
       )
     );
   }
@@ -393,4 +427,84 @@ export async function composeDaemonRegistry(options: ComposeDaemonOptions): Prom
     toolNames: () => [...compiled.tools.keys()],
     dispatch
   };
+}
+
+/**
+ * Standalone composition: a fresh in-process server behind the requested
+ * view. The service path uses `composeDaemonRegistryForServer` with the
+ * attachment's server instead; this entry keeps the preflight and test
+ * composition.
+ */
+export async function composeDaemonRegistry(options: ComposeDaemonOptions): Promise<ComposedDaemonRegistry> {
+  const server = createMcpServer({
+    root: options.root,
+    workspaceRoot: options.workspaceRoot ?? options.root,
+    storeInitialize: false,
+    sessions: { autoHeartbeat: false }
+  });
+  return composeDaemonRegistryForServer(server.callTool.bind(server) as DaemonRawCallTool, options);
+}
+
+/**
+ * The `dispatch` refusals the attachment wrapper converts back into the
+ * server's historical `{ error }` shape (same observable protocol outcome
+ * as the direct call: an `isError` tool result, single execution, no
+ * fallback re-run). Anything else — a poisoned dispatch, a failed compile,
+ * an unexpected defect — propagates and breaks the call loudly.
+ */
+const DAEMON_DOMAIN_REFUSAL_CODES = new Set([
+  "unknown_tool",
+  "handler_error",
+  "handler_failed",
+  "insufficient_scope",
+  "insufficient_claims"
+]);
+
+export function isDaemonDomainRefusal(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    DAEMON_DOMAIN_REFUSAL_CODES.has(String((error as { code: unknown }).code))
+  );
+}
+
+/**
+ * Route a server's tool dispatch through the composed Sentropic registry
+ * plan (combined view: the full served surface). The raw dispatch is
+ * captured first and stays the only executor, so per-attachment context,
+ * identity and fencing are unchanged; the plan only admits or denies, and a
+ * successful dispatch returns the raw result bytes untouched.
+ *
+ * Takes only the `callTool` property, so callers without a full server
+ * (such as the attachment hook, which lazy-loads this module to keep the
+ * light-shim static graph free of the mesh packages) can route a captured
+ * dispatch without a cast.
+ */
+export function wrapMcpServerWithDaemonRegistry(
+  server: Pick<McpServer, "callTool">,
+  options: { root: string; workspaceRoot?: string }
+): Pick<McpServer, "callTool"> {
+  // Bound NOW: the original function object, so the adapter never re-enters
+  // the wrapper installed below (a property lookup at call time would).
+  const rawCallTool = server.callTool.bind(server) as DaemonRawCallTool;
+  let composedPromise: Promise<ComposedDaemonRegistry> | undefined;
+  const composed = (): Promise<ComposedDaemonRegistry> =>
+    (composedPromise ??= composeDaemonRegistryForServer(rawCallTool, {
+      view: "combined",
+      root: options.root,
+      workspaceRoot: options.workspaceRoot
+    }));
+  const wrapped: McpServer["callTool"] = (async (name: string, args: Record<string, unknown> | undefined) => {
+    const plan = await composed();
+    try {
+      const result = await plan.dispatch(name, args ?? {});
+      return result.output.transport as Awaited<ReturnType<McpServer["callTool"]>>;
+    } catch (error) {
+      if (isDaemonDomainRefusal(error)) return { error: (error as Error).message };
+      throw error;
+    }
+  }) as McpServer["callTool"];
+  server.callTool = wrapped;
+  return server;
 }

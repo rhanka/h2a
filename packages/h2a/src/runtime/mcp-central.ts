@@ -345,13 +345,15 @@ function createCentralApp(
       return context.json(admin.execute(context.req.param("operation"), step, payload, coordinator));
     } catch (error) { return context.json({ error: (error as Error).message }, 409); }
   });
-  app.get("/_h2a-central/lease/:id", context => {
+  app.get("/_h2a-central/lease/:id", async context => {
     const attachment = sessions.get(context.req.param("id"));
     if (!attachment) return context.json({ error: "unknown attachment" }, 404);
     try { if (attachment.logical) transports.admit(attachment.logical.id, Number(context.req.header('x-h2a-auth-transport-epoch'))); }
     catch { return context.json({ error: 'transport_fenced' }, 409); }
     attachment.touched = Date.now();
-    const status = attachment.handle.mcp.callTool("h2a_identity_status", {}) as { content: Array<{ text: string }> };
+    // Round 2: attachment dispatch routes through the registry plan, so the
+    // status read is async; the answered bytes are unchanged (raw passthrough).
+    const status = await attachment.handle.mcp.callTool("h2a_identity_status", {}) as { content: Array<{ text: string }> };
     const value = JSON.parse(status.content[0].text);
     if (attachment.logical && value.state === 'identity_ready') attachment.logical.expectedInstance = value.instance;
     return context.json(value);
@@ -457,7 +459,8 @@ function createCentralApp(
       throw error;
     }
     // The server owns identity; the shim only retains the expected resume id.
-    const statusResult = attachment.handle.mcp.callTool("h2a_identity_status", {}) as { content: Array<{ text: string }> };
+    // Round 2: async for the same registry-routed reason as the lease read.
+    const statusResult = await attachment.handle.mcp.callTool("h2a_identity_status", {}) as { content: Array<{ text: string }> };
     const status = JSON.parse(statusResult.content[0].text) as { state?: string; instance?: string };
     if (status.state === "identity_ready" && status.instance) {
       context.header("x-h2a-instance", status.instance);
