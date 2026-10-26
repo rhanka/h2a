@@ -1,12 +1,12 @@
 command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-entrypoints.test.js
 node: v22.22.1
-private root: /tmp/mh-l6-test-fbiLTt
+private root: /tmp/mh-l6-test-VPPwtM
 case: E2b3 should refuse a bare image entry through spawn
 TAP version 13
 # Subtest: E2b3 should refuse a bare image entry through spawn
 ok 1 - E2b3 should refuse a bare image entry through spawn
   ---
-  duration_ms: 2864.374889
+  duration_ms: 4896.801336
   type: 'test'
   ...
 1..1
@@ -17,6 +17,6 @@ ok 1 - E2b3 should refuse a bare image entry through spawn
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 3436.18898
+# duration_ms 5545.961112
 
 receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-entrypoints.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":2,"leftovers":[]}
