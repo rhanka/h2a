@@ -1,13 +1,13 @@
 {
-  "node": "v24.18.0",
+  "node": "v24.21.0",
   "files": [
     {
       "path": "packages/h2a/src/runtime/upgrade/legacy-observers.js",
-      "sha256": "41ce06b3b2151d2f94cf76382eb9363f0f2cd64ec6d32383f50d9edd2fe6c9eb"
+      "sha256": "8db51d02f05f9c25463d4848035c46afabda3afef63d3eddf853e99f91a828af"
     },
     {
       "path": "packages/h2a/dist/runtime/upgrade/legacy-observers.js",
-      "sha256": "763d10d63d73bcf00a1019b90cf8c1ff0cd8a712ad18975ee5b065f57e713d76"
+      "sha256": "68600ed3a71efb3cb25dccf5c9dc2b3faf30d9aaff1e1943985478d130a35392"
     }
   ],
   "results": [
