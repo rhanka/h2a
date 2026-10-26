@@ -27,16 +27,25 @@ export type CentralAttachmentHandle = { mcp: McpServer; close(): Promise<void> }
  * into itself.
  */
 function installRegistryDispatch(mcp: McpServer, options: { root: string; workspaceRoot: string }): void {
-  const rawCallTool = mcp.callTool.bind(mcp);
+  const rawCallTool = mcp.callTool.bind(mcp) as McpServer["callTool"];
   let delegate: McpServer["callTool"] | undefined;
   let pending: Promise<McpServer["callTool"]> | undefined;
-  const stub = (async (name: string, args: Record<string, unknown> | undefined) => {
-    pending ??= (async () => {
-      const { wrapMcpServerWithDaemonRegistry } = await import("../registry/sentropic-daemon.js");
-      return wrapMcpServerWithDaemonRegistry({ callTool: rawCallTool }, options).callTool;
+  const stub = ((name: string, args: Record<string, unknown> | undefined) => {
+    // H1 internals read `h2a_identity_status` SYNCHRONOUSLY
+    // (`handover/participants.js identity()`, freeze/checkpoint path): the
+    // raw call is sync for the status tool, while any plan route is async by
+    // construction. The status read is side-effect-free, identity-scoped and
+    // admitted in every view, so it keeps the exact historical sync bytes;
+    // every other tool routes through the composed plan below.
+    if (name === "h2a_identity_status") return rawCallTool(name, args);
+    return (async () => {
+      pending ??= (async () => {
+        const { wrapMcpServerWithDaemonRegistry } = await import("../registry/sentropic-daemon.js");
+        return wrapMcpServerWithDaemonRegistry({ callTool: rawCallTool }, options).callTool;
+      })();
+      delegate ??= await pending;
+      return delegate(name, args);
     })();
-    delegate ??= await pending;
-    return delegate(name, args);
   }) as McpServer["callTool"];
   mcp.callTool = stub;
 }
