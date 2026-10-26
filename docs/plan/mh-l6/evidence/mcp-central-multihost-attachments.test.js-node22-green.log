@@ -1,0 +1,35 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mcp-central-multihost-attachments.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-1jxc17
+case: all cases in explicit file
+TAP version 13
+# {"event":"drive-consent.full-verification","durationMs":0.00534000000004653,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# h2a mcp-serve: identity migration: claude:repo-a:8ab6a815f2a0 reads legacy claude:repo-a; no proof of possession of a legacy key — mint net-new keys
+# h2a mcp-serve: auto-opened session for claude:repo-a:8ab6a815f2a0
+# h2a mcp-serve: identity ready: claude:repo-a:8ab6a815f2a0 (signing available)
+# h2a mcp-serve: identity migration: codex:repo-b:cae33405d58d reads legacy codex:repo-b; no proof of possession of a legacy key — mint net-new keys
+# h2a mcp-serve: auto-opened session for codex:repo-b:cae33405d58d
+# h2a mcp-serve: identity ready: codex:repo-b:cae33405d58d (signing available)
+# h2a mcp-serve: identity migration: agy:repo-c:b3fdb624c9ed reads legacy agy:repo-c; no proof of possession of a legacy key — mint net-new keys
+# h2a mcp-serve: auto-opened session for agy:repo-c:b3fdb624c9ed
+# h2a mcp-serve: identity ready: agy:repo-c:b3fdb624c9ed (signing available)
+# h2a mcp-serve: identity migration: Muse:repo-a:6385b37be887 reads legacy Muse:repo-a; no proof of possession of a legacy key — mint net-new keys
+# h2a mcp-serve: auto-opened session for Muse:repo-a:6385b37be887
+# h2a mcp-serve: identity ready: Muse:repo-a:6385b37be887 (signing available)
+# Subtest: H1: one shared service carries isolated attachments from three native CLIs
+ok 1 - H1: one shared service carries isolated attachments from three native CLIs
+  ---
+  duration_ms: 6386.544841
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 6751.226759
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mcp-central-multihost-attachments.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":5,"leftovers":[]}
