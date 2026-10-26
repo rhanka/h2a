@@ -26,7 +26,7 @@ import { fileURLToPath } from "node:url";
 import { trackRegistryPackageManifest } from "@sentropic/track/registry/manifest";
 import { installBridgeEntry, previewInstall, uninstallBridgeEntry, verifyPluginInstall } from "./host-bootstrap.js";
 import { assertRegistryHost } from "./host-bootstrap.js";
-import { defaultBridgeLockPath, defaultPluginBridgeLockPath, readBridgeLock } from "./bridge-lock.js";
+import { defaultBridgeLockPath, defaultPluginBridgeLockPath, readBridgeLock, type BridgeLock } from "./bridge-lock.js";
 import { normalizeConfiguration, RegistryError, validateRegistryEntry, type RegistryEntry } from "./descriptors.js";
 import { activateHostedLock, draftHostedLock, verifyHostedLock } from "./hosted.js";
 import { registryPackageManifest } from "./manifest.js";
@@ -100,6 +100,169 @@ function packedManifests(): { h2aManifest: unknown; trackManifest: unknown } {
   const h2aManifest = readPackedAsset("h2a", fileURLToPath(new URL(`../../${h2aAsset}`, import.meta.url)));
   const trackManifest = readPackedAsset("track", resolveTrackManifestAsset(trackAsset));
   return { h2aManifest, trackManifest };
+}
+
+/**
+ * Round 2: the admission bounds the pre-H2a compiler enforced at
+ * `compile()` time, restored ahead of delegation. H2a's Sentropic
+ * composition configures no attachment ports (`requiredPorts: []`), so the
+ * lock's bindings, host features and protocol versions are checked here
+ * against the packed entry descriptors with the same codes as before:
+ * `missing_binding`, `unsupported_host`, `incompatible_version`.
+ * Returns a refusal reason, or null when the lock is admissible.
+ */
+const BRIDGE_SUPPLIED_BINDINGS: Record<string, { contract: string }> = {
+  "h2a-local-central": { contract: "h2a.central-attachment/v2" },
+  "h2a-attachment-workspace": { contract: "h2a.workspace/v1" },
+  "h2a-hosted-service": { contract: "h2a.hosted-service/v1" }
+};
+
+function lockCompatibility(lock: BridgeLock): { hostFeatures: string[]; protocolVersions: string[] } {
+  const compat = (lock.compatibility ?? {}) as { hostFeatures?: unknown; protocolVersions?: unknown };
+  return {
+    hostFeatures: Array.isArray(compat.hostFeatures) ? (compat.hostFeatures as string[]) : [],
+    protocolVersions: Array.isArray(compat.protocolVersions) ? (compat.protocolVersions as string[]) : []
+  };
+}
+
+function transportAppliesToMode(entry: RegistryEntry, normalized: Record<string, unknown>, transportId: string): boolean {
+  if (entry.id === "sentropic.h2a") {
+    const mode = normalized["mode"] as string;
+    if (mode === "shared-central") return transportId === "shared-central-stdio";
+    return transportId === "hosted-read-only-http";
+  }
+  // Track serves its read-only profile over both the attachment stdio
+  // transport and the hosted HTTP transport.
+  return true;
+}
+
+function admitBridgeLockBounds(
+  lock: BridgeLock,
+  entries: Map<string, RegistryEntry>,
+  normalized: Map<string, Record<string, unknown>>
+): { code: string; message: string } | null {
+  const { hostFeatures, protocolVersions } = lockCompatibility(lock);
+  for (const selected of lock.selection) {
+    const record = lock.entries[selected.id] as { config: unknown } | undefined;
+    if (!record || typeof record.config !== "object" || record.config === null) {
+      return { code: "invalid_parameters", message: `provider ${selected.id} is selected but has no configuration` };
+    }
+    const stored = entries.get(selected.id);
+    if (!stored) return { code: "invalid_entry", message: `unknown provider ${selected.id}` };
+    const config = normalized.get(selected.id) as Record<string, unknown>;
+    for (const required of stored.compatibility.requiredHostFeatures) {
+      if (!hostFeatures.includes(required)) {
+        return { code: "unsupported_host", message: `provider ${selected.id} requires host feature ${required}` };
+      }
+    }
+    // Binding references resolve against the declared binding keys with the
+    // bridge's supplied ports (same supply as the pre-H2a compile call).
+    for (const [field, value] of Object.entries(config)) {
+      if (!field.endsWith("Ref") || typeof value !== "string") continue;
+      const declared = stored.bindings.find((binding) => binding.key === value);
+      if (!declared) {
+        return { code: "missing_binding", message: `provider ${selected.id} references unknown binding ${JSON.stringify(value)}` };
+      }
+      const supplied = BRIDGE_SUPPLIED_BINDINGS[value];
+      if (!supplied || supplied.contract !== declared.contract) {
+        return { code: "missing_binding", message: `provider ${selected.id} binding ${value} has no compatible supplied port` };
+      }
+    }
+    for (const binding of stored.bindings) {
+      if (!binding.required) continue;
+      const supplied = BRIDGE_SUPPLIED_BINDINGS[binding.key];
+      const referenced = Object.values(config).includes(binding.key);
+      if ((!supplied || supplied.contract !== binding.contract) && !referenced) {
+        return { code: "missing_binding", message: `provider ${selected.id} is missing required binding ${binding.key}` };
+      }
+      if (supplied && supplied.contract !== binding.contract) {
+        return { code: "missing_binding", message: `provider ${selected.id} binding ${binding.key} contract mismatch` };
+      }
+    }
+    // Mode/binding cross-check for the known h2a publishers.
+    if (stored.id === "sentropic.h2a") {
+      const mode = config["mode"] as string;
+      const ref = config["serviceBindingRef"] as string;
+      const declared = stored.bindings.find((binding) => binding.key === ref);
+      const need = mode === "shared-central" ? "h2a.central-attachment/v2" : "h2a.hosted-service/v1";
+      if (!declared || declared.contract !== need) {
+        return { code: "missing_binding", message: `sentropic.h2a mode ${mode} has no compatible binding for ${JSON.stringify(ref)}` };
+      }
+    }
+    if (stored.id === "sentropic.track") {
+      const ref = config["repositoryBindingRef"] as string;
+      const declared = stored.bindings.find((binding) => binding.key === ref);
+      if (!declared || declared.contract !== "h2a.workspace/v1") {
+        return { code: "missing_binding", message: `sentropic.track has no workspace binding for ${JSON.stringify(ref)}` };
+      }
+    }
+    for (const profile of stored.mcp?.transportProfiles ?? []) {
+      if (!transportAppliesToMode(stored, config, profile.id)) continue;
+      for (const required of profile.requiredHostFeatures) {
+        if (!hostFeatures.includes(required)) {
+          return { code: "unsupported_host", message: `provider ${selected.id} transport ${profile.id} requires host feature ${required}` };
+        }
+      }
+      if (protocolVersions.length > 0) {
+        const overlap = profile.protocolVersions.filter((version) => protocolVersions.includes(version));
+        if (overlap.length === 0) {
+          return { code: "incompatible_version", message: `provider ${selected.id} transport ${profile.id} has no shared protocol version` };
+        }
+      }
+    }
+  }
+  return null;
+}
+
+function manifestToolNames(manifest: unknown, id: string): string[] {
+  if (typeof manifest !== "object" || manifest === null || Array.isArray(manifest)) {
+    throw new RegistryError("invalid_entry", `invalid_entry: manifest for ${id} must be an object`);
+  }
+  const record = manifest as Record<string, unknown>;
+  for (const key of ["tools", "resources", "prompts"] as const) {
+    if (!Array.isArray(record[key])) {
+      throw new RegistryError("invalid_entry", `invalid_entry: manifest for ${id} must explicitly declare ${key}`);
+    }
+  }
+  const names = new Set<string>();
+  for (const tool of record["tools"] as Array<{ name?: unknown }>) {
+    if (typeof tool !== "object" || tool === null || typeof tool.name !== "string" || tool.name.length === 0) {
+      throw new RegistryError("invalid_entry", `invalid_entry: manifest for ${id} has a nameless tool`);
+    }
+    if (names.has(tool.name)) {
+      throw new RegistryError("invalid_entry", `invalid_entry: duplicate manifest tool ${tool.name} in ${id}`);
+    }
+    names.add(tool.name);
+  }
+  return [...names].sort();
+}
+
+/**
+ * Round 2: the shipped manifest surface is verified against the declared
+ * definitions before admission. Parsing alone is not enough: an empty or
+ * drifted packaged manifest (`{}` or zero tools) must refuse
+ * `invalid_entry` with delegate 0, as before H2a.
+ */
+export function verifyPackedManifestSurface(
+  h2aManifest: unknown,
+  trackManifest: unknown,
+  declaredH2a: readonly string[],
+  declaredTrack: readonly string[]
+): void {
+  const shippedH2a = manifestToolNames(h2aManifest, "sentropic.h2a");
+  const shippedTrack = manifestToolNames(trackManifest, "sentropic.track");
+  if (shippedH2a.length === 0 || JSON.stringify(shippedH2a) !== JSON.stringify([...declaredH2a].sort())) {
+    throw new RegistryError(
+      "invalid_entry",
+      `invalid_entry: shipped h2a manifest surface drifts from the declared definitions (${shippedH2a.length} tools, want ${declaredH2a.length})`
+    );
+  }
+  if (shippedTrack.length === 0 || JSON.stringify(shippedTrack) !== JSON.stringify([...declaredTrack].sort())) {
+    throw new RegistryError(
+      "invalid_entry",
+      `invalid_entry: shipped track manifest surface drifts from the declared definitions (${shippedTrack.length} tools, want ${declaredTrack.length})`
+    );
+  }
 }
 
 export function cmdRegistry(argv: readonly string[], streams: CliStreams): number {
@@ -361,26 +524,41 @@ export async function cmdRegistryBridge(
     for (const selected of lock.selection) {
       if (!entries.has(selected.id)) return refuse("invalid_entry", `unknown provider ${selected.id}`);
     }
+    const normalized = new Map<string, Record<string, unknown>>();
     for (const [id, record] of Object.entries(lock.entries)) {
       const entry = entries.get(id);
       if (!entry) return refuse("invalid_entry", `unknown provider ${id}`);
       try {
-        normalizeConfiguration(entry, (record as { config: unknown }).config);
+        normalized.set(id, normalizeConfiguration(entry, (record as { config: unknown }).config));
       } catch (error) {
         return refuse((error as { code?: string }).code ?? "invalid_parameters", (error as Error).message);
       }
     }
+    // Restored pre-H2a admission bounds (bindings, host features, protocol
+    // versions): refuse before delegation, never admit-then-serve.
+    const bounds = admitBridgeLockBounds(lock, entries, normalized);
+    if (bounds) return refuse(bounds.code, bounds.message);
     // Order-sensitive: the served surface is h2a tools then Track tools, so a
     // reordered lock (or any subset) refuses here exactly as before.
     const selectedIds = lock.selection.map((selected) => selected.id);
     if (JSON.stringify(selectedIds) !== JSON.stringify(["sentropic.h2a", "sentropic.track"])) {
       return refuse("invalid_parameters", "lock selection does not equal the served surface; subset locks need a filtered server (not covered in this increment)");
     }
-    // Packed-layout integrity: the shipped manifest assets must resolve and
-    // parse (a deleted asset refuses typed, naming the asset, with no raw
-    // ENOENT). This I/O validation stays; only compilation moved to Sentropic.
+    const { H2A_CLI_MCP_TOOL_DESCRIPTORS } = await import("../runtime/mcp/tools.js");
+    const { TRACK_READ_TOOL_DESCRIPTORS: TRACK_DESCRIPTORS } = await import("@sentropic/track/mcp");
+    const trackNames = new Set<string>(
+      (TRACK_DESCRIPTORS as ReadonlyArray<{ name: unknown }>).map((tool) => String(tool.name))
+    );
+    const declaredH2a = H2A_CLI_MCP_TOOL_DESCRIPTORS.map((tool) => tool.name).filter((name) => !trackNames.has(name));
+    const declaredTrack = [...trackNames];
+    // Packed-layout integrity: the shipped manifest assets must resolve,
+    // parse AND match the declared definitions (a deleted, emptied or
+    // drifted asset refuses typed `invalid_entry`, naming the defect, with
+    // no raw ENOENT). This surface validation stays; only the plan compiler
+    // moved to Sentropic.
     try {
-      packedManifests();
+      const { h2aManifest, trackManifest } = packedManifests();
+      verifyPackedManifestSurface(h2aManifest, trackManifest, declaredH2a, declaredTrack);
     } catch (error) {
       return refuse((error as { code?: string }).code ?? "invalid_entry", (error as Error).message);
     }
@@ -393,7 +571,6 @@ export async function cmdRegistryBridge(
     } catch (error) {
       return refuse((error as { code?: string }).code ?? "invalid_entry", (error as Error).message);
     }
-    const { H2A_CLI_MCP_TOOL_DESCRIPTORS } = await import("../runtime/mcp/tools.js");
     // Membership equality (sorted): the published kernel emits its compiled
     // tools in canonical sorted order while the served surface keeps
     // declaration order. The bound is unchanged — same tools, no silent
