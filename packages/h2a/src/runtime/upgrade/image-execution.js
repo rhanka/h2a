@@ -107,7 +107,25 @@ export function installImageExecutionPolicy(root, manifest, manifestDigest, load
     }
     if (!path || fs.realpathSync(path) !== currentNode) throw new Error('image_child_runtime_unqualified');
   };
-  const original = Object.fromEntries(['spawn', 'spawnSync', 'execFile', 'execFileSync', 'fork'].map(key => [key, cp[key]]));
+  const original = Object.fromEntries(['spawn', 'spawnSync', 'execFile', 'execFileSync', 'fork', 'exec', 'execSync'].map(key => [key, cp[key]]));
+  const bareCwd = options => {
+    const cwd = options?.cwd;
+    return cwd instanceof URL ? fileURLToPath(cwd) : cwd === undefined ? process.cwd() : resolve(cwd);
+  };
+  // A shell string cannot carry the authenticated preload, so any shell
+  // form naming physical image bytes is refused outright. Bare
+  // (command, options/callback) forms resolve the same way: an image entry
+  // must travel through qualified Node plus preload, never direct exec.
+  // Child coverage is never deduced from the parent: every entry API is
+  // guarded here, including async shell forms and bare overloads.
+  const shellReferencesImage = (command, cwd) => {
+    if (typeof command !== 'string') return false;
+    if (imageAt(managedRoot, command, cwd)) return true;
+    return command.includes(join(managedRoot, 'images') + sep);
+  };
+  const guardBareCommand = (command, options) => {
+    if (shellReferencesImage(command, bareCwd(options))) throw new Error('image_child_entry_unqualified');
+  };
   const nodeArgs = (command, args, options = {}) => {
     const cwd = options.cwd ? (options.cwd instanceof URL ? fileURLToPath(options.cwd) : resolve(options.cwd)) : process.cwd();
     let nodeCommand = ['node', 'nodejs'].includes(basename(command)) || command === process.execPath;
@@ -150,10 +168,24 @@ export function installImageExecutionPolicy(root, manifest, manifestDigest, load
     cp[key] = function(command, args, options, callback) {
       // Keep Node's overloads intact for external programs. Internal callers
       // use explicit argv; they cannot disguise image entry as shell/eval.
-      if (!Array.isArray(args)) return original[key].apply(this, arguments);
+      if (!Array.isArray(args)) {
+        guardBareCommand(command, typeof args === 'object' && args !== null ? args : undefined);
+        return original[key].apply(this, arguments);
+      }
       const planned = nodeArgs(command, args, typeof options === 'object' && options !== null ? options : {});
       const tail = typeof options === 'function' ? options : callback;
       return original[key].call(this, command, planned.args, planned.options, ...(tail ? [tail] : []));
+    };
+  }
+  for (const key of ['exec', 'execSync']) {
+    cp[key] = function(command, options, callback) {
+      // Shell strings never carry the authenticated preload: refuse image
+      // references at the outermost layer, pass every external command
+      // through untouched. (Async exec additionally backstops through the
+      // bare execFile guard via Node-internal delegation; execSync does not
+      // and requires this wrapper. Both are pinned by E2b3 oracles.)
+      guardBareCommand(command, typeof options === 'object' && options !== null ? options : undefined);
+      return original[key].apply(this, arguments);
     };
   }
   cp.fork = function(file, args, options) {

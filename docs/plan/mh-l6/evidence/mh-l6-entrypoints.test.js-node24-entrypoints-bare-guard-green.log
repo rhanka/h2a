@@ -1,0 +1,22 @@
+command: /home/antoinefa/.cache-tmp/h2a-test/run-MZp8CW/artifact-roots/mh-l5-artifacts-VtlOXp/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-entrypoints.test.js
+node: v24.21.0
+private root: /tmp/mh-l6-test-oT1Gws
+case: E2b3 should refuse a bare image entry through spawn
+TAP version 13
+# Subtest: E2b3 should refuse a bare image entry through spawn
+ok 1 - E2b3 should refuse a bare image entry through spawn
+  ---
+  duration_ms: 2811.335596
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 3167.048953
+
+receipt: {"command":["/home/antoinefa/.cache-tmp/h2a-test/run-MZp8CW/artifact-roots/mh-l5-artifacts-VtlOXp/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-entrypoints.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":2,"leftovers":[]}
