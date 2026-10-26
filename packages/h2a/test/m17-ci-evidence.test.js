@@ -138,7 +138,7 @@ test('M17 producer seals only a successful same-run report after owned-process a
   // real, short-lived children in a private committed fixture checkout.
   const root = fs.mkdtempSync(join(tmpdir(), 'm17-producer-contract-'));
   const source = process.cwd();
-  const copied = ['scripts/m17-ci-evidence.mjs', 'scripts/ci-m17-proof.mjs', 'scripts/run-node-tests.mjs',
+  const copied = ['scripts/m17-ci-evidence.mjs', 'scripts/ci-m17-proof.mjs', 'scripts/run-node-tests.mjs', 'scripts/ci-owned-process.mjs', 'scripts/bulk-test-files.mjs',
     'scripts/node-evidence-reporter.mjs', 'scripts/test-execution-evidence.mjs',
     'packages/h2a/test/helpers/native-isolation.js', ...['image', 'wire', 'formats', 'schemas'].map(name => `packages/h2a/src/runtime/handover/${name}.js`)];
   const run = (command, args, env = process.env) => spawnSync(command, args, { cwd: root, env, encoding: 'utf8', timeout: 30000 });

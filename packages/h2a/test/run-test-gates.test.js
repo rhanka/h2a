@@ -500,18 +500,19 @@ function assertM17CiGraph(source) {
       'npm install --global @openai/codex@0.145.0 @anthropic-ai/claude-code@2.1.296',
       'node --test packages/h2a/test/run-test-gates.test.js',
       'test "$M17_RESULT" = success',
+      'test "$BULK_RESULT" = success',
       'node scripts/run-test-gates.mjs',
     ],
     'the dedicated job must verify the runner and then execute its real entrypoint',
   )
   for (const id of ['build-and-test', 'npm-test-trust-root']) {
     const block = workflowJobBlock(source, id)
-    assert.deepEqual(jobs[id].needs, ['m17-qualification'])
+    assert.deepEqual(jobs[id].needs, ['m17-qualification', 'bulk-qualification'])
     assert.equal(jobs[id].if, '${{ always() }}')
     const gates = jobs[id].steps.filter(step => step.name === 'Require both complete M17 qualifications')
     assert.deepEqual(gates, [{ name: 'Require both complete M17 qualifications',
       env: { M17_RESULT: '${{ needs.m17-qualification.result }}' }, run: 'test "$M17_RESULT" = success' }])
-    assert.match(block, /^    needs: \[m17-qualification\]$/m)
+    assert.match(block, /^    needs: \[m17-qualification, bulk-qualification\]$/m)
     assert.match(block, /^    if: \$\{\{ always\(\) \}\}$/m,
       'failed producers must yield FAILED required consumers, never skipped-green')
     assert.match(block, /M17_RESULT: \$\{\{ needs\.m17-qualification\.result \}\}\n\s+run: test "\$M17_RESULT" = success/)
@@ -549,7 +550,7 @@ test('CI exposes an independent, stable npm-test-trust-root job with a closed M1
 test('CI companion negative controls reject skipped-green dependencies and stale or optional evidence', () => {
   for (const [before, after] of [
     ['    if: ${{ always() }}', '    if: ${{ success() }}'],
-    ['needs: [m17-qualification]', 'needs: []'],
+    ['needs: [m17-qualification, bulk-qualification]', 'needs: []'],
     ['run: test "$M17_RESULT" = success', 'run: true'],
     ['needs.m17-qualification.result', 'needs.m17-qualification.outputs.optional'],
     ['m17-${{ github.run_id }}-${{ github.run_attempt }}-node', 'm17-last-success-node'],
