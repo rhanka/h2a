@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { loadM17Partition } from "./m17-ci-evidence.mjs";
+import { loadBulkPartition } from "./bulk-ci-evidence.mjs";
 /**
  * Cross-platform test runner. Used by `npm test` (via scripts/run-test-gates.mjs).
  *
@@ -220,14 +221,20 @@ async function main() {
     process.exit(1);
   }
 
-  // CI may supply only the closed M17 shard proof from this exact workflow
-  // run/attempt/checkout/Node. Discovery above remains complete. The default
-  // invocation executes M17 locally; malformed explicit proof is a hard error.
+  // CI can import only closed M17/bulk proofs from this exact workflow
+  // run/attempt/checkout/Node. Discovery and the final inventory stay complete.
+  // Without explicit proofs every file runs locally; malformed proof is fatal.
   const m17Partition = loadM17Partition(nodeTestFiles, REPO_ROOT);
+  const bulkPartition = loadBulkPartition(m17Partition.local, REPO_ROOT);
   if (m17Partition.report) process.stdout.write(`M17 companion proof validated: ${JSON.stringify({
     file: 'packages/h2a/test/mh-l5-concurrency.test.js', checkout: process.env.GITHUB_SHA,
     runId: process.env.GITHUB_RUN_ID, attempt: process.env.GITHUB_RUN_ATTEMPT, node: process.version,
     source: process.env.H2A_TEST_CI_M17_REPORT,
+  })}\n`);
+  if (bulkPartition.report) process.stdout.write(`Bulk companion proof validated: ${JSON.stringify({
+    checkout: process.env.GITHUB_SHA, runId: process.env.GITHUB_RUN_ID,
+    attempt: process.env.GITHUB_RUN_ATTEMPT, node: process.version,
+    source: process.env.H2A_TEST_CI_BULK_REPORT,
   })}\n`);
 
   const VITEST_SUITES = [
@@ -383,6 +390,7 @@ async function main() {
   // Only this orchestration imports the companion proof. Tests of the runner
   // create their own private checkouts and must exercise the default full path.
   delete testEnv.H2A_TEST_CI_M17_REPORT;
+  delete testEnv.H2A_TEST_CI_BULK_REPORT;
 
   // These suites require the real pinned archives, never absent-state skips.
   const prepared = spawnSync(process.execPath, [join(REPO_ROOT, "scripts/prepare-mh-test-fixtures.mjs")], {
@@ -506,7 +514,7 @@ async function main() {
   let exitCode = 0;
   try {
     const nodeStatus = runSuite("Node test suite", process.execPath,
-      [join(REPO_ROOT, "scripts/run-node-tests.mjs"), "--test", "--test-reporter=spec", `--test-reporter=${join(REPO_ROOT, "scripts/node-evidence-reporter.mjs")}`, "--test-reporter-destination=stdout", `--test-reporter-destination=${nodeReport}`, ...m17Partition.local],
+      [join(REPO_ROOT, "scripts/run-node-tests.mjs"), "--test", "--test-reporter=spec", `--test-reporter=${join(REPO_ROOT, "scripts/node-evidence-reporter.mjs")}`, "--test-reporter-destination=stdout", `--test-reporter-destination=${nodeReport}`, ...bulkPartition.local],
       REPO_ROOT, trackFixtureEnv, NODE_TIMEOUT_MS);
     // These suites use distinct temporary state and evidence files. Start
     // them after Node's protocol/package phase, together with the identity
@@ -543,6 +551,7 @@ async function main() {
     catch { reports = []; }
     const localReportCount = reports.length;
     if (m17Partition.report) reports.push(m17Partition.report);
+    if (bulkPartition.report) reports.push(bulkPartition.report);
     const required = listNodeTrackSuiteFiles();
     const combined = {
       success: localReportCount === 2 && reports.every((report) => report.success !== false),
@@ -552,6 +561,7 @@ async function main() {
     };
     const holes = verifyNodeTrackExecution(combined, required);
     if (!holes.length && m17Partition.report) process.stdout.write('M17 local/external exhaustive inventory verification: passed\n');
+    if (!holes.length && bulkPartition.report) process.stdout.write('Bulk local/external exhaustive inventory verification: passed\n');
     if (holes.length) process.stderr.write(holes.join("\n") + "\n");
     else process.stdout.write(`RC 0.98.6: ${readDeclaredNonTests(REPO_ROOT).length} declared non-tests observed at their exact expected statuses; not claimed as coverage.\n`);
     const reportPath = process.env.H2A_TEST_REPORT_PATH ?? NODE_TRACK_EXECUTION_REPORT;

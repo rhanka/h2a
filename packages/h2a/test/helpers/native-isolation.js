@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { recordCiOwnedProcess } from '../../../../scripts/ci-owned-process.mjs';
 import childProcess, { spawn, spawnSync } from "node:child_process";
 import { syncBuiltinESMExports } from "node:module";
 import { isMainThread } from "node:worker_threads";
@@ -320,6 +321,7 @@ function installProcessViewVariables(env) {
 }
 
 function registerPrivateProcess(pid, env, replace = false, survivor = false) {
+  if (pid) recordCiOwnedProcess(pid);
   if (process.platform !== "linux" || !pid || !env.H2A_TEST_PROC_ROOT
     || env.H2A_TEST_PROC_ROOT !== env.H2A_TEST_OWNED_PROC_ROOT) return () => {};
   const root = env.H2A_TEST_PROC_ROOT;
@@ -576,6 +578,7 @@ export async function waitForPrivateNativeProcesses(env) {
 }
 
 installNativeTestSpawnGuard();
+recordCiOwnedProcess(process.pid);
 // Also protect native entry points reached via shell/PTY wrappers.
 if (nativeEntry.test(process.argv[1] ?? "")) guardSpawn(process.argv.slice(1), { env: process.env });
 const processEnvironment = privateProcessEnvironment(process.env);
