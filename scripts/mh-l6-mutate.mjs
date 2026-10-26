@@ -2,7 +2,8 @@
 import fs from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-if (!fs.realpathSync('.').startsWith('/tmp/mh-l3-qualification-')) throw new Error('private_qualification_copy_required');
+const qualAlternate = process.env.MH_L3_QUALIFICATION_ROOT ? fs.realpathSync(process.env.MH_L3_QUALIFICATION_ROOT) : null;
+if (!fs.realpathSync('.').startsWith('/tmp/mh-l3-qualification-') && !(qualAlternate && fs.realpathSync('.').startsWith(qualAlternate))) throw new Error('private_qualification_copy_required');
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const group = process.argv[2] ?? 'selection', major = process.versions.node.split('.')[0];
 const nominal = 'U05 should select once with canonical journal, history and pins across HOME changes';
@@ -173,6 +174,9 @@ const cases = [
   ['observers', 'relaunch-scan', "if (bytes.includes(legacyRoot))\n                offenders.push(path);", '', 'B2 should report unfenced when a relaunch source still references the legacy root'],
   ['observers', 'routing-check', "if (verdict.state === 'managed') {", 'if (verdict) {', 'B2 should report unfenced when future starts still resolve to the legacy entry'],
   ['observers', 'reintroduction-scan', "const hit = visit(managedDir);\n    if (hit)\n        return fail(`managed tree reaches the legacy installer through ${hit}; reintroduction open`);", '', 'B2 should report unfenced when the managed tree reaches back into the legacy installer'],
+  ['producer', 'no-persist', 'fs.renameSync(staging, path);', '', 'M18 producer persists observed exclusion proof for real legacy 0.98.5'],
+  ['producer', 'verdict-upgrade', 'const verdict = assessLegacyExclusion(evidence);', "const verdict = { fenced: true, reason: 'legacy_exclusion_verified', missing: [] };", 'M18 producer persists an unfenced observation truthfully and reports it'],
+  ['producer', 'observation-skip', 'const evidence = await observeLegacyClosures({ legacyRoot, version, workDir, homeDir, commandPath, managedLauncher, legacyEntry, managedDir });', 'const evidence = {};', 'M18 producer persists observed exclusion proof for real legacy 0.98.5'],
   ['dist-freeze', 'closure-match', 'assert.deepEqual(recomputed, ledger.publishedRuntimeDist);', 'assert.deepEqual(recomputed, {});', 'E3 should pin the full published runtime .6 dist closure byte for byte'],
   ['dist-freeze', 'six-identical', "assert.equal(same('launch-guard.js'), true, 'launch-guard.js stays byte-identical to published .6');", "assert.equal(same('launch-guard.js'), false, 'launch-guard.js stays byte-identical to published .6');", 'E3 should reproduce the six-entry native diagnostic against the local build'],
   ['dist-freeze', 'six-differing', 'assert.equal(differing.length, 5);', 'assert.equal(differing.length, 0);', 'E3 should reproduce the six-entry native diagnostic against the local build'],
@@ -199,12 +203,13 @@ const files = group === 'launcher' ? ['packages/h2a/src/runtime/upgrade/managed-
   group === 'delegate' ? ['packages/h2a/src/runtime/upgrade/upgrade-delegate.js', 'packages/h2a/dist/runtime/upgrade/upgrade-delegate.js'] :
   group === 'unmanage-gate' ? ['packages/h2a/src/runtime/upgrade/unmanage.js', 'packages/h2a/dist/runtime/upgrade/unmanage.js'] :
   group === 'observers' ? ['packages/h2a/src/runtime/upgrade/legacy-observers.js', 'packages/h2a/dist/runtime/upgrade/legacy-observers.js'] :
+  group === 'producer' ? ['packages/h2a/src/runtime/upgrade/legacy-observers.js', 'packages/h2a/dist/runtime/upgrade/legacy-observers.js'] :
   group === 'dist-freeze' ? ['packages/h2a/test/mh-l6-dist-freeze.test.js'] :
   ['packages/h2a/src/runtime/upgrade/h4-store.js', 'packages/h2a/dist/runtime/upgrade/h4-store.js'];
 const originals = files.map(path => ({ path, bytes: fs.readFileSync(path) }));
 const selected = cases.filter(c => c[0] === group && (!process.env.MH_L6_MUTATION || c[1] === process.env.MH_L6_MUTATION));
 if (!selected.length) throw new Error('unknown_mutation_group');
-const testFile = { delegation: 'delegation', launcher: 'launcher', exclusion: 'exclusion', deferral: 'exclusion', bootstrap: 'bootstrap', adoption: 'adoption', 'launcher-install': 'launcher-install', 'adoption-execute': 'adoption', unmanage: 'unmanage', 'adoption-image': 'image-prepare', status: 'status', 'upgrade-run': 'upgrade-run', 'npm-command': 'npm', authority: 'authority', cli: 'cli', dispatch: 'dispatch', 'command-gate': 'command-gate', 'command-force': 'command-gate', 'pilot-run': 'pilot-force', 'pilot-execute': 'pilot-force', delegate: 'delegate', 'unmanage-gate': 'unmanage-gate', observers: 'observers', 'dist-freeze': 'dist-freeze' }[group] ?? 'selection';
+const testFile = { delegation: 'delegation', launcher: 'launcher', exclusion: 'exclusion', deferral: 'exclusion', bootstrap: 'bootstrap', adoption: 'adoption', 'launcher-install': 'launcher-install', 'adoption-execute': 'adoption', unmanage: 'unmanage', 'adoption-image': 'image-prepare', status: 'status', 'upgrade-run': 'upgrade-run', 'npm-command': 'npm', authority: 'authority', cli: 'cli', dispatch: 'dispatch', 'command-gate': 'command-gate', 'command-force': 'command-gate', 'pilot-run': 'pilot-force', 'pilot-execute': 'pilot-force', delegate: 'delegate', 'unmanage-gate': 'unmanage-gate', observers: 'observers', producer: 'exclusion-producer', 'dist-freeze': 'dist-freeze' }[group] ?? 'selection';
 const file = `packages/h2a/test/mh-l6-${testFile}.test.js`;
 const results = [];
 for (const [, name, from, to, scenario] of selected) {
