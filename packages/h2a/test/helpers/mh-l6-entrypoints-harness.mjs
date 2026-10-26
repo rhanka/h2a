@@ -7,9 +7,10 @@ import threads from 'node:worker_threads';
 import fs from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
-import { ensureManagedImageExecution } from '../../src/runtime/upgrade/image-entry.js';
 
-const [entryUrl, action, operand = ''] = process.argv.slice(2);
+const [entryUrl, action, operand = '', loaderUrl] = process.argv.slice(2);
+if (typeof loaderUrl !== 'string' || !loaderUrl.startsWith('file:')) throw new Error('harness_loader_url_required');
+const { ensureManagedImageExecution } = await import(loaderUrl);
 const report = value => { process.stdout.write(JSON.stringify(value) + '\n'); };
 const refused = error => { report({ refused: error?.message ?? String(error) }); };
 const done = value => { report({ ok: true, ...value }); };
