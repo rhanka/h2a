@@ -8,11 +8,11 @@
     },
     {
       "path": "packages/h2a/test/mh-l6-entrypoints.test.js",
-      "sha256": "0ace631324daa453d47c01e25d042788c7f9012b229c1120affc5e30099b3b91"
+      "sha256": "6331a031d9f70eeebdb21b4f29052e2d32086b405bcb535eec70e732bc656a26"
     },
     {
       "path": "packages/h2a/test/helpers/mh-l6-entrypoints-harness.mjs",
-      "sha256": "ab7a019c60c40f85e75a5a786af51a20d00b638d484a6e16c774fffdb3376073"
+      "sha256": "475e129da48aa63acb4237bcbe7edbfb94b94f7a90ed3fa5b9daabb0b8236f31"
     },
     {
       "path": "scripts/mh-l6-entrypoints-mutate.mjs",
