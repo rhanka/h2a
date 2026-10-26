@@ -16,14 +16,15 @@ test('both real package suites start before the remaining Node files without dro
   assert.equal(files.length, 4);
 });
 
-function scenario(t, { failing = false, limitedCpu = false, progress = false, isolated = false, transfer = false, burst = false } = {}) {
+function scenario(t, { failing = false, limitedCpu = false, progress = false, isolated = false, transfer = false, burst = false, compensation = false } = {}) {
   const root = fs.mkdtempSync(join(tmpdir(), 'ordered-node-tests-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const order = join(root, 'started.jsonl'), report = join(root, 'evidence.json');
   const cpuHook = join(root, 'cpu-count.mjs');
   fs.writeFileSync(cpuHook, `import os from 'node:os'; import {syncBuiltinESMExports} from 'node:module';
     os.availableParallelism=()=>2; syncBuiltinESMExports();`);
-  const names = burst ? ['mh-l5-concurrency.test.js', 'mcp-identity-burst.test.js']
+  const names = compensation ? ['z-package.test.js', 'mh-l5-compensation.test.js']
+    : burst ? ['mh-l5-concurrency.test.js', 'mcp-identity-burst.test.js']
     : transfer ? ['z-package.test.js', 'mh-l3-transfer.test.js', 'mcp-central-attachments.test.js']
     : ['z-package.test.js', isolated ? 'mcp-central-attachments.test.js' : 'a-small.test.js'];
   const files = names.map(name => join(root, name));
@@ -87,6 +88,37 @@ test('daemon startup qualification completes alone before the same runner execut
   assert.equal(evidence.success, true);
   assert.equal(evidence.numPassedTests, 2);
   for (const file of files) assert.ok(evidence.testResults.some(row => row.name === file && row.assertionResults.some(a => a.status === 'passed')));
+});
+
+test('cold compensation completes alone before any other protocol or package file', t => {
+  const { result, files, started, evidence } = scenario(t, { isolated: true, compensation: true });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.equal(started, '1\n0\n');
+  assert.equal(evidence.success, true);
+  assert.equal(evidence.numPassedTests, 2);
+  for (const file of files) assert.ok(evidence.testResults.some(row => row.name === file));
+});
+
+test('the default four-CPU runner caps concurrent file workers at two and executes every case', t => {
+  const root = fs.mkdtempSync(join(tmpdir(), 'node-worker-budget-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const hook = join(root, 'four-cpus.mjs'), report = join(root, 'evidence.json');
+  fs.writeFileSync(hook, `import os from 'node:os';import {syncBuiltinESMExports} from 'node:module';os.availableParallelism=()=>4;syncBuiltinESMExports();`);
+  const files = Array.from({ length: 4 }, (_, n) => join(root, `case-${n}.test.js`));
+  for (const [n, file] of files.entries()) fs.writeFileSync(file, `const {test}=require('node:test');test('real worker case ${n}',async()=>{await new Promise(r=>setTimeout(r,100));});`);
+  const env = { ...process.env, H2A_TEST_NODE_PROGRESS_MS: '10' }; delete env.NODE_TEST_CONTEXT;
+  const result = spawnSync(process.execPath, ['--import', hook, resolve('scripts/run-node-tests.mjs'), '--test',
+    '--test-reporter=spec', `--test-reporter=${resolve('scripts/node-evidence-reporter.mjs')}`,
+    '--test-reporter-destination=stdout', `--test-reporter-destination=${report}`, ...files], { env, encoding: 'utf8', timeout: 15_000 });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  const rows = result.stderr.split('\n').filter(line => line.startsWith('[node-test-progress] '))
+    .map(line => JSON.parse(line.slice('[node-test-progress] '.length)));
+  assert.ok(rows.some(row => row.active.length === 2), result.stderr);
+  assert.ok(rows.every(row => row.active.length <= 2), result.stderr);
+  const evidence = JSON.parse(fs.readFileSync(report, 'utf8'));
+  assert.equal(evidence.success, true);
+  assert.equal(evidence.numPassedTests, files.length);
+  for (const file of files) assert.ok(evidence.testResults.some(row => row.name === file));
 });
 
 test('a failed standalone daemon suite remains failed while every remaining file still executes', t => {
