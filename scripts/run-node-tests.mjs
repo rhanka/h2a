@@ -27,7 +27,10 @@ assert.ok(files.length > 0 && files.every(file => file.endsWith('.test.js')), 'e
 assert.equal(new Set(files).size, files.length, 'duplicate test files');
 assert.equal(args.length, fixed.size + destinations.length + concurrencyArgs.length + files.length, 'unsupported runner option');
 const reportPath = destinations[0].slice('--test-reporter-destination='.length);
-const concurrency = concurrencyArgs.length ? Number(concurrencyArgs[0].split('=')[1]) : availableParallelism();
+// A file can itself spawn compilers, npm installers or many protocol actors.
+// Keep the production pool at two files; multiplying it by the CPU count
+// oversubscribes those child trees and spends bounded startup budgets waiting.
+const concurrency = concurrencyArgs.length ? Number(concurrencyArgs[0].split('=')[1]) : Math.min(2, availableParallelism());
 const interval = Number(process.env.H2A_TEST_NODE_PROGRESS_MS ?? 30_000);
 assert.ok(Number.isFinite(interval) && interval > 0, 'positive progress interval required');
 const pending = new Map(), fileSet = new Set(files);
@@ -51,7 +54,7 @@ const progress = setInterval(() => process.stderr.write(`[node-test-progress] ${
 // These fixtures qualify bounded cold startup and authenticated handover.
 // Give each its own phase before npm installs and the 32-process campaign;
 // their internal concurrent admissions and every deadline remain unchanged.
-const standalone = ['mcp-central-attachments.test.js', 'mh-l3-transfer.test.js', 'mh-l4-central.test.js', 'mcp-identity-burst.test.js']
+const standalone = ['mcp-central-attachments.test.js', 'mh-l3-transfer.test.js', 'mh-l4-central.test.js', 'mcp-identity-burst.test.js', 'mh-l5-compensation.test.js']
   .flatMap(name => files.filter(file => basename(file) === name));
 // Bulk filesystem installs must not consume the bounded protocol fixtures'
 // startup budgets. The long backend has a separate reserved worker after the
