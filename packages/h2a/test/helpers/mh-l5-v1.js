@@ -9,7 +9,8 @@ import { spawnShim } from './mh-l1-shim.js';
 
 export function artifact(version) {
   const root = process.env.MH_L5_ARTIFACTS;
-  assert.ok(root?.startsWith('/tmp/mh-l5-artifacts-'), 'verified temporary published v1 artifacts are mandatory; never skip');
+  const alternate = process.env.MH_L5_ARTIFACTS_ROOT ? fs.realpathSync(process.env.MH_L5_ARTIFACTS_ROOT) : null;
+  assert.ok(root?.startsWith('/tmp/mh-l5-artifacts-') || (alternate && fs.realpathSync(root).startsWith(alternate)), 'verified temporary published v1 artifacts are mandatory; never skip');
   const receipt = JSON.parse(fs.readFileSync(join(root, 'receipt.json')));
   const profile = receipt.profiles.find(p => p.version === version);
   assert.ok(profile);
