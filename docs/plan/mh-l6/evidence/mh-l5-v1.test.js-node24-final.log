@@ -1,0 +1,86 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test --test-reporter=tap packages/h2a/test/mh-l5-v1.test.js
+node: v24.22.0
+private root: /tmp/mh-l6-test-RrG6Ym
+case: all cases in explicit file
+TAP version 13
+# Subtest: M18 0.98.5 dead legacy marker without durable provenance must never become an invented death proof
+# {"event":"drive-consent.full-verification","durationMs":0.004900000000020555,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+ok 1 - M18 0.98.5 dead legacy marker without durable provenance must never become an invented death proof
+  ---
+  duration_ms: 223.393122
+  type: 'test'
+  ...
+# {"event":"drive-consent.full-verification","durationMs":0.008856999999920845,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: M18b 0.98.5 starter must preserve fixed and discovered .7 markers and reclaim only the invalid control
+# {"event":"drive-consent.full-verification","durationMs":0.00283499999977721,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+ok 2 - M18b 0.98.5 starter must preserve fixed and discovered .7 markers and reclaim only the invalid control
+  ---
+  duration_ms: 821.319799
+  type: 'test'
+  ...
+# Subtest: M18c 0.98.5 bridge sends only the decoy to a foreign listener and .7 refuses it
+ok 3 - M18c 0.98.5 bridge sends only the decoy to a foreign listener and .7 refuses it
+  ---
+  duration_ms: 246.818889
+  type: 'test'
+  ...
+# {"event":"drive-consent.full-verification","durationMs":0.02595900000005713,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: M19 T8 T9 0.98.5 live v1 refuses .7 takeover, routes fresh sessions to stdio and keeps an already chosen shim open
+ok 4 - M19 T8 T9 0.98.5 live v1 refuses .7 takeover, routes fresh sessions to stdio and keeps an already chosen shim open
+  ---
+  duration_ms: 1473.478161
+  type: 'test'
+  ...
+# {"event":"drive-consent.full-verification","durationMs":0.01950699999997596,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: M20 T4 0.98.5 persisted endpoint stays fixed and a POST after its real central stops closes the v1 bridge
+ok 5 - M20 T4 0.98.5 persisted endpoint stays fixed and a POST after its real central stops closes the v1 bridge
+  ---
+  duration_ms: 441.07806
+  type: 'test'
+  ...
+# Subtest: M18 0.98.6 dead legacy marker without durable provenance must never become an invented death proof
+# {"event":"drive-consent.full-verification","durationMs":0.0026149999998779094,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+ok 6 - M18 0.98.6 dead legacy marker without durable provenance must never become an invented death proof
+  ---
+  duration_ms: 226.288693
+  type: 'test'
+  ...
+# {"event":"drive-consent.full-verification","durationMs":0.002274000000397791,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: M18b 0.98.6 starter must preserve fixed and discovered .7 markers and reclaim only the invalid control
+# {"event":"drive-consent.full-verification","durationMs":0.002945999999610649,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+ok 7 - M18b 0.98.6 starter must preserve fixed and discovered .7 markers and reclaim only the invalid control
+  ---
+  duration_ms: 820.385559
+  type: 'test'
+  ...
+# Subtest: M18c 0.98.6 bridge sends only the decoy to a foreign listener and .7 refuses it
+ok 8 - M18c 0.98.6 bridge sends only the decoy to a foreign listener and .7 refuses it
+  ---
+  duration_ms: 239.88129
+  type: 'test'
+  ...
+# {"event":"drive-consent.full-verification","durationMs":0.018605000000206928,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: M19 T8 T9 0.98.6 live v1 refuses .7 takeover, routes fresh sessions to stdio and keeps an already chosen shim open
+ok 9 - M19 T8 T9 0.98.6 live v1 refuses .7 takeover, routes fresh sessions to stdio and keeps an already chosen shim open
+  ---
+  duration_ms: 1752.816216
+  type: 'test'
+  ...
+# {"event":"drive-consent.full-verification","durationMs":0.018796000000293134,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: M20 T4 0.98.6 persisted endpoint stays fixed and a POST after its real central stops closes the v1 bridge
+ok 10 - M20 T4 0.98.6 persisted endpoint stays fixed and a POST after its real central stops closes the v1 bridge
+  ---
+  duration_ms: 506.474534
+  type: 'test'
+  ...
+1..10
+# tests 10
+# suites 0
+# pass 10
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 7024.869705
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l5-v1.test.js"],"code":0,"signal":null,"tests":10,"invalid":false,"spawned":41,"leftovers":[]}
