@@ -13,6 +13,7 @@ import { run } from 'node:test';
 import { spec } from 'node:test/reporters';
 import { inspect } from 'node:util';
 import evidenceReporter from './node-evidence-reporter.mjs';
+import { BULK_FILES } from './bulk-test-files.mjs';
 
 const args = process.argv.slice(2);
 const evidence = fileURLToPath(new URL('./node-evidence-reporter.mjs', import.meta.url));
@@ -61,9 +62,7 @@ const standalone = ['mcp-central-attachments.test.js', 'mh-l3-transfer.test.js',
 // startup budgets. The long backend has a separate reserved worker after the
 // standalone cold qualifications, rather than waiting for every protocol file.
 const backend = files.filter(file => basename(file) === 'mh-l5-concurrency.test.js');
-const bulkNames = ['mh-l6-package.test.js', 'mh-l6-runtime-package.test.js',
-  'drive-consent-index.test.js', 'candidate-artifacts.test.js', 'mh-l1-package.test.js',
-  'mh-l6-components.test.js', 'mh-l6-entry.test.js', 'mh-l6-native.test.js', 'mh-l6-native-copy.test.js'];
+const bulkNames = BULK_FILES.map(file => basename(file));
 const bulk = bulkNames.flatMap(name => files.filter(file => basename(file) === name));
 // The native inventory and packaging seam take several minutes on CI. Start
 // them with the protocol pool, so their tail cannot postpone every bulk file.
