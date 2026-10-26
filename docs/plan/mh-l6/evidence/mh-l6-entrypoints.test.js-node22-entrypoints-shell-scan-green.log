@@ -1,12 +1,12 @@
 command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-entrypoints.test.js
 node: v22.22.1
-private root: /tmp/mh-l6-test-ONfbUh
+private root: /tmp/mh-l6-test-tpW0zt
 case: E2b3 should refuse an image entry through async shell exec
 TAP version 13
 # Subtest: E2b3 should refuse an image entry through async shell exec
 ok 1 - E2b3 should refuse an image entry through async shell exec
   ---
-  duration_ms: 2980.404808
+  duration_ms: 6743.001926
   type: 'test'
   ...
 1..1
@@ -17,6 +17,6 @@ ok 1 - E2b3 should refuse an image entry through async shell exec
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 3496.046147
+# duration_ms 7748.773934
 
 receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-entrypoints.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":2,"leftovers":[]}

@@ -1,12 +1,12 @@
 command: /home/antoinefa/.cache-tmp/h2a-test/run-MZp8CW/artifact-roots/mh-l5-artifacts-VtlOXp/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-entrypoints.test.js
 node: v24.21.0
-private root: /tmp/mh-l6-test-tl4fZ0
+private root: /tmp/mh-l6-test-QMQdEX
 case: E2b3 should refuse an image entry through async shell exec
 TAP version 13
 # Subtest: E2b3 should refuse an image entry through async shell exec
 ok 1 - E2b3 should refuse an image entry through async shell exec
   ---
-  duration_ms: 2550.067627
+  duration_ms: 3547.468546
   type: 'test'
   ...
 1..1
@@ -17,6 +17,6 @@ ok 1 - E2b3 should refuse an image entry through async shell exec
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 2889.843773
+# duration_ms 3842.203799
 
 receipt: {"command":["/home/antoinefa/.cache-tmp/h2a-test/run-MZp8CW/artifact-roots/mh-l5-artifacts-VtlOXp/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-entrypoints.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":2,"leftovers":[]}
