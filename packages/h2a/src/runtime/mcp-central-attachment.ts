@@ -1,4 +1,11 @@
-/** Reuse stdio's identity/presence/wake activation behind a per-attachment HTTP transport. */
+/**
+ * Reuse stdio's identity/presence/wake activation behind a per-attachment
+ * HTTP transport, with tool dispatch routed through the composed Sentropic
+ * registry plan (round 2, lazy on first call so the light-shim static graph
+ * stays mesh-free). The route only admits or denies: execution stays in
+ * this attachment's server, so identity, workspace, store and participant
+ * fencing are unchanged from H1.
+ */
 import { PassThrough, Writable } from "node:stream";
 import type { Notification } from "@modelcontextprotocol/sdk/types.js";
 import { runMcpServe } from "../cli.js";
@@ -9,6 +16,30 @@ import { CENTRAL_ATTACHMENT_ENV, type CentralMcpAttachment } from "./mcp-central
 import type { AttachmentParticipant } from "./handover/participants.js";
 
 export type CentralAttachmentHandle = { mcp: McpServer; close(): Promise<void> };
+
+/**
+ * Install the Sentropic-registry dispatch route on an attachment server.
+ * The registry module (and its mesh packages) loads LAZILY on the first
+ * tool call: the light-shim fixture tree ships no nested `node_modules`,
+ * so a static import here would break every shim child at startup even
+ * though the shim path never dispatches. The raw dispatch is captured
+ * synchronously at install time, so the later wrapper can never recurse
+ * into itself.
+ */
+function installRegistryDispatch(mcp: McpServer, options: { root: string; workspaceRoot: string }): void {
+  const rawCallTool = mcp.callTool.bind(mcp);
+  let delegate: McpServer["callTool"] | undefined;
+  let pending: Promise<McpServer["callTool"]> | undefined;
+  const stub = (async (name: string, args: Record<string, unknown> | undefined) => {
+    pending ??= (async () => {
+      const { wrapMcpServerWithDaemonRegistry } = await import("../registry/sentropic-daemon.js");
+      return wrapMcpServerWithDaemonRegistry({ callTool: rawCallTool }, options).callTool;
+    })();
+    delegate ??= await pending;
+    return delegate(name, args);
+  }) as McpServer["callTool"];
+  mcp.callTool = stub;
+}
 
 export function openCentralAttachment(
   root: string,
@@ -22,6 +53,7 @@ export function openCentralAttachment(
   if (!context) {
     const mcp = createMcpServer({ root, workspaceRoot: workspace, store, ...(participant ? { participant } : {}), ...(runExecutor ? { runExecutor } : {}) });
     participant?.bind(mcp);
+    installRegistryDispatch(mcp, { root, workspaceRoot: workspace });
     return { mcp, async close() {
       mcp.notifications.stop();
       if (participant?.transferred()) mcp.sessions.suspend();
@@ -59,6 +91,7 @@ export function openCentralAttachment(
     ...(runExecutor ? { runExecutor } : {})
   });
   if (!mcp) { controller.abort(); input.end(); throw new Error("central attachment activation failed"); }
+  installRegistryDispatch(mcp, { root, workspaceRoot: workspace });
   return { mcp, async close() {
     controller.abort();
     input.end();
