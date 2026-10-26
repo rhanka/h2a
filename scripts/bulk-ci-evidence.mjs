@@ -25,7 +25,8 @@ export function bulkContext(root, env = process.env) {
   const files = [...BULK_FILES, 'scripts/bulk-test-files.mjs', 'scripts/bulk-test-inventory.json',
     'scripts/bulk-ci-evidence.mjs', 'scripts/ci-bulk-proof.mjs', 'scripts/run-node-tests.mjs',
     'scripts/prepare-mh-test-fixtures.mjs', 'scripts/test-inventory.mjs', 'scripts/ci-owned-process.mjs',
-    'packages/h2a/test/helpers/native-isolation.js'];
+    'packages/h2a/test/helpers/native-isolation.js', '.github/workflows/ci.yml',
+    'packages/h2a/test/bulk-ci-evidence.test.js'];
   return { ...context, inputs: { ...context.inputs, ...Object.fromEntries(files.map(file =>
     [file, createHash('sha256').update(fs.readFileSync(join(root, file))).digest('hex')])) } };
 }
