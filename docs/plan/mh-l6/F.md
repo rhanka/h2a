@@ -252,6 +252,20 @@ fichier non touché par la tranche, écart classé transitoire de charge.
 Audit : 4 fichiers identiques, émission compilée liée par SHA, 6 tests +
 14 requalifiés et 4 paires/profil. Preuve : `proof-F-2c6.json`.
 
+Correction causale H1 (M17, 26/10, bornes inchangées) : le budget IPC 5 s
+de `reply()` courait pendant les attentes légitimes produit (`spawnSync`
+`flock --exclusive --timeout 5` en chaîne dans `mutationLock`, ordonnancement
+contraint) sans discriminer un enfant sain non ordonnancé d'un enfant
+bloqué — d'où le timeout intermittent, reproduit à 4/14 sous contrainte
+mono-cœur. L'oracle partagé `test/helpers/mh-l6-ipc-budget.mjs` garde le
+budget 5 s sans réessai ni charge réduite, mais le rejet porte désormais la
+preuve échantillonnée à l'expiration (vivant, codes, ticks CPU à
+l'armement/à l'expiration, attente de garde `flock` descendante, loadavg).
+Régression déterministe : `mh-l6-ipc-budget.test.js` (3/3, Node 22/24 :
+sain répond, SIGSTOPé expire avec preuve `alive`, SIGKILLé reste
+`controller_closed_before_reply`). Requal `mh-l6-delegation.test.js`
+14/14 Node 22/24 après refactor. Aucun assouplissement, aucun skip.
+
 | NOT covered restant | Gate |
 |---|---|
 | Compensation (bloquée : aucun `COMPLETED`), activation M18 après preuve externe | F-2c (suite) |
