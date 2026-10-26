@@ -577,7 +577,7 @@ interface ParsedFlags {
   flags: Record<string, string>;
 }
 
-function parseFlags(argv: readonly string[]): ParsedFlags {
+function parseFlags(argv: readonly string[], literalValueFlags: readonly string[] = []): ParsedFlags {
   const [command, ...rest] = argv;
   const flags: Record<string, string> = {};
   for (let i = 0; i < rest.length; i++) {
@@ -585,7 +585,7 @@ function parseFlags(argv: readonly string[]): ParsedFlags {
     if (token.startsWith("--")) {
       const key = token.slice(2);
       const next = rest[i + 1];
-      if (next !== undefined && !next.startsWith("--")) {
+      if (next !== undefined && (literalValueFlags.includes(key) || !next.startsWith("--"))) {
         flags[key] = next;
         i++;
       } else {
@@ -8206,7 +8206,10 @@ export function runCli(
     return 1;
   }
   if (command === "keys") {
-    const { command: sub, flags: subFlags } = parseFlags(argv.slice(1));
+    // A gateway's base64url nonce can begin with "--". Consume that one
+    // option's literal value; the ceremony still validates its full shape.
+    const { command: sub, flags: subFlags } = parseFlags(argv.slice(1),
+      argv[1] === "prove-control" ? ["nonce"] : []);
     if (sub === "generate") return cmdKeysGenerate(subFlags, streams);
     if (sub === "add") return cmdKeysAdd(subFlags, streams);
     if (sub === "list") return cmdKeysList(subFlags, streams);
