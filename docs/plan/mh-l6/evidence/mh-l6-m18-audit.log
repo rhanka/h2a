@@ -1,0 +1,1 @@
+M18-producer: 4 exact source/test/runner files; 4 producer tests + 9 live-observer requal + 3+7 killed/restored mutations per Node 22/24; zero skips/leftovers

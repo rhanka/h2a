@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { assessNpmCommand } from './npm-command.js';
+import { assessLegacyExclusion } from './legacy-exclusion.js';
 // Real observers for the four §8.4 closures on live published legacy
 // dists (.5/.6). Each observer reads only: it never signals a foreign PID,
 // never writes into the legacy tree, and fails closed (`established:
@@ -290,4 +291,25 @@ export async function observeLegacyClosures(envelope = {}) {
     const futureStartsRouted = observeFutureStartsRouted({ commandPath, managedLauncher, legacyEntry, version });
     const installerReintroductionBarred = observeInstallerReintroductionBarred({ legacyRoot, version, managedDir });
     return Object.freeze({ workersTerminated, relaunchSourcesClosed, futureStartsRouted, installerReintroductionBarred });
+}
+// M18 external proof producer: run the four live observers against the real
+// legacy tree, persist the observed envelope as exclusion-evidence.json for
+// the real bootstrap path (`readH4ExclusionEvidence`), and return the
+// assessed verdict. The file is a truthful record of what was observed: an
+// unfenced observation is persisted as observed (selection then defers via
+// `selection_deferred:legacy_installer_unfenced`), never upgraded into a
+// proof. Atomic write (tmp + rename + directory fsync), mode 0600.
+export async function produceLegacyExclusionEvidence(envelope = {}) {
+    checkEnvelope(envelope);
+    const { legacyRoot, version, workDir, homeDir, commandPath, managedLauncher, legacyEntry, managedDir, managedRoot } = envelope;
+    if (typeof managedRoot !== 'string' || !isAbsolute(managedRoot)) throw new Error('legacy_observer_invalid');
+    const evidence = await observeLegacyClosures({ legacyRoot, version, workDir, homeDir, commandPath, managedLauncher, legacyEntry, managedDir });
+    const verdict = assessLegacyExclusion(evidence);
+    const path = join(managedRoot, 'exclusion-evidence.json');
+    const staging = join(managedRoot, `.exclusion-evidence.json.${process.pid}.tmp`);
+    fs.writeFileSync(staging, JSON.stringify(evidence, null, 2) + '\n', { mode: 0o600 });
+    fs.renameSync(staging, path);
+    const dirFd = fs.openSync(managedRoot, 'r');
+    try { fs.fsyncSync(dirFd); } finally { fs.closeSync(dirFd); }
+    return Object.freeze({ path, verdict });
 }

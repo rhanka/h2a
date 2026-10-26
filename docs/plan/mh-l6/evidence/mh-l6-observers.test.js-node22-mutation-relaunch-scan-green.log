@@ -1,12 +1,12 @@
 command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-observers.test.js
 node: v22.22.1
-private root: /tmp/mh-l6-test-fhhysq
+private root: /tmp/mh-l6-test-5xbXiC
 case: B2 should report unfenced when a relaunch source still references the legacy root
 TAP version 13
 # Subtest: B2 should report unfenced when a relaunch source still references the legacy root
 ok 1 - B2 should report unfenced when a relaunch source still references the legacy root
   ---
-  duration_ms: 290.036424
+  duration_ms: 348.065259
   type: 'test'
   ...
 1..1
@@ -17,6 +17,6 @@ ok 1 - B2 should report unfenced when a relaunch source still references the leg
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 397.172674
+# duration_ms 469.87619
 
 receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-observers.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":2,"leftovers":[]}

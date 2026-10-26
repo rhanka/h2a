@@ -1,12 +1,12 @@
 command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-observers.test.js
 node: v22.22.1
-private root: /tmp/mh-l6-test-8cTmXe
+private root: /tmp/mh-l6-test-t25xwA
 case: B2 should report unfenced when future starts still resolve to the legacy entry
 TAP version 13
 # Subtest: B2 should report unfenced when future starts still resolve to the legacy entry
 ok 1 - B2 should report unfenced when future starts still resolve to the legacy entry
   ---
-  duration_ms: 288.286339
+  duration_ms: 304.625397
   type: 'test'
   ...
 1..1
@@ -17,6 +17,6 @@ ok 1 - B2 should report unfenced when future starts still resolve to the legacy 
 # cancelled 0
 # skipped 0
 # todo 0
-# duration_ms 382.973289
+# duration_ms 423.434165
 
 receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-observers.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":2,"leftovers":[]}
