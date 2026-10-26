@@ -3,6 +3,7 @@ import { isAbsolute } from "node:path";
 import { bridgeCentralMcpStdio } from "./mcp-central-client.js";
 import { captureCentralAttachment } from "./mcp-central-context.js";
 import { ensureCentralForShim } from "./mcp-central-start.js";
+import { isSupportedCentralHost } from "./mcp-central-qualification.js";
 
 export async function runCentralShim(flags: Record<string, string>, root: string): Promise<number> {
   if (flags["runtime-base"] && !isAbsolute(flags["runtime-base"])) throw new Error("--runtime-base must be an absolute path");
@@ -15,7 +16,10 @@ export async function runCentralShim(flags: Record<string, string>, root: string
     // Discovery errors still reject the bridge's connection state. Local MCP
     // initialization precedes that state; only ENOENT can permit autostart.
     // The legacy --endpoint hint never overrides the selected publication.
-    const qualified = flags.host === "claude" && Boolean(process.env.CLAUDE_CODE_SESSION_ID?.trim());
+    // Claude binds its native conversation id; other supported hosts bind
+    // their routed host tag until H6 measures real native session signals.
+    const qualified = isSupportedCentralHost(flags.host) &&
+      (flags.host !== "claude" || Boolean(process.env.CLAUDE_CODE_SESSION_ID?.trim()));
     await bridgeCentralMcpStdio({
       ...paths, stdin: process.stdin, stdout: process.stdout, signal: controller.signal,
       workspaceRoot: process.cwd(),
