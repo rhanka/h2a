@@ -160,6 +160,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      - name: Verify bulk acceptance independently of the aggregate runner
+        run: node --test packages/h2a/test/bulk-ci-evidence.test.js
       - name: Execute every bulk packaging and corpus case
         run: node scripts/ci-bulk-proof.mjs
         env:
