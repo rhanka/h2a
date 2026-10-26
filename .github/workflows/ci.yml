@@ -139,8 +139,36 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  bulk-qualification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["22", "24"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Execute every bulk packaging and corpus case
+        run: node scripts/ci-bulk-proof.mjs
+        env:
+          H2A_TEST_CI_BULK_OUTPUT: ${{ github.workspace }}/tmp/bulk-export
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bulk-${{ github.run_id }}-${{ github.run_attempt }}-node${{ matrix.node }}
+          path: tmp/bulk-export/proof.json
+          if-no-files-found: error
+          retention-days: 7
+
   build-and-test:
-    needs: [m17-qualification]
+    needs: [m17-qualification, bulk-qualification]
     # A skipped required check can satisfy branch protection. Run and FAIL when
     # either producer fails/cancels; dependency status is never itself a pass.
     if: ${{ always() }}
@@ -181,6 +209,10 @@ jobs:
         env:
           M17_RESULT: ${{ needs.m17-qualification.result }}
         run: test "$M17_RESULT" = success
+      - name: Require both complete bulk qualifications
+        env:
+          BULK_RESULT: ${{ needs.bulk-qualification.result }}
+        run: test "$BULK_RESULT" = success
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -198,9 +230,14 @@ jobs:
         with:
           name: m17-${{ github.run_id }}-${{ github.run_attempt }}-node${{ matrix.node }}
           path: tmp/m17-import
+      - uses: actions/download-artifact@v4
+        with:
+          name: bulk-${{ github.run_id }}-${{ github.run_attempt }}-node${{ matrix.node }}
+          path: tmp/bulk-import
       - run: npm test
         env:
           H2A_TEST_CI_M17_REPORT: ${{ github.workspace }}/tmp/m17-import/proof.json
+          H2A_TEST_CI_BULK_REPORT: ${{ github.workspace }}/tmp/bulk-import/proof.json
       - name: Exercise the native multi-session terminal host
         run: >-
           npx --no-install vitest run
@@ -248,7 +285,7 @@ jobs:
   # graph, and the runner's exact production command map.
   npm-test-trust-root:
     name: npm-test-trust-root
-    needs: [m17-qualification]
+    needs: [m17-qualification, bulk-qualification]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     # Same complete entrypoint; 13m39s observed on main, 22m54s on the
@@ -271,11 +308,20 @@ jobs:
         env:
           M17_RESULT: ${{ needs.m17-qualification.result }}
         run: test "$M17_RESULT" = success
+      - name: Require both complete bulk qualifications
+        env:
+          BULK_RESULT: ${{ needs.bulk-qualification.result }}
+        run: test "$BULK_RESULT" = success
       - uses: actions/download-artifact@v4
         with:
           name: m17-${{ github.run_id }}-${{ github.run_attempt }}-node22
           path: tmp/m17-import
+      - uses: actions/download-artifact@v4
+        with:
+          name: bulk-${{ github.run_id }}-${{ github.run_attempt }}-node22
+          path: tmp/bulk-import
       - name: Execute the production test entrypoint directly
         run: node scripts/run-test-gates.mjs
         env:
           H2A_TEST_CI_M17_REPORT: ${{ github.workspace }}/tmp/m17-import/proof.json
+          H2A_TEST_CI_BULK_REPORT: ${{ github.workspace }}/tmp/bulk-import/proof.json

@@ -1,0 +1,96 @@
+{
+  "packages/h2a/test/mh-l6-package.test.js": [
+    "U10 U12 should publish @sentropic/h2a with exact lockstep and install twice offline without a compiler",
+    "U10 should build the actual closed dependency graph from pinned prebuilds before invoking npm",
+    "U10 should install @sentropic/h2a for off-profile diagnostics while refusing H4 preparation"
+  ],
+  "packages/h2a/test/mh-l6-runtime-package.test.js": [
+    "U10 U12 should publish @sentropic/h2a-runtime with exact lockstep and install twice offline without a compiler",
+    "U10 should install @sentropic/h2a-runtime for off-profile diagnostics while refusing H4 preparation"
+  ],
+  "packages/h2a/test/drive-consent-index.test.js": [
+    "requestless journals deny authority and orphan revocations remain unauthorized in both indexes",
+    "consent index asymmetric corpus seed 1",
+    "consent index asymmetric corpus seed 2",
+    "consent index asymmetric corpus seed 3",
+    "consent index asymmetric corpus seed 4",
+    "consent index asymmetric corpus seed 5",
+    "consent index asymmetric corpus seed 6",
+    "consent index asymmetric corpus seed 7",
+    "consent index asymmetric corpus seed 42",
+    "consent index asymmetric corpus seed 123",
+    "consent index asymmetric corpus seed 999",
+    "A-1 preserves older expired consent-revoked behind newer expired witness",
+    "A-1 preserves older expired consent-refused behind newer expired witness",
+    "A-1 preserves older expired consent-principal-unavailable behind newer expired witness",
+    "A-1 preserves older expired consent-invalid behind newer expired witness"
+  ],
+  "packages/h2a/test/candidate-artifacts.test.js": [
+    "verify, rehearsal and cross-platform smoke consume the same closed candidate producer",
+    "candidate tarballs include both verified payloads and the exact five-package release cohort"
+  ],
+  "packages/h2a/test/mh-l1-package.test.js": [
+    "MH-L1 prototype should pack/install twice offline with exact runtime, integrated transport and a real legacy node-pty probe"
+  ],
+  "packages/h2a/test/mh-l6-components.test.js": [
+    "U12 should prevent the real MCP boot worker from executing code changed after its parent verified the image",
+    "U12 should refuse an unqualified Node URL entry before it can escape the image reader",
+    "U12 should leave opaque data arguments untouched after identifying the image entry",
+    "U12 should guard the real boot file on a direct Node entry outside its parent launcher",
+    "U12 should run the real journal child from its verified image and join its exit",
+    "U12 should prevent the real journal child from executing late altered code",
+    "U12 should run the real identity child from its verified image and join its exit",
+    "U12 should prevent the real identity child from executing late altered code",
+    "U12 should allow an external Node application to receive image data through spawn",
+    "U12 should allow an external Node application to receive image data through spawnSync",
+    "U12 should allow an external Node application to receive image data through execFile",
+    "U12 should allow an external Node application to receive image data through execFileSync",
+    "U12 should install the reader before an unguarded internal entry through spawn",
+    "U12 should refuse an external late import from the internal spawn entry",
+    "U12 should install the reader before an unguarded internal entry through execFile",
+    "U12 should refuse an external late import from the internal execFile entry",
+    "U12 should install the reader before an unguarded internal entry through execFileSync",
+    "U12 should refuse an external late import from the internal execFileSync entry",
+    "U12 should run the real file boot worker in boot-check mode without network or prefix escape",
+    "U12 should run the real file boot worker in boot-auto mode without network or prefix escape",
+    "U12 should bind physical image execution through alias-fork before any external effect",
+    "U12 should bind physical image execution through alias-node before any external effect",
+    "U12 should bind physical image execution through alias-spawn before any external effect"
+  ],
+  "packages/h2a/test/mh-l6-entry.test.js": [
+    "U12 should reject an external loading profile on the real direct image CLI before reporting its version",
+    "U12 should execute the real image CLI with qualified memory options and its exact version",
+    "U12 should require the immutable loader on the real direct image path",
+    "U12 should verify the loader before even its first instruction executes on a direct image path",
+    "U12 should refuse an unknown execution descriptor even when its payload hash is valid",
+    "U12 should refuse a missing execution descriptor on an otherwise valid image",
+    "U12 should route the real mutable npm entry into the verified selected image",
+    "U04 should preserve the exact selected argv entry and PID when the real npm router imports it"
+  ],
+  "packages/h2a/test/mh-l6-native.test.js": [
+    "U10 should reproduce the registered native payload from the pinned release archives in a second build root",
+    "U10 should load the real precompiled node-pty and join a private PTY without any user compiler",
+    "U10 should refuse altered precompiled binary bytes before they reach require",
+    "U10 should refuse altered real node-pty JavaScript even if the ELF is intact",
+    "U10 should refuse a hardlinked precompiled artifact rather than sharing mutable ELF bytes",
+    "U10 should refuse a symlinked binary pointing outside the precompiled payload",
+    "U10 should refuse an unrecorded file and a changed payload mode",
+    "U10 should reject a missing precompiled binary without falling back to sources or scripts",
+    "U10 should reject a libc below the target baseline before consuming the artifact or compiling",
+    "U10 should refuse an altered or extended artifact descriptor",
+    "U10 should reject an unqualified architecture before consuming the artifact or compiling",
+    "U10 should reject an unpinned compiler archive before its first instruction executes",
+    "U10 should reject an unqualified Node major before consuming the artifact or compiling",
+    "U10 should reject an unqualified Node ABI before consuming the artifact or compiling",
+    "U10 should reject an unqualified N-API level before consuming the artifact or compiling"
+  ],
+  "packages/h2a/test/mh-l6-native-copy.test.js": [
+    "U10 should copy only the pinned native payload without a compiler or shared ELF inode",
+    "U10 should reject altered release archive bytes before extracting anything into a payload",
+    "U10 should never overwrite an existing native copy destination",
+    "U10 should prepare the real workspace prebuild idempotently without changing its JavaScript",
+    "U10 should refuse a shared workspace dependency and leave the outside target untouched",
+    "U10 should refuse mismatched workspace JavaScript before changing its native binding",
+    "U10 should preserve the previous binding and remove its temporary file when native replacement fails"
+  ]
+}
