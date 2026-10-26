@@ -20,7 +20,7 @@ try {
   const { runCentralShim } = await import("./runtime/mcp-central-shim.js");
   const { readCentralMcpMarker } = await import("./runtime/mcp-central-discovery.js");
   const { inspectFirstInitialize } = await import("./runtime/mcp-central-initialize.js");
-  const { qualifiedClaudeInitialize } = await import("./runtime/mcp-central-qualification.js");
+  const { isSupportedCentralHost, qualifiedHostInitialize } = await import("./runtime/mcp-central-qualification.js");
   if (argv[0] === "mcp-central-precheck") {
     const { readPrecheckManifest } = await import("./runtime/handover/precheck.js");
     const trial = readPrecheckManifest(flags["image-root"], flags["manifest-digest"]);
@@ -35,24 +35,29 @@ try {
   const isMcp = argv[0] === "mcp-serve" || argv[0] === "mcp-central-connect";
   // Structured sidecars must acknowledge their readiness challenge without
   // waiting for a host request. Other structural exclusions need no peeking.
-  const inspect = isMcp && flags.host === "claude" && Boolean(process.env.CLAUDE_CODE_SESSION_ID?.trim()) &&
+  const hasNativeSession = flags.host === "claude" ? Boolean(process.env.CLAUDE_CODE_SESSION_ID?.trim()) : isSupportedCentralHost(flags.host);
+  const inspect = isMcp && hasNativeSession &&
     !flags.instance && flags.backend !== "cluster-mesh" && process.env.H2A_MESSAGE_BACKEND !== "cluster-mesh" &&
     !process.env.H2A_MCP_READY_FILE && !process.env.H2A_MCP_READY_NONCE &&
     process.env.H2A_MCP_CENTRAL !== "0" && process.env.H2A_MCP_CENTRAL !== "false";
   const initialize = inspect ? await inspectFirstInitialize(process.stdin) : undefined;
-  if (inspect && !qualifiedClaudeInitialize(initialize)) {
-    process.stderr.write("h2a mcp: claude_version_unqualified; using stdio\n");
+  if (inspect && !qualifiedHostInitialize(flags.host, initialize)) {
+    process.stderr.write(`h2a mcp: ${flags.host}_version_unqualified; using stdio\n`);
   }
   if (argv[0] === "mcp-serve" && shouldUseCentralMcp(flags, process.env, centralByDefault, initialize)) {
     process.exitCode = await runCentralShim(flags, canonicalCentralRoot());
   } else if (argv[0] === "mcp-central-connect") {
     // Legacy v1 connectors without explicit host qualification remain in stdio
     // until explicitly repaired. Unqualified hosts, missing markers, missing
-    // Claude session ID, and opt-outs decide stdio before reading marker.
-    const hasClaudeId = Boolean(process.env.CLAUDE_CODE_SESSION_ID?.trim());
-    const isExplicitClaude = flags.host === "claude";
+    // host session binding, and opt-outs decide stdio before reading marker.
+    // Claude binds its native conversation id; other supported hosts bind
+    // their routed host tag until H6 measures real native session signals.
+    const hasHostSession = flags.host === "claude"
+      ? Boolean(process.env.CLAUDE_CODE_SESSION_ID?.trim())
+      : isSupportedCentralHost(flags.host);
+    const isSupportedHost = isSupportedCentralHost(flags.host);
 
-    if (!isExplicitClaude || !hasClaudeId || !qualifiedClaudeInitialize(initialize) || !centralRoutingEnabled(process.env, centralByDefault)) {
+    if (!isSupportedHost || !hasHostSession || !qualifiedHostInitialize(flags.host, initialize) || !centralRoutingEnabled(process.env, centralByDefault)) {
       process.argv[2] = "mcp-serve";
       await import("./bin-heavy.js");
     } else {

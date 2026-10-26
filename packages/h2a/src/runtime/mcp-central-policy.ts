@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { readCentralMcpMarker } from "./mcp-central-discovery.js";
-import { qualifiedClaudeInitialize, claudeQualificationManifest, type ClaudeQualificationManifest } from "./mcp-central-qualification.js";
+import { qualifiedHostInitialize, isSupportedCentralHost, claudeQualificationManifest, type ClaudeQualificationManifest } from "./mcp-central-qualification.js";
 
 export function centralConfigPath(env: NodeJS.ProcessEnv = process.env): string {
   const home = env.REMOTE_CLI_CONFIG_HOME ?? env.HOME ?? homedir();
@@ -30,11 +30,14 @@ export function centralRoutingEnabled(env: NodeJS.ProcessEnv = process.env, defa
 }
 export function shouldUseCentralMcp(flags: Record<string, string>, env: NodeJS.ProcessEnv = process.env, defaultEnabled = false,
   initialize?: unknown, manifest: ClaudeQualificationManifest = claudeQualificationManifest): boolean {
-  if (!qualifiedClaudeInitialize(initialize, manifest)) return false;
-  if (process.platform !== "linux" || flags.host !== "claude" || flags.instance || flags.backend === "cluster-mesh" || env.H2A_MESSAGE_BACKEND === "cluster-mesh") return false;
+  if (!isSupportedCentralHost(flags.host) || !qualifiedHostInitialize(flags.host, initialize, manifest)) return false;
+  if (process.platform !== "linux" || flags.instance || flags.backend === "cluster-mesh" || env.H2A_MESSAGE_BACKEND === "cluster-mesh") return false;
   // Structured sidecar launches with readiness challenges stay on stdio
   if (env.H2A_MCP_READY_FILE || env.H2A_MCP_READY_NONCE) return false;
-  if (!env.CLAUDE_CODE_SESSION_ID?.trim() || !centralRoutingEnabled(env, defaultEnabled)) return false;
+  // Claude binds its native conversation id; other hosts bind their routed
+  // host tag until H6 measures real native session signals for them.
+  if (flags.host === "claude" && !env.CLAUDE_CODE_SESSION_ID?.trim()) return false;
+  if (!centralRoutingEnabled(env, defaultEnabled)) return false;
   // Central root must never be derived from cwd; relative roots deterministically select stdio
   if (env.H2A_ROOT && !isAbsolute(env.H2A_ROOT)) return false;
   if (flags.root && !isAbsolute(flags.root)) return false;
