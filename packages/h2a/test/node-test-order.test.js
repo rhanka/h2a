@@ -99,12 +99,14 @@ test('cold compensation completes alone before any other protocol or package fil
   for (const file of files) assert.ok(evidence.testResults.some(row => row.name === file));
 });
 
-test('the default four-CPU runner caps concurrent file workers at two and executes every case', t => {
+function defaultWorkerBudget(t, bulk) {
   const root = fs.mkdtempSync(join(tmpdir(), 'node-worker-budget-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const hook = join(root, 'four-cpus.mjs'), report = join(root, 'evidence.json');
   fs.writeFileSync(hook, `import os from 'node:os';import {syncBuiltinESMExports} from 'node:module';os.availableParallelism=()=>4;syncBuiltinESMExports();`);
-  const files = Array.from({ length: 4 }, (_, n) => join(root, `case-${n}.test.js`));
+  const names = bulk ? ['mh-l6-package.test.js', 'mh-l6-runtime-package.test.js', 'drive-consent-index.test.js', 'candidate-artifacts.test.js']
+    : Array.from({ length: 4 }, (_, n) => `case-${n}.test.js`);
+  const files = names.map(name => join(root, name));
   for (const [n, file] of files.entries()) fs.writeFileSync(file, `const {test}=require('node:test');test('real worker case ${n}',async()=>{await new Promise(r=>setTimeout(r,100));});`);
   const env = { ...process.env, H2A_TEST_NODE_PROGRESS_MS: '10' }; delete env.NODE_TEST_CONTEXT;
   const result = spawnSync(process.execPath, ['--import', hook, resolve('scripts/run-node-tests.mjs'), '--test',
@@ -113,13 +115,17 @@ test('the default four-CPU runner caps concurrent file workers at two and execut
   assert.equal(result.status, 0, result.stdout + result.stderr);
   const rows = result.stderr.split('\n').filter(line => line.startsWith('[node-test-progress] '))
     .map(line => JSON.parse(line.slice('[node-test-progress] '.length)));
-  assert.ok(rows.some(row => row.active.length === 2), result.stderr);
-  assert.ok(rows.every(row => row.active.length <= 2), result.stderr);
+  const workers = bulk ? 2 : 4;
+  assert.ok(rows.some(row => row.active.length === workers), result.stderr);
+  assert.ok(rows.every(row => row.active.length <= workers), result.stderr);
   const evidence = JSON.parse(fs.readFileSync(report, 'utf8'));
   assert.equal(evidence.success, true);
   assert.equal(evidence.numPassedTests, files.length);
   for (const file of files) assert.ok(evidence.testResults.some(row => row.name === file));
-});
+}
+
+test('the default four-CPU runner caps bulk package workers at two and executes every case', t => defaultWorkerBudget(t, true));
+test('the default four-CPU runner retains four ordinary protocol workers and executes every case', t => defaultWorkerBudget(t, false));
 
 test('a failed standalone daemon suite remains failed while every remaining file still executes', t => {
   const { result, files, started, evidence } = scenario(t, { isolated: true, failing: true });
