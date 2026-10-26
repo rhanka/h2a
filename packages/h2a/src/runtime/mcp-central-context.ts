@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { isAbsolute } from "node:path";
 import { currentIdentity } from "./handover/admission.js";
 import { validate } from "./handover/formats.js";
+import { isSupportedCentralHost, type SupportedCentralHost } from "./mcp-central-qualification.js";
 
 export const CENTRAL_ATTACHMENT_ENV = [
   "CLAUDE_CODE_SESSION_ID", "TMUX", "TMUX_PANE", "H2A_NATIVE_TARGET_SESSION",
@@ -16,7 +17,7 @@ export type CentralMcpAttachment = {
   id: string;
   root: string;
   workspace: string;
-  host: "claude";
+  host: SupportedCentralHost;
   flags: Record<string, string>;
   env: Record<string, string>;
   resume?: boolean;
@@ -25,8 +26,9 @@ export type CentralMcpAttachment = {
 };
 
 export function captureCentralAttachment(root: string, workspace: string, flags: Record<string, string>, env: NodeJS.ProcessEnv): CentralMcpAttachment {
+  if (!isSupportedCentralHost(flags.host)) throw new Error("unsupported central attachment host");
   return {
-    version: 2, id: randomUUID(), root, workspace, host: "claude", shimProcessIdentity: currentIdentity(),
+    version: 2, id: randomUUID(), root, workspace, host: flags.host, shimProcessIdentity: currentIdentity(),
     flags: Object.fromEntries(Object.entries(flags).filter(([key]) => FLAGS.has(key))),
     env: Object.fromEntries(CENTRAL_ATTACHMENT_ENV.flatMap(key => env[key] === undefined ? [] : [[key, env[key]!]]))
   };
@@ -35,12 +37,15 @@ export function captureCentralAttachment(root: string, workspace: string, flags:
 export function parseCentralAttachment(encoded: string, root: string): CentralMcpAttachment {
   if (encoded.length > 12_000) throw new Error("central attachment context exceeds budget");
   const value = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) as CentralMcpAttachment;
-  if (value.version !== 2 || value.host !== "claude" || !/^[0-9a-f-]{36}$/i.test(value.id) || value.root !== root ||
+  if (value.version !== 2 || !isSupportedCentralHost(value.host) || !/^[0-9a-f-]{36}$/i.test(value.id) || value.root !== root ||
       !isAbsolute(value.workspace) || value.workspace.includes("\0") || !value.flags || typeof value.flags !== "object" || Array.isArray(value.flags) ||
       !value.env || typeof value.env !== "object" || Array.isArray(value.env)) throw new Error("invalid central attachment context or unsupported state root");
   for (const [key, v] of Object.entries(value.flags)) if (!FLAGS.has(key) || typeof v !== "string") throw new Error("unsupported central attachment flag");
   for (const [key, v] of Object.entries(value.env)) if (!(CENTRAL_ATTACHMENT_ENV as readonly string[]).includes(key) || typeof v !== "string" || v.includes("\0")) throw new Error("unsupported central attachment environment");
-  if (value.flags.host !== "claude" || !value.env.CLAUDE_CODE_SESSION_ID?.trim()) throw new Error("central Claude attachment requires a native conversation id");
+  if (value.flags.host !== value.host) throw new Error("central attachment host mismatch");
+  // Claude binds its native conversation id; other hosts bind their routed
+  // host tag until H6 measures real native session signals for them.
+  if (value.host === "claude" && !value.env.CLAUDE_CODE_SESSION_ID?.trim()) throw new Error("central Claude attachment requires a native conversation id");
   if (value.resume !== undefined && typeof value.resume !== "boolean") throw new Error("invalid central resume context");
   if (value.expectedInstance !== undefined && typeof value.expectedInstance !== "string") throw new Error("invalid central resume identity");
   if (value.shimProcessIdentity) validate("processIdentity", value.shimProcessIdentity);
