@@ -17,7 +17,7 @@ describe("runtime resolves the public cluster-mesh integration without aliases",
     const esmPath = realpathSync(fileURLToPath(import.meta.resolve(specifier)));
     const clusterRoot = dirname(dirname(fileURLToPath(import.meta.resolve("@sentropic/cluster-mesh"))));
     expect(esmPath.startsWith(join(realpathSync(clusterRoot), "dist") + "/")).toBe(true);
-    expect(JSON.parse(readFileSync(join(clusterRoot, "package.json"), "utf8")).version).toBe("0.16.0");
+    expect(JSON.parse(readFileSync(join(clusterRoot, "package.json"), "utf8")).version).toBe("0.22.4");
   });
 
   it("should load the same facade and keyring through the public leaves and root registry", async () => {
