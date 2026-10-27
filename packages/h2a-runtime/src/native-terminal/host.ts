@@ -17,6 +17,8 @@ import {
   persistNativeTerminalPgid,
   pruneNativeTerminalPgidEntry,
   readNativeTerminalPgid,
+  resolveRegistryPath,
+  withNativeCreationRegistryTurn,
   type NativeTerminalPgidEntry,
   type NativeTerminalPgidOwner,
 } from "../registry.js";
@@ -912,6 +914,10 @@ export class NativeTerminalHost {
     groupDrained: number;
   }> {
     return { ...this.#pgidGuardCounters };
+  }
+
+  async createAsync(options: NativeTerminalCreateOptions, signal?: AbortSignal): Promise<NativeTerminalSessionState> {
+    return withNativeCreationRegistryTurn(this.#registryPath ?? resolveRegistryPath(), () => this.create(options), signal);
   }
 
   create(options: NativeTerminalCreateOptions): NativeTerminalSessionState {

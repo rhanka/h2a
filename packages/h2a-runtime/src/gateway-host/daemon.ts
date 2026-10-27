@@ -5,8 +5,7 @@ import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { createConnection } from "node:net";
 import { randomBytes } from "node:crypto";
-import { llmMeshOwnerScopeRef } from "../llm-mesh-accounts.js";
-import { sentropicDir, readLlmMeshConfig, writePrivateMetadata, type LlmMeshConfig } from "./config-file.js";
+import { llmMeshOwnerScopeRef, sentropicDir, readLlmMeshConfig, writePrivateMetadata, type LlmMeshConfig } from "./config-file.js";
 
 const ANTHROPIC_GATEWAY_ENV_KEYS = [
   "ANTHROPIC_BASE_URL",

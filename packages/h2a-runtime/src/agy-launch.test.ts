@@ -24,6 +24,8 @@ vi.mock("./tmux.js", async original => ({
 vi.mock("./native-host.js", async original => ({
   ...await original<object>(), nativeHostAvailable: () => ({ok:true}), preflightNativeLaunch: () => {},
   nativeSessionState: () => ({state:"missing"}), startNativeSession: fake.start,
+  nativeSessionStateAsync: async () => ({state:"absent"}),
+  startNativeSessionSingleShot: fake.start,
   startNativeHeadlessSession: fake.headless, nativeSessionPid: fake.pid, nativeWorkerPid: () => undefined,
   killNativeSessionTree: fake.stop,
 }));

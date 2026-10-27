@@ -37,6 +37,7 @@ import { NativeTerminalClient } from "./client.js";
 import { loadRegistry, registryEntriesForNativeTarget } from "../registry.js";
 import {
   NATIVE_TERMINAL_INTERACTIVE_READ_TIMEOUT_MS,
+  NATIVE_TERMINAL_HEALTH_TIMEOUT_MS,
   NATIVE_TERMINAL_PROTOCOL_VERSION,
   NativeTerminalRemoteError,
 } from "./protocol.js";
@@ -45,10 +46,10 @@ import type {
   NativeTerminalSessionState,
 } from "./host.js";
 import { NativeTerminalHostSupervisor } from "./supervisor.js";
-import { proveNativeTerminalEndpointAbsent } from "./server.js";
+import { proveNativeTerminalEndpointAbsent, withNativeTerminalStartupLock } from "./server.js";
 import { defaultNativeTerminalSocketPath, knownNativeTerminalSocketPaths,
   inspectPrivateNativeTerminalSocket, sameNativeTerminalSocket } from "./socket-path.js";
-import { collectNativeInventory, resolveNativeOwner, type NativeInventory } from "./fleet.js";
+import { collectNativeInventory, publicationContenderObserved, readNativeTerminalSuccessor, resolveNativeOwner, type NativeInventory } from "./fleet.js";
 import { renderTerminalScreen } from "./screen.js";
 import { TerminalModeTracker } from "./terminal-modes.js";
 import { publishAttachReset } from "./attach-recovery.js";
@@ -116,7 +117,7 @@ function required(parsed: Parsed, name: string): string {
   return value;
 }
 
-function emit(payload: unknown): void {
+function emitResult(payload: unknown): void {
   process.stdout.write(`${JSON.stringify(payload)}\n`);
 }
 
@@ -147,18 +148,24 @@ export function closeAllNativeTerminalOpClients(): void {
   openClients.clear();
 }
 
-async function connectExisting(socketPath: string, tracked = true): Promise<NativeTerminalClient> {
+async function connectExisting(socketPath: string, tracked = true, signal?: AbortSignal): Promise<NativeTerminalClient> {
+  signal?.throwIfAborted();
   const identity = await inspectPrivateNativeTerminalSocket(socketPath);
+  signal?.throwIfAborted();
   const client = await NativeTerminalClient.connect(socketPath);
   if (tracked) openClients.add(client);
+  const abort = () => client.close();
+  signal?.addEventListener("abort", abort, { once: true });
   try {
+    signal?.throwIfAborted();
     const ping = await client.ping();
     if (ping.protocolVersion !== NATIVE_TERMINAL_PROTOCOL_VERSION || !ping.generation?.trim() ||
       !Number.isSafeInteger(ping.hostPid) || ping.hostPid <= 0 ||
       !sameNativeTerminalSocket(identity, await inspectPrivateNativeTerminalSocket(socketPath))) {
       throw new Error("native host identity changed or handshake is invalid");
     }
-  } catch (error) { client.close(); throw error; }
+  } catch (error) { client.close(); openClients.delete(client); throw error; }
+  finally { signal?.removeEventListener("abort", abort); }
   return client;
 }
 
@@ -171,6 +178,32 @@ class NativeOwnerError extends Error {
 async function inventoryFor(parsed: Parsed): Promise<NativeInventory> {
   const pinned = parsed.flags.get("socket");
   return collectNativeInventory(pinned ? [pinned] : knownNativeTerminalSocketPaths(), connectExisting, proveNativeTerminalEndpointAbsent);
+}
+
+/** Same three-state proof for in-process callers and the one-shot probe.
+ * Own these connections locally: an async caller must close them even when
+ * another endpoint makes the inventory incomplete. */
+export async function probeNativeSession(id: string, socketPath?: string, ensureHost = false) {
+  // A run may prepare its host before the read-only guards. Otherwise every
+  // relauncher first queues multiple absence proofs, delaying the publisher
+  // until those same callers' publication/readiness budgets expire.
+  if (ensureHost) {
+    const client = socketPath ? await launchClient(socketPath) : (await selectLaunchClient(true)).client;
+    client.close();
+    openClients.delete(client);
+  }
+  const inventory = await collectNativeInventory(socketPath ? [socketPath] : knownNativeTerminalSocketPaths(),
+    path => connectExisting(path, false), proveNativeTerminalEndpointAbsent);
+  try {
+    const owner = resolveNativeOwner(id, inventory);
+    if (owner.state === "found") return { verdict: owner.session.status === "running" ? "live" : "dead",
+      state: { ...owner.session, socketPath: owner.socketPath } };
+    if (owner.state === "absent") return { verdict: "dead" };
+    return { verdict: "unknown", code: owner.state,
+      ...(owner.state === "unknown" ? { reason: owner.reason } : { sockets: owner.sockets, reason: "ambiguous-owner" }) };
+  } finally {
+    for (const host of inventory.hosts) host.client?.close();
+  }
 }
 
 async function owningClient(parsed: Parsed, id: string): Promise<{ client: NativeTerminalClient; socketPath: string }> {
@@ -192,26 +225,56 @@ async function selectLaunchClient(fenced: boolean): Promise<{ client: NativeTerm
   }
   const historical = paths[0]!;
   const client = await launchClient(historical);
-  const ping = await client.ping();
-  if (!fenced || paths.length === 1) return { client, socketPath: historical };
-  const compatible = paths[1]!;
-  // Initialize the second known endpoint so admission obtains a complete
-  // inventory even when the historical host already provides the fence.
-  const second = await launchClient(compatible);
-  return ping.launchFence === true ? { client, socketPath: historical } : { client: second, socketPath: compatible };
+  try {
+    const ping = await client.ping();
+    if (!fenced || paths.length === 1) return { client, socketPath: historical };
+    const compatible = paths[1]!;
+    // Initialize the second known endpoint so admission obtains a complete
+    // inventory even when the historical host already provides the fence.
+    const second = await launchClient(compatible);
+    const unused = ping.launchFence === true ? second : client;
+    unused.close();
+    openClients.delete(unused);
+    return ping.launchFence === true ? { client, socketPath: historical } : { client: second, socketPath: compatible };
+  } catch (error) { client.close(); openClients.delete(client); throw error; }
 }
 
 async function launchClient(socketPath: string): Promise<NativeTerminalClient> {
+  let failure: unknown;
   try { return await connectExisting(socketPath); }
-  catch (error) {
-    let absent = false;
-    try { absent = await proveNativeTerminalEndpointAbsent(socketPath, error); }
-    catch (proofError) {
-      error = new Error(`${error instanceof Error ? error.message : String(error)}; absence proof failed: ${proofError instanceof Error ? proofError.message : String(proofError)}`);
+  catch (error) { failure = error; }
+  try {
+    return await withNativeTerminalStartupLock(socketPath, () => launchClientUnderLock(socketPath, failure),
+      signal => connectExisting(socketPath, true, signal));
+  } catch (error) {
+    // Election expiry is contention, just like publication-lock expiry. The
+    // elected publisher can finish as our acquisition deadline expires. Spend
+    // the existing successor-health budget on read-only adoption; never use
+    // this failure as an absence proof or permission to spawn another host.
+    if ((error as Error)?.name === "TimeoutError" || publicationContenderObserved(error)) {
+      const successorSignal = AbortSignal.timeout(NATIVE_TERMINAL_HEALTH_TIMEOUT_MS);
+      try { return await readNativeTerminalSuccessor(() => connectExisting(socketPath, true, successorSignal), true); }
+      catch { /* Preserve the original fail-closed election diagnostic. */ }
     }
-    if (absent) return ensureClient(socketPath);
-    throw Object.assign(new Error(`${socketPath}: ${error instanceof Error ? error.message : String(error)}; owner death is unproven. Inspect endpoint permissions and the owning process identity, restore probe access, then retry; do not remove a socket or lock while ownership is unproven.`), { socketPath });
+    throw error;
   }
+}
+
+async function launchClientUnderLock(socketPath: string, error: unknown): Promise<NativeTerminalClient> {
+  let absent = false;
+  let publisherObserved = false;
+  // Launch-only reclamation: inventories never remove the stale inode.
+  try { absent = await proveNativeTerminalEndpointAbsent(socketPath, error, undefined, undefined, true); }
+  catch (proofError) {
+    publisherObserved = publicationContenderObserved(proofError);
+    error = new Error(`${error instanceof Error ? error.message : String(error)}; absence proof failed: ${proofError instanceof Error ? proofError.message : String(proofError)}`);
+  }
+  if (absent) return ensureClient(socketPath);
+  // Publication may have completed while the absence proof held/waited for
+  // its lock. A fresh handshake can adopt that winner without any takeover.
+  try { return await readNativeTerminalSuccessor(() => connectExisting(socketPath), publisherObserved); }
+  catch { /* Still uncertain: retain the original proof failure below. */ }
+  throw Object.assign(new Error(`${socketPath}: ${error instanceof Error ? error.message : String(error)}; owner death is unproven. Inspect endpoint permissions and the owning process identity, restore probe access, then retry; do not remove a socket or lock while ownership is unproven.`), { socketPath });
 }
 
 async function ensureClient(socketPath: string): Promise<NativeTerminalClient> {
@@ -751,7 +814,17 @@ export async function runAttach(
   return exitCode;
 }
 
-export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<number> {
+export async function runNativeTerminalOp(
+  argv: ReadonlyArray<string>,
+  emit: (payload: unknown) => void = emitResult,
+  signal?: AbortSignal,
+  deadline = Infinity,
+): Promise<number> {
+  const checkDeadline = () => {
+    signal?.throwIfAborted();
+    if (Date.now() >= deadline) throw new Error("native host operation deadline exceeded");
+  };
+  checkDeadline();
   const parsed = parseArgv(argv);
   const socketPath = parsed.flags.get("socket") ?? socketPathFromEnv();
 
@@ -796,12 +869,7 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
       //  - unknown: an incomplete inventory without a found owner; even
       //             transport errors without an independent owner-death proof.
       const id = required(parsed, "id");
-      const owner = resolveNativeOwner(id, await inventoryFor(parsed));
-      if (owner.state === "found") emit({ verdict: owner.session.status === "running" ? "live" : "dead",
-        state: { ...owner.session, socketPath: owner.socketPath } });
-      else if (owner.state === "absent") emit({ verdict: "dead" });
-      else emit({ verdict: "unknown", code: owner.state,
-        ...(owner.state === "unknown" ? { reason: owner.reason } : { sockets: owner.sockets, reason: "ambiguous-owner" }) });
+      emit(await probeNativeSession(id, parsed.flags.get("socket")));
       return 0;
     }
     case "admit": {
@@ -854,6 +922,90 @@ export async function runNativeTerminalOp(argv: ReadonlyArray<string>): Promise<
       client.close();
       emit(state);
       return 0;
+    }
+    case "launch": {
+      // R3 P1 single-fork fast path: ensure-host + admit + probe + create
+      // share ONE client and ONE inventory in ONE Node process. Admission
+      // and identity proofs stay under the host lock: an incomplete
+      // inventory still refuses, and a fenced create re-checks admission
+      // atomically like "create" does. Emits the host identity together
+      // with the session state so callers skip their pid re-probes.
+      const fenced = parsed.flags.has("incarnation") || parsed.flags.has("fenced");
+      const selected = parsed.flags.has("socket")
+        ? { client: await connectExisting(socketPath), socketPath }
+        : await selectLaunchClient(fenced);
+      const client = selected.client;
+      const launchSocket = selected.socketPath;
+      try {
+        checkDeadline();
+        const ping = await client.ping();
+        if (fenced && ping.launchFence !== true) {
+          emit({ code: "native-host-capability-mismatch", socketPath: launchSocket,
+            hostPid: ping.hostPid, generation: ping.generation, launchFence: false });
+          return 0;
+        }
+        const inventory = await inventoryFor({ ...parsed, flags: new Map() });
+        const id = required(parsed, "id");
+        const ids = [id, ...(parsed.flags.has("sidecar") ? [required(parsed, "sidecar")]
+          : !id.endsWith(".h2a") ? [`${id}.h2a`] : [])];
+        const collision = inventory.sessions.find(session => ids.includes(session.id) &&
+          (session.status !== "exited" || session.socketPath !== launchSocket));
+        if (collision) {
+          emit({ code: "native-name-collision", id: collision.id, socketPath: collision.socketPath,
+            hostPid: ping.hostPid, generation: ping.generation, launchFence: ping.launchFence === true });
+          return 0;
+        }
+        if (!inventory.complete) {
+          emit({ code: "native-inventory-unknown",
+            hosts: inventory.hosts.map(({ socketPath: p, reason }) => ({ socketPath: p, reason })),
+            hostPid: ping.hostPid, generation: ping.generation, launchFence: ping.launchFence === true });
+          return 0;
+        }
+        const existing = inventory.sessions.find(session => session.id === id && session.status !== "exited" &&
+          session.socketPath === launchSocket);
+        if (existing && parsed.flags.get("refuse-existing") !== "true") {
+          const { socketPath: _droppedSocket, ...existingRest } = existing;
+          emit({ ...existingRest, hostPid: ping.hostPid, socketPath: launchSocket, generation: ping.generation,
+            launchFence: ping.launchFence === true, adopted: true });
+          return 0;
+        }
+        if (existing && parsed.flags.get("refuse-existing") === "true") {
+          emit({ code: "native-name-collision", id: existing.id, socketPath: launchSocket,
+            hostPid: ping.hostPid, generation: ping.generation, launchFence: ping.launchFence === true });
+          return 0;
+        }
+        const cwd = required(parsed, "cwd");
+        const cols = Number(parsed.flags.get("cols") ?? 160);
+        const rows = Number(parsed.flags.get("rows") ?? 48);
+        const envFile = parsed.flags.get("env-file");
+        const env = envFile !== undefined
+          ? (JSON.parse(readFileSync(envFile, "utf8")) as Record<string, string>)
+          : Object.fromEntries(
+              Object.entries(process.env).filter(
+                (entry): entry is [string, string] => entry[1] !== undefined,
+              ),
+            );
+        if (parsed.command.length === 0) throw new Error("launch requires -- command");
+        checkDeadline();
+        const state = await client.create({
+          ...(parsed.flags.has("incarnation") ? { launchFence: {
+            generation: required(parsed, "generation"), incarnation: required(parsed, "incarnation"),
+          } } : {}),
+          id,
+          command: parsed.command[0]!,
+          args: parsed.command.slice(1),
+          cwd,
+          env,
+          cols,
+          rows,
+        });
+        const { socketPath: _droppedStateSocket, generation: _droppedStateGeneration, ...stateRest } = state as Record<string, unknown>;
+        emit({ ...stateRest, hostPid: ping.hostPid, socketPath: launchSocket, generation: ping.generation,
+          launchFence: ping.launchFence === true });
+        return 0;
+      } finally {
+        client.close();
+      }
     }
     case "drive": {
       const target: NativeDriveSessionResolution = parsed.flags.has("id")
@@ -1070,7 +1222,7 @@ if (isEntryPoint()) {
         process.exitCode = code;
       },
       (error: unknown) => {
-        if (error instanceof NativeOwnerError) emit(error.refusal);
+        if (error instanceof NativeOwnerError) emitResult(error.refusal);
         process.stderr.write(
           `[h2a-native-op] ${error instanceof Error ? error.message : String(error)}\n`,
         );

@@ -485,17 +485,32 @@ test('CI exposes an independent, stable npm-test-trust-root job', () => {
   assert.match(job, /^          node-version: "22"$/m)
   assert.doesNotMatch(job, /^    needs:/m, 'the trust root must not inherit another job verdict')
 
-  const commands = [...job.matchAll(/^\s+(?:- )?run:\s*(.+)$/gm)].map((match) => match[1])
+  // R3 P1: every runner path creates/exports/cleans a private TMPDIR admitted
+  // by both confinement guards (restart-lab TMPDIR != /tmp, native-isolation
+  // $HOME/.cache-tmp/h2a-test/run-* qualification root) while keeping the
+  // confinement assertion; the production commands stay pinned exactly.
+  assert.match(job, /mktemp -d "\$HOME\/\.cache-tmp\/h2a-test\/run-XXXXXX"/);
+  assert.match(job, /H2A_TEST_QUALIFICATION_ROOT=\$DIR/);
+  assert.match(job, /GITHUB_ENV/);
+  assert.match(job, /Clean the disposable TMPDIR/);
+  // R5 P2: exact command comparison — a substring search lets
+  // `echo node scripts/run-test-gates.mjs` and the removal of `npm ci` /
+  // oracle install pass. The single-line `run:` steps are pinned in order;
+  // any inert prefix, dropped step or reordered entrypoint fails here.
+  const runs = [...job.matchAll(/^[ ]+(?:- )?run: ([^\n]+)$/gm)]
+    .map(match => match[1])
+    .filter(line => line !== '|');
   assert.deepEqual(
-    commands,
+    runs,
     [
       'npm ci',
       'npm install --global @openai/codex@0.145.0 @anthropic-ai/claude-code@2.1.296',
       'node --test packages/h2a/test/run-test-gates.test.js',
       'node scripts/run-test-gates.mjs',
+      'if [ -n "${TMPDIR:-}" ]; then rm -rf "$TMPDIR"; fi',
     ],
-    'the dedicated job must verify the runner and then execute its real entrypoint',
-  )
+    'IDs and substrings alone are not evidence: replacing a production command with an inert echo, or dropping npm ci / oracle install, must fail',
+  );
 })
 
 test('the runner test is not discovered through the runner it verifies', () => {

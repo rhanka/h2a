@@ -190,17 +190,17 @@ describe("registry-first discovery", () => {
     ]);
   });
 
-  it("classifies a legacy line with its real Claude transcript as human", () => {
+  it("should not treat a legacy transcript as proof of an owner launch", () => {
     const cwd = seedClaudeScan("legacy-transcript", "conv-legacy");
     const legacy = registryEntry("legacy-transcript", { convId: "conv-legacy" });
     delete legacy.sessionClass;
 
     expect(
       registrySessions(home, [legacy], undefined, { home, liveTmuxSessions: [] }),
-    ).toMatchObject([{ project: "legacy-transcript", cwd }]);
+    ).toEqual([]);
   });
 
-  it("classifies a legacy line bound to a live tmux session as human", () => {
+  it("should not treat a live legacy tmux as proof of an owner launch", () => {
     const legacy = registryEntry("legacy-tmux", { convId: "conv-legacy" });
     delete legacy.sessionClass;
     mkdirSync(legacy.cwd, { recursive: true });
@@ -216,7 +216,7 @@ describe("registry-first discovery", () => {
           },
         ],
       }),
-    ).toMatchObject([{ project: "legacy-tmux" }]);
+    ).toEqual([]);
   });
 
   it("fails closed for a legacy line with no transcript or live tmux evidence", () => {

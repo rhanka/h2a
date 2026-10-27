@@ -62,15 +62,46 @@
  * separate direct CI test enforces that the reporter cannot grade its own exam.
  */
 import { spawnSync } from 'node:child_process'
-import { readdirSync, readFileSync, realpathSync, rmSync, mkdirSync, mkdtempSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, realpathSync, rmSync, mkdirSync, mkdtempSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { TEST_DIRS, discoverTestFiles, listNodeTrackSuiteFiles, NODE_TRACK_EXECUTION_REPORT, verifyNodeTrackExecution } from './run-tests.mjs'
 import { discoverSuites, verifyExecutionReport, readInventory, inventoryFailures } from './test-execution-evidence.mjs'
 import { policyFor, readDeclaredNonTests } from './test-inventory.mjs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { reportSuiteDurations } from './report-test-durations.mjs'
+
+// Disposable-TMPDIR guarantee (PR #390 R3 P1): every runner path creates,
+// exports and cleans a private TMPDIR; the confinement assertion in
+// packages/h2a/test/helpers/restart-lab.js stays intact.
+function ensureDisposableTmpdir() {
+  // Both guards must hold: restart-lab.js requires TMPDIR set and != /tmp,
+  // and native-isolation.js only admits H2A_TEST_QUALIFICATION_ROOT under
+  // /tmp/h2a-qual-* (forbidden by the owner no-/tmp rule) or
+  // $HOME/.cache-tmp/h2a-test/run-*. So the disposable dir always lives
+  // under $HOME/.cache-tmp/h2a-test/run-*, locally and on CI.
+  const qualPattern = /^\/home\/[^/]+\/\.cache-tmp\/h2a-test\/run-[A-Za-z0-9]+$/;
+  const current = process.env.TMPDIR;
+  try {
+    if (current && qualPattern.test(resolve(current)) && existsSync(current)) {
+      if (!process.env.H2A_TEST_QUALIFICATION_ROOT) process.env.H2A_TEST_QUALIFICATION_ROOT = resolve(current);
+      return resolve(current);
+    }
+  } catch { /* fall through and create */ }
+  const base = join(homedir(), '.cache-tmp', 'h2a-test');
+  mkdirSync(base, { recursive: true });
+  const dir = mkdtempSync(join(base, 'run-'));
+  process.env.TMPDIR = dir;
+  process.env.TMP = dir;
+  process.env.TEMP = dir;
+  process.env.H2A_TEST_QUALIFICATION_ROOT = dir;
+  const clean = () => { try { rmSync(dir, { recursive: true, force: true }); } catch {} };
+  process.once('exit', clean);
+  return dir;
+}
+
+ensureDisposableTmpdir();
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(HERE, '..')

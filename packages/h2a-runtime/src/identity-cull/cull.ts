@@ -6,7 +6,7 @@
  * CAS needed by a future, separately owner-authorized executor.
  */
 
-import { withIdentityFenceSync, type IdentityFenceLease } from "@sentropic/h2a";
+import { withIdentityFenceSync, type IdentityFenceLease } from "./identity-fence.js";
 import { createHash, randomUUID } from "node:crypto";
 import {
   closeSync,

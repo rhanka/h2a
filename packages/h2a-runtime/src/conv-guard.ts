@@ -110,13 +110,15 @@ export function convOwners(
   // the resolution for THIS convId only — every OTHER conversation in the
   // same registry stays fully resolvable (never a global unknown).
   if (read.unreadable.some((row) => row.convId === convId)) return "unknown";
-  const live = read.entries.filter((e) => isLive(e, opts));
-  for (const e of live) {
+  for (const e of read.entries) {
     if (e.convId !== convId) continue;
     if (opts.excludeId !== undefined && e.id === opts.excludeId) continue;
     // kind "remote" registry entries can be stale (the registry cannot probe
     // the cluster) — opts.remoteSessions, fetched live, is authoritative.
     if (e.kind === "remote") continue;
+    // Liveness can launch a synchronous native probe. Unrelated conversations
+    // and the caller's own row cannot conflict, regardless of their liveness.
+    if (!isLive(e, opts)) continue;
     owners.push(ownerFromEntry(e));
   }
   for (const s of opts.remoteSessions ?? []) {
@@ -198,6 +200,7 @@ export async function guardConvWriters(
     ...(args.pidAlive ? { pidAlive: args.pidAlive } : {}),
     ...(args.bootTimeMs !== undefined ? { bootTimeMs: args.bootTimeMs } : {}),
     ...(args.processCmdline ? { processCmdline: args.processCmdline } : {}),
+    ...(args.nativeSessionLiveness ? { nativeSessionLiveness: args.nativeSessionLiveness } : {}),
   });
   if (owners === "unknown") {
     // The registry could not be read: the guard cannot PROVE the absence of
