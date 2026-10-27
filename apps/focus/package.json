@@ -12,8 +12,8 @@
     "lint": "node scripts/check-imports.mjs"
   },
   "devDependencies": {
-    "@sveltejs/adapter-node": "^5.2.12",
-    "@sveltejs/kit": "^2.70.2",
+    "@sveltejs/adapter-node": "^6.0.0",
+    "@sveltejs/kit": "^3.1.0",
     "@sveltejs/vite-plugin-svelte": "6.2.4",
     "@tsconfig/svelte": "^5.0.0",
     "@types/node": "^20.14.2",
