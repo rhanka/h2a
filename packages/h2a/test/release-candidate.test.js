@@ -30,7 +30,7 @@ function fixture(t) {
     }))
     writeFileSync(join(root, 'dist-tarballs', `sentropic-${name}-${packageVersion(name)}.tgz`), 'verified bytes: ' + name)
   }
-  writeFileSync(join(root, 'scripts/smoke-artifact.mjs'), "const PINNED_RUNTIME_VERSION = '0.98.6'\n")
+  writeFileSync(join(root, 'scripts/smoke-artifact.mjs'), "const PINNED_RUNTIME_VERSION = '0.98.6'\nconst PINNED_FOCUS_VERSION = '0.5.0'\n")
   const env = { PATH: join(root, 'bin') + ':' + process.env.PATH, HOME: root,
     XDG_RUNTIME_DIR: join(root, 'run'), TMPDIR: root,
     GITHUB_ACTIONS: 'true', GITHUB_REF: 'refs/tags/v' + version,
@@ -114,6 +114,40 @@ test('RC tag stamps five packages with independent focus version and every inter
   const calls = readFileSync(join(f.root, 'npm-calls'), 'utf8').trim().split('\n').map(JSON.parse).filter(a => a[0] === 'publish')
   assert.equal(calls.length, 15)
   for (const args of calls) assert.deepEqual(args.slice(2), ['--access', 'public', ...(args[1].includes('sentropic-focus-') ? ['--provenance'] : []), '--tag', 'next'])
+})
+
+test('RC prepare rewrites both smoke pins to the exact RC versions so the smoke version gate passes', t => {
+  const f = fixture(t)
+  const stamped = f.invoke('prepare')
+  assert.equal(stamped.status, 0, stamped.stdout + stamped.stderr)
+  const smoke = readFileSync(join(f.root, 'scripts/smoke-artifact.mjs'), 'utf8')
+  assert.match(smoke, /^const PINNED_RUNTIME_VERSION = '0\.98\.6-rc\.1'$/m)
+  assert.match(smoke, /^const PINNED_FOCUS_VERSION = '0\.5\.0-rc\.1'$/m)
+  // The smoke version gate compares each prepared manifest to its rewritten
+  // pin: both must match exactly, otherwise verify fails before publish.
+  const runtimeVersion = JSON.parse(readFileSync(join(f.root, 'packages', 'h2a-runtime', 'package.json'))).version
+  const focusVersion = JSON.parse(readFileSync(join(f.root, 'packages', 'focus', 'package.json'))).version
+  assert.equal(runtimeVersion, '0.98.6-rc.1')
+  assert.equal(focusVersion, '0.5.0-rc.1')
+})
+
+test('stable prepare leaves both smoke pins on their trains', t => {
+  const f = fixture(t)
+  const stable = f.invoke('prepare', { GITHUB_REF: 'refs/tags/v0.98.6' })
+  assert.equal(stable.status, 0, stable.stdout + stable.stderr)
+  const smoke = readFileSync(join(f.root, 'scripts/smoke-artifact.mjs'), 'utf8')
+  assert.match(smoke, /^const PINNED_RUNTIME_VERSION = '0\.98\.6'$/m)
+  assert.match(smoke, /^const PINNED_FOCUS_VERSION = '0\.5\.0'$/m)
+})
+
+test('RC prepare fails closed when the focus pin drifts, before writing any manifest', t => {
+  const f = fixture(t), manifest = join(f.root, 'packages/track/package.json')
+  const before = readFileSync(manifest, 'utf8')
+  writeFileSync(join(f.root, 'scripts/smoke-artifact.mjs'), "const PINNED_RUNTIME_VERSION = '0.98.6'\nconst PINNED_FOCUS_VERSION = '0.4.0'\n")
+  const result = f.invoke('prepare')
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /focus.*pin/)
+  assert.equal(readFileSync(manifest, 'utf8'), before)
 })
 
 test('stable tag without a matching RC is refused, including backfill dispatch', t => {
@@ -234,7 +268,7 @@ test('tag validation and manifest drift fail before any RC file is written; stab
   const stable = f.invoke('prepare', { GITHUB_REF: 'refs/tags/v0.98.6' })
   assert.equal(stable.status, 0, stable.stderr)
   assert.equal(readFileSync(manifest, 'utf8'), before)
-  writeFileSync(join(f.root, 'scripts/smoke-artifact.mjs'), "const PINNED_RUNTIME_VERSION = '0.98.5'\n")
+  writeFileSync(join(f.root, 'scripts/smoke-artifact.mjs'), "const PINNED_RUNTIME_VERSION = '0.98.5'\nconst PINNED_FOCUS_VERSION = '0.5.0'\n")
   assert.notEqual(f.invoke('prepare').status, 0)
   assert.equal(readFileSync(manifest, 'utf8'), before)
 })
