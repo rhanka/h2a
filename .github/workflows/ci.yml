@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Temporary H2a-R3 retrigger: GitHub stopped delivering pull_request events
+  # for PR #354 (push/synchronize and reopened create no runs while
+  # workflow_dispatch works). Revert after the green run.
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
