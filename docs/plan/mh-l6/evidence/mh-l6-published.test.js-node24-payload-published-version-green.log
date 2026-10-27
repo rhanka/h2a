@@ -1,0 +1,22 @@
+command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-published.test.js
+node: v24.21.0
+private root: /tmp/mh-l6-test-mWx9Jx
+case: U10 should bind published version metadata to the actual package version
+TAP version 13
+# Subtest: U10 should bind published version metadata to the actual package version
+ok 1 - U10 should bind published version metadata to the actual package version
+  ---
+  duration_ms: 5.845327
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 51.238558
+
+receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-published.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

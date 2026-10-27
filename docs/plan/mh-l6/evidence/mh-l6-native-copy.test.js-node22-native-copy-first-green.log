@@ -1,0 +1,106 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-native-copy.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-cCufVo
+case: all cases in explicit file
+TAP version 13
+# Subtest: U10 should copy only the pinned native payload without a compiler or shared ELF inode
+ok 1 - U10 should copy only the pinned native payload without a compiler or shared ELF inode
+  ---
+  duration_ms: 39.998569
+  type: 'test'
+  ...
+# Subtest: U10 should reject altered release archive bytes before extracting anything into a payload
+not ok 2 - U10 should reject altered release archive bytes before extracting anything into a payload
+  ---
+  duration_ms: 7.380717
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-native-copy.test.js:7:96'
+  failureType: 'testCodeFailure'
+  error: |-
+    The input did not match the regular expression /native_archive_digest_mismatch/. Input:
+    
+    'Error: native_archive_mismatch'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual:
+  error: 'native_archive_mismatch'
+  stack: |-
+    Object.copyReleaseNative (file:///tmp/mh-l6-test-cCufVo/tmpdir/mh-l6-native-copy-ybc6Na/scripts/build-release-native.mjs:151:67)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-native-copy.test.js:30:26)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  operator: 'rejects'
+  stack: |-
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-native-copy.test.js:30:3)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: U10 should never overwrite an existing native copy destination
+not ok 3 - U10 should never overwrite an existing native copy destination
+  ---
+  duration_ms: 5.0541
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-native-copy.test.js:7:96'
+  failureType: 'testCodeFailure'
+  error: |-
+    The input did not match the regular expression /native_destination_not_empty/. Input:
+    
+    'Error: native_destination_must_be_empty'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual:
+  error: 'native_destination_must_be_empty'
+  stack: |-
+    Object.copyReleaseNative (file:///tmp/mh-l6-test-cCufVo/tmpdir/mh-l6-native-copy-TUr2UT/scripts/build-release-native.mjs:152:49)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-native-copy.test.js:35:26)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  operator: 'rejects'
+  stack: |-
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-native-copy.test.js:35:3)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: U10 should prepare the real workspace prebuild idempotently without changing its JavaScript
+ok 4 - U10 should prepare the real workspace prebuild idempotently without changing its JavaScript
+  ---
+  duration_ms: 41.714717
+  type: 'test'
+  ...
+# Subtest: U10 should refuse a shared workspace dependency and leave the outside target untouched
+ok 5 - U10 should refuse a shared workspace dependency and leave the outside target untouched
+  ---
+  duration_ms: 16.283738
+  type: 'test'
+  ...
+# Subtest: U10 should refuse mismatched workspace JavaScript before changing its native binding
+ok 6 - U10 should refuse mismatched workspace JavaScript before changing its native binding
+  ---
+  duration_ms: 26.453243
+  type: 'test'
+  ...
+# Subtest: U10 should preserve the previous binding and remove its temporary file when native replacement fails
+ok 7 - U10 should preserve the previous binding and remove its temporary file when native replacement fails
+  ---
+  duration_ms: 28.316168
+  type: 'test'
+  ...
+1..7
+# tests 7
+# suites 0
+# pass 5
+# fail 2
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 262.795585
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-native-copy.test.js"],"code":1,"signal":null,"tests":7,"invalid":false,"spawned":1,"leftovers":[]}

@@ -1,0 +1,22 @@
+command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-selection.test.js
+node: v24.21.0
+private root: /tmp/mh-l6-test-9RB4EC
+case: all cases in explicit file
+TAP version 13
+# Subtest: U06 should refuse a contradictory last-valid record before changing selection
+ok 1 - U06 should refuse a contradictory last-valid record before changing selection
+  ---
+  duration_ms: 52.018445
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 101.386962
+
+receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-selection.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

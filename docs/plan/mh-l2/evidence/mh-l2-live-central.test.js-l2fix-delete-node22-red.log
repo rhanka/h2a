@@ -1,0 +1,40 @@
+command: /usr/bin/node --test packages/h2a/test/mh-l2-live-central.test.js
+node: v22.22.1
+private test root: /tmp/mh-l2-test-H4dRiN
+TAP version 13
+# {"event":"drive-consent.full-verification","durationMs":0.005159999999705178,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: real .7 source should accept the external peer, preserve its admitted large reply and retire without deleting the successor marker
+not ok 1 - real .7 source should accept the external peer, preserve its admitted large reply and retire without deleting the successor marker
+  ---
+  duration_ms: 8269.293196
+  type: 'test'
+  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l2-live-central.test.js:17:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    DELETE must preserve the BARRIER inventory
+    
+    200 !== 409
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 409
+  actual: 200
+  operator: 'strictEqual'
+  stack: |-
+    refuseDelete (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l2-live-central.test.js:117:14)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async TestContext.<anonymous> (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l2-live-central.test.js:123:62)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 8437.105723
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l2-live-central.test.js"],"code":1,"signal":null,"elapsedMs":8523}

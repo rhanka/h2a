@@ -1,0 +1,74 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l5-concurrency-oracles.test.js
+node: v22.22.1
+private root: /tmp/mh-l5-test-VVTNCb
+case: all cases in explicit file
+TAP version 13
+# Subtest: M17 focused oracle must detect a missing write in any of the seven domains
+not ok 1 - M17 focused oracle must detect a missing write in any of the seven domains
+  ---
+  duration_ms: 3156.400324
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-AogyQv/source/packages/h2a/test/mh-l5-concurrency-oracles.test.js:4:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly deep-equal:
+    + actual - expected
+    
+    + []
+    - [
+    -   'backend1:0',
+    -   'backend1:1',
+    -   'backend2:0',
+    -   'backend2:1',
+    -   'backend3:0',
+    -   'backend3:1',
+    -   'backend4:0',
+    -   'backend4:1',
+    -   'backend5:0',
+    -   'backend5:1',
+    -   'backend6:0',
+    -   'backend6:1',
+    -   'backend7:0',
+    -   'backend7:1',
+    -   'backend8:0',
+    -   'backend8:1'
+    - ]
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+    0: 'backend1:0'
+    1: 'backend1:1'
+    2: 'backend2:0'
+    3: 'backend2:1'
+    4: 'backend3:0'
+    5: 'backend3:1'
+    6: 'backend4:0'
+    7: 'backend4:1'
+    8: 'backend5:0'
+    9: 'backend5:1'
+    10: 'backend6:0'
+    11: 'backend6:1'
+    12: 'backend7:0'
+    13: 'backend7:1'
+    14: 'backend8:0'
+    15: 'backend8:1'
+  actual:
+  operator: 'deepStrictEqual'
+  stack: |-
+    runCampaign (file:///tmp/mh-l3-qualification-AogyQv/source/packages/h2a/test/helpers/mh-l5-campaign.js:41:12)
+    async TestContext.<anonymous> (file:///tmp/mh-l3-qualification-AogyQv/source/packages/h2a/test/mh-l5-concurrency-oracles.test.js:5:3)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 3444.777203
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l5-concurrency-oracles.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":17,"leftovers":[]}

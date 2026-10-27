@@ -1,0 +1,46 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mcp-qualification-gating.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-eMWXK7
+case: all cases in explicit file
+TAP version 13
+# Subtest: LOT-2A: a fully evidenced candidate for this runtime qualifies
+ok 1 - LOT-2A: a fully evidenced candidate for this runtime qualifies
+  ---
+  duration_ms: 0.920944
+  type: 'test'
+  ...
+# Subtest: LOT-2A: every single-field manifest deviation refuses
+ok 2 - LOT-2A: every single-field manifest deviation refuses
+  ---
+  duration_ms: 0.266411
+  type: 'test'
+  ...
+# Subtest: LOT-2A: unknown clients, invalid protocols and malformed requests refuse
+ok 3 - LOT-2A: unknown clients, invalid protocols and malformed requests refuse
+  ---
+  duration_ms: 0.149712
+  type: 'test'
+  ...
+# Subtest: LOT-2A: no flag/env combination routes an unqualified request to central
+ok 4 - LOT-2A: no flag/env combination routes an unqualified request to central
+  ---
+  duration_ms: 0.309672
+  type: 'test'
+  ...
+# Subtest: LOT-2A: the real binary keeps unqualified Claude attachments on stdio
+ok 5 - LOT-2A: the real binary keeps unqualified Claude attachments on stdio
+  ---
+  duration_ms: 760.633998
+  type: 'test'
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 5
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 876.223553
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mcp-qualification-gating.test.js"],"code":0,"signal":null,"tests":5,"invalid":false,"spawned":3,"leftovers":[]}

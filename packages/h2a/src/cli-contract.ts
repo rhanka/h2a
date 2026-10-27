@@ -61,6 +61,16 @@ export interface H2ACliVerbContract {
 }
 
 export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
+  {
+    verb: "central status", outputShape: "resource", exitCodes: [0, 1, 2, 3],
+    requiredFlags: [], optionalFlags: ["runtime-base", "json"],
+    description: "Read authenticated central status and durable MCP pause."
+  },
+  {
+    verb: "central stop", outputShape: "resource", exitCodes: [0, 1, 2, 3],
+    requiredFlags: [], optionalFlags: ["runtime-base", "json"],
+    description: "Persist MCP pause, drain without force; deferred stop remains armed. Exit 0 acknowledges pause, stopped requires verified closure."
+  },
   // --- meta / help ---
   {
     verb: "--help",
@@ -539,11 +549,11 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
   {
     verb: "upgrade",
     outputShape: "action",
-    exitCodes: [0, 1],
+    exitCodes: [0, 1, 2],
     requiredFlags: [],
-    optionalFlags: ["check"],
+    optionalFlags: ["to", "dry-run", "json", "strict", "check"],
     description:
-      "Self-upgrade the global `@sentropic/h2a` (EVO-8, DEC-107). `--check` reports `{current, latest, upgradeAvailable}` without installing; bare runs `npm i -g @sentropic/h2a@latest`. Exit 1 if the install fails."
+      "Single H4 upgrade command (0.98.8): select a prepared managed build (`--to`), or report (`--check`, `status`, `resume`, `abort`, `compensate`, `unmanage`). Diagnostic and dry-run requests never install; the native host is never restarted. Exit 2 when incomplete without definitive failure, 1 on real failure."
   },
 
   {
@@ -645,9 +655,9 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     outputShape: "resource",
     exitCodes: [0, 1, 2, 3],
     requiredFlags: ["host"],
-    optionalFlags: ["endpoint", "url", "root", "print", "write", "force", "no-wake", "remove"],
+    optionalFlags: ["endpoint", "url", "root", "print", "write", "allow-tracked", "force", "no-wake", "remove"],
     description:
-      "Render or merge exactly one `mcpServers.h2a` endpoint for a supported host. `--endpoint local` (default) renders coordination-ready stdio `mcp-serve --auto-open --auto-upgrade --wake auto`; `--endpoint remote --url <http(s)://…>` renders an HTTP MCP URL and rejects local-only flags. The selected endpoint exposes h2a plus Track's read-only tools. Reconfiguration removes recognized h2a aliases and standalone Track MCP entries instead of stacking them. `--print` (default) emits the snippet; `--write <file>` safely merges JSON only (native YAML/JSONC is refused), except Vibe where `--write` installs the interim direct `[[mcp_servers]] h2a` entry into TOML (owner 16/10, derogation O7.2; `--remove` clears it for R5/R7 registry migration); `--force` is only for intentionally replacing malformed JSON and never overrides a TOML refusal. Codex and Claude setup then inspect the selected host without repairing it: an incoherent installation is named, recommends `h2a doctor --repair`, and exits 2."
+      "Render or merge exactly one `mcpServers.h2a` endpoint for a supported host. `--endpoint local` (default) renders coordination-ready stdio `mcp-serve --auto-open --auto-upgrade --wake auto`; `--endpoint remote --url <http(s)://…>` renders an HTTP MCP URL and rejects local-only flags. The selected endpoint exposes h2a plus Track's read-only tools. Reconfiguration removes recognized h2a aliases and standalone Track MCP entries instead of stacking them. `--print` (default) emits the snippet; `--write <file>` preserves bytes outside h2a, backs up an existing file, and safely merges JSON only (native YAML/JSONC is refused); tracked files require `--allow-tracked`. Exception: Vibe `--write` installs the interim direct `[[mcp_servers]] h2a` entry into TOML (owner 16/10, derogation O7.2; `--remove` clears it for R5/R7 registry migration); `--force` is only for intentionally replacing malformed JSON and never overrides a TOML refusal. Codex and Claude setup then inspect the selected host without repairing it: an incoherent installation is named, recommends `h2a doctor --repair`, and exits 2."
   },
   {
     verb: "host plugin",

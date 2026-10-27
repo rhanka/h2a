@@ -1,0 +1,41 @@
+command: /usr/bin/node --test packages/h2a/test/mh-l3-central.test.js
+node: v22.22.1
+private test root: /tmp/mh-l2-test-93qyCQ
+Claude config: /tmp/mh-l2-test-93qyCQ/claude
+TAP version 13
+# {"event":"drive-consent.full-verification","durationMs":0.00611199999997325,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: real central should keep one activation past its lease and resume with fencing and idempotent attempts
+not ok 1 - real central should keep one activation past its lease and resume with fencing and idempotent attempts
+  ---
+  duration_ms: 135.712091
+  type: 'test'
+  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l3-central.test.js:12:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + undefined
+    - 'sha256:4a4d1145c502a940027383cb62a12b2ef3d4d29feb30351b6bfb3408fe45792f'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'sha256:4a4d1145c502a940027383cb62a12b2ef3d4d29feb30351b6bfb3408fe45792f'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l3-central.test.js:29:12)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 503.930753
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l3-central.test.js"],"code":1,"signal":null,"elapsedMs":593}

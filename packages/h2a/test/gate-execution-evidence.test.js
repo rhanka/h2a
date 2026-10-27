@@ -67,7 +67,7 @@ for (const [name, mutate] of [
   ['inert entry', (s) => s.replace('if (invokedDirectly) {\n  main();', 'if (false) {\n  main();')],
   ['filtered Node names', (s) => s.replace('"--test",', '"--test", "--test-name-pattern=ABSENT",')],
   ['omitted native suite', (s) => s.replace('!LANE_TEST_FILES.includes(normalized)', 'normalized.endsWith("native-inventory-absence.test.js")')],
-  ['omitted Track execution', (s) => s.replace('const vitestStatuses = vitestSuites.map((suite) => {', 'const vitestStatuses = [].map((suite) => {')],
+  ['omitted Track execution', (s) => s.replace('...vitestSuites.map(async (suite) => {', '...vitestSuites.filter((suite) => suite.name !== "Track").map(async (suite) => {')],
 ]) test(`A04: production entry rejects ${name}`, () => {
   const mutant = mutate(nodeTrack); assert.notEqual(mutant, nodeTrack, 'mutation must apply')
   assert.throws(() => observeNodeTrackEntry(mutant, repo))
@@ -88,7 +88,7 @@ const workflowMutants = {
     (w) => { verifyStep(w, 'npm test')['working-directory'] = 'other-checkout' },
   ],
   A07: [
-    (w) => { const s=w.jobs.verify.steps, p=s.findIndex((step)=>String(step.run??'').includes('npm pack --workspace')), [pack]=s.splice(p,1); s.splice(s.length-1,0,pack) },
+    (w) => { const s=w.jobs.verify.steps, p=s.findIndex((step)=>String(step.run??'').includes('node scripts/pack-candidate.mjs')), [pack]=s.splice(p,1); s.splice(s.length-1,0,pack) },
     (w) => { w.jobs.verify.steps.splice(-1,0,{run:'npm pack --workspace @sentropic/h2a-runtime --pack-destination dist-tarballs'}) },
     (w) => { verifyStep(w, 'npm run smoke:artifact -- --tarballs dist-tarballs').run = 'npm run smoke:artifact' },
     (w) => { w.jobs.verify.steps.splice(-1,0,{run:'cp other.tgz dist-tarballs/sentropic-h2a-runtime-0.98.5.tgz'}) },

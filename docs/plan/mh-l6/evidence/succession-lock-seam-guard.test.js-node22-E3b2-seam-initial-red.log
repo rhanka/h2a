@@ -1,0 +1,80 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/succession-lock-seam-guard.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-bqJCM9
+case: all cases in explicit file
+TAP version 13
+# npm ERR! code 1
+# npm ERR! path /tmp/mh-l3-qualification-YeHHOv/source/packages/h2a
+# npm ERR! command failed
+# npm ERR! command sh -c node ../../scripts/check-focus-app.mjs && node ../../scripts/check-publish-payload.mjs && chmod +x dist/bin.js
+# npm ERR! Focus packaged artifact OK (sha256:ddd4587845ee932ce69e2d6a25c1f7db5b26c0046db7c3251339ac55d03bef6d)
+# npm ERR! Publish requires the closed payload tarball. Use node scripts/package-release.mjs --package @sentropic/h2a (or @sentropic/h2a-runtime). ENOENT: no such file or directory, lstat '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/manifest.json'
+# npm ERR! A complete log of this run can be found in:
+# npm ERR!     /tmp/mh-l6-test-bqJCM9/home/.npm/_logs/2026-10-17T01_09_52_778Z-debug-0.log
+# Subtest: T-guard: no code outside tests depends on the separate lock seam
+ok 1 - T-guard: no code outside tests depends on the separate lock seam
+  ---
+  duration_ms: 7.702495
+  type: 'test'
+  ...
+# Subtest: T-guard: every literal destination is rejected regardless of import syntax
+ok 2 - T-guard: every literal destination is rejected regardless of import syntax
+  ---
+  duration_ms: 9.852109
+  type: 'test'
+  ...
+# Subtest: T-guard: split literals cannot reference the seam
+ok 3 - T-guard: split literals cannot reference the seam
+  ---
+  duration_ms: 0.43055
+  type: 'test'
+  ...
+# Subtest: T-guard: interpolated templates cannot reference the seam
+ok 4 - T-guard: interpolated templates cannot reference the seam
+  ---
+  duration_ms: 0.219062
+  type: 'test'
+  ...
+# Subtest: T-guard: dist, the npm pack tarball and package exports cannot load the seam
+not ok 5 - T-guard: dist, the npm pack tarball and package exports cannot load the seam
+  ---
+  duration_ms: 1502.348018
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/succession-lock-seam-guard.test.js:75:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Command failed: npm pack --json --pack-destination /tmp/mh-l6-test-bqJCM9/tmpdir/h2a-seam-pack-EA3nXE
+    npm ERR! code 1
+    npm ERR! path /tmp/mh-l3-qualification-YeHHOv/source/packages/h2a
+    npm ERR! command failed
+    npm ERR! command sh -c node ../../scripts/check-focus-app.mjs && node ../../scripts/check-publish-payload.mjs && chmod +x dist/bin.js
+    npm ERR! Focus packaged artifact OK (sha256:ddd4587845ee932ce69e2d6a25c1f7db5b26c0046db7c3251339ac55d03bef6d)
+    npm ERR! Publish requires the closed payload tarball. Use node scripts/package-release.mjs --package @sentropic/h2a (or @sentropic/h2a-runtime). ENOENT: no such file or directory, lstat '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/manifest.json'
+    
+    npm ERR! A complete log of this run can be found in:
+    npm ERR!     /tmp/mh-l6-test-bqJCM9/home/.npm/_logs/2026-10-17T01_09_52_778Z-debug-0.log
+    
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    genericNodeError (node:internal/errors:983:15)
+    wrappedFn (node:internal/errors:537:14)
+    checkExecSyncError (node:child_process:916:11)
+    execFileSync (node:child_process:952:15)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/succession-lock-seam-guard.test.js:92:5)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 4
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1913.807212
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/succession-lock-seam-guard.test.js"],"code":1,"signal":null,"tests":5,"invalid":false,"spawned":5,"leftovers":[]}

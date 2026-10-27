@@ -1,0 +1,58 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-dispatch.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-knU79w
+case: all cases in explicit file
+TAP version 13
+# Subtest: F should resume a prepared transaction without changing its phase
+ok 1 - F should resume a prepared transaction without changing its phase
+  ---
+  duration_ms: 212.50543
+  type: 'test'
+  ...
+# Subtest: F should resume a selected transaction to its durable close
+ok 2 - F should resume a selected transaction to its durable close
+  ---
+  duration_ms: 267.891759
+  type: 'test'
+  ...
+# Subtest: F should abort a prepared transaction once
+ok 3 - F should abort a prepared transaction once
+  ---
+  duration_ms: 247.690733
+  type: 'test'
+  ...
+# Subtest: F should refuse abort after selection
+ok 4 - F should refuse abort after selection
+  ---
+  duration_ms: 268.672839
+  type: 'test'
+  ...
+# Subtest: F should check CLI authority before the engine on resume
+ok 5 - F should check CLI authority before the engine on resume
+  ---
+  duration_ms: 387.139802
+  type: 'test'
+  ...
+# Subtest: F should check CLI authority before the engine on abort
+ok 6 - F should check CLI authority before the engine on abort
+  ---
+  duration_ms: 281.532987
+  type: 'test'
+  ...
+# Subtest: F should refuse an invalid dispatch envelope instead of guessing
+ok 7 - F should refuse an invalid dispatch envelope instead of guessing
+  ---
+  duration_ms: 151.537675
+  type: 'test'
+  ...
+1..7
+# tests 7
+# suites 0
+# pass 7
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1955.715669
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-dispatch.test.js"],"code":0,"signal":null,"tests":7,"invalid":false,"spawned":1,"leftovers":[]}

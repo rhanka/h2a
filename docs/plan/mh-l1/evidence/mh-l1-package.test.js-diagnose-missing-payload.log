@@ -1,0 +1,33 @@
+command: /usr/bin/node --test packages/h2a/test/mh-l1-package.test.js
+private test root: /tmp/mh-l1-test-WKuYD6
+TAP version 13
+# Subtest: MH-L1 prototype should pack/install twice offline with exact runtime, integrated transport and a real legacy node-pty probe
+not ok 1 - MH-L1 prototype should pack/install twice offline with exact runtime, integrated transport and a real legacy node-pty probe
+  ---
+  duration_ms: 134280.002598
+  type: 'test'
+  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l1-package.test.js:15:1'
+  failureType: 'testCodeFailure'
+  error: 'payload_mismatch'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    verifyImage (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/src/runtime/handover/image.js:65:11)
+    TestContext.<anonymous> (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l1-package.test.js:64:20)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# npm pack --offline --ignore-scripts --json => {"filename":"sentropic-h2a-mh-l1-prototype-0.98.7-mh-l1.0.tgz","files":11053,"integrity":"sha512-nk44ovb/WwXTNEg4EGT2HyihU5FIFkbSs+4BAg70QP5A7DT4znvF+5Ue6jthcqX2Juvl8DPTetvHjfyXF5E/og=="}
+# npm install --prefix <install-a> --offline --umask=022 --ignore-scripts => added 1 package in 53s
+# {"missing":[{"path":"node_modules/@sentropic/track/.claude","type":"directory","mode":493,"digest":null,"target":null},{"path":"node_modules/@sentropic/track/.claude/hooks","type":"directory","mode":493,"digest":null,"target":null},{"path":"node_modules/@sentropic/track/.claude/hooks/pre-bash-git-dogfood-guard.sh","type":"file","mode":493,"digest":"sha256:51f69fb93a971f8781c0a0369f07414483087c3b0a6d832d603126b159724cbb","target":null},{"path":"node_modules/@sentropic/track/.claude/hooks/test-git-dogfood-guard.sh","type":"file","mode":493,"digest":"sha256:d7768c443febe289d0f10a06fdb30ccccd36143bfd18af06ae8457c61de9b050","target":null},{"path":"node_modules/@sentropic/track/.claude/settings.json","type":"file","mode":420,"digest":"sha256:61acf4060c3309781183ec3ee468aa1bcaaa9cf954ebe578897c8d442ed7a67a","target":null},{"path":"node_modules/@sentropic/track/.github","type":"directory","mode":493,"digest":null,"target":null},{"path":"node_modules/@sentropic/track/.github/workflows","type":"directory","mode":493,"digest":null,"target":null},{"path":"node_modules/@sentropic/track/.github/workflows/ci.yml","type":"file","mode":420,"digest":"sha256:d953234eeb7dfc90bc29d0d25452adbfbd021a02eeaa750dac0b313e6d1243c9","target":null},{"path":"node_modules/@sentropic/track/.github/workflows/publish.yml","type":"file","mode":420,"digest":"sha256:3949d66c0849451014dc17aea7d330dcf242d1641b4ad16825a186e2bcd715ed","target":null},{"path":"node_modules/@sentropic/track/.github/workflows/track-acceptance.yml","type":"file","mode":420,"digest":"sha256:98509819bd3eeeeab0009820129d9f6297993c3ca96e707ae7b81247e171c0db","target":null},{"path":"node_modules/@sentropic/track/.gitignore","type":"file","mode":420,"digest":"sha256:cb6c0ce0058654681bbaffea44e37052aa4f2ee3f3d1caddd2f085595fd48e5d","target":null},{"path":"node_modules/@sentropic/track/.track","type":"directory","mode":493,"digest":null,"target":null}],"missingCount":349,"payloadDifferences":0,"examples":[]}
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 134425.206202
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l1-package.test.js"],"code":1,"signal":null,"elapsedMs":134522}

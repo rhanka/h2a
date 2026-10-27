@@ -1,0 +1,16 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-central.test.js
+node: v24.21.0
+private test root: /tmp/mh-l2-test-DTpJmE
+Claude config: /tmp/mh-l2-test-DTpJmE/claude
+{"event":"drive-consent.full-verification","durationMs":0.0039480000000367,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✔ should checkpoint a real source attachment and reject a cancellation string inside new tool arguments (7420.59168ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 7513.007858
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-central.test.js"],"code":0,"signal":null,"elapsedMs":7536}
