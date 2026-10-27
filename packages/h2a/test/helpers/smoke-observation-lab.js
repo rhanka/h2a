@@ -32,6 +32,8 @@ export async function observeSmoke(source, scriptPath, options = {}) {
   let resolvedManifest
   let resolvedTrackManifest
   let resolvedFocusManifest
+  let resolvedH2aEntry
+  let resolvedNestedFocusManifest = null
   let polls = 0
   const fakeProcess = { ...process, argv: ['node', scriptPath, ...(options.prebuilt ? ['--tarballs', prebuilt] : [])], execPath: process.execPath,
     env: { HOME: root, XDG_RUNTIME_DIR: root }, exit: (code) => { throw new Error(`premature exit ${code}`) } }
@@ -56,9 +58,46 @@ export async function observeSmoke(source, scriptPath, options = {}) {
       fs.mkdirSync(focusDir, { recursive: true })
       resolvedFocusManifest = join(focusDir, 'package.json')
       fs.writeFileSync(resolvedFocusManifest, JSON.stringify({ version: options.loadedFocusVersion ?? focusPinned }))
+      // The installed h2a the focus gate resolves FROM: its dist entry is
+      // what `require.resolve('@sentropic/h2a')` returns, and its package
+      // directory anchors the createRequire focus resolution. With
+      // `nestedFocusVersion` the lab reproduces the registry-fallback layout
+      // (h2a's exact focus dependency served from the registry): npm nests a
+      // second focus copy under h2a while the root still holds the candidate.
+      const h2aDir = join(prefix, 'node_modules/@sentropic/h2a')
+      fs.mkdirSync(join(h2aDir, 'dist'), { recursive: true })
+      fs.writeFileSync(join(h2aDir, 'package.json'), JSON.stringify({ name: '@sentropic/h2a', version: pinned }))
+      resolvedH2aEntry = join(h2aDir, 'dist', 'index.js')
+      fs.writeFileSync(resolvedH2aEntry, '')
+      if (options.nestedFocusVersion) {
+        const nestedDir = join(h2aDir, 'node_modules/@sentropic/focus')
+        fs.mkdirSync(nestedDir, { recursive: true })
+        resolvedNestedFocusManifest = join(nestedDir, 'package.json')
+        fs.writeFileSync(resolvedNestedFocusManifest, JSON.stringify({ version: options.nestedFocusVersion }))
+      }
     } else if (args[0] === '-p') {
+      // Emulate Node resolution from the installed h2a: a focus query issued
+      // through h2a's package directory lands on the nested copy when npm
+      // put one there, exactly as the production createRequire call does.
       const query = args[1] ?? ''
-      const target = query.includes('@sentropic/focus') ? resolvedFocusManifest : query.includes('@sentropic/track') ? resolvedTrackManifest : resolvedManifest
+      // The h2a-anchored focus probe resolves the entry, then focus through a
+      // require anchored at that entry: emulate both halves in one answer.
+      if (query.includes('createRequire') && query.includes('@sentropic/focus')) {
+        return {
+          status: 0,
+          stdout: JSON.stringify({
+            entry: resolvedH2aEntry,
+            focus: resolvedNestedFocusManifest ?? resolvedFocusManifest,
+          }),
+          stderr: '',
+        }
+      }
+      // The bare '@sentropic/h2a' entry query must not catch the
+      // '@sentropic/h2a-runtime/…' query (substring): quote-anchored match.
+      if (query.includes("'@sentropic/h2a'") || query.includes('"@sentropic/h2a"')) {
+        return { status: 0, stdout: resolvedH2aEntry, stderr: '' }
+      }
+      const target = query.includes('@sentropic/track') ? resolvedTrackManifest : resolvedManifest
       return { status: 0, stdout: target, stderr: '' }
     }
     else if (args[1] === 'host-stop') {
