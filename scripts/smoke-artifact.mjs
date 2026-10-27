@@ -174,17 +174,43 @@ try {
     )
   }
   console.log(`smoke-artifact: track resolved from the candidate prefix at version ${loadedTrackVersion}`)
-  // The same proof for @sentropic/focus, against its OWN pinned literal:
-  // focus versions independently of the lockstep train, so the focus proof
-  // is "version === 0.5.0", never "whatever the candidate is" and never the
-  // runtime train. Without this, the prefix install falls back to the
+  // The same proof for @sentropic/focus, against its OWN pinned literal —
+  // but resolved FROM the installed @sentropic/h2a, never from the prefix
+  // root: h2a carries an exact focus dependency, so with a mutated pin npm
+  // nests a REGISTRY copy under h2a's own node_modules while the root still
+  // holds the candidate. A root-anchored check stays green on exactly that
+  // layout and never sees what h2a loads. Resolving through h2a's package
+  // directory is what h2a's own code loads; the gate then proves that copy
+  // IS the candidate tarball: version === PINNED_FOCUS_VERSION and NOT a
+  // nested copy. Without this, the prefix install falls back to the
   // registry for focus — and verify runs BEFORE publish, so an unpublished
   // focus X.Y.Z is never there yet (ETARGET on every focus release).
-  const resolvedFocus = runSync(process.execPath, ['-p', "require.resolve('@sentropic/focus/package.json')"], {
-    cwd: prefix,
-  }).trim()
+  // One Node probe does both resolutions: the h2a entry as the prefix
+  // install lays it out, then focus through a require anchored at that
+  // entry — exactly what h2a's own code loads. (createRequire takes the
+  // entry file and uses its package scope, so no path arithmetic here.)
+  const probe = runSync(
+    process.execPath,
+    [
+      '-p',
+      `const entry = require.resolve('@sentropic/h2a');` +
+        `const focus = require('node:module').createRequire(entry).resolve('@sentropic/focus/package.json');` +
+        `JSON.stringify({ entry, focus })`,
+    ],
+    { cwd: prefix },
+  ).trim()
+  const { entry: resolvedH2aEntry, focus: resolvedFocus } = JSON.parse(probe)
+  if (!resolve(resolvedH2aEntry).startsWith(prefix + '/')) {
+    fail(`@sentropic/h2a resolved OUTSIDE the candidate prefix: ${resolvedH2aEntry}`)
+  }
   if (!resolve(resolvedFocus).startsWith(prefix + '/')) {
-    fail(`@sentropic/focus resolved OUTSIDE the candidate prefix: ${resolvedFocus}`)
+    fail(`@sentropic/focus resolved from the installed h2a is OUTSIDE the candidate prefix: ${resolvedFocus}`)
+  }
+  if (resolve(resolvedFocus).includes('/node_modules/@sentropic/h2a/node_modules/')) {
+    fail(
+      `packaged h2a resolves a NESTED @sentropic/focus copy at ${resolvedFocus} ` +
+        '(a registry fallback for h2a\u2019s exact focus dependency — the candidate tarball was not used)',
+    )
   }
   const loadedFocusVersion = JSON.parse(readFileSync(resolvedFocus, 'utf8')).version
   if (loadedFocusVersion !== PINNED_FOCUS_VERSION) {
@@ -193,7 +219,7 @@ try {
         '(a registry fallback would load a previously published version — this is exactly the hole the proof closes)',
     )
   }
-  console.log(`smoke-artifact: focus resolved from the candidate prefix at version ${loadedFocusVersion}`)
+  console.log(`smoke-artifact: focus resolved from the installed h2a at version ${loadedFocusVersion}`)
 
   // -------------------------------------------------------------------------
   // (5) drive the PACKAGED host binary
