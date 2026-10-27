@@ -272,8 +272,8 @@ test("R8.3: the smoke proves the focus candidate against the focus pin, never th
     "the focus path proof must fail closed outside the prefix",
   );
   assert.ok(
-    SMOKE_SOURCE.includes("require.resolve('@sentropic/h2a')"),
-    "the smoke must first resolve the installed h2a from the candidate prefix",
+    SMOKE_SOURCE.includes("'@sentropic', 'h2a', 'package.json'"),
+    "the smoke must anchor the proof at the installed h2a manifest (where npm laid the candidate tarball)",
   );
   assert.ok(
     SMOKE_SOURCE.includes("createRequire(") &&
