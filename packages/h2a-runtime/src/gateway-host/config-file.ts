@@ -1,6 +1,6 @@
 /** Public host configuration only; provider credentials stay upstream. */
 import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, hostname } from "node:os";
 import { dirname, join } from "node:path";
 import { validateLlmMeshRoutingConfig, type LlmMeshRoutingConfig } from "../routing-preferences.js";
 
@@ -18,6 +18,11 @@ export interface LlmMeshConfig {
 
 export function sentropicDir(): string {
   return join(homedir(), ".sentropic");
+}
+
+/** Stable local owner, shared by account enrollment and gateway routing. */
+export function llmMeshOwnerScopeRef(): string {
+  return process.env.H2A_LLM_MESH_OWNER_SCOPE?.trim() || `cli:${hostname()}`;
 }
 
 export function llmMeshConfigPath(dir?: string): string {

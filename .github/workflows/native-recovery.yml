@@ -1,0 +1,120 @@
+name: Native recovery qualification
+# R4 (conductor decision 21/10) gate structure for #390:
+# BLOCKING — (a) crash/lock/bounded-startup scope: the startup-matrix
+#   registry-delta (<=500 ms) and committed-baseline non-regression gates
+#   (startup-baselines.json + margin; the 1 s sleep mutation must fail them),
+#   plus the incident scenarios (effective-cgroups, incl. the
+#   conversation-filter / publication-contention / worker-scope /
+#   startup-overhead mutations, all of which must go RED on mutation).
+# REPORTED — (b) native-CLI parity (median <= +250 ms, p95 <= +500 ms) is a
+#   tracked objective owned by spec/open-parity: every matrix cell publishes
+#   its paired overhead and delta to target in diagnostics and the job
+#   summary, but nothing asserts it. It becomes BLOCKING when that lane
+#   lands; until then the release workflow requires (a) + incidents only.
+on:
+  pull_request:
+    paths:
+      - 'packages/h2a-runtime/src/native-terminal/**'
+      - 'packages/h2a/test/*startup*'
+      - 'packages/h2a/test/native-host-crash-recovery.test.js'
+      - 'packages/h2a/test/helpers/restart-lab.js'
+      - 'scripts/owner-lab/**'
+      - '.github/workflows/native-recovery.yml'
+  workflow_call:
+    inputs:
+      ref:
+        required: true
+        type: string
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  startup-matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [fresh, resume, restore]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Create a disposable TMPDIR admitted by both confinement guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p -m 0700 "$HOME/.cache-tmp/h2a-test"
+          DIR="$(mktemp -d "$HOME/.cache-tmp/h2a-test/run-XXXXXX")"
+          echo "TMPDIR=$DIR" >> "$GITHUB_ENV"
+          echo "TMP=$DIR" >> "$GITHUB_ENV"
+          echo "TEMP=$DIR" >> "$GITHUB_ENV"
+          echo "H2A_TEST_QUALIFICATION_ROOT=$DIR" >> "$GITHUB_ENV"
+      - name: Measure CLI I/O on an otherwise idle disposable VM (no-systemd witness)
+        env:
+          MODE: ${{ matrix.mode }}
+        shell: bash
+        run: 'node --test --test-name-pattern="startup-matrix: $MODE," scripts/owner-lab/startup-matrix.qualification.mjs'
+      # R3 P2 effective-systemd path on the same disposable VM: real user
+      # manager bus, same budgets, effective cgroup readout. Fresh/resume
+      # only (restore is reported separately); the no-systemd leg above stays
+      # the witness.
+      - name: Measure CLI I/O on the effective systemd path with cgroup readout
+        # Always run even when the fallback witness fails its absolute budget,
+        # so the effective path is proven (or fails) on its own evidence.
+        if: always() && (matrix.mode == 'fresh' || matrix.mode == 'resume')
+        env:
+          MODE: ${{ matrix.mode }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo loginctl enable-linger "$(id -un)"
+          sudo systemctl start "user@$(id -u).service"
+          export H2A_LAB_DISPOSABLE_BUS="unix:path=/run/user/$(id -u)/bus"
+          node --test --test-name-pattern="startup-matrix-systemd: $MODE," scripts/owner-lab/startup-matrix.qualification.mjs
+      - name: Clean the disposable TMPDIR
+        if: always()
+        shell: bash
+        run: if [ -n "${TMPDIR:-}" ]; then rm -rf "$TMPDIR"; fi
+  effective-cgroups:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Create a disposable TMPDIR admitted by both confinement guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p -m 0700 "$HOME/.cache-tmp/h2a-test"
+          DIR="$(mktemp -d "$HOME/.cache-tmp/h2a-test/run-XXXXXX")"
+          echo "TMPDIR=$DIR" >> "$GITHUB_ENV"
+          echo "TMP=$DIR" >> "$GITHUB_ENV"
+          echo "TEMP=$DIR" >> "$GITHUB_ENV"
+          echo "H2A_TEST_QUALIFICATION_ROOT=$DIR" >> "$GITHUB_ENV"
+      - name: Qualify on the disposable VM user manager, with hard worker limits
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo loginctl enable-linger "$(id -un)"
+          sudo systemctl start "user@$(id -u).service"
+          export H2A_LAB_DISPOSABLE_BUS="unix:path=/run/user/$(id -u)/bus"
+          node scripts/owner-lab/mutations.mjs
+          node --test scripts/owner-lab/isolation.qualification.mjs
+      - name: Clean the disposable TMPDIR
+        if: always()
+        shell: bash
+        run: if [ -n "${TMPDIR:-}" ]; then rm -rf "$TMPDIR"; fi

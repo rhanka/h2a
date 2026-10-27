@@ -1,0 +1,54 @@
+{
+  "_comment": "R5: BLOCKING non-regression gate over EVERY committed mode/state (fresh, resume, restore on fallback; fresh/resume 1 live/killed on systemd) + the 20-request incident cell. usableMs (time to usable CLI I/O) at EMPTY registry (rows=0; incident cell: 214-row owner-shaped registry, see incident20), measured on CI (ubuntu-latest, Node 22). The gate adds an explicit margin (median +500ms, p95 +800ms): small enough that the 1s bin.js sleep mutation still fails every gated cell (every sample shifts +1000ms), loose enough for routine VM noise. Native-CLI parity stays REPORTED (spec/open-parity). Keys: mode/concurrency/host; systemd cells carry the effective-scope cost profile. R6: the incident20 cell adds a self-calibrating bin.js startup probe (same-run node -e control, same 500/800 margins, no committed numbers) as its +1 s catcher; the incident absolute stays a ceiling only.",
+  "source": { "ciRun": 39540422206, "head": "bcdfe0d75", "os": "ubuntu-latest", "node": "22", "isolation": "fallback", "rows": 0, "metric": "usableMs" },
+  "margin": { "medianMs": 500, "p95Ms": 800 },
+  "gatedModes": ["fresh", "resume", "restore"],
+  "cells": {
+    "fresh/1/live": { "medianMs": 775, "p95Ms": 815 },
+    "fresh/1/absent": { "medianMs": 897, "p95Ms": 904 },
+    "fresh/1/killed": { "medianMs": 879, "p95Ms": 890 },
+    "fresh/5/live": { "medianMs": 1768, "p95Ms": 1794 },
+    "fresh/5/absent": { "medianMs": 2647, "p95Ms": 2820 },
+    "fresh/5/killed": { "medianMs": 2745, "p95Ms": 2882 },
+    "fresh/10/live": { "medianMs": 3566, "p95Ms": 3594 },
+    "fresh/10/absent": { "medianMs": 4193, "p95Ms": 4356 },
+    "fresh/10/killed": { "medianMs": 4170, "p95Ms": 4206 },
+    "resume/1/live": { "medianMs": 792, "p95Ms": 915 },
+    "resume/1/absent": { "medianMs": 896, "p95Ms": 901 },
+    "resume/1/killed": { "medianMs": 887, "p95Ms": 904 },
+    "resume/5/live": { "medianMs": 1849, "p95Ms": 1886 },
+    "resume/5/absent": { "medianMs": 2657, "p95Ms": 2731 },
+    "resume/5/killed": { "medianMs": 2693, "p95Ms": 2800 },
+    "resume/10/live": { "medianMs": 3720, "p95Ms": 3743 },
+    "resume/10/absent": { "medianMs": 4113, "p95Ms": 4154 },
+    "resume/10/killed": { "medianMs": 3980, "p95Ms": 4410 },
+    "restore/1/live": { "medianMs": 1185, "p95Ms": 1551 },
+    "restore/1/absent": { "medianMs": 1260, "p95Ms": 1262 },
+    "restore/1/killed": { "medianMs": 1272, "p95Ms": 1307 },
+    "restore/5/live": { "medianMs": 2040, "p95Ms": 2093 },
+    "restore/5/absent": { "medianMs": 2889, "p95Ms": 3063 },
+    "restore/5/killed": { "medianMs": 2933, "p95Ms": 2987 },
+    "restore/10/live": { "medianMs": 3509, "p95Ms": 3514 },
+    "restore/10/absent": { "medianMs": 3633, "p95Ms": 4197 },
+    "restore/10/killed": { "medianMs": 4147, "p95Ms": 4230 }
+  },
+  "systemdSource": { "ciRun": 39543626965, "head": "e2090a899", "os": "ubuntu-latest", "node": "22", "isolation": "systemd", "rows": 0, "metric": "usableMs" },
+  "systemdCells": {
+    "fresh/1/live": { "medianMs": 796, "p95Ms": 819 },
+    "fresh/1/killed": { "medianMs": 919, "p95Ms": 925 },
+    "resume/1/live": { "medianMs": 792, "p95Ms": 793 },
+    "resume/1/killed": { "medianMs": 923, "p95Ms": 933 }
+  },
+  "incident20Loaded8": {
+    "_comment": "R10 acceptance proposal: eight incident instances share eight CPUs (160 concurrent resumes), with each completed fixture disposed before the next measurement. Frozen maxima over five rounds / 40 complete samples on ea32c665ad15967db600ccc897f7b8f2d8d8a703; existing margins 500/800 ms apply. Default/CI and four-instance ceilings, registry delta 1500 ms and startup-probe margin 500 ms remain unchanged. Reviewers must accept or reject this separately quantified load envelope; see docs/reviews/native-host-crash-recovery-r10.md.",
+    "source": { "head": "ea32c665ad15967db600ccc897f7b8f2d8d8a703", "os": "linux", "node": "22.22.1", "instances": 8, "cpus": 8, "concurrentResumes": 160, "rounds": 5, "samples": 40, "rows": 214, "concurrency": 20, "host": "killed", "metric": "usableMs" },
+    "medianMs": 9692,
+    "p95Ms": 9896
+  },
+  "incident20": {
+    "_comment": "20-request owner incident (Sol R4 reproduction shape: isolated lab, deterministic CLI, private HOME/XDG/socket; 214-row registry with 100 dead background rows + 20 target conversations, host SIGKILLed, 20 concurrent resumes). BLOCKING cell asserts the runner-robust properties (20/20 usable, single host, zero lock timeout, registry gross-blowup delta <=1500 ms — widened R6 from 500 ms on CI evidence: same code measured -1182..+774 ms across local and shared-CI runs, so 500 ms was scheduling luck; fine-grained scaling stays with the matrix 10-way cells). The absolute below stays CI-anchored at the MAX observed over CI run 39950116414 (this head): trust-root 5495/5721, build-22 8426/8998, build-24 6893/7047 — 20-way wall time varies ~3000 ms across shared CI VMs (host-election contention), so the absolute is a catastrophic-regression ceiling only. R6: the +1 s catcher is the self-calibrating bin.js `--version` startup probe inside incident-20-resume.test.js (same-run `node -e` control, margin 500/800 < 1000 ms shift, no per-runner numbers needed); +1 s sensitivity on the matrix cells is still owned by their absolute gates (proven per-runner by mutations.mjs on CI).",
+    "source": { "ciRun": 39950116414, "head": "5242f8574", "os": "ubuntu-latest", "node": "22", "rows": 214, "concurrency": 20, "host": "killed", "metric": "usableMs" },
+    "medianMs": 8426,
+    "p95Ms": 8998
+  }
+}

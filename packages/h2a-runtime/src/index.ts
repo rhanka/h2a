@@ -157,6 +157,7 @@ import {
   nativeSessionLiveness,
   nativeSessionPid,
   nativeSessionState,
+  nativeSessionStateAsync,
   nativeTreeCpuMs,
   nativeWorkerPid,
   preflightNativeLaunch,
@@ -164,6 +165,7 @@ import {
   startNativeH2aSidecar,
   startNativeHeadlessSession,
   startNativeSession,
+  startNativeSessionSingleShot,
   NativeHostCapabilityMismatchError,
   NativeLaunchAdmissionError,
   type NativeLaunchOwnership,
@@ -327,7 +329,11 @@ import {
   type ConductorLaunchRequest,
 } from "./conductor-launch.js";
 import { defaultLocalH2aRoot } from "./h2a-bridge.js";
-import { refuseCullExecution, runIdentityCullDryRun } from "./identity-cull/cull.js";
+import { operatorBreak as operatorBreakToCore } from "./identity-operator-break.js";
+// identity-cull is imported lazily at its verb below: cull.js needs the
+// core identity fence (`@sentropic/h2a`), which must never become a
+// load-time edge of this barrel — isolated installs of this package have
+// no core beside them.
 import { guardConvWriters } from "./conv-guard.js";
 import {
   handleClaudeHook,
@@ -436,14 +442,6 @@ import {
   profileUsesLlmMeshGateway,
   type CliProfile,
 } from "./protocol-local.js";
-import {
-  enrollViaFacade,
-  enrollSeatConsumerViaFacade,
-  formatLlmMeshAccountError,
-  formatLlmMeshAccountList,
-  listAccountsViaFacade,
-  removeAccountViaFacade,
-} from "./llm-mesh-accounts.js";
 import {
   readLlmMeshConfig,
   updateLlmMeshRoutingConfig,
@@ -2780,19 +2778,12 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .command("identity")
     .description("Inspect identity bindings or unlock a token-fenced identity lock");
 
-  const operatorBreak = async (lockPath: string, token: string, assertDead: boolean): Promise<void> => {
-    const { breakLockAsOperator, breakIdentityLockAsOperator } = await import("@sentropic/h2a");
-    const identityLock=basename(lockPath)==='.lock' && basename(dirname(lockPath)) === 'identity';
-    const breaker = identityLock ? breakIdentityLockAsOperator : breakLockAsOperator;
-    const result = breaker(lockPath, { expectToken: token, assertDead });
-    process.stdout.write(`${JSON.stringify({ path: identityLock ? 'identity/.lock' : lockPath, ...result })}\n`);
-    if (!result.broken) {
-      process.stderr.write(`[h2a] lock break refused: ${result.reason}${result.pid !== undefined ? ` (pid ${result.pid})` : ""}\n`);
-      if (result.reason === "assert-dead-required") {
-        process.stderr.write("[h2a] verify the holder has stopped, then explicitly pass --assert-dead; no PID is killed\n");
-      }
-      process.exitCode = 1;
-    }
+  // Operator break delegates to the core CLI's hidden `__operator-break`
+  // plumbing (same `h2a`-binary spawn pattern as central-mcp): this package
+  // must not import `@sentropic/h2a`, and the relay keeps stdio/exit codes
+  // byte-for-byte identical where core is installed.
+  const operatorBreak = (lockPath: string, token: string, assertDead: boolean): void => {
+    operatorBreakToCore(lockPath, token, assertDead, (code) => { process.exitCode = code; });
   };
 
   identityCommand
@@ -2825,9 +2816,17 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .option("--execute", "refuse destructive execution; no bypass exists")
     .option("--root <path>", "DEF h2a root (default: H2A_ROOT or ~/h2a-workspace/.h2a)")
     .option("--output <path>", "new external directory for the proof packet")
-    .action((opts: { dryRun?: boolean; execute?: boolean; root?: string; output?: string }) => {
+    .action(async (opts: { dryRun?: boolean; execute?: boolean; root?: string; output?: string }) => {
+      let cull: typeof import("./identity-cull/cull.js");
+      try {
+        cull = await import("./identity-cull/cull.js");
+      } catch (error) {
+        process.stderr.write(`[h2a] identity cull unavailable: ${error instanceof Error ? error.message : String(error)}\n`);
+        process.exitCode = 1;
+        return;
+      }
       if (opts.execute) {
-        const refusal = refuseCullExecution();
+        const refusal = cull.refuseCullExecution();
         process.stderr.write(`[h2a] identity cull refused: ${refusal.refusalCodes.join(", ")}\n`);
         process.exitCode = 2;
         return;
@@ -2835,7 +2834,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       const defRoot = opts.root ?? process.env.H2A_ROOT ?? defaultLocalH2aRoot();
       const outputDir = opts.output ?? join(tmpdir(), `h2a-identity-cull-${randomUUID()}`);
       try {
-        const result = runIdentityCullDryRun({
+        const result = cull.runIdentityCullDryRun({
           defRoot,
           pinRoot: join(homedir(), "src", "a2a-cli"),
           outputDir,
@@ -6378,12 +6377,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           }
         };
         try {
-        if (structuredLaunch && sessionHost === "native") {
-          for (const label of labels) preflightNativeLaunch(localSessionName(slugify(label ?? cwd)));
-        }
-        const reservedTmuxSlugs = tmuxAvailable()
-          ? existingLocalSessionSlugs(labels, cwd)
-          : [];
+        // No separate preflight fork: the in-process name probe below prepares
+        // the host for a native run. The single-shot launch still performs its
+        // fenced admission with a fresh inventory before creating any session.
+        void preflightNativeLaunch;
+        const reservedTmuxSlugs = existingLocalSessionSlugs(labels, cwd);
         // The inventory and this decision are separate reads: a structured
         // launch can leave a name visible just before its last tmux process
         // exits. Re-probe every canonical/legacy spelling and reclaim the slug
@@ -6422,14 +6420,16 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         // twin over a live-but-unprovable native writer (sol-F3): the same
         // fail-closed rule as resolveManagedHost's rule 4 applies — refuse
         // to launch on an unprovable host state.
-        const nativeExistence = labels
+        const nativeExistence = await Promise.all(labels
           .map((label) => slugify(label ?? cwd))
-          .map((slug) => {
-            const detail = nativeSessionState(localSessionName(slug));
+          .map(async (slug) => {
+            const detail = sessionHost === "native"
+              ? await nativeSessionStateAsync(localSessionName(slug), true)
+              : nativeSessionState(localSessionName(slug));
             const probe: ManagedHostProbeResult = detail.state === "unknown" ? "unknown"
               : detail.state === "found" && detail.session.status === "running" ? "live" : "dead";
             return { slug, probe, reason: detail.state === "unknown" ? detail.reason : undefined };
-          });
+          }));
         const unknownNativeSlugs = nativeExistence
           .filter((probed) => probed.probe === "unknown");
         if (unknownNativeSlugs.length > 0) {
@@ -6480,9 +6480,16 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         // Single-writer guard: refuse to resume a conversation another live
         // session (local registry / remote pod) is already writing.
         if (opts.resume) {
+          // Reuse this operation's certified name verdict for that SAME
+          // session. Other conversation owners still require their own probe.
+          // Creation rechecks the complete inventory and name admission at
+          // the host, so this snapshot never authorizes a colliding create.
+          const nativeLivenessByName = new Map(nativeExistence.map(({ slug, probe }) =>
+            [localSessionName(slug), probe === "dead" ? false : probe === "live" ? true : "unknown"] as const));
           const ok = await guardConvWriters({
             convId: opts.resume,
             cwd,
+            nativeSessionLiveness: name => nativeLivenessByName.get(name) ?? nativeSessionLiveness(name),
             ...(opts.force ? { force: true } : {}),
             fetchRemoteSessions: async () => {
               const url = getConfiguredRemoteOptional();
@@ -6629,6 +6636,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           }
           let name: string;
           let slug: string;
+          // R3 P1: pid/identity returned by the single-shot launch; the
+          // re-probes below prefer these and skip their forks.
+          let launchedPid: number | undefined;
+          let launchedWorkerPid: number | undefined;
           let outputLog: string | undefined;
           let resultJson: string | undefined;
           let agentPane: string | undefined;
@@ -6691,7 +6702,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               ));
             }
           } else if (sessionHost === "native") {
-            ({ name, slug } = startNativeSession(
+            // One in-process async operation, with a fresh admission inventory;
+            // returns pid/identity so the re-probes below are skipped.
+            ({ name, slug, pid: launchedPid, workerPid: launchedWorkerPid } = await startNativeSessionSingleShot(
               profile,
               command,
               cwd,
@@ -6923,15 +6936,18 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               sleepSync(50);
             }
           }
+          // R3 P1: prefer the pid/identity returned by the single-shot
+          // launch (no fork); fall back to probes only when absent (e.g.
+          // tmux path or adopted pre-existing session without a fresh pid).
           const pid =
             sessionHost === "native"
-              ? nativeSessionPid(name)
+              ? (launchedPid ?? nativeSessionPid(name))
               : agentPane
                 ? localSessionPanePid(agentPane)
                 : undefined;
           const workerPid =
             sessionHost === "native"
-              ? nativeWorkerPid(name)
+              ? (launchedWorkerPid ?? nativeWorkerPid(name))
               : agentPane !== undefined
                 ? paneWorkerPid(agentPane)
                 : undefined;
@@ -10827,6 +10843,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         }
         try {
           const source = opts.from ?? (opts.cli ? "cli" : opts.token ? "token" : "oauth");
+          const { enrollViaFacade } = await import("./llm-mesh-accounts.js");
           const account = source === "oauth"
             ? await enrollViaFacade(normalized, { ...(opts.configRef ? { configRef: opts.configRef } : {}), from: "oauth" })
             : await enrollSeatConsumerViaFacade(normalized, { from: source as "cli" | "token", ...(opts.seatProfile ? { seatProfile: opts.seatProfile } : {}) });
@@ -10858,6 +10875,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .description("List public accounts owned by this local llm-mesh scope")
     .option("--json", "emit public account metadata as JSON")
     .action(async (opts: { json?: boolean }) => {
+      const { listAccountsViaFacade, formatLlmMeshAccountList, formatLlmMeshAccountError } = await import("./llm-mesh-accounts.js");
       try {
         const accounts = await listAccountsViaFacade();
         process.stdout.write(`${formatLlmMeshAccountList(accounts, opts.json === true)}\n`);
@@ -10874,6 +10892,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .aliases(["rm", "unenroll"])
     .description("Remove one account owned by this local llm-mesh scope")
     .action(async (accountId: string) => {
+      const { removeAccountViaFacade, formatLlmMeshAccountError } = await import("./llm-mesh-accounts.js");
       try {
         const result = await removeAccountViaFacade(accountId);
         process.stdout.write(`[h2a] llm-mesh account: removed ${result.accountId}\n`);
@@ -11303,7 +11322,10 @@ export { ensureCentralMcp } from "./central-mcp.js";
 export * from "./cli-seat-fixtures.js";
 export * from "./cli-seat-codecs.js";
 export * from "./cli-seat-materialization.js";
-export { enrollSeatConsumerViaFacade } from "./llm-mesh-accounts.js";
+// Keep the public async consumer contract without loading account providers in
+// every local crash-recovery launcher before it can elect its native host.
+export const enrollSeatConsumerViaFacade: typeof import("./llm-mesh-accounts.js").enrollSeatConsumerViaFacade =
+  async (...args) => (await import("./llm-mesh-accounts.js")).enrollSeatConsumerViaFacade(...args);
 export type { LlmMeshSeatImporter, SeatConsumerProfileInput, SeatConsumerParsers, SeatConsumerEnrollmentOptions } from "./llm-mesh-accounts.js";
 
 /**

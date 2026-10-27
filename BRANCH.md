@@ -1,3 +1,43 @@
+# R10 — native host recovery under concurrent load
+
+- Scope: the three R9 findings on PR #390; startup election expiry, responsive native creation, failed-list connection ownership and their measured startup costs. No dependency/version/workflow/scope-policy changes.
+- R10-EX1: the directly coupled runtime/registry/client/CLI changes and regression witnesses exceed 150 lines and six files. The public synchronous registry contract and its 4 s best-effort boundary stay intact; native creation waits asynchronously before spawn, then uses that same synchronous durable-write section. Revert the R10 commits to roll back.
+- Every incident fixture now disposes its own processes after all original usability/host/helper/timeout assertions. The former end-of-test cleanup retained up to 100 agents per instance and changed the background load between reference and measured cells.
+- Default and four-instance gates stay 8926/9798 ms, registry delta 1500 ms and startup probe 500 ms. The separately quantified eight-instance/eight-CPU profile proposes frozen calibration maxima 9692/9896 ms plus the existing 500/800 ms margins: 10192/10696 ms. This acceptance proposal and the fixture-lifetime correction are explicit in the PR for reviewers to accept or reject; no owner acceptance is inferred.
+- RED/GREEN commands, complete measurements, qualification limits and review selection status: docs/reviews/native-host-crash-recovery-r10.md and native-host-crash-recovery-r10-metrics.json. No new independent consensus is claimed; installed h2a/owner state access remains forbidden.
+- First CI exposed a +1 s mutation escaping the old absolute fresh baseline on a faster runner. Every matrix cell now also applies the incident's independent bin.js/node startup comparison at the existing 500 ms boundary; absolute references/assertions and parity reporting are retained. Fresh/resume/restore mutations and their healthy controls were replayed before the follow-up push.
+- Private TMPDIR: /home/antoinefa/.cache-tmp/h2a-test/run-ekkPHg; HOME/XDG/socket/process fixtures only. Remove it at delivery after preserving evidence. No Python, attribution trailer or local memory-fault test.
+
+# Native host crash recovery — fix/native-host-crash-recovery
+
+## Round 2 — brief-fixrestart-r2.md
+
+- Scope extends to per-session memory scopes, actual CLI I/O lab matrix, isolated hosted-VM cgroup qualification and mandatory release wiring; no version/dependency change.
+- Private TMPDIR: /home/antoinefa/.cache-tmp/h2a-test/run-NDLCse; real owner state/bus untouched. Namespaces denied (unshare plus three bwrap attempts), cgroup mount read-only; local memory faults forbidden and not attempted.
+- RED: ten read-only proofs after SIGKILL: 4 success / 6 publication lock timeouts in 5,208 ms. GREEN: ten success in 294 ms, socket retained. Fast path requires inode-matched current-frame sidecar and every owner positively dead.
+- Real run --resume: 500 mixed rows, one relevant owner probe, successful CLI input acknowledgement; matching unreadable row still refuses before CLI launch.
+- Session memory domains: host remains protected; every CLI moves to a sibling scope before exec with MemoryMax <=8 GiB (<=1/4 physical RAM), MemoryHigh at 80% of its ceiling and MemorySwapMax=0. Scope refusal prevents CLI execution inside the protected host. If host systemd isolation is unavailable, original detached fallback remains explicitly unprotected in host logs.
+- Mandatory matrix: fresh/resume/actual restore command execution, unrelated registry 0/50/500, concurrency 1/5/10, host live/absent/health-checked then SIGKILL; three paired direct-CLI I/O samples, median/p95/probe/helper counts, +500 ms registry budget. Restore selects its explicit owner group and adds N target rows; total rows are emitted. Three dedicated VM jobs avoid unrelated test concurrency; release waits for all jobs on the resolved release SHA.
+- Provenance RED kept for #382: legacy agent transcript is human on rc.4, expected background; exact initiator provenance and explicit legacy recovery remain the #382 handoff. Never infer human from transcript, name or path.
+- Additional RED/GREEN: a positively live publisher could still be unready at the single reconnect. Fleet/op now retry only healthy handshakes within the health budget, never turn uncertainty into permission to spawn. Fragmented input rescanned 64,480 bytes for 1,984 received; linear buffering fixes the packaged smoke's timeout without extending its budget.
+- Final local qualification: runtime compilation succeeds; five scoped Vitest files 89/89, incident lab 11/11, release contracts 32/32, inventory check 1/1; zero skips in these accepted runs. Actual 451-row negative control loads the frozen rc.4 guard: resume stays in foreign probes past 5 s; fixed path starts and acknowledges I/O.
+- CI 39522995167 at de8acea42 (merge e4f36193bffaef9f8c4cfb44bfcfa84c7e83e9d4): 81 configurations / 243 paired measurements, 27/27 matrix tests plus effective cgroup test pass, zero skips. Three incident mutations are rejected. Maximum median registry deltas: fresh +427 ms, resume +126 ms, restore +192 ms (budget +500 ms). Ten crash resumes with 500 rows: median 5,641 ms / p95 5,706 ms, all usable, one host. Bounded worker OOM observed at 128 MiB, swap 0, two humans and host survive. Packaged smoke 39522821108 passes.
+- Direct CLI parity is not achieved: single-session warm-host overhead at 500 rows is median +897 ms fresh, +1,136 ms resume and +1,658 ms restore. No global memory admission, provider/GUI or AMD-reset qualification claimed. Full commands, matrix and #382 handoff: docs/reviews/native-host-crash-recovery-r2.md.
+
+## Round 1 (historical evidence)
+
+- Objective: investigate the 20 October incident independently; ship bounded startup, concurrent recovery, terminal cgroup separation and owner-only restore.
+- Scope: runtime conv-guard, native-terminal/{fleet,op,server,process,host-scope}, restore; named regressions, native test isolation, execution inventory, branch/review evidence.
+- Confinement: private TMPDIR /home/antoinefa/.cache-tmp/h2a-test/run-2jadsY; no installed binary, owner state/bus/processes, Python, full suite, Track writes or main mutation. Preserve supplied untracked scripts/owner-lab/restart.test.mjs.
+- RED: guard probes 500 instead of 1; resume/ten-resume cases cancel at 10/32 s; concurrent recovery refuses publication-lock timeout; scope request absent; fleet adoption 2/10 failures; restore provenance 3/36 failures.
+- Implementation: filter conversation before liveness, bounded healthy-successor adoption, single probe only for an absent pathname under lock, own systemd scope before PTY admission with visible fallback, reject delegation and unconfirmed legacy restore.
+- Qualification: named test files only; no skip accepted. Real systemd OOM survival and spontaneous machine reboot cause are outside this confinement's evidence.
+- Verification: 229 selected tests pass with zero skips; runtime TypeScript build passes. Final lab: host entry 797 ms; five crash resumes 3,948 ms; ten resumes 3,118 ms; worst registry overhead +38 ms.
+- Delivery: conventional English commit without trailers; rebase origin/main, lease push only this branch, ready PR. Detailed commands and results: docs/reviews/native-host-crash-recovery.md.
+- Review: no author-complementary installed-h2a review can access real state; record selection-failed, no consensus claimed.
+
+# Inherited origin/main branch records
+
 # Workspace scope guard opt-in — fix/scope-guard-opt-in
 
 - Owner order: disable the workspace scope guard by default in every packaged

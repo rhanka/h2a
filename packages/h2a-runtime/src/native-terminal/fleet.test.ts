@@ -6,6 +6,53 @@ const session = { id: "h2a-worker", status: "running", pid: 123, generation: "g"
 const endpoints = ["/private/native-terminal.sock", "/private/native-terminal.lf1.sock"];
 
 describe("native fleet ownership", () => {
+  it("should close a failed inventory connection before adopting its successor", async () => {
+    const failed = { list: vi.fn().mockRejectedValue(new Error("list timed out")), close: vi.fn() };
+    const successor = { list: async () => [], close: vi.fn() };
+    const connect = vi.fn().mockResolvedValueOnce(failed).mockResolvedValue(successor);
+    const inventory = await collectNativeInventory([endpoints[0]!], connect);
+    expect(resolveNativeOwner("missing", inventory)).toEqual({ state: "absent" });
+    expect(failed.close).toHaveBeenCalledOnce();
+    expect(successor.close).not.toHaveBeenCalled();
+    expect(inventory.hosts[0]!.client).toBe(successor);
+    successor.close();
+  });
+  it("should wait for a positively live publisher to finish before adopting it", async () => {
+    let attempts = 0;
+    const client = { list: async () => [session] } as unknown as NativeTerminalClient;
+    const inventory = await collectNativeInventory([endpoints[0]!], async () => {
+      if (++attempts < 4) throw Object.assign(new Error("not published yet"), { code: "ECONNREFUSED" });
+      return client;
+    }, async () => { throw Object.assign(new Error("publisher starting"), { code: "H2A_ENDPOINT_LIVE_OWNER" }); });
+    expect(inventory.complete).toBe(true);
+    expect(resolveNativeOwner(session.id, inventory)).toMatchObject({ state: "found", client });
+    expect(attempts).toBe(4);
+  });
+  it("should wait for a successor that is still publishing after a lock-timeout absence proof", async () => {
+    let attempts = 0;
+    const client = { list: async () => [session] } as unknown as NativeTerminalClient;
+    const inventory = await collectNativeInventory([endpoints[0]!], async () => {
+      if (++attempts < 5) throw Object.assign(new Error("not published yet"), { code: "ECONNREFUSED" });
+      return client;
+    }, async () => { throw Object.assign(new Error("terminal socket publication lock timed out"), { code: "H2A_PUBLICATION_LOCK_TIMEOUT" }); });
+    expect(inventory.complete).toBe(true);
+    expect(resolveNativeOwner(session.id, inventory)).toMatchObject({ state: "found", client });
+    expect(attempts).toBe(5);
+  });
+  it.each(["live-owner", "lock-timeout"])("should adopt a healthy successor after a raced %s absence proof", async (failure) => {
+    let attempts = 0;
+    const client = { list: async () => [session] } as unknown as NativeTerminalClient;
+    const inventory = await collectNativeInventory([endpoints[0]!], async () => {
+      if (attempts++ === 0) throw Object.assign(new Error("old host died"), { code: "ECONNREFUSED" });
+      return client;
+    }, async () => {
+      if (failure === "lock-timeout") throw new Error("publication lock timed out");
+      return false;
+    });
+    expect(inventory.complete).toBe(true);
+    expect(resolveNativeOwner(session.id, inventory)).toMatchObject({ state: "found", client });
+    expect(attempts).toBe(2);
+  });
   for (const owner of endpoints) {
     it(`should retain the client and socket owning a session on ${owner}`, async () => {
       const clients = new Map(endpoints.map(path => [path, { list: async () => path === owner ? [session] : [] }]));
