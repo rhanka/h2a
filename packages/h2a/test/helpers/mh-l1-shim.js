@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs';
-import { dirname, join, relative } from 'node:path';
+import { copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, symlinkSync, writeFileSync } from 'node:fs';
+import { dirname, join, relative, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 
@@ -18,8 +18,46 @@ export const initialize = { jsonrpc: '2.0', id: 'init', method: 'initialize', pa
  * spawned process (serve, connect, auto-started daemon) derives the same physical
  * prefix and entrypoint from a single code location. Only the qualification data
  * is a fixture; everything else is byte-identical, never a mock. Bare imports
- * resolve through a node_modules symlink to the workspace root, which never
- * affects prefix or entrypoint derivation. */
+ * resolve through a fixture node_modules closure shadowing a real install,
+ * which never affects prefix or entrypoint derivation. */
+/** Link the production module closure into the fixture tree. npm nests
+ * hoisting conflicts (for example `@sentropic/cluster-mesh` under
+ * `packages/h2a/node_modules`) instead of hoisting them to the workspace
+ * root, so a single symlink to the root `node_modules` leaves those bare
+ * imports unresolvable and every first registry dispatch fails. The fixture
+ * therefore builds a real `node_modules` directory of symlinks: the
+ * package's own nested entries first (they win exactly as Node resolves
+ * them from the package), then the workspace root closure for everything
+ * else, merging scope directories child by child. Replicated links use
+ * absolute targets because the root closure holds relative workspace
+ * links. Nothing is copied and the real trees are never written. */
+function linkModuleClosure(directory, packageRoot, modules) {
+  const target = join(directory, 'node_modules');
+  const place = (source, placeTarget) => {
+    for (const entry of readdirSync(source, { withFileTypes: true })) {
+      const from = join(source, entry.name);
+      const to = join(placeTarget, entry.name);
+      let existing = null;
+      try { existing = lstatSync(to); } catch { existing = null; }
+      if (entry.isDirectory()) {
+        // Real directories always merge child by child, so a nested scope
+        // or package directory completes the root closure instead of
+        // shadowing it. A non-directory already placed keeps priority.
+        if (existing && (!existing.isDirectory() || existing.isSymbolicLink())) continue;
+        mkdirSync(to, { recursive: true });
+        place(from, to);
+        continue;
+      }
+      if (existing) continue;
+      if (entry.isSymbolicLink()) symlinkSync(resolve(source, readlinkSync(from)), to);
+      else symlinkSync(from, to);
+    }
+  };
+  mkdirSync(target, { recursive: true });
+  const nested = join(packageRoot, 'node_modules');
+  if (existsSync(nested)) place(nested, target);
+  place(modules, target);
+}
 export function qualifiedShim(directory, manifest = fixtureQualification) {
   const basePath = fileURLToPath(new URL('../../dist/', import.meta.url));
   const packageRoot = join(basePath, '..');
@@ -51,7 +89,7 @@ export function qualifiedShim(directory, manifest = fixtureQualification) {
     cpSync(join(packageRoot, 'fixtures'), join(directory, 'fixtures'), { recursive: true });
     copyFileSync(join(packageRoot, 'package.json'), join(directory, 'package.json'));
   } else writeFileSync(join(directory, 'package.json'), JSON.stringify({ type: 'module' }));
-  symlinkSync(modules, join(directory, 'node_modules'), 'dir');
+  linkModuleClosure(directory, packageRoot, modules);
   return join(compiled, 'bin.js');
 }
 
