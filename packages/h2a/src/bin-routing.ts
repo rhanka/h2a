@@ -12,11 +12,22 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { H2A_CLI_VERB_CONTRACTS } from "./cli-contract.js";
-import { TRACK_FACADE_VERBS } from "./cli.js";
+// R3 P1: light routing — bin.ts statically imports this module before
+// deciding whether the heavy `./cli.js` monolith is needed at all, so this
+// module must NOT import `./cli.js` (7884 lines). The facade list below
+// duplicates the canonical `TRACK_FACADE_VERBS` in `cli.js`; the
+// `anti-drift: façade track ⊆ verbes natifs` test pins them in sync.
+const TRACK_FACADE_VERBS: ReadonlySet<string> = new Set<string>([
+  "decision", "report", "accept", "blocker", "item", "query",
+  "consolidate", "priority", "branch", "focus", "ingest", "restructure", "snapshot",
+]);
 
 // Verbes gérés DIRECTEMENT dans bin.ts (branches async). Ils sont tous déjà des
 // premiers-mots du contrat, mais on les liste pour que le routage ne dépende
-// jamais de cette coïncidence.
+// jamais de cette coïncidence. Exception documentée : `__operator-break` est
+// le plumbing caché des verbes operator du runtime (`identity unlock` /
+// `lock break`) — natif mais volontairement hors contrat et hors aide, pour
+// que le runtime ne nomme jamais ce package.
 const BIN_HARD_NATIVE_FIRST_WORDS: readonly string[] = [
   "mcp-serve",
   "mcp-central-serve",
@@ -27,7 +38,8 @@ const BIN_HARD_NATIVE_FIRST_WORDS: readonly string[] = [
   "drumbeat",
   "sysml",
   "keepalive",
-  "loop"
+  "loop",
+  "__operator-break"
 ];
 
 /**
@@ -319,5 +331,13 @@ export async function dispatchRuntime(
     return 64;
   }
   // dispatchH2a = main(argv) : commander attend process.argv ([node, script, …]).
+  // The runtime's operator delegation (`identity unlock` / `lock break`)
+  // spawns back into this entry (hidden `__operator-break` plumbing) instead
+  // of importing this package: hand it the exact entry path so the spawn
+  // never depends on PATH and always hits the lockstep core. Same-process
+  // dispatch, so exporting it on process.env is the channel (the runtime
+  // falls back to `h2a` on PATH when unset: standalone runtime + separately
+  // installed core, or a clean refusal without core).
+  process.env.H2A_CORE_ENTRY = fileURLToPath(new URL("./bin.js", import.meta.url));
   return dispatch(process.argv);
 }

@@ -6,7 +6,7 @@
  * the SAME proven primitive instead of a second copy of a subtle algorithm.
  *
  * We use an exclusive lockfile (`<path>.lock`, O_CREAT|O_EXCL) with a bounded
- * spin and stale-lock takeover, NOT a real OS flock(2): exclusive-create on the
+ * wait and stale-lock takeover, NOT a real OS flock(2): exclusive-create on the
  * same local filesystem is the portable primitive here (Node has no flock), and
  * a crashed holder is recovered by the staleness break below.
  *
@@ -18,22 +18,23 @@
 
 import { closeSync, mkdirSync, openSync, rmSync, statSync } from "node:fs";
 import { dirname } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 
-/** Spin parameters for the lockfile (bounded — a deadlock must never hang a hook). */
+/** Retry parameters for the lockfile (bounded — a deadlock must never hang a hook). */
 export const LOCK_STALE_MS = 10_000; // a lockfile older than this is assumed orphaned
-const LOCK_SPIN_MS = 5; // busy-wait granularity between acquire attempts
+const LOCK_RETRY_MS = 5;
 const LOCK_MAX_WAIT_MS = 4_000; // give up waiting after this (then proceed best-effort)
+const lockWait = new Int32Array(new SharedArrayBuffer(4));
 
 function lockPath(path: string): string {
   return `${path}.lock`;
 }
 
-/** Busy-wait `ms` without a timer (we are holding a process-wide critical section). */
-function spinSleep(ms: number): void {
-  const end = Date.now() + ms;
-  while (Date.now() < end) {
-    // tight spin — ms is tiny (LOCK_SPIN_MS); a side-store mutation is sub-ms.
-  }
+/** Stay synchronous, but yield the CPU so concurrent lock holders and native
+ * publishers can progress. Busy-spinning here lets a resume storm starve the
+ * very processes it awaits, exhausting publication and request deadlines. */
+function sleepSync(ms: number): void {
+  Atomics.wait(lockWait, 0, 0, ms);
 }
 
 /**
@@ -80,7 +81,19 @@ export function acquireFileLock(path: string): number | undefined {
     const fd = tryAcquireFileLock(path);
     if (fd !== undefined) return fd;
     if (Date.now() >= deadline) return undefined; // give up, proceed best-effort
-    spinSleep(LOCK_SPIN_MS);
+    sleepSync(LOCK_RETRY_MS);
+  }
+}
+
+/** Same acquisition and deadline, while keeping a server's I/O responsive. */
+export async function acquireFileLockAsync(path: string, signal?: AbortSignal): Promise<number | undefined> {
+  const deadline = Date.now() + LOCK_MAX_WAIT_MS;
+  for (;;) {
+    signal?.throwIfAborted();
+    const fd = tryAcquireFileLock(path);
+    if (fd !== undefined) return fd;
+    if (Date.now() >= deadline) return undefined;
+    await delay(LOCK_RETRY_MS, undefined, { signal });
   }
 }
 

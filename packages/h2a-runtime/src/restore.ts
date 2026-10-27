@@ -251,49 +251,6 @@ export function legacySessionEvidence(
   return { home, liveTmuxSessions };
 }
 
-function hasClaudeTranscript(e: RegistryEntry, home: string): boolean {
-  if (e.tool !== "claude" || !e.convId) return false;
-  try {
-    const stat = statSync(
-      join(home, ".claude", "projects", encodeCwd(e.cwd), `${e.convId}.jsonl`),
-    );
-    return stat.isFile() && stat.size > 0;
-  } catch {
-    return false;
-  }
-}
-
-function hasCodexTranscript(e: RegistryEntry, home: string): boolean {
-  if (e.tool !== "codex" || !e.convId) return false;
-  for (const file of walk(join(home, ".codex", "sessions"))) {
-    if (!file.endsWith(".jsonl")) continue;
-    const meta = firstLineJson(file);
-    if (meta?.payload?.cwd === e.cwd && meta?.payload?.id === e.convId) {
-      return true;
-    }
-  }
-  return false;
-}
-
-function hasLegacyTranscript(e: RegistryEntry, home: string): boolean {
-  return hasClaudeTranscript(e, home) || hasCodexTranscript(e, home);
-}
-
-function hasLiveTmuxEvidence(
-  e: RegistryEntry,
-  liveTmuxSessions: LegacySessionEvidence["liveTmuxSessions"],
-): boolean {
-  return (
-    e.tmuxSession !== undefined &&
-    liveTmuxSessions.some(
-      (session) =>
-        session.name === e.tmuxSession &&
-        session.path === e.cwd &&
-        session.profile === e.tool,
-    )
-  );
-}
-
 /**
  * Classify a legacy registry record from evidence held outside the registry.
  * Absence is not proof of a human: anything inconclusive is background.
@@ -305,8 +262,6 @@ export function deriveLegacySessionClass(
   if (e.endedAt !== undefined || e.role === "job") return "background";
   if (e.sessionClass !== undefined) return e.sessionClass;
   if (evidence.humanConfirmedIds?.has(e.id)) return "human";
-  if (hasLegacyTranscript(e, evidence.home)) return "human";
-  if (hasLiveTmuxEvidence(e, evidence.liveTmuxSessions)) return "human";
   return "background";
 }
 
@@ -617,6 +572,10 @@ export function registrySessions(
   const registryReadForResolve = { state: "ok" as const, entries, unreadable };
   for (const e of entries) {
     if (e.kind === "remote") continue; // remote groups are filled from SCW
+    // A transcript or a live terminal proves existence, never who launched it.
+    // Recorded delegation wins over a legacy/stale human classification.
+    if (e.delegationOrigin !== undefined || e.delegatorInstance !== undefined ||
+      e.delegatorTmuxSession !== undefined || e.parent !== undefined) continue;
     // Only human dev sessions are restorable — never delegated jobs or explicit
     // background launches (they had no human in front of them).
     if (!isHumanFacingSession(e, evidence)) continue;

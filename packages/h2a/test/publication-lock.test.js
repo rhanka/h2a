@@ -5,6 +5,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
+import { pathToFileURL } from "node:url";
 import { NativeTerminalClient } from "../../h2a-runtime/dist/native-terminal/client.js";
 
 setupNativeTestEnvironment(test.after);
@@ -71,6 +72,28 @@ test("should bound cross-process publication lock contention at 5 seconds and re
     assert.equal(readFileSync(identity, "utf8").trim(), secret);
     assert.equal(existsSync(f.path), false);
     assert.match(readFileSync(join(f.env.XDG_STATE_HOME, "h2a", "native-host.log"), "utf8"), /"event":"startupError"/);
+  } finally { await cleanup(); }
+});
+
+test("should release the startup election when its launcher is SIGKILLed", { timeout: 8_000 }, async t => {
+  const f = fixture(), children = [];
+  const cleanup = fixtureCleanup(t, f, children);
+  const module = pathToFileURL(resolve(import.meta.dirname, "../../h2a-runtime/dist/native-terminal/server.js")).href;
+  const prefix = `import {withNativeTerminalStartupLock} from ${JSON.stringify(module)};`;
+  try {
+    const holder = child(process.execPath, ["--input-type=module", "-e", `${prefix}
+      await withNativeTerminalStartupLock(${JSON.stringify(f.path)}, () => new Promise(() => console.log('ready')));`], f.env);
+    children.push(holder);
+    await ready(holder);
+    const successor = child(process.execPath, ["--input-type=module", "-e", `${prefix}
+      console.log('waiting');
+      await withNativeTerminalStartupLock(${JSON.stringify(f.path)}, async () => console.log('entered'));`], f.env);
+    children.push(successor);
+    await ready(successor, 'waiting');
+    assert.doesNotMatch(successor.output().stdout, /entered/);
+    await stop(holder);
+    assert.equal((await successor.closed)[0], 0, successor.output().stderr);
+    assert.match(successor.output().stdout, /entered/);
   } finally { await cleanup(); }
 });
 

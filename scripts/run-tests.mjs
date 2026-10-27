@@ -28,7 +28,34 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
+
+// Disposable-TMPDIR guarantee (PR #390 R3 P1): `npm test` never inherits a
+// bare /tmp TMPDIR into the confinement assertion in restart-lab.js.
+function ensureDisposableTmpdir() {
+  // Same dual-guard contract as run-test-gates.mjs: TMPDIR set and != /tmp,
+  // and the dir admitted as H2A_TEST_QUALIFICATION_ROOT
+  // ($HOME/.cache-tmp/h2a-test/run-*).
+  const qualPattern = /^\/home\/[^/]+\/\.cache-tmp\/h2a-test\/run-[A-Za-z0-9]+$/;
+  const current = process.env.TMPDIR;
+  try {
+    if (current && qualPattern.test(resolve(current)) && existsSync(current)) {
+      if (!process.env.H2A_TEST_QUALIFICATION_ROOT) process.env.H2A_TEST_QUALIFICATION_ROOT = resolve(current);
+      return resolve(current);
+    }
+  } catch { /* fall through and create */ }
+  const base = join(homedir(), ".cache-tmp", "h2a-test");
+  mkdirSync(base, { recursive: true });
+  const dir = mkdtempSync(join(base, "run-"));
+  process.env.TMPDIR = dir;
+  process.env.TMP = dir;
+  process.env.TEMP = dir;
+  process.env.H2A_TEST_QUALIFICATION_ROOT = dir;
+  process.once("exit", () => { try { rmSync(dir, { recursive: true, force: true }); } catch {} });
+  return dir;
+}
+
+ensureDisposableTmpdir();
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 

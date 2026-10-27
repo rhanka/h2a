@@ -2,11 +2,10 @@
  * Native-PTY-backed session management — the tmux.ts twin for sessions hosted
  * by the native terminal host (native-terminal/*) instead of a tmux server.
  *
- * Shape contract: every function here is SYNCHRONOUS and tmux-shaped, so the
- * session verbs in index.ts can branch between hosts without changing their
- * own structure. The async unix-socket protocol is bridged by shelling out to
- * the compiled one-shot entrypoint (native-terminal/op.js), exactly the way
- * tmux.ts shells out to the `tmux` binary. The native host process itself is
+ * Most verbs are synchronous and tmux-shaped, bridging the socket protocol
+ * through native-terminal/op.js. The async run action uses that same operation
+ * in-process for its name proof and single-shot launch, avoiding repeated Node
+ * bootstrap during concurrent restores. The native host process itself is
  * the long-lived "server" (the tmux-server twin): it is spawned on first use,
  * survives CLI exits, and owns every PTY.
  *
@@ -166,6 +165,37 @@ function runOp(
   return { status, payload };
 }
 
+/** The async run path already loaded these modules for its name proof. Keep
+ * the one-shot operation's 15 s deadline without bootstrapping another Node.
+ * An abort closes pending RPCs and is checked before the create request. */
+async function runOpAsync(args: ReadonlyArray<string>, onCreateAttempt?: () => void): Promise<unknown> {
+  const { runNativeTerminalOp, closeAllNativeTerminalOpClients } = await import("./native-terminal/op.js");
+  const controller = new AbortController();
+  const deadline = Date.now() + OP_TIMEOUT_MS;
+  const timer = setTimeout(() => controller.abort(new Error(`native host operation ${args[0]} timed out after ${OP_TIMEOUT_MS}ms`)), OP_TIMEOUT_MS);
+  let payload: unknown;
+  let abort: () => void = () => {};
+  try {
+    const aborted = new Promise<never>((_resolve, reject) => {
+      abort = () => { closeAllNativeTerminalOpClients(); reject(controller.signal.reason); };
+      controller.signal.addEventListener("abort", abort, { once: true });
+    });
+    onCreateAttempt?.();
+    const operation = runNativeTerminalOp([process.execPath, opEntryPath(), ...args], value => { payload = value; }, controller.signal, deadline)
+      .finally(closeAllNativeTerminalOpClients);
+    const status = await Promise.race([operation, aborted]);
+    if (status !== 0) throw new Error(`native host operation ${args[0]} exited ${status}`);
+    return payload;
+  } catch (error) {
+    appendCrashLog("cli", { event: "startupError", reason: `op:${args[0]}`, detail: String(error) });
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    controller.signal.removeEventListener("abort", abort);
+    closeAllNativeTerminalOpClients();
+  }
+}
+
 /** Spawn-or-adopt the per-user host; returns its identity. */
 export function ensureNativeHost(options: { fenced?: boolean } = {}): { hostPid: number; socketPath: string; generation: string; launchFence: boolean } {
   const { payload } = runOp(["ensure-host", ...(options.fenced ? ["--fenced", "true"] : [])]);
@@ -298,6 +328,21 @@ export function nativeSessionState(name: string, socketPath?: string): NativeSta
       reason: error instanceof Error ? error.message : String(error),
     };
   }
+  return decodeNativeStateProbe(result);
+}
+
+/** The run action is already async. Avoid another Node bootstrap for its
+ * name probe while preserving exactly the one-shot probe's identity checks. */
+export async function nativeSessionStateAsync(name: string, ensureHost = false): Promise<NativeStateProbe> {
+  try {
+    const { probeNativeSession } = await import("./native-terminal/op.js");
+    return decodeNativeStateProbe({ status: 0, payload: await probeNativeSession(name, undefined, ensureHost) });
+  } catch (error) {
+    return { state: "unknown", reason: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+function decodeNativeStateProbe(result: { status: number | null; payload: unknown }): NativeStateProbe {
   const record = result.payload as
     | { verdict?: string; state?: NativeSessionState; reason?: string; code?: string; sockets?: string[] }
     | undefined;
@@ -434,6 +479,130 @@ export function startNativeSession(
       throw new Error(`native host did not return a session state for ${slug}`);
     }
     return { name, slug, pid: state.pid };
+  } finally {
+    rmSync(envDir, { recursive: true, force: true });
+  }
+}
+
+export type NativeSingleShotResult = NativeStartResult & {
+  readonly socketPath: string;
+  readonly generation: string;
+  readonly workerPid?: number | undefined;
+};
+
+/**
+ * Single-shot path for `run` (fresh/resume): ONE in-process `launch`
+ * invocation shares one async client and one inventory for ensure-host +
+ * admit + probe + create, and returns pid/identity so callers skip their
+ * re-probes. Admission stays atomic under the host lock: a
+ * `native-name-collision` or `native-inventory-unknown` payload throws the
+ * same certified refusal as the multi-fork path (no check removed without
+ * an atomic equivalent). With `beforeCreate`, one fenced `ensure-host`
+ * precedes the launch so the launch-guard ownership (generation +
+ * incarnation) is still recorded before creation. That fenced preparation
+ * keeps its existing helper; the launch itself stays in-process.
+ */
+export async function startNativeSessionSingleShot(
+  profile: string,
+  command: string,
+  cwd: string,
+  args: ReadonlyArray<string> = [],
+  label?: string,
+  metadata: NativeLaunchMetadata = {},
+): Promise<NativeSingleShotResult> {
+  const slug = slugify(label ?? cwd);
+  const name = localSessionName(slug);
+  const agentCommand = metadata.terminateOnAgentExit
+    ? ["/bin/bash", "-lc", STRUCTURED_LOCAL_WRAPPER, command, ...args]
+    : [
+        "/bin/bash",
+        "-lc",
+        LOCAL_WRAPPER,
+        localRelaunchCommand(
+          profile,
+          cwd,
+          label,
+          metadata.resumeId ? ["--resume", metadata.resumeId] : [],
+        ),
+        command,
+        ...args,
+      ];
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(metadata.seat?.childEnv ?? process.env)) {
+    if (value !== undefined) env[key] = value;
+  }
+  env["TERM"] = "xterm-256color";
+  env["H2A_NATIVE_TERMINAL"] = "1";
+  if (metadata.sessionClass !== undefined) {
+    env[SESSION_CLASS_ENV] = metadata.sessionClass;
+  }
+  const envDir = mkdtempSync(join(tmpdir(), "h2a-native-env-"));
+  const envFile = join(envDir, "env.json");
+  try {
+    writeFileSync(envFile, JSON.stringify(env), { mode: 0o600, flag: "wx" });
+    // Fenced path (launch-guard): pin generation first so `beforeCreate`
+    // still records ownership before the creation it guards.
+    let fencedArgs: string[] = [];
+    if (metadata.beforeCreate) {
+      const selected = ensureNativeHost({ fenced: true });
+      const { generation, launchFence, hostPid, socketPath } = selected;
+      if (!launchFence) throw new NativeHostCapabilityMismatchError({ generation, hostPid, socketPath });
+      const incarnation = randomUUID();
+      metadata.beforeCreate({ name, generation, incarnation, socketPath });
+      fencedArgs = ["--socket", socketPath, "--generation", generation, "--incarnation", incarnation,
+        "--sidecar", nativeSidecarName(name)];
+    }
+    // Always fenced, like the synchronous path (no silent downgrade).
+    const payload = await runOpAsync([
+      "launch",
+      ...fencedArgs,
+      ...(!metadata.beforeCreate ? ["--sidecar", nativeSidecarName(name)] : []),
+      ...(metadata.refuseExisting ? ["--refuse-existing", "true"] : []),
+      "--fenced", "true",
+      "--id",
+      name,
+      "--cwd",
+      cwd,
+      "--cols",
+      String(HEADLESS_TERMINAL_SIZE.cols),
+      "--rows",
+      String(HEADLESS_TERMINAL_SIZE.rows),
+      "--env-file",
+      envFile,
+      "--",
+      ...agentCommand,
+    ], metadata.onCreateAttempt);
+    const record = payload as (NativeSessionState & { code?: string; id?: string;
+      socketPath?: string; hostPid?: number; generation?: string;
+      launchFence?: boolean; adopted?: boolean; reason?: string; hosts?: unknown } | undefined);
+    if (!record || typeof record.pid !== "number") {
+      if (record?.code === "native-host-capability-mismatch") {
+        const host = { generation: typeof record.generation === "string" ? record.generation : "",
+          hostPid: typeof record.hostPid === "number" ? record.hostPid : 0,
+          socketPath: record.socketPath ?? "" };
+        appendCrashLog("cli", { event: "refusal", sessionId: name, instanceId: host.generation,
+          reason: "native-host-capability-mismatch", detail: host.socketPath });
+        throw new NativeHostCapabilityMismatchError(host);
+      }
+      if (record?.code === "native-name-collision") {
+        if (metadata.beforeCreate) throw new NativeLaunchAdmissionError({ code: "native-name-collision",
+          id: record.id ?? name, ...(record.socketPath ? { socketPath: record.socketPath } : {}) });
+        throw new Error(`native session ${slug} already exists; no agent was started`);
+      }
+      if (record?.code === "native-inventory-unknown") {
+        appendCrashLog("cli", { event: "refusal", sessionId: name, reason: "native-inventory-unknown",
+          detail: "launch refused before creation" });
+        throw new NativeLaunchAdmissionError({ code: "native-inventory-unknown",
+          ...(record.socketPath ? { socketPath: record.socketPath } : {}), hosts: record.hosts });
+      }
+      throw new Error(`native host did not return a session state for ${slug}`);
+    }
+    const socketPath = record.socketPath ?? "";
+    const generation = typeof (record as { generation?: unknown }).generation === "string"
+      ? (record as { generation: string }).generation : "";
+    let workerPid: number | undefined;
+    try { workerPid = readWorkerPid(record.pid, procReaderDeps(record.pid)); } catch { workerPid = undefined; }
+    return { name, slug, pid: record.pid, socketPath, generation, ...(workerPid !== undefined ? { workerPid } : {}) };
   } finally {
     rmSync(envDir, { recursive: true, force: true });
   }
