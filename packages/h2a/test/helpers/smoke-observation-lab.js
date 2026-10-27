@@ -32,7 +32,6 @@ export async function observeSmoke(source, scriptPath, options = {}) {
   let resolvedManifest
   let resolvedTrackManifest
   let resolvedFocusManifest
-  let resolvedH2aEntry
   let resolvedNestedFocusManifest = null
   let polls = 0
   const fakeProcess = { ...process, argv: ['node', scriptPath, ...(options.prebuilt ? ['--tarballs', prebuilt] : [])], execPath: process.execPath,
@@ -67,8 +66,6 @@ export async function observeSmoke(source, scriptPath, options = {}) {
       const h2aDir = join(prefix, 'node_modules/@sentropic/h2a')
       fs.mkdirSync(join(h2aDir, 'dist'), { recursive: true })
       fs.writeFileSync(join(h2aDir, 'package.json'), JSON.stringify({ name: '@sentropic/h2a', version: pinned }))
-      resolvedH2aEntry = join(h2aDir, 'dist', 'index.js')
-      fs.writeFileSync(resolvedH2aEntry, '')
       if (options.nestedFocusVersion) {
         const nestedDir = join(h2aDir, 'node_modules/@sentropic/focus')
         fs.mkdirSync(nestedDir, { recursive: true })
@@ -80,22 +77,11 @@ export async function observeSmoke(source, scriptPath, options = {}) {
       // through h2a's package directory lands on the nested copy when npm
       // put one there, exactly as the production createRequire call does.
       const query = args[1] ?? ''
-      // The h2a-anchored focus probe resolves the entry, then focus through a
-      // require anchored at that entry: emulate both halves in one answer.
+      // The h2a-anchored focus probe resolves focus through a require
+      // anchored at the installed h2a manifest: emulate Node and land on the
+      // nested copy when npm put one there, the shared candidate otherwise.
       if (query.includes('createRequire') && query.includes('@sentropic/focus')) {
-        return {
-          status: 0,
-          stdout: JSON.stringify({
-            entry: resolvedH2aEntry,
-            focus: resolvedNestedFocusManifest ?? resolvedFocusManifest,
-          }),
-          stderr: '',
-        }
-      }
-      // The bare '@sentropic/h2a' entry query must not catch the
-      // '@sentropic/h2a-runtime/…' query (substring): quote-anchored match.
-      if (query.includes("'@sentropic/h2a'") || query.includes('"@sentropic/h2a"')) {
-        return { status: 0, stdout: resolvedH2aEntry, stderr: '' }
+        return { status: 0, stdout: resolvedNestedFocusManifest ?? resolvedFocusManifest, stderr: '' }
       }
       const target = query.includes('@sentropic/track') ? resolvedTrackManifest : resolvedManifest
       return { status: 0, stdout: target, stderr: '' }

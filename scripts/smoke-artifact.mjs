@@ -185,24 +185,26 @@ try {
   // nested copy. Without this, the prefix install falls back to the
   // registry for focus — and verify runs BEFORE publish, so an unpublished
   // focus X.Y.Z is never there yet (ETARGET on every focus release).
-  // One Node probe does both resolutions: the h2a entry as the prefix
-  // install lays it out, then focus through a require anchored at that
-  // entry — exactly what h2a's own code loads. (createRequire takes the
-  // entry file and uses its package scope, so no path arithmetic here.)
-  const probe = runSync(
+  // The installed h2a is the tarball the smoke just laid out at the top
+  // level of the prefix (explicit tarball installs always land there), so
+  // its manifest path is where npm put the candidate — never the registry,
+  // never the workspace. Focus is then resolved THROUGH a require anchored
+  // at that manifest — exactly what h2a's own code loads. (The h2a entry
+  // itself is not resolved: its "." export carries no "require" condition,
+  // so require.resolve('@sentropic/h2a') cannot see it — the manifest file
+  // needs no export map at all.)
+  const h2aPackageJson = join(prefix, 'node_modules', '@sentropic', 'h2a', 'package.json')
+  if (!existsSync(h2aPackageJson)) {
+    fail(`installed @sentropic/h2a is missing its manifest at ${h2aPackageJson}: the candidate tarball was not installed`)
+  }
+  const resolvedFocus = runSync(
     process.execPath,
     [
       '-p',
-      `const entry = require.resolve('@sentropic/h2a');` +
-        `const focus = require('node:module').createRequire(entry).resolve('@sentropic/focus/package.json');` +
-        `JSON.stringify({ entry, focus })`,
+      `require('node:module').createRequire(${JSON.stringify(resolve(h2aPackageJson))}).resolve('@sentropic/focus/package.json')`,
     ],
     { cwd: prefix },
   ).trim()
-  const { entry: resolvedH2aEntry, focus: resolvedFocus } = JSON.parse(probe)
-  if (!resolve(resolvedH2aEntry).startsWith(prefix + '/')) {
-    fail(`@sentropic/h2a resolved OUTSIDE the candidate prefix: ${resolvedH2aEntry}`)
-  }
   if (!resolve(resolvedFocus).startsWith(prefix + '/')) {
     fail(`@sentropic/focus resolved from the installed h2a is OUTSIDE the candidate prefix: ${resolvedFocus}`)
   }
