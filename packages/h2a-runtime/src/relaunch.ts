@@ -465,6 +465,17 @@ export function resumeCommandFor(
   return resumeLaunchFor(profile, convId)?.display;
 }
 
+/**
+ * Scrub h2a routing vars for a command retyped into an EXISTING shell.
+ * In-situ relaunch never recreates the pane, so the shell may still carry a
+ * stale gateway environment from its original launch: prefixing `env -u`
+ * gives the retyped CLI a direct environment without touching the shell
+ * itself. A user-owned ANTHROPIC_API_KEY is untouched (only routing vars).
+ */
+export function scrubbedRetypeCommand(cmd: string): string {
+  return `env -u ANTHROPIC_BASE_URL -u ANTHROPIC_AUTH_TOKEN ${cmd}`;
+}
+
 export type RelaunchCandidate = {
   /** short name, e.g. `sentropic#2` */
   slug: string;

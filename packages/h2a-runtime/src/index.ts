@@ -194,6 +194,7 @@ import {
   isRelaunchKillable,
   planRelaunch,
   relaunchContinuationPrompt,
+  scrubbedRetypeCommand,
   tryAcquireResumeLaunchClaim,
   wakeRelaunchedSession,
 } from "./relaunch.js";
@@ -575,6 +576,12 @@ type ProfileOpts = {
   browser?: boolean;
   /** Override the session-agent container image (fully-qualified registry ref). */
   agentImage?: string;
+  /** Explicit remote gateway opt-in (--llm-gateway/--gw). Only `true` is
+   * transmitted; direct is the default and needs no flag. */
+  llmGateway?: boolean;
+  gw?: boolean;
+  noLlmGateway?: boolean;
+  noGw?: boolean;
 };
 
 type ProfileCliOpts = ProfileOpts & {
@@ -635,6 +642,7 @@ async function startRemoteFanout(
     target: ProfileOpts["target"];
     startupArgs: readonly string[];
     credentials?: Readonly<Record<string, string>>;
+    llmGateway?: boolean;
   },
 ): Promise<void> {
   const target = spec.target ?? getDefaultTarget();
@@ -658,6 +666,7 @@ async function startRemoteFanout(
           ? { startupArgs: spec.startupArgs }
           : {}),
         ...(spec.credentials ? { credentials: spec.credentials } : {}),
+        ...(spec.llmGateway === true ? { llmGateway: true } : {}),
       });
       return { name: member.name, sessionId: session.id, workspaceId: ws.id };
     },
@@ -743,6 +752,22 @@ async function runProfile(
         `profile "${profileName}" has no verified resume argv; start it without -r/--resume`,
       );
     }
+    // Remote sessions are direct unless the gateway is explicitly asked for.
+    // Only an explicit --gw/--llm-gateway transmits the opt-in; the server
+    // ignores a globally configured gateway URL without it.
+    let remoteGatewayMode: "auto" | "gateway" | "direct";
+    try {
+      remoteGatewayMode = gatewayModeFromOptions(opts);
+    } catch (error) {
+      throw new Error(`[h2a] ${(error as Error).message}.`);
+    }
+    if (remoteGatewayMode === "gateway" && !profileUsesLlmMeshGateway(profileName)) {
+      throw new Error(
+        `[h2a] --llm-gateway/--gw is unsupported for ${profileName}; this gateway is Anthropic-compatible and only Claude profiles consume it.`,
+      );
+    }
+    const remoteGatewayChoice =
+      remoteGatewayMode === "gateway" ? { llmGateway: true as const } : {};
     const startupArgs = [...resumeArgs, ...commandArgs];
 
     // WP6 — REMOTE fan-out: --count N spawns N concurrent remote sessions, each
@@ -779,6 +804,7 @@ async function runProfile(
         target: opts.target,
         startupArgs,
         ...(credentials ? { credentials } : {}),
+        ...remoteGatewayChoice,
       });
       return;
     }
@@ -802,6 +828,7 @@ async function runProfile(
       ...(opts.workspaceId ? { workspaceId: opts.workspaceId } : {}),
       ...(opts.browser ? { metadata: { browser: true } } : {}),
       ...(opts.agentImage ? { agentImage: opts.agentImage } : {}),
+      ...remoteGatewayChoice,
     });
     if (archive) {
       await uploadWorkspaceArchive(opts.remote, session.id, archive);
@@ -3003,6 +3030,13 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         "--image <ref>",
         "override the session-agent container image (fully-qualified registry ref, e.g. rg.fr-par.scw.cloud/sentropic-geo/geo-acquisition:0.1.0)",
       )
+      .option(
+        "--llm-gateway",
+        "route this remote session through the llm-mesh gateway (explicit opt-in; default is direct)",
+      )
+      .option("--gw", "alias for --llm-gateway")
+      .option("--no-llm-gateway", "run this remote session without llm-mesh gateway env")
+      .option("--no-gw", "alias for --no-llm-gateway")
       .action(
         async (commandArgs: string[] | undefined, opts: ProfileCliOpts) => {
           const { remote: remoteOverride, local, workspace, ...rest } = opts;
@@ -9310,15 +9344,46 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       if (!forced) {
         let ok = 0;
         for (const action of plan.actions) {
-          const sessionId = entryByTmuxSession.get(action.name)?.id;
+          // The pane is NOT recreated, so apply the routing policy to the
+          // retyped command itself: resolve the session's consent, scrub the
+          // routing vars for a direct resume (the idle shell may still carry
+          // a stale gateway env), and keep the plain command only for a
+          // proven gateway choice (the pane already carries it).
+          const retypeEntry = entryByTmuxSession.get(action.name);
+          const retypeMode = resolveResumedGatewayMode(
+            action.profile, "auto", retypeEntry?.gatewayMode, retypeEntry?.gatewayProvenance,
+          );
+          let retypeCmd = action.cmd;
+          if (retypeMode === "gateway") {
+            // Validate the explicit choice before retyping: fail closed when
+            // the gateway is unavailable instead of typing a doomed command.
+            // Restored right away — the pane keeps its own provisioned env.
+            const restoreRetypeEnv = replaceAnthropicGatewayEnvironment(
+              process.env,
+              captureAnthropicGatewayEnvironment(),
+            );
+            try {
+              await injectLlmMeshGatewayEnv("gateway", false, localSessionName(action.slug));
+            } catch (error) {
+              process.stderr.write(
+                `[h2a] FAILED to relaunch ${action.slug}: ${(error as Error).message}\n`,
+              );
+              continue;
+            } finally {
+              restoreRetypeEnv();
+            }
+          } else {
+            retypeCmd = scrubbedRetypeCommand(action.cmd);
+          }
+          const sessionId = retypeEntry?.id;
           const relaunched =
             sessionId !== undefined
               ? relaunchSessionWithLease({
                   sessionId,
                   tmuxSession: action.name,
-                  command: action.cmd,
+                  command: retypeCmd,
                 })
-              : relaunchInSession(action.name, action.cmd);
+              : relaunchInSession(action.name, retypeCmd);
           if (relaunched) {
             ok += 1;
             process.stderr.write(`[h2a] relaunched ${action.slug}: ${action.cmd}\n`);
@@ -9414,6 +9479,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         finalReady.push(item);
       }
 
+      // Isolate the routing env per session: a gateway relaunch deletes the
+      // native ANTHROPIC_API_KEY from the shared process env, so without a
+      // per-iteration restore the next (direct) session would lose native
+      // auth. Every iteration starts from the loop-entry environment.
+      const loopEntryGatewayEnv = captureAnthropicGatewayEnvironment();
       let ok = 0;
       for (const { action, entry, sessionClass } of finalReady) {
         const safety = sessionRelaunchSafety(action.name);
@@ -9450,6 +9520,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           );
           continue;
         }
+        const restoreLoopEnv = replaceAnthropicGatewayEnvironment(
+          process.env,
+          loopEntryGatewayEnv,
+        );
         try {
           const gatewayMode = resolveResumedGatewayMode(
             action.profile, "auto", entry.gatewayMode, entry.gatewayProvenance,
@@ -9528,6 +9602,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           process.stderr.write(
             `[h2a] FAILED to force-restart ${action.slug} after killing ${action.name}: ${(error as Error).message}\n`,
           );
+        } finally {
+          restoreLoopEnv();
         }
       }
       process.stderr.write(

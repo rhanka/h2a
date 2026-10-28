@@ -1315,9 +1315,20 @@ function applyEnroll(
   if (model !== undefined) entry.model = model;
   const effort = input.effort ?? prev?.effort;
   if (effort !== undefined) entry.effort = effort;
-  const gatewayMode = input.gatewayMode ?? prev?.gatewayMode;
+  // Consent is bound to the restored conversation identity: when the caller
+  // names a DIFFERENT conversation than the stored row, a previous gateway pin
+  // must not carry over — an auto launch stays unpinned so a later resume of
+  // the new conversation follows the live default (direct). An explicitly
+  // provided pin still wins; an unchanged identity still inherits.
+  const conversationChanged =
+    input.convId !== undefined && input.convId !== prev?.convId;
+  const gatewayMode = conversationChanged
+    ? input.gatewayMode
+    : (input.gatewayMode ?? prev?.gatewayMode);
   if (gatewayMode !== undefined) entry.gatewayMode = gatewayMode;
-  const gatewayProvenance = input.gatewayProvenance ?? prev?.gatewayProvenance;
+  const gatewayProvenance = conversationChanged
+    ? input.gatewayProvenance
+    : (input.gatewayProvenance ?? prev?.gatewayProvenance);
   if (gatewayProvenance !== undefined) entry.gatewayProvenance = gatewayProvenance;
   const bare = input.bare ?? prev?.bare;
   if (bare !== undefined) entry.bare = bare;

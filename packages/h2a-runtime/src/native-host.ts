@@ -30,6 +30,7 @@ import {
   localSessionName,
   procReaderDeps,
   slugify,
+  stampDirectRoutingScrub,
   createStructuredReadinessChallenge,
   cleanupStructuredReadinessChallenge,
   probeStructuredReadiness,
@@ -446,6 +447,10 @@ export function startNativeSession(
   env["TERM"] = "xterm-256color";
   // The launch runtime may still be connected to an older protocol-v1 host.
   env["H2A_NATIVE_TERMINAL"] = "1";
+  // Direct launches carry the wrapper scrub sentinel so a login/init script
+  // cannot reintroduce routing vars before the CLI exec (tmux twin:
+  // tmuxEnvironmentArgs stamps the same sentinel via -e).
+  stampDirectRoutingScrub(env);
   if (metadata.sessionClass !== undefined) {
     env[SESSION_CLASS_ENV] = metadata.sessionClass;
   }
@@ -533,6 +538,8 @@ export async function startNativeSessionSingleShot(
   }
   env["TERM"] = "xterm-256color";
   env["H2A_NATIVE_TERMINAL"] = "1";
+  // Same last-point scrub sentinel as the interactive native path.
+  stampDirectRoutingScrub(env);
   if (metadata.sessionClass !== undefined) {
     env[SESSION_CLASS_ENV] = metadata.sessionClass;
   }
@@ -796,6 +803,8 @@ export function startNativeHeadlessSession(
     if (value !== undefined) env[key] = value;
   }
   env["TERM"] = "xterm-256color";
+  // Same last-point scrub sentinel as the interactive native path.
+  stampDirectRoutingScrub(env);
   if (sessionClass !== undefined) env[SESSION_CLASS_ENV] = sessionClass;
   const envDir = mkdtempSync(join(tmpdir(), "h2a-native-env-"));
   const envFile = join(envDir, "env.json");
