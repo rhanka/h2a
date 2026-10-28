@@ -255,6 +255,12 @@ export type RegistryEntry = {
    */
   gatewayMode?: "gateway" | "direct";
   /**
+   * Provenance of the gateway pin: "explicit" when the pin came from an
+   * explicit operator choice. Legacy rows have no provenance and must not
+   * authorize a gateway on their own (they resolve to direct).
+   */
+  gatewayProvenance?: "explicit";
+  /**
    * Pinned Claude `--bare` choice, captured at launch. `--bare` strips Claude's
    * native tool surface (see `resolveClaudeBare`); it is re-emitted verbatim by
    * resume and `remote restore` so a restored session keeps the posture it was
@@ -300,6 +306,8 @@ export type EnrollInput = {
   model?: string;
   effort?: string;
   gatewayMode?: "gateway" | "direct";
+  /** Provenance of the gateway pin ("explicit" only; legacy rows omit it). */
+  gatewayProvenance?: "explicit";
   /** Pinned Claude `--bare` choice (see RegistryEntry.bare). */
   bare?: boolean;
   /** Explicit override for restore pinning (internal only). */
@@ -1309,6 +1317,8 @@ function applyEnroll(
   if (effort !== undefined) entry.effort = effort;
   const gatewayMode = input.gatewayMode ?? prev?.gatewayMode;
   if (gatewayMode !== undefined) entry.gatewayMode = gatewayMode;
+  const gatewayProvenance = input.gatewayProvenance ?? prev?.gatewayProvenance;
+  if (gatewayProvenance !== undefined) entry.gatewayProvenance = gatewayProvenance;
   const bare = input.bare ?? prev?.bare;
   if (bare !== undefined) entry.bare = bare;
   if (input.restorePinned !== undefined) {
@@ -1674,6 +1684,7 @@ export function enrollFromRun(args: {
   cwd: string;
   convId?: string;
   gatewayMode?: "gateway" | "direct";
+  gatewayProvenance?: "explicit";
   bare?: boolean;
   sessionClass: RegistrySessionClass;
   delegationOrigin?: DelegationOrigin;
@@ -1712,6 +1723,9 @@ export function enrollFromRun(args: {
         : {}),
       ...(args.convId !== undefined ? { convId: args.convId } : {}),
       ...(args.gatewayMode !== undefined ? { gatewayMode: args.gatewayMode } : {}),
+      ...(args.gatewayProvenance !== undefined
+        ? { gatewayProvenance: args.gatewayProvenance }
+        : {}),
       ...(args.bare !== undefined ? { bare: args.bare } : {}),
     });
   } catch {

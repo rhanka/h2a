@@ -73,8 +73,16 @@ export function tabCommand(
     return `h2a attach ${q(tab.managedName ?? localSessionName(slug))}`;
   }
   // Effective gateway posture: an explicit `restore --gw/--no-gw` OVERRIDES the
-  // per-instance pin; otherwise honour the pinned gatewayMode (absent = default).
-  const posture = opts.forceGateway ?? tab.gatewayMode;
+  // per-instance pin; otherwise honour a pinned DIRECT posture verbatim (it
+  // can only keep a session off the gateway) and a pinned GATEWAY posture
+  // ONLY when its provenance is explicit. A legacy gateway pin without
+  // provenance resolves to direct, so it never re-emits --gw on its own.
+  const pinned = tab.gatewayMode === "direct"
+    ? "direct"
+    : tab.gatewayProvenance === "explicit"
+      ? tab.gatewayMode
+      : undefined;
+  const posture = opts.forceGateway ?? pinned;
   const gwFlag =
     posture === "gateway" ? " --gw" : posture === "direct" ? " --no-gw" : "";
   // Persisted-host pin — the gatewayMode pattern applied to the terminal

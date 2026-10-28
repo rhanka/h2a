@@ -73,6 +73,8 @@ export type DiscoveredSession = {
   label?: string;
   /** Pinned llm-mesh gateway posture (from an explicit --gw/--no-gw at launch). */
   gatewayMode?: "gateway" | "direct";
+  /** Provenance of the gateway pin ("explicit" only; legacy rows omit it). */
+  gatewayProvenance?: "explicit";
   bare?: boolean;
   /**
    * Persisted local terminal host of a registry-backed session
@@ -121,6 +123,8 @@ export type LayoutTab = {
   origin?: "registry" | "scan";
   /** Pinned llm-mesh gateway posture; re-emitted as --gw/--no-gw on restore. */
   gatewayMode?: "gateway" | "direct";
+  /** Provenance of the gateway pin; only "explicit" pins are re-emitted. */
+  gatewayProvenance?: "explicit";
   bare?: boolean;
   /** Persisted local host; drives the drain view + native replacement pin. */
   hostKind?: "local-tmux" | "local-native";
@@ -633,6 +637,7 @@ export function registrySessions(
     };
     if (e.label !== undefined) session.label = e.label;
     if (e.gatewayMode !== undefined) session.gatewayMode = e.gatewayMode;
+    if (e.gatewayProvenance !== undefined) session.gatewayProvenance = e.gatewayProvenance;
     if (e.bare !== undefined) session.bare = e.bare;
     // WHICH host serves this tab is decided by the ONE symmetric resolver
     // (resolveManagedHost) over this plan's registry read, with the plan's
@@ -875,6 +880,7 @@ export function groupSessions(
       };
       if (s.origin !== undefined) tab.origin = s.origin;
       if (s.gatewayMode !== undefined) tab.gatewayMode = s.gatewayMode;
+      if (s.gatewayProvenance !== undefined) tab.gatewayProvenance = s.gatewayProvenance;
       if (s.bare !== undefined) tab.bare = s.bare;
       if (s.hostKind !== undefined) tab.hostKind = s.hostKind;
       if (s.managedName !== undefined) tab.managedName = s.managedName;

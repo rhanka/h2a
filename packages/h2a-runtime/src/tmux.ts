@@ -333,12 +333,14 @@ export function tmuxEnvironmentArgs(sessionClass?: SessionClass): string[] {
 }
 
 function anthopicEnvUnsetCommandPrefix(): string[] {
-  // tmux sessions inherit the tmux *server* environment too. If remote deliberately
-  // launches direct/default with no Anthropic env in its own process, scrub stale
-  // gateway/API-key variables that an older tmux server may still carry.
-  return ANTHROPIC_ENV_KEYS.some((key) => Boolean(process.env[key]))
-    ? []
-    : ["env", ...ANTHROPIC_ENV_KEYS.flatMap((key) => ["-u", key])];
+  // tmux sessions inherit the tmux *server* environment too. A direct launch
+  // carries no h2a routing vars in its own process, so scrub the routing vars
+  // a stale tmux server may still carry — EVEN when the caller keeps a native
+  // ANTHROPIC_API_KEY (that key is stamped via -e and must survive).
+  if (process.env.ANTHROPIC_BASE_URL ?? process.env.ANTHROPIC_AUTH_TOKEN) return [];
+  const stale: string[] = ["ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN"];
+  if (!process.env.ANTHROPIC_API_KEY) stale.push("ANTHROPIC_API_KEY");
+  return ["env", ...stale.flatMap((key) => ["-u", key])];
 }
 
 function expandHome(p: string): string {

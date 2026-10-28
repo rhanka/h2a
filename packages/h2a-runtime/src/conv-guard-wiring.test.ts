@@ -1348,7 +1348,7 @@ describe("h2a resume <slug>", () => {
       ANTHROPIC_BASE_URL: "http://localhost:3002",
       ANTHROPIC_AUTH_TOKEN: "gw-test",
     });
-    writeRegistry([{ ...registrySession(), gatewayMode: "gateway", bare }]);
+    writeRegistry([{ ...registrySession(), gatewayMode: "gateway", gatewayProvenance: "explicit", bare }]);
     expect(await main(["node", "remote", "resume", "projA"])).toBe(0);
     expect(startLocalSession.mock.calls[0]?.[3]).toEqual([
       ...(bare ? ["--bare"] : []), "--resume", "conv-dup",
@@ -1822,7 +1822,7 @@ describe("h2a run -r <conv> single-writer guard", () => {
       ANTHROPIC_BASE_URL: "http://localhost:3002",
       ANTHROPIC_AUTH_TOKEN: "gw-test",
     });
-    writeRegistry([{ ...registrySession(), cwd: SCRATCH, gatewayMode: "gateway", bare }]);
+    writeRegistry([{ ...registrySession(), cwd: SCRATCH, gatewayMode: "gateway", gatewayProvenance: "explicit", bare }]);
     expect(await main(["node", "remote", "run", "claude", SCRATCH,
       "--name", "resumed", "--resume", "conv-dup", "--no-attach"])).toBe(0);
     expect(startLocalSession.mock.calls[0]?.[3]).toEqual([
