@@ -218,11 +218,13 @@ const GOAL = 'xcli scenario qualification';
 const NOTE = 'xcli scenario note';
 
 // Loop lifecycle: creator (sender) × participant (receiver) ordered role
-// pairs. Marker files serialize the join before the report and the report
-// before done, so done always closes a reported loop.
+// pairs. Publish the successful create before joining: create also enrolls
+// its creator, so a participant must not mutate that in-flight operation.
+// Markers then serialize report before done.
 export function loopScripts() {
   const creator = [
     { tool: 'h2a_loop_create', args: { id: LOOP_ID, goal: GOAL, instance: '$instance' } },
+    { writeFile: 'creator-created' },
     { tool: 'h2a_loop_status', args: { loopId: LOOP_ID } },
     { tool: 'h2a_loop_list', args: {} },
     { waitForFile: 'participant-reported' },
@@ -232,6 +234,7 @@ export function loopScripts() {
     { writeFile: 'creator-done' },
   ];
   const participant = [
+    { waitForFile: 'creator-created' },
     { tool: 'h2a_loop_join', args: { loopId: LOOP_ID, instance: '$instance' }, retryMs: 60000 },
     { tool: 'h2a_loop_report', args: { loopId: LOOP_ID, instance: '$instance', note: NOTE } },
     { tool: 'h2a_loop_status', args: { loopId: LOOP_ID } },
