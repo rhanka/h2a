@@ -212,10 +212,11 @@ and unrelated files on Claude, Codex, Muse, Vibe and Agy. No provider activation
 
 # PR #379 — v3 review round 9 continuation
 
-- Scope: preserve pushed `211d79a5c`; replay the four Astra/Sol findings at reviewed `0add537f5` with RED/GREEN evidence; fix the simulated peer's late MCP teardown observed in CI. No v4 design or main/native-host changes.
+- Scope: preserve pushed `211d79a5c`; replay the four Astra/Sol findings at reviewed `0add537f5` with RED/GREEN evidence; fix the simulated peer's late MCP teardown and the inherited restart lab's detached-writer disposal observed in CI. No v4 design or production native-host changes.
 - Evidence: `docs/reviews/2026-10-28-cross-cli-r9.md`. Campaign/cap tests 20/20, three-replication read-then-pop regression 1/1, wake/receipt/trusted-artifact tests 27/27, lab 12/12, delayed MCP teardown RED 0/1 -> GREEN 1/1. Node 22 polling at 90 s: all nine observations deny wake credit.
 - Private TMPDIR: `/home/antoinefa/.cache-tmp/h2a-test/run-tUYcx9`; reported sibling campaign roots explicitly removed. No Python, installed h2a, real seats, owner state, full local suite or attribution trailer. Namespace upgrade validation stays in CI because local sudo refuses no-new-privileges.
 - No new independent consensus claimed: the installed h2a review route remains forbidden by the owner's confinement. The supplied Astra/Sol reviews are the findings addressed here. Trusted-lane exact-SHA receipts remain conductor-owned and absent.
+- CI follow-up: an EOF-aware shutdown witness still rejects the historical peer. Restart-lab cleanup now confirms every recorded PID/start incarnation dead before removing its proc view; delayed-signal regression RED 0/1 -> GREEN 2/2 on Node 22/24, full targeted incident file 17/17. Four historical wake-review cases leave four roots; current cases leave none. All latency thresholds remain unchanged.
 
 # R10 — native host recovery under concurrent load
 
