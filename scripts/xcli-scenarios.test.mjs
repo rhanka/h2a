@@ -16,7 +16,7 @@ import { parseScenario, expectedScenarioBlocker, classifyScenarioRow, verifyScen
 import fs from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { environment, repo } from './xcli-lab.mjs';
+import { environment, repo, removeReportedCampaignRoot } from './xcli-lab.mjs';
 
 test('L15 review: read-paths data is ready when the peer markers are published', () => {
   const root = fs.mkdtempSync(join(tmpdir(), 'xcli-inventory-review-'));
@@ -35,6 +35,7 @@ test('L15 review: read-paths data is ready when the peer markers are published',
       // another root under env/tmp can exceed the Unix socket path limit.
       env: { ...environment(join(root, 'env')), TMPDIR: tmpdir() }, encoding: 'utf8', timeout: 120000, maxBuffer: 4 * 1024 * 1024,
     });
+    removeReportedCampaignRoot(run.stdout);
     assert.ok(fs.existsSync(output), run.stdout + run.stderr);
     const cell = JSON.parse(fs.readFileSync(output)).cells[0];
     const proof = { inventoryOk: cell.inventoryOk, receiverScriptOk: cell.receiverScriptOk, senderScriptOk: cell.senderScriptOk };
