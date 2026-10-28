@@ -213,6 +213,57 @@ test('L13: loop lifecycle passes only on terminal state witnessed both sides', (
   assert.equal(classifyScenarioRow('loop:join-unknown', { ...twin, twinRefused: false }).ok, false);
 });
 
+test('L13: a participant waits for completed loop creation before mutating its state', () => {
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-loop-creation-'));
+  try {
+    // Widen the real create/enrol and truncate/write intervals in a private
+    // build. Joining before create acknowledges can make its own enrol read
+    // an incomplete participant write; retries then find the existing id.
+    function delayPublication(build) {
+      const handlersPath = join(build, 'packages/h2a/dist/runtime/mcp/handlers.js');
+      const handlers = fs.readFileSync(handlersPath, 'utf8');
+      const enrol = 'const host = loopHostFromPresence(root, args.instance);';
+      assert.ok(handlers.includes(enrol), 'creator enrolment must be instrumented');
+      fs.writeFileSync(handlersPath, handlers.replace(enrol,
+        'Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1200); ' + enrol));
+      const loopsPath = join(build, 'packages/h2a/dist/runtime/loop/index.js');
+      const loops = fs.readFileSync(loopsPath, 'utf8');
+      const write = 'function writeLoopState(root, loop) {';
+      assert.ok(loops.includes(write), 'participant state write must be instrumented');
+      fs.writeFileSync(loopsPath, loops.replace(write, write + `
+if (process.env.H2A_NATIVE_TARGET_SESSION === 'h2a-receiver' && loop.id === 'xcli-loop') {
+  writeFileSync(stateFile(root, loop.id), '', 'utf8');
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2000);
+}`));
+    }
+    const source = fs.readFileSync(join(repo, 'scripts/qualify-cross-cli.mjs'), 'utf8');
+    const marker = 'const built = sourceBuild(root);';
+    assert.ok(source.includes(marker), 'the private build must be instrumented');
+    const worker = join(root, 'qualify.mjs'), output = join(root, 'receipt.json');
+    fs.writeFileSync(worker, source.replace(marker, () => marker + `\n(${delayPublication.toString()})(built.path);`)
+      .replace(/'\.\/([^']+\.mjs)'/g, (_, name) => JSON.stringify(pathToFileURL(join(repo, 'scripts', name)).href)));
+    const run = spawnSync(process.execPath, [worker, '--simulated', '--pair', 'codex:gemini',
+      '--scenario', 'loop:lifecycle', '--timeout-ms', '15000', '--output', output], {
+      env: { ...environment(join(root, 'env')), TMPDIR: tmpdir(),
+        ...(process.env.XCLI_NODE_HEADERS ? { XCLI_NODE_HEADERS: process.env.XCLI_NODE_HEADERS } : {}) },
+      encoding: 'utf8', timeout: 120000, maxBuffer: 4 * 1024 * 1024,
+    });
+    removeReportedCampaignRoot(run.stdout);
+    assert.ok(fs.existsSync(output), run.stdout + run.stderr);
+    const cell = JSON.parse(fs.readFileSync(output, 'utf8')).cells[0];
+    const proof = { senderScriptOk: cell.senderScriptOk, receiverScriptOk: cell.receiverScriptOk, loopTerminal: cell.loopTerminal };
+    console.log(proof);
+    assert.equal(run.status, 2, 'scripted rows claim no wake');
+    assert.deepEqual(proof, { senderScriptOk: true, receiverScriptOk: true, loopTerminal: true });
+    assert.equal(classifyScenarioRow('loop:lifecycle', cell).ok, true);
+    const creates = cell.evidence.filter(e => e.event === 'tool-call' && e.tool === 'h2a_loop_create');
+    const joined = cell.evidence.find(e => e.event === 'tool-call' && e.tool === 'h2a_loop_join' && e.ok);
+    assert.equal(creates.length, 1, 'the create must succeed without a duplicate-id retry');
+    assert.equal(creates[0].ok, true);
+    assert.ok(joined.at >= creates[0].at, 'participant mutation follows the successful create response');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 test('L15: every inventory group builds valid two-sided scripts', () => {
   for (const group of INVENTORY_GROUPS) {
     const { receiver, sender } = inventoryScripts(group);
