@@ -36,6 +36,8 @@ function prepare() {
   const smokePath = 'scripts/smoke-artifact.mjs'
   const smoke = readFileSync(smokePath, 'utf8'), pin = `const PINNED_RUNTIME_VERSION = '${base}'`
   if (smoke.split(pin).length !== 2) throw new Error('smoke pin must match the release train exactly once')
+  const focusPin = `const PINNED_FOCUS_VERSION = '${focusBase}'`
+  if (smoke.split(focusPin).length !== 2) throw new Error('smoke focus pin must match the focus train exactly once')
   if (focus.version !== focusBase) throw new Error('focus must keep its stable version in the source checkout')
   if (rc) {
     for (const name of [...names, 'focus']) {
@@ -46,7 +48,7 @@ function prepare() {
       }
       writeFileSync(path, JSON.stringify(manifest, null, 2) + '\n')
     }
-    writeFileSync(smokePath, smoke.replace(pin, `const PINNED_RUNTIME_VERSION = '${version}'`))
+    writeFileSync(smokePath, smoke.replace(pin, `const PINNED_RUNTIME_VERSION = '${version}'`).replace(focusPin, `const PINNED_FOCUS_VERSION = '${packages['@sentropic/focus']}'`))
   }
   appendFileSync(process.env.GITHUB_ENV, `RELEASE_VERSION=${version}\nRELEASE_TAG=${tag}\nFOCUS_RELEASE_VERSION=${packages['@sentropic/focus']}\n`)
   console.log(`Prepared ${version}; registry tag: ${rc ? 'next' : 'latest/backfill'}`)
