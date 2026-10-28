@@ -795,6 +795,49 @@ describe("startLocalSession agent pane metadata", () => {
     ]);
   });
 
+  it("scrubs stale gateway routing vars from the tmux server even with a native API key", () => {
+    delete process.env.ANTHROPIC_BASE_URL;
+    delete process.env.ANTHROPIC_AUTH_TOKEN;
+    process.env.ANTHROPIC_API_KEY = "user-native-key";
+    try {
+      spawnSyncMock.mockImplementation((cmd: string, args: string[]) => {
+        if (cmd === "tmux" && args[0] === "-V") return { status: 0 };
+        if (cmd === "tmux" && args[0] === "list-sessions")
+          return { status: 1, stdout: "" };
+        if (cmd === "tmux" && args[0] === "new-session") return { status: 0 };
+        return { status: 0, stdout: "" };
+      });
+
+      startLocalSession(
+        "claude",
+        "claude",
+        "/home/u/src/impots2025",
+        [],
+        "Impots",
+      );
+
+      const newSession = tmuxCalls("new-session")[0]![1] as string[];
+      const envIndex = newSession.indexOf("env");
+      expect(envIndex).toBeGreaterThan(-1);
+      // The tmux server may still carry a stale gateway: scrub routing vars.
+      expect(newSession.slice(envIndex, envIndex + 5)).toEqual([
+        "env",
+        "-u",
+        "ANTHROPIC_BASE_URL",
+        "-u",
+        "ANTHROPIC_AUTH_TOKEN",
+      ]);
+      // Native auth is preserved and stamped, never scrubbed.
+      expect(newSession).toContain("ANTHROPIC_API_KEY=user-native-key");
+      const unsetsApiKey = newSession.some(
+        (arg, i) => arg === "-u" && newSession[i + 1] === "ANTHROPIC_API_KEY",
+      );
+      expect(unsetsApiKey).toBe(false);
+    } finally {
+      delete process.env.ANTHROPIC_API_KEY;
+    }
+  });
+
   it("stores the agent pane on the tmux session after creation", () => {
     spawnSyncMock.mockImplementation((cmd: string, args: string[]) => {
       if (cmd === "tmux" && args[0] === "-V") return { status: 0 };
