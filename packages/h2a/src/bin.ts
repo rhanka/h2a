@@ -106,15 +106,15 @@ const { createMcpTrace, setActiveMcpTrace } = (__ptMod ?? {}) as unknown as Phas
 // verb and relays stdio/exit byte-for-byte. First-word native (never
 // dispatched), hidden from the contract and `--help`. Light dynamic import:
 // never the heavy CLI monolith (__needsNativeHandlers stays false for this
-// argv because shouldDispatchRuntime answers true for it).
+// argv because it is a native first word). Runtime verbs leave through the
+// single fallback dispatch at the end of this chain — no early dispatch here,
+// so no native or version branch can ever be shadowed (0.98.7-rc.7).
 if (argv[0] === "__operator-break") {
   const { runIdentityOperatorBreak } = await import("./identity-operator-break.js");
   process.exitCode = runIdentityOperatorBreak(argv.slice(1), {
     stdout: process.stdout,
     stderr: process.stderr,
   });
-} else if (shouldDispatchRuntime(argv)) {
-  runAsync(`runtime:${argv[0]}`, dispatchRuntime());
 } else if (argv[0] === "--version" || argv[0] === "-v" || argv[0] === "version") {
   process.stdout.write(`${readOwnVersion()}\n`);
   process.exitCode = 0;
