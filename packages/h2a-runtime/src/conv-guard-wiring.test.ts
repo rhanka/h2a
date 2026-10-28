@@ -238,13 +238,17 @@ vi.mock("./migrate.js", () => ({
 }));
 
 vi.mock("./gateway-host/config-file.js", () => ({ readLlmMeshConfig, writeLlmMeshConfig: vi.fn() }));
-vi.mock("./gateway-host/daemon.js", () => ({
-  startGateway,
-  stopGateway: vi.fn(),
-  readGatewayPid,
-  llmMeshLogPath: vi.fn(() => "llm-mesh.log"),
-  acquireLlmMeshSessionEnv,
-}));
+vi.mock("./gateway-host/daemon.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./gateway-host/daemon.js")>();
+  return {
+    ...actual,
+    startGateway,
+    stopGateway: vi.fn(),
+    readGatewayPid,
+    llmMeshLogPath: vi.fn(() => "llm-mesh.log"),
+    acquireLlmMeshSessionEnv,
+  };
+});
 
 // Controls how a BARE `migrate forward -r` resolves "the most recent local
 // conversation" for the guard — the real localConvStat reads the runner's

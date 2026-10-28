@@ -160,6 +160,22 @@ describe("softRefreshSession unchanged-creds gating", () => {
     expect(scripts).not.toContain(BUNDLE[".codex/auth.json"]);
   });
 
+  it("respawn script scrubs routing vars unless the pod explicitly runs the gateway (round-2 P2)", async () => {
+    mockPod("stale-hash");
+
+    const result = await softRefreshSession("sess-1", "codex", {
+      stderr: fakeStderr() as unknown as NodeJS.WriteStream,
+    });
+
+    expect(result.respawned).toBe(true);
+    const relaunch = execScripts().find((s) => s.includes(".remote-relaunch.sh"));
+    expect(relaunch).toContain("codex resume");
+    // Last-point purge for the respawned CLI: drop routing vars the Pod may
+    // still carry, unless the pod was explicitly provisioned for the gateway.
+    expect(relaunch).toContain("unset ANTHROPIC_BASE_URL");
+    expect(relaunch).toContain("H2A_GATEWAY_MODE");
+  });
+
   it("without skipIfUnchanged (explicit one-shot): always pushes + respawns, never reads the Pod hash", async () => {
     // Pod already holds the CURRENT hash — a plain `refresh <id> --soft` must
     // still relaunch (the user explicitly asked, e.g. the CLI is logged out).

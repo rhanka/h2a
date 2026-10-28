@@ -147,6 +147,25 @@ describe("session JSON Schemas", () => {
     ).toBe(true);
   });
 
+  it("accepts an explicit llmGateway opt-in on the create request (round-2 P2)", () => {
+    const validate = ajv.compile(createSessionRequestSchema);
+    expect(
+      validate({ profile: "claude", target: "k3s", llmGateway: true }),
+    ).toBe(true);
+    expect(
+      validate({ profile: "claude", target: "k3s", llmGateway: false }),
+    ).toBe(true);
+    expect(
+      validate({ profile: "claude", target: "k3s", llmGateway: "yes" }),
+    ).toBe(false);
+  });
+
+  it("accepts an explicit llmGateway choice on the session descriptor (round-2 P2)", () => {
+    const validate = ajv.compile(sessionDescriptorSchema);
+    expect(validate({ ...minimalSession, llmGateway: true })).toBe(true);
+    expect(validate({ ...minimalSession, llmGateway: "yes" })).toBe(false);
+  });
+
   it("validates refresh session credentials request and response payloads", () => {
     expect(
       ajv.compile(refreshSessionCredentialsRequestSchema)({

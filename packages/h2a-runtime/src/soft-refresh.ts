@@ -420,6 +420,12 @@ function respawnPane(
     `#!/bin/bash`,
     `export LANG=C.UTF-8 LC_ALL=C.UTF-8`,
     `cd "$WORKSPACE_PATH" 2>/dev/null || true`,
+    // Last-point routing purge for the respawned CLI: drop routing vars the
+    // pod may still carry, unless the pod was explicitly provisioned for the
+    // gateway (H2A_GATEWAY_MODE is stamped by the pod spec). A gw-*-prefixed
+    // API key is a stale gateway bearer; any other API key (e.g. from the
+    // user's own secrets) is preserved.
+    `if [ "\${H2A_GATEWAY_MODE:-direct}" != "gateway" ]; then unset ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN; case "\${ANTHROPIC_API_KEY:-}" in gw-*) unset ANTHROPIC_API_KEY;; esac; fi`,
     resume,
     `printf '\\n[h2a] %s exited — shell.\\n' "$0"`,
     `exec bash -l`,
