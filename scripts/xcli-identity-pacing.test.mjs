@@ -24,7 +24,13 @@ export const createReplayGuard = () => ({});
 `);
   fs.copyFileSync(join(repo, 'packages/h2a/test/helpers/identity-readiness.js'),
     join(build, 'packages/h2a/test/helpers/identity-readiness.js'));
+  const stopped = join(root, 'server-stopped');
   fs.writeFileSync(server, `import {createInterface} from 'node:readline';
+import fs from 'node:fs';
+process.on('SIGTERM', () => setTimeout(() => {
+ fs.writeFileSync(${JSON.stringify(stopped)}, 'stopped');
+ process.exit(0);
+}, 200));
 const started = Date.now();
 for await (const line of createInterface({input:process.stdin})) {
  const m=JSON.parse(line); if(m.id===undefined)continue;
@@ -61,6 +67,14 @@ for await (const line of createInterface({input:process.stdin})) {
   } finally {
     if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
     await closed;
+    const serverStopped = fs.existsSync(stopped);
+    // Let the RED implementation's owned descendant finish before removing
+    // the fixture too; its late witness write is the CI ENOTEMPTY race.
+    const until = Date.now() + 5000;
+    while (!fs.existsSync(stopped) && Date.now() < until) {
+      await new Promise(resolve => setTimeout(resolve, 25));
+    }
     fs.rmSync(root, { recursive: true, force: true });
+    assert.equal(serverStopped, true, 'the peer must await its MCP server before reporting close');
   }
 });
