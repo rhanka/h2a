@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir, userInfo } from "node:os";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
@@ -71,7 +71,15 @@ test("should refuse unsafe child environments before executing the operation", (
 });
 
 test("should refuse direct paths and aliases before inspecting metadata outside the private root", () => {
-  const root = createPrivateTestDirectory("i"), outside = mkdtempSync(join(tmpdir(), "h2a-r2-metadata-canary-"));
+  // The canary must stay OUTSIDE the private root: under CI the disposable
+  // TMPDIR itself is the admitted qualification root, so a tmpdir() canary
+  // would land inside it and no refusal would fire. A sibling of the
+  // admitted run-* directory keeps the refusal premise without touching /tmp.
+  let ownerHome = null;
+  try { const h = userInfo().homedir; if (typeof h === "string" && h.startsWith("/")) ownerHome = h; } catch { ownerHome = null; }
+  mkdirSync(join(ownerHome ?? homedir(), ".cache-tmp", "h2a-test"), { recursive: true });
+  const root = createPrivateTestDirectory("i"),
+    outside = mkdtempSync(join(ownerHome ?? homedir(), ".cache-tmp", "h2a-test", "h2a-r2-metadata-canary-"));
   const env = nativeTestEnvironment(root), alias = join(root, "alias");
   symlinkSync(outside, alias);
   const original = fs.lstatSync, inspected = [];
