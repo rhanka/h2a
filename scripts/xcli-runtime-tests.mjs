@@ -1,13 +1,12 @@
 #!/usr/bin/env node
-import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { repo, sourceBuild, environment } from './xcli-lab.mjs';
+import { repo, sourceBuild, environment, compliantQualificationRoot } from './xcli-lab.mjs';
 import { exportEvidence } from './xcli-export-evidence.mjs';
 
-const root = fs.mkdtempSync(join(tmpdir(), 'h2a-qual-'));
+const root = compliantQualificationRoot();
 const built = sourceBuild(root);
 for (const pkg of ['h2a-runtime', 'h2a', 'track', 'remote-protocol']) {
   fs.cpSync(join(repo, 'packages', pkg, 'src'), join(built.path, 'packages', pkg, 'src'), { recursive: true });
