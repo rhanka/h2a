@@ -856,12 +856,12 @@ describe("explicit-profile resume only copies consent for the same conversation 
   const NOW = new Date().toISOString();
 
   it.each([
-    { cwd: RUN_CWD, tool: "claude", flags: [], gateway: true },
-    { cwd: JOB_CWD, tool: "claude", flags: [], gateway: false },
-    { cwd: RUN_CWD, tool: "codex", flags: [], gateway: false },
-    { cwd: RUN_CWD, tool: "claude", flags: ["--no-gw"], gateway: false },
-    { cwd: JOB_CWD, tool: "claude", flags: ["--no-gw"], gateway: false },
-  ])("resume from $tool in $cwd with $flags selects gateway=$gateway", async ({ cwd, tool, flags, gateway }) => {
+    { case: "same workspace", cwd: RUN_CWD, tool: "claude", flags: [], gateway: true },
+    { case: "other workspace", cwd: JOB_CWD, tool: "claude", flags: [], gateway: false },
+    { case: "other profile", cwd: RUN_CWD, tool: "codex", flags: [], gateway: false },
+    { case: "same workspace with no-gw", cwd: RUN_CWD, tool: "claude", flags: ["--no-gw"], gateway: false },
+    { case: "other workspace with no-gw", cwd: JOB_CWD, tool: "claude", flags: ["--no-gw"], gateway: false },
+  ])("resume in $case selects gateway=$gateway", async ({ cwd, tool, flags, gateway }) => {
     seedRegistryEntries([{
       id: "proj", tool, kind: "local-tmux", cwd, source: "run", sessionClass: "human",
       convId: CONV, tmuxSession: "h2a-proj", gatewayMode: "gateway", gatewayProvenance: "explicit",
