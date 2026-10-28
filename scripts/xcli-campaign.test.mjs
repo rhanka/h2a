@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
-import { repo } from './xcli-lab.mjs';
+import { repo, removeCampaignRoot } from './xcli-lab.mjs';
 
 const QUALIFY = join(repo, 'scripts/qualify-cross-cli.mjs');
 
@@ -43,6 +43,8 @@ function runCampaign(args, stubBody) {
   const receipt = JSON.parse(fs.readFileSync(output, 'utf8'));
   const invocations = fs.existsSync(join(root, 'stub-invocations.log'))
     ? fs.readFileSync(join(root, 'stub-invocations.log'), 'utf8').trim().split('\n').length : 0;
+  // A minted sibling root is removed by the caller (resume passes an
+  // explicit --campaign-root owned by its own dir).
   return { dir, root, receipt, invocations, result };
 }
 
@@ -65,7 +67,7 @@ test('L8: a seat-qualified pair selects distinct auth sources per role', () => {
       assert.deepEqual(run.receipt.cells[0].seats, { sender: 'claude-a', receiver: 'claude-b' });
       assert.equal(run.receipt.cells[0].sharedSeat, false);
       assert.equal(run.receipt.seatMode, 'interim-file-copy');
-    } finally { fs.rmSync(run.dir, { recursive: true, force: true }); }
+    } finally { removeCampaignRoot(run.root); fs.rmSync(run.dir, { recursive: true, force: true }); }
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -78,7 +80,7 @@ test('L8: a diagonal single-seat cell records sharedSeat', () => {
     try {
       assert.deepEqual(run.receipt.cells[0].seats, { sender: 'codex', receiver: 'codex' });
       assert.equal(run.receipt.cells[0].sharedSeat, true);
-    } finally { fs.rmSync(run.dir, { recursive: true, force: true }); }
+    } finally { removeCampaignRoot(run.root); fs.rmSync(run.dir, { recursive: true, force: true }); }
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -95,7 +97,7 @@ test('L8: provider-quota on a seat stops further cells on that seat', () => {
       assert.equal(run.invocations, 1, 'the second cell never spawns');
       assert.equal(run.receipt.cells[0].blocker, 'provider-quota');
       assert.equal(run.receipt.cells[1].blocker, 'provider-quota-seat-exhausted');
-    } finally { fs.rmSync(run.dir, { recursive: true, force: true }); }
+    } finally { removeCampaignRoot(run.root); fs.rmSync(run.dir, { recursive: true, force: true }); }
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -107,7 +109,7 @@ test('L8: the launched-session cap refuses pre-spawn and stops the campaign', ()
     assert.equal(run.invocations, 1, 'the refused launch spawns nothing');
     assert.equal(run.receipt.cells[1].blocker, 'campaign-cap-exhausted');
     assert.ok(run.receipt.ledgerTotals.includes('sessionsDebited: 2/2'), 'the ledger states its totals');
-  } finally { fs.rmSync(run.dir, { recursive: true, force: true }); }
+  } finally { removeCampaignRoot(run.root); fs.rmSync(run.dir, { recursive: true, force: true }); }
 });
 
 test('L8: killing and resuming continues from the persisted ledger', () => {
@@ -141,7 +143,7 @@ test('L8: diagonal cells run before cross cells', () => {
       assert.equal(run.invocations, 2);
       assert.deepEqual(run.receipt.cells[0].seats, { sender: 'a', receiver: 'a' });
       assert.deepEqual(run.receipt.cells[1].seats, { sender: 'a', receiver: 'b' });
-    } finally { fs.rmSync(run.dir, { recursive: true, force: true }); }
+    } finally { removeCampaignRoot(run.root); fs.rmSync(run.dir, { recursive: true, force: true }); }
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -166,5 +168,40 @@ test('L8: a dummy-seat real-mode dry run blocks on preflight with no spawn', asy
     assert.equal(receipt.preflights[0].modelCalls, 0, 'the dry run spends no model turn');
     assert.equal(fs.readdirSync(root).filter(name => name.startsWith('c-')).length, 0, 'no cell state survives');
     assert.equal(fs.readdirSync(root).filter(name => name.startsWith('pre-')).length, 0, 'no preflight state survives');
+    removeCampaignRoot(root);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('L8: an exhausted session cap refuses before any seat preflight', () => {
+  const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-cap-'));
+  try {
+    // A fake agy executable that witnesses its own --version probe. agy has
+    // no login allowlist, so any preflight would report login-not-confined —
+    // but §6.4 demands the cap check first, with no seat touched on refusal.
+    const bindir = join(dir, 'bin');
+    fs.mkdirSync(bindir);
+    const spy = join(dir, 'agy-invocations.log');
+    fs.writeFileSync(join(bindir, 'agy'),
+      `#!/bin/sh\necho "$@" >> ${JSON.stringify(spy)}\nif [ "$1" = "--version" ]; then echo "agy 9.9.9"; exit 0; fi\nexit 0\n`,
+      { mode: 0o700 });
+    const manifest = writeManifest(dir, [{ seatId: 'agy-seat', family: 'agy', authSource: 'seat-agy' }]);
+    const output = join(dir, 'receipt.json');
+    const stub = join(dir, 'stub.mjs');
+    fs.writeFileSync(stub, stubRow('stub-no-model'));
+    const result = spawnSync(process.execPath, [QUALIFY, '--seat-manifest', manifest,
+      '--pair', 'agy-seat:agy-seat', '--timeout-ms', '10000', '--session-cap', '1', '--output', output],
+    { env: { ...process.env, PATH: `${bindir}:${process.env.PATH}`, XCLI_WORKER_STUB: stub },
+      encoding: 'utf8', timeout: 120000, maxBuffer: 4 * 1024 * 1024 });
+    const root = (result.stdout.match(/Private qualification root: (\S+)/) ?? [])[1];
+    assert.ok(root, `parent reports its root\n${result.stdout}\n${result.stderr}`);
+    const receipt = JSON.parse(fs.readFileSync(output, 'utf8'));
+    assert.equal(receipt.cells[0].status, 'blocked');
+    assert.equal(receipt.cells[0].blocker, 'campaign-cap-exhausted',
+      'an exhausted cap refuses before any seat is touched');
+    assert.equal(fs.existsSync(spy), false, 'no preflight ever executed the seat binary');
+    assert.deepEqual(receipt.preflights, [], 'no preflight ran under an exhausted cap');
+    assert.ok(receipt.ledgerRefusals.some(r => r.code === 'campaign-cap-exhausted'),
+      'the refusal is witnessed in the ledger');
+    removeCampaignRoot(root);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

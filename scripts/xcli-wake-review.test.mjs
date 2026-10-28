@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
-import { environment, repo } from './xcli-lab.mjs';
+import { environment, repo, removeReportedCampaignRoot } from './xcli-lab.mjs';
 import { pathToFileURL } from 'node:url';
 
 for (const poll of ['single:18000', 'periodic:60000:17000']) test(`L3 review: ${poll} cannot credit one repetition`, () => {
@@ -17,6 +17,7 @@ console.log(JSON.stringify({sender:r.sender,receiver:r.receiver,scenario:'probe'
     const out = spawnSync(process.execPath, [join(repo, 'scripts/qualify-cross-cli.mjs'), '--simulated', '--pair', 'claude:codex', '--poll', poll, '--timeout-ms', '90000', '--output', output], {
       env: { ...environment(join(root, 'parent')), TMPDIR: tmpdir(), XCLI_WORKER_STUB: worker }, encoding: 'utf8', timeout: 120000,
     });
+    removeReportedCampaignRoot(out.stdout);
     assert.equal(out.status, 2, out.stdout + out.stderr);
     const cell = JSON.parse(fs.readFileSync(output)).cells[0];
     assert.equal(cell.woke, false);
@@ -40,6 +41,7 @@ for (const poll of ['single:18000', 'periodic:60000:17000']) test(`L3 poller cou
       '--wake-release-offsets-ms', '15000', '--timeout-ms', '90000', '--mcp-call-cap', '1000', '--output', output], {
       env: { ...environment(join(root, 'env')), TMPDIR: tmpdir() }, encoding: 'utf8', timeout: 120000, maxBuffer: 4 * 1024 * 1024,
     });
+    removeReportedCampaignRoot(result.stdout);
     const cell = JSON.parse(fs.readFileSync(output)).cells[0];
     assert.equal(result.status, 2, JSON.stringify({ status: cell.status, woke: cell.woke }));
     assert.equal(cell.received, true, 'the wake-ignoring poller read the delivered envelope');

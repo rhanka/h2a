@@ -125,7 +125,7 @@ export function startupKey(screen) {
 async function worker() {
   const request = JSON.parse(fs.readFileSync(0, 'utf8'));
   const { sender, receiver, root, build, executables, timeoutMs, authHome, simulated, dropWake,
-    wake, poll, withholdForever, replayWake, releaseOffsetMs } = request;
+    wake, poll, simPop, withholdForever, replayWake, releaseOffsetMs } = request;
   // Lot L12: scripted scenario mode. Probe is the default; unavailability
   // states fault the peer, refusal twins inject a faulty wake after a live
   // phase A. Unknown specs never reach the worker (parsed in main).
@@ -205,6 +205,10 @@ async function worker() {
       ...(scriptEnv ?? {}),
       ...(mcpCallCap > 0 ? { XCLI_MCP_CALL_CAP: String(mcpCallCap) } : {}),
       ...(poll && role === 'receiver' ? { XCLI_POLL: poll } : {}),
+      // V3 §3.2 models a receiver that consumes the probe (read then pop)
+      // before replying. Simulated cells only; the wake proof must survive
+      // this authorized consumption via the delivery witness.
+      ...(simPop && simulated && role === 'receiver' ? { XCLI_SIM_POP: '1' } : {}),
       // Lot L12: the never-ready fault idles the receiver's identity gate.
       ...(scenario.kind === 'unavailability' && scenario.state === 'identity-never-ready' && role === 'receiver'
         ? { XCLI_SCENARIO_FAULT: 'never-ready' } : {}),
@@ -594,7 +598,7 @@ async function worker() {
     const deadline = started + timeoutMs;
     // Phase 2a: wait for the signed send and durable delivery. No reply break
     // here: the withheld-window observation must run its full course.
-    let send = null, deliveryAt = 0;
+    let send = null, deliveryAt = 0, deliveryWitness = null;
     while (Date.now() < deadline) {
       if (cancelled) { row.blocker = 'qualification-cancelled'; break; }
       const se = events(s);
@@ -602,8 +606,13 @@ async function worker() {
       send = se.find(e => e.event === 'send' && e.ok && e.kind === 'probe' && e.to === readiness.instance) ?? null;
       row.sent = Boolean(send);
       if (send) s.terminal.freeze();
-      if (send && store.readInbox(readiness.instance).some(e => e.id === send.envelopeId && e.body?.text === PROBE && e.actor?.instance === send.from)) {
-        deliveryAt = Date.now(); break;
+      // V3 §3.2 authorizes consumption: the receiver may pop the envelope
+      // after reading it. Keep the exact delivery-time witness so the later
+      // wake correlation never depends on the envelope still being present.
+      const witnessed = send ? store.readInbox(readiness.instance)
+        .find(e => e.id === send.envelopeId && e.body?.text === PROBE && e.actor?.instance === send.from) ?? null : null;
+      if (witnessed) {
+        deliveryAt = Date.now(); deliveryWitness = witnessed; break;
       }
       const senderScreen = await capture(s);
       if (!row.sent && await startup(s, senderScreen)) continue;
@@ -683,7 +692,9 @@ async function worker() {
         row.woke = false;
       } else {
         row.wakeClaim = `withheld-protocol, periods ≤ ${w1Ms}ms excluded, single replication (no batch separation); varying-phase polling not excluded`;
-        const probe = store.readInbox(readiness.instance).find(e => e.id === send.envelopeId);
+        // The witness is the envelope as delivered, not a re-read: a
+        // receiver that consumed it (§3.2 read-then-pop) still verifies.
+        const probe = deliveryWitness;
         const journal = correlateWakeInput(readEvents(inputJournal), { target: r.state, barrierAt, releaseAt,
           send, receiver: readiness.instance, probe, product, store });
         row.wakeWindows.inputJournal = journal;
@@ -1071,6 +1082,19 @@ async function main() {
         [{ event: 'seat-quota-stop', seats: [seatKey(run, 'sender'), seatKey(run, 'receiver')] }]));
       continue;
     }
+    // V3 §6.4 pre-launch check: the composite caps are verified before every
+    // launch — preflight included. On refusal nothing is spawned and no seat
+    // is touched; the refusal is witnessed in the ledger.
+    if (!fitsSessions(ledger, 2) || !wallClockFits(ledger, cellBoundMs)) {
+      const cap = !fitsSessions(ledger, 2) ? 'launched-sessions' : 'wall-clock';
+      ledger.refusals.push({ run: `${sender}>${receiver}`, code: 'campaign-cap-exhausted', cap });
+      persistLedger(ledger);
+      // No stopping flag: every later cell re-hits the same pre-spawn gate
+      // and records the same reason. Launches stop campaign-wide because no
+      // refused launch ever spawns.
+      cells.push(blockedRow(run, releaseOffsetMs, 'campaign-cap-exhausted', [{ event: 'cap-refused', cap }]));
+      continue;
+    }
     // Preflights gate real seats only: simulated cells spend no model turns
     // and read no logins, so there is nothing a preflight could protect.
     if (manifest && !simulated) {
@@ -1089,16 +1113,6 @@ async function main() {
         cells.push(blockedRow(run, releaseOffsetMs, preflightBlocker));
         continue;
       }
-    }
-    if (!fitsSessions(ledger, 2) || !wallClockFits(ledger, cellBoundMs)) {
-      const cap = !fitsSessions(ledger, 2) ? 'launched-sessions' : 'wall-clock';
-      ledger.refusals.push({ run: `${sender}>${receiver}`, code: 'campaign-cap-exhausted', cap });
-      persistLedger(ledger);
-      // No stopping flag: every later cell re-hits the same pre-spawn gate
-      // and records the same reason. Launches stop campaign-wide because no
-      // refused launch ever spawns.
-      cells.push(blockedRow(run, releaseOffsetMs, 'campaign-cap-exhausted', [{ event: 'cap-refused', cap }]));
-      continue;
     }
     const senderDebit = debitSession(ledger, seatKey(run, 'sender'));
     const receiverDebit = debitSession(ledger, seatKey(run, 'receiver'));
@@ -1128,7 +1142,8 @@ async function main() {
       seats: { sender: run.senderSeat, receiver: run.receiverSeat }, seatMode,
       mcpCallCap: caps.mcpCallsPerSession,
       simulated, dropWake: process.argv.includes('--drop-simulated-wake'),
-      wake: wakeWindows, poll: pollEnvValue(poll), withholdForever, replayWake, releaseOffsetMs }));
+      wake: wakeWindows, poll: pollEnvValue(poll), simPop: process.env.XCLI_SIM_POP === '1',
+      withholdForever, replayWake, releaseOffsetMs }));
     await new Promise((r, reject) => { child.once('close', r); child.once('error', reject); });
     clearTimeout(watchdog);
     active = undefined;
