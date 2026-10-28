@@ -69,6 +69,31 @@ les reproductions ci-dessous rejouées avant le nouveau push.
 Le workflow CI du premier push a été relancé une fois au même SHA après plus
 de 40 minutes en file sans runner ; aucun gate n'a été modifié pour cela.
 
+## Correction des identités de tests après le contrôle CI
+
+Le job [npm-test-trust-root](https://github.com/rhanka/h2a/actions/runs/40781964219/job/123162337900)
+exécute les assertions mais refuse le rapport : deux cas no-gw interpolent des
+cwd longs, tronqués au même préfixe par Vitest. Le doublon est présent aussi
+dans le rapport local à 505 assertions réussies ; vérifier les seules
+assertions ne suffisait donc pas à prouver l'exécution au sens du gate.
+
+RED reproduit localement en appliquant **verifyRuntimeExecution**, exporté du
+vrai runner, au rapport ciblé : `duplicate test identity`, exit 1.
+Correction : cinq libellés de cas explicites (workspace identique/autre,
+profil différent, deux contrôles no-gw), sans interpolation de chemin.
+Toutes les assertions restent identiques, sans modifier le validateur.
+GREEN : rapport ciblé **505 PASS / 0 FAIL / 0 skip**, puis validateur du gate
+sur ces 13 fichiers : aucune erreur, exit 0. Les replays des deux rounds et
+les 52 contrats sont relancés avant le push.
+
+```js
+import { readFileSync } from 'node:fs';
+import { verifyRuntimeExecution } from './scripts/run-test-gates.mjs';
+const report = JSON.parse(readFileSync(process.env.H2A_TEST_REPORT_PATH, 'utf8'));
+const failures = verifyRuntimeExecution(report, report.testResults.map(file => file.name));
+if (failures.length) throw new Error(failures.join('\n'));
+```
+
 ## Replays des deux rounds avant push
 
 | Reproductions fournies | Résultat |
