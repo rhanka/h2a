@@ -270,6 +270,12 @@ process.stdin.on('data', bytes => {
       if (role === 'receiver') {
         const message = value.envelopes.find(e => e.body?.text === PROBE && e.target?.instance === instance);
         assert.ok(message, 'wake must expose the actual probe envelope');
+        // V3 §3.2 models a receiver that consumes the probe (read then pop)
+        // before replying. XCLI_SIM_POP=1 only; the wake proof must survive
+        // this authorized consumption via the delivery witness.
+        if (process.env.XCLI_SIM_POP === '1') {
+          await tool('h2a_inbox', { action: 'pop', instance, envelopeId: message.id });
+        }
         await tool('h2a_send', { to: message.actor.instance, message: REPLY });
       }
     }).catch(() => process.exit(73));

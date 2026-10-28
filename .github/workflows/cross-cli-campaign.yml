@@ -91,7 +91,17 @@ jobs:
           } finally { fs.rmSync(home, { recursive: true, force: true }); }
           "
       - name: Allocate a guarded campaign root
-        run: echo "XCLI_CAMPAIGN_ROOT=$(mktemp -d "${RUNNER_TEMP}/h2a-qual-XXXXXX")" >> "$GITHUB_ENV"
+        # The native-isolation admission guard (held from main) accepts only
+        # /tmp/h2a-qual-* (forbidden by the owner no-/tmp rule) or
+        # $HOME/.cache-tmp/h2a-test/run-*. RUNNER_TEMP is outside both, so
+        # the campaign root is minted under the admitted owner-cache base;
+        # workers import the guard with this root and refuse anything else.
+        run: |
+          base="$HOME/.cache-tmp/h2a-test"
+          mkdir -p "$base"
+          root="$(mktemp -d "$base/run-XXXXXX")"
+          chmod 700 "$root"
+          echo "XCLI_CAMPAIGN_ROOT=$root" >> "$GITHUB_ENV"
       # Interim file-copy path (§7.3): one environment secret bundle per seat
       # (XCLI_SEAT_BUNDLE_<SEATID> holding {family, files:{relpath: base64}}),
       # written into 0700 temp HOMEs; the manifest is validated at load and
@@ -181,7 +191,7 @@ jobs:
         run: |
           rm -rf "${RUNNER_TEMP}/seats" "${RUNNER_TEMP}/seats.json"
           case "${XCLI_CAMPAIGN_ROOT:-}" in
-            "${RUNNER_TEMP}"/h2a-qual-*) rm -rf "$XCLI_CAMPAIGN_ROOT"; test ! -e "$XCLI_CAMPAIGN_ROOT" ;;
+            "$HOME"/.cache-tmp/h2a-test/run-*) rm -rf "$XCLI_CAMPAIGN_ROOT"; test ! -e "$XCLI_CAMPAIGN_ROOT" ;;
             "") ;;
             *) exit 1 ;;
           esac

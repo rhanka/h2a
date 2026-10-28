@@ -2,10 +2,11 @@
 // an explicit seat set and refuses fork refs; the PR lane carries the
 // receipt-check job; the release lane gates on the exact-SHA receipt.
 // Red while any lane misses its gate.
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 import { parse } from 'yaml';
 import { spawnSync } from 'node:child_process';
@@ -85,10 +86,47 @@ test('L11 review: PR and release fetch authenticated artifacts for the exact hea
 });
 
 test('campaign review: funded windows, guarded root, Vibe measurement and explicit provisioned runner', () => {
-  assert.ok(campaign.includes('${RUNNER_TEMP}/h2a-qual-'));
+  assert.ok(!campaign.includes('${RUNNER_TEMP}/h2a-qual-'), 'no RUNNER_TEMP campaign root: the guard refuses it');
+  assert.ok(campaign.includes('.cache-tmp/h2a-test/run-'), 'the campaign root is minted under the admitted owner-cache base');
   assert.match(campaign, /--timeout-ms (?:[6-9]\d{4}|1[0-7]\d{4}|180000)/);
   assert.ok(campaign.includes('Object.keys(ORACLE_SOURCES)'));
   assert.ok(campaign.includes('XCLI_CAMPAIGN_RUNNER'), 'owner selects an ephemeral image with the required binaries');
+});
+
+test('L11 review: the allocated campaign root passes the admission guard and cleanup wipes it', () => {
+  // Executes the workflow's own allocation and cleanup steps: the allocated
+  // root must import the native-isolation guard (exit 0), and cleanup must
+  // remove seats, manifest and the exact campaign root.
+  const job = parse(campaign).jobs.campaign;
+  const alloc = job.steps.find(s => s.name === 'Allocate a guarded campaign root').run;
+  const wipe = job.steps.find(s => s.name === 'Wipe seat HOMEs unconditionally').run;
+  const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-lane-root-'));
+  try {
+    const runnerTemp = join(dir, 'runner-temp'); fs.mkdirSync(runnerTemp);
+    const githubEnv = join(dir, 'github-env'); fs.writeFileSync(githubEnv, '');
+    const home = homedir();
+    const allocOut = spawnSync('/bin/bash', ['-c', alloc], { cwd: repo,
+      env: { PATH: '/usr/bin:/bin', HOME: home, RUNNER_TEMP: runnerTemp, GITHUB_ENV: githubEnv },
+      encoding: 'utf8', timeout: 30000 });
+    assert.equal(allocOut.status, 0, allocOut.stderr);
+    const campaignRoot = (fs.readFileSync(githubEnv, 'utf8').split('\n')
+      .find(l => l.startsWith('XCLI_CAMPAIGN_ROOT=')) ?? '').slice('XCLI_CAMPAIGN_ROOT='.length).trim();
+    assert.ok(campaignRoot, 'the allocation step exports XCLI_CAMPAIGN_ROOT');
+    const helper = pathToFileURL(join(repo, 'packages/h2a/test/helpers/native-isolation.js')).href;
+    const admitted = spawnSync(process.execPath, ['--input-type=module', '-e', `await import(${JSON.stringify(helper)});`], {
+      env: { ...process.env, H2A_TEST_QUALIFICATION_ROOT: campaignRoot }, encoding: 'utf8', timeout: 30000 });
+    assert.equal(admitted.status, 0, `allocated root refused by the guard:\n${admitted.stderr}`);
+    fs.writeFileSync(join(runnerTemp, 'seats.json'), '{}');
+    fs.mkdirSync(join(runnerTemp, 'seats'));
+    fs.writeFileSync(join(campaignRoot, 'campaign-ledger.json'), '{}');
+    const wipeOut = spawnSync('/bin/bash', ['-c', wipe], { cwd: repo,
+      env: { PATH: '/usr/bin:/bin', HOME: home, RUNNER_TEMP: runnerTemp, XCLI_CAMPAIGN_ROOT: campaignRoot },
+      encoding: 'utf8', timeout: 30000 });
+    assert.equal(wipeOut.status, 0, wipeOut.stderr);
+    assert.equal(fs.existsSync(campaignRoot), false, 'cleanup wipes the campaign root');
+    assert.equal(fs.existsSync(join(runnerTemp, 'seats.json')), false);
+    assert.equal(fs.existsSync(join(runnerTemp, 'seats')), false);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('L11: the campaign lane demands an explicit seat set', () => {

@@ -8,6 +8,7 @@ import { environment } from './xcli-lab.mjs';
 import { verifySimulation, verifyWakeBatch, verifyWakePhases } from './xcli-ci-check.mjs';
 
 import { runWakeCell, receiverInboxReads } from './xcli-simulation-fixture.mjs';
+import { removeReportedCampaignRoot } from './xcli-lab.mjs';
 
 test('a delivered envelope without a model reaction fails the live CI gate', () => {
   const root = fs.mkdtempSync(join(tmpdir(), 'xcli-negative-'));
@@ -17,6 +18,7 @@ test('a delivered envelope without a model reaction fails the live CI gate', () 
   const result = spawnSync(process.execPath, [join(import.meta.dirname, 'qualify-cross-cli.mjs'),
     '--simulated', '--pair', 'codex:codex', '--drop-simulated-wake', '--timeout-ms', '60000', '--output', output],
   { env, encoding: 'utf8', timeout: 90000, maxBuffer: 1024 * 1024 });
+  removeReportedCampaignRoot(result.stdout);
   assert.equal(result.status, 2, 'negative control must fail the qualification command');
   const receipt = JSON.parse(fs.readFileSync(output, 'utf8'));
   assert.equal(verifySimulation(receipt, true).outcome, 'negative-control-detected');
@@ -141,6 +143,30 @@ test('L3: a replayed wake produces at most one qualifying read', () => {
   assert.equal(cell.replayRejected, true, 'the duplicate wake must not produce a second read or reply');
 });
 
+test('L3: a receiver that pops the probe after reading keeps its wake proof', () => {
+  // V3 §3.2 authorizes consumption: `read` then `pop` is a live receive.
+  // The cell-level wake must survive it via the delivery witness; only the
+  // batch rule (fewer than 3 replications) denies stage-7 credit here.
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-pop-'));
+  try {
+    const output = join(root, 'receipt.json');
+    const env = { ...environment(join(root, 'env')), TMPDIR: tmpdir(), XCLI_SIM_POP: '1',
+      ...(process.env.XCLI_NODE_HEADERS ? { XCLI_NODE_HEADERS: process.env.XCLI_NODE_HEADERS } : {}) };
+    const result = spawnSync(process.execPath, [join(import.meta.dirname, 'qualify-cross-cli.mjs'),
+      '--simulated', '--pair', 'claude:codex', '--wake-release-offsets-ms', '0',
+      '--timeout-ms', '60000', '--output', output],
+    { env, encoding: 'utf8', timeout: 180000, maxBuffer: 4 * 1024 * 1024 });
+    removeReportedCampaignRoot(result.stdout);
+    const cell = JSON.parse(fs.readFileSync(output, 'utf8')).cells[0];
+    assert.equal(result.status, 2, 'one replication earns no stage-7 batch credit');
+    assert.equal(cell.received, true, 'read-then-pop is a live receive');
+    assert.equal(cell.replyDelivered, true, 'the reply still lands');
+    assert.equal(cell.woke, false, 'a lone replication earns no batch credit');
+    assert.equal(cell.wakeFailure, 'wake-phase-separation-unproven',
+      'the cell-level wake survives consumption; only batch separation denies credit');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 test('L4: owner credential material never reaches qualification evidence', () => {
   // Planted owner-style instances plus an ambient-looking config path flow
   // through the login surface; the full evidence (receipt JSON, every event,
@@ -163,6 +189,7 @@ test('L4: owner credential material never reaches qualification evidence', () =>
     const result = spawnSync(process.execPath, [join(import.meta.dirname, 'qualify-cross-cli.mjs'),
       '--pair', 'codex:codex', '--auth-home', authHome, '--timeout-ms', '20000', '--output', output],
     { env, encoding: 'utf8', timeout: 240000, maxBuffer: 4 * 1024 * 1024 });
+    removeReportedCampaignRoot(result.stdout);
     assert.ok(fs.existsSync(output), `a receipt must be written (exit ${result.status})`);
     const text = fs.readFileSync(output, 'utf8');
     assert.ok(!text.includes(`${CANARY}-token`), 'no planted credential text in evidence');
@@ -188,6 +215,7 @@ test('L9d: a login-free real Gemini cell blocks on auth, never on Python', () =>
     const result = spawnSync(process.execPath, [join(import.meta.dirname, 'qualify-cross-cli.mjs'),
       '--pair', 'gemini:gemini', '--timeout-ms', '30000', '--output', output],
     { env, encoding: 'utf8', timeout: 240000, maxBuffer: 4 * 1024 * 1024 });
+    removeReportedCampaignRoot(result.stdout);
     assert.ok(fs.existsSync(output), `a receipt must be written (exit ${result.status})`);
     const receipt = JSON.parse(fs.readFileSync(output, 'utf8'));
     assert.equal(receipt.cells.length, 1);
