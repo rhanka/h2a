@@ -63,6 +63,12 @@ const wakeRelaunchedSession = vi.fn(() => ({
 }));
 const createRemoteSession = vi.fn(async () => ({ id: "sess-remote" }));
 const attachRemote = vi.fn(async () => ({ finished: Promise.resolve() }));
+const localPtySpawner = vi.fn<import("./pty.js").PtySpawner>(() => { throw new Error("fixture PTY boundary"); });
+
+vi.mock("./pty.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./pty.js")>(),
+  nodePtySpawner: localPtySpawner,
+}));
 
 vi.mock("./gateway-host/config-file.js", () => ({
   readLlmMeshConfig,
@@ -279,6 +285,7 @@ beforeEach(() => {
   wakeRelaunchedSession.mockClear();
   createRemoteSession.mockClear();
   attachRemote.mockClear();
+  localPtySpawner.mockClear();
   process.exitCode = 0;
   // Fresh scratch config per test: wiping the home forces config defaults.
   rmSync(join(CONFIG_HOME, ".config"), { recursive: true, force: true });
@@ -582,6 +589,28 @@ describe("run --resume (legacy pin without provenance stays direct)", () => {
     expect(code).toBe(0);
   });
 
+  it.each([
+    { mode: "gateway", bare: false }, { mode: "gateway", bare: true }, { mode: "gateway", bare: undefined },
+    { mode: "direct", bare: false }, { mode: "direct", bare: undefined },
+  ] as const)("keeps proven $mode consent with bare=$bare across two resumes under a new name", async ({ mode, bare }) => {
+    seedRegistry([{ ...legacyGatewayPin(), gatewayMode: mode, gatewayProvenance: "explicit", bare }]);
+    startLocalSession.mockImplementation((...args: unknown[]) => ({ name: `h2a-${args[4]}`, slug: args[4] }));
+    acquireLlmMeshSessionEnv.mockResolvedValue({
+      ANTHROPIC_BASE_URL: "http://localhost:3002",
+      ANTHROPIC_AUTH_TOKEN: "live-token",
+    });
+    for (let pass = 0; pass < 2; pass++) {
+      acquireLlmMeshSessionEnv.mockClear();
+      expect(await runResume(["--name", "renamed"])).toBe(0);
+      expect(acquireLlmMeshSessionEnv.mock.calls.length > 0).toBe(mode === "gateway");
+      const saved = loadRegistry();
+      if (saved.state !== "ok") throw new Error("registry unreadable after renamed resume");
+      expect(saved.entries.find(e => e.id === "renamed")).toMatchObject({
+        convId: CONV, cwd: RUN_CWD, tool: "claude", gatewayMode: mode, gatewayProvenance: "explicit",
+      });
+    }
+  });
+
   it("explicit --gw on a fresh conversation injects the gateway (positive)", async () => {
     seedRegistry([]);
     acquireLlmMeshSessionEnv.mockResolvedValue({
@@ -745,18 +774,111 @@ describe("relaunch --apply retype resolves consent and scrubs direct (round-2 P1
     expect(child.stdout).toMatch(/^ANTHROPIC_API_KEY=native-key-fixture$/m);
   });
 
-  it("a proven explicit gateway choice retypes the plain resume command", async () => {
+  it.each([false, true])("a proven gateway retype passes the newly started route into a polluted shell=%s", async (polluted) => {
     seedRow("explicit");
-    acquireLlmMeshSessionEnv.mockResolvedValue({
-      ANTHROPIC_BASE_URL: "http://localhost:3002",
-      ANTHROPIC_AUTH_TOKEN: "live-token",
-    });
+    acquireLlmMeshSessionEnv.mockResolvedValue(null);
+    // Include shell metacharacters: the token must arrive verbatim, never execute.
+    const token = "fresh-fixture-'$HOME-$(exit 72)-`exit 73`";
+    startGateway.mockResolvedValue({ pid: 4242, port: 3003, gatewayToken: token });
+    process.env.ANTHROPIC_API_KEY = "parent-native-key";
 
     const code = await main(["node", "h2a", "relaunch", "--apply"]);
 
     expect(code).toBe(0);
+    expect(startGateway).toHaveBeenCalled();
     expect(relaunchInSession).toHaveBeenCalledTimes(1);
-    expect(relaunchInSession.mock.calls[0]?.[1]).toBe(`claude --resume ${CONV}`);
+    const { spawnSync } = await vi.importActual<typeof import("node:child_process")>("node:child_process");
+    const bin = join(SCRATCH, "fake-gateway-bin");
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(join(bin, "claude"), "#!/bin/bash\nexec printenv\n", { mode: 0o700 });
+    const child = spawnSync("/bin/bash", ["-c", String(relaunchInSession.mock.calls[0]?.[1])], {
+      encoding: "utf8",
+      env: {
+        PATH: `${bin}:/usr/bin:/bin`, ANTHROPIC_API_KEY: "shell-native-key",
+        ...(polluted ? { ANTHROPIC_BASE_URL: "http://old-fixture.invalid:3002", ANTHROPIC_AUTH_TOKEN: "expired-fixture-token" } : {}),
+      },
+    });
+    expect(child.status).toBe(0);
+    expect(child.stdout).toContain("ANTHROPIC_BASE_URL=http://localhost:3003\n");
+    expect(child.stdout).toContain(`ANTHROPIC_AUTH_TOKEN=${token}\n`);
+    expect(child.stdout).not.toMatch(/^ANTHROPIC_API_KEY=/m);
+    expect(process.env.ANTHROPIC_API_KEY).toBe("parent-native-key");
+    expect(process.env.ANTHROPIC_BASE_URL).toBeUndefined();
+  });
+
+  it("an unavailable proven gateway never retypes into the idle shell", async () => {
+    seedRow("explicit");
+    startGateway.mockRejectedValue(new Error("fixture unavailable"));
+    expect(await main(["node", "h2a", "relaunch", "--apply"])).toBe(1);
+    expect(relaunchInSession).not.toHaveBeenCalled();
+  });
+});
+
+describe("local in-process CLI applies the gateway choice at the PTY boundary (round-3 P1)", () => {
+  it.each([{ flags: [] }, { flags: ["--no-gw"] }, { flags: ["--no-llm-gateway"] }])("direct $flags strips inherited routing and preserves native auth", async ({ flags }) => {
+    seedLegacyEnabled();
+    process.env.ANTHROPIC_BASE_URL = "http://localhost:3002";
+    process.env.ANTHROPIC_AUTH_TOKEN = "stale-parent-token";
+    process.env.ANTHROPIC_API_KEY = "native-fixture";
+    expect(await main(["node", "h2a", "claude", "--local", ...flags])).toBe(1);
+    expect(stderrText()).toContain("fixture PTY boundary");
+    expect(localPtySpawner).toHaveBeenCalledTimes(1);
+    const env = localPtySpawner.mock.calls[0]![0].env;
+    expect(env.ANTHROPIC_BASE_URL).toBeUndefined();
+    expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+    expect(env.ANTHROPIC_API_KEY).toBe("native-fixture");
+    expect(acquireLlmMeshSessionEnv).not.toHaveBeenCalled();
+    expect(startGateway).not.toHaveBeenCalled();
+  });
+
+  it.each(["--gw", "--llm-gateway"])("%s passes the freshly acquired route to the local PTY", async (flag) => {
+    acquireLlmMeshSessionEnv.mockResolvedValue({ ANTHROPIC_BASE_URL: "http://localhost:3003", ANTHROPIC_AUTH_TOKEN: "fresh-token" });
+    process.env.ANTHROPIC_API_KEY = "native-fixture";
+    expect(await main(["node", "h2a", "claude", "--local", flag])).toBe(1);
+    expect(stderrText()).toContain("fixture PTY boundary");
+    const env = localPtySpawner.mock.calls[0]![0].env;
+    expect(env.ANTHROPIC_BASE_URL).toBe("http://localhost:3003");
+    expect(env.ANTHROPIC_AUTH_TOKEN).toBe("fresh-token");
+    expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(process.env.ANTHROPIC_API_KEY).toBe("native-fixture");
+  });
+
+  it.each(["--gw", "--llm-gateway"])("unavailable %s fails before any local PTY is spawned", async (flag) => {
+    startGateway.mockRejectedValue(new Error("fixture unavailable"));
+    expect(await main(["node", "h2a", "claude", "--local", flag])).toBe(1);
+    expect(localPtySpawner.mock.calls.length).toBe(0);
+    expect(stderrText()).toMatch(/gateway is required but unavailable/);
+  });
+});
+
+describe("explicit-profile resume only copies consent for the same conversation identity (round-3 P1)", () => {
+  const CONV = "123e4567-e89b-12d3-a456-426614174000";
+  const NOW = new Date().toISOString();
+
+  it.each([
+    { cwd: RUN_CWD, tool: "claude", flags: [], gateway: true },
+    { cwd: JOB_CWD, tool: "claude", flags: [], gateway: false },
+    { cwd: RUN_CWD, tool: "codex", flags: [], gateway: false },
+    { cwd: RUN_CWD, tool: "claude", flags: ["--no-gw"], gateway: false },
+    { cwd: JOB_CWD, tool: "claude", flags: ["--no-gw"], gateway: false },
+  ])("resume from $tool in $cwd with $flags selects gateway=$gateway", async ({ cwd, tool, flags, gateway }) => {
+    seedRegistryEntries([{
+      id: "proj", tool, kind: "local-tmux", cwd, source: "run", sessionClass: "human",
+      convId: CONV, tmuxSession: "h2a-proj", gatewayMode: "gateway", gatewayProvenance: "explicit",
+      bare: false, enrolledAt: NOW, lastSeenAt: NOW,
+    }]);
+    acquireLlmMeshSessionEnv.mockResolvedValue({ ANTHROPIC_BASE_URL: "http://localhost:3002", ANTHROPIC_AUTH_TOKEN: "fresh-token" });
+    const originalCwd = process.cwd();
+    try {
+      process.chdir(RUN_CWD);
+      expect(await main(["node", "h2a", "resume", "proj", "--claude", CONV, ...flags])).toBe(0);
+    } finally {
+      process.chdir(originalCwd);
+    }
+    expect(startLocalSession).toHaveBeenCalledTimes(1);
+    expect(startLocalSession.mock.calls[0]?.[2]).toBe(RUN_CWD);
+    expect(acquireLlmMeshSessionEnv.mock.calls.length > 0).toBe(gateway);
+    if (!gateway) expect(startGateway).not.toHaveBeenCalled();
   });
 });
 
