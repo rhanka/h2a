@@ -495,6 +495,9 @@ export function buildSessionPodSpec(
   /** Opt-in: add the headful-browser sidecar (WP7 noVNC). Default false. */
   browser = false,
 ): K8sPodSpec {
+  if (options.llmGateway === true && (!options.llmGatewayUrl || !options.llmGatewayToken)) {
+    throw new Error("Explicit gateway is unavailable; no Pod can be started");
+  }
   const names = resourceNames(descriptor);
   const limits = descriptor.resourceLimits;
   // Baseline anti-eviction floor: ALWAYS request memory (so the pod is

@@ -57,6 +57,26 @@ function recordingClient(): { client: K8sClient; ops: Operation[] } {
 }
 
 describe("K8sSessionProvisioner", () => {
+  it("global gateway settings cannot opt a session in, including on refresh", async () => {
+    const pods: Array<ReturnType<typeof import("./spec.js").buildSessionPodSpec>> = [];
+    const { client } = recordingClient();
+    const provisioner = new K8sSessionProvisioner({
+      ...client,
+      async create(spec) {
+        if (spec.kind === "Pod") pods.push(spec as unknown as typeof pods[number]);
+        return spec;
+      },
+    }, { llmGateway: true, llmGatewayUrl: "https://gateway.test", llmGatewayToken: "gw-global" });
+    await provisioner.provision(descriptor, () => {});
+    await provisioner.refresh(descriptor, () => {}, { credentials: { ".claude/.credentials.json": "aGVsbG8=" } });
+    expect(pods).toHaveLength(2);
+    for (const pod of pods) {
+      const env = pod.spec.containers[0]!.env;
+      expect(env.find(e => e.name === "ANTHROPIC_BASE_URL")).toBeUndefined();
+      expect(env.find(e => e.name === "H2A_GATEWAY_MODE")?.value).toBe("direct");
+    }
+  });
+
   it("threads an explicit gateway choice into the Pod env, direct by default (round-2 P2)", async () => {
     const created: Array<{ kind?: string; spec?: unknown }> = [];
     const { client } = recordingClient();

@@ -170,10 +170,35 @@ describe("softRefreshSession unchanged-creds gating", () => {
     expect(result.respawned).toBe(true);
     const relaunch = execScripts().find((s) => s.includes(".remote-relaunch.sh"));
     expect(relaunch).toContain("codex resume");
-    // Last-point purge for the respawned CLI: drop routing vars the Pod may
-    // still carry, unless the pod was explicitly provisioned for the gateway.
-    expect(relaunch).toContain("unset ANTHROPIC_BASE_URL");
-    expect(relaunch).toContain("H2A_GATEWAY_MODE");
+    // Execute the generated script up to the CLI, excluding the post-exit
+    // interactive shell. The provider stand-in prints its child's real env.
+    const script = relaunch!.split("<<'RL'\n")[1]!.split("\nprintf")[0]!;
+    const { spawnSync } = await vi.importActual<typeof import("node:child_process")>("node:child_process");
+    for (const mode of [undefined, "direct", "gateway"]) {
+      for (const key of ["native-key-fixture", "gw-stale-token"]) {
+        const child = spawnSync("/bin/bash", ["--noprofile", "--norc", "-c", `codex() { printenv; }\n${script}`], {
+          encoding: "utf8",
+          env: {
+            PATH: "/usr/bin:/bin", WORKSPACE_PATH: process.env.TMPDIR,
+            ANTHROPIC_BASE_URL: "http://gateway.test", ANTHROPIC_AUTH_TOKEN: "stale-token",
+            ANTHROPIC_API_KEY: key, ...(mode ? { H2A_GATEWAY_MODE: mode } : {}),
+          },
+        });
+        expect(child.status).toBe(0);
+        if (mode === "gateway") {
+          expect(child.stdout).toMatch(/^ANTHROPIC_BASE_URL=http:\/\/gateway.test$/m);
+          expect(child.stdout).toMatch(/^ANTHROPIC_AUTH_TOKEN=stale-token$/m);
+        } else {
+          expect(child.stdout).not.toMatch(/^ANTHROPIC_BASE_URL=/m);
+          expect(child.stdout).not.toMatch(/^ANTHROPIC_AUTH_TOKEN=/m);
+        }
+        if (mode === "gateway" || key === "native-key-fixture") {
+          expect(child.stdout).toContain(`ANTHROPIC_API_KEY=${key}`);
+        } else {
+          expect(child.stdout).not.toMatch(/^ANTHROPIC_API_KEY=/m);
+        }
+      }
+    }
   });
 
   it("without skipIfUnchanged (explicit one-shot): always pushes + respawns, never reads the Pod hash", async () => {

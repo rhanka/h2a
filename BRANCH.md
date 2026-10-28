@@ -1,3 +1,17 @@
+# Gateway off by default — PR #395, round 2
+
+- Scope: five findings from the supplied Astra/Sol reviews on a1835d4d7;
+  local consent, retype and child env, mixed fleet auth, remote provisioning/refresh.
+- Preserve the three already-pushed commits through e627645a4; base 912dd3035
+  already included. No main mutation, merge, tag, dependency or version change.
+- Additional RED: fresh name reuse, inherited direct marker on gateway,
+  unavailable explicit remote gateway and inherited global provisioner choice.
+- Gate the real remote regression suites through h2a-runtime; use source exports
+  so a clean checkout needs no private-workspace dist build.
+- Evidence and limits: docs/reviews/gateway-off-default-r2.md. Private TMPDIR
+  /home/antoinefa/.cache-tmp/h2a-test/run-ieKzxe; no installed h2a or owner state,
+  real provider/gateway/cluster, full local suite, Python or attribution trailer.
+
 # R10 — native host recovery under concurrent load
 
 - Scope: the three R9 findings on PR #390; startup election expiry, responsive native creation, failed-list connection ownership and their measured startup costs. No dependency/version/workflow/scope-policy changes.
