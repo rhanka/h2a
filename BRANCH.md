@@ -252,6 +252,13 @@ and unrelated files on Claude, Codex, Muse, Vibe and Agy. No provider activation
   /home/antoinefa/.cache-tmp/h2a-test/run-ieKzxe; no installed h2a or owner state,
   real provider/gateway/cluster, full local suite, Python or attribution trailer.
 
+# PR #379 — v3 review round 9 continuation
+
+- Scope: preserve pushed `211d79a5c`; replay the four Astra/Sol findings at reviewed `0add537f5` with RED/GREEN evidence; fix the simulated peer's late MCP teardown observed in CI. No v4 design or main/native-host changes.
+- Evidence: `docs/reviews/2026-10-28-cross-cli-r9.md`. Campaign/cap tests 20/20, three-replication read-then-pop regression 1/1, wake/receipt/trusted-artifact tests 27/27, lab 12/12, delayed MCP teardown RED 0/1 -> GREEN 1/1. Node 22 polling at 90 s: all nine observations deny wake credit.
+- Private TMPDIR: `/home/antoinefa/.cache-tmp/h2a-test/run-tUYcx9`; reported sibling campaign roots explicitly removed. No Python, installed h2a, real seats, owner state, full local suite or attribution trailer. Namespace upgrade validation stays in CI because local sudo refuses no-new-privileges.
+- No new independent consensus claimed: the installed h2a review route remains forbidden by the owner's confinement. The supplied Astra/Sol reviews are the findings addressed here. Trusted-lane exact-SHA receipts remain conductor-owned and absent.
+
 # R10 — native host recovery under concurrent load
 
 - Scope: the three R9 findings on PR #390; startup election expiry, responsive native creation, failed-list connection ownership and their measured startup costs. No dependency/version/workflow/scope-policy changes.

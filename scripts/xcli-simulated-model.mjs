@@ -51,6 +51,16 @@ function endpoint() {
 const config = endpoint();
 assert.equal(config.command, 'h2a', 'fixture must launch the private witnessed product shim');
 const mcp = spawn(config.command, config.args, { env: process.env, stdio: ['pipe', 'pipe', 'ignore'] });
+let stopping = false;
+// The proxy writes its final server-exit witness before closing. Await that
+// close before the peer exits so its caller can safely remove the cell.
+for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.once(signal, () => {
+  if (stopping) return;
+  stopping = true;
+  mcp.once('close', () => process.exit(0));
+  mcp.kill('SIGTERM');
+  mcp.stdin.end();
+});
 let next = 1;
 const requests = new Map();
 createInterface({ input: mcp.stdout }).on('line', line => {
@@ -87,7 +97,6 @@ async function tool(name, args) {
 // readiness deadline must then classify identity-never-ready, never credit.
 if (process.env.XCLI_SCENARIO_FAULT === 'never-ready' && role === 'receiver') {
   process.stdout.write(`Simulated ${profile} model\r\nReady · ${process.cwd()}\r\n${profile === 'codex' ? '›' : '❯'} \r\n`);
-  for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.once(signal, () => { mcp.kill('SIGTERM'); process.exit(0); });
   await new Promise(() => {});
 }
 await call('initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: `simulated-${profile}`, version: '1' } });
@@ -232,7 +241,6 @@ if (pollMode) {
 if (scriptJson) {
   process.stdout.write(`Simulated ${profile} model\r\nReady · ${process.cwd()}\r\n${profile === 'codex' ? '›' : '❯'} \r\n`);
   await runScriptedPeer(JSON.parse(scriptJson));
-  for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.once(signal, () => { mcp.kill('SIGTERM'); process.exit(0); });
   await new Promise(() => {});
 }
 process.stdin.setRawMode(true);
@@ -287,5 +295,4 @@ if (role === 'sender') {
   await tool('h2a_send', { to: target, message: PROBE });
 }
 process.stdout.write(`Simulated ${profile} model\r\nReady · ${process.cwd()}\r\n${profile === 'codex' ? '›' : '❯'} \r\n`);
-for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.once(signal, () => { mcp.kill('SIGTERM'); process.exit(0); });
-mcp.once('exit', () => process.exit(74));
+mcp.once('exit', () => { if (!stopping) process.exit(74); });

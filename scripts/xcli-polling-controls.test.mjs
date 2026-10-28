@@ -26,7 +26,8 @@ for (const period of selected === undefined ? periods : [Number(selected)]) {
         assert.equal(cell.wakeFailure, 'wake-polling-detected');
       } else {
         assert.ok(['wake-no-qualifying-read', 'wake-delay-exceeded',
-          ...(replications === 3 ? ['wake-phase-separation-unproven'] : [])].includes(cell.wakeFailure));
+          ...(replications === 3 ? ['wake-phase-separation-unproven'] : [])].includes(cell.wakeFailure),
+        JSON.stringify({ period, phase, replication, wakeFailure: cell.wakeFailure, blocker: cell.blocker, windows: w }));
       }
       }
     }

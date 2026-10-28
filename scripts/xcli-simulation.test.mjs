@@ -145,25 +145,27 @@ test('L3: a replayed wake produces at most one qualifying read', () => {
 
 test('L3: a receiver that pops the probe after reading keeps its wake proof', () => {
   // V3 §3.2 authorizes consumption: `read` then `pop` is a live receive.
-  // The cell-level wake must survive it via the delivery witness; only the
-  // batch rule (fewer than 3 replications) denies stage-7 credit here.
+  // Replay the reviewer's three separated replications: consuming the probe
+  // must preserve the delivery witness and all eight qualification stages.
   const root = fs.mkdtempSync(join(tmpdir(), 'xcli-pop-'));
   try {
     const output = join(root, 'receipt.json');
     const env = { ...environment(join(root, 'env')), TMPDIR: tmpdir(), XCLI_SIM_POP: '1',
       ...(process.env.XCLI_NODE_HEADERS ? { XCLI_NODE_HEADERS: process.env.XCLI_NODE_HEADERS } : {}) };
     const result = spawnSync(process.execPath, [join(import.meta.dirname, 'qualify-cross-cli.mjs'),
-      '--simulated', '--pair', 'claude:codex', '--wake-release-offsets-ms', '0',
+      '--simulated', '--pair', 'claude:codex', '--wake-release-offsets-ms', '0,6000,1000',
       '--timeout-ms', '60000', '--output', output],
-    { env, encoding: 'utf8', timeout: 180000, maxBuffer: 4 * 1024 * 1024 });
+    { env, encoding: 'utf8', timeout: 300000, maxBuffer: 4 * 1024 * 1024 });
     removeReportedCampaignRoot(result.stdout);
-    const cell = JSON.parse(fs.readFileSync(output, 'utf8')).cells[0];
-    assert.equal(result.status, 2, 'one replication earns no stage-7 batch credit');
-    assert.equal(cell.received, true, 'read-then-pop is a live receive');
-    assert.equal(cell.replyDelivered, true, 'the reply still lands');
-    assert.equal(cell.woke, false, 'a lone replication earns no batch credit');
-    assert.equal(cell.wakeFailure, 'wake-phase-separation-unproven',
-      'the cell-level wake survives consumption; only batch separation denies credit');
+    const cells = JSON.parse(fs.readFileSync(output, 'utf8')).cells;
+    assert.equal(result.status, 0, JSON.stringify(cells.map(c => ({ status: c.status, wakeFailure: c.wakeFailure, blocker: c.blocker }))));
+    assert.equal(cells.length, 3, 'all separated replications execute');
+    for (const cell of cells) {
+      assert.equal(cell.received, true, 'read-then-pop is a live receive');
+      assert.equal(cell.replyDelivered, true, 'the reply still lands');
+      assert.equal(cell.woke, true, 'wake proof survives probe consumption');
+      assert.equal(cell.status, 'simulated-OK');
+    }
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
