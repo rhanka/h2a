@@ -13,6 +13,10 @@
   Update only the existing @hono/node-server lock entry 2.1.1 -> 2.1.5;
   keep manifests, the empty exception register and scanner thresholds intact.
   Live audit RED/GREEN, compilation and all scoped reproductions rerun.
+- CI execution-proof follow-up: Vitest truncates long cwd values in test
+  titles, making two no-gw table rows share an identity. Use stable case
+  labels; verifyRuntimeExecution rejects the old report and accepts the new
+  scoped report. All assertions and all gate policies remain unchanged.
 - Private TMPDIR /home/antoinefa/.cache-tmp/h2a-test/run-eXwwhg; remove after
   delivery. No installed h2a, owner state, real gateway/provider/cluster,
   Python, full local suite, attribution trailer, merge or tag.
