@@ -260,6 +260,7 @@ and unrelated files on Claude, Codex, Muse, Vibe and Agy. No provider activation
 - No new independent consensus claimed: the installed h2a review route remains forbidden by the owner's confinement. The supplied Astra/Sol reviews are the findings addressed here. Trusted-lane exact-SHA receipts remain conductor-owned and absent.
 - CI follow-up: an EOF-aware shutdown witness still rejects the historical peer. Restart-lab cleanup now confirms every recorded PID/start incarnation dead before removing its proc view; delayed-signal regression RED 0/1 -> GREEN 2/2 on Node 22/24, full targeted incident file 17/17. Four historical wake-review cases leave four roots; current cases leave none. All latency thresholds remain unchanged.
 - L13 follow-up: the archived failed cell joins while create is enrolling its creator. A widened private build reproduces create refusal after a successful participant join. Wait for the successful create response before joining; same fault GREEN on Node 22/24, full scenario test file 22/22. Product loop code and refusal twins are unchanged.
+- Security follow-up: GHSA-rmxm-3fg6-px4f newly fails the required moderate+ gate. Lock-only @hono/node-server 2.1.1 -> 2.1.3 (first fixed patch), unchanged Node/Hono peers and no new dependencies. Audit gate RED -> GREEN, policy contracts 7/7, private HTTP smoke on Node 22/24. No scanner exception or policy change.
 
 # R10 — native host recovery under concurrent load
 
