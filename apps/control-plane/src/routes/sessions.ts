@@ -60,6 +60,22 @@ function randomId(prefix: string): string {
   return `${prefix}-${random}`;
 }
 
+/** Explicit routing must fail before a Pod starts, never fall back to direct. */
+async function acquireGatewayToken(url: string | undefined, sessionId: string): Promise<string> {
+  if (!url) throw new Error("gateway URL is not configured");
+  const response = await fetch(`${url}/v1/session`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ sessionId }),
+  });
+  if (!response.ok) throw new Error(`gateway returned ${response.status}`);
+  const body = await response.json() as { gatewayToken?: unknown };
+  if (typeof body.gatewayToken !== "string" || !body.gatewayToken.trim()) {
+    throw new Error("gateway returned no session token");
+  }
+  return body.gatewayToken;
+}
+
 function buildDescriptor(
   req: CreateSessionRequest & { workspaceId?: string },
 ): SessionDescriptor {
@@ -417,30 +433,16 @@ export function createSessionsRouter(deps: SessionsRouterDeps): SessionsRouter {
       // Gateway routing is an explicit per-session choice: only when the
       // session asked for it (llmGateway: true) is a per-session token
       // acquired for provisioning. A globally configured gateway URL alone
-      // never acquires a token. Failure is non-fatal: log a warning and
-      // continue without the gateway (pod uses direct Anthropic access).
-      if (llmGatewayUrl && req.llmGateway === true) {
+      // never acquires a token. An explicit choice fails closed.
+      if (req.llmGateway === true) {
         provisionOptions.llmGateway = true;
         try {
-          const gwResp = await fetch(`${llmGatewayUrl}/v1/session`, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ sessionId: descriptor.id }),
-          });
-          if (gwResp.ok) {
-            const { gatewayToken } = (await gwResp.json()) as {
-              gatewayToken: string;
-            };
-            provisionOptions.gatewayToken = gatewayToken;
-          } else {
-            console.warn(
-              `[control-plane] gateway /v1/session returned ${gwResp.status} — provisioning without gateway`,
-            );
-          }
-        } catch (err) {
-          console.warn(
-            `[control-plane] gateway unreachable (${String(err)}) — provisioning without gateway`,
-          );
+          provisionOptions.gatewayToken = await acquireGatewayToken(llmGatewayUrl, descriptor.id);
+        } catch {
+          store.delete(descriptor.id, userId);
+          sessionTenant.delete(descriptor.id);
+          bus.forget(descriptor.id);
+          return c.json({ code: "gateway.unavailable", message: "Explicit gateway is unavailable; no session was started", retryable: true }, 503);
         }
       }
       // A provisioning failure (k8s API error, e.g. quota exceeded) must NOT
@@ -753,28 +755,12 @@ export function createSessionsRouter(deps: SessionsRouterDeps): SessionsRouter {
       // Keep an explicit session choice across the Pod rebuild: re-acquire a
       // fresh per-session token. Direct sessions (no explicit choice) rebuild
       // without any gateway routing, whatever the global URL config says.
-      if (descriptor.llmGateway === true && llmGatewayUrl) {
+      if (descriptor.llmGateway === true) {
         refreshOptions.llmGateway = true;
         try {
-          const gwResp = await fetch(`${llmGatewayUrl}/v1/session`, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ sessionId: descriptor.id }),
-          });
-          if (gwResp.ok) {
-            const { gatewayToken } = (await gwResp.json()) as {
-              gatewayToken: string;
-            };
-            refreshOptions.gatewayToken = gatewayToken;
-          } else {
-            console.warn(
-              `[control-plane] gateway /v1/session returned ${gwResp.status} — refreshing without gateway`,
-            );
-          }
-        } catch (err) {
-          console.warn(
-            `[control-plane] gateway unreachable (${String(err)}) — refreshing without gateway`,
-          );
+          refreshOptions.gatewayToken = await acquireGatewayToken(llmGatewayUrl, descriptor.id);
+        } catch {
+          return c.json({ code: "gateway.unavailable", message: "Explicit gateway is unavailable; session was not refreshed", retryable: true }, 503);
         }
       }
       await provisioner.refresh(descriptor, emit, refreshOptions);

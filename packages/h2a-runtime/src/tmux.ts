@@ -117,8 +117,8 @@ export const REMOTE_TMUX_PROFILE = {
  * routing vars AFTER login/init scripts run — the last point before the CLI
  * exec. A stale tmux server env or a login script may re-export
  * ANTHROPIC_BASE_URL/ANTHROPIC_AUTH_TOKEN after the early `env -u` prefix;
- * the wrapper prologue removes them again. Gateway launches never carry the
- * stamp, so their provisioned env survives. The stamp is inert on its own.
+ * the wrapper prologue removes them again. Gateway launches set the stamp to
+ * zero, so their provisioned env survives inherited direct stamps.
  */
 export const DIRECT_ROUTING_SCRUB_ENV = "H2A_DIRECT_ROUTING_SCRUB";
 
@@ -351,19 +351,17 @@ export function callerCarriesGatewayRouting(): boolean {
 
 /**
  * Stamp the direct-scrub sentinel into a child env built for a direct launch.
- * Pure over the env record: gateway env keeps no stamp (the wrapper must
+ * Pure over the env record: gateway env gets a zero stamp (the wrapper must
  * preserve it), direct env gets one (the wrapper scrubs post-init routing
  * vars). Shared by the tmux (`-e`) and native (env-file snapshot) paths.
  */
 export function stampDirectRoutingScrub(
   env: Record<string, string | undefined>,
 ): void {
-  if (
+  env[DIRECT_ROUTING_SCRUB_ENV] = (
     env.ANTHROPIC_BASE_URL === undefined &&
     env.ANTHROPIC_AUTH_TOKEN === undefined
-  ) {
-    env[DIRECT_ROUTING_SCRUB_ENV] = "1";
-  }
+  ) ? "1" : "0";
 }
 
 /** Build the environment explicitly stamped into a newly-created tmux session. */
@@ -373,9 +371,7 @@ export function tmuxEnvironmentArgs(sessionClass?: SessionClass): string[] {
     const value = process.env[key];
     if (value) args.push("-e", `${key}=${value}`);
   }
-  if (!callerCarriesGatewayRouting()) {
-    args.push("-e", `${DIRECT_ROUTING_SCRUB_ENV}=1`);
-  }
+  args.push("-e", `${DIRECT_ROUTING_SCRUB_ENV}=${callerCarriesGatewayRouting() ? "0" : "1"}`);
   // Session class stays last: existing consumers assert the tail of this
   // list carries the session marker.
   if (sessionClass) args.push("-e", `${SESSION_CLASS_ENV}=${sessionClass}`);

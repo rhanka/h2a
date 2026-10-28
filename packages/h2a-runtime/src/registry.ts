@@ -276,6 +276,8 @@ export type RegistryEntry = {
 };
 
 export type EnrollInput = {
+  /** A fresh run reusing an id must discard that id's old conversation consent. */
+  freshConversation?: boolean;
   id: string;
   tool: RegistryTool;
   kind: RegistryKind;
@@ -1272,7 +1274,7 @@ function applyEnroll(
   };
   const label = input.label ?? prev?.label;
   if (label !== undefined) entry.label = label;
-  const convId = input.convId ?? prev?.convId;
+  const convId = input.convId ?? (input.freshConversation ? undefined : prev?.convId);
   if (convId !== undefined) entry.convId = convId;
   const remoteId = input.remoteId ?? prev?.remoteId;
   if (remoteId !== undefined) entry.remoteId = remoteId;
@@ -1315,13 +1317,13 @@ function applyEnroll(
   if (model !== undefined) entry.model = model;
   const effort = input.effort ?? prev?.effort;
   if (effort !== undefined) entry.effort = effort;
-  // Consent is bound to the restored conversation identity: when the caller
-  // names a DIFFERENT conversation than the stored row, a previous gateway pin
-  // must not carry over — an auto launch stays unpinned so a later resume of
-  // the new conversation follows the live default (direct). An explicitly
-  // provided pin still wins; an unchanged identity still inherits.
+  // Consent belongs to one conversation/workspace/tool. A fresh run or a
+  // different identity clears the previous id's pin; only a caller-provided
+  // choice can carry over to the new conversation.
   const conversationChanged =
-    input.convId !== undefined && input.convId !== prev?.convId;
+    input.freshConversation === true ||
+    input.cwd !== prev?.cwd || input.tool !== prev?.tool ||
+    (input.convId !== undefined && input.convId !== prev?.convId);
   const gatewayMode = conversationChanged
     ? input.gatewayMode
     : (input.gatewayMode ?? prev?.gatewayMode);
@@ -1720,6 +1722,7 @@ export function enrollFromRun(args: {
       cwd: args.cwd,
       source: "run",
       label: args.slug,
+      freshConversation: args.convId === undefined,
       tmuxSession: args.tmuxSession,
       sessionClass: args.sessionClass,
       ...(args.pid !== undefined ? { pid: args.pid } : {}),

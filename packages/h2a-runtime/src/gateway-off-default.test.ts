@@ -669,6 +669,20 @@ describe("consent is bound to the restored conversation identity (round-2 P1)", 
     expect(acquireLlmMeshSessionEnv).not.toHaveBeenCalled();
     expect(startGateway).not.toHaveBeenCalled();
   });
+
+  it("a fresh auto launch reusing a name clears the old conversation and consent", async () => {
+    seedExplicitPinForOldConv();
+    expect(await main([
+      "node", "h2a", "run", "claude", RUN_CWD, "--name", "proj", "--no-attach",
+    ])).toBe(0);
+    expect(acquireLlmMeshSessionEnv).not.toHaveBeenCalled();
+    const saved = loadRegistry();
+    if (saved.state !== "ok") throw new Error("registry unreadable after launch");
+    const row = saved.entries.find(e => e.id === "proj");
+    expect(row?.gatewayMode).toBeUndefined();
+    expect(row?.gatewayProvenance).toBeUndefined();
+    expect(row?.convId).toBeUndefined();
+  });
 });
 
 describe("relaunch --apply retype resolves consent and scrubs direct (round-2 P1)", () => {
@@ -714,6 +728,21 @@ describe("relaunch --apply retype resolves consent and scrubs direct (round-2 P1
     expect(relaunchInSession.mock.calls[0]?.[1]).toBe(
       `env -u ANTHROPIC_BASE_URL -u ANTHROPIC_AUTH_TOKEN claude --resume ${CONV}`,
     );
+    // Execute the command retyped into the existing polluted shell, with a
+    // stand-in provider. Assert the environment the real child receives.
+    const { spawnSync } = await vi.importActual<typeof import("node:child_process")>("node:child_process");
+    const bin = join(SCRATCH, "fake-bin");
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(join(bin, "claude"), "#!/bin/bash\nexec printenv\n", { mode: 0o700 });
+    const cmd = String(relaunchInSession.mock.calls[0]?.[1]);
+    const child = spawnSync("/bin/bash", ["-c", cmd], {
+      encoding: "utf8",
+      env: { PATH: `${bin}:/usr/bin:/bin`, ANTHROPIC_BASE_URL: "http://localhost:3002", ANTHROPIC_AUTH_TOKEN: "stale-token", ANTHROPIC_API_KEY: "native-key-fixture" },
+    });
+    expect(child.status).toBe(0);
+    expect(child.stdout).not.toMatch(/^ANTHROPIC_BASE_URL=/m);
+    expect(child.stdout).not.toMatch(/^ANTHROPIC_AUTH_TOKEN=/m);
+    expect(child.stdout).toMatch(/^ANTHROPIC_API_KEY=native-key-fixture$/m);
   });
 
   it("a proven explicit gateway choice retypes the plain resume command", async () => {

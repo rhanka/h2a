@@ -442,19 +442,12 @@ describe("k8s spec builders", () => {
       bothEnv.find((e) => e.name === "H2A_GATEWAY_MODE")?.value,
     ).toBe("gateway");
 
-    // Explicit choice but no token (gateway unreachable at provision time) →
-    // no routing vars, direct stamp.
-    const noToken = buildSessionPodSpec(baseDescriptor, {
+    // An explicit choice cannot silently fall back to direct on failure.
+    expect(() => buildSessionPodSpec(baseDescriptor, {
       ...DEFAULT_BUILDER_OPTIONS,
       llmGatewayUrl: url,
       llmGateway: true,
-    });
-    expect(
-      noToken.spec.containers[0]!.env.find((e) => e.name === "ANTHROPIC_BASE_URL"),
-    ).toBeUndefined();
-    expect(
-      noToken.spec.containers[0]!.env.find((e) => e.name === "H2A_GATEWAY_MODE")?.value,
-    ).toBe("direct");
+    })).toThrow(/gateway.*unavailable/i);
   });
 
   it("injects envFrom entries when extraEnvFromSecrets is set", () => {

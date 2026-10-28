@@ -109,8 +109,8 @@ export class K8sSessionProvisioner implements SessionProvisioner {
     const opts: SpecBuilderOptions = {
       ...this.options,
       namespace: ns,
-      ...(options.gatewayToken ? { llmGatewayToken: options.gatewayToken } : {}),
-      ...(llmGateway ? { llmGateway: true } : {}),
+      llmGatewayToken: options.gatewayToken,
+      llmGateway,
       ...(options.agentImage ? { image: options.agentImage } : {}),
     };
 
@@ -175,8 +175,8 @@ export class K8sSessionProvisioner implements SessionProvisioner {
     const opts: SpecBuilderOptions = {
       ...this.options,
       namespace: ns,
-      ...(options.gatewayToken ? { llmGatewayToken: options.gatewayToken } : {}),
-      ...(refreshGateway ? { llmGateway: true } : {}),
+      llmGatewayToken: options.gatewayToken,
+      llmGateway: refreshGateway,
     };
     emit(descriptor.id, "session.lifecycle.changed", {
       previousState: this.phases.get(descriptor.id) ?? "running",
