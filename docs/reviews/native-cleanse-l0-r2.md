@@ -67,6 +67,18 @@ Vérification ciblée de la découverte et des déclarations : six identités,
 `declarationFailures: []`. Le contrôle avec le preload `native-isolation.js`
 et le reporter `node-evidence-reporter.mjs` vérifie aussi leur exécution.
 
+Contrôle négatif MCP ajouté : remplacer la commande effective par
+`/bin/echo <entrée-du-candidat> mcp-serve` doit rester non courant. Avant
+correction du résolveur, ce contrôle échoue (1 fail, 5 pass, 0 skip) ; après,
+les six témoins passent sous le preload/reporter des gates. La résolution
+vérifie le premier exécutable, ou Node exécutant directement cette entrée,
+et non la présence du chemin parmi les arguments. Le manifeste du cache
+plugin effectif est également comparé octet pour octet au candidat.
+Les fixtures de registration suivent les formats distincts existants :
+Claude utilise installed_plugins.json et ses settings ; Codex utilise
+les tables plugins/marketplaces TOML et son cache versionné, avec enabled=false
+conservé. Aucun registre Claude fictif ne sert de preuve pour Codex.
+
 La lane L0 garde ses diagnostics de lacunes pour permettre les PRs des lots
 séparés ; elle ne demande jamais que le défaut persiste. Le mode strict est
 destiné à l'acceptance des contrats après L1/L3/L4 ; L5 câblera les gates du
@@ -79,3 +91,16 @@ la fixture sont arrêtés, après vérification de leur génération. Aucun bina
 h2a propriétaire, état réel, Python, suite locale complète, tag ou merge.
 Pas de nouvelle revendication de consensus indépendant ; les deux revues du
 round 1 ont été réconciliées finding par finding.
+
+CI intermédiaire sur c4a875fa6 : 12 checks verts, 3 campagnes npm test
+en échec avant les témoins. Cause commune : npm récent émet les messages
+prepack avant sa sortie --json (Unexpected token F, Focus packaged...).
+Le bootstrap déduit désormais le nom du tarball du manifeste préparé,
+vérifie sa présence après npm pack et en calcule le digest ; aucune sortie
+lifecycle n’est interprétée comme JSON. foreground_scripts=true rend
+ce comportement explicite dans les replays ciblés. Ces échecs de bootstrap
+ne sont pas comptés dans les 42 contrats RED.
+
+Le rejeu a observé une réutilisation d’inode par un nouvel endpoint actif.
+La preuve de quarantaine exige maintenant un socket hors des deux chemins
+canoniques actifs ; l’identité d’un nouvel endpoint ne vaut jamais archive.

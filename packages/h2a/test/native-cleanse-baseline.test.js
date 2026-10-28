@@ -42,6 +42,15 @@ function contracts(t, observations) {
 test('L0 install: global candidate lifecycle converges the independent eight-host inventory', t => {
   artifact.verify();
   t.diagnostic(JSON.stringify({ candidate: artifact.version, tarballs: artifact.artifacts, hosts: hosts.map(h => h.host) }));
+  const claude = hosts.find(h => h.host === 'claude');
+  const original = readFileSync(claude.mcp, 'utf8');
+  try {
+    const wrong = JSON.parse(original);
+    wrong.mcpServers.h2a = { command: '/bin/echo', args: [artifact.cli, 'mcp-serve'] };
+    writeFileSync(claude.mcp, JSON.stringify(wrong));
+    const control = observeHosts(artifact, hosts).find(o => o.id === 'claude installed MCP resolves activated prefix');
+    assert.equal(control.actual, false, 'a candidate path passed to echo is not the effective MCP binary');
+  } finally { writeFileSync(claude.mcp, original); }
   contracts(t, observeHosts(artifact, hosts));
 });
 
@@ -141,7 +150,7 @@ test('L0 R1: public run quarantines the original stale socket inodes with a reco
   const artifacts = files(f.root);
   contracts(t, stale.flatMap(old => [
     { id: old.socket.split('/').at(-1) + ' original inode quarantined', lot: 'L1',
-      actual: artifacts.some(p => p !== old.socket && lstatSync(p).dev === old.dev && lstatSync(p).ino === old.ino), expected: true },
+      actual: artifacts.some(p => !f.sockets.includes(p) && lstatSync(p).isSocket() && lstatSync(p).dev === old.dev && lstatSync(p).ino === old.ino), expected: true },
     { id: old.socket.split('/').at(-1) + ' recovery record', lot: 'L1',
       actual: artifacts.some(p => lstatSync(p).isFile() && /\.(json|jsonl)$/.test(p) && readFileSync(p, 'utf8').includes(old.socket) && readFileSync(p, 'utf8').includes(String(old.ino))), expected: true },
   ]));
