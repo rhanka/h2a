@@ -1,6 +1,13 @@
 // Qualification infrastructure only. No installed h2a code or ambient state.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { homedir, userInfo } from 'node:os';
+
+function userInfoHomedir() {
+  const info = userInfo();
+  assert.ok(info && typeof info.homedir === 'string' && info.homedir.startsWith('/'), 'owner home unavailable');
+  return info.homedir;
+}
 import { createRequire } from 'node:module';
 import { dirname, join, relative, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -97,6 +104,25 @@ export function environment(root, bin = join(root, 'bin')) {
     assert.ok(fs.lstatSync(node).isSymbolicLink() && fs.readlinkSync(node) === process.execPath, 'unexpected private Node shim');
   } else fs.symlinkSync(process.execPath, node);
   return env;
+}
+
+// Campaign and worker roots are passed as H2A_TEST_QUALIFICATION_ROOT to
+// processes importing packages/h2a/test/helpers/native-isolation.js, whose
+// admission guard on main only accepts /tmp/h2a-qual-* (forbidden by the
+// owner no-/tmp rule) or $HOME/.cache-tmp/h2a-test/run-*. A plain mkdtemp
+// root under TMPDIR is refused at import, so every such root goes through
+// here: a fresh 0700 run-* directory under the admitted base.
+export function compliantQualificationRoot() {
+  // homedir() follows an overridden HOME (test fixtures scrub it to a
+  // private dir). The guard compares against the owner home, like
+  // native-isolation.js does with os.userInfo().
+  let ownerHome = null;
+  try { ownerHome = userInfoHomedir(); } catch { ownerHome = null; }
+  const base = join(ownerHome ?? homedir(), '.cache-tmp', 'h2a-test');
+  fs.mkdirSync(base, { recursive: true });
+  const root = fs.mkdtempSync(join(base, 'run-'));
+  fs.chmodSync(root, 0o700);
+  return root;
 }
 
 // Node headers for the direct node-pty build (no node-gyp/Python). The
