@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
-import { CLIS, classify, matrix, environment, inside, pythonEntrypoint, privateExecutable } from './xcli-lab.mjs';
+import { pathToFileURL } from 'node:url';
+import { CLIS, classify, matrix, environment, inside, pythonEntrypoint, privateExecutable, compliantQualificationRoot, repo } from './xcli-lab.mjs';
 import { startupKey, blockingScreen } from './qualify-cross-cli.mjs';
 import { spawnSync } from 'node:child_process';
 
@@ -228,5 +229,23 @@ test('L7: the vendor vibe entrypoint classifies as vendor-runtime, never forbidd
     assert.equal(vendorRuntimeLabel('vibe', launcher), 'python (not shipped)');
     assert.equal(vendorRuntimeLabel('vibe', join(root, 'missing')), null);
     assert.equal(vendorRuntimeLabel('codex', launcher), null);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+// Rebase R10 (PR #390): the native-isolation admission guard only accepts
+// $HOME/.cache-tmp/h2a-test/run-* (/tmp is forbidden). Every campaign and
+// worker root must be admitted, or the worker dies at import with
+// REFUSING invalid short qualification root and the cell blocks.
+test('campaign roots are admitted by the native-isolation qualification guard', () => {
+  const root = compliantQualificationRoot();
+  try {
+    assert.equal(fs.statSync(root).mode & 0o777, 0o700, 'admitted roots are private');
+    const helper = pathToFileURL(join(repo, 'packages/h2a/test/helpers/native-isolation.js')).href;
+    const probe = `const h = await import(${JSON.stringify(helper)});
+      h.assertPrivateQualificationPath(${JSON.stringify(join(root, 'child'))}, ${JSON.stringify(root)});`;
+    const run = spawnSync(process.execPath, ['--input-type=module', '-e', probe], {
+      env: { ...process.env, H2A_TEST_QUALIFICATION_ROOT: root }, encoding: 'utf8',
+    });
+    assert.equal(run.status, 0, run.stderr);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

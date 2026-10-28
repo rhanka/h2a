@@ -6,10 +6,10 @@ import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 import { exportEvidence } from './xcli-export-evidence.mjs';
-import { repo } from './xcli-lab.mjs';
+import { repo, compliantQualificationRoot } from './xcli-lab.mjs';
 
 test('qualification roots in runner storage retain privacy, alias and child inheritance guards', () => {
-  const root = fs.mkdtempSync(join(tmpdir(), 'h2a-qual-'));
+  const root = compliantQualificationRoot();
   const alias = root + 'alias';
   try {
     const helper = pathToFileURL(join(repo, 'packages/h2a/test/helpers/native-isolation.js')).href;
