@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import test from 'node:test';
-import { environment, sourceBuild, repo, compliantQualificationRoot } from './xcli-lab.mjs';
+import { environment, sourceBuild, repo, compliantQualificationRoot, removeCampaignRoot } from './xcli-lab.mjs';
 
 test('an already exited private CLI is blocked without falsely failing its verified cleanup', () => {
   const root = compliantQualificationRoot();
@@ -86,7 +86,7 @@ test('L5: a worker emitting invalid JSON stops the campaign with secrets wiped',
   try {
     assert.equal(run.result.status, 2);
     assertL5StoppedAndWiped(run, 'qualification-worker-failed-cleanup-unproven');
-  } finally { fs.rmSync(run.dir, { recursive: true, force: true }); }
+  } finally { removeCampaignRoot(run.root); fs.rmSync(run.dir, { recursive: true, force: true }); }
 });
 
 test('L5: a worker exiting without output stops the campaign with secrets wiped', () => {
@@ -94,7 +94,7 @@ test('L5: a worker exiting without output stops the campaign with secrets wiped'
   try {
     assert.equal(run.result.status, 2);
     assertL5StoppedAndWiped(run, 'qualification-worker-failed-cleanup-unproven');
-  } finally { fs.rmSync(run.dir, { recursive: true, force: true }); }
+  } finally { removeCampaignRoot(run.root); fs.rmSync(run.dir, { recursive: true, force: true }); }
 });
 
 test('L5: a worker reporting cleanup failure without wiping is wiped by the parent', () => {
@@ -107,7 +107,7 @@ test('L5: a worker reporting cleanup failure without wiping is wiped by the pare
     assert.equal(run.receipt.cells[0].blocker, 'owned-process-cleanup-failed');
     assert.ok(run.planted, 'the stub planted dummy login copies');
     assert.equal(fs.existsSync(run.planted), false, 'the parent wiped the recorded copies itself');
-  } finally { fs.rmSync(run.dir, { recursive: true, force: true }); }
+  } finally { removeCampaignRoot(run.root); fs.rmSync(run.dir, { recursive: true, force: true }); }
 });
 
 test('L5: cancelling the campaign mid-cell still wipes the cell secrets', async () => {
@@ -122,8 +122,9 @@ test('L5: cancelling the campaign mid-cell still wipes the cell secrets', async 
   child.stdout.on('data', bytes => { stdout += bytes; });
   const closed = new Promise(r => child.once('close', r));
   const timer = setTimeout(() => child.kill('SIGKILL'), 110000);
+  let root = null;
   try {
-    const root = await new Promise((resolve, reject) => {
+    root = await new Promise((resolve, reject) => {
       const deadline = Date.now() + 90000;
       const poll = () => {
         const match = stdout.match(/Private qualification root: (\S+)/);
@@ -144,6 +145,7 @@ test('L5: cancelling the campaign mid-cell still wipes the cell secrets', async 
   } finally {
     clearTimeout(timer);
     if (child.exitCode === null) child.kill('SIGKILL');
+    if (typeof root === 'string' && root) removeCampaignRoot(root);
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });

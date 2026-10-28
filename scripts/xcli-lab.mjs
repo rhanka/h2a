@@ -125,6 +125,24 @@ export function compliantQualificationRoot() {
   return root;
 }
 
+// Test-called campaign parents mint an admitted sibling root that outlives
+// the test's own dir by design (receipt/resume live there until the caller
+// removes it). Every test that spawns a parent without --campaign-root must
+// remove the exact root the parent reported — a surprising path is never
+// deleted, and the main guard is never widened.
+export function removeCampaignRoot(reported) {
+  assert.ok(typeof reported === 'string' && reported.length > 0, 'parent reports its campaign root');
+  assert.ok(/^\/home\/[^/]+\/\.cache-tmp\/h2a-test\/run-[A-Za-z0-9]+$/.test(reported),
+    `campaign root outside the admitted base: ${reported}`);
+  fs.rmSync(reported, { recursive: true, force: true });
+}
+
+export function removeReportedCampaignRoot(stdout) {
+  const reported = (String(stdout).match(/Private qualification root: (\S+)/) ?? [])[1];
+  assert.ok(reported, `parent reports its campaign root\n${stdout}`);
+  return removeCampaignRoot(reported);
+}
+
 // Node headers for the direct node-pty build (no node-gyp/Python). The
 // pre-provisioned XCLI_NODE_HEADERS wins; otherwise fetch the matching
 // public headers once via xcli-node-headers.mjs (setup-node ships no
