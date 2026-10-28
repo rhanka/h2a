@@ -1,3 +1,11 @@
+# Native cleanse — L0, PR #396 round 2
+
+- Scope: replace inverted/source-only witnesses with installed-candidate run/restore/install observations; no L1–L6 product implementation. Keep the pushed 9f4b16d49 commit.
+- Real prepare/prepack/pack, isolated global npm lifecycle, exact local companion tarballs, independent eight-adapter inventory and canonical main/lf1 sockets.
+- Valid rc.7 UUID lock-id, tab-separated maps/flock lockfile, SHA-256 claim names and complete registry rows; unknown legacy barrier/debris retained.
+- Strict mode exposes desired missing contracts; normal L0 records RED diagnostics and accepts repaired contracts without inverted expectations. Existing I/O, ownership, preservation and infrastructure assertions always gate.
+- Evidence, lot mapping and confinement: docs/reviews/native-cleanse-l0-r2.md. No new peer consensus claimed; installed h2a and owner state remain forbidden.
+
 # Memory MCP — L1 producer skill installation
 
 ## Objective
