@@ -268,12 +268,33 @@ test("R8.3: the smoke proves the focus candidate against the focus pin, never th
     "comparing focus to the lockstep train reopens the hole on the independent focus train",
   );
   assert.ok(
-    SMOKE_SOURCE.includes("@sentropic/focus resolved OUTSIDE the candidate prefix"),
+    SMOKE_SOURCE.includes("@sentropic/focus resolved from the installed h2a is OUTSIDE the candidate prefix"),
     "the focus path proof must fail closed outside the prefix",
   );
   assert.ok(
-    SMOKE_SOURCE.includes("require.resolve('@sentropic/focus/package.json')"),
-    "the smoke must prove the focus path resolves from the installed prefix",
+    SMOKE_SOURCE.includes("'@sentropic', 'h2a', 'package.json'"),
+    "the smoke must anchor the proof at the installed h2a manifest (where npm laid the candidate tarball)",
+  );
+  assert.ok(
+    SMOKE_SOURCE.includes("createRequire(") &&
+      SMOKE_SOURCE.includes(".resolve('@sentropic/focus/package.json')"),
+    "the smoke must resolve focus FROM the installed h2a package directory (Node resolution from h2a, never the prefix root)",
+  );
+  assert.ok(
+    SMOKE_SOURCE.includes("NESTED @sentropic/focus"),
+    "the smoke must reject a nested focus copy under h2a even when its version matches the pin",
+  );
+});
+
+test("R8.3: smoke must fail when h2a resolves a nested registry focus copy (round-2 P2)", async () => {
+  // The reviewer's mutation: h2a's exact focus dependency served from the
+  // registry nests a second focus copy under h2a while the root still holds
+  // the candidate. The nested copy carries the PINNED version here, so the
+  // version comparison alone passes — only the nested-copy rejection turns
+  // the smoke red. The old root-anchored gate stayed green on this layout.
+  await assert.rejects(
+    observeSmoke(SMOKE_SOURCE, SMOKE_PATH, { nestedFocusVersion: PINNED_FOCUS }),
+    /NESTED @sentropic\/focus/,
   );
 });
 
