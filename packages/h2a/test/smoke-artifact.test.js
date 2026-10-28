@@ -90,6 +90,11 @@ test("C9 A10: smoke must fail when the installed focus has a different version",
   await assert.rejects(observeSmoke(SMOKE_SOURCE, SMOKE_PATH, { loadedFocusVersion: "0.4.0" }), /focus version/);
 });
 
+test("C9 A10: smoke must fail when the packaged binary prints the wrong version", async () => {
+  assert.notEqual("0.0.0", PINNED, "the mismatch fixture must differ from the pinned train");
+  await assert.rejects(observeSmoke(SMOKE_SOURCE, SMOKE_PATH, { binVersion: "0.0.0" }), /version/);
+});
+
 test("C9 A11: a failed fault connection proves no injection", async () => {
   await assert.rejects(observeSmoke(SMOKE_SOURCE, SMOKE_PATH, { failConnect: true }), /fault connection/);
 });

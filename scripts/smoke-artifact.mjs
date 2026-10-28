@@ -222,6 +222,36 @@ try {
     )
   }
   console.log(`smoke-artifact: focus resolved from the installed h2a at version ${loadedFocusVersion}`)
+  // The installed h2a manifest must itself ride the lockstep train: the
+  // version gate below compares the packaged binary's output to this pin,
+  // and that comparison only proves "the candidate" when the manifest does.
+  const h2aManifest = JSON.parse(readFileSync(h2aPackageJson, 'utf8'))
+  if (h2aManifest.version !== PINNED_RUNTIME_VERSION) {
+    fail(
+      `packaged h2a version is ${h2aManifest.version}, expected the pinned ${PINNED_RUNTIME_VERSION} ` +
+        '(the version gate below compares the binary output to the pin — a skewed manifest would prove nothing)',
+    )
+  }
+
+  // -------------------------------------------------------------------------
+  // (4b) version gate (régression 0.98.7-rc.7): the PACKAGED binary prints
+  // exactly the candidate version for `version`/`--version`/`-v`. Before this
+  // gate, an early runtime dispatch intercepted those words (`version` →
+  // « error: unknown command », `--version` → « 0.0.0 ») and the smoke never
+  // ran them, so the regression shipped through a green gate.
+  // -------------------------------------------------------------------------
+  const versionLab = isolatedHostLab('version')
+  const packagedBin = join(prefix, 'node_modules', '@sentropic', 'h2a', 'dist', 'bin.js')
+  if (!existsSync(packagedBin)) fail(`packaged h2a is missing its entry ${packagedBin}`)
+  for (const arg of ['version', '--version', '-v']) {
+    const probed = runSync(process.execPath, [packagedBin, arg], { env: versionLab.env, cwd: versionLab.root }).trim()
+    if (probed !== PINNED_RUNTIME_VERSION) {
+      fail(
+        `packaged h2a ${arg} printed ${JSON.stringify(probed)}, expected exactly the pinned ${PINNED_RUNTIME_VERSION}`,
+      )
+    }
+  }
+  console.log(`smoke-artifact: packaged h2a version/--version/-v print ${PINNED_RUNTIME_VERSION}`)
 
   // -------------------------------------------------------------------------
   // (5) drive the PACKAGED host binary

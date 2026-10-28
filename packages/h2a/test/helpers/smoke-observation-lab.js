@@ -20,7 +20,7 @@ export async function observeSmoke(source, scriptPath, options = {}) {
   assert.match(focusPinned, /^\d+\.\d+\.\d+$/, 'the focus pinned literal must be a strict X.Y.Z train')
   const tarballVersion = (pkg) => pkg === '@sentropic/focus' ? focusPinned : pinned
   const root = fs.mkdtempSync(join(tmpdir(), 'smoke-observation-'))
-  const observations = { packed: [], installed: [], seeded: false, faults: [], closed: false, ptys: [], pruned: false, pings: [] }
+  const observations = { packed: [], installed: [], seeded: false, faults: [], closed: false, ptys: [], pruned: false, pings: [], versions: [] }
   const children = new Map()
   const prebuilt = join(root, 'candidate-tarballs')
   if (options.prebuilt) {
@@ -65,6 +65,7 @@ export async function observeSmoke(source, scriptPath, options = {}) {
       // second focus copy under h2a while the root still holds the candidate.
       const h2aDir = join(prefix, 'node_modules/@sentropic/h2a')
       fs.mkdirSync(join(h2aDir, 'dist'), { recursive: true })
+      fs.writeFileSync(join(h2aDir, 'dist', 'bin.js'), '')
       fs.writeFileSync(join(h2aDir, 'package.json'), JSON.stringify({ name: '@sentropic/h2a', version: pinned }))
       if (options.nestedFocusVersion) {
         const nestedDir = join(h2aDir, 'node_modules/@sentropic/focus')
@@ -85,6 +86,12 @@ export async function observeSmoke(source, scriptPath, options = {}) {
       }
       const target = query.includes('@sentropic/track') ? resolvedTrackManifest : resolvedManifest
       return { status: 0, stdout: target, stderr: '' }
+    } else if (typeof args[0] === 'string' && args[0].endsWith('/dist/bin.js') && ['version', '--version', '-v'].includes(args[1])) {
+      // Emulate the packaged binary's version probe (gate 4b): record the
+      // probed word and answer with the pinned version, or with the
+      // caller-supplied wrong version to prove the gate fails closed.
+      observations.versions.push(args[1])
+      return { status: 0, stdout: options.binVersion ?? pinned, stderr: '' }
     }
     else if (args[1] === 'host-stop') {
       const child = children.get(args[3])
@@ -208,6 +215,7 @@ export async function observeSmoke(source, scriptPath, options = {}) {
     assert.equal(observations.faults[2], 'x'.repeat(32 * 1024 * 1024 + 1), 'the destructive oversize frame was not injected')
     assert.equal(observations.closed, true, 'stderr reader was not closed')
     assert.equal(observations.pruned, true, 'post-close prune was not observed')
+    assert.deepEqual(observations.versions, ['version', '--version', '-v'], 'the smoke must probe the packaged binary version/--version/-v')
     assert.deepEqual(observations.ptys, ['smoke-pty', 'smoke-pty-after-fault', 'smoke-exit', 'smoke-pty-after-stderr-fault'])
     assert.deepEqual(observations.pings, ['smoke-cold', 'smoke-cold', 'smoke-stderr', 'smoke-stderr'])
     return observations

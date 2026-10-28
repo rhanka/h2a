@@ -343,7 +343,15 @@
   "packages/h2a/test/artifacts.test.js": [],
   "packages/h2a/test/audit-security-debt.test.js": [],
   "packages/h2a/test/authority.test.js": [],
-  "packages/h2a/test/bin-routing.test.js": [],
+  "packages/h2a/test/bin-routing.test.js": [
+    "chaque 1er mot branché dans bin.ts est routable (natif, ou version servie avant dispatch)"
+  ],
+  "packages/h2a/test/bin-version.test.js": [
+    "h2a version imprime exactement la version du package (exit 0)",
+    "h2a --version imprime exactement la version du package (exit 0)",
+    "h2a -v imprime exactement la version du package (exit 0)",
+    "bin.ts ne dispatche vers le runtime qu'au fallback final (aucun dispatch avant la branche version)"
+  ],
   "packages/h2a/test/blockage-cli.test.js": [],
   "packages/h2a/test/blockage-notifications.test.js": [],
   "packages/h2a/test/blockage.test.js": [],
@@ -741,7 +749,8 @@
     "R8.3: scenario 7 closes the stderr reader BEFORE the deferred prune, and every fault is followed by a PTY proof",
     "R8.3: the prune observation reads through the packaged registry reader — never a hand-rolled JSON.parse",
     "R8.3: the prune proof observes the row PRESENT before its disappearance — an already-empty registry proves nothing",
-    "R8.3: the smoke stays isolated — temp parents only, no real host state"
+    "R8.3: the smoke stays isolated — temp parents only, no real host state",
+    "C9 A10: smoke must fail when the packaged binary prints the wrong version"
   ],
   "packages/h2a/test/stall.test.js": [],
   "packages/h2a/test/status-bar-storm.test.js": [],
