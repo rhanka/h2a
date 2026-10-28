@@ -45,6 +45,30 @@ Contrats/boucle : `rtk node --test packages/h2a/test/run-test-gates.test.js
 packages/h2a/test/test-inventory.test.js packages/h2a/test/loop-launch.test.js`.
 Aucune suite complète locale exécutée.
 
+## Correctif du gate de sécurité après le premier push
+
+Au head `58197aae6`, le job [security-debt](https://github.com/rhanka/h2a/actions/runs/40781964219/job/123162338469)
+échoue sur `@hono/node-server@moderate: unregistered security debt`.
+L'audit npm reproduit **GHSA-rmxm-3fg6-px4f**, double décodage dans serveStatic,
+plage affectée `>=1.19.10 <2.1.3` ; le lock résolvait `2.1.1`.
+
+RED : `rtk node scripts/audit-security-debt.mjs`, exit 1, même diagnostic.
+Correctif directement bloquant : `rtk npm update @hono/node-server
+--package-lock-only --ignore-scripts --no-audit --no-fund` résout `2.1.5` dans
+les plages déjà déclarées. Seule l'entrée existante du lock change (version,
+URL, intégrité et peerDependencies publiés) ; aucun manifeste, registre
+d'exceptions ou seuil modifié. Mise à jour locale du module avec scripts
+désactivés avant le replay des tests.
+
+GREEN : `rtk npm run audit:security`, exit 0 : **0 moderate+ finding** sur
+l'arbre racine, puis audit Focus réussi au seuil existant. Les findings low
+restent rapportés. Cette preuve couvre les arbres npm scannés par ces deux
+gates, pas les images, OS ou artefacts vendored. Compilation runtime et toutes
+les reproductions ci-dessous rejouées avant le nouveau push.
+
+Le workflow CI du premier push a été relancé une fois au même SHA après plus
+de 40 minutes en file sans runner ; aucun gate n'a été modifié pour cela.
+
 ## Replays des deux rounds avant push
 
 | Reproductions fournies | Résultat |
