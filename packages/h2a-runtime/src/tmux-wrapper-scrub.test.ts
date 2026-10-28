@@ -42,7 +42,9 @@ function pollutedHome(): string {
 }
 
 function cleanHome(): string {
-  return mkdtempSync(join(SCRATCH, "clean-home-"));
+  const home = mkdtempSync(join(SCRATCH, "clean-home-"));
+  writeFileSync(join(home, ".bash_profile"), "");
+  return home;
 }
 
 const BASE_ENV = { PATH: "/usr/bin:/bin" } as const;
@@ -51,14 +53,25 @@ function runBash(
   args: readonly string[],
   env: Record<string, string>,
 ): { status: number | null; stdout: string; stderr: string } {
-  const r = spawnSync("/bin/bash", [...args], {
+  // Login bash can replace HOME via /etc/profile. Source the fictitious init
+  // explicitly after that step so the contamination witness is deterministic.
+  const r = spawnSync("/bin/bash", [args[0]!, `. "$H2A_TEST_INIT"\n${args[1]}`, ...args.slice(2)], {
     encoding: "utf8",
-    env: { ...BASE_ENV, ...env },
+    env: { ...BASE_ENV, ...env, H2A_TEST_INIT: join(env.HOME!, ".bash_profile") },
   });
   return { status: r.status, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
 }
 
 describe("CLI wrappers scrub post-init routing vars on direct launches", () => {
+  it("the init fixture really contaminates an unguarded child", () => {
+    const out = runBash(["-lc", 'exec "$0"', "printenv"], {
+      HOME: pollutedHome(),
+      ANTHROPIC_API_KEY: "native-key-fixture",
+    });
+    expect(out.status).toBe(0);
+    expect(out.stdout).toMatch(/^ANTHROPIC_BASE_URL=http:\/\/127.0.0.1:3002$/m);
+    expect(out.stdout).toMatch(/^ANTHROPIC_AUTH_TOKEN=stale-bearer$/m);
+  });
   it("LOCAL_WRAPPER drops login-script routing vars but keeps the native key", () => {
     const out = runBash(["-lc", LOCAL_WRAPPER, "relaunch-hint", "printenv"], {
       HOME: pollutedHome(),
@@ -105,12 +118,15 @@ describe("CLI wrappers scrub post-init routing vars on direct launches", () => {
     expect(logged).toMatch(/^ANTHROPIC_API_KEY=native-key-fixture$/m);
   });
 
-  it("gateway launches without the stamp keep their provisioned env", () => {
-    const out = runBash(["-lc", LOCAL_WRAPPER, "relaunch-hint", "printenv"], {
+  it("gateway launches override an inherited direct stamp and keep their provisioned env", () => {
+    const env = {
       HOME: cleanHome(),
       ANTHROPIC_BASE_URL: "http://localhost:3002",
       ANTHROPIC_AUTH_TOKEN: "gw-token-fixture",
-    });
+      [DIRECT_ROUTING_SCRUB_ENV]: "1",
+    };
+    stampDirectRoutingScrub(env);
+    const out = runBash(["-lc", LOCAL_WRAPPER, "relaunch-hint", "printenv"], env);
 
     expect(out.status).toBe(0);
     expect(out.stdout).toMatch(/^ANTHROPIC_BASE_URL=http:\/\/localhost:3002$/m);
@@ -128,14 +144,12 @@ describe("direct-scrub sentinel stamping", () => {
     );
   });
 
-  it("tmuxEnvironmentArgs omits the sentinel on gateway launches", () => {
+  it("tmuxEnvironmentArgs overrides an inherited direct sentinel on gateway launches", () => {
     process.env.ANTHROPIC_BASE_URL = "http://localhost:3002";
     process.env.ANTHROPIC_AUTH_TOKEN = "gw-token-fixture";
     try {
       const args = tmuxEnvironmentArgs("human");
-      expect(
-        args.some((a) => a.startsWith(`${DIRECT_ROUTING_SCRUB_ENV}=`)),
-      ).toBe(false);
+      expect(args).toContain(`${DIRECT_ROUTING_SCRUB_ENV}=0`);
       expect(args).toContain("ANTHROPIC_BASE_URL=http://localhost:3002");
     } finally {
       delete process.env.ANTHROPIC_BASE_URL;
@@ -153,8 +167,9 @@ describe("direct-scrub sentinel stamping", () => {
     const gateway: Record<string, string | undefined> = {
       ANTHROPIC_BASE_URL: "http://localhost:3002",
       ANTHROPIC_AUTH_TOKEN: "gw-token",
+      [DIRECT_ROUTING_SCRUB_ENV]: "1",
     };
     stampDirectRoutingScrub(gateway);
-    expect(gateway[DIRECT_ROUTING_SCRUB_ENV]).toBeUndefined();
+    expect(gateway[DIRECT_ROUTING_SCRUB_ENV]).toBe("0");
   });
 });
