@@ -55,6 +55,14 @@ const sessionRelaunchSafety = vi.fn();
 const localSessionGatewayEnvStatus = vi.fn((): string => "unknown");
 const listRemoteSessions = vi.fn();
 const getDefaultRemote = vi.fn();
+const relaunchInSession = vi.fn((): boolean => true);
+const wakeRelaunchedSession = vi.fn(() => ({
+  state: "working" as const,
+  confirmation: "not-present" as const,
+  delivery: { cpuDeltaMs: 0, evidence: "test" },
+}));
+const createRemoteSession = vi.fn(async () => ({ id: "sess-remote" }));
+const attachRemote = vi.fn(async () => ({ finished: Promise.resolve() }));
 
 vi.mock("./gateway-host/config-file.js", () => ({
   readLlmMeshConfig,
@@ -73,8 +81,8 @@ vi.mock("./gateway-host/daemon.js", async (importOriginal) => {
 });
 
 vi.mock("./attach.js", () => ({
-  attach: vi.fn(),
-  createRemoteSession: vi.fn(),
+  attach: attachRemote,
+  createRemoteSession,
   getRemoteSession: vi.fn(),
   listRemoteSessions,
   stopRemoteSession: vi.fn(),
@@ -105,11 +113,20 @@ vi.mock("./tmux.js", async (importOriginal) => {
     localSessionIdle,
     sessionRelaunchSafety,
     localSessionGatewayEnvStatus,
+    relaunchInSession,
     localSessionName: actual.localSessionName,
     managedSessionCandidates: actual.managedSessionCandidates,
     parseManagedSessionName: actual.parseManagedSessionName,
     slugify: actual.slugify,
     persistLaunchContext: () => {},
+  };
+});
+
+vi.mock("./relaunch.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./relaunch.js")>();
+  return {
+    ...actual,
+    wakeRelaunchedSession,
   };
 });
 
@@ -155,6 +172,7 @@ vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 
 const { main, injectLlmMeshGatewayEnv, startJob } = await import("./index.js");
 const { resolveResumedGatewayMode } = await import("./protocol-local.js");
+const { loadRegistry } = await import("./registry.js");
 
 function stderrText(): string {
   return stderrWrite.mock.calls.map((c) => String(c[0])).join("");
@@ -187,6 +205,12 @@ function seedLegacyEnabled(): void {
   const dir = join(CONFIG_HOME, ".config", "sentropic", "remote-cli");
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "config.json"), JSON.stringify({ llmMesh: { enabled: true } }), "utf8");
+}
+
+function seedRegistryEntries(entries: unknown[]): void {
+  const dir = join(CONFIG_HOME, ".config", "sentropic", "remote-cli");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "registry.json"), JSON.stringify({ version: 1, entries }), "utf8");
 }
 
 function resetAnthropicEnv(): void {
@@ -250,6 +274,11 @@ beforeEach(() => {
   });
   stderrWrite.mockClear();
   resetAnthropicEnv();
+  relaunchInSession.mockReset();
+  relaunchInSession.mockReturnValue(true);
+  wakeRelaunchedSession.mockClear();
+  createRemoteSession.mockClear();
+  attachRemote.mockClear();
   process.exitCode = 0;
   // Fresh scratch config per test: wiping the home forces config defaults.
   rmSync(join(CONFIG_HOME, ".config"), { recursive: true, force: true });
@@ -576,5 +605,232 @@ describe("run --resume (legacy pin without provenance stays direct)", () => {
 
     expect(code).toBe(1);
     expect(startLocalSession).not.toHaveBeenCalled();
+  });
+});
+
+describe("consent is bound to the restored conversation identity (round-2 P1)", () => {
+  const OLD_CONV = "123e4567-e89b-12d3-a456-426614174000";
+  const NEW_CONV = "123e4567-e89b-12d3-a456-426614174999";
+  const NOW = new Date().toISOString();
+
+  function seedExplicitPinForOldConv(): void {
+    seedRegistryEntries([
+      {
+        id: "proj",
+        tool: "claude",
+        kind: "local-tmux",
+        cwd: RUN_CWD,
+        source: "run",
+        sessionClass: "human",
+        label: "proj",
+        convId: OLD_CONV,
+        tmuxSession: "h2a-proj",
+        gatewayMode: "gateway",
+        gatewayProvenance: "explicit",
+        enrolledAt: NOW,
+        lastSeenAt: NOW,
+      },
+    ]);
+  }
+
+  function runResumeNew(): Promise<number> {
+    return main([
+      "node", "h2a", "run", "claude", RUN_CWD,
+      "--resume", NEW_CONV, "--no-attach", "--name", "proj",
+    ]);
+  }
+
+  it("an auto launch for another conversation does not inherit the old gateway pin", async () => {
+    seedExplicitPinForOldConv();
+    acquireLlmMeshSessionEnv.mockResolvedValue({
+      ANTHROPIC_BASE_URL: "http://localhost:3002",
+      ANTHROPIC_AUTH_TOKEN: "live-token",
+    });
+
+    expect(await runResumeNew()).toBe(0);
+    expect(acquireLlmMeshSessionEnv).not.toHaveBeenCalled();
+
+    const saved = loadRegistry();
+    if (saved.state !== "ok") throw new Error("registry unreadable after resume");
+    const row = saved.entries.find((e) => e.id === "proj");
+    expect(row?.convId).toBe(NEW_CONV);
+    expect(row?.gatewayMode).toBeUndefined();
+  });
+
+  it("repeating that direct resume stays direct (no acquire on the second pass)", async () => {
+    seedExplicitPinForOldConv();
+    acquireLlmMeshSessionEnv.mockResolvedValue({
+      ANTHROPIC_BASE_URL: "http://localhost:3002",
+      ANTHROPIC_AUTH_TOKEN: "live-token",
+    });
+
+    expect(await runResumeNew()).toBe(0);
+    expect(await runResumeNew()).toBe(0);
+    expect(acquireLlmMeshSessionEnv).not.toHaveBeenCalled();
+    expect(startGateway).not.toHaveBeenCalled();
+  });
+});
+
+describe("relaunch --apply retype resolves consent and scrubs direct (round-2 P1)", () => {
+  const CONV = "123e4567-e89b-12d3-a456-426614174000";
+  const NOW = new Date().toISOString();
+
+  function seedRow(gatewayProvenance?: "explicit"): void {
+    seedRegistryEntries([
+      {
+        id: "proj",
+        tool: "claude",
+        kind: "local-tmux",
+        cwd: RUN_CWD,
+        source: "run",
+        sessionClass: "human",
+        label: "proj",
+        convId: CONV,
+        tmuxSession: "h2a-proj",
+        gatewayMode: "gateway",
+        ...(gatewayProvenance ? { gatewayProvenance } : {}),
+        enrolledAt: NOW,
+        lastSeenAt: NOW,
+      },
+    ]);
+    listLocalSessionsWithDiagnostics.mockReturnValue({
+      sessions: [{ name: "h2a-proj", slug: "proj", profile: "claude" }],
+      known: true,
+    } as never);
+  }
+
+  it("a legacy pin without provenance retypes with routing vars scrubbed", async () => {
+    seedRow();
+    acquireLlmMeshSessionEnv.mockResolvedValue({
+      ANTHROPIC_BASE_URL: "http://localhost:3002",
+      ANTHROPIC_AUTH_TOKEN: "live-token",
+    });
+
+    const code = await main(["node", "h2a", "relaunch", "--apply"]);
+
+    expect(code).toBe(0);
+    expect(acquireLlmMeshSessionEnv).not.toHaveBeenCalled();
+    expect(relaunchInSession).toHaveBeenCalledTimes(1);
+    expect(relaunchInSession.mock.calls[0]?.[1]).toBe(
+      `env -u ANTHROPIC_BASE_URL -u ANTHROPIC_AUTH_TOKEN claude --resume ${CONV}`,
+    );
+  });
+
+  it("a proven explicit gateway choice retypes the plain resume command", async () => {
+    seedRow("explicit");
+    acquireLlmMeshSessionEnv.mockResolvedValue({
+      ANTHROPIC_BASE_URL: "http://localhost:3002",
+      ANTHROPIC_AUTH_TOKEN: "live-token",
+    });
+
+    const code = await main(["node", "h2a", "relaunch", "--apply"]);
+
+    expect(code).toBe(0);
+    expect(relaunchInSession).toHaveBeenCalledTimes(1);
+    expect(relaunchInSession.mock.calls[0]?.[1]).toBe(`claude --resume ${CONV}`);
+  });
+});
+
+describe("mixed relaunch fleet keeps native auth per session (round-2 P2)", () => {
+  const CONV_A = "123e4567-e89b-12d3-a456-426614174001";
+  const CONV_B = "123e4567-e89b-12d3-a456-426614174002";
+  const NOW = new Date().toISOString();
+
+  it("a gateway session followed by a direct one does not lose ANTHROPIC_API_KEY", async () => {
+    seedRegistryEntries([
+      {
+        id: "gwA",
+        tool: "claude",
+        kind: "local-tmux",
+        cwd: RUN_CWD,
+        source: "run",
+        sessionClass: "human",
+        label: "gwA",
+        convId: CONV_A,
+        tmuxSession: "h2a-gwA",
+        gatewayMode: "gateway",
+        gatewayProvenance: "explicit",
+        enrolledAt: NOW,
+        lastSeenAt: NOW,
+      },
+      {
+        id: "drB",
+        tool: "claude",
+        kind: "local-tmux",
+        cwd: RUN_CWD,
+        source: "run",
+        sessionClass: "human",
+        label: "drB",
+        convId: CONV_B,
+        tmuxSession: "h2a-drB",
+        gatewayMode: "gateway",
+        enrolledAt: NOW,
+        lastSeenAt: NOW,
+      },
+    ]);
+    listLocalSessionsWithDiagnostics.mockReturnValue({
+      sessions: [
+        { name: "h2a-gwA", slug: "gwA", profile: "claude" },
+        { name: "h2a-drB", slug: "drB", profile: "claude" },
+      ],
+      known: true,
+    } as never);
+    acquireLlmMeshSessionEnv.mockResolvedValue({
+      ANTHROPIC_BASE_URL: "http://localhost:3002",
+      ANTHROPIC_AUTH_TOKEN: "live-token",
+    });
+    process.env.ANTHROPIC_API_KEY = "native-key-fixture";
+    const seenBySlug = new Map<string, Record<string, string | undefined>>();
+    startLocalSession.mockImplementation((...args: unknown[]) => {
+      const slug = String((args[4] as string | undefined) ?? "unknown");
+      seenBySlug.set(slug, {
+        ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
+        ANTHROPIC_AUTH_TOKEN: process.env.ANTHROPIC_AUTH_TOKEN,
+        ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+      });
+      return { name: `h2a-${slug}`, slug };
+    });
+
+    const code = await main([
+      "node", "h2a", "relaunch", "--all", "--apply", "--yes", "--include-agents",
+    ]);
+
+    expect(code).toBe(0);
+    expect(seenBySlug.get("gwA")?.ANTHROPIC_BASE_URL).toBe("http://localhost:3002");
+    expect(seenBySlug.get("drB")?.ANTHROPIC_BASE_URL).toBeUndefined();
+    expect(seenBySlug.get("drB")?.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+    expect(seenBySlug.get("drB")?.ANTHROPIC_API_KEY).toBe("native-key-fixture");
+    expect(process.env.ANTHROPIC_API_KEY).toBe("native-key-fixture");
+    expect(process.env.ANTHROPIC_BASE_URL).toBeUndefined();
+    expect(process.env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+  });
+});
+
+describe("remote run transmits the explicit gateway choice only (round-2 P2)", () => {
+  const REMOTE = "http://127.0.0.1:18080";
+
+  it("remote run with --gw transmits the explicit choice", async () => {
+    const code = await main([
+      "node", "h2a", "claude", "--remote", REMOTE, "--gw", "--no-auth",
+    ]);
+
+    expect(code).toBe(0);
+    expect(createRemoteSession).toHaveBeenCalledTimes(1);
+    expect(createRemoteSession.mock.calls[0]?.[0]).toBe(REMOTE);
+    const body = createRemoteSession.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(body.profile).toBe("claude");
+    expect(body.llmGateway).toBe(true);
+  });
+
+  it("remote run without --gw transmits no gateway choice", async () => {
+    const code = await main([
+      "node", "h2a", "claude", "--remote", REMOTE, "--no-auth",
+    ]);
+
+    expect(code).toBe(0);
+    expect(createRemoteSession).toHaveBeenCalledTimes(1);
+    const body = createRemoteSession.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(body.profile).toBe("claude");
+    expect("llmGateway" in body).toBe(false);
   });
 });

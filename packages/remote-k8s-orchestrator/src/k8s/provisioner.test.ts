@@ -57,6 +57,55 @@ function recordingClient(): { client: K8sClient; ops: Operation[] } {
 }
 
 describe("K8sSessionProvisioner", () => {
+  it("threads an explicit gateway choice into the Pod env, direct by default (round-2 P2)", async () => {
+    const created: Array<{ kind?: string; spec?: unknown }> = [];
+    const { client } = recordingClient();
+    const capturing: K8sClient = {
+      ...client,
+      async create<T extends KubernetesObject>(spec: T): Promise<T> {
+        created.push({ kind: spec.kind, spec });
+        return client.create(spec);
+      },
+    };
+    const provisioner = new K8sSessionProvisioner(capturing, {
+      namespace: "demo-ns",
+      llmGatewayUrl: "https://llm.sent-tech.ca",
+    });
+    const emit = () => {};
+
+    // Token but no explicit choice → direct pod (no routing vars).
+    await provisioner.provision(descriptor, emit, {
+      gatewayToken: "gw-abcdef1234",
+    });
+    const implicitPod = created.find((c) => c.kind === "Pod")?.spec as {
+      spec: { containers: Array<{ env: Array<{ name: string; value?: string }> }> };
+    };
+    const implicitEnv = implicitPod.spec.containers[0]!.env;
+    expect(
+      implicitEnv.find((e) => e.name === "ANTHROPIC_BASE_URL"),
+    ).toBeUndefined();
+    expect(
+      implicitEnv.find((e) => e.name === "H2A_GATEWAY_MODE")?.value,
+    ).toBe("direct");
+
+    // Explicit choice + token → gateway pod.
+    created.length = 0;
+    await provisioner.provision(descriptor, emit, {
+      gatewayToken: "gw-abcdef1234",
+      llmGateway: true,
+    });
+    const explicitPod = created.find((c) => c.kind === "Pod")?.spec as {
+      spec: { containers: Array<{ env: Array<{ name: string; value?: string }> }> };
+    };
+    const explicitEnv = explicitPod.spec.containers[0]!.env;
+    expect(
+      explicitEnv.find((e) => e.name === "ANTHROPIC_BASE_URL")?.value,
+    ).toBe("https://llm.sent-tech.ca");
+    expect(
+      explicitEnv.find((e) => e.name === "H2A_GATEWAY_MODE")?.value,
+    ).toBe("gateway");
+  });
+
   it("creates the PVC then the Pod and emits lifecycle events", async () => {
     const { client, ops } = recordingClient();
     const provisioner = new K8sSessionProvisioner(client, {
