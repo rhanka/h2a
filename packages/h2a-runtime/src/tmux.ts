@@ -373,10 +373,12 @@ export function tmuxEnvironmentArgs(sessionClass?: SessionClass): string[] {
     const value = process.env[key];
     if (value) args.push("-e", `${key}=${value}`);
   }
-  if (sessionClass) args.push("-e", `${SESSION_CLASS_ENV}=${sessionClass}`);
   if (!callerCarriesGatewayRouting()) {
     args.push("-e", `${DIRECT_ROUTING_SCRUB_ENV}=1`);
   }
+  // Session class stays last: existing consumers assert the tail of this
+  // list carries the session marker.
+  if (sessionClass) args.push("-e", `${SESSION_CLASS_ENV}=${sessionClass}`);
   return args;
 }
 
