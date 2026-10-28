@@ -27,10 +27,16 @@ export const createReplayGuard = () => ({});
   const stopped = join(root, 'server-stopped');
   fs.writeFileSync(server, `import {createInterface} from 'node:readline';
 import fs from 'node:fs';
-process.on('SIGTERM', () => setTimeout(() => {
- fs.writeFileSync(${JSON.stringify(stopped)}, 'stopped');
- process.exit(0);
-}, 200));
+let stopping = false;
+function stop() {
+ if (stopping) return;
+ stopping = true;
+ setTimeout(() => {
+  fs.writeFileSync(${JSON.stringify(stopped)}, 'stopped');
+  process.exit(0);
+ }, 200);
+}
+process.on('SIGTERM', stop);
 const started = Date.now();
 for await (const line of createInterface({input:process.stdin})) {
  const m=JSON.parse(line); if(m.id===undefined)continue;
@@ -40,6 +46,9 @@ for await (const line of createInterface({input:process.stdin})) {
   : m.method==='tools/list' ? {tools:[]} : {protocolVersion:'2024-11-05',capabilities:{},serverInfo:{name:'fixture',version:'1'}};
  process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result})+'\\n');
 }
+// The proxy can receive stdin EOF before its signal callback runs. Both
+// normal EOF and SIGTERM must exercise the same delayed shutdown witness.
+stop();
 `);
   fs.writeFileSync(join(root, 'bin/h2a'), `#!${process.execPath}\nimport(${JSON.stringify(new URL('./xcli-proxy.mjs', import.meta.url).href)});\n`, { mode: 0o700 });
   fs.mkdirSync(join(env.HOME, '.gemini'), { recursive: true });
