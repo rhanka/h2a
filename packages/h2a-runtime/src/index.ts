@@ -440,6 +440,7 @@ import {
   CLI_PROFILES,
   gatewayModeForProfile,
   profileUsesLlmMeshGateway,
+  resolveResumedGatewayMode,
   type CliProfile,
 } from "./protocol-local.js";
 import {
@@ -1541,34 +1542,14 @@ export async function startJob(job: RegistryEntry): Promise<StartJobResult> {
     job.depthBudget ?? clampDepth(undefined),
   );
   process.env[JOB_ID_ENV] = job.id;
-  // Inject llm-mesh gateway env if running. Do not trust a parent env that may
-  // contain an old gateway token from a previous restart.
-  // tmux inherits process.env, so claude + its subagents all get the gateway automatically.
-  const jobSessionSlug = slugify(job.id);
-  const jobSessionResolution = resolveLocalSession(jobSessionSlug);
-  const gatewayClientSessionId =
-    jobSessionResolution.kind === "found"
-      ? jobSessionResolution.session.name
-      : jobSessionResolution.kind === "missing"
-        ? localSessionName(jobSessionSlug)
-        : undefined;
-  let meshEnv: Awaited<ReturnType<typeof acquireLlmMeshSessionEnv>> | null;
-  try {
-    meshEnv =
-      profileUsesLlmMeshGateway(job.tool) &&
-      getLlmMeshRuntimeConfig().enabled &&
-      gatewayClientSessionId
-        ? await acquireLlmMeshSessionEnv(undefined, gatewayClientSessionId)
-        : null;
-  } catch (error) {
-    return {
-      started: false,
-      error: error instanceof Error ? error.message : String(error),
-    };
-  }
+  // Gateway off unless explicitly asked: jobs never acquire the gateway.
+  // A legacy llmMesh.enabled=true, a running service, enrolled accounts or a
+  // parent env never select gateway routing for immediate or deferred jobs.
+  // Strip any stale h2a routing vars so the child starts direct; a user-owned
+  // ANTHROPIC_API_KEY survives for native authentication.
   const restoreGatewayEnvironment = replaceAnthropicGatewayEnvironment(
     process.env,
-    meshEnv ?? undefined,
+    undefined,
   );
   let tmuxSession: string;
   let workerPid: number | undefined;
@@ -2213,17 +2194,16 @@ export function bareChoiceFromOptions(opts: {
   return undefined;
 }
 
-async function injectLlmMeshGatewayEnv(
+export async function injectLlmMeshGatewayEnv(
   mode: "auto" | "gateway" | "direct" = "auto",
   allowDirectFallback = true,
   clientSessionId?: string,
 ): Promise<string | undefined> {
-  if (mode === "direct") {
-    delete process.env.ANTHROPIC_BASE_URL;
-    delete process.env.ANTHROPIC_AUTH_TOKEN;
-    return undefined;
-  }
-  if (mode !== "gateway" && !getLlmMeshRuntimeConfig().enabled) {
+  if (mode !== "gateway") {
+    // Gateway off unless explicitly asked: auto resolves to direct BEFORE any
+    // acquire/start. A legacy llmMesh.enabled=true, a running service, enrolled
+    // accounts or a parent env never select gateway routing. A user-owned
+    // ANTHROPIC_API_KEY is preserved for native authentication.
     delete process.env.ANTHROPIC_BASE_URL;
     delete process.env.ANTHROPIC_AUTH_TOKEN;
     return undefined;
@@ -2402,7 +2382,7 @@ export interface RestoreLlmMeshPreparationContext {
 export async function prepareLlmMeshForRestore(
   opts: {
     dryRun?: boolean;
-    mode?: "auto" | "gateway";
+    mode?: "auto" | "gateway" | "direct";
   } = {},
   context: RestoreLlmMeshPreparationContext = {
     runtimeEnabled: getLlmMeshRuntimeConfig().enabled,
@@ -2413,7 +2393,9 @@ export async function prepareLlmMeshForRestore(
   },
 ): Promise<void> {
   const mode = opts.mode ?? "auto";
-  if (mode !== "gateway" && !context.runtimeEnabled) return;
+  // Global enablement is not restore consent. Pinned sessions request --gw
+  // individually through their launch command; only --gw prewarms globally.
+  if (mode !== "gateway") return;
   const config = context.config ?? {};
   const port = config.port ?? 3002;
   const pid = context.gatewayPid;
@@ -5617,6 +5599,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               source: "run" as const,
               bare: registryEntry?.convId === resolvedConvId ? registryEntry?.bare : undefined,
               gatewayMode: registryEntry?.convId === resolvedConvId ? registryEntry?.gatewayMode : undefined,
+              gatewayProvenance: registryEntry?.convId === resolvedConvId ? registryEntry?.gatewayProvenance : undefined,
             }
           : registryEntry;
         // WHICH host serves this resume — resolved BEFORE ANY act (F1): every
@@ -5745,8 +5728,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           process.exitCode = 2;
           return;
         }
-        const effectiveGatewayMode = gatewayModeForProfile(
-          profile, gatewayMode === "auto" ? entry.gatewayMode ?? "auto" : gatewayMode,
+        const effectiveGatewayMode = resolveResumedGatewayMode(
+          profile, gatewayMode, entry.gatewayMode, entry.gatewayProvenance,
         );
         let gateway: string | undefined;
         // Resolve against the selected mode, not the parent's environment:
@@ -6045,7 +6028,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           cwd: entry.cwd,
           sessionClass,
           ...(entry.convId ? { convId: entry.convId } : {}),
-          gatewayMode: effectiveGatewayMode,
+          // Only an explicit CLI choice becomes a new proven pin; otherwise
+          // the previous pin (if any) is preserved untouched by the merge.
+          ...(gatewayMode !== "auto"
+            ? { gatewayMode, gatewayProvenance: "explicit" as const }
+            : {}),
           bare: useBare,
         });
         process.stderr.write(
@@ -6521,8 +6508,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           );
         }
         const pinnedLaunch = resumeResolution.entries[0];
-        const launchGatewayMode = gatewayModeForProfile(
-          profile, gatewayMode === "auto" ? pinnedLaunch?.gatewayMode ?? "auto" : gatewayMode,
+        const launchGatewayMode = resolveResumedGatewayMode(
+          profile, gatewayMode, pinnedLaunch?.gatewayMode, pinnedLaunch?.gatewayProvenance,
         );
         const command = localCliCommand(profile);
         // A detached/background or run-once launch is a worker, even when its
@@ -6970,6 +6957,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           // Auto-enroll in the live-session registry (feeds `h2a ls`/`restore`).
           // Pin the gateway posture ONLY when the user was explicit (--gw/--no-gw);
           // an "auto" launch stays unpinned so restore follows the live default.
+          // The pin carries "explicit" provenance so a later resume can tell a
+          // proven choice from a legacy row.
           enrollFromRun({
             profile,
             slug,
@@ -6981,7 +6970,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             cwd,
             sessionClass,
             ...(opts.resume !== undefined ? { convId: opts.resume } : {}),
-            gatewayMode: launchGatewayMode,
+            ...(gatewayMode !== "auto"
+              ? { gatewayMode, gatewayProvenance: "explicit" as const }
+              : {}),
             bare: useBare,
           });
           const nativeOwnerSocket = launchOwnership?.host === "native"
@@ -8883,6 +8874,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             ...(entry.gatewayMode !== undefined
               ? { gatewayMode: entry.gatewayMode }
               : {}),
+            ...(entry.gatewayProvenance !== undefined
+              ? { gatewayProvenance: entry.gatewayProvenance }
+              : {}),
             ...(entry.bare !== undefined ? { bare: entry.bare } : {}),
           }),
         );
@@ -8959,7 +8953,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
                   ...(candidate.convId !== undefined
                     ? { convId: candidate.convId }
                     : {}),
-                  ...(mode !== "auto" ? { gatewayMode: mode } : {}),
+                  ...(mode !== "auto"
+                    ? { gatewayMode: mode, gatewayProvenance: "explicit" as const }
+                    : {}),
                   ...(candidate.bare !== undefined ? { bare: candidate.bare } : {}),
                 });
               } finally {
@@ -9108,7 +9104,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             process.exitCode = 1;
             return;
           }
-          const relaunchMode = gatewayModeForProfile(nativeEntry.tool, nativeEntry.gatewayMode ?? "auto");
+          const relaunchMode = resolveResumedGatewayMode(
+            nativeEntry.tool, "auto", nativeEntry.gatewayMode, nativeEntry.gatewayProvenance,
+          );
           await injectLlmMeshGatewayEnv(relaunchMode, relaunchMode !== "gateway", actName);
           if (!killNativeSessionTree(actName)) {
             process.stderr.write(
@@ -9144,7 +9142,15 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             ...(relaunched.pid !== undefined ? { pid: relaunched.pid } : {}),
             cwd: nativeEntry.cwd,
             sessionClass: nativeEntry.sessionClass ?? "human",
-            gatewayMode: relaunchMode,
+            // No new CLI choice here: preserve the recorded pin verbatim so a
+            // proven choice survives the relaunch and a legacy row keeps its
+            // (unproven) data without gaining authority.
+            ...(nativeEntry.gatewayMode !== undefined
+              ? { gatewayMode: nativeEntry.gatewayMode }
+              : {}),
+            ...(nativeEntry.gatewayProvenance !== undefined
+              ? { gatewayProvenance: nativeEntry.gatewayProvenance }
+              : {}),
             bare: useBare,
             ...(nativeEntry.convId ? { convId: nativeEntry.convId } : {}),
           });
@@ -9445,9 +9451,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           continue;
         }
         try {
-          const gatewayMode = gatewayModeForProfile(
-            action.profile,
-            entry.gatewayMode ?? "auto",
+          const gatewayMode = resolveResumedGatewayMode(
+            action.profile, "auto", entry.gatewayMode, entry.gatewayProvenance,
           );
           await injectLlmMeshGatewayEnv(gatewayMode, true, localSessionName(action.slug));
           const { name, agentPane } = startLocalSession(
@@ -9477,6 +9482,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             convId: action.convId,
             ...(entry.gatewayMode !== undefined
               ? { gatewayMode: entry.gatewayMode }
+              : {}),
+            ...(entry.gatewayProvenance !== undefined
+              ? { gatewayProvenance: entry.gatewayProvenance }
               : {}),
             ...(entry.bare !== undefined ? { bare: entry.bare } : {}),
           });
@@ -10006,13 +10014,13 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         }
 
         if (opts.reattach) restoreOpts.reattach = true;
-        // Forced-direct restore must NOT spin up the gateway; otherwise prepare
-        // it as before (no-op when the gateway is disabled).
-        if (forceGateway !== "direct") {
+        // Only explicit --gw prewarms globally. In auto mode, any pinned
+        // gateway session acquires its gateway through its own launch.
+        if (forceGateway === "gateway") {
           try {
             await prepareLlmMeshForRestore({
               dryRun: Boolean(opts.dryRun),
-              mode: forceGateway ?? "auto",
+              mode: forceGateway,
             });
           } catch (error) {
             process.stderr.write(`[h2a] ${(error as Error).message}\n`);
@@ -10972,21 +10980,19 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       const config = readLlmMeshConfig() ?? {};
       const existing = readGatewayPid();
       if (existing) {
-        setLlmMeshRuntimeConfig({ enabled: true });
+        // Starting the service is not routing consent: launches stay direct
+        // unless --gw is passed, so the durable flag is left untouched.
         process.stdout.write(
           `[h2a] llm-mesh: already running (pid ${existing})\n`,
         );
-        process.stdout.write(`[h2a] llm-mesh: restore config enabled\n`);
         return;
       }
       process.stdout.write(`[h2a] llm-mesh: starting gateway…\n`);
       const result = await startGateway(config, { verbose: opts.verbose });
-      setLlmMeshRuntimeConfig({ enabled: true });
       const port = result.port;
       process.stdout.write(
         `[h2a] llm-mesh: gateway started (pid ${result.pid}, port ${port})\n`,
       );
-      process.stdout.write(`[h2a] llm-mesh: restore config enabled\n`);
       process.stdout.write(
         "[h2a] llm-mesh: use `h2a run claude --gw`; the opaque bearer is not printed\n",
       );
@@ -11026,6 +11032,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       } else {
         process.stdout.write(`[h2a] llm-mesh: not running\n`);
       }
+      // A previous start must not keep authorizing reactivation: stopping the
+      // service clears the durable flag so a later restore stays direct.
+      setLlmMeshRuntimeConfig({ enabled: false });
     });
 
   llmMeshCommand
@@ -11046,11 +11055,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       }
       process.stdout.write(`[h2a] llm-mesh: starting gateway…\n`);
       const result = await startGateway(config, { verbose: opts.verbose });
-      setLlmMeshRuntimeConfig({ enabled: true });
+      // Restarting the service is not routing consent: the durable flag is
+      // left untouched so a later restore stays direct unless --gw is passed.
       process.stdout.write(
         `[h2a] llm-mesh: gateway restarted (pid ${result.pid}, port ${result.port})\n`,
       );
-      process.stdout.write(`[h2a] llm-mesh: restore config enabled\n`);
       process.stdout.write(
         `[h2a] llm-mesh: no tmux/Claude session was restarted; active sessions may keep their old gateway token until explicitly relaunched.\n`,
       );

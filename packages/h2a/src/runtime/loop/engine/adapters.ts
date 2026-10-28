@@ -556,11 +556,17 @@ function validateLoopLaunchResult(value: unknown, spec: H2ALoopLaunchSpec): void
     : Boolean(session) &&
       typeof session!.pane === "string" &&
       /^%\d+$/.test(session!.pane as string);
+  // Gateway off unless explicitly asked: loop launches are direct by default,
+  // so an "auto" spec must be proven direct in the receipt — a gateway result
+  // without an explicit "required" is rejected, never accepted.
+  // Gateway off unless explicitly asked: loop launches are direct by default,
+  // so an "auto" spec must be proven direct in the receipt — a gateway result
+  // without an explicit "required" is rejected, never accepted.
   const gatewayIsEffective = spec.profile === "codex" || spec.gateway === "off"
     ? session?.gateway === "direct"
     : spec.gateway === "required"
       ? session?.gateway === "gateway"
-      : session?.gateway === "gateway" || session?.gateway === "direct";
+      : session?.gateway === "direct";
   if (
     result.kind !== "h2a.run.result" ||
     result.version !== 1 ||
