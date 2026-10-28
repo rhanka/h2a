@@ -25,6 +25,7 @@ export function isolatedEnv(root) {
     npm_config_prefix: join(root, 'prefix'), npm_config_cache: join(root, 'npm-cache'),
     npm_config_userconfig: join(root, 'npmrc'), npm_config_globalconfig: join(root, 'global-npmrc'),
     npm_config_update_notifier: 'false',
+    npm_config_foreground_scripts: 'true',
   };
   for (const key of ['HOME', 'TMPDIR', 'XDG_CONFIG_HOME', 'XDG_STATE_HOME', 'XDG_CACHE_HOME',
     'XDG_DATA_HOME', 'XDG_RUNTIME_DIR', 'H2A_ROOT', 'npm_config_prefix', 'npm_config_cache']) {
@@ -69,8 +70,12 @@ export function candidate(t) {
   const tarballs = join(root, 'tarballs');
   mkdirSync(tarballs);
   const artifacts = names.map(name => {
-    const output = run('npm', ['pack', '--workspace', `@sentropic/${name}`, '--pack-destination', tarballs, '--json'], source, env);
-    const path = join(tarballs, JSON.parse(output)[0].filename);
+    run('npm', ['pack', '--workspace', `@sentropic/${name}`, '--pack-destination', tarballs], source, env);
+    // npm versions differ in whether lifecycle stdout precedes --json output.
+    // Observe the actual artifact rather than parsing that mixed stream.
+    const version = json(join(source, 'packages', name, 'package.json')).version;
+    const path = join(tarballs, `sentropic-${name}-${version}.tgz`);
+    assert.ok(existsSync(path), `${name}: npm pack must produce the expected candidate`);
     return { name, path, sha256: hash(readFileSync(path)) };
   });
   const prefix = env.npm_config_prefix;

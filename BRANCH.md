@@ -5,6 +5,7 @@
 - Valid rc.7 UUID lock-id, tab-separated maps/flock lockfile, SHA-256 claim names and complete registry rows; unknown legacy barrier/debris retained.
 - Strict mode exposes desired missing contracts; normal L0 records RED diagnostics and accepts repaired contracts without inverted expectations. Existing I/O, ownership, preservation and infrastructure assertions always gate.
 - Evidence, lot mapping and confinement: docs/reviews/native-cleanse-l0-r2.md. No new peer consensus claimed; installed h2a and owner state remain forbidden.
+- MCP negative control rejects echo with the candidate as an argument; effective executable and active cached plugin manifest bytes are verified. Targeted gate: 6 pass, 0 fail, 0 skip after the reproduced control failure.
 
 # Memory MCP — L1 producer skill installation
 
