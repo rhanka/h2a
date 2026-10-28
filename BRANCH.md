@@ -1,3 +1,18 @@
+# Gateway off by default — PR #395, round 3
+
+- Scope: all four distinct P1/P2 findings from the supplied round-2 Astra/Sol
+  reviews on aedc3fccb: local PTY routing, explicit-profile resume identity,
+  renamed consent and freshly acquired retype credentials.
+- Persist the proven conversation's mode/provenance across renames, including
+  an unspecified bare choice; keep the existing conflict/liveness rules.
+- RED: final 54-test matrix on aedc3fccb gives 17 failures, zero skips;
+  unspecified bare variant gives two failures before its additional fix.
+- Verification, all round-1/round-2 reproductions and limits:
+  docs/reviews/gateway-off-default-r3.md. No test gate changes.
+- Private TMPDIR /home/antoinefa/.cache-tmp/h2a-test/run-eXwwhg; remove after
+  delivery. No installed h2a, owner state, real gateway/provider/cluster,
+  Python, full local suite, attribution trailer, merge or tag.
+
 # Gateway off by default — PR #395, round 2
 
 - Scope: five findings from the supplied Astra/Sol reviews on a1835d4d7;

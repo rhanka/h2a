@@ -860,7 +860,20 @@ async function runProfile(
     ...(opts.port !== undefined ? { port: opts.port } : {}),
     ...(commandArgs.length > 0 ? { startupArgs: commandArgs } : {}),
   };
-  const result = await run(runOptions);
+  const gatewayMode = gatewayModeFromOptions(opts);
+  if (gatewayMode === "gateway" && !profileUsesLlmMeshGateway(profileName)) {
+    throw new Error(`--llm-gateway/--gw is unsupported for ${profileName}`);
+  }
+  // Resolve local PTY routing before spawning, just as for managed sessions.
+  // Restore the caller's native auth even if acquisition or spawning fails.
+  const restoreEnv = replaceAnthropicGatewayEnvironment(process.env, captureAnthropicGatewayEnvironment());
+  let result: Awaited<ReturnType<typeof run>>;
+  try {
+    await injectLlmMeshGatewayEnv(gatewayMode, false);
+    result = await run({ ...runOptions, gatewayMode: gatewayMode === "gateway" ? "gateway" : "direct" });
+  } finally {
+    restoreEnv();
+  }
   process.stderr.write(
     `[h2a] session ${result.sessionId} attach at http://127.0.0.1:${result.port}\n`,
   );
@@ -5617,6 +5630,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           process.exitCode = 1;
           return;
         }
+        const sameResumeIdentity = resolvedConvId !== undefined && registryEntry?.convId === resolvedConvId &&
+          registryEntry?.cwd === process.cwd() && registryEntry?.tool === explicitProfile;
         const entry = explicitProfile
           ? {
               id: displaySlug,
@@ -5631,9 +5646,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
               enrolledAt: new Date().toISOString(),
               lastSeenAt: new Date().toISOString(),
               source: "run" as const,
-              bare: registryEntry?.convId === resolvedConvId ? registryEntry?.bare : undefined,
-              gatewayMode: registryEntry?.convId === resolvedConvId ? registryEntry?.gatewayMode : undefined,
-              gatewayProvenance: registryEntry?.convId === resolvedConvId ? registryEntry?.gatewayProvenance : undefined,
+              bare: sameResumeIdentity ? registryEntry?.bare : undefined,
+              gatewayMode: sameResumeIdentity ? registryEntry?.gatewayMode : undefined,
+              gatewayProvenance: sameResumeIdentity ? registryEntry?.gatewayProvenance : undefined,
             }
           : registryEntry;
         // WHICH host serves this resume — resolved BEFORE ANY act (F1): every
@@ -6613,6 +6628,11 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             return;
           }
           const useBare = resolveClaudeBare(profile, bareChoiceFromOptions(opts) ?? pinnedLaunch?.bare);
+          // Preserve an unspecified choice on a proven row: materializing
+          // the default only on its renamed row would create a pin conflict.
+          const enrollmentBare = pinnedLaunch?.gatewayProvenance === "explicit" && bareChoiceFromOptions(opts) === undefined
+            ? pinnedLaunch.bare
+            : useBare;
           // H0 (#662): normalize readable gateway aliases (argon-high, wonder,
           // wonder-full, spark) to their exact canonical model id. Unknown
           // names pass through unchanged for exact-model validation downstream.
@@ -6989,10 +7009,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             return;
           }
           // Auto-enroll in the live-session registry (feeds `h2a ls`/`restore`).
-          // Pin the gateway posture ONLY when the user was explicit (--gw/--no-gw);
-          // an "auto" launch stays unpinned so restore follows the live default.
-          // The pin carries "explicit" provenance so a later resume can tell a
-          // proven choice from a legacy row.
+          // A CLI choice or a proven pin for this exact convId/cwd/tool
+          // survives enrollment under a new name. Legacy/auto stays unpinned.
           enrollFromRun({
             profile,
             slug,
@@ -7004,10 +7022,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             cwd,
             sessionClass,
             ...(opts.resume !== undefined ? { convId: opts.resume } : {}),
-            ...(gatewayMode !== "auto"
-              ? { gatewayMode, gatewayProvenance: "explicit" as const }
+            ...(gatewayMode !== "auto" || pinnedLaunch?.gatewayProvenance === "explicit"
+              ? { gatewayMode: launchGatewayMode, gatewayProvenance: "explicit" as const }
               : {}),
-            bare: useBare,
+            ...(enrollmentBare !== undefined ? { bare: enrollmentBare } : {}),
           });
           const nativeOwnerSocket = launchOwnership?.host === "native"
             ? launchOwnership.sessions.find(owned => owned.name === name)?.socketPath : undefined;
@@ -9346,9 +9364,8 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         for (const action of plan.actions) {
           // The pane is NOT recreated, so apply the routing policy to the
           // retyped command itself: resolve the session's consent, scrub the
-          // routing vars for a direct resume (the idle shell may still carry
-          // a stale gateway env), and keep the plain command only for a
-          // proven gateway choice (the pane already carries it).
+          // routing vars for direct, or pass the freshly acquired gateway
+          // route: the idle shell may carry an expired bearer or no route.
           const retypeEntry = entryByTmuxSession.get(action.name);
           const retypeMode = resolveResumedGatewayMode(
             action.profile, "auto", retypeEntry?.gatewayMode, retypeEntry?.gatewayProvenance,
@@ -9357,13 +9374,18 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           if (retypeMode === "gateway") {
             // Validate the explicit choice before retyping: fail closed when
             // the gateway is unavailable instead of typing a doomed command.
-            // Restored right away — the pane keeps its own provisioned env.
+            // Encode the acquired route into the retyped command before
+            // restoring this process's environment. Shell-quote each value.
             const restoreRetypeEnv = replaceAnthropicGatewayEnvironment(
               process.env,
               captureAnthropicGatewayEnvironment(),
             );
             try {
               await injectLlmMeshGatewayEnv("gateway", false, localSessionName(action.slug));
+              const assignments = ["ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN"].map(key =>
+                `${key}='${process.env[key]!.replace(/'/g, "'\\''")}'`,
+              );
+              retypeCmd = `env -u ANTHROPIC_API_KEY ${assignments.join(" ")} ${action.cmd}`;
             } catch (error) {
               process.stderr.write(
                 `[h2a] FAILED to relaunch ${action.slug}: ${(error as Error).message}\n`,
