@@ -106,7 +106,7 @@ test('L11 review: the allocated campaign root passes the admission guard and cle
     const githubEnv = join(dir, 'github-env'); fs.writeFileSync(githubEnv, '');
     const home = homedir();
     const allocOut = spawnSync('/bin/bash', ['-c', alloc], { cwd: repo,
-      env: { PATH: '/usr/bin:/bin', HOME: home, RUNNER_TEMP: runnerTemp, GITHUB_ENV: githubEnv },
+      env: { PATH: '/usr/bin:/bin', HOME: home, TMPDIR: dir, RUNNER_TEMP: runnerTemp, GITHUB_ENV: githubEnv },
       encoding: 'utf8', timeout: 30000 });
     assert.equal(allocOut.status, 0, allocOut.stderr);
     const campaignRoot = (fs.readFileSync(githubEnv, 'utf8').split('\n')
@@ -120,7 +120,7 @@ test('L11 review: the allocated campaign root passes the admission guard and cle
     fs.mkdirSync(join(runnerTemp, 'seats'));
     fs.writeFileSync(join(campaignRoot, 'campaign-ledger.json'), '{}');
     const wipeOut = spawnSync('/bin/bash', ['-c', wipe], { cwd: repo,
-      env: { PATH: '/usr/bin:/bin', HOME: home, RUNNER_TEMP: runnerTemp, XCLI_CAMPAIGN_ROOT: campaignRoot },
+      env: { PATH: '/usr/bin:/bin', HOME: home, TMPDIR: dir, RUNNER_TEMP: runnerTemp, XCLI_CAMPAIGN_ROOT: campaignRoot },
       encoding: 'utf8', timeout: 30000 });
     assert.equal(wipeOut.status, 0, wipeOut.stderr);
     assert.equal(fs.existsSync(campaignRoot), false, 'cleanup wipes the campaign root');
