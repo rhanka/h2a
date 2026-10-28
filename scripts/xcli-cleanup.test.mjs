@@ -5,10 +5,10 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import test from 'node:test';
-import { environment, sourceBuild, repo } from './xcli-lab.mjs';
+import { environment, sourceBuild, repo, compliantQualificationRoot } from './xcli-lab.mjs';
 
 test('an already exited private CLI is blocked without falsely failing its verified cleanup', () => {
-  const root = fs.mkdtempSync(join(tmpdir(), 'h2a-qual-'));
+  const root = compliantQualificationRoot();
   const built = sourceBuild(root);
   const fixture = join(root, 'exit.mjs');
   fs.writeFileSync(fixture, 'setTimeout(() => process.exit(0), 500);\n');

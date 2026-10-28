@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
@@ -9,7 +8,8 @@ import { createHash, generateKeyPairSync } from 'node:crypto';
 import { CLIS, PROBE, REPLY, repo, environment, sourceBuild, copyLogin,
   cliPath, privateExecutable, pythonEntrypoint, classify, matrix, inside,
   rehydrateEventRecord, cellSecretPaths, wipeSecrets, loginCopyPath,
-  recordExec, readExecJournal, classifyExecJournal, vendorRuntimeLabel } from './xcli-lab.mjs';
+  recordExec, readExecJournal, classifyExecJournal, vendorRuntimeLabel,
+  compliantQualificationRoot } from './xcli-lab.mjs';
 import { loadSeatManifest, resolveCampaignPair, createCampaignLedger, loadCampaignLedger,
   debitSession, fitsSessions, noteWallClock, wallClockFits, renderSeatLedger, persistLedger,
   runSeatPreflight } from './xcli-seats.mjs';
@@ -927,7 +927,7 @@ async function main() {
   // PROPOSITION until the owner ratifies D2; counting, stop rules, and
   // persistence are normative.
   const campaignRoot = option('--campaign-root');
-  const root = campaignRoot ? resolve(campaignRoot) : fs.mkdtempSync(join(tmpdir(), 'h2a-qual-'));
+  const root = campaignRoot ? resolve(campaignRoot) : compliantQualificationRoot();
   if (campaignRoot) fs.mkdirSync(root, { recursive: true, mode: 0o700 });
   process.stdout.write(`Private qualification root: ${root}\n`);
   const caps = {
