@@ -108,3 +108,23 @@ test("les 3 collisions connues sont natives (contrat gelé intact)", () => {
     assert.ok(H2A_NATIVE_VERBS.has(v), `collision ${v} doit rester native`);
   }
 });
+
+test("chaque 1er mot branché dans bin.ts est routable (natif, ou version servie avant dispatch)", () => {
+  // Régression 0.98.7-rc.7 : un dispatch précoce interceptait `version`,
+  // `--version` et `-v` avant leur branche. Chaque branche native de bin.ts
+  // doit rester native (le dispatch ne la voit jamais) ; le trio version est
+  // servi par bin.ts avant tout dispatch (couvert par bin-version.test.js).
+  const src = readFileSync(join(ROOT, "packages", "h2a", "src", "bin.ts"), "utf8");
+  const branched = new Set(
+    [...src.matchAll(/argv\[0\] === "([^"]+)"/g)].map((m) => m[1])
+  );
+  assert.ok(branched.has("version"), "bin.ts doit brancher `version`");
+  assert.ok(branched.has("__operator-break"), "bin.ts doit brancher `__operator-break`");
+  for (const first of ["mcp-serve", "mcp-central-serve", "mcp-central-connect", "track-mcp", "remote", "drive", "drumbeat", "sysml", "keepalive", "focus", "canevas", "loop", "status"]) {
+    assert.ok(branched.has(first), `bin.ts doit brancher \`${first}\``);
+    assert.equal(shouldDispatchRuntime([first]), false, `\`${first}\` branché dans bin.ts doit rester natif`);
+  }
+  for (const v of ["--version", "-v", "version"]) {
+    assert.ok(branched.has(v), `bin.ts doit brancher \`${v}\``);
+  }
+});
