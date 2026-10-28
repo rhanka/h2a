@@ -595,11 +595,12 @@
   "packages/h2a/test/mutualisation.test.js": [],
   "packages/h2a/test/name-resolution-surface.test.js": [],
   "packages/h2a/test/native-cleanse-baseline.test.js": [
-    "L0 baseline: old-format two-endpoint reboot fixture preserves a valid lock-id with both sockets absent",
-    "L0 baseline: canonical socket override keeps its mate (two-endpoint inventory)",
-    "L0 baseline: stale endpoint removal is unlink without journaled quarantine",
-    "L0 baseline: legacy claim and map debris carries no versioned owner frame",
-    "L0 baseline: packaged payload pins stable plugin versions without an integration manifest"
+    "L0 install: global candidate lifecycle converges the independent eight-host inventory",
+    "L0 packaged RC: prepare and prepack preserve exact plugin and integration payload versions",
+    "L0 R1: packaged public fresh and resume recover two endpoints and archive the dead claim",
+    "L0 R2: packaged real restore dispatches twenty conversations through flock after endpoint preparation",
+    "L0 R1: public run quarantines the original stale socket inodes with a recovery record",
+    "L0 R1: public resume reports a coded refusal for an unattributed legacy reclaim barrier"
   ],
   "packages/h2a/test/native-host-generations.test.js": [
     "should refuse owner runtime paths, escaping symlinks and uncontained paths before starting any process",

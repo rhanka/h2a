@@ -1,157 +1,160 @@
-// L0 — Baseline witnesses for the native-cleanse spec (lot L0).
-//
-// Old-format two-endpoint reboot fixture + independent packaged-host
-// inventory. Records actual rc.7 behavior and the missing L1/L3 contracts
-// as passing baseline facts (the desired contracts are RED on rc.7: no
-// journaled quarantine, no versioned claim frame, no integration manifest).
-// Temporary synthetic roots only; no real h2a state, owner session, provider
-// or installed binary. Zero skip.
-import test from 'node:test';
+// L0 executes desired contracts against a prepared/prepacked, installed RC.
+// Strict RED: H2A_CLEANSE_STRICT=1 node --test <this file>.
+// L0 CI records named missing contracts as diagnostics; infrastructure and
+// safety assertions gate normally. A repaired contract becomes GREEN unchanged.
+import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  existsSync,
-  linkSync,
-  lstatSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
-import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { candidate, json, run } from './helpers/cleanse-artifact.mjs';
+import { eventually, files, gui, lab } from './helpers/cleanse-lab.mjs';
+import { observeHosts, seedHosts } from './helpers/cleanse-hosts.mjs';
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const REPO = resolve(HERE, '..', '..', '..');
+let artifact;
+let hosts;
+const cleanups = [];
+before(() => {
+  artifact = candidate({ after: fn => cleanups.push(fn) });
+  hosts = seedHosts(artifact);
+  artifact.install();
+  artifact.verify();
+});
+after(() => { for (const fn of cleanups.reverse()) fn(); });
 
-function privateTmpRoot(t) {
-  assert.ok(
-    process.env.TMPDIR && resolve(process.env.TMPDIR) !== resolve('/tmp'),
-    'Supply a disposable private TMPDIR (never /tmp)',
-  );
-  const root = mkdtempSync(join(tmpdir(), 'l0-cleanse-'));
-  t.after(() => {
-    rmSync(root, { recursive: true, force: true });
-    assert.equal(existsSync(root), false);
-  });
-  return root;
+function contracts(t, observations) {
+  const missing = [];
+  for (const { id, lot, actual, expected } of observations) {
+    try {
+      assert.deepEqual(actual, expected, `${id} (${lot})`);
+      t.diagnostic(`GREEN ${id} (${lot})`);
+    } catch (error) {
+      assert.equal(error.code, 'ERR_ASSERTION');
+      missing.push(error);
+      t.diagnostic(`RED ${id} (${lot}): actual=${JSON.stringify(actual)} expected=${JSON.stringify(expected)}`);
+    }
+  }
+  assert.ok(observations.length > 0, 'a witness must execute desired assertions');
+  if (process.env.H2A_CLEANSE_STRICT === '1' && missing.length) {
+    throw new AggregateError(missing, missing.map(e => e.message).join('\n'));
+  }
 }
 
-function seedOldFormatFixture(root) {
-  const nt = join(root, 'h2a-nt');
-  mkdirSync(nt, { recursive: true, mode: 0o700 });
-  const lockId = join(nt, '.h2a-native-terminal.lock-id');
-  writeFileSync(lockId, 'lock-namespace-v1:deadbeef', { mode: 0o600 });
-  const mainSock = join(nt, 'native-terminal.sock');
-  const lf1Sock = join(nt, 'native-terminal.lf1.sock');
-  for (const sock of [mainSock, lf1Sock]) {
-    assert.throws(() => lstatSync(sock), /ENOENT/, 'both endpoint sockets stay absent post-reboot');
-  }
-  const maps = join(root, 'maps');
-  mkdirSync(maps, { recursive: true });
-  const legacyMap = { convId: 'other-0', pid: 2147483647, entries: 3 };
-  writeFileSync(join(maps, 'dead-1.map'), JSON.stringify(legacyMap));
-  writeFileSync(join(maps, 'dead-1.map.lock'), JSON.stringify({ pid: 2147483647 }));
-  writeFileSync(join(maps, 'dead-1.map.tmp'), JSON.stringify({ partial: true }));
-  const claims = join(root, 'resume-launch-claims');
-  mkdirSync(claims, { recursive: true });
-  const key = 'abc123';
-  const claimPath = join(claims, `${key}.claim`);
-  const oldOwner = { token: 'tok-old', pid: 2147483647, convId: 'other-0' };
-  writeFileSync(claimPath, JSON.stringify(oldOwner), { mode: 0o600 });
-  linkSync(claimPath, `${claimPath}.reclaim`);
-  writeFileSync(join(claims, '.deadbeef.pending'), JSON.stringify(oldOwner), { mode: 0o600 });
-  const debris = join(root, 'debris');
-  mkdirSync(debris, { recursive: true });
-  writeFileSync(join(debris, 'identity.lock.tmp.999'), 'partial-identity');
-  writeFileSync(join(debris, 'presence-OLD.json.tmp-999-1'), 'partial-presence');
-  writeFileSync(join(debris, 'registry.json.tmp.999'), 'partial-registry');
-  const registry = {
-    version: 1,
-    entries: [
-      { id: 'bg-dead', sessionClass: 'background', ownerHostPid: 2147483647, convId: 'other-1' },
-      { id: 'human-1', sessionClass: 'human', convId: 'other-2' },
-      { id: 'unclassified-1', convId: 'other-3' },
-    ],
-  };
-  writeFileSync(join(root, 'registry.json'), JSON.stringify(registry));
-  return { nt, lockId, mainSock, lf1Sock, maps, claims, claimPath, debris };
-}
-
-test('L0 baseline: old-format two-endpoint reboot fixture preserves a valid lock-id with both sockets absent', (t) => {
-  const root = privateTmpRoot(t);
-  const f = seedOldFormatFixture(root);
-  assert.equal(readFileSync(f.lockId, 'utf8'), 'lock-namespace-v1:deadbeef');
-  assert.equal(lstatSync(f.lockId).mode & 0o777, 0o600);
-  for (const sock of [f.mainSock, f.lf1Sock]) {
-    assert.throws(() => lstatSync(sock), /ENOENT/);
-  }
-  assert.equal(existsSync(join(f.maps, 'dead-1.map')), true);
-  assert.equal(existsSync(join(f.maps, 'dead-1.map.lock')), true);
-  assert.equal(existsSync(join(f.maps, 'dead-1.map.tmp')), true);
-  assert.equal(existsSync(join(f.debris, 'identity.lock.tmp.999')), true);
-  const registry = JSON.parse(readFileSync(join(root, 'registry.json'), 'utf8'));
-  assert.equal(registry.entries.length, 3);
-  assert.ok(registry.entries.some((e) => e.sessionClass === 'human'));
-  assert.ok(registry.entries.some((e) => e.sessionClass === undefined));
+test('L0 install: global candidate lifecycle converges the independent eight-host inventory', t => {
+  artifact.verify();
+  t.diagnostic(JSON.stringify({ candidate: artifact.version, tarballs: artifact.artifacts, hosts: hosts.map(h => h.host) }));
+  contracts(t, observeHosts(artifact, hosts));
 });
 
-test('L0 baseline: canonical socket override keeps its mate (two-endpoint inventory)', () => {
-  const src = readFileSync(
-    join(REPO, 'packages/h2a-runtime/src/native-terminal/socket-path.ts'),
-    'utf8',
-  );
-  assert.ok(src.includes('native-terminal.lf1.sock'));
-  assert.ok(src.includes('return [historical, compatibleNativeTerminalSocketPath(historical)]'));
+test('L0 packaged RC: prepare and prepack preserve exact plugin and integration payload versions', t => {
+  const tar = artifact.artifacts.find(a => a.name === 'h2a').path;
+  const read = path => JSON.parse(run('tar', ['-xOf', tar, `package/${path}`], artifact.root, artifact.env));
+  const pkg = read('package.json');
+  assert.equal(pkg.version, artifact.version);
+  const files = run('tar', ['-tzf', tar], artifact.root, artifact.env).split('\n');
+  const manifest = files.includes('package/integration-manifest.json') ? read('integration-manifest.json') : undefined;
+  contracts(t, [
+    ...['.claude-plugin/plugin.json', '.codex-plugin/plugin.json'].map(path => ({
+      id: `packaged ${path} exact RC`, lot: 'L3', actual: read(path).version, expected: artifact.version,
+    })),
+    { id: 'packaged integration manifest exact RC', lot: 'L3', actual: manifest?.version, expected: artifact.version },
+  ]);
 });
 
-test('L0 baseline: stale endpoint removal is unlink without journaled quarantine', () => {
-  const src = readFileSync(
-    join(REPO, 'packages/h2a-runtime/src/native-terminal/server.ts'),
-    'utf8',
-  );
-  assert.ok(src.includes('unlinkOwnedPath(socketPath, socket)'));
-  assert.ok(!src.includes('quarantine'));
-  const op = readFileSync(
-    join(REPO, 'packages/h2a-runtime/src/native-terminal/op.ts'),
-    'utf8',
-  );
-  assert.ok(!op.includes('quarantine'));
-});
-
-test('L0 baseline: legacy claim and map debris carries no versioned owner frame', (t) => {
-  const root = privateTmpRoot(t);
-  const f = seedOldFormatFixture(root);
-  const claim = JSON.parse(readFileSync(f.claimPath, 'utf8'));
-  assert.deepEqual(Object.keys(claim).sort(), ['convId', 'pid', 'token']);
-  const barrier = JSON.parse(readFileSync(`${f.claimPath}.reclaim`, 'utf8'));
-  assert.deepEqual(barrier, claim);
-  const map = JSON.parse(readFileSync(join(f.maps, 'dead-1.map'), 'utf8'));
-  assert.ok(!('ownerFrame' in map) && !('bootId' in map) && !('generation' in map));
-  const src = readFileSync(join(REPO, 'packages/h2a-runtime/src/relaunch.ts'), 'utf8');
-  assert.ok(src.includes('type ResumeLaunchClaimOwner'));
-  assert.ok(!src.includes('ownerFrame'));
-  const gc = readFileSync(
-    join(REPO, 'packages/h2a/src/runtime/local-files/orphan-gc.ts'),
-    'utf8',
-  );
-  assert.ok(gc.includes('.lock.stale-'));
-  assert.ok(!gc.includes('.lock.tmp.'));
-});
-
-test('L0 baseline: packaged payload pins stable plugin versions without an integration manifest', () => {
-  const pkg = JSON.parse(readFileSync(join(REPO, 'packages/h2a/package.json'), 'utf8'));
-  assert.equal(pkg.version, '0.98.7');
-  for (const plugin of ['.claude-plugin/plugin.json', '.codex-plugin/plugin.json']) {
-    const manifest = JSON.parse(readFileSync(join(REPO, 'packages/h2a', plugin), 'utf8'));
-    assert.equal(manifest.version, '0.98.7');
+test('L0 R1: packaged public fresh and resume recover two endpoints and archive the dead claim', { timeout: 60000 }, async t => {
+  const f = await lab(t, artifact);
+  for (const socket of f.sockets) assert.equal(existsSync(socket), false);
+  const fresh = await f.start(['run', 'codex', f.env.HOME, '--name', 'fresh', '--background', '--no-attach', '--no-h2a', '--no-gw', '--bare']).done;
+  assert.equal(fresh.code, 0, JSON.stringify(fresh));
+  const resumed = await f.start(['run', 'codex', f.env.HOME, '--resume', f.deadClaimId, '--name', 'resumed', '--background', '--no-attach', '--no-h2a', '--no-gw', '--bare']).done;
+  assert.equal(resumed.code, 0, JSON.stringify(resumed));
+  const inventory = await f.inventory();
+  assert.equal(new Set(inventory.map(h => h.ping.hostPid)).size, 2);
+  for (const id of ['h2a-fresh', 'h2a-resumed']) {
+    const owners = inventory.filter(h => h.sessions.some(s => s.id === id));
+    assert.equal(owners.length, 1, 'one owner per conversation');
+    await f.usable(owners[0].socket, id);
   }
-  assert.equal(existsSync(join(REPO, 'packages/h2a/integration-manifest.json')), false);
-  const prepare = readFileSync(join(REPO, 'scripts/release-candidate.mjs'), 'utf8');
-  assert.ok(!prepare.includes('plugin.json'));
-  const pluginSrc = readFileSync(join(REPO, 'packages/h2a/src/hosts/plugin.ts'), 'utf8');
-  for (const host of ['claude', 'codex', 'gemini', 'agy', 'hermes', 'muse', 'vibe', 'opencode']) {
-    assert.ok(pluginSrc.includes(`${host}: {`), `adapter inventory names ${host}`);
+  assert.equal(f.transcripts().filter(r => r.id === f.deadClaimId).length, 1);
+  f.preserve();
+  t.diagnostic(JSON.stringify({ freshExit: fresh.code, resumeExit: resumed.code, endpoints: inventory.map(h => ({ socket: h.socket, hostPid: h.ping.hostPid })), transcripts: f.transcripts() }));
+  contracts(t, [{ id: 'dead claim archived before replacement', lot: 'L1',
+    actual: files(f.root).some(p => p !== f.deadClaim && !p.endsWith('.pending') && lstatSync(p).isFile() && readFileSync(p, 'utf8') === f.deadClaimBytes),
+    expected: true },
+  { id: 'proven dead background row archived and retired', lot: 'L1',
+    actual: !json(f.registry).entries.some(r => r.id === 'background-dead') &&
+      files(f.root).some(p => p !== f.registry && /\.(json|jsonl)$/.test(p) && lstatSync(p).isFile() && readFileSync(p, 'utf8').includes('background-dead')),
+    expected: true }]);
+});
+
+test('L0 R2: packaged real restore dispatches twenty conversations through flock after endpoint preparation', { timeout: 60000 }, async t => {
+  const f = await lab(t, artifact);
+  gui(f, artifact);
+  const project = join(f.env.HOME, 'src/project');
+  mkdirSync(project, { recursive: true });
+  const targets = Array.from({ length: 20 }, (_, i) => ({ ...f.row('target-' + i), cwd: project }));
+  f.save([...f.saved, ...targets]);
+  writeFileSync(join(f.config, 'config.json'), JSON.stringify({ layout: { maxPerWindow: 20, groups: [{ title: 'cleanse', projects: ['project'] }] } }));
+  const result = await f.start(['restore']).done;
+  assert.equal(result.code, 0, JSON.stringify(result));
+  await eventually(f.transcripts, rows => targets.every(target => rows.some(r => r.id === target.convId)), 30000);
+  const inventory = await f.inventory();
+  for (const target of targets) {
+    assert.equal(f.transcripts().filter(r => r.id === target.convId).length, 1, 'original UUID exactly once');
+    const owners = inventory.filter(h => h.sessions.some(s => s.id === target.tmuxSession));
+    assert.equal(owners.length, 1);
+    await f.usable(owners[0].socket, target.tmuxSession);
   }
+  f.preserve();
+  const dispatches = readFileSync(join(f.env.HOME, 'gui-args'), 'utf8').trim().split('\n').map(JSON.parse);
+  assert.ok(readFileSync(join(f.env.HOME, 'flock-calls'), 'utf8').trim().length > 0, 'the real kernel flock was executed');
+  for (const args of dispatches) {
+    const map = args.at(-1);
+    assert.ok(!existsSync(map) || readFileSync(map, 'utf8').trim() === '', 'all map lines consumed by the product dispatcher');
+  }
+  t.diagnostic(JSON.stringify({ restoreExit: result.code, conversations: f.transcripts().length, dispatchers: dispatches.length }));
+  contracts(t, [{ id: 'both endpoints ready before restore dispatcher', lot: 'L1',
+    actual: json(join(f.env.HOME, 'before-dispatch')).ready, expected: [true, true] }]);
+});
+
+test('L0 R1: public run quarantines the original stale socket inodes with a recovery record', { timeout: 60000 }, async t => {
+  const f = await lab(t, artifact);
+  const stale = [];
+  for (const socket of f.sockets) {
+    const host = f.start(['--socket', socket, '--registry-path', f.registry], join(artifact.runtime, 'native-terminal/process.js'));
+    await eventually(async () => {
+      const c = await f.NativeTerminalClient.connect(socket);
+      try { return await c.ping(); } finally { c.close(); }
+    }, Boolean);
+    const stat = lstatSync(socket);
+    host.child.kill('SIGKILL');
+    await host.done;
+    assert.equal(lstatSync(socket).ino, stat.ino, 'SIGKILL leaves the actual socket');
+    stale.push({ socket, dev: stat.dev, ino: stat.ino });
+  }
+  const result = await f.start(['run', 'codex', f.env.HOME, '--name', 'after-crash', '--background', '--no-attach', '--no-h2a', '--no-gw', '--bare']).done;
+  assert.equal(result.code, 0, JSON.stringify(result));
+  const inventory = await f.inventory();
+  const owner = inventory.find(h => h.sessions.some(s => s.id === 'h2a-after-crash'));
+  assert.ok(owner);
+  await f.usable(owner.socket, 'h2a-after-crash');
+  f.preserve();
+  const artifacts = files(f.root);
+  contracts(t, stale.flatMap(old => [
+    { id: old.socket.split('/').at(-1) + ' original inode quarantined', lot: 'L1',
+      actual: artifacts.some(p => p !== old.socket && lstatSync(p).dev === old.dev && lstatSync(p).ino === old.ino), expected: true },
+    { id: old.socket.split('/').at(-1) + ' recovery record', lot: 'L1',
+      actual: artifacts.some(p => lstatSync(p).isFile() && /\.(json|jsonl)$/.test(p) && readFileSync(p, 'utf8').includes(old.socket) && readFileSync(p, 'utf8').includes(String(old.ino))), expected: true },
+  ]));
+});
+
+test('L0 R1: public resume reports a coded refusal for an unattributed legacy reclaim barrier', { timeout: 60000 }, async t => {
+  const f = await lab(t, artifact);
+  const bytes = readFileSync(f.barrier + '.reclaim', 'utf8');
+  const result = await f.start(['run', 'codex', f.env.HOME, '--resume', f.barrierId, '--name', 'barrier', '--background', '--no-attach', '--no-h2a', '--no-gw', '--bare']).done;
+  assert.equal(f.transcripts().filter(r => r.id === f.barrierId).length, 0, 'a legacy barrier never grants another writer');
+  assert.equal(readFileSync(f.barrier + '.reclaim', 'utf8'), bytes);
+  f.preserve();
+  t.diagnostic(JSON.stringify({ exit: result.code, stderr: result.stderr }));
+  contracts(t, [{ id: 'legacy reclaim barrier coded refusal', lot: 'L1',
+    actual: result.code !== 0 && /reclaim|unattributed|recovery.*refus/i.test(result.stderr + result.stdout), expected: true }]);
 });
