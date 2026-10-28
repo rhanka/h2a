@@ -80,10 +80,21 @@ export function seedHosts(a) {
     if (['claude', 'codex'].includes(host)) {
       const cache = join(root, 'plugins/cache/sentropic/h2a/0.98.6');
       put(join(cache, '.claude-plugin/plugin.json'), JSON.stringify({ name: 'h2a', version: '0.98.6' }));
+      put(join(cache, '.codex-plugin/plugin.json'), JSON.stringify({ name: 'h2a', version: '0.98.6' }));
       put(join(cache, 'skills/h2a-run/SKILL.md'), oldSkill);
       put(join(cache, 'hooks/hooks.json'), JSON.stringify({ hooks: { PreToolUse: [{ command: commandForOldHelper(a.root, host) }] } }));
-      registration = join(root, 'plugins/installed_plugins.json');
-      put(registration, JSON.stringify({ version: 2, plugins: { 'h2a@sentropic': [{ scope: 'user', installPath: cache, version: '0.98.6', enabled: host !== 'codex' }] } }));
+      const marketplace = join(root, host === 'codex' ? '.tmp/marketplaces/sentropic' : 'plugins/marketplaces/sentropic');
+      put(join(marketplace, '.claude-plugin/marketplace.json'), JSON.stringify({ name: 'sentropic', plugins: [{ name: 'h2a', source: './packages/h2a' }] }));
+      if (host === 'claude') {
+        registration = join(root, 'plugins/installed_plugins.json');
+        put(registration, JSON.stringify({ version: 2, plugins: { 'h2a@sentropic': [{ scope: 'user', installPath: cache, version: '0.98.6' }] } }));
+        put(join(root, 'settings.json'), JSON.stringify({ enabledPlugins: { 'h2a@sentropic': true } }));
+        put(join(root, 'plugins/known_marketplaces.json'), JSON.stringify({ sentropic: { source: { source: 'github', repo: 'rhanka/h2a' }, installLocation: marketplace } }));
+      } else {
+        // Codex uses TOML registrations, not Claude's installed_plugins.json.
+        registration = mcp;
+        put(mcp, readFileSync(mcp, 'utf8') + '\n[plugins."h2a@sentropic"]\nenabled = false\n\n[marketplaces.sentropic]\nsource_type = "git"\nsource = "https://github.com/rhanka/h2a.git"\nref = "main"\n');
+      }
     }
     // Host executables are observable fixtures. Plugin commands really copy a
     // supplied local payload and update the private registration, never just 0.
@@ -102,7 +113,7 @@ export function seedHosts(a) {
         const meta=JSON.parse(fs.readFileSync(path.join(source,'.claude-plugin/plugin.json'),'utf8'));
         const cache=path.join(root,'plugins/cache/sentropic/h2a',meta.version);
         fs.cpSync(source,cache,{recursive:true});
-        fs.writeFileSync(path.join(root,'plugins/installed_plugins.json'),JSON.stringify({version:2,plugins:{'h2a@sentropic':[{scope:'user',installPath:cache,version:meta.version,enabled:${host !== 'codex'}}]}}));
+        if('${host}'==='claude')fs.writeFileSync(path.join(root,'plugins/installed_plugins.json'),JSON.stringify({version:2,plugins:{'h2a@sentropic':[{scope:'user',installPath:cache,version:meta.version}]}}));
         process.exit(0);
       }
       if(args.includes('list')){console.log('{}');process.exit(0)}
@@ -139,13 +150,16 @@ export function observeHosts(a, inventory) {
     const servers = config.mcp_servers ?? config.mcpServers ?? config.mcp;
     const server = Array.isArray(servers) ? servers.find(s => s.name === 'h2a') : servers?.h2a;
     const command = Array.isArray(server?.command) ? server.command : [server?.command, ...(server?.args ?? [])];
-    const resolvesCandidate = command.some(arg => {
-      if (typeof arg !== 'string') return false;
+    const executable = arg => {
+      if (typeof arg !== 'string') return undefined;
       const paths = isAbsolute(arg) ? [arg] : a.env.PATH.split(delimiter).map(dir => join(dir, arg));
-      return paths.some(path => {
-        try { return realpathSync(path) === realpathSync(a.cli); } catch { return false; }
-      });
-    });
+      for (const path of paths) {
+        try { return realpathSync(path); } catch { /* Try the next PATH entry. */ }
+      }
+    };
+    const target = executable(command[0]);
+    const resolvesCandidate = target === realpathSync(a.cli) ||
+      target === realpathSync(process.execPath) && executable(command[1]) === realpathSync(a.cli);
     add('MCP resolves activated prefix', resolvesCandidate);
     if (item.helper) add('selected helper bytes', text(item.helper) === helper);
     if (item.hooks) {
@@ -155,9 +169,13 @@ export function observeHosts(a, inventory) {
     }
     if (item.imported) add('observed Agy imported bytes', text(item.imported)?.includes(skill.replace(/^---\n[\s\S]*?\n---\n/, '').trim()) === true);
     if (item.registration) {
-      const active = json(item.registration).plugins['h2a@sentropic'][0];
-      assert.equal(active.enabled, item.host !== 'codex', 'disabled selection must stay disabled');
+      const cache = join(item.root, 'plugins/cache/sentropic/h2a', a.version);
+      const active = item.host === 'claude' ? json(item.registration).plugins['h2a@sentropic'][0] :
+        { installPath: cache, version: existsSync(join(cache, '.codex-plugin/plugin.json')) ? json(join(cache, '.codex-plugin/plugin.json')).version : undefined };
+      if (item.host === 'codex') assert.equal(config.plugins['h2a@sentropic'].enabled, false, 'disabled selection must stay disabled');
+      else assert.equal(json(join(item.root, 'settings.json')).enabledPlugins['h2a@sentropic'], true);
       add('registered effective plugin cache', active.version === a.version &&
+        text(join(active.installPath, `.${item.host}-plugin/plugin.json`)) === readFileSync(join(a.packages, `h2a/.${item.host}-plugin/plugin.json`), 'utf8') &&
         text(join(active.installPath, 'skills/h2a-run/SKILL.md')) === skill &&
         text(join(active.installPath, 'hooks/hooks.json')) === readFileSync(join(a.packages, 'h2a/hooks/hooks.json'), 'utf8'));
     }
