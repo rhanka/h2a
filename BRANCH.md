@@ -9,6 +9,10 @@
   unspecified bare variant gives two failures before its additional fix.
 - Verification, all round-1/round-2 reproductions and limits:
   docs/reviews/gateway-off-default-r3.md. No test gate changes.
+- CI follow-up: security-debt failed on GHSA-rmxm-3fg6-px4f after the push.
+  Update only the existing @hono/node-server lock entry 2.1.1 -> 2.1.5;
+  keep manifests, the empty exception register and scanner thresholds intact.
+  Live audit RED/GREEN, compilation and all scoped reproductions rerun.
 - Private TMPDIR /home/antoinefa/.cache-tmp/h2a-test/run-eXwwhg; remove after
   delivery. No installed h2a, owner state, real gateway/provider/cluster,
   Python, full local suite, attribution trailer, merge or tag.
