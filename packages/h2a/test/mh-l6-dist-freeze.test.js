@@ -63,7 +63,8 @@ test('E3 should reproduce the six-entry native diagnostic against the local buil
   const same = name => local[name] === pub[name];
   assert.equal(same('launch-guard.js'), true, 'launch-guard.js stays byte-identical to published .6');
   const differing = SIX.filter(name => !same(name));
-  assert.equal(differing.length, 3);
+  // Main's native process changes also differ from the published .6 image.
+  assert.equal(differing.length, 4);
   assert.deepEqual(SIX.map(name => (same(name) ? 'identical' : 'differing')),
     ledger.sixEntryComparison.map(row => row.outcome));
   assert.deepEqual(SIX.map(name => ({ name, local: local[name].slice(0, 16), published: pub[name].slice(0, 16),

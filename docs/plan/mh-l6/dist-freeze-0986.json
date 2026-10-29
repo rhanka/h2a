@@ -421,21 +421,21 @@
     },
     {
       "name": "native-host.js",
-      "local": "ce4e55b5c40c9d5f",
+      "local": "dafdc3122d3334ec",
       "published": "91ea3d984755a64e",
       "outcome": "differing"
     },
     {
       "name": "native-terminal/op.js",
-      "local": "7e52e728459c32c2",
+      "local": "d85ee762c88b6670",
       "published": "e0f4efc4318ef16d",
       "outcome": "differing"
     },
     {
       "name": "native-terminal/process.js",
-      "local": "328df5a1668cba5e",
+      "local": "7589d586e2c58bca",
       "published": "328df5a1668cba5e",
-      "outcome": "identical"
+      "outcome": "differing"
     },
     {
       "name": "native-terminal/supervisor.js",
@@ -451,7 +451,7 @@
     }
   ],
   "localCounts": {
-    "runtimeDist": 438,
+    "runtimeDist": 510,
     "upgradeClosure": 100
   },
   "regen": "MH_L5_ARTIFACTS=$root node scripts/mh-l6-e3c-freeze.mjs (after deliberate local dist change only)"

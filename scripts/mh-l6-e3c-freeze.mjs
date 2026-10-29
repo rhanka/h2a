@@ -13,6 +13,7 @@ import assert from 'node:assert/strict';
 import cp from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { join, relative } from 'node:path';
+import { tmpdir } from 'node:os';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 function walk(root) {
@@ -32,7 +33,7 @@ function walk(root) {
 assert.ok(process.env.MH_L5_ARTIFACTS, 'official published fixtures mandatory; never skip');
 const fixtures = fs.realpathSync(process.env.MH_L5_ARTIFACTS);
 const receipt = JSON.parse(fs.readFileSync(join(fixtures, 'receipt.json'), 'utf8'));
-const work = fs.mkdtempSync('/tmp/mh-l6-e3c-');
+const work = fs.mkdtempSync(join(tmpdir(), 'mh-l6-e3c-'));
 try {
   const published = {};
   for (const [file, dir] of [['sentropic-h2a-runtime-0.98.6.tgz', 'runtime'], ['sentropic-h2a-0.98.6.tgz', 'h2a']]) {
