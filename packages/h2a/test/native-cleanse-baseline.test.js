@@ -9,13 +9,16 @@ import { contracts } from './helpers/cleanse-contracts.mjs';
 import { candidate, isolatedEnv, json, run } from './helpers/cleanse-artifact.mjs';
 import { eventually, files, gui, lab } from './helpers/cleanse-lab.mjs';
 import { observeHosts, seedHosts } from './helpers/cleanse-hosts.mjs';
+import { observeContract, contractFailure } from '../../../scripts/cleanse-contract-ledger.mjs';
 
 let artifact;
 let hosts;
+let staleMcp;
 const cleanups = [];
 before(() => {
   artifact = candidate({ after: fn => cleanups.push(fn) });
   hosts = seedHosts(artifact);
+  staleMcp = new Map(hosts.map(host => [host.host, readFileSync(host.mcp, 'utf8')]));
   artifact.install();
   artifact.verify();
 });
@@ -85,6 +88,33 @@ test('L0 install: global candidate lifecycle converges the independent eight-hos
   assert.equal(vibeCurrent(disabledArtifact, disabledHosts), true, 'native disabled selection preserved with current installed target');
   writeFileSync(off.mcp, disabledVibe.replace('disabled = true', 'disabled = false\nenabled = false'));
   assert.equal(vibeCurrent(disabledArtifact, disabledHosts), false, 'enabled=false does not mask Vibe reactivation');
+  // Exercise selection changes while the installed route is already RED:
+  // false -> false must still fail the production ledger comparison.
+  for (const host of hosts) {
+    const original = readFileSync(host.mcp, 'utf8');
+    const stale = staleMcp.get(host.host);
+    const observe = () => observeHosts(artifact, hosts).find(o => o.id === host.host + ' installed MCP resolves activated prefix');
+    const context = { root: artifact.root, version: artifact.version };
+    try {
+      writeFileSync(host.mcp, stale);
+      const before = observeContract(observe(), context), { id, ...entry } = before;
+      assert.equal(before.state, 'RED', host.host + ': deliberately stale control route');
+      if (host.host === 'vibe') writeFileSync(host.mcp, 'disabled_tools = ["*"]\n' + stale);
+      else if (host.host === 'codex') writeFileSync(host.mcp, stale.replace('[mcp_servers.h2a]', '[mcp_servers.h2a]\nenabled = false'));
+      else if (host.host === 'hermes') writeFileSync(host.mcp, stale.replace('    command:', '    enabled: false\n    command:'));
+      else {
+        const config = JSON.parse(stale);
+        if (host.host === 'claude') config.projects = { [artifact.root]: { disabledMcpServers: ['h2a'] } };
+        else if (host.host === 'gemini') config.mcp = { excluded: ['h2a'] };
+        else if (host.host === 'opencode') config.permission = 'deny';
+        else config.mcpServers.h2a[host.host === 'agy' ? 'disabled' : 'enabled'] = host.host === 'agy';
+        writeFileSync(host.mcp, JSON.stringify(config));
+      }
+      const after = observeContract(observe(), context);
+      assert.equal(after.state, 'RED', host.host + ': original violation still observed');
+      assert.match(contractFailure(after, { [id]: entry }) ?? '', /different failure signature/, host.host + ': selection mutation must fail the gate');
+    } finally { writeFileSync(host.mcp, original); }
+  }
   record(observeHosts(artifact, hosts));
 });
 

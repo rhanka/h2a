@@ -1,3 +1,14 @@
+# Native cleanse — L0, PR #396 round 8
+
+- Scope: fix the shared round-7 P2 on f40d77204; L0 witnesses only.
+- Root cause: RED MCP signatures omitted global activation/filter choices, hiding selection regressions behind stale-target failures.
+- Fix: bind native global choices and observed effective selection to all eight MCP proofs; preserve ordered OpenCode permission rules.
+- Snapshot: verdict and evidence share one parsed configuration; all adapters reject a change visible only on the first read.
+- Controls: each adapter mutates a global-user selection on an already-RED route, both in the oracle and the installed-candidate baseline; masked choices and rule ordering are covered.
+- Promotion: negative controls restore the post-install configuration after exercising the pre-install stale route; a repaired MCP with a declared GREEN ledger entry remains accepted.
+- Ledger: only eight evidence hashes change; all 42 states stay RED, comparator and execution gates unchanged.
+- Evidence, commands and limitations: docs/reviews/native-cleanse-l0-r8.md; no Python, owner state, installed h2a, full local suite or new peer consensus.
+
 # Native cleanse — L0, PR #396 round 7
 
 - Base: rebased onto ec04054b6, merged #395; preserve both branch dossiers and main Hono 2.1.5 lockfile.
