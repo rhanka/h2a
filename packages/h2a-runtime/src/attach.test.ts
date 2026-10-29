@@ -505,6 +505,27 @@ describe("attach", () => {
     expect(body.profile).toBe("codex");
   });
 
+  it("createRemoteSession forwards an explicit gateway choice, omits it otherwise (round-2 P2)", async () => {
+    let captured: { body: string } | null = null;
+    const fetchImpl = (async (_url: string | URL, init?: RequestInit) => {
+      captured = { body: init?.body as string };
+      return new Response(
+        JSON.stringify({ session: { id: "sess-remote" } }),
+        { status: 201 },
+      );
+    }) as typeof fetch;
+
+    await createRemoteSession(
+      "http://localhost:8080",
+      { profile: "claude", llmGateway: true },
+      fetchImpl,
+    );
+    expect(JSON.parse(captured!.body)).toMatchObject({ llmGateway: true });
+
+    await createRemoteSession("http://localhost:8080", { profile: "claude" }, fetchImpl);
+    expect("llmGateway" in JSON.parse(captured!.body)).toBe(false);
+  });
+
   it("createRemoteSession forwards startup args into metadata.startup.args", async () => {
     let captured: { url: string; body: string } | null = null;
     const fetchImpl = (async (url: string | URL, init?: RequestInit) => {

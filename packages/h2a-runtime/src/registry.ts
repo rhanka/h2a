@@ -255,6 +255,12 @@ export type RegistryEntry = {
    */
   gatewayMode?: "gateway" | "direct";
   /**
+   * Provenance of the gateway pin: "explicit" when the pin came from an
+   * explicit operator choice. Legacy rows have no provenance and must not
+   * authorize a gateway on their own (they resolve to direct).
+   */
+  gatewayProvenance?: "explicit";
+  /**
    * Pinned Claude `--bare` choice, captured at launch. `--bare` strips Claude's
    * native tool surface (see `resolveClaudeBare`); it is re-emitted verbatim by
    * resume and `remote restore` so a restored session keeps the posture it was
@@ -270,6 +276,8 @@ export type RegistryEntry = {
 };
 
 export type EnrollInput = {
+  /** A fresh run reusing an id must discard that id's old conversation consent. */
+  freshConversation?: boolean;
   id: string;
   tool: RegistryTool;
   kind: RegistryKind;
@@ -300,6 +308,8 @@ export type EnrollInput = {
   model?: string;
   effort?: string;
   gatewayMode?: "gateway" | "direct";
+  /** Provenance of the gateway pin ("explicit" only; legacy rows omit it). */
+  gatewayProvenance?: "explicit";
   /** Pinned Claude `--bare` choice (see RegistryEntry.bare). */
   bare?: boolean;
   /** Explicit override for restore pinning (internal only). */
@@ -1264,7 +1274,7 @@ function applyEnroll(
   };
   const label = input.label ?? prev?.label;
   if (label !== undefined) entry.label = label;
-  const convId = input.convId ?? prev?.convId;
+  const convId = input.convId ?? (input.freshConversation ? undefined : prev?.convId);
   if (convId !== undefined) entry.convId = convId;
   const remoteId = input.remoteId ?? prev?.remoteId;
   if (remoteId !== undefined) entry.remoteId = remoteId;
@@ -1307,8 +1317,21 @@ function applyEnroll(
   if (model !== undefined) entry.model = model;
   const effort = input.effort ?? prev?.effort;
   if (effort !== undefined) entry.effort = effort;
-  const gatewayMode = input.gatewayMode ?? prev?.gatewayMode;
+  // Consent belongs to one conversation/workspace/tool. A fresh run or a
+  // different identity clears the previous id's pin; only a caller-provided
+  // choice can carry over to the new conversation.
+  const conversationChanged =
+    input.freshConversation === true ||
+    input.cwd !== prev?.cwd || input.tool !== prev?.tool ||
+    (input.convId !== undefined && input.convId !== prev?.convId);
+  const gatewayMode = conversationChanged
+    ? input.gatewayMode
+    : (input.gatewayMode ?? prev?.gatewayMode);
   if (gatewayMode !== undefined) entry.gatewayMode = gatewayMode;
+  const gatewayProvenance = conversationChanged
+    ? input.gatewayProvenance
+    : (input.gatewayProvenance ?? prev?.gatewayProvenance);
+  if (gatewayProvenance !== undefined) entry.gatewayProvenance = gatewayProvenance;
   const bare = input.bare ?? prev?.bare;
   if (bare !== undefined) entry.bare = bare;
   if (input.restorePinned !== undefined) {
@@ -1674,6 +1697,7 @@ export function enrollFromRun(args: {
   cwd: string;
   convId?: string;
   gatewayMode?: "gateway" | "direct";
+  gatewayProvenance?: "explicit";
   bare?: boolean;
   sessionClass: RegistrySessionClass;
   delegationOrigin?: DelegationOrigin;
@@ -1698,6 +1722,7 @@ export function enrollFromRun(args: {
       cwd: args.cwd,
       source: "run",
       label: args.slug,
+      freshConversation: args.convId === undefined,
       tmuxSession: args.tmuxSession,
       sessionClass: args.sessionClass,
       ...(args.pid !== undefined ? { pid: args.pid } : {}),
@@ -1712,6 +1737,9 @@ export function enrollFromRun(args: {
         : {}),
       ...(args.convId !== undefined ? { convId: args.convId } : {}),
       ...(args.gatewayMode !== undefined ? { gatewayMode: args.gatewayMode } : {}),
+      ...(args.gatewayProvenance !== undefined
+        ? { gatewayProvenance: args.gatewayProvenance }
+        : {}),
       ...(args.bare !== undefined ? { bare: args.bare } : {}),
     });
   } catch {

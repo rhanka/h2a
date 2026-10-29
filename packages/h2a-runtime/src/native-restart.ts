@@ -20,6 +20,8 @@ export type NativeRestartCandidate = Readonly<{
   convId?: string;
   sessionClass?: "human" | "background";
   gatewayMode?: "gateway" | "direct";
+  /** Provenance of the gateway pin ("explicit" only; legacy rows omit it). */
+  gatewayProvenance?: "explicit";
   /** Pinned Claude `--bare` choice, carried from the registry row so a restart reproduces it. */
   bare?: boolean;
 }>;
@@ -147,6 +149,11 @@ function gatewayMode(
 ): NativeRestartGatewayMode {
   if (requested === "on") return "gateway";
   if (requested === "off") return "direct";
+  // A pinned direct posture is honored verbatim (it can only keep the session
+  // off the gateway). A legacy gateway pin without provenance never selects
+  // the gateway on its own.
+  if (session.gatewayMode === "direct") return "direct";
+  if (session.gatewayProvenance !== "explicit") return "auto";
   return session.gatewayMode ?? "auto";
 }
 

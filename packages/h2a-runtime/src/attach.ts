@@ -696,6 +696,9 @@ export async function createRemoteSession(
     workspacePath?: string;
     home?: string;
     agentImage?: string;
+    /** Explicit per-session opt-in to LLM-gateway routing. Transmitted ONLY
+     * when the user asked for it; absent otherwise (direct by default). */
+    llmGateway?: boolean;
   },
   fetchImpl: typeof fetch = fetch,
 ): Promise<{ id: string }> {
@@ -704,6 +707,7 @@ export async function createRemoteSession(
     target: body.target ?? DEFAULT_SESSION_TARGET,
   };
   if (body.displayName) payload.displayName = body.displayName;
+  if (body.llmGateway === true) payload.llmGateway = true;
   if (body.workspaceSync) payload.workspaceSync = true;
   if (body.workspaceExport) payload.workspaceExport = true;
   if (body.workspaceId) payload.workspaceId = body.workspaceId;

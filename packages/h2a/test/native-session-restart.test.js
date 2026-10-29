@@ -134,7 +134,9 @@ test("should submit an MCP relaunch instruction to a live CLI without restarting
 });
 
 test("should restart every live managed native CLI and exclude dead, tmux and job rows", async () => {
-  const alpha = session("alpha", { gatewayMode: "gateway" });
+  // A proven pin restarts on the gateway; a legacy pin without provenance
+  // would resolve to direct (gateway off unless explicitly asked).
+  const alpha = session("alpha", { gatewayMode: "gateway", gatewayProvenance: "explicit" });
   const beta = session("beta", { gatewayMode: "direct" });
   const dead = session("dead");
   const tmux = session("tmux", { kind: "local-tmux" });

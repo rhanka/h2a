@@ -140,6 +140,32 @@ test("claude required gateway is explicit in argv and must be proven by the resu
   }
 });
 
+test("auto loop launch requires a direct receipt (gateway off unless explicitly asked)", () => {
+  const dir = workspace();
+  try {
+    const spec = validateLoopLaunchSpec(launchSpec(dir, { profile: "claude", gateway: "auto" }));
+    const direct = executeLoopLaunchWithSpawn(spec, () => ({
+      status: 0,
+      stdout: JSON.stringify(runtimeResult(spec)),
+      stderr: ""
+    }));
+    assert.equal(direct.ok, true);
+
+    const gateway = executeLoopLaunchWithSpawn(spec, () => ({
+      status: 0,
+      stdout: JSON.stringify(runtimeResult(spec, {
+        session: { ...runtimeResult(spec).session, gateway: "gateway" }
+      })),
+      stderr: ""
+    }));
+    assert.equal(gateway.ok, false);
+    assert.equal(gateway.retrySafe, false);
+    assert.match(gateway.detail, /invalid h2a\.run\.result contract/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("loop launch accepts a native-terminal-host result with no tmux pane", () => {
   const dir = workspace();
   try {
