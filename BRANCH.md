@@ -71,6 +71,20 @@ and unrelated files on Claude, Codex, Muse, Vibe and Agy. No provider activation
 - Round-2 TMPDIR: `/home/antoinefa/.cache-tmp/h2a-test/run-YlDOoZ`;
   HOME/XDG private, no Python or installed host. Evidence and qualification
   results: `docs/reviews/memory-skill-install.md`.
+- Round 3, shared P2 from both reviews of `2c088f623`: the direct installer
+  could refuse a customized entrypoint but still write a producer receipt.
+  RED before product edits: 6 pass / 14 fail / 0 skipped across 20 first-refusal
+  cases (five hosts, user/project, with/without a previous receipt).
+  Preflight every artifact of a skill before writing any; stop on a later
+  conflict, and read back each write before proceeding to the receipt last.
+  Repeated refusals leave previous receipts and resources untouched. Packed
+  acceptance now covers refusal, successful install, hashes and idempotence
+  on all ten host/scope pairs. No gate, dependency, timeout or runtime change.
+  GREEN: 81 installer/convergence/package/recovery tests and 17 native
+  crash-recovery tests, zero failures/skips, run without overlapping campaigns.
+- Round-3 TMPDIR: `/home/antoinefa/.cache-tmp/h2a-test/run-tV6A2U`;
+  clean HOME/XDG environment, no Python or installed host. Targeted results
+  and the supplied-review reconciliation are in the L1 review dossier.
 
 # Gateway off by default — PR #395, round 5
 

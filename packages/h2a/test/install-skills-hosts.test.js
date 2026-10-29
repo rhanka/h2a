@@ -16,6 +16,37 @@ import { HARNESS_SKILLS } from "../dist/vendor/harness/index.js";
 import { memorySkillConsumer, sha256 } from './helpers/memory-skill-consumer.mjs';
 import { statSync } from 'node:fs';
 
+for (const scope of ['user', 'project']) for (const host of ['claude', 'codex', 'muse', 'vibe', 'agy']) {
+  for (const previousReceipt of [false, true]) test(`${host}/${scope} refused first install ${previousReceipt ? 'preserves the previous receipt' : 'creates no receipt'}`, t => {
+    const fixture = memorySkillConsumer(t);
+    const root = scope === 'project' ? join(fixture.lane, `.${host === 'agy' ? 'gemini' : host}`)
+      : join(fixture.home, host === 'agy' ? '.gemini' : host === 'muse' ? '.config/muse' : `.${host}`);
+    const target = join(root, host === 'agy' ? 'commands/engram-memory.toml' : 'skills/engram-memory/SKILL.md');
+    const resources = host === 'agy'
+      ? join(root, scope === 'project' ? 'skill-resources' : '.h2a-install/skill-resources', 'engram/0.22.1/engram-memory')
+      : join(root, 'skills/engram-memory');
+    const receipt = join(resources, '.h2a-source.json');
+    const custom = host === 'agy' ? 'description = "Personal memory"\nprompt = "Personal instructions"\n'
+      : '---\nname: engram-memory\ndescription: Personal memory\n---\nOnly owner-authored instructions.\n';
+    mkdirSync(join(target, '..'), { recursive: true });
+    writeFileSync(target, custom);
+    const oldReceipt = JSON.stringify({ package: '@sentropic/engram', version: '0.22.0', renderedSha256: sha256(custom) }) + '\n';
+    if (previousReceipt) {
+      mkdirSync(resources, { recursive: true });
+      writeFileSync(receipt, oldReceipt);
+    }
+    const args = ['install-skills', '--host', host, '--scope', scope];
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const result = fixture.cli(args);
+      assert.equal(result.status, 2, result.stderr);
+      assert.equal(readFileSync(target, 'utf8'), custom);
+      if (previousReceipt) assert.equal(readFileSync(receipt, 'utf8'), oldReceipt, 'refusal must leave the previous receipt untouched');
+      else assert.equal(existsSync(receipt), false, 'refusal must not attest bytes that were never installed');
+      assert.equal(existsSync(join(resources, 'assets/guide.md')), false, 'refusal must not install resources from the rejected producer');
+    }
+  });
+}
+
 test('memory skill installs from the producer with provenance and idempotent native rendering in both scopes', t => {
   const fixture = memorySkillConsumer(t);
   for (const host of ['claude', 'codex', 'muse', 'vibe', 'agy']) for (const scope of ['user', 'project']) {
