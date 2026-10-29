@@ -1,3 +1,47 @@
+# Memory MCP — L1 producer skill installation
+
+## Objective
+
+Install only the producer-owned `@sentropic/engram/skills/engram-memory/SKILL.md`
+from the installed package. Preserve native rendering, resources, custom content
+and unrelated files on Claude, Codex, Muse, Vibe and Agy. No provider activation.
+
+## Scope / Guardrails
+
+- Allowed: `packages/h2a/src/cli.ts`,
+  `packages/h2a/src/hosts/native-{skills,convergence,artifacts}.ts`,
+  the four named installation/package test files and isolated consumer helper,
+  `BRANCH.md`, `docs/reviews/memory-skill-install.md`.
+- Base: origin/main `ec04054b604f2b8948a16d955724fe5301e9dccb`.
+- No owner state, installed h2a, real host CLI, full local suite, dependency pin,
+  producer content vendoring, attribution trailer or merge.
+- Private TMPDIR: `/home/antoinefa/.cache-tmp/h2a-test/run-h9B2Ks`.
+
+## Lot L1
+
+- [x] RED before product edits: 5 failed / 23 passed / 0 skipped across
+  install-skills-hosts, native-host-shared-skills, package-plugin-manifest,
+  native-host-package (all under packages/h2a/test).
+- [x] Producer resolution without import; source package/version/SHA-256 summary
+  and on-host `.h2a-source.json` with producer and rendered hashes.
+- [x] Native resources and Agy TOML/import hint; identical reinstall is a no-op.
+- [x] Missing package or skill is explicit in sources/status and stderr;
+  core skills remain installable. Missing Engram cannot authorize deletion of
+  existing Engram files. Custom bytes still require explicit --force.
+- [x] External validated reference used only via H2A_MEMORY_SKILL_FIXTURE;
+  SHA-256 dd4f17695844a65ae10fa7c9b023578f0c9f8688b446e5ba790fbb39f3abfbaf.
+- [x] Final build and seven targeted suites with the validated external fixture:
+  53 passed / 0 failed / 0 skipped. Commands in the review dossier.
+- Delivery: rebase onto origin/main, own-branch push, French PR and terminal CI;
+  no merge authorized.
+
+## Feedback Loop
+
+- `npm view @sentropic/engram@0.22.1` returned E404 in this environment.
+  Acceptance uses an isolated installed producer fixture. Published tuple is L0.
+- Harness consensus selection failed: no h2a_run MCP tool in confinement;
+  owner forbids reaching the installed host. No independent verdict claimed.
+
 # Gateway off by default — PR #395, round 5
 
 - Scope: the shared P2 in both supplied round-4 reviews of 8b0a895c3.

@@ -82,7 +82,7 @@ import { isNativeHost, NATIVE_HOSTS, REGISTRY_WAITING, stateRoot, vibeHome } fro
 import { convergeNativeHost } from "./hosts/native-convergence.js";
 import { nativeSkillArtifacts } from "./hosts/native-skills.js";
 import { NATIVE_QUESTION_GUIDANCE } from "./hosts/native-questions.js";
-import { assertNativePath, atomicNativeWrite, snapshot as snapshotNativeFile } from "./hosts/native-files.js";
+import { assertNativePath, atomicNativeWrite, digest as nativeDigest, snapshot as snapshotNativeFile } from "./hosts/native-files.js";
 import { clearVibeDirectRemoved, editVibeMcpServers, setVibeDirectRemoved, VIBE_MCP_NAME, type VibeMcpEntry } from "./hosts/vibe-mcp.js";
 import { convergeAfterExplicitUpgrade } from "./hosts/upgrade-equipment.js";
 import { captureHostOperatorNotices } from "./hosts/operator-notices.js";
@@ -6937,8 +6937,10 @@ function pruneLegacy(
  *           `packages/track/skills/`).
  * `harness` — the `h2a` npm package's shipped `skills/`, rendered
  *           under the `harness-<name>` prefix.
+ * `engram` — only `@sentropic/engram`'s shipped memory skill, without copying
+ *           the producer content into h2a or importing the provider.
  */
-type SkillProvenance = "h2a" | "track" | "harness";
+type SkillProvenance = "h2a" | "track" | "harness" | "engram";
 
 interface CollectedSkill {
   /** Final skill id — the target dir/file name AND the rewritten frontmatter name. */
@@ -6948,6 +6950,7 @@ interface CollectedSkill {
   readonly raw: string;
   readonly source: SkillProvenance;
   readonly resourceDir: string;
+  readonly producer?: { package: string; version: string; path: string; sha256: string };
 }
 
 type ReadSkillOutcome =
@@ -6999,15 +7002,15 @@ function readSkillFrom(
 
 /**
  * Resolve the on-disk `skills/` directory of an installed dependency package
- * (`@sentropic/track`, `h2a`) from h2a's own runtime location.
+ * (`@sentropic/track`, `@sentropic/engram`) from h2a's own runtime location.
  *
  * SOURCE UNIQUE: the skills are rendered on demand from each package's shipped
  * `skills/` tree — never copied into this repo/plugin. Resolution honours the
  * packages' (possibly `import`-only) `exports` via `import.meta.resolve`, with a
  * `createRequire` fallback, then walks up to the package root that declares the
- * matching `name` and returns its `skills/` dir (or undefined if absent).
+ * matching `name` and returns its `skills/` dir and producer version.
  */
-function resolvePackageSkillsDir(pkgName: string): string | undefined {
+function resolvePackageSkillSource(pkgName: string): { dir?: string; version?: string } {
   const resolver = (import.meta as unknown as {
     resolve?: (specifier: string) => string;
   }).resolve;
@@ -7023,7 +7026,7 @@ function resolvePackageSkillsDir(pkgName: string): string | undefined {
     try {
       mainFile = createRequire(import.meta.url).resolve(pkgName);
     } catch {
-      return undefined;
+      return {};
     }
   }
   let dir = dirname(mainFile);
@@ -7031,10 +7034,11 @@ function resolvePackageSkillsDir(pkgName: string): string | undefined {
     const pkgJsonPath = join(dir, "package.json");
     if (existsSync(pkgJsonPath)) {
       try {
-        const name = JSON.parse(readFileSync(pkgJsonPath, "utf8")).name as string;
-        if (name === pkgName) {
+        const pkg = JSON.parse(readFileSync(pkgJsonPath, "utf8"));
+        if (pkg.name === pkgName) {
           const skillsDir = join(dir, "skills");
-          return existsSync(skillsDir) ? skillsDir : undefined;
+          return { dir: existsSync(skillsDir) ? skillsDir : undefined,
+            version: typeof pkg.version === 'string' ? pkg.version : undefined };
         }
       } catch {
         // malformed package.json — keep walking up
@@ -7044,12 +7048,14 @@ function resolvePackageSkillsDir(pkgName: string): string | undefined {
     if (parent === dir) break;
     dir = parent;
   }
-  return undefined;
+  return {};
 }
 
 interface SkillCollection {
   readonly skills: CollectedSkill[];
-  readonly sources: Array<{ source: SkillProvenance; dir: string | null; count: number }>;
+  readonly sources: Array<{ source: SkillProvenance; dir: string | null; count: number;
+    package?: string; version?: string; status?: 'available' | 'missing'; missing?: string[];
+    skills?: Array<{ name: string; path: string; sha256: string }> }>;
   readonly error?: { message: string; exit: number };
 }
 
@@ -7060,6 +7066,8 @@ interface SkillCollection {
  *  3. `harness` — `h2a`'s shipped `skills/`, enumerated from the
  *                 package's programmatic `HARNESS_SKILLS` manifest and rendered
  *                 under the `harness-<name>` prefix (anti-collision, tool-neutral).
+ *  4. `engram`  — only `skills/engram-memory/SKILL.md` and its resources from
+ *                 the installed producer. Its absence is explicitly reported.
  *
  * Nothing is copied into this repo/plugin. A dependency whose `skills/` cannot
  * be resolved is recorded as a source with `dir: null` / `count: 0` rather than
@@ -7100,7 +7108,7 @@ function collectInstallableSkills(): SkillCollection {
   if (h2aRes.error) return { skills, sources, error: h2aRes.error };
 
   // 2) track — rendered from the installed @sentropic/track package (native names).
-  const trackDir = resolvePackageSkillsDir("@sentropic/track");
+  const trackDir = resolvePackageSkillSource("@sentropic/track").dir;
   const trackRes = collectFromDir(trackDir, "track", undefined);
   sources.push({ source: "track", dir: trackDir ?? null, count: trackRes.count });
   if (trackRes.error) return { skills, sources, error: trackRes.error };
@@ -7117,6 +7125,22 @@ function collectInstallableSkills(): SkillCollection {
   sources.push({ source: "harness", dir: harnessDir ?? null, count: harnessRes.count });
   if (harnessRes.error) return { skills, sources, error: harnessRes.error };
 
+  const engram = resolvePackageSkillSource('@sentropic/engram');
+  const memoryPath = 'skills/engram-memory/SKILL.md';
+  const memory = engram.dir ? readSkillFrom(engram.dir, 'engram-memory', 'engram') : { kind: 'skip' as const };
+  if (memory.kind === 'error') return { skills, sources, error: memory };
+  if (memory.kind === 'skip') {
+    sources.push({ source: 'engram', package: '@sentropic/engram', version: engram.version,
+      dir: engram.dir ?? null, count: 0, status: 'missing', missing: [memoryPath] });
+  } else {
+    if (!engram.version || !/^[0-9A-Za-z][0-9A-Za-z.+-]*$/.test(engram.version) || memory.skill.installName !== 'engram-memory')
+      return { skills, sources, error: { message: '@sentropic/engram: invalid producer version or engram-memory skill name', exit: 2 } };
+    const sha256 = nativeDigest(memory.skill.raw);
+    skills.push({ ...memory.skill, producer: { package: '@sentropic/engram', version: engram.version, path: memoryPath, sha256 } });
+    sources.push({ source: 'engram', package: '@sentropic/engram', version: engram.version,
+      dir: engram.dir!, count: 1, status: 'available', skills: [{ name: 'engram-memory', path: memoryPath, sha256 }] });
+  }
+
   return { skills, sources };
 }
 
@@ -7124,7 +7148,10 @@ function nativeHostReport(host: string, flags: Record<string, string>, repair: b
   const collection = collectInstallableSkills();
   if (collection.error) throw new Error(collection.error.message);
   return convergeNativeHost({ host, root, cwd, version: currentCliVersion(), skills: collection.skills, renderGemini: renderSkillAsGeminiToml,
-    sourcesComplete: collection.sources.every(s => s.dir !== null && s.count > 0), repair, explicitInstall,
+    // Engram is an independently installed producer. Report its absence while
+    // retaining core installation compatibility and every previously owned file.
+    sourcesComplete: collection.sources.filter(s => s.source !== 'engram').every(s => s.dir !== null && s.count > 0),
+    preserveSourcePackages: collection.sources.some(s => s.source === 'engram' && s.status === 'missing') ? ['@sentropic/engram'] : [], repair, explicitInstall,
     dryRun: flags['dry-run'] === 'true', force: flags.force === 'true', guard: flags.guard, lifecycle: flags.lifecycle,
     instance: flags.instance, busRoot: flags.root, status: flags.status, ownerKey: flags['owner-key'], workspaceScope: flags['workspace-scope'] });
 }
@@ -7164,13 +7191,15 @@ function cmdInstallSkills(
     return 1;
   }
 
-  // Collect the full skill set from its single sources (h2a + track + harness),
+  // Collect the full skill set from its single sources (including engram),
   // rendered on demand — nothing is copied into the repo/plugin.
   const collection = collectInstallableSkills();
   if (collection.error) {
     streams.stderr.write(`h2a install-skills: ${collection.error.message}\n`);
     return collection.error.exit;
   }
+  for (const source of collection.sources) if (source.status === 'missing')
+    streams.stderr.write(`h2a install-skills: missing ${source.package}/${source.missing!.join(', ')}\n`);
 
   const targetBase = scope === "user" ? spec.userBase : spec.projectBase;
   if (scope === 'user' && (isNativeHost(host) || host === 'gemini')) {
@@ -7203,6 +7232,7 @@ function cmdInstallSkills(
       const artifacts = nativeSkillArtifacts({ host, root: dirname(targetBase), project: scope === 'project', version: currentCliVersion(), skills: [skill], renderGemini: renderSkillAsGeminiToml, historicalHashes: () => [] });
       for (const artifact of artifacts) {
         assertNativePath(artifact.path);
+        if (existsSync(artifact.path) && readFileSync(artifact.path).equals(Buffer.from(artifact.bytes))) continue;
         if (existsSync(artifact.path) && flags.force !== "true") {
           // The guard applies to every artifact, even with no SKILL.md/.toml.
           skipped.push({ name: skillName, reason: `${artifact.path} already exists (use --force to overwrite)` });
@@ -7231,7 +7261,7 @@ function cmdInstallSkills(
         skipped,
         prunedLegacy,
         // Provenance of the rendered set — one entry per single source
-        // (h2a + track + harness), with the resolved dir and rendered count.
+        // with the resolved dir/count and producer memory version/digest.
         sources: collection.sources,
         // DEC-101: agy has no own skill store — it imports from gemini/claude.
         // The TOML above is written to the shared ~/.gemini location; the user

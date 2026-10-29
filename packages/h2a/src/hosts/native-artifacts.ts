@@ -8,7 +8,7 @@ export interface NativeChanges { changed: string[]; adopted: string[]; conflicts
 export function convergeArtifacts(options: {
   state: string; root: string; host: string; version: string; artifacts: readonly NativeArtifact[];
   repair: boolean; dryRun?: boolean; configure?: (manifest: NativeManifest) => void;
-  manifestName?: string; force?: boolean; prune?: boolean;
+  manifestName?: string; force?: boolean; prune?: boolean; preserveSourcePackages?: readonly string[];
   finalize?: () => void;
 }): { manifest: NativeManifest; changes: NativeChanges } {
   const { state, root, host, version } = options;
@@ -60,6 +60,7 @@ export function convergeArtifacts(options: {
     const removals: { path: string; previous: ReturnType<typeof snapshot> }[] = [];
     for (const [key, entry] of Object.entries(manifest.files)) {
       if (options.prune === false || desired.has(key) || !entry.selected) continue;
+      if (options.preserveSourcePackages?.some(pkg => entry.source.startsWith(`${pkg}@`))) continue;
       const path = join(root, key), previous = snapshot(path);
       // Force restores desired managed artifacts; it never authorizes deleting custom residues.
       if (previous && digest(previous.bytes) !== entry.sha256) { changes.conflicts.push(path); continue; }
