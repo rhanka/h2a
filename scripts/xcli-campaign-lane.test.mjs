@@ -10,7 +10,7 @@ import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 import { parse } from 'yaml';
 import { spawnSync } from 'node:child_process';
-import { environment } from './xcli-lab.mjs';
+import { environment, ORACLE_SOURCES } from './xcli-lab.mjs';
 
 const repo = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
 const campaign = fs.readFileSync(join(repo, '.github/workflows/cross-cli-campaign.yml'), 'utf8');
@@ -186,6 +186,76 @@ test('L11: the campaign lane demands an explicit seat set', () => {
   assert.ok(/seat_set:\s*\n(\s+\S.*\n)*?\s+required:\s*true/.test(campaign), 'seat_set input is required');
   assert.ok(campaign.includes('test -n "${SEAT_SET}"') || campaign.includes('seat set is required'),
     'the lane refuses an empty seat set at runtime');
+});
+
+test('R5: a non-green campaign publishes its scanned receipt and still fails the job', () => {
+  const steps = parse(campaign).jobs.campaign.steps;
+  const names = ['Run the R1 campaign on the frozen head', 'Assemble the filtered campaign receipt',
+    'Check the receipt before publishing', 'Wipe seat HOMEs unconditionally', 'Scan every publication file',
+    'Publish the filtered receipt', 'Require a successful campaign'];
+  for (const corrupt of [false, true]) {
+    const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-lane-failure-'));
+    const campaignRoot = fs.mkdtempSync(join(homedir(), '.cache-tmp/h2a-test/run-'));
+    try {
+      const sha = 'a'.repeat(40), stub = join(dir, 'qualify.mjs');
+      fs.writeFileSync(stub, `import fs from 'node:fs';import {join} from 'node:path';
+const out=process.argv[process.argv.indexOf('--output')+1];
+fs.writeFileSync(out,JSON.stringify({version:1,sha:${JSON.stringify(sha)},mode:'real-cli',cells:[{
+  sender:'claude',receiver:'codex',scenario:'probe',status:'blocked',blocker:'provider-quota',
+  evidence:[],secretWipe:true,parentSecretWipe:true,processRecovery:true,parentProcessRecovery:true}]}));
+fs.writeFileSync(join(process.env.XCLI_CAMPAIGN_ROOT,'campaign-ledger.json'),JSON.stringify({sessionsDebited:2,wallClockSpentMs:42}));
+console.log('fixture: blocked cell, qualification exit 2');process.exitCode=2;`);
+      const env = { ...process.env, ...environment(join(dir, 'env')), HOME: homedir(),
+        RUNNER_TEMP: dir, XCLI_CAMPAIGN_ROOT: campaignRoot, SEAT_MANIFEST: join(dir, 'seats.json'),
+        SESSION_CAP: '100', MCP_CAP: '3', WALL_CLOCK_CAP_MS: '1000000', GITHUB_RUN_ID: '1', GITHUB_RUN_ATTEMPT: '1' };
+      fs.mkdirSync(join(dir, 'seats'));
+      fs.writeFileSync(env.SEAT_MANIFEST, '{}');
+      fs.writeFileSync(join(dir, 'cli-versions.json'), JSON.stringify(Object.fromEntries(
+        Object.entries(ORACLE_SOURCES).map(([family, source]) => [family, { version: source.pin ?? '1.0.0', binaryDigest: 'b'.repeat(64) }]))));
+      const states = Object.fromEntries(steps.filter(s => s.id).map(s => [s.id, { outcome: 'skipped' }]));
+      let failed = false, published = false, scanStatus;
+      const outputs = [];
+      for (const step of steps.filter(s => names.includes(s.name))) {
+        const condition = step.if?.replace(/^\$\{\{\s*|\s*\}\}$/g, '') ?? 'success()';
+        const enabled = Function('steps', 'success', 'always', 'cancelled', `return (${condition});`)(states, () => !failed, () => true, () => false);
+        if (!enabled) continue;
+        if (step.uses?.startsWith('actions/upload-artifact')) {
+          published = fs.existsSync(join(dir, 'campaign-receipt.json'));
+          continue;
+        }
+        const script = step.run.replaceAll('${{ steps.validate.outputs.sha }}', sha)
+          .replaceAll('${{ github.workspace }}', repo)
+          .replace('scripts/qualify-cross-cli.mjs', "'" + stub.replaceAll("'", "'\\''") + "'");
+        if (corrupt && step.name === 'Scan every publication file') {
+          fs.appendFileSync(join(dir, 'campaign-receipt.json'), 'ghp_' + 'A'.repeat(36));
+        }
+        const result = spawnSync('/bin/bash', ['-e', '-c', script], { cwd: repo, env, encoding: 'utf8', timeout: 10000 });
+        const outcome = result.status === 0 ? 'success' : 'failure';
+        if (step.name === 'Check the receipt before publishing') {
+          assert.equal(result.status, 1);
+          assert.match(result.stdout, /receipt-check: REFUSED code=cell-blocked:/);
+        }
+        if (step.id) states[step.id] = { outcome };
+        if (outcome === 'failure' && !step['continue-on-error']) failed = true;
+        if (step.name === 'Scan every publication file') scanStatus = result.status;
+        outputs.push({ name: step.name, status: result.status, diagnostic: result.stdout.trim().slice(0, 150) });
+      }
+      console.log({ corrupt, published, failed, outputs });
+      assert.equal(published, !corrupt, 'a safe non-green receipt survives; a failed scan prevents upload');
+      assert.equal(scanStatus, corrupt ? 1 : 0);
+      assert.equal(failed, true, 'qualification/receipt refusal must still fail the job');
+      assert.equal(fs.existsSync(campaignRoot), false);
+      assert.equal(fs.existsSync(env.SEAT_MANIFEST), false);
+      assert.equal(fs.existsSync(join(dir, 'seats')), false);
+      if (!corrupt) {
+        const receipt = JSON.parse(fs.readFileSync(join(dir, 'campaign-receipt.json')));
+        assert.ok(receipt.cells.some(c => c.blocker === 'provider-quota'));
+      }
+    } finally {
+      fs.rmSync(campaignRoot, { recursive: true, force: true });
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
 });
 
 test('L11: the campaign lane refuses fork refs', () => {
