@@ -1,3 +1,11 @@
+# Native cleanse — L0, PR #396 round 7
+
+- Scope: resolve round-6 Astra/Sol P2s in L0 witnesses; no L1–L6 product changes.
+- Root cause: universal activation aliases and a transport-only boolean bypassed native tool selection.
+- Fix: adapter-native activation/filter snapshots, real MCP catalogue, env/cwd-aware probes; permanent installed Vibe controls and five mandatory npm oracle identities.
+- Evidence: docs/reviews/native-cleanse-l0-r7.md; reviewer reproductions RED then GREEN on the installed candidate; 42 ledger states remain RED.
+- Targeted gates: baseline/oracle 75 PASS, trust 120 PASS, a/b/c rejected; main and rc.7 48 PASS each. No full local suite or new peer consensus claimed.
+
 # Native cleanse — L0, PR #396 round 5
 
 - Scope: fix the two round-4 P2 findings; L0 witnesses only, no L1–L6 product changes.

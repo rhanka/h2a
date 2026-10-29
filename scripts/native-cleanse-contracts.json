@@ -270,7 +270,7 @@
       "signature": {
         "actual": false,
         "code": "ERR_ASSERTION",
-        "evidenceSha256": "35c59d9d111aadee54709683a6c9130423241ae5683300461dbdba4c500e1a4a",
+        "evidenceSha256": "d5ce544c0dae654df1a9ca1f2f2254f11ac1a8ac462b27a41315aec35cda5436",
         "expected": true,
         "message": "opencode installed MCP resolves activated prefix (L3+L4)",
         "name": "AssertionError",
