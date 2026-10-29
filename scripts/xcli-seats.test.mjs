@@ -42,6 +42,24 @@ function dummyManifest(dir, entries) {
   return file;
 }
 
+test('L8 R3: simulated manifests retain seat routing without inspecting auth sources', t => {
+  const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-seat-simulation-'));
+  try {
+    const file = dummyManifest(dir, [{ seatId: 'dummy', family: 'agy', authSource: 'auth' }]);
+    const source = join(dir, 'auth'), inspected = [];
+    t.mock.method(fs, 'readdirSync', path => { inspected.push(path); return []; });
+    const manifest = seats.loadSeatManifest(file, { simulated: true });
+    assert.deepEqual(inspected, [], 'even an AGY auth directory must not be inspected');
+    assert.ok(!Object.hasOwn(manifest.seats[0], 'authSource'), 'simulation discards credential paths');
+    const pair = seats.resolveCampaignPair(manifest, 'dummy:dummy');
+    assert.equal(pair.senderSeat, 'dummy');
+    assert.equal(pair.sharedSeat, true);
+    assert.equal(pair.authHomes.sender, undefined);
+    assert.equal(pair.authHomes.receiver, undefined);
+    assert.ok(!JSON.stringify(manifest).includes(source));
+  } finally { t.mock.restoreAll(); fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('L8: a seat-qualified pair selects distinct auth sources per role', () => {
   const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-seats-'));
   try {

@@ -16,7 +16,7 @@ const GEMINI_SHAPED = ['oauth_creds.json', 'google_accounts.json'];
 // Manifest shape: { version: 1, seatMode, seats: [{ seatId, family,
 // authSource, cliVersion?, binaryDigest? }] }. Load validates shape and the
 // AGY/Gemini separation; file existence is checked at use, never here.
-export function loadSeatManifest(file) {
+export function loadSeatManifest(file, { simulated = false } = {}) {
   const manifest = JSON.parse(fs.readFileSync(file, 'utf8'));
   assert.equal(manifest.version, 1, 'seat manifest version must be 1');
   assert.ok(typeof manifest.seatMode === 'string' && manifest.seatMode.length > 0, 'seat manifest needs a seatMode');
@@ -28,6 +28,12 @@ export function loadSeatManifest(file) {
     seen.add(seat.seatId);
     assert.ok(CLIS.includes(seat.family), `unknown family for seat ${seat.seatId}: ${seat.family}`);
     assert.ok(typeof seat.authSource === 'string' && seat.authSource.length > 0, `seat ${seat.seatId} needs an authSource`);
+  }
+  // Tier S keeps seat identities and pair selection, never credential paths
+  // or filesystem inspection of their sources (including AGY directory reads).
+  if (simulated) {
+    for (const seat of manifest.seats) delete seat.authSource;
+    return manifest;
   }
   // Resolve auth sources against the manifest directory at load, so every
   // later byte read is already fully resolved inside an authorised root.
