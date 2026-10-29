@@ -20,7 +20,7 @@ import { buildSupervisor, supervisedCommand, supervisorResult } from './xcli-pro
 import { scanEvidenceText } from './xcli-evidence-scan.mjs';
 import { parseScenario, expectedScenarioBlocker, UNKNOWN_INSTANCE, validateScriptSteps,
   loopScripts, loopTwinScripts, negotiationScripts, negotiationTwinScripts,
-  inventoryScripts, LARGE_TEXT } from './xcli-scenarios.mjs';
+  inventoryScripts, LARGE_TEXT, classifyScenarioRow } from './xcli-scenarios.mjs';
 
 const self = fileURLToPath(import.meta.url);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -744,8 +744,15 @@ async function worker() {
     // landing is marked as such, never as delivery.
     if (scenario.kind === 'unavailability' && !row.blocker && !row.received && !row.woke && !row.replyDelivered) {
       row.durableOnly = scenario.state === 'stopped-receiver' && row.delivered === true;
-      row.blocker = expectedScenarioBlocker(scenario);
-      row.wakeClaim = 'no wake claimed (unavailable peer)';
+      const blocker = expectedScenarioBlocker(scenario);
+      const verdict = classifyScenarioRow(scenario.key, { ...row, blocker,
+        evidence: [...row.evidence, ...events(s).map(e => ({ role: 'sender', ...e })),
+          ...events(r).map(e => ({ role: 'receiver', ...e }))] });
+      if (verdict.ok) {
+        row.blocker = blocker;
+        delete row.failure;
+        row.wakeClaim = 'no wake claimed (unavailable peer)';
+      }
     }
     // Lot L12: refusal twins. Phase A proved the runner live (reply
     // delivered); phase B injects the faulty wake and requires rejection —
@@ -1118,6 +1125,8 @@ async function main() {
     const receiverDebit = debitSession(ledger, seatKey(run, 'receiver'));
     assert.ok(senderDebit.ok && receiverDebit.ok, 'pre-checked debits cannot refuse');
     ledger.attempts[`${sender}>${receiver}`] = (ledger.attempts[`${sender}>${receiver}`] ?? 0) + 1;
+    noteWallClock(ledger, cellBoundMs);
+    const cellStarted = performance.now();
     // Lot L5: the cell is pre-created by the parent and passed in the request,
     // so a lost worker's secrets stay attributable and wipable by the parent.
     // XCLI_WORKER_STUB (test seam) runs a stub worker instead of --worker.
@@ -1199,7 +1208,8 @@ async function main() {
       quotaSeats.add(seatKey(run, 'sender'));
       quotaSeats.add(seatKey(run, 'receiver'));
     }
-    noteWallClock(ledger, Number.isSafeInteger(row.elapsedMs) ? row.elapsedMs : 0);
+    row.parentElapsedMs = Math.ceil(performance.now() - cellStarted);
+    noteWallClock(ledger, row.parentElapsedMs, { reservedMs: cellBoundMs });
     if (row.cleanupFailed) stopping = true;
     process.stdout.write(`${sender} -> ${receiver}: ${row.status} (${row.blocker ?? row.failure ?? 'round-trip'})\n`);
   }
