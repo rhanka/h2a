@@ -93,6 +93,59 @@ test('campaign review: funded windows, guarded root, Vibe measurement and explic
   assert.ok(campaign.includes('XCLI_CAMPAIGN_RUNNER'), 'owner selects an ephemeral image with the required binaries');
 });
 
+test('L11 R3: workflow measurement guards every probe and preserves the Vibe exception', () => {
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-measure-guard-'));
+  try {
+    const run = parse(campaign).jobs.campaign.steps.find(s => s.name?.startsWith('Measure all provisioned')).run;
+    const source = run.match(/^node --input-type=module -e "([\s\S]*)"\s*$/)[1]
+      .replace("'./scripts/xcli-lab.mjs'", JSON.stringify(pathToFileURL(join(repo, 'scripts/xcli-lab.mjs')).href));
+    const bins = join(root, 'bins'); fs.mkdirSync(bins);
+    for (const family of ['claude', 'codex', 'agy', 'gemini', 'muse', 'vibe']) {
+      fs.writeFileSync(join(bins, family), '#!/bin/sh\nexit 0\n', { mode: 0o700 });
+    }
+    fs.writeFileSync(join(bins, '.muse-version'), '1.2.3-R1\n');
+    fs.writeFileSync(join(bins, 'muse-bin-1.2.3-R1'), Buffer.from('7f454c46', 'hex'));
+    for (const [family, launcher] of [
+      ['codex', '#!/usr/bin/env python3.14\n'],
+      ['codex', '#!/bin/sh\nexec python3.14 "$@"\n'],
+      ['vibe', '#!/usr/bin/env python3.14\n'],
+    ]) {
+      const path = join(bins, family), original = fs.readFileSync(path);
+      fs.writeFileSync(path, launcher);
+      // Execute the exact YAML JavaScript, intercepting ALL process launches.
+      // The forbidden fixtures and the vendor runtime are never executed.
+      const harness = `import cp from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
+const probes = [];
+cp.spawnSync = (path, args) => {
+  if (path === '/usr/bin/which') return { status: 0, stdout: ${JSON.stringify(bins)} + '/' + args[0] };
+  probes.push(path);
+  return { status: 0, stdout: '1.2.3-R1' };
+};
+syncBuiltinESMExports();
+let error;
+try { await import('data:text/javascript,' + encodeURIComponent(${JSON.stringify(source)})); }
+catch (e) { error = e.message; }
+console.log(JSON.stringify({ probes, error }));`;
+      const result = spawnSync(process.execPath, ['--input-type=module', '-e', harness], {
+        cwd: repo, env: { ...environment(join(root, 'env')), RUNNER_TEMP: root }, encoding: 'utf8', timeout: 10000 });
+      fs.writeFileSync(path, original);
+      assert.equal(result.status, 0, result.stderr);
+      const observed = JSON.parse(result.stdout);
+      console.log({ family, probes: observed.probes.length, error: observed.error });
+      if (family === 'vibe') {
+        assert.equal(observed.error, undefined, 'QO4 keeps the Vibe vendor runtime admissible');
+        assert.ok(observed.probes.includes(path));
+        assert.ok(JSON.parse(fs.readFileSync(join(root, 'cli-versions.json'))).vibe.version);
+      } else {
+        assert.ok(!observed.probes.includes(path), 'a forbidden launcher must receive zero version probes');
+        assert.equal(observed.error, 'python-entrypoint-forbidden:' + family);
+      }
+      assert.deepEqual(fs.readdirSync(root).filter(name => name.startsWith('xcli-measure-')), [], 'measurement HOME is wiped');
+    }
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 test('L11 review: the allocated campaign root passes the admission guard and cleanup wipes it', () => {
   // Executes the workflow's own allocation and cleanup steps: the allocated
   // root must import the native-isolation guard (exit 0), and cleanup must

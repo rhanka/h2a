@@ -222,7 +222,7 @@ async function worker() {
     };
     // The auth-only family allowlist is enforced by copyLogin. The mapping is witnessed
     // (role, allowlisted name, sha256 — never content) in the row evidence.
-    const roleAuthHome = authHomes[role];
+    const roleAuthHome = simulated ? null : authHomes[role];
     row.credentialsCopied[role] = roleAuthHome ? copyLogin(cli, roleAuthHome, cell, env) : [];
     for (const name of row.credentialsCopied[role]) {
       const mapped = loginCopyPath(env, cli, name);
@@ -989,7 +989,7 @@ async function main() {
   // ratifies the roster — no silent scope trimming here.
   const manifestFile = option('--seat-manifest');
   assert.ok(!manifestFile || !option('--auth-home'), 'seat manifest and --auth-home conflict');
-  const manifest = manifestFile ? loadSeatManifest(resolve(manifestFile)) : null;
+  const manifest = manifestFile ? loadSeatManifest(resolve(manifestFile), { simulated }) : null;
   const authHomeAlias = option('--auth-home');
   if (authHomeAlias) process.stderr.write('warning: --auth-home is deprecated; use --seat-manifest\n');
   const seatMode = manifest ? manifest.seatMode : (authHomeAlias ? 'interim-file-copy' : 'no-seats');
