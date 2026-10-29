@@ -8,6 +8,7 @@
 - Promotion: negative controls restore the post-install configuration after exercising the pre-install stale route; a repaired MCP with a declared GREEN ledger entry remains accepted.
 - Ledger: only eight evidence hashes change; all 42 states stay RED, comparator and execution gates unchanged.
 - Evidence, commands and limitations: docs/reviews/native-cleanse-l0-r8.md; no Python, owner state, installed h2a, full local suite or new peer consensus.
+- Direct CI blockers on 503c52f8d: enrollment fixtures now pass arbitrary base64url nonces through the public JSON challenge route; the journal classification fixture qualifies its real writer before provoking startup failure. Production behavior, assertions and timeouts are unchanged.
 
 # Native cleanse — L0, PR #396 round 7
 

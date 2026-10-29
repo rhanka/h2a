@@ -932,10 +932,14 @@ test("the CLI STDOUT envelope is path-free — it exists to be pasted into a bro
   // artifact anyone copies. The copyable artifact is stdout.
   const { cwd, root, cleanup } = scratch();
   try {
+    // Base64url nonces can begin with "--". Pass the unmodified challenge
+    // through the public JSON route so it cannot be parsed as another flag.
+    const challengePath = join(cwd, "challenge.json");
+    writeFileSync(challengePath, JSON.stringify({ nonce: NONCE }));
     const streams = captureStreams(cwd);
     const rc = withConversation("enroll-cli-1", () =>
       runCli(
-        ["keys", "prove-control", "--root", root, "--host", "claude", "--nonce", NONCE],
+        ["keys", "prove-control", "--root", root, "--host", "claude", "--challenge", challengePath],
         streams
       )
     );
@@ -1132,10 +1136,12 @@ test("OBSERVED BEHAVIOUR: a CORRUPTED private key mints a new identity, exit 0",
       "the damaged key must be detectable by path"
     );
 
+    const challengePath = join(cwd, "challenge.json");
+    writeFileSync(challengePath, JSON.stringify({ nonce: NONCE }));
     const streams = captureStreams(cwd);
     const rc = withConversation("enroll-corrupt-1", () =>
       runCli(
-        ["keys", "prove-control", "--root", root, "--host", "claude", "--nonce", NONCE],
+        ["keys", "prove-control", "--root", root, "--host", "claude", "--challenge", challengePath],
         streams
       )
     );

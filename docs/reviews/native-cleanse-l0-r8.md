@@ -78,6 +78,39 @@ le budget existant du step npm, sans changement des timeouts du dépôt.
 
 ## Portée et limites
 
+### Réparation des deux blocages CI sur `503c52f8d`
+
+Ce head termine à 17/19 succès : tous les témoins L0 passent, avec les
+42 RED exacts sous Node 22 et 24 ; les deux jobs échouent ailleurs.
+
+Le nonce aléatoire partagé des tests d'enrôlement peut commencer par `--`.
+Le parseur de `--nonce` l'interprète alors comme une option : les deux
+assertions CLI échouent avec « nonce required ». Les fixtures de preuve
+copiable et de clé corrompue passent maintenant le challenge intact par la
+route publique JSON `--challenge`. Aucune valeur aléatoire n'est exclue et
+les assertions cryptographiques, de contenu et de non-divulgation restent
+identiques. Avec un nonce valide forcé à commencer par `--` : **0/2 avant**,
+**2/2 après** ; fichier complet **44/44** sous Node 22 et 24, zéro skip/todo.
+La syntaxe directe `--nonce` n'est pas modifiée dans ce lot.
+
+Le journal de diagnostic a un drain best-effort de 100 ms. Un writer froid
+peut ne pas être prêt avant la sortie du host : un chargement retardé de
+400 ms reproduit le timeout de 5 s, avec host réellement sorti à 1 et journal
+vide. Le test de classification prépare désormais le vrai coordinateur et
+son thread I/O, attend un acquittement réel puis retire son événement de
+contrôle privé avant de provoquer l'erreur d'option du vrai host compilé.
+Les assertions restent exactement `startupError`, `exit`, erreur redacted,
+code 1 et cause `startupError`. Le cas est rejoué **10/10** sur chaque Node,
+avec puis sans le retard contrôlé de 400 ms. Aucun timeout, budget, retry ou
+code de production n'est modifié.
+
+Le replay local du journal extrait uniquement ce cas et ses helpers sans
+changer les assertions ; il n'exécute pas le canary existant qui écrit dans
+`/tmp`. La CI exécute de nouveau le fichier complet. Logs :
+`ci-node{22,24}-503.log`, `nonce-leading-flags-{red,green}.tap`,
+`nonce-actual-node{22,24}.tap`, `journal-cold-red.log` et
+`journal-fixed*-node{22,24}.log` dans les preuves r8.
+
 Les rounds 1–7 sont couverts par les témoins empaquetés et l'oracle : formats
 rc.7, deux endpoints et I/O, restore de vingt UUID via dispatcher/flock,
 lock-id et humains/inconnus préservés, MCP/hooks/plugins/caches, activation,
