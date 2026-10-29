@@ -14,7 +14,7 @@ setupNativeTestEnvironment(afterAll);
  *   wins; explicit proven choices are kept
  * - direct child env: h2a routing vars stripped even with native API key
  */
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -625,6 +625,37 @@ describe("run --resume (legacy pin without provenance stays direct)", () => {
     expect(code).toBe(0);
   });
 
+  it("keeps a new explicit opt-in on the next resume beside a legacy row (round-4 P2)", async () => {
+    seedRegistry([{ ...legacyGatewayPin(), bare: false }]);
+    acquireLlmMeshSessionEnv.mockResolvedValue({
+      ANTHROPIC_BASE_URL: "http://localhost:3002", ANTHROPIC_AUTH_TOKEN: "fixture-fresh",
+    });
+    startLocalSession.mockImplementation((...args: unknown[]) => ({ name: `h2a-${args[4]}`, slug: args[4] }));
+    expect(await runResume(["--name", "chosen", "--gw"])).toBe(0);
+    const saved = loadRegistry();
+    if (saved.state !== "ok") throw new Error("registry unreadable");
+    expect(saved.entries.find(e => e.id === "chosen")).toMatchObject({ gatewayMode: "gateway", gatewayProvenance: "explicit" });
+    acquireLlmMeshSessionEnv.mockClear();
+    expect(await runResume(["--name", "chosen"])).toBe(0);
+    expect(acquireLlmMeshSessionEnv).toHaveBeenCalled();
+  });
+
+  it.each([
+    { reverse: false, noGw: false }, { reverse: true, noGw: false },
+    { reverse: false, noGw: true }, { reverse: true, noGw: true },
+  ])("proven consent beside legacy rows ignores order=$reverse, no-gw=$noGw (round-4 P2)", async ({ reverse, noGw }) => {
+    const rows = [
+      { ...legacyGatewayPin(), bare: false },
+      { ...legacyGatewayPin(), id: "chosen", tmuxSession: "h2a-chosen", bare: false, gatewayProvenance: "explicit" },
+    ];
+    seedRegistry(reverse ? rows.reverse() : rows);
+    acquireLlmMeshSessionEnv.mockResolvedValue({
+      ANTHROPIC_BASE_URL: "http://localhost:3002", ANTHROPIC_AUTH_TOKEN: "fixture-fresh",
+    });
+    expect(await runResume(["--name", "chosen", ...(noGw ? ["--no-gw"] : [])])).toBe(0);
+    expect(acquireLlmMeshSessionEnv.mock.calls.length > 0).toBe(!noGw);
+  });
+
   it("explicit --gw fails before the child starts when unavailable (positive)", async () => {
     seedRegistry([]);
     acquireLlmMeshSessionEnv.mockResolvedValue(null);
@@ -811,6 +842,64 @@ describe("relaunch --apply retype resolves consent and scrubs direct (round-2 P1
     startGateway.mockRejectedValue(new Error("fixture unavailable"));
     expect(await main(["node", "h2a", "relaunch", "--apply"])).toBe(1);
     expect(relaunchInSession).not.toHaveBeenCalled();
+  });
+
+  it("keeps the bearer out of the retyped line, terminal and Bash history (round-4 P2)", async () => {
+    seedRow("explicit");
+    const token = "gw-fictional-history-secret-42";
+    acquireLlmMeshSessionEnv.mockResolvedValue({ ANTHROPIC_BASE_URL: "http://gateway.invalid", ANTHROPIC_AUTH_TOKEN: token });
+    const { spawnSync } = await vi.importActual<typeof import("node:child_process")>("node:child_process");
+    const home = mkdtempSync(join(SCRATCH, "history-"));
+    const hist = join(home, "history"), output = join(home, "child-env"), bin = join(home, "bin");
+    mkdirSync(bin);
+    writeFileSync(join(bin, "claude"), `#!${process.execPath}\nconst fs = require("node:fs");\nif (JSON.parse(process.env.H2A_TEST_HANDOFF_PATHS).some(path => fs.existsSync(path))) process.exit(78);\nfs.writeFileSync(process.env.H2A_TEST_ENV_OUTPUT, Object.entries(process.env).map(([key, value]) => key + "=" + value).join("\\n") + "\\n");\n`, { mode: 0o700 });
+    const before = new Set(readdirSync(tmpdir()));
+    let terminal = "", history = "", childEnv = "", cmd = "";
+    let privatePaths: string[] = [];
+    let permissions: number[] = [];
+    relaunchInSession.mockImplementation((_name: string, command: string) => {
+      cmd = command;
+      privatePaths = readdirSync(tmpdir()).filter(name => !before.has(name)).map(name => join(tmpdir(), name));
+      permissions = privatePaths.flatMap(path => [statSync(path).mode & 0o777, ...readdirSync(path).map(name => statSync(join(path, name)).mode & 0o777)]);
+      const child = spawnSync("/usr/bin/script", ["-qefc", "/bin/bash --noprofile --norc -i", join(home, "terminal")], {
+        encoding: "utf8", input: cmd + "\nexit\n", timeout: 5000,
+        env: {
+          PATH: `${bin}:/usr/bin:/bin`, HOME: home, TMPDIR: tmpdir(), TERM: "dumb",
+          HISTFILE: hist, HISTSIZE: "100", HISTFILESIZE: "100", HISTCONTROL: "ignoreboth",
+          H2A_TEST_ENV_OUTPUT: output, ANTHROPIC_API_KEY: "native-shell-fixture",
+          H2A_TEST_HANDOFF_PATHS: JSON.stringify(privatePaths),
+          ANTHROPIC_BASE_URL: "http://stale.invalid", ANTHROPIC_AUTH_TOKEN: "expired-fixture",
+        },
+      });
+      expect(child.status).toBe(0);
+      terminal = child.stdout + child.stderr;
+      history = readFileSync(hist, "utf8");
+      childEnv = readFileSync(output, "utf8");
+      return true;
+    });
+    expect(await main(["node", "h2a", "relaunch", "--apply"])).toBe(0);
+    expect(childEnv).toContain(`ANTHROPIC_AUTH_TOKEN=${token}\n`);
+    expect(childEnv).toContain("ANTHROPIC_BASE_URL=http://gateway.invalid\n");
+    expect(childEnv).not.toMatch(/^ANTHROPIC_API_KEY=/m);
+    expect({ line: cmd.includes(token), terminal: terminal.includes(token), history: history.includes(token), log: stderrText().includes(token) })
+      .toEqual({ line: false, terminal: false, history: false, log: false });
+    expect(privatePaths.length).toBeGreaterThan(0);
+    expect(permissions).toEqual([0o700, 0o600]);
+    expect(privatePaths.every(path => !existsSync(path))).toBe(true);
+  });
+
+  it("removes the private handoff when the pane refuses the retype (round-4 P2)", async () => {
+    seedRow("explicit");
+    acquireLlmMeshSessionEnv.mockResolvedValue({ ANTHROPIC_BASE_URL: "http://gateway.invalid", ANTHROPIC_AUTH_TOKEN: "gw-fictional-refused" });
+    const before = new Set(readdirSync(tmpdir()));
+    let privatePaths: string[] = [];
+    relaunchInSession.mockImplementation(() => {
+      privatePaths = readdirSync(tmpdir()).filter(name => !before.has(name)).map(name => join(tmpdir(), name));
+      return false;
+    });
+    expect(await main(["node", "h2a", "relaunch", "--apply"])).toBe(1);
+    expect(privatePaths.length).toBeGreaterThan(0);
+    expect(privatePaths.every(path => !existsSync(path))).toBe(true);
   });
 });
 

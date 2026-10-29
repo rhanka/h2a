@@ -195,6 +195,7 @@ import {
   planRelaunch,
   relaunchContinuationPrompt,
   scrubbedRetypeCommand,
+  prepareGatewayRetypeCommand,
   tryAcquireResumeLaunchClaim,
   wakeRelaunchedSession,
 } from "./relaunch.js";
@@ -6556,7 +6557,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             `[h2a] pruned dead registry row ${prunedId} that pinned conflicting launch options for this resume\n`,
           );
         }
-        const pinnedLaunch = resumeResolution.entries[0];
+        // Conflicting pins have already failed closed above. For agreeing
+        // pins, prefer the proven choice over an equivalent legacy row.
+        const pinnedLaunch = resumeResolution.entries.find(entry => entry.gatewayProvenance === "explicit")
+          ?? resumeResolution.entries[0];
         const launchGatewayMode = resolveResumedGatewayMode(
           profile, gatewayMode, pinnedLaunch?.gatewayMode, pinnedLaunch?.gatewayProvenance,
         );
@@ -9371,21 +9375,23 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             action.profile, "auto", retypeEntry?.gatewayMode, retypeEntry?.gatewayProvenance,
           );
           let retypeCmd = action.cmd;
+          let cleanupRetypeEnv = () => {};
           if (retypeMode === "gateway") {
             // Validate the explicit choice before retyping: fail closed when
             // the gateway is unavailable instead of typing a doomed command.
-            // Encode the acquired route into the retyped command before
-            // restoring this process's environment. Shell-quote each value.
+            // Hand off privately before restoring this process's environment.
             const restoreRetypeEnv = replaceAnthropicGatewayEnvironment(
               process.env,
               captureAnthropicGatewayEnvironment(),
             );
             try {
               await injectLlmMeshGatewayEnv("gateway", false, localSessionName(action.slug));
-              const assignments = ["ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN"].map(key =>
-                `${key}='${process.env[key]!.replace(/'/g, "'\\''")}'`,
-              );
-              retypeCmd = `env -u ANTHROPIC_API_KEY ${assignments.join(" ")} ${action.cmd}`;
+              const prepared = prepareGatewayRetypeCommand(action.cmd, {
+                ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL!,
+                ANTHROPIC_AUTH_TOKEN: process.env.ANTHROPIC_AUTH_TOKEN!,
+              });
+              retypeCmd = prepared.command;
+              cleanupRetypeEnv = prepared.cleanup;
             } catch (error) {
               process.stderr.write(
                 `[h2a] FAILED to relaunch ${action.slug}: ${(error as Error).message}\n`,
@@ -9398,14 +9404,19 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             retypeCmd = scrubbedRetypeCommand(action.cmd);
           }
           const sessionId = retypeEntry?.id;
-          const relaunched =
-            sessionId !== undefined
+          let relaunched = false;
+          try {
+            relaunched = sessionId !== undefined
               ? relaunchSessionWithLease({
                   sessionId,
                   tmuxSession: action.name,
                   command: retypeCmd,
                 })
               : relaunchInSession(action.name, retypeCmd);
+          } finally {
+            // A successful retype transfers cleanup to the private reader.
+            if (!relaunched) cleanupRetypeEnv();
+          }
           if (relaunched) {
             ok += 1;
             process.stderr.write(`[h2a] relaunched ${action.slug}: ${action.cmd}\n`);
