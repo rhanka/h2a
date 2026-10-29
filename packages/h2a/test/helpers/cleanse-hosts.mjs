@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
-import { delimiter, dirname, isAbsolute, join } from 'node:path';
+import { delimiter, dirname, isAbsolute, join, resolve } from 'node:path';
 import { getStaticTOMLValue, parseForESLint } from 'toml-eslint-parser';
 import YAML from 'yaml';
 import { hash, json } from './cleanse-artifact.mjs';
@@ -178,7 +178,9 @@ const entries = (config, host) => {
 const argv = server => Array.isArray(server?.command) ? server.command : [server?.command, ...(server?.args ?? [])];
 function executable(a, arg) {
   if (typeof arg !== 'string') return undefined;
-  const paths = isAbsolute(arg) ? [arg] : a.env.PATH.split(delimiter).map(dir => join(dir, arg));
+  const base = a.cwd ?? a.root;
+  const paths = isAbsolute(arg) ? [arg] : arg.includes('/') || arg.includes('\\') ? [resolve(base, arg)] :
+    a.env.PATH.split(delimiter).map(dir => resolve(base, dir, arg));
   for (const path of paths) {
     try { return realpathSync(path); } catch { /* Missing executables are not current. */ }
   }
@@ -310,10 +312,15 @@ function currentMcp(a, server, transports, item, config = {}) {
   if (['url', 'httpUrl', 'serverUrl'].some(key => server[key] !== undefined)) return false;
   const env = server[item.host === 'opencode' ? 'environment' : 'env'] ?? {};
   if (!env || typeof env !== 'object' || Array.isArray(env) || Object.values(env).some(v => typeof v !== 'string')) return false;
-  const context = { cwd: server.cwd ?? a.root, env: { ...a.env, ...env } };
+  if (server.cwd !== undefined && typeof server.cwd !== 'string') return false;
+  const context = { cwd: resolve(a.root, server.cwd ?? '.'), env: { ...a.env, ...env } };
   const command = argv(server), target = executable(context, command[0]);
   const direct = target === realpathSync(a.cli);
-  const viaNode = target === realpathSync(process.execPath) && executable(context, command[1]) === realpathSync(a.cli);
+  let viaNode = false;
+  if (target === realpathSync(process.execPath) && typeof command[1] === 'string') {
+    try { viaNode = realpathSync(resolve(context.cwd, command[1])) === realpathSync(a.cli); }
+    catch { /* An unresolved script cannot be the current installed candidate. */ }
+  }
   if (!(direct || viaNode) || command[direct ? 1 : 2] !== 'mcp-serve') return false;
   // A deliberately disabled entry must keep its choice and current target;
   // it is not an effective server and must not be launched by the witness.

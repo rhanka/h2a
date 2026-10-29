@@ -12,7 +12,8 @@ La sélection est maintenant capturée avant installation selon l'adaptateur.
 Les champs inconnus suivent le lecteur natif (ignorés ou refusés) ; les champs natifs, listes par outil et
 permissions sont conservés. La sonde garde le catalogue de `tools/list`,
 applique les règles natives et utilise les overrides env/cwd du serveur.
-Son cache distingue argv, env et cwd. Un serveur initialement désactivé
+Son cache distingue argv, env et cwd ; les cwd, scripts Node et exécutables
+relatifs sont résolus depuis le workspace natif. Un serveur initialement désactivé
 conserve sa sélection et sa cible actuelle sans être démarré. Une liste
 initialement restrictive doit rester restrictive ; retirer ses filtres est
 une réactivation interdite. Modifier une liste configurée est également un
@@ -53,8 +54,9 @@ Prérequis isolés : `npm run build -w @sentropic/track`, puis
 | Sources main `912dd3035` et rc.7 `8d588db05`, reconstruites séparément | **48/48 chacune**, gate 0, mêmes **42 RED exacts**. |
 | Foreign host / recovery / contention, Node 22 | **38/38 PASS**. |
 | Terminal reset fonctionnel, Node 22 | **6/6 PASS**. |
+| Override relatif Node, avant/après | **26 PASS / 1 FAIL**, puis contrôle permanent GREEN ; aucun skip/todo. |
 | Schéma OpenCode, alias inconnu, avant/après | **0/1**, puis **1/1** ; contrôle permanent dans la sélection OpenCode. |
-| Oracle et foreign-host, Node 24.22.0 | **46/46 PASS**, gate 0. |
+| Baseline, oracle et foreign-host, Node 24.22.0 | **94/94 PASS**, gate 0, 42 contrats ; chemin relatif inclus. |
 | Course ENOENT, avant/après | Ancien : **43 PASS / 5 FAIL**, gate 1 ; corrigé : **48/48**, gate 0. |
 | Dix répétitions du corps sockets inchangé | **50/50 PASS**, zéro skip/todo. |
 
