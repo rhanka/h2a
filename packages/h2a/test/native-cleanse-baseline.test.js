@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { contracts } from './helpers/cleanse-contracts.mjs';
-import { candidate, json, run } from './helpers/cleanse-artifact.mjs';
+import { candidate, isolatedEnv, json, run } from './helpers/cleanse-artifact.mjs';
 import { eventually, files, gui, lab } from './helpers/cleanse-lab.mjs';
 import { observeHosts, seedHosts } from './helpers/cleanse-hosts.mjs';
 
@@ -57,6 +57,34 @@ test('L0 install: global candidate lifecycle converges the independent eight-hos
     const current = observeHosts(artifact, hosts).find(o => o.id === 'claude installed MCP resolves activated prefix');
     assert.equal(current.actual, true, 'the installed candidate must actually answer initialize and tools/list');
   } finally { writeFileSync(claude.mcp, original); }
+  // Exercise the reviewers' mutations against the installed package as part of
+  // npm test, independently of the synthetic oracle transport.
+  const vibe = hosts.find(h => h.host === 'vibe'), saved = readFileSync(vibe.mcp, 'utf8');
+  const currentVibe = saved.replace(/^command = .*$/m, 'command = ' + JSON.stringify(process.execPath))
+    .replace(/^args = .*$/m, 'args = ' + JSON.stringify([artifact.cli, 'mcp-serve']));
+  const vibeCurrent = (a, inventory) => observeHosts(a, inventory).find(o => o.id === 'vibe installed MCP resolves activated prefix').actual;
+  try {
+    writeFileSync(vibe.mcp, currentVibe);
+    assert.equal(vibeCurrent(artifact, hosts), true, 'installed Vibe candidate answers MCP');
+    for (const filtered of [
+      'disabled_tools = ["mcp_h2a_*"]\n' + currentVibe,
+      'disabled_tools = ["*"]\n' + currentVibe,
+      'enabled_tools = ["read_file"]\n' + currentVibe,
+      currentVibe.replace('transport = "stdio"', 'transport = "stdio"\ndisabled_tools = ["h2a_run"]'),
+    ]) {
+      writeFileSync(vibe.mcp, filtered);
+      assert.equal(vibeCurrent(artifact, hosts), false, 'installed candidate cannot conceal a changed native tool selection');
+    }
+  } finally { writeFileSync(vibe.mcp, saved); }
+  const privateRoot = join(artifact.root, 'disabled-host-controls');
+  const disabledArtifact = { ...artifact, root: privateRoot, env: isolatedEnv(privateRoot) };
+  const disabledHosts = seedHosts(disabledArtifact, { vibeDisabled: true }), off = disabledHosts.find(h => h.host === 'vibe');
+  const disabledVibe = readFileSync(off.mcp, 'utf8').replace(/^command = .*$/m, 'command = ' + JSON.stringify(process.execPath))
+    .replace(/^args = .*$/m, 'args = ' + JSON.stringify([artifact.cli, 'mcp-serve']));
+  writeFileSync(off.mcp, disabledVibe);
+  assert.equal(vibeCurrent(disabledArtifact, disabledHosts), true, 'native disabled selection preserved with current installed target');
+  writeFileSync(off.mcp, disabledVibe.replace('disabled = true', 'disabled = false\nenabled = false'));
+  assert.equal(vibeCurrent(disabledArtifact, disabledHosts), false, 'enabled=false does not mask Vibe reactivation');
   record(observeHosts(artifact, hosts));
 });
 

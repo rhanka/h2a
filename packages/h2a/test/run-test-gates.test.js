@@ -1492,6 +1492,11 @@ test('L0 trust root: every baseline contract and oracle is required by the produ
       "L0 Agy: imported bytes must preserve the observed enabled or disabled selection",
       "L0 plugins: the active plugin MCP must resolve and answer from the activated prefix",
       "L0 Vibe: disabling the selected MCP cannot pass with healthy candidate argv",
+      "L0 Vibe native state: enabled=false cannot conceal reactivation through disabled=false",
+      "L0 Vibe native state: global and per-server tool filters cannot hide behind a healthy handshake",
+      "L0 MCP native rules: adapter filter precedence determines the exposed tools",
+      "L0 MCP native execution: environment and cwd overrides cannot reuse a healthy cached transport",
+      "L0 MCP native filters: intentional tool selections survive convergence and cannot be reactivated",
       "L0 MCP selection: Codex disabled entry cannot pass after convergence",
       "L0 Vibe: the configured transport must permit the stdio candidate probe",
       "L0 Vibe: an initially disabled MCP keeps its selection without launching a probe",
@@ -1513,7 +1518,7 @@ test('L0 trust root: every baseline contract and oracle is required by the produ
   }
   const files = Object.keys(required).map(file => resolve(REPO_ROOT, file))
   const report = {
-    success: true, numTotalTests: 70, numPassedTests: 70, numFailedTests: 0, numPendingTests: 0, numTodoTests: 0,
+    success: true, numTotalTests: 75, numPassedTests: 75, numFailedTests: 0, numPendingTests: 0, numTodoTests: 0,
     testResults: Object.entries(required).map(([file, names]) => ({ name: resolve(REPO_ROOT, file), status: 'passed',
       assertionResults: names.map(fullName => ({ fullName, status: 'passed' })) })),
   }
