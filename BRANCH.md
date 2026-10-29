@@ -58,6 +58,19 @@ and unrelated files on Claude, Codex, Muse, Vibe and Agy. No provider activation
   0 pass / 1 fail / 0 skip; wait for birth-checked recorded descendants before
   deleting HOME. GREEN: full targeted crash-recovery file 17/17, zero skips.
   No runtime change, timeout increase, cleanup retry or gate weakening.
+- Round 2, supplied Astra review of d04e3eb24: both P2 findings accepted
+  after reproduction (Agy loses old resources; Muse/Vibe replace the receipt
+  while preserving a customized skill). Shared-skills RED: 7 pass / 3 fail /
+  0 skipped. Preflight conflicts by skill before planning writes or pruning;
+  preserve the installed generation and its manifest provenance on refusal.
+  Five-host regressions cover repeated refusal, forced upgrade, receipts,
+  resources and idempotence; the clean Agy upgrade still prunes old resources.
+  GREEN: 61 targeted installation/convergence/recovery tests plus 17 native
+  crash-recovery tests; 34 installer/package tests replayed with the standalone
+  fixture, zero failures/skips. Build, scope/branch and diff checks pass.
+- Round-2 TMPDIR: `/home/antoinefa/.cache-tmp/h2a-test/run-YlDOoZ`;
+  HOME/XDG private, no Python or installed host. Evidence and qualification
+  results: `docs/reviews/memory-skill-install.md`.
 
 # Gateway off by default — PR #395, round 5
 

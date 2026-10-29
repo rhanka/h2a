@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { atomicNativeWrite, assertNativePath, digest, jsonBytes, nativeRelativePath, normalizeNativeManifest, readNativeManifest, snapshot } from './native-files.js';
 import type { NativeManifest } from './native-files.js';
 import { recoverNativeHooks } from './native-toml.js';
-export interface NativeArtifact { path: string; bytes: string | Buffer; source: string; selected?: boolean; historical?: readonly string[]; }
+export interface NativeArtifact { path: string; bytes: string | Buffer; source: string; selected?: boolean; historical?: readonly string[]; skillTarget?: string; }
 export interface NativeChanges { changed: string[]; adopted: string[]; conflicts: string[]; missing: string[]; planned: string[]; }
 export function convergeArtifacts(options: {
   state: string; root: string; host: string; version: string; artifacts: readonly NativeArtifact[];
@@ -40,15 +40,25 @@ export function convergeArtifacts(options: {
       }
     }
     const writes: { artifact: NativeArtifact; previous: ReturnType<typeof snapshot> }[] = [];
-    for (const artifact of options.artifacts) {
+    const observed = options.artifacts.map(artifact => {
       const key = nativeRelativePath(root, artifact.path);
       const previous = snapshot(artifact.path);
       const owned = manifest.files[key];
-      if (artifact.selected === false || owned?.selected === false) continue;
+      const selected = artifact.selected !== false && owned?.selected !== false;
       const hash = previous && digest(previous.bytes);
-      if (previous && (owned ? hash !== owned.sha256 && !options.force : !artifact.historical?.includes(hash!))) {
-        changes.conflicts.push(artifact.path); continue;
-      }
+      const conflict = selected && !!previous && (owned ? hash !== owned.sha256 && !options.force : !artifact.historical?.includes(hash!));
+      if (conflict) changes.conflicts.push(artifact.path);
+      return { artifact, key, previous, owned, selected, conflict };
+    });
+    // A refused skill replacement must retain its resources and source receipt,
+    // including older versioned resources still referenced by a Gemini command.
+    const blockedSkills = new Set(observed.flatMap(({ artifact, conflict }) => conflict && artifact.skillTarget ? [artifact.skillTarget] : []));
+    const preservedSources = [...blockedSkills].flatMap(target => {
+      const source = manifest.files[nativeRelativePath(root, target)]?.source;
+      return source ? [source] : [];
+    });
+    for (const { artifact, key, previous, owned, selected, conflict } of observed) {
+      if (!selected || conflict || artifact.skillTarget && blockedSkills.has(artifact.skillTarget)) continue;
       if (previous && !owned) changes.adopted.push(artifact.path);
       if (!previous && owned) changes.missing.push(artifact.path);
       if (!previous || !previous.bytes.equals(Buffer.from(artifact.bytes))) {
@@ -61,6 +71,7 @@ export function convergeArtifacts(options: {
     for (const [key, entry] of Object.entries(manifest.files)) {
       if (options.prune === false || desired.has(key) || !entry.selected) continue;
       if (options.preserveSourcePackages?.some(pkg => entry.source.startsWith(`${pkg}@`))) continue;
+      if (preservedSources.some(source => entry.source === source || entry.source.startsWith(`${source}/`))) continue;
       const path = join(root, key), previous = snapshot(path);
       // Force restores desired managed artifacts; it never authorizes deleting custom residues.
       if (previous && digest(previous.bytes) !== entry.sha256) { changes.conflicts.push(path); continue; }
