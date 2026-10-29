@@ -97,7 +97,7 @@ export function describeControllerWait(child, armedCpuTicks, waitedMs) {
 
 export function replyWithBudget(child, budgetMs = CONTROLLER_REPLY_BUDGET_MS) {
   return new Promise((resolve, reject) => {
-    const armedAt = Date.now();
+    const armedAt = performance.now();
     const armedCpu = child.pid !== undefined ? procFamily(child.pid)?.cpuTicks : undefined;
     const cleanup = () => {
       clearTimeout(timer);
@@ -117,11 +117,18 @@ export function replyWithBudget(child, budgetMs = CONTROLLER_REPLY_BUDGET_MS) {
       cleanup();
       reject(value);
     };
-    const timer = setTimeout(() => {
-      const evidence = describeControllerWait(child, armedCpu, Date.now() - armedAt);
+    let timer;
+    const expire = () => {
+      const elapsed = performance.now() - armedAt;
+      if (elapsed < budgetMs) {
+        timer = setTimeout(expire, Math.ceil(budgetMs - elapsed));
+        return;
+      }
+      const evidence = describeControllerWait(child, armedCpu, Math.floor(elapsed));
       cleanup();
       reject(new Error(`controller_reply_budget_exceeded ${JSON.stringify(evidence)}`));
-    }, budgetMs);
+    };
+    timer = setTimeout(expire, budgetMs);
     child.once('message', message);
     child.once('close', close);
     child.once('error', error);

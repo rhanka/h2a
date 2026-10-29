@@ -105,3 +105,25 @@ test('M17 oracle: a dead child keeps the closed-before-reply verdict', async (t)
   assert.ok(failed instanceof Error);
   assert.equal(failed.message, 'controller_closed_before_reply');
 });
+
+test('M17 oracle: an early timer callback must not expire the unchanged deadline', async t => {
+  const { EventEmitter } = await import('node:events');
+  const child = Object.assign(new EventEmitter(), { exitCode: null, signalCode: null });
+  let now = 0, callback, delay, settled = false;
+  t.mock.method(Date, 'now', () => now);
+  t.mock.method(performance, 'now', () => now);
+  t.mock.method(globalThis, 'setTimeout', (fn, ms) => { callback = fn; delay = ms; return 1; });
+  t.mock.method(globalThis, 'clearTimeout', () => {});
+  const reply = replyWithBudget(child).catch(error => { settled = true; return error; });
+  assert.equal(delay, 5000);
+  now = 4999; callback();
+  await Promise.resolve();
+  assert.equal(settled, false, 'early timer delivery is not deadline expiry');
+  assert.equal(delay, 1, 'only the remaining budget is scheduled');
+  now = 5000; callback();
+  const failed = await reply;
+  assert.match(failed.message, /^controller_reply_budget_exceeded /);
+  const evidence = JSON.parse(failed.message.slice('controller_reply_budget_exceeded '.length));
+  assert.equal(evidence.waitedMs, 5000);
+  assert.equal(child.listenerCount('message'), 0);
+});
