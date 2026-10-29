@@ -974,11 +974,14 @@
     "five-package prepare hands the independent focus version to the publication sanity gate"
   ],
   "packages/h2a/test/native-cleanse-oracle.test.js": [
-    "L0 contracts: only the exact known assertion is accepted and repaired contracts become GREEN",
+    "L0 contracts: only the committed state and exact failure signature are accepted",
     "L0 inventory: all frozen artifacts can be observed current",
     "L0 MCP: version, echo, wrong protocol and duplicate routes cannot pass as the effective server",
     "L0 hooks: comments, echo commands, disabled hooks and missing dependencies cannot pass",
     "L0 plugins: missing helpers and stale selected Codex sources cannot pass with a candidate cache",
-    "L0 reviewers reproduction: version MCPs, echo hooks and incomplete unselected caches cannot yield 31 GREEN"
+    "L0 reviewers reproduction: version MCPs, echo hooks and incomplete unselected caches cannot yield 31 GREEN",
+    "L0 hooks: duplicate host and workspace options cannot redirect the selected hook",
+    "L0 Agy: imported bytes must preserve the observed enabled or disabled selection",
+    "L0 plugins: the active plugin MCP must resolve and answer from the activated prefix"
   ]
 }

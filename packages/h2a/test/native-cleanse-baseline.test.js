@@ -1,7 +1,6 @@
 // L0 executes desired contracts against a prepared/prepacked, installed RC.
-// Strict RED: H2A_CLEANSE_STRICT=1 node --test <this file>.
-// L0 gates prove the exact known-missing assertion and its seeded evidence.
-// Changed failures block CI. A repaired contract becomes GREEN unchanged.
+// Each observation must match its committed ledger state/signature.
+// Repairs require the ledger's RED -> GREEN update in the same change.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -37,7 +36,7 @@ function witness(id) {
     assert.ok(observed.has(id), id + ': product observation must have executed');
     const observation = observed.get(id);
     observed.delete(id);
-    contracts(t, [observation]);
+    contracts(t, [observation], { root: artifact.root, version: artifact.version });
   };
 }
 
@@ -71,10 +70,8 @@ test('L0 packaged RC: prepare and prepack preserve exact plugin and integration 
   record([
     ...['.claude-plugin/plugin.json', '.codex-plugin/plugin.json'].map(path => ({
       id: `packaged ${path} exact RC`, lot: 'L3', actual: read(path).version, expected: artifact.version,
-      knownMissing: { actual: '0.98.7', expected: artifact.version },
     })),
-    { id: 'packaged integration manifest exact RC', lot: 'L3', actual: manifest?.version, expected: artifact.version,
-      knownMissing: { actual: undefined, expected: artifact.version } },
+    { id: 'packaged integration manifest exact RC', lot: 'L3', actual: manifest?.version, expected: artifact.version },
   ]);
 });
 
@@ -97,11 +94,11 @@ test('L0 R1: packaged public fresh and resume recover two endpoints and archive 
   t.diagnostic(JSON.stringify({ freshExit: fresh.code, resumeExit: resumed.code, endpoints: inventory.map(h => ({ socket: h.socket, hostPid: h.ping.hostPid })), transcripts: f.transcripts() }));
   record([{ id: 'dead claim archived before replacement', lot: 'L1',
     actual: files(f.root).some(p => p !== f.deadClaim && !p.endsWith('.pending') && lstatSync(p).isFile() && readFileSync(p, 'utf8') === f.deadClaimBytes),
-    expected: true, knownMissing: { actual: false, expected: true } },
+    expected: true },
   { id: 'proven dead background row archived and retired', lot: 'L1',
     actual: !json(f.registry).entries.some(r => r.id === 'background-dead') &&
       files(f.root).some(p => p !== f.registry && /\.(json|jsonl)$/.test(p) && lstatSync(p).isFile() && readFileSync(p, 'utf8').includes('background-dead')),
-    expected: true, knownMissing: { actual: false, expected: true } }]);
+    expected: true }]);
 });
 
 test('L0 R2: packaged real restore dispatches twenty conversations through flock after endpoint preparation', { timeout: 60000 }, async t => {
@@ -131,8 +128,7 @@ test('L0 R2: packaged real restore dispatches twenty conversations through flock
   }
   t.diagnostic(JSON.stringify({ restoreExit: result.code, conversations: f.transcripts().length, dispatchers: dispatches.length }));
   record([{ id: 'both endpoints ready before restore dispatcher', lot: 'L1',
-    actual: json(join(f.env.HOME, 'before-dispatch')).ready, expected: [true, true],
-    knownMissing: { actual: [false, false], expected: [true, true] } }]);
+    actual: json(join(f.env.HOME, 'before-dispatch')).ready, expected: [true, true] }]);
 });
 
 test('L0 R1: public run quarantines the original stale socket inodes with a recovery record', { timeout: 60000 }, async t => {
@@ -160,11 +156,9 @@ test('L0 R1: public run quarantines the original stale socket inodes with a reco
   const artifacts = files(f.root);
   record(stale.flatMap(old => [
     { id: old.socket.split('/').at(-1) + ' original inode quarantined', lot: 'L1',
-      actual: artifacts.some(p => !f.sockets.includes(p) && lstatSync(p).isSocket() && lstatSync(p).dev === old.dev && lstatSync(p).ino === old.ino), expected: true,
-      knownMissing: { actual: false, expected: true } },
+      actual: artifacts.some(p => !f.sockets.includes(p) && lstatSync(p).isSocket() && lstatSync(p).dev === old.dev && lstatSync(p).ino === old.ino), expected: true },
     { id: old.socket.split('/').at(-1) + ' recovery record', lot: 'L1',
-      actual: artifacts.some(p => lstatSync(p).isFile() && /\.(json|jsonl)$/.test(p) && readFileSync(p, 'utf8').includes(old.socket) && readFileSync(p, 'utf8').includes(String(old.ino))), expected: true,
-      knownMissing: { actual: false, expected: true } },
+      actual: artifacts.some(p => lstatSync(p).isFile() && /\.(json|jsonl)$/.test(p) && readFileSync(p, 'utf8').includes(old.socket) && readFileSync(p, 'utf8').includes(String(old.ino))), expected: true },
   ]));
 });
 
@@ -178,9 +172,7 @@ test('L0 R1: public resume reports a coded refusal for an unattributed legacy re
   t.diagnostic(JSON.stringify({ exit: result.code, stderr: result.stderr }));
   record([{ id: 'legacy reclaim barrier coded refusal', lot: 'L1',
     actual: result.code !== 0 && /reclaim|unattributed|recovery.*refus/i.test(result.stderr + result.stdout), expected: true,
-    evidence: { code: result.code, stdout: result.stdout, stderr: result.stderr.replaceAll(f.barrierId, '<conversation>') },
-    knownMissing: { actual: false, expected: true, evidence: { code: 0, stdout: '',
-      stderr: '[h2a] conversation <conversation> is already being resumed; duplicate launch request skipped.\n' } } }]);
+    evidence: { code: result.code, stdout: result.stdout, stderr: result.stderr.replaceAll(f.barrierId, '<conversation>') } }]);
 });
 
 // Literal identities are independently required by the npm execution inventory.
