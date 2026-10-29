@@ -7221,7 +7221,7 @@ function cmdInstallSkills(
 
   for (const skill of collection.skills) {
     const skillName = skill.installName;
-    // Keep existing entrypoints protected, while installing missing resources.
+    // Keep each skill, its resources and its receipt together on refusal.
     const probeTarget =
       spec.host === "gemini" || spec.host === "agy"
         ? join(targetBase, `${skillName}.toml`)
@@ -7230,15 +7230,25 @@ function cmdInstallSkills(
       // Every host needs referenced resources, including the native-question
       // instructions used by present-decision. Keep both scopes on one renderer.
       const artifacts = nativeSkillArtifacts({ host, root: dirname(targetBase), project: scope === 'project', version: currentCliVersion(), skills: [skill], renderGemini: renderSkillAsGeminiToml, historicalHashes: () => [] });
+      const conflicts = artifacts.filter(artifact => {
+        assertNativePath(artifact.path);
+        return existsSync(artifact.path) && !readFileSync(artifact.path).equals(Buffer.from(artifact.bytes)) && flags.force !== "true";
+      });
+      if (conflicts.length) {
+        for (const artifact of conflicts)
+          skipped.push({ name: skillName, reason: `${artifact.path} already exists (use --force to overwrite)` });
+        continue;
+      }
       for (const artifact of artifacts) {
         assertNativePath(artifact.path);
         if (existsSync(artifact.path) && readFileSync(artifact.path).equals(Buffer.from(artifact.bytes))) continue;
         if (existsSync(artifact.path) && flags.force !== "true") {
-          // The guard applies to every artifact, even with no SKILL.md/.toml.
           skipped.push({ name: skillName, reason: `${artifact.path} already exists (use --force to overwrite)` });
-          continue;
+          break;
         }
         mkdirSync(dirname(artifact.path), { recursive: true }); writeFileSync(artifact.path, artifact.bytes);
+        // Resources precede the entrypoint; the producer receipt comes last.
+        if (!readFileSync(artifact.path).equals(Buffer.from(artifact.bytes))) throw new Error(`installed bytes differ: ${artifact.path}`);
         installed.push(artifact.path);
       }
     } catch (error) {

@@ -182,3 +182,90 @@ Cette réconciliation ne constitue pas une nouvelle revue indépendante du
 correctif. La sélection MCP demeure indisponible selon le contrat du skill
 `harness/review` ; aucun nouveau verdict de consensus n’est revendiqué.
 La publication du producteur et l’activation MCP restent hors qualification L1.
+
+## Tour 3 — aucun reçu pour une installation refusée
+
+Les deux avis fournis sur `2c088f62322f400b94412e91533a0d9375ecb34a`
+retiennent le même nouveau P2. La boucle directe de `cmdInstallSkills`
+préservait le point d’entrée personnalisé, mais installait les ressources et
+créait un reçu attribuant les octets du producteur jamais installés. Le cas
+concerne Claude/Codex en portée utilisateur et les cinq hôtes en portée projet.
+
+La reproduction est pérennisée sur les dix combinaisons hôte/portée, avec et
+sans reçu préexistant, puis deux refus successifs. Avant toute modification
+du produit, sur la tête revue :
+
+```sh
+rtk node --test --test-reporter=spec --test-name-pattern='refused first install' packages/h2a/test/install-skills-hosts.test.js
+```
+
+Sortie RED : **6 pass, 14 fail, 0 skipped**, code **1**. Les sept chemins
+directs créent un faux reçu absent ou installent des ressources de la génération
+refusée ; les six contrôles de convergence native préservent déjà l’ensemble.
+Les reçus antérieurs restent inchangés dans les deux chemins.
+
+La boucle directe observe désormais tous les artefacts d’un skill avant la
+première écriture. Tout conflit préserve cet ensemble ; un conflit observé
+ensuite interrompt aussi la boucle avant le reçu. Les écritures sont relues
+et comparées aux octets attendus ; ressources puis point d’entrée précèdent
+le reçu. Le test du paquet extrait couvre aussi les dix combinaisons : refus
+sans reçu, installation réussie, hashes source/rendu et réinstallation sans
+écriture. Les témoins du tour 2 conservent les mises à jour forcées et le
+nettoyage Agy après succès.
+
+```sh
+rtk npm run build:h2a
+rtk node --test --test-reporter=spec packages/h2a/test/install-skills-hosts.test.js
+```
+
+Sorties : build code **0**, `vendor-engram-live mirror OK` ; installeur
+**39 pass, 0 fail, 0 skipped**, code **0**.
+
+Toutes ces commandes utilisent `env -i`, un PATH explicite et
+`TMPDIR=/home/antoinefa/.cache-tmp/h2a-test/run-tV6A2U`, avec HOME, USERPROFILE,
+XDG_RUNTIME_DIR et les répertoires XDG privés. Le préfixe d’isolation est omis
+dans les exemples. Aucun Python, état propriétaire ou binaire h2a installé.
+
+La réconciliation accepte le P2 commun après reproduction. Aucune nouvelle
+revue indépendante n’est revendiquée : `status: selection-failed`, absence
+de `h2a_run` MCP et métadonnées exactes modèle/effort auteur inconnues.
+La cible du tour 3 est le diff des trois fichiers code/tests par rapport à
+`2c088f623` (`git diff HEAD --no-ext-diff -- packages/h2a/src/cli.ts packages/h2a/test/install-skills-hosts.test.js packages/h2a/test/native-host-package.test.js`),
+SHA-256 `3e3e2bc5f9bdc07b71974dfcb33c16abe6dac8e229a346a1553725eeccfb882b`.
+
+```sh
+H2A_MEMORY_SKILL_FIXTURE=/home/antoinefa/src/graphify/.graphify/scratch/design/memory-skill/SKILL.md rtk node --test --test-concurrency=1 --test-reporter=spec packages/h2a/test/install-skills-hosts.test.js packages/h2a/test/native-host-shared-skills.test.js packages/h2a/test/package-plugin-manifest.test.js packages/h2a/test/native-host-package.test.js packages/h2a/test/native-host-safety.test.js packages/h2a/test/native-host-review-regressions.test.js packages/h2a/test/native-host-convergence.test.js packages/h2a/test/native-host-recovery.test.js
+```
+
+Sortie : **81 pass, 0 fail, 0 skipped**, code **0**, dont les 20 nouveaux
+témoins et les huit suites du tour 2. La référence externe conserve son
+SHA-256 validé ; aucun contenu producteur n’est ajouté au dépôt.
+
+Un premier lancement simultané des huit fichiers et de la campagne de reprise
+a produit deux `spawnSync /usr/bin/node ETIMEDOUT` dans l’installeur
+(**79 pass, 2 fail**) et quatre reprises refusées avec
+`terminal host create request timed out after 5000ms` dans un cas de reprise
+(**16 pass, 1 fail**). Les huit fichiers ci-dessus ont ensuite été rejoués
+successivement sur les mêmes octets ; aucun délai, assertion ou gate n’a changé.
+
+```sh
+rtk node --test --test-reporter=spec packages/h2a/test/native-host-crash-recovery.test.js
+```
+
+Reprise native seule : **17 pass, 0 fail, 0 skipped**, code **0** ; les dix
+reprises réussissent en **628 ms**. Total des neuf fichiers : **98 tests
+distincts passants**, dont les 78 du tour 2 et les 20 nouveaux cas.
+
+```sh
+rtk node packages/h2a/dist/bin.js harness verify --category static --current-branch feat/memory-skill-install --expected-branch feat/memory-skill-install --branch-md BRANCH.md --staged-files 'BRANCH.md,packages/h2a/src/cli.ts,packages/h2a/test/install-skills-hosts.test.js,packages/h2a/test/native-host-package.test.js,docs/reviews/memory-skill-install.md'
+rtk git diff --check
+```
+
+Sorties : `PASS harness verify (static): 2 check(s)` ; diff-check code **0**.
+
+```sh
+rtk node --test --test-concurrency=1 --test-reporter=spec packages/h2a/test/install-skills-hosts.test.js packages/h2a/test/native-host-shared-skills.test.js packages/h2a/test/package-plugin-manifest.test.js packages/h2a/test/native-host-package.test.js
+```
+
+Rejeu avec la fixture autonome, sans `H2A_MEMORY_SKILL_FIXTURE` :
+**54 pass, 0 fail, 0 skipped**, code **0**.

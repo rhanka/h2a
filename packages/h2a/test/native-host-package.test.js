@@ -10,14 +10,33 @@ import { memorySkillConsumer, sha256 } from './helpers/memory-skill-consumer.mjs
 test('packed h2a installs the producer memory skill in isolated HOME without source-tree fallback', t => {
   const fixture = memorySkillConsumer(t, { packed: true });
   assert.equal(fs.existsSync(join(fixture.h2a, 'skills/engram-memory')), false);
-  for (const host of ['claude', 'codex', 'muse', 'vibe', 'agy']) {
-    const args = ['install-skills', '--host', host];
+  for (const host of ['claude', 'codex', 'muse', 'vibe', 'agy']) for (const scope of ['user', 'project']) {
+    const args = ['install-skills', '--host', host, '--scope', scope];
+    const root = scope === 'project' ? join(fixture.lane, `.${host === 'agy' ? 'gemini' : host}`)
+      : join(fixture.home, host === 'agy' ? '.gemini' : host === 'muse' ? '.config/muse' : `.${host}`);
+    const target = join(root, host === 'agy' ? 'commands/engram-memory.toml' : 'skills/engram-memory/SKILL.md');
+    const receipt = host === 'agy'
+      ? join(root, scope === 'project' ? 'skill-resources' : '.h2a-install/skill-resources', 'engram/0.22.1/engram-memory/.h2a-source.json')
+      : join(target, '../.h2a-source.json');
+    const custom = host === 'agy' ? 'description = "Personal memory"\nprompt = "Personal instructions"\n' : 'Personal memory instructions.\n';
+    fs.mkdirSync(join(target, '..'), { recursive: true });
+    fs.writeFileSync(target, custom);
+    const refused = fixture.cli(args);
+    assert.equal(refused.status, 2, refused.stderr);
+    assert.equal(fs.readFileSync(target, 'utf8'), custom);
+    assert.equal(fs.existsSync(receipt), false, `${host}/${scope}: packed refusal must not create a receipt`);
+    fs.rmSync(target);
     const first = fixture.cli(args);
     assert.equal(first.status, 0, first.stderr);
     const source = first.json().sources.find(s => s.source === 'engram');
     assert.equal(source?.dir, join(fixture.producer, 'skills'));
     assert.equal(source.skills[0].sha256, sha256(fixture.raw));
-    assert.equal(fixture.cli(args).status, 0, `${host}: packed reinstall`);
+    const record = JSON.parse(fs.readFileSync(receipt));
+    assert.equal(record.sha256, sha256(fixture.raw));
+    assert.equal(record.renderedSha256, sha256(fs.readFileSync(target)));
+    const second = fixture.cli(args);
+    assert.equal(second.status, 0, `${host}/${scope}: packed reinstall`);
+    assert.deepEqual(second.json().installed, []);
   }
 });
 test('tarball consumer receives hooks/scripts/parser and referenced Track resources without source-tree fallback', t => {
