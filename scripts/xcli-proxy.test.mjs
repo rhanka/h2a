@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { once } from 'node:events';
 import test from 'node:test';
 import { PROBE, environment, rehydrateEventRecord } from './xcli-lab.mjs';
+import { UNKNOWN_INSTANCE } from './xcli-scenarios.mjs';
 
 test('L8: a looping session trips the live per-session MCP-call cap and dies', async () => {
   const root = fs.mkdtempSync(join(tmpdir(), 'xcli-proxy-cap-'));
@@ -134,11 +135,14 @@ test('L12: failed sends and reads witness closed-vocabulary refusals, never erro
   const server = join(root, 'server.mjs');
   const events = join(root, 'events.jsonl');
   const env = { ...environment(root), XCLI_CELL: root, XCLI_EVENTS: events, XCLI_BIN: server };
+  fs.writeFileSync(join(root, 'known-instances.jsonl'), 'codex:receiver\n');
   fs.writeFileSync(server, `import {createInterface} from 'node:readline';
 process.stderr.write('h2a.mcp.phase {"role":"identity-child","phase":"codex:workspace:deadbeefcafe","event":"sample"}\\n');
 for await(const line of createInterface({input:process.stdin})) {
  const m=JSON.parse(line);
- if(m.params?.name==='h2a_send') process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,error:{code:-32000,message:'SECRET_TEXT_UNKNOWN_TARGET'}})+'\\n');
+ if(m.id===5) process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{content:[{type:'text',text:JSON.stringify({error:${JSON.stringify(`'${UNKNOWN_INSTANCE}' matches no live or registered agent — likely a phantom/invented id or sub-label. Resolve via discover; do not invent labels.`)}})}]}})+'\\n');
+ else if(m.id===6) process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{content:[{type:'text',text:JSON.stringify({error:'SECRET_TEXT_STOPPED_TARGET',code:'recipient_not_live'})}]}})+'\\n');
+ else if(m.params?.name==='h2a_send') process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,error:{code:-32000,message:'SECRET_TEXT_UNKNOWN_TARGET'}})+'\\n');
  else process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{isError:true,content:[{type:'text',text:'{"error":"SECRET_TEXT_READ_FAILED"}'}]}})+'\\n');
 }\n`);
   const child = spawn(process.execPath, [join(import.meta.dirname, 'xcli-proxy.mjs')], { env, cwd: root, stdio: ['pipe', 'pipe', 'ignore'] });
@@ -148,7 +152,10 @@ for await(const line of createInterface({input:process.stdin})) {
     child.stdin.end(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'h2a_send', arguments: { to: 'xcli-unknown-instance', message: 'hello' } } }) + '\n' +
       JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'h2a_inbox', arguments: { action: 'read', instance: 'x' } } }) + '\n' +
       JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'h2a_inbox', arguments: { action: 'put', instance: 'x', envelope: {} } } }) + '\n' +
-      JSON.stringify({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'h2a_inbox', arguments: { action: 'read', instance: 'codex:workspace:deadbeefcafe' } } }) + '\n');
+      JSON.stringify({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'h2a_inbox', arguments: { action: 'read', instance: 'codex:workspace:deadbeefcafe' } } }) + '\n' +
+      JSON.stringify({ jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'h2a_send', arguments: { to: UNKNOWN_INSTANCE, message: PROBE } } }) + '\n' +
+      JSON.stringify({ jsonrpc: '2.0', id: 6, method: 'tools/call', params: { name: 'h2a_send', arguments: { to: 'codex:receiver', message: PROBE } } }) + '\n' +
+      JSON.stringify({ jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'h2a_send', arguments: { to: UNKNOWN_INSTANCE, message: PROBE } } }) + '\n');
     await closed;
     const raw = fs.readFileSync(events, 'utf8');
     assert.ok(!raw.includes('SECRET_TEXT'), 'refusals retain no error text');
@@ -160,6 +167,15 @@ for await(const line of createInterface({input:process.stdin})) {
       { tool: 'h2a_inbox', kind: 'read', errorKind: 'result-error' },
       { tool: 'h2a_inbox', kind: 'put', errorKind: 'result-error' },
       { tool: 'h2a_inbox', kind: 'read', errorKind: 'result-error' },
+      { tool: 'h2a_send', kind: 'probe', errorKind: 'result-error' },
+      { tool: 'h2a_send', kind: 'probe', errorKind: 'result-error' },
+      { tool: 'h2a_send', kind: 'probe', errorKind: 'rpc-error' },
+    ]);
+    assert.deepEqual(records.filter(e => e.event === 'send' && e.kind === 'probe')
+      .map(e => ({ target: e.requestedTo, refusal: e.refusalCode })), [
+      { target: UNKNOWN_INSTANCE, refusal: 'unknown-instance' },
+      { target: 'codex:receiver', refusal: 'recipient-not-live' },
+      { target: UNKNOWN_INSTANCE, refusal: undefined },
     ]);
     const puts = records.filter(e => e.event === 'inbox' && e.action === 'put');
     assert.equal(puts.length, 1, 'put is witnessed with its action');
