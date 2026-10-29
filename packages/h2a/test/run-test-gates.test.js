@@ -492,7 +492,8 @@ function assertM17CiGraph(source) {
   // The direct guard still runs outside the production runner; the complete
   // same-run companion evidence is mandatory in its production invocation.
 
-  const commands = [...job.matchAll(/^\s+(?:- )?run:\s*(.+)$/gm)].map((match) => match[1])
+  const commands = [...job.matchAll(/^[ ]+(?:- )?run: ([^\n]+)$/gm)].map((match) => match[1]).filter(line => line !== "|")
+  assert.match(job, /H2A_TEST_QUALIFICATION_ROOT=\$DIR/);
   assert.deepEqual(
     commands,
     [
@@ -502,6 +503,7 @@ function assertM17CiGraph(source) {
       'test "$M17_RESULT" = success',
       'test "$BULK_RESULT" = success',
       'node scripts/run-test-gates.mjs',
+      'if [ -n "${TMPDIR:-}" ]; then rm -rf "$TMPDIR"; fi',
     ],
     'the dedicated job must verify the runner and then execute its real entrypoint',
   )
