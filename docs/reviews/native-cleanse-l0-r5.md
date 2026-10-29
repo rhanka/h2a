@@ -75,3 +75,33 @@ dispatch installé interdit par le confinement propriétaire.
 
 TMPDIR privé : `/home/antoinefa/.cache-tmp/h2a-test/run-gVodW4`, supprimé après
 le suivi CI et vérifié absent à la livraison. Aucun merge, tag ni trailer.
+
+## Correction du blocage CI après le premier push
+
+CI de `5e53f0b4d` : **18/19 succès**, dont npm Node 22 et trust root.
+Node 24 échoue dans `terminal-reset.functional.test.ts` : `ENOENT open
+'/proc/70049'`, lors de `driver.pin()`. La fixture annonce le processus raw
+prêt avant son `spawnSync(stty)`. Le parcours des descendants peut donc
+énumérer ce helper bref puis tenter de l'épingler après sa disparition.
+
+Un wrapper privé appelle le vrai `/usr/bin/stty` et émet
+`treset-stty-applied` dans le même PTY après sa réussite. L'assertion d'ordre
+est déterministe : ancien helper **5/6 PASS**, exit 1, « expected 0 to be
+greater than 30 » ; correction **6/6 PASS** sur Node 22.22.1 et 24.22.0,
+exit 0, zéro skip/todo.
+Le signal ready suit maintenant la réussite et le retour de stty. Le délai
+fixe de 500 ms disparaît ; aucun timeout, retry, garde d'isolation ou contrat
+produit n'est modifié. Les assertions des modes, des codes de sortie et du
+termios avant/après restent actives.
+
+```sh
+H2A_TEST_REPORT_PATH="$TMPDIR/terminal-full-green.json" \
+  node node_modules/vitest/vitest.mjs run \
+  --config packages/h2a-runtime/vitest.config.ts \
+  packages/h2a-runtime/src/terminal-reset.functional.test.ts
+```
+
+Logs : `fix-native-cleanse.r5-ci-node24-first.log`,
+`fix-native-cleanse.r5-terminal-full-red.log` et
+`fix-native-cleanse.r5-terminal-full-green.log` dans `tmp/h-cond`.
+La portée supplémentaire est limitée à cette fixture directement bloquante.
