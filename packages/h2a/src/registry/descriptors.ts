@@ -460,6 +460,15 @@ export function normalizeConfiguration(entry: RegistryEntry, values: unknown): R
   }
   const normative = normativeParameters(entry.id);
   const input = values as Record<string, unknown>;
+  if (entry.id === "sentropic.engram.memory") {
+    if (Object.keys(input).some(key => key !== "mode" && key !== "hostBindingRef") ||
+        input.mode !== "embedded-local" || typeof input.hostBindingRef !== "string" ||
+        input.hostBindingRef.length < 1 || input.hostBindingRef.length > 128 ||
+        !BINDING_REF_PATTERN.test(input.hostBindingRef)) {
+      fail("invalid_parameters", "memory requires only mode=embedded-local and an explicit hostBindingRef (1–128 characters)");
+    }
+    return { mode: input.mode, hostBindingRef: input.hostBindingRef };
+  }
   if (normative === null) {
     return { ...(input as Record<string, unknown>) };
   }

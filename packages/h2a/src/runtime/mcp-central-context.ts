@@ -11,7 +11,7 @@ export const CENTRAL_ATTACHMENT_ENV = [
   "H2A_MCP_READY_NONCE", "H2A_IDENTITY_RETRY_MIN_MS", "H2A_HEARTBEAT_INTERVAL_MS",
   "H2A_NOTIFY_INTERVAL_MS", "H2A_SESSION_EXPIRY_MS"
 ] as const;
-const FLAGS = new Set(["host", "auto-open", "wake", "name", "scope", "auto-upgrade", "upgrade-check"]);
+const FLAGS = new Set(["host", "auto-open", "wake", "name", "scope", "auto-upgrade", "upgrade-check", "registry-lock-digest"]);
 export type CentralMcpAttachment = {
   version: 2;
   id: string;

@@ -4,8 +4,10 @@ import { bridgeCentralMcpStdio } from "./mcp-central-client.js";
 import { captureCentralAttachment } from "./mcp-central-context.js";
 import { ensureCentralForShim } from "./mcp-central-start.js";
 import { isSupportedCentralHost } from "./mcp-central-qualification.js";
+import type { BridgeLock } from "../registry/bridge-lock.js";
 
-export async function runCentralShim(flags: Record<string, string>, root: string): Promise<number> {
+export async function runCentralShim(flags: Record<string, string>, root: string,
+  registry?: { lock?: BridgeLock; tools: ReadonlyArray<unknown> }): Promise<number> {
   if (flags["runtime-base"] && !isAbsolute(flags["runtime-base"])) throw new Error("--runtime-base must be an absolute path");
   const controller = new AbortController();
   const signals: NodeJS.Signals[] = ["SIGTERM", "SIGINT", "SIGHUP"];
@@ -20,11 +22,16 @@ export async function runCentralShim(flags: Record<string, string>, root: string
     // their routed host tag until H6 measures real native session signals.
     const qualified = isSupportedCentralHost(flags.host) &&
       (flags.host !== "claude" || Boolean(process.env.CLAUDE_CODE_SESSION_ID?.trim()));
+    const registryDigest = registry?.lock
+      ? (await import("../registry/bridge-lock.js")).bridgeLockDigest(registry.lock) : undefined;
     await bridgeCentralMcpStdio({
       ...paths, stdin: process.stdin, stdout: process.stdout, signal: controller.signal,
       workspaceRoot: process.cwd(),
+      ...(registry ? { registryTools: registry.tools } : {}),
       ...(qualified ? {
-        attachment: captureCentralAttachment(root, process.cwd(), flags, process.env),
+        attachment: captureCentralAttachment(root, process.cwd(), {
+          ...flags, ...(registryDigest ? { "registry-lock-digest": registryDigest } : {})
+        }, process.env),
         ensure: async () => { await ensureCentralForShim(true, paths); }
       } : {})
     });
