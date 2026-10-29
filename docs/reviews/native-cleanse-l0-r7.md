@@ -27,7 +27,7 @@ changement de choix, même si elle ne correspond à aucun outil du catalogue.
 | Gemini | `mcp.allowed/excluded` et `includeTools/excludeTools` ; exclusion prioritaire, inclusions qualifiées par arguments. |
 | Agy | `disabled`, `enabledTools/disabledTools`. |
 | Hermes | `enabled` booléen ou valeur bool-like, repli natif sur on ; include prioritaire sur exclude, globs et liste vide. |
-| OpenCode | `mcp`, transport local/argv tableau, `enabled`, règles tools/permission dans leur ordre et override de l'agent sélectionné ; schéma legacy strict, aliases inconnus refusés. |
+| OpenCode | `mcp`, transport local/argv tableau, `enabled`, règles tools/permission dans leur ordre, globs limités à * et ? (crochets littéraux), et override de l'agent sélectionné ; schéma legacy strict, aliases inconnus refusés. |
 | Muse | `enabled` ; listes tools ignorées par 1.3.0 ; formes canonique/legacy ambiguës refusées. |
 
 La fixture OpenCode utilisait auparavant une forme JSON d'un autre hôte.
@@ -54,6 +54,7 @@ Prérequis isolés : `npm run build -w @sentropic/track`, puis
 | Sources main `912dd3035` et rc.7 `8d588db05`, reconstruites séparément | **48/48 chacune**, gate 0, mêmes **42 RED exacts**. |
 | Foreign host / recovery / contention, Node 22 | **38/38 PASS**. |
 | Terminal reset fonctionnel, Node 22 | **6/6 PASS**. |
+| Ordre des permissions OpenCode et crochets littéraux, avant/après | **25 PASS / 2 FAIL**, dont un faux GREEN de désactivation masquée ; contrôles permanents corrigés. |
 | Override relatif Node, avant/après | **26 PASS / 1 FAIL**, puis contrôle permanent GREEN ; aucun skip/todo. |
 | Schéma OpenCode, alias inconnu, avant/après | **0/1**, puis **1/1** ; contrôle permanent dans la sélection OpenCode. |
 | Baseline, oracle et foreign-host, Node 24.22.0 | **94/94 PASS**, gate 0, 42 contrats ; chemin relatif inclus. |

@@ -311,6 +311,7 @@ test('L0 MCP native rules: adapter filter precedence determines the exposed tool
   assert.equal(visible('opencode', { permission: 'deny' }, {}), false, 'OpenCode scalar permission applies to every tool');
   assert.equal(visible('opencode', { permission: { '*': 'deny', 'h2a_*': 'allow' } }, {}), true, 'OpenCode last matching permission');
   assert.equal(visible('opencode', { permission: { 'h2a_*': 'allow', '*': 'deny' } }, {}), false, 'OpenCode order matters');
+  assert.equal(visible('opencode', { permission: { '*': 'deny', 'h2a_*': 'allow', 'h2a_[h]*': 'deny' } }, {}), true, 'OpenCode brackets are literal, not fnmatch character classes');
   assert.equal(visible('opencode', { tools: { 'h2a_*': false }, default_agent: 'custom', agent: { custom: { tools: { 'h2a_*': true } } } }, {}), true, 'selected OpenCode agent overrides global tools');
 });
 
@@ -354,6 +355,12 @@ test('L0 MCP native filters: intentional tool selections survive convergence and
     assert.equal(changed.actual, false, host + ': forbidden tool reactivation');
     assert.throws(() => contracts(sink, [changed]));
   }
+  const f = fixture(t, { mcpFilters: { opencode: { global: { permission: { '*': 'deny', 'h2a_*': 'allow', 'h2a_[h]*': 'deny' } } } } });
+  const h = f.hosts.find(h => h.host === 'opencode'), config = JSON.parse(readFileSync(h.mcp));
+  assert.equal((await observation(f, 'opencode', 'MCP resolves activated prefix')).actual, true);
+  config.permission = { 'h2a_*': 'allow', '*': 'deny', 'h2a_[h]*': 'deny' };
+  put(h.mcp, JSON.stringify(config));
+  assert.equal((await observation(f, 'opencode', 'MCP resolves activated prefix')).actual, false, 'reordering native rules changes exposure even with identical keys and values');
 });
 
 test('L0 MCP selection: Codex disabled entry cannot pass after convergence', t => {
