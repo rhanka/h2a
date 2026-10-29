@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { PROBE, REPLY, inside, canonicalEventRecord, recordExec, repo } from './xcli-lab.mjs';
+import { UNKNOWN_INSTANCE } from './xcli-scenarios.mjs';
 
 const root = process.env.XCLI_CELL;
 const evidence = inside(root, process.env.XCLI_EVENTS);
@@ -141,7 +142,11 @@ export function observe(line) {
     if (request.tool === 'h2a_send') {
       const kind = request.args?.message === PROBE ? 'probe' : request.args?.message === REPLY ? 'reply' : 'other';
       const sent = ok && !value?.error && Boolean(value?.envelope?.id);
+      const unknownRefusal = request.args?.to === UNKNOWN_INSTANCE && value?.error ===
+        `'${UNKNOWN_INSTANCE}' matches no live or registered agent — likely a phantom/invented id or sub-label. Resolve via discover; do not invent labels.`;
       emit({ event: 'send', ok: sent, kind,
+        requestedTo: knownInstance(request.args?.to) ?? (request.args?.to === UNKNOWN_INSTANCE ? UNKNOWN_INSTANCE : undefined),
+        refusalCode: !sent ? (unknownRefusal ? 'unknown-instance' : value?.code === 'recipient_not_live' ? 'recipient-not-live' : undefined) : undefined,
         envelopeId: sent && knownInstance(value?.envelope?.actor?.instance) && knownInstance(value?.envelope?.target?.instance) ? value.envelope.id : undefined,
         from: knownInstance(value?.envelope?.actor?.instance), to: knownInstance(value?.envelope?.target?.instance) });
       // Lot L12: closed-vocabulary refusal events only. A failed send

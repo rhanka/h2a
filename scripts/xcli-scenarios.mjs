@@ -87,7 +87,7 @@ export function expectedScenarioBlocker(parsed) {
 
 // The synthetic target for the unknown-instance state: shaped like an
 // instance id but reserved by the harness, never enrolled.
-export const UNKNOWN_INSTANCE = 'xcli-unknown-instance';
+export const UNKNOWN_INSTANCE = 'xcli:unknown-instance';
 
 function fail(code, detail) {
   return { ok: false, code, detail };
@@ -106,13 +106,30 @@ export function classifyScenarioRow(scenario, row) {
   if (parsed.kind === 'unavailability') {
     // A durable-only landing on a stopped peer is recorded, never delivery:
     // accepted only when explicitly marked, with no live stage and no wake.
-    if (row.delivered === true && row.durableOnly !== true) {
+    if (row.delivered === true && (parsed.state !== 'stopped-receiver' || row.durableOnly !== true)) {
       return fail('scenario-live-claim', 'durable-only landing worded as delivery');
     }
     if (row.received === true || row.replied === true || row.replyDelivered === true) {
       return fail('scenario-live-claim', 'unavailable peer shows a live stage');
     }
     if (row.woke === true) return fail('scenario-live-claim', 'wake credited on an unavailable peer');
+    const evidence = row.evidence ?? [];
+    const ready = role => evidence.find(e => e.role === role && e.event === 'identity' && e.ok && e.ready && e.instance);
+    // The identity-gate fault precedes sender launch by design.
+    if (parsed.state === 'identity-never-ready') return { ok: true };
+    if (row.senderMcp !== true || !ready('sender') || !ready('receiver')) {
+      return fail('scenario-dead-runner', 'unavailability without ready MCP peers proves nothing');
+    }
+    const unknown = parsed.state === 'unknown-instance';
+    const target = unknown ? UNKNOWN_INSTANCE : ready('receiver').instance;
+    if (!unknown && !evidence.some(e => e.event === 'scenario-peer-stopped')) {
+      return fail('scenario-peer-stop-unproven', 'receiver stop unwitnessed');
+    }
+    const outcome = evidence.some(e => e.role === 'sender' && e.event === 'send' &&
+      e.kind === 'probe' && e.requestedTo === target &&
+      (e.ok === false && e.refusalCode === (unknown ? 'unknown-instance' : 'recipient-not-live') ||
+        !unknown && e.ok === true && row.sent === true && row.delivered === true && row.durableOnly === true));
+    if (!outcome) return fail('scenario-send-unproven', 'targeted send and expected outcome unwitnessed');
     return { ok: true };
   }
   if (!row.phaseAReplyDelivered) return fail('scenario-dead-runner', 'twin without a live phase A proves nothing');
