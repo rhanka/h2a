@@ -8,6 +8,8 @@ import { contracts as checkContracts } from './helpers/cleanse-contracts.mjs';
 import { isolatedEnv } from './helpers/cleanse-artifact.mjs';
 import { observeHosts, seedHosts } from './helpers/cleanse-hosts.mjs';
 import { files } from './helpers/cleanse-lab.mjs';
+import { mcpState, toolVisible } from './helpers/cleanse-host-state.mjs';
+import YAML from 'yaml';
 
 const put = (path, bytes) => { mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, bytes); };
 const sink = { diagnostic() {} };
@@ -86,10 +88,15 @@ const readline=require('node:readline');readline.createInterface({input:process.
 function writeMcp(h, a, args) {
   const command = JSON.stringify(process.execPath), argv = JSON.stringify([a.cli, ...args]);
   if (h.mcp.endsWith('.toml')) put(h.mcp, readFileSync(h.mcp, 'utf8').replace(/^command = .*$/m, 'command = ' + command).replace(/^args = .*$/m, 'args = ' + argv));
-  else if (h.mcp.endsWith('.yaml')) put(h.mcp, readFileSync(h.mcp, 'utf8').replace(/^    command: .*$/m, '    command: ' + command).replace(/^    args: .*$/m, '    args: ' + argv));
+  else if (h.mcp.endsWith('.yaml')) {
+    const config = YAML.parse(readFileSync(h.mcp, 'utf8'));
+    Object.assign(config.mcp_servers.h2a, { command: process.execPath, args: [a.cli, ...args] });
+    put(h.mcp, YAML.stringify(config));
+  }
   else {
     const config = JSON.parse(readFileSync(h.mcp));
-    config.mcpServers.h2a = { ...config.mcpServers.h2a, command: process.execPath, args: [a.cli, ...args] };
+    if (h.host === 'opencode') config.mcp.h2a = { ...config.mcp.h2a, command: [process.execPath, a.cli, ...args] };
+    else config.mcpServers.h2a = { ...config.mcpServers.h2a, command: process.execPath, args: [a.cli, ...args] };
     put(h.mcp, JSON.stringify(config));
   }
 }
@@ -252,6 +259,100 @@ test('L0 Vibe: disabling the selected MCP cannot pass with healthy candidate arg
   assert.throws(() => contracts(sink, [disabled]));
 });
 
+test('L0 Vibe native state: enabled=false cannot conceal reactivation through disabled=false', async t => {
+  const f = fixture(t, { vibeDisabled: true }), h = f.hosts.find(h => h.host === 'vibe');
+  const selected = readFileSync(h.mcp, 'utf8');
+  assert.equal((await observation(f, 'vibe', 'MCP resolves activated prefix')).actual, true);
+  put(h.mcp, selected.replace('disabled = true', 'disabled = false\nenabled = false'));
+  const changed = await observation(f, 'vibe', 'MCP resolves activated prefix');
+  assert.equal(changed.actual, false, 'Vibe ignores enabled; disabled=false reactivates the server');
+  assert.throws(() => contracts(sink, [changed]));
+});
+
+test('L0 Vibe native state: global and per-server tool filters cannot hide behind a healthy handshake', async t => {
+  const f = fixture(t), h = f.hosts.find(h => h.host === 'vibe');
+  const original = readFileSync(h.mcp, 'utf8');
+  for (const config of [
+    'disabled_tools = ["mcp_h2a_*"]\n' + original,
+    'disabled_tools = ["h2a_*"]\n' + original,
+    'enabled_tools = ["read_file"]\n' + original,
+    'enabled_tools = ["h2a_*"]\ndisabled_tools = ["re:H2A_.*"]\n' + original,
+    original.replace('transport = "stdio"', 'transport = "stdio"\ndisabled_tools = ["h2a_status"]'),
+    original + '\n[tools.h2a_h2a_status]\npermission = "never"\n',
+  ]) {
+    put(h.mcp, config);
+    const changed = await observation(f, 'vibe', 'MCP resolves activated prefix');
+    assert.equal(changed.actual, false, config);
+    assert.throws(() => contracts(sink, [changed]));
+  }
+});
+
+test('L0 MCP native rules: adapter filter precedence determines the exposed tools', () => {
+  const visible = (host, config, server, tool = 'h2a_status') => toolVisible(host, mcpState({ root: '/fixture' }, host, config, server), tool);
+  assert.equal(visible('vibe', { enabled_tools: ['H2A_*'], disabled_tools: ['re:h2a_.*'] }, {}), false, 'Vibe deny wins over allow, case insensitive');
+  assert.equal(visible('vibe', { disabled_tools: ['h2a_h2a_?tatus'] }, {}), false, 'Vibe glob uses the published server-prefixed name');
+  assert.equal(visible('vibe', { disabled_tools: ['re:['] }, {}), true, 'invalid Vibe regex is ignored');
+  assert.equal(visible('vibe', {}, { disabled_tools: ['h2a_status'] }), false, 'Vibe per-server lists use raw exact names');
+  assert.equal(visible('vibe', {}, { disabled_tools: ['*'] }), true, 'Vibe per-server names are not globs');
+  assert.equal(visible('vibe', { enabled_tools: [] }, {}), true, 'empty Vibe allowlist is unrestricted');
+  assert.equal(visible('vibe', { tools: { h2a_h2a_status: { permission: 'never' } } }, {}), false, 'Vibe per-tool permission override');
+  assert.equal(visible('codex', {}, { enabled_tools: [] }), false, 'empty Codex allowlist exposes nothing');
+  assert.equal(visible('codex', {}, { disabled_tools: ['h2a_*'] }), true, 'Codex names are exact, not globs');
+  assert.equal(visible('codex', {}, { enabled_tools: ['h2a_status'], disabled_tools: ['h2a_status'] }), false, 'Codex deny wins');
+  assert.equal(visible('gemini', {}, { includeTools: ['h2a_status()'] }), true, 'Gemini accepts argument-qualified inclusions');
+  assert.equal(visible('gemini', {}, { includeTools: ['h2a_status'], excludeTools: ['h2a_status'] }), false, 'Gemini exclude wins');
+  assert.equal(visible('agy', {}, { enabledTools: ['h2a_status'], disabledTools: ['h2a_status'] }), false, 'Agy disabledTools wins');
+  assert.equal(visible('hermes', {}, { tools: { include: ['h2a_*'], exclude: ['h2a_status'] } }), true, 'Hermes include wins');
+  assert.equal(visible('hermes', {}, { tools: { include: [] } }), false, 'empty Hermes allowlist exposes nothing');
+  assert.equal(visible('hermes', {}, { tools: { include: 'h2a_*' } }), true, 'Hermes accepts a scalar tool filter');
+  assert.equal(visible('hermes', {}, { tools: { exclude: ['h2a_*'] } }), false, 'Hermes exclusion supports globs');
+  assert.equal(visible('muse', {}, { enabled_tools: [], disabled_tools: ['h2a_status'] }), true, 'Muse 1.3.0 ignores these lists');
+  assert.equal(visible('opencode', { tools: { 'h2a_*': false } }, {}), false, 'OpenCode tool glob');
+  assert.equal(visible('opencode', { permission: 'deny' }, {}), false, 'OpenCode scalar permission applies to every tool');
+  assert.equal(visible('opencode', { permission: { '*': 'deny', 'h2a_*': 'allow' } }, {}), true, 'OpenCode last matching permission');
+  assert.equal(visible('opencode', { permission: { 'h2a_*': 'allow', '*': 'deny' } }, {}), false, 'OpenCode order matters');
+  assert.equal(visible('opencode', { tools: { 'h2a_*': false }, default_agent: 'custom', agent: { custom: { tools: { 'h2a_*': true } } } }, {}), true, 'selected OpenCode agent overrides global tools');
+});
+
+test('L0 MCP native execution: environment and cwd overrides cannot reuse a healthy cached transport', async t => {
+  const f = fixture(t), h = f.hosts.find(h => h.host === 'codex');
+  put(f.a.cli, readFileSync(f.a.cli, 'utf8').replace('const readline=', "if(process.env.L0_WRONG_MCP==='1')process.exit(64);const readline="));
+  const original = readFileSync(h.mcp, 'utf8');
+  assert.equal((await observation(f, 'codex', 'MCP resolves activated prefix')).actual, true);
+  put(h.mcp, original.replace('[fixture]', '[mcp_servers.h2a.env]\nL0_WRONG_MCP = "1"\n\n[fixture]'));
+  assert.equal((await observation(f, 'codex', 'MCP resolves activated prefix')).actual, false, 'healthy Claude handshake does not attest Codex environment');
+  put(h.mcp, original.replace('[mcp_servers.h2a]', '[mcp_servers.h2a]\ncwd = ' + JSON.stringify(join(f.a.root, 'absent-workspace'))));
+  assert.equal((await observation(f, 'codex', 'MCP resolves activated prefix')).actual, false, 'native cwd is used to start the MCP');
+});
+
+test('L0 MCP native filters: intentional tool selections survive convergence and cannot be reactivated', async t => {
+  for (const [host, filters] of [
+    ['vibe', { global: { enabled_tools: ['h2a_*'], disabled_tools: ['h2a_*'] }, server: { disabled_tools: ['h2a_status'] } }],
+    ['codex', { server: { enabled_tools: ['h2a_status'], disabled_tools: ['h2a_status'] } }],
+    ['gemini', { server: { includeTools: ['h2a_status'], excludeTools: ['h2a_status'] } }],
+    ['agy', { server: { enabledTools: ['h2a_status'], disabledTools: ['h2a_status'] } }],
+    ['hermes', { server: { tools: { exclude: ['h2a_status'] } } }],
+    ['opencode', { global: { tools: { 'h2a_*': false } } }],
+  ]) {
+    const f = fixture(t, { mcpFilters: { [host]: filters } }), h = f.hosts.find(h => h.host === host);
+    assert.equal((await observation(f, host, 'MCP resolves activated prefix')).actual, true, host + ': intentional disabled tools preserved');
+    // Removing the native filters reactivates the withheld tool.
+    if (host === 'codex' || host === 'vibe') {
+      put(h.mcp, readFileSync(h.mcp, 'utf8').replace(/^(?:enabled_tools|disabled_tools) = .*\n/gm, ''));
+    } else if (host === 'hermes') {
+      const config = YAML.parse(readFileSync(h.mcp, 'utf8')); delete config.mcp_servers.h2a.tools; put(h.mcp, YAML.stringify(config));
+    } else {
+      const config = JSON.parse(readFileSync(h.mcp));
+      if (host === 'opencode') delete config.tools;
+      else for (const k of ['includeTools', 'excludeTools', 'enabledTools', 'disabledTools']) delete config.mcpServers.h2a[k];
+      put(h.mcp, JSON.stringify(config));
+    }
+    const changed = await observation(f, host, 'MCP resolves activated prefix');
+    assert.equal(changed.actual, false, host + ': forbidden tool reactivation');
+    assert.throws(() => contracts(sink, [changed]));
+  }
+});
+
 test('L0 MCP selection: Codex disabled entry cannot pass after convergence', t => {
   const f = fixture(t), h = f.hosts.find(h => h.host === 'codex');
   assert.equal(observeHosts(f.a, f.hosts).filter(o => o.actual).length, 31);
@@ -323,46 +424,79 @@ test('L0 artifacts: disappearing entries cannot break recovery observations or h
 
 function setMcpFlag(h, flag, value) {
   const original = readFileSync(h.mcp, 'utf8');
-  if (h.mcp.endsWith('.toml')) put(h.mcp, original.replace(/^command = /m, flag + ' = ' + JSON.stringify(value) + '\ncommand = '));
-  else if (h.mcp.endsWith('.yaml')) put(h.mcp, original.replace('    command:', '    ' + flag + ': ' + JSON.stringify(value) + '\n    command:'));
+  if (h.mcp.endsWith('.toml')) {
+    const index = original.search(/^command = /m), prefix = original.slice(0, index), field = flag + ' = ' + JSON.stringify(value) + '\n';
+    const pattern = new RegExp('^' + flag + ' = .*\\n', 'm');
+    put(h.mcp, (pattern.test(prefix) ? prefix.replace(pattern, field) : prefix + field) + original.slice(index));
+  } else if (h.mcp.endsWith('.yaml')) {
+    const config = YAML.parse(original); config.mcp_servers.h2a[flag] = value; put(h.mcp, YAML.stringify(config));
+  }
   else {
     const config = JSON.parse(original);
-    config.mcpServers.h2a[flag] = value;
+    (config.mcpServers ?? config.mcp).h2a[flag] = value;
     put(h.mcp, JSON.stringify(config));
   }
+}
+
+function setMcpSelection(h, a, enabled) {
+  if (h.host === 'claude' || h.host === 'gemini') {
+    const config = JSON.parse(readFileSync(h.mcp));
+    if (h.host === 'claude') config.projects = { [a.root]: { disabledMcpServers: enabled ? [] : ['h2a'] } };
+    else config.mcp = { excluded: enabled ? [] : ['h2a'] };
+    put(h.mcp, JSON.stringify(config));
+  } else setMcpFlag(h, ['vibe', 'agy'].includes(h.host) ? 'disabled' : 'enabled', ['vibe', 'agy'].includes(h.host) ? !enabled : enabled);
 }
 
 async function mcpSelection(t, host) {
   const f = fixture(t), h = f.hosts.find(h => h.host === host);
   const original = readFileSync(h.mcp, 'utf8');
   assert.equal((await observation(f, host, 'MCP resolves activated prefix')).actual, true);
-  // Every adapter rejects both explicit off spellings, before the shared cache.
-  for (const [flag, value] of [['enabled', false], ['disabled', true], ['enabled', 'false'], ['disabled', 'true']]) {
-    setMcpFlag(h, flag, value);
-    const disabled = await observation(f, host, 'MCP resolves activated prefix');
-    assert.equal(disabled.actual, false, host + ': ' + flag);
-    assert.throws(() => contracts(sink, [disabled]));
-    put(h.mcp, original);
-  }
-  for (const [flag, value] of [['enabled', true], ['disabled', false]]) {
-    setMcpFlag(h, flag, value);
-    assert.equal((await observation(f, host, 'MCP resolves activated prefix')).actual, true);
+  setMcpSelection(h, f.a, false);
+  const changed = await observation(f, host, 'MCP resolves activated prefix');
+  assert.equal(changed.actual, false, host + ': native selection disabled');
+  assert.throws(() => contracts(sink, [changed]));
+  put(h.mcp, original);
+  // The opposite spelling is ignored by this CLI. It must not invent a disabled
+  // integration (nor conceal reactivation when both spellings are present).
+  const disabledFlag = ['codex', 'hermes', 'opencode', 'muse'].includes(host);
+  setMcpFlag(h, disabledFlag ? 'disabled' : 'enabled', disabledFlag);
+  assert.equal((await observation(f, host, 'MCP resolves activated prefix')).actual, true, host + ': ignored alias');
+  put(h.mcp, original);
+  setMcpSelection(h, f.a, true);
+  assert.equal((await observation(f, host, 'MCP resolves activated prefix')).actual, true, 'explicit native enable');
+  put(h.mcp, original);
+  if (!['claude', 'gemini'].includes(host)) {
+    setMcpFlag(h, ['vibe', 'agy'].includes(host) ? 'disabled' : 'enabled', 'invalid');
+    assert.equal((await observation(f, host, 'MCP resolves activated prefix')).actual, host === 'hermes', 'Hermes warns and defaults on for invalid booleans; strict adapters refuse');
     put(h.mcp, original);
   }
   const disabled = fixture(t, { mcpDisabled: [host] }), off = disabled.hosts.find(h => h.host === host);
   assert.equal(off.mcpEnabled, false, 'selection is captured before convergence');
   const selected = readFileSync(off.mcp, 'utf8');
-  // All enabled routes now fail their protocol: the disabled one requires no probe.
   const candidateBytes = readFileSync(disabled.a.cli);
   put(disabled.a.cli, 'process.exit(64);');
   assert.equal((await observation(disabled, host, 'MCP resolves activated prefix')).actual, true);
   put(disabled.a.cli, candidateBytes);
-  const reenabled = selected.replace(/enabled([" =:]+)false/, 'enabled$1true');
-  assert.notEqual(reenabled, selected, 'the negative control must change the selection');
-  put(off.mcp, reenabled);
+  setMcpSelection(off, disabled.a, true);
+  assert.notEqual(readFileSync(off.mcp, 'utf8'), selected, 'negative control changes the native selection');
   assert.equal((await observation(disabled, host, 'MCP resolves activated prefix')).actual, false, 'must not re-enable a disabled selection');
   put(off.mcp, selected.replace(disabled.a.cli, '/stale-prefix/h2a'));
-  assert.equal((await observation(disabled, host, 'MCP resolves activated prefix')).actual, false, 'disabled payload must still target the candidate');
+  assert.equal((await observation(disabled, host, 'MCP resolves activated prefix')).actual, false, 'disabled payload still targets candidate');
+
+  if (host === 'codex') put(h.mcp, original.replace('[mcp_servers.h2a]', '[mcp_servers.h2a]\ndisabled_tools = ["h2a_status"]'));
+  else if (host === 'vibe') put(h.mcp, 'disabled_tools = ["h2a_*"]\n' + original);
+  else if (host === 'hermes') {
+    const config = YAML.parse(original); config.mcp_servers.h2a.tools = { exclude: ['h2a_status'] }; put(h.mcp, YAML.stringify(config));
+  } else if (host === 'gemini' || host === 'agy') {
+    const config = JSON.parse(original); config.mcpServers.h2a[host === 'agy' ? 'disabledTools' : 'excludeTools'] = ['h2a_status']; put(h.mcp, JSON.stringify(config));
+  } else if (host === 'opencode') {
+    const config = JSON.parse(original); config.tools = { 'h2a_*': false }; put(h.mcp, JSON.stringify(config));
+  } else if (host === 'muse') {
+    const config = JSON.parse(original); config.mcpServers.h2a.disabled_tools = ['h2a_status']; put(h.mcp, JSON.stringify(config));
+    assert.equal((await observation(f, host, 'MCP resolves activated prefix')).actual, true, 'Muse 1.3.0 ignores tool filter lists');
+    return;
+  } else return;
+  assert.equal((await observation(f, host, 'MCP resolves activated prefix')).actual, false, host + ': hidden tool despite healthy shared transport');
 }
 
 test('L0 MCP selection: claude preserves enabled and disabled choices', t => mcpSelection(t, 'claude'));

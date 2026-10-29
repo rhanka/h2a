@@ -8,17 +8,18 @@ import { delimiter, dirname, isAbsolute, join } from 'node:path';
 import { getStaticTOMLValue, parseForESLint } from 'toml-eslint-parser';
 import YAML from 'yaml';
 import { hash, json } from './cleanse-artifact.mjs';
+import { mcpState, toolVisible } from './cleanse-host-state.mjs';
 
 const oldSkill = readFileSync(new URL('./fixtures/cleanse-old-run.md', import.meta.url), 'utf8');
 const put = (p, bytes) => { mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, bytes); };
 
-export function seedHosts(a, { agyEnabled = true, vibeDisabled = false, mcpDisabled = [] } = {}) {
+export function seedHosts(a, { agyEnabled = true, vibeDisabled = false, mcpDisabled = [], mcpFilters = {} } = {}) {
   const home = a.env.HOME;
   a.env.CLAUDE_CONFIG_DIR = join(home, 'claude-config');
   a.env.CODEX_HOME = join(home, 'codex-config');
   a.env.VIBE_HOME = join(home, 'vibe-config');
   const specs = [
-    ['claude', a.env.CLAUDE_CONFIG_DIR, '.config/claude/mcp.json'],
+    ['claude', a.env.CLAUDE_CONFIG_DIR, '.claude.json'],
     ['codex', a.env.CODEX_HOME, 'config.toml'],
     ['gemini', join(home, '.gemini'), 'settings.json'],
     ['agy', join(home, '.gemini'), 'config/mcp_config.json'],
@@ -39,15 +40,34 @@ export function seedHosts(a, { agyEnabled = true, vibeDisabled = false, mcpDisab
     put(oldResourcePath, oldResource);
     const mcp = join(root, config);
     const command = join(a.root, 'old-prefix/bin/h2a');
-    const server = { command, args: ['mcp-serve'], transport: 'stdio' };
+    const server = host === 'opencode' ? { type: 'local', command: [command, 'mcp-serve'] } : { command, args: ['mcp-serve'], transport: 'stdio' };
     put(mcp, config.endsWith('.toml') ? `${host === 'vibe' ? '[[mcp_servers]]\nname = "h2a"\ntransport = "stdio"' + (vibeDisabled ? '\ndisabled = true' : '') : '[mcp_servers.h2a]'}\ncommand = "${command}"\nargs = ["mcp-serve"]\n\n[fixture]\nsentinel = "third-party"\n` :
       config.endsWith('.yaml') ? `mcp_servers:\n  h2a:\n    command: ${command}\n    args: [mcp-serve]\nfixture: third-party\n` :
-      JSON.stringify({ mcpServers: { h2a: server }, fixture: 'third-party' }));
+      JSON.stringify({ [host === 'opencode' ? 'mcp' : 'mcpServers']: { h2a: server }, fixture: 'third-party' }));
     const mcpEnabled = !mcpDisabled.includes(host) && !(host === 'vibe' && vibeDisabled);
     if (!mcpEnabled && !(host === 'vibe' && vibeDisabled)) {
-      if (config.endsWith('.toml')) put(mcp, readFileSync(mcp, 'utf8').replace('command = ', 'enabled = false\ncommand = '));
+      if (config.endsWith('.toml')) put(mcp, readFileSync(mcp, 'utf8').replace('command = ', (host === 'vibe' ? 'disabled = true' : 'enabled = false') + '\ncommand = '));
       else if (config.endsWith('.yaml')) put(mcp, readFileSync(mcp, 'utf8').replace('    command:', '    enabled: false\n    command:'));
-      else put(mcp, JSON.stringify({ mcpServers: { h2a: { ...server, enabled: false } }, fixture: 'third-party' }));
+      else {
+        const value = { [host === 'opencode' ? 'mcp' : 'mcpServers']: { h2a: server }, fixture: 'third-party' };
+        if (host === 'claude') value.projects = { [a.root]: { disabledMcpServers: ['h2a'] } };
+        else if (host === 'gemini') value.mcp = { excluded: ['h2a'] };
+        else server[host === 'agy' ? 'disabled' : 'enabled'] = host === 'agy';
+        put(mcp, JSON.stringify(value));
+      }
+    }
+    const filters = mcpFilters[host];
+    if (filters) {
+      if (config.endsWith('.toml')) {
+        const fields = Object.entries(filters.server ?? {}).map(([k, v]) => `${k} = ${JSON.stringify(v)}\n`).join('');
+        const globals = Object.entries(filters.global ?? {}).map(([k, v]) => `${k} = ${JSON.stringify(v)}\n`).join('');
+        put(mcp, globals + readFileSync(mcp, 'utf8').replace('command = ', fields + 'command = '));
+      } else {
+        const value = config.endsWith('.yaml') ? YAML.parse(readFileSync(mcp, 'utf8')) : json(mcp);
+        Object.assign(value, filters.global);
+        Object.assign((value.mcp_servers ?? value.mcpServers ?? value.mcp).h2a, filters.server);
+        put(mcp, config.endsWith('.yaml') ? YAML.stringify(value) : JSON.stringify(value));
+      }
     }
     const state = join(root, shared ? '.h2a-install-agy' : '.h2a-install');
     const manifestName = shared ? 'shared-owner.json' : 'manifest.json';
@@ -129,7 +149,10 @@ export function seedHosts(a, { agyEnabled = true, vibeDisabled = false, mcpDisab
     `);
     chmodSync(join(a.root, 'bin', host), 0o700);
     // put() preserves a deliberately constrained executable path.
-    return { host, root, skill, resource, mcp, helper, hooks, imported, registration, agyEnabled, vibeDisabled, mcpEnabled, format: shared ? 'toml' : 'markdown' };
+    const item = { host, root, skill, resource, mcp, helper, hooks, imported, registration, agyEnabled, vibeDisabled, mcpEnabled, format: shared ? 'toml' : 'markdown' };
+    const initial = parseConfig(item);
+    item.mcpState = structuredClone(mcpState(a, host, initial, entries(initial, host).find(([name]) => name === 'h2a')?.[1]));
+    return item;
   });
   return inventory;
 }
@@ -144,8 +167,10 @@ const prompt = path => { const bytes = text(path); return bytes === undefined ? 
 const scopeFiles = ['workspace-scope-guard.mjs', 'workspace-scope-shell.mjs', 'workspace-scope-state.mjs'];
 const parseConfig = item => item.mcp.endsWith('.toml') ? getStaticTOMLValue(parseForESLint(text(item.mcp)).ast) :
   item.mcp.endsWith('.yaml') ? YAML.parse(text(item.mcp)) : json(item.mcp);
-const entries = config => {
-  const servers = config.mcp_servers ?? config.mcpServers ?? config.mcp ?? {};
+const entries = (config, host) => {
+  if (host === 'muse' && config.mcp_servers && config.mcpServers) return [];
+  const servers = host === 'opencode' ? config.mcp ?? {} : ['vibe', 'codex', 'hermes'].includes(host) ? config.mcp_servers ?? {} :
+    host === 'muse' ? config.mcpServers ?? config.mcp_servers ?? {} : config.mcpServers ?? {};
   return Array.isArray(servers) ? servers.map(s => [s.name, s]) : Object.entries(servers);
 };
 const argv = server => Array.isArray(server?.command) ? server.command : [server?.command, ...(server?.args ?? [])];
@@ -201,28 +226,29 @@ function hostEvidence(a, item) {
   const config = parseConfig(item);
   return {
     skill: digest(item.skill), resource: digest(item.resource),
-    mcp: entries(config).filter(([name]) => /^h2a|^track/.test(name)),
+    mcp: entries(config, item.host).filter(([name]) => /^h2a|^track/.test(name)),
     helper: item.helper ? Object.fromEntries(scopeFiles.map(name => [name, digest(join(dirname(item.helper), name))])) : undefined,
     hooks: item.hooks ? json(item.hooks) : undefined,
     imported: item.imported ? { sha256: digest(item.imported), enabled: text(join(a.root, 'vendor-state/agy/enabled')) } : undefined, plugin: pluginState(a, item, config),
   };
 }
 
-function servesMcp(a, command) {
+function servesMcp(a, command, context) {
   const input = [
     { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'L0', version: '1' } } },
     { jsonrpc: '2.0', method: 'notifications/initialized' },
     { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} },
   ].map(JSON.stringify).join('\n') + '\n';
-  const result = spawnSync(command[0], command.slice(1), { cwd: a.root, env: a.env, input,
+  const result = spawnSync(command[0], command.slice(1), { ...context, input,
     encoding: 'utf8', timeout: 5000, killSignal: 'SIGKILL', maxBuffer: 2 * 1024 ** 2 });
   if (result.error || result.status !== 0) return false;
   try {
     const messages = result.stdout.trim().split('\n').map(JSON.parse);
     const init = messages.find(m => m.id === 1)?.result, tools = messages.find(m => m.id === 2)?.result?.tools;
     return init?.serverInfo?.name === '@sentropic/h2a' && init.serverInfo.version === a.version &&
-      Array.isArray(tools) && tools.some(t => t.name.startsWith('h2a_'));
-  } catch { return false; }
+      Array.isArray(tools) && tools.every(t => typeof t.name === 'string') && tools.some(t => t.name.startsWith('h2a_'))
+      ? tools.map(t => t.name) : undefined;
+  } catch { return undefined; }
 }
 
 // Parse only literal argv: do not execute shell syntax, comments or wrappers.
@@ -263,24 +289,38 @@ function selectedHook(a, item, config, helpersCurrent) {
     JSON.parse(result.stdout).hookSpecificOutput?.permissionDecision === 'deny';
 }
 
-function currentMcp(a, server, transports, item) {
+function currentMcp(a, server, transports, item, config = {}) {
   // Selection is independent of argv: a healthy cached handshake cannot make
   // an entry enabled. Compare with the choice frozen BEFORE installation.
-  if (!server || (server.enabled !== undefined && typeof server.enabled !== 'boolean') ||
-      (server.disabled !== undefined && typeof server.disabled !== 'boolean')) return false;
-  const enabled = server.enabled !== false && server.disabled !== true;
-  if (enabled !== (item?.mcpEnabled ?? true)) return false;
+  if (!server) return false;
+  let state;
+  try { state = mcpState(a, item.host, config, server); }
+  catch { return false; }
+  const selected = item.mcpState ?? mcpState(a, item.host, {}, {});
+  // Preserve native filters as well as activation. A newly written filter is a
+  // changed user choice even when it matches no tool in today's catalogue.
+  try { assert.deepEqual(state, selected); }
+  catch { return false; }
+  const enabled = state.enabled;
   if (item?.host === 'vibe' && server.transport !== 'stdio') return false;
-  const command = argv(server), target = executable(a, command[0]);
+  if (item.host === 'opencode' && (server.type !== 'local' || !Array.isArray(server.command))) return false;
+  if (item.host === 'muse' && server.type !== undefined && server.transport !== undefined) return false;
+  if (['url', 'httpUrl', 'serverUrl'].some(key => server[key] !== undefined)) return false;
+  const env = server[item.host === 'opencode' ? 'environment' : 'env'] ?? {};
+  if (!env || typeof env !== 'object' || Array.isArray(env) || Object.values(env).some(v => typeof v !== 'string')) return false;
+  const context = { cwd: server.cwd ?? a.root, env: { ...a.env, ...env } };
+  const command = argv(server), target = executable(context, command[0]);
   const direct = target === realpathSync(a.cli);
-  const viaNode = target === realpathSync(process.execPath) && executable(a, command[1]) === realpathSync(a.cli);
+  const viaNode = target === realpathSync(process.execPath) && executable(context, command[1]) === realpathSync(a.cli);
   if (!(direct || viaNode) || command[direct ? 1 : 2] !== 'mcp-serve') return false;
   // A deliberately disabled entry must keep its choice and current target;
   // it is not an effective server and must not be launched by the witness.
   if (!enabled) return true;
-  const key = JSON.stringify(command);
-  if (!transports.has(key)) transports.set(key, servesMcp(a, command));
-  return transports.get(key) === true;
+  const key = JSON.stringify([command, context]);
+  if (!transports.has(key)) transports.set(key, servesMcp(a, command, context));
+  const tools = transports.get(key);
+  return Array.isArray(tools) &&
+    tools.every(name => toolVisible(item.host, state, name) === toolVisible(item.host, selected, name));
 }
 
 function pluginMcp(a, root, host, transports) {
@@ -289,7 +329,7 @@ function pluginMcp(a, root, host, transports) {
   if (!declared) return false;
   const config = typeof declared === 'string' ? json(join(root, declared)) : { mcpServers: declared };
   const servers = entries(config);
-  return servers.length > 0 && servers.every(([, server]) => currentMcp(a, server, transports));
+  return servers.length > 0 && servers.every(([, server]) => currentMcp(a, server, transports, { host }, config));
 }
 
 export function observeHosts(a, inventory) {
@@ -315,10 +355,10 @@ export function observeHosts(a, inventory) {
     add('skill bytes', item.format === 'markdown' ? installedSkill === skill :
       rendered?.trim() === skill.replace(/^---\n[\s\S]*?\n---\n/, '').trim(), 'skill');
     add('linked resource bytes', evidence.resource === resource, 'resource');
-    const servers = entries(config), routes = servers.filter(([name, server]) =>
+    const servers = entries(config, item.host), routes = servers.filter(([name, server]) =>
       /^h2a/.test(name) || argv(server).some(arg => typeof arg === 'string' && arg.includes(a.cli)));
     add('MCP resolves activated prefix', routes.length === 1 && servers.filter(([name]) => /^track/.test(name)).length <= 1 &&
-      currentMcp(a, routes[0]?.[1], transports, item), 'mcp');
+      currentMcp(a, routes[0]?.[1], transports, item, config), 'mcp');
     let helpersCurrent;
     if (item.helper) {
       helpersCurrent = JSON.stringify(evidence.helper) === JSON.stringify(expectedHelpers);
