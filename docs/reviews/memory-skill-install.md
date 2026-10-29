@@ -79,3 +79,37 @@ outils mémoire MCP : le tuple publié relève de L0 et le dispatch de L2.
 La revue consensus exigée par `harness/review` n’a pas pu être lancée : aucune
 capacité MCP h2a n’est disponible et les règles du propriétaire interdisent
 d’accéder à l’installation réelle. Aucun avis indépendant n’est revendiqué.
+
+## Correctif du blocage CI de nettoyage
+
+La CI du commit `701feac72` a terminé avec **14 checks passants, 1 échec** :
+`npm-test-trust-root`, run `40879335502`, job `123466338764`. L’unique test
+en échec est `startup-latency: restoring ten resumes with 500 registry rows
+converges within 30 seconds` : les dix reprises retournent 0 en 1 663 ms, puis
+`restart-lab.js:63` échoue avec `ENOTEMPTY` en supprimant le HOME temporaire.
+
+Le laboratoire envoyait SIGKILL aux PID privés enregistrés mais attendait
+seulement la fermeture de ses enfants directs. Un témoin retarde la fin d’un
+descendant enregistré : le helper supprimait déjà son HOME alors qu’il était
+encore vivant. Le helper attend désormais l’arrêt des descendants enregistrés,
+en conservant la vérification PID/date de naissance et en relisant les reçus
+privés avant suppression. Aucun changement du runtime, du délai des tests ou
+des gates ; aucune suppression avec retry qui masquerait un écrivain actif.
+
+```sh
+rtk node --test --test-reporter=spec --test-name-pattern='^incident lab waits' packages/h2a/test/native-host-crash-recovery.test.js
+rtk node --test --test-reporter=spec packages/h2a/test/native-host-crash-recovery.test.js
+```
+
+RED du témoin avant correction : **0 pass, 1 fail, 0 skipped**, assertion
+`a pending descendant can still write into its HOME`. GREEN après correction :
+**17 pass, 0 fail, 0 skipped** sur le fichier complet, avec les dix reprises
+réussies en 653 ms. Le premier essai complet local a exposé l’absence de
+`pty.node` après `npm ci --ignore-scripts` ainsi qu’une erreur d’API du mock,
+corrigées avant ce RED probant. Le module local a été compilé directement en
+C++ sans lancer de script d’installation ni utiliser l’installation réelle :
+
+```sh
+rtk mkdir -p node_modules/node-pty/build/Release
+rtk g++ -shared -fPIC -O2 -std=c++17 -DNAPI_CPP_EXCEPTIONS -DNODE_GYP_MODULE_NAME=pty -I/usr/include/node -Inode_modules/node-addon-api node_modules/node-pty/src/unix/pty.cc -lutil -o node_modules/node-pty/build/Release/pty.node
+```
