@@ -986,6 +986,7 @@
     "candidate tarballs include both verified payloads and the exact five-package release cohort"
   ],
   "packages/h2a/test/node-test-order.test.js": [
+    "the runner remains alive until the final execution report is flushed after its children exit",
     "the production Node runner starts explicit files in priority order and records every real case",
     "the production Node runner reports a failing child and still executes the other explicit file",
     "both real package suites start before the remaining Node files without dropping any file",
@@ -1030,6 +1031,12 @@
   ],
   "packages/h2a/test/native-foreign-host-probe.test.js": [
     "should tolerate a closed legacy descriptor without hiding pinned directories or access errors"
+  ],
+  "packages/h2a/test/mh-l6-ipc-budget.test.js": [
+    "M17 oracle: a healthy child still answers within the unchanged budget",
+    "M17 oracle: budget expiry on a live unscheduled child reports alive evidence",
+    "M17 oracle: a dead child keeps the closed-before-reply verdict",
+    "M17 oracle: an early timer callback must not expire the unchanged deadline"
   ],
   "packages/h2a/test/mh-l6-package.test.js": [
     "U10 U12 should publish @sentropic/h2a with exact lockstep and install twice offline without a compiler",
@@ -1103,15 +1110,16 @@
     "L2: lock pins memory entry, version and normalized configuration before activation",
     "L2: selected memory discovers and calls all six tools through the Sentropic plan",
     "L2: unselected memory never loads or handles calls; h2a and Track remain available",
-    "L2: absent bindings or package refuse before memory is advertised",
-    "L2: trusted context resolution refuses without leaking details or invoking the provider",
+    "L2: absent cluster-mesh builtin refuses before memory is advertised",
+    "L2: builtin authorization refuses without any fallback to h2a handlers",
     "L2: bridge selects the third provider, forwards the verified selection, and never requests a gateway",
     "L2: actual attachment MCP protocol discovers metadata and dispatches selected memory under its fence",
     "L2: selected stdio shim reaches the real central memory dispatch with the same pinned lock",
-    "L2: a packed ESM-only Engram descriptor resolves and verifies its own asset closure",
     "L2: lock provisioning pins an explicitly selected memory tuple without changing the default tuple",
     "L2: a memory shim refuses initialize and discovery when the central binding is unconfigured",
     "L2: a memory shim refuses a central lock mismatch before discovery or dispatch",
-    "L2: bridge refuses absent bindings and bad lock digests before delegation"
+    "L2: bridge refuses absent bindings and bad lock digests before delegation",
+    "L2: selected builtin loader failure refuses compilation atomically",
+    "L2: builtin identity, loaded version and six-tool surface must match the locked provider"
   ]
 }
