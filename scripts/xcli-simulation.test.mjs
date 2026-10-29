@@ -10,6 +10,20 @@ import { verifySimulation, verifyWakeBatch, verifyWakePhases } from './xcli-ci-c
 import { runWakeCell, receiverInboxReads } from './xcli-simulation-fixture.mjs';
 import { removeReportedCampaignRoot } from './xcli-lab.mjs';
 
+test('L8 R4: an MCP cap during initial readiness remains a measured failure', () => {
+  const { status, receipt, cells: [cell] } = runWakeCell(['--pair', 'claude:codex',
+    '--mcp-call-cap', '1', '--timeout-ms', '5000']);
+  assert.equal(status, 2);
+  assert.deepEqual(receipt.counts, { 'simulated-OK': 0, 'simulated-KO': 1, blocked: 0 });
+  assert.equal(cell.failure, 'mcp-call-cap-exceeded');
+  assert.equal(cell.blocker, undefined);
+  assert.ok(cell.evidence.some(e => e.event === 'mcp-call-cap-exceeded' && e.count === 2 && e.cap === 1));
+  assert.equal(cell.processRecovery, true);
+  assert.equal(cell.parentProcessRecovery, true);
+  assert.equal(cell.secretWipe, true);
+  assert.equal(cell.parentSecretWipe, true);
+});
+
 test('a delivered envelope without a model reaction fails the live CI gate', () => {
   const root = fs.mkdtempSync(join(tmpdir(), 'xcli-negative-'));
   const output = join(root, 'negative.json');

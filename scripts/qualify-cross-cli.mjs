@@ -269,6 +269,7 @@ async function worker() {
     return target;
   }
   async function capture(target) {
+    await enforceMcpCallCaps();
     const output = await client.readOutput(target.state.id, target.seq);
     for (const chunk of output.chunks) {
       target.lastOutputAt = Date.now();
@@ -308,6 +309,28 @@ async function worker() {
     return true;
   }
   function events(target) { return readEvents(target.env.XCLI_EVENTS); }
+  async function stopTarget(target) {
+    const current = await client.state(target.state.id);
+    assert.equal(current.generation, target.state.generation, 'private host generation changed');
+    assert.equal(current.incarnation, target.state.incarnation, 'private session incarnation changed');
+    if (current.status === 'exited') return;
+    try { await client.stopIfIncarnation(target.state.id, target.state.generation, target.state.incarnation, 'SIGKILL'); }
+    catch (error) {
+      // Only accept a concurrent exit of this same owned incarnation.
+      const after = await client.state(target.state.id);
+      if (after.status !== 'exited' || after.generation !== target.state.generation || after.incarnation !== target.state.incarnation) throw error;
+    }
+  }
+  async function enforceMcpCallCaps() {
+    let capped = false;
+    for (const target of targets) {
+      if (!events(target).some(e => e.event === 'mcp-call-cap-exceeded')) continue;
+      capped = true;
+      await stopTarget(target);
+      row.evidence.push({ event: 'mcp-cap-session-stopped', role: target.role, at: Date.now() });
+    }
+    if (capped) throw new Error('mcp-call-cap-exceeded');
+  }
   function loaded(target) {
     const e = events(target);
     return e.some(v => v.event === 'initialize' && v.ok) && e.some(v => v.event === 'tools' && v.ok && v.messaging);
@@ -462,6 +485,7 @@ async function worker() {
       };
       const markerDeadline = Date.now() + timeoutMs * 2;
       while (Date.now() < markerDeadline) {
+        await enforceMcpCallCaps();
         if (cancelled) { row.blocker = 'qualification-cancelled'; return row; }
         if (markerOk('receiver-script-done') && markerOk('sender-script-done')) break;
         await sleep(500);
@@ -584,6 +608,7 @@ async function worker() {
     const cancellableSleep = async ms => {
       const until = Date.now() + ms;
       while (Date.now() < until) {
+        await enforceMcpCallCaps();
         if (cancelled) return false;
         await sleep(Math.min(100, until - Date.now()));
       }
@@ -798,14 +823,13 @@ async function worker() {
     }
     if (!row.replyDelivered) for (const target of targets)
       row.evidence.push({ event: 'final-screen-facts', role: target.role, facts: startupFacts(await capture(target)) });
-    // Lot L8 (§6.4) runaway brake: a session the proxy terminated at the
-    // per-session MCP-call cap classifies measured-KO. The count is exact at
-    // the witness; it does not bound silent reasoning.
-    const mcpCapped = targets.some(t => readEvents(t.env.XCLI_EVENTS).some(e => e.event === 'mcp-call-cap-exceeded'));
-    if (mcpCapped && !row.blocker) row.failure = 'mcp-call-cap-exceeded';
     if (!row.blocker && !row.replyDelivered && !row.wakeFailure) row.failure = row.sent ? (row.received ? 'reply-not-observed' : 'live-receive-not-observed') : 'sender-send-not-observed';
     return row;
   } catch (error) {
+    if (error.message === 'mcp-call-cap-exceeded') {
+      row.failure = 'mcp-call-cap-exceeded';
+      return row;
+    }
     const known = ['host-setup-no-config', 'login-not-confined:gemini', 'login-not-confined:agy', 'login-not-confined:claude', 'login-not-confined:muse'];
     row.blocker = known.includes(error.message) ? error.message : 'qualification-infrastructure-error';
     row.infrastructureCode = /^[A-Z0-9_]+$/.test(error.code ?? '') ? error.code : undefined;
@@ -832,20 +856,8 @@ async function worker() {
         }) });
       }
       catch (error) { if (!['ENOENT', 'ESRCH'].includes(error.code)) cleanupError('pin', error); }
-      try {
-        const current = await client.state(t.state.id);
-        assert.equal(current.generation, t.state.generation, 'private host generation changed');
-        assert.equal(current.incarnation, t.state.incarnation, 'private session incarnation changed');
-        if (current.status !== 'exited') {
-          try { await client.stopIfIncarnation(t.state.id, t.state.generation, t.state.incarnation, 'SIGKILL'); }
-          catch (error) {
-            // The child may exit between state and the fenced stop. Accept
-            // only the same observed generation/incarnation, now exited.
-            const after = await client.state(t.state.id);
-            if (after.status !== 'exited' || after.generation !== t.state.generation || after.incarnation !== t.state.incarnation) throw error;
-          }
-        }
-      } catch (error) { cleanupError('native-stop', error); }
+      try { await stopTarget(t); }
+      catch (error) { cleanupError('native-stop', error); }
     }
     client?.close();
     if (host) {
@@ -886,7 +898,15 @@ async function worker() {
     row.execJournal = classifyExecJournal(readExecJournal(execJournal));
     row.evidence.push({ event: 'exec-journal', ...row.execJournal });
     if (row.execJournal.pythonDescendants.length && !row.blocker) row.blocker = 'python-descendant-detected';
-    row.status = row.cleanupFailed ? 'blocked' : classify(row);
+    // A cap witnessed in any phase survives every early return and exception.
+    // Cleanup and interpreter violations retain their blocking precedence.
+    const mcpCapped = row.evidence.some(e => e.event === 'mcp-call-cap-exceeded');
+    if (mcpCapped && !row.cleanupFailed && !row.execJournal.pythonDescendants.length) {
+      delete row.blocker;
+      delete row.wakeFailure;
+      row.failure = 'mcp-call-cap-exceeded';
+      row.status = 'measured-KO';
+    } else row.status = row.cleanupFailed ? 'blocked' : classify(row);
     if (simulated) row.status = row.status.replace('measured-', 'simulated-');
     if (!row.secretWipe) row.blocker = 'secret-wipe-unproven';
     else if (row.cleanupFailed) row.blocker = 'owned-process-cleanup-failed';
@@ -1046,7 +1066,7 @@ async function main() {
   runs.sort((a, b) => Number(!(a.sharedSeat ?? a.sender === a.receiver)) - Number(!(b.sharedSeat ?? b.sender === b.receiver)));
   // Lot L8 (§6.4/§6.5): per-seat quota stops, one preflight per seat, and the
   // pre-spawn cap gates. Nothing spawns and no seat is touched on refusal.
-  const quotaSeats = new Set();
+  const quotaSeats = new Set(ledger.quotaSeats ?? []);
   const preflighted = new Map();
   const runAuthPrecheck = async (seat, { executable }) => {
     // Muse config-status contrast: the control HOME (no logins) must not
@@ -1162,6 +1182,14 @@ async function main() {
       assert.ok(row && typeof row === 'object', 'worker row must be an object');
     } catch { row = { sender, receiver, status: 'blocked', cleanupFailed: true,
       blocker: 'qualification-worker-failed-cleanup-unproven', evidence: [], elapsedMs: 0, cell }; }
+    // Quota stops belong to the campaign, including its later resumes.
+    // Persist the worker's observation before recovery can change its blocker.
+    if (row.blocker === 'provider-quota') {
+      quotaSeats.add(seatKey(run, 'sender'));
+      quotaSeats.add(seatKey(run, 'receiver'));
+      ledger.quotaSeats = [...quotaSeats];
+      persistLedger(ledger);
+    }
     try {
       const observed = supervisorResult(observation);
       row.parentProcessRecovery = observed.processRecovery === true;
@@ -1204,10 +1232,6 @@ async function main() {
     // Lot L8 (§6.4): quota safety net per seat, and wall-clock accounting for
     // the silent-session bound. Per-cell files are seat-qualified under a
     // manifest so seat pairs sharing a family never overwrite each other.
-    if (row.blocker === 'provider-quota') {
-      quotaSeats.add(seatKey(run, 'sender'));
-      quotaSeats.add(seatKey(run, 'receiver'));
-    }
     row.parentElapsedMs = Math.ceil(performance.now() - cellStarted);
     noteWallClock(ledger, row.parentElapsedMs, { reservedMs: cellBoundMs });
     if (row.cleanupFailed) stopping = true;
