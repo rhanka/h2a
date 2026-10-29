@@ -1,6 +1,6 @@
 // Independent L0 model of the user configuration selected by each fixture.
 // Sources and qualification boundaries: docs/reviews/native-cleanse-l0-r7.md.
-// Unknown aliases have no effect; there is no universal enabled/disabled flag.
+// Each reader decides whether an unknown alias is ignored or invalid.
 export function mcpState(a, host, config, server = {}) {
   const bool = (value, fallback) => {
     if (value === undefined) return fallback;
@@ -33,8 +33,14 @@ export function mcpState(a, host, config, server = {}) {
       (config.mcp?.allowed === undefined || list(config.mcp.allowed).includes('h2a')),
       allow: list(server.includeTools), deny: list(server.excludeTools) };
     case 'claude': return { enabled: !(list(config.projects?.[a.root]?.disabledMcpServers) ?? []).includes('h2a') };
-    case 'opencode': return { enabled: bool(server.enabled, true), tools: config.tools ?? {}, permission: config.permission ?? {},
-      agent: config.agent?.[config.default_agent ?? 'build'] ?? {} };
+    case 'opencode': {
+      // The supported legacy mcp.<name> schema is strict, unlike Vibe's
+      // extra=ignore model. mcp.servers uses a different (new) schema.
+      const fields = ['type', 'command', 'cwd', 'environment', 'enabled', 'timeout'];
+      if (Object.keys(server).some(key => !fields.includes(key))) throw new TypeError('opencode: unknown MCP field');
+      return { enabled: bool(server.enabled, true), tools: config.tools ?? {}, permission: config.permission ?? {},
+        agent: config.agent?.[config.default_agent ?? 'build'] ?? {} };
+    }
     default: throw new Error('unmodelled MCP adapter: ' + host);
   }
 }
