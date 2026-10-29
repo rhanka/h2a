@@ -3,6 +3,7 @@
 - Scope: resolve round-2 P1/P2 in L0 witnesses and their independent npm trust root; no L1–L6 product implementation.
 - The 42 desired contracts now have literal, required execution identities alongside the six packaged product witnesses. A known-missing result must prove the exact assertion and unchanged seeded artifact evidence; repaired contracts become GREEN automatically.
 - MCP checks exchange initialize/tools/list with the selected candidate; hooks parse and execute selected registrations with all helper dependencies; plugin checks inventory full skills/hooks payloads and follow the selected Codex marketplace into its effective cache.
+- Codex's referenced .mcp.json is part of the independent plugin payload, with missing/stale cache and incomplete candidate controls reproduced RED before correction.
 - Round-2 composite reproduction: the old oracle accepts 31/31; the corrected oracle rejects 12 stale artifacts. Regression suite: 6/6; packaged baseline + oracles: 54/54; independent trust root: 44/44, zero skips/todos.
 - Strict replay on main 912dd3035, rc.7 8d588db05 and head: each six product witnesses pass and 42 exact missing contracts fail. Real two-endpoint run/restore, twenty UUIDs, flock and PTY I/O remain observed.
 - Evidence, confinement and native dependency qualification limit: docs/reviews/native-cleanse-l0-r3.md. No new peer consensus claimed.

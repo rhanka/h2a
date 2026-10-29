@@ -30,7 +30,7 @@ function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'oracle-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const a = { root, packages: join(root, 'payload'), env: isolatedEnv(root), version: '0.98.7', cli: join(root, 'candidate.cjs') };
-  for (const path of ['hooks', 'skills', '.claude-plugin', '.codex-plugin']) {
+  for (const path of ['hooks', 'skills', '.claude-plugin', '.codex-plugin', '.mcp.json']) {
     cpSync(new URL('../' + path, import.meta.url), join(a.packages, 'h2a', path), { recursive: true });
   }
   const resource = 'present-decision/assets/native-questions.md';
@@ -60,7 +60,7 @@ function fixture(t) {
       const events = { PreToolUse: [{ matcher: '.*', hooks: [{ type: 'command', command }] }] };
       put(h.hooks, JSON.stringify({ ...(h.host === 'muse' ? { hooks: events } : { 'sentropic-h2a-workspace-scope': { enabled: true, ...events } }), fixture: 'third-party' }));
     }
-    if (h.imported) put(h.imported, skill.replace(/^---\n[\s\S]*?\n---\n/, '').trim());
+    if (h.imported) put(h.imported, readFileSync(h.skill));
     if (h.registration) {
       const cache = join(h.root, 'plugins/cache/sentropic/h2a', a.version);
       cpSync(join(a.packages, 'h2a'), cache, { recursive: true });
@@ -90,10 +90,17 @@ const observation = async (f, host, family) => (await observeHosts(f.a, f.hosts)
 
 test('L0 inventory: all frozen artifacts can be observed current', async t => {
   const f = fixture(t);
+  writeMcp(f.hosts.find(h => h.host === 'vibe'), f.a,
+    ['mcp-serve', '--auto-open', '--host', 'vibe', '--auto-upgrade', '--wake', 'auto']);
+  const muse = f.hosts.find(h => h.host === 'muse'), hooks = JSON.parse(readFileSync(muse.hooks));
+  hooks.hooks.PreToolUse[0].hooks[0].command = [process.execPath, muse.helper, '--host', 'muse'].map(JSON.stringify).join(' ');
+  put(muse.hooks, JSON.stringify(hooks));
   const observations = await observeHosts(f.a, f.hosts);
   assert.equal(observations.length, 31);
   assert.deepEqual(observations.filter(o => o.actual !== o.expected), []);
   contracts(sink, observations);
+  put(f.hosts.find(h => h.host === 'agy').imported, 'not TOML payload');
+  assert.throws(() => observeHosts(f.a, f.hosts), 'malformed imported state cannot be current');
 });
 
 test('L0 MCP: version, echo, wrong protocol and duplicate routes cannot pass as the effective server', async t => {
@@ -153,10 +160,29 @@ test('L0 plugins: missing helpers and stale selected Codex sources cannot pass w
     put(helper, bytes);
   }
   const codex = f.hosts.find(h => h.host === 'codex');
+  const mcp = join(codex.root, 'plugins/cache/sentropic/h2a', f.a.version, '.mcp.json');
+  const mcpBytes = readFileSync(mcp);
+  rmSync(mcp);
+  bad.push(await observation(f, 'codex', 'registered effective plugin cache'));
+  put(mcp, JSON.stringify({ mcpServers: { h2a: { command: '/stale-prefix/h2a', args: ['mcp-serve'] } } }));
+  bad.push(await observation(f, 'codex', 'registered effective plugin cache'));
+  put(mcp, mcpBytes);
   put(codex.mcp, readFileSync(codex.mcp, 'utf8').replace('source_type = "local"', 'source_type = "git"') + '\nref = "main"\n');
   bad.push(await observation(f, 'codex', 'registered effective plugin cache'));
   assert.deepEqual(bad.map(o => [o.id, o.actual]), bad.map(o => [o.id, false]));
   for (const o of bad) assert.throws(() => contracts(sink, [o]));
+  const claude = f.hosts.find(h => h.host === 'claude');
+  const asset = 'skills/h2a-run/assets/reference.bin';
+  const cachedAsset = join(claude.root, 'plugins/cache/sentropic/h2a', f.a.version, asset);
+  put(join(f.a.packages, 'h2a', asset), Buffer.from([0xff]));
+  put(cachedAsset, Buffer.from([0xff]));
+  assert.equal((await observation(f, 'claude', 'registered effective plugin cache')).actual, true);
+  put(cachedAsset, Buffer.from([0xfe]));
+  const staleAsset = await observation(f, 'claude', 'registered effective plugin cache');
+  assert.equal(staleAsset.actual, false, 'distinct binary payloads must not collapse to the same UTF-8 replacement character');
+  assert.throws(() => contracts(sink, [staleAsset]));
+  rmSync(join(f.a.packages, 'h2a/.mcp.json'));
+  assert.throws(() => observeHosts(f.a, f.hosts), /candidate payload missing required/);
 });
 
 test('L0 reviewers reproduction: version MCPs, echo hooks and incomplete unselected caches cannot yield 31 GREEN', async t => {
