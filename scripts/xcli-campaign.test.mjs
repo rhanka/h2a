@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
-import { repo, removeCampaignRoot } from './xcli-lab.mjs';
+import { repo, removeCampaignRoot, environment, sourceBuild, compliantQualificationRoot } from './xcli-lab.mjs';
 
 const QUALIFY = join(repo, 'scripts/qualify-cross-cli.mjs');
 
@@ -48,7 +48,7 @@ function runCampaign(args, stubBody) {
   return { dir, root, receipt, invocations, result };
 }
 
-test('L8: a seat-qualified pair selects distinct auth sources per role', () => {
+test('L8 R3: a simulated seat-qualified pair keeps role attribution without auth sources', () => {
   const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-camp-'));
   try {
     const manifest = writeManifest(dir, [
@@ -61,14 +61,51 @@ test('L8: a seat-qualified pair selects distinct auth sources per role', () => {
       '--timeout-ms', '10000'], stubRow('stub-no-model'));
     try {
       const routing = JSON.parse(fs.readFileSync(join(run.root, 'stub-last-request.json'), 'utf8'));
-      assert.notEqual(routing.authHomes.sender, routing.authHomes.receiver);
-      assert.ok(routing.authHomes.sender.endsWith('seat-a'), 'sender copies only its own seat entry');
-      assert.ok(routing.authHomes.receiver.endsWith('seat-b'), 'receiver copies only its own seat entry');
+      assert.deepEqual(routing.authHomes, {}, 'simulated workers receive no credential paths');
       assert.deepEqual(run.receipt.cells[0].seats, { sender: 'claude-a', receiver: 'claude-b' });
       assert.equal(run.receipt.cells[0].sharedSeat, false);
       assert.equal(run.receipt.seatMode, 'interim-file-copy');
     } finally { removeCampaignRoot(run.root); fs.rmSync(run.dir, { recursive: true, force: true }); }
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('L8 R3: a simulated worker never reads or copies supplied dummy logins', () => {
+  const root = compliantQualificationRoot();
+  try {
+    const built = sourceBuild(root), auth = join(root, 'auth');
+    fs.mkdirSync(join(auth, '.codex'), { recursive: true });
+    fs.writeFileSync(join(auth, '.codex/auth.json'), '{"token":"dummy-only"}');
+    const reads = join(root, 'auth-reads.jsonl'), observer = join(root, 'observe.mjs');
+    fs.writeFileSync(observer, `import fs from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
+const realpath = fs.realpathSync;
+for (const method of ['openSync', 'readFileSync', 'readdirSync']) {
+  const original = fs[method];
+  fs[method] = function(path, ...args) {
+    let target = typeof path === 'number' ? '/proc/self/fd/' + path : String(path);
+    try { if (target.startsWith('/proc/self/fd/')) target = realpath(target); } catch { /* absent allowlist member */ }
+    if (target === ${JSON.stringify(auth)} || target.startsWith(${JSON.stringify(auth + '/')}))
+      fs.appendFileSync(${JSON.stringify(reads)}, JSON.stringify({ method, path: target }) + '\\n');
+    return original.call(this, path, ...args);
+  };
+}
+syncBuiltinESMExports();`);
+    const result = spawnSync(process.execPath, ['--import', observer, QUALIFY, '--worker'], {
+      env: { ...environment(join(root, 'worker')), H2A_TEST_QUALIFICATION_ROOT: root }, cwd: root,
+      input: JSON.stringify({ sender: 'codex', receiver: 'codex', root, build: built.path,
+        executables: { codex: '/bin/true' }, simulated: true, timeoutMs: 1000,
+        authHome: auth, authHomes: { sender: auth, receiver: auth } }),
+      encoding: 'utf8', timeout: 45000, maxBuffer: 1024 * 1024 });
+    assert.equal(result.status, 0, result.stderr);
+    const row = JSON.parse(result.stdout);
+    const observed = fs.existsSync(reads) ? fs.readFileSync(reads, 'utf8').trim().split('\n').map(JSON.parse) : [];
+    console.log({ credentialsCopied: row.credentialsCopied, authReads: observed.length });
+    assert.equal(row.cleanupFailed, undefined, JSON.stringify(row.cleanupErrors));
+    assert.ok(Object.hasOwn(row.credentialsCopied, 'receiver'), 'the receiver reached login mapping');
+    assert.deepEqual(observed, [], 'no auth file may even be opened in simulation');
+    assert.ok(Object.values(row.credentialsCopied).every(names => names.length === 0));
+    assert.ok(!row.evidence.some(e => e.event === 'login-mapped'));
+  } finally { removeCampaignRoot(root); }
 });
 
 test('L8: a diagonal single-seat cell records sharedSeat', () => {
