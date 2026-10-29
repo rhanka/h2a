@@ -1,11 +1,12 @@
 // L0 executes desired contracts against a prepared/prepacked, installed RC.
 // Strict RED: H2A_CLEANSE_STRICT=1 node --test <this file>.
-// L0 CI records named missing contracts as diagnostics; infrastructure and
-// safety assertions gate normally. A repaired contract becomes GREEN unchanged.
+// L0 gates prove the exact known-missing assertion and its seeded evidence.
+// Changed failures block CI. A repaired contract becomes GREEN unchanged.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { contracts } from './helpers/cleanse-contracts.mjs';
 import { candidate, json, run } from './helpers/cleanse-artifact.mjs';
 import { eventually, files, gui, lab } from './helpers/cleanse-lab.mjs';
 import { observeHosts, seedHosts } from './helpers/cleanse-hosts.mjs';
@@ -19,25 +20,27 @@ before(() => {
   artifact.install();
   artifact.verify();
 });
-after(() => { for (const fn of cleanups.reverse()) fn(); });
+after(() => {
+  try { assert.equal(observed.size, 0, 'every observed contract must execute its registered test'); }
+  finally { for (const fn of cleanups.reverse()) fn(); }
+});
 
-function contracts(t, observations) {
-  const missing = [];
-  for (const { id, lot, actual, expected } of observations) {
-    try {
-      assert.deepEqual(actual, expected, `${id} (${lot})`);
-      t.diagnostic(`GREEN ${id} (${lot})`);
-    } catch (error) {
-      assert.equal(error.code, 'ERR_ASSERTION');
-      missing.push(error);
-      t.diagnostic(`RED ${id} (${lot}): actual=${JSON.stringify(actual)} expected=${JSON.stringify(expected)}`);
-    }
-  }
-  assert.ok(observations.length > 0, 'a witness must execute desired assertions');
-  if (process.env.H2A_CLEANSE_STRICT === '1' && missing.length) {
-    throw new AggregateError(missing, missing.map(e => e.message).join('\n'));
+const observed = new Map();
+function record(observations) {
+  for (const observation of observations) {
+    assert.equal(observed.has(observation.id), false, 'one observation per contract');
+    observed.set(observation.id, observation);
   }
 }
+function witness(id) {
+  return t => {
+    assert.ok(observed.has(id), id + ': product observation must have executed');
+    const observation = observed.get(id);
+    observed.delete(id);
+    contracts(t, [observation]);
+  };
+}
+
 
 test('L0 install: global candidate lifecycle converges the independent eight-host inventory', t => {
   artifact.verify();
@@ -50,8 +53,12 @@ test('L0 install: global candidate lifecycle converges the independent eight-hos
     writeFileSync(claude.mcp, JSON.stringify(wrong));
     const control = observeHosts(artifact, hosts).find(o => o.id === 'claude installed MCP resolves activated prefix');
     assert.equal(control.actual, false, 'a candidate path passed to echo is not the effective MCP binary');
+    wrong.mcpServers.h2a = { command: process.execPath, args: [artifact.cli, 'mcp-serve'] };
+    writeFileSync(claude.mcp, JSON.stringify(wrong));
+    const current = observeHosts(artifact, hosts).find(o => o.id === 'claude installed MCP resolves activated prefix');
+    assert.equal(current.actual, true, 'the installed candidate must actually answer initialize and tools/list');
   } finally { writeFileSync(claude.mcp, original); }
-  contracts(t, observeHosts(artifact, hosts));
+  record(observeHosts(artifact, hosts));
 });
 
 test('L0 packaged RC: prepare and prepack preserve exact plugin and integration payload versions', t => {
@@ -61,11 +68,13 @@ test('L0 packaged RC: prepare and prepack preserve exact plugin and integration 
   assert.equal(pkg.version, artifact.version);
   const files = run('tar', ['-tzf', tar], artifact.root, artifact.env).split('\n');
   const manifest = files.includes('package/integration-manifest.json') ? read('integration-manifest.json') : undefined;
-  contracts(t, [
+  record([
     ...['.claude-plugin/plugin.json', '.codex-plugin/plugin.json'].map(path => ({
       id: `packaged ${path} exact RC`, lot: 'L3', actual: read(path).version, expected: artifact.version,
+      knownMissing: { actual: '0.98.7', expected: artifact.version },
     })),
-    { id: 'packaged integration manifest exact RC', lot: 'L3', actual: manifest?.version, expected: artifact.version },
+    { id: 'packaged integration manifest exact RC', lot: 'L3', actual: manifest?.version, expected: artifact.version,
+      knownMissing: { actual: undefined, expected: artifact.version } },
   ]);
 });
 
@@ -86,13 +95,13 @@ test('L0 R1: packaged public fresh and resume recover two endpoints and archive 
   assert.equal(f.transcripts().filter(r => r.id === f.deadClaimId).length, 1);
   f.preserve();
   t.diagnostic(JSON.stringify({ freshExit: fresh.code, resumeExit: resumed.code, endpoints: inventory.map(h => ({ socket: h.socket, hostPid: h.ping.hostPid })), transcripts: f.transcripts() }));
-  contracts(t, [{ id: 'dead claim archived before replacement', lot: 'L1',
+  record([{ id: 'dead claim archived before replacement', lot: 'L1',
     actual: files(f.root).some(p => p !== f.deadClaim && !p.endsWith('.pending') && lstatSync(p).isFile() && readFileSync(p, 'utf8') === f.deadClaimBytes),
-    expected: true },
+    expected: true, knownMissing: { actual: false, expected: true } },
   { id: 'proven dead background row archived and retired', lot: 'L1',
     actual: !json(f.registry).entries.some(r => r.id === 'background-dead') &&
       files(f.root).some(p => p !== f.registry && /\.(json|jsonl)$/.test(p) && lstatSync(p).isFile() && readFileSync(p, 'utf8').includes('background-dead')),
-    expected: true }]);
+    expected: true, knownMissing: { actual: false, expected: true } }]);
 });
 
 test('L0 R2: packaged real restore dispatches twenty conversations through flock after endpoint preparation', { timeout: 60000 }, async t => {
@@ -121,8 +130,9 @@ test('L0 R2: packaged real restore dispatches twenty conversations through flock
     assert.ok(!existsSync(map) || readFileSync(map, 'utf8').trim() === '', 'all map lines consumed by the product dispatcher');
   }
   t.diagnostic(JSON.stringify({ restoreExit: result.code, conversations: f.transcripts().length, dispatchers: dispatches.length }));
-  contracts(t, [{ id: 'both endpoints ready before restore dispatcher', lot: 'L1',
-    actual: json(join(f.env.HOME, 'before-dispatch')).ready, expected: [true, true] }]);
+  record([{ id: 'both endpoints ready before restore dispatcher', lot: 'L1',
+    actual: json(join(f.env.HOME, 'before-dispatch')).ready, expected: [true, true],
+    knownMissing: { actual: [false, false], expected: [true, true] } }]);
 });
 
 test('L0 R1: public run quarantines the original stale socket inodes with a recovery record', { timeout: 60000 }, async t => {
@@ -148,11 +158,13 @@ test('L0 R1: public run quarantines the original stale socket inodes with a reco
   await f.usable(owner.socket, 'h2a-after-crash');
   f.preserve();
   const artifacts = files(f.root);
-  contracts(t, stale.flatMap(old => [
+  record(stale.flatMap(old => [
     { id: old.socket.split('/').at(-1) + ' original inode quarantined', lot: 'L1',
-      actual: artifacts.some(p => !f.sockets.includes(p) && lstatSync(p).isSocket() && lstatSync(p).dev === old.dev && lstatSync(p).ino === old.ino), expected: true },
+      actual: artifacts.some(p => !f.sockets.includes(p) && lstatSync(p).isSocket() && lstatSync(p).dev === old.dev && lstatSync(p).ino === old.ino), expected: true,
+      knownMissing: { actual: false, expected: true } },
     { id: old.socket.split('/').at(-1) + ' recovery record', lot: 'L1',
-      actual: artifacts.some(p => lstatSync(p).isFile() && /\.(json|jsonl)$/.test(p) && readFileSync(p, 'utf8').includes(old.socket) && readFileSync(p, 'utf8').includes(String(old.ino))), expected: true },
+      actual: artifacts.some(p => lstatSync(p).isFile() && /\.(json|jsonl)$/.test(p) && readFileSync(p, 'utf8').includes(old.socket) && readFileSync(p, 'utf8').includes(String(old.ino))), expected: true,
+      knownMissing: { actual: false, expected: true } },
   ]));
 });
 
@@ -164,6 +176,53 @@ test('L0 R1: public resume reports a coded refusal for an unattributed legacy re
   assert.equal(readFileSync(f.barrier + '.reclaim', 'utf8'), bytes);
   f.preserve();
   t.diagnostic(JSON.stringify({ exit: result.code, stderr: result.stderr }));
-  contracts(t, [{ id: 'legacy reclaim barrier coded refusal', lot: 'L1',
-    actual: result.code !== 0 && /reclaim|unattributed|recovery.*refus/i.test(result.stderr + result.stdout), expected: true }]);
+  record([{ id: 'legacy reclaim barrier coded refusal', lot: 'L1',
+    actual: result.code !== 0 && /reclaim|unattributed|recovery.*refus/i.test(result.stderr + result.stdout), expected: true,
+    evidence: { code: result.code, stdout: result.stdout, stderr: result.stderr.replaceAll(f.barrierId, '<conversation>') },
+    knownMissing: { actual: false, expected: true, evidence: { code: 0, stdout: '',
+      stderr: '[h2a] conversation <conversation> is already being resumed; duplicate launch request skipped.\n' } } }]);
 });
+
+// Literal identities are independently required by the npm execution inventory.
+test("L0 contract: claude installed skill bytes", witness("claude installed skill bytes"));
+test("L0 contract: claude installed linked resource bytes", witness("claude installed linked resource bytes"));
+test("L0 contract: claude installed MCP resolves activated prefix", witness("claude installed MCP resolves activated prefix"));
+test("L0 contract: claude installed registered effective plugin cache", witness("claude installed registered effective plugin cache"));
+test("L0 contract: codex installed skill bytes", witness("codex installed skill bytes"));
+test("L0 contract: codex installed linked resource bytes", witness("codex installed linked resource bytes"));
+test("L0 contract: codex installed MCP resolves activated prefix", witness("codex installed MCP resolves activated prefix"));
+test("L0 contract: codex installed registered effective plugin cache", witness("codex installed registered effective plugin cache"));
+test("L0 contract: gemini installed skill bytes", witness("gemini installed skill bytes"));
+test("L0 contract: gemini installed linked resource bytes", witness("gemini installed linked resource bytes"));
+test("L0 contract: gemini installed MCP resolves activated prefix", witness("gemini installed MCP resolves activated prefix"));
+test("L0 contract: agy installed skill bytes", witness("agy installed skill bytes"));
+test("L0 contract: agy installed linked resource bytes", witness("agy installed linked resource bytes"));
+test("L0 contract: agy installed MCP resolves activated prefix", witness("agy installed MCP resolves activated prefix"));
+test("L0 contract: agy installed selected helper bytes", witness("agy installed selected helper bytes"));
+test("L0 contract: agy installed selected hook registration", witness("agy installed selected hook registration"));
+test("L0 contract: agy installed observed Agy imported bytes", witness("agy installed observed Agy imported bytes"));
+test("L0 contract: hermes installed skill bytes", witness("hermes installed skill bytes"));
+test("L0 contract: hermes installed linked resource bytes", witness("hermes installed linked resource bytes"));
+test("L0 contract: hermes installed MCP resolves activated prefix", witness("hermes installed MCP resolves activated prefix"));
+test("L0 contract: opencode installed skill bytes", witness("opencode installed skill bytes"));
+test("L0 contract: opencode installed linked resource bytes", witness("opencode installed linked resource bytes"));
+test("L0 contract: opencode installed MCP resolves activated prefix", witness("opencode installed MCP resolves activated prefix"));
+test("L0 contract: muse installed skill bytes", witness("muse installed skill bytes"));
+test("L0 contract: muse installed linked resource bytes", witness("muse installed linked resource bytes"));
+test("L0 contract: muse installed MCP resolves activated prefix", witness("muse installed MCP resolves activated prefix"));
+test("L0 contract: muse installed selected helper bytes", witness("muse installed selected helper bytes"));
+test("L0 contract: muse installed selected hook registration", witness("muse installed selected hook registration"));
+test("L0 contract: vibe installed skill bytes", witness("vibe installed skill bytes"));
+test("L0 contract: vibe installed linked resource bytes", witness("vibe installed linked resource bytes"));
+test("L0 contract: vibe installed MCP resolves activated prefix", witness("vibe installed MCP resolves activated prefix"));
+test("L0 contract: packaged .claude-plugin/plugin.json exact RC", witness("packaged .claude-plugin/plugin.json exact RC"));
+test("L0 contract: packaged .codex-plugin/plugin.json exact RC", witness("packaged .codex-plugin/plugin.json exact RC"));
+test("L0 contract: packaged integration manifest exact RC", witness("packaged integration manifest exact RC"));
+test("L0 contract: dead claim archived before replacement", witness("dead claim archived before replacement"));
+test("L0 contract: proven dead background row archived and retired", witness("proven dead background row archived and retired"));
+test("L0 contract: both endpoints ready before restore dispatcher", witness("both endpoints ready before restore dispatcher"));
+test("L0 contract: native-terminal.sock original inode quarantined", witness("native-terminal.sock original inode quarantined"));
+test("L0 contract: native-terminal.sock recovery record", witness("native-terminal.sock recovery record"));
+test("L0 contract: native-terminal.lf1.sock original inode quarantined", witness("native-terminal.lf1.sock original inode quarantined"));
+test("L0 contract: native-terminal.lf1.sock recovery record", witness("native-terminal.lf1.sock recovery record"));
+test("L0 contract: legacy reclaim barrier coded refusal", witness("legacy reclaim barrier coded refusal"));
