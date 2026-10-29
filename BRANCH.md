@@ -6,6 +6,7 @@
 - Round-2 composite reproduction: the old oracle accepts 31/31; the corrected oracle rejects 12 stale artifacts. Regression suite: 6/6; packaged baseline + oracles: 54/54; independent trust root: 44/44, zero skips/todos.
 - Strict replay on main 912dd3035, rc.7 8d588db05 and head: each six product witnesses pass and 42 exact missing contracts fail. Real two-endpoint run/restore, twenty UUIDs, flock and PTY I/O remain observed.
 - Evidence, confinement and native dependency qualification limit: docs/reviews/native-cleanse-l0-r3.md. No new peer consensus claimed.
+- First pushed CI exposed GHSA-rmxm-3fg6-px4f in @hono/node-server 2.1.1. Update only its lock entry to the first fixed patch 2.1.3; security audit exits 0, L0 54/54 and trust root 44/44 after clean install. No threshold or waiver change.
 
 # Memory MCP — L1 producer skill installation
 
