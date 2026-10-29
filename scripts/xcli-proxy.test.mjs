@@ -7,6 +7,29 @@ import { once } from 'node:events';
 import test from 'node:test';
 import { PROBE, environment, rehydrateEventRecord } from './xcli-lab.mjs';
 import { UNKNOWN_INSTANCE } from './xcli-scenarios.mjs';
+import { readEvents } from './qualify-cross-cli.mjs';
+
+test('L8 R12: a live event reader waits for a complete JSONL record', async () => {
+  const { canonicalEventRecord } = await import('./xcli-lab.mjs');
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-live-events-'));
+  const file = join(root, 'events.jsonl');
+  const first = JSON.stringify(canonicalEventRecord(1, 'initialize', { ok: true }));
+  const cap = JSON.stringify(canonicalEventRecord(2, 'mcp-call-cap-exceeded', { count: 4, cap: 3 }));
+  try {
+    fs.writeFileSync(file, first + '\n' + cap.slice(0, 24));
+    assert.deepEqual(readEvents(file).map(e => e.event), ['initialize'], 'completed prefix remains readable during append');
+    fs.appendFileSync(file, cap.slice(24));
+    assert.equal(readEvents(file).length, 1, 'a record is committed by its newline');
+    fs.appendFileSync(file, '\n');
+    const records = readEvents(file);
+    assert.equal(records.length, 2);
+    assert.equal(records[1].event, 'mcp-call-cap-exceeded');
+    assert.equal(records[1].count, 4);
+    assert.equal(records[1].cap, 3);
+    fs.appendFileSync(file, '{broken}\n');
+    assert.throws(() => readEvents(file), SyntaxError, 'a malformed complete record still fails closed');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
 
 test('L8: a looping session trips the live per-session MCP-call cap and dies', async () => {
   const root = fs.mkdtempSync(join(tmpdir(), 'xcli-proxy-cap-'));
