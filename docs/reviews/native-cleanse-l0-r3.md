@@ -73,6 +73,20 @@ du paquet ; L3/L4 les 31 contrats d'installation. L2, L5 et L6 restent séparés
 Le mode normal prouve l'état L0 exact ; il ne qualifie pas ces lots comme livrés.
 
 Logs conservés sous `tmp/h-cond/fix-native-cleanse.r3-*.log`.
+
+## Correction de la gate sécurité après le premier push
+
+La CI du premier head `b68da4585` a attendu environ 36 minutes un runner, puis
+`security-debt` a échoué sur `@hono/node-server@2.1.1`, advisory
+`GHSA-rmxm-3fg6-px4f` (modéré, versions affectées `<2.1.3`). Reproduction locale :
+`node scripts/audit-security-debt.mjs`, exit 1, « unregistered security debt ».
+Le lockfile passe uniquement ce paquet à la première version corrigée `2.1.3`
+(version, URL, intégrité), avec dépendances/engines/peer dependencies identiques.
+Après `npm ci --ignore-scripts`, `npm run audit:security` sort 0 ; les deux
+fichiers L0 restent à 54/54 et la trust root à 44/44, zéro skip/todo.
+Le seuil et le registre d'exceptions ne changent pas. Cette mise à jour patch
+est limitée à l'échec CI bloquant demandé dans le brief.
+
 Les dépendances npm de test utilisent le binding node-pty déjà compilé via
 un preload privé `--require <TMPDIR>/precompiled.cjs` : npm/lifecycle produit
 restent actifs, aucune compilation native/Python n'est revendiquée.
