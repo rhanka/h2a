@@ -220,7 +220,31 @@ describe("native host life journal", () => {
     expect(readFileSync(lock, "utf8")).toBe(token); expect(existsSync(f.log)).toBe(false);
   });
   it("should record a real startup failure without calling it an uncaught exception", async () => {
-    const f = fixture(), host = child([entry, "--unknown-option"], f.env);
+    const f = fixture(), preload = join(f.root, "ready-journal.mjs");
+    // Classification needs a healthy writer. A cold writer can legitimately
+    // miss the host's 100 ms best-effort drain; qualify its real IPC/I/O first.
+    writeFileSync(preload, `import cp from 'node:child_process';
+      import { once } from 'node:events';
+      import { rmSync } from 'node:fs';
+      import { syncBuiltinESMExports } from 'node:module';
+      import { isMainThread } from 'node:worker_threads';
+      const file = ${JSON.stringify(fileURLToPath(journalModule))}, log = ${JSON.stringify(f.log)};
+      if (isMainThread && process.argv[2] === '--native-host-journal-writer') {
+        await import(${JSON.stringify(journalModule)});
+        process.send?.({ fixtureReady: true });
+      } else if (isMainThread && process.argv[1] === ${JSON.stringify(entry)}) {
+        const fork = cp.fork, writer = fork(file, ['--native-host-journal-writer', log],
+          { execArgv: process.execArgv, stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
+        if ((await once(writer, 'message'))[0]?.fixtureReady !== true) throw Error('writer not ready');
+        const written = once(writer, 'message');
+        writer.send({ event: 'exit', pid: process.pid, startTime: '0', generation: 'fixture-warmup', exitCode: 0, cause: 'unknown' });
+        if ((await written)[0] !== true) throw Error('writer unavailable');
+        rmSync(log);
+        cp.fork = (...args) => args[0] === file && args[1]?.[0] === '--native-host-journal-writer' && args[1]?.[1] === log
+          ? writer : fork(...args);
+        syncBuiltinESMExports();
+      }`);
+    const host = child(["--import", preload, entry, "--unknown-option"], f.env);
     expect((await host.closed)[0]).toBe(1);
     await eventually(() => readHostJournal(f.log).at(-1)?.event === "exit");
     const events = readHostJournal(f.log);
