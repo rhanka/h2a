@@ -33,7 +33,7 @@ export function nativeSkillArtifacts(options: {
         const rel = join(relative, entry.name), path = join(dir, entry.name);
         assertNativePath(path);
         if (entry.isDirectory()) walk(path, rel);
-        else if (entry.isFile()) result.push({ path: join(resources, rel), bytes: readFileSync(path), source: `${source}/${rel}`, selected });
+        else if (entry.isFile()) result.push({ path: join(resources, rel), bytes: readFileSync(path), source: `${source}/${rel}`, selected, skillTarget: target });
         else throw new Error(`unsupported skill resource: ${path}`);
       }
     };
@@ -53,9 +53,9 @@ export function nativeSkillArtifacts(options: {
         parseNativeToml(rendered);
       }
     }
-    result.push({ path: target, bytes: rendered, source, selected, historical: options.historicalHashes(options.host, skill.installName) });
+    result.push({ path: target, bytes: rendered, source, selected, historical: options.historicalHashes(options.host, skill.installName), skillTarget: target });
     if (skill.producer) result.push({ path: join(resources, '.h2a-source.json'),
-      bytes: jsonBytes({ ...skill.producer, renderedSha256: digest(rendered) }), source: `${source}/.h2a-source.json`, selected });
+      bytes: jsonBytes({ ...skill.producer, renderedSha256: digest(rendered) }), source: `${source}/.h2a-source.json`, selected, skillTarget: target });
   }
   return result;
 }
