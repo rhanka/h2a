@@ -1,3 +1,21 @@
+# Gateway off by default — PR #395, round 4
+
+- Scope: both P2 findings in the supplied Sol/Astra reviews of d170a4b83.
+- Never type the acquired bearer into a pane: a 0600 JSON file in a private
+  0700 directory passes it through the child's environment, with unlink before
+  CLI startup and cleanup on refused/failed retype.
+- After the existing conflict/liveness resolution, prefer proven consent over
+  equivalent legacy pins, independently of registry order; --no-gw still wins.
+- RED before product edits: three failures / 52 passes, zero skips (two lost
+  opt-ins and bearer in command, PTY echo and Bash history).
+- GREEN: 512 scoped runtime tests + 52 contracts, zero skips; runtime build;
+  execution-proof validator; original R1 matrix 16/16 and two clean children;
+  18 recovered Astra/Sol probes from rounds 1/2/3. No gate changes.
+- Evidence: docs/reviews/gateway-off-default-r4.md. Private TMPDIR
+  /home/antoinefa/.cache-tmp/h2a-test/run-UouKtU; remove at delivery.
+- No installed h2a, owner state, real gateway/provider/cluster, Python, full
+  local suite, attribution trailer, merge, tag or fresh independent consensus.
+
 # Gateway off by default — PR #395, round 3
 
 - Scope: all four distinct P1/P2 findings from the supplied round-2 Astra/Sol
