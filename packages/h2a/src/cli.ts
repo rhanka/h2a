@@ -78,7 +78,7 @@ import { runHarnessCli, HARNESS_SKILLS } from "./vendor/harness/index.js";
 import { buildLaunchIndex } from "./runtime/local-files/launch-index.js";
 import { renderCommandMap } from "./cli-command-map.js";
 import { HostConfigConflict, writeHostMcpEntry } from "./hosts/config-writer.js";
-import { cmdHostedLock, cmdRegistry, cmdRegistryBridge } from "./registry/cli-registry.js";
+import { cmdHostedLock, cmdRegistry, cmdRegistryBridge, type BridgeServeDeps } from "./registry/cli-registry.js";
 import { runCentralShim } from "./runtime/mcp-central-shim.js";
 import { canonicalCentralRoot } from "./runtime/mcp-central-policy.js";
 import { readInstallReceipt } from "./registry/host-bootstrap.js";
@@ -8051,7 +8051,8 @@ function delegateToTrackNative(
  * never become the delegated target again (F-03).
  */
 const REGISTRY_BRIDGE_SERVE_DELEGATES = {
-  delegateServe: (serveFlags: Record<string, string>) => runCentralShim(serveFlags, canonicalCentralRoot())
+  delegateServe: (serveFlags: Record<string, string>, registry?: Parameters<BridgeServeDeps["delegateServe"]>[1]) =>
+    runCentralShim(serveFlags, canonicalCentralRoot(), registry?.lock?.selection.some(selected => selected.id === "sentropic.engram.memory") ? registry : undefined)
 } as const;
 
 export function runCli(

@@ -59,6 +59,7 @@ import {
 import { boundCallToolResult } from "./mcp/frame-budget.js";
 import { createLocalStore } from "./local-files/index.js";
 import { openCentralAttachment, type CentralAttachmentHandle } from "./mcp-central-attachment.js";
+import type { ComposeDaemonOptions } from "../registry/sentropic-daemon.js";
 import { parseCentralAttachment } from "./mcp-central-context.js";
 import { executeH2aRun, type H2aRunExecutor } from "./mcp/agent-launch.js";
 import { centralPausePath } from "./mcp-central-operator.js";
@@ -117,7 +118,7 @@ async function centralToolResult(server: McpServer, name: string, args: Record<s
   }) as CallToolResult;
 }
 
-function createCentralProtocolServer(mcp: McpServer, participant: import('./handover/participants.js').AttachmentParticipant): Server {
+export function createCentralProtocolServer(mcp: McpServer, participant: import('./handover/participants.js').AttachmentParticipant): Server {
   const server = new Server(
     { name: "@sentropic/h2a", version: currentCliVersion() },
     { capabilities: { tools: { listChanged: true } } }
@@ -159,8 +160,8 @@ function createCentralApp(
   generation: string,
   administration: () => ColdAdministration | undefined,
   participants: () => Participants | undefined,
-  options: { requestStop(): void; idleTimeoutMs: number; sessionLeaseMs: number; maxAttachments: number; precheck?: boolean; endpointPinned?: boolean; managedImage?: boolean; runExecutor?: H2aRunExecutor }
-): { app: Hono; ready(): void; inventory(): { revision: number; transports: unknown[] }; drain(): { revision: number; calls: number; children: number; briefs: number; callbacks: number; effects: number }; close(): Promise<void> } {
+  options: { requestStop(): void; idleTimeoutMs: number; sessionLeaseMs: number; maxAttachments: number; precheck?: boolean; endpointPinned?: boolean; managedImage?: boolean; runExecutor?: H2aRunExecutor; registry?: Pick<ComposeDaemonOptions, "lock" | "memory"> }
+): { app: Hono; ready(tools?: ReturnType<McpServer["listTools"]>): void; inventory(): { revision: number; transports: unknown[] }; drain(): { revision: number; calls: number; children: number; briefs: number; callbacks: number; effects: number }; close(): Promise<void> } {
   const app = new Hono();
   const lag = monitorEventLoopDelay({ resolution: 20 });
   lag.enable();
@@ -168,7 +169,7 @@ function createCentralApp(
   type Attachment = { participant: import("./handover/participants.js").AttachmentParticipant; transport: StreamableHTTPTransport; handle: CentralAttachmentHandle; touched: number; closing?: Promise<void>; logical?: any; disconnected?: boolean };
   const sessions = new Map<string, Attachment>();
   const transports = new AttachmentTransports({ generation, capacity: options.maxAttachments });
-  const descriptor = describeCatalogue(JSON.parse(JSON.stringify(H2A_CLI_MCP_TOOL_DESCRIPTORS)));
+  let descriptor = describeCatalogue(JSON.parse(JSON.stringify(H2A_CLI_MCP_TOOL_DESCRIPTORS)));
   const evidenceAcceptances = new EvidenceAcceptances(256);
   const shimItem = (context: any) => {
     const id = context.req.param('id'), a = transports.attachments.get(id);
@@ -415,6 +416,14 @@ function createCentralApp(
         onsessioninitialized: id => { if (created) { sessions.set(id, created); inventoryRevision++; } },
         onsessionclosed: id => { const current = sessions.get(id); if (current) void closeAttachment(id, current); }
       });
+      let registry: Pick<ComposeDaemonOptions, "lock" | "memory"> | undefined;
+      const requestedLock = captured?.flags["registry-lock-digest"];
+      if (requestedLock) {
+        const { bridgeLockDigest } = await import("../registry/bridge-lock.js");
+        if (!options.registry?.lock) return context.json({ error: "missing_binding: memory registry is not configured on the central service" }, 409);
+        if (requestedLock !== bridgeLockDigest(options.registry.lock)) return context.json({ error: "integrity_mismatch: bridge and central registry locks differ" }, 409);
+        registry = options.registry;
+      }
       const participant = participants()!.attach(logicalId, { workspace, ...(captured ? { attachment: captured } : {}) });
       participant.initialized = false;
       const handle = participant.runOwner(() => openCentralAttachment(root, workspace, sharedStore, captured, async notification => {
@@ -435,7 +444,9 @@ function createCentralApp(
           catch (error) { participant.finish(operation, { state: 'unknown', error: String(error) }, true); throw error; }
           finally { callbacks--; drainRevision++; }
         }
-      }, runExecutor, participant));
+      }, runExecutor, participant, registry));
+      try { await handle.ready; }
+      catch (error) { await participant.close(() => handle.close()); await transport.close(); throw error; }
       protocol = createCentralProtocolServer(handle.mcp, participant);
       attachment = created = { participant, transport, handle, touched: Date.now() };
       attachment.logical = transports.attach(logicalId, captured ?? { id: logicalId, workspace }, () => attachment!);
@@ -479,7 +490,7 @@ function createCentralApp(
     return response ?? context.body(null, 202);
     } finally { activeCalls--; drainRevision++; }
   });
-  return { app, ready() { lastBusy = Date.now(); ready = true; }, inventory: () => ({ ...(participants()?.inventory() ?? { schemaVersion: 1, shims: [], transports: [], operations: [], quarantines: [], launches: [], writerRestrictions: ["precheck_admission_closed"] }),
+  return { app, ready(tools) { if (tools) descriptor = describeCatalogue(tools); lastBusy = Date.now(); ready = true; }, inventory: () => ({ ...(participants()?.inventory() ?? { schemaVersion: 1, shims: [], transports: [], operations: [], quarantines: [], launches: [], writerRestrictions: ["precheck_admission_closed"] }),
     shims: [...transports.attachments.values()].flatMap(a => a.advertisement ? [a.advertisement] : []),
     transports: [...transports.attachments.values()].map(a => ({ attachmentId: a.id, transportEpoch: a.transportEpoch, state: a.state,
       ownershipEpoch: a.activation.participant.token.ownershipEpoch, ownerGeneration: generation,
@@ -509,6 +520,8 @@ export interface StartCentralMcpServerOptions extends CentralMcpPathsOptions {
   idleTimeoutMs?: number;
   sessionLeaseMs?: number;
   runExecutor?: H2aRunExecutor;
+  /** Trusted host composition; absent means memory remains unconfigured. */
+  registry?: Pick<ComposeDaemonOptions, "lock" | "memory">;
   automatic?: boolean;
   /** Test seam for forcing scheduling around a successful marker claim. */
   afterMarkerClaim?: () => Promise<void>;
@@ -547,6 +560,7 @@ export async function startCentralMcpServer(
     throw new Error(`central MCP root must be an absolute path (received "${options.root ?? ""}")`);
   }
   const root = canonicalRootPath(options.root);
+  const registry = options.registry ? { ...options.registry, lock: structuredClone(options.registry.lock) } : undefined;
   const env = options.env ?? process.env;
   const explicitEndpoint = env[H2A_MCP_CENTRAL_ENDPOINT_ENV];
   if (explicitEndpoint) parseCentralMcpEndpoint(explicitEndpoint);
@@ -589,6 +603,7 @@ export async function startCentralMcpServer(
   let finish!: () => void;
   const closed = new Promise<void>(resolve => { finish = resolve; });
   let application: ReturnType<typeof createCentralApp> | undefined;
+  let selectedCatalogue: ReturnType<McpServer["listTools"]> | undefined;
   let claim: ReturnType<typeof readMarkerObservation>;
   let plan: ReturnType<typeof starterPlan>;
   try {
@@ -630,6 +645,7 @@ export async function startCentralMcpServer(
         idleTimeoutMs: options.idleTimeoutMs ?? 60_000, sessionLeaseMs: options.sessionLeaseMs ?? 90_000,
         maxAttachments: plan.manifest?.maxAttachments ?? 256,
         ...(options.runExecutor ? { runExecutor: options.runExecutor } : {}),
+        ...(registry ? { registry } : {}),
         requestStop() { setImmediate(() => void stopServer()); }
       });
       const auth = new ConnectionAuthentication(marker, authority.rootKey);
@@ -654,7 +670,12 @@ export async function startCentralMcpServer(
       }
       sharedStore = createLocalStore({ root, initialize: false, readOnly: Boolean(options.precheck), alwaysEmitConsentBudget: true });
       const catalogServer = createMcpServer({ root, store: sharedStore });
+      if (registry) {
+        const { configureMcpServerRegistry } = await import("../registry/sentropic-daemon.js");
+        await configureMcpServerRegistry(catalogServer, { view: "combined", root, ...registry });
+      }
       const catalogue = JSON.parse(JSON.stringify(catalogServer.listTools())) as ReturnType<McpServer["listTools"]>;
+      if (registry) selectedCatalogue = catalogue;
       catalogServer.notifications.stop();
       const described = describeCatalogue(catalogue);
       marker.descriptorDigest = described.descriptorDigest;
@@ -697,7 +718,7 @@ export async function startCentralMcpServer(
       claim = published;
       if (options.successor && plan.transactionPath) readySuccessor(plan.transactionPath, options.successor, identity);
       markStartupReady(stateDirectory, identity);
-      application!.ready();
+      application!.ready(selectedCatalogue);
       (authentication as any).ready = true;
     });
   } catch (error) {
