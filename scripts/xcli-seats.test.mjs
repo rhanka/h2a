@@ -7,8 +7,33 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
+import childProcess from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
 
 const seats = await import('./xcli-seats.mjs');
+
+test('L8 review: a forbidden entrypoint is refused before any executable probe', async t => {
+  const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-preflight-order-'));
+  const calls = [];
+  t.mock.method(childProcess, 'spawnSync', (...args) => {
+    calls.push(args);
+    return { status: 0, stdout: 'codex 9.9.9\n' };
+  });
+  syncBuiltinESMExports();
+  try {
+    const executable = join(dir, 'codex');
+    // Inert launcher text. Every spawn is intercepted: no interpreter runs.
+    fs.writeFileSync(executable, '#!/usr/bin/env python3.14\n', { mode: 0o700 });
+    const result = await seats.runSeatPreflight({ seatId: 'dummy', family: 'codex', authSource: dir },
+      { executables: { codex: executable } });
+    assert.equal(result.reason, 'python-entrypoint-forbidden:codex');
+    assert.equal(calls.length, 0, 'even --version must wait for the entrypoint guard');
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 function dummyManifest(dir, entries) {
   for (const entry of entries) fs.mkdirSync(join(dir, entry.authSource), { recursive: true });

@@ -12,11 +12,50 @@ import { parseScenario, expectedScenarioBlocker, classifyScenarioRow, verifyScen
   substituteScriptArgs, validateScriptSteps, loopScripts, loopTwinScripts,
   negotiationScripts, negotiationTwinScripts, inventoryScripts,
   LOOP_TWINS, NEGOTIATION_TWINS, INVENTORY_GROUPS,
-  UNAVAILABILITY_STATES, REFUSAL_TWINS, SCENARIO_ROWS } from './xcli-scenarios.mjs';
+  UNAVAILABILITY_STATES, REFUSAL_TWINS, SCENARIO_ROWS, UNKNOWN_INSTANCE } from './xcli-scenarios.mjs';
 import fs from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { environment, repo, removeReportedCampaignRoot } from './xcli-lab.mjs';
+import { environment, repo, removeReportedCampaignRoot, compliantQualificationRoot, sourceBuild, removeCampaignRoot } from './xcli-lab.mjs';
+
+test('L12 review: unavailability requires an observed sender and the expected outcome', async t => {
+  const root = compliantQualificationRoot();
+  try {
+    const built = sourceBuild(root);
+    const receiver = join(root, 'receiver-model');
+    const sender = join(root, 'dead-sender');
+    fs.writeFileSync(receiver, `#!/bin/sh\nexec '${process.execPath}' '${join(repo, 'scripts/xcli-simulated-model.mjs')}' codex "$@"\n`, { mode: 0o700 });
+    // Keep an inert sender alive until cleanup so proc pinning cannot race
+    // /bin/true's immediate exit. It never loads MCP or attempts a send.
+    fs.writeFileSync(sender, '#!/bin/sh\nexec sleep 60\n', { mode: 0o700 });
+    const liveSender = join(root, 'sender-model');
+    fs.writeFileSync(liveSender, `#!/bin/sh\nexec '${process.execPath}' '${join(repo, 'scripts/xcli-simulated-model.mjs')}' claude "$@"\n`, { mode: 0o700 });
+    for (const live of [false, true]) for (const state of ['unknown-instance', 'stopped-receiver']) {
+      await t.test(`${state}:${live ? 'live' : 'dead'}-sender`, () => {
+        const scenario = `unavailability:${state}`;
+        const request = { sender: 'claude', receiver: 'codex', root, build: built.path,
+          executables: { claude: live ? liveSender : sender, codex: receiver }, simulated: true, timeoutMs: 20000,
+          scenario, wake: { w0Ms: 13000, w1Ms: 13000, dMs: 3000 }, releaseOffsetMs: 0 };
+        const run = spawnSync(process.execPath, [join(repo, 'scripts/qualify-cross-cli.mjs'), '--worker'], {
+          env: { ...environment(join(root, 'runner')), H2A_TEST_QUALIFICATION_ROOT: root },
+          input: JSON.stringify(request), encoding: 'utf8', timeout: 90000, maxBuffer: 4 * 1024 * 1024,
+        });
+        assert.equal(run.status, 0, run.stderr);
+        const row = JSON.parse(run.stdout);
+        const verdict = classifyScenarioRow(scenario, row);
+        console.log({ scenario, senderMcp: row.senderMcp, sent: row.sent, failure: row.failure, verdict,
+          infrastructureCode: row.infrastructureCode, infrastructureLocations: row.infrastructureLocations });
+        assert.equal(row.senderMcp, live);
+        assert.equal(row.sent, false);
+        assert.equal(verdict.ok, live, 'qualification requires the sender to observe the expected refusal');
+        if (live) {
+          assert.equal(row.failure, undefined);
+          assert.ok(row.evidence.some(e => e.role === 'sender' && e.event === 'send' && e.ok === false));
+        }
+      });
+    }
+  } finally { removeCampaignRoot(root); }
+});
 
 test('L15 review: read-paths data is ready when the peer markers are published', () => {
   const root = fs.mkdtempSync(join(tmpdir(), 'xcli-inventory-review-'));
@@ -74,11 +113,42 @@ test('L12: every scenario row names its closed blocker code', () => {
   }
 });
 
+function unavailableEvidence(scenario) {
+  if (!scenario.startsWith('unavailability:')) return {};
+  if (scenario.endsWith('identity-never-ready')) return { receiverMcp: true, evidence: [
+    { role: 'receiver', event: 'identity', ok: true, ready: false, state: 'identity_pending' },
+  ] };
+  const unknown = scenario.endsWith('unknown-instance');
+  return { senderMcp: true, evidence: [
+    { role: 'sender', event: 'identity', ok: true, ready: true, instance: 'claude:sender' },
+    { role: 'receiver', event: 'identity', ok: true, ready: true, instance: 'codex:receiver' },
+    ...(!unknown ? [{ event: 'scenario-peer-stopped' }] : []),
+    { role: 'sender', event: 'send', kind: 'probe', ok: false,
+      requestedTo: unknown ? UNKNOWN_INSTANCE : 'codex:receiver',
+      refusalCode: unknown ? 'unknown-instance' : 'recipient-not-live' },
+  ] };
+}
+
 const closedRow = (scenario, pair, overrides = {}) => ({
   scenario, pair: pair ?? 'claude:codex', status: 'blocked',
   blocker: expectedScenarioBlocker(parseScenario(scenario)),
   sent: true, delivered: false, received: false, woke: false,
-  replied: false, replyDelivered: false, ...overrides });
+  replied: false, replyDelivered: false, ...unavailableEvidence(scenario), ...overrides });
+
+test('L12 review: unavailability rejects missing, unrelated and wrong-result send evidence', () => {
+  for (const state of ['unknown-instance', 'stopped-receiver']) {
+    const scenario = `unavailability:${state}`;
+    const good = closedRow(scenario);
+    for (const overrides of [
+      { senderMcp: false }, { evidence: [] },
+      { evidence: good.evidence.map(e => e.event === 'send' ? { ...e, requestedTo: 'codex:other' } : e) },
+      { evidence: good.evidence.map(e => e.event === 'send' ? { ...e, refusalCode: 'auth-failed' } : e) },
+    ]) assert.equal(classifyScenarioRow(scenario, { ...good, ...overrides }).ok, false, `${state}:${JSON.stringify(overrides)}`);
+  }
+  const scenario = 'unavailability:unknown-instance';
+  assert.equal(classifyScenarioRow(scenario, closedRow(scenario, undefined,
+    { delivered: true, durableOnly: true })).ok, false, 'an unknown target cannot receive a durable landing');
+});
 
 test('L3/L12: a sender shard requires all six refusal pairs and never satisfies the full matrix', () => {
   const scenario = 'refusal:replayed-wake';
