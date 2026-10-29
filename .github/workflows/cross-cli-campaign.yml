@@ -154,6 +154,8 @@ jobs:
           console.log('manifest-digest=' + createHash('sha256').update(fs.readFileSync(file)).digest('hex'));
           "
       - name: Run the R1 campaign on the frozen head
+        id: qualify
+        continue-on-error: true
         env:
           SEAT_MANIFEST: ${{ runner.temp }}/seats.json
           SESSION_CAP: ${{ vars.XCLI_SESSION_CAP }}
@@ -168,6 +170,8 @@ jobs:
       # Filtered receipt only: digests recomputed from the candidate tree,
       # never trusted from the qualify output; seat paths stay out.
       - name: Assemble the filtered campaign receipt
+        id: receipt
+        if: ${{ !cancelled() && (steps.qualify.outcome == 'success' || steps.qualify.outcome == 'failure') }}
         run: >-
           node --input-type=module -e "
           import fs from 'node:fs';
@@ -185,6 +189,7 @@ jobs:
           console.log('receipt cells=' + receipt.cells.length);
           "
       - name: Check the receipt before publishing
+        if: ${{ !cancelled() && steps.receipt.outcome == 'success' }}
         run: >-
           node scripts/xcli-receipt-check.mjs --content-only --receipt "${RUNNER_TEMP}/campaign-receipt.json"
           --sha "${{ steps.validate.outputs.sha }}" --gate merge
@@ -198,10 +203,16 @@ jobs:
             *) exit 1 ;;
           esac
       - name: Scan every publication file
+        id: publication_scan
+        if: ${{ !cancelled() && steps.receipt.outcome == 'success' }}
         run: node scripts/xcli-evidence-scan.mjs "${RUNNER_TEMP}/campaign-receipt.json"
       - name: Publish the filtered receipt
+        if: ${{ !cancelled() && steps.publication_scan.outcome == 'success' }}
         uses: actions/upload-artifact@v4
         with:
           name: xcli-campaign-${{ steps.validate.outputs.sha }}
           path: ${{ runner.temp }}/campaign-receipt.json
           if-no-files-found: error
+      - name: Require a successful campaign
+        if: ${{ always() && steps.qualify.outcome != 'success' }}
+        run: exit 1

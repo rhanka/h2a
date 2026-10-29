@@ -116,7 +116,20 @@ export function classifyScenarioRow(scenario, row) {
     const evidence = row.evidence ?? [];
     const ready = role => evidence.find(e => e.role === role && e.event === 'identity' && e.ok && e.ready && e.instance);
     // The identity-gate fault precedes sender launch by design.
-    if (parsed.state === 'identity-never-ready') return { ok: true };
+    if (parsed.state === 'identity-never-ready') {
+      const receiver = evidence.filter(e => e.role === 'receiver');
+      const gateHeld = receiver.some(e => e.event === 'scenario-identity-gate-held') ||
+        receiver.some(e => e.event === 'identity' && e.ok && !e.ready && e.state === 'identity_pending');
+      if (row.receiverMcp !== true || !gateHeld ||
+          !receiver.some(e => e.event === 'initialize' && e.ok) ||
+          !receiver.some(e => e.event === 'tools' && e.ok && e.messaging) ||
+          !receiver.some(e => e.event === 'readiness-deadline' && e.mcpLoaded) ||
+          receiver.some(e => e.event === 'cli-exit' || e.event === 'identity' &&
+            (e.ready || e.state === 'identity_failed' || e.ok === false))) {
+        return fail('scenario-identity-gate-unproven', 'live MCP and an exercised non-ready identity gate required');
+      }
+      return { ok: true };
+    }
     if (row.senderMcp !== true || !ready('sender') || !ready('receiver')) {
       return fail('scenario-dead-runner', 'unavailability without ready MCP peers proves nothing');
     }

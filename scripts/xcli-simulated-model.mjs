@@ -7,7 +7,7 @@ import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { PROBE, REPLY, recordExec } from './xcli-lab.mjs';
+import { PROBE, REPLY, recordExec, canonicalEventRecord } from './xcli-lab.mjs';
 // Lot L6 (§8.3): the simulated model is our chain — self-record its exec
 // synchronously at startup. Never let journaling break the model path.
 if (process.env.XCLI_EXEC_JOURNAL) {
@@ -93,15 +93,17 @@ async function tool(name, args) {
   return value;
 }
 // Lot L12 (identity-never-ready): the harness faults the receiver's identity
-// gate — no identity call, no readiness, the session idles. The worker's
-// readiness deadline must then classify identity-never-ready, never credit.
-if (process.env.XCLI_SCENARIO_FAULT === 'never-ready' && role === 'receiver') {
-  process.stdout.write(`Simulated ${profile} model\r\nReady · ${process.cwd()}\r\n${profile === 'codex' ? '›' : '❯'} \r\n`);
-  await new Promise(() => {});
-}
+// gate after MCP initialization — no identity call, no readiness, the session
+// idles. Its witnessed deadline must classify identity-never-ready, never credit.
 await call('initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: `simulated-${profile}`, version: '1' } });
 mcp.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n');
 await call('tools/list', {});
+if (process.env.XCLI_SCENARIO_FAULT === 'never-ready' && role === 'receiver') {
+  fs.appendFileSync(process.env.XCLI_EVENTS,
+    JSON.stringify(canonicalEventRecord(Date.now(), 'scenario-identity-gate-held', {})) + '\n', { mode: 0o600 });
+  process.stdout.write(`Simulated ${profile} model\r\nReady · ${process.cwd()}\r\n${profile === 'codex' ? '›' : '❯'} \r\n`);
+  await new Promise(() => {});
+}
 const identity = await waitForIdentity(() => tool('h2a_identity_status', {}),
   // Readiness may spend several seconds activating the signer on a busy
   // runner. Preserve the per-session MCP cap for the scenario's actual calls.
