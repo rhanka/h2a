@@ -997,5 +997,8 @@
     "L0 MCP selection: opencode preserves enabled and disabled choices",
     "L0 MCP selection: muse preserves enabled and disabled choices",
     "L0 MCP selection: vibe preserves enabled and disabled choices"
+  ],
+  "packages/h2a/test/native-foreign-host-probe.test.js": [
+    "should tolerate a closed legacy descriptor without hiding pinned directories or access errors"
   ]
 }
