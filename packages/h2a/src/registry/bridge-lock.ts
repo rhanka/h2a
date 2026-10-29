@@ -15,7 +15,7 @@ import { dirname, join } from "node:path";
 import { trackRegistryPackageManifest } from "@sentropic/track/registry/manifest";
 import { canonicalJson, normalizeConfiguration, sha256Hex, validateRegistryEntry, type RegistryEntry } from "./descriptors.js";
 import { registryPackageManifest } from "./manifest.js";
-import { MEMORY_PROVIDER_ID, readInstalledMemoryEntry } from "./memory-provider.js";
+import { MEMORY_PROVIDER_ID, missingMemoryBuiltin } from "./memory-provider.js";
 import { RegistryError } from "./descriptors.js";
 
 export const BRIDGE_LOCK_FORMAT = "h2a.registry-bridge-lock/v1";
@@ -155,7 +155,7 @@ export function validateBridgeLock(lock: BridgeLock, memoryEntry?: RegistryEntry
     [...registryPackageManifest.entries, ...trackRegistryPackageManifest.entries].map((entry) => [(entry as RegistryEntry).id, entry as RegistryEntry])
   );
   if (lock.selection.some(selected => selected.id === MEMORY_PROVIDER_ID)) {
-    const memory = memoryEntry ?? readInstalledMemoryEntry();
+    const memory = memoryEntry ?? missingMemoryBuiltin();
     if (memory.kind !== "mcp" || memory.id !== MEMORY_PROVIDER_ID || memory.publisher.packageName !== "@sentropic/engram" ||
         memory.mcp?.connectorIds.length !== 1 || memory.mcp.connectorIds[0] !== "engram-memory" ||
         !memory.mcp.transportProfiles.some(profile => profile.id === "sentropic.engram.memory-wire/v1" && profile.mode === "in-process")) {
