@@ -176,7 +176,8 @@ const entries = (config, host) => {
   if (host === 'muse' && config.mcp_servers && config.mcpServers) return [];
   const servers = host === 'opencode' ? config.mcp ?? {} : ['vibe', 'codex', 'hermes'].includes(host) ? config.mcp_servers ?? {} :
     host === 'muse' ? config.mcpServers ?? config.mcp_servers ?? {} : config.mcpServers ?? {};
-  return Array.isArray(servers) ? servers.map(s => [s.name, s]) : Object.entries(servers);
+  if (host === 'vibe') return Array.isArray(servers) ? servers.map(s => [s?.name, s]) : [];
+  return servers && typeof servers === 'object' && !Array.isArray(servers) ? Object.entries(servers) : [];
 };
 const argv = server => Array.isArray(server?.command) ? server.command : [server?.command, ...(server?.args ?? [])];
 function executable(a, arg) {
@@ -310,8 +311,13 @@ function currentMcp(a, server, transports, item, config = {}) {
   catch { return false; }
   const enabled = state.enabled;
   if (item?.host === 'vibe' && server.transport !== 'stdio') return false;
+  if (item.host === 'claude' && server.type !== undefined && server.type !== 'stdio') return false;
   if (item.host === 'opencode' && (server.type !== 'local' || !Array.isArray(server.command))) return false;
-  if (item.host === 'muse' && server.type !== undefined && server.transport !== undefined) return false;
+  if (item.host !== 'opencode' && typeof server.command !== 'string') return false;
+  if (server.args !== undefined && (!Array.isArray(server.args) || server.args.some(arg => typeof arg !== 'string'))) return false;
+  if (item.host === 'muse' && (server.type !== undefined && server.transport !== undefined ||
+      server.mode !== undefined && server.required !== undefined ||
+      server.type !== undefined && server.type !== 'stdio' || server.transport !== undefined && server.transport !== 'stdio')) return false;
   if (['url', 'httpUrl', 'serverUrl'].some(key => server[key] !== undefined)) return false;
   const env = server[item.host === 'opencode' ? 'environment' : 'env'] ?? {};
   if (!env || typeof env !== 'object' || Array.isArray(env) || Object.values(env).some(v => typeof v !== 'string')) return false;

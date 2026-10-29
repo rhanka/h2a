@@ -10,7 +10,10 @@ un booléen de handshake. Il acceptait ainsi la réactivation Vibe masquée par
 
 La sélection est maintenant capturée avant installation selon l'adaptateur,
 y compris le nom natif d'enregistrement qui détermine le namespace et les exclusions.
-Les champs inconnus suivent le lecteur natif (ignorés ou refusés) ; les champs natifs, listes par outil et
+La collection et le constructeur stdio sont décodés selon chaque format natif
+avant normalisation de l'argv : tableau Vibe, tables/dictionnaires des autres
+hôtes, commande tableau OpenCode et commande chaîne ailleurs ; discriminants
+Claude/Muse, alias Muse mode/required incompatibles et arguments typés. Les champs inconnus suivent le lecteur natif (ignorés ou refusés) ; les champs natifs, listes par outil et
 permissions sont conservés. La sonde garde le catalogue de `tools/list`,
 applique les règles natives et utilise les overrides env/cwd du serveur.
 Son cache distingue argv, env et cwd ; les cwd, scripts Node et exécutables
@@ -55,6 +58,8 @@ Prérequis isolés : `npm run build -w @sentropic/track`, puis
 | Sources main `912dd3035` et rc.7 `8d588db05`, reconstruites séparément | **48/48 chacune**, gate 0, mêmes **42 RED exacts**. |
 | Foreign host / recovery / contention, Node 22 | **38/38 PASS**. |
 | Terminal reset fonctionnel, Node 22 | **6/6 PASS**. |
+| Alias Muse mode/required incompatibles | Reproduction isolée **0/1**, puis correction ; contrôle permanent ajouté au constructeur. |
+| Constructeurs natifs, avant/après | **26 PASS / 1 FAIL**, montrant des faux GREEN sur collection, commande et discriminant invalides ; contrôles permanents sur les huit adaptateurs. |
 | Identité native des huit MCP, avant/après | **18 PASS / 9 FAIL** avant correction ; renommer le serveur ne peut contourner une exclusion ni masquer ses outils sous un autre namespace. |
 | Ordre des permissions OpenCode et crochets littéraux, avant/après | **25 PASS / 2 FAIL**, dont un faux GREEN de désactivation masquée ; contrôles permanents corrigés. |
 | Override relatif Node, avant/après | **26 PASS / 1 FAIL**, puis contrôle permanent GREEN ; aucun skip/todo. |
