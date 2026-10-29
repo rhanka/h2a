@@ -6,6 +6,7 @@
 - RED: Vibe disabled/http false GREEN controls 0/2; four regression controls on f38a98626 helpers 0/4. Deterministic removal of an enumerated lock: 43/48, gate 1; after repair 48/48, gate 0, all 42 exact contract outcomes retained.
 - GREEN: oracle 13/13; baseline + oracle 61/61 through the real npm tests verifier; gate/cache regressions 120/120. Zero skip/todo. Four new identities are required in inventory and the independent trust root.
 - Main 912dd3035 and rc.7 8d588db05: 48/48 each, gate 0, same 42 contract results. Native recovery/contention: 19/19, no skip/todo.
+- First CI: 18/19 success, Node 24 fails in terminal-reset.functional.test.ts while pinning an exited stty descendant. Direct CI blocker: move raw readiness after successful stty completion and remove the 500 ms timer; the real stty stream marker proves ordering deterministically (5/6 RED, 6/6 GREEN on Node 22 and 24, no skip). Terminal-reset assertions and isolation guard remain intact.
 - Evidence and remaining lots: docs/reviews/native-cleanse-l0-r5.md. Private TMPDIR /home/antoinefa/.cache-tmp/h2a-test/run-gVodW4; cleanup and CI recorded at delivery. No Python, installed h2a, owner state, full local suite or new peer consensus.
 
 # Native cleanse — L0, PR #396 round 4
