@@ -5,6 +5,10 @@ on:
   push:
     branches: [main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 
@@ -48,3 +52,4 @@ jobs:
           name: focus-evidence-metrics-${{ github.sha }}
           path: ${{ runner.temp }}/focus-evidence-performance-*/metrics.json
           if-no-files-found: error
+          retention-days: 1
