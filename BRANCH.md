@@ -1,5 +1,6 @@
 # Native cleanse — L0, PR #396 round 7
 
+- Base: rebased onto ec04054b6, merged #395; preserve both branch dossiers and main Hono 2.1.5 lockfile.
 - Scope: resolve round-6 Astra/Sol P2s in L0 witnesses; no L1–L6 product changes.
 - Root cause: universal activation aliases and a transport-only boolean bypassed native tool selection.
 - Fix: adapter-native activation/filter snapshots, real MCP catalogue, env/cwd-aware probes; permanent installed Vibe controls and five mandatory npm oracle identities.

@@ -81,6 +81,16 @@ activation et transport Vibe, parcours ENOENT/EACCES, teardown, contention,
 ordre stty/ready et descripteur procfs fermé. Aucun timeout, garde ou budget
 CI augmenté. Le seuil de 60 s est un diagnostic de suite lente.
 
+## Rebase après fusion de #395
+
+La référence origin/main a avancé à `ec04054b604f2b8948a16d955724fe5301e9dccb`
+pendant la qualification. La branche est rebasée sur cette fusion : aucun merge
+local ni cherry-pick. Les deux dossiers BRANCH.md sont conservés ; le lockfile
+reste exactement celui de main avec `@hono/node-server 2.1.5`, sans retour à
+l'ancien correctif 2.1.3. Les témoins L0 sont inchangés par le rebase et .track
+est identique à main. Sur cette base : **75/75 Node 22**, **94/94 Node 24** et **120/120 trust root**,
+zéro skip/todo ; les **42 signatures RED** sont inchangées.
+
 ## Sources et limites
 
 Modèle indépendant des inspecteurs produit, confronté aux sources fournisseurs :
