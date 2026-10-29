@@ -168,7 +168,14 @@ and unrelated files on Claude, Codex, Muse, Vibe and Agy. No provider activation
   Aucun binaire h2a installé, état réel, Python, nouvelle dépendance, Track
   écrit ou suite complète locale. Gateway désactivée, h2a/Track conservés.
 - Revue consensus indisponible sous le confinement owner ; aucun verdict
-  revendiqué. Rebase/push, qualification handover et résultat CI suivront.
+  revendiqué. Rebase sur ec04054b6 et lease push effectués. Handover réel :
+  5/5 via le runner de production, concurrence 2, HOME/XDG privés et umask
+  022, rapport success:true ; gateway 102/102. Aucun skip.
+- CI 40930009967 : M17 22/24, bulk 22/24 et smokes passent. Le précontrôle
+  trust-root détecte trois titres mémoire hérités dans l'inventaire normatif
+  après changement de contrat. RED local C9 : 0/1 ; inventaire aligné sur
+  les quinze tests builtin, oracle et témoin de flush rendus obligatoires.
+  GREEN trust-root ciblé : 46/46. Le résultat CI de la tête corrigée suivra.
 
 # Gateway off by default — PR #395, round 5
 
