@@ -1452,3 +1452,103 @@ test('C9 A01/A03/A04: effective config and versioned test inventory are mandator
 test('C9 A04: execute the effective Node/Track entry and observe both required suites', () => {
   observeNodeTrackEntry(readFileSync(resolve(REPO_ROOT, 'scripts/run-tests.mjs'), 'utf8'), REPO_ROOT)
 })
+
+test('L0 trust root: every baseline contract and oracle is required by the production execution verifier', () => {
+  const baseline = 'packages/h2a/test/native-cleanse-baseline.test.js'
+  const oracle = 'packages/h2a/test/native-cleanse-oracle.test.js'
+  const ids = []
+  for (const host of ['claude', 'codex', 'gemini', 'agy', 'hermes', 'opencode', 'muse', 'vibe']) {
+    for (const family of ['skill bytes', 'linked resource bytes', 'MCP resolves activated prefix']) ids.push(host + ' installed ' + family)
+    if (['agy', 'muse'].includes(host)) ids.push(host + ' installed selected helper bytes', host + ' installed selected hook registration')
+    if (host === 'agy') ids.push(host + ' installed observed Agy imported bytes')
+    if (['claude', 'codex'].includes(host)) ids.push(host + ' installed registered effective plugin cache')
+  }
+  ids.push('packaged .claude-plugin/plugin.json exact RC', 'packaged .codex-plugin/plugin.json exact RC',
+    'packaged integration manifest exact RC', 'dead claim archived before replacement',
+    'proven dead background row archived and retired', 'both endpoints ready before restore dispatcher',
+    'native-terminal.sock original inode quarantined', 'native-terminal.sock recovery record',
+    'native-terminal.lf1.sock original inode quarantined', 'native-terminal.lf1.sock recovery record',
+    'legacy reclaim barrier coded refusal')
+  assert.equal(ids.length, 42)
+  const required = {
+    [baseline]: [
+      'L0 install: global candidate lifecycle converges the independent eight-host inventory',
+      'L0 packaged RC: prepare and prepack preserve exact plugin and integration payload versions',
+      'L0 R1: packaged public fresh and resume recover two endpoints and archive the dead claim',
+      'L0 R2: packaged real restore dispatches twenty conversations through flock after endpoint preparation',
+      'L0 R1: public run quarantines the original stale socket inodes with a recovery record',
+      'L0 R1: public resume reports a coded refusal for an unattributed legacy reclaim barrier',
+      ...ids.map(id => 'L0 contract: ' + id),
+    ],
+    [oracle]: [
+      'L0 contracts: only the exact known assertion is accepted and repaired contracts become GREEN',
+      'L0 inventory: all frozen artifacts can be observed current',
+      'L0 MCP: version, echo, wrong protocol and duplicate routes cannot pass as the effective server',
+      'L0 hooks: comments, echo commands, disabled hooks and missing dependencies cannot pass',
+      'L0 plugins: missing helpers and stale selected Codex sources cannot pass with a candidate cache',
+      'L0 reviewers reproduction: version MCPs, echo hooks and incomplete unselected caches cannot yield 31 GREEN',
+    ],
+  }
+  const inventory = readInventory(REPO_ROOT), discovered = discoverTestFiles()
+  for (const [file, names] of Object.entries(required)) {
+    assert.ok(discovered.some(path => resolve(REPO_ROOT, path) === resolve(REPO_ROOT, file)), file + ' must run in the npm tests step')
+    assert.deepEqual(inventory[file], names, file + ': removing a required assertion must fail independently')
+  }
+  const files = Object.keys(required).map(file => resolve(REPO_ROOT, file))
+  const report = {
+    success: true, numTotalTests: 54, numPassedTests: 54, numFailedTests: 0, numPendingTests: 0, numTodoTests: 0,
+    testResults: Object.entries(required).map(([file, names]) => ({ name: resolve(REPO_ROOT, file), status: 'passed',
+      assertionResults: names.map(fullName => ({ fullName, status: 'passed' })) })),
+  }
+  const verify = STEPS.find(step => step.id === 'tests').verifyExecution
+  assert.deepEqual(verify(report, files), [])
+  for (const id of ids) {
+    const hole = structuredClone(report)
+    hole.testResults[0].assertionResults = hole.testResults[0].assertionResults.filter(a => a.fullName !== 'L0 contract: ' + id)
+    hole.numTotalTests--
+    hole.numPassedTests--
+    assert.ok(verify(hole, files).some(failure => failure.includes('L0 contract: ' + id)), id + ': unexecuted assertion must block')
+  }
+  for (const status of ['skipped', 'todo', 'failed']) {
+    const hole = structuredClone(report)
+    hole.testResults[0].assertionResults[6].status = status
+    hole.numPassedTests--
+    hole[{ skipped: 'numPendingTests', todo: 'numTodoTests', failed: 'numFailedTests' }[status]]++
+    assert.ok(verify(hole, files).length, status + ' is not a known-missing contract')
+  }
+})
+
+test('L0 trust root: neutralising the exact missing assertion or its evidence fails the independent probe', () => {
+  const lab = mkdtempSync(join(tmpdir(), 'cleanse-trust-'))
+  try {
+    const helper = readFileSync(resolve(HERE, 'helpers/cleanse-contracts.mjs'), 'utf8')
+    writeFileSync(join(lab, 'probe.mjs'), `
+      import assert from 'node:assert/strict';
+      import { contracts } from './contracts.mjs';
+      const messages = [], t = { diagnostic: message => messages.push(message) };
+      const o = { id: 'probe', lot: 'L1', actual: false, expected: true, evidence: 'seeded',
+        knownMissing: { actual: false, expected: true, evidence: 'seeded' } };
+      contracts(t, [o]);
+      assert.match(messages.pop(), /KNOWN-MISSING RED probe/);
+      contracts(t, [{ ...o, actual: true }]);
+      assert.match(messages.pop(), /GREEN probe/);
+      for (const change of [{ actual: undefined }, { evidence: 'different stale artifact' },
+        { expected: 'different assertion' }, { knownMissing: undefined }])
+        assert.throws(() => contracts(t, [{ ...o, ...change }]));
+    `)
+    const run = source => {
+      writeFileSync(join(lab, 'contracts.mjs'), source)
+      return spawnSync(process.execPath, [join(lab, 'probe.mjs')], {
+        encoding: 'utf8', env: { ...process.env, H2A_CLEANSE_STRICT: '' }, timeout: 10_000,
+      })
+    }
+    const clean = run(helper)
+    assert.equal(clean.status, 0, clean.stdout + clean.stderr)
+    for (const statement of ['assert.deepEqual(actual, expected, message);',
+      'assert.deepEqual(evidence, knownMissing.evidence, `${message}: missing-contract evidence changed`);']) {
+      const mutated = helper.replace(statement, '')
+      assert.notEqual(mutated, helper, 'the mutation must apply')
+      assert.equal(run(mutated).status, 1, 'a neutralised assertion must fail outside npm test')
+    }
+  } finally { rmSync(lab, { recursive: true, force: true }) }
+})
