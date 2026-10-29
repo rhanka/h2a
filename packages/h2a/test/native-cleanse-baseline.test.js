@@ -93,11 +93,11 @@ test('L0 R1: packaged public fresh and resume recover two endpoints and archive 
   f.preserve();
   t.diagnostic(JSON.stringify({ freshExit: fresh.code, resumeExit: resumed.code, endpoints: inventory.map(h => ({ socket: h.socket, hostPid: h.ping.hostPid })), transcripts: f.transcripts() }));
   record([{ id: 'dead claim archived before replacement', lot: 'L1',
-    actual: files(f.root).some(p => p !== f.deadClaim && !p.endsWith('.pending') && lstatSync(p).isFile() && readFileSync(p, 'utf8') === f.deadClaimBytes),
+    actual: files(f.root, p => p !== f.deadClaim && !p.endsWith('.pending') && lstatSync(p).isFile() && readFileSync(p, 'utf8') === f.deadClaimBytes).some(Boolean),
     expected: true },
   { id: 'proven dead background row archived and retired', lot: 'L1',
     actual: !json(f.registry).entries.some(r => r.id === 'background-dead') &&
-      files(f.root).some(p => p !== f.registry && /\.(json|jsonl)$/.test(p) && lstatSync(p).isFile() && readFileSync(p, 'utf8').includes('background-dead')),
+      files(f.root, p => p !== f.registry && /\.(json|jsonl)$/.test(p) && lstatSync(p).isFile() && readFileSync(p, 'utf8').includes('background-dead')).some(Boolean),
     expected: true }]);
 });
 
@@ -153,12 +153,16 @@ test('L0 R1: public run quarantines the original stale socket inodes with a reco
   assert.ok(owner);
   await f.usable(owner.socket, 'h2a-after-crash');
   f.preserve();
-  const artifacts = files(f.root);
+  const artifacts = files(f.root, path => {
+    const stat = lstatSync(path);
+    if (stat.isSocket() && !f.sockets.includes(path)) return { dev: stat.dev, ino: stat.ino };
+    if (stat.isFile() && /\.(json|jsonl)$/.test(path)) return { bytes: readFileSync(path, 'utf8') };
+  });
   record(stale.flatMap(old => [
     { id: old.socket.split('/').at(-1) + ' original inode quarantined', lot: 'L1',
-      actual: artifacts.some(p => !f.sockets.includes(p) && lstatSync(p).isSocket() && lstatSync(p).dev === old.dev && lstatSync(p).ino === old.ino), expected: true },
+      actual: artifacts.some(p => p.dev === old.dev && p.ino === old.ino), expected: true },
     { id: old.socket.split('/').at(-1) + ' recovery record', lot: 'L1',
-      actual: artifacts.some(p => lstatSync(p).isFile() && /\.(json|jsonl)$/.test(p) && readFileSync(p, 'utf8').includes(old.socket) && readFileSync(p, 'utf8').includes(String(old.ino))), expected: true },
+      actual: artifacts.some(p => p.bytes?.includes(old.socket) && p.bytes.includes(String(old.ino))), expected: true },
   ]));
 });
 

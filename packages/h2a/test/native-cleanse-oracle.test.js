@@ -1,11 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, cpSync, symlinkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import fs, { chmodSync, cpSync, symlinkSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { contracts as checkContracts } from './helpers/cleanse-contracts.mjs';
 import { isolatedEnv } from './helpers/cleanse-artifact.mjs';
 import { observeHosts, seedHosts } from './helpers/cleanse-hosts.mjs';
+import { files } from './helpers/cleanse-lab.mjs';
 
 const put = (path, bytes) => { mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, bytes); };
 const sink = { diagnostic() {} };
@@ -238,4 +240,74 @@ test('L0 plugins: the active plugin MCP must resolve and answer from the activat
   chmodSync(join(f.a.root, 'bin/h2a'), 0o700);
   assert.equal((await observation(f, 'claude', 'MCP resolves activated prefix')).actual, true);
   assert.equal((await observation(f, 'claude', 'registered effective plugin cache')).actual, false);
+});
+
+test('L0 Vibe: disabling the selected MCP cannot pass with healthy candidate argv', async t => {
+  const f = fixture(t), h = f.hosts.find(h => h.host === 'vibe');
+  const original = readFileSync(h.mcp, 'utf8');
+  assert.equal((await observation(f, 'vibe', 'MCP resolves activated prefix')).actual, true);
+  put(h.mcp, original.replace('transport = "stdio"', 'transport = "stdio"\ndisabled = true'));
+  const disabled = await observation(f, 'vibe', 'MCP resolves activated prefix');
+  assert.equal(disabled.actual, false);
+  assert.throws(() => contracts(sink, [disabled]));
+});
+
+test('L0 Vibe: the configured transport must permit the stdio candidate probe', async t => {
+  const f = fixture(t), h = f.hosts.find(h => h.host === 'vibe');
+  const original = readFileSync(h.mcp, 'utf8');
+  for (const transport of ['transport = "http"', 'transport = "streamable-http"', '']) {
+    put(h.mcp, original.replace('transport = "stdio"', transport));
+    const invalid = await observation(f, 'vibe', 'MCP resolves activated prefix');
+    assert.equal(invalid.actual, false, transport || 'missing transport');
+    assert.throws(() => contracts(sink, [invalid]));
+  }
+  put(h.mcp, original.replace('transport = "stdio"', 'transport = "stdio"\ndisabled = false'));
+  assert.equal((await observation(f, 'vibe', 'MCP resolves activated prefix')).actual, true);
+});
+
+test('L0 Vibe: an initially disabled MCP keeps its selection without launching a probe', async t => {
+  const f = fixture(t, { vibeDisabled: true }), h = f.hosts.find(h => h.host === 'vibe');
+  assert.match(readFileSync(h.mcp, 'utf8'), /disabled = true/);
+  // A disabled route has no handshake. Its target must still be the candidate.
+  const candidateBytes = readFileSync(f.a.cli);
+  put(f.a.cli, 'process.exit(64);');
+  assert.equal((await observation(f, 'vibe', 'MCP resolves activated prefix')).actual, true);
+  put(f.a.cli, candidateBytes);
+  const original = readFileSync(h.mcp, 'utf8');
+  put(h.mcp, original.replace('disabled = true', 'disabled = false'));
+  assert.equal((await observation(f, 'vibe', 'MCP resolves activated prefix')).actual, false);
+  put(h.mcp, original.replace(f.a.cli, '/stale-prefix/h2a'));
+  assert.equal((await observation(f, 'vibe', 'MCP resolves activated prefix')).actual, false);
+});
+
+test('L0 artifacts: disappearing entries cannot break recovery observations or hide other errors', t => {
+  const root = mkdtempSync(join(tmpdir(), 'oracle-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const record = join(root, 'receipt.json'), transient = join(root, 'vanishing.lock');
+  put(record, 'socket inode recovery receipt');
+  put(transient, 'private transient lock');
+  assert.deepEqual(files(root, path => {
+    if (path === transient) rmSync(path);
+    const stat = lstatSync(path);
+    if (stat.isFile() && path.endsWith('.json')) return readFileSync(path, 'utf8');
+  }), ['socket inode recovery receipt']);
+  // Disappearance can also occur after stat and before reading a JSON record.
+  assert.deepEqual(files(root, path => {
+    assert.ok(lstatSync(path).isFile());
+    rmSync(path);
+    return readFileSync(path, 'utf8');
+  }), []);
+  put(record, 'retained');
+  const denied = Object.assign(new Error('private read denied'), { code: 'EACCES' });
+  assert.throws(() => files(root, () => { throw denied; }), error => error === denied);
+  put(join(root, 'vanishing-dir/child.json'), '{}');
+  const readdir = fs.readdirSync;
+  t.mock.method(fs, 'readdirSync', (path, ...args) => {
+    const entries = readdir(path, ...args);
+    if (path === root) rmSync(join(root, 'vanishing-dir'), { recursive: true });
+    return entries;
+  });
+  syncBuiltinESMExports();
+  try { assert.deepEqual(files(root, path => readFileSync(path, 'utf8')), ['retained']); }
+  finally { t.mock.restoreAll(); syncBuiltinESMExports(); }
 });

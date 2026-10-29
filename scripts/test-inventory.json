@@ -983,6 +983,10 @@
     "L0 reviewers reproduction: version MCPs, echo hooks and incomplete unselected caches cannot yield 31 GREEN",
     "L0 hooks: duplicate host and workspace options cannot redirect the selected hook",
     "L0 Agy: imported bytes must preserve the observed enabled or disabled selection",
-    "L0 plugins: the active plugin MCP must resolve and answer from the activated prefix"
+    "L0 plugins: the active plugin MCP must resolve and answer from the activated prefix",
+    "L0 Vibe: disabling the selected MCP cannot pass with healthy candidate argv",
+    "L0 Vibe: the configured transport must permit the stdio candidate probe",
+    "L0 Vibe: an initially disabled MCP keeps its selection without launching a probe",
+    "L0 artifacts: disappearing entries cannot break recovery observations or hide other errors"
   ]
 }

@@ -1491,6 +1491,10 @@ test('L0 trust root: every baseline contract and oracle is required by the produ
       "L0 hooks: duplicate host and workspace options cannot redirect the selected hook",
       "L0 Agy: imported bytes must preserve the observed enabled or disabled selection",
       "L0 plugins: the active plugin MCP must resolve and answer from the activated prefix",
+      "L0 Vibe: disabling the selected MCP cannot pass with healthy candidate argv",
+      "L0 Vibe: the configured transport must permit the stdio candidate probe",
+      "L0 Vibe: an initially disabled MCP keeps its selection without launching a probe",
+      "L0 artifacts: disappearing entries cannot break recovery observations or hide other errors",
     ],
   }
   const inventory = readInventory(REPO_ROOT), discovered = discoverTestFiles()
@@ -1500,7 +1504,7 @@ test('L0 trust root: every baseline contract and oracle is required by the produ
   }
   const files = Object.keys(required).map(file => resolve(REPO_ROOT, file))
   const report = {
-    success: true, numTotalTests: 57, numPassedTests: 57, numFailedTests: 0, numPendingTests: 0, numTodoTests: 0,
+    success: true, numTotalTests: 61, numPassedTests: 61, numFailedTests: 0, numPendingTests: 0, numTodoTests: 0,
     testResults: Object.entries(required).map(([file, names]) => ({ name: resolve(REPO_ROOT, file), status: 'passed',
       assertionResults: names.map(fullName => ({ fullName, status: 'passed' })) })),
   }
