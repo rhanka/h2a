@@ -24,6 +24,7 @@ async function fixture(){return shared??=await managedImage();}
 function run(f,entry=join(f.image,'dist/bin.js'),args=[]){const env={...process.env};delete env.NODE_OPTIONS;delete env.NODE_PATH;const r=spawnSync(process.execPath,[...args,entry,'--version'],{env,encoding:'utf8',timeout:15000});assert.equal(r.error,undefined);assert.equal(r.signal,null);return r;}
 async function descriptor(f,value,body,probeSource){
  const original=f.image,ep=join(original,'execution.json'),mp=join(original,'manifest.json'),eb=fs.readFileSync(ep),mb=fs.readFileSync(mp);
+ const epMode=fs.statSync(ep).mode&0o777;
  const bin=join(original,'dist/bin.js'),binBytes=fs.readFileSync(bin);
  let moved;
  try{
@@ -36,7 +37,7 @@ async function descriptor(f,value,body,probeSource){
   await body();
  }finally{
   if(moved){fs.renameSync(moved,original);f.image=original;}
-  fs.writeFileSync(ep,eb);fs.writeFileSync(mp,mb);fs.writeFileSync(bin,binBytes);
+  fs.writeFileSync(ep,eb,{mode:epMode});fs.chmodSync(ep,epMode);fs.writeFileSync(mp,mb);fs.writeFileSync(bin,binBytes);
   const old=readState(f.selectionPath,'selection');replaceState(f.selectionPath,{...old.value,selectionEpoch:old.value.selectionEpoch+1,manifestDigest:f.payload.manifestDigest},'selection',old);
  }
 }
