@@ -217,6 +217,7 @@ and unrelated files on Claude, Codex, Muse, Vibe and Agy. No provider activation
 - Fix: guard the measurement, discard simulated manifest auth sources before source inspection, and refuse login mapping in simulated workers. Real seat handling, budgets, native production code and receipt gates keep their existing contracts.
 - Evidence and R1/R2/R3 replays: `docs/reviews/2026-10-29-cross-cli-r11.md`. Only targeted test files, private roots and dummy credentials; no Python, installed h2a, owner state or attribution trailer. The supplied reviews are reconciled; no new independent consensus is claimed because the installed h2a route is forbidden by the owner's confinement.
 - Private TMPDIR: `/home/antoinefa/.cache-tmp/h2a-test/run-NMSAiR`; remove at delivery after preserving logs in `tmp/h-cond/fix379-r11-evidence/` of the main checkout. Rebase onto `origin/main`, then push only `feat/live-cross-cli-messaging` with `--force-with-lease`.
+- CI follow-up: the FRESH-host fixture raced automatic parent-death cleanup and rejected its legitimate transient `membership-unprovable` result. Confine its real census to owned processes and retry only that uncertainty within the existing bounded wait; retain final `reaped` and process-disappearance assertions. Private single-refusal RED -> GREEN, permanent uncertainty and foreign-frame negative controls still fail, full targeted file 37/37. Production native-host and all timeout budgets remain unchanged.
 
 # PR #379 — v3 review round 10 continuation
 
