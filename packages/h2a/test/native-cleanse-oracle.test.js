@@ -86,10 +86,10 @@ const readline=require('node:readline');readline.createInterface({input:process.
 function writeMcp(h, a, args) {
   const command = JSON.stringify(process.execPath), argv = JSON.stringify([a.cli, ...args]);
   if (h.mcp.endsWith('.toml')) put(h.mcp, readFileSync(h.mcp, 'utf8').replace(/^command = .*$/m, 'command = ' + command).replace(/^args = .*$/m, 'args = ' + argv));
-  else if (h.mcp.endsWith('.yaml')) put(h.mcp, 'mcp_servers:\n  h2a:\n    command: ' + command + '\n    args: ' + argv + '\nfixture: third-party\n');
+  else if (h.mcp.endsWith('.yaml')) put(h.mcp, readFileSync(h.mcp, 'utf8').replace(/^    command: .*$/m, '    command: ' + command).replace(/^    args: .*$/m, '    args: ' + argv));
   else {
     const config = JSON.parse(readFileSync(h.mcp));
-    config.mcpServers.h2a = { command: process.execPath, args: [a.cli, ...args] };
+    config.mcpServers.h2a = { ...config.mcpServers.h2a, command: process.execPath, args: [a.cli, ...args] };
     put(h.mcp, JSON.stringify(config));
   }
 }
@@ -252,6 +252,15 @@ test('L0 Vibe: disabling the selected MCP cannot pass with healthy candidate arg
   assert.throws(() => contracts(sink, [disabled]));
 });
 
+test('L0 MCP selection: Codex disabled entry cannot pass after convergence', t => {
+  const f = fixture(t), h = f.hosts.find(h => h.host === 'codex');
+  assert.equal(observeHosts(f.a, f.hosts).filter(o => o.actual).length, 31);
+  put(h.mcp, readFileSync(h.mcp, 'utf8').replace('[mcp_servers.h2a]', '[mcp_servers.h2a]\nenabled = false'));
+  const disabled = observeHosts(f.a, f.hosts).find(o => o.id === 'codex installed MCP resolves activated prefix');
+  assert.equal(disabled.actual, false);
+  assert.throws(() => contracts(sink, [disabled]));
+});
+
 test('L0 Vibe: the configured transport must permit the stdio candidate probe', async t => {
   const f = fixture(t), h = f.hosts.find(h => h.host === 'vibe');
   const original = readFileSync(h.mcp, 'utf8');
@@ -311,3 +320,63 @@ test('L0 artifacts: disappearing entries cannot break recovery observations or h
   try { assert.deepEqual(files(root, path => readFileSync(path, 'utf8')), ['retained']); }
   finally { t.mock.restoreAll(); syncBuiltinESMExports(); }
 });
+
+function setMcpFlag(h, flag, value) {
+  const original = readFileSync(h.mcp, 'utf8');
+  if (h.mcp.endsWith('.toml')) put(h.mcp, original.replace(/^command = /m, flag + ' = ' + JSON.stringify(value) + '\ncommand = '));
+  else if (h.mcp.endsWith('.yaml')) put(h.mcp, original.replace('    command:', '    ' + flag + ': ' + JSON.stringify(value) + '\n    command:'));
+  else {
+    const config = JSON.parse(original);
+    config.mcpServers.h2a[flag] = value;
+    put(h.mcp, JSON.stringify(config));
+  }
+}
+
+async function mcpSelection(t, host) {
+  const f = fixture(t), h = f.hosts.find(h => h.host === host);
+  const original = readFileSync(h.mcp, 'utf8');
+  assert.equal((await observation(f, host, 'MCP resolves activated prefix')).actual, true);
+  // Every adapter rejects both explicit off spellings, before the shared cache.
+  for (const [flag, value] of [['enabled', false], ['disabled', true], ['enabled', 'false'], ['disabled', 'true']]) {
+    setMcpFlag(h, flag, value);
+    const disabled = await observation(f, host, 'MCP resolves activated prefix');
+    assert.equal(disabled.actual, false, host + ': ' + flag);
+    assert.throws(() => contracts(sink, [disabled]));
+    put(h.mcp, original);
+  }
+  for (const [flag, value] of [['enabled', true], ['disabled', false]]) {
+    setMcpFlag(h, flag, value);
+    assert.equal((await observation(f, host, 'MCP resolves activated prefix')).actual, true);
+    put(h.mcp, original);
+  }
+  const disabled = fixture(t, { mcpDisabled: [host] }), off = disabled.hosts.find(h => h.host === host);
+  assert.equal(off.mcpEnabled, false, 'selection is captured before convergence');
+  const selected = readFileSync(off.mcp, 'utf8');
+  // All enabled routes now fail their protocol: the disabled one requires no probe.
+  const candidateBytes = readFileSync(disabled.a.cli);
+  put(disabled.a.cli, 'process.exit(64);');
+  assert.equal((await observation(disabled, host, 'MCP resolves activated prefix')).actual, true);
+  put(disabled.a.cli, candidateBytes);
+  const reenabled = selected.replace(/enabled([" =:]+)false/, 'enabled$1true');
+  assert.notEqual(reenabled, selected, 'the negative control must change the selection');
+  put(off.mcp, reenabled);
+  assert.equal((await observation(disabled, host, 'MCP resolves activated prefix')).actual, false, 'must not re-enable a disabled selection');
+  put(off.mcp, selected.replace(disabled.a.cli, '/stale-prefix/h2a'));
+  assert.equal((await observation(disabled, host, 'MCP resolves activated prefix')).actual, false, 'disabled payload must still target the candidate');
+}
+
+test('L0 MCP selection: claude preserves enabled and disabled choices', t => mcpSelection(t, 'claude'));
+
+test('L0 MCP selection: codex preserves enabled and disabled choices', t => mcpSelection(t, 'codex'));
+
+test('L0 MCP selection: gemini preserves enabled and disabled choices', t => mcpSelection(t, 'gemini'));
+
+test('L0 MCP selection: agy preserves enabled and disabled choices', t => mcpSelection(t, 'agy'));
+
+test('L0 MCP selection: hermes preserves enabled and disabled choices', t => mcpSelection(t, 'hermes'));
+
+test('L0 MCP selection: opencode preserves enabled and disabled choices', t => mcpSelection(t, 'opencode'));
+
+test('L0 MCP selection: muse preserves enabled and disabled choices', t => mcpSelection(t, 'muse'));
+
+test('L0 MCP selection: vibe preserves enabled and disabled choices', t => mcpSelection(t, 'vibe'));
