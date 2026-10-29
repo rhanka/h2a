@@ -1,32 +1,34 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, symlinkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { contracts } from './helpers/cleanse-contracts.mjs';
+import { contracts as checkContracts } from './helpers/cleanse-contracts.mjs';
 import { isolatedEnv } from './helpers/cleanse-artifact.mjs';
 import { observeHosts, seedHosts } from './helpers/cleanse-hosts.mjs';
 
 const put = (path, bytes) => { mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, bytes); };
 const sink = { diagnostic() {} };
-const known = { id: 'known', lot: 'L1', actual: false, expected: true, evidence: 'original',
-  knownMissing: { actual: false, expected: true, evidence: 'original' } };
+const contracts = (t, observations) => checkContracts(t, observations, { ledger: Object.fromEntries(observations.map(o => [o.id, { state: 'GREEN' }])) });
+const known = { id: 'known', lot: 'L1', actual: false, expected: true, evidence: 'original' };
 
-test('L0 contracts: only the exact known assertion is accepted and repaired contracts become GREEN', () => {
-  const messages = [];
-  contracts({ diagnostic: message => messages.push(message) }, [known]);
-  for (const change of [{ actual: undefined }, { evidence: 'unexpected stale bytes' }, { knownMissing: undefined },
-    { expected: 'changed assertion' }]) {
-    assert.throws(() => contracts(sink, [{ ...known, ...change }]), 'an unrelated failure must block the gate');
+test('L0 contracts: only the committed state and exact failure signature are accepted', async () => {
+  const { observeContract } = await import('../../../scripts/cleanse-contract-ledger.mjs');
+  const { id, ...entry } = observeContract(known);
+  const ledger = { [id]: entry }, messages = [], t = { diagnostic: message => messages.push(message) };
+  checkContracts(t, [known], { ledger });
+  for (const change of [{ actual: undefined }, { evidence: 'unexpected stale bytes' }, { expected: 'changed assertion' }]) {
+    assert.throws(() => checkContracts(sink, [{ ...known, ...change }], { ledger }));
   }
-  assert.throws(() => contracts(sink, []));
-  assert.match(messages.join('\n'), /KNOWN-MISSING.*known/);
-  messages.length = 0;
-  contracts({ diagnostic: message => messages.push(message) }, [{ ...known, actual: true, evidence: 'current' }]);
-  assert.match(messages.join('\n'), /GREEN.*known/);
+  assert.throws(() => checkContracts(sink, []));
+  assert.throws(() => checkContracts(sink, [{ ...known, actual: true }], { ledger }), /RED -> observed GREEN/);
+  ledger[id] = { state: 'GREEN' };
+  checkContracts(t, [{ ...known, actual: true }], { ledger });
+  assert.throws(() => checkContracts(sink, [known], { ledger }), /GREEN -> observed RED/);
+  assert.match(messages.join('\n'), /H2A_CLEANSE_CONTRACT/);
 });
 
-function fixture(t) {
+function fixture(t, options) {
   const root = mkdtempSync(join(tmpdir(), 'oracle-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const a = { root, packages: join(root, 'payload'), env: isolatedEnv(root), version: '0.98.7', cli: join(root, 'candidate.cjs') };
@@ -37,13 +39,16 @@ function fixture(t) {
   put(join(a.packages, 'track/skills', resource), readFileSync(new URL('../../track/skills/' + resource, import.meta.url)));
   // A transport fixture for the oracle unit tests. The baseline file separately
   // exchanges MCP messages with the real installed candidate.
-  put(a.cli, `const readline=require('node:readline');readline.createInterface({input:process.stdin}).on('line',line=>{
+  put(a.cli, `#!${process.execPath}
+const readline=require('node:readline');readline.createInterface({input:process.stdin}).on('line',line=>{
     const q=JSON.parse(line);if(q.id===undefined)return;
     const result=q.method==='initialize'?{protocolVersion:'2024-11-05',serverInfo:{name:'@sentropic/h2a',version:'0.98.7'},capabilities:{tools:{}}}:
       {tools:[{name:'h2a_status'}]};
     console.log(JSON.stringify({jsonrpc:'2.0',id:q.id,result}));
   });`);
-  const hosts = seedHosts(a);
+  chmodSync(a.cli, 0o700);
+  symlinkSync(a.cli, join(a.root, 'bin/h2a'));
+  const hosts = seedHosts(a, options);
   const legacy = new Map(hosts.map(h => [h.host, readFileSync(h.mcp, 'utf8')]));
   const skill = readFileSync(join(a.packages, 'h2a/skills/h2a-run/SKILL.md'), 'utf8');
   for (const h of hosts) {
@@ -196,4 +201,41 @@ test('L0 reviewers reproduction: version MCPs, echo hooks and incomplete unselec
   const observations = await observeHosts(f.a, f.hosts);
   assert.equal(observations.filter(o => o.actual === false).length, 12, 'eight MCPs, two hooks and two plugin sources/caches');
   assert.throws(() => contracts(sink, observations), 'the same composite must fail the normal npm gate');
+});
+
+test('L0 hooks: duplicate host and workspace options cannot redirect the selected hook', async t => {
+  const f = fixture(t);
+  for (const h of f.hosts.filter(h => h.hooks)) {
+    const original = readFileSync(h.hooks, 'utf8');
+    const config = JSON.parse(original);
+    const command = (h.host === 'muse' ? config.hooks : config['sentropic-h2a-workspace-scope']).PreToolUse[0].hooks[0];
+    const baseline = command.command;
+    for (const extra of [' --host claude', ' --workspace /wrong-private-workspace', ' --session-store /wrong-private-store']) {
+      command.command = baseline + extra;
+      put(h.hooks, JSON.stringify(config));
+      assert.equal((await observation(f, h.host, 'selected hook registration')).actual, false, h.host + extra);
+    }
+    put(h.hooks, original);
+  }
+});
+
+test('L0 Agy: imported bytes must preserve the observed enabled or disabled selection', async t => {
+  const f = fixture(t), h = f.hosts.find(h => h.host === 'agy');
+  put(join(f.a.root, 'vendor-state/agy/enabled'), 'false');
+  assert.equal((await observation(f, 'agy', 'observed Agy imported bytes')).actual, false);
+  const disabled = fixture(t, { agyEnabled: false });
+  assert.equal((await observation(disabled, 'agy', 'observed Agy imported bytes')).actual, true);
+  put(join(disabled.a.root, 'vendor-state/agy/enabled'), 'true');
+  assert.equal((await observation(disabled, 'agy', 'observed Agy imported bytes')).actual, false);
+});
+
+test('L0 plugins: the active plugin MCP must resolve and answer from the activated prefix', async t => {
+  const f = fixture(t);
+  // The separate direct MCP is healthy; only the active plugin route is stale.
+  assert.equal((await observation(f, 'claude', 'registered effective plugin cache')).actual, true);
+  rmSync(join(f.a.root, 'bin/h2a'));
+  put(join(f.a.root, 'bin/h2a'), '#!' + process.execPath + '\nconsole.error("old wrong h2a MCP");process.exit(64);\n');
+  chmodSync(join(f.a.root, 'bin/h2a'), 0o700);
+  assert.equal((await observation(f, 'claude', 'MCP resolves activated prefix')).actual, true);
+  assert.equal((await observation(f, 'claude', 'registered effective plugin cache')).actual, false);
 });

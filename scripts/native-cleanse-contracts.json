@@ -1,0 +1,517 @@
+{
+  "schemaVersion": 1,
+  "contracts": {
+    "claude installed skill bytes": {
+      "state": "RED",
+      "signature": {
+        "actual": false,
+        "code": "ERR_ASSERTION",
+        "evidenceSha256": "b1288755b555438f742e6f2eb11dd4d086d01ab6f5a6e6ec79bfe8d5df29b88f",
+        "expected": true,
+        "message": "claude installed skill bytes (L3+L4)",
+        "name": "AssertionError",
+        "operator": "deepStrictEqual"
+      }
+    },
+    "claude installed linked resource bytes": {
+      "state": "RED",
+      "signature": {
+        "actual": false,
+        "code": "ERR_ASSERTION",
+        "evidenceSha256": "514333503905b994b85a93544870c10f0545867fc4c37cc12f9d48ace466b7f6",
+        "expected": true,
+        "message": "claude installed linked resource bytes (L3+L4)",
+        "name": "AssertionError",
+        "operator": "deepStrictEqual"
+      }
+    },
+    "claude installed MCP resolves activated prefix": {
+      "state": "RED",
+      "signature": {
+        "actual": false,
+        "code": "ERR_ASSERTION",
+        "evidenceSha256": "35c59d9d111aadee54709683a6c9130423241ae5683300461dbdba4c500e1a4a",
+        "expected": true,
+        "message": "claude installed MCP resolves activated prefix (L3+L4)",
+        "name": "AssertionError",
+        "operator": "deepStrictEqual"
+      }
+    },
+    "claude installed registered effective plugin cache": {
+      "state": "RED",
+      "signature": {
+        "actual": false,
+        "code": "ERR_ASSERTION",
+        "evidenceSha256": "158b5237e79b56b97ea2314d9df0aa78509f24eb927e81a8b79e1ae0eaefc9c1",
+        "expected": true,
+        "message": "claude installed registered effective plugin cache (L3+L4)",
+        "name": "AssertionError",
+        "operator": "deepStrictEqual"
+      }
+    },
+    "codex installed skill bytes": {
+      "state": "RED",
+      "signature": {
+        "actual": false,
+        "code": "ERR_ASSERTION",
+        "evidenceSha256": "b1288755b555438f742e6f2eb11dd4d086d01ab6f5a6e6ec79bfe8d5df29b88f",
+        "expected": true,
+        "message": "codex installed skill bytes (L3+L4)",
+        "name": "AssertionError",
+        "operator": "deepStrictEqual"
+      }
+    },
+    "codex installed linked resource bytes": {
+      "state": "RED",
+      "signature": {
+        "actual": false,
+        "code": "ERR_ASSERTION",
+        "evidenceSha256": "514333503905b994b85a93544870c10f0545867fc4c37cc12f9d48ace466b7f6",
+        "expected": true,
+        "message": "codex installed linked resource bytes (L3+L4)",
+        "name": "AssertionError",
+        "operator": "deepStrictEqual"
+      }
+    },
+    "codex installed MCP resolves activated prefix": {
+      "state": "RED",
+      "signature": {
+        "actual": false,
+        "code": "ERR_ASSERTION",
+        "evidenceSha256": "a7ef3d07586e9f141126484cb871a9fdd084f84d4629bf43ef453effd8aecb43",
+        "expected": true,
+        "message": "codex installed MCP resolves activated prefix (L3+L4)",
+        "name": "AssertionError",
+        "operator": "deepStrictEqual"
+      }
+    },
+    "codex installed registered effective plugin cache": {
+      "state": "RED",
+      "signature": {
+        "actual": false,
+        "code": "ERR_ASSERTION",
+        "evidenceSha256": "bd5b37219766ba220862593b5e3528b72c46334da553edba2117ceb950b1e282",
+        "expected": true,
+        "message": "codex installed registered effective plugin cache (L3+L4)",
+        "name": "AssertionError",
+        "operator": "deepStrictEqual"
+      }
+    },
+    "gemini installed skill bytes": {
+      "state": "RED",
+      "signature": {
+        "actual": false,
+        "code": "ERR_ASSERTION",
+        "evidenceSha256": "d8ebd14790ca8c4c18f117f3925cfddce80473fbb0464b5d727c19b8e138d783",
+        "expected": true,
+        "message": "gemini installed skill bytes (L3+L4)",
+        "name": "AssertionError",
+        "operator": "deepStrictEqual"
+      }
+    },
+    "gemini installed linked resource bytes": {
+      "state": "RED",
+      "signature": {
+        "actual": false,
+        "code": "ERR_ASSERTION",
+        "evidenceSha256": "c08db5f686fa766e5eefe038c8ef5b7c4d866fc4f5f189ce2bd3ab17b345e32f",
+        "expected": true,
+        "message": "gemini installed linked resource bytes (L3+L4)",
+        "name": "AssertionError",
+        "operator": "deepStrictEqual"
+      }
+    },
+    "gemini installed MCP resolves activated prefix": {
+      "state": "RED",
+      "signature": {
+        "actual": false,
+        "code": "ERR_ASSERTION",
+        "evidenceSha256": "35c59d9d111aadee54709683a6c9130423241ae5683300461dbdba4c500e1a4a",
+        "expected": true,
+        "message": "gemini installed MCP resolves activated prefix (L3+L4)",
+        "name": "AssertionError",
+        "operator": "deepStrictEqual"
+      }
+    },
+    "agy installed skill bytes": {
+      "state": "RED",
+      "signature": {
+        "actual": false,
+        "code": "ERR_ASSERTION",
+        "evidenceSha256": "d8ebd14790ca8c4c18f117f3925cfddce80473fbb0464b5d727c19b8e138d783",
+        "expected": true,
+        "message": "agy installed skill bytes (L3+L4)",
+        "name": "AssertionError",
+        "operator": "deepStrictEqual"
+      }
+    },
+    "agy installed linked resource bytes": {
+      "state": "RED",
+      "signature": {
+        "actual": false,
+        "code": "ERR_ASSERTION",
+        "evidenceSha256": "c08db5f686fa766e5eefe038c8ef5b7c4d866fc4f5f189ce2bd3ab17b345e32f",
+        "expected": true,
+        "message": "agy installed linked resource bytes (L3+L4)",
+        "name": "AssertionError",
+        "operator": "deepStrictEqual"
+      }
+    },
+    "agy installed MCP resolves activated prefix": {
+      "state": "RED",
+      "signature": {
+        "actual": false,
+        "code": "ERR_ASSERTION",
+        "evidenceSha256": "35c59d9d111aadee54709683a6c9130423241ae5683300461dbdba4c500e1a4a",
+        "expected": true,
+        "message": "agy installed MCP resolves activated prefix (L3+L4)",
+        "name": "AssertionError",
+        "operator": "deepStrictEqual"
+      }
+    },
+    "agy installed selected helper bytes": {
+      "state": "RED",
+      "signature": {
+        "actual": false,
+        "code": "ERR_ASSERTION",
+        "evidenceSha256": "3a983bd5a3d5ffd842d5c2917b2e1b817d47f891709fb8773b589aaecde84215",
+        "expected": true,
+        "message": "agy installed selected helper bytes (L3+L4)",
+        "name": "AssertionError",
+        "operator": "deepStrictEqual"
+      }
+    },
+    "agy installed selected hook registration": {
+      "state": "RED",
+      "signature": {
+        "actual": false,
+        "code": "ERR_ASSERTION",
+        "evidenceSha256": "6f33263f84298abf19d8a083277a0bd3db13e1249f035a58f0fe710a508d4982",
+        "expected": true,
+        "message": "agy installed selected hook registration (L3+L4)",
+        "name": "AssertionError",
+        "operator": "deepStrictEqual"
+      }
+    },
+    "agy installed observed Agy imported bytes": {
+      "state": "RED",
+      "signature": {
+        "actual": false,
+        "code": "ERR_ASSERTION",
+        "evidenceSha256": "461c1299c1d4661864c32ece4dbb2c2ae0c4ce0277cf76a2b5075c87abdea655",
+        "expected": true,
+        "message": "agy installed observed Agy imported bytes (L3+L4)",
+        "name": "AssertionError",
+        "operator": "deepStrictEqual"
+      }
+    },
+    "hermes installed skill bytes": {
+      "state": "RED",
+      "signature": {
+        "actual": false,
+        "code": "ERR_ASSERTION",
+        "evidenceSha256": "b1288755b555438f742e6f2eb11dd4d086d01ab6f5a6e6ec79bfe8d5df29b88f",
+        "expected": true,
+        "message": "hermes installed skill bytes (L3+L4)",
+        "name": "AssertionError",
+        "operator": "deepStrictEqual"
+      }
+    },
+    "hermes installed linked resource bytes": {
+      "state": "RED",
+      "signature": {
+        "actual": false,
+        "code": "ERR_ASSERTION",
+        "evidenceSha256": "514333503905b994b85a93544870c10f0545867fc4c37cc12f9d48ace466b7f6",
+        "expected": true,
+        "message": "hermes installed linked resource bytes (L3+L4)",
+        "name": "AssertionError",
+        "operator": "deepStrictEqual"
+      }
+    },
+    "hermes installed MCP resolves activated prefix": {
+      "state": "RED",
+      "signature": {
+        "actual": false,
+        "code": "ERR_ASSERTION",
+        "evidenceSha256": "a7ef3d07586e9f141126484cb871a9fdd084f84d4629bf43ef453effd8aecb43",
+        "expected": true,
+        "message": "hermes installed MCP resolves activated prefix (L3+L4)",
+        "name": "AssertionError",
+        "operator": "deepStrictEqual"
+      }
+    },
+    "opencode installed skill bytes": {
+      "state": "RED",
+      "signature": {
+        "actual": false,
+        "code": "ERR_ASSERTION",
+        "evidenceSha256": "b1288755b555438f742e6f2eb11dd4d086d01ab6f5a6e6ec79bfe8d5df29b88f",
+        "expected": true,
+        "message": "opencode installed skill bytes (L3+L4)",
+        "name": "AssertionError",
+        "operator": "deepStrictEqual"
+      }
+    },
+    "opencode installed linked resource bytes": {
+      "state": "RED",
+      "signature": {
+        "actual": false,
+        "code": "ERR_ASSERTION",
+        "evidenceSha256": "514333503905b994b85a93544870c10f0545867fc4c37cc12f9d48ace466b7f6",
+        "expected": true,
+        "message": "opencode installed linked resource bytes (L3+L4)",
+        "name": "AssertionError",
+        "operator": "deepStrictEqual"
+      }
+    },
+    "opencode installed MCP resolves activated prefix": {
+      "state": "RED",
+      "signature": {
+        "actual": false,
+        "code": "ERR_ASSERTION",
+        "evidenceSha256": "35c59d9d111aadee54709683a6c9130423241ae5683300461dbdba4c500e1a4a",
+        "expected": true,
+        "message": "opencode installed MCP resolves activated prefix (L3+L4)",
+        "name": "AssertionError",
+        "operator": "deepStrictEqual"
+      }
+    },
+    "muse installed skill bytes": {
+      "state": "RED",
+      "signature": {
+        "actual": false,
+        "code": "ERR_ASSERTION",
+        "evidenceSha256": "b1288755b555438f742e6f2eb11dd4d086d01ab6f5a6e6ec79bfe8d5df29b88f",
+        "expected": true,
+        "message": "muse installed skill bytes (L3+L4)",
+        "name": "AssertionError",
+        "operator": "deepStrictEqual"
+      }
+    },
+    "muse installed linked resource bytes": {
+      "state": "RED",
+      "signature": {
+        "actual": false,
+        "code": "ERR_ASSERTION",
+        "evidenceSha256": "514333503905b994b85a93544870c10f0545867fc4c37cc12f9d48ace466b7f6",
+        "expected": true,
+        "message": "muse installed linked resource bytes (L3+L4)",
+        "name": "AssertionError",
+        "operator": "deepStrictEqual"
+      }
+    },
+    "muse installed MCP resolves activated prefix": {
+      "state": "RED",
+      "signature": {
+        "actual": false,
+        "code": "ERR_ASSERTION",
+        "evidenceSha256": "35c59d9d111aadee54709683a6c9130423241ae5683300461dbdba4c500e1a4a",
+        "expected": true,
+        "message": "muse installed MCP resolves activated prefix (L3+L4)",
+        "name": "AssertionError",
+        "operator": "deepStrictEqual"
+      }
+    },
+    "muse installed selected helper bytes": {
+      "state": "RED",
+      "signature": {
+        "actual": false,
+        "code": "ERR_ASSERTION",
+        "evidenceSha256": "3a983bd5a3d5ffd842d5c2917b2e1b817d47f891709fb8773b589aaecde84215",
+        "expected": true,
+        "message": "muse installed selected helper bytes (L3+L4)",
+        "name": "AssertionError",
+        "operator": "deepStrictEqual"
+      }
+    },
+    "muse installed selected hook registration": {
+      "state": "RED",
+      "signature": {
+        "actual": false,
+        "code": "ERR_ASSERTION",
+        "evidenceSha256": "01954c355143f58a9a098f0c62394ad121c8b617fbc2ed2874e35b2ac3cbc453",
+        "expected": true,
+        "message": "muse installed selected hook registration (L3+L4)",
+        "name": "AssertionError",
+        "operator": "deepStrictEqual"
+      }
+    },
+    "vibe installed skill bytes": {
+      "state": "RED",
+      "signature": {
+        "actual": false,
+        "code": "ERR_ASSERTION",
+        "evidenceSha256": "b1288755b555438f742e6f2eb11dd4d086d01ab6f5a6e6ec79bfe8d5df29b88f",
+        "expected": true,
+        "message": "vibe installed skill bytes (L3+L4)",
+        "name": "AssertionError",
+        "operator": "deepStrictEqual"
+      }
+    },
+    "vibe installed linked resource bytes": {
+      "state": "RED",
+      "signature": {
+        "actual": false,
+        "code": "ERR_ASSERTION",
+        "evidenceSha256": "514333503905b994b85a93544870c10f0545867fc4c37cc12f9d48ace466b7f6",
+        "expected": true,
+        "message": "vibe installed linked resource bytes (L3+L4)",
+        "name": "AssertionError",
+        "operator": "deepStrictEqual"
+      }
+    },
+    "vibe installed MCP resolves activated prefix": {
+      "state": "RED",
+      "signature": {
+        "actual": false,
+        "code": "ERR_ASSERTION",
+        "evidenceSha256": "4f39086388e61a24769a229642227970e5e917a2e9ebb2068efa39bd433172b4",
+        "expected": true,
+        "message": "vibe installed MCP resolves activated prefix (L3+L4)",
+        "name": "AssertionError",
+        "operator": "deepStrictEqual"
+      }
+    },
+    "packaged .claude-plugin/plugin.json exact RC": {
+      "state": "RED",
+      "signature": {
+        "actual": "0.98.7",
+        "code": "ERR_ASSERTION",
+        "evidenceSha256": "c08db5f686fa766e5eefe038c8ef5b7c4d866fc4f5f189ce2bd3ab17b345e32f",
+        "expected": "<candidate-version>",
+        "message": "packaged .claude-plugin/plugin.json exact RC (L3)",
+        "name": "AssertionError",
+        "operator": "deepStrictEqual"
+      }
+    },
+    "packaged .codex-plugin/plugin.json exact RC": {
+      "state": "RED",
+      "signature": {
+        "actual": "0.98.7",
+        "code": "ERR_ASSERTION",
+        "evidenceSha256": "c08db5f686fa766e5eefe038c8ef5b7c4d866fc4f5f189ce2bd3ab17b345e32f",
+        "expected": "<candidate-version>",
+        "message": "packaged .codex-plugin/plugin.json exact RC (L3)",
+        "name": "AssertionError",
+        "operator": "deepStrictEqual"
+      }
+    },
+    "packaged integration manifest exact RC": {
+      "state": "RED",
+      "signature": {
+        "actual": {
+          "$undefined": true
+        },
+        "code": "ERR_ASSERTION",
+        "evidenceSha256": "c08db5f686fa766e5eefe038c8ef5b7c4d866fc4f5f189ce2bd3ab17b345e32f",
+        "expected": "<candidate-version>",
+        "message": "packaged integration manifest exact RC (L3)",
+        "name": "AssertionError",
+        "operator": "deepStrictEqual"
+      }
+    },
+    "dead claim archived before replacement": {
+      "state": "RED",
+      "signature": {
+        "actual": false,
+        "code": "ERR_ASSERTION",
+        "evidenceSha256": "c08db5f686fa766e5eefe038c8ef5b7c4d866fc4f5f189ce2bd3ab17b345e32f",
+        "expected": true,
+        "message": "dead claim archived before replacement (L1)",
+        "name": "AssertionError",
+        "operator": "deepStrictEqual"
+      }
+    },
+    "proven dead background row archived and retired": {
+      "state": "RED",
+      "signature": {
+        "actual": false,
+        "code": "ERR_ASSERTION",
+        "evidenceSha256": "c08db5f686fa766e5eefe038c8ef5b7c4d866fc4f5f189ce2bd3ab17b345e32f",
+        "expected": true,
+        "message": "proven dead background row archived and retired (L1)",
+        "name": "AssertionError",
+        "operator": "deepStrictEqual"
+      }
+    },
+    "both endpoints ready before restore dispatcher": {
+      "state": "RED",
+      "signature": {
+        "actual": [
+          false,
+          false
+        ],
+        "code": "ERR_ASSERTION",
+        "evidenceSha256": "c08db5f686fa766e5eefe038c8ef5b7c4d866fc4f5f189ce2bd3ab17b345e32f",
+        "expected": [
+          true,
+          true
+        ],
+        "message": "both endpoints ready before restore dispatcher (L1)",
+        "name": "AssertionError",
+        "operator": "deepStrictEqual"
+      }
+    },
+    "native-terminal.sock original inode quarantined": {
+      "state": "RED",
+      "signature": {
+        "actual": false,
+        "code": "ERR_ASSERTION",
+        "evidenceSha256": "c08db5f686fa766e5eefe038c8ef5b7c4d866fc4f5f189ce2bd3ab17b345e32f",
+        "expected": true,
+        "message": "native-terminal.sock original inode quarantined (L1)",
+        "name": "AssertionError",
+        "operator": "deepStrictEqual"
+      }
+    },
+    "native-terminal.sock recovery record": {
+      "state": "RED",
+      "signature": {
+        "actual": false,
+        "code": "ERR_ASSERTION",
+        "evidenceSha256": "c08db5f686fa766e5eefe038c8ef5b7c4d866fc4f5f189ce2bd3ab17b345e32f",
+        "expected": true,
+        "message": "native-terminal.sock recovery record (L1)",
+        "name": "AssertionError",
+        "operator": "deepStrictEqual"
+      }
+    },
+    "native-terminal.lf1.sock original inode quarantined": {
+      "state": "RED",
+      "signature": {
+        "actual": false,
+        "code": "ERR_ASSERTION",
+        "evidenceSha256": "c08db5f686fa766e5eefe038c8ef5b7c4d866fc4f5f189ce2bd3ab17b345e32f",
+        "expected": true,
+        "message": "native-terminal.lf1.sock original inode quarantined (L1)",
+        "name": "AssertionError",
+        "operator": "deepStrictEqual"
+      }
+    },
+    "native-terminal.lf1.sock recovery record": {
+      "state": "RED",
+      "signature": {
+        "actual": false,
+        "code": "ERR_ASSERTION",
+        "evidenceSha256": "c08db5f686fa766e5eefe038c8ef5b7c4d866fc4f5f189ce2bd3ab17b345e32f",
+        "expected": true,
+        "message": "native-terminal.lf1.sock recovery record (L1)",
+        "name": "AssertionError",
+        "operator": "deepStrictEqual"
+      }
+    },
+    "legacy reclaim barrier coded refusal": {
+      "state": "RED",
+      "signature": {
+        "actual": false,
+        "code": "ERR_ASSERTION",
+        "evidenceSha256": "52e0a5d6dcb854d07133948632d9a7296255edd3443d55e927a000321c715ee3",
+        "expected": true,
+        "message": "legacy reclaim barrier coded refusal (L1)",
+        "name": "AssertionError",
+        "operator": "deepStrictEqual"
+      }
+    }
+  }
+}

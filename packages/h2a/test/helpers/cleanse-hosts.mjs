@@ -12,7 +12,7 @@ import { hash, json } from './cleanse-artifact.mjs';
 const oldSkill = readFileSync(new URL('./fixtures/cleanse-old-run.md', import.meta.url), 'utf8');
 const put = (p, bytes) => { mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, bytes); };
 
-export function seedHosts(a) {
+export function seedHosts(a, { agyEnabled = true } = {}) {
   const home = a.env.HOME;
   a.env.CLAUDE_CONFIG_DIR = join(home, 'claude-config');
   a.env.CODEX_HOME = join(home, 'codex-config');
@@ -74,7 +74,7 @@ export function seedHosts(a) {
     if (host === 'agy') {
       imported = join(a.root, 'vendor-state/agy/commands/h2a-run.toml');
       put(imported, old);
-      put(join(a.root, 'vendor-state/agy/enabled'), 'true');
+      put(join(a.root, 'vendor-state/agy/enabled'), String(agyEnabled));
     }
     put(join(state, manifestName), JSON.stringify(record));
     let registration;
@@ -83,7 +83,8 @@ export function seedHosts(a) {
       put(join(cache, '.claude-plugin/plugin.json'), JSON.stringify({ name: 'h2a', version: '0.98.6' }));
       put(join(cache, '.codex-plugin/plugin.json'), JSON.stringify({ name: 'h2a', version: '0.98.6' }));
       put(join(cache, 'skills/h2a-run/SKILL.md'), oldSkill);
-      put(join(cache, 'hooks/hooks.json'), JSON.stringify({ hooks: { PreToolUse: [{ command: commandForOldHelper(a.root, host) }] } }));
+      // Stable historical bytes: a digest must not encode the random lab root.
+      put(join(cache, 'hooks/hooks.json'), JSON.stringify({ hooks: { PreToolUse: [{ command: 'node old-prefix/hooks/workspace-scope-guard.mjs --host ' + host }] } }));
       const marketplace = join(root, host === 'codex' ? '.tmp/marketplaces/sentropic' : 'plugins/marketplaces/sentropic');
       put(join(marketplace, '.claude-plugin/marketplace.json'), JSON.stringify({ name: 'sentropic', plugins: [{ name: 'h2a', source: './packages/h2a' }] }));
       if (host === 'claude') {
@@ -122,13 +123,8 @@ export function seedHosts(a) {
     `);
     chmodSync(join(a.root, 'bin', host), 0o700);
     // put() preserves a deliberately constrained executable path.
-    return { host, root, skill, resource, mcp, helper, hooks, imported, registration, format: shared ? 'toml' : 'markdown' };
+    return { host, root, skill, resource, mcp, helper, hooks, imported, registration, agyEnabled, format: shared ? 'toml' : 'markdown' };
   });
-  // Freeze the independently seeded bytes BEFORE npm or product repair runs.
-  // This is evidence of the specific missing L3/L4 contract, never a blanket
-  // expected failure for arbitrary stale or malformed material.
-  for (const item of inventory) item.legacy = hostEvidence(a, item);
-  // Mark executable fixtures only, never an installed owner binary.
   return inventory;
 }
 
@@ -202,7 +198,7 @@ function hostEvidence(a, item) {
     mcp: entries(config).filter(([name]) => /^h2a|^track/.test(name)),
     helper: item.helper ? Object.fromEntries(scopeFiles.map(name => [name, digest(join(dirname(item.helper), name))])) : undefined,
     hooks: item.hooks ? json(item.hooks) : undefined,
-    imported: digest(item.imported), plugin: pluginState(a, item, config),
+    imported: item.imported ? { sha256: digest(item.imported), enabled: text(join(a.root, 'vendor-state/agy/enabled')) } : undefined, plugin: pluginState(a, item, config),
   };
 }
 
@@ -241,6 +237,14 @@ function selectedHook(a, item, config, helpersCurrent) {
   if (!Array.isArray(commands) || commands.length !== 1 || commands[0].type !== 'command' || commands[0].enabled === false) return false;
   const command = hookArgv(commands[0].command);
   const options = command.slice(2);
+  // The real parser takes the last option. Reject ambiguous and unknown argv.
+  const allowed = new Set(item.host === 'agy' ? ['--host', '--session-store'] : ['--host', '--workspace']);
+  const seen = new Set();
+  for (let i = 0; i < options.length; i += 2) {
+    if (!allowed.has(options[i]) || seen.has(options[i]) || !options[i + 1] || options[i + 1].startsWith('--')) return false;
+    seen.add(options[i]);
+  }
+  if (!seen.has('--host')) return false;
   if (executable(a, command[0]) !== realpathSync(process.execPath) || executable(a, command[1]) !== executable(a, item.helper) ||
       options[options.indexOf('--host') + 1] !== item.host) return false;
   const anchor = item.host === 'agy' ? '--session-store' : '--workspace';
@@ -251,6 +255,25 @@ function selectedHook(a, item, config, helpersCurrent) {
     encoding: 'utf8', timeout: 5000, killSignal: 'SIGKILL' });
   return !result.error && /H2A_SCOPE:UNVERIFIABLE/.test(result.stderr) &&
     JSON.parse(result.stdout).hookSpecificOutput?.permissionDecision === 'deny';
+}
+
+function currentMcp(a, server, transports) {
+  const command = argv(server), target = executable(a, command[0]);
+  const direct = target === realpathSync(a.cli);
+  const viaNode = target === realpathSync(process.execPath) && executable(a, command[1]) === realpathSync(a.cli);
+  if (!(direct || viaNode) || command[direct ? 1 : 2] !== 'mcp-serve') return false;
+  const key = JSON.stringify(command);
+  if (!transports.has(key)) transports.set(key, servesMcp(a, command));
+  return transports.get(key) === true;
+}
+
+function pluginMcp(a, root, host, transports) {
+  const manifest = json(join(root, host === 'claude' ? '.claude-plugin/plugin.json' : '.codex-plugin/plugin.json'));
+  const declared = manifest.mcpServers;
+  if (!declared) return false;
+  const config = typeof declared === 'string' ? json(join(root, declared)) : { mcpServers: declared };
+  const servers = entries(config);
+  return servers.length > 0 && servers.every(([, server]) => currentMcp(a, server, transports));
 }
 
 export function observeHosts(a, inventory) {
@@ -269,7 +292,7 @@ export function observeHosts(a, inventory) {
   for (const item of inventory) {
     const config = parseConfig(item), evidence = hostEvidence(a, item);
     const add = (family, actual, key) => observations.push({ id: item.host + ' installed ' + family, lot: 'L3+L4',
-      actual, expected: true, evidence: evidence[key], knownMissing: { actual: false, expected: true, evidence: item.legacy[key] } });
+      actual, expected: true, evidence: evidence[key] });
     assert.ok(text(item.mcp).includes('third-party'), item.host + ': preserve unrelated configuration');
     const installedSkill = text(item.skill);
     const rendered = item.format === 'toml' ? prompt(item.skill) : undefined;
@@ -278,15 +301,8 @@ export function observeHosts(a, inventory) {
     add('linked resource bytes', evidence.resource === resource, 'resource');
     const servers = entries(config), routes = servers.filter(([name, server]) =>
       /^h2a/.test(name) || argv(server).some(arg => typeof arg === 'string' && arg.includes(a.cli)));
-    const command = argv(routes[0]?.[1]), target = executable(a, command[0]);
-    const direct = target === realpathSync(a.cli);
-    const viaNode = target === realpathSync(process.execPath) && executable(a, command[1]) === realpathSync(a.cli);
-    const args = command.slice(direct ? 1 : 2);
-    const validRoute = (direct || viaNode) && args[0] === 'mcp-serve';
-    const transportKey = JSON.stringify(command);
-    if (validRoute && !transports.has(transportKey)) transports.set(transportKey, servesMcp(a, command));
     add('MCP resolves activated prefix', routes.length === 1 && servers.filter(([name]) => /^track/.test(name)).length <= 1 &&
-      validRoute && transports.get(transportKey) === true, 'mcp');
+      currentMcp(a, routes[0]?.[1], transports), 'mcp');
     let helpersCurrent;
     if (item.helper) {
       helpersCurrent = JSON.stringify(evidence.helper) === JSON.stringify(expectedHelpers);
@@ -296,7 +312,7 @@ export function observeHosts(a, inventory) {
       assert.ok(text(item.hooks).includes('third-party'), 'preserve unrelated workspace hooks');
       add('selected hook registration', selectedHook(a, item, evidence.hooks, helpersCurrent), 'hooks');
     }
-    if (item.imported) add('observed Agy imported bytes', prompt(item.imported) ===
+    if (item.imported) add('observed Agy imported bytes', evidence.imported.enabled === String(item.agyEnabled) && prompt(item.imported) ===
       skill.replace(/^---\n[\s\S]*?\n---\n/, '').trim(), 'imported');
     if (item.registration) {
       const plugin = evidence.plugin;
@@ -304,7 +320,8 @@ export function observeHosts(a, inventory) {
       if (item.host === 'claude') {
         assert.equal(json(join(item.root, 'settings.json')).enabledPlugins['h2a@sentropic'], true);
         current = plugin.registrations.length === 1 && plugin.registrations[0].version === a.version &&
-          JSON.stringify(plugin.caches[0].payload) === JSON.stringify(expectedPlugin);
+          JSON.stringify(plugin.caches[0].payload) === JSON.stringify(expectedPlugin) &&
+          pluginMcp(a, plugin.registrations[0].installPath, item.host, transports);
       } else {
         assert.equal(config.plugins['h2a@sentropic'].enabled, false, 'disabled selection must stay disabled');
         current = (plugin.selected?.source_type === 'local' ||

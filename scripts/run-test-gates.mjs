@@ -208,6 +208,8 @@ export const STEPS = [
     timeoutMs: 21 * MINUTE_MS,
     reportPath: NODE_TRACK_EXECUTION_REPORT,
     requiredFiles: listNodeTrackSuiteFiles,
+    // Includes all 42 cleanse results against the committed contract ledger;
+    // test passes alone cannot hide a changed RED or an undeclared GREEN.
     verifyExecution: verifyNodeTrackExecution,
     invocationEvidence: true,
   },
