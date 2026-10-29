@@ -6,9 +6,11 @@
   CLI startup and cleanup on refused/failed retype.
 - After the existing conflict/liveness resolution, prefer proven consent over
   equivalent legacy pins, independently of registry order; --no-gw still wins.
+- Preserve an unspecified bare pin on the legacy-to-explicit transition too;
+  RED for the absent variant: one failure / 57 passes, zero skips.
 - RED before product edits: three failures / 52 passes, zero skips (two lost
   opt-ins and bearer in command, PTY echo and Bash history).
-- GREEN: 512 scoped runtime tests + 52 contracts, zero skips; runtime build;
+- GREEN: 514 scoped runtime tests + 52 contracts, zero skips; runtime build;
   execution-proof validator; original R1 matrix 16/16 and two clean children;
   18 recovered Astra/Sol probes from rounds 1/2/3. No gate changes.
 - Evidence: docs/reviews/gateway-off-default-r4.md. Private TMPDIR

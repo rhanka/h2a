@@ -6632,9 +6632,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
             return;
           }
           const useBare = resolveClaudeBare(profile, bareChoiceFromOptions(opts) ?? pinnedLaunch?.bare);
-          // Preserve an unspecified choice on a proven row: materializing
-          // the default only on its renamed row would create a pin conflict.
-          const enrollmentBare = pinnedLaunch?.gatewayProvenance === "explicit" && bareChoiceFromOptions(opts) === undefined
+          // Preserve the conversation's bare pin, including absence on a
+          // legacy row: materializing it only on the new row creates a conflict.
+          const enrollmentBare = pinnedLaunch && bareChoiceFromOptions(opts) === undefined
             ? pinnedLaunch.bare
             : useBare;
           // H0 (#662): normalize readable gateway aliases (argon-high, wonder,

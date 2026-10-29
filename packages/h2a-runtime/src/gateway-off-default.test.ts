@@ -625,8 +625,8 @@ describe("run --resume (legacy pin without provenance stays direct)", () => {
     expect(code).toBe(0);
   });
 
-  it("keeps a new explicit opt-in on the next resume beside a legacy row (round-4 P2)", async () => {
-    seedRegistry([{ ...legacyGatewayPin(), bare: false }]);
+  it.each([undefined, false, true])("keeps a new explicit opt-in on the next resume beside a legacy row with bare=%s (round-4 P2)", async (bare) => {
+    seedRegistry([{ ...legacyGatewayPin(), bare }]);
     acquireLlmMeshSessionEnv.mockResolvedValue({
       ANTHROPIC_BASE_URL: "http://localhost:3002", ANTHROPIC_AUTH_TOKEN: "fixture-fresh",
     });
