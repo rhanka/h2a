@@ -1169,6 +1169,7 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
     // dead host — it has NO in-memory record of "brutal-orphan-tree" at all.
     // Its ONLY way to reap the tree is the durably persisted pgid, read from
     // the SAME registry file the dead host wrote to at session creation.
+    const ownedView = createOwnedProcView(directory, ownedPids);
     const freshHost = new NativeTerminalHost({
       generation: "fresh-reap-fresh-host",
       replayBytesPerSession: 1024,
@@ -1176,10 +1177,18 @@ describe.skipIf(process.platform !== "linux")("native terminal host process", ()
         throw new Error("the fresh host in this test must never spawn a pty");
       },
       registryPath,
+      findGroupMemberToken: (pgid, token) => groupCarriesSessionToken(pgid, token, ownedView),
+      groupIsOnlyZombies: (pgid) => groupIsOnlyZombies(pgid, ownedView),
     });
 
-    const outcome = await freshHost.reapOrphan("brutal-orphan-tree", "SIGKILL");
-    expect(outcome).toMatchObject({
+    // Parent-death cleanup can drain the group between its identity and
+    // zombie censuses. Retry only that conservative uncertainty, within the
+    // existing bounded wait; every other refusal still fails immediately.
+    const outcome = await eventually(
+      () => freshHost.reapOrphan("brutal-orphan-tree", "SIGKILL"),
+      (value) => value.status !== "refused" || value.cause !== "membership-unprovable",
+    );
+    expect(outcome, JSON.stringify(outcome)).toMatchObject({
       sessionId: "brutal-orphan-tree",
       status: "reaped",
     });
