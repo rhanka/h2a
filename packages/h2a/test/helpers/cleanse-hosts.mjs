@@ -12,7 +12,7 @@ import { hash, json } from './cleanse-artifact.mjs';
 const oldSkill = readFileSync(new URL('./fixtures/cleanse-old-run.md', import.meta.url), 'utf8');
 const put = (p, bytes) => { mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, bytes); };
 
-export function seedHosts(a, { agyEnabled = true, vibeDisabled = false } = {}) {
+export function seedHosts(a, { agyEnabled = true, vibeDisabled = false, mcpDisabled = [] } = {}) {
   const home = a.env.HOME;
   a.env.CLAUDE_CONFIG_DIR = join(home, 'claude-config');
   a.env.CODEX_HOME = join(home, 'codex-config');
@@ -43,6 +43,12 @@ export function seedHosts(a, { agyEnabled = true, vibeDisabled = false } = {}) {
     put(mcp, config.endsWith('.toml') ? `${host === 'vibe' ? '[[mcp_servers]]\nname = "h2a"\ntransport = "stdio"' + (vibeDisabled ? '\ndisabled = true' : '') : '[mcp_servers.h2a]'}\ncommand = "${command}"\nargs = ["mcp-serve"]\n\n[fixture]\nsentinel = "third-party"\n` :
       config.endsWith('.yaml') ? `mcp_servers:\n  h2a:\n    command: ${command}\n    args: [mcp-serve]\nfixture: third-party\n` :
       JSON.stringify({ mcpServers: { h2a: server }, fixture: 'third-party' }));
+    const mcpEnabled = !mcpDisabled.includes(host) && !(host === 'vibe' && vibeDisabled);
+    if (!mcpEnabled && !(host === 'vibe' && vibeDisabled)) {
+      if (config.endsWith('.toml')) put(mcp, readFileSync(mcp, 'utf8').replace('command = ', 'enabled = false\ncommand = '));
+      else if (config.endsWith('.yaml')) put(mcp, readFileSync(mcp, 'utf8').replace('    command:', '    enabled: false\n    command:'));
+      else put(mcp, JSON.stringify({ mcpServers: { h2a: { ...server, enabled: false } }, fixture: 'third-party' }));
+    }
     const state = join(root, shared ? '.h2a-install-agy' : '.h2a-install');
     const manifestName = shared ? 'shared-owner.json' : 'manifest.json';
     const record = { schema: 1, host: shared ? 'gemini-commands' : host, root, version: '0.98.6', files: {
@@ -123,7 +129,7 @@ export function seedHosts(a, { agyEnabled = true, vibeDisabled = false } = {}) {
     `);
     chmodSync(join(a.root, 'bin', host), 0o700);
     // put() preserves a deliberately constrained executable path.
-    return { host, root, skill, resource, mcp, helper, hooks, imported, registration, agyEnabled, vibeDisabled, format: shared ? 'toml' : 'markdown' };
+    return { host, root, skill, resource, mcp, helper, hooks, imported, registration, agyEnabled, vibeDisabled, mcpEnabled, format: shared ? 'toml' : 'markdown' };
   });
   return inventory;
 }
@@ -258,17 +264,20 @@ function selectedHook(a, item, config, helpersCurrent) {
 }
 
 function currentMcp(a, server, transports, item) {
-  // Vibe selects a discriminated transport and can disable an entry. Validate
-  // that selection BEFORE consulting the shared argv/protocol cache.
-  if (item?.host === 'vibe' && (server?.transport !== 'stdio' ||
-      (server.disabled ?? false) !== item.vibeDisabled)) return false;
+  // Selection is independent of argv: a healthy cached handshake cannot make
+  // an entry enabled. Compare with the choice frozen BEFORE installation.
+  if (!server || (server.enabled !== undefined && typeof server.enabled !== 'boolean') ||
+      (server.disabled !== undefined && typeof server.disabled !== 'boolean')) return false;
+  const enabled = server.enabled !== false && server.disabled !== true;
+  if (enabled !== (item?.mcpEnabled ?? true)) return false;
+  if (item?.host === 'vibe' && server.transport !== 'stdio') return false;
   const command = argv(server), target = executable(a, command[0]);
   const direct = target === realpathSync(a.cli);
   const viaNode = target === realpathSync(process.execPath) && executable(a, command[1]) === realpathSync(a.cli);
   if (!(direct || viaNode) || command[direct ? 1 : 2] !== 'mcp-serve') return false;
   // A deliberately disabled entry must keep its choice and current target;
   // it is not an effective server and must not be launched by the witness.
-  if (item?.host === 'vibe' && item.vibeDisabled) return true;
+  if (!enabled) return true;
   const key = JSON.stringify(command);
   if (!transports.has(key)) transports.set(key, servesMcp(a, command));
   return transports.get(key) === true;

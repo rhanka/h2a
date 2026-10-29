@@ -1492,9 +1492,18 @@ test('L0 trust root: every baseline contract and oracle is required by the produ
       "L0 Agy: imported bytes must preserve the observed enabled or disabled selection",
       "L0 plugins: the active plugin MCP must resolve and answer from the activated prefix",
       "L0 Vibe: disabling the selected MCP cannot pass with healthy candidate argv",
+      "L0 MCP selection: Codex disabled entry cannot pass after convergence",
       "L0 Vibe: the configured transport must permit the stdio candidate probe",
       "L0 Vibe: an initially disabled MCP keeps its selection without launching a probe",
       "L0 artifacts: disappearing entries cannot break recovery observations or hide other errors",
+      "L0 MCP selection: claude preserves enabled and disabled choices",
+      "L0 MCP selection: codex preserves enabled and disabled choices",
+      "L0 MCP selection: gemini preserves enabled and disabled choices",
+      "L0 MCP selection: agy preserves enabled and disabled choices",
+      "L0 MCP selection: hermes preserves enabled and disabled choices",
+      "L0 MCP selection: opencode preserves enabled and disabled choices",
+      "L0 MCP selection: muse preserves enabled and disabled choices",
+      "L0 MCP selection: vibe preserves enabled and disabled choices",
     ],
   }
   const inventory = readInventory(REPO_ROOT), discovered = discoverTestFiles()
@@ -1504,7 +1513,7 @@ test('L0 trust root: every baseline contract and oracle is required by the produ
   }
   const files = Object.keys(required).map(file => resolve(REPO_ROOT, file))
   const report = {
-    success: true, numTotalTests: 61, numPassedTests: 61, numFailedTests: 0, numPendingTests: 0, numTodoTests: 0,
+    success: true, numTotalTests: 70, numPassedTests: 70, numFailedTests: 0, numPendingTests: 0, numTodoTests: 0,
     testResults: Object.entries(required).map(([file, names]) => ({ name: resolve(REPO_ROOT, file), status: 'passed',
       assertionResults: names.map(fullName => ({ fullName, status: 'passed' })) })),
   }
