@@ -90,3 +90,34 @@ Logs : `tmp/h-cond/fix-native-cleanse.r6-*`. TMPDIR privé :
 `/home/antoinefa/.cache-tmp/h2a-test/run-TSffAe`, à supprimer après suivi CI.
 Aucun état propriétaire ni binaire h2a installé utilisé. Aucun merge, tag ou
 trailer d'attribution.
+
+## Correction du blocage CI Node 24
+
+Premier push `064a7f7e0` : **18/19 checks verts**. Les neuf nouveaux
+contrôles MCP passent aussi dans le job Node 24, mais le témoin
+`native-foreign-host-probe.test.js` échoue dans `legacyHost` :
+`ENOENT stat /proc/21449/fd/24`. Un listener vivant peut fermer un FD de
+démarrage entre son énumération et son inspection.
+
+La correction reste dans la fixture : une entrée qui disparaît ne retient
+plus le répertoire ; toute autre erreur de stat remonte. L'énumération du
+répertoire FD, la comparaison device/inode, l'assertion d'absence de pin,
+les vrais listeners et les preuves LIVE/UNKNOWN restent inchangés.
+
+Le nouveau contrôle permanent ouvre un vrai fichier privé, énumère son FD,
+le ferme puis l'inspecte ; il vérifie aussi qu'un FD de répertoire ouvert
+reste détecté et qu'EACCES n'est pas absorbé. Il est déclaré dans l'inventaire
+npm. Sous Node **24.22.0**, avant traitement d'ENOENT : **18 PASS / 1 FAIL**,
+erreur procfs exacte. Après correction, le fichier complet est **19/19 PASS**
+sous Node **22.22.1 et 24.22.0**, zéro skip/todo.
+
+```sh
+node --require "$TMPDIR/precompiled.cjs" \
+  --import ./packages/h2a/test/helpers/native-isolation.js --test \
+  --test-reporter=tap packages/h2a/test/native-foreign-host-probe.test.js
+```
+
+Logs : `fix-native-cleanse.r6-ci-node24-first.log`,
+`fix-native-cleanse.r6-fd-red.log` et
+`fix-native-cleanse.r6-fd-node{22,24}-green.log` sous `tmp/h-cond`.
+Aucun retry, délai, garde d'isolation ou code produit modifié.
