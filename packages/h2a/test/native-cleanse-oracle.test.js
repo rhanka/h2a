@@ -9,6 +9,7 @@ import { isolatedEnv } from './helpers/cleanse-artifact.mjs';
 import { observeHosts, seedHosts } from './helpers/cleanse-hosts.mjs';
 import { files } from './helpers/cleanse-lab.mjs';
 import { mcpState, toolVisible } from './helpers/cleanse-host-state.mjs';
+import { observeContract, contractFailure } from '../../../scripts/cleanse-contract-ledger.mjs';
 import YAML from 'yaml';
 
 const put = (path, bytes) => { mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, bytes); };
@@ -515,6 +516,63 @@ function renameMcp(h) {
 async function mcpSelection(t, host) {
   const f = fixture(t), h = f.hosts.find(h => h.host === host);
   const original = readFileSync(h.mcp, 'utf8');
+  // A stale target is already RED. Changing a choice in the user's global
+  // configuration must change its signature, even though actual stays false.
+  put(h.mcp, f.legacy.get(host));
+  const stale = () => observeHosts(f.a, f.hosts).find(o => o.id === host + ' installed MCP resolves activated prefix');
+  const before = stale(), context = { root: f.a.root, version: f.a.version };
+  assert.equal(before.actual, false);
+  const { id, ...entry } = observeContract(before, context), ledger = { [id]: entry };
+  checkContracts(sink, [before], { ...context, ledger });
+  const initial = readFileSync(h.mcp, 'utf8');
+  const changes = host === 'vibe' ? [
+    () => put(h.mcp, 'enable_mcp = false\n' + initial),
+    () => put(h.mcp, 'disabled_tools = ["*"]\n' + initial),
+  ] : host === 'opencode' ? [
+    () => put(h.mcp, JSON.stringify({ ...JSON.parse(initial), permission: 'deny' })),
+    () => put(h.mcp, JSON.stringify({ ...JSON.parse(initial), tools: { 'h2a_*': false } })),
+  ] : [() => setMcpSelection(h, f.a, false)];
+  for (const change of changes) {
+    put(h.mcp, initial);
+    change();
+    const after = stale(), result = observeContract(after, context);
+    assert.equal(after.actual, false, 'the original stale-target violation remains RED');
+    assert.match(contractFailure(result, ledger) ?? '', /different failure signature/, host + ': global selection must fail the ledger gate');
+    assert.throws(() => checkContracts(sink, [after], { ...context, ledger }), /different failure signature/);
+    const changedBytes = readFileSync(h.mcp, 'utf8'), read = fs.readFileSync;
+    put(h.mcp, initial);
+    let reads = 0;
+    t.mock.method(fs, 'readFileSync', (path, ...args) => {
+      if (path === h.mcp && ++reads === 1) return changedBytes;
+      return read(path, ...args);
+    });
+    syncBuiltinESMExports();
+    try {
+      const raced = observeContract(stale(), context);
+      assert.ok(reads > 0, 'changed selection was read by the observer');
+      assert.match(contractFailure(raced, ledger) ?? '', /different failure signature/,
+        host + ': evidence must retain the same configuration snapshot as the verdict');
+    } finally { t.mock.restoreAll(); syncBuiltinESMExports(); }
+  }
+  const pairs = host === 'opencode' ? [
+    [{ '*': 'deny', 'h2a_*': 'allow' }, { 'h2a_*': 'allow', '*': 'deny' }].map(permission =>
+      JSON.stringify({ ...JSON.parse(initial), permission })),
+  ] : host === 'gemini' ? [[
+    JSON.stringify({ ...JSON.parse(initial), mcp: { excluded: ['h2a'], allowed: [] } }),
+    JSON.stringify({ ...JSON.parse(initial), mcp: { excluded: ['h2a'], allowed: ['h2a'] } }),
+  ]] : host === 'vibe' ? [[
+    'enable_mcp = true\n' + initial.replace('transport = "stdio"', 'transport = "stdio"\ndisabled = true'),
+    'enable_mcp = false\n' + initial.replace('transport = "stdio"', 'transport = "stdio"\ndisabled = true'),
+  ]] : [];
+  for (const [first, second] of pairs) {
+    put(h.mcp, first);
+    const { id, ...entry } = observeContract(stale(), context);
+    put(h.mcp, second);
+    assert.equal(stale().actual, false);
+    assert.match(contractFailure(observeContract(stale(), context), { [id]: entry }) ?? '', /different failure signature/,
+      'rule order and choices masked by another disable must remain observable');
+  }
+  put(h.mcp, original);
   assert.equal((await observation(f, host, 'MCP resolves activated prefix')).actual, true);
   renameMcp(h);
   assert.equal((await observation(f, host, 'MCP resolves activated prefix')).actual, false, host + ': native registration identity is part of selection');

@@ -230,11 +230,25 @@ function pluginState(a, item, config) {
     version, cache, cachePayload: cache ? payload(cache) : undefined };
 }
 
-function hostEvidence(a, item) {
-  const config = parseConfig(item);
+function hostEvidence(a, item, config) {
+  const servers = entries(config, item.host).filter(([name]) => /^h2a|^track/.test(name));
+  const globals = item.host === 'claude' ? { disabledMcpServers: config.projects?.[a.root]?.disabledMcpServers } :
+    item.host === 'gemini' ? { allowed: config.mcp?.allowed, excluded: config.mcp?.excluded } :
+    item.host === 'vibe' ? { enable_mcp: config.enable_mcp, enabled_tools: config.enabled_tools,
+      disabled_tools: config.disabled_tools, tools: config.tools } :
+    item.host === 'opencode' ? { tools: config.tools, permission: config.permission,
+      default_agent: config.default_agent, agent: config.agent?.[config.default_agent ?? 'build'] } : {};
+  // Ordered entries keep OpenCode's last-matching permission rules significant
+  // through the ledger's canonical object-key sorting.
+  const ordered = value => Array.isArray(value) ? value.map(ordered) : value && typeof value === 'object' ?
+    { $entries: Object.entries(value).map(([key, value]) => [key, ordered(value)]) } : value;
+  const selection = servers.map(([name, server]) => {
+    try { return [name, ordered(mcpState(a, item.host, config, server))]; }
+    catch (error) { return [name, { invalid: error.message }]; }
+  });
   return {
     skill: digest(item.skill), resource: digest(item.resource),
-    mcp: entries(config, item.host).filter(([name]) => /^h2a|^track/.test(name)),
+    mcp: { servers, globals: ordered(globals), selection },
     helper: item.helper ? Object.fromEntries(scopeFiles.map(name => [name, digest(join(dirname(item.helper), name))])) : undefined,
     hooks: item.hooks ? json(item.hooks) : undefined,
     imported: item.imported ? { sha256: digest(item.imported), enabled: text(join(a.root, 'vendor-state/agy/enabled')) } : undefined, plugin: pluginState(a, item, config),
@@ -364,7 +378,7 @@ export function observeHosts(a, inventory) {
   const observations = [];
   const transports = new Map();
   for (const item of inventory) {
-    const config = parseConfig(item), evidence = hostEvidence(a, item);
+    const config = parseConfig(item), evidence = hostEvidence(a, item, config);
     const add = (family, actual, key) => observations.push({ id: item.host + ' installed ' + family, lot: 'L3+L4',
       actual, expected: true, evidence: evidence[key] });
     assert.ok(text(item.mcp).includes('third-party'), item.host + ': preserve unrelated configuration');
