@@ -204,7 +204,7 @@ directs créent un faux reçu absent ou installent des ressources de la généra
 refusée ; les six contrôles de convergence native préservent déjà l’ensemble.
 Les reçus antérieurs restent inchangés dans les deux chemins.
 
-La boucle directe observe désormais tous les artefacts d’un skill avant la
+La boucle directe observe désormais tous les artefacts d’un skill producteur avant la
 première écriture. Tout conflit préserve cet ensemble ; un conflit observé
 ensuite interrompt aussi la boucle avant le reçu. Les écritures sont relues
 et comparées aux octets attendus ; ressources puis point d’entrée précèdent
@@ -269,3 +269,42 @@ rtk node --test --test-concurrency=1 --test-reporter=spec packages/h2a/test/inst
 
 Rejeu avec la fixture autonome, sans `H2A_MEMORY_SKILL_FIXTURE` :
 **54 pass, 0 fail, 0 skipped**, code **0**.
+
+### Suivi CI — conserver le remplissage des ressources cœur
+
+La CI de `aff742e29` a exposé une extension trop large de la protection :
+les douze cas existants `preserves existing files and fills missing resources:
+upgrade` de `native-question-mode.test.js` attendent toujours le remplissage
+des ressources manquantes d’un skill cœur dont le point d’entrée est préservé.
+Ces skills ne portent aucun reçu producteur. Les deux jobs `scoped-hosts`
+Node 22/24 échouent sur ces cas ; aucune assertion n’a été modifiée.
+
+```sh
+rtk node --test --test-reporter=spec packages/h2a/test/native-question-mode.test.js
+```
+
+RED local, avant cette correction : **32 pass, 12 fail, 0 skipped**, code **1**,
+avec `ENOENT .../present-decision/assets/native-questions.md`.
+Le précontrôle d’ensemble, l’arrêt avant reçu et la relecture concernent
+désormais uniquement les skills producteur (`skill.producer`). Le remplissage
+historique des ressources cœur est conservé, avec leur garde individuelle.
+
+Cible de ce suivi : `git diff HEAD --no-ext-diff -- packages/h2a/src/cli.ts`
+par rapport à `aff742e29`, SHA-256
+`47f77a754e3b69517b0b1f6e6b96cb25675fdf6192bfe9393763635ed5c33e5a`.
+La sélection de revue reste indisponible pour les mêmes raisons explicites.
+
+```sh
+rtk npm run build:h2a
+H2A_MEMORY_SKILL_FIXTURE=/home/antoinefa/src/graphify/.graphify/scratch/design/memory-skill/SKILL.md rtk node --test --test-concurrency=1 --test-reporter=spec packages/h2a/test/install-skills-hosts.test.js packages/h2a/test/native-host-shared-skills.test.js packages/h2a/test/package-plugin-manifest.test.js packages/h2a/test/native-host-package.test.js packages/h2a/test/native-host-safety.test.js packages/h2a/test/native-host-review-regressions.test.js packages/h2a/test/native-host-convergence.test.js packages/h2a/test/native-host-recovery.test.js packages/h2a/test/native-question-mode.test.js
+```
+
+GREEN : build code **0**, `vendor-engram-live mirror OK` ; **125 pass,
+0 fail, 0 skipped**, code **0**, dont les 44 questions natives. Les tests
+existants restent intacts, ainsi que les 20 nouveaux témoins de refus mémoire.
+
+La reprise native est rejouée séparément après cette correction : **17 pass,
+0 fail, 0 skipped**, code **0**. Total final : **142 tests distincts verts**.
+Le rejeu autonome des quatre suites installation/package est également répété :
+**54 pass, 0 fail, 0 skipped**, code **0**. Périmètre/branche :
+`PASS harness verify (static): 2 check(s)` ; `git diff --check` code **0**.
