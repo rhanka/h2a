@@ -210,6 +210,15 @@ and unrelated files on Claude, Codex, Muse, Vibe and Agy. No provider activation
   /home/antoinefa/.cache-tmp/h2a-test/run-ieKzxe; no installed h2a or owner state,
   real provider/gateway/cluster, full local suite, Python or attribution trailer.
 
+# PR #379 — v3 review round 10 continuation
+
+- Resume: HEAD `ad9c61168`, no unpushed commits; preserve the three regression-test edits left by the capacity failure. No completed R9 fix was replayed as new work.
+- Scope: all four supplied Astra/Sol P2 findings. Refuse forbidden launchers before any version/oracle spawn; reserve wall-clock funding before worker launch and settle from the parent's monotonic clock; require a targeted MCP send and its actual unavailable-recipient result before scenario acceptance. Keep v3, native production code, dependencies and receipt gates intact.
+- R10-EX1: the coupled campaign ledger, worker, filtered MCP witness, classifier and their regressions require eight code/test files and exceed 150 lines. Rollback is a revert of the R10 correction commit; no unrelated refactor or dependency is included.
+- RED/GREEN commands, bounded claims and R1 replays: `docs/reviews/2026-10-28-cross-cli-r10.md`. A lost or zero-reporting worker must consume parent-measured time; an interrupted parent's persisted reservation cannot be refunded on resume.
+- Review: supplied independent R2 findings reproduced and addressed. No new independent consensus claimed: the installed h2a review route remains forbidden by the owner's confinement.
+- Private TMPDIR: `/home/antoinefa/.cache-tmp/h2a-test/run-FNIyzD`; remove at delivery, along with the interrupted attempt's known `run-BmSkGI` directory. Only named test files, isolated fixtures and inert forbidden-launcher text; no Python execution, installed h2a, real seats, owner state or attribution trailer.
+
 # PR #379 — v3 review round 9 continuation
 
 - Scope: preserve pushed `211d79a5c`; replay the four Astra/Sol findings at reviewed `0add537f5` with RED/GREEN evidence; fix the simulated peer's late MCP teardown, the inherited restart lab's detached-writer disposal and the positive loop scenario's premature join observed in CI. No v4 design or production native-host changes.
