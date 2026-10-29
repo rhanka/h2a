@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 /** Route MCP shims before importing the CLI, SDK, store or runtime. */
+import { readFileSync } from "node:fs";
 import { routeSelectedEntrypoint } from "./runtime/handover/selection.js";
 
 const argv = process.argv.slice(2);
@@ -14,7 +15,10 @@ for (let i = 1; i < argv.length; i++) {
 }
 
 try {
-  if (await routeSelectedEntrypoint(import.meta.url)) { /* same-process selected entry owns execution */ }
+  if (argv[0] === "--version" || argv[0] === "-v" || argv[0] === "version") {
+    process.stdout.write(JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version + "\n");
+    process.exitCode = 0;
+  } else if (await routeSelectedEntrypoint(import.meta.url)) { /* same-process selected entry owns execution */ }
   else {
   const { canonicalCentralRoot, centralRoutingEnabled, shouldUseCentralMcp } = await import("./runtime/mcp-central-policy.js");
   const { runCentralShim } = await import("./runtime/mcp-central-shim.js");
