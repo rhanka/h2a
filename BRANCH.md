@@ -18,6 +18,8 @@ and unrelated files on Claude, Codex, Muse, Vibe and Agy. No provider activation
   - `packages/h2a/test/package-plugin-manifest.test.js`
   - `packages/h2a/test/native-host-package.test.js`
   - `packages/h2a/test/helpers/memory-skill-consumer.mjs`
+  - `packages/h2a/test/helpers/restart-lab.js`
+  - `packages/h2a/test/native-host-crash-recovery.test.js`
   - `BRANCH.md`
   - `docs/reviews/memory-skill-install.md`
 
@@ -50,6 +52,12 @@ and unrelated files on Claude, Codex, Muse, Vibe and Agy. No provider activation
   Acceptance uses an isolated installed producer fixture. Published tuple is L0.
 - Harness consensus selection failed: no h2a_run MCP tool in confinement;
   owner forbids reaching the installed host. No independent verdict claimed.
+- Direct CI blocker on 701feac72: trust-root alone failed with ENOTEMPTY in
+  restart-lab cleanup after ten successful resumes. The lab waited only for
+  direct children after signalling its recorded descendants. Deterministic RED:
+  0 pass / 1 fail / 0 skip; wait for birth-checked recorded descendants before
+  deleting HOME. GREEN: full targeted crash-recovery file 17/17, zero skips.
+  No runtime change, timeout increase, cleanup retry or gate weakening.
 
 # Gateway off by default — PR #395, round 5
 
