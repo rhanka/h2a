@@ -138,6 +138,82 @@ test('L8: provider-quota on a seat stops further cells on that seat', () => {
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+for (const namedSeats of [false, true]) {
+  test(`L8 R4: quota stops survive resume (${namedSeats ? 'named seats' : 'family seats'})`, () => {
+    const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-quota-resume-'));
+    const campaignRoot = join(dir, 'campaign');
+    const manifest = namedSeats ? writeManifest(dir, [
+      { seatId: 's1', family: 'codex', authSource: 'seat-1' },
+      { seatId: 's2', family: 'codex', authSource: 'seat-2' },
+      { seatId: 's3', family: 'codex', authSource: 'seat-3' },
+    ]) : null;
+    const args = ['--simulated', '--pair', namedSeats ? 's1:s2' : 'codex:codex',
+      ...(manifest ? ['--seat-manifest', manifest] : []), '--wake-release-offsets-ms', '0,100',
+      '--timeout-ms', '1000', '--session-cap', '20', '--campaign-root', campaignRoot];
+    const runs = [];
+    try {
+      const first = runCampaign(args, stubRow('provider-quota')); runs.push(first);
+      assert.equal(first.invocations, 1);
+      assert.equal(first.receipt.cells[1].blocker, 'provider-quota-seat-exhausted');
+      const second = runCampaign(args, stubRow('provider-quota')); runs.push(second);
+      console.log({ namedSeats, firstInvocations: first.invocations, resumedInvocations: second.invocations,
+        ledger: JSON.parse(fs.readFileSync(join(campaignRoot, 'campaign-ledger.json'))).sessionsDebited });
+      assert.equal(second.invocations, 1, 'resume must never relaunch an exhausted seat');
+      assert.ok(second.receipt.cells.every(c => c.blocker === 'provider-quota-seat-exhausted'));
+      assert.equal(JSON.parse(fs.readFileSync(join(campaignRoot, 'campaign-ledger.json'))).sessionsDebited, 2);
+      assert.deepEqual(second.receipt.preflights, []);
+      if (namedSeats) {
+        const otherArgs = [...args]; otherArgs[otherArgs.indexOf('--pair') + 1] = 's3:s3';
+        const other = runCampaign(otherArgs, stubRow('stub-no-model')); runs.push(other);
+        assert.equal(other.invocations, 3, 'unaffected seats still fund both cells');
+        assert.ok(other.receipt.cells.every(c => c.blocker === 'stub-no-model'));
+      }
+    } finally {
+      for (const run of runs) fs.rmSync(run.dir, { recursive: true, force: true });
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+}
+
+test('L8 R4: the MCP cap stops a CLI that keeps running after its MCP server exits', () => {
+  const root = compliantQualificationRoot();
+  try {
+    const built = sourceBuild(root), fake = join(root, 'looping-cli');
+    const heartbeat = join(root, 'heartbeat.jsonl');
+    const program = join(root, 'looping-cli.mjs');
+    fs.writeFileSync(fake, `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(program)} "$@"\n`, { mode: 0o700 });
+    fs.writeFileSync(program, `import fs from 'node:fs';
+import {spawn} from 'node:child_process';
+const child=spawn('h2a',['mcp-serve'],{env:process.env,stdio:['pipe','ignore','ignore']});
+child.on('close',()=>fs.appendFileSync(${JSON.stringify(heartbeat)},JSON.stringify({event:'server-exit',at:Date.now()})+'\\n'));
+setInterval(()=>fs.appendFileSync(${JSON.stringify(heartbeat)},JSON.stringify({event:'cli-alive',at:Date.now()})+'\\n'),50);
+child.stdin.on('error',()=>{});
+for(let id=1;id<=4;id++)child.stdin.write(JSON.stringify({jsonrpc:'2.0',id,method:'tools/call',params:{name:'h2a_identity_status',arguments:{}}})+'\\n');
+`);
+    const result = spawnSync(process.execPath, [QUALIFY, '--worker'], {
+      env: { ...environment(join(root, 'worker')), H2A_TEST_QUALIFICATION_ROOT: root }, cwd: root,
+      input: JSON.stringify({ sender: 'codex', receiver: 'codex', root, build: built.path,
+        executables: { codex: fake }, simulated: false, timeoutMs: 5000, mcpCallCap: 3 }),
+      encoding: 'utf8', timeout: 45000, maxBuffer: 1024 * 1024 });
+    assert.equal(result.status, 0, result.stderr);
+    const row = JSON.parse(result.stdout);
+    const cap = row.evidence.find(e => e.event === 'mcp-call-cap-exceeded');
+    assert.equal(cap?.count, 4);
+    assert.equal(cap.cap, 3);
+    const beats = fs.readFileSync(heartbeat, 'utf8').trim().split('\n').map(JSON.parse);
+    const lastAlive = Math.max(...beats.filter(e => e.event === 'cli-alive').map(e => e.at));
+    assert.ok(Number.isFinite(lastAlive), 'the fake CLI actually ran its heartbeat');
+    console.log({ status: row.status, blocker: row.blocker, failure: row.failure, cliAliveAfterCapMs: lastAlive - cap.at });
+    assert.ok(lastAlive - cap.at < 1000, 'the CLI must stop promptly even with proxy stdin open');
+    assert.equal(row.status, 'measured-KO');
+    assert.equal(row.failure, 'mcp-call-cap-exceeded');
+    assert.equal(row.blocker, undefined);
+    assert.equal(row.cleanupFailed, undefined, JSON.stringify(row.cleanupErrors));
+    assert.equal(row.processRecovery, true);
+    assert.equal(row.secretWipe, true);
+  } finally { removeCampaignRoot(root); }
+});
+
 test('L8: the launched-session cap refuses pre-spawn and stops the campaign', () => {
   const run = runCampaign(['--simulated', '--pair', 'codex:codex', '--wake-release-offsets-ms', '0,100',
     '--timeout-ms', '10000', '--session-cap', '2'], stubRow('stub-no-model'));
