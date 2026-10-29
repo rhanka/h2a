@@ -59,6 +59,8 @@ import { authorizeDispatch } from "@sentropic/mcp-platform/transport/dispatch";
 import { TRACK_READ_TOOL_DESCRIPTORS } from "@sentropic/track/mcp";
 import { createMcpServer, isMcpTransportResult, type McpServer } from "../runtime/mcp/server.js";
 import { H2A_CLI_MCP_TOOL_DESCRIPTORS } from "../runtime/mcp/tools.js";
+import { validateBridgeLock, type BridgeLock } from "./bridge-lock.js";
+import { activateMemoryProvider, MEMORY_PROVIDER_ID, type MemoryProviderRegistration } from "./memory-provider.js";
 
 /** Pinned to the published facade; asserted by the H2a daemon tests. */
 export const USES_SENTROPIC_FACADE = true;
@@ -70,6 +72,10 @@ export interface ComposeDaemonOptions {
   /** Filesystem root for the backing local-files store (tests: mkdtemp). */
   root: string;
   workspaceRoot?: string;
+  lock?: BridgeLock;
+  memory?: MemoryProviderRegistration;
+  /** Existing attachment/participant supplied by the host, never tool args. */
+  attachment?: unknown;
 }
 
 export interface DaemonDispatchOutput {
@@ -303,6 +309,7 @@ export interface ComposedDaemonRegistry {
   compiled: CompiledMcpRegistry;
   catalog: () => Array<{ providerId: string; version: string; capabilities: string[] }>;
   toolNames: () => string[];
+  tools: () => ReturnType<McpServer["listTools"]>;
   dispatch: (toolName: string, args: Record<string, unknown>) => Promise<DaemonDispatchResult>;
 }
 
@@ -316,8 +323,13 @@ export async function composeDaemonRegistryForServer(
   rawCallTool: DaemonRawCallTool,
   options: ComposeDaemonOptions
 ): Promise<ComposedDaemonRegistry> {
-  const wantCoordination = options.view === "coordination" || options.view === "combined";
-  const wantTrack = options.view === "track" || options.view === "combined";
+  const lock = options.lock ? validateBridgeLock(structuredClone(options.lock), options.memory?.entry) : undefined;
+  const ids = lock?.selection.map(selected => selected.id);
+  const wantCoordination = ids ? ids.includes("sentropic.h2a") : options.view === "coordination" || options.view === "combined";
+  const wantTrack = ids ? ids.includes("sentropic.track") : options.view === "track" || options.view === "combined";
+  const memory = ids?.includes(MEMORY_PROVIDER_ID)
+    ? await activateMemoryProvider(options.memory, lock!.entries[MEMORY_PROVIDER_ID].config, options.attachment)
+    : undefined;
 
   const definitions: LoadedDefinition[] = [];
   if (wantCoordination) {
@@ -337,6 +349,33 @@ export async function composeDaemonRegistryForServer(
         rawCallTool
       )
     );
+  }
+  if (memory) {
+    // This definition routes selection only. Memory authority stays inside the
+    // producer's server with its trusted host context; LOCAL_PRINCIPAL below
+    // must never authorize a memory call.
+    const manifest = buildManifest(MEMORY_PROVIDER_ID, "engram", "Engram Memory", [], false);
+    manifest.version = options.memory!.entry.entryVersion;
+    manifest.tools = memory.tools.map(tool => {
+      const meta = tool._meta["sentropic.engram/memory"] as Record<string, unknown> | undefined;
+      if (meta?.providerId !== MEMORY_PROVIDER_ID || meta.connectorId !== "engram-memory" ||
+          meta.sourceId !== "mcp:engram-memory" || !Array.isArray(meta.requiredScopes) ||
+          !Array.isArray(meta.requiredClaims) || !meta.gates || !meta.idempotency) {
+        fail("invalid_entry", `memory discovery metadata is incomplete for ${tool.name}`);
+      }
+      return { kind: "tool", name: tool.name, description: tool.description ?? tool.name,
+        inputSchema: tool.inputSchema, outputSchema: tool.outputSchema,
+        requiredScopes: meta.requiredScopes, requiredClaims: meta.requiredClaims,
+        mutability: meta.mutability, mutatesExternalSystem: meta.mutatesExternalSystem,
+        redactionClass: meta.redactionClass, gates: meta.gates, idempotency: meta.idempotency
+      } as Manifest["tools"][number];
+    });
+    const definition = buildLoadedDefinition(manifest, "engram-memory", memory.callTool);
+    // No synthetic local principal or tenant resolver may execute memory.
+    // The compiled plan resolves selection; the producer server executes it.
+    definition.adapter.resolveTenant = async () => fail("missing_binding", "Memory requires trusted host invocation context");
+    definition.adapter.invokeTool = async () => fail("missing_binding", "Memory requires trusted host invocation context");
+    definitions.push(definition);
   }
 
   const modules = createClusterMeshModules();
@@ -371,6 +410,11 @@ export async function composeDaemonRegistryForServer(
   async function dispatch(toolName: string, args: Record<string, unknown>): Promise<DaemonDispatchResult> {
     const resolved = compiled.resolveTool(toolName);
     if (!resolved) fail("unknown_tool", `unknown tool ${toolName} for the active selection`);
+    if (memory && memory.tools.some(tool => tool.name === toolName)) {
+      const raw = await memory.callTool(toolName, args ?? {});
+      return { ok: !(raw as { isError?: boolean })?.isError, output: { ...(contentText(raw) ?? { text: JSON.stringify(raw) }), transport: raw },
+        providerId: MEMORY_PROVIDER_ID, capabilityName: toolName };
+    }
     const decision = authorizeDispatch({ registry: compiled, toolName, principal: LOCAL_PRINCIPAL });
     if (!decision.allowed) fail(decision.code, `denied tool ${toolName}: ${decision.code}`);
     const adapter = adapters.get(decision.providerId);
@@ -425,6 +469,10 @@ export async function composeDaemonRegistryForServer(
     compiled,
     catalog: () => facade.catalog() as Array<{ providerId: string; version: string; capabilities: string[] }>,
     toolNames: () => [...compiled.tools.keys()],
+    tools: () => [
+      ...H2A_CLI_MCP_TOOL_DESCRIPTORS.filter(tool => compiled.resolveTool(tool.name)),
+      ...(memory?.tools ?? [])
+    ] as ReturnType<McpServer["listTools"]>,
     dispatch
   };
 }
@@ -507,4 +555,20 @@ export function wrapMcpServerWithDaemonRegistry(
   }) as McpServer["callTool"];
   server.callTool = wrapped;
   return server;
+}
+
+/** Eager selected composition for an attachment, before MCP discovery. */
+export async function configureMcpServerRegistry(server: McpServer, options: ComposeDaemonOptions): Promise<void> {
+  const rawCallTool = server.callTool.bind(server) as DaemonRawCallTool;
+  const plan = await composeDaemonRegistryForServer(rawCallTool, options);
+  const descriptors = plan.tools();
+  server.listTools = () => descriptors.slice();
+  server.callTool = ((name: string, args: Record<string, unknown> | undefined) => {
+    // The H1 lifecycle depends on the synchronous identity fast path.
+    if (name === "h2a_identity_status" && plan.toolNames().includes(name)) return rawCallTool(name, args ?? {});
+    return plan.dispatch(name, args ?? {}).then(result => result.output.transport).catch(error => {
+      if (isDaemonDomainRefusal(error)) return { error: (error as Error).message };
+      throw error;
+    });
+  }) as McpServer["callTool"];
 }
