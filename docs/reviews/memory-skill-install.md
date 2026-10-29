@@ -113,3 +113,72 @@ C++ sans lancer de script d’installation ni utiliser l’installation réelle 
 rtk mkdir -p node_modules/node-pty/build/Release
 rtk g++ -shared -fPIC -O2 -std=c++17 -DNAPI_CPP_EXCEPTIONS -DNODE_GYP_MODULE_NAME=pty -I/usr/include/node -Inode_modules/node-addon-api node_modules/node-pty/src/unix/pty.cc -lutil -o node_modules/node-pty/build/Release/pty.node
 ```
+
+## Tour 2 — réconciliation des deux P2 sur d04e3eb24
+
+Les avis fournis portent tous deux sur `d04e3eb24fa0b3deff99a2be26776f7c2fea51db` :
+Sol indique FUSIONNABLE, Astra NON-FUSIONNABLE. Les deux constats d’Astra sont
+acceptés après reproduction locale avant modification du produit :
+
+| Constat | RED observé | Correction |
+|---|---|---|
+| Agy, TOML personnalisé puis Engram 0.22.1 → 0.22.2 | Code 2 et TOML conservé, ancienne ressource supprimée | Conserver la génération de ressources et le reçu encore associés au TOML refusé |
+| Muse/Vibe, SKILL.md personnalisé puis nouveau texte et version producteur | Code 2 et skill conservé, reçu remplacé par celui de 0.22.2 | Préserver le reçu et les ressources de la version réellement installée |
+
+La convergence observe les conflits avant de planifier les écritures. Le skill,
+ses ressources et son reçu partagent la cible du skill ; un conflit préserve
+ces fichiers et empêche le nettoyage de leur ancienne provenance dans le
+manifeste. Les autres skills restent installables. Une mise à jour réussie
+continue de retirer les anciennes ressources gérées.
+
+Les reproductions sont pérennisées dans `native-host-shared-skills.test.js`,
+avec Claude et Codex comme contrôles. Chaque hôte subit deux refus successifs,
+puis une mise à jour explicite avec `--force` et une réinstallation identique.
+Les tests vérifient les octets conservés, les ressources utilisables, les reçus
+source/rendu, le nettoyage après succès et l’idempotence. Le témoin de mise à
+jour Agy sans personnalisation reste passant.
+
+Toutes les commandes utilisent
+`TMPDIR=/home/antoinefa/.cache-tmp/h2a-test/run-YlDOoZ` ; HOME, USERPROFILE et les
+répertoires XDG sont privés. Les campagnes finales utilisent `env -i` avec ces
+chemins explicites et un PATH limité aux outils nécessaires. Aucun Python,
+état propriétaire, binaire h2a installé ou suite complète locale.
+
+```sh
+rtk npm run build -w @sentropic/track
+rtk npm run build:h2a
+rtk node --test --test-reporter=spec packages/h2a/test/native-host-shared-skills.test.js
+```
+
+RED avant correction : **7 pass, 3 fail, 0 skipped** ; assertions
+`the preserved command must not lose its referenced resource` (Agy) et
+`a refused skill update must retain its installed source receipt` (Muse/Vibe).
+GREEN après correction : build code **0**, **10 pass, 0 fail, 0 skipped**.
+
+```sh
+H2A_MEMORY_SKILL_FIXTURE=/home/antoinefa/src/graphify/.graphify/scratch/design/memory-skill/SKILL.md rtk node --test --test-reporter=spec packages/h2a/test/install-skills-hosts.test.js packages/h2a/test/native-host-shared-skills.test.js packages/h2a/test/package-plugin-manifest.test.js packages/h2a/test/native-host-package.test.js packages/h2a/test/native-host-safety.test.js packages/h2a/test/native-host-review-regressions.test.js packages/h2a/test/native-host-convergence.test.js packages/h2a/test/native-host-recovery.test.js
+```
+
+Sortie : **61 pass, 0 fail, 0 skipped**. Les sept suites du tour 1 sont
+rejouées, avec six nouveaux tests et les deux témoins existants de reprise du
+journal. Le test d’artefact extrait à nouveau les tarballs h2a/Track et installe
+la fixture producteur sur les cinq hôtes, sans repli vers le checkout.
+La référence externe garde son SHA-256 validé ; aucun contenu mémoire vendored.
+
+```sh
+rtk node --test --test-reporter=spec packages/h2a/test/native-host-crash-recovery.test.js
+rtk node --test --test-reporter=spec packages/h2a/test/install-skills-hosts.test.js packages/h2a/test/native-host-shared-skills.test.js packages/h2a/test/package-plugin-manifest.test.js packages/h2a/test/native-host-package.test.js
+rtk node packages/h2a/dist/bin.js harness verify --category static --current-branch feat/memory-skill-install --expected-branch feat/memory-skill-install --branch-md BRANCH.md --staged-files 'BRANCH.md,packages/h2a/src/hosts/native-skills.ts,packages/h2a/src/hosts/native-artifacts.ts,packages/h2a/test/native-host-shared-skills.test.js,docs/reviews/memory-skill-install.md'
+rtk git diff --check
+```
+
+Sorties : reprise native **17 pass, 0 fail, 0 skipped** ; quatre suites sans
+`H2A_MEMORY_SKILL_FIXTURE` **34 pass, 0 fail, 0 skipped** ;
+`PASS harness verify (static): 2 check(s)` ; diff-check code **0**.
+Au total, **78 tests distincts passants**, dont tous les 70 du premier tour.
+Aucune modification de gate, dépendance, délai ou runtime.
+
+Cette réconciliation ne constitue pas une nouvelle revue indépendante du
+correctif. La sélection MCP demeure indisponible selon le contrat du skill
+`harness/review` ; aucun nouveau verdict de consensus n’est revendiqué.
+La publication du producteur et l’activation MCP restent hors qualification L1.
