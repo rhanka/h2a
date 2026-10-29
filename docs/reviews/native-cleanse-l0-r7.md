@@ -8,7 +8,8 @@ L'ancien observateur combinait deux flags universels et mémorisait seulement
 un booléen de handshake. Il acceptait ainsi la réactivation Vibe masquée par
 `enabled=false`, ainsi que des outils masqués dans la configuration native.
 
-La sélection est maintenant capturée avant installation selon l'adaptateur.
+La sélection est maintenant capturée avant installation selon l'adaptateur,
+y compris le nom natif d'enregistrement qui détermine le namespace et les exclusions.
 Les champs inconnus suivent le lecteur natif (ignorés ou refusés) ; les champs natifs, listes par outil et
 permissions sont conservés. La sonde garde le catalogue de `tools/list`,
 applique les règles natives et utilise les overrides env/cwd du serveur.
@@ -54,6 +55,7 @@ Prérequis isolés : `npm run build -w @sentropic/track`, puis
 | Sources main `912dd3035` et rc.7 `8d588db05`, reconstruites séparément | **48/48 chacune**, gate 0, mêmes **42 RED exacts**. |
 | Foreign host / recovery / contention, Node 22 | **38/38 PASS**. |
 | Terminal reset fonctionnel, Node 22 | **6/6 PASS**. |
+| Identité native des huit MCP, avant/après | **18 PASS / 9 FAIL** avant correction ; renommer le serveur ne peut contourner une exclusion ni masquer ses outils sous un autre namespace. |
 | Ordre des permissions OpenCode et crochets littéraux, avant/après | **25 PASS / 2 FAIL**, dont un faux GREEN de désactivation masquée ; contrôles permanents corrigés. |
 | Override relatif Node, avant/après | **26 PASS / 1 FAIL**, puis contrôle permanent GREEN ; aucun skip/todo. |
 | Schéma OpenCode, alias inconnu, avant/après | **0/1**, puis **1/1** ; contrôle permanent dans la sélection OpenCode. |

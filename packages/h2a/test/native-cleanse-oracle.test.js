@@ -285,6 +285,11 @@ test('L0 Vibe native state: global and per-server tool filters cannot hide behin
     assert.equal(changed.actual, false, config);
     assert.throws(() => contracts(sink, [changed]));
   }
+  const selected = fixture(t, { mcpFilters: { vibe: { global: { enabled_tools: ['h2a_*'] } } } });
+  const route = selected.hosts.find(h => h.host === 'vibe');
+  assert.equal((await observation(selected, 'vibe', 'MCP resolves activated prefix')).actual, true);
+  renameMcp(route);
+  assert.equal((await observation(selected, 'vibe', 'MCP resolves activated prefix')).actual, false, 'renaming changes the native namespace and hides the selected tools');
 });
 
 test('L0 MCP native rules: adapter filter precedence determines the exposed tools', () => {
@@ -457,10 +462,26 @@ function setMcpSelection(h, a, enabled) {
   } else setMcpFlag(h, ['vibe', 'agy'].includes(h.host) ? 'disabled' : 'enabled', ['vibe', 'agy'].includes(h.host) ? !enabled : enabled);
 }
 
+function renameMcp(h) {
+  const original = readFileSync(h.mcp, 'utf8');
+  if (h.host === 'vibe') put(h.mcp, original.replace('name = "h2a"', 'name = "h2a-shadow"'));
+  else if (h.mcp.endsWith('.toml')) put(h.mcp, original.replace('[mcp_servers.h2a]', '[mcp_servers.h2a-shadow]'));
+  else {
+    const yaml = h.mcp.endsWith('.yaml'), config = yaml ? YAML.parse(original) : JSON.parse(original);
+    const servers = config.mcp_servers ?? config.mcpServers ?? config.mcp;
+    servers['h2a-shadow'] = servers.h2a;
+    delete servers.h2a;
+    put(h.mcp, yaml ? YAML.stringify(config) : JSON.stringify(config));
+  }
+}
+
 async function mcpSelection(t, host) {
   const f = fixture(t), h = f.hosts.find(h => h.host === host);
   const original = readFileSync(h.mcp, 'utf8');
   assert.equal((await observation(f, host, 'MCP resolves activated prefix')).actual, true);
+  renameMcp(h);
+  assert.equal((await observation(f, host, 'MCP resolves activated prefix')).actual, false, host + ': native registration identity is part of selection');
+  put(h.mcp, original);
   setMcpSelection(h, f.a, false);
   const changed = await observation(f, host, 'MCP resolves activated prefix');
   assert.equal(changed.actual, false, host + ': native selection disabled');
@@ -483,6 +504,9 @@ async function mcpSelection(t, host) {
   const disabled = fixture(t, { mcpDisabled: [host] }), off = disabled.hosts.find(h => h.host === host);
   assert.equal(off.mcpEnabled, false, 'selection is captured before convergence');
   const selected = readFileSync(off.mcp, 'utf8');
+  renameMcp(off);
+  assert.equal((await observation(disabled, host, 'MCP resolves activated prefix')).actual, false, 'renaming cannot bypass a disabled server-name selection');
+  put(off.mcp, selected);
   const candidateBytes = readFileSync(disabled.a.cli);
   put(disabled.a.cli, 'process.exit(64);');
   assert.equal((await observation(disabled, host, 'MCP resolves activated prefix')).actual, true);
