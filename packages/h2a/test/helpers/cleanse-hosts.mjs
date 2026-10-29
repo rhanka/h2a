@@ -2,7 +2,8 @@
 // Old skill bytes are v0.98.6:packages/h2a/skills/h2a-run/SKILL.md.
 // The native ownership records use rc.7's schema, with synthetic owned bytes.
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { delimiter, dirname, isAbsolute, join } from 'node:path';
 import { getStaticTOMLValue, parseForESLint } from 'toml-eslint-parser';
 import YAML from 'yaml';
@@ -123,6 +124,10 @@ export function seedHosts(a) {
     // put() preserves a deliberately constrained executable path.
     return { host, root, skill, resource, mcp, helper, hooks, imported, registration, format: shared ? 'toml' : 'markdown' };
   });
+  // Freeze the independently seeded bytes BEFORE npm or product repair runs.
+  // This is evidence of the specific missing L3/L4 contract, never a blanket
+  // expected failure for arbitrary stale or malformed material.
+  for (const item of inventory) item.legacy = hostEvidence(a, item);
   // Mark executable fixtures only, never an installed owner binary.
   return inventory;
 }
@@ -131,53 +136,176 @@ function commandForOldHelper(root, host) {
   return `${process.execPath} ${join(root, 'old-prefix/hooks/workspace-scope-guard.mjs')} --host ${host}`;
 }
 
-export function observeHosts(a, inventory) {
-  const skill = readFileSync(join(a.packages, 'h2a/skills/h2a-run/SKILL.md'), 'utf8');
-  const resource = readFileSync(join(a.packages, 'track/skills/present-decision/assets/native-questions.md'), 'utf8');
-  const helper = readFileSync(join(a.packages, 'h2a/hooks/workspace-scope-guard.mjs'), 'utf8');
-  const observations = [];
-  for (const item of inventory) {
-    const text = p => existsSync(p) ? readFileSync(p, 'utf8') : undefined;
-    const add = (family, actual) => observations.push({ id: item.host + ' installed ' + family, lot: 'L3+L4', actual, expected: true });
-    const installedSkill = text(item.skill);
-    // Gemini's renderer omits frontmatter, so compare the complete body.
-    add('skill bytes', item.format === 'markdown' ? installedSkill === skill : installedSkill?.includes(skill.replace(/^---\n[\s\S]*?\n---\n/, '').trim()) === true);
-    add('linked resource bytes', text(item.resource) === resource);
-    const mcp = text(item.mcp);
-    assert.ok(mcp?.includes('third-party'), item.host + ': preserve unrelated configuration');
-    const config = item.mcp.endsWith('.toml') ? getStaticTOMLValue(parseForESLint(mcp).ast) :
-      item.mcp.endsWith('.yaml') ? YAML.parse(mcp) : JSON.parse(mcp);
-    const servers = config.mcp_servers ?? config.mcpServers ?? config.mcp;
-    const server = Array.isArray(servers) ? servers.find(s => s.name === 'h2a') : servers?.h2a;
-    const command = Array.isArray(server?.command) ? server.command : [server?.command, ...(server?.args ?? [])];
-    const executable = arg => {
-      if (typeof arg !== 'string') return undefined;
-      const paths = isAbsolute(arg) ? [arg] : a.env.PATH.split(delimiter).map(dir => join(dir, arg));
-      for (const path of paths) {
-        try { return realpathSync(path); } catch { /* Try the next PATH entry. */ }
-      }
-    };
-    const target = executable(command[0]);
-    const resolvesCandidate = target === realpathSync(a.cli) ||
-      target === realpathSync(process.execPath) && executable(command[1]) === realpathSync(a.cli);
-    add('MCP resolves activated prefix', resolvesCandidate);
-    if (item.helper) add('selected helper bytes', text(item.helper) === helper);
-    if (item.hooks) {
-      const hooks = text(item.hooks);
-      assert.ok(hooks?.includes('third-party'), 'preserve unrelated workspace hooks');
-      add('selected hook registration', hooks.includes(item.helper) && !hooks.includes('old-prefix'));
+const text = path => path && existsSync(path) ? readFileSync(path, 'utf8') : undefined;
+const digest = path => { const bytes = text(path); return bytes === undefined ? undefined : hash(bytes); };
+const scopeFiles = ['workspace-scope-guard.mjs', 'workspace-scope-shell.mjs', 'workspace-scope-state.mjs'];
+const parseConfig = item => item.mcp.endsWith('.toml') ? getStaticTOMLValue(parseForESLint(text(item.mcp)).ast) :
+  item.mcp.endsWith('.yaml') ? YAML.parse(text(item.mcp)) : json(item.mcp);
+const entries = config => {
+  const servers = config.mcp_servers ?? config.mcpServers ?? config.mcp ?? {};
+  return Array.isArray(servers) ? servers.map(s => [s.name, s]) : Object.entries(servers);
+};
+const argv = server => Array.isArray(server?.command) ? server.command : [server?.command, ...(server?.args ?? [])];
+function executable(a, arg) {
+  if (typeof arg !== 'string') return undefined;
+  const paths = isAbsolute(arg) ? [arg] : a.env.PATH.split(delimiter).map(dir => join(dir, arg));
+  for (const path of paths) {
+    try { return realpathSync(path); } catch { /* Missing executables are not current. */ }
+  }
+}
+
+function payload(root) {
+  const out = {};
+  function walk(path, relative) {
+    if (!existsSync(path)) return;
+    for (const entry of readdirSync(path, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const name = relative + '/' + entry.name, child = join(path, entry.name);
+      if (entry.isDirectory()) walk(child, name);
+      else if (entry.isFile()) out[name] = digest(child);
     }
-    if (item.imported) add('observed Agy imported bytes', text(item.imported)?.includes(skill.replace(/^---\n[\s\S]*?\n---\n/, '').trim()) === true);
+  }
+  for (const dir of ['skills', 'hooks']) walk(join(root, dir), dir);
+  for (const path of ['.claude-plugin/plugin.json', '.codex-plugin/plugin.json']) out[path] = digest(join(root, path));
+  return out;
+}
+
+function pluginState(a, item, config) {
+  if (!item.registration) return undefined;
+  if (item.host === 'claude') {
+    const registrations = json(item.registration).plugins?.['h2a@sentropic'] ?? [];
+    return { registrations, caches: registrations.map(active => ({ path: active.installPath,
+      payload: payload(active.installPath) })) };
+  }
+  // Resolve the SELECTED marketplace first. A guessed candidate cache directory
+  // says nothing about what Codex will load (including disabled installations).
+  const selected = config.marketplaces?.sentropic;
+  const marketplace = selected?.source_type === 'local' ? selected.source :
+    selected?.source_type === 'git' ? join(item.root, '.tmp/marketplaces/sentropic') : undefined;
+  const manifestPath = marketplace && join(marketplace, '.claude-plugin/marketplace.json');
+  const manifest = text(manifestPath) ? json(manifestPath) : undefined;
+  const plugins = manifest?.plugins?.filter(p => p.name === 'h2a') ?? [];
+  const source = plugins[0]?.source;
+  const relative = typeof source === 'string' ? source : source?.source === 'local' ? source.path : undefined;
+  const sourceRoot = marketplace && relative ? join(marketplace, relative) : undefined;
+  const meta = sourceRoot && text(join(sourceRoot, '.codex-plugin/plugin.json'));
+  const version = meta ? JSON.parse(meta).version : undefined;
+  const cache = version && join(item.root, 'plugins/cache/sentropic/h2a', version);
+  return { selected, manifest, source: sourceRoot, sourcePayload: sourceRoot ? payload(sourceRoot) : undefined,
+    version, cache, cachePayload: cache ? payload(cache) : undefined };
+}
+
+function hostEvidence(a, item) {
+  const config = parseConfig(item);
+  return {
+    skill: digest(item.skill), resource: digest(item.resource),
+    mcp: entries(config).filter(([name]) => /^h2a|^track/.test(name)),
+    helper: item.helper ? Object.fromEntries(scopeFiles.map(name => [name, digest(join(dirname(item.helper), name))])) : undefined,
+    hooks: item.hooks ? json(item.hooks) : undefined,
+    imported: digest(item.imported), plugin: pluginState(a, item, config),
+  };
+}
+
+function servesMcp(a, command) {
+  const input = [
+    { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'L0', version: '1' } } },
+    { jsonrpc: '2.0', method: 'notifications/initialized' },
+    { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} },
+  ].map(JSON.stringify).join('\n') + '\n';
+  const result = spawnSync(command[0], command.slice(1), { cwd: a.root, env: a.env, input,
+    encoding: 'utf8', timeout: 5000, killSignal: 'SIGKILL', maxBuffer: 2 * 1024 ** 2 });
+  if (result.error || result.status !== 0) return false;
+  try {
+    const messages = result.stdout.trim().split('\n').map(JSON.parse);
+    const init = messages.find(m => m.id === 1)?.result, tools = messages.find(m => m.id === 2)?.result?.tools;
+    return init?.serverInfo?.name === '@sentropic/h2a' && init.serverInfo.version === a.version &&
+      Array.isArray(tools) && tools.some(t => t.name.startsWith('h2a_'));
+  } catch { return false; }
+}
+
+// Parse only literal argv: do not execute shell syntax, comments or wrappers.
+function hookArgv(command) {
+  if (typeof command !== 'string') return [];
+  const matches = [...command.trim().matchAll(/(?:^|\s+)('([^']*)'|"([^"]*)"|([^\s'"`$;&|<>\\]+))(?=\s|$)/g)];
+  if (matches.map(m => m[0]).join('') !== command.trim()) return [];
+  return matches.map(m => m[2] ?? m[3] ?? m[4]);
+}
+
+function selectedHook(a, item, config, helpersCurrent) {
+  if (!helpersCurrent || config.enabled === false) return false;
+  const hooks = item.host === 'muse' ? config.hooks : config['sentropic-h2a-workspace-scope'];
+  if (!hooks || hooks.enabled === false) return false;
+  const groups = hooks.PreToolUse;
+  if (!Array.isArray(groups) || groups.length !== 1 || groups[0].matcher !== '.*') return false;
+  const commands = groups[0].hooks;
+  if (!Array.isArray(commands) || commands.length !== 1 || commands[0].type !== 'command' || commands[0].enabled === false) return false;
+  const command = hookArgv(commands[0].command);
+  const options = command.slice(2);
+  if (executable(a, command[0]) !== realpathSync(process.execPath) || executable(a, command[1]) !== executable(a, item.helper) ||
+      options[options.indexOf('--host') + 1] !== item.host) return false;
+  const anchor = item.host === 'agy' ? '--session-store' : '--workspace';
+  const expected = item.host === 'agy' ? dirname(dirname(item.helper)) : join(a.root, 'workspace');
+  if (options[options.indexOf(anchor) + 1] !== expected) return false;
+  const result = spawnSync(command[0], command.slice(1), { cwd: a.root, env: a.env, input: '{',
+    encoding: 'utf8', timeout: 5000, killSignal: 'SIGKILL' });
+  return !result.error && /H2A_SCOPE:UNVERIFIABLE/.test(result.stderr) &&
+    JSON.parse(result.stdout).hookSpecificOutput?.permissionDecision === 'deny';
+}
+
+export function observeHosts(a, inventory) {
+  const skill = text(join(a.packages, 'h2a/skills/h2a-run/SKILL.md'));
+  const resource = digest(join(a.packages, 'track/skills/present-decision/assets/native-questions.md'));
+  const expectedHelpers = Object.fromEntries(scopeFiles.map(name => [name, digest(join(a.packages, 'h2a/hooks', name))]));
+  const expectedPlugin = payload(join(a.packages, 'h2a'));
+  const observations = [];
+  const transports = new Map();
+  for (const item of inventory) {
+    const config = parseConfig(item), evidence = hostEvidence(a, item);
+    const add = (family, actual, key) => observations.push({ id: item.host + ' installed ' + family, lot: 'L3+L4',
+      actual, expected: true, evidence: evidence[key], knownMissing: { actual: false, expected: true, evidence: item.legacy[key] } });
+    assert.ok(text(item.mcp).includes('third-party'), item.host + ': preserve unrelated configuration');
+    const installedSkill = text(item.skill);
+    const rendered = item.format === 'toml' && installedSkill ? getStaticTOMLValue(parseForESLint(installedSkill).ast).prompt : undefined;
+    add('skill bytes', item.format === 'markdown' ? installedSkill === skill :
+      rendered?.trim() === skill.replace(/^---\n[\s\S]*?\n---\n/, '').trim(), 'skill');
+    add('linked resource bytes', evidence.resource === resource, 'resource');
+    const servers = entries(config), routes = servers.filter(([name, server]) =>
+      /^h2a/.test(name) || argv(server).some(arg => typeof arg === 'string' && arg.includes(a.cli)));
+    const command = argv(routes[0]?.[1]), target = executable(a, command[0]);
+    const direct = target === realpathSync(a.cli);
+    const viaNode = target === realpathSync(process.execPath) && executable(a, command[1]) === realpathSync(a.cli);
+    const args = command.slice(direct ? 1 : 2);
+    const validRoute = (direct || viaNode) && args.length === 1 && args[0] === 'mcp-serve';
+    const transportKey = JSON.stringify(command);
+    if (validRoute && !transports.has(transportKey)) transports.set(transportKey, servesMcp(a, command));
+    add('MCP resolves activated prefix', routes.length === 1 && servers.filter(([name]) => /^track/.test(name)).length <= 1 &&
+      validRoute && transports.get(transportKey) === true, 'mcp');
+    let helpersCurrent;
+    if (item.helper) {
+      helpersCurrent = JSON.stringify(evidence.helper) === JSON.stringify(expectedHelpers);
+      add('selected helper bytes', helpersCurrent, 'helper');
+    }
+    if (item.hooks) {
+      assert.ok(text(item.hooks).includes('third-party'), 'preserve unrelated workspace hooks');
+      add('selected hook registration', selectedHook(a, item, evidence.hooks, helpersCurrent), 'hooks');
+    }
+    if (item.imported) add('observed Agy imported bytes', text(item.imported)?.trim() ===
+      skill.replace(/^---\n[\s\S]*?\n---\n/, '').trim(), 'imported');
     if (item.registration) {
-      const cache = join(item.root, 'plugins/cache/sentropic/h2a', a.version);
-      const active = item.host === 'claude' ? json(item.registration).plugins['h2a@sentropic'][0] :
-        { installPath: cache, version: existsSync(join(cache, '.codex-plugin/plugin.json')) ? json(join(cache, '.codex-plugin/plugin.json')).version : undefined };
-      if (item.host === 'codex') assert.equal(config.plugins['h2a@sentropic'].enabled, false, 'disabled selection must stay disabled');
-      else assert.equal(json(join(item.root, 'settings.json')).enabledPlugins['h2a@sentropic'], true);
-      add('registered effective plugin cache', active.version === a.version &&
-        text(join(active.installPath, `.${item.host}-plugin/plugin.json`)) === readFileSync(join(a.packages, `h2a/.${item.host}-plugin/plugin.json`), 'utf8') &&
-        text(join(active.installPath, 'skills/h2a-run/SKILL.md')) === skill &&
-        text(join(active.installPath, 'hooks/hooks.json')) === readFileSync(join(a.packages, 'h2a/hooks/hooks.json'), 'utf8'));
+      const plugin = evidence.plugin;
+      let current;
+      if (item.host === 'claude') {
+        assert.equal(json(join(item.root, 'settings.json')).enabledPlugins['h2a@sentropic'], true);
+        current = plugin.registrations.length === 1 && plugin.registrations[0].version === a.version &&
+          JSON.stringify(plugin.caches[0].payload) === JSON.stringify(expectedPlugin);
+      } else {
+        assert.equal(config.plugins['h2a@sentropic'].enabled, false, 'disabled selection must stay disabled');
+        current = (plugin.selected?.source_type === 'local' ||
+          plugin.selected?.source_type === 'git' && plugin.selected.ref === 'v' + a.version) &&
+          plugin.manifest?.plugins?.filter(p => p.name === 'h2a').length === 1 && plugin.version === a.version &&
+          JSON.stringify(plugin.sourcePayload) === JSON.stringify(expectedPlugin) &&
+          JSON.stringify(plugin.cachePayload) === JSON.stringify(expectedPlugin);
+      }
+      add('registered effective plugin cache', !!current, 'plugin');
     }
   }
   assert.equal(inventory.length, 8);
