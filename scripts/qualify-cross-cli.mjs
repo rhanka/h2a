@@ -63,9 +63,13 @@ function parseOffsets(raw) {
 // Lot L4: on-disk records are canonical {at, event, transcript} envelopes;
 // rehydrate the evidence-shaped flat fields from the transcript so every
 // consumer keeps its established access (shared helper in xcli-lab.mjs).
-const readEvents = path => {
+export const readEvents = path => {
   try {
-    return fs.readFileSync(path, 'utf8').trim().split('\n').filter(Boolean).map(line => rehydrateEventRecord(JSON.parse(line)));
+    // Writers append JSONL while the worker polls. A snapshot may end in
+    // a partial record; its newline commits it for the next read. Complete
+    // malformed records still throw, rather than silently losing evidence.
+    return fs.readFileSync(path, 'utf8').split('\n').slice(0, -1).filter(Boolean)
+      .map(line => rehydrateEventRecord(JSON.parse(line)));
   }
   catch (error) { if (error.code === 'ENOENT') return []; throw error; }
 };
