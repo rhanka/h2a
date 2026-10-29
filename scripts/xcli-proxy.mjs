@@ -80,8 +80,9 @@ for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP']) {
   process.once(signal, () => { child.kill(signal); setTimeout(() => child.kill('SIGKILL'), 1000).unref(); });
 }
 // Lot L8 (§6.4) runaway brake: witnessed MCP tool calls per launched session
-// are counted live. Crossing the cap terminates that owned session only and
-// witnesses the refusal. The count is exact at the witness; it does not bound
+// are counted live. Crossing the cap stops this MCP server and witnesses the
+// refusal; the worker stops the owning CLI through its fenced native session.
+// The count is exact at the witness; it does not bound
 // silent reasoning, and the verdict says so.
 const mcpCallCap = Number(process.env.XCLI_MCP_CALL_CAP ?? '0');
 let mcpCalls = 0, mcpCapped = false;
