@@ -1,3 +1,77 @@
+# Gateway off by default — PR #395, round 5
+
+- Scope: the shared P2 in both supplied round-4 reviews of 8b0a895c3.
+- Compare proven routing choices before conflict pruning; legacy direct/auto,
+  gateway or absent pins cannot discard a conversation's explicit consent.
+  Keep bare conflicts and conflicting proven choices under the existing
+  liveness rules; --no-gw retains priority.
+- RED: recovered reviewers' probes 4 fail / 0 pass; durable matrix 24 fail /
+  74 pass, zero skips. GREEN: reviewers 4/4, 558 scoped runtime tests and
+  56 contracts, zero skips; runtime build and execution-proof validator pass.
+- Replay: all 18 earlier probes, original R1 matrix 16/16 and two clean
+  shell children with native auth preserved. Evidence:
+  docs/reviews/gateway-off-default-r5.md. No test gate changes.
+- Private TMPDIR /home/antoinefa/.cache-tmp/h2a-test/run-Fs3Vkp; remove at
+  delivery. No owner state, installed h2a, real gateway/provider/cluster,
+  Python, full local suite, attribution trailer, merge or tag.
+
+# Gateway off by default — PR #395, round 4
+
+- Scope: both P2 findings in the supplied Sol/Astra reviews of d170a4b83.
+- Never type the acquired bearer into a pane: a 0600 JSON file in a private
+  0700 directory passes it through the child's environment, with unlink before
+  CLI startup and cleanup on refused/failed retype.
+- After the existing conflict/liveness resolution, prefer proven consent over
+  equivalent legacy pins, independently of registry order; --no-gw still wins.
+- Preserve an unspecified bare pin on the legacy-to-explicit transition too;
+  RED for the absent variant: one failure / 57 passes, zero skips.
+- RED before product edits: three failures / 52 passes, zero skips (two lost
+  opt-ins and bearer in command, PTY echo and Bash history).
+- GREEN: 514 scoped runtime tests + 52 contracts, zero skips; runtime build;
+  execution-proof validator; original R1 matrix 16/16 and two clean children;
+  18 recovered Astra/Sol probes from rounds 1/2/3. No gate changes.
+- Evidence: docs/reviews/gateway-off-default-r4.md. Private TMPDIR
+  /home/antoinefa/.cache-tmp/h2a-test/run-UouKtU; remove at delivery.
+- No installed h2a, owner state, real gateway/provider/cluster, Python, full
+  local suite, attribution trailer, merge, tag or fresh independent consensus.
+
+# Gateway off by default — PR #395, round 3
+
+- Scope: all four distinct P1/P2 findings from the supplied round-2 Astra/Sol
+  reviews on aedc3fccb: local PTY routing, explicit-profile resume identity,
+  renamed consent and freshly acquired retype credentials.
+- Persist the proven conversation's mode/provenance across renames, including
+  an unspecified bare choice; keep the existing conflict/liveness rules.
+- RED: final 54-test matrix on aedc3fccb gives 17 failures, zero skips;
+  unspecified bare variant gives two failures before its additional fix.
+- Verification, all round-1/round-2 reproductions and limits:
+  docs/reviews/gateway-off-default-r3.md. No test gate changes.
+- CI follow-up: security-debt failed on GHSA-rmxm-3fg6-px4f after the push.
+  Update only the existing @hono/node-server lock entry 2.1.1 -> 2.1.5;
+  keep manifests, the empty exception register and scanner thresholds intact.
+  Live audit RED/GREEN, compilation and all scoped reproductions rerun.
+- CI execution-proof follow-up: Vitest truncates long cwd values in test
+  titles, making two no-gw table rows share an identity. Use stable case
+  labels; verifyRuntimeExecution rejects the old report and accepts the new
+  scoped report. All assertions and all gate policies remain unchanged.
+- Private TMPDIR /home/antoinefa/.cache-tmp/h2a-test/run-eXwwhg; remove after
+  delivery. No installed h2a, owner state, real gateway/provider/cluster,
+  Python, full local suite, attribution trailer, merge or tag.
+
+# Gateway off by default — PR #395, round 2
+
+- Scope: five findings from the supplied Astra/Sol reviews on a1835d4d7;
+  local consent, retype and child env, mixed fleet auth, remote provisioning/refresh.
+- Preserve the three already-pushed commits through e627645a4; base 912dd3035
+  already included. No main mutation, merge, tag, dependency or version change.
+- Additional RED: fresh name reuse, inherited direct marker on gateway,
+  unavailable explicit remote gateway and inherited global provisioner choice.
+- Gate the real remote regression suites through h2a-runtime; use source exports
+  so a clean checkout needs no private-workspace dist build.
+- Evidence and limits: docs/reviews/gateway-off-default-r2.md. Private TMPDIR
+  /home/antoinefa/.cache-tmp/h2a-test/run-ieKzxe; no installed h2a or owner state,
+  real provider/gateway/cluster, full local suite, Python or attribution trailer.
+
 # R10 — native host recovery under concurrent load
 
 - Scope: the three R9 findings on PR #390; startup election expiry, responsive native creation, failed-list connection ownership and their measured startup costs. No dependency/version/workflow/scope-policy changes.

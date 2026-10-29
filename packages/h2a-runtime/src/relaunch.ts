@@ -16,12 +16,14 @@ import {
   existsSync,
   linkSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
   rmSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
+import { tmpdir } from "node:os";
 
 import { resolveConfigPath } from "./config.js";
 import { isCliProfile, resolveProfile, resumeArgsFor } from "./profiles.js";
@@ -463,6 +465,50 @@ export function resumeCommandFor(
   convId: string,
 ): string | undefined {
   return resumeLaunchFor(profile, convId)?.display;
+}
+
+/**
+ * Scrub h2a routing vars for a command retyped into an EXISTING shell.
+ * In-situ relaunch never recreates the pane, so the shell may still carry a
+ * stale gateway environment from its original launch: prefixing `env -u`
+ * gives the retyped CLI a direct environment without touching the shell
+ * itself. A user-owned ANTHROPIC_API_KEY is untouched (only routing vars).
+ */
+export function scrubbedRetypeCommand(cmd: string): string {
+  return `env -u ANTHROPIC_BASE_URL -u ANTHROPIC_AUTH_TOKEN ${cmd}`;
+}
+
+/** Pass a fresh route to an existing pane without typing secrets into its shell. */
+export function prepareGatewayRetypeCommand(cmd: string, route: {
+  ANTHROPIC_BASE_URL: string;
+  ANTHROPIC_AUTH_TOKEN: string;
+}): { command: string; cleanup: () => void } {
+  const directory = mkdtempSync(join(tmpdir(), "h2a-relaunch-env-"));
+  const file = join(directory, "env.json");
+  const cleanup = () => rmSync(directory, { recursive: true, force: true });
+  try {
+    writeFileSync(file, JSON.stringify(route), { mode: 0o600, flag: "wx" });
+    // Only the path and this reader reach send-keys/history. Unlink before
+    // spawning the CLI; pass the bearer solely through the child's env.
+    const reader = [
+      'const fs = require("node:fs");',
+      'const [file, cmd] = process.argv.slice(1);',
+      'let route;',
+      'try { route = JSON.parse(fs.readFileSync(file, "utf8")); }',
+      'finally { fs.rmSync(require("node:path").dirname(file), { recursive: true, force: true }); }',
+      'const env = { ...process.env, ...route }; delete env.ANTHROPIC_API_KEY;',
+      'const child = require("node:child_process").spawnSync("/bin/sh", ["-c", cmd], { env, stdio: "inherit" });',
+      'if (child.error) throw child.error; process.exit(child.status ?? 1);',
+    ].join(" ");
+    const quote = (value: string) => `'${value.replace(/'/g, "'\\''")}'`;
+    return {
+      command: [process.execPath, "-e", reader, file, cmd].map(quote).join(" "),
+      cleanup,
+    };
+  } catch (error) {
+    cleanup();
+    throw error;
+  }
 }
 
 export type RelaunchCandidate = {

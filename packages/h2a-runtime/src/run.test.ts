@@ -87,6 +87,30 @@ function stubStdout(): NodeJS.WriteStream & { written: string[] } {
 }
 
 describe("run", () => {
+  it("defaults the programmatic PTY launch to direct with native auth preserved", async () => {
+    const { pty } = stubSpawner();
+    const inherited = {
+      ANTHROPIC_BASE_URL: "http://localhost:3002",
+      ANTHROPIC_AUTH_TOKEN: "stale-fixture",
+      ANTHROPIC_API_KEY: "native-fixture",
+    };
+    let childEnv: Readonly<Record<string, string>> | undefined;
+    const result = await run({
+      profile: "claude", port: 0, env: inherited,
+      spawner: options => { childEnv = options.env; return pty; },
+      stdin: stubStdin(), stdout: stubStdout(),
+    });
+    try {
+      expect(childEnv?.ANTHROPIC_BASE_URL).toBeUndefined();
+      expect(childEnv?.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+      expect(childEnv?.ANTHROPIC_API_KEY).toBe("native-fixture");
+      expect(inherited.ANTHROPIC_AUTH_TOKEN).toBe("stale-fixture");
+    } finally {
+      pty.emitExit(0);
+      await result.exit;
+    }
+  });
+
   it("spawns the resolved profile, forwards stdout, and stops cleanly on PTY exit", async () => {
     const { spawner, pty } = stubSpawner();
     const stdin = stubStdin();

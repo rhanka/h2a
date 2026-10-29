@@ -160,6 +160,47 @@ describe("softRefreshSession unchanged-creds gating", () => {
     expect(scripts).not.toContain(BUNDLE[".codex/auth.json"]);
   });
 
+  it("respawn script scrubs routing vars unless the pod explicitly runs the gateway (round-2 P2)", async () => {
+    mockPod("stale-hash");
+
+    const result = await softRefreshSession("sess-1", "codex", {
+      stderr: fakeStderr() as unknown as NodeJS.WriteStream,
+    });
+
+    expect(result.respawned).toBe(true);
+    const relaunch = execScripts().find((s) => s.includes(".remote-relaunch.sh"));
+    expect(relaunch).toContain("codex resume");
+    // Execute the generated script up to the CLI, excluding the post-exit
+    // interactive shell. The provider stand-in prints its child's real env.
+    const script = relaunch!.split("<<'RL'\n")[1]!.split("\nprintf")[0]!;
+    const { spawnSync } = await vi.importActual<typeof import("node:child_process")>("node:child_process");
+    for (const mode of [undefined, "direct", "gateway"]) {
+      for (const key of ["native-key-fixture", "gw-stale-token"]) {
+        const child = spawnSync("/bin/bash", ["--noprofile", "--norc", "-c", `codex() { printenv; }\n${script}`], {
+          encoding: "utf8",
+          env: {
+            PATH: "/usr/bin:/bin", WORKSPACE_PATH: process.env.TMPDIR,
+            ANTHROPIC_BASE_URL: "http://gateway.test", ANTHROPIC_AUTH_TOKEN: "stale-token",
+            ANTHROPIC_API_KEY: key, ...(mode ? { H2A_GATEWAY_MODE: mode } : {}),
+          },
+        });
+        expect(child.status).toBe(0);
+        if (mode === "gateway") {
+          expect(child.stdout).toMatch(/^ANTHROPIC_BASE_URL=http:\/\/gateway.test$/m);
+          expect(child.stdout).toMatch(/^ANTHROPIC_AUTH_TOKEN=stale-token$/m);
+        } else {
+          expect(child.stdout).not.toMatch(/^ANTHROPIC_BASE_URL=/m);
+          expect(child.stdout).not.toMatch(/^ANTHROPIC_AUTH_TOKEN=/m);
+        }
+        if (mode === "gateway" || key === "native-key-fixture") {
+          expect(child.stdout).toContain(`ANTHROPIC_API_KEY=${key}`);
+        } else {
+          expect(child.stdout).not.toMatch(/^ANTHROPIC_API_KEY=/m);
+        }
+      }
+    }
+  });
+
   it("without skipIfUnchanged (explicit one-shot): always pushes + respawns, never reads the Pod hash", async () => {
     // Pod already holds the CURRENT hash — a plain `refresh <id> --soft` must
     // still relaunch (the user explicitly asked, e.g. the CLI is logged out).

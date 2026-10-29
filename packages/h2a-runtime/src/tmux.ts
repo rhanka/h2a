@@ -113,12 +113,31 @@ export const REMOTE_TMUX_PROFILE = {
 } as const;
 
 /**
+ * Session env stamped on DIRECT launches so the CLI wrappers below can scrub
+ * routing vars AFTER login/init scripts run — the last point before the CLI
+ * exec. A stale tmux server env or a login script may re-export
+ * ANTHROPIC_BASE_URL/ANTHROPIC_AUTH_TOKEN after the early `env -u` prefix;
+ * the wrapper prologue removes them again. Gateway launches set the stamp to
+ * zero, so their provisioned env survives inherited direct stamps.
+ */
+export const DIRECT_ROUTING_SCRUB_ENV = "H2A_DIRECT_ROUTING_SCRUB";
+
+/**
+ * Shell prologue for the CLI wrappers: drop h2a routing vars re-exported by
+ * login/init scripts on direct launches, immediately before the provider CLI
+ * runs. A user-owned ANTHROPIC_API_KEY is preserved (native auth survives).
+ */
+export const DIRECT_ROUTING_SCRUB_PRELUDE =
+  `if [ "\${${DIRECT_ROUTING_SCRUB_ENV}:-}" = "1" ]; then unset ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN; fi`;
+
+/**
  * Persistent-box wrapper (local twin of the Pod one): run the CLI, and when it
  * exits drop into a login shell on the workdir instead of ending the tmux
  * session. Invoked as `bash -lc WRAPPER <relaunch> <cli> <args…>`, so the FIRST
  * positional lands in `$0` (the relaunch hint), the CLI in `$1`, args in `$2…`.
  */
-export const LOCAL_WRAPPER = `relaunch="$0"; cli="$1"; shift
+export const LOCAL_WRAPPER = `${DIRECT_ROUTING_SCRUB_PRELUDE}
+relaunch="$0"; cli="$1"; shift
 "$cli" "$@"; code=$?
 if [ "\${H2A_NATIVE_TERMINAL:-}" = 1 ]; then
   printf '\\033]777;h2a-reset\\007'
@@ -136,7 +155,8 @@ if [ -t 0 ]; then exec /bin/bash -l; else exit "$code"; fi`;
  * consumes the injected prompt, the tmux pane terminates and the prompt cannot
  * become shell input.
  */
-export const STRUCTURED_LOCAL_WRAPPER = `cli="$0"
+export const STRUCTURED_LOCAL_WRAPPER = `${DIRECT_ROUTING_SCRUB_PRELUDE}
+cli="$0"
 exec "$cli" "$@"`;
 
 /**
@@ -149,7 +169,8 @@ exec "$cli" "$@"`;
  * `$3`=cli, `$4…`=cli args. The prompt file is opened and unlinked before
  * the CLI starts, so prompt content never appears in process argv.
  */
-export const HEADLESS_WRAPPER = `result="$0"; log="$1"; prompt="$2"; cli="$3"; shift 3
+export const HEADLESS_WRAPPER = `${DIRECT_ROUTING_SCRUB_PRELUDE}
+result="$0"; log="$1"; prompt="$2"; cli="$3"; shift 3
 if [ -n "$prompt" ]; then
   exec 3<"$prompt"
   rm -f -- "$prompt"
@@ -321,6 +342,28 @@ const ANTHROPIC_ENV_KEYS = [
   "ANTHROPIC_API_KEY",
 ] as const;
 
+/** True when the caller carries h2a gateway routing (i.e. this is a gateway launch). */
+export function callerCarriesGatewayRouting(): boolean {
+  return (
+    process.env.ANTHROPIC_BASE_URL ?? process.env.ANTHROPIC_AUTH_TOKEN
+  ) !== undefined;
+}
+
+/**
+ * Stamp the direct-scrub sentinel into a child env built for a direct launch.
+ * Pure over the env record: gateway env gets a zero stamp (the wrapper must
+ * preserve it), direct env gets one (the wrapper scrubs post-init routing
+ * vars). Shared by the tmux (`-e`) and native (env-file snapshot) paths.
+ */
+export function stampDirectRoutingScrub(
+  env: Record<string, string | undefined>,
+): void {
+  env[DIRECT_ROUTING_SCRUB_ENV] = (
+    env.ANTHROPIC_BASE_URL === undefined &&
+    env.ANTHROPIC_AUTH_TOKEN === undefined
+  ) ? "1" : "0";
+}
+
 /** Build the environment explicitly stamped into a newly-created tmux session. */
 export function tmuxEnvironmentArgs(sessionClass?: SessionClass): string[] {
   const args: string[] = [];
@@ -328,17 +371,23 @@ export function tmuxEnvironmentArgs(sessionClass?: SessionClass): string[] {
     const value = process.env[key];
     if (value) args.push("-e", `${key}=${value}`);
   }
+  args.push("-e", `${DIRECT_ROUTING_SCRUB_ENV}=${callerCarriesGatewayRouting() ? "0" : "1"}`);
+  // Session class stays last: existing consumers assert the tail of this
+  // list carries the session marker.
   if (sessionClass) args.push("-e", `${SESSION_CLASS_ENV}=${sessionClass}`);
   return args;
 }
 
 function anthopicEnvUnsetCommandPrefix(): string[] {
-  // tmux sessions inherit the tmux *server* environment too. If remote deliberately
-  // launches direct/default with no Anthropic env in its own process, scrub stale
-  // gateway/API-key variables that an older tmux server may still carry.
-  return ANTHROPIC_ENV_KEYS.some((key) => Boolean(process.env[key]))
-    ? []
-    : ["env", ...ANTHROPIC_ENV_KEYS.flatMap((key) => ["-u", key])];
+  // tmux sessions inherit the tmux *server* environment too. A direct launch
+  // carries no h2a routing vars in its own process, so scrub the routing vars
+  // a stale tmux server may still carry — EVEN when the caller keeps a native
+  // ANTHROPIC_API_KEY (that key is stamped via -e and must survive). This is
+  // the EARLY scrub; the wrapper prologue re-scrubs after login/init scripts.
+  if (callerCarriesGatewayRouting()) return [];
+  const stale: string[] = ["ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN"];
+  if (!process.env.ANTHROPIC_API_KEY) stale.push("ANTHROPIC_API_KEY");
+  return ["env", ...stale.flatMap((key) => ["-u", key])];
 }
 
 function expandHome(p: string): string {
