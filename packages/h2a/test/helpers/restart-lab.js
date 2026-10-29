@@ -53,13 +53,21 @@ export function fixture(t) {
   let disposed = false;
   const dispose = async () => {
     if (disposed) return; disposed = true;
-    for (const { pid, start } of recorded().reverse()) {
-      try {
-        const stat = readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ')[1].split(' ');
-        if (stat[19] === start && !['Z', 'X'].includes(stat[0])) process.kill(pid, 'SIGKILL');
-      } catch (e) { if (!['ENOENT', 'ESRCH'].includes(e.code)) throw e; }
-    }
+    const stopRecorded = () => {
+      let pending = 0;
+      for (const { pid, start } of recorded().reverse()) {
+        try {
+          const stat = readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ')[1].split(' ');
+          if (stat[19] === start && !['Z', 'X'].includes(stat[0])) { pending++; process.kill(pid, 'SIGKILL'); }
+        } catch (e) { if (!['ENOENT', 'ESRCH'].includes(e.code)) throw e; }
+      }
+      return pending;
+    };
+    stopRecorded();
     await Promise.all(children.map(child => child.exitCode === null && child.signalCode === null ? once(child, 'close') : undefined));
+    // SIGKILL delivery is asynchronous, including for detached descendants.
+    // Re-read the private birth records so late-started owned writers drain too.
+    await eventually(stopRecorded, pending => pending === 0);
     rmSync(root, { recursive: true, force: true });
     assert.equal(existsSync(root), false);
   };
