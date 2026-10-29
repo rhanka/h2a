@@ -136,6 +136,40 @@ and unrelated files on Claude, Codex, Muse, Vibe and Agy. No provider activation
   GREEN: 125 installation/convergence/package/native-question tests plus
   17 native crash-recovery tests, zero failures/skips.
 
+# Mémoire MCP L2 — correction de propriété, round 2
+
+- Reprise après reboot sur 099db16b6 : changements corrects conservés ; deux
+  tests natifs non suivis hérités laissés intacts et hors commits.
+- Décision owner : cluster-mesh compose Engram, PostgreSQL et les neuf
+  bindings. h2a consomme uniquement le `McpRegistryBuiltin` configuré par
+  l'hôte mesh, via `createMcpRegistry({ builtins })`, comme `mcp/artifacts`.
+  Suppression du chargement direct Engram et du `MemoryHostPort`.
+- Sources lues en lecture seule : mesh 0.24.0 installé et branche sentropic
+  `feat/cluster-mesh-memory-mcp@c4f3b8e75` (registre, builtin artifacts,
+  loader et tests mémoire). Le builtin mémoire n'est pas publié/configuré
+  dans le tuple installé : sélection sans builtin → refus `missing_binding`.
+- Version, digest d'entrée/configuration, identité et six outils vérifiés ;
+  chargement uniquement après sélection, dispatch par l'adapter mesh avec
+  l'attachement existant. Aucun principal mémoire synthétique.
+- RED contrat contre les sources 099db16b6 : 0/4 sur les quatre cas ciblés
+  (discovery, builtin absent, autorisation, loader). GREEN : mémoire 15/15 ;
+  batterie registre/shim 48/48 sous Node 22.22.1 ; mémoire + oracle +
+  ordonnanceur 39/39 sous Node 24.22.1. Aucun skip/TODO.
+- PTY : le preload copié conserve un import relatif vers ci-owned-process ;
+  il échoue sous le TMPDIR court CI. RED 13/14, GREEN 14/14 après résolution
+  absolue du seul import, sans modifier les délais.
+- Oracle : un timer précoce expirait à 4999 ms. Horloge monotone et
+  réarmement du reliquat, budget inchangé de 5000 ms. RED 3/4, GREEN 4/4.
+- Ordonnanceur : trois handovers froids isolés avant le backend ; RED 16/19,
+  GREEN 19/19. Rapport vide reproduit déterministement : sortie 13 après les
+  enfants et avant flush. Timer du runner référencé jusqu'aux deux pipelines ;
+  nouveau témoin RED 0/1 puis GREEN. Total oracle/ordonnanceur : 24/24.
+- `node node_modules/typescript/bin/tsc -b` et `git diff --check` : exit 0.
+  Aucun binaire h2a installé, état réel, Python, nouvelle dépendance, Track
+  écrit ou suite complète locale. Gateway désactivée, h2a/Track conservés.
+- Revue consensus indisponible sous le confinement owner ; aucun verdict
+  revendiqué. Rebase/push, qualification handover et résultat CI suivront.
+
 # Gateway off by default — PR #395, round 5
 
 - Scope: the shared P2 in both supplied round-4 reviews of 8b0a895c3.

@@ -16,14 +16,19 @@ test('both real package suites start before the remaining Node files without dro
   assert.equal(files.length, 4);
 });
 
-function scenario(t, { failing = false, limitedCpu = false, progress = false, isolated = false, transfer = false, burst = false, compensation = false } = {}) {
+function scenario(t, { failing = false, limitedCpu = false, progress = false, isolated = false, transfer = false, burst = false, compensation = false, handover, delayedReport = false } = {}) {
   const root = fs.mkdtempSync(join(tmpdir(), 'ordered-node-tests-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const order = join(root, 'started.jsonl'), report = join(root, 'evidence.json');
   const cpuHook = join(root, 'cpu-count.mjs');
   fs.writeFileSync(cpuHook, `import os from 'node:os'; import {syncBuiltinESMExports} from 'node:module';
     os.availableParallelism=()=>2; syncBuiltinESMExports();`);
-  const names = compensation ? ['z-package.test.js', 'mh-l5-compensation.test.js']
+  const reportHook = join(root, 'delayed-report.mjs');
+  fs.writeFileSync(reportHook, `import {WriteStream} from 'node:fs';
+    const write=WriteStream.prototype._write;
+    WriteStream.prototype._write=function(...args){setTimeout(()=>Reflect.apply(write,this,args),100).unref();};`);
+  const names = handover ? ['mh-l5-concurrency.test.js', handover]
+    : compensation ? ['z-package.test.js', 'mh-l5-compensation.test.js']
     : burst ? ['mh-l5-concurrency.test.js', 'mcp-identity-burst.test.js']
     : transfer ? ['z-package.test.js', 'mh-l3-transfer.test.js', 'mcp-central-attachments.test.js']
     : ['z-package.test.js', isolated ? 'mcp-central-attachments.test.js' : 'a-small.test.js'];
@@ -42,12 +47,21 @@ function scenario(t, { failing = false, limitedCpu = false, progress = false, is
   const env = { ...process.env };
   delete env.NODE_TEST_CONTEXT;
   if (progress) env.H2A_TEST_NODE_PROGRESS_MS = '10';
-  const result = spawnSync(process.execPath, [...(limitedCpu ? ['--import', cpuHook] : []), resolve('scripts/run-node-tests.mjs'), '--test', ...(!limitedCpu ? [`--test-concurrency=${isolated || transfer ? 4 : 1}`] : []),
+  const result = spawnSync(process.execPath, [...(limitedCpu ? ['--import', cpuHook] : []), ...(delayedReport ? ['--import', reportHook] : []), resolve('scripts/run-node-tests.mjs'), '--test', ...(!limitedCpu ? [`--test-concurrency=${isolated || transfer ? 4 : 1}`] : []),
     '--test-reporter=spec', `--test-reporter=${resolve('scripts/node-evidence-reporter.mjs')}`,
     '--test-reporter-destination=stdout', `--test-reporter-destination=${report}`, ...files],
   { env, encoding: 'utf8', timeout: 15_000 });
-  return { result, files, started: fs.readFileSync(order, 'utf8'), evidence: JSON.parse(fs.readFileSync(report, 'utf8')) };
+  const rawReport = fs.readFileSync(report, 'utf8');
+  assert.ok(rawReport.length > 0, `runner exited with status ${result.status} before writing evidence: ${result.stdout}${result.stderr}`);
+  return { result, files, started: fs.readFileSync(order, 'utf8'), evidence: JSON.parse(rawReport) };
 }
+
+test('the runner remains alive until the final execution report is flushed after its children exit', t => {
+  const { result, evidence } = scenario(t, { delayedReport: true });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.equal(evidence.success, true);
+  assert.equal(evidence.numPassedTests, 2);
+});
 
 test('the production Node runner starts explicit files in priority order and records every real case', t => {
   const { result, files, started, evidence } = scenario(t);
@@ -201,6 +215,7 @@ function overlappingCampaign(t, failing = false) {
   const result=spawnSync(process.execPath,[resolve('scripts/run-node-tests.mjs'),'--test','--test-concurrency=2',
     '--test-reporter=spec',`--test-reporter=${resolve('scripts/node-evidence-reporter.mjs')}`,
     '--test-reporter-destination=stdout',`--test-reporter-destination=${report}`,...files],{env,encoding:'utf8',timeout:15_000});
+  assert.equal(result.status, failing ? 1 : 0, result.stdout + result.stderr);
   return {result,files,evidence:JSON.parse(fs.readFileSync(report,'utf8'))};
 }
 
@@ -244,3 +259,14 @@ test('a failed overlapping backend remains failed and every remaining suite stil
   assert.equal(evidence.testResults.length,3);
   for(const file of files)assert.ok(evidence.testResults.some(row=>row.name===file));
 });
+
+for (const handover of ['mh-l2-image.test.js', 'mh-l2-live-central.test.js', 'mh-l5-cold-network.test.js']) {
+  test('bounded handover finishes before the backend campaign: ' + handover, t => {
+    const { result, files, started, evidence } = scenario(t, { isolated: true, handover });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.equal(started, '1\n0\n');
+    assert.equal(evidence.success, true);
+    assert.equal(evidence.numPassedTests, 2);
+    for (const file of files) assert.ok(evidence.testResults.some(row => row.name === file && row.assertionResults.some(a => a.status === 'passed')));
+  });
+}

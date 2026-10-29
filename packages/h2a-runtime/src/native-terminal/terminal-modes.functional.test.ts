@@ -103,6 +103,7 @@ async function fixture(replayBytes = 4096, command?: { command: string; args: st
   const latePreload = join(directory, "late-native-isolation.mjs");
   await writeFile(latePreload, (await readFile(new URL("../../../h2a/test/helpers/native-isolation.js", import.meta.url), "utf8"))
     .replace('resolve(import.meta.dirname, "../../../../.q")', JSON.stringify(nativeQualificationRoot))
+    .replaceAll('../../../../scripts/ci-owned-process.mjs', new URL('../../../../scripts/ci-owned-process.mjs', import.meta.url).href)
     .replaceAll('../../src/runtime/handover/', new URL('../../../h2a/src/runtime/handover/', import.meta.url).href));
   const created = await client.create({
     id, command: command?.command ?? process.execPath,
