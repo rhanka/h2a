@@ -244,6 +244,16 @@ jobs:
         with:
           name: bulk-${{ github.run_id }}-${{ github.run_attempt }}-node${{ matrix.node }}
           path: tmp/bulk-import
+      - name: Create a disposable TMPDIR admitted by both confinement guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p -m 0700 "$HOME/.cache-tmp/h2a-test"
+          DIR="$(mktemp -d "$HOME/.cache-tmp/h2a-test/run-XXXXXX")"
+          echo "TMPDIR=$DIR" >> "$GITHUB_ENV"
+          echo "TMP=$DIR" >> "$GITHUB_ENV"
+          echo "TEMP=$DIR" >> "$GITHUB_ENV"
+          echo "H2A_TEST_QUALIFICATION_ROOT=$DIR" >> "$GITHUB_ENV"
       - run: npm test
         env:
           H2A_TEST_CI_M17_REPORT: ${{ github.workspace }}/tmp/m17-import/proof.json
@@ -286,6 +296,10 @@ jobs:
       # migration P2: le contrat public (surface MCP/CLI + anti-cycle core) ne doit pas dériver sans bump
       - run: bash scripts/check-public-contract.sh
         if: runner.os == 'Linux'
+      - name: Clean the disposable TMPDIR
+        if: always()
+        shell: bash
+        run: if [ -n "${TMPDIR:-}" ]; then rm -rf "$TMPDIR"; fi
 
   # Stable, independently requireable trust root for `npm test`.
   #
@@ -312,6 +326,16 @@ jobs:
       - run: npm ci
       - name: Install the mandatory configuration oracles
         run: npm install --global @openai/codex@0.145.0 @anthropic-ai/claude-code@2.1.296
+      - name: Create a disposable TMPDIR admitted by both confinement guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p -m 0700 "$HOME/.cache-tmp/h2a-test"
+          DIR="$(mktemp -d "$HOME/.cache-tmp/h2a-test/run-XXXXXX")"
+          echo "TMPDIR=$DIR" >> "$GITHUB_ENV"
+          echo "TMP=$DIR" >> "$GITHUB_ENV"
+          echo "TEMP=$DIR" >> "$GITHUB_ENV"
+          echo "H2A_TEST_QUALIFICATION_ROOT=$DIR" >> "$GITHUB_ENV"
       - name: Verify npm test wiring independently
         run: node --test packages/h2a/test/run-test-gates.test.js
       - name: Require both complete M17 qualifications
@@ -335,3 +359,7 @@ jobs:
         env:
           H2A_TEST_CI_M17_REPORT: ${{ github.workspace }}/tmp/m17-import/proof.json
           H2A_TEST_CI_BULK_REPORT: ${{ github.workspace }}/tmp/bulk-import/proof.json
+      - name: Clean the disposable TMPDIR
+        if: always()
+        shell: bash
+        run: if [ -n "${TMPDIR:-}" ]; then rm -rf "$TMPDIR"; fi
