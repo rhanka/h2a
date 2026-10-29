@@ -625,35 +625,53 @@ describe("run --resume (legacy pin without provenance stays direct)", () => {
     expect(code).toBe(0);
   });
 
-  it.each([undefined, false, true])("keeps a new explicit opt-in on the next resume beside a legacy row with bare=%s (round-4 P2)", async (bare) => {
-    seedRegistry([{ ...legacyGatewayPin(), bare }]);
+  it.each([undefined, false, true].flatMap(bare => [
+    { legacyMode: undefined, mode: "gateway", bare },
+    { legacyMode: "auto", mode: "gateway", bare },
+    { legacyMode: "direct", mode: "gateway", bare },
+    { legacyMode: "gateway", mode: "gateway", bare },
+    { legacyMode: "gateway", mode: "direct", bare },
+  ]))("keeps new explicit $mode consent beside legacy=$legacyMode, bare=$bare (round-5 P2)", async ({ legacyMode, mode, bare }) => {
+    seedRegistry([{ ...legacyGatewayPin(), gatewayMode: legacyMode, bare }]);
     acquireLlmMeshSessionEnv.mockResolvedValue({
       ANTHROPIC_BASE_URL: "http://localhost:3002", ANTHROPIC_AUTH_TOKEN: "fixture-fresh",
     });
     startLocalSession.mockImplementation((...args: unknown[]) => ({ name: `h2a-${args[4]}`, slug: args[4] }));
-    expect(await runResume(["--name", "chosen", "--gw"])).toBe(0);
+    expect(await runResume(["--name", "chosen", mode === "gateway" ? "--gw" : "--no-gw"])).toBe(0);
     const saved = loadRegistry();
     if (saved.state !== "ok") throw new Error("registry unreadable");
-    expect(saved.entries.find(e => e.id === "chosen")).toMatchObject({ gatewayMode: "gateway", gatewayProvenance: "explicit" });
+    expect(saved.entries.find(e => e.id === "chosen")).toMatchObject({ gatewayMode: mode, gatewayProvenance: "explicit" });
     acquireLlmMeshSessionEnv.mockClear();
     expect(await runResume(["--name", "chosen"])).toBe(0);
-    expect(acquireLlmMeshSessionEnv).toHaveBeenCalled();
+    expect(acquireLlmMeshSessionEnv.mock.calls.length > 0).toBe(mode === "gateway");
+    const resumed = loadRegistry();
+    if (resumed.state !== "ok") throw new Error("registry unreadable after resume");
+    expect(resumed.entries.map(e => e.id).sort()).toEqual(["chosen", "proj"]);
+    expect(resumed.entries.find(e => e.id === "chosen")).toMatchObject({ gatewayMode: mode, gatewayProvenance: "explicit" });
   });
 
-  it.each([
-    { reverse: false, noGw: false }, { reverse: true, noGw: false },
-    { reverse: false, noGw: true }, { reverse: true, noGw: true },
-  ])("proven consent beside legacy rows ignores order=$reverse, no-gw=$noGw (round-4 P2)", async ({ reverse, noGw }) => {
+  it.each([undefined, "auto", "direct", "gateway"].flatMap(legacyMode =>
+    ["direct", "gateway"].flatMap(mode => [
+      { legacyMode, mode, reverse: false, noGw: false }, { legacyMode, mode, reverse: true, noGw: false },
+      { legacyMode, mode, reverse: false, noGw: true }, { legacyMode, mode, reverse: true, noGw: true },
+    ]),
+  ))("explicit=$mode beside legacy=$legacyMode ignores order=$reverse, no-gw=$noGw (round-5 P2)", async ({ legacyMode, mode, reverse, noGw }) => {
     const rows = [
-      { ...legacyGatewayPin(), bare: false },
-      { ...legacyGatewayPin(), id: "chosen", tmuxSession: "h2a-chosen", bare: false, gatewayProvenance: "explicit" },
+      { ...legacyGatewayPin(), gatewayMode: legacyMode, bare: false },
+      { ...legacyGatewayPin(), id: "chosen", tmuxSession: "h2a-chosen", gatewayMode: mode, bare: false, gatewayProvenance: "explicit" },
     ];
     seedRegistry(reverse ? rows.reverse() : rows);
+    startLocalSession.mockImplementation((...args: unknown[]) => ({ name: `h2a-${args[4]}`, slug: args[4] }));
     acquireLlmMeshSessionEnv.mockResolvedValue({
       ANTHROPIC_BASE_URL: "http://localhost:3002", ANTHROPIC_AUTH_TOKEN: "fixture-fresh",
     });
     expect(await runResume(["--name", "chosen", ...(noGw ? ["--no-gw"] : [])])).toBe(0);
-    expect(acquireLlmMeshSessionEnv.mock.calls.length > 0).toBe(!noGw);
+    expect(acquireLlmMeshSessionEnv.mock.calls.length > 0).toBe(mode === "gateway" && !noGw);
+    const saved = loadRegistry();
+    if (saved.state !== "ok") throw new Error("registry unreadable");
+    expect(saved.entries.find(e => e.id === "chosen")).toMatchObject({
+      gatewayMode: noGw ? "direct" : mode, gatewayProvenance: "explicit",
+    });
   });
 
   it("explicit --gw fails before the child starts when unavailable (positive)", async () => {
@@ -665,6 +683,24 @@ describe("run --resume (legacy pin without provenance stays direct)", () => {
 
     expect(code).toBe(1);
     expect(startLocalSession).not.toHaveBeenCalled();
+  });
+
+  it.each(["live", "unknown"].flatMap(liveness => [
+    { conflict: "proven routing", liveness }, { conflict: "bare", liveness },
+  ] as const))("still refuses $conflict conflicts when sessions are $liveness", async ({ conflict, liveness }) => {
+    const { resolvePinnedLaunchEntries } = await import("./resume-launch-options.js");
+    seedRegistry([
+      { ...legacyGatewayPin(), bare: false, ...(conflict === "proven routing" ? { gatewayProvenance: "explicit" } : {}) },
+      { ...legacyGatewayPin(), id: "chosen", tmuxSession: "h2a-chosen", bare: conflict === "bare",
+        gatewayMode: "direct", gatewayProvenance: "explicit" },
+    ]);
+    const resolution = resolvePinnedLaunchEntries({ convId: CONV, cwd: RUN_CWD, tool: "claude",
+      probes: { tmux: () => liveness as "live" | "unknown" },
+    });
+    expect(resolution).toMatchObject({ state: "conflict", ids: ["proj", "chosen"] });
+    const saved = loadRegistry();
+    if (saved.state !== "ok") throw new Error("registry unreadable");
+    expect(saved.entries.map(e => e.id)).toEqual(["proj", "chosen"]);
   });
 });
 
