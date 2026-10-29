@@ -1,11 +1,12 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { assertNativePath } from './native-files.js';
+import { assertNativePath, digest, jsonBytes } from './native-files.js';
 import type { NativeArtifact } from './native-artifacts.js';
 import { parseNativeToml } from './native-toml.js';
 export interface NativeSkill {
   installName: string; raw: string; source: string; resourceDir: string;
   parsed: { name: string; description: string; body: string };
+  producer?: { package: string; version: string; path: string; sha256: string };
 }
 export function nativeSkillArtifacts(options: {
   host: string; root: string; version: string; skills: readonly NativeSkill[];
@@ -18,8 +19,10 @@ export function nativeSkillArtifacts(options: {
     if (!/^[a-z0-9][a-z0-9._-]*$/i.test(skill.installName)) throw new Error('unsafe skill name');
     const selected = !options.disabled?.includes(skill.installName) && (!options.enabled?.length || options.enabled.includes(skill.installName));
     const gemini = options.host === 'agy' || options.host === 'gemini';
+    const version = skill.producer?.version ?? options.version;
+    const source = `${skill.producer?.package ?? skill.source}@${version}/${skill.installName}`;
     const target = gemini ? join(options.root, 'commands', `${skill.installName}.toml`) : join(options.root, 'skills', skill.installName, 'SKILL.md');
-    const resources = gemini ? join(options.root, options.project ? 'skill-resources' : '.h2a-install/skill-resources', skill.source, options.version, skill.installName) : join(options.root, 'skills', skill.installName);
+    const resources = gemini ? join(options.root, options.project ? 'skill-resources' : '.h2a-install/skill-resources', skill.source, version, skill.installName) : join(options.root, 'skills', skill.installName);
     for (const reference of skill.raw.match(/\bassets\/[\w./-]+/g) ?? []) {
       if (reference.split('/').includes('..') || !existsSync(join(skill.resourceDir, reference))) throw new Error(`required skill resource missing: ${skill.installName}/${reference}`);
     }
@@ -30,7 +33,7 @@ export function nativeSkillArtifacts(options: {
         const rel = join(relative, entry.name), path = join(dir, entry.name);
         assertNativePath(path);
         if (entry.isDirectory()) walk(path, rel);
-        else if (entry.isFile()) result.push({ path: join(resources, rel), bytes: readFileSync(path), source: `${skill.source}@${options.version}/${skill.installName}/${rel}`, selected });
+        else if (entry.isFile()) result.push({ path: join(resources, rel), bytes: readFileSync(path), source: `${source}/${rel}`, selected });
         else throw new Error(`unsupported skill resource: ${path}`);
       }
     };
@@ -50,7 +53,9 @@ export function nativeSkillArtifacts(options: {
         parseNativeToml(rendered);
       }
     }
-    result.push({ path: target, bytes: rendered, source: `${skill.source}@${options.version}/${skill.installName}`, selected, historical: options.historicalHashes(options.host, skill.installName) });
+    result.push({ path: target, bytes: rendered, source, selected, historical: options.historicalHashes(options.host, skill.installName) });
+    if (skill.producer) result.push({ path: join(resources, '.h2a-source.json'),
+      bytes: jsonBytes({ ...skill.producer, renderedSha256: digest(rendered) }), source: `${source}/.h2a-source.json`, selected });
   }
   return result;
 }

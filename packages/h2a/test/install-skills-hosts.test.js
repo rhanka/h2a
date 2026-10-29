@@ -13,6 +13,69 @@ import test from "node:test";
 
 import { runCli } from "../dist/index.js";
 import { HARNESS_SKILLS } from "../dist/vendor/harness/index.js";
+import { memorySkillConsumer, sha256 } from './helpers/memory-skill-consumer.mjs';
+import { statSync } from 'node:fs';
+
+test('memory skill installs from the producer with provenance and idempotent native rendering in both scopes', t => {
+  const fixture = memorySkillConsumer(t);
+  for (const host of ['claude', 'codex', 'muse', 'vibe', 'agy']) for (const scope of ['user', 'project']) {
+    const args = ['install-skills', '--host', host, '--scope', scope];
+    const first = fixture.cli(args);
+    assert.equal(first.status, 0, first.stderr);
+    const report = first.json(), source = report.sources.find(s => s.source === 'engram');
+    assert.ok(source, `${host}/${scope}: engram source must be reported`);
+    assert.equal(source.package, '@sentropic/engram');
+    assert.equal(source.version, '0.22.1');
+    assert.equal(source.status, 'available');
+    assert.equal(source.count, 1);
+    assert.deepEqual(source.skills, [{ name: 'engram-memory', path: 'skills/engram-memory/SKILL.md', sha256: sha256(fixture.raw) }]);
+    const target = host === 'agy' ? join(report.targetBase, 'engram-memory.toml') : join(report.targetBase, 'engram-memory/SKILL.md');
+    const bytes = readFileSync(target);
+    if (host !== 'agy') assert.equal(bytes.toString(), fixture.raw);
+    else assert.match(bytes.toString(), /engram_memory_search/);
+    const receiptPath = host === 'agy'
+      ? join(report.targetBase, '..', scope === 'project' ? 'skill-resources' : '.h2a-install/skill-resources', 'engram', '0.22.1', 'engram-memory', '.h2a-source.json')
+      : join(report.targetBase, 'engram-memory/.h2a-source.json');
+    const receipt = JSON.parse(readFileSync(receiptPath));
+    assert.deepEqual(receipt, { package: '@sentropic/engram', version: '0.22.1', path: 'skills/engram-memory/SKILL.md', sha256: sha256(fixture.raw), renderedSha256: sha256(bytes) });
+    const before = statSync(target).mtimeMs;
+    const second = fixture.cli(args);
+    assert.equal(second.status, 0, second.stderr);
+    assert.deepEqual(second.json().installed, [], `${host}/${scope}: reinstall must be a no-op`);
+    assert.equal(statSync(target).mtimeMs, before);
+    assert.deepEqual(readFileSync(target), bytes);
+    const custom = 'Owner custom memory instructions.\n';
+    writeFileSync(target, custom);
+    const unrelated = join(report.targetBase, 'personal.txt'); writeFileSync(unrelated, 'unrelated\n');
+    assert.equal(fixture.cli(args).status, 2, `${host}/${scope}: customization is a conflict`);
+    assert.equal(readFileSync(target, 'utf8'), custom);
+    assert.equal(readFileSync(unrelated, 'utf8'), 'unrelated\n');
+  }
+});
+
+test('missing producer package and missing memory SKILL.md are reported explicitly without deleting existing memory', t => {
+  const fixture = memorySkillConsumer(t);
+  const args = ['install-skills', '--host', 'muse'];
+  assert.equal(fixture.cli(args).status, 0);
+  const target = join(fixture.home, '.config/muse/skills/engram-memory/SKILL.md');
+  const retired = join(fixture.home, '.config/muse/skills/retired/SKILL.md');
+  mkdirSync(join(retired, '..'), { recursive: true }); writeFileSync(retired, 'retired managed h2a skill\n');
+  const manifestPath = join(fixture.home, '.config/muse/.h2a-install/manifest.json');
+  const manifest = JSON.parse(readFileSync(manifestPath));
+  manifest.files['skills/retired/SKILL.md'] = { sha256: sha256(readFileSync(retired)), source: 'h2a@0.98.7/retired', selected: true };
+  writeFileSync(manifestPath, JSON.stringify(manifest));
+  rmSync(join(fixture.skill, 'SKILL.md'));
+  for (const absentPackage of [false, true]) {
+    if (absentPackage) rmSync(fixture.producer, { recursive: true });
+    const result = fixture.cli(args), source = result.json().sources.find(s => s.source === 'engram');
+    assert.equal(source?.status, 'missing');
+    assert.deepEqual(source.missing, ['skills/engram-memory/SKILL.md']);
+    assert.equal(source.count, 0);
+    assert.match(result.stderr, /missing.*@sentropic\/engram.*skills\/engram-memory\/SKILL\.md/);
+    assert.equal(readFileSync(target, 'utf8'), fixture.raw, 'an unavailable source cannot authorize pruning');
+    assert.equal(existsSync(retired), false, 'an optional missing producer must not disable core pruning');
+  }
+});
 
 // The four Track skills; harness-track-report is the sole report contract.
 const TRACK_SKILLS = [
@@ -427,7 +490,14 @@ test("install-skills refuses overwrite without --force on any host", () => {
         0,
         streams.stderrText
       );
-      // Second install without --force → exit 2, items reported as skipped
+      // Identical reinstall is a no-op. Only customized bytes need --force.
+      streams = captureStreams(cwd);
+      assert.equal(runCli(["install-skills", "--host", host, "--scope", "project"], streams), 0);
+      assert.deepEqual(JSON.parse(streams.stdoutText).installed, []);
+      const target = host === 'gemini' || host === 'agy'
+        ? join(cwd, '.gemini/commands/h2a.toml') : join(cwd, `.${host}/skills/h2a/SKILL.md`);
+      writeFileSync(target, 'Owner customized instructions.\n');
+      // Customized reinstall without --force → exit 2, reported as skipped.
       streams = captureStreams(cwd);
       const rc = runCli(
         ["install-skills", "--host", host, "--scope", "project"],
@@ -437,6 +507,7 @@ test("install-skills refuses overwrite without --force on any host", () => {
       const parsed = JSON.parse(streams.stdoutText);
       assert.equal(parsed.ok, false);
       assert.ok(parsed.skipped.length > 0);
+      assert.equal(readFileSync(target, 'utf8'), 'Owner customized instructions.\n');
       // Third install with --force → exit 0, all overwritten
       streams = captureStreams(cwd);
       const forced = runCli(

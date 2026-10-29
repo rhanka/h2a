@@ -1,6 +1,18 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
+import { memorySkillConsumer } from './helpers/memory-skill-consumer.mjs';
+
+test('memory skill is resolved at install time without being vendored into the plugin', t => {
+  assert.equal(existsSync(new URL('../skills/engram-memory/SKILL.md', import.meta.url)), false);
+  const fixture = memorySkillConsumer(t);
+  const result = fixture.cli(['install-skills', '--host', 'claude', '--scope', 'project']);
+  assert.equal(result.status, 0, result.stderr);
+  const source = result.json().sources.find(s => s.source === 'engram');
+  assert.equal(source?.dir, `${fixture.producer}/skills`);
+  assert.equal(source?.count, 1);
+  assert.equal(existsSync(`${fixture.lane}/.claude/skills/engram/SKILL.md`), false);
+});
 
 function json(relative) {
   return JSON.parse(readFileSync(new URL(relative, import.meta.url), "utf8"));
