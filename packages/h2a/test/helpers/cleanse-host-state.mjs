@@ -45,14 +45,15 @@ export function mcpState(a, host, config, server = {}) {
   }
 }
 
-function glob(name, pattern, insensitive = false) {
-  // Tool identifiers contain no path separators. fnmatch supports *, ?, [abc].
+function glob(name, pattern, { insensitive = false, classes = true } = {}) {
+  // Vibe/Hermes use fnmatch classes. OpenCode supports only * and ?;
+  // every other character is literal, including brackets.
   let expression = '';
   for (let i = 0; i < pattern.length; i++) {
     const c = pattern[i];
     if (c === '*') expression += '.*';
     else if (c === '?') expression += '.';
-    else if (c === '[' && pattern.indexOf(']', i + 1) > i + 1) {
+    else if (classes && c === '[' && pattern.indexOf(']', i + 1) > i + 1) {
       const end = pattern.indexOf(']', i + 1), body = pattern.slice(i + 1, end);
       expression += '[' + (body.startsWith('!') ? '^' + body.slice(1) : body) + ']'; i = end;
     } else expression += /[.*+?^${}()|[\]\\]/.test(c) ? '\\' + c : c;
@@ -63,7 +64,7 @@ function vibeMatches(name, patterns = []) {
   return patterns.some(raw => {
     const p = raw.trim();
     if (!p) return false;
-    if (!p.startsWith('re:')) return glob(name, p, true);
+    if (!p.startsWith('re:')) return glob(name, p, { insensitive: true });
     try { return new RegExp('^(?:' + p.slice(3) + ')$', 'i').test(name); }
     catch { return false; } // Vibe ignores invalid regexes.
   });
@@ -82,7 +83,7 @@ export function toolVisible(host, state, name) {
       let enabled = true;
       for (const [rules, permission] of [[state.tools, false], [state.permission, true],
         [state.agent.tools ?? {}, false], [state.agent.permission ?? {}, true]]) for (const [p, value] of Object.entries(typeof rules === 'string' ? { '*': rules } : rules)) {
-        if (glob(tool, p)) enabled = permission ? value !== 'deny' : value;
+        if (glob(tool, p, { classes: false })) enabled = permission ? value !== 'deny' : value;
       }
       return enabled;
     }
