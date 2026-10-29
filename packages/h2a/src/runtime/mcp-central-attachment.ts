@@ -14,8 +14,9 @@ import { createMcpServer, type McpServer } from "./mcp/server.js";
 import type { H2aRunExecutor } from "./mcp/agent-launch.js";
 import { CENTRAL_ATTACHMENT_ENV, type CentralMcpAttachment } from "./mcp-central-context.js";
 import type { AttachmentParticipant } from "./handover/participants.js";
+import type { ComposeDaemonOptions } from "../registry/sentropic-daemon.js";
 
-export type CentralAttachmentHandle = { mcp: McpServer; close(): Promise<void> };
+export type CentralAttachmentHandle = { mcp: McpServer; ready?: Promise<void>; close(): Promise<void> };
 
 /**
  * Install the Sentropic-registry dispatch route on an attachment server.
@@ -57,13 +58,15 @@ export function openCentralAttachment(
   context: CentralMcpAttachment | undefined,
   notify: (notification: Notification) => Promise<void>,
   runExecutor?: H2aRunExecutor,
-  participant?: AttachmentParticipant
+  participant?: AttachmentParticipant,
+  registry?: Pick<ComposeDaemonOptions, "lock" | "memory">
 ): CentralAttachmentHandle {
   if (!context) {
     const mcp = createMcpServer({ root, workspaceRoot: workspace, store, ...(participant ? { participant } : {}), ...(runExecutor ? { runExecutor } : {}) });
     participant?.bind(mcp);
-    installRegistryDispatch(mcp, { root, workspaceRoot: workspace });
-    return { mcp, async close() {
+    const ready = registry ? configureSelectedRegistry(mcp, root, workspace, registry, { context, participant }) : undefined;
+    if (!registry) installRegistryDispatch(mcp, { root, workspaceRoot: workspace });
+    return { mcp, ready, async close() {
       mcp.notifications.stop();
       if (participant?.transferred()) mcp.sessions.suspend();
       else mcp.sessions.closeAll("closed");
@@ -100,11 +103,18 @@ export function openCentralAttachment(
     ...(runExecutor ? { runExecutor } : {})
   });
   if (!mcp) { controller.abort(); input.end(); throw new Error("central attachment activation failed"); }
-  installRegistryDispatch(mcp, { root, workspaceRoot: workspace });
-  return { mcp, async close() {
+  const ready = registry ? configureSelectedRegistry(mcp, root, workspace, registry, { context, participant }) : undefined;
+  if (!registry) installRegistryDispatch(mcp, { root, workspaceRoot: workspace });
+  return { mcp, ready, async close() {
     controller.abort();
     input.end();
     await serving;
     output.destroy();
   } };
+}
+
+async function configureSelectedRegistry(mcp: McpServer, root: string, workspaceRoot: string,
+  registry: Pick<ComposeDaemonOptions, "lock" | "memory">, attachment: unknown): Promise<void> {
+  const { configureMcpServerRegistry } = await import("../registry/sentropic-daemon.js");
+  await configureMcpServerRegistry(mcp, { view: "combined", root, workspaceRoot, ...registry, attachment });
 }
