@@ -323,6 +323,9 @@ test('L0 MCP native execution: environment and cwd overrides cannot reuse a heal
   assert.equal((await observation(f, 'codex', 'MCP resolves activated prefix')).actual, false, 'healthy Claude handshake does not attest Codex environment');
   put(h.mcp, original.replace('[mcp_servers.h2a]', '[mcp_servers.h2a]\ncwd = ' + JSON.stringify(join(f.a.root, 'absent-workspace'))));
   assert.equal((await observation(f, 'codex', 'MCP resolves activated prefix')).actual, false, 'native cwd is used to start the MCP');
+  put(h.mcp, original.replace('[mcp_servers.h2a]', '[mcp_servers.h2a]\ncwd = "."')
+    .replace(/^args = .*$/m, 'args = ["candidate.cjs", "mcp-serve"]'));
+  assert.equal((await observation(f, 'codex', 'MCP resolves activated prefix')).actual, true, 'relative cwd and script resolve from the host workspace');
 });
 
 test('L0 MCP native filters: intentional tool selections survive convergence and cannot be reactivated', async t => {
