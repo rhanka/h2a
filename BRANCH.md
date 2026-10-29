@@ -210,6 +210,14 @@ and unrelated files on Claude, Codex, Muse, Vibe and Agy. No provider activation
   /home/antoinefa/.cache-tmp/h2a-test/run-ieKzxe; no installed h2a or owner state,
   real provider/gateway/cluster, full local suite, Python or attribution trailer.
 
+# PR #379 — v3 review round 11
+
+- Scope: the two distinct P2 findings supplied by Astra/Sol on `61d00e840`: guard the workflow's version measurement before executing a CLI, and prevent simulated campaigns/workers from inspecting or copying seat logins. Preserve QO4's Vibe vendor exception and simulated seat routing.
+- RED first: exact YAML JavaScript probes an inert forbidden Codex launcher; simulated manifest inspection reaches an AGY auth directory, worker routing carries auth sources, and an actual worker copies a dummy Codex login. The final descriptor-aware observer also catches four auth accesses on the reviewed worker.
+- Fix: guard the measurement, discard simulated manifest auth sources before source inspection, and refuse login mapping in simulated workers. Real seat handling, budgets, native production code and receipt gates keep their existing contracts.
+- Evidence and R1/R2/R3 replays: `docs/reviews/2026-10-29-cross-cli-r11.md`. Only targeted test files, private roots and dummy credentials; no Python, installed h2a, owner state or attribution trailer. The supplied reviews are reconciled; no new independent consensus is claimed because the installed h2a route is forbidden by the owner's confinement.
+- Private TMPDIR: `/home/antoinefa/.cache-tmp/h2a-test/run-NMSAiR`; remove at delivery after preserving logs in `tmp/h-cond/fix379-r11-evidence/` of the main checkout. Rebase onto `origin/main`, then push only `feat/live-cross-cli-messaging` with `--force-with-lease`.
+
 # PR #379 — v3 review round 10 continuation
 
 - Resume: HEAD `ad9c61168`, no unpushed commits; preserve the three regression-test edits left by the capacity failure. No completed R9 fix was replayed as new work.
