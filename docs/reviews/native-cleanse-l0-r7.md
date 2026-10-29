@@ -9,7 +9,7 @@ un booléen de handshake. Il acceptait ainsi la réactivation Vibe masquée par
 `enabled=false`, ainsi que des outils masqués dans la configuration native.
 
 La sélection est maintenant capturée avant installation selon l'adaptateur.
-Les champs inconnus restent ignorés ; les champs natifs, listes par outil et
+Les champs inconnus suivent le lecteur natif (ignorés ou refusés) ; les champs natifs, listes par outil et
 permissions sont conservés. La sonde garde le catalogue de `tools/list`,
 applique les règles natives et utilise les overrides env/cwd du serveur.
 Son cache distingue argv, env et cwd. Un serveur initialement désactivé
@@ -26,7 +26,7 @@ changement de choix, même si elle ne correspond à aucun outil du catalogue.
 | Gemini | `mcp.allowed/excluded` et `includeTools/excludeTools` ; exclusion prioritaire, inclusions qualifiées par arguments. |
 | Agy | `disabled`, `enabledTools/disabledTools`. |
 | Hermes | `enabled` booléen ou valeur bool-like, repli natif sur on ; include prioritaire sur exclude, globs et liste vide. |
-| OpenCode | `mcp`, transport local/argv tableau, `enabled`, règles tools/permission dans leur ordre et override de l'agent sélectionné. |
+| OpenCode | `mcp`, transport local/argv tableau, `enabled`, règles tools/permission dans leur ordre et override de l'agent sélectionné ; schéma legacy strict, aliases inconnus refusés. |
 | Muse | `enabled` ; listes tools ignorées par 1.3.0 ; formes canonique/legacy ambiguës refusées. |
 
 La fixture OpenCode utilisait auparavant une forme JSON d'un autre hôte.
@@ -53,6 +53,7 @@ Prérequis isolés : `npm run build -w @sentropic/track`, puis
 | Sources main `912dd3035` et rc.7 `8d588db05`, reconstruites séparément | **48/48 chacune**, gate 0, mêmes **42 RED exacts**. |
 | Foreign host / recovery / contention, Node 22 | **38/38 PASS**. |
 | Terminal reset fonctionnel, Node 22 | **6/6 PASS**. |
+| Schéma OpenCode, alias inconnu, avant/après | **0/1**, puis **1/1** ; contrôle permanent dans la sélection OpenCode. |
 | Oracle et foreign-host, Node 24.22.0 | **46/46 PASS**, gate 0. |
 | Course ENOENT, avant/après | Ancien : **43 PASS / 5 FAIL**, gate 1 ; corrigé : **48/48**, gate 0. |
 | Dix répétitions du corps sockets inchangé | **50/50 PASS**, zéro skip/todo. |
@@ -88,6 +89,7 @@ Modèle indépendant des inspecteurs produit, confronté aux sources fournisseur
 [Agy MCP](https://antigravity.google/docs/mcp),
 [Hermes filtres](https://github.com/NousResearch/hermes-agent/blob/main/tools/mcp_tool_registration.py),
 [OpenCode MCP](https://docs.opencode.ai/docs/mcp-servers/),
+[schéma strict OpenCode](https://opencode.ai/config.json),
 [Muse 1.3.0](https://meta-models.github.io/muse-code-sdk/next/guides/extend/mcp-servers/).
 
 Le masque historique `mcp_h2a_*` est conservé dans la reproduction exacte :

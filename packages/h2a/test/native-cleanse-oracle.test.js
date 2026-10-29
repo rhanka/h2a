@@ -456,11 +456,11 @@ async function mcpSelection(t, host) {
   assert.equal(changed.actual, false, host + ': native selection disabled');
   assert.throws(() => contracts(sink, [changed]));
   put(h.mcp, original);
-  // The opposite spelling is ignored by this CLI. It must not invent a disabled
-  // integration (nor conceal reactivation when both spellings are present).
+  // The opposite spelling is ignored by permissive readers. OpenCode's legacy
+  // schema rejects unknown fields. Neither case can conceal reactivation.
   const disabledFlag = ['codex', 'hermes', 'opencode', 'muse'].includes(host);
   setMcpFlag(h, disabledFlag ? 'disabled' : 'enabled', disabledFlag);
-  assert.equal((await observation(f, host, 'MCP resolves activated prefix')).actual, true, host + ': ignored alias');
+  assert.equal((await observation(f, host, 'MCP resolves activated prefix')).actual, host !== 'opencode', host + ': native handling of unknown alias');
   put(h.mcp, original);
   setMcpSelection(h, f.a, true);
   assert.equal((await observation(f, host, 'MCP resolves activated prefix')).actual, true, 'explicit native enable');

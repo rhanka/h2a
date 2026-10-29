@@ -43,13 +43,15 @@ export function seedHosts(a, { agyEnabled = true, vibeDisabled = false, mcpDisab
     const server = host === 'opencode' ? { type: 'local', command: [command, 'mcp-serve'] } : { command, args: ['mcp-serve'], transport: 'stdio' };
     put(mcp, config.endsWith('.toml') ? `${host === 'vibe' ? '[[mcp_servers]]\nname = "h2a"\ntransport = "stdio"' + (vibeDisabled ? '\ndisabled = true' : '') : '[mcp_servers.h2a]'}\ncommand = "${command}"\nargs = ["mcp-serve"]\n\n[fixture]\nsentinel = "third-party"\n` :
       config.endsWith('.yaml') ? `mcp_servers:\n  h2a:\n    command: ${command}\n    args: [mcp-serve]\nfixture: third-party\n` :
-      JSON.stringify({ [host === 'opencode' ? 'mcp' : 'mcpServers']: { h2a: server }, fixture: 'third-party' }));
+      JSON.stringify({ [host === 'opencode' ? 'mcp' : 'mcpServers']: { h2a: server },
+        ...(host === 'opencode' ? { instructions: ['third-party'] } : { fixture: 'third-party' }) }));
     const mcpEnabled = !mcpDisabled.includes(host) && !(host === 'vibe' && vibeDisabled);
     if (!mcpEnabled && !(host === 'vibe' && vibeDisabled)) {
       if (config.endsWith('.toml')) put(mcp, readFileSync(mcp, 'utf8').replace('command = ', (host === 'vibe' ? 'disabled = true' : 'enabled = false') + '\ncommand = '));
       else if (config.endsWith('.yaml')) put(mcp, readFileSync(mcp, 'utf8').replace('    command:', '    enabled: false\n    command:'));
       else {
-        const value = { [host === 'opencode' ? 'mcp' : 'mcpServers']: { h2a: server }, fixture: 'third-party' };
+        const value = { [host === 'opencode' ? 'mcp' : 'mcpServers']: { h2a: server },
+          ...(host === 'opencode' ? { instructions: ['third-party'] } : { fixture: 'third-party' }) };
         if (host === 'claude') value.projects = { [a.root]: { disabledMcpServers: ['h2a'] } };
         else if (host === 'gemini') value.mcp = { excluded: ['h2a'] };
         else server[host === 'agy' ? 'disabled' : 'enabled'] = host === 'agy';
