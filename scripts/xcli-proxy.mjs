@@ -85,8 +85,13 @@ for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP']) {
 // The count is exact at the witness; it does not bound
 // silent reasoning, and the verdict says so.
 const mcpCallCap = Number(process.env.XCLI_MCP_CALL_CAP ?? '0');
-let mcpCalls = 0, mcpCapped = false;
+let mcpCapped = false;
 const enforceMcpCallCap = () => {
+  // All reconnecting backends of one launched CLI share this role's journal.
+  // Append before counting: concurrent proxies cannot reset or lose a call.
+  emit({ event: 'mcp-call' });
+  const mcpCalls = fs.readFileSync(evidence, 'utf8').split('\n').slice(0, -1)
+    .filter(Boolean).filter(line => JSON.parse(line).event === 'mcp-call').length;
   if (mcpCapped || !(mcpCallCap > 0) || mcpCalls <= mcpCallCap) return;
   mcpCapped = true;
   emit({ event: 'mcp-call-cap-exceeded', count: mcpCalls, cap: mcpCallCap });
@@ -94,12 +99,13 @@ const enforceMcpCallCap = () => {
   setTimeout(() => { try { child.kill('SIGKILL'); } catch { /* reaped */ } }, 1000).unref();
 };
 for await (const line of createInterface({ input: process.stdin })) {
+  let rpc;
   try {
-    const rpc = JSON.parse(line);
-    if (rpc.id !== undefined) pending.set(rpc.id, { method: rpc.method,
-      tool: rpc.params?.name, args: rpc.params?.arguments });
-    if (rpc.method === 'tools/call') { mcpCalls += 1; enforceMcpCallCap(); }
+    rpc = JSON.parse(line);
   } catch { /* pass original bytes through unchanged */ }
+  if (rpc?.id !== undefined) pending.set(rpc.id, { method: rpc.method,
+    tool: rpc.params?.name, args: rpc.params?.arguments });
+  if (rpc?.method === 'tools/call') enforceMcpCallCap();
   if (!mcpCapped) child.stdin.write(line + '\n');
 }
 child.stdin.end();
