@@ -24,6 +24,7 @@ and unrelated files on Claude, Codex, Muse, Vibe and Agy. No provider activation
   - `docs/reviews/memory-skill-install.md`
 
 - Base: origin/main `ec04054b604f2b8948a16d955724fe5301e9dccb`.
+- Round-3 delivery base: origin/main `80694b094` (PR #398, workflows only).
 - No owner state, installed h2a, real host CLI, full local suite, dependency pin,
   producer content vendoring, attribution trailer or merge.
 - Private TMPDIR: `/home/antoinefa/.cache-tmp/h2a-test/run-h9B2Ks`.
@@ -75,7 +76,7 @@ and unrelated files on Claude, Codex, Muse, Vibe and Agy. No provider activation
   could refuse a customized entrypoint but still write a producer receipt.
   RED before product edits: 6 pass / 14 fail / 0 skipped across 20 first-refusal
   cases (five hosts, user/project, with/without a previous receipt).
-  Preflight every artifact of a skill before writing any; stop on a later
+  Preflight every artifact of a producer skill before writing any; stop on a later
   conflict, and read back each write before proceeding to the receipt last.
   Repeated refusals leave previous receipts and resources untouched. Packed
   acceptance now covers refusal, successful install, hashes and idempotence
@@ -85,6 +86,13 @@ and unrelated files on Claude, Codex, Muse, Vibe and Agy. No provider activation
 - Round-3 TMPDIR: `/home/antoinefa/.cache-tmp/h2a-test/run-tV6A2U`;
   clean HOME/XDG environment, no Python or installed host. Targeted results
   and the supplied-review reconciliation are in the L1 review dossier.
+- CI follow-up on `aff742e29`: scoped-hosts Node 22/24 exposed the existing
+  missing-resource contract for core skills. Local RED: native-question-mode
+  32 pass / 12 fail / 0 skipped. Restrict the receipt preflight and read-back
+  barrier to producer skills; core skills still fill missing resources while
+  preserving customized entrypoints. No test or gate changes.
+  GREEN: 125 installation/convergence/package/native-question tests plus
+  17 native crash-recovery tests, zero failures/skips.
 
 # Gateway off by default — PR #395, round 5
 
