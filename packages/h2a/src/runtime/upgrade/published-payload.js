@@ -64,7 +64,12 @@ export function preparePublishedImage(source, destination) {
   if (fs.realpathSync(dirname(destination)) !== dirname(destination)) throw Error('image_destination_noncanonical');
   fs.mkdirSync(destination, { mode: 0o700 });
   try {
-    fs.cpSync(published.root, destination, { recursive: true, dereference: false, verbatimSymlinks: true, errorOnExist: true, force: false });
+    // Keep the exclusive directory reservation. Node 24 rejects copying a root
+    // onto that existing directory with errorOnExist, so copy its children.
+    for (const name of fs.readdirSync(published.root)) {
+      fs.cpSync(join(published.root, name), join(destination, name),
+        { recursive: true, dereference: false, verbatimSymlinks: true, errorOnExist: true, force: false });
+    }
     fs.chmodSync(destination, 0o700);
     verifyImage(destination, published.manifest, published.manifestDigest);
     fs.writeFileSync(join(destination, 'manifest.json'), JSON.stringify(published.manifest, null, 2) + '\n');
