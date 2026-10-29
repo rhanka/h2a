@@ -153,7 +153,10 @@ export function seedHosts(a, { agyEnabled = true, vibeDisabled = false, mcpDisab
     // put() preserves a deliberately constrained executable path.
     const item = { host, root, skill, resource, mcp, helper, hooks, imported, registration, agyEnabled, vibeDisabled, mcpEnabled, format: shared ? 'toml' : 'markdown' };
     const initial = parseConfig(item);
-    item.mcpState = structuredClone(mcpState(a, host, initial, entries(initial, host).find(([name]) => name === 'h2a')?.[1]));
+    const registered = entries(initial, host).find(([name]) => name === 'h2a');
+    assert.ok(registered, host + ': initial native MCP registration is required');
+    item.mcpName = registered[0];
+    item.mcpState = structuredClone(mcpState(a, host, initial, registered[1]));
     return item;
   });
   return inventory;
@@ -366,7 +369,7 @@ export function observeHosts(a, inventory) {
     add('linked resource bytes', evidence.resource === resource, 'resource');
     const servers = entries(config, item.host), routes = servers.filter(([name, server]) =>
       /^h2a/.test(name) || argv(server).some(arg => typeof arg === 'string' && arg.includes(a.cli)));
-    add('MCP resolves activated prefix', routes.length === 1 && servers.filter(([name]) => /^track/.test(name)).length <= 1 &&
+    add('MCP resolves activated prefix', routes.length === 1 && routes[0][0] === item.mcpName && servers.filter(([name]) => /^track/.test(name)).length <= 1 &&
       currentMcp(a, routes[0]?.[1], transports, item, config), 'mcp');
     let helpersCurrent;
     if (item.helper) {
