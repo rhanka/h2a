@@ -383,7 +383,9 @@ describe("k8s spec builders", () => {
     ).toBe("1");
   });
 
-  it("injects ANTHROPIC_BASE_URL+API_KEY only when both llmGatewayUrl and token are set (WP16 Slice 3)", () => {
+  it("injects ANTHROPIC_BASE_URL+API_KEY only on an explicit per-session gateway choice (round-2 P2)", () => {
+    const url = "https://llm.sent-tech.ca";
+    const token = "gw-abcdef1234";
     // Neither var when nothing is set
     const absent = buildSessionPodSpec(baseDescriptor);
     expect(
@@ -395,7 +397,7 @@ describe("k8s spec builders", () => {
     // that has no session token for it.
     const urlOnly = buildSessionPodSpec(baseDescriptor, {
       ...DEFAULT_BUILDER_OPTIONS,
-      llmGatewayUrl: "https://llm.sent-tech.ca",
+      llmGatewayUrl: url,
     });
     expect(
       urlOnly.spec.containers[0]!.env.find((e) => e.name === "ANTHROPIC_BASE_URL"),
@@ -404,18 +406,48 @@ describe("k8s spec builders", () => {
       urlOnly.spec.containers[0]!.env.find((e) => e.name === "ANTHROPIC_API_KEY"),
     ).toBeUndefined();
 
-    // Both URL + token → both vars injected together
+    // URL + token but NO explicit session choice → still direct: a global URL
+    // alone never routes a pod through the gateway.
+    const implicit = buildSessionPodSpec(baseDescriptor, {
+      ...DEFAULT_BUILDER_OPTIONS,
+      llmGatewayUrl: url,
+      llmGatewayToken: token,
+    });
+    const implicitEnv = implicit.spec.containers[0]!.env;
+    expect(
+      implicitEnv.find((e) => e.name === "ANTHROPIC_BASE_URL"),
+    ).toBeUndefined();
+    expect(
+      implicitEnv.find((e) => e.name === "ANTHROPIC_API_KEY"),
+    ).toBeUndefined();
+    expect(
+      implicitEnv.find((e) => e.name === "H2A_GATEWAY_MODE")?.value,
+    ).toBe("direct");
+
+    // Explicit choice + URL + token → both vars injected together.
     const both = buildSessionPodSpec(baseDescriptor, {
       ...DEFAULT_BUILDER_OPTIONS,
-      llmGatewayUrl: "https://llm.sent-tech.ca",
-      llmGatewayToken: "gw-abcdef1234",
+      llmGatewayUrl: url,
+      llmGatewayToken: token,
+      llmGateway: true,
     });
+    const bothEnv = both.spec.containers[0]!.env;
     expect(
-      both.spec.containers[0]!.env.find((e) => e.name === "ANTHROPIC_BASE_URL")?.value,
-    ).toBe("https://llm.sent-tech.ca");
+      bothEnv.find((e) => e.name === "ANTHROPIC_BASE_URL")?.value,
+    ).toBe(url);
     expect(
-      both.spec.containers[0]!.env.find((e) => e.name === "ANTHROPIC_API_KEY")?.value,
-    ).toBe("gw-abcdef1234");
+      bothEnv.find((e) => e.name === "ANTHROPIC_API_KEY")?.value,
+    ).toBe(token);
+    expect(
+      bothEnv.find((e) => e.name === "H2A_GATEWAY_MODE")?.value,
+    ).toBe("gateway");
+
+    // An explicit choice cannot silently fall back to direct on failure.
+    expect(() => buildSessionPodSpec(baseDescriptor, {
+      ...DEFAULT_BUILDER_OPTIONS,
+      llmGatewayUrl: url,
+      llmGateway: true,
+    })).toThrow(/gateway.*unavailable/i);
   });
 
   it("injects envFrom entries when extraEnvFromSecrets is set", () => {

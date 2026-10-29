@@ -19,6 +19,8 @@ export type RunOptions = {
   readonly port?: number;
   readonly cwd?: string;
   readonly env?: Readonly<Record<string, string>>;
+  /** Only an explicit gateway choice may preserve routing at the PTY boundary. */
+  readonly gatewayMode?: "gateway" | "direct";
   readonly startupArgs?: ReadonlyArray<string>;
   readonly stdin?: NodeJS.ReadStream;
   readonly stdout?: NodeJS.WriteStream;
@@ -98,12 +100,17 @@ export async function run(options: RunOptions): Promise<RunResult> {
   const initialCols = options.initialSize?.cols ?? stdout.columns ?? 80;
   const initialRows = options.initialSize?.rows ?? stdout.rows ?? 24;
   const startupArgs = options.startupArgs ?? [];
+  const childEnv = { ...(options.env ?? (process.env as Record<string, string>)) };
+  if (options.gatewayMode !== "gateway") {
+    delete childEnv.ANTHROPIC_BASE_URL;
+    delete childEnv.ANTHROPIC_AUTH_TOKEN;
+  }
 
   const handle = spawner({
     command: profile.command,
     args: [...profile.args, ...startupArgs],
     cwd,
-    env: { ...(options.env ?? (process.env as Record<string, string>)) },
+    env: childEnv,
     cols: initialCols,
     rows: initialRows,
   });

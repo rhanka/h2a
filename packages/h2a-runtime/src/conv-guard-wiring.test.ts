@@ -238,13 +238,17 @@ vi.mock("./migrate.js", () => ({
 }));
 
 vi.mock("./gateway-host/config-file.js", () => ({ readLlmMeshConfig, writeLlmMeshConfig: vi.fn() }));
-vi.mock("./gateway-host/daemon.js", () => ({
-  startGateway,
-  stopGateway: vi.fn(),
-  readGatewayPid,
-  llmMeshLogPath: vi.fn(() => "llm-mesh.log"),
-  acquireLlmMeshSessionEnv,
-}));
+vi.mock("./gateway-host/daemon.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./gateway-host/daemon.js")>();
+  return {
+    ...actual,
+    startGateway,
+    stopGateway: vi.fn(),
+    readGatewayPid,
+    llmMeshLogPath: vi.fn(() => "llm-mesh.log"),
+    acquireLlmMeshSessionEnv,
+  };
+});
 
 // Controls how a BARE `migrate forward -r` resolves "the most recent local
 // conversation" for the guard — the real localConvStat reads the runner's
@@ -1348,7 +1352,7 @@ describe("h2a resume <slug>", () => {
       ANTHROPIC_BASE_URL: "http://localhost:3002",
       ANTHROPIC_AUTH_TOKEN: "gw-test",
     });
-    writeRegistry([{ ...registrySession(), gatewayMode: "gateway", bare }]);
+    writeRegistry([{ ...registrySession(), gatewayMode: "gateway", gatewayProvenance: "explicit", bare }]);
     expect(await main(["node", "remote", "resume", "projA"])).toBe(0);
     expect(startLocalSession.mock.calls[0]?.[3]).toEqual([
       ...(bare ? ["--bare"] : []), "--resume", "conv-dup",
@@ -1822,7 +1826,7 @@ describe("h2a run -r <conv> single-writer guard", () => {
       ANTHROPIC_BASE_URL: "http://localhost:3002",
       ANTHROPIC_AUTH_TOKEN: "gw-test",
     });
-    writeRegistry([{ ...registrySession(), cwd: SCRATCH, gatewayMode: "gateway", bare }]);
+    writeRegistry([{ ...registrySession(), cwd: SCRATCH, gatewayMode: "gateway", gatewayProvenance: "explicit", bare }]);
     expect(await main(["node", "remote", "run", "claude", SCRATCH,
       "--name", "resumed", "--resume", "conv-dup", "--no-attach"])).toBe(0);
     expect(startLocalSession.mock.calls[0]?.[3]).toEqual([

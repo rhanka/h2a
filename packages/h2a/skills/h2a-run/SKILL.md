@@ -47,7 +47,7 @@ None of these require knowing a provider model id up front:
 **The canonical model catalog and equivalence council belong to the llm-mesh API exposed through `@sentropic/cluster-mesh`**, never to h2a or this skill. This skill must not freeze a provider/model table. Before translating a nickname:
 
 - if a gateway is already running for this session, query `GET <ANTHROPIC_BASE_URL>/v1/models` (the mesh's own live catalog) and match the flavor there;
-- otherwise, ask the caller for an exact model id or start the gateway and query it; never inspect or recreate a h2a-local table.
+- otherwise, ask the caller for an exact model id; never start the gateway for a mere model lookup and never inspect or recreate a h2a-local table.
 
 The owner-ratified xhigh aliases are intentionally narrow: Opus 5 and Opus 4.8 resolve to Terra xhigh, Fable 5 to Sol xhigh, and Sonnet 5 to Luna xhigh. Any additional effort variant must come from the live Sentropic council. Bare vendor ids remain provider-faithful. Always prefer the exact live catalog id returned by the gateway; if the requested nickname is absent, do not invent one.
 

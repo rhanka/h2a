@@ -41,6 +41,33 @@ export function gatewayModeForProfile(
   if (!profileUsesLlmMeshGateway(profile)) return "direct";
   return requested === "auto" ? "direct" : requested;
 }
+
+/**
+ * Provenance of a persisted gateway pin: only an explicit operator choice
+ * (`--gw` / `--no-gw`, MCP `required`/`off`) is recorded. A legacy pin has
+ * no provenance — it may have been an explicit choice once, but the record
+ * cannot prove it, so it must not authorize a gateway on its own.
+ */
+export type GatewayProvenance = "explicit";
+
+/**
+ * Resolve the EFFECTIVE gateway posture for resume/relaunch paths.
+ *
+ * An explicit CLI choice always wins (`--no-gw` beats even a proven gateway
+ * pin). Without one, only a pin WITH explicit provenance keeps the gateway;
+ * a legacy pin without provenance resolves to direct. Old rows keep their
+ * data — only the routing decision ignores them.
+ */
+export function resolveResumedGatewayMode(
+  profile: string,
+  cliMode: "auto" | "gateway" | "direct",
+  pinnedMode?: "gateway" | "direct",
+  pinnedProvenance?: GatewayProvenance,
+): "gateway" | "direct" {
+  if (cliMode !== "auto") return gatewayModeForProfile(profile, cliMode);
+  const pinned = pinnedProvenance === "explicit" ? (pinnedMode ?? "auto") : "auto";
+  return gatewayModeForProfile(profile, pinned);
+}
 export type SessionTarget = "docker" | "k3s" | "scaleway-kapsule" | "gke";
 export type UatExposurePolicy =
   | "operator-only"

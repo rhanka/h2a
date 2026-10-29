@@ -105,10 +105,12 @@ export class K8sSessionProvisioner implements SessionProvisioner {
     });
 
     const ns = options.namespace ?? this.options.namespace;
+    const llmGateway = options.llmGateway ?? descriptor.llmGateway ?? false;
     const opts: SpecBuilderOptions = {
       ...this.options,
       namespace: ns,
-      ...(options.gatewayToken ? { llmGatewayToken: options.gatewayToken } : {}),
+      llmGatewayToken: options.gatewayToken,
+      llmGateway,
       ...(options.agentImage ? { image: options.agentImage } : {}),
     };
 
@@ -167,7 +169,15 @@ export class K8sSessionProvisioner implements SessionProvisioner {
 
     const names = resourceNames(descriptor);
     const ns = options.namespace ?? this.options.namespace;
-    const opts = { ...this.options, namespace: ns };
+    // Same explicit-choice rule as provision(): a re-acquired session token
+    // routes the rebuilt pod only for an explicit session choice.
+    const refreshGateway = options.llmGateway ?? descriptor.llmGateway ?? false;
+    const opts: SpecBuilderOptions = {
+      ...this.options,
+      namespace: ns,
+      llmGatewayToken: options.gatewayToken,
+      llmGateway: refreshGateway,
+    };
     emit(descriptor.id, "session.lifecycle.changed", {
       previousState: this.phases.get(descriptor.id) ?? "running",
       nextState: "starting",

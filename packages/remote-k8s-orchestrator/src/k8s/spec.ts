@@ -180,6 +180,10 @@ export type SpecBuilderOptions = {
    * set, injected as ANTHROPIC_API_KEY so Claude Code/Codex authenticate via
    * the gateway. Only meaningful when llmGatewayUrl is also set. */
   readonly llmGatewayToken?: string;
+  /** Explicit per-session opt-in to LLM-gateway routing. Routing vars are
+   * injected ONLY when this is true (plus URL + token): a globally configured
+   * gateway URL alone never routes a pod. */
+  readonly llmGateway?: boolean;
   /**
    * Names of k8s Secrets to inject into the session Pod as `envFrom` entries.
    * Every key in each Secret becomes an env var in the agent container — the
@@ -491,6 +495,9 @@ export function buildSessionPodSpec(
   /** Opt-in: add the headful-browser sidecar (WP7 noVNC). Default false. */
   browser = false,
 ): K8sPodSpec {
+  if (options.llmGateway === true && (!options.llmGatewayUrl || !options.llmGatewayToken)) {
+    throw new Error("Explicit gateway is unavailable; no Pod can be started");
+  }
   const names = resourceNames(descriptor);
   const limits = descriptor.resourceLimits;
   // Baseline anti-eviction floor: ALWAYS request memory (so the pod is
@@ -719,21 +726,27 @@ export function buildSessionPodSpec(
             // locale-gen needed).
             { name: "LANG", value: "C.UTF-8" },
             { name: "LC_ALL", value: "C.UTF-8" },
-            // WP16 Slice 2: route Anthropic API calls through the pooled LLM
-            // gateway. Both vars are injected together: ANTHROPIC_BASE_URL
-            // points to the gateway; ANTHROPIC_API_KEY is the per-session
-            // opaque bearer (gw-<hex>). If the gateway was unreachable at
-            // provision time (no token), neither var is set so the pod falls
-            // back to direct Anthropic access via ~/.claude credentials.
-            ...(options.llmGatewayUrl && options.llmGatewayToken
+            // Gateway routing is an explicit per-session choice: only when the
+            // session opted in (options.llmGateway) AND the provisioner holds
+            // a per-session token do both vars get injected together:
+            // ANTHROPIC_BASE_URL points to the gateway; ANTHROPIC_API_KEY is
+            // the per-session opaque bearer (gw-<hex>). Otherwise the pod
+            // falls back to direct Anthropic access via ~/.claude credentials.
+            // H2A_GATEWAY_MODE records the effective routing so a later
+            // soft-refresh respawn can scrub stale routing vars for direct
+            // pods while keeping the gateway env of explicit ones.
+            ...(options.llmGateway === true &&
+            options.llmGatewayUrl &&
+            options.llmGatewayToken
               ? [
                   {
                     name: "ANTHROPIC_BASE_URL",
                     value: options.llmGatewayUrl,
                   },
                   { name: "ANTHROPIC_API_KEY", value: options.llmGatewayToken },
+                  { name: "H2A_GATEWAY_MODE", value: "gateway" },
                 ]
-              : []),
+              : [{ name: "H2A_GATEWAY_MODE", value: "direct" }]),
             // Run interactive CLIs inside a durable tmux session in the Pod
             // (detach-safe; enables `remote attach --exec`). The agent ignores
             // this for the one-shot `shell` profile.

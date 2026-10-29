@@ -452,8 +452,21 @@ describe("tabCommand", () => {
         tool: "claude",
         sid: "c2",
         gatewayMode: "gateway",
+        gatewayProvenance: "explicit",
       }),
     ).toBe("h2a run 'claude' '/home/u/src/geo' --resume 'c2' --name 'geo' --gw");
+  });
+
+  it("does NOT re-emit --gw for a legacy gateway pin without provenance", () => {
+    expect(
+      tabCommand({
+        cwd: "/home/u/src/geo",
+        label: "geo",
+        tool: "claude",
+        sid: "c2",
+        gatewayMode: "gateway",
+      }),
+    ).toBe("h2a run 'claude' '/home/u/src/geo' --resume 'c2' --name 'geo'");
   });
 
   it("omits any gw flag when the instance was launched in auto mode (unpinned)", () => {

@@ -25,6 +25,11 @@ export type ProvisionOptions = {
    * set, injected as ANTHROPIC_API_KEY so the pod authenticates via the gateway
    * instead of holding a raw Anthropic token. */
   readonly gatewayToken?: string;
+  /** Explicit per-session opt-in to LLM-gateway routing (mirrors
+   * CreateSessionRequest.llmGateway). The token above is honored ONLY when
+   * this is true: a globally configured gateway URL alone never routes a pod.
+   * Falls back to `SessionDescriptor.llmGateway` when absent. */
+  readonly llmGateway?: boolean;
   /** Override the session-agent container image for this session. Fully-qualified
    * image reference (registry/repo/name:tag). Defaults to SESSION_AGENT_IMAGE
    * (SpecBuilderOptions.image) when absent. */

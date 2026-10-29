@@ -58,6 +58,11 @@ export const sessionDescriptorSchema = {
     createdAt: isoDateTimeSchema,
     createdBy: embeddedActorSchema,
     displayName: { type: "string", minLength: 1 },
+    llmGateway: {
+      type: "boolean",
+      description:
+        "Explicit per-session LLM-gateway routing choice (see CreateSessionRequest.llmGateway). Persisted so a hard refresh keeps the routing the session was created with.",
+    },
     labels: labelsSchema,
     resourceLimits: embeddedResourceLimitsSchema,
     requiredCapabilities: {
@@ -182,6 +187,11 @@ export const createSessionRequestSchema = {
       minLength: 1,
       description:
         "Override the session-agent container image for this session. Useful when the task requires tools not present in the default session-agent image (e.g. GDAL, custom pipelines). Must be a fully-qualified image reference (registry/repo/name:tag). Falls back to SESSION_AGENT_IMAGE when absent.",
+    },
+    llmGateway: {
+      type: "boolean",
+      description:
+        "When true, this session explicitly opts into LLM-gateway routing: the control-plane acquires a per-session gateway token and the pod receives ANTHROPIC_BASE_URL/ANTHROPIC_API_KEY. Absent or false = direct: a globally configured gateway URL alone never routes a session.",
     },
   },
 } as const;

@@ -60,6 +60,22 @@ function randomId(prefix: string): string {
   return `${prefix}-${random}`;
 }
 
+/** Explicit routing must fail before a Pod starts, never fall back to direct. */
+async function acquireGatewayToken(url: string | undefined, sessionId: string): Promise<string> {
+  if (!url) throw new Error("gateway URL is not configured");
+  const response = await fetch(`${url}/v1/session`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ sessionId }),
+  });
+  if (!response.ok) throw new Error(`gateway returned ${response.status}`);
+  const body = await response.json() as { gatewayToken?: unknown };
+  if (typeof body.gatewayToken !== "string" || !body.gatewayToken.trim()) {
+    throw new Error("gateway returned no session token");
+  }
+  return body.gatewayToken;
+}
+
 function buildDescriptor(
   req: CreateSessionRequest & { workspaceId?: string },
 ): SessionDescriptor {
@@ -86,6 +102,9 @@ function buildDescriptor(
   if (req.requiredCapabilities !== undefined)
     descriptor.requiredCapabilities = req.requiredCapabilities;
   if (req.metadata !== undefined) descriptor.metadata = req.metadata;
+  // Explicit per-session gateway choice, persisted so a hard refresh keeps
+  // the routing the session was created with. Absent/false = direct.
+  if (req.llmGateway === true) descriptor.llmGateway = true;
 
   return descriptor;
 }
@@ -393,6 +412,7 @@ export function createSessionsRouter(deps: SessionsRouterDeps): SessionsRouter {
         namespace?: string;
         sessionToken?: string;
         gatewayToken?: string;
+        llmGateway?: boolean;
         agentImage?: string;
       } = { namespace };
       if (req.credentials) provisionOptions.credentials = req.credentials;
@@ -410,31 +430,19 @@ export function createSessionsRouter(deps: SessionsRouterDeps): SessionsRouter {
           secret,
         });
       }
-      // WP16 Slice 2: call the LLM gateway to obtain a per-session bearer before
-      // provisioning. The pod receives ANTHROPIC_API_KEY=gw-<hex> instead of a
-      // raw Anthropic token. Failure is non-fatal: log a warning and continue
-      // without the gateway (pod will use direct Anthropic access).
-      if (llmGatewayUrl) {
+      // Gateway routing is an explicit per-session choice: only when the
+      // session asked for it (llmGateway: true) is a per-session token
+      // acquired for provisioning. A globally configured gateway URL alone
+      // never acquires a token. An explicit choice fails closed.
+      if (req.llmGateway === true) {
+        provisionOptions.llmGateway = true;
         try {
-          const gwResp = await fetch(`${llmGatewayUrl}/v1/session`, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ sessionId: descriptor.id }),
-          });
-          if (gwResp.ok) {
-            const { gatewayToken } = (await gwResp.json()) as {
-              gatewayToken: string;
-            };
-            provisionOptions.gatewayToken = gatewayToken;
-          } else {
-            console.warn(
-              `[control-plane] gateway /v1/session returned ${gwResp.status} — provisioning without gateway`,
-            );
-          }
-        } catch (err) {
-          console.warn(
-            `[control-plane] gateway unreachable (${String(err)}) — provisioning without gateway`,
-          );
+          provisionOptions.gatewayToken = await acquireGatewayToken(llmGatewayUrl, descriptor.id);
+        } catch {
+          store.delete(descriptor.id, userId);
+          sessionTenant.delete(descriptor.id);
+          bus.forget(descriptor.id);
+          return c.json({ code: "gateway.unavailable", message: "Explicit gateway is unavailable; no session was started", retryable: true }, 503);
         }
       }
       // A provisioning failure (k8s API error, e.g. quota exceeded) must NOT
@@ -739,9 +747,22 @@ export function createSessionsRouter(deps: SessionsRouterDeps): SessionsRouter {
       const refreshOptions: {
         credentials: RefreshSessionCredentialsRequest;
         namespace?: string;
+        gatewayToken?: string;
+        llmGateway?: boolean;
       } = { credentials: body };
       const namespace = sessionTenant.get(id)?.namespace;
       if (namespace !== undefined) refreshOptions.namespace = namespace;
+      // Keep an explicit session choice across the Pod rebuild: re-acquire a
+      // fresh per-session token. Direct sessions (no explicit choice) rebuild
+      // without any gateway routing, whatever the global URL config says.
+      if (descriptor.llmGateway === true) {
+        refreshOptions.llmGateway = true;
+        try {
+          refreshOptions.gatewayToken = await acquireGatewayToken(llmGatewayUrl, descriptor.id);
+        } catch {
+          return c.json({ code: "gateway.unavailable", message: "Explicit gateway is unavailable; session was not refreshed", retryable: true }, 503);
+        }
+      }
       await provisioner.refresh(descriptor, emit, refreshOptions);
       const response: RefreshSessionCredentialsResponse = {
         sessionId: id,
