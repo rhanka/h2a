@@ -1,3 +1,20 @@
+# Gateway off by default — PR #395, round 5
+
+- Scope: the shared P2 in both supplied round-4 reviews of 8b0a895c3.
+- Compare proven routing choices before conflict pruning; legacy direct/auto,
+  gateway or absent pins cannot discard a conversation's explicit consent.
+  Keep bare conflicts and conflicting proven choices under the existing
+  liveness rules; --no-gw retains priority.
+- RED: recovered reviewers' probes 4 fail / 0 pass; durable matrix 24 fail /
+  74 pass, zero skips. GREEN: reviewers 4/4, 558 scoped runtime tests and
+  56 contracts, zero skips; runtime build and execution-proof validator pass.
+- Replay: all 18 earlier probes, original R1 matrix 16/16 and two clean
+  shell children with native auth preserved. Evidence:
+  docs/reviews/gateway-off-default-r5.md. No test gate changes.
+- Private TMPDIR /home/antoinefa/.cache-tmp/h2a-test/run-Fs3Vkp; remove at
+  delivery. No owner state, installed h2a, real gateway/provider/cluster,
+  Python, full local suite, attribution trailer, merge or tag.
+
 # Gateway off by default — PR #395, round 4
 
 - Scope: both P2 findings in the supplied Sol/Astra reviews of d170a4b83.

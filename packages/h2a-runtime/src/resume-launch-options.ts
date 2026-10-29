@@ -33,16 +33,17 @@ export type ResumeLaunchProbes = {
 };
 
 /**
- * Same conflict predicate as the pre-self-heal fatal: any row pinning launch
- * options (bare/gatewayMode) that differ from the first row's. All rows in the
- * set share convId/cwd/tool, so ANY difference poisons the whole set.
+ * All rows share convId/cwd/tool. Proven routing choices supersede legacy
+ * modes before conflict pruning can discard them. Bare pins and disagreements
+ * between proven choices still use the existing conflict/liveness rules.
  */
 export function pinnedLaunchOptionsConflict(
   entries: readonly RegistryEntry[],
 ): boolean {
-  return entries.some((entry) =>
-    entry.bare !== entries[0]?.bare || entry.gatewayMode !== entries[0]?.gatewayMode,
-  );
+  const explicit = entries.filter((entry) => entry.gatewayProvenance === "explicit");
+  const routing = explicit.length > 0 ? explicit : entries;
+  return entries.some((entry) => entry.bare !== entries[0]?.bare) ||
+    routing.some((entry) => entry.gatewayMode !== routing[0]?.gatewayMode);
 }
 
 /** Actionable fatal for a conflict that survived the self-heal. */
