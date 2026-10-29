@@ -69,7 +69,7 @@ test('U10 should bind published version metadata to the actual package version',
 });
 test('U10 should remove only its own new destination when source code changes during the copy', t => {
   const f = fixture(t), original = fs.cpSync;
-  fs.cpSync = function(source, ...args) { if (source === f.root) fs.appendFileSync(join(f.root, 'entry.mjs'), '\n// changed after verification'); return original.call(this, source, ...args); };
+  fs.cpSync = function(source, ...args) { if (source === join(f.root, 'entry.mjs')) fs.appendFileSync(source, '\n// changed after verification'); return original.call(this, source, ...args); };
   try { assert.throws(() => preparePublishedImage(f.root, f.destination), /payload_mismatch/); }
   finally { fs.cpSync = original; }
   assert.equal(fs.existsSync(f.destination), false); assert.equal(fs.existsSync(f.path), true);
