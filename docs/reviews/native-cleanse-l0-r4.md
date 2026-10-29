@@ -65,3 +65,35 @@ revendiqués. Aucun état propriétaire ni binaire h2a installé utilisé.
 
 Logs conservés dans `tmp/h-cond/fix-native-cleanse.r4-*`.
 Le TMPDIR privé sera supprimé après le suivi de CI. Aucun merge/tag/trailer.
+
+
+## Corrections après le premier push
+
+CI du head 0cd55eb7f : 13/15 verts ; Node 24 et npm-test-trust-root en échec.
+Les 42 contrats du ledger et les neuf oracles passent dans les logs CI.
+Deux défauts de fixtures directement bloquants ont été reproduits et corrigés :
+
+- Node 24 : ENOTEMPTY dans restart-lab.dispose, après les dix resumes réussis.
+  SIGKILL avait été envoyé aux processus enregistrés, mais seuls les enfants
+  directs étaient attendus. La suppression attend désormais la mort de chaque
+  génération enregistrée. Le nouveau contrôle retarde le signal de notre seul
+  writer détaché : ancien helper, exit 1 « a signal request is not proof » ;
+  helper corrigé, exit 0. Aucun retry de rm ni seuil de performance modifié.
+- Trust root : identity-binding-contention épuisait ses 1500 ms pendant une
+  préparation async (1612 ms observés, timeout résiduel 0,001282 ms). Le holder
+  était libéré par un timer sans lien avec la préparation. Il attend maintenant
+  la deuxième tentative réellement observée, puis libère son vrai verrou.
+  Le test exige explicitement au moins un retry, conserve le mint unique,
+  vérifie l'absence de fence à la libération et garde la borne de 1500 ms.
+
+Commandes ciblées après correction : native-host-crash-recovery.test.js 17/17,
+identity-binding-contention.test.js 2/2, run-test-gates.test.js 48/48, zéro skip.
+Le contrôle cleanup seul est RED avant correction, puis cleanup + le scénario
+CI dix resumes sont GREEN 2/2. Aucun code produit ni délai d'acceptation changé.
+
+Contrôle déterministe supplémentaire : preload privé ajoutant une seule seconde
+au premier fsync de clé après libération du holder. Ancien test : 0/2 PASS,
+timeout de fence après consommation du budget ; test synchronisé : 2/2 PASS,
+toujours sous la même borne de 1500 ms. Le délai injecté n'est ni commité ni
+appliqué au produit. Incident-20-resume : 1/1 PASS, 20/20 I/O, un host, zéro
+timeout de verrou. Ces campagnes restent des fichiers ciblés, sans charge mémoire.

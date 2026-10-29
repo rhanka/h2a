@@ -5,6 +5,7 @@
 - Independent CI controls reject GREEN→RED (including original stale bytes), changed RED signatures and undeclared RED→GREEN, plus missing/duplicate/unknown observations and swallowed assertions.
 - Host controls reject duplicate hook options, Agy enablement changes, and an active plugin MCP resolving to a stale PATH binary despite a healthy direct MCP.
 - Targeted verification: packaged baseline+oracle 57/57, trust root 48/48, adjacent gate/cache tests 72/72, no skip/todo. Main 912dd3035 and rc.7 8d588db05: baseline 48/48 with the same 42 exact RED outcomes; actual npm verifier accepts the matching ledger.
+- First CI: 13/15; fix the directly blocking detached-writer teardown race (deterministic RED→GREEN, crash tests 17/17) and replace the binding-contention release timer with an observed retry (same 1500 ms bound, 2/2). Trust root remains 48/48.
 - Details, RED/GREEN commands and qualification limits: docs/reviews/native-cleanse-l0-r4.md. Private TMPDIR /home/antoinefa/.cache-tmp/h2a-test/run-xyfAMY to remove at delivery; no Python, owner state, installed h2a or new peer consensus.
 
 # Memory MCP — L1 producer skill installation

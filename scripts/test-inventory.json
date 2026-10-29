@@ -871,7 +871,8 @@
     "crash-recovery: five concurrent resume clients recover one SIGKILLed host",
     "startup-latency: restoring ten resumes with 500 registry rows converges within 30 seconds",
     "oom-isolation: host requests its own protected systemd scope before admitting PTYs",
-    "startup-latency: fresh, resume and restore add at most 500 ms with 500 mixed rows"
+    "startup-latency: fresh, resume and restore add at most 500 ms with 500 mixed rows",
+    "cleanup: wait for the recorded detached writer to die before deleting its fixture"
   ],
   "packages/h2a/test/native-host-equipment.test.js": [
     "Vibe installs resources under VIBE_HOME, requires force for managed edits and preserves unknown skills",
