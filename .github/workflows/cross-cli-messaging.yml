@@ -46,6 +46,7 @@ jobs:
           scripts/xcli-npm-oracles.test.mjs scripts/xcli-runtime-runner.test.mjs
           scripts/xcli-identity-pacing.test.mjs
           scripts/xcli-wake-proof.test.mjs
+          scripts/xcli-node-headers.test.mjs
 
   simulated-messaging:
     runs-on: ubuntu-latest
