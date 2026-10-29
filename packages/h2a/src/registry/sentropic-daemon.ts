@@ -60,7 +60,7 @@ import { TRACK_READ_TOOL_DESCRIPTORS } from "@sentropic/track/mcp";
 import { createMcpServer, isMcpTransportResult, type McpServer } from "../runtime/mcp/server.js";
 import { H2A_CLI_MCP_TOOL_DESCRIPTORS } from "../runtime/mcp/tools.js";
 import { validateBridgeLock, type BridgeLock } from "./bridge-lock.js";
-import { activateMemoryProvider, MEMORY_PROVIDER_ID, type MemoryProviderRegistration } from "./memory-provider.js";
+import { missingMemoryBuiltin, MEMORY_PROVIDER_ID, MEMORY_TOOL_NAMES, type MemoryProviderRegistration } from "./memory-provider.js";
 
 /** Pinned to the published facade; asserted by the H2a daemon tests. */
 export const USES_SENTROPIC_FACADE = true;
@@ -327,9 +327,8 @@ export async function composeDaemonRegistryForServer(
   const ids = lock?.selection.map(selected => selected.id);
   const wantCoordination = ids ? ids.includes("sentropic.h2a") : options.view === "coordination" || options.view === "combined";
   const wantTrack = ids ? ids.includes("sentropic.track") : options.view === "track" || options.view === "combined";
-  const memory = ids?.includes(MEMORY_PROVIDER_ID)
-    ? await activateMemoryProvider(options.memory, lock!.entries[MEMORY_PROVIDER_ID].config, options.attachment)
-    : undefined;
+  const memory = ids?.includes(MEMORY_PROVIDER_ID) ? options.memory ?? missingMemoryBuiltin() : undefined;
+  if (memory && (!memory.builtin || memory.builtin.providerId !== MEMORY_PROVIDER_ID)) missingMemoryBuiltin();
 
   const definitions: LoadedDefinition[] = [];
   if (wantCoordination) {
@@ -350,47 +349,39 @@ export async function composeDaemonRegistryForServer(
       )
     );
   }
-  if (memory) {
-    // This definition routes selection only. Memory authority stays inside the
-    // producer's server with its trusted host context; LOCAL_PRINCIPAL below
-    // must never authorize a memory call.
-    const manifest = buildManifest(MEMORY_PROVIDER_ID, "engram", "Engram Memory", [], false);
-    manifest.version = options.memory!.entry.entryVersion;
-    manifest.tools = memory.tools.map(tool => {
-      const meta = tool._meta["sentropic.engram/memory"] as Record<string, unknown> | undefined;
-      if (meta?.providerId !== MEMORY_PROVIDER_ID || meta.connectorId !== "engram-memory" ||
-          meta.sourceId !== "mcp:engram-memory" || !Array.isArray(meta.requiredScopes) ||
-          !Array.isArray(meta.requiredClaims) || !meta.gates || !meta.idempotency) {
-        fail("invalid_entry", `memory discovery metadata is incomplete for ${tool.name}`);
-      }
-      return { kind: "tool", name: tool.name, description: tool.description ?? tool.name,
-        inputSchema: tool.inputSchema, outputSchema: tool.outputSchema,
-        requiredScopes: meta.requiredScopes, requiredClaims: meta.requiredClaims,
-        mutability: meta.mutability, mutatesExternalSystem: meta.mutatesExternalSystem,
-        redactionClass: meta.redactionClass, gates: meta.gates, idempotency: meta.idempotency
-      } as Manifest["tools"][number];
-    });
-    const definition = buildLoadedDefinition(manifest, "engram-memory", memory.callTool);
-    // No synthetic local principal or tenant resolver may execute memory.
-    // The compiled plan resolves selection; the producer server executes it.
-    definition.adapter.resolveTenant = async () => fail("missing_binding", "Memory requires trusted host invocation context");
-    definition.adapter.invokeTool = async () => fail("missing_binding", "Memory requires trusted host invocation context");
-    definitions.push(definition);
-  }
-
   const modules = createClusterMeshModules();
-  const facade = createMcpRegistry({ modules });
+  let memoryDefinition: LoadedDefinition | undefined;
+  const compatibility: Record<string, { manifestDigest: string }> = {};
+  const facade = createMcpRegistry({ modules, builtins: memory ? [{
+    ...memory.builtin,
+    load: async () => {
+      const definition = await memory.builtin.load();
+      if ("kind" in definition || definition.manifest.providerId !== MEMORY_PROVIDER_ID ||
+          definition.manifest.version !== memory.builtin.version ||
+          definition.manifest.version !== memory.entry.entryVersion ||
+          definition.manifest.tools.length !== MEMORY_TOOL_NAMES.length ||
+          new Set(definition.manifest.tools.map(tool => tool.name)).size !== MEMORY_TOOL_NAMES.length ||
+          definition.manifest.tools.some(tool => !MEMORY_TOOL_NAMES.includes(tool.name)) ||
+          memory.builtin.capabilities.length !== MEMORY_TOOL_NAMES.length ||
+          new Set(memory.builtin.capabilities).size !== MEMORY_TOOL_NAMES.length ||
+          memory.builtin.capabilities.some(name => !MEMORY_TOOL_NAMES.includes(name))) {
+        fail("invalid_entry", "cluster-mesh memory builtin does not match its locked six-tool contract");
+      }
+      memoryDefinition = definition;
+      compatibility[MEMORY_PROVIDER_ID] = { manifestDigest: computeManifestDigest(definition.manifest) };
+      return definition;
+    }
+  }] : [] });
   const registered: LoadedDefinition[] = [];
   for (const definition of definitions) {
     const registrable: RegistryDefinition = definition;
     facade.register(registrable);
     registered.push(definition);
   }
-  const selected = registered.map((definition) => definition.manifest.providerId);
+  const selected = [...registered.map((definition) => definition.manifest.providerId), ...(memory ? [MEMORY_PROVIDER_ID] : [])];
   facade.select(selected);
-  for (const providerId of selected) facade.configure(providerId, {});
+  for (const providerId of selected) facade.configure(providerId, providerId === MEMORY_PROVIDER_ID ? lock!.entries[providerId].config : {});
 
-  const compatibility: Record<string, { manifestDigest: string }> = {};
   for (const definition of registered) {
     compatibility[definition.manifest.providerId] = {
       manifestDigest: computeManifestDigest(definition.manifest)
@@ -410,10 +401,19 @@ export async function composeDaemonRegistryForServer(
   async function dispatch(toolName: string, args: Record<string, unknown>): Promise<DaemonDispatchResult> {
     const resolved = compiled.resolveTool(toolName);
     if (!resolved) fail("unknown_tool", `unknown tool ${toolName} for the active selection`);
-    if (memory && memory.tools.some(tool => tool.name === toolName)) {
-      const raw = await memory.callTool(toolName, args ?? {});
-      return { ok: !(raw as { isError?: boolean })?.isError, output: { ...(contentText(raw) ?? { text: JSON.stringify(raw) }), transport: raw },
-        providerId: MEMORY_PROVIDER_ID, capabilityName: toolName };
+    if (resolved.providerId === MEMORY_PROVIDER_ID) {
+      // The mesh adapter owns invocation context, authorization, confirmation
+      // and audit. Forward the bound attachment; never invent a principal.
+      if (!memoryDefinition) missingMemoryBuiltin();
+      const invoked = await memoryDefinition.adapter.invokeTool({
+        capabilityRef: resolved.capabilityName, input: args ?? {}, ctx: options.attachment,
+        ...(typeof args?.idempotency_key === "string" ? { idempotencyKey: args.idempotency_key } : {})
+      } as InvokeRequest);
+      if (typeof invoked !== "string" && !invoked.ok) fail(invoked.error?.code ?? "handler_error", invoked.error?.message ?? "memory builtin refused");
+      const raw = typeof invoked === "string" ? invoked : invoked.output;
+      return { ok: !(raw as { isError?: boolean })?.isError,
+        output: { ...(contentText(raw) ?? { text: JSON.stringify(raw) }), transport: raw },
+        providerId: resolved.providerId, capabilityName: resolved.capabilityName };
     }
     const decision = authorizeDispatch({ registry: compiled, toolName, principal: LOCAL_PRINCIPAL });
     if (!decision.allowed) fail(decision.code, `denied tool ${toolName}: ${decision.code}`);
@@ -471,7 +471,8 @@ export async function composeDaemonRegistryForServer(
     toolNames: () => [...compiled.tools.keys()],
     tools: () => [
       ...H2A_CLI_MCP_TOOL_DESCRIPTORS.filter(tool => compiled.resolveTool(tool.name)),
-      ...(memory?.tools ?? [])
+      ...(memoryDefinition?.manifest.tools.map(tool => ({ name: tool.name, description: tool.description,
+        inputSchema: tool.inputSchema, outputSchema: tool.outputSchema })) ?? [])
     ] as ReturnType<McpServer["listTools"]>,
     dispatch
   };

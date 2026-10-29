@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, copyFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
 import test from "node:test";
 import { PassThrough } from "node:stream";
 import { bridgeCentralMcpStdio } from "../dist/runtime/mcp-central-client.js";
@@ -70,12 +69,12 @@ test("L2: selected memory discovers and calls all six tools through the Sentropi
   for (const name of MEMORY_NAMES) {
     const result = await plan.dispatch(name, { idempotency_key: "operation-" + name });
     assert.equal(result.providerId, MEMORY_ID);
-    assert.equal(result.output.transport.structuredContent.auditId, "host-issued-audit");
+    assert.equal(result.output.transport.structuredContent.auditId, "mesh-issued-audit");
   }
   assert.equal(f.calls.length, 6);
   for (const call of f.calls) {
-    assert.equal(call.ctx, f.context);
-    assert.deepEqual(call.envelope, { idempotencyKey: "operation-" + call.name, elicitationRef: "host-confirmation" });
+    assert.equal(call.ctx, undefined, "no synthetic principal is supplied by h2a");
+    assert.equal(call.idempotencyKey, "operation-" + call.capabilityRef);
   }
   await assert.rejects(plan.dispatch("engram_memory_unknown", {}), /unknown_tool/);
   assert.equal(f.calls.length, 6);
@@ -90,20 +89,17 @@ test("L2: unselected memory never loads or handles calls; h2a and Track remain a
   assert.equal((await plan.dispatch("h2a_identity_status", {})).ok, true);
   assert.equal((await plan.dispatch("track_query", { baselineCommit: "abc1234" })).ok, true);
 }));
-test("L2: absent bindings or package refuse before memory is advertised", async () => scratch(async root => {
+test("L2: absent cluster-mesh builtin refuses before memory is advertised", async () => scratch(async root => {
   const f = fixture(), lock = lockFor();
-  await assert.rejects(composeDaemonRegistry({ view: "combined", root, lock, memory: { ...f.memory, host: undefined } }), /missing_binding.*not configured/);
-  assert.equal(f.loads(), 0);
-  await assert.rejects(composeDaemonRegistry({ view: "combined", root, lock, memory: { ...f.memory, load: undefined } }), /missing_binding.*@sentropic[/]engram/);
-  assert.equal(f.calls.length, 0);
+  for (const memory of [undefined, { entry }, { ...f.memory, builtin: undefined }]) {
+    await assert.rejects(composeDaemonRegistry({ view: "combined", root, lock, memory }), /missing_binding.*cluster-mesh.*sentropic.engram.memory.*builtin/);
+  }
+  assert.equal(f.loads(), 0); assert.equal(f.calls.length, 0);
 }));
-test("L2: trusted context resolution refuses without leaking details or invoking the provider", async () => scratch(async root => {
-  const f = fixture(); f.refuseContext();
+test("L2: builtin authorization refuses without any fallback to h2a handlers", async () => scratch(async root => {
+  const f = fixture(); f.refuse();
   const plan = await composeDaemonRegistry({ view: "combined", root, lock: lockFor(), memory: f.memory });
-  await assert.rejects(plan.dispatch(MEMORY_NAMES[0], { tenant_id: "forged" }), error => {
-    assert.match(error.message, /Trusted invocation context unavailable/);
-    assert.doesNotMatch(error.message, /private tenant/); return true;
-  });
+  await assert.rejects(plan.dispatch(MEMORY_NAMES[0], { tenant_id: "forged" }), /builtin authorization refused/);
   assert.equal(f.calls.length, 0);
 }));
 test("L2: bridge selects the third provider, forwards the verified selection, and never requests a gateway", async () => scratch(async root => {
@@ -132,7 +128,8 @@ test("L2: actual attachment MCP protocol discovers metadata and dispatches selec
     await handle.ready;
     await Promise.all([protocol.connect(a), client.connect(b)]);
     const listed = (await client.listTools()).tools.filter(t => t.name.startsWith("engram_memory_"));
-    assert.deepEqual(listed, f.descriptors);
+    assert.deepEqual(listed.map(t => t.name).sort(), [...MEMORY_NAMES].sort());
+    assert.ok(listed.every(t => t.outputSchema.type === "object"));
     for (const name of MEMORY_NAMES) assert.equal((await client.callTool({ name, arguments: {} })).isError, false);
     const denied = await client.callTool({ name: "engram_memory_unknown", arguments: {} });
     assert.equal(denied.isError, true);
@@ -174,31 +171,13 @@ test("L2: selected stdio shim reaches the real central memory dispatch with the 
     const result = await request(3, "tools/call", { name: MEMORY_NAMES[0], arguments: {} });
     assert.equal(result.result?.isError, false, JSON.stringify(result));
     assert.equal(f.calls.length, 1);
-    assert.equal(f.attachmentContexts.at(-1).context.id, attachment.id);
-    assert.ok(f.attachmentContexts.at(-1).participant, "real attachment participant reaches the trusted host port");
+    assert.equal(f.calls.at(-1).ctx.context.id, attachment.id);
+    assert.ok(f.calls.at(-1).ctx.participant, "real attachment participant reaches the cluster-mesh adapter");
   } finally {
     controller.abort(); input.end(); await serving; output.destroy(); await server.stop();
   }
 }));
 
-test("L2: a packed ESM-only Engram descriptor resolves and verifies its own asset closure", async () => scratch(async root => {
-  const consumer = join(root, "consumer"), directory = join(consumer, "node_modules/@sentropic/engram");
-  mkdirSync(join(consumer, "dist/registry"), { recursive: true });
-  mkdirSync(join(directory, "dist/registry"), { recursive: true });
-  mkdirSync(join(directory, "registry"));
-  writeFileSync(join(consumer, "package.json"), JSON.stringify({ type: "module" }));
-  for (const name of ["memory-provider", "descriptors"]) copyFileSync(new URL("../dist/registry/" + name + ".js", import.meta.url), join(consumer, "dist/registry", name + ".js"));
-  writeFileSync(join(directory, "package.json"), JSON.stringify({ name: "@sentropic/engram", type: "module", exports: { "./registry/manifest": { import: "./dist/registry/manifest.js" } } }));
-  writeFileSync(join(directory, "dist/registry/manifest.js"), "throw new Error('descriptor import must not activate a provider');");
-  const descriptor = structuredClone(entry), bytes = JSON.stringify({ tools: [], resources: [], prompts: [] });
-  descriptor.assets[0].sha256 = sha256Hex(bytes);
-  writeFileSync(join(directory, descriptor.assets[0].path), bytes);
-  writeFileSync(join(directory, "registry/entries.v1.json"), JSON.stringify({ format: "sentropic.registry-package/v1", entries: [descriptor] }));
-  const module = await import(pathToFileURL(join(consumer, "dist/registry/memory-provider.js")).href);
-  assert.deepEqual(module.readInstalledMemoryEntry(), descriptor);
-  writeFileSync(join(directory, descriptor.assets[0].path), "{}");
-  assert.throws(() => module.readInstalledMemoryEntry(), /integrity_mismatch/);
-}));
 test("L2: lock provisioning pins an explicitly selected memory tuple without changing the default tuple", async () => scratch(async root => {
   const path = join(root, "lock.json");
   provisionBridgeLock({ lockPath: path, host: "claude", profile: "default", bridge: { command: "h2a", args: [] },
@@ -248,7 +227,7 @@ test("L2: a memory shim refuses a central lock mismatch before discovery or disp
   async () => scratch(root => refusedMemoryBridge(root, true)));
 test("L2: bridge refuses absent bindings and bad lock digests before delegation", async () => scratch(async root => {
   const path = join(root, "lock.json"), f = fixture();
-  for (const broken of ["host", "entry", "config"]) {
+  for (const broken of ["builtin", "entry", "config"]) {
     const lock = lockFor();
     if (broken === "entry") lock.entries[MEMORY_ID].digest = "f".repeat(64);
     if (broken === "config") lock.entries[MEMORY_ID].configDigest = "f".repeat(64);
@@ -256,9 +235,31 @@ test("L2: bridge refuses absent bindings and bad lock digests before delegation"
     let output = "", delegated = 0;
     const code = await cmdRegistryBridge(["serve", "--host", "claude", "--instance", "claude:test", "--lock", path],
       { stdout: { write: x => { output += x; } }, stderr: { write: x => { output += x; } }, cwd: () => root },
-      { memory: { ...f.memory, host: undefined }, delegateServe: async () => { delegated++; return 0; } });
+      { memory: { ...f.memory, builtin: undefined }, delegateServe: async () => { delegated++; return 0; } });
     assert.equal(code, 2, output); assert.equal(delegated, 0);
-    assert.match(output, broken === "host" ? /missing_binding.*not configured/ : /integrity_mismatch/);
+    assert.match(output, broken === "builtin" ? /missing_binding.*cluster-mesh/ : /integrity_mismatch/);
     assert.equal(f.loads(), 0); assert.equal(f.calls.length, 0);
+  }
+}));
+
+test("L2: selected builtin loader failure refuses compilation atomically", async () => scratch(async root => {
+  const f = fixture(); f.memory.builtin.load = async () => { throw new Error("mesh loader unavailable"); };
+  await assert.rejects(composeDaemonRegistry({ view: "combined", root, lock: lockFor(), memory: f.memory }), /mesh loader unavailable/);
+  assert.equal(f.calls.length, 0);
+}));
+
+test("L2: builtin identity, loaded version and six-tool surface must match the locked provider", async () => scratch(async root => {
+  for (const change of [
+    f => { f.memory.builtin.providerId = "other.memory"; },
+    f => { f.memory.builtin.version = "99.0.0"; },
+    f => { f.definition.manifest.providerId = "other.memory"; },
+    f => { f.definition.manifest.version = "99.0.0"; },
+    f => { f.definition.manifest.tools.pop(); },
+    f => { f.definition.manifest.tools[1] = f.definition.manifest.tools[0]; },
+    f => { f.memory.builtin.capabilities[0] = "engram_memory_unknown"; }
+  ]) {
+    const f = fixture(); change(f);
+    await assert.rejects(composeDaemonRegistry({ view: "combined", root, lock: lockFor(), memory: f.memory }), /missing_binding|invalid_entry/);
+    assert.equal(f.calls.length, 0);
   }
 }));
