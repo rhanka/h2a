@@ -5,6 +5,21 @@ import { join, resolve, delimiter } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { gunzipSync } from 'node:zlib';
 import test from 'node:test';
+import { memorySkillConsumer, sha256 } from './helpers/memory-skill-consumer.mjs';
+
+test('packed h2a installs the producer memory skill in isolated HOME without source-tree fallback', t => {
+  const fixture = memorySkillConsumer(t, { packed: true });
+  assert.equal(fs.existsSync(join(fixture.h2a, 'skills/engram-memory')), false);
+  for (const host of ['claude', 'codex', 'muse', 'vibe', 'agy']) {
+    const args = ['install-skills', '--host', host];
+    const first = fixture.cli(args);
+    assert.equal(first.status, 0, first.stderr);
+    const source = first.json().sources.find(s => s.source === 'engram');
+    assert.equal(source?.dir, join(fixture.producer, 'skills'));
+    assert.equal(source.skills[0].sha256, sha256(fixture.raw));
+    assert.equal(fixture.cli(args).status, 0, `${host}: packed reinstall`);
+  }
+});
 test('tarball consumer receives hooks/scripts/parser and referenced Track resources without source-tree fallback', t => {
   const lane = fs.mkdtempSync(join(tmpdir(), 'host-package-consumer-'));
   t.after(() => fs.rmSync(lane, { recursive: true, force: true }));

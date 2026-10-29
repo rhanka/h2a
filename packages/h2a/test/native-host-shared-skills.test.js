@@ -6,6 +6,27 @@ import test from 'node:test';
 import { runCli } from '../dist/index.js';
 import { parseNativeToml } from '../dist/hosts/native-toml.js';
 import { captureHostOperatorNotices } from '../dist/hosts/operator-notices.js';
+import { memorySkillConsumer, sha256 } from './helpers/memory-skill-consumer.mjs';
+
+test('memory producer resources use the producer version and remain valid in the shared agy command', t => {
+  const fixture = memorySkillConsumer(t, { raw: '---\nname: engram-memory\ndescription: Memory fixture\n---\nUse engram_memory_search and read `assets/guide.md`.\n' });
+  const first = fixture.cli(['install-skills', '--host', 'agy']);
+  assert.equal(first.status, 0, first.stderr);
+  const command = join(fixture.home, '.gemini/commands/engram-memory.toml');
+  const resource = join(fixture.home, '.gemini/.h2a-install/skill-resources/engram/0.22.1/engram-memory/assets/guide.md');
+  assert.match(parseNativeToml(fs.readFileSync(command, 'utf8')).prompt, new RegExp(resource.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.equal(fs.readFileSync(resource, 'utf8'), 'Producer resource fixture.\n');
+  const owner = JSON.parse(fs.readFileSync(join(fixture.home, '.gemini/.h2a-install-agy/shared-owner.json')));
+  assert.equal(owner.files['commands/engram-memory.toml'].source, '@sentropic/engram@0.22.1/engram-memory');
+  assert.equal(owner.files['commands/engram-memory.toml'].sha256, sha256(fs.readFileSync(command)));
+  assert.match(first.json().importHint, /agy plugin import gemini/);
+  assert.equal(fixture.cli(['install-skills', '--host', 'gemini']).status, 0);
+  assert.ok(fs.readdirSync(join(fixture.home, '.gemini/commands')).every(n => n.endsWith('.toml')));
+  fs.rmSync(join(fixture.skill, 'assets/guide.md'));
+  const missing = fixture.cli(['install-skills', '--host', 'agy']);
+  assert.notEqual(missing.status, 0);
+  assert.match(missing.stderr, /required skill resource missing: engram-memory\/assets\/guide.md/);
+});
 const PACKAGE_VERSION = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 function setup(t) {
   const home = fs.mkdtempSync(join(tmpdir(), 'shared-host-')), previous = { ...process.env };
