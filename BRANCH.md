@@ -8,10 +8,19 @@ and unrelated files on Claude, Codex, Muse, Vibe and Agy. No provider activation
 
 ## Scope / Guardrails
 
-- Allowed: `packages/h2a/src/cli.ts`,
-  `packages/h2a/src/hosts/native-{skills,convergence,artifacts}.ts`,
-  the four named installation/package test files and isolated consumer helper,
-  `BRANCH.md`, `docs/reviews/memory-skill-install.md`.
+**Allowed Paths (L1 implementation scope)**
+  - `packages/h2a/src/cli.ts`
+  - `packages/h2a/src/hosts/native-skills.ts`
+  - `packages/h2a/src/hosts/native-convergence.ts`
+  - `packages/h2a/src/hosts/native-artifacts.ts`
+  - `packages/h2a/test/install-skills-hosts.test.js`
+  - `packages/h2a/test/native-host-shared-skills.test.js`
+  - `packages/h2a/test/package-plugin-manifest.test.js`
+  - `packages/h2a/test/native-host-package.test.js`
+  - `packages/h2a/test/helpers/memory-skill-consumer.mjs`
+  - `BRANCH.md`
+  - `docs/reviews/memory-skill-install.md`
+
 - Base: origin/main `ec04054b604f2b8948a16d955724fe5301e9dccb`.
 - No owner state, installed h2a, real host CLI, full local suite, dependency pin,
   producer content vendoring, attribution trailer or merge.
