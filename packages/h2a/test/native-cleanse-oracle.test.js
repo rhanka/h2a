@@ -100,6 +100,22 @@ function writeMcp(h, a, args) {
     put(h.mcp, JSON.stringify(config));
   }
 }
+function invalidMcpEnvelope(h, a, kind) {
+  const original = readFileSync(h.mcp, 'utf8');
+  if (h.mcp.endsWith('.toml')) {
+    put(h.mcp, kind === 'command' ? original.replace(/^command = .*$/m, 'command = ' + JSON.stringify([process.execPath, a.cli, 'mcp-serve']))
+      .replace(/^args = .*$/m, 'args = []') : h.host === 'vibe' ? original.replace('[[mcp_servers]]', '[mcp_servers.h2a]') :
+      original.replace('[mcp_servers.h2a]', '[[mcp_servers]]\nname = "h2a"'));
+  } else {
+    const yaml = h.mcp.endsWith('.yaml'), config = yaml ? YAML.parse(original) : JSON.parse(original);
+    const key = h.host === 'opencode' ? 'mcp' : yaml ? 'mcp_servers' : 'mcpServers';
+    if (kind === 'command') {
+      config[key].h2a.command = h.host === 'opencode' ? process.execPath : [process.execPath, a.cli, 'mcp-serve'];
+      if (h.host !== 'opencode') config[key].h2a.args = [];
+    } else config[key] = [{ name: 'h2a', ...config[key].h2a }];
+    put(h.mcp, yaml ? YAML.stringify(config) : JSON.stringify(config));
+  }
+}
 const observation = async (f, host, family) => (await observeHosts(f.a, f.hosts)).find(o => o.id === host + ' installed ' + family);
 
 test('L0 inventory: all frozen artifacts can be observed current', async t => {
@@ -124,6 +140,27 @@ test('L0 MCP: version, echo, wrong protocol and duplicate routes cannot pass as 
     writeMcp(h, f.a, ['version']);
     bad.push(await observation(f, h.host, 'MCP resolves activated prefix'));
     writeMcp(h, f.a, ['mcp-serve']);
+    const original = readFileSync(h.mcp, 'utf8');
+    for (const kind of ['command', 'collection']) {
+      invalidMcpEnvelope(h, f.a, kind);
+      bad.push({ ...await observation(f, h.host, 'MCP resolves activated prefix'), control: h.host + ': invalid native ' + kind });
+      put(h.mcp, original);
+    }
+    if (h.host === 'claude' || h.host === 'muse') {
+      const config = JSON.parse(original);
+      delete config.mcpServers.h2a.transport;
+      config.mcpServers.h2a.type = 'sse';
+      put(h.mcp, JSON.stringify(config));
+      bad.push({ ...await observation(f, h.host, 'MCP resolves activated prefix'), control: h.host + ': invalid stdio discriminator' });
+      put(h.mcp, original);
+    }
+    if (h.host === 'muse') {
+      const config = JSON.parse(original);
+      Object.assign(config.mcpServers.h2a, { mode: 'optional', required: false });
+      put(h.mcp, JSON.stringify(config));
+      bad.push({ ...await observation(f, h.host, 'MCP resolves activated prefix'), control: 'muse: conflicting mode and required aliases' });
+      put(h.mcp, original);
+    }
   }
   const claude = f.hosts[0], config = JSON.parse(readFileSync(claude.mcp));
   config.mcpServers.h2a = { command: '/bin/echo', args: [f.a.cli, 'mcp-serve'] };
@@ -138,7 +175,7 @@ test('L0 MCP: version, echo, wrong protocol and duplicate routes cannot pass as 
   put(claude.mcp, JSON.stringify(duplicated));
   put(f.a.cli, "console.log('not an MCP response');");
   bad.push(await observation(f, 'claude', 'MCP resolves activated prefix'));
-  assert.deepEqual(bad.map(o => [o.id, o.actual]), bad.map(o => [o.id, false]));
+  assert.deepEqual(bad.map(o => [o.control ?? o.id, o.actual]), bad.map(o => [o.control ?? o.id, false]));
   for (const o of bad) assert.throws(() => contracts(sink, [o]), 'changed MCP must fail the normal gate');
 });
 
