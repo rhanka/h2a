@@ -32,7 +32,8 @@ function messages(text, type) {
 // without changing correlation, provenance or business ownership.
 export async function bridgeCentralMcpStdio(options) {
   const markerPath = centralMcpMarkerPath(options), attachmentId = options.attachment?.id ?? randomUUID();
-  const mappings = new RequestMappings(), view = new CatalogueView(describeCatalogue(embeddedTools));
+  const mappings = new RequestMappings(), view = new CatalogueView(describeCatalogue(options.registryTools ?? embeddedTools));
+  let registryAdmitted = !options.registryTools;
   const buildInfo = shimBuildInfo();
   const acceptances = new EvidenceAcceptances(), owners = new Set();
   const retireOwners = () => {
@@ -366,10 +367,18 @@ export async function bridgeCentralMcpStdio(options) {
       if (initialized) { error(message.id, 'already_initialized'); return; }
       const protocolVersion = PROTOCOLS.includes(message.params?.protocolVersion) ? message.params.protocolVersion : PROTOCOLS[0];
       initialized = { protocolVersion };
-      write({ jsonrpc: '2.0', id: message.id, result: { protocolVersion, capabilities: { tools: { listChanged: true } }, serverInfo: { name: '@sentropic/h2a', version: buildInfo.packageVersion } } });
-      track(connect().catch(() => {})); return;
+      const reply = () => write({ jsonrpc: '2.0', id: message.id, result: { protocolVersion, capabilities: { tools: { listChanged: true } }, serverInfo: { name: '@sentropic/h2a', version: buildInfo.packageVersion } } });
+      if (options.registryTools) {
+        // Memory is never advertised until the central admits this pinned
+        // selection and proves the selected catalogue on its generation.
+        track(connect().then(() => {
+          if (view.state !== 'CURRENT') throw new Error('catalogue_unavailable');
+          registryAdmitted = true; reply();
+        }).catch(e => { error(message.id, 'central_unavailable', e.message); }));
+      } else { reply(); track(connect().catch(() => {})); }
+      return;
     }
-    if (!initialized) { if (message.id !== undefined) error(message.id, 'initialize_required'); return; }
+    if (!initialized || !registryAdmitted) { if (message.id !== undefined) error(message.id, 'initialize_required'); return; }
     if (message.method === 'notifications/initialized') return;
     if (message.method === 'tools/list') {
       if (message.id !== undefined) {

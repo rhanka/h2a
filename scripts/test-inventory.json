@@ -1097,5 +1097,21 @@
     "M17 partition is disjoint/exhaustive and the unchanged inventory checker rejects merge holes",
     "M17 context refuses a configured proof outside the disposable GitHub runner",
     "M17 producer seals only a successful same-run report after owned-process and volume cleanup"
+  ],
+  "packages/h2a/test/registry-memory.test.js": [
+    "L2: memory parameters are closed and require an explicit binding reference",
+    "L2: lock pins memory entry, version and normalized configuration before activation",
+    "L2: selected memory discovers and calls all six tools through the Sentropic plan",
+    "L2: unselected memory never loads or handles calls; h2a and Track remain available",
+    "L2: absent bindings or package refuse before memory is advertised",
+    "L2: trusted context resolution refuses without leaking details or invoking the provider",
+    "L2: bridge selects the third provider, forwards the verified selection, and never requests a gateway",
+    "L2: actual attachment MCP protocol discovers metadata and dispatches selected memory under its fence",
+    "L2: selected stdio shim reaches the real central memory dispatch with the same pinned lock",
+    "L2: a packed ESM-only Engram descriptor resolves and verifies its own asset closure",
+    "L2: lock provisioning pins an explicitly selected memory tuple without changing the default tuple",
+    "L2: a memory shim refuses initialize and discovery when the central binding is unconfigured",
+    "L2: a memory shim refuses a central lock mismatch before discovery or dispatch",
+    "L2: bridge refuses absent bindings and bad lock digests before delegation"
   ]
 }

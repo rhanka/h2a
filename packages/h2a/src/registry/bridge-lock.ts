@@ -15,6 +15,8 @@ import { dirname, join } from "node:path";
 import { trackRegistryPackageManifest } from "@sentropic/track/registry/manifest";
 import { canonicalJson, normalizeConfiguration, sha256Hex, validateRegistryEntry, type RegistryEntry } from "./descriptors.js";
 import { registryPackageManifest } from "./manifest.js";
+import { MEMORY_PROVIDER_ID, readInstalledMemoryEntry } from "./memory-provider.js";
+import { RegistryError } from "./descriptors.js";
 
 export const BRIDGE_LOCK_FORMAT = "h2a.registry-bridge-lock/v1";
 
@@ -34,6 +36,10 @@ export interface BridgeLock {
   selection: BridgeLockSelection[];
   entries: Record<string, { digest: string; config: Record<string, unknown>; configDigest: string }>;
   compatibility: { hostFeatures: string[]; protocolVersions: string[] };
+}
+
+export function bridgeLockDigest(lock: BridgeLock): string {
+  return sha256Hex(canonicalJson(lock));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -96,11 +102,14 @@ export function provisionBridgeLock(options: {
   bridge: { command: string; args: string[] };
   h2aEntry: RegistryEntry;
   trackEntry: RegistryEntry;
+  memory?: { entry: RegistryEntry; config: Record<string, unknown> };
 }): { lockPath: string; action: "provisioned" | "already-present" } {
   if (existsSync(options.lockPath)) return { lockPath: options.lockPath, action: "already-present" };
   const configs = defaultBridgeConfigs();
   const entries: BridgeLock["entries"] = {};
-  for (const entry of [options.h2aEntry, options.trackEntry]) {
+  if (options.memory) configs[MEMORY_PROVIDER_ID] = options.memory.config;
+  const selectedEntries = [options.h2aEntry, options.trackEntry, ...(options.memory ? [options.memory.entry] : [])];
+  for (const entry of selectedEntries) {
     const { digest } = validateRegistryEntry(entry);
     const config = configs[entry.id] as Record<string, unknown>;
     const normalized = normalizeConfiguration(entry, config);
@@ -113,12 +122,9 @@ export function provisionBridgeLock(options: {
     host: options.host,
     profile: options.profile,
     bridge: options.bridge,
-    selection: [
-      { kind: "mcp", id: "sentropic.h2a", entryVersion: options.h2aEntry.entryVersion },
-      { kind: "mcp", id: "sentropic.track", entryVersion: options.trackEntry.entryVersion }
-    ],
+    selection: selectedEntries.map(entry => ({ kind: entry.kind, id: entry.id, entryVersion: entry.entryVersion })),
     entries,
-    compatibility: { hostFeatures: ["stdio", "streamable-http"], protocolVersions: ["2025-06-18"] }
+    compatibility: { hostFeatures: [...new Set(["stdio", "streamable-http", ...(options.memory?.entry.compatibility.requiredHostFeatures ?? [])])], protocolVersions: ["2025-06-18"] }
   };
   mkdirSync(dirname(options.lockPath), { recursive: true });
   writeFileSync(options.lockPath, `${JSON.stringify(lock, null, 2)}\n`, { mode: 0o600 });
@@ -126,7 +132,7 @@ export function provisionBridgeLock(options: {
 }
 
 /** Read and closed-validate a bridge lock; rechecks pinned digests. */
-export function readBridgeLock(lockPath: string): BridgeLock {
+export function readBridgeLock(lockPath: string, memoryEntry?: RegistryEntry): BridgeLock {
   let raw: unknown;
   try {
     raw = JSON.parse(readFileSync(lockPath, "utf8")) as unknown;
@@ -140,17 +146,42 @@ export function readBridgeLock(lockPath: string): BridgeLock {
   if (lock.lockVersion !== 1 || !Array.isArray(lock.selection) || !isRecord(lock.entries) || !isRecord(lock.compatibility)) {
     throw Object.assign(new Error("invalid_entry: bridge lock has malformed version/selection/entries"), { code: "invalid_entry" });
   }
+  return validateBridgeLock(lock, memoryEntry);
+}
+
+/** Reused by daemon composition: no unchecked selection bypasses the lock. */
+export function validateBridgeLock(lock: BridgeLock, memoryEntry?: RegistryEntry): BridgeLock {
   const known = new Map(
     [...registryPackageManifest.entries, ...trackRegistryPackageManifest.entries].map((entry) => [(entry as RegistryEntry).id, entry as RegistryEntry])
   );
+  if (lock.selection.some(selected => selected.id === MEMORY_PROVIDER_ID)) {
+    const memory = memoryEntry ?? readInstalledMemoryEntry();
+    if (memory.kind !== "mcp" || memory.id !== MEMORY_PROVIDER_ID || memory.publisher.packageName !== "@sentropic/engram" ||
+        memory.mcp?.connectorIds.length !== 1 || memory.mcp.connectorIds[0] !== "engram-memory" ||
+        !memory.mcp.transportProfiles.some(profile => profile.id === "sentropic.engram.memory-wire/v1" && profile.mode === "in-process")) {
+      throw new RegistryError("invalid_entry", "memory entry must name sentropic.engram.memory / engram-memory");
+    }
+    known.set(MEMORY_PROVIDER_ID, memory);
+  }
+  const seen = new Set<string>();
   for (const selected of lock.selection) {
     const packed = known.get(selected.id);
     if (!packed) throw Object.assign(new Error(`invalid_entry: bridge lock selects unknown provider ${selected.id}`), { code: "invalid_entry" });
+    if (seen.has(selected.id)) throw new RegistryError("invalid_entry", "duplicate bridge selection");
+    seen.add(selected.id);
+    if (selected.kind !== packed.kind || selected.entryVersion !== packed.entryVersion) {
+      throw new RegistryError("incompatible_version", `bridge selection version differs for ${selected.id}`);
+    }
     const record = lock.entries[selected.id];
     if (!isRecord(record) || typeof record["digest"] !== "string") {
       throw Object.assign(new Error(`invalid_entry: bridge lock has no pinned digest for ${selected.id}`), { code: "invalid_entry" });
     }
     validateRegistryEntry(packed, { expectedDigest: record["digest"] as string });
+    const normalized = normalizeConfiguration(packed, record.config);
+    if (record.configDigest !== sha256Hex(canonicalJson(normalized))) {
+      throw new RegistryError("integrity_mismatch", `configuration digest differs for ${selected.id}`);
+    }
   }
+  if (Object.keys(lock.entries).some(id => !seen.has(id))) throw new RegistryError("invalid_entry", "unselected bridge entry");
   return lock;
 }

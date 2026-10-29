@@ -31,6 +31,9 @@ import { normalizeConfiguration, RegistryError, validateRegistryEntry, type Regi
 import { activateHostedLock, draftHostedLock, verifyHostedLock } from "./hosted.js";
 import { registryPackageManifest } from "./manifest.js";
 import { bridgeCentralAttachmentAdmitted } from "../runtime/mcp-central-policy.js";
+import { MEMORY_PROVIDER_ID, readInstalledMemoryEntry, type MemoryProviderRegistration } from "./memory-provider.js";
+import type { ComposeDaemonOptions } from "./sentropic-daemon.js";
+import type { McpServer } from "../runtime/mcp/server.js";
 
 export interface CliStreams {
   stdout: { write(text: string): void };
@@ -48,8 +51,8 @@ function registryError(streams: CliStreams, context: string, error: unknown): nu
   return 2;
 }
 
-function packedEntries(): RegistryEntry[] {
-  return [...registryPackageManifest.entries, ...trackRegistryPackageManifest.entries] as RegistryEntry[];
+function packedEntries(memoryEntry?: RegistryEntry): RegistryEntry[] {
+  return [...registryPackageManifest.entries, ...trackRegistryPackageManifest.entries, ...(memoryEntry ? [memoryEntry] : [])] as RegistryEntry[];
 }
 
 /**
@@ -154,6 +157,14 @@ function admitBridgeLockBounds(
       if (!hostFeatures.includes(required)) {
         return { code: "unsupported_host", message: `provider ${selected.id} requires host feature ${required}` };
       }
+    }
+    if (stored.id === MEMORY_PROVIDER_ID) {
+      // hostBindingRef selects a host composition, not one of the nine
+      // individual producer binding keys. Activation refuses absent ports.
+      if (!stored.mcp?.protocolVersions.some(version => protocolVersions.includes(version))) {
+        return { code: "incompatible_version", message: "memory has no compatible protocol version" };
+      }
+      continue;
     }
     // Binding references resolve against the declared binding keys with the
     // bridge's supplied ports (same supply as the pre-H2a compile call).
@@ -416,7 +427,8 @@ export function cmdHostedLock(argv: readonly string[], streams: CliStreams): num
 }
 
 export interface BridgeServeDeps {
-  delegateServe: (flags: Record<string, string>) => Promise<number>;
+  memory?: MemoryProviderRegistration;
+  delegateServe: (flags: Record<string, string>, registry?: Pick<ComposeDaemonOptions, "lock" | "memory"> & { tools: ReturnType<McpServer["listTools"]> }) => Promise<number>;
 }
 
 /**
@@ -477,7 +489,7 @@ export async function cmdRegistryBridge(
   }
   let lock;
   try {
-    lock = readBridgeLock(lockPath);
+    lock = readBridgeLock(lockPath, deps.memory?.entry);
   } catch (error) {
     if (defaulted) {
       return refuse(
@@ -519,8 +531,11 @@ export async function cmdRegistryBridge(
   // on this path. Lock config bounds are preserved: unknown providers refuse
   // (`invalid_entry`) and bad mode/binding values refuse through the package
   // validators (`invalid_parameters`/`missing_binding`).
+  let selectedTools: ReturnType<McpServer["listTools"]> | undefined;
   try {
-    const entries = new Map(packedEntries().map((entry) => [entry.id, entry]));
+    const memoryEntry = lock.selection.some(selected => selected.id === MEMORY_PROVIDER_ID)
+      ? deps.memory?.entry ?? readInstalledMemoryEntry() : undefined;
+    const entries = new Map(packedEntries(memoryEntry).map((entry) => [entry.id, entry]));
     for (const selected of lock.selection) {
       if (!entries.has(selected.id)) return refuse("invalid_entry", `unknown provider ${selected.id}`);
     }
@@ -541,7 +556,8 @@ export async function cmdRegistryBridge(
     // Order-sensitive: the served surface is h2a tools then Track tools, so a
     // reordered lock (or any subset) refuses here exactly as before.
     const selectedIds = lock.selection.map((selected) => selected.id);
-    if (JSON.stringify(selectedIds) !== JSON.stringify(["sentropic.h2a", "sentropic.track"])) {
+    const withMemory = selectedIds.includes(MEMORY_PROVIDER_ID);
+    if (JSON.stringify(selectedIds) !== JSON.stringify(["sentropic.h2a", "sentropic.track", ...(withMemory ? [MEMORY_PROVIDER_ID] : [])])) {
       return refuse("invalid_parameters", "lock selection does not equal the served surface; subset locks need a filtered server (not covered in this increment)");
     }
     const { H2A_CLI_MCP_TOOL_DESCRIPTORS } = await import("../runtime/mcp/tools.js");
@@ -566,8 +582,9 @@ export async function cmdRegistryBridge(
     const root = streams.cwd?.() ?? process.cwd();
     let toolNames: string[];
     try {
-      const composed = await composeDaemonRegistry({ view: "combined", root });
+      const composed = await composeDaemonRegistry({ view: "combined", root, lock, memory: deps.memory });
       toolNames = composed.toolNames();
+      selectedTools = composed.tools();
     } catch (error) {
       return refuse((error as { code?: string }).code ?? "invalid_entry", (error as Error).message);
     }
@@ -575,7 +592,7 @@ export async function cmdRegistryBridge(
     // tools in canonical sorted order while the served surface keeps
     // declaration order. The bound is unchanged — same tools, no silent
     // subset or extra — only the irrelevant ordering is normalized.
-    const served = H2A_CLI_MCP_TOOL_DESCRIPTORS.map(tool => tool.name).sort();
+    const served = selectedTools.map(tool => tool.name).sort();
     if (JSON.stringify([...toolNames].sort()) !== JSON.stringify(served)) {
       return refuse("invalid_parameters", "lock selection does not equal the served surface; subset locks need a filtered server (not covered in this increment)");
     }
@@ -585,7 +602,7 @@ export async function cmdRegistryBridge(
   const passthrough: Record<string, string> = { ...flags, host };
   delete passthrough["lock"];
   delete passthrough["profile"];
-  return deps.delegateServe(passthrough);
+  return deps.delegateServe(passthrough, { lock, memory: deps.memory, tools: selectedTools! });
 }
 
 
