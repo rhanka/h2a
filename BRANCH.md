@@ -964,3 +964,19 @@ red/green receipts, qualification limits and cleanup evidence.
   without increasing any job timeout. Unavailability rows claim no wake.
 - French audit with source anchors, RED/GREEN commands and remaining
   external qualification: [restart evidence](docs/2026-10-25-pr379-restart.md).
+
+## PR #379 — corrections R13 (2026-10-29)
+
+- Reproduce all four supplied round-5 P2 findings before production edits:
+  reconnecting MCP backends, false identity-gate green, quota attributed to
+  the unlaunched peer, and loss of non-green campaign receipts.
+- Count MCP calls in the owning role's journal across backend restarts;
+  retain the existing fenced CLI stop. Require initialized MCP, an exercised
+  non-ready identity gate and its deadline; preserve unrelated startup errors.
+- Persist quota only for the observed role, mapped to its parent-owned seat.
+  Assemble and scan failed-campaign receipts before publication; qualification
+  and receipt refusals still fail the job, and scan failure prevents upload.
+- Targeted evidence and R1–R5 replays:
+  [R13 report](docs/reviews/2026-10-29-cross-cli-r13.md).
+  Real qualification and the exact-SHA trusted receipt remain conductor-owned;
+  no merge-readiness or new independent review consensus is claimed.

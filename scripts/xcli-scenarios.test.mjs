@@ -116,7 +116,10 @@ test('L12: every scenario row names its closed blocker code', () => {
 function unavailableEvidence(scenario) {
   if (!scenario.startsWith('unavailability:')) return {};
   if (scenario.endsWith('identity-never-ready')) return { receiverMcp: true, evidence: [
+    { role: 'receiver', event: 'initialize', ok: true },
+    { role: 'receiver', event: 'tools', ok: true, messaging: true },
     { role: 'receiver', event: 'identity', ok: true, ready: false, state: 'identity_pending' },
+    { role: 'receiver', event: 'readiness-deadline', mcpLoaded: true },
   ] };
   const unknown = scenario.endsWith('unknown-instance');
   return { senderMcp: true, evidence: [
@@ -148,6 +151,20 @@ test('L12 review: unavailability rejects missing, unrelated and wrong-result sen
   const scenario = 'unavailability:unknown-instance';
   assert.equal(classifyScenarioRow(scenario, closedRow(scenario, undefined,
     { delivered: true, durableOnly: true })).ok, false, 'an unknown target cannot receive a durable landing');
+});
+
+test('R5: identity-never-ready requires live MCP and a witnessed non-ready identity gate', () => {
+  const scenario = 'unavailability:identity-never-ready', good = closedRow(scenario);
+  assert.equal(classifyScenarioRow(scenario, good).ok, true);
+  for (const overrides of [
+    { receiverMcp: false }, { evidence: [] },
+    ...['initialize', 'tools', 'identity', 'readiness-deadline'].map(event => ({ evidence: good.evidence.filter(e => e.event !== event) })),
+    { evidence: good.evidence.map(e => e.event === 'identity' ? { ...e, role: 'sender' } : e) },
+    { evidence: good.evidence.map(e => e.event === 'identity' ? { ...e, ready: true, state: 'identity_ready' } : e) },
+    { evidence: [...good.evidence, { role: 'receiver', event: 'scenario-identity-gate-held' },
+      { role: 'receiver', event: 'identity', ok: true, ready: false, state: 'identity_failed' }] },
+    { evidence: [...good.evidence, { role: 'receiver', event: 'cli-exit' }] },
+  ]) assert.equal(classifyScenarioRow(scenario, { ...good, ...overrides }).ok, false, JSON.stringify(overrides));
 });
 
 test('L3/L12: a sender shard requires all six refusal pairs and never satisfies the full matrix', () => {

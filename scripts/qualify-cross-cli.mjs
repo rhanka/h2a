@@ -313,6 +313,11 @@ async function worker() {
     return true;
   }
   function events(target) { return readEvents(target.env.XCLI_EVENTS); }
+  function observedBlocker(target, screen) {
+    const blocker = blockingScreen(screen);
+    if (blocker === 'provider-quota') row.evidence.push({ event: 'provider-quota-observed', role: target.role });
+    return blocker;
+  }
   async function stopTarget(target) {
     const current = await client.state(target.state.id);
     assert.equal(current.generation, target.state.generation, 'private host generation changed');
@@ -346,7 +351,7 @@ async function worker() {
       if (cancelled) return { blocker: 'qualification-cancelled' };
       const screen = await capture(target);
       if (await startup(target, screen)) continue;
-      const blocker = blockingScreen(screen);
+      const blocker = observedBlocker(target, screen);
       if (blocker) { row.evidence.push({ event: 'startup-screen-facts', role: target.role, facts: startupFacts(screen) }); return { blocker }; }
       const identity = events(target).find(e => e.event === 'identity' && e.ok && e.ready);
       const armed = events(target).some(e => e.event === 'wake-armed');
@@ -412,9 +417,12 @@ async function worker() {
     if (!scriptedKind) {
       row.receiverMcp = loaded(r);
       if (!readiness.instance) {
-        // Lot L12: a faulted identity gate classifies identity-never-ready —
-        // never an unclassified deadline failure, never credit.
-        if (scenario.kind === 'unavailability' && scenario.state === 'identity-never-ready') {
+        // Only an exercised identity gate at its deadline earns the expected
+        // refusal. Startup exits, missing MCP and unrelated blockers survive.
+        if (scenario.kind === 'unavailability' && scenario.state === 'identity-never-ready' &&
+            readiness.blocker === 'initial-model-tool-turn-not-observed' &&
+            classifyScenarioRow(scenario.key, { ...row, blocker: 'identity-never-ready',
+              evidence: [...row.evidence, ...events(r).map(e => ({ role: 'receiver', ...e }))] }).ok) {
           row.blocker = 'identity-never-ready';
           return row;
         }
@@ -645,7 +653,7 @@ async function worker() {
       }
       const senderScreen = await capture(s);
       if (!row.sent && await startup(s, senderScreen)) continue;
-      const blocker = blockingScreen(senderScreen) ?? blockingScreen(await capture(r));
+      const blocker = observedBlocker(s, senderScreen) ?? observedBlocker(r, await capture(r));
       if (blocker) { row.blocker = blocker; break; }
       await sleep(100);
     }
@@ -666,7 +674,7 @@ async function worker() {
       // inbox; any receiver read before release proves polling.
       while (Date.now() < Math.min(releaseAt, deadline)) {
         if (cancelled) { row.blocker = 'qualification-cancelled'; break; }
-        const blocker = blockingScreen(await capture(s)) ?? blockingScreen(await capture(r));
+        const blocker = observedBlocker(s, await capture(s)) ?? observedBlocker(r, await capture(r));
         if (blocker) { row.blocker = blocker; break; }
         await sleep(200);
       }
@@ -711,7 +719,7 @@ async function worker() {
         if (row.replyDelivered && row.received) break;
         const senderScreen = await capture(s);
         if (!row.sent && await startup(s, senderScreen)) continue;
-        const blocker = blockingScreen(senderScreen) ?? blockingScreen(await capture(r));
+        const blocker = observedBlocker(s, senderScreen) ?? observedBlocker(r, await capture(r));
         if (blocker) { row.blocker = blocker; break; }
         await sleep(100);
       }
@@ -1188,9 +1196,10 @@ async function main() {
       blocker: 'qualification-worker-failed-cleanup-unproven', evidence: [], elapsedMs: 0, cell }; }
     // Quota stops belong to the campaign, including its later resumes.
     // Persist the worker's observation before recovery can change its blocker.
-    if (row.blocker === 'provider-quota') {
-      quotaSeats.add(seatKey(run, 'sender'));
-      quotaSeats.add(seatKey(run, 'receiver'));
+    const quotaRoles = ['sender', 'receiver'].filter(role =>
+      row.evidence?.some(e => e.event === 'provider-quota-observed' && e.role === role));
+    if (quotaRoles.length) {
+      for (const role of quotaRoles) quotaSeats.add(seatKey(run, role));
       ledger.quotaSeats = [...quotaSeats];
       persistLedger(ledger);
     }
