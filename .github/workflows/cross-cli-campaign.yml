@@ -73,7 +73,7 @@ jobs:
           import { spawnSync } from 'node:child_process';
           import { createHash } from 'node:crypto';
           import { join } from 'node:path';
-          import { ORACLE_SOURCES, environment, privateExecutable } from './scripts/xcli-lab.mjs';
+          import { ORACLE_SOURCES, environment, privateExecutable, pythonEntrypoint, vendorRuntimeLabel } from './scripts/xcli-lab.mjs';
           const home = fs.mkdtempSync(join(process.env.RUNNER_TEMP, 'xcli-measure-'));
           const versions = {};
           try {
@@ -82,6 +82,8 @@ jobs:
               if (found.status !== 0) throw new Error('cli-not-provisioned:' + family);
               const dir = join(home, family), env = environment(dir);
               const path = privateExecutable(family, found.stdout.trim(), dir).path;
+              if (!vendorRuntimeLabel(family, path) && pythonEntrypoint(path))
+                throw new Error('python-entrypoint-forbidden:' + family);
               const probe = spawnSync(path, ['--version'], { env, cwd: dir, encoding: 'utf8', timeout: 15000, maxBuffer: 65536 });
               const version = probe.stdout?.match(/\d+\.\d+\.\d+(-R\d+(\.\d+)?)?/)?.[0];
               if (probe.status !== 0 || !version) throw new Error('cli-version-unproven:' + family);
