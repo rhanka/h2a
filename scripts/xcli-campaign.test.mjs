@@ -130,6 +130,62 @@ test('L8: killing and resuming continues from the persisted ledger', () => {
   } finally { fs.rmSync(first.dir, { recursive: true, force: true }); fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+for (const [kind, body, minimumMs] of [
+  ['lost', `${stubHead}setTimeout(() => process.exit(9), 1000);`, 1000],
+  ['silent', `${stubHead}setInterval(() => {}, 1000);`, 47000],
+  ['reported-zero', `${stubHead}setTimeout(() => {
+    process.stdout.write(JSON.stringify({ sender: request.sender, receiver: request.receiver,
+      status: 'blocked', blocker: 'stub-no-model', evidence: [], elapsedMs: 0 }));
+  }, 1000);`, 1000],
+]) {
+  test(`L8 review: ${kind} workers consume the persisted wall-clock budget before resume`, () => {
+    const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-wall-clock-'));
+    const campaignRoot = join(dir, 'campaign');
+    const args = ['--simulated', '--pair', 'codex:codex', '--timeout-ms', '1000',
+      '--session-cap', '10', '--campaign-wall-clock-ms', '47000', '--campaign-root', campaignRoot];
+    let first, second;
+    try {
+      first = runCampaign(args, body);
+      const ledger = JSON.parse(fs.readFileSync(join(campaignRoot, 'campaign-ledger.json')));
+      console.log({ kind, sessionsDebited: ledger.sessionsDebited, wallClockSpentMs: ledger.wallClockSpentMs });
+      second = runCampaign(args, stubRow('stub-no-model'));
+      const resumed = JSON.parse(fs.readFileSync(join(campaignRoot, 'campaign-ledger.json')));
+      assert.ok(ledger.wallClockSpentMs >= minimumMs, 'the parent charges actual time even without a worker row');
+      assert.equal(second.invocations, 1, 'resume never spawns an unfunded worker');
+      assert.equal(resumed.sessionsDebited, 2, 'resume preserves the session debit');
+      assert.equal(second.receipt.cells[0].blocker, 'campaign-cap-exhausted');
+    } finally {
+      for (const run of [first, second]) if (run) fs.rmSync(run.dir, { recursive: true, force: true });
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+}
+
+test('L8 review: resuming the ledger captured during a worker keeps its time reservation', () => {
+  const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-interrupted-ledger-'));
+  const campaignRoot = join(dir, 'campaign');
+  const args = ['--simulated', '--pair', 'codex:codex', '--timeout-ms', '1000',
+    '--session-cap', '10', '--campaign-wall-clock-ms', '47000', '--campaign-root', campaignRoot];
+  const stub = stubRow('stub-no-model').replace(stubHead, `${stubHead}
+fs.copyFileSync(join(request.root, 'campaign-ledger.json'), join(request.root, 'in-flight-ledger.json'));
+`);
+  let first, resumed;
+  try {
+    first = runCampaign(args, stub);
+    // Restore exactly the durable bytes available if the parent dies before
+    // settling the worker. No worker-reported duration can erase this debit.
+    fs.copyFileSync(join(campaignRoot, 'in-flight-ledger.json'), join(campaignRoot, 'campaign-ledger.json'));
+    const inFlight = JSON.parse(fs.readFileSync(join(campaignRoot, 'campaign-ledger.json')));
+    resumed = runCampaign(args, stubRow('stub-no-model'));
+    assert.equal(inFlight.wallClockSpentMs, 47000);
+    assert.equal(resumed.invocations, 1, 'an interrupted parent cannot refund the pending attempt');
+    assert.equal(resumed.receipt.cells[0].blocker, 'campaign-cap-exhausted');
+  } finally {
+    for (const run of [first, resumed]) if (run) fs.rmSync(run.dir, { recursive: true, force: true });
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('L8: diagonal cells run before cross cells', () => {
   const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-camp-'));
   try {

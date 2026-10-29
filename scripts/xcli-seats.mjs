@@ -115,7 +115,9 @@ function ledgerFile(dir) { return join(dir, 'campaign-ledger.json'); }
 function writeLedger(dir, ledger) {
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   const { __dir, ...persisted } = ledger;
-  fs.writeFileSync(ledgerFile(dir), JSON.stringify(persisted, null, 2) + '\n', { mode: 0o600 });
+  const next = join(dir, 'campaign-ledger.next');
+  fs.writeFileSync(next, JSON.stringify(persisted, null, 2) + '\n', { mode: 0o600 });
+  fs.renameSync(next, ledgerFile(dir));
 }
 
 function readLedger(dir) {
@@ -168,9 +170,14 @@ export function renderSeatLedger(ledger) {
 // Wall-clock accounting (§6.4): a silent session is bounded by its session
 // unit plus the watchdog; the bound is stated, not hidden. Pre-launch checks
 // refuse when the campaign wall-clock cap would be exceeded.
-export function noteWallClock(ledger, ms) {
+// Reserve the full watchdog bound before spawn. A completed attempt replaces
+// its reservation with parent-measured time; an interrupted parent leaves the
+// reservation charged across resume, rather than losing the attempt's cost.
+export function noteWallClock(ledger, ms, { reservedMs = 0 } = {}) {
   assert.ok(Number.isSafeInteger(ms) && ms >= 0, 'wall-clock slice required');
-  ledger.wallClockSpentMs += ms;
+  assert.ok(Number.isSafeInteger(reservedMs) && reservedMs >= 0 && reservedMs <= ledger.wallClockSpentMs,
+    'wall-clock reservation required');
+  ledger.wallClockSpentMs += ms - reservedMs;
   assert.ok(ledger.__dir, 'ledger dir unknown; reload it first');
   writeLedger(ledger.__dir, ledger);
 }
@@ -222,6 +229,10 @@ export async function runSeatPreflight(seat, { executables = {}, runAuthPrecheck
   try {
   const env = environment(root);
   executable = privateExecutable(seat.family, executable, root).path;
+  const vendorLabel = vendorRuntimeLabel(seat.family, executable);
+  if (!vendorLabel && pythonEntrypoint(executable)) {
+    return fail(`python-entrypoint-forbidden:${seat.family}`);
+  }
   const options = { env, cwd: root, encoding: 'utf8' };
   let version = null;
   try {
@@ -233,11 +244,8 @@ export async function runSeatPreflight(seat, { executables = {}, runAuthPrecheck
   try { digest = createHash('sha256').update(fs.readFileSync(executable)).digest('hex'); }
   catch { return fail('preflight-digest-unproven'); }
   const facts = { seatId: seat.seatId, family: seat.family, version, digest, modelCalls: 0 };
-  const vendorLabel = vendorRuntimeLabel(seat.family, executable);
   if (vendorLabel) {
     facts.vendorRuntime = vendorLabel;
-  } else if (pythonEntrypoint(executable)) {
-    return { ...fail(`python-entrypoint-forbidden:${seat.family}`), ...facts };
   }
   facts.tierC = tierCOracle(seat.family, executable, options);
   if (!facts.tierC.ok) return { ...fail(facts.tierC.reason), ...facts };
