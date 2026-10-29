@@ -28,7 +28,7 @@ privés et aucun bus propriétaire. Prérequis de chaque source de contrôle :
 
 ```sh
 node --test packages/h2a/test/native-cleanse-oracle.test.js
-# mêmes contrôles avec helpers de d45120064 : 6 tests, 1 pass, 5 fail, 0 skip/todo
+# mêmes contrôles avec helpers de d45120064 : 6 tests, 0 pass, 6 fail, 0 skip/todo
 # helpers corrigés : 6 tests, 6 pass, 0 fail, 0 skip/todo
 
 node --import ./packages/h2a/test/helpers/native-isolation.js --test \
@@ -56,6 +56,23 @@ toujours sur `main`, avec cache candidat ajouté. Ancien oracle : 31/31 GREEN ;
 nouvel oracle : 12 artefacts non courants et échec de gate normal.
 Les contrôles séparés couvrent aussi commentaires sans hooks, désactivation,
 dépendance manquante, doublon MCP et réponse sans protocole MCP.
+La référence Codex `mcpServers: "./.mcp.json"` est également inventoriée :
+cache sans ce fichier ou avec commande périmée, chacun reproduit RED avant
+correction. Un candidat privé de cette ressource doit lui-même être rejeté
+(RED « Missing expected exception » avant ajout du contrôle obligatoire).
+Les fichiers MCP, manifests, helpers sélectionnés et ressources de référence
+requis doivent exister dans le candidat ; une absence commune au paquet et au
+cache ne peut pas constituer une égalité GREEN.
+Les digests portent sur les bytes bruts : le contrôle `0xff` dans le candidat
+contre `0xfe` dans une ressource du cache reproduit RED l'ancienne collision
+après décodage UTF-8, puis passe avec le hash binaire.
+La configuration Vibe existante avec les options de `mcp-serve` est un contrôle
+positif : RED avec la restriction injustifiée à un seul argument, GREEN après
+correction. Le véritable échange MCP reste exigé ; `version` reste rejeté.
+Les contrôles positifs reprennent aussi le TOML réellement copié par l'import
+Agy et le hook Muse sans `--workspace`, ancré au cwd du workspace enregistré.
+Ces deux formes valides étaient rejetées (RED), puis deviennent GREEN ; un
+import TOML malformé reste bloquant.
 
 La vérification indépendante avec l'ancien inventaire (six identités seulement)
 échoue : les 42 assertions contractuelles ne peuvent plus disparaître derrière

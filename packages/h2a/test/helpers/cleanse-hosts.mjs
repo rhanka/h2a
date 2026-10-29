@@ -137,7 +137,8 @@ function commandForOldHelper(root, host) {
 }
 
 const text = path => path && existsSync(path) ? readFileSync(path, 'utf8') : undefined;
-const digest = path => { const bytes = text(path); return bytes === undefined ? undefined : hash(bytes); };
+const digest = path => path && existsSync(path) ? hash(readFileSync(path)) : undefined;
+const prompt = path => { const bytes = text(path); return bytes === undefined ? undefined : getStaticTOMLValue(parseForESLint(bytes).ast).prompt?.trim(); };
 const scopeFiles = ['workspace-scope-guard.mjs', 'workspace-scope-shell.mjs', 'workspace-scope-state.mjs'];
 const parseConfig = item => item.mcp.endsWith('.toml') ? getStaticTOMLValue(parseForESLint(text(item.mcp)).ast) :
   item.mcp.endsWith('.yaml') ? YAML.parse(text(item.mcp)) : json(item.mcp);
@@ -165,7 +166,7 @@ function payload(root) {
     }
   }
   for (const dir of ['skills', 'hooks']) walk(join(root, dir), dir);
-  for (const path of ['.claude-plugin/plugin.json', '.codex-plugin/plugin.json']) out[path] = digest(join(root, path));
+  for (const path of ['.claude-plugin/plugin.json', '.codex-plugin/plugin.json', '.mcp.json']) out[path] = digest(join(root, path));
   return out;
 }
 
@@ -243,9 +244,10 @@ function selectedHook(a, item, config, helpersCurrent) {
   if (executable(a, command[0]) !== realpathSync(process.execPath) || executable(a, command[1]) !== executable(a, item.helper) ||
       options[options.indexOf('--host') + 1] !== item.host) return false;
   const anchor = item.host === 'agy' ? '--session-store' : '--workspace';
-  const expected = item.host === 'agy' ? dirname(dirname(item.helper)) : join(a.root, 'workspace');
-  if (options[options.indexOf(anchor) + 1] !== expected) return false;
-  const result = spawnSync(command[0], command.slice(1), { cwd: a.root, env: a.env, input: '{',
+  const expected = item.host === 'agy' ? dirname(dirname(item.helper)) : dirname(dirname(item.hooks));
+  const anchorIndex = options.indexOf(anchor);
+  if (anchorIndex >= 0 ? options[anchorIndex + 1] !== expected : item.host === 'agy') return false;
+  const result = spawnSync(command[0], command.slice(1), { cwd: item.host === 'muse' ? expected : a.root, env: a.env, input: '{',
     encoding: 'utf8', timeout: 5000, killSignal: 'SIGKILL' });
   return !result.error && /H2A_SCOPE:UNVERIFIABLE/.test(result.stderr) &&
     JSON.parse(result.stdout).hookSpecificOutput?.permissionDecision === 'deny';
@@ -254,6 +256,12 @@ function selectedHook(a, item, config, helpersCurrent) {
 export function observeHosts(a, inventory) {
   const skill = text(join(a.packages, 'h2a/skills/h2a-run/SKILL.md'));
   const resource = digest(join(a.packages, 'track/skills/present-decision/assets/native-questions.md'));
+  assert.ok(skill, 'candidate payload missing required h2a-run skill');
+  assert.ok(resource, 'candidate payload missing required linked resource');
+  for (const path of ['.claude-plugin/plugin.json', '.codex-plugin/plugin.json', '.mcp.json', 'hooks/hooks.json',
+    'hooks/deny-manual-h2a-cli.mjs', ...scopeFiles.map(name => 'hooks/' + name)]) {
+    assert.ok(digest(join(a.packages, 'h2a', path)), 'candidate payload missing required ' + path);
+  }
   const expectedHelpers = Object.fromEntries(scopeFiles.map(name => [name, digest(join(a.packages, 'h2a/hooks', name))]));
   const expectedPlugin = payload(join(a.packages, 'h2a'));
   const observations = [];
@@ -264,7 +272,7 @@ export function observeHosts(a, inventory) {
       actual, expected: true, evidence: evidence[key], knownMissing: { actual: false, expected: true, evidence: item.legacy[key] } });
     assert.ok(text(item.mcp).includes('third-party'), item.host + ': preserve unrelated configuration');
     const installedSkill = text(item.skill);
-    const rendered = item.format === 'toml' && installedSkill ? getStaticTOMLValue(parseForESLint(installedSkill).ast).prompt : undefined;
+    const rendered = item.format === 'toml' ? prompt(item.skill) : undefined;
     add('skill bytes', item.format === 'markdown' ? installedSkill === skill :
       rendered?.trim() === skill.replace(/^---\n[\s\S]*?\n---\n/, '').trim(), 'skill');
     add('linked resource bytes', evidence.resource === resource, 'resource');
@@ -274,7 +282,7 @@ export function observeHosts(a, inventory) {
     const direct = target === realpathSync(a.cli);
     const viaNode = target === realpathSync(process.execPath) && executable(a, command[1]) === realpathSync(a.cli);
     const args = command.slice(direct ? 1 : 2);
-    const validRoute = (direct || viaNode) && args.length === 1 && args[0] === 'mcp-serve';
+    const validRoute = (direct || viaNode) && args[0] === 'mcp-serve';
     const transportKey = JSON.stringify(command);
     if (validRoute && !transports.has(transportKey)) transports.set(transportKey, servesMcp(a, command));
     add('MCP resolves activated prefix', routes.length === 1 && servers.filter(([name]) => /^track/.test(name)).length <= 1 &&
@@ -288,7 +296,7 @@ export function observeHosts(a, inventory) {
       assert.ok(text(item.hooks).includes('third-party'), 'preserve unrelated workspace hooks');
       add('selected hook registration', selectedHook(a, item, evidence.hooks, helpersCurrent), 'hooks');
     }
-    if (item.imported) add('observed Agy imported bytes', text(item.imported)?.trim() ===
+    if (item.imported) add('observed Agy imported bytes', prompt(item.imported) ===
       skill.replace(/^---\n[\s\S]*?\n---\n/, '').trim(), 'imported');
     if (item.registration) {
       const plugin = evidence.plugin;
