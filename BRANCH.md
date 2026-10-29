@@ -1,13 +1,11 @@
-# Native cleanse — L0, PR #396 round 3
+# Native cleanse — L0, PR #396 round 4
 
-- Scope: resolve round-2 P1/P2 in L0 witnesses and their independent npm trust root; no L1–L6 product implementation.
-- The 42 desired contracts now have literal, required execution identities alongside the six packaged product witnesses. A known-missing result must prove the exact assertion and unchanged seeded artifact evidence; repaired contracts become GREEN automatically.
-- MCP checks exchange initialize/tools/list with the selected candidate; hooks parse and execute selected registrations with all helper dependencies; plugin checks inventory full skills/hooks payloads and follow the selected Codex marketplace into its effective cache.
-- Codex's referenced .mcp.json is part of the independent plugin payload, with missing/stale cache and incomplete candidate controls reproduced RED before correction.
-- Round-2 composite reproduction: the old oracle accepts 31/31; the corrected oracle rejects 12 stale artifacts. Regression suite: 6/6; packaged baseline + oracles: 54/54; independent trust root: 44/44, zero skips/todos.
-- Strict replay on main 912dd3035, rc.7 8d588db05 and head: each six product witnesses pass and 42 exact missing contracts fail. Real two-endpoint run/restore, twenty UUIDs, flock and PTY I/O remain observed.
-- Evidence, confinement and native dependency qualification limit: docs/reviews/native-cleanse-l0-r3.md. No new peer consensus claimed.
-- First pushed CI exposed GHSA-rmxm-3fg6-px4f in @hono/node-server 2.1.1. Update only its lock entry to the first fixed patch 2.1.3; security audit exits 0, L0 54/54 and trust root 44/44 after clean install. No threshold or waiver change.
+- Scope: resolve all round-3 P1/P2 in L0 witnesses and their npm gate; no L1–L6 product implementation.
+- Committed 42-contract ledger with exact RED signatures or GREEN state. No environment flag controls verdicts; every result is carried by the reporter into the production tests-step verifier. Repairs must flip their ledger entry in the same change.
+- Independent CI controls reject GREEN→RED (including original stale bytes), changed RED signatures and undeclared RED→GREEN, plus missing/duplicate/unknown observations and swallowed assertions.
+- Host controls reject duplicate hook options, Agy enablement changes, and an active plugin MCP resolving to a stale PATH binary despite a healthy direct MCP.
+- Targeted verification: packaged baseline+oracle 57/57, trust root 48/48, adjacent gate/cache tests 72/72, no skip/todo. Main 912dd3035 and rc.7 8d588db05: baseline 48/48 with the same 42 exact RED outcomes; actual npm verifier accepts the matching ledger.
+- Details, RED/GREEN commands and qualification limits: docs/reviews/native-cleanse-l0-r4.md. Private TMPDIR /home/antoinefa/.cache-tmp/h2a-test/run-xyfAMY to remove at delivery; no Python, owner state, installed h2a or new peer consensus.
 
 # Memory MCP — L1 producer skill installation
 

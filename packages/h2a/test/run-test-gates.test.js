@@ -25,6 +25,7 @@ import { spawnSync } from 'node:child_process'
 import { test } from 'node:test'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { readCleanseLedger, observeContract } from '../../../scripts/cleanse-contract-ledger.mjs'
 import { discoverTestFiles, RUNNER_TEST_FILE, listNodeTrackSuiteFiles, verifyNodeTrackExecution } from '../../../scripts/run-tests.mjs'
 
 import { configContractFailures } from '../../../scripts/test-config-contract.mjs'
@@ -1481,12 +1482,15 @@ test('L0 trust root: every baseline contract and oracle is required by the produ
       ...ids.map(id => 'L0 contract: ' + id),
     ],
     [oracle]: [
-      'L0 contracts: only the exact known assertion is accepted and repaired contracts become GREEN',
+      'L0 contracts: only the committed state and exact failure signature are accepted',
       'L0 inventory: all frozen artifacts can be observed current',
       'L0 MCP: version, echo, wrong protocol and duplicate routes cannot pass as the effective server',
       'L0 hooks: comments, echo commands, disabled hooks and missing dependencies cannot pass',
       'L0 plugins: missing helpers and stale selected Codex sources cannot pass with a candidate cache',
       'L0 reviewers reproduction: version MCPs, echo hooks and incomplete unselected caches cannot yield 31 GREEN',
+      "L0 hooks: duplicate host and workspace options cannot redirect the selected hook",
+      "L0 Agy: imported bytes must preserve the observed enabled or disabled selection",
+      "L0 plugins: the active plugin MCP must resolve and answer from the activated prefix",
     ],
   }
   const inventory = readInventory(REPO_ROOT), discovered = discoverTestFiles()
@@ -1496,10 +1500,11 @@ test('L0 trust root: every baseline contract and oracle is required by the produ
   }
   const files = Object.keys(required).map(file => resolve(REPO_ROOT, file))
   const report = {
-    success: true, numTotalTests: 54, numPassedTests: 54, numFailedTests: 0, numPendingTests: 0, numTodoTests: 0,
+    success: true, numTotalTests: 57, numPassedTests: 57, numFailedTests: 0, numPendingTests: 0, numTodoTests: 0,
     testResults: Object.entries(required).map(([file, names]) => ({ name: resolve(REPO_ROOT, file), status: 'passed',
       assertionResults: names.map(fullName => ({ fullName, status: 'passed' })) })),
   }
+  report.testResults[0].cleanseContracts = Object.entries(readCleanseLedger()).map(([id, entry]) => ({ id, ...entry }))
   const verify = STEPS.find(step => step.id === 'tests').verifyExecution
   assert.deepEqual(verify(report, files), [])
   for (const id of ids) {
@@ -1518,37 +1523,78 @@ test('L0 trust root: every baseline contract and oracle is required by the produ
   }
 })
 
-test('L0 trust root: neutralising the exact missing assertion or its evidence fails the independent probe', () => {
-  const lab = mkdtempSync(join(tmpdir(), 'cleanse-trust-'))
+function cleanseGateFixture() {
+  const file = resolve(REPO_ROOT, 'packages/h2a/test/native-cleanse-baseline.test.js');
+  const names = readInventory(REPO_ROOT)['packages/h2a/test/native-cleanse-baseline.test.js'];
+  const ledger = readCleanseLedger();
+  const report = { success: true, numTotalTests: names.length, numPassedTests: names.length,
+    numFailedTests: 0, numPendingTests: 0, numTodoTests: 0,
+    testResults: [{ name: file, status: 'passed', assertionResults: names.map(fullName => ({ fullName, status: 'passed' })),
+      cleanseContracts: Object.entries(ledger).map(([id, entry]) => ({ id, ...structuredClone(entry) })) }] };
+  const verify = (report, expected = ledger) => STEPS.find(s => s.id === 'tests').verifyExecution(report, [file], expected);
+  assert.deepEqual(verify(report), []);
+  return { report, ledger, verify, results: report.testResults[0].cleanseContracts };
+}
+
+test('L0 ledger gate: a GREEN contract turning RED fails even with success true and passing tests', () => {
+  const { report, ledger, verify, results } = cleanseGateFixture();
+  const red = structuredClone(results[0]);
+  ledger[red.id] = { state: 'GREEN' };
+  results[0] = { id: red.id, state: 'GREEN' };
+  assert.deepEqual(verify(report), []);
+  results[0] = red; // exact return to the old bytes/signature
+  assert.ok(verify(report).some(f => f.includes('GREEN -> observed RED')));
+});
+
+test('L0 ledger gate: a RED contract with a different signature fails', () => {
+  const { report, verify, results } = cleanseGateFixture();
+  for (const key of ['name', 'code', 'operator', 'actual', 'expected', 'message', 'evidenceSha256']) {
+    const original = results[0].signature[key];
+    results[0].signature[key] = 'changed';
+    assert.ok(verify(report).some(f => f.includes('different failure signature')), key);
+    results[0].signature[key] = original;
+  }
+});
+
+test('L0 ledger gate: a repaired RED contract requires a committed ledger update', () => {
+  const { report, ledger, verify, results } = cleanseGateFixture();
+  const id = results[0].id;
+  results[0] = { id, state: 'GREEN' };
+  assert.ok(verify(report).some(f => f.includes('RED -> observed GREEN')));
+  ledger[id] = { state: 'GREEN' }; // the same change must update this entry
+  assert.deepEqual(verify(report), []);
+});
+
+test('L0 ledger gate: missing, duplicate and unknown contract results fail', () => {
+  const { report, verify, results } = cleanseGateFixture();
+  results.pop();
+  assert.ok(verify(report).some(f => f.includes('result missing')));
+  results.push(results[0]);
+  assert.ok(verify(report).some(f => f.includes('duplicate contract')));
+  results.push({ id: 'invented', state: 'GREEN' });
+  assert.ok(verify(report).some(f => f.includes('missing from committed ledger')));
+});
+
+test('L0 trust root: neutralising ledger enforcement cannot hide the independently reported outcome', () => {
+  const lab = mkdtempSync(join(tmpdir(), 'cleanse-trust-'));
   try {
     const helper = readFileSync(resolve(HERE, 'helpers/cleanse-contracts.mjs'), 'utf8')
+      .replace("'../../../../scripts/cleanse-contract-ledger.mjs'", JSON.stringify(pathToFileURL(resolve(REPO_ROOT, 'scripts/cleanse-contract-ledger.mjs')).href));
     writeFileSync(join(lab, 'probe.mjs'), `
-      import assert from 'node:assert/strict';
       import { contracts } from './contracts.mjs';
-      const messages = [], t = { diagnostic: message => messages.push(message) };
-      const o = { id: 'probe', lot: 'L1', actual: false, expected: true, evidence: 'seeded',
-        knownMissing: { actual: false, expected: true, evidence: 'seeded' } };
-      contracts(t, [o]);
-      assert.match(messages.pop(), /KNOWN-MISSING RED probe/);
-      contracts(t, [{ ...o, actual: true }]);
-      assert.match(messages.pop(), /GREEN probe/);
-      for (const change of [{ actual: undefined }, { evidence: 'different stale artifact' },
-        { expected: 'different assertion' }, { knownMissing: undefined }])
-        assert.throws(() => contracts(t, [{ ...o, ...change }]));
-    `)
+      contracts({ diagnostic: message => console.log(message) }, [{ id: 'claude installed skill bytes', lot: 'L3+L4', actual: true, expected: true }]);
+    `);
     const run = source => {
-      writeFileSync(join(lab, 'contracts.mjs'), source)
-      return spawnSync(process.execPath, [join(lab, 'probe.mjs')], {
-        encoding: 'utf8', env: { ...process.env, H2A_CLEANSE_STRICT: '' }, timeout: 10_000,
-      })
-    }
-    const clean = run(helper)
-    assert.equal(clean.status, 0, clean.stdout + clean.stderr)
-    for (const statement of ['assert.deepEqual(actual, expected, message);',
-      'assert.deepEqual(evidence, knownMissing.evidence, `${message}: missing-contract evidence changed`);']) {
-      const mutated = helper.replace(statement, '')
-      assert.notEqual(mutated, helper, 'the mutation must apply')
-      assert.equal(run(mutated).status, 1, 'a neutralised assertion must fail outside npm test')
-    }
-  } finally { rmSync(lab, { recursive: true, force: true }) }
-})
+      writeFileSync(join(lab, 'contracts.mjs'), source);
+      return spawnSync(process.execPath, [join(lab, 'probe.mjs')], { encoding: 'utf8', timeout: 10_000 });
+    };
+    assert.equal(run(helper).status, 1, 'an undeclared GREEN must fail the witness');
+    const bypass = helper.replace('assert.equal(failure, undefined, failure);', '');
+    assert.notEqual(bypass, helper);
+    const result = run(bypass);
+    assert.equal(result.status, 0, result.stderr);
+    const { report, verify, results } = cleanseGateFixture();
+    results[0] = JSON.parse(result.stdout.trim().slice('H2A_CLEANSE_CONTRACT '.length));
+    assert.ok(verify(report).some(f => f.includes('RED -> observed GREEN')), 'the npm gate must reject a swallowed assertion');
+  } finally { rmSync(lab, { recursive: true, force: true }); }
+});
