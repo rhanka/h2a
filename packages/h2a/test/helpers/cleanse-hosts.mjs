@@ -12,7 +12,7 @@ import { hash, json } from './cleanse-artifact.mjs';
 const oldSkill = readFileSync(new URL('./fixtures/cleanse-old-run.md', import.meta.url), 'utf8');
 const put = (p, bytes) => { mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, bytes); };
 
-export function seedHosts(a, { agyEnabled = true } = {}) {
+export function seedHosts(a, { agyEnabled = true, vibeDisabled = false } = {}) {
   const home = a.env.HOME;
   a.env.CLAUDE_CONFIG_DIR = join(home, 'claude-config');
   a.env.CODEX_HOME = join(home, 'codex-config');
@@ -40,7 +40,7 @@ export function seedHosts(a, { agyEnabled = true } = {}) {
     const mcp = join(root, config);
     const command = join(a.root, 'old-prefix/bin/h2a');
     const server = { command, args: ['mcp-serve'], transport: 'stdio' };
-    put(mcp, config.endsWith('.toml') ? `${host === 'vibe' ? '[[mcp_servers]]\nname = "h2a"\ntransport = "stdio"' : '[mcp_servers.h2a]'}\ncommand = "${command}"\nargs = ["mcp-serve"]\n\n[fixture]\nsentinel = "third-party"\n` :
+    put(mcp, config.endsWith('.toml') ? `${host === 'vibe' ? '[[mcp_servers]]\nname = "h2a"\ntransport = "stdio"' + (vibeDisabled ? '\ndisabled = true' : '') : '[mcp_servers.h2a]'}\ncommand = "${command}"\nargs = ["mcp-serve"]\n\n[fixture]\nsentinel = "third-party"\n` :
       config.endsWith('.yaml') ? `mcp_servers:\n  h2a:\n    command: ${command}\n    args: [mcp-serve]\nfixture: third-party\n` :
       JSON.stringify({ mcpServers: { h2a: server }, fixture: 'third-party' }));
     const state = join(root, shared ? '.h2a-install-agy' : '.h2a-install');
@@ -123,7 +123,7 @@ export function seedHosts(a, { agyEnabled = true } = {}) {
     `);
     chmodSync(join(a.root, 'bin', host), 0o700);
     // put() preserves a deliberately constrained executable path.
-    return { host, root, skill, resource, mcp, helper, hooks, imported, registration, agyEnabled, format: shared ? 'toml' : 'markdown' };
+    return { host, root, skill, resource, mcp, helper, hooks, imported, registration, agyEnabled, vibeDisabled, format: shared ? 'toml' : 'markdown' };
   });
   return inventory;
 }
@@ -257,11 +257,18 @@ function selectedHook(a, item, config, helpersCurrent) {
     JSON.parse(result.stdout).hookSpecificOutput?.permissionDecision === 'deny';
 }
 
-function currentMcp(a, server, transports) {
+function currentMcp(a, server, transports, item) {
+  // Vibe selects a discriminated transport and can disable an entry. Validate
+  // that selection BEFORE consulting the shared argv/protocol cache.
+  if (item?.host === 'vibe' && (server?.transport !== 'stdio' ||
+      (server.disabled ?? false) !== item.vibeDisabled)) return false;
   const command = argv(server), target = executable(a, command[0]);
   const direct = target === realpathSync(a.cli);
   const viaNode = target === realpathSync(process.execPath) && executable(a, command[1]) === realpathSync(a.cli);
   if (!(direct || viaNode) || command[direct ? 1 : 2] !== 'mcp-serve') return false;
+  // A deliberately disabled entry must keep its choice and current target;
+  // it is not an effective server and must not be launched by the witness.
+  if (item?.host === 'vibe' && item.vibeDisabled) return true;
   const key = JSON.stringify(command);
   if (!transports.has(key)) transports.set(key, servesMcp(a, command));
   return transports.get(key) === true;
@@ -302,7 +309,7 @@ export function observeHosts(a, inventory) {
     const servers = entries(config), routes = servers.filter(([name, server]) =>
       /^h2a/.test(name) || argv(server).some(arg => typeof arg === 'string' && arg.includes(a.cli)));
     add('MCP resolves activated prefix', routes.length === 1 && servers.filter(([name]) => /^track/.test(name)).length <= 1 &&
-      currentMcp(a, routes[0]?.[1], transports), 'mcp');
+      currentMcp(a, routes[0]?.[1], transports, item), 'mcp');
     let helpersCurrent;
     if (item.helper) {
       helpersCurrent = JSON.stringify(evidence.helper) === JSON.stringify(expectedHelpers);

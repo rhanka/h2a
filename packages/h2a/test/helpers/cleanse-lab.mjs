@@ -158,12 +158,22 @@ export async function lab(t, artifact) {
     lockId, lockBefore, NativeTerminalClient, usable, inventory, transcripts, preserve };
 }
 
-export function files(root) {
+export function files(root, observe = path => path) {
   const out = [];
-  for (const e of readdirSync(root, { withFileTypes: true })) {
+  let entries;
+  try { entries = readdirSync(root, { withFileTypes: true }); }
+  catch (error) { if (error.code === 'ENOENT') return out; throw error; }
+  for (const e of entries) {
     const path = join(root, e.name);
-    if (e.isDirectory()) out.push(...files(path));
-    else if (!e.isSymbolicLink()) out.push(path);
+    try {
+      if (e.isDirectory()) out.push(...files(path, observe));
+      else if (!e.isSymbolicLink()) {
+        // Observe inside the disappearance boundary, never return paths for
+        // later stat/read calls while the fixture's hosts are still writing.
+        const value = observe(path);
+        if (value !== undefined) out.push(value);
+      }
+    } catch (error) { if (error.code !== 'ENOENT') throw error; }
   }
   return out;
 }
