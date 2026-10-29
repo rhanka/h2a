@@ -20,7 +20,10 @@ for (const period of selected === undefined ? periods : [Number(selected)]) {
       rows.push({ period, phase, replication, budgetMs: cell.budgetMs, status: cell.status,
         woke: cell.woke, wakeFailure: cell.wakeFailure });
       assert.equal(cell.status, 'simulated-KO', `period ${period} phase ${phase}: must not pass`);
-      assert.equal(cell.woke, false, `period ${period} phase ${phase}: no wake credit`);
+      assert.equal(cell.woke, false, JSON.stringify({ period, phase, replication,
+        status: cell.status, failure: cell.failure, blocker: cell.blocker,
+        wakeFailure: cell.wakeFailure, windows: cell.wakeWindows,
+        evidence: cell.evidence?.filter(e => ['mcp-call-cap-exceeded', 'readiness-deadline'].includes(e.event)) }));
       const w = cell.wakeWindows;
       if (w.preBarrierReads + w.baselineReads + w.withheldReads > 0) {
         assert.equal(cell.wakeFailure, 'wake-polling-detected');
