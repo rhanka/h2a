@@ -1123,9 +1123,13 @@ async function main() {
     }
     // V3 §6.4 pre-launch check: the composite caps are verified before every
     // launch — preflight included. On refusal nothing is spawned and no seat
-    // is touched; the refusal is witnessed in the ledger.
-    if (!fitsSessions(ledger, 2) || !wallClockFits(ledger, cellBoundMs)) {
-      const cap = !fitsSessions(ledger, 2) ? 'launched-sessions' : 'wall-clock';
+    // is touched; the refusal is witnessed in the ledger. A witnessed MCP
+    // runaway brake also stops the campaign: the breached cell keeps its
+    // measured failure, later cells are refused here, and the persisted flag
+    // keeps refusing on resume of the same ledger.
+    const mcpStopped = ledger.mcpCapBreached === true;
+    if (!fitsSessions(ledger, 2) || !wallClockFits(ledger, cellBoundMs) || mcpStopped) {
+      const cap = mcpStopped ? 'mcp-call-cap' : (!fitsSessions(ledger, 2) ? 'launched-sessions' : 'wall-clock');
       ledger.refusals.push({ run: `${sender}>${receiver}`, code: 'campaign-cap-exhausted', cap });
       persistLedger(ledger);
       // No stopping flag: every later cell re-hits the same pre-spawn gate
@@ -1248,6 +1252,13 @@ async function main() {
     row.parentElapsedMs = Math.ceil(performance.now() - cellStarted);
     noteWallClock(ledger, row.parentElapsedMs, { reservedMs: cellBoundMs });
     if (row.cleanupFailed) stopping = true;
+    // Lot L8 (§6.4): the per-session MCP brake is campaign-wide. The first
+    // breached cell keeps its measured mcp-call-cap-exceeded failure; the
+    // persisted flag refuses every later launch, in this run and on resume.
+    if (row.failure === 'mcp-call-cap-exceeded' && !row.cleanupFailed && ledger.mcpCapBreached !== true) {
+      ledger.mcpCapBreached = true;
+      persistLedger(ledger);
+    }
     process.stdout.write(`${sender} -> ${receiver}: ${row.status} (${row.blocker ?? row.failure ?? 'round-trip'})\n`);
   }
   // Lot L3 batch separation (§3.3): NO cell earns stage-7 credit until its
