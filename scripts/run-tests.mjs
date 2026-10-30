@@ -258,7 +258,12 @@ function main() {
   // twice. Cap each suite well under any CI job timeout so a hang fails CLEAN
   // and NAMED instead. Portable across node versions (a spawnSync option, not the
   // node-20-incompatible `--test-timeout` flag). Override via H2A_TEST_TIMEOUT_MS.
-  const RUN_TIMEOUT_MS = Number(process.env.H2A_TEST_TIMEOUT_MS) || 600000;
+  // Floor 900s (r16 evidence): the node suite alone measured 578s against this
+  // 600s backstop on CI before two cleanse suites landed; a tighter backstop
+  // SIGKILLs node --test, the execution report goes missing, and the evidence
+  // gate fails closed with hundreds of NEVER EXECUTED holes. Still far under
+  // the 21-minute outer step cap in run-test-gates.mjs.
+  const RUN_TIMEOUT_MS = Number(process.env.H2A_TEST_TIMEOUT_MS) || 900000;
 
   // Defense-in-depth: create a throwaway temp dir for H2A_ROOT so that any test
   // that runs a writing verb (connect/register/mcp-serve) without --root AND with
