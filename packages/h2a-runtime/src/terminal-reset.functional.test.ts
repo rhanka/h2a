@@ -86,8 +86,9 @@ async function writeRawInnerScript(directory: string): Promise<string> {
   const inner = join(directory, "inner-raw.mjs");
   await writeFile(inner,
     `const { spawnSync } = await import("node:child_process");\n` +
+    `const raw = spawnSync("stty", ["-icanon", "-echo"], { stdio: "inherit" });\n` +
+    `if (raw.error || raw.status !== 0) throw new Error("stty raw setup failed");\n` +
     `process.stdout.write("treset-inner-ready pid=" + process.pid + "\\n");\n` +
-    `spawnSync("stty", ["-icanon", "-echo"], { stdio: "inherit" });\n` +
     `setInterval(() => {}, 1000);\n`);
   return inner;
 }
@@ -269,6 +270,12 @@ describe.skipIf(process.platform !== "linux")("client terminal sane-state reset 
     const root = createPrivateTestDirectory("treset-termios-");
     directories.add(root);
     const env = nativeTestEnvironment(root) as Record<string, string>;
+    // Observe the real stty completion in the same PTY stream as readiness.
+    // Pinning while this short-lived descendant still exists races its exit.
+    await writeFile(join(root, "stty"),
+      '#!/bin/sh\n/usr/bin/stty "$@" || exit "$?"\n' +
+      'if [ "$1" = "-icanon" ]; then printf "treset-stty-applied\\n"; fi\n', { mode: 0o700 });
+    env.PATH = root + ":" + env.PATH;
     const inner = await writeRawInnerScript(root);
     const driver = spawnDriver(env,
       `import { spawnSync } from "node:child_process";\n` +
@@ -283,12 +290,14 @@ describe.skipIf(process.platform !== "linux")("client terminal sane-state reset 
     driver.pin();
     const innerPid = innerPidOf(driver.output());
     strayPids.add(innerPid);
-    // Let the inner apply stty -icanon -echo before killing it.
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    // Readiness proves stty completed; the owned process tree is now stable.
     process.kill(innerPid, "SIGKILL");
     await until(() => driver.output().includes("TRESET-TERMIOS"), "termios compared");
     await until(driver.ended, "termios driver returned");
     strayPids.delete(innerPid);
+    expect(driver.output()).toContain("treset-stty-applied");
+    expect(driver.output().indexOf("treset-inner-ready"), "readiness must follow the completed stty child")
+      .toBeGreaterThan(driver.output().indexOf("treset-stty-applied"));
     const line = /TRESET-TERMIOS before=(\S+) after=(\S+)/.exec(driver.output());
     expect(line, `termios line in ${JSON.stringify(driver.output().slice(-500))}`).not.toBeNull();
     expect(line![2], "termios restored after raw-leaving SIGKILL").toBe(line![1]);

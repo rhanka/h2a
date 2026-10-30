@@ -65,9 +65,16 @@ export function fixture(t) {
     };
     stopRecorded();
     await Promise.all(children.map(child => child.exitCode === null && child.signalCode === null ? once(child, 'close') : undefined));
-    // SIGKILL delivery is asynchronous, including for detached descendants.
-    // Re-read the private birth records so late-started owned writers drain too.
-    await eventually(stopRecorded, pending => pending === 0);
+    // Detached hosts/PTYs are not represented by the direct ChildProcess
+    // handles. SIGKILL delivery must finish before they can stop writing:
+    // verify every birth-checked recorded descendant is actually dead (or
+    // reaped/reused) instead of only signalling the direct children.
+    await eventually(() => recorded().every(({ pid, start }) => {
+      try {
+        const stat = readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ')[1].split(' ');
+        return stat[19] !== start || ['Z', 'X'].includes(stat[0]);
+      } catch (error) { if (['ENOENT', 'ESRCH'].includes(error.code)) return true; throw error; }
+    }), Boolean);
     rmSync(root, { recursive: true, force: true });
     assert.equal(existsSync(root), false);
   };
