@@ -12,7 +12,7 @@
  * — missing args, decision not found, contract mismatch). It is READ-ONLY: NO track write, NO new
  * track event (those are L4).
  *
- *   stp focus <decision-id> [--format terminal|md|html] [--workspace <ws>]
+ *   stp focus <decision-id> [--format terminal|md|html|json] [--workspace <ws>]
  *                           [--baseline-commit <sha>] [--events-path <path>]
  *
  * Defaults: `--events-path` = `.track/events.jsonl`, `--format` = `terminal`. `--workspace` is

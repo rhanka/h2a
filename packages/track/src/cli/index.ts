@@ -111,7 +111,7 @@ const USAGE = `usage: track <command>
   validate [--commit <sha>]
   events-contains --base <log> --candidate <log> [--format json|text]
   audit [--format json|text]
-  focus <decision-id> --workspace <w> [--format terminal|md|html] [--baseline-commit <sha>]
+  focus <decision-id> --workspace <w> [--format terminal|md|html|json] [--baseline-commit <sha>]
   branch import <BRANCH.md> [--commit <sha>]
   restructure apply --plan <plan.json>
   ingest <file.jsonl> --workspace <w>
@@ -1486,12 +1486,13 @@ const HTML_HOOKS = {
 }
 
 /**
- * `track focus <decision-id> --workspace <w> [--format terminal|md|html] [--baseline-commit <sha>]` —
+ * `track focus <decision-id> --workspace <w> [--format terminal|md|html|json] [--baseline-commit <sha>]` —
  * a READ-ONLY render of a track decision as a focus DecisionDossierDocument (focus@0.3.0 is itself
  * read-only). track resolves the store THE TRACK WAY (`ctx.eventsPath` — NO `--events-path`; track owns
  * store resolution via `--track-dir`/`TRACK_DIR`/ancestor-walk) and the baseline commit via `resolveCommit`,
  * then calls focus's `readDecisionDossier(eventsPath, {workspace, baselineCommit, decisionId}, readAt)` and
- * dispatches the render-core (terminal/md/html). It is the HOME of Focus (`stp focus` is a shortcut alias).
+ * dispatches the render-core (terminal/md/html) or the JSON serialization (U-19). It is the HOME of Focus
+ * (`stp focus` is a shortcut alias).
  *
  * ASYNC (the only such command): `../focus-vendor/index.js` is an `integrated dependency` consumed via dynamic
  * `import()`, so track's CORE stays publishable with ZERO knowledge of focus and `track focus` is an
@@ -1502,7 +1503,7 @@ const HTML_HOOKS = {
  */
 async function cmdFocus(args: string[], ctx: Ctx, _noStore: boolean): Promise<number> {
   const { io } = ctx
-  const FOCUS_USAGE = 'usage: track focus <decision-id> --workspace <w> [--format terminal|md|html] [--baseline-commit <sha>]\n'
+  const FOCUS_USAGE = 'usage: track focus <decision-id> --workspace <w> [--format terminal|md|html|json] [--baseline-commit <sha>]\n'
   const { positional, flags } = parseFlags(args)
   try {
     assertOnlyFlags(flags, ['workspace', 'format', 'baseline-commit'])
@@ -1522,9 +1523,9 @@ async function cmdFocus(args: string[], ctx: Ctx, _noStore: boolean): Promise<nu
   }
   // `--format` is validated via the shared `oneOf` (CLI-boundary input check) BEFORE the import too, so a
   // bad format fails fast as a usage error rather than a render error.
-  let format: 'terminal' | 'md' | 'html'
+  let format: 'terminal' | 'md' | 'html' | 'json'
   try {
-    format = oneOf(opt(flags, 'format') ?? 'terminal', ['terminal', 'md', 'html'], '--format')
+    format = oneOf(opt(flags, 'format') ?? 'terminal', ['terminal', 'md', 'html', 'json'], '--format')
   } catch (error) {
     io.err(`error: ${error instanceof Error ? error.message : String(error)}\n`)
     return 2
@@ -1544,9 +1545,11 @@ async function cmdFocus(args: string[], ctx: Ctx, _noStore: boolean): Promise<nu
   // integrated focus renderer is unavailable: map it to rc=1 + a helpful hint (NOT a stack trace).
   let focusTrack: typeof import('../focus-vendor/track/index.js')
   let core: typeof import('../focus-vendor/index.js')
+  let validation: typeof import('../focus-vendor/validation/index.js')
   try {
     focusTrack = await import('../focus-vendor/track/index.js')
     core = await import('../focus-vendor/index.js')
+    validation = await import('../focus-vendor/validation/index.js')
   } catch (error) {
     const code = (error as { code?: string }).code
     if (code === 'ERR_MODULE_NOT_FOUND' || code === 'MODULE_NOT_FOUND') {
@@ -1565,6 +1568,15 @@ async function cmdFocus(args: string[], ctx: Ctx, _noStore: boolean): Promise<nu
       { workspace, baselineCommit, decisionId },
       new Date().toISOString(),
     )
+    // U-19: the JSON surface has no renderer, so it validates the doc through the SAME presentation
+    // gate (readability included) via the vendored union validator (`v1 | v2` — Track's dossier
+    // model stores v1 fields today, so the serialized document carries no `schemaVersion`), then
+    // emits the validated document verbatim.
+    if (format === 'json') {
+      const validated = validation.assertDecisionDossierForPresentation(doc)
+      io.out(`${JSON.stringify(validated, null, 2)}\n`)
+      return 0
+    }
     const rendered =
       format === 'md' ? core.renderMd(doc) : format === 'html' ? core.renderHtml(doc, HTML_HOOKS) : core.renderTerminal(doc)
     io.out(rendered.endsWith('\n') ? rendered : `${rendered}\n`)
