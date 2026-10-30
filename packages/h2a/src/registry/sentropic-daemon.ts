@@ -60,7 +60,7 @@ import { TRACK_READ_TOOL_DESCRIPTORS } from "@sentropic/track/mcp";
 import { createMcpServer, isMcpTransportResult, type McpServer } from "../runtime/mcp/server.js";
 import { H2A_CLI_MCP_TOOL_DESCRIPTORS } from "../runtime/mcp/tools.js";
 import { validateBridgeLock, type BridgeLock } from "./bridge-lock.js";
-import { missingMemoryBuiltin, MEMORY_PROVIDER_ID, MEMORY_TOOL_NAMES, type MemoryProviderRegistration } from "./memory-provider.js";
+import { missingMemoryBuiltin, resolveHostMemoryRegistration, MEMORY_PROVIDER_ID, MEMORY_TOOL_NAMES, type MemoryProviderRegistration } from "./memory-provider.js";
 
 /** Pinned to the published facade; asserted by the H2a daemon tests. */
 export const USES_SENTROPIC_FACADE = true;
@@ -327,7 +327,7 @@ export async function composeDaemonRegistryForServer(
   const ids = lock?.selection.map(selected => selected.id);
   const wantCoordination = ids ? ids.includes("sentropic.h2a") : options.view === "coordination" || options.view === "combined";
   const wantTrack = ids ? ids.includes("sentropic.track") : options.view === "track" || options.view === "combined";
-  const memory = ids?.includes(MEMORY_PROVIDER_ID) ? options.memory ?? missingMemoryBuiltin() : undefined;
+  const memory = ids?.includes(MEMORY_PROVIDER_ID) ? await resolveHostMemoryRegistration(options.memory) : undefined;
   if (memory && (!memory.builtin || memory.builtin.providerId !== MEMORY_PROVIDER_ID)) missingMemoryBuiltin();
 
   const definitions: LoadedDefinition[] = [];

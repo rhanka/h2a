@@ -136,6 +136,36 @@ and unrelated files on Claude, Codex, Muse, Vibe and Agy. No provider activation
   GREEN: 125 installation/convergence/package/native-question tests plus
   17 native crash-recovery tests, zero failures/skips.
 
+# Mémoire MCP L2 — round 3 (revues round 2, bloqueur producteur #844)
+
+- Socle inchangé : consommation du builtin `sentropic.engram.memory` via
+  `createMcpRegistry({ builtins })`, refus `missing_binding` sans fabrication
+  (ni stockage, ni bindings, ni contexte). Aucun pin modifié (mesh 0.22.4).
+- Seam `resolveHostMemoryRegistration` (`memory-provider.ts`) : la CLI et la
+  composition y résolvent l'enregistrement fourni (tests/hôte qualifié) et
+  refusent atomiquement sinon ; seul point de branchement futur quand
+  sentropic#844 publiera le builtin configuré.
+- Contexte : STOP documenté, pas de substitution. Le garde producteur
+  `requireTrustedInvocationContext` (sentropic `mcp-platform/src/memory/
+  invocation-context.ts:41-76`, `-32603`) exige auditId/principal/tenantRef/
+  authTime puis la projection A03 complète ; l'attachement h2a réel
+  (`{context, participant}`, `mcp-central-context.ts:15-26`) n'en porte
+  aucun. Champs manquants listés dans le rapport round 3 (à sentropic).
+- Pas de réécriture wire : témoin `test.todo` + déclaration non-test
+  (`test-non-tests-0986.json`) en attente de sentropic#844
+  (`createEngramMemoryWireManifest`, tête 44dd0102d) ; RED vérifié
+  (`ERR_PACKAGE_PATH_NOT_EXPORTED`, rejet SDK `outputSchema.type`).
+- Enveloppe préservée par traversée (`transport` intact, `structuredContent`
+  vérifié bout en bout) ; close/reopen qualifié (re-serve + drivers isolés).
+- Reçus de refus complets (requête + réponse + driver) : non sélectionné,
+  destructif refusé, finalité étrangère — tous sans appel moteur.
+- Qualification : pilote producteur sur PG réel (`test-memory-mcp`, lock,
+  `make down` en trap) PASS (capture→admission→get/search, 2 refus -32603,
+  2 audits persistés) ; preuve d'exécution 22 tests success:true
+  (21 pass, 1 todo) ; batterie registre 55 (54 pass, 1 todo) ; C9 1/1 ;
+  run-test-gates 46/46 ; Node 24 : 46 (45 pass, 1 todo). TMPDIR supprimé.
+- Les deux tests natifs non suivis hérités restent intacts et hors commits.
+
 # Mémoire MCP L2 — correction de propriété, round 2
 
 - Reprise après reboot sur 099db16b6 : changements corrects conservés ; deux
