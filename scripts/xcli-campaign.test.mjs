@@ -229,6 +229,37 @@ test('L8: the launched-session cap refuses pre-spawn and stops the campaign', ()
   } finally { removeCampaignRoot(run.root); fs.rmSync(run.dir, { recursive: true, force: true }); }
 });
 
+test('L8 R4: an MCP breach stops the campaign and persists its stop across resume', () => {
+  const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-mcp-stop-'));
+  const campaignRoot = join(dir, 'campaign');
+  const stub = stubHead + 'process.stdout.write(JSON.stringify({ sender: request.sender,\n' +
+    "    receiver: request.receiver, status: 'simulated-KO', failure: 'mcp-call-cap-exceeded',\n" +
+    '    evidence: [{ event: ' + JSON.stringify('mcp-call-cap-exceeded') + ', count: 2, cap: 1 }], elapsedMs: 1,\n' +
+    '    cell: request.cell, seats: request.seats, credentialsCopied: { sender: [], receiver: [] } }));\n';
+  const args = ['--simulated', '--pair', 'codex:codex', '--wake-release-offsets-ms', '0,100',
+    '--timeout-ms', '1000', '--campaign-root', campaignRoot];
+  let first, second;
+  try {
+    first = runCampaign(args, stub);
+    assert.equal(first.invocations, 1, 'the breached cell runs once');
+    assert.equal(first.receipt.cells[0].failure, 'mcp-call-cap-exceeded');
+    assert.equal(first.receipt.cells[0].blocker, undefined);
+    assert.equal(first.receipt.cells[1].status, 'blocked');
+    assert.equal(first.receipt.cells[1].blocker, 'campaign-cap-exhausted');
+    assert.ok(first.receipt.ledgerRefusals.some(r => r.code === 'campaign-cap-exhausted' && r.cap === 'mcp-call-cap'));
+    const ledger = JSON.parse(fs.readFileSync(join(campaignRoot, 'campaign-ledger.json')));
+    assert.equal(ledger.mcpCapBreached, true);
+    assert.equal(ledger.sessionsDebited, 2);
+    second = runCampaign(args, stub);
+    assert.equal(second.invocations, first.invocations, 'resume spawns nothing new after an MCP stop');
+    assert.ok(second.receipt.cells.every(c => c.blocker === 'campaign-cap-exhausted'));
+    assert.equal(JSON.parse(fs.readFileSync(join(campaignRoot, 'campaign-ledger.json'))).sessionsDebited, 2);
+  } finally {
+    for (const run of [first, second]) if (run) fs.rmSync(run.dir, { recursive: true, force: true });
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('R5: reconnecting MCP backends share the owning CLI session cap', () => {
   const root = compliantQualificationRoot();
   try {
@@ -343,8 +374,9 @@ test('R5: identity-never-ready accepts only the witnessed live identity-gate fau
       encoding: 'utf8', timeout: 30000, maxBuffer: 4 * 1024 * 1024 });
     assert.equal(result.status, 0, result.stderr);
     const row = JSON.parse(result.stdout);
-    console.log({ blocker: row.blocker, receiverMcp: row.receiverMcp, verdict: classifyScenarioRow(scenario, row) });
-    assert.equal(row.blocker, 'identity-never-ready');
+    console.log({ blocker: row.blocker, receiverMcp: row.receiverMcp, verdict: classifyScenarioRow(scenario, row),
+      cleanupErrors: row.cleanupErrors });
+    assert.equal(row.blocker, 'identity-never-ready', JSON.stringify({ cleanupErrors: row.cleanupErrors }));
     assert.equal(row.receiverMcp, true);
     assert.ok(row.evidence.some(e => e.event === 'scenario-identity-gate-held' && e.role === 'receiver'));
     assert.equal(classifyScenarioRow(scenario, row).ok, true);
