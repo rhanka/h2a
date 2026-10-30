@@ -42,7 +42,7 @@ export function memorySkillConsumer(t, { packed = false, raw } = {}) {
     } else if (pkg === 'track') fs.symlinkSync(join(repo, 'packages/track'), dest);
     else {
       fs.mkdirSync(dest);
-      for (const name of ['package.json', 'dist', 'skills', 'hooks', 'fixtures', 'scripts', 'schema', '.claude-plugin', '.codex-plugin', '.mcp.json'])
+      for (const name of ['package.json', 'dist', 'skills', 'hooks', 'fixtures', 'scripts', 'schema', '.claude-plugin', '.codex-plugin', 'registry'])
         fs.cpSync(join(repo, 'packages/h2a', name), join(dest, name), { recursive: true });
     }
   }
