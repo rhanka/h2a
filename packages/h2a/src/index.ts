@@ -493,12 +493,17 @@ export {
   parseSubagentAddress,
   subagentActorRef,
   subagentAddress,
-  validateSubagentBinding
+  validateSubagentBinding,
+  authorizeSessionMemoryPurpose
 } from "./subagents.js";
 export type {
   H2ASubagentBinding,
   H2ASubagentValidation,
-  H2ASubagentValidationError
+  H2ASubagentValidationError,
+  AgentSessionMemoryScopeKind,
+  SessionPurposeGrantV1,
+  SessionMemoryPurposeCall,
+  SessionMemoryPurposeDecision
 } from "./subagents.js";
 export {
   H2A_ARTIFACT_KINDS,
@@ -965,6 +970,14 @@ export {
 
 export { createInboxWakeHandler, type InboxWakeHandlerDeps } from "./runtime/drive/inbox-wake.js";
 export type { H2aClusterMeshOuterDeps } from "./runtime/drive/cluster-mesh-outer.js";
+export {
+  authorizeDriveWakeActuation,
+  type DriveWakeDecisionV1,
+  type DriveWakeActuationInput,
+  type DriveWakeReceiptV1,
+  type DriveWakeRefusalReason,
+  type DriveWakeActuationResult
+} from "./runtime/drive/consent.js";
 
 export async function createH2aClusterMeshOuter(
   input: import("./runtime/drive/cluster-mesh-outer.js").H2aClusterMeshOuterDeps

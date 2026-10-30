@@ -113,3 +113,106 @@ export function projectConsent(store:ConsentReader,from:string,to:string,entries
   const priority:ConsentReason[]=['consent-revoked','consent-refused','consent-principal-unavailable','consent-invalid','consent-expired','consent-pending','unauthorized'];
   return done(success??priority.map(reason=>decisions.find(d=>!d.ok&&d.reason===reason)).find(Boolean)??{ok:false,reason:'consent-invalid'},requests.length);
 }
+
+// ---------------------------------------------------------------------------
+// §8 cadre agentique: drive/wake actuation boundary (r2 §8, co-sign §4.2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Fresh F15-class decision for one drive/wake actuation, naming both id
+ * levels of the driven agent (the level-1 memorial agent and the level-2
+ * agent session). Consumed as a contract: the gate never recomputes identity.
+ */
+export interface DriveWakeDecisionV1 {
+  readonly allowed: boolean;
+  readonly drivenMemorialAgentId: string;
+  readonly drivenAgentSessionId: string;
+}
+
+export interface DriveWakeActuationInput {
+  /** Driving principal or memorial agent (the §8 receipt's first field). */
+  readonly drivingPrincipalOrAgentId: string;
+  readonly decision: DriveWakeDecisionV1;
+  /** Journal-backed bilateral consent projection for the pair (consumed contract). */
+  readonly consent: ConsentProjection;
+}
+
+/**
+ * The §8 drive/wake receipt (frozen five fields, co-sign §4.2): every attempt
+ * — actuated or refused — records who drove, what was driven (both id
+ * levels), which consent grant was involved and the outcome.
+ */
+export interface DriveWakeReceiptV1 {
+  readonly drivingPrincipalOrAgentId: string;
+  readonly drivenMemorialAgentId: string;
+  readonly drivenAgentSessionId: string;
+  readonly consentGrantId: string;
+  readonly outcome: string;
+}
+
+export type DriveWakeRefusalReason = ConsentReason | 'decision_refused' | 'decision_unavailable';
+
+export type DriveWakeActuationResult =
+  | { readonly ok: true; readonly receipt: DriveWakeReceiptV1 }
+  | { readonly ok: false; readonly reason: DriveWakeRefusalReason; readonly receipt: DriveWakeReceiptV1 };
+
+const MEMORIAL_AGENT_ID_PREFIX_RE = /^agent:[A-Za-z0-9][A-Za-z0-9._:-]*$/;
+const AGENT_SESSION_ID_PREFIX_RE = /^agent-session:[A-Za-z0-9][A-Za-z0-9._:-]*$/;
+
+function usableDriveWakeDecision(decision: unknown): decision is DriveWakeDecisionV1 {
+  return (
+    !!decision && typeof decision === 'object' && !Array.isArray(decision) &&
+    typeof (decision as DriveWakeDecisionV1).allowed === 'boolean' &&
+    MEMORIAL_AGENT_ID_PREFIX_RE.test(String((decision as DriveWakeDecisionV1).drivenMemorialAgentId)) &&
+    AGENT_SESSION_ID_PREFIX_RE.test(String((decision as DriveWakeDecisionV1).drivenAgentSessionId))
+  );
+}
+
+/**
+ * Bilateral drive-consent enforcement at the actuation boundary (r2 §8 (ii)):
+ * driving or waking a CLI session requires BOTH a fresh F15-class allowing
+ * decision naming both id levels AND an active journal-backed
+ * `drive-consent:<hash(from,to)>` grant. Every consent refusal — EXACT
+ * (`consent-revoked`, `consent-refused`, `consent-expired`, …) blocks
+ * immediately with that named reason; `consent-unavailable` infers nothing
+ * (retry, never grant); an absent grant is `unauthorized`. Every attempt
+ * returns the §8 receipt (drive/wake receipt records the driving principal or
+ * memorial agent, the driven memorial agent, the driven L2 session, the
+ * consent grant id and the outcome). Pure: no I/O, no actuation here — the
+ * drive path actuates only on `ok: true`.
+ */
+export function authorizeDriveWakeActuation(input: DriveWakeActuationInput): DriveWakeActuationResult {
+  if (!input || typeof input.drivingPrincipalOrAgentId !== 'string' || input.drivingPrincipalOrAgentId.length === 0) {
+    throw new TypeError('authorizeDriveWakeActuation: drivingPrincipalOrAgentId must be a non-empty string');
+  }
+  const grantId = input.consent && input.consent.decision && input.consent.decision.ok ? input.consent.decision.grantId : '';
+  const receipt = (drivenMemorialAgentId: string, drivenAgentSessionId: string, outcome: string): DriveWakeReceiptV1 => ({
+    drivingPrincipalOrAgentId: input.drivingPrincipalOrAgentId,
+    drivenMemorialAgentId,
+    drivenAgentSessionId,
+    consentGrantId: grantId,
+    outcome
+  });
+  const driven = (decision: DriveWakeDecisionV1 | null) =>
+    receipt(
+      decision ? decision.drivenMemorialAgentId : '',
+      decision ? decision.drivenAgentSessionId : '',
+      ''
+    );
+  if (!usableDriveWakeDecision(input.decision)) {
+    const r = driven(null);
+    return { ok: false, reason: 'decision_unavailable', receipt: { ...r, outcome: 'refused:decision_unavailable' } };
+  }
+  const named = driven(input.decision);
+  if (!input.decision.allowed) {
+    return { ok: false, reason: 'decision_refused', receipt: { ...named, outcome: 'refused:decision_refused' } };
+  }
+  if (!input.consent || typeof input.consent !== 'object' || !input.consent.decision) {
+    return { ok: false, reason: 'consent-unavailable', receipt: { ...named, outcome: 'refused:consent-unavailable' } };
+  }
+  const decision = input.consent.decision;
+  if (!decision.ok) {
+    return { ok: false, reason: decision.reason, receipt: { ...named, outcome: 'refused:' + decision.reason } };
+  }
+  return { ok: true, receipt: { ...named, outcome: 'actuated' } };
+}
