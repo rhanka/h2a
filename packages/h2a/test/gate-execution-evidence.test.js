@@ -73,6 +73,16 @@ for (const [name, mutate] of [
   assert.throws(() => observeNodeTrackEntry(mutant, repo))
 })
 
+test('A16: the node-suite liveness backstop keeps headroom over the evidenced duration', () => {
+  // r16: the suite measured 578s/600s on CI before two cleanse suites landed;
+  // a tighter backstop SIGKILLs node --test, the report goes missing, and the
+  // evidence gate fails closed with hundreds of NEVER EXECUTED holes. Pin the
+  // floor (raises stay green). This is a liveness backstop, not evidence.
+  const match = nodeTrack.match(/const RUN_TIMEOUT_MS = Number\(process\.env\.H2A_TEST_TIMEOUT_MS\) \|\| (\d+);/)
+  assert.ok(match, 'node-suite backstop must stay an overridable numeric default')
+  assert.ok(Number(match[1]) >= 900000, `backstop ${match[1]}ms is below the evidenced 900s floor`)
+})
+
 const verifyStep = (w, run) => w.jobs.verify.steps.find((step) => step.run === run)
 const workflowMutants = {
   A05: [
