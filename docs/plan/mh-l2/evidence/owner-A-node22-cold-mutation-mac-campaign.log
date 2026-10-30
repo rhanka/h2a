@@ -1,0 +1,78 @@
+{"command":["/usr/bin/node","scripts/mh-l2-mutate.mjs","mac"],"pid":49970,"code":0,"signal":null,"elapsedMs":2068}
+command: /usr/bin/node --test packages/h2a/test/mh-l2-auth.test.js
+node: v22.22.1
+private test root: /tmp/mh-l2-test-wue30q
+TAP version 13
+# Subtest: M18c should never send an application body when a challenged TCP socket is replaced
+ok 1 - M18c should never send an application body when a challenged TCP socket is replaced
+  ---
+  duration_ms: 292.21518
+  type: 'test'
+  ...
+# Subtest: authenticated SSE should preserve UTF-8 across fragmented source chunks before stdout forwarding
+ok 2 - authenticated SSE should preserve UTF-8 across fragmented source chunks before stdout forwarding
+  ---
+  duration_ms: 626.027475
+  type: 'test'
+  ...
+# Subtest: M03/M18b/c should bind challenges and every frame, reject decoy, replay, expiry and saturation
+not ok 3 - M03/M18b/c should bind challenges and every frame, reject decoy, replay, expiry and saturation
+  ---
+  duration_ms: 2.717616
+  type: 'test'
+  location: '/tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mh-l2-auth.test.js:58:1'
+  failureType: 'testCodeFailure'
+  error: 'Missing expected exception.'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  operator: 'throws'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mh-l2-auth.test.js:71:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+1..3
+# tests 3
+# suites 0
+# pass 2
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1064.495653
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l2-auth.test.js"],"code":1,"signal":null,"elapsedMs":1146}
+command: /usr/bin/node --test packages/h2a/test/mh-l2-auth.test.js
+node: v22.22.1
+private test root: /tmp/mh-l2-test-Dy2zpd
+TAP version 13
+# Subtest: M18c should never send an application body when a challenged TCP socket is replaced
+ok 1 - M18c should never send an application body when a challenged TCP socket is replaced
+  ---
+  duration_ms: 78.087558
+  type: 'test'
+  ...
+# Subtest: authenticated SSE should preserve UTF-8 across fragmented source chunks before stdout forwarding
+ok 2 - authenticated SSE should preserve UTF-8 across fragmented source chunks before stdout forwarding
+  ---
+  duration_ms: 135.616746
+  type: 'test'
+  ...
+# Subtest: M03/M18b/c should bind challenges and every frame, reject decoy, replay, expiry and saturation
+ok 3 - M03/M18b/c should bind challenges and every frame, reject decoy, replay, expiry and saturation
+  ---
+  duration_ms: 5.185541
+  type: 'test'
+  ...
+1..3
+# tests 3
+# suites 0
+# pass 3
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 346.503095
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l2-auth.test.js"],"code":0,"signal":null,"elapsedMs":427}
+

@@ -46,12 +46,93 @@ lane and additional standalone workflow steps retain their existing timing
 logs; they are not included in this report-based ranking.
 
 Investigate warnings and job-time growth before raising this budget again.
-Sharding is deferred here because the independent trust root pins the complete
-production invocation and its execution proof. Splitting that contract needs
-its own proof of exhaustive shard coverage; extending the measured job budget
-does not change it.
+The 0.98.8 lane partitions the complete M17 campaign as described below.
+The complete discovery and execution inventory remains mandatory.
 
-Required check names remain **`build-and-test (ubuntu-latest, 22)`**,
-**`build-and-test (ubuntu-latest, 24)`**, and **`npm-test-trust-root`**.
-No branch-protection update is needed. All other jobs and their budgets remain
-unchanged; no suite, assertion, platform or runtime is removed by this change.
+The 0.98.8 lane adds a 10,000-mutation-per-domain backend campaign. On the
+shared runner disk it still exceeded the 1,200-second Node backstop, reaching
+only 701–801 of 1,250 iterations per actor. One contended writer also hit its
+unchanged five-second kernel-lock deadline. The private eight-actor diagnostic
+with 400 mutations per domain took 25.2 seconds on disk and 6.1 seconds on
+tmpfs. It is a diagnostic, not the full stress acceptance.
+
+The two dedicated Linux M17 qualification jobs create an invocation-owned, 1 GiB tmpfs data
+volume for M17 alone. The real APIs, eight actors, 10,000 acknowledgements,
+per-domain totals, fresh quota checks, journal verification, kernel-lock
+boundaries and all assertions are unchanged. Invalid configured directories
+fail before any backend state is created; no fallback or test skip is allowed.
+The helper reports the actual filesystem type and configured-volume witness.
+Cleanup requires the same owned mount identity and an empty volume, then
+unmounts and removes only that temporary directory. This qualifies concurrency
+on tmpfs; it does not claim power-loss persistence or performance on disk.
+Other tests and packaging continue using their ordinary private disk fixtures.
+
+The remaining Node suites retain the four cold qualifications, protocol/bulk
+barrier, original assertions and 1200-second outer backstop. M17 executes the
+original file alone with a 1350-second producer backstop, eight simultaneous actors and
+1250 iterations per actor. No test case is filtered or shortened. Each job
+remains capped at 25 minutes.
+
+The first isolated Node 24 campaign passed completely; Node 22 reached
+1201/1250 iterations per actor just before its former 1200-second backstop.
+This is observed active work, not a product timeout. Its measured 37-second
+setup plus the new 1350-second allowance leaves about 113 seconds for cleanup
+and upload under the fixed 1500-second job budget. The original M17 case has
+no individual timeout; every assertion, actor, mutation and the five-second
+kernel-lock deadline remains unchanged. The ordinary Node suite still has
+its 1200-second backstop. A controlled-clock fixture forces the real producer
+watchdog, refuses acceptance and verifies all eight owned children stopped.
+
+The Node 22 and Node 24 producers publish a closed execution envelope only
+after the real temporary volume and private process state have been removed
+and every recorded PID/birth has stopped. Its immutable artifact name includes
+workflow run, attempt and Node. Consumers compare repository, workflow, run,
+attempt, actual checkout SHA, exact Node version, architecture and source input
+hashes, and require a clean tracked checkout. The SHA binds all tracked runtime,
+helper and build inputs; the supplementary hashes do not replace that binding.
+The exact M17 case must pass once, with 10000 ACK, zero duplicates, all seven
+domains complete, eight actors and the observed kernel locks. A provisional,
+missing, stale, malformed, failed or skipped report is rejected.
+
+Default npm test still executes every local file. Only explicit GitHub proof
+mode partitions M17 after complete discovery. The local/external sets must be
+disjoint and exhaustive; their merged report passes the unchanged complete
+inventory verifier. Import configuration is removed from test descendants.
+Existing required jobs run with always() and explicitly fail if either producer
+fails or is cancelled, so a skipped dependency cannot manufacture a green check.
+The trust root still runs its direct wiring guard outside the production runner.
+
+Required check names remain **build-and-test (ubuntu-latest, 22)**,
+**build-and-test (ubuntu-latest, 24)**, and **npm-test-trust-root**. Two additional
+**m17-qualification (22/24)** jobs are mandatory through those fail-closed
+consumers; no branch-protection change is required. There are two actual M17
+campaigns per PR: the Node 22 result is shared by two consumers. This proves
+the same test on the same code, but no longer measures M17 under contention
+from other suites or on the same machine as those suites. Run provenance is
+not protection against maliciously changed source in the tested commit.
+
+The subsequent lane Node 24 campaign exceeded 1350s at 1201/1250, while the
+other three same-head campaigns reconciled completely. The limit remains
+1350s. An eight-contender diagnostic of 4000 real OFD flock acquisitions per
+sample found avoidable unused-output pipe allocation (median 795.6ms with
+pipes versus 729.2ms with ignored outputs, one slower ignore sample). The
+mutation primitive now ignores both outputs it never consumed; FD 3, trusted
+tool resolution, exclusive locking, five-second acquisition deadline, status
+checks and release are identical. This is a measured resource optimization,
+not proof that the complete backend meets the CI budget. Full current-head
+CI reconciliation and cleanup remain mandatory. Quota/expiry traversal,
+stamp-tuple and cache-epoch variants were measured and not retained.
+
+## 0.98.8 lane: 35-minute integration budget (2026-10-18)
+
+Main baseline the same day ([39087263469](https://github.com/rhanka/h2a/actions/runs/39087263469),
+`5ccc9819`): Node 22 job 14m05s, Node 24 job 15m40s, trust root 14m39s.
+On the lane, the grown mh-l6/registry suites complete in 21-23m
+([39093202328](https://github.com/rhanka/h2a/actions/runs/39093202328):
+21m03s/21m42s; trust root 22m54s in the 39093196639 rerun), and four of
+eight executions were killed at 25m14s by the former deadline with no test
+failure in any partial log. The suite growth is real test volume, not a
+slowdown of existing cases, so the job budget moves 25m to 35m; the
+component allowances above are unchanged and the extra 10m extends the
+contingency. No test, subprocess, or child deadline changes. The
+m17-qualification jobs still complete inside their unchanged 25m budget.

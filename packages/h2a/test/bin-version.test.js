@@ -50,7 +50,8 @@ test("bin.ts ne dispatche vers le runtime qu'au fallback final (aucun dispatch a
   const src = readFileSync(join(PKG_ROOT, "src", "bin.ts"), "utf8");
   const versionPos = src.indexOf('argv[0] === "--version"');
   assert.ok(versionPos !== -1, "la branche --version/-v/version doit exister dans bin.ts");
-  const dispatchSites = [...src.matchAll(/dispatchRuntime\(\)/g)].map((m) => m.index ?? -1);
+  const routedSource = src + "\n" + readFileSync(join(PKG_ROOT, "src", "bin-heavy.ts"), "utf8");
+  const dispatchSites = [...routedSource.matchAll(/dispatchRuntime\(\)/g)].map((m) => m.index ?? -1);
   assert.equal(dispatchSites.length, 1, "un seul site de dispatch runtime (le fallback final)");
   assert.ok(versionPos < dispatchSites[0], "la branche version doit précéder le dispatch runtime");
 });

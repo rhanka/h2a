@@ -30,7 +30,7 @@ for(const winner of ['old','recovery'])test(`R6: published 0.98.5 unlock vs reco
  const worker=join(dir,'recovery.mjs');
  const fence=pathToFileURL(resolve(import.meta.dirname,'../dist/runtime/local-files/identity-fence.js')).href;
  const fixture=pathToFileURL(resolve(import.meta.dirname,'helpers/legacy-proc-fixture.mjs')).href;
- fs.writeFileSync(worker,`import fs from 'node:fs';import {withIdentityFence} from ${JSON.stringify(fence)};import {simulatedReboot} from ${JSON.stringify(fixture)};const restore=simulatedReboot(${JSON.stringify(dir)});try{await withIdentityFence(${JSON.stringify(lock)},async lease=>{fs.writeFileSync(${JSON.stringify(join(dir,'recovery.held'))},JSON.stringify({recovered:lease.recovered,pid:process.pid}));const end=performance.now()+15000;while(!fs.existsSync(${JSON.stringify(join(dir,'recovery.release'))})){if(performance.now()>=end)throw Error('possession deadline');await new Promise(r=>setTimeout(r,5));}},{timeoutMs:15000,pollMs:5});}finally{restore();}`);
+ fs.writeFileSync(worker,`import fs from 'node:fs';import {withIdentityFence} from ${JSON.stringify(fence)};import {simulatedReboot} from ${JSON.stringify(fixture)};const restore=simulatedReboot(${JSON.stringify(dir)});try{await withIdentityFence(${JSON.stringify(lock)},async lease=>{fs.writeFileSync(${JSON.stringify(join(dir,'recovery.held.tmp'))},JSON.stringify({recovered:lease.recovered,pid:process.pid}));fs.renameSync(${JSON.stringify(join(dir,'recovery.held.tmp'))},${JSON.stringify(join(dir,'recovery.held'))});const end=performance.now()+15000;while(!fs.existsSync(${JSON.stringify(join(dir,'recovery.release'))})){if(performance.now()>=end)throw Error('possession deadline');await new Promise(r=>setTimeout(r,5));}},{timeoutMs:15000,pollMs:5});}finally{restore();}`);
  function launch(role,args) {
   const child=spawn(process.execPath,args,{cwd:dir,env:{...process.env,H2A_ROOT:root,H2A_TEST_ELECTION_DIR:dir,H2A_TEST_ELECTION_ROLE:role,H2A_TEST_ELECTION_PATH:lock+'.succ.'+generation,NODE_OPTIONS:(process.env.NODE_OPTIONS??'')+' --import='+helper},stdio:['ignore','pipe','pipe']});
   let stdout='',stderr='';child.stdout.on('data',b=>stdout+=b);child.stderr.on('data',b=>stderr+=b);const exit=once(child,'exit');children.push(child);return{child,exit,output:()=>({stdout,stderr})};
@@ -47,6 +47,9 @@ for(const winner of ['old','recovery'])test(`R6: published 0.98.5 unlock vs reco
   if(winner==='recovery'){assert.equal((await old.exit)[0],1);assert.equal(JSON.parse(old.output().stdout).broken,false);}
   fs.writeFileSync(join(dir,winner+'.retire'),'release');
   if(winner==='old'){assert.equal((await old.exit)[0],0,JSON.stringify(old.output()));assert.equal(JSON.parse(old.output().stdout).broken,true);}
+  await wait(()=>fs.existsSync(join(dir,'recovery.witness-open')),Boolean);
+  assert.equal(fs.existsSync(join(dir,'recovery.held')),false,'the recovery witness stays invisible while its JSON is being written');
+  fs.writeFileSync(join(dir,'recovery.witness-finish'),'release');
   const held=await wait(()=>fs.existsSync(join(dir,'recovery.held'))?JSON.parse(fs.readFileSync(join(dir,'recovery.held'))):undefined,Boolean);
   assert.equal(held.recovered,winner==='recovery');
   const replacement=fs.readFileSync(lock);assert.equal(JSON.parse(replacement).pid,recovery.child.pid);

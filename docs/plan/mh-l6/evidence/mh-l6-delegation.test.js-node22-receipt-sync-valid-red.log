@@ -1,0 +1,104 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-delegation.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-UYMiGe
+case: all cases in explicit file
+TAP version 13
+# Subtest: T5 should revoke the source before the exact future controller acquires and acknowledges once
+ok 1 - T5 should revoke the source before the exact future controller acquires and acknowledges once
+  ---
+  duration_ms: 271.651943
+  type: 'test'
+  ...
+# Subtest: T5 should refuse every altered ticket binding and a second controller before granting authority
+ok 2 - T5 should refuse every altered ticket binding and a second controller before granting authority
+  ---
+  duration_ms: 406.125844
+  type: 'test'
+  ...
+# Subtest: T5 should refuse a correctly identified process loaded outside the selected absolute entry
+ok 3 - T5 should refuse a correctly identified process loaded outside the selected absolute entry
+  ---
+  duration_ms: 214.342138
+  type: 'test'
+  ...
+# Subtest: T5 should refuse an expired unacquired ticket and keep the source revoked
+ok 4 - T5 should refuse an expired unacquired ticket and keep the source revoked
+  ---
+  duration_ms: 214.02479
+  type: 'test'
+  ...
+# Subtest: U05 should reconcile every ticket/revocation fsync cut before target acquisition
+ok 5 - U05 should reconcile every ticket/revocation fsync cut before target acquisition
+  ---
+  duration_ms: 913.589557
+  type: 'test'
+  ...
+# Subtest: U05 should reconcile receipt/acquisition fsync cuts without duplicate authority or false ACK
+ok 6 - U05 should reconcile receipt/acquisition fsync cuts without duplicate authority or false ACK
+  ---
+  duration_ms: 886.463717
+  type: 'test'
+  ...
+# Subtest: T5 should suspend behind the real compatible guardian and reacquire after its proven death
+ok 7 - T5 should suspend behind the real compatible guardian and reacquire after its proven death
+  ---
+  duration_ms: 327.073653
+  type: 'test'
+  ...
+# Subtest: U05 should resynchronize a previously visible receipt before granting controller authority
+not ok 8 - U05 should resynchronize a previously visible receipt before granting controller authority
+  ---
+  duration_ms: 229.720605
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-delegation.test.js:11:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    The input did not match the regular expression /injected_acquisition_sync|persistence_indeterminate/. Input:
+    
+    ''
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual: ''
+  operator: 'match'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-delegation.test.js:147:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: U05 should resynchronize an uncertain acquisition before asserting mutation authority
+not ok 9 - U05 should resynchronize an uncertain acquisition before asserting mutation authority
+  ---
+  duration_ms: 206.319627
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-delegation.test.js:11:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    The input did not match the regular expression /injected_acquisition_sync|persistence_indeterminate/. Input:
+    
+    ''
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual: ''
+  operator: 'match'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-delegation.test.js:156:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+1..9
+# tests 9
+# suites 0
+# pass 7
+# fail 2
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 3822.064932
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-delegation.test.js"],"code":1,"signal":null,"tests":9,"invalid":false,"spawned":35,"leftovers":[]}

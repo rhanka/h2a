@@ -1,0 +1,31 @@
+command: /usr/bin/node --test packages/h2a/test/mh-l4-idle.test.js
+node: v22.22.1
+private test root: /tmp/mh-l4-test-zUvGR2
+TAP version 13
+# {"event":"drive-consent.full-verification","durationMs":0.0036670000000071923,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: should start the idle interval at durable readiness after slow source preparation
+not ok 1 - should start the idle interval at durable readiness after slow source preparation
+  ---
+  duration_ms: 2933.00639
+  type: 'test'
+  location: '/tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-idle.test.js:9:1'
+  failureType: 'testCodeFailure'
+  error: 'orphan did not retire'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-idle.test.js:20:65
+    async TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-idle.test.js:20:3)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 3201.882906
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l4-idle.test.js"],"code":1,"signal":null,"elapsedMs":3276}

@@ -1,0 +1,22 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-dispatch.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-vQ1RpS
+case: F should check CLI authority before the engine on abort
+TAP version 13
+# Subtest: F should check CLI authority before the engine on abort
+ok 1 - F should check CLI authority before the engine on abort
+  ---
+  duration_ms: 740.493625
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 856.301155
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-dispatch.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

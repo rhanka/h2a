@@ -1,0 +1,22 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test --test-reporter=tap packages/h2a/test/mh-l2-identity-contention.test.js
+node: v24.21.0
+private root: /tmp/mh-l2-amendment-ejmOlx
+env selection: {"MH_L2_IDENTITY_CASE":"identity worker should classify exhausted mutation contention as identity_timeout"}; unset: 
+TAP version 13
+# Subtest: identity worker should classify exhausted mutation contention as identity_timeout
+ok 1 - identity worker should classify exhausted mutation contention as identity_timeout
+  ---
+  duration_ms: 5228.672975
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 5415.844772
+
+receipt: {"code":0,"signal":null}

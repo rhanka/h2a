@@ -1,0 +1,31 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-command-gate.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-GUy3b7
+case: F should adopt the legacy link and reinstall the managed link
+TAP version 13
+# Subtest: F should adopt the legacy link and reinstall the managed link
+not ok 1 - F should adopt the legacy link and reinstall the managed link
+  ---
+  duration_ms: 37.20157
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-f2c3-bgUdRZ/packages/h2a/test/mh-l6-command-gate.test.js:8:67'
+  failureType: 'testCodeFailure'
+  error: 'bootstrap_launcher_command_foreign'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    installManagedLauncher (file:///tmp/mh-l3-qualification-f2c3-bgUdRZ/packages/h2a/dist/runtime/upgrade/launcher-install.js:50:15)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-f2c3-bgUdRZ/packages/h2a/test/mh-l6-command-gate.test.js:84:21)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 154.039561
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-command-gate.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

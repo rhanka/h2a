@@ -30,14 +30,22 @@
     "./agy-claude": {
       "types": "./dist/runtime/agy-claude.d.ts",
       "import": "./dist/runtime/agy-claude.js"
+    },
+    "./registry/manifest": {
+      "types": "./dist/registry/manifest.d.ts",
+      "import": "./dist/registry/manifest.js"
+    },
+    "./registry/definitions": {
+      "types": "./dist/registry/definitions.d.ts",
+      "import": "./dist/registry/definitions.js"
     }
   },
   "files": [
     ".claude-plugin",
     ".codex-plugin",
-    ".mcp.json",
     "dist",
     "fixtures",
+    "registry",
     "skills",
     "schema",
     "focus-app",
@@ -60,16 +68,19 @@
   },
   "scripts": {
     "build": "node ../../scripts/clean-workspace-dist.mjs && tsc -b --force && node ../../scripts/copy-vendored-engram-live.mjs",
-    "prepack": "node ../../scripts/check-focus-app.mjs && node ../../scripts/build-focus-dossier.mjs --check && chmod +x dist/bin.js"
+    "prepack": "node ../../scripts/check-focus-app.mjs && node ../../scripts/build-focus-dossier.mjs --check && node ../../scripts/check-publish-payload.mjs && chmod +x dist/bin.js"
   },
   "dependencies": {
     "@sentropic/focus": "0.5.0",
     "@hono/mcp": "^0.3.0",
     "@hono/node-server": "^2.0.12",
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "@sentropic/cluster-mesh": "0.16.0",
+    "@sentropic/cluster-mesh": "0.22.4",
     "@sentropic/contracts": "^0.3.0",
     "@sentropic/events": "^0.2.0",
+    "@sentropic/llm-gateway": "0.20.0",
+    "@sentropic/llm-mesh": "0.26.0",
+    "@sentropic/mcp-platform": "0.4.0",
     "@sentropic/track": "0.98.7",
     "hono": "^4.13.13",
     "toml-eslint-parser": "0.10.1"

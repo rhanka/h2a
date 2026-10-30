@@ -1,0 +1,50 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-dispatch.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-4X9i7k
+case: F should check CLI authority before the engine on resume
+TAP version 13
+# Subtest: F should check CLI authority before the engine on resume
+not ok 1 - F should check CLI authority before the engine on resume
+  ---
+  duration_ms: 625.041102
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-f2c2-zgmjUU/packages/h2a/test/mh-l6-dispatch.test.js:8:67'
+  failureType: 'testCodeFailure'
+  error: |-
+    The input did not match the regular expression /upgrade_authority_revoked/. Input:
+    
+    'Error: controller_authority_revoked'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual:
+  error: 'controller_authority_revoked'
+  stack: |-
+    #assertController (file:///tmp/mh-l3-qualification-f2c2-zgmjUU/packages/h2a/dist/runtime/upgrade/h4-store.js:127:19)
+    file:///tmp/mh-l3-qualification-f2c2-zgmjUU/packages/h2a/dist/runtime/upgrade/h4-store.js:254:35
+    file:///tmp/mh-l3-qualification-f2c2-zgmjUU/packages/h2a/dist/runtime/upgrade/h4-store.js:77:24
+    mutationLock (file:///tmp/mh-l3-qualification-f2c2-zgmjUU/packages/h2a/dist/runtime/handover/mutation.js:50:23)
+    #locked (file:///tmp/mh-l3-qualification-f2c2-zgmjUU/packages/h2a/dist/runtime/upgrade/h4-store.js:73:20)
+    UpgradeStore.reconcile (file:///tmp/mh-l3-qualification-f2c2-zgmjUU/packages/h2a/dist/runtime/upgrade/h4-store.js:252:28)
+    resumeUpgrade (file:///tmp/mh-l3-qualification-f2c2-zgmjUU/packages/h2a/dist/runtime/upgrade/upgrade-dispatch.js:23:20)
+    file:///tmp/mh-l3-qualification-f2c2-zgmjUU/packages/h2a/test/mh-l6-dispatch.test.js:58:23
+    getActual (node:assert:609:5)
+    Function.throws (node:assert:757:24)
+  operator: 'throws'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-f2c2-zgmjUU/packages/h2a/test/mh-l6-dispatch.test.js:58:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 764.385754
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-dispatch.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

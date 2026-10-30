@@ -1,0 +1,27 @@
+command: /usr/bin/node --test --test-name-pattern=central (status|stop) emits packages/h2a/test/cli-contract.test.js
+node: v22.22.1
+private test root: /tmp/mh-l2-test-LZN9Kz
+TAP version 13
+# Subtest: central status emits a resource envelope on the happy path
+ok 1 - central status emits a resource envelope on the happy path
+  ---
+  duration_ms: 12.867445
+  type: 'test'
+  ...
+# Subtest: central stop emits a resource envelope on the happy path
+ok 2 - central stop emits a resource envelope on the happy path
+  ---
+  duration_ms: 6.636083
+  type: 'test'
+  ...
+1..2
+# tests 2
+# suites 0
+# pass 2
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 327.147057
+
+receipt: {"command":["/usr/bin/node","--test","--test-name-pattern=central (status|stop) emits","packages/h2a/test/cli-contract.test.js"],"code":0,"signal":null,"elapsedMs":421}

@@ -37,7 +37,17 @@ export async function observeSmoke(source, scriptPath, options = {}) {
   const fakeProcess = { ...process, argv: ['node', scriptPath, ...(options.prebuilt ? ['--tarballs', prebuilt] : [])], execPath: process.execPath,
     env: { HOME: root, XDG_RUNTIME_DIR: root }, exit: (code) => { throw new Error(`premature exit ${code}`) } }
   const spawnSync = (command, args, spawnOptions) => {
-    if (command === 'npm' && args[0] === 'pack') {
+    if (command === process.execPath && String(args[0]).endsWith("/scripts/pack-candidate.mjs")) {
+      for (const name of ["h2a", "h2a-runtime", "h2a-cli", "track"]) {
+        observations.packed.push("@sentropic/" + name);
+        fs.writeFileSync(join(args[1], "sentropic-" + name + `-${pinned}.tgz`), name);
+      }
+      // The closed candidate cohort is five tarballs: the focus pack rides
+      // the same producer (pack-candidate.mjs packs track/h2a-cli/focus via
+      // workspaces after the two verified payloads).
+      observations.packed.push("@sentropic/focus");
+      fs.writeFileSync(join(args[1], `sentropic-focus-${focusPinned}.tgz`), "focus");
+    } else if (command === 'npm' && args[0] === 'pack') {
       const pkg = args[2], staging = args[4]
       observations.packed.push(pkg)
       fs.writeFileSync(join(staging, pkg.replace('@', '').replace('/', '-') + `-${tarballVersion(pkg)}.tgz`), pkg)

@@ -1,0 +1,39 @@
+command: /usr/bin/node --test packages/h2a/test/mh-l2-authority.test.js
+node: v22.22.1
+private test root: /tmp/mh-l2-test-cnuXVk
+TAP version 13
+# Subtest: M04 should release its abstract preclaim while a spawned child remains alive without inheriting the descriptor
+ok 1 - M04 should release its abstract preclaim while a spawned child remains alive without inheriting the descriptor
+  ---
+  duration_ms: 176.022078
+  type: 'test'
+  ...
+# Subtest: M04 should refuse HTTP-based reclaim, hold preclaim through ready and compare epoch plus inode
+not ok 2 - M04 should refuse HTTP-based reclaim, hold preclaim through ready and compare epoch plus inode
+  ---
+  duration_ms: 95.287938
+  type: 'test'
+  location: '/tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mh-l2-authority.test.js:31:1'
+  failureType: 'testCodeFailure'
+  error: 'Missing expected exception.'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  operator: 'throws'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mh-l2-authority.test.js:65:12)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+1..2
+# tests 2
+# suites 0
+# pass 1
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 380.860222
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l2-authority.test.js"],"code":1,"signal":null,"elapsedMs":469}

@@ -1,0 +1,33 @@
+{
+  "files": [
+    "packages/h2a-runtime/src/central-mcp-0980.test.ts",
+    "packages/h2a/test/mcp-central-attachments.test.js",
+    "packages/h2a/test/mcp-central.test.js",
+    "packages/h2a/test/mcp-identity-readiness.test.js",
+    "packages/h2a/test/mcp-sessions.test.js",
+    "packages/h2a/test/mcp-stdio.test.js",
+    "packages/h2a/test/mh-l1-package.test.js",
+    "packages/h2a/test/mh-l1-shim.test.js",
+    "packages/h2a/test/mh-l2-cold.test.js",
+    "packages/h2a/test/mh-l2-image.test.js",
+    "packages/h2a/test/mh-l2-integration.test.js",
+    "packages/h2a/test/mh-l2-live-central.test.js",
+    "packages/h2a/test/mh-l2-live.test.js",
+    "packages/h2a/test/mh-l4-central.test.js",
+    "packages/h2a/test/mh-l4-checkpoint.test.js",
+    "packages/h2a/test/mh-l4-cuts.test.js",
+    "packages/h2a/test/mh-l4-idle.test.js",
+    "packages/h2a/test/mh-l4-integration.test.js",
+    "packages/h2a/test/mh-l4-launch.test.js",
+    "packages/h2a/test/mh-l4-ownership.test.js",
+    "packages/h2a/test/mh-l4-wake.test.js",
+    "packages/h2a/test/mh-l4-writers.test.js"
+  ],
+  "testsPassed": 167,
+  "failures": [
+    {
+      "file": "packages/h2a/test/mcp-central.test.js",
+      "code": 1
+    }
+  ]
+}

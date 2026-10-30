@@ -52,6 +52,7 @@ import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { verifyPublishablePayload } from './check-publish-payload.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(HERE, '..')
@@ -118,9 +119,9 @@ const tarballName = (name) =>
   `${name.replace(/^@/, '').replace(/\//, '-')}-${name === FOCUS_PACKAGE ? focusVersion : runtimeVersion}.tgz`
 
 try {
+  if (!providedTarballs) runSync(process.execPath, [join(REPO_ROOT, "scripts/pack-candidate.mjs"), staging])
   const digests = new Map()
   for (const pkg of PACKAGES) {
-    if (!providedTarballs) runSync('npm', ['pack', '--workspace', pkg, '--pack-destination', staging])
     const tarball = join(staging, tarballName(pkg))
     if (!existsSync(tarball)) fail(`expected candidate tarball ${tarball} was not packed`)
     digests.set(tarball, createHash('sha256').update(readFileSync(tarball)).digest('hex'))
@@ -209,10 +210,18 @@ try {
     fail(`@sentropic/focus resolved from the installed h2a is OUTSIDE the candidate prefix: ${resolvedFocus}`)
   }
   if (resolve(resolvedFocus).includes('/node_modules/@sentropic/h2a/node_modules/')) {
-    fail(
-      `packaged h2a resolves a NESTED @sentropic/focus copy at ${resolvedFocus} ` +
-        '(a registry fallback for h2a\u2019s exact focus dependency — the candidate tarball was not used)',
-    )
+    // Closed payloads intentionally bundle the workspace dependency closure.
+    // A version match alone cannot admit a nested registry fallback: require
+    // the complete installed payload's hashes and exact shrinkwrap first.
+    try {
+      const published = verifyPublishablePayload(dirname(h2aPackageJson))
+      if (published.packageName !== '@sentropic/h2a') throw new Error('wrong payload')
+    } catch {
+      fail(
+        `packaged h2a resolves an unverified NESTED @sentropic/focus copy at ${resolvedFocus} ` +
+          '(not part of the verified candidate dependency closure)',
+      )
+    }
   }
   const loadedFocusVersion = JSON.parse(readFileSync(resolvedFocus, 'utf8')).version
   if (loadedFocusVersion !== PINNED_FOCUS_VERSION) {
