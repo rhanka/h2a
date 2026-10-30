@@ -69,6 +69,7 @@
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@sentropic/cluster-mesh": "0.16.0",
     "@sentropic/contracts": "^0.3.0",
+    "@sentropic/engram": "0.22.1",
     "@sentropic/events": "^0.2.0",
     "@sentropic/track": "0.98.7",
     "hono": "^4.13.13",
