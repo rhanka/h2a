@@ -68,14 +68,37 @@ export function fixture(t) {
     // Detached hosts/PTYs are not represented by the direct ChildProcess
     // handles. SIGKILL delivery must finish before they can stop writing:
     // verify every birth-checked recorded descendant is actually dead (or
-    // reaped/reused) instead of only signalling the direct children.
-    await eventually(() => recorded().every(({ pid, start }) => {
+    // reaped/reused) instead of only signalling the direct children. A writer
+    // forked just before teardown only registers in LAB_PIDS when its import
+    // hook runs, which can be after this loop converged: keep reaping new
+    // registrations while converging, never wait on an unkilled writer.
+    await eventually(() => {
+      stopRecorded();
+      return recorded().every(({ pid, start }) => {
+        try {
+          const stat = readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ')[1].split(' ');
+          return stat[19] !== start || ['Z', 'X'].includes(stat[0]);
+        } catch (error) { if (['ENOENT', 'ESRCH'].includes(error.code)) return true; throw error; }
+      });
+    }, Boolean);
+    // The same late registration can start writing after convergence, while
+    // removal walks the tree (ENOTEMPTY) or recreate deleted paths after it.
+    // Reap again on every bounded retry and keep the removal last-writer-wins:
+    // a directory that cannot be made to disappear must still fail here.
+    const removalDeadline = performance.now() + 15000;
+    for (;;) {
+      stopRecorded();
       try {
-        const stat = readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ')[1].split(' ');
-        return stat[19] !== start || ['Z', 'X'].includes(stat[0]);
-      } catch (error) { if (['ENOENT', 'ESRCH'].includes(error.code)) return true; throw error; }
-    }), Boolean);
-    rmSync(root, { recursive: true, force: true });
+        rmSync(root, { recursive: true, force: true });
+      } catch (error) {
+        if (!['ENOTEMPTY', 'EBUSY'].includes(error.code) || performance.now() >= removalDeadline) throw error;
+        await pause(10);
+        continue;
+      }
+      if (!existsSync(root)) break;
+      if (performance.now() >= removalDeadline) break;
+      await pause(10);
+    }
     assert.equal(existsSync(root), false);
   };
   t.after(dispose);
