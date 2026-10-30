@@ -5,7 +5,7 @@
  * refusal, never silent absence).
  */
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -39,23 +39,30 @@ function registration(instance, agentUuid, extra = {}) {
   };
 }
 
+function cursorBump(revision, stream, by = 1) {
+  const parts = revision.split("/").map(Number);
+  parts[["instances", "keys", "grants", "offboards"].indexOf(stream)] += by;
+  return parts.join("/");
+}
+
 test("currentRevision is monotonic across registry appends", async () => {
   const { dir, root } = freshRoot();
   try {
     const store = createLocalStore({ root });
     const reader = createRegistryReader(store);
-    assert.equal(await reader.currentRevision(), "0");
+    assert.equal(await reader.currentRevision(), "0/0/0/0");
 
     store.registerInstance(registration("claude:alpha:aaaaaaaaaaaa", "uuid-a", { name: "alpha" }));
-    assert.equal(await reader.currentRevision(), "1");
+    assert.equal(await reader.currentRevision(), "1/0/0/0");
 
     store.registerInstance(registration("claude:beta:bbbbbbbbbbbb", "uuid-b", { name: "beta" }));
-    assert.equal(await reader.currentRevision(), "2");
+    assert.equal(await reader.currentRevision(), "2/0/0/0");
 
     store.addInstanceKey("claude:beta:bbbbbbbbbbbb", "-----BEGIN PUBLIC KEY-----\nrotated\n-----END PUBLIC KEY-----");
     const rev = await reader.currentRevision();
-    assert.equal(rev, "3");
-    assert.ok(Number(rev) > 2, "revision must be monotonically increasing");
+    assert.equal(rev, "2/1/0/0");
+    assert.ok(rev > "2/0/0/0", "the cursor must advance monotonically per stream");
+    assert.ok(rev.startsWith("2/1/"), "the key-stream cursor must be the component that grew");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -182,7 +189,7 @@ test("listChangesSince replays per-agent diffs since a revision", async () => {
     const reader = createRegistryReader(store);
 
     const revAfterBoth = await reader.currentRevision();
-    const all = await reader.listChangesSince("0");
+    const all = await reader.listChangesSince("0/0/0/0");
     assert.equal(all.length, 2);
     assert.deepEqual(all.map((v) => v.agentUuid).sort(), ["uuid-a", "uuid-b"]);
 
@@ -210,14 +217,14 @@ test("listChangesSince refuses invalid and ahead-of-registry revisions by name",
     const reader = createRegistryReader(store);
     const rev = await reader.currentRevision();
 
-    const ahead = reader.listChangesSince(String(Number(rev) + 1));
+    const ahead = reader.listChangesSince(cursorBump(rev, "keys"));
     await assert.rejects(ahead, (err) => {
       assert.ok(err instanceof RegistryRevisionError);
       assert.equal(err.code, "registry_revision_ahead");
       return true;
     });
 
-    for (const bad of ["bogus", "-1", "1.5"]) {
+    for (const bad of ["bogus", "-1/0/0/0", "1.5/0/0/0", "1/0/0", "1/0/0/0/9", "3"]) {
       await assert.rejects(
         reader.listChangesSince(bad),
         (err) => {
@@ -253,7 +260,7 @@ test("hosted placement: h2a_register_instance refuses by name, reads still work"
     // The hosted surface is the H2 read contract, not a silent absence.
     assert.deepEqual(store.listInstances(), []);
     const reader = createRegistryReader(store);
-    assert.equal(await reader.currentRevision(), "0");
+    assert.equal(await reader.currentRevision(), "0/0/0/0");
     assert.equal(await reader.getInstance("uuid-a"), null);
 
     // Default placement stays the local writer (§2.8: sole writer locally).
@@ -264,6 +271,150 @@ test("hosted placement: h2a_register_instance refuses by name, reads still work"
     const plain = createLocalStore({ root });
     plain.registerInstance(registration("claude:beta:bbbbbbbbbbbb", "uuid-b", { name: "beta" }));
     assert.ok(plain.findInstance("claude:beta:bbbbbbbbbbbb"));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("listChangesSince never loses a registration appended after a key event", async () => {
+  const { dir, root } = freshRoot();
+  try {
+    const store = createLocalStore({ root });
+    store.registerInstance(registration("claude:alpha:aaaaaaaaaaaa", "uuid-a", { name: "alpha" }));
+    store.addInstanceKey(
+      "claude:alpha:aaaaaaaaaaaa",
+      "-----BEGIN PUBLIC KEY-----\nka\n-----END PUBLIC KEY-----"
+    );
+    const reader = createRegistryReader(store);
+    const revAfterKey = await reader.currentRevision();
+
+    // The registration stream grows AFTER the key stream is non-empty: the
+    // diff replay must surface beta, never silently replay alpha instead.
+    store.registerInstance(registration("claude:beta:bbbbbbbbbbbb", "uuid-b", { name: "beta" }));
+    const changes = await reader.listChangesSince(revAfterKey);
+    assert.deepEqual(changes.map((view) => view.agentUuid), ["uuid-b"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("listChangesSince replays diffs from every registry stream independently", async () => {
+  const { dir, root } = freshRoot();
+  try {
+    const store = createLocalStore({ root });
+    store.registerInstance(registration("claude:alpha:aaaaaaaaaaaa", "uuid-a", { name: "alpha" }));
+    store.addInstanceKey(
+      "claude:alpha:aaaaaaaaaaaa",
+      "-----BEGIN PUBLIC KEY-----\nka\n-----END PUBLIC KEY-----"
+    );
+    store.grantOrgMembership({
+      instance: "claude:alpha:aaaaaaaaaaaa",
+      role: "PRINCIPAL",
+      scope: "scope:org",
+      at: "2026-10-30T01:00:00.000Z"
+    });
+    const reader = createRegistryReader(store);
+    const revAfterGrant = await reader.currentRevision();
+
+    // Registration appended after the grant stream is non-empty.
+    store.registerInstance(registration("claude:beta:bbbbbbbbbbbb", "uuid-b", { name: "beta" }));
+    assert.deepEqual(
+      (await reader.listChangesSince(revAfterGrant)).map((view) => view.agentUuid),
+      ["uuid-b"]
+    );
+
+    // Offboard tombstone stream: the diff carries the current view (tombstone).
+    const revAfterBeta = await reader.currentRevision();
+    store.offboardInstance("claude:beta:bbbbbbbbbbbb", "rotated-out");
+    const afterOffboard = await reader.listChangesSince(revAfterBeta);
+    assert.deepEqual(afterOffboard.map((view) => view.agentUuid), ["uuid-b"]);
+    assert.ok(afterOffboard[0].offboardTombstone, "the replayed view must carry the tombstone");
+
+    // Nothing changed since the current revision.
+    assert.deepEqual(await reader.listChangesSince(await reader.currentRevision()), []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("hosted placement: every registry lifecycle writer refuses, never dual-writes", async () => {
+  const { dir, root } = freshRoot();
+  try {
+    const local = createLocalStore({ root });
+    const alpha = registration("claude:alpha:aaaaaaaaaaaa", "uuid-a", { name: "alpha" });
+    local.registerInstance(alpha);
+    const rotated = "-----BEGIN PUBLIC KEY-----\nrotated\n-----END PUBLIC KEY-----";
+    local.addInstanceKey("claude:alpha:aaaaaaaaaaaa", rotated);
+    local.grantOrgMembership({
+      instance: "claude:alpha:aaaaaaaaaaaa",
+      role: "PRINCIPAL",
+      scope: "scope:org",
+      at: "2026-10-30T01:00:00.000Z"
+    });
+
+    const hosted = createLocalStore({ root, placement: "hosted" });
+    const refusesHosted = (operation, fn) =>
+      assert.throws(
+        fn,
+        (error) => {
+          assert.ok(
+            error instanceof HostedRegistryRefusalError,
+            `${operation} must refuse with HostedRegistryRefusalError on a hosted root`
+          );
+          assert.equal(error.code, "registry_hosted_refusal");
+          return true;
+        },
+        `${operation} must refuse on a hosted registry root`
+      );
+    refusesHosted("registerInstance", () =>
+      hosted.registerInstance(registration("claude:gamma:cccccccccccc", "uuid-g", { name: "gamma" }))
+    );
+    refusesHosted("addInstanceKey", () =>
+      hosted.addInstanceKey("claude:alpha:aaaaaaaaaaaa", "-----BEGIN PUBLIC KEY-----\nhk\n-----END PUBLIC KEY-----")
+    );
+    refusesHosted("revokeInstanceKey", () =>
+      hosted.revokeInstanceKey("claude:alpha:aaaaaaaaaaaa", rotated)
+    );
+    refusesHosted("grantOrgMembership", () =>
+      hosted.grantOrgMembership({
+        instance: "claude:alpha:aaaaaaaaaaaa",
+        role: "AGENTS",
+        scope: "scope:other",
+        at: "2026-10-30T02:00:00.000Z"
+      })
+    );
+    refusesHosted("offboardInstance", () =>
+      hosted.offboardInstance("claude:alpha:aaaaaaaaaaaa", "hosted-decommission")
+    );
+
+    // No dual write happened: the local store's rows are untouched.
+    assert.equal(local.listInstances().length, 1);
+    const reader = createRegistryReader(local);
+    const view = await reader.getInstance("uuid-a");
+    assert.deepEqual(
+      view.roleScopeBindings.map((binding) => binding.scope),
+      ["scope:default", "scope:org"]
+    );
+    assert.equal(view.offboardTombstone, undefined);
+    assert.equal(view.keys.filter((key) => key.state === "active").length, 2);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("hosted placement bootstraps no local registry files on a fresh root", async () => {
+  const { dir, root } = freshRoot();
+  try {
+    const hosted = createLocalStore({ root, placement: "hosted" });
+    assert.equal(existsSync(hosted.paths.root), false, "a hosted open must not create the store root");
+    assert.equal(existsSync(join(root, ".h2a-schema.json")), false);
+    assert.equal(existsSync(hosted.paths.instances), false);
+    assert.equal(existsSync(hosted.paths.keys), false);
+
+    // Reads still answer through the H2 contract (empty, never throwing).
+    const reader = createRegistryReader(hosted);
+    assert.deepEqual(await reader.listChangesSince(await reader.currentRevision()), []);
+    assert.equal(await reader.getInstance("uuid-a"), null);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

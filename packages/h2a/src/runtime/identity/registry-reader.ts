@@ -9,10 +9,13 @@
  * the single-writer invariant is preserved by construction.
  *
  * Semantics frozen with the cluster-mesh lane (M0):
- *  - `currentRevision()` — a monotonically increasing decimal string: the total
- *    number of append-only registry rows (instances + key events + org grants +
- *    offboard tombstones). Rows are never rewritten or removed, so the count can
- *    only grow.
+ *  - `currentRevision()` — a monotonically advancing cursor string
+ *    `<instances>/<keys>/<grants>/<offboards>`: the per-stream line counts of
+ *    the four append-only registry files. Rows are never rewritten or removed,
+ *    so each component only grows, and every stream is diffed against its OWN
+ *    component — an append in one stream can never shift another stream's rows
+ *    past the consumer's cursor (a flat concatenation index loses records as
+ *    soon as a later stream is non-empty).
  *  - `getInstance(agentUuidOrInstance)` — the `RegistryInstanceViewV1` for a
  *    perennial agent, addressed by `agentUuid` (the §2.4 level-1 anchor) or by
  *    any of its per-conversation instance ids (level-2 correlation only).
@@ -96,12 +99,57 @@ function readSnapshot(store: LocalStore): RegistrySnapshot {
   };
 }
 
-function revisionOf(snapshot: RegistrySnapshot): string {
-  return String(
-    snapshot.instances.length +
-    snapshot.keyEvents.length +
-    snapshot.grants.length +
-    snapshot.offboards.length
+/**
+ * The registry cursor: one line count per append-only stream. The four streams
+ * are separate JSONL files, so the consumer's revision must carry each stream's
+ * own cursor — a single flat index over the concatenated rows is not stable
+ * across interleaved appends.
+ */
+interface RegistryCursor {
+  readonly instances: number;
+  readonly keys: number;
+  readonly grants: number;
+  readonly offboards: number;
+}
+
+const CURSOR_STREAMS = ["instances", "keys", "grants", "offboards"] as const;
+
+function cursorOf(snapshot: RegistrySnapshot): RegistryCursor {
+  return {
+    instances: snapshot.instances.length,
+    keys: snapshot.keyEvents.length,
+    grants: snapshot.grants.length,
+    offboards: snapshot.offboards.length
+  };
+}
+
+function formatCursor(cursor: RegistryCursor): string {
+  return `${cursor.instances}/${cursor.keys}/${cursor.grants}/${cursor.offboards}`;
+}
+
+function parseCursor(revision: string): RegistryCursor | undefined {
+  if (typeof revision !== "string") return undefined;
+  const parts = revision.split("/");
+  if (parts.length !== CURSOR_STREAMS.length) return undefined;
+  const counts: number[] = [];
+  for (const part of parts) {
+    if (!/^\d+$/.test(part)) return undefined;
+    counts.push(Number(part));
+  }
+  return {
+    instances: counts[0],
+    keys: counts[1],
+    grants: counts[2],
+    offboards: counts[3]
+  };
+}
+
+function cursorIsAhead(cursor: RegistryCursor, current: RegistryCursor): boolean {
+  return (
+    cursor.instances > current.instances ||
+    cursor.keys > current.keys ||
+    cursor.grants > current.grants ||
+    cursor.offboards > current.offboards
   );
 }
 
@@ -275,7 +323,7 @@ function buildView(
 export function createRegistryReader(store: LocalStore): RegistryReaderV1 {
   return {
     async currentRevision(): Promise<string> {
-      return revisionOf(readSnapshot(store));
+      return formatCursor(cursorOf(readSnapshot(store)));
     },
     async getInstance(agentUuidOrInstance: string): Promise<RegistryInstanceViewV1 | null> {
       const snapshot = readSnapshot(store);
@@ -284,38 +332,46 @@ export function createRegistryReader(store: LocalStore): RegistryReaderV1 {
         ? agentUuidOrInstance
         : anchor.get(agentUuidOrInstance);
       if (agentUuid === undefined) return null;
-      return buildView(agentUuid, snapshot, anchor, revisionOf(snapshot));
+      return buildView(agentUuid, snapshot, anchor, formatCursor(cursorOf(snapshot)));
     },
     async listChangesSince(revision: string): Promise<readonly RegistryInstanceViewV1[]> {
-      if (typeof revision !== "string" || !/^\d+$/.test(revision)) {
+      const cursor = parseCursor(revision);
+      if (cursor === undefined) {
         throw new RegistryRevisionError(
           "registry_revision_invalid",
-          `registry_revision_invalid: ${JSON.stringify(revision)} is not a registry revision`
+          `registry_revision_invalid: ${JSON.stringify(revision)} is not a registry revision cursor (<instances>/<keys>/<grants>/<offboards>)`
         );
       }
       const snapshot = readSnapshot(store);
-      const anchor = anchorOf(snapshot);
-      const rows: Array<string | undefined> = [
-        ...snapshot.instances.map((reg) =>
-          typeof reg.agentUuid === "string" && reg.agentUuid.length > 0 ? reg.agentUuid : undefined
-        ),
-        ...snapshot.keyEvents.map((event) => anchor.get(event.instance)),
-        ...snapshot.grants.map((grant) => anchor.get(grant.instance)),
-        ...snapshot.offboards.map((tombstone) => anchor.get(tombstone.instance))
-      ];
-      const since = Number(revision);
-      if (since > rows.length) {
+      const current = cursorOf(snapshot);
+      if (cursorIsAhead(cursor, current)) {
         throw new RegistryRevisionError(
           "registry_revision_ahead",
-          `registry_revision_ahead: revision ${revision} is ahead of the registry (${rows.length}); resync with a full read`
+          `registry_revision_ahead: revision ${revision} is ahead of the registry (${formatCursor(current)}); resync with a full read`
         );
       }
+      // Every stream is diffed against its OWN cursor component: an append in
+      // instances never shifts keys/grants/offboards rows past the consumer.
+      const anchor = anchorOf(snapshot);
       const touched = new Set<string>();
-      for (let index = since; index < rows.length; index += 1) {
-        const agentUuid = rows[index];
+      const touch = (agentUuid: string | undefined): void => {
         if (agentUuid !== undefined) touched.add(agentUuid);
+      };
+      for (const reg of snapshot.instances.slice(cursor.instances)) {
+        touch(
+          typeof reg.agentUuid === "string" && reg.agentUuid.length > 0 ? reg.agentUuid : undefined
+        );
       }
-      const revisionNow = String(rows.length);
+      for (const event of snapshot.keyEvents.slice(cursor.keys)) {
+        touch(anchor.get(event.instance));
+      }
+      for (const grant of snapshot.grants.slice(cursor.grants)) {
+        touch(anchor.get(grant.instance));
+      }
+      for (const tombstone of snapshot.offboards.slice(cursor.offboards)) {
+        touch(anchor.get(tombstone.instance));
+      }
+      const revisionNow = formatCursor(current);
       return [...touched]
         .sort()
         .map((agentUuid) => buildView(agentUuid, snapshot, anchor, revisionNow));
