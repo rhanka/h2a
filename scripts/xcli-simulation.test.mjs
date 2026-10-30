@@ -24,6 +24,22 @@ test('L8 R4: an MCP cap during initial readiness remains a measured failure', ()
   assert.equal(cell.parentSecretWipe, true);
 });
 
+test('L8 R4: an MCP cap breach stops later campaign cells after the measured failure', () => {
+  const { status, receipt, cells } = runWakeCell(['--pair', 'claude:codex',
+    '--wake-release-offsets-ms', '0,100', '--mcp-call-cap', '1', '--timeout-ms', '5000']);
+  assert.equal(status, 2);
+  assert.equal(cells.length, 2);
+  assert.equal(cells[0].failure, 'mcp-call-cap-exceeded');
+  assert.equal(cells[0].blocker, undefined);
+  assert.ok(cells[0].evidence.some(e => e.event === 'mcp-call-cap-exceeded' && e.count === 2 && e.cap === 1));
+  assert.equal(cells[1].status, 'blocked');
+  assert.equal(cells[1].blocker, 'campaign-cap-exhausted');
+  assert.deepEqual(cells[1].evidence, [{ event: 'cap-refused', cap: 'mcp-call-cap' }]);
+  assert.deepEqual(receipt.counts, { 'simulated-OK': 0, 'simulated-KO': 1, blocked: 1 });
+  assert.ok(receipt.ledgerRefusals.some(r => r.code === 'campaign-cap-exhausted' && r.cap === 'mcp-call-cap'),
+    'the campaign-wide refusal is witnessed in the ledger');
+});
+
 test('a delivered envelope without a model reaction fails the live CI gate', () => {
   const root = fs.mkdtempSync(join(tmpdir(), 'xcli-negative-'));
   const output = join(root, 'negative.json');

@@ -111,7 +111,7 @@ export function createCampaignLedger(dir, caps) {
   assert.ok(Number.isSafeInteger(caps.mcpCallsPerSession) && caps.mcpCallsPerSession > 0, 'mcpCallsPerSession cap required');
   assert.ok(Number.isSafeInteger(caps.wallClockMs) && caps.wallClockMs > 0, 'wallClockMs cap required');
   const ledger = { version: 1, caps, sessionsDebited: 0, perSeatDebited: {},
-    wallClockSpentMs: 0, attempts: {}, mcpRefusals: [], quotaSeats: [] };
+    wallClockSpentMs: 0, attempts: {}, mcpRefusals: [], quotaSeats: [], mcpCapBreached: false };
   writeLedger(dir, ledger);
   return loadCampaignLedger(dir);
 }
