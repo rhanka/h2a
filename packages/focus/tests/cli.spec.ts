@@ -9,6 +9,7 @@
  * CLI never writes a track event (the fixture is unchanged between runs).
  */
 
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
@@ -19,6 +20,15 @@ import { tmpdir } from "node:os";
 import { Track, EventStore } from "@sentropic/track";
 
 import { run } from "../src/cli/index.js";
+import { validateDecisionDossierForPresentation } from "../src/validation/index.js";
+
+const require = createRequire(import.meta.url);
+const Ajv2020 = require("ajv/dist/2020.js") as new (opts: { strict: boolean }) => {
+  compile: (schema: unknown) => ((value: unknown) => boolean) & { errors: unknown[] | null };
+};
+const validateV1Schema = new Ajv2020({ strict: false }).compile(
+  require("../schemas/decision-dossier-document.v1.schema.json"),
+);
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixtureDir = mkdtempSync(join(tmpdir(), "focus-read-fixture-"));
@@ -63,7 +73,7 @@ const baseArgs = (format: string): string[] => [
 ];
 
 describe("focus CLI — blocks legacy decision presentation without inventing missing information", () => {
-  it.each(["terminal", "md", "html"])("refuses %s with an actionable diagnostic and no stdout", async (format) => {
+  it.each(["terminal", "md", "html", "json"])("refuses %s with an actionable diagnostic and no stdout", async (format) => {
     const c = capture();
     expect(await run(baseArgs(format), c.deps)).toBe(1);
     expect(c.out).toBe("");
@@ -145,6 +155,28 @@ describe("focus CLI — readable Track decisions", () => {
       expect(c.out).toContain('&lt;script&gt;alert("shed")&lt;/script&gt; &amp; comfort');
       expect(c.out).not.toContain('<script>');
     }
+    expect(readFileSync(path, "utf8")).toBe(before);
+  });
+});
+
+describe("focus CLI — --format json (U-19)", () => {
+  it("emits a presentation-validated v1 DecisionDossierDocument and leaves the log untouched", async () => {
+    const path = join(mkdtempSync(join(fixtureDir, "readable-json-")), "events.jsonl");
+    const track = new Track(new EventStore(path), { by: "owner" });
+    const target = track.createItem({ kind: "feature", title: "Garden shed", workspace: "garden" });
+    const dossier = JSON.parse(readFileSync(new URL("./readable-track.fixture.json", import.meta.url), "utf8"));
+    const id = track.createDecision({ decisionKind: "orientation", title: "Choose the garden shed location", workspace: "garden", targets: [target], dossier });
+    const before = readFileSync(path, "utf8");
+    const c = capture();
+    expect(await run([id, "--workspace", "garden", "--events-path", path, "--format", "json"], c.deps)).toBe(0);
+    expect(c.err).toBe("");
+    expect(c.out.endsWith("}\n")).toBe(true);
+    const doc = JSON.parse(c.out) as Record<string, unknown>;
+    // v1 is selected by the ABSENCE of schemaVersion (decision-dossier-document.v2.schema.json).
+    expect("schemaVersion" in doc).toBe(false);
+    expect(doc.title).toBe("Choose the garden shed location");
+    expect(validateDecisionDossierForPresentation(doc).ok).toBe(true);
+    expect(validateV1Schema(doc), JSON.stringify(validateV1Schema.errors)).toBe(true);
     expect(readFileSync(path, "utf8")).toBe(before);
   });
 });
