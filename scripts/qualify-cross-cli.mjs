@@ -102,7 +102,10 @@ export function blockingScreen(screen) {
   if (/sign in|log in|login required|not logged in|authentication required|please authenticate|API key.{0,30}(?:missing|required)|Select authentication|Select login method|How would you like to authenticate/i.test(screen)) return 'authentication-required';
   if (/quota exceeded|usage limit|rate.?limit|credits exhausted|insufficient credits|limit reached/i.test(screen)) return 'provider-quota';
   if (/trust (?:this|the) (?:folder|workspace)|Do you trust|trust this project|security notes|choose.{0,20}theme|select.{0,20}theme|Welcome to Claude/i.test(screen)) return 'onboarding-or-trust';
-  if (/permission.{0,20}(?:required|denied)|allow.{0,30}(?:tool|MCP)|approve.{0,25}(?:tool|MCP)/i.test(screen)) return 'tool-approval-required';
+  // R17 (P2-2): every approval form — tool, permission or shell command —
+  // blocks, except the one MCP server approval that is a startup action.
+  if (startupKey(screen) !== 'mcp-approval-allow' &&
+    /permission.{0,20}(?:required|denied)|allow.{0,30}(?:this\s+shell\s+command|shell\s+command|tool|MCP)|approve.{0,25}(?:shell\s+command|tool|MCP)/i.test(screen)) return 'tool-approval-required';
   return undefined;
 }
 
@@ -116,9 +119,11 @@ export function startupKey(screen) {
   // Claude >=2.1.314 shows an MCP/tool-approval Allow screen after the trust
   // dialog (captured: Enter+confirm+trust+Allow vocabulary with a permission
   // signal). Without a key the cell idles to mcp-not-loaded-before-deadline.
-  // A shell-command approval is never a startup action: it stays undefined
-  // and fails closed through the tool-approval blocker.
-  if (/allow/i.test(screen) && /(mcp|\btools?\b|permission|approv)/i.test(screen) &&
+  // R17 (P2-2): only an MCP server approval is auto-confirmed; any other
+  // tool, permission or shell-command approval stays undefined and fails
+  // closed through the tool-approval blocker.
+  if (/allow/i.test(screen) && /\bmcp\b/i.test(screen) &&
+    /(server|\btools?\b|permission|approv|h2a)/i.test(screen) &&
     !/shell command/i.test(screen)) return 'mcp-approval-allow';
   const normalized = screen.replace(/\s+/g, ' ');
   if (/choose.{0,25}permissions/i.test(normalized) && /default/i.test(normalized) && /press.{0,35}continue/i.test(normalized)) return 'permissions-keep-default';
@@ -318,7 +323,11 @@ async function worker() {
     if (Date.now() - (target.lastOutputAt ?? Date.now()) < 2000) { await sleep(100); return true; }
     if (target.startupActions.has(action)) {
       const fresh = (target.lastOutputAt ?? 0) > (target.startupPressAt[action] ?? 0);
-      if (presses > (STARTUP_REPEAT_LIMIT[action] ?? 0) || !fresh) { await sleep(100); return true; }
+      // R17 (P3-1): a screen that outlives its repeat budget is no longer a
+      // startup action — return false so the blocker classification below
+      // runs instead of spinning until the deadline.
+      if (presses > (STARTUP_REPEAT_LIMIT[action] ?? 0)) return false;
+      if (!fresh) { await sleep(100); return true; }
     }
     target.startupActions.add(action);
     target.startupPresses[action] = presses + 1;
@@ -379,6 +388,16 @@ async function worker() {
     while (Date.now() < deadline) {
       if (cancelled) return { blocker: 'qualification-cancelled' };
       const screen = await capture(target);
+      // R17 (P3-1): classify a dead process before any startup handling. A
+      // CLI that exits after a startup press leaves its last screen on the
+      // terminal; that stale screen must never mask the exit or burn the
+      // whole deadline as mcp-not-loaded-before-deadline.
+      const state = await client.state(target.state.id);
+      if (state.status === 'exited') {
+        row.evidence.push({ event: 'cli-exit', role: target.role, exit: state.exit,
+          facts: startupFacts(screen), rawFacts: startupFacts(stripAnsi(target.screen)) });
+        return { blocker: observedBlocker(target, screen) ?? 'cli-exited-before-ready' };
+      }
       if (await startup(target, screen)) continue;
       const blocker = observedBlocker(target, screen);
       if (blocker) { row.evidence.push({ event: 'startup-screen-facts', role: target.role, facts: startupFacts(screen) }); return { blocker }; }
@@ -388,12 +407,6 @@ async function worker() {
         quietSince ??= Date.now();
         if (Date.now() - quietSince >= 2000) return { instance: identity.instance };
       } else quietSince = undefined;
-      const state = await client.state(target.state.id);
-      if (state.status === 'exited') {
-        row.evidence.push({ event: 'cli-exit', role: target.role, exit: state.exit,
-          facts: startupFacts(screen), rawFacts: startupFacts(stripAnsi(target.screen)) });
-        return { blocker: 'cli-exited-before-ready' };
-      }
       await sleep(100);
     }
     const e = events(target);
@@ -1107,13 +1120,27 @@ async function main() {
   runs.sort((a, b) => Number(!(a.sharedSeat ?? a.sender === a.receiver)) - Number(!(b.sharedSeat ?? b.sender === b.receiver)));
   // Lot L8 (§6.4/§6.5): per-seat quota stops, one preflight per seat, and the
   // pre-spawn cap gates. Nothing spawns and no seat is touched on refusal.
+  // R17 (P2-1): one preflight scope for both real-seat entry modes. The
+  // deprecated --auth-home alias contributes one implicit seat per campaign
+  // family, auth-sourced from the alias itself, so its cells are preflighted
+  // exactly like manifest seats (§6.5 has no un-preflighted real-seat path).
+  const preflightSeats = !simulated && (manifest || authHomeAlias)
+    ? (manifest ? manifest.seats
+      : [...new Set(runs.flatMap(one => [one.sender, one.receiver]))]
+        .map(family => ({ seatId: `${family}-default`, family, authSource: resolve(authHomeAlias) })))
+    : null;
   const quotaSeats = new Set(ledger.quotaSeats ?? []);
   const preflighted = new Map();
   const runAuthPrecheck = async (seat, { executable }) => {
     // Muse config-status contrast: the control HOME (no logins) must not
     // read authed while the seat HOME (seat files only) reads accepted.
     // Closed-vocabulary match only; outputs discarded; both HOMEs deleted.
-    // No model turn is spent.
+    // No model turn is spent. XCLI_AUTH_PRECHECK_MODEL_CALLS is a test seam:
+    // it lets a campaign test drive a model-reaching precheck (§6.4) without
+    // a real vendor call, proving the cap accounting end to end. Any value
+    // outside a positive integer stays 0 (fail closed).
+    const raw = Number(process.env.XCLI_AUTH_PRECHECK_MODEL_CALLS ?? '0');
+    const spent = Number.isSafeInteger(raw) && raw > 0 ? raw : 0;
     const probe = async withFiles => {
       const home = fs.mkdtempSync(join(root, 'pre-'));
       try {
@@ -1128,10 +1155,10 @@ async function main() {
       } finally { fs.rmSync(home, { recursive: true, force: true }); }
     };
     const control = await probe(false);
-    if (control.authed) return { ok: false, reason: 'preflight-control-untrusted', modelCalls: 0 };
+    if (control.authed) return { ok: false, reason: 'preflight-control-untrusted', modelCalls: spent };
     const seated = await probe(true);
-    if (seated.status === 0 && seated.authed) return { ok: true, modelCalls: 0, detail: 'config-status-accepted' };
-    return { ok: false, reason: 'preflight-auth-unproven', modelCalls: 0 };
+    if (seated.status === 0 && seated.authed) return { ok: true, modelCalls: spent, detail: 'config-status-accepted' };
+    return { ok: false, reason: 'preflight-auth-unproven', modelCalls: spent };
   };
   const seatKey = (run, role) => run[role === 'sender' ? 'senderSeat' : 'receiverSeat'] ?? (role === 'sender' ? run.sender : run.receiver);
   const blockedRow = (run, releaseOffsetMs, blocker, evidence = []) => ({ sender: run.sender, receiver: run.receiver,
@@ -1169,7 +1196,9 @@ async function main() {
     }
     // Preflights gate real seats only: simulated cells spend no model turns
     // and read no logins, so there is nothing a preflight could protect.
-    if (manifest && !simulated) {
+    // R17 (P2-1): the deprecated --auth-home alias gets the same protection
+    // through implicit per-family seats — no real-seat path is un-preflighted.
+    if (preflightSeats) {
       let preflightBlocker = null;
       let preflightCap = null;
       for (const role of ['sender', 'receiver']) {
@@ -1180,13 +1209,17 @@ async function main() {
           // first model-reaching precheck debits exactly like a first
           // attempt — there is no un-debited path to a model.
           if (!fitsSessions(ledger, 1)) { preflightCap = 'launched-sessions'; break; }
-          const seat = manifest.seats.find(s => s.seatId === seatId);
+          const seat = preflightSeats.find(s => s.seatId === seatId);
           const verdict = await runSeatPreflight(seat, { executables, runAuthPrecheck });
           preflighted.set(seatId, verdict);
           // The debit persists in the campaign ledger: that write is the
           // witness, reloaded on resume like every other debit.
           const debit = applyPreflightDebit(ledger, seatId, verdict);
           assert.ok(debit.ok, 'fit-checked preflight debit cannot refuse');
+          // R17 (P2-1): a model-reaching preflight debits real units after
+          // the pre-spawn gate. The moment the cell's two units no longer
+          // fit, stop preflighting the second seat and refuse below.
+          if (!fitsSessions(ledger, 2)) { preflightCap = 'launched-sessions'; break; }
         }
         const verdict = preflighted.get(seatId);
         if (!verdict.ok && !preflightBlocker) preflightBlocker = verdict.reason;
@@ -1201,6 +1234,16 @@ async function main() {
         cells.push(blockedRow(run, releaseOffsetMs, preflightBlocker));
         continue;
       }
+    }
+    // R17 (P2-1): preflights may have debited units after the pre-spawn
+    // gate — re-verify the cell's two units at the point of use, so a
+    // refused launch is witnessed instead of crashing on the pre-checked
+    // debits with an orphan debit on disk.
+    if (!fitsSessions(ledger, 2)) {
+      ledger.refusals.push({ run: `${sender}>${receiver}`, code: 'campaign-cap-exhausted', cap: 'launched-sessions' });
+      persistLedger(ledger);
+      cells.push(blockedRow(run, releaseOffsetMs, 'campaign-cap-exhausted', [{ event: 'cap-refused', cap: 'launched-sessions' }]));
+      continue;
     }
     const senderDebit = debitSession(ledger, seatKey(run, 'sender'));
     const receiverDebit = debitSession(ledger, seatKey(run, 'receiver'));
