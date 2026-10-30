@@ -16,6 +16,40 @@ import { fixture, eventually, usable } from './helpers/restart-lab.js';
 const repo = resolve(import.meta.dirname, '../../..');
 const hostEntry = join(repo, 'packages/h2a-runtime/dist/native-terminal/process.js');
 
+test('incident lab waits for its recorded descendants to exit before deleting their HOME', async t => {
+  const f = fixture(t);
+  const descendant = join(f.root, 'descendant.mjs'), launcher = join(f.root, 'launcher.mjs');
+  writeFileSync(descendant, 'setInterval(() => {}, 1000);');
+  writeFileSync(launcher, `import {spawn} from 'node:child_process';spawn(process.execPath,[${JSON.stringify(descendant)}],{detached:true,stdio:'ignore'}).unref();`);
+  assert.equal((await f.start([], launcher).done).code, 0);
+  const record = await eventually(() => f.recorded().find(row => row.args[1] === descendant), Boolean);
+  const live = () => {
+    try { const stat = readFileSync(`/proc/${record.pid}/stat`, 'utf8').split(') ')[1].split(' ');
+      return stat[19] === record.start && !['Z', 'X'].includes(stat[0]);
+    } catch (error) { if (error.code === 'ENOENT') return false; throw error; }
+  };
+  const kill = process.kill.bind(process);
+  let requested;
+  const signalled = new Promise(resolve => { requested = resolve; });
+  const mock = t.mock.method(process, 'kill', (pid, signal) => {
+    if (pid === record.pid && signal === 'SIGKILL') { requested(); return true; }
+    return kill(pid, signal);
+  });
+  const disposing = f.dispose();
+  try {
+    await signalled;
+    await pause(20); // Model a signal request whose process has not exited yet.
+    assert.equal(live(), true);
+    assert.equal(existsSync(f.root), true, 'a pending descendant can still write into its HOME');
+  } finally {
+    mock.mock.restore();
+    if (live()) kill(record.pid, 'SIGKILL');
+    await eventually(live, value => !value);
+    await disposing;
+  }
+  assert.equal(existsSync(f.root), false);
+});
+
 test('crash-recovery: contended registry creation keeps the host responsive without spawning an unrecorded PTY', { timeout: 10000 }, async t => {
   const f = fixture(t); f.save([]);
   f.start(['--socket', f.env.H2A_NATIVE_SOCKET, '--registry-path', f.registry], hostEntry);
