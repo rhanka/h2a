@@ -469,10 +469,11 @@ function isPythonWrapper(text) {
   if (!/^#!\s*\/bin\/(ba)?sh\b/.test(lines[0] ?? '') && !/^#!\s*\/usr\/bin\/env\s+(ba)?sh\b/.test(lines[0] ?? '')) return false;
   // VAR=val assignments may precede the interpreter with or without env
   // (exec FOO=bar python3, exec env FOO=bar python3 -u): skip them so the
-  // guard sees the interpreter behind them, never the assignment.
+  // guard sees the interpreter behind them, never the assignment. env takes
+  // any dash-option (-S, -i…), like shebangInterpreter's option filter.
   const assignment = String.raw`(?:[A-Za-z_]\w*=(?:"[^"]*"|'[^']*'|\S+)\s+)*`;
   return lines.slice(1).some(line =>
-    new RegExp(String.raw`(^|[;&|]\s*|\bexec\s+)${assignment}(python(\d+(\.\d+){0,2})?|\/[\w./~+-]*python(\d+(\.\d+){0,2})?|((?:\/[\w./~+-]*env|env\b)\s+)?${assignment}(-S\s+)?${assignment}python(\d+(\.\d+){0,2})?)\b`).test(line));
+    new RegExp(String.raw`(^|[;&|]\s*|\bexec\s+)${assignment}(python(\d+(\.\d+){0,2})?|\/[\w./~+-]*python(\d+(\.\d+){0,2})?|((?:\/[\w./~+-]*env|env\b)\s+)?${assignment}(?:-[^\s]+\s+)*${assignment}python(\d+(\.\d+){0,2})?)\b`).test(line));
 }
 // Explicit instrumentation is useful for direct-worker diagnostics, but
 // proves no descendant observation. The parent replaces this partial view

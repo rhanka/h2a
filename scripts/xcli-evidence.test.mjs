@@ -68,6 +68,11 @@ test('a source runner exports JSON receipts without exposing its private build o
       env: { ...process.env, XCLI_EVIDENCE_EXPORT_DIR: exported },
       encoding: 'utf8', timeout: 120000, maxBuffer: 4 * 1024 * 1024,
     });
+    // R17 (P3-2): the runner reports its root on stdout even when the run
+    // fails. Recover it before any assertion below can throw, so the finally
+    // can always remove the ~114 MB root (xcli-runtime-runner.test.mjs
+    // pattern) — a failed run must not leak it.
+    sourceRoot = (result.stdout.match(/Evidence: (\S+)/) ?? [])[1] ?? null;
     assert.equal(result.status, 0, result.stdout + result.stderr);
     assert.deepEqual(fs.readdirSync(exported).sort(), ['execution.json', 'receipt.json']);
     for (const name of fs.readdirSync(exported)) {
@@ -80,7 +85,7 @@ test('a source runner exports JSON receipts without exposing its private build o
     assert.ok(receipt.counts.pass > 0);
     assert.equal(receipt.counts.fail, 0);
     const root = join(receipt.sourceBuild.path, '..');
-    sourceRoot = root;
+    assert.equal(sourceRoot, root, 'the stdout-reported root matches the receipt');
     assert.ok(fs.existsSync(sourceRoot), 'the reported source root exists before cleanup');
     assert.equal(fs.statSync(root).mode & 0o777, 0o700);
     assert.equal(fs.statSync(exported).mode & 0o777, 0o700);
@@ -89,6 +94,34 @@ test('a source runner exports JSON receipts without exposing its private build o
     if (sourceRoot) {
       fs.rmSync(sourceRoot, { recursive: true, force: true });
       assert.equal(fs.existsSync(sourceRoot), false, 'the source root is removed, not leaked');
+    }
+  }
+});
+
+// R17 (P3-2): an assertion failure between the spawn and the cleanup must
+// not leak the spawned run's ~114 MB root. The failing run (one real suite,
+// one absent: verification fails, exit 1) still mints, builds, exports and
+// reports its root; the recovered root is removed even though the run
+// failed.
+test('a failed source run still recovers and removes its reported root', () => {
+  const exported = fs.mkdtempSync(join(tmpdir(), 'xcli-evidence-'));
+  let sourceRoot = null;
+  try {
+    const result = spawnSync(process.execPath, ['scripts/xcli-source-tests.mjs',
+      'packages/h2a/test/cli-host-status.test.js', 'packages/h2a/test/zz-r17-absent-suite.test.js'], {
+      env: { ...process.env, XCLI_EVIDENCE_EXPORT_DIR: exported },
+      encoding: 'utf8', timeout: 120000, maxBuffer: 4 * 1024 * 1024,
+    });
+    sourceRoot = (result.stdout.match(/Evidence: (\S+)/) ?? [])[1] ?? null;
+    assert.notEqual(result.status, 0, 'the absent suite fails the run');
+    assert.ok(sourceRoot, 'the runner reports its root even on a failed run');
+  } finally {
+    fs.rmSync(exported, { recursive: true, force: true });
+    if (sourceRoot) {
+      fs.rmSync(sourceRoot, { recursive: true, force: true });
+      assert.equal(fs.existsSync(sourceRoot), false, 'a failed run leaves no source root behind');
+    } else {
+      assert.fail('no source root recovered from the failed run');
     }
   }
 });

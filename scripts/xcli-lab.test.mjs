@@ -59,6 +59,22 @@ test('R15: startup handles the MCP-approval Allow screen, never a shell approval
   assert.equal(startupKey('Allow "h2a" MCP tool usage?\nPress Enter to confirm'), 'mcp-approval-allow');
 });
 
+// R17 (P2-2): only an MCP server approval at startup is a startup action.
+// Any other tool, permission or shell-command approval must stay undefined
+// and fail closed through the tool-approval blocker — never an auto-\r.
+test('R17: only an MCP server approval is a startup action, every other approval blocks', () => {
+  for (const screen of ['Allow tool "bash" to run? [y/n]',
+    'Approve tool execution: rm -rf /? Press Enter to allow',
+    'Permission required: Allow tool write_file?',
+    'Allow this shell command? Press Enter to confirm']) {
+    assert.equal(startupKey(screen), undefined, JSON.stringify(screen));
+    assert.equal(blockingScreen(screen), 'tool-approval-required', JSON.stringify(screen));
+  }
+  const allow = 'MCP servers need permission to run in this workspace\nOnly allow tools from sources you trust\n[Allow] [Deny]\nPress Enter to confirm your choice';
+  assert.equal(startupKey(allow), 'mcp-approval-allow');
+  assert.equal(blockingScreen(allow), undefined, 'the MCP startup approval stays a startup action, never a blocker');
+});
+
 test('AGY login selection blocks authentication before messaging can be measured', () => {
   assert.equal(blockingScreen('Select login method: Other sign-in options'), 'authentication-required');
   assert.equal(blockingScreen('Ready · /tmp/private-workspace'), undefined);
@@ -207,6 +223,7 @@ test('L6: the entrypoint guard rejects versioned, env-form, absolute and wrapper
       ['#!/usr/bin/env FOO=bar BAR=baz python3\n', true],
       ['#!/usr/bin/env -S FOO=bar python3 -u\n', true],
       ['#!/bin/sh\nexec env FOO=bar python3 "$@"\n', true],
+      ['#!/bin/sh\nexec env -i FOO=bar python3 "$@"\n', true],
       ['#!/bin/sh\nFOO=bar exec python3.12 "$@"\n', true],
       ['#!/usr/bin/env FOO=bar node\n', false],
       ['#!/usr/bin/env node\n', false],
