@@ -1,0 +1,13 @@
+{
+  "files": [
+    "packages/h2a-runtime/src/native-terminal/drive.functional.test.ts",
+    "packages/h2a-runtime/src/native-terminal/op.test.ts",
+    "packages/h2a-runtime/src/native-terminal/terminal-modes.functional.test.ts"
+  ],
+  "tests": 19,
+  "passed": 19,
+  "failed": 0,
+  "pending": 0,
+  "evidence": "/tmp/h2a-qual-gZPv6s",
+  "exitCode": 0
+}

@@ -37,6 +37,8 @@ function assertHttpMcpUrl(value: string): void {
 export interface McpHostConfigSnippet {
   /** JSON snippet to merge into the host's MCP config file. */
   config: {
+    /** Host-native root metadata required by Muse's settings format. */
+    schema_version?: 1;
     mcpServers: {
       h2a: H2AMcpEndpointConfig;
     };
@@ -95,9 +97,9 @@ export function renderH2aMcpServer(
  * Renders the JSON snippet a user must add to their Codex CLI MCP config
  * to expose the `h2a mcp-serve` JSON-RPC 2.0 server as an MCP backend.
  *
- * Path hint covers the two locations the Codex CLI is known to read,
- * depending on the version: `~/.codex/config.json` (legacy) and
- * `~/.config/codex/mcp.json` (XDG layout).
+ * Codex CLI reads native TOML from `$CODEX_HOME/config.toml`, defaulting to
+ * `~/.codex/config.toml`. The common JSON endpoint is translated explicitly
+ * in the hint; the format-strict JSON writer must still refuse TOML files.
  */
 export function renderMcpConfig(
   options: RenderMcpConfigOptions = {}
@@ -110,10 +112,12 @@ export function renderMcpConfig(
     },
     path: {
       hint:
-        "Codex CLI reads its MCP config from either ~/.codex/config.json " +
-        "(legacy) or ~/.config/codex/mcp.json (XDG). Merge the snippet under " +
-        "the top-level `mcpServers` key in whichever file your Codex CLI uses.",
-      example: "~/.config/codex/mcp.json"
+        "Codex CLI reads MCP servers from $CODEX_HOME/config.toml " +
+        "(default ~/.codex/config.toml), not legacy JSON files. Translate " +
+        "the endpoint to [mcp_servers.h2a] / command = <command> / args = [<args>] " +
+        "for stdio, or [mcp_servers.h2a] / url = <url> for HTTP. " +
+        "Use the native Codex MCP editor; --write preserves its JSON-only guard.",
+      example: "~/.codex/config.toml"
     }
   };
 }

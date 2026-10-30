@@ -210,6 +210,34 @@ and unrelated files on Claude, Codex, Muse, Vibe and Agy. No provider activation
   /home/antoinefa/.cache-tmp/h2a-test/run-ieKzxe; no installed h2a or owner state,
   real provider/gateway/cluster, full local suite, Python or attribution trailer.
 
+# PR #379 — v3 review round 11
+
+- Scope: the two distinct P2 findings supplied by Astra/Sol on `61d00e840`: guard the workflow's version measurement before executing a CLI, and prevent simulated campaigns/workers from inspecting or copying seat logins. Preserve QO4's Vibe vendor exception and simulated seat routing.
+- RED first: exact YAML JavaScript probes an inert forbidden Codex launcher; simulated manifest inspection reaches an AGY auth directory, worker routing carries auth sources, and an actual worker copies a dummy Codex login. The final descriptor-aware observer also catches four auth accesses on the reviewed worker.
+- Fix: guard the measurement, discard simulated manifest auth sources before source inspection, and refuse login mapping in simulated workers. Real seat handling, budgets, native production code and receipt gates keep their existing contracts.
+- Evidence and R1/R2/R3 replays: `docs/reviews/2026-10-29-cross-cli-r11.md`. Only targeted test files, private roots and dummy credentials; no Python, installed h2a, owner state or attribution trailer. The supplied reviews are reconciled; no new independent consensus is claimed because the installed h2a route is forbidden by the owner's confinement.
+- Private TMPDIR: `/home/antoinefa/.cache-tmp/h2a-test/run-NMSAiR`; remove at delivery after preserving logs in `tmp/h-cond/fix379-r11-evidence/` of the main checkout. Rebase onto `origin/main`, then push only `feat/live-cross-cli-messaging` with `--force-with-lease`.
+- CI follow-up: the FRESH-host fixture raced automatic parent-death cleanup and rejected its legitimate transient `membership-unprovable` result. Confine its real census to owned processes and retry only that uncertainty within the existing bounded wait; retain final `reaped` and process-disappearance assertions. Private single-refusal RED -> GREEN, permanent uncertainty and foreign-frame negative controls still fail, full targeted file 37/37. Production native-host and all timeout budgets remain unchanged.
+
+# PR #379 — v3 review round 10 continuation
+
+- Resume: HEAD `ad9c61168`, no unpushed commits; preserve the three regression-test edits left by the capacity failure. No completed R9 fix was replayed as new work.
+- Scope: all four supplied Astra/Sol P2 findings. Refuse forbidden launchers before any version/oracle spawn; reserve wall-clock funding before worker launch and settle from the parent's monotonic clock; require a targeted MCP send and its actual unavailable-recipient result before scenario acceptance. Keep v3, native production code, dependencies and receipt gates intact.
+- R10-EX1: the coupled campaign ledger, worker, filtered MCP witness, classifier and their regressions require eight code/test files and exceed 150 lines. Rollback is a revert of the R10 correction commit; no unrelated refactor or dependency is included.
+- RED/GREEN commands, bounded claims and R1 replays: `docs/reviews/2026-10-28-cross-cli-r10.md`. A lost or zero-reporting worker must consume parent-measured time; an interrupted parent's persisted reservation cannot be refunded on resume.
+- Review: supplied independent R2 findings reproduced and addressed. No new independent consensus claimed: the installed h2a review route remains forbidden by the owner's confinement.
+- Private TMPDIR: `/home/antoinefa/.cache-tmp/h2a-test/run-FNIyzD`; remove at delivery, along with the interrupted attempt's known `run-BmSkGI` directory. Only named test files, isolated fixtures and inert forbidden-launcher text; no Python execution, installed h2a, real seats, owner state or attribution trailer.
+
+# PR #379 — v3 review round 9 continuation
+
+- Scope: preserve pushed `211d79a5c`; replay the four Astra/Sol findings at reviewed `0add537f5` with RED/GREEN evidence; fix the simulated peer's late MCP teardown, the inherited restart lab's detached-writer disposal and the positive loop scenario's premature join observed in CI. No v4 design or production native-host changes.
+- Evidence: `docs/reviews/2026-10-28-cross-cli-r9.md`. Campaign/cap tests 20/20, three-replication read-then-pop regression 1/1, wake/receipt/trusted-artifact tests 27/27, lab 12/12, delayed MCP teardown RED 0/1 -> GREEN 1/1. Node 22 polling at 90 s: all nine observations deny wake credit.
+- Private TMPDIR: `/home/antoinefa/.cache-tmp/h2a-test/run-tUYcx9`; reported sibling campaign roots explicitly removed. No Python, installed h2a, real seats, owner state, full local suite or attribution trailer. Namespace upgrade validation stays in CI because local sudo refuses no-new-privileges.
+- No new independent consensus claimed: the installed h2a review route remains forbidden by the owner's confinement. The supplied Astra/Sol reviews are the findings addressed here. Trusted-lane exact-SHA receipts remain conductor-owned and absent.
+- CI follow-up: an EOF-aware shutdown witness still rejects the historical peer. Restart-lab cleanup now confirms every recorded PID/start incarnation dead before removing its proc view; delayed-signal regression RED 0/1 -> GREEN 2/2 on Node 22/24, full targeted incident file 17/17. Four historical wake-review cases leave four roots; current cases leave none. All latency thresholds remain unchanged.
+- L13 follow-up: the archived failed cell joins while create is enrolling its creator. A widened private build reproduces create refusal after a successful participant join. Wait for the successful create response before joining; same fault GREEN on Node 22/24, full scenario test file 22/22. Product loop code and refusal twins are unchanged.
+- Security follow-up: GHSA-rmxm-3fg6-px4f newly fails the required moderate+ gate. Lock-only @hono/node-server 2.1.1 -> 2.1.3 (first fixed patch), unchanged Node/Hono peers and no new dependencies. Audit gate RED -> GREEN, policy contracts 7/7, private HTTP smoke on Node 22/24. No scanner exception or policy change.
+
 # R10 — native host recovery under concurrent load
 
 - Scope: the three R9 findings on PR #390; startup election expiry, responsive native creation, failed-list connection ownership and their measured startup costs. No dependency/version/workflow/scope-policy changes.
@@ -772,3 +800,183 @@ inventory in `.h2a/build/seat_model_inventory.md` (untracked).
   compatible published versions and qualify all ten cli/token imports.
 - Targeted post-rebase enrollment/dispatch/regression suites: 6 files,
   118 passed, 0 skipped. Full local suite and native/installed h2a forbidden.
+# Live cross-CLI messaging
+
+Branch: feat/live-cross-cli-messaging; base: 54e7ffd7859f84fdaa04db94975e292e1af63330 (0.98.6).
+Owner scope: 2026-10-15. No merge, release, installed h2a execution, Python,
+real owner h2a state, unowned process inspection, force push, or main changes.
+
+## Lot 1 — measure before changing the product
+
+- Node 22/24 harness; source-only build in mkdtemp; direct C++ compilation of
+  unchanged node-pty source avoids its Python installation toolchain.
+- 36 distinct ordered pairs of Claude, Codex, AGY, Gemini, Muse and Vibe.
+- Separate evidence for MCP initialization/tools, signed send, durable
+  delivery, CLI inbox read, autonomous live reaction and signed reply delivery.
+- Two empty independent workspaces/identities, including same-CLI pairs.
+- Fresh HOME/XDG/store/socket/registry per cell; existing login files copied
+  through an auth-only allowlist and deleted with CLI state after the cell.
+- Existing native isolation guards retained. Every nested h2a command resolves
+  to a temporary shim over checkout sources. Existing upgrade reexec guard
+  prevents background installation. No raw model/provider outputs retained.
+- Blocking trust/auth/provider/environment cases remain explicit blockers.
+  No skipped cells and no support claims without measured-OK.
+- Commit and push harness plus full table before product corrections.
+
+## Lot 2 — repair only observed failures
+
+Order: MCP loading, durable delivery, live wake, reply. Each regression must
+retain a failing command/receipt and the corresponding passing observation.
+Run every test file that references a changed integration. A successful MCP
+handshake alone never becomes a successful messaging cell.
+
+## Lot 3 — simulated CI, real local qualification
+
+GitHub CI on Node 22/24 exercises deterministic model peers on the real product
+messaging/wake path for all ordered pairs. Local real-CLI qualification stays
+separate, with no secrets or paid seats required by CI. Missing simulation
+coverage is a failed assertion, never a silent skip.
+
+## Design review and limitations
+
+Two independent adversarial design readings were reconciled: use h2a_inbox
+(no h2a_receive tool exists), prove MCP initialization plus tool publication,
+correlate exact envelopes and identities, require an idle receiver barrier,
+preserve the upgrade guard, and never treat a notification as model reception.
+
+The installed-h2a consensus-review route prescribed by harness-review is
+incompatible with the owner's explicit confinement. It is not used. These
+design readings are not a claim of a formal harness-review consensus.
+
+The shell's default bwrap runner cannot create its namespace in this
+confinement. Source reads and private test commands use explicit execution
+exceptions; they do not authorize contacting the real h2a host or state.
+
+Current outcome: phase 1 measured 0 OK, 5 KO, 31 blocked. CI has proven all
+36 simulated round trips on Node 22 and 24; this is no real-CLI support claim.
+Historical published-host fixtures now require a private PID namespace with
+an init reaper. The scoped new CI launcher supplies it. Running that fixture
+without the launcher fails closed; adapting the existing full npm-test/release
+entry points remains a pre-merge task, and those full gates are not qualified
+by the scoped cross-CLI workflow. No merge readiness is claimed.
+
+## Resume 2026-10-16
+
+Preserve the twelve pushed commits; never run the full suite locally. The
+confirmed native wake framing defect is fixed: keep the validated line and its
+single submit CR in separate input bursts under the same fenced lease. Human
+activity and control-byte guards remain intact. Claude-to-Claude now has a real
+measured signed round trip, autonomous inbox read and signed reply after the
+idle barrier. Codex still has no real MCP initialization; an ineffective
+initial-submit experiment was removed. The scoped CI workflow now includes the
+direct op consumers. See docs/2026-10-16-cross-cli-resume.md for commands,
+red/green receipts, qualification limits and cleanup evidence.
+### Resume follow-up — Muse settings and bounded CI jobs (2026-10-16)
+
+- Muse's real parser rejects settings without root schema_version=1. Preserve this field in product snippets/writes, keep unrelated settings and refuse incompatible versions even with force. Native config oracle: 3 failed before, 3 passed after; host integration: 26 passed/2 failed before, 28 passed after; six host consumer files: 71 passed/0 failed.
+- Copy Muse launcher/native program into the temporary experiment before running it: its wrapper accesses adjacent mutable update notices independently of HOME. Temporary fake-install red/green proves the owner installation notice is untouched. No Python or installed h2a execution.
+- Real Muse still exits 1 after trust, and its isolated exec preflight exits 1 without a recognized diagnostic. No real Muse support claim. AGY login selection is now an explicit authentication blocker. Codex remains unqualified; unsuccessful startup experiments were removed.
+- CI 38900923045 proves all 36 simulated pairs on both Node versions, but is cancelled overall because Node 24 exceeded the 10-minute combined job budget. Split independent runtime/native-source/host-source checks without increasing timeout or weakening guards; publish receipts. Follow-up CI required after push.
+- CI 38908671072 additionally exposed missing Track skill fixtures (six assertions, reproduced locally 11 pass/6 fail then 17 pass/0 fail) and root-owned receipt upload failure. Export only safe JSON copies with uploader ownership; leave all private build/state permissions intact. Export/PID refusal tests 4/4; targeted runtime op tests 4/4; Gemini replay remains authentication-required.
+- Final code CI 38909510272 on 2f4568a9: all eight jobs success. Each of Node 22/24: 36/36 simulated pairs, harness 18 passed, native config 2 passed, runtime 702 passed/0 failed (four declared non-tests), source native 151 passed/0 failed (12 declared todos), source hosts 210 passed/0 failed (one declared placeholder). Downloaded artifacts and independently validated every source-file identity and simulated messaging stage. Final evidence-only archive uses [skip ci]; no code changes after this qualified SHA.
+- Real live qualification remains Claude→Claude only, 1/36; no real cross-CLI pair qualified. Formal installed-h2a review route remains forbidden and selection-failed; global npm/release PID confinement wiring remains outside this qualified slice.
+
+## Lot L1 — rebase onto origin/main (2026-10-19)
+
+- New base: d0b1afa38 (was 54e7ffd7). `git merge-tree --write-tree origin/main HEAD` exits 0.
+- 17 commits replayed in original order, subjects unchanged; backup ref backup/xcli-pre-rebase-97f93e72 kept.
+- Resolutions per SPEC v3 §10: BRANCH.md kept branch-side; muse.ts keeps schema_version: 1 plus main's non-migrated/registry-bootstrap wording (no merge instruction in hint); hosts-integration.test.js keeps all assertions from both sides.
+- Rebase defect found and fixed in L1: post-rebase workers failed (qualification-worker-failed) because toml-eslint-parser (packages/h2a dep from main) was missing from the stale worktree install; `npm ci --ignore-scripts` restored it, lock untouched.
+- Post-rebase targeted proofs: harness 18/18, hosts-integration 28/28, muse-config 3/3, native-config 2/2, simulated spot cell claude:codex simulated-OK.
+- Not runnable in this sandbox: xcli-in-pid-namespace launcher (sudo blocked by container no-new-privileges); covered by CI.
+
+## PR #379 — CI correction round 3 (2026-10-19)
+
+- Private namespace init stays privileged; test consumers now drop to the
+  invoking UID/GID, preventing root-owned `.q` and `.test-scratch` residue.
+- Packaging resolves the selected npm before PATH isolation; the regression
+  test packs and installs the real local artifacts with a Node-only PATH.
+- Receipt discovery uses exact-SHA repository runs and explicitly refuses
+  `trusted-receipt-absent (receipt absent, qualification pending)`; all
+  provenance checks remain mandatory. No live receipt exists or was fabricated.
+- Targeted RED/GREEN, Node 22/24 outputs, CI job causes and local sudo limits:
+  [round-3 evidence](docs/2026-10-19-fix379-r3.md). No full suite run locally.
+
+## PR #379 — CI correction round 4 (2026-10-19)
+
+- Forward a complete private HOME/XDG/remote configuration across sudo;
+  keep the private PID namespace and invoking UID/GID. Seven affected remote
+  suites pass 49/49 on Node 22 and 24.
+- Require the pinned npm oracle native payloads explicitly; retain the
+  reviewed bootstrap digest and disabled lifecycle scripts.
+- Allocate CI scratch space in RUNNER_TEMP/private TMPDIR and publish only
+  exact invocation export paths, without global /tmp evidence globs.
+- Expose failed Vitest suite preparation output even with zero failed
+  assertions. The historical Node 22 beforeAll cause was absent from its log;
+  do not claim it diagnosed or fixed without the next CI observation.
+- Receipt absence remains the expected refusal. Local targeted RED/GREEN,
+  confinement limits and cleanup record: [round-4 evidence](docs/2026-10-19-fix379-r4.md).
+
+## PR #379 — CI correction round 5 (2026-10-19)
+
+- The general runtime gate no longer forces the qualification-only
+  `H2A_SESSION_HOST=native`: crash-log treated its value as a secret and
+  corrupted `native-name-collision`. Native remains the product default;
+  secret redaction, assertions and all confinement guards stay intact.
+- Regression RED on Node 22/24, then launcher tests 5/5 with real targeted
+  crash-log assertions 20/20 on both versions. Native isolation 5/5 and
+  targeted trust-root contract/discovery checks 5/5. Local real sudo dispatch
+  still requires interactive authentication; no namespace green claimed.
+- The historical Node 22 beforeAll cause is `unknown`: its published log,
+  annotations and receipt omit the diagnostic. The next CI run executes
+  all three upgrade cases successfully; no historical cause inferred.
+- Receipt absence remains the expected refusal. Commands, outputs and
+  review limitation: [round-5 evidence](docs/2026-10-19-fix379-r5.md).
+
+## PR #379 — CI correction round 6 (2026-10-19)
+
+- The publish smoke's oversized peer hit quadratic partial-frame processing,
+  also present in main: 32 MiB inspected as 8.64 GB across 64 KiB fragments.
+  Buffer fragments and count new UTF-8 bytes once; assemble at newline.
+  Protocol limit and the smoke's five-second deadline remain unchanged.
+- Regression RED three times at five seconds, then GREEN five times.
+  Server transport 41/41 and real-host crash containment 7/7 on Node 22/24;
+  smoke/rehearsal contracts 37/37 and source build pass.
+- origin/main is already an ancestor; no rebase required. Receipt absence
+  remains the expected refusal. Commands, measured costs and review limits:
+  [round-6 evidence](docs/2026-10-19-fix379-r6.md).
+
+## PR #379 — owner restart (2026-10-25)
+
+- Owner explicitly authorizes `--force-with-lease` to
+  `origin HEAD:feat/live-cross-cli-messaging` only. Main is already an
+  ancestor (`40693473a`); no additional rebase is necessary.
+- Patch compatible security advisories in a lockfile-only commit, with
+  no suppression. Pace simulated identity polling within the unchanged
+  MCP-call cap; the CI session-paths failure is reproduced and fixed.
+- Complete L3's missing private-host PTY input witness and enforce each
+  replication's actual phases and release offset inside its original budget.
+  Keep all real-login qualification and trusted receipts conductor-owned.
+- Enforce W0 >= the W1 exclusion claim: simulated windows are 13/13/3 s,
+  explicitly funded at 60 s. Retain fixed barrier-relative polling in the
+  counterexamples. Split polling periods and refusal sender groups in CI,
+  preserving all 15 phase combinations and all 36 ordered scenario pairs
+  without increasing any job timeout. Unavailability rows claim no wake.
+- French audit with source anchors, RED/GREEN commands and remaining
+  external qualification: [restart evidence](docs/2026-10-25-pr379-restart.md).
+
+## PR #379 — corrections R13 (2026-10-29)
+
+- Reproduce all four supplied round-5 P2 findings before production edits:
+  reconnecting MCP backends, false identity-gate green, quota attributed to
+  the unlaunched peer, and loss of non-green campaign receipts.
+- Count MCP calls in the owning role's journal across backend restarts;
+  retain the existing fenced CLI stop. Require initialized MCP, an exercised
+  non-ready identity gate and its deadline; preserve unrelated startup errors.
+- Persist quota only for the observed role, mapped to its parent-owned seat.
+  Assemble and scan failed-campaign receipts before publication; qualification
+  and receipt refusals still fail the job, and scan failure prevents upload.
+- Targeted evidence and R1–R5 replays:
+  [R13 report](docs/reviews/2026-10-29-cross-cli-r13.md).
+  Real qualification and the exact-SHA trusted receipt remain conductor-owned;
+  no merge-readiness or new independent review consensus is claimed.

@@ -1,0 +1,160 @@
+{
+  "checkedCells": 24,
+  "explicitCleanupEvents": 20,
+  "legacyReceiptsWithoutEvent": 4,
+  "cleanupFailures": 0,
+  "rows": [
+    {
+      "receipt": "2026-10-16-cross-cli-resume-agy-auth-after.json",
+      "pair": "agy:agy",
+      "explicitCleanupEvent": true,
+      "cleanupFailed": false
+    },
+    {
+      "receipt": "2026-10-16-cross-cli-resume-agy-auth-red.json",
+      "pair": "agy:agy",
+      "explicitCleanupEvent": true,
+      "cleanupFailed": false
+    },
+    {
+      "receipt": "2026-10-16-cross-cli-resume-agy-claude.json",
+      "pair": "agy:claude",
+      "explicitCleanupEvent": true,
+      "cleanupFailed": false
+    },
+    {
+      "receipt": "2026-10-16-cross-cli-resume-claude-60s.json",
+      "pair": "claude:claude",
+      "explicitCleanupEvent": false,
+      "cleanupFailed": false,
+      "remainingPrivateCellDirectories": 0,
+      "limitation": "before explicit cleanup event instrumentation; no historical PID inspection"
+    },
+    {
+      "receipt": "2026-10-16-cross-cli-resume-claude-after.json",
+      "pair": "claude:claude",
+      "explicitCleanupEvent": false,
+      "cleanupFailed": false,
+      "remainingPrivateCellDirectories": 0,
+      "limitation": "before explicit cleanup event instrumentation; no historical PID inspection"
+    },
+    {
+      "receipt": "2026-10-16-cross-cli-resume-claude-drive-green.json",
+      "pair": "claude:claude",
+      "explicitCleanupEvent": true,
+      "cleanupFailed": false
+    },
+    {
+      "receipt": "2026-10-16-cross-cli-resume-claude-drive-red.json",
+      "pair": "claude:claude",
+      "explicitCleanupEvent": true,
+      "cleanupFailed": false
+    },
+    {
+      "receipt": "2026-10-16-cross-cli-resume-claude-red.json",
+      "pair": "claude:claude",
+      "explicitCleanupEvent": false,
+      "cleanupFailed": false,
+      "remainingPrivateCellDirectories": 0,
+      "limitation": "before explicit cleanup event instrumentation; no historical PID inspection"
+    },
+    {
+      "receipt": "2026-10-16-cross-cli-resume-claude-wake.json",
+      "pair": "claude:claude",
+      "explicitCleanupEvent": true,
+      "cleanupFailed": false
+    },
+    {
+      "receipt": "2026-10-16-cross-cli-resume-codex-color-after.json",
+      "pair": "codex:codex",
+      "explicitCleanupEvent": true,
+      "cleanupFailed": false
+    },
+    {
+      "receipt": "2026-10-16-cross-cli-resume-codex-draft-after.json",
+      "pair": "codex:codex",
+      "explicitCleanupEvent": true,
+      "cleanupFailed": false
+    },
+    {
+      "receipt": "2026-10-16-cross-cli-resume-codex-draft-red.json",
+      "pair": "codex:codex",
+      "explicitCleanupEvent": true,
+      "cleanupFailed": false
+    },
+    {
+      "receipt": "2026-10-16-cross-cli-resume-codex-processes.json",
+      "pair": "codex:codex",
+      "explicitCleanupEvent": true,
+      "cleanupFailed": false
+    },
+    {
+      "receipt": "2026-10-16-cross-cli-resume-codex-red.json",
+      "pair": "codex:codex",
+      "explicitCleanupEvent": false,
+      "cleanupFailed": false,
+      "remainingPrivateCellDirectories": 0,
+      "limitation": "before explicit cleanup event instrumentation; no historical PID inspection"
+    },
+    {
+      "receipt": "2026-10-16-cross-cli-resume-codex-terminal-queries.json",
+      "pair": "codex:codex",
+      "explicitCleanupEvent": true,
+      "cleanupFailed": false
+    },
+    {
+      "receipt": "2026-10-16-cross-cli-resume-gemini-auth.json",
+      "pair": "claude:gemini",
+      "explicitCleanupEvent": true,
+      "cleanupFailed": false
+    },
+    {
+      "receipt": "2026-10-16-cross-cli-resume-muse-claude.json",
+      "pair": "muse:claude",
+      "explicitCleanupEvent": true,
+      "cleanupFailed": false
+    },
+    {
+      "receipt": "2026-10-16-cross-cli-resume-muse-exit-raw-facts.json",
+      "pair": "muse:muse",
+      "explicitCleanupEvent": true,
+      "cleanupFailed": false
+    },
+    {
+      "receipt": "2026-10-16-cross-cli-resume-muse-exit.json",
+      "pair": "muse:muse",
+      "explicitCleanupEvent": true,
+      "cleanupFailed": false
+    },
+    {
+      "receipt": "2026-10-16-cross-cli-resume-muse-schema-real-after.json",
+      "pair": "muse:claude",
+      "explicitCleanupEvent": true,
+      "cleanupFailed": false
+    },
+    {
+      "receipt": "2026-10-16-cross-cli-resume-muse-schema-simulated-green.json",
+      "pair": "muse:claude",
+      "explicitCleanupEvent": true,
+      "cleanupFailed": false
+    },
+    {
+      "receipt": "2026-10-16-cross-cli-resume-muse-schema-simulated-red.json",
+      "pair": "muse:claude",
+      "explicitCleanupEvent": true,
+      "cleanupFailed": false
+    },
+    {
+      "receipt": "2026-10-16-cross-cli-resume-muse-trust-styles.json",
+      "pair": "muse:muse",
+      "explicitCleanupEvent": true,
+      "cleanupFailed": false
+    },
+    {
+      "receipt": "2026-10-16-cross-cli-resume-muse-trust.json",
+      "pair": "muse:muse",
+      "explicitCleanupEvent": true,
+      "cleanupFailed": false
+    }
+  ]
+}

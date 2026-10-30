@@ -1,0 +1,58 @@
+{
+  "command": [
+    "node",
+    "--import",
+    "/home/runner/work/_temp/xcli-aE3D5z/build/packages/h2a/test/helpers/native-isolation.js",
+    "--test",
+    "--test-reporter=tap",
+    "--test-reporter-destination=stdout",
+    "--test-reporter=/home/runner/work/h2a/h2a/scripts/node-evidence-reporter.mjs",
+    "--test-reporter-destination=/home/runner/work/_temp/xcli-aE3D5z/execution.json",
+    "--test-concurrency=1",
+    "packages/h2a/test/runtime-llm-mesh-account.test.js",
+    "packages/h2a/test/restore-dead-session-recovery.test.js",
+    "packages/h2a/test/runtime-restore-native.test.js",
+    "packages/h2a/test/cli-command-map.test.js",
+    "packages/h2a/test/native-session-restart.test.js",
+    "packages/h2a/test/resume-conflict-selfheal.test.js",
+    "packages/h2a/test/native-inventory-absence.test.js",
+    "packages/h2a/test/m02-drive-characterization.test.js",
+    "packages/h2a/test/m04-wake-characterization.test.js",
+    "packages/h2a/test/native-host-generations.test.js",
+    "packages/h2a/test/native-process-view.test.js",
+    "packages/h2a/test/native-spawn-guard.test.js",
+    "packages/h2a/test/pty-native-messaging.test.js",
+    "packages/h2a/test/drive.test.js"
+  ],
+  "counts": {
+    "tests": 163,
+    "pass": 151,
+    "fail": 0,
+    "cancelled": 0,
+    "skipped": 0,
+    "todo": 12
+  },
+  "exitCode": 0,
+  "sourceBuild": {
+    "path": "/home/runner/work/_temp/xcli-aE3D5z/build",
+    "sourceDigest": "0d8e37eb08160ab471d007cf0d9e90e3a630454abc3d251a75f005c6889c0f68",
+    "nativeBuild": {
+      "command": [
+        "/usr/bin/g++",
+        "-std=c++17",
+        "-shared",
+        "-fPIC",
+        "-O2",
+        "-pthread",
+        "-DNAPI_CPP_EXCEPTIONS",
+        "-I/tmp/xcli-headers-E0bv8A/node-v22.23.3/include/node",
+        "-I/home/runner/work/h2a/h2a/node_modules/node-addon-api",
+        "/home/runner/work/_temp/xcli-aE3D5z/build/node_modules/node-pty/src/unix/pty.cc",
+        "-o",
+        "/home/runner/work/_temp/xcli-aE3D5z/build/node_modules/node-pty/build/Release/pty.node",
+        "-lutil"
+      ],
+      "exitCode": 0
+    }
+  }
+}
