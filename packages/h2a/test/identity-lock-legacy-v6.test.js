@@ -80,13 +80,18 @@ test('B5: a real live legacy writer with its lock FD closed is retained, then no
  }finally{clearTimeout(timer);restore();if(child?.exitCode===null)child.kill('SIGKILL');fs.rmSync(x.dir,{recursive:true,force:true});}
 });
 
-test('B5: simulated boot sources stay coherent while succession workers start under load', async()=>{
+test('B5: simulated boot sources stay coherent while succession workers start under load', async t=>{
  const x=setup();const realNow=Date.now;let delay=0;let restore=()=>{};
  try {
    legacy(x);
    Date.now=()=>realNow()+delay;
    restore=simulatedReboot(x.dir);
    delay=5000;
+   // Exercise boot-source coherence independently of CI scheduling, like the
+   // sibling B5 completeness cases: timeoutMs is a test parameter here (the
+   // product default budget is 5000 ms), and only the fence's own clock
+   // reads advance it, so retries under load cannot burn the budget.
+   let tick=performance.now();t.mock.method(performance,'now',()=>tick++);
    assert.equal(await withIdentityFence(x.lock,lease=>lease.recovered,{timeoutMs:1000}),true);
    assert.equal(fs.existsSync(x.lock),false);
  }finally{restore();Date.now=realNow;fs.rmSync(x.dir,{recursive:true,force:true});}
