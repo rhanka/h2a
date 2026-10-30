@@ -18,6 +18,15 @@ export type Aggregate = (typeof AGGREGATES)[number]
 
 export const EVENT_TYPES = [
   'item.report-updated', // additive, full replacement of owner-facing report metadata
+  // Request-lifecycle Part 1 (Lot L2) — attach ONE link (spec pin, REASONED spec-exempt, delivery
+  // evidence, cross-repo item, …) to an EXISTING item on its own aggregate (next seq, no recreate).
+  // Past-tense persisted name, mirroring `item.reparent`→`item.reparented` (WorkEvent kind
+  // `item.add-link`). Folds an append to `item.links` (dedup by exact (kind, locator, reason)); legality
+  // (the item exists; the link shape incl. the REQUIRED reason on kind:'spec-exempt') is asserted AT
+  // APPEND (Track.addItemLink / assertItemLink) — NEVER in the fold. Additive: absent on every
+  // pre-lifecycle log ⇒ zero hash/seq/bucket change; an old reader without this case hits `default`
+  // (fail-safe: it keeps the item's links as it knew them).
+  'item.link-added',
   'item.created',
   'spec.transition',
   'realization.transition',
