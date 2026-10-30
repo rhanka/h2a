@@ -414,3 +414,26 @@ test('cleanup: wait for the recorded detached writer to die before deleting its 
     assert.equal(existsSync(f.root), false);
   } finally { process.kill = kill; }
 });
+
+test('cleanup: a writer registering after convergence is reaped and cannot keep the fixture', async t => {
+  const f = fixture(t);
+  // Bulk so removal is still walking the tree when the late writer starts.
+  const bulk = join(f.root, 'bulk');
+  mkdirSync(bulk, { recursive: true });
+  for (let i = 0; i < 30000; i++) writeFileSync(join(bulk, `f-${i}`), 'x');
+  const writer = join(f.root, 'late-writer.mjs');
+  writeFileSync(writer, `import {mkdirSync} from 'node:fs';
+    const dir = ${JSON.stringify(join(f.root, 'late-write'))};
+    setInterval(() => { try { mkdirSync(dir, { recursive: true }); } catch {} }, 1);`);
+  const parent = join(f.root, 'parent.mjs');
+  // The writer registers only when its import hook runs: the shell delay puts
+  // that registration after dispose converged on the recorded pids, the CI
+  // race (job 124193907640 ENOTEMPTY), not before it.
+  writeFileSync(parent, `import {spawn} from 'node:child_process';
+    const child = spawn('/bin/sh', ['-c', 'sleep 0.1; exec "$0" "$@"', ${JSON.stringify(process.execPath)}, ${JSON.stringify(writer)}],
+      {env: process.env, detached: true, stdio: 'ignore'});
+    child.unref();`);
+  assert.equal((await f.start([], parent).done).code, 0);
+  await f.dispose();
+  assert.equal(existsSync(f.root), false);
+});
