@@ -130,7 +130,7 @@ test('bulk producer runs every case and seals only after successful execution an
   const git=(...args)=>{const r=run('git',args);assert.equal(r.status,0,r.stdout+r.stderr);return r.stdout.trim();};
   try {
     for(const file of ['scripts/bulk-ci-evidence.mjs','scripts/bulk-test-files.mjs','scripts/bulk-test-inventory.json','scripts/ci-bulk-proof.mjs',
-      'scripts/m17-ci-evidence.mjs','scripts/ci-m17-proof.mjs','scripts/run-node-tests.mjs','scripts/node-evidence-reporter.mjs','scripts/test-execution-evidence.mjs','scripts/test-inventory.mjs',
+      'scripts/m17-ci-evidence.mjs','scripts/ci-m17-proof.mjs','scripts/run-node-tests.mjs','scripts/node-evidence-reporter.mjs','scripts/cleanse-contract-ledger.mjs','scripts/test-execution-evidence.mjs','scripts/test-inventory.mjs',
       'scripts/ci-owned-process.mjs','packages/h2a/test/helpers/native-isolation.js',
       '.github/workflows/ci.yml','packages/h2a/test/bulk-ci-evidence.test.js',
       ...['image','wire','formats','schemas'].map(n=>`packages/h2a/src/runtime/handover/${n}.js`)]) {
