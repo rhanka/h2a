@@ -424,7 +424,11 @@ test('cleanup: a writer registering after convergence is reaped and cannot keep 
   const writer = join(f.root, 'late-writer.mjs');
   writeFileSync(writer, `import {mkdirSync} from 'node:fs';
     const dir = ${JSON.stringify(join(f.root, 'late-write'))};
-    setInterval(() => { try { mkdirSync(dir, { recursive: true }); } catch {} }, 1);`);
+    // A writer whose registration lands only after dispose finished cannot be
+    // reaped by it: bound its life so a slipped race self-cleans instead of
+    // leaking an immortal orphan that recreates the fixture behind the test.
+    const end = Date.now() + 20000;
+    setInterval(() => { try { if (Date.now() >= end) process.exit(0); mkdirSync(dir, { recursive: true }); } catch {} }, 1);`);
   const parent = join(f.root, 'parent.mjs');
   // The writer registers only when its import hook runs: the shell delay puts
   // that registration after dispose converged on the recorded pids, the CI
