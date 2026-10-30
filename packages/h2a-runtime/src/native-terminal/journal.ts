@@ -8,6 +8,15 @@ import { isMainThread, parentPort, Worker, workerData } from "node:worker_thread
 
 export const MAX_HOST_JOURNAL_BYTES = 1024 * 1024;
 export const HOST_JOURNAL_DRAIN_MS = 100;
+/**
+ * Bound for the host to outlive its writer after a graceful shutdown.
+ * The writer exits on its own no later than HOST_JOURNAL_DRAIN_MS after the
+ * disconnect (its own timer, `disconnect` below), so this backstop only covers
+ * disconnect delivery plus scheduling jitter. It matches the 500 ms shutdown
+ * phases in process.ts and keeps the strictest shutdown budget (the blocked
+ * writer test's 1500 ms race) green even if the backstop ever fires.
+ */
+export const WRITER_SETTLE_MS = 500;
 type Identity = { pid: number; startTime: number | "unknown"; generation: string };
 export type HostJournalEntry =
   | (Identity & { event: "start"; version: string; codePath: string; socket: string })
@@ -180,6 +189,7 @@ export function appendHostJournal(entry: HostJournalEntry, logPath = resolveHost
 export function createHostJournalWriter(logPath = resolveHostJournalPath()): {
   write(entry: HostJournalEntry): void;
   flush(): Promise<void>;
+  settle(): Promise<void>;
 } {
   let worker: ChildProcess | undefined, pending = 0;
   const flushes = new Set<() => void>();
@@ -219,6 +229,33 @@ export function createHostJournalWriter(logPath = resolveHostJournalPath()): {
       const finish = () => { clearTimeout(deadline); flushes.delete(finish); resolve(); };
       const deadline = setTimeout(finish, HOST_JOURNAL_DRAIN_MS);
       flushes.add(finish);
+    });
+  },
+  /**
+   * Settle the writer after a graceful shutdown: disconnect it and wait for
+   * its exit (bounded by WRITER_SETTLE_MS), so host close implies no further
+   * journal I/O into host-owned paths. Later writes are counted as drops and
+   * never touch storage. A wedged writer can no longer retain the host: the
+   * backstop unrefs the child and resolves, leaving the same orphan the host
+   * has always tolerated on the crash path.
+   */
+  settle(): Promise<void> {
+    const child = worker;
+    worker = undefined;
+    pending = 0;
+    for (const finish of [...flushes]) finish();
+    if (child === undefined || child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+    try { child.ref(); child.channel?.ref(); } catch { /* Reaped already; the exit wait below still applies. */ }
+    try { if (child.connected) child.disconnect(); } catch { /* Channel already gone; exit is imminent. */ }
+    return new Promise<void>((resolve) => {
+      const cleanup = (timedOut: boolean) => {
+        clearTimeout(timer);
+        child.off("exit", onExit);
+        if (timedOut) { try { child.unref(); child.channel?.unref(); } catch { /* Orphan, as before. */ } }
+      };
+      const timer = setTimeout(() => { cleanup(true); resolve(); }, WRITER_SETTLE_MS);
+      const onExit = () => { cleanup(false); resolve(); };
+      child.once("exit", onExit);
     });
   } };
 }
