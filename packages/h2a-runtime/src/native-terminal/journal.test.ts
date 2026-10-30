@@ -9,6 +9,11 @@ import { assertIsolatedEnvironment, createPrivateTestDirectory, nativeQualificat
 import { NativeTerminalClient } from "./client.js";
 import { readProcessStartTime } from "./host.js";
 import { appendHostJournal, getDroppedJournalEntriesCount, getRuntimeVersion, MAX_HOST_JOURNAL_BYTES, readHostJournal, resolveHostJournalPath } from "./journal.js";
+// The writer factory is imported from dist like every spawned fixture binary
+// below: vitest executes this file as TS source, and a plain node fork of a
+// .ts module dies with ERR_UNKNOWN_FILE_EXTENSION. Production always forks
+// the compiled module, so the dist factory is the faithful unit under test.
+import { createHostJournalWriter, WRITER_SETTLE_MS } from "../../dist/native-terminal/journal.js";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
 const qualRoot = nativeQualificationRoot;
@@ -177,6 +182,29 @@ describe("native host life journal", () => {
     const client = await NativeTerminalClient.connect(f.socket);
     try { expect((await client.ping()).hostPid).toBe(host.process.pid); } finally { client.close(); }
     host.process.kill("SIGTERM"); expect((await host.closed)[0]).toBe(0);
+  });
+  it("should settle the writer so post-shutdown writes never touch storage", async () => {
+    // Locks the graceful-shutdown contract: once settle() resolves, no writer
+    // survives to resurrect torn-down storage (the ENOTEMPTY race of the
+    // blocked-storage host above). Post-settle writes are drops, never I/O.
+    const f = fixture(), dir = join(f.root, "settled"), logPath = join(dir, "native-host.log");
+    const identity = { pid: process.pid, startTime: readProcessStartTime(process.pid) ?? "unknown" as const, generation: "settle-test" };
+    const writer = createHostJournalWriter(logPath);
+    writer.write({ ...identity, event: "start", version: getRuntimeVersion(), codePath: entry, socket: join(f.root, "nt.sock") });
+    await writer.flush();
+    // A cold writer (fork + module load + Worker spawn) can miss the 100 ms
+    // flush deadline: poll like every sibling host test instead of asserting
+    // synchronously.
+    await eventually(() => existsSync(logPath));
+    await writer.settle();
+    rmSync(dir, { recursive: true, force: true });
+    writer.write({ ...identity, event: "stop", clean: true });
+    // flush() must resolve with no worker left: post-settle writes are drops.
+    await writer.flush();
+    // One full settle window of quiescence: a live writer flushes within its
+    // HOST_JOURNAL_DRAIN_MS cycle, so nothing may resurrect the tree.
+    await new Promise(resolve => setTimeout(resolve, WRITER_SETTLE_MS));
+    expect(existsSync(dir)).toBe(false);
   });
   it("should bound shutdown and keep host callbacks off disk when the journal writer is blocked", async () => {
     const f = fixture(), preload = join(f.root, "block.mjs"), marker = join(f.root, "blocked.jsonl");
