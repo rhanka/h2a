@@ -14,7 +14,13 @@
  * {@link validateOrgManifest}. Live provisioning is a later CLI slice.
  */
 
-import type { H2AOrgCommEdge, H2AOrgInstance, H2AOrgManifest } from "./org.js";
+import type {
+  H2AOrgCommEdge,
+  H2AOrgInstance,
+  H2AOrgManifest,
+  H2AOrgMemorialAgentDeclaration,
+  H2ACliPassThroughCeiling
+} from "./org.js";
 
 /** Canonical filename of the committed org manifest. */
 export const H2A_ORG_MANIFEST_FILENAME = "org.h2a.yaml";
@@ -214,6 +220,107 @@ function isRecord(v: YamlValue): v is Record<string, YamlValue> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
+/**
+ * Coerce an optional non-empty scalar: present means it must be a non-empty
+ * string (an empty value is a shape error, not a silent absence).
+ */
+function coerceNonEmptyScalar(
+  v: YamlValue | undefined,
+  path: string,
+  errors: string[]
+): string | undefined {
+  if (v === undefined) return undefined;
+  if (typeof v !== "string" || v === "") {
+    errors.push(`${path}: a non-empty string is required`);
+    return undefined;
+  }
+  return v;
+}
+
+/**
+ * Coerce a memorial-agent declaration block (H2A-ORG-H1, r2 §2.4): launch
+ * name, agentUuid enrolment reference, H1 policy reference, role-memory
+ * purpose, sub-agent purpose policy and the CLI pass-through ceiling. Type
+ * checks only; the org invariants stay in {@link validateOrgManifest}.
+ */
+function coerceMemorialAgent(
+  v: YamlValue | undefined,
+  path: string,
+  errors: string[]
+): H2AOrgMemorialAgentDeclaration | undefined {
+  if (v === undefined) return undefined;
+  if (!isRecord(v)) {
+    errors.push(`${path}: expected a mapping`);
+    return undefined;
+  }
+  let bad = false;
+  const fail = (message: string): void => {
+    errors.push(`${path}.${message}`);
+    bad = true;
+  };
+  // launchName is the one required field: its absence is a shape error, not
+  // a silent drop of the declaration.
+  if (v.launchName === undefined) {
+    errors.push(`${path}.launchName: a non-empty string is required`);
+  }
+  const launchName = coerceNonEmptyScalar(v.launchName, `${path}.launchName`, errors);
+  if (launchName === undefined) bad = true;
+  const agentUuid = coerceNonEmptyScalar(v.agentUuid, `${path}.agentUuid`, errors);
+  const policyRef = coerceNonEmptyScalar(v.policyRef, `${path}.policyRef`, errors);
+  const memoryPurpose = coerceNonEmptyScalar(v.memoryPurpose, `${path}.memoryPurpose`, errors);
+  let subAgentMemory: "none" | "inherit" | undefined;
+  if (v.subAgentMemory !== undefined) {
+    if (v.subAgentMemory !== "none" && v.subAgentMemory !== "inherit") {
+      fail(`subAgentMemory: expected "none" or "inherit"`);
+    } else {
+      subAgentMemory = v.subAgentMemory;
+    }
+  }
+  let cliPassThrough: H2ACliPassThroughCeiling | undefined;
+  if (v.cliPassThrough !== undefined) {
+    if (!isRecord(v.cliPassThrough)) {
+      fail(`cliPassThrough: expected a mapping`);
+    } else {
+      const ceilingPath = `${path}.cliPassThrough`;
+      const allowedCliKinds = coerceStringList(
+        v.cliPassThrough.allowedCliKinds,
+        `${ceilingPath}.allowedCliKinds`,
+        errors
+      );
+      if (allowedCliKinds === undefined || allowedCliKinds.length === 0) {
+        errors.push(`${ceilingPath}.allowedCliKinds: at least one CLI kind is required`);
+        bad = true;
+      }
+      const allowedModels = coerceStringList(
+        v.cliPassThrough.allowedModels,
+        `${ceilingPath}.allowedModels`,
+        errors
+      );
+      const effortCeiling = coerceNonEmptyScalar(
+        v.cliPassThrough.effortCeiling,
+        `${ceilingPath}.effortCeiling`,
+        errors
+      );
+      if (allowedCliKinds !== undefined && allowedCliKinds.length > 0) {
+        cliPassThrough = {
+          allowedCliKinds,
+          ...(allowedModels !== undefined ? { allowedModels } : {}),
+          ...(effortCeiling !== undefined ? { effortCeiling } : {})
+        };
+      }
+    }
+  }
+  if (bad || launchName === undefined) return undefined;
+  return {
+    launchName,
+    ...(agentUuid !== undefined ? { agentUuid } : {}),
+    ...(policyRef !== undefined ? { policyRef } : {}),
+    ...(memoryPurpose !== undefined ? { memoryPurpose } : {}),
+    ...(subAgentMemory !== undefined ? { subAgentMemory } : {}),
+    ...(cliPassThrough !== undefined ? { cliPassThrough } : {})
+  };
+}
+
 /** Coerce a `scopes`/`mandateRights`-style field into a string list (a bare scalar → one-element). */
 function coerceStringList(
   v: YamlValue | undefined,
@@ -266,12 +373,18 @@ function coerceManifest(value: YamlValue): H2AOrgParseResult {
       if (typeof role !== "string") errors.push(`instances[${i}].role: expected a string`);
       const scopes = coerceStringList(raw.scopes, `instances[${i}].scopes`, errors) ?? [];
       const rights = coerceStringList(raw.mandateRights, `instances[${i}].mandateRights`, errors);
+      const memorialAgent = coerceMemorialAgent(
+        raw.memorialAgent,
+        `instances[${i}].memorialAgent`,
+        errors
+      );
       if (typeof id === "string" && typeof role === "string") {
         instances.push({
           instance: id,
           role: role as H2AOrgInstance["role"],
           scopes,
-          ...(rights ? { mandateRights: rights } : {})
+          ...(rights ? { mandateRights: rights } : {}),
+          ...(memorialAgent !== undefined ? { memorialAgent } : {})
         });
       }
     });
