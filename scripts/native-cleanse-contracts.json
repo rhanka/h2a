@@ -42,7 +42,7 @@
       "signature": {
         "actual": false,
         "code": "ERR_ASSERTION",
-        "evidenceSha256": "158b5237e79b56b97ea2314d9df0aa78509f24eb927e81a8b79e1ae0eaefc9c1",
+        "evidenceSha256": "38636d3aaa534d43848500d384d8bce0bc84a8cfa4396383c068219f2cbaef6d",
         "expected": true,
         "message": "claude installed registered effective plugin cache (L3+L4)",
         "name": "AssertionError",
@@ -90,7 +90,7 @@
       "signature": {
         "actual": false,
         "code": "ERR_ASSERTION",
-        "evidenceSha256": "bd5b37219766ba220862593b5e3528b72c46334da553edba2117ceb950b1e282",
+        "evidenceSha256": "f1d0dad905225f156e54c5af8c459ddedbef4cb1782915675d224c912f887158",
         "expected": true,
         "message": "codex installed registered effective plugin cache (L3+L4)",
         "name": "AssertionError",
