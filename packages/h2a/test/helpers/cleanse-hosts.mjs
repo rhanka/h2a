@@ -201,7 +201,8 @@ function payload(root) {
     }
   }
   for (const dir of ['skills', 'hooks']) walk(join(root, dir), dir);
-  for (const path of ['.claude-plugin/plugin.json', '.codex-plugin/plugin.json', '.mcp.json']) out[path] = digest(join(root, path));
+  for (const path of ['.claude-plugin/plugin.json', '.codex-plugin/plugin.json',
+    '.claude-plugin/registry.mcp.json', '.codex-plugin/registry.mcp.json']) out[path] = digest(join(root, path));
   return out;
 }
 
@@ -344,7 +345,11 @@ function currentMcp(a, server, transports, item, config = {}) {
     try { viaNode = realpathSync(resolve(context.cwd, command[1])) === realpathSync(a.cli); }
     catch { /* An unresolved script cannot be the current installed candidate. */ }
   }
-  if (!(direct || viaNode) || command[direct ? 1 : 2] !== 'mcp-serve') return false;
+  if (!(direct || viaNode)) return false;
+  const sub = command[direct ? 1 : 2];
+  // The plugin lane serves the registry bridge, not the direct host route.
+  // Both spellings must resolve to the installed candidate; anything else is stale.
+  if (sub !== 'mcp-serve' && !(sub === 'registry-bridge' && command[(direct ? 1 : 2) + 1] === 'serve')) return false;
   // A deliberately disabled entry must keep its choice and current target;
   // it is not an effective server and must not be launched by the witness.
   if (!enabled) return true;
@@ -369,7 +374,8 @@ export function observeHosts(a, inventory) {
   const resource = digest(join(a.packages, 'track/skills/present-decision/assets/native-questions.md'));
   assert.ok(skill, 'candidate payload missing required h2a-run skill');
   assert.ok(resource, 'candidate payload missing required linked resource');
-  for (const path of ['.claude-plugin/plugin.json', '.codex-plugin/plugin.json', '.mcp.json', 'hooks/hooks.json',
+  for (const path of ['.claude-plugin/plugin.json', '.codex-plugin/plugin.json',
+    '.claude-plugin/registry.mcp.json', '.codex-plugin/registry.mcp.json', 'hooks/hooks.json',
     'hooks/deny-manual-h2a-cli.mjs', ...scopeFiles.map(name => 'hooks/' + name)]) {
     assert.ok(digest(join(a.packages, 'h2a', path)), 'candidate payload missing required ' + path);
   }
