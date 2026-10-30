@@ -1,3 +1,99 @@
+# Memory MCP — L1 producer skill installation
+
+## Objective
+
+Install only the producer-owned `@sentropic/engram/skills/engram-memory/SKILL.md`
+from the installed package. Preserve native rendering, resources, custom content
+and unrelated files on Claude, Codex, Muse, Vibe and Agy. No provider activation.
+
+## Scope / Guardrails
+
+**Allowed Paths (L1 implementation scope)**
+  - `packages/h2a/src/cli.ts`
+  - `packages/h2a/src/hosts/native-skills.ts`
+  - `packages/h2a/src/hosts/native-convergence.ts`
+  - `packages/h2a/src/hosts/native-artifacts.ts`
+  - `packages/h2a/test/install-skills-hosts.test.js`
+  - `packages/h2a/test/native-host-shared-skills.test.js`
+  - `packages/h2a/test/package-plugin-manifest.test.js`
+  - `packages/h2a/test/native-host-package.test.js`
+  - `packages/h2a/test/helpers/memory-skill-consumer.mjs`
+  - `packages/h2a/test/helpers/restart-lab.js`
+  - `packages/h2a/test/native-host-crash-recovery.test.js`
+  - `BRANCH.md`
+  - `docs/reviews/memory-skill-install.md`
+
+- Base: origin/main `ec04054b604f2b8948a16d955724fe5301e9dccb`.
+- Round-3 delivery base: origin/main `80694b094` (PR #398, workflows only).
+- No owner state, installed h2a, real host CLI, full local suite, dependency pin,
+  producer content vendoring, attribution trailer or merge.
+- Private TMPDIR: `/home/antoinefa/.cache-tmp/h2a-test/run-h9B2Ks`.
+
+## Lot L1
+
+- [x] RED before product edits: 5 failed / 23 passed / 0 skipped across
+  install-skills-hosts, native-host-shared-skills, package-plugin-manifest,
+  native-host-package (all under packages/h2a/test).
+- [x] Producer resolution without import; source package/version/SHA-256 summary
+  and on-host `.h2a-source.json` with producer and rendered hashes.
+- [x] Native resources and Agy TOML/import hint; identical reinstall is a no-op.
+- [x] Missing package or skill is explicit in sources/status and stderr;
+  core skills remain installable. Missing Engram cannot authorize deletion of
+  existing Engram files. Custom bytes still require explicit --force.
+- [x] External validated reference used only via H2A_MEMORY_SKILL_FIXTURE;
+  SHA-256 dd4f17695844a65ae10fa7c9b023578f0c9f8688b446e5ba790fbb39f3abfbaf.
+- [x] Final build and seven targeted suites with the validated external fixture:
+  53 passed / 0 failed / 0 skipped. Commands in the review dossier.
+- Delivery: rebase onto origin/main, own-branch push, French PR and terminal CI;
+  no merge authorized.
+
+## Feedback Loop
+
+- `npm view @sentropic/engram@0.22.1` returned E404 in this environment.
+  Acceptance uses an isolated installed producer fixture. Published tuple is L0.
+- Harness consensus selection failed: no h2a_run MCP tool in confinement;
+  owner forbids reaching the installed host. No independent verdict claimed.
+- Direct CI blocker on 701feac72: trust-root alone failed with ENOTEMPTY in
+  restart-lab cleanup after ten successful resumes. The lab waited only for
+  direct children after signalling its recorded descendants. Deterministic RED:
+  0 pass / 1 fail / 0 skip; wait for birth-checked recorded descendants before
+  deleting HOME. GREEN: full targeted crash-recovery file 17/17, zero skips.
+  No runtime change, timeout increase, cleanup retry or gate weakening.
+- Round 2, supplied Astra review of d04e3eb24: both P2 findings accepted
+  after reproduction (Agy loses old resources; Muse/Vibe replace the receipt
+  while preserving a customized skill). Shared-skills RED: 7 pass / 3 fail /
+  0 skipped. Preflight conflicts by skill before planning writes or pruning;
+  preserve the installed generation and its manifest provenance on refusal.
+  Five-host regressions cover repeated refusal, forced upgrade, receipts,
+  resources and idempotence; the clean Agy upgrade still prunes old resources.
+  GREEN: 61 targeted installation/convergence/recovery tests plus 17 native
+  crash-recovery tests; 34 installer/package tests replayed with the standalone
+  fixture, zero failures/skips. Build, scope/branch and diff checks pass.
+- Round-2 TMPDIR: `/home/antoinefa/.cache-tmp/h2a-test/run-YlDOoZ`;
+  HOME/XDG private, no Python or installed host. Evidence and qualification
+  results: `docs/reviews/memory-skill-install.md`.
+- Round 3, shared P2 from both reviews of `2c088f623`: the direct installer
+  could refuse a customized entrypoint but still write a producer receipt.
+  RED before product edits: 6 pass / 14 fail / 0 skipped across 20 first-refusal
+  cases (five hosts, user/project, with/without a previous receipt).
+  Preflight every artifact of a producer skill before writing any; stop on a later
+  conflict, and read back each write before proceeding to the receipt last.
+  Repeated refusals leave previous receipts and resources untouched. Packed
+  acceptance now covers refusal, successful install, hashes and idempotence
+  on all ten host/scope pairs. No gate, dependency, timeout or runtime change.
+  GREEN: 81 installer/convergence/package/recovery tests and 17 native
+  crash-recovery tests, zero failures/skips, run without overlapping campaigns.
+- Round-3 TMPDIR: `/home/antoinefa/.cache-tmp/h2a-test/run-tV6A2U`;
+  clean HOME/XDG environment, no Python or installed host. Targeted results
+  and the supplied-review reconciliation are in the L1 review dossier.
+- CI follow-up on `aff742e29`: scoped-hosts Node 22/24 exposed the existing
+  missing-resource contract for core skills. Local RED: native-question-mode
+  32 pass / 12 fail / 0 skipped. Restrict the receipt preflight and read-back
+  barrier to producer skills; core skills still fill missing resources while
+  preserving customized entrypoints. No test or gate changes.
+  GREEN: 125 installation/convergence/package/native-question tests plus
+  17 native crash-recovery tests, zero failures/skips.
+
 # Gateway off by default — PR #395, round 5
 
 - Scope: the shared P2 in both supplied round-4 reviews of 8b0a895c3.

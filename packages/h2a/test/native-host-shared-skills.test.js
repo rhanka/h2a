@@ -6,6 +6,88 @@ import test from 'node:test';
 import { runCli } from '../dist/index.js';
 import { parseNativeToml } from '../dist/hosts/native-toml.js';
 import { captureHostOperatorNotices } from '../dist/hosts/operator-notices.js';
+import { memorySkillConsumer, sha256 } from './helpers/memory-skill-consumer.mjs';
+
+for (const host of ['agy', 'claude', 'codex', 'muse', 'vibe']) test(`${host} refused producer upgrades preserve the skill, resources and provenance`, t => {
+  const fixture = memorySkillConsumer(t, { raw: '---\nname: engram-memory\ndescription: Memory fixture\n---\nRead `assets/guide.md`.\n' });
+  const args = ['install-skills', '--host', host];
+  assert.equal(fixture.cli(args).status, 0);
+  const root = join(fixture.home, host === 'agy' ? '.gemini' : host === 'muse' ? '.config/muse' : `.${host}`);
+  const target = join(root, host === 'agy' ? 'commands/engram-memory.toml' : 'skills/engram-memory/SKILL.md');
+  const resources = version => join(root, host === 'agy' ? `.h2a-install/skill-resources/engram/${version}/engram-memory` : 'skills/engram-memory');
+  const receipt = join(resources('0.22.1'), '.h2a-source.json');
+  const previousReceipt = fs.readFileSync(receipt);
+  const resource = join(resources('0.22.1'), 'assets/guide.md');
+  const previousResource = fs.readFileSync(resource);
+  const custom = fs.readFileSync(target, 'utf8') + (host === 'agy' ? '\n# Personal instructions.\n' : '\nPersonal instructions.\n');
+  fs.writeFileSync(target, custom);
+  const pkg = JSON.parse(fs.readFileSync(join(fixture.producer, 'package.json')));
+  fs.writeFileSync(join(fixture.producer, 'package.json'), JSON.stringify({ ...pkg, version: '0.22.2' }));
+  const updated = fixture.raw + '\nUpdated upstream instructions.\n';
+  fs.writeFileSync(join(fixture.skill, 'SKILL.md'), updated);
+  fs.writeFileSync(join(fixture.skill, 'assets/guide.md'), 'Updated producer resource.\n');
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const result = fixture.cli(args);
+    assert.equal(result.status, 2, result.stderr);
+    assert.equal(fs.readFileSync(target, 'utf8'), custom);
+    assert.ok(fs.existsSync(resource), 'the preserved command must not lose its referenced resource');
+    assert.deepEqual(fs.readFileSync(receipt), previousReceipt, 'a refused skill update must retain its installed source receipt');
+    assert.deepEqual(fs.readFileSync(resource), previousResource);
+    if (host === 'agy') {
+      assert.ok(parseNativeToml(custom).prompt.includes(resource));
+      assert.equal(fs.existsSync(resources('0.22.2')), false);
+    }
+  }
+  const forced = fixture.cli([...args, '--force']);
+  assert.equal(forced.status, 0, forced.stderr);
+  const installed = fs.readFileSync(target, 'utf8');
+  const newReceipt = JSON.parse(fs.readFileSync(join(resources('0.22.2'), '.h2a-source.json')));
+  assert.equal(newReceipt.version, '0.22.2');
+  assert.equal(newReceipt.sha256, sha256(updated));
+  assert.equal(newReceipt.renderedSha256, sha256(installed));
+  assert.equal(fs.readFileSync(join(resources('0.22.2'), 'assets/guide.md'), 'utf8'), 'Updated producer resource.\n');
+  if (host === 'agy') {
+    assert.ok(parseNativeToml(installed).prompt.includes(join(resources('0.22.2'), 'assets/guide.md')));
+    assert.equal(fs.existsSync(resource), false, 'a successful replacement prunes the old generation');
+    assert.equal(fs.existsSync(receipt), false);
+  } else assert.equal(installed, updated);
+  assert.deepEqual(fixture.cli(args).json().installed, [], 'the successful upgrade is idempotent');
+});
+
+test('agy producer upgrade without customization replaces the command and resources together', t => {
+  const fixture = memorySkillConsumer(t, { raw: '---\nname: engram-memory\ndescription: Memory fixture\n---\nRead `assets/guide.md`.\n' });
+  const args = ['install-skills', '--host', 'agy'];
+  assert.equal(fixture.cli(args).status, 0);
+  const pkg = JSON.parse(fs.readFileSync(join(fixture.producer, 'package.json')));
+  fs.writeFileSync(join(fixture.producer, 'package.json'), JSON.stringify({ ...pkg, version: '0.22.2' }));
+  const result = fixture.cli(args);
+  assert.equal(result.status, 0, result.stderr);
+  const root = join(fixture.home, '.gemini');
+  const resource = join(root, '.h2a-install/skill-resources/engram/0.22.2/engram-memory/assets/guide.md');
+  assert.ok(parseNativeToml(fs.readFileSync(join(root, 'commands/engram-memory.toml'), 'utf8')).prompt.includes(resource));
+  assert.ok(fs.existsSync(resource));
+  assert.equal(fs.existsSync(join(root, '.h2a-install/skill-resources/engram/0.22.1/engram-memory/assets/guide.md')), false);
+});
+
+test('memory producer resources use the producer version and remain valid in the shared agy command', t => {
+  const fixture = memorySkillConsumer(t, { raw: '---\nname: engram-memory\ndescription: Memory fixture\n---\nUse engram_memory_search and read `assets/guide.md`.\n' });
+  const first = fixture.cli(['install-skills', '--host', 'agy']);
+  assert.equal(first.status, 0, first.stderr);
+  const command = join(fixture.home, '.gemini/commands/engram-memory.toml');
+  const resource = join(fixture.home, '.gemini/.h2a-install/skill-resources/engram/0.22.1/engram-memory/assets/guide.md');
+  assert.match(parseNativeToml(fs.readFileSync(command, 'utf8')).prompt, new RegExp(resource.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.equal(fs.readFileSync(resource, 'utf8'), 'Producer resource fixture.\n');
+  const owner = JSON.parse(fs.readFileSync(join(fixture.home, '.gemini/.h2a-install-agy/shared-owner.json')));
+  assert.equal(owner.files['commands/engram-memory.toml'].source, '@sentropic/engram@0.22.1/engram-memory');
+  assert.equal(owner.files['commands/engram-memory.toml'].sha256, sha256(fs.readFileSync(command)));
+  assert.match(first.json().importHint, /agy plugin import gemini/);
+  assert.equal(fixture.cli(['install-skills', '--host', 'gemini']).status, 0);
+  assert.ok(fs.readdirSync(join(fixture.home, '.gemini/commands')).every(n => n.endsWith('.toml')));
+  fs.rmSync(join(fixture.skill, 'assets/guide.md'));
+  const missing = fixture.cli(['install-skills', '--host', 'agy']);
+  assert.notEqual(missing.status, 0);
+  assert.match(missing.stderr, /required skill resource missing: engram-memory\/assets\/guide.md/);
+});
 const PACKAGE_VERSION = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 function setup(t) {
   const home = fs.mkdtempSync(join(tmpdir(), 'shared-host-')), previous = { ...process.env };
