@@ -433,7 +433,7 @@
     },
     {
       "name": "native-terminal/process.js",
-      "local": "7589d586e2c58bca",
+      "local": "30866b731194501d",
       "published": "328df5a1668cba5e",
       "outcome": "differing"
     },
@@ -445,7 +445,7 @@
     },
     {
       "name": "native-terminal/journal.js",
-      "local": "02aefb4baf683fac",
+      "local": "922f3572affdf159",
       "published": "f7af111f70bcbf67",
       "outcome": "differing"
     }
