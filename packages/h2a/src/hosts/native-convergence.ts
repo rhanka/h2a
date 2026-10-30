@@ -15,7 +15,7 @@ import { h2aPackageRoot, shellQuote } from './vibe-equipment.js';
 export interface NativeConvergenceOptions {
   host: string; version: string; skills: readonly NativeSkill[]; renderGemini: (skill: NativeSkill['parsed']) => string;
   root?: string; repair?: boolean; dryRun?: boolean; explicitInstall?: boolean; guard?: string; lifecycle?: string;
-  instance?: string; busRoot?: string; status?: string; sourcesComplete?: boolean;
+  instance?: string; busRoot?: string; status?: string; sourcesComplete?: boolean; preserveSourcePackages?: readonly string[];
   cwd?: string; force?: boolean; ownerKey?: string; workspaceScope?: string;
 }
 export function convergeNativeHost(options: NativeConvergenceOptions) {
@@ -86,7 +86,7 @@ export function convergeNativeHost(options: NativeConvergenceOptions) {
   const vibe = vibeOptions ? planVibeEquipment(vibeOptions) : undefined;
   if (vibe) artifacts.push(...vibe.artifacts);
   const result = convergeArtifacts({ state, root, host: shared ? 'gemini-commands' : host, version, artifacts, repair, dryRun,
-    force: options.explicitInstall && options.force, prune: options.sourcesComplete !== false,
+    force: options.explicitInstall && options.force, prune: options.sourcesComplete !== false, preserveSourcePackages: options.preserveSourcePackages,
     ...(shared ? { manifestName: 'shared-owner.json' } : {}),
     configure: vibe?.configure ?? (current => { current.workspaceScope = { enabled: scopeEnabled, ...(ownerKey ? { ownerKey } : {}) }; }), finalize: vibe?.finish });
   if (installMuseScope) {
