@@ -58,6 +58,10 @@ test('receipt export refuses aliases, broad directories and existing files', () 
 
 test('a source runner exports JSON receipts without exposing its private build or logs', () => {
   const exported = fs.mkdtempSync(join(tmpdir(), 'xcli-evidence-'));
+  // R15 (P2-1): the spawned source runner mints a run-* root holding the
+  // built sources (~114 MB). The export dir is not enough: recover the exact
+  // reported root and remove it, or every run leaks one root.
+  let sourceRoot = null;
   try {
     const result = spawnSync(process.execPath, ['scripts/xcli-source-tests.mjs',
       'packages/h2a/test/cli-host-status.test.js'], {
@@ -76,7 +80,15 @@ test('a source runner exports JSON receipts without exposing its private build o
     assert.ok(receipt.counts.pass > 0);
     assert.equal(receipt.counts.fail, 0);
     const root = join(receipt.sourceBuild.path, '..');
+    sourceRoot = root;
+    assert.ok(fs.existsSync(sourceRoot), 'the reported source root exists before cleanup');
     assert.equal(fs.statSync(root).mode & 0o777, 0o700);
     assert.equal(fs.statSync(exported).mode & 0o777, 0o700);
-  } finally { fs.rmSync(exported, { recursive: true, force: true }); }
+  } finally {
+    fs.rmSync(exported, { recursive: true, force: true });
+    if (sourceRoot) {
+      fs.rmSync(sourceRoot, { recursive: true, force: true });
+      assert.equal(fs.existsSync(sourceRoot), false, 'the source root is removed, not leaked');
+    }
+  }
 });

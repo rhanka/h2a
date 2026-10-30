@@ -5,14 +5,14 @@ import { spawn, spawnSync } from 'node:child_process';
 import { join, dirname, resolve, relative } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { createHash, generateKeyPairSync } from 'node:crypto';
-import { CLIS, PROBE, REPLY, repo, environment, sourceBuild, copyLogin,
+import { CLIS, PROBE, REPLY, repo, environment, sourceBuild, copyLogin, copyLoginReport, PINNED_CLI_ARGS,
   cliPath, privateExecutable, pythonEntrypoint, classify, matrix, inside,
   rehydrateEventRecord, cellSecretPaths, wipeSecrets, loginCopyPath,
   recordExec, readExecJournal, classifyExecJournal, vendorRuntimeLabel,
   compliantQualificationRoot } from './xcli-lab.mjs';
 import { loadSeatManifest, resolveCampaignPair, createCampaignLedger, loadCampaignLedger,
   debitSession, fitsSessions, noteWallClock, wallClockFits, renderSeatLedger, persistLedger,
-  runSeatPreflight } from './xcli-seats.mjs';
+  runSeatPreflight, applyPreflightDebit } from './xcli-seats.mjs';
 import { startupTerminal } from './xcli-terminal.mjs';
 import { verifyWakeBatch } from './xcli-ci-check.mjs';
 import { correlateWakeInput } from './xcli-wake-host.mjs';
@@ -107,15 +107,19 @@ export function blockingScreen(screen) {
 }
 
 function argsFor(cli, prompt) {
-  if (cli === 'codex') return ['--no-daemon', '--no-alt-screen', prompt];
-  if (cli === 'agy' || cli === 'gemini') return ['--prompt-interactive', prompt];
-  if (cli === 'muse') return ['--no-session-log', prompt];
-  return [prompt];
+  return [...(PINNED_CLI_ARGS[cli] ?? []), prompt];
 }
 
 // Only normal startup UI interactions in our empty temporary workspace.
 // No bypass flags, persisted trust edits, or inputs after the idle barrier.
 export function startupKey(screen) {
+  // Claude >=2.1.314 shows an MCP/tool-approval Allow screen after the trust
+  // dialog (captured: Enter+confirm+trust+Allow vocabulary with a permission
+  // signal). Without a key the cell idles to mcp-not-loaded-before-deadline.
+  // A shell-command approval is never a startup action: it stays undefined
+  // and fails closed through the tool-approval blocker.
+  if (/allow/i.test(screen) && /(mcp|\btools?\b|permission|approv)/i.test(screen) &&
+    !/shell command/i.test(screen)) return 'mcp-approval-allow';
   const normalized = screen.replace(/\s+/g, ' ');
   if (/choose.{0,25}permissions/i.test(normalized) && /default/i.test(normalized) && /press.{0,35}continue/i.test(normalized)) return 'permissions-keep-default';
   if (/Default permissions/i.test(screen) && /press[^\n]{0,35}continue/i.test(screen)) return 'permissions-keep-default';
@@ -226,8 +230,14 @@ async function worker() {
     };
     // The auth-only family allowlist is enforced by copyLogin. The mapping is witnessed
     // (role, allowlisted name, sha256 — never content) in the row evidence.
+    // R15 (class-c): every skipped allowlisted file is witnessed too, with
+    // its reason — a missing source no longer copies silently.
     const roleAuthHome = simulated ? null : authHomes[role];
-    row.credentialsCopied[role] = roleAuthHome ? copyLogin(cli, roleAuthHome, cell, env) : [];
+    const report = roleAuthHome ? copyLoginReport(cli, roleAuthHome, cell, env) : { copied: [], skipped: [] };
+    row.credentialsCopied[role] = report.copied;
+    for (const skip of report.skipped) {
+      row.evidence.push({ event: 'login-skipped', role, cli, file: skip.file, reason: skip.reason });
+    }
     for (const name of row.credentialsCopied[role]) {
       const mapped = loginCopyPath(env, cli, name);
       row.evidence.push({ event: 'login-mapped', role, cli, file: name,
@@ -290,23 +300,42 @@ async function worker() {
     }
     return target.terminal.screen();
   }
+  // Repeatable startup actions (R15, class-c): an MCP-approval Allow screen
+  // may recur (one dialog per server), and a trust dialog may ask for a
+  // second confirmation (Muse 1.4.14). A repeat needs fresh output since the
+  // last press of the same action — never key spam on a static screen — and
+  // stays bounded per target. Anything else remains single-shot.
+  const STARTUP_REPEAT_LIMIT = Object.freeze({ 'mcp-approval-allow': 5, 'trust-empty-workspace': 1 });
   async function startup(target, screen) {
     target.startupActions ??= new Set();
+    target.startupPresses ??= {};
+    target.startupPressAt ??= {};
     const action = startupKey(screen);
     if (!action) return false;
+    const presses = target.startupPresses[action] ?? 0;
     // Rendering a choice does not mean the CLI has installed its key handler.
     // Use the same quiet interval as readiness, within the existing deadline.
-    if (target.startupActions.has(action) || Date.now() - (target.lastOutputAt ?? Date.now()) < 2000) { await sleep(100); return true; }
+    if (Date.now() - (target.lastOutputAt ?? Date.now()) < 2000) { await sleep(100); return true; }
+    if (target.startupActions.has(action)) {
+      const fresh = (target.lastOutputAt ?? 0) > (target.startupPressAt[action] ?? 0);
+      if (presses > (STARTUP_REPEAT_LIMIT[action] ?? 0) || !fresh) { await sleep(100); return true; }
+    }
     target.startupActions.add(action);
+    target.startupPresses[action] = presses + 1;
+    target.startupPressAt[action] = Date.now();
     const lease = await client.acquireController(target.state.id, 'xcli-startup', 'automation');
     try {
       // Claude 2.1.301 hides indexes and focuses Cancel in this exact dialog.
       // Navigate its normal UI to the explicit trust choice in our empty workspace.
-      const cancelFirst = action === 'trust-empty-workspace' && target.cli === 'claude' &&
+      const cancelFirst = action === 'trust-empty-workspace' && presses === 0 && target.cli === 'claude' &&
         screen.includes('Quick safety check') && screen.includes('No, exit') && screen.includes('Yes, I trust this folder');
       await client.write(lease, cancelFirst ? '\x1b[B\r' : '\r');
     } finally { await client.releaseController(lease); }
-    row.evidence.push({ event: 'startup-ui', role: target.role, action, facts: startupFacts(screen),
+    // A repeated trust press is a second confirmation of the same empty-
+    // workspace decision, labelled as such in evidence.
+    const labelled = presses === 0 ? action :
+      (action === 'trust-empty-workspace' ? 'trust-confirm-second' : action);
+    row.evidence.push({ event: 'startup-ui', role: target.role, action: labelled, facts: startupFacts(screen),
       choiceStyles: target.terminal.choiceStyles(['Trust and continue', 'Quit']), at: Date.now() });
     target.screen = '';
     await sleep(500);
@@ -954,7 +983,7 @@ function markdown(result) {
     'M = MCP initialize + outils ; D = enveloppe durable ; R = lecture inbox par la CLI ; W = réaction après barrière inactive, sans entrée du harness ; A = réponse signée livrée au sender.', '',
     'Les cellules bloquées ne prouvent aucune fonctionnalité. Les tests MCP simulés ne qualifient pas les CLI réelles.', '',
     'Isolation : sources compilées dans mkdtemp ; HOME/XDG/store/socket/registre privés par cellule ; aucun host existant. Garde produit `H2A_UPGRADE_REEXECED=1` ; shim h2a vers les sources. Seuls les fichiers d’auth explicitement listés sont copiés, puis effacés avec les états des CLI. Aucun texte de modèle ni secret dans les preuves.', '',
-    'Écart : un point d’entrée Python est bloqué, conformément à l’interdiction du propriétaire. Les écrans de démarrage reconnus sont validés normalement dans le workspace vide temporaire ; aucune désactivation de permission ni modification persistante du trust.', '',
+    'Écart : un point d’entrée Python de notre chaîne de lancement est refusé avant exécution, conformément à l’interdiction du propriétaire ; le produit vendeur Vibe tourne tel qu’installé, runtime labellisé `vendor-runtime` (QO4, jamais bloqué sur Python). Les écrans de démarrage reconnus sont validés normalement dans le workspace vide temporaire ; aucune désactivation de permission ni modification persistante du trust.', '',
     '| Émetteur | Destinataire | Statut | M émetteur / récepteur | D | R | W | A | Motif | Preuve |',
     '|---|---|---|---|---|---|---|---|---|---|'];
   const flag = v => v === true ? 'oui' : v === false ? 'non' : 'non mesuré';
@@ -1142,15 +1171,31 @@ async function main() {
     // and read no logins, so there is nothing a preflight could protect.
     if (manifest && !simulated) {
       let preflightBlocker = null;
+      let preflightCap = null;
       for (const role of ['sender', 'receiver']) {
         const seatId = seatKey(run, role);
         if (!preflighted.has(seatId)) {
+          // V3 §6.4 (R15/P2-3): the preflight's own unit must fit before it
+          // runs. Today's precheck is model-free and debits nothing, but the
+          // first model-reaching precheck debits exactly like a first
+          // attempt — there is no un-debited path to a model.
+          if (!fitsSessions(ledger, 1)) { preflightCap = 'launched-sessions'; break; }
           const seat = manifest.seats.find(s => s.seatId === seatId);
           const verdict = await runSeatPreflight(seat, { executables, runAuthPrecheck });
           preflighted.set(seatId, verdict);
+          // The debit persists in the campaign ledger: that write is the
+          // witness, reloaded on resume like every other debit.
+          const debit = applyPreflightDebit(ledger, seatId, verdict);
+          assert.ok(debit.ok, 'fit-checked preflight debit cannot refuse');
         }
         const verdict = preflighted.get(seatId);
         if (!verdict.ok && !preflightBlocker) preflightBlocker = verdict.reason;
+      }
+      if (preflightCap) {
+        ledger.refusals.push({ run: `${sender}>${receiver}`, code: 'campaign-cap-exhausted', cap: preflightCap });
+        persistLedger(ledger);
+        cells.push(blockedRow(run, releaseOffsetMs, 'campaign-cap-exhausted', [{ event: 'cap-refused', cap: preflightCap }]));
+        continue;
       }
       if (preflightBlocker) {
         cells.push(blockedRow(run, releaseOffsetMs, preflightBlocker));

@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { CLIS, pythonEntrypoint, vendorRuntimeLabel, LOGIN_ALLOWLIST, environment, copyLogin, privateExecutable } from './xcli-lab.mjs';
+import { CLIS, pythonEntrypoint, vendorRuntimeLabel, LOGIN_ALLOWLIST, PINNED_CLI_ARGS, environment, copyLogin, privateExecutable } from './xcli-lab.mjs';
 
 const GEMINI_SHAPED = ['oauth_creds.json', 'google_accounts.json'];
 
@@ -154,6 +154,19 @@ export function debitSession(ledger, seatId, { kind = 'cell' } = {}) {
   return { ok: true, kind };
 }
 
+// Preflight debit wiring (SPEC v3 §6.4, R15/P2-3): one §6.5 preflight that
+// reaches a model is one launched-session unit, debited exactly like a first
+// attempt. The unit is the session, not the turn count: any modelCalls > 0
+// debits one preflight unit. A model-free preflight (today's config-status
+// precheck) debits nothing. A refused preflight debit must block the cell
+// before any spawn, like any other cap refusal.
+export function applyPreflightDebit(ledger, seatId, verdict) {
+  if ((verdict?.modelCalls ?? 0) <= 0) return { ok: true, debited: false, kind: 'preflight' };
+  if (!fitsSessions(ledger, 1)) return { ok: false, code: 'campaign-cap-exhausted', kind: 'preflight', debited: false };
+  debitSession(ledger, seatId, { kind: 'preflight' });
+  return { ok: true, debited: true, kind: 'preflight' };
+}
+
 // Pre-launch fit check (normative): the pending units must fit all caps
 // before any spawn. Pure; the debit persists separately.
 export function fitsSessions(ledger, count) {
@@ -220,6 +233,29 @@ export function usageSignalInventory() {
     { obtainable: false, status: 'source-gap', reason: 'not-demonstrated' }]));
 }
 
+// Pinned-flags check (R15, class-c): the exact flags the harness launches
+// a family with (PINNED_CLI_ARGS) must still be accepted by the installed
+// binary, verified through `<executable> --help` — no login, no model. A
+// version drift that drops a flag (codex 0.163.0 vs pin 0.162.1 suspect)
+// fails closed here as preflight-args-unproven instead of an unexplained
+// cli-exited-before-ready in the cell.
+export function checkPinnedArgs(cli, executable, options = {}) {
+  const pinned = PINNED_CLI_ARGS[cli] ?? [];
+  if (!pinned.length) return { ok: true, args: [] };
+  let text = '';
+  try {
+    const probed = spawnSync(executable, ['--help'], { ...options, timeout: 15000, maxBuffer: 256 * 1024 });
+    if (probed.status !== 0) return { ok: false, reason: 'preflight-args-unproven' };
+    text = `${probed.stdout ?? ''}`;
+  } catch { return { ok: false, reason: 'preflight-args-unproven' }; }
+  const escaped = flag => flag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // Usage lines bracket flags ([--no-daemon]); option rows follow them with
+  // spaces, = or punctuation. Only a longer flag name must not match.
+  const missing = pinned.filter(flag => !new RegExp(`(?:^|[^\\w-])${escaped(flag)}(?:$|[^\\w-])`).test(text));
+  if (missing.length) return { ok: false, reason: 'preflight-args-unproven', missing };
+  return { ok: true, args: [...pinned] };
+}
+
 // Seat preflight (§6.5): per seat, before its first cell. Binary resolves on
 // the campaign PATH with version and digest recorded; the entrypoint guard
 // passes for our chain with vendor runtimes labelled; the tier-C oracle for
@@ -253,6 +289,9 @@ export async function runSeatPreflight(seat, { executables = {}, runAuthPrecheck
   if (vendorLabel) {
     facts.vendorRuntime = vendorLabel;
   }
+  const pinned = checkPinnedArgs(seat.family, executable, options);
+  if (!pinned.ok) return { ...fail(pinned.reason), ...facts };
+  facts.pinnedArgs = pinned.args;
   facts.tierC = tierCOracle(seat.family, executable, options);
   if (!facts.tierC.ok) return { ...fail(facts.tierC.reason), ...facts };
   const allowlisted = LOGIN_ALLOWLIST[seat.family] ?? null;
