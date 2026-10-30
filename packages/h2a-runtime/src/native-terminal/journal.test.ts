@@ -9,6 +9,11 @@ import { assertIsolatedEnvironment, createPrivateTestDirectory, nativeQualificat
 import { NativeTerminalClient } from "./client.js";
 import { readProcessStartTime } from "./host.js";
 import { appendHostJournal, getDroppedJournalEntriesCount, getRuntimeVersion, MAX_HOST_JOURNAL_BYTES, readHostJournal, resolveHostJournalPath } from "./journal.js";
+// The writer factory is imported from dist like every spawned fixture binary
+// below: vitest executes this file as TS source, and a plain node fork of a
+// .ts module dies with ERR_UNKNOWN_FILE_EXTENSION. Production always forks
+// the compiled module, so the dist factory is the faithful unit under test.
+import { createHostJournalWriter, WRITER_SETTLE_MS } from "../../dist/native-terminal/journal.js";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
 const qualRoot = nativeQualificationRoot;
@@ -178,6 +183,29 @@ describe("native host life journal", () => {
     try { expect((await client.ping()).hostPid).toBe(host.process.pid); } finally { client.close(); }
     host.process.kill("SIGTERM"); expect((await host.closed)[0]).toBe(0);
   });
+  it("should settle the writer so post-shutdown writes never touch storage", async () => {
+    // Locks the graceful-shutdown contract: once settle() resolves, no writer
+    // survives to resurrect torn-down storage (the ENOTEMPTY race of the
+    // blocked-storage host above). Post-settle writes are drops, never I/O.
+    const f = fixture(), dir = join(f.root, "settled"), logPath = join(dir, "native-host.log");
+    const identity = { pid: process.pid, startTime: readProcessStartTime(process.pid) ?? "unknown" as const, generation: "settle-test" };
+    const writer = createHostJournalWriter(logPath);
+    writer.write({ ...identity, event: "start", version: getRuntimeVersion(), codePath: entry, socket: join(f.root, "nt.sock") });
+    await writer.flush();
+    // A cold writer (fork + module load + Worker spawn) can miss the 100 ms
+    // flush deadline: poll like every sibling host test instead of asserting
+    // synchronously.
+    await eventually(() => existsSync(logPath));
+    await writer.settle();
+    rmSync(dir, { recursive: true, force: true });
+    writer.write({ ...identity, event: "stop", clean: true });
+    // flush() must resolve with no worker left: post-settle writes are drops.
+    await writer.flush();
+    // One full settle window of quiescence: a live writer flushes within its
+    // HOST_JOURNAL_DRAIN_MS cycle, so nothing may resurrect the tree.
+    await new Promise(resolve => setTimeout(resolve, WRITER_SETTLE_MS));
+    expect(existsSync(dir)).toBe(false);
+  });
   it("should bound shutdown and keep host callbacks off disk when the journal writer is blocked", async () => {
     const f = fixture(), preload = join(f.root, "block.mjs"), marker = join(f.root, "blocked.jsonl");
     writeFileSync(preload, `import fs from 'node:fs';
@@ -220,7 +248,31 @@ describe("native host life journal", () => {
     expect(readFileSync(lock, "utf8")).toBe(token); expect(existsSync(f.log)).toBe(false);
   });
   it("should record a real startup failure without calling it an uncaught exception", async () => {
-    const f = fixture(), host = child([entry, "--unknown-option"], f.env);
+    const f = fixture(), preload = join(f.root, "ready-journal.mjs");
+    // Classification needs a healthy writer. A cold writer can legitimately
+    // miss the host's 100 ms best-effort drain; qualify its real IPC/I/O first.
+    writeFileSync(preload, `import cp from 'node:child_process';
+      import { once } from 'node:events';
+      import { rmSync } from 'node:fs';
+      import { syncBuiltinESMExports } from 'node:module';
+      import { isMainThread } from 'node:worker_threads';
+      const file = ${JSON.stringify(fileURLToPath(journalModule))}, log = ${JSON.stringify(f.log)};
+      if (isMainThread && process.argv[2] === '--native-host-journal-writer') {
+        await import(${JSON.stringify(journalModule)});
+        process.send?.({ fixtureReady: true });
+      } else if (isMainThread && process.argv[1] === ${JSON.stringify(entry)}) {
+        const fork = cp.fork, writer = fork(file, ['--native-host-journal-writer', log],
+          { execArgv: process.execArgv, stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
+        if ((await once(writer, 'message'))[0]?.fixtureReady !== true) throw Error('writer not ready');
+        const written = once(writer, 'message');
+        writer.send({ event: 'exit', pid: process.pid, startTime: '0', generation: 'fixture-warmup', exitCode: 0, cause: 'unknown' });
+        if ((await written)[0] !== true) throw Error('writer unavailable');
+        rmSync(log);
+        cp.fork = (...args) => args[0] === file && args[1]?.[0] === '--native-host-journal-writer' && args[1]?.[1] === log
+          ? writer : fork(...args);
+        syncBuiltinESMExports();
+      }`);
+    const host = child(["--import", preload, entry, "--unknown-option"], f.env);
     expect((await host.closed)[0]).toBe(1);
     await eventually(() => readHostJournal(f.log).at(-1)?.event === "exit");
     const events = readHostJournal(f.log);

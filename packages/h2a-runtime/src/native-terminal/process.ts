@@ -124,7 +124,12 @@ export async function runNativeTerminalHostProcess(argv: ReadonlyArray<string>):
   const journal = createHostJournalWriter();
   // Exit callbacks only enqueue observations. The independent writer has its
   // own bounded drain; the monitor preserves Node's fatal behavior.
+  // A graceful shutdown journals its exit entry in-band (see below) so the
+  // writer can be settled before death; the post-mortem write then only covers
+  // paths where the host never reached its graceful completion.
+  let exitJournalled = false;
   process.on("exit", (exitCode) => {
+    if (exitJournalled) return;
     journal.write({ event: "exit", ...identity(), exitCode, cause });
   });
   process.on("uncaughtExceptionMonitor", (error: Error, origin) => {
@@ -161,6 +166,11 @@ export async function runNativeTerminalHostProcess(argv: ReadonlyArray<string>):
     });
     const initialization = new AbortController();
     let shutdown: Promise<void> | undefined;
+    // The journal completion (stop entry, exit entry, flush, writer settle)
+    // must be awaited by the main flow: the test and operator fixtures
+    // disconnect IPC right after this function returns, and any journal timer
+    // created after that disconnect crashes on the closed channel.
+    let journalSettled: Promise<void> | undefined;
     const serverReady = startNativeTerminalHostServer({
       socketPath: options.socketPath, host, signal: initialization.signal,
       // R7: the server classifies post-listen listener failures; this host
@@ -216,7 +226,7 @@ export async function runNativeTerminalHostProcess(argv: ReadonlyArray<string>):
         } finally { await closeServer; }
         if (gracefulError !== undefined) throw gracefulError;
       })();
-      void shutdown.then(
+      journalSettled = shutdown.then(
         async () => {
           cause = "clean-stop";
           journal.write({
@@ -226,6 +236,15 @@ export async function runNativeTerminalHostProcess(argv: ReadonlyArray<string>):
           });
           process.exitCode = cleanExitCode;
           await journal.flush();
+          // Journal the exit entry in-band, flush it, then settle the writer:
+          // host close must imply no further journal I/O into host-owned
+          // paths, otherwise teardown (rm -rf of the host directories) races
+          // the orphaned writer and fails with ENOTEMPTY. The crash path keeps
+          // the post-mortem write: a dead host cannot settle its writer.
+          exitJournalled = true;
+          journal.write({ event: "exit", ...identity(), exitCode: cleanExitCode, cause });
+          await journal.flush();
+          await journal.settle();
         },
         (error) => {
           journal.write({
@@ -252,6 +271,9 @@ export async function runNativeTerminalHostProcess(argv: ReadonlyArray<string>):
     });
     if (shutdown !== undefined) {
       await shutdown;
+      // Await the journal completion before returning: callers disconnect IPC
+      // as soon as the host function resolves.
+      await journalSettled;
       return;
     }
     process.stdout.write(`${JSON.stringify({

@@ -29,6 +29,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir, tmpdir } from "node:os";
+import { verifyCleanseContracts } from "./cleanse-contract-ledger.mjs";
 
 // Disposable-TMPDIR guarantee (PR #390 R3 P1): `npm test` never inherits a
 // bare /tmp TMPDIR into the confinement assertion in restart-lab.js.
@@ -155,8 +156,9 @@ export function listNodeTrackSuiteFiles() {
   }
   return inventoryFailures(REPO_ROOT, inventory, files).length ? [] : files;
 }
-export function verifyNodeTrackExecution(report, requiredFiles) {
-  return verifyExecutionReport(report, requiredFiles, policyFor(REPO_ROOT, readInventory(REPO_ROOT), "node"));
+export function verifyNodeTrackExecution(report, requiredFiles, ledger) {
+  return [...verifyExecutionReport(report, requiredFiles, policyFor(REPO_ROOT, readInventory(REPO_ROOT), "node")),
+    ...verifyCleanseContracts(report, requiredFiles, ledger)];
 }
 
 function main() {

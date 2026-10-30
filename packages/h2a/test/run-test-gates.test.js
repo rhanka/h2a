@@ -25,6 +25,7 @@ import { spawnSync } from 'node:child_process'
 import { test } from 'node:test'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { readCleanseLedger, observeContract } from '../../../scripts/cleanse-contract-ledger.mjs'
 import { discoverTestFiles, RUNNER_TEST_FILE, listNodeTrackSuiteFiles, verifyNodeTrackExecution } from '../../../scripts/run-tests.mjs'
 
 import { configContractFailures } from '../../../scripts/test-config-contract.mjs'
@@ -1452,3 +1453,166 @@ test('C9 A01/A03/A04: effective config and versioned test inventory are mandator
 test('C9 A04: execute the effective Node/Track entry and observe both required suites', () => {
   observeNodeTrackEntry(readFileSync(resolve(REPO_ROOT, 'scripts/run-tests.mjs'), 'utf8'), REPO_ROOT)
 })
+
+test('L0 trust root: every baseline contract and oracle is required by the production execution verifier', () => {
+  const baseline = 'packages/h2a/test/native-cleanse-baseline.test.js'
+  const oracle = 'packages/h2a/test/native-cleanse-oracle.test.js'
+  const ids = []
+  for (const host of ['claude', 'codex', 'gemini', 'agy', 'hermes', 'opencode', 'muse', 'vibe']) {
+    for (const family of ['skill bytes', 'linked resource bytes', 'MCP resolves activated prefix']) ids.push(host + ' installed ' + family)
+    if (['agy', 'muse'].includes(host)) ids.push(host + ' installed selected helper bytes', host + ' installed selected hook registration')
+    if (host === 'agy') ids.push(host + ' installed observed Agy imported bytes')
+    if (['claude', 'codex'].includes(host)) ids.push(host + ' installed registered effective plugin cache')
+  }
+  ids.push('packaged .claude-plugin/plugin.json exact RC', 'packaged .codex-plugin/plugin.json exact RC',
+    'packaged integration manifest exact RC', 'dead claim archived before replacement',
+    'proven dead background row archived and retired', 'both endpoints ready before restore dispatcher',
+    'native-terminal.sock original inode quarantined', 'native-terminal.sock recovery record',
+    'native-terminal.lf1.sock original inode quarantined', 'native-terminal.lf1.sock recovery record',
+    'legacy reclaim barrier coded refusal')
+  assert.equal(ids.length, 42)
+  const required = {
+    [baseline]: [
+      'L0 install: global candidate lifecycle converges the independent eight-host inventory',
+      'L0 packaged RC: prepare and prepack preserve exact plugin and integration payload versions',
+      'L0 R1: packaged public fresh and resume recover two endpoints and archive the dead claim',
+      'L0 R2: packaged real restore dispatches twenty conversations through flock after endpoint preparation',
+      'L0 R1: public run quarantines the original stale socket inodes with a recovery record',
+      'L0 R1: public resume reports a coded refusal for an unattributed legacy reclaim barrier',
+      ...ids.map(id => 'L0 contract: ' + id),
+    ],
+    [oracle]: [
+      'L0 contracts: only the committed state and exact failure signature are accepted',
+      'L0 inventory: all frozen artifacts can be observed current',
+      'L0 MCP: version, echo, wrong protocol and duplicate routes cannot pass as the effective server',
+      'L0 hooks: comments, echo commands, disabled hooks and missing dependencies cannot pass',
+      'L0 plugins: missing helpers and stale selected Codex sources cannot pass with a candidate cache',
+      'L0 reviewers reproduction: version MCPs, echo hooks and incomplete unselected caches cannot yield 31 GREEN',
+      "L0 hooks: duplicate host and workspace options cannot redirect the selected hook",
+      "L0 Agy: imported bytes must preserve the observed enabled or disabled selection",
+      "L0 plugins: the active plugin MCP must resolve and answer from the activated prefix",
+      "L0 Vibe: disabling the selected MCP cannot pass with healthy candidate argv",
+      "L0 Vibe native state: enabled=false cannot conceal reactivation through disabled=false",
+      "L0 Vibe native state: global and per-server tool filters cannot hide behind a healthy handshake",
+      "L0 MCP native rules: adapter filter precedence determines the exposed tools",
+      "L0 MCP native execution: environment and cwd overrides cannot reuse a healthy cached transport",
+      "L0 MCP native filters: intentional tool selections survive convergence and cannot be reactivated",
+      "L0 MCP selection: Codex disabled entry cannot pass after convergence",
+      "L0 Vibe: the configured transport must permit the stdio candidate probe",
+      "L0 Vibe: an initially disabled MCP keeps its selection without launching a probe",
+      "L0 artifacts: disappearing entries cannot break recovery observations or hide other errors",
+      "L0 MCP selection: claude preserves enabled and disabled choices",
+      "L0 MCP selection: codex preserves enabled and disabled choices",
+      "L0 MCP selection: gemini preserves enabled and disabled choices",
+      "L0 MCP selection: agy preserves enabled and disabled choices",
+      "L0 MCP selection: hermes preserves enabled and disabled choices",
+      "L0 MCP selection: opencode preserves enabled and disabled choices",
+      "L0 MCP selection: muse preserves enabled and disabled choices",
+      "L0 MCP selection: vibe preserves enabled and disabled choices",
+    ],
+  }
+  const inventory = readInventory(REPO_ROOT), discovered = discoverTestFiles()
+  for (const [file, names] of Object.entries(required)) {
+    assert.ok(discovered.some(path => resolve(REPO_ROOT, path) === resolve(REPO_ROOT, file)), file + ' must run in the npm tests step')
+    assert.deepEqual(inventory[file], names, file + ': removing a required assertion must fail independently')
+  }
+  const files = Object.keys(required).map(file => resolve(REPO_ROOT, file))
+  const report = {
+    success: true, numTotalTests: 75, numPassedTests: 75, numFailedTests: 0, numPendingTests: 0, numTodoTests: 0,
+    testResults: Object.entries(required).map(([file, names]) => ({ name: resolve(REPO_ROOT, file), status: 'passed',
+      assertionResults: names.map(fullName => ({ fullName, status: 'passed' })) })),
+  }
+  report.testResults[0].cleanseContracts = Object.entries(readCleanseLedger()).map(([id, entry]) => ({ id, ...entry }))
+  const verify = STEPS.find(step => step.id === 'tests').verifyExecution
+  assert.deepEqual(verify(report, files), [])
+  for (const id of ids) {
+    const hole = structuredClone(report)
+    hole.testResults[0].assertionResults = hole.testResults[0].assertionResults.filter(a => a.fullName !== 'L0 contract: ' + id)
+    hole.numTotalTests--
+    hole.numPassedTests--
+    assert.ok(verify(hole, files).some(failure => failure.includes('L0 contract: ' + id)), id + ': unexecuted assertion must block')
+  }
+  for (const status of ['skipped', 'todo', 'failed']) {
+    const hole = structuredClone(report)
+    hole.testResults[0].assertionResults[6].status = status
+    hole.numPassedTests--
+    hole[{ skipped: 'numPendingTests', todo: 'numTodoTests', failed: 'numFailedTests' }[status]]++
+    assert.ok(verify(hole, files).length, status + ' is not a known-missing contract')
+  }
+})
+
+function cleanseGateFixture() {
+  const file = resolve(REPO_ROOT, 'packages/h2a/test/native-cleanse-baseline.test.js');
+  const names = readInventory(REPO_ROOT)['packages/h2a/test/native-cleanse-baseline.test.js'];
+  const ledger = readCleanseLedger();
+  const report = { success: true, numTotalTests: names.length, numPassedTests: names.length,
+    numFailedTests: 0, numPendingTests: 0, numTodoTests: 0,
+    testResults: [{ name: file, status: 'passed', assertionResults: names.map(fullName => ({ fullName, status: 'passed' })),
+      cleanseContracts: Object.entries(ledger).map(([id, entry]) => ({ id, ...structuredClone(entry) })) }] };
+  const verify = (report, expected = ledger) => STEPS.find(s => s.id === 'tests').verifyExecution(report, [file], expected);
+  assert.deepEqual(verify(report), []);
+  return { report, ledger, verify, results: report.testResults[0].cleanseContracts };
+}
+
+test('L0 ledger gate: a GREEN contract turning RED fails even with success true and passing tests', () => {
+  const { report, ledger, verify, results } = cleanseGateFixture();
+  const red = structuredClone(results[0]);
+  ledger[red.id] = { state: 'GREEN' };
+  results[0] = { id: red.id, state: 'GREEN' };
+  assert.deepEqual(verify(report), []);
+  results[0] = red; // exact return to the old bytes/signature
+  assert.ok(verify(report).some(f => f.includes('GREEN -> observed RED')));
+});
+
+test('L0 ledger gate: a RED contract with a different signature fails', () => {
+  const { report, verify, results } = cleanseGateFixture();
+  for (const key of ['name', 'code', 'operator', 'actual', 'expected', 'message', 'evidenceSha256']) {
+    const original = results[0].signature[key];
+    results[0].signature[key] = 'changed';
+    assert.ok(verify(report).some(f => f.includes('different failure signature')), key);
+    results[0].signature[key] = original;
+  }
+});
+
+test('L0 ledger gate: a repaired RED contract requires a committed ledger update', () => {
+  const { report, ledger, verify, results } = cleanseGateFixture();
+  const id = results[0].id;
+  results[0] = { id, state: 'GREEN' };
+  assert.ok(verify(report).some(f => f.includes('RED -> observed GREEN')));
+  ledger[id] = { state: 'GREEN' }; // the same change must update this entry
+  assert.deepEqual(verify(report), []);
+});
+
+test('L0 ledger gate: missing, duplicate and unknown contract results fail', () => {
+  const { report, verify, results } = cleanseGateFixture();
+  results.pop();
+  assert.ok(verify(report).some(f => f.includes('result missing')));
+  results.push(results[0]);
+  assert.ok(verify(report).some(f => f.includes('duplicate contract')));
+  results.push({ id: 'invented', state: 'GREEN' });
+  assert.ok(verify(report).some(f => f.includes('missing from committed ledger')));
+});
+
+test('L0 trust root: neutralising ledger enforcement cannot hide the independently reported outcome', () => {
+  const lab = mkdtempSync(join(tmpdir(), 'cleanse-trust-'));
+  try {
+    const helper = readFileSync(resolve(HERE, 'helpers/cleanse-contracts.mjs'), 'utf8')
+      .replace("'../../../../scripts/cleanse-contract-ledger.mjs'", JSON.stringify(pathToFileURL(resolve(REPO_ROOT, 'scripts/cleanse-contract-ledger.mjs')).href));
+    writeFileSync(join(lab, 'probe.mjs'), `
+      import { contracts } from './contracts.mjs';
+      contracts({ diagnostic: message => console.log(message) }, [{ id: 'claude installed skill bytes', lot: 'L3+L4', actual: true, expected: true }]);
+    `);
+    const run = source => {
+      writeFileSync(join(lab, 'contracts.mjs'), source);
+      return spawnSync(process.execPath, [join(lab, 'probe.mjs')], { encoding: 'utf8', timeout: 10_000 });
+    };
+    assert.equal(run(helper).status, 1, 'an undeclared GREEN must fail the witness');
+    const bypass = helper.replace('assert.equal(failure, undefined, failure);', '');
+    assert.notEqual(bypass, helper);
+    const result = run(bypass);
+    assert.equal(result.status, 0, result.stderr);
+    const { report, verify, results } = cleanseGateFixture();
+    results[0] = JSON.parse(result.stdout.trim().slice('H2A_CLEANSE_CONTRACT '.length));
+    assert.ok(verify(report).some(f => f.includes('RED -> observed GREEN')), 'the npm gate must reject a swallowed assertion');
+  } finally { rmSync(lab, { recursive: true, force: true }); }
+});
