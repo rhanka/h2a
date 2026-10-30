@@ -13,11 +13,67 @@ import type { createLocalStore } from "./local-files/index.js";
 import { createMcpServer, type McpCallContext, type McpServer } from "./mcp/server.js";
 import { createUiRenderModule, type UiRenderModule } from "./mcp/ui-render/index.js";
 import type { H2aRunExecutor } from "./mcp/agent-launch.js";
-import { CENTRAL_ATTACHMENT_ENV, type CentralMcpAttachment } from "./mcp-central-context.js";
+import { CENTRAL_ATTACHMENT_ENV, buildSessionAdmissionEvidence, type CentralMcpAttachment, type SessionAdmissionEvidenceV1, type SessionAdmissionIdentity } from "./mcp-central-context.js";
 import type { AttachmentParticipant } from "./handover/participants.js";
 import type { ComposeDaemonOptions } from "../registry/sentropic-daemon.js";
 
 export type CentralAttachmentHandle = { mcp: McpServer; ready?: Promise<void>; close(): Promise<void> };
+
+export type { SessionAdmissionEvidenceV1 } from "./mcp-central-context.js";
+
+/**
+ * The verified transport material the central holds for one call. The
+ * assembler below turns it into H3 evidence, or refuses closed (undefined)
+ * when any binding is missing or partial — a central attachment alone is
+ * never admission.
+ */
+export interface CentralAdmissionMaterial {
+  /** Verified attachment id (participant token binding). */
+  readonly attachmentId: string;
+  /** Verified per-request transport MAC (admitted request proof). */
+  readonly transportMac: string;
+  /** Fenced transport epoch of the attachment's logical transport. */
+  readonly transportEpoch: string;
+  /** The admitted MCP session id of this attachment. */
+  readonly sessionId: string;
+  /** The supported central host that admitted the attachment. */
+  readonly centralHost: string;
+  /** Channel binding from the closed set (attachment: `stdio_host_managed_verified`). */
+  readonly channelBinding: string;
+  /** Signed (MAC-verified) request id this dispatch rides on. */
+  readonly signedRequestId: string;
+  /** Identity correlation from the binding store; no evidence without it. */
+  readonly identity?: SessionAdmissionIdentity;
+  /** Admission instant (canonical ISO); defaults to the evidence build time. */
+  readonly admittedAt?: string;
+}
+
+/**
+ * Total H3 assembler: binds the verified material into a
+ * `SessionAdmissionEvidenceV1`, or returns undefined when the material is
+ * absent, partial or inconsistent (fail-closed — never a partial record,
+ * never a throw).
+ */
+export function sessionAdmissionEvidence(material: CentralAdmissionMaterial | undefined): SessionAdmissionEvidenceV1 | undefined {
+  if (!material?.identity) return undefined;
+  try {
+    return buildSessionAdmissionEvidence({
+      attachmentRef: material.attachmentId,
+      transportMac: material.transportMac,
+      transportEpoch: material.transportEpoch,
+      centralHost: material.centralHost as SessionAdmissionEvidenceV1["centralHost"],
+      channelBinding: material.channelBinding,
+      sessionId: material.sessionId,
+      agentUuid: material.identity.agentUuid,
+      instanceId: material.identity.instanceId,
+      launchName: material.identity.launchName,
+      admittedAt: material.admittedAt ?? new Date().toISOString(),
+      signedRequestId: material.signedRequestId
+    });
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * Install the Sentropic-registry dispatch route on an attachment server.
@@ -62,7 +118,7 @@ export function openCentralAttachment(
   notify: (notification: Notification) => Promise<void>,
   runExecutor?: H2aRunExecutor,
   participant?: AttachmentParticipant,
-  registry?: Pick<ComposeDaemonOptions, "lock" | "memory">,
+  registry?: Pick<ComposeDaemonOptions, "lock" | "memory" | "admission">,
   attachmentOptions?: { env?: Readonly<Record<string, string | undefined>> }
 ): CentralAttachmentHandle {
   if (!context) {
@@ -82,7 +138,7 @@ export function openCentralAttachment(
     }
     const mcp = createMcpServer({ root, workspaceRoot: workspace, store, ...(participant ? { participant } : {}), ...(runExecutor ? { runExecutor } : {}), ...(uiRender ? { uiRender } : {}) });
     participant?.bind(mcp);
-    const ready = registry ? configureSelectedRegistry(mcp, root, workspace, registry, { context, participant }) : undefined;
+    const ready = registry ? configureSelectedRegistry(mcp, root, workspace, registry) : undefined;
     if (!registry) installRegistryDispatch(mcp, { root, workspaceRoot: workspace });
     return { mcp, ready, async close() {
       mcp.notifications.stop();
@@ -121,7 +177,7 @@ export function openCentralAttachment(
     ...(runExecutor ? { runExecutor } : {})
   });
   if (!mcp) { controller.abort(); input.end(); throw new Error("central attachment activation failed"); }
-  const ready = registry ? configureSelectedRegistry(mcp, root, workspace, registry, { context, participant }) : undefined;
+  const ready = registry ? configureSelectedRegistry(mcp, root, workspace, registry) : undefined;
   if (!registry) installRegistryDispatch(mcp, { root, workspaceRoot: workspace });
   return { mcp, ready, async close() {
     controller.abort();
@@ -132,7 +188,7 @@ export function openCentralAttachment(
 }
 
 async function configureSelectedRegistry(mcp: McpServer, root: string, workspaceRoot: string,
-  registry: Pick<ComposeDaemonOptions, "lock" | "memory">, attachment: unknown): Promise<void> {
+  registry: Pick<ComposeDaemonOptions, "lock" | "memory" | "admission">): Promise<void> {
   const { configureMcpServerRegistry } = await import("../registry/sentropic-daemon.js");
-  await configureMcpServerRegistry(mcp, { view: "combined", root, workspaceRoot, ...registry, attachment });
+  await configureMcpServerRegistry(mcp, { view: "combined", root, workspaceRoot, ...registry });
 }

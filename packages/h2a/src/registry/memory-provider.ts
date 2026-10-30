@@ -2,6 +2,7 @@
 import type { McpRegistryBuiltin } from "@sentropic/cluster-mesh/mcp/registry";
 import type { RegistryEntry } from "./descriptors.js";
 import { RegistryError } from "./descriptors.js";
+import type { MemoryHostResolverPort } from "./memory-resolver.js";
 
 export const MEMORY_PROVIDER_ID = "sentropic.engram.memory";
 export const MEMORY_TOOL_NAMES = ["search", "get", "capture", "request_admission", "withdraw", "forget"].map(name => `engram_memory_${name}`);
@@ -14,9 +15,20 @@ export interface MemoryProviderRegistration {
    * handle (`runtime()` in sentropic#844 `packages/cluster-mesh/src/
    * integrations/mcp/memory.ts:13-16`). The mesh host closes it before
    * closing its pool; h2a attachments never own it, so this composition
-   * layer only types the handle — it never opens or closes one.
+   * layer only types the handle — it never opens or closes one. Its
+   * `server.callTool(name, args, ctx, envelope?, signal?)` is the
+   * production dispatch seam (typed structurally in `memory-resolver.ts`).
    */
   builtin: McpRegistryBuiltin & { runtime?: () => { close(): Promise<void> } | undefined };
+  /**
+   * H2A-DISP-354: the per-call memory host resolver bound by the host that
+   * owns the invocation context (cluster-mesh at cutover; deterministic
+   * contract doubles in tests). It rides the validated registration through
+   * the bridge serve chain (cli-registry → cli → central → attachment), so
+   * the JSON lock file never carries it. Without it a selected memory
+   * registration refuses dispatch fail-closed (zero producer calls).
+   */
+  resolver?: MemoryHostResolverPort;
 }
 
 export function missingMemoryBuiltin(): never {

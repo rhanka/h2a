@@ -66,10 +66,13 @@ import {
   negotiateUiExtension,
   serverUiExtensionCapability
 } from "./mcp/ui-render/negotiation.js";
+import { UI_RENDER_TOOL_NAMES } from "./mcp/ui-render/tools.js";
 import { UnknownResourceError, type UiExtensionCapability } from "./mcp/ui-render/types.js";
 import { boundCallToolResult } from "./mcp/frame-budget.js";
 import { createLocalStore } from "./local-files/index.js";
-import { openCentralAttachment, type CentralAttachmentHandle } from "./mcp-central-attachment.js";
+import { openCentralAttachment, sessionAdmissionEvidence, type CentralAdmissionMaterial, type CentralAttachmentHandle } from "./mcp-central-attachment.js";
+import type { CentralMcpAttachment, SessionAdmissionIdentity } from "./mcp-central-context.js";
+import { findBinding } from "./identity/bindings.js";
 import type { ComposeDaemonOptions } from "../registry/sentropic-daemon.js";
 import { parseCentralAttachment } from "./mcp-central-context.js";
 import { executeH2aRun, type H2aRunExecutor } from "./mcp/agent-launch.js";
@@ -134,6 +137,58 @@ async function centralToolResult(
   }) as CallToolResult;
 }
 
+/**
+ * H2A-DISP-354: resolve the identity correlation for admission evidence
+ * from the attachment's captured stability unit (host + provider session id
+ * captured by the stdio shim). A binding mismatch with the expected resume
+ * instance, a missing launch name or an unreadable store all yield NO
+ * identity — hence no evidence, hence no memory dispatch (fail-closed).
+ */
+function centralAdmissionIdentity(root: string, captured: CentralMcpAttachment, expectedInstance: string | undefined): SessionAdmissionIdentity | undefined {
+  const launchName = captured.flags.name?.trim();
+  if (!launchName) return undefined;
+  const providerSessionId = captured.env.CLAUDE_CODE_SESSION_ID?.trim() || `fallback:${captured.host}:${captured.workspace}`;
+  try {
+    const binding = findBinding(root, { host: captured.host, providerSessionId, workspaceId: captured.workspace });
+    if (!binding || typeof binding.agentUuid !== "string" || typeof binding.instance !== "string") return undefined;
+    // The resume lease stamps the expected instance once identity is ready;
+    // the "identity_disabled" sentinel means no expectation is set.
+    if (expectedInstance && expectedInstance !== "identity_disabled" && binding.instance !== expectedInstance) return undefined;
+    return { agentUuid: binding.agentUuid, instanceId: binding.instance, launchName };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * H2A-DISP-354: assemble the per-call admission material from the verified
+ * route state — the admitted request (transport MAC + signed request id,
+ * stashed by the route from the authenticated server's env), the fenced
+ * logical transport epoch, the transport session id, and the identity
+ * correlation. Anything missing or partial refuses closed (undefined).
+ */
+function routeAdmissionMaterial(root: string, captured: CentralMcpAttachment | undefined,
+  record: { participant: import('./handover/participants.js').AttachmentParticipant; transport: StreamableHTTPTransport; logical?: any; admitted?: unknown } | undefined): CentralAdmissionMaterial | undefined {
+  if (!record || !captured) return undefined;
+  const admitted = record.admitted as { mac?: unknown; requestUid?: unknown } | undefined;
+  const sessionId = record.transport.sessionId;
+  if (typeof sessionId !== "string" || !sessionId) return undefined;
+  if (typeof admitted?.mac !== "string" || !/^[0-9a-f]{64}$/.test(admitted.mac)) return undefined;
+  if (typeof admitted.requestUid !== "string" || !admitted.requestUid) return undefined;
+  const epoch = record.logical?.transportEpoch;
+  if (typeof epoch !== "number" || !Number.isInteger(epoch) || epoch < 1) return undefined;
+  return {
+    attachmentId: record.participant.token.attachmentId,
+    transportMac: admitted.mac,
+    transportEpoch: String(epoch),
+    sessionId,
+    centralHost: captured.host,
+    channelBinding: "stdio_host_managed_verified",
+    signedRequestId: admitted.requestUid,
+    identity: centralAdmissionIdentity(root, captured, record.logical?.expectedInstance)
+  };
+}
+
 export function createCentralProtocolServer(mcp: McpServer, participant: import('./handover/participants.js').AttachmentParticipant): Server {
   const server = new Server(
     { name: "@sentropic/h2a", version: currentCliVersion() },
@@ -170,9 +225,18 @@ export function createCentralProtocolServer(mcp: McpServer, participant: import(
   });
   server.setRequestHandler(
     CallToolRequestSchema,
-    async (request): Promise<CallToolResult> => participant.call(async () => {
+    // H2A-DISP-354: the SDK handler extra carries the caller's AbortSignal;
+    // it rides the per-call dispatch context down to the producer seam.
+    async (request, extra): Promise<CallToolResult> => participant.call(async () => {
       for (const session of mcp.sessions.list()) mcp.sessions.markActivity(session.sessionId);
-      return centralToolResult(mcp, request.params.name, request.params.arguments ?? {}, connection);
+      // H2A-DISP-354: the SDK handler extra carries the caller's AbortSignal;
+      // it rides the per-call dispatch context down to the producer seam.
+      // SEP-1865 session state keys on the context object's identity, so
+      // ui:// tools keep the stable per-transport `connection` while every
+      // other tool gets a per-call context with the caller's signal.
+      const uiBound = (UI_RENDER_TOOL_NAMES as readonly string[]).includes(request.params.name);
+      return centralToolResult(mcp, request.params.name, request.params.arguments ?? {},
+        uiBound ? connection : { signal: extra?.signal });
     })
   );
   return server;
@@ -210,7 +274,7 @@ function createCentralApp(
   const lag = monitorEventLoopDelay({ resolution: 20 });
   lag.enable();
   app.use(new URL(endpoint).pathname, bodyLimit({ maxSize: 4 * 1024 * 1024 }));
-  type Attachment = { participant: import("./handover/participants.js").AttachmentParticipant; transport: StreamableHTTPTransport; handle: CentralAttachmentHandle; touched: number; closing?: Promise<void>; logical?: any; disconnected?: boolean };
+  type Attachment = { participant: import("./handover/participants.js").AttachmentParticipant; transport: StreamableHTTPTransport; handle: CentralAttachmentHandle; touched: number; closing?: Promise<void>; logical?: any; disconnected?: boolean; admitted?: unknown };
   const sessions = new Map<string, Attachment>();
   const transports = new AttachmentTransports({ generation, capacity: options.maxAttachments });
   let descriptor = describeCatalogue(JSON.parse(JSON.stringify(H2A_CLI_MCP_TOOL_DESCRIPTORS)));
@@ -485,13 +549,21 @@ function createCentralApp(
         onsessioninitialized: id => { if (created) { sessions.set(id, created); inventoryRevision++; } },
         onsessionclosed: id => { const current = sessions.get(id); if (current) void closeAttachment(id, current); }
       });
-      let registry: Pick<ComposeDaemonOptions, "lock" | "memory"> | undefined;
+      let registry: Pick<ComposeDaemonOptions, "lock" | "memory" | "admission"> | undefined;
       const requestedLock = captured?.flags["registry-lock-digest"];
       if (requestedLock) {
         const { bridgeLockDigest } = await import("../registry/bridge-lock.js");
         if (!options.registry?.lock) return context.json({ error: "missing_binding: memory registry is not configured on the central service" }, 409);
         if (requestedLock !== bridgeLockDigest(options.registry.lock)) return context.json({ error: "integrity_mismatch: bridge and central registry locks differ" }, 409);
         registry = options.registry;
+      }
+      // H2A-DISP-354: per-attachment admission thunk — builds H3 evidence per
+      // call from the verified route state (stashed admitted request + the
+      // attachment's logical transport + the binding-store identity). The
+      // thunk stays lazy: memory dispatch without verifiable material
+      // refuses closed inside the daemon.
+      if (registry) {
+        registry = { ...registry, admission: () => sessionAdmissionEvidence(routeAdmissionMaterial(root, captured, created)) };
       }
       const participant = participants()!.attach(logicalId, { workspace, ...(captured ? { attachment: captured } : {}) });
       participant.initialized = false;
@@ -532,6 +604,10 @@ function createCentralApp(
       if (!pending) await closeAttachment(requestedSessionId!, attachment);
       return context.body(null, 200);
     }
+    // H2A-DISP-354: the authenticated server passes the verified request
+    // (MAC, requestUid, attachmentId, transportEpoch) as the route env;
+    // stash it for this call's admission evidence before dispatch.
+    attachment.admitted = context.env ?? attachment.admitted;
     let response;
     try { response = await attachment.transport.handleRequest(context); }
     catch (error) {

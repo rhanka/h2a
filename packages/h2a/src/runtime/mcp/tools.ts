@@ -31,7 +31,10 @@ export interface McpToolDescriptor {
     [key: string]: unknown;
   };
   outputSchema?: Record<string, unknown>;
+  /** SDK tool annotations, passed through from the producer when present. */
   annotations?: Record<string, unknown>;
+  /** Producer wire metadata (e.g. `_meta['sentropic.engram/memory']`),
+   *  passed through unmodified; `ui` carries the SEP-1865 tool meta. */
   _meta?: {
     ui?: McpToolUiMeta;
     [key: string]: unknown;

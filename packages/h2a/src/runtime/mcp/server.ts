@@ -158,11 +158,19 @@ export interface CreateMcpServerOptions {
   storeInitialize?: boolean;
 }
 
-/** Transport context; reuse its identity per connection for UI session state. */
+/**
+ * Transport context; reuse its identity per connection for UI session state.
+ * The H2A-DISP-354 fields thread caller cancellation and a host-verified
+ * elicitation reference into the composed dispatch (never request metadata).
+ */
 export interface McpCallContext {
   readonly budget?: FrameBudget;
   /** L3: the SEP-1865 ui capability negotiated for THIS connection. */
   readonly uiCapability?: UiExtensionCapability;
+  /** Caller cancellation for this call (SDK `extra.signal`). */
+  readonly signal?: AbortSignal;
+  /** Host-verified elicitation reference forwarded to the producer envelope. */
+  readonly elicitationRef?: string;
 }
 
 export interface McpServer {

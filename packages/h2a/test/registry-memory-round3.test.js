@@ -28,7 +28,7 @@ import * as central from "../dist/runtime/mcp-central.js";
 import { createLocalStore } from "../dist/runtime/local-files/index.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { MEMORY_NAMES, entry, configuration, fixture } from "./helpers/engram-memory-contract.js";
+import { MEMORY_NAMES, admissionEvidence, entry, configuration, fixture } from "./helpers/engram-memory-contract.js";
 
 function lockFor(memory = true) {
   // M0-L0: select the providers under test by id. The catalog may carry
@@ -36,11 +36,20 @@ function lockFor(memory = true) {
   const h2aEntry = registryPackageManifest.entries.find(e => e.id === "sentropic.h2a");
   const trackEntry = trackRegistryPackageManifest.entries.find(e => e.id === "sentropic.track");
   const entries = [h2aEntry, trackEntry, ...(memory ? [entry] : [])];
-  const configs = [{ mode: "shared-central", serviceBindingRef: "h2a-local-central" }, { access: "read-only", repositoryBindingRef: "h2a-attachment-workspace" }, { ...configuration }];
+  // Per-entry configs keyed by registry id, not manifest position: the shipped
+  // manifest may grow entries (r3 added sentropic.ui-render) and a positional
+  // configs[i] would silently mis-map every entry after the insertion. An entry
+  // with no explicit config takes its schema defaults, never an undefined one.
+  const configs = {
+    "sentropic.h2a": { mode: "shared-central", serviceBindingRef: "h2a-local-central" },
+    "sentropic.track": { access: "read-only", repositoryBindingRef: "h2a-attachment-workspace" },
+    "sentropic.engram.memory": { ...configuration }
+  };
+  const configFor = (e) => configs[e.id] ?? { ...(e.parameters?.defaults ?? {}) };
   return { format: "h2a.registry-bridge-lock/v1", lockVersion: 1, revision: 1, host: "claude", profile: "default",
     bridge: { command: "h2a", args: [] },
     selection: entries.map(e => ({ kind: "mcp", id: e.id, entryVersion: e.entryVersion })),
-    entries: Object.fromEntries(entries.map((e, i) => [e.id, { digest: validateRegistryEntry(e).digest, config: configs[i], configDigest: sha256Hex(canonicalJson(configs[i])) }])),
+    entries: Object.fromEntries(entries.map(e => [e.id, { digest: validateRegistryEntry(e).digest, config: configFor(e), configDigest: sha256Hex(canonicalJson(configFor(e))) }])),
     compatibility: { hostFeatures: ["stdio", "streamable-http", ...entry.compatibility.requiredHostFeatures], protocolVersions: ["2025-06-18"] } };
 }
 async function scratch(fn) {
@@ -79,12 +88,11 @@ test("L2R3: producer MCP envelope survives the real attachment protocol with str
     structuredContent: { ok: true, output: { schema_version: 1, value: { status: "committed_pending" } }, auditId: "audit-r3-envelope", redactionClass: "high" },
     isError: false
   };
-  f.definition.adapter.invokeTool = async request => {
-    f.calls.push(request);
-    return { ok: true, output: envelope, auditId: "audit-r3-envelope", redactionClass: "high" };
-  };
+  // Post-DISP-354 the daemon dispatches through the producer's runtime
+  // server seam, never the adapter; the served result crosses untouched.
+  f.serve(envelope);
   const store = createLocalStore({ root });
-  const handle = openCentralAttachment(root, root, store, undefined, async () => {}, undefined, undefined, { lock: lockFor(), memory: f.memory });
+  const handle = openCentralAttachment(root, root, store, undefined, async () => {}, undefined, undefined, { lock: lockFor(), memory: f.memory, admission: admissionEvidence });
   let fenceCalls = 0;
   const protocol = central.createCentralProtocolServer(handle.mcp, { call: async fn => { fenceCalls++; return fn(); } });
   const client = new Client({ name: "l2r3-envelope-fixture", version: "1" });
@@ -181,7 +189,7 @@ test("L2R3: close then reopen serves memory again with an isolated driver", asyn
     const f = fixture();
     mkdirSync(dir, { recursive: true });
     const store = createLocalStore({ root: dir });
-    const handle = openCentralAttachment(dir, dir, store, undefined, async () => {}, undefined, undefined, { lock, memory: f.memory });
+    const handle = openCentralAttachment(dir, dir, store, undefined, async () => {}, undefined, undefined, { lock, memory: f.memory, admission: admissionEvidence });
     const protocol = central.createCentralProtocolServer(handle.mcp, { call: async fn => fn() });
     const client = new Client({ name, version: "1" });
     const [a, b] = InMemoryTransport.createLinkedPair();
