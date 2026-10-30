@@ -125,6 +125,34 @@ test('L8: preflights, retries and re-runs debit exactly like first attempts', ()
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+// R15 (P2-3, SPEC v3 §6.4): a preflight that reaches a model debits one
+// preflight unit exactly like a first attempt; a model-free preflight debits
+// nothing. Red on current code: applyPreflightDebit does not exist, so the
+// campaign caller cannot debit a model-reaching preflight.
+test('L8 R15: a model-reaching preflight verdict debits one preflight unit', () => {
+  const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-seats-'));
+  try {
+    const ledger = seats.createCampaignLedger(dir, { launchedSessions: 2, mcpCallsPerSession: 10, wallClockMs: 60000 });
+    const clean = seats.applyPreflightDebit(ledger, 'muse-a', { ok: true, modelCalls: 0 });
+    assert.equal(clean.ok, true);
+    assert.equal(clean.debited, false, 'a model-free preflight debits nothing');
+    assert.equal(ledger.sessionsDebited, 0);
+    const spent = seats.applyPreflightDebit(ledger, 'muse-a', { ok: true, modelCalls: 1 });
+    assert.equal(spent.ok, true);
+    assert.equal(spent.debited, true);
+    assert.equal(spent.kind, 'preflight');
+    assert.equal(ledger.sessionsDebited, 1);
+    assert.equal(ledger.perSeatDebited['muse-a'], 1);
+    const second = seats.applyPreflightDebit(ledger, 'muse-b', { ok: false, reason: 'preflight-auth-unproven', modelCalls: 2 });
+    assert.equal(second.ok, true, 'a failed verdict still reached the model: it debits');
+    assert.equal(ledger.sessionsDebited, 2);
+    const refused = seats.applyPreflightDebit(ledger, 'muse-c', { ok: true, modelCalls: 1 });
+    assert.equal(refused.ok, false);
+    assert.equal(refused.code, 'campaign-cap-exhausted');
+    assert.equal(ledger.sessionsDebited, 2, 'the refused preflight debits nothing');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('L8: killing and resuming continues from the persisted ledger', () => {
   const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-seats-'));
   try {
@@ -175,6 +203,37 @@ test('L8: the seat ledger renders per-seat debit totals', () => {
     assert.ok(table.includes('claude-a') && table.includes('codex'), 'every debited seat is listed');
     assert.ok(table.includes('sessionsDebited: 3'), 'the campaign total is stated');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+// R15 (class-c RED): a seat preflight refuses launch flags the installed
+// binary no longer accepts, checked via --help without login. Red on
+// pre-fix code: checkPinnedArgs does not exist.
+test('L8 R15: a seat preflight refuses launch flags the binary dropped', async t => {
+  const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-preflight-args-'));
+  const seat = { seatId: 'codex', family: 'codex', authSource: join(dir, 'seat') };
+  fs.mkdirSync(seat.authSource, { recursive: true });
+  const executable = join(dir, 'codex');
+  fs.writeFileSync(executable, '#!/bin/sh\necho codex\n', { mode: 0o700 });
+  let help = '';
+  t.mock.method(childProcess, 'spawnSync', (exe, args) => {
+    if ((args ?? []).includes('--help')) return { status: 0, stdout: help };
+    return { status: 0, stdout: 'codex 9.9.9\n' };
+  });
+  syncBuiltinESMExports();
+  try {
+    help = 'Usage: codex [--no-daemon] [--no-alt-screen] <prompt>\n';
+    const kept = await seats.runSeatPreflight(seat, { executables: { codex: executable } });
+    assert.equal(kept.reason, 'preflight-auth-unproven', 'flags accepted: the preflight reaches the login step');
+    assert.equal(kept.modelCalls, 0);
+    help = 'Usage: codex <prompt>\n';
+    const dropped = await seats.runSeatPreflight(seat, { executables: { codex: executable } });
+    assert.equal(dropped.reason, 'preflight-args-unproven');
+    assert.equal(dropped.modelCalls, 0, 'no model turn is spent by the refused preflight');
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('L8: a seat preflight fails closed on missing logins without model calls', async () => {
