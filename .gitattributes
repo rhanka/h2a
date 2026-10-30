@@ -25,3 +25,8 @@ packages/h2a/focus-app/** -text -diff
 # a security guard, from PR review. Force textual diff. Do NOT "fix" the NUL byte instead:
 # it is inside a hash input, so changing it would change every derived workspace id.
 packages/h2a/src/*.ts diff
+# `.track/events.jsonl` is the single append-only NDJSON stream every branch appends to (SPEC §3): two
+# branches each appending disjoint events must not text-conflict at merge time. union keeps BOTH
+# suffixes (P + A + B); the union-merged log is then re-chained in place by `track reseal` (Lot L3,
+# spec-track-lifecycle §1.3) — see packages/track/src/events/reseal.ts.
+.track/events.jsonl merge=union
