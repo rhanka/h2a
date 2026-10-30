@@ -118,6 +118,38 @@ export interface CreateLocalStoreOptions {
    * Read paths are unaffected. Default `false`.
    */
   readOnly?: boolean;
+  /**
+   * Registry placement (§2.8 one writer per placement, posture frozen with the
+   * cluster-mesh lane): `"local"` (default) keeps this store the sole writer of
+   * instance/key lifecycle records and `h2a_register_instance` the local
+   * registration writer. `"hosted"` marks a HOSTED-placement root: the
+   * cluster-mesh identity store is the writer there, so `h2a_register_instance`
+   * refuses with a NAMED error (`HostedRegistryRefusalError`,
+   * `registry_hosted_refusal`) — never a silent absence, and never a second
+   * writable copy of one record. Hosted registration goes through cluster-mesh
+   * `/agents` enrolment; h2a surfaces consume the same H2 read contract
+   * (`RegistryReaderV1`) against the hosted root.
+   */
+  placement?: "local" | "hosted";
+}
+
+/**
+ * A mutator refused because the store is a hosted-placement registry root
+ * (§2.8): `h2a_register_instance` is not a registration path there — the
+ * hosted writer is the cluster-mesh identity store, and dual writing is
+ * forbidden. The refusal is named, never a silent absence.
+ */
+export class HostedRegistryRefusalError extends Error {
+  readonly code = "registry_hosted_refusal";
+  constructor(operation: string) {
+    super(
+      `registry_hosted_refusal: ${operation} refused on a hosted registry root — ` +
+        "h2a_register_instance is not a registration path for a hosted placement " +
+        "(one writer per placement); hosted agent registration goes through " +
+        "cluster-mesh /agents enrolment"
+    );
+    this.name = "HostedRegistryRefusalError";
+  }
 }
 
 /** L2: a mutator refused because the store was opened read-only. */
@@ -400,6 +432,7 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
   const paths = localStorePaths(options.root);
   const initialize = options.initialize !== false;
   const readOnly = options.readOnly === true;
+  const placement = options.placement ?? "local";
   if (initialize && !readOnly) {
     withWriterMutation(paths.root, "registry", () => {
     ensureLayout(paths);
@@ -521,6 +554,7 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
   }
 
   function registerInstance(reg: H2AActorRegistration): void {
+    if (placement === "hosted") throw new HostedRegistryRefusalError("registerInstance");
     assertWritable("registerInstance");
     lock(
       registryLock,

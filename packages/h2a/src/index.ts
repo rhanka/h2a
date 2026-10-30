@@ -407,12 +407,16 @@ export {
   isH2AWorkspaceRef,
   mintAgentUuid,
   slugify,
-  uuid12
+  uuid12,
+  H2A_WORKSPACE_ID_MAPPING_HINT_FORMAT,
+  buildWorkspaceIdMappingHint,
+  isWorkspaceIdMappingHint
 } from "./identity.js";
 export type {
   DeriveInstanceIdInput,
   DeriveWorkspaceIdInput,
-  H2AWorkspaceRef
+  H2AWorkspaceRef,
+  WorkspaceIdMappingHintV1
 } from "./identity.js";
 export { assertValidNegotiationState } from "./negotiation.js";
 export { canonicalize, computeHash } from "./canonical.js";
@@ -648,6 +652,7 @@ export {
   assertHostQualifiedAddress,
   canonicalAddress,
   createLocalStore,
+  HostedRegistryRefusalError,
   isHostQualifiedAddress,
   deletePresence,
   inboxDir,
@@ -1060,7 +1065,27 @@ export {
   type IdentityBindingKey,
   type ReclaimOrMintDeps,
   type ReclaimOrMintResult,
-  type HostNameReaders
+  type HostNameReaders,
+  H2A_REGISTRY_INSTANCE_V1_FORMAT,
+  createRegistryReader,
+  RegistryRevisionError,
+  type RegistryInstanceViewV1,
+  type RegistryKeyViewV1,
+  type RegistryReaderV1,
+  type RegistryRevisionErrorCode,
+  H2A_ROLE_AGENT_ATTESTATION_V1_FORMAT,
+  buildRoleAgentAttestationV1,
+  verifyRoleAgentAttestationV1,
+  computeKeySetRevision,
+  inventoryEstate,
+  type RoleAgentAttestationV1,
+  type RoleAgentAttestationInput,
+  type RoleAgentAttestationVerdict,
+  type EstateInventoryInput,
+  type EstateInventoryReportV1,
+  type EstateMemorialAgentEntry,
+  type EstateResolutionItem,
+  type EstateResolutionKind
 } from "./runtime/identity/index.js";
 
 export {
@@ -1126,7 +1151,14 @@ export {
   type RecommendConductorLaunchOpts,
   type StalledItem,
   type SpawnRequestEvent,
-  type SpawnAllowedOpts
+  type SpawnAllowedOpts,
+  H2A_CONDUCTOR_LOOP_REF_FORMAT,
+  buildConductorLoopRef,
+  conductorClaimRef,
+  objectiveLoopRef,
+  isConductorLoopRef,
+  type ConductorLoopRefKind,
+  type ConductorLoopRefV1
 } from "./runtime/governance/index.js";
 
 export {
