@@ -29,3 +29,13 @@ export {
   type SpawnRequestEvent,
   type SpawnAllowedOpts
 } from "./spawns.js";
+
+export {
+  H2A_CONDUCTOR_LOOP_REF_FORMAT,
+  buildConductorLoopRef,
+  conductorClaimRef,
+  objectiveLoopRef,
+  isConductorLoopRef,
+  type ConductorLoopRefKind,
+  type ConductorLoopRefV1
+} from "./conductor-loop-refs.js";
