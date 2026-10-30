@@ -50,8 +50,8 @@ describe('seam v0 — contract version bumps (additive, backward-compatible)', (
   it('INGEST_CONTRACT_VERSION ≥ seam-v0 1.1.0 (now 2.2.0 — item.set-raci additive)', () => {
     expect(INGEST_CONTRACT_VERSION).toBe('2.2.0')
   })
-  it('READ_CONTRACT_VERSION ≥ seam-v0 1.9.0 (now 1.24.0 — complete period source, still MINOR)', () => {
-    expect(READ_CONTRACT_VERSION).toBe('1.24.0')
+  it('READ_CONTRACT_VERSION ≥ seam-v0 1.9.0 (now 1.25.0 — B1 stage readers, still MINOR)', () => {
+    expect(READ_CONTRACT_VERSION).toBe('1.25.0')
   })
 })
 
