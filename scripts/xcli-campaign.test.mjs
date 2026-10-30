@@ -556,3 +556,99 @@ test('L8: an exhausted session cap refuses before any seat preflight', () => {
     removeCampaignRoot(root);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+// R17 (P2-1 RED): a preflight that reaches a model (§6.4) debits a real unit
+// AFTER the pre-spawn fit check. With two units left, the pre-fix campaign
+// debits the sender session, refuses the receiver debit and crashes on
+// "pre-checked debits cannot refuse", leaving an orphan on-disk debit. The
+// fixed campaign must refuse the cell before any spawn, keep only the
+// preflight's own debited unit, and witness the refusal.
+test('R17: a model-reaching preflight near the session cap refuses the cell, never crashes', () => {
+  const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-preflight-cap-'));
+  try {
+    const bins = join(dir, 'bins');
+    fs.mkdirSync(bins);
+    const version = '1.4.14-R1';
+    fs.writeFileSync(join(bins, '.muse-version'), version + '\n');
+    fs.writeFileSync(join(bins, `muse-bin-${version}`), Buffer.from('7f454c46', 'hex'));
+    fs.writeFileSync(join(bins, 'muse'), `#!/bin/sh
+if [ "$1" = "--version" ]; then echo "muse 1.4.14"; exit 0; fi
+if [ "$1" = "--help" ]; then echo "Usage: muse [--no-session-log]"; exit 0; fi
+if [ "$1" = "config" ]; then
+  if [ -f "$HOME/.config/muse/auth.json" ]; then echo "logged in"; exit 0; fi
+  echo "no auth material"; exit 0
+fi
+exit 0
+`, { mode: 0o700 });
+    const manifest = writeManifest(dir, [{ seatId: 'muse-seat', family: 'muse', authSource: 'seat-muse' }]);
+    fs.mkdirSync(join(dir, 'seat-muse', '.config/muse'), { recursive: true });
+    fs.writeFileSync(join(dir, 'seat-muse/.config/muse/auth.json'), '{"token":"dummy-only"}');
+    const output = join(dir, 'receipt.json');
+    const stub = join(dir, 'stub.mjs');
+    fs.writeFileSync(stub, stubRow('stub-no-model'));
+    const result = spawnSync(process.execPath, [QUALIFY, '--seat-manifest', manifest,
+      '--pair', 'muse-seat:muse-seat', '--timeout-ms', '10000', '--session-cap', '2', '--output', output],
+    { env: { ...process.env, PATH: `${bins}:${process.env.PATH}`, XCLI_WORKER_STUB: stub,
+        XCLI_AUTH_PRECHECK_MODEL_CALLS: '1' }, encoding: 'utf8', timeout: 120000, maxBuffer: 4 * 1024 * 1024 });
+    const root = (result.stdout.match(/Private qualification root: (\S+)/) ?? [])[1];
+    assert.ok(root, `parent reports its root\n${result.stdout}\n${result.stderr}`);
+    assert.equal(result.status, 2, `the refused cell is reported, never crashed:\n${result.stderr}`);
+    const receipt = JSON.parse(fs.readFileSync(output, 'utf8'));
+    const ledger = JSON.parse(fs.readFileSync(join(root, 'campaign-ledger.json'), 'utf8'));
+    console.log({ exit: result.status, cells: receipt.cells.length, sessionsDebited: ledger.sessionsDebited,
+      preflights: receipt.preflights.map(p => ({ seatId: p.seatId, ok: p.ok, modelCalls: p.modelCalls })) });
+    assert.equal(receipt.cells[0].status, 'blocked');
+    assert.equal(receipt.cells[0].blocker, 'campaign-cap-exhausted');
+    assert.deepEqual(receipt.cells[0].evidence, [{ event: 'cap-refused', cap: 'launched-sessions' }]);
+    assert.equal(ledger.sessionsDebited, 1, 'only the preflight\'s own unit is debited, no orphan cell debit');
+    assert.equal(receipt.preflights.length, 1);
+    assert.equal(receipt.preflights[0].seatId, 'muse-seat');
+    assert.equal(receipt.preflights[0].ok, true);
+    assert.equal(receipt.preflights[0].modelCalls, 1, 'the model-reaching preflight is witnessed');
+    assert.equal(fs.existsSync(join(root, 'stub-invocations.log')), false, 'the refused cell spawns nothing');
+    assert.ok(receipt.ledgerRefusals.some(r => r.code === 'campaign-cap-exhausted' && r.cap === 'launched-sessions'),
+      'the refusal is witnessed in the ledger');
+    assert.ok(receipt.ledgerTotals.includes('sessionsDebited: 1/2'), receipt.ledgerTotals);
+    removeCampaignRoot(root);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+// R17 (P2-1 RED): the deprecated --auth-home alias may not bypass §6.5. The
+// pre-fix campaign runs its cells with no preflight at all (preflights: []);
+// the fixed campaign builds one implicit seat per campaign family and
+// preflights it exactly like a manifest seat.
+test('R17: the deprecated --auth-home alias runs implicit per-family seat preflights', () => {
+  const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-authhome-preflight-'));
+  try {
+    const bins = join(dir, 'bins');
+    fs.mkdirSync(bins);
+    fs.writeFileSync(join(bins, 'codex'), `#!/bin/sh
+if [ "$1" = "--version" ]; then echo "codex 0.162.1"; exit 0; fi
+if [ "$1" = "--help" ]; then echo "Usage: codex [--no-daemon] [--no-alt-screen]"; exit 0; fi
+if [ "$1" = "mcp" ]; then echo "[]"; exit 0; fi
+exit 0
+`, { mode: 0o700 });
+    const authHome = join(dir, 'auth');
+    fs.mkdirSync(join(authHome, '.codex'), { recursive: true });
+    fs.writeFileSync(join(authHome, '.codex/auth.json'), '{"token":"dummy-only"}');
+    const output = join(dir, 'receipt.json');
+    const stub = join(dir, 'stub.mjs');
+    fs.writeFileSync(stub, stubRow('stub-no-model'));
+    const result = spawnSync(process.execPath, [QUALIFY, '--auth-home', authHome,
+      '--pair', 'codex:codex', '--timeout-ms', '10000', '--output', output],
+    { env: { ...process.env, PATH: `${bins}:${process.env.PATH}`, XCLI_WORKER_STUB: stub },
+      encoding: 'utf8', timeout: 120000, maxBuffer: 4 * 1024 * 1024 });
+    const root = (result.stdout.match(/Private qualification root: (\S+)/) ?? [])[1];
+    assert.ok(root, `parent reports its root\n${result.stdout}\n${result.stderr}`);
+    const receipt = JSON.parse(fs.readFileSync(output, 'utf8'));
+    console.log({ exit: result.status, preflights: receipt.preflights.map(p => ({ seatId: p.seatId, ok: p.ok })),
+      seatMode: receipt.seatMode, invocations: receipt.cells.length });
+    assert.equal(receipt.preflights.length, 1, 'the implicit codex-default seat is preflighted');
+    assert.equal(receipt.preflights[0].seatId, 'codex-default');
+    assert.equal(receipt.preflights[0].ok, true, 'the preflight passes with the seat login files');
+    assert.equal(receipt.preflights[0].modelCalls, 0, 'no model turn is spent');
+    assert.equal(result.status, 2, 'the stub cell reports its blocker, exit is classified');
+    assert.equal(receipt.cells[0].blocker, 'stub-no-model', 'the preflighted cell runs');
+    removeCampaignRoot(root);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

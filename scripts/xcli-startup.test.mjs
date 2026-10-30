@@ -199,3 +199,90 @@ process.stdin.on('data', input);
     assert.equal(cell.replyDelivered, true);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
+
+// R17 (P2-2 RED): no tool, permission or shell-command approval may ever be
+// auto-answered. On the pre-fix worker the broad MCP heuristic sends \r to
+// each of these screens and the cell dies at its deadline as
+// mcp-not-loaded-before-deadline; the fix must block them closed without a
+// single key press.
+test('tool and shell-command approvals are never auto-approved, they block the cell', () => {
+  const root = compliantQualificationRoot();
+  try {
+    const built = sourceBuild(root);
+    for (const [name, screen] of [
+      ['tool', 'Allow tool "bash" to run? [y/n]'],
+      ['approve', 'Approve tool execution: rm -rf /? Press Enter to allow'],
+      ['permission', 'Permission required: Allow tool write_file?'],
+      ['shell', 'Allow this shell command? Press Enter to confirm'],
+    ]) {
+      const journal = join(root, `${name}-keys.jsonl`);
+      const fixture = join(root, `${name}.mjs`);
+      fs.writeFileSync(fixture, `import fs from 'node:fs';
+process.stdin.setRawMode(true);
+process.stdin.resume();
+process.stdout.write(${JSON.stringify(screen)} + '\\\\r\\\\n');
+process.stdin.on('data', bytes => {
+  fs.appendFileSync(${JSON.stringify(journal)}, JSON.stringify({ keys: bytes.toString() }) + '\\\\n');
+});
+`);
+      const syntax = spawnSync(process.execPath, ['--check', fixture], { env: environment(join(root, 'syntax')), encoding: 'utf8' });
+      assert.equal(syntax.status, 0, syntax.stderr);
+      const executable = join(root, name);
+      fs.writeFileSync(executable, `#!/bin/sh\nexec '${process.execPath}' '${fixture}' 'claude' "$@"\n`, { mode: 0o700 });
+      const result = spawnSync(process.execPath, [join(repo, 'scripts/qualify-cross-cli.mjs'), '--worker'], {
+        cwd: root, env: { ...environment(join(root, 'worker')), H2A_TEST_QUALIFICATION_ROOT: root },
+        input: JSON.stringify({ sender: 'claude', receiver: 'claude', root, build: built.path,
+          executables: { claude: executable }, simulated: true, timeoutMs: 8000 }),
+        encoding: 'utf8', timeout: 60000, maxBuffer: 1024 * 1024,
+      });
+      assert.equal(result.status, 0, result.stderr);
+      const cell = JSON.parse(result.stdout);
+      assert.notEqual(cell.cleanupFailed, true, JSON.stringify(cell.cleanupErrors));
+      assert.equal(cell.status, 'blocked', JSON.stringify({ screen, status: cell.status, failure: cell.failure }));
+      assert.equal(cell.blocker, 'tool-approval-required', JSON.stringify({ screen, blocker: cell.blocker }));
+      const keys = fs.existsSync(journal) ? fs.readFileSync(journal, 'utf8') : '';
+      assert.ok(!keys.includes('\\r'), `no Enter key may ever reach an approval screen: ${keys}`);
+      assert.deepEqual(cell.evidence.filter(e => e.event === 'startup-ui'), [],
+        'no approval screen may be recorded as a startup action');
+    }
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+// R17 (P3-1 RED): a CLI that dies right after its startup press must be
+// classified through the exited state — never spun on the stale startup
+// screen until the deadline reports mcp-not-loaded-before-deadline.
+test('a CLI that dies after a startup press is classified as exited, never deadline-failed', () => {
+  const root = compliantQualificationRoot();
+  try {
+    const built = sourceBuild(root);
+    const journal = join(root, 'keys.jsonl');
+    const fixture = join(root, 'die-after-press.mjs');
+    fs.writeFileSync(fixture, `import fs from 'node:fs';
+process.stdin.setRawMode(true);
+process.stdin.resume();
+process.stdout.write('Choose your permissions\\\\r\\\\nDefault (current)\\\\r\\\\nPress \u21b5 to continue\\\\r\\\\n');
+process.stdin.on('data', bytes => {
+  fs.appendFileSync(${JSON.stringify(journal)}, JSON.stringify({ keys: bytes.toString() }) + '\\\\n');
+  process.exit(0);
+});
+`);
+    const syntax = spawnSync(process.execPath, ['--check', fixture], { env: environment(join(root, 'syntax')), encoding: 'utf8' });
+    assert.equal(syntax.status, 0, syntax.stderr);
+    const executable = join(root, 'claude');
+    fs.writeFileSync(executable, `#!/bin/sh\nexec '${process.execPath}' '${fixture}' 'claude' "$@"\n`, { mode: 0o700 });
+    const result = spawnSync(process.execPath, [join(repo, 'scripts/qualify-cross-cli.mjs'), '--worker'], {
+      cwd: root, env: { ...environment(join(root, 'worker')), H2A_TEST_QUALIFICATION_ROOT: root },
+      input: JSON.stringify({ sender: 'claude', receiver: 'claude', root, build: built.path,
+        executables: { claude: executable }, simulated: true, timeoutMs: 8000 }),
+      encoding: 'utf8', timeout: 60000, maxBuffer: 1024 * 1024,
+    });
+    assert.equal(result.status, 0, result.stderr);
+    const cell = JSON.parse(result.stdout);
+    assert.notEqual(cell.cleanupFailed, true, JSON.stringify(cell.cleanupErrors));
+    assert.equal(cell.status, 'blocked', JSON.stringify({ status: cell.status, failure: cell.failure }));
+    assert.equal(cell.blocker, 'cli-exited-before-ready', JSON.stringify({ blocker: cell.blocker, failure: cell.failure }));
+    assert.ok(cell.evidence.some(e => e.event === 'cli-exit'), 'the exit itself is witnessed');
+    const keys = fs.existsSync(journal) ? fs.readFileSync(journal, 'utf8') : '';
+    assert.equal((keys.match(/\\r/g) ?? []).length, 1, 'the normal startup press happened exactly once');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
