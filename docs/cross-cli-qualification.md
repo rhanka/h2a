@@ -126,7 +126,8 @@ nomme une source d’authentification par siège et par rôle ; les paires
 nomment des sièges (`claude-a:claude-b`), jamais des familles. Chaque
 cellule enregistre ses identifiants de siège, le mode de siège et le
 drapeau diagonale ; sans manifeste, `--auth-home` reste un alias
-mono-siège déprécié. Un registre persistant (0600) débite chaque session
+mono-siège déprécié dont chaque famille implicite subit le même
+pré-vol débité qu'un siège nommé. Un registre persistant (0600) débite chaque session
 lancée avant le spawn — pré-vols, réessais et reprises inclus — et refuse
 sans spawn au-delà des plafonds (nombres PROPOSITION en attente de D2) ;
 la reprise recharge le registre au lieu de le réinitialiser. Un quota
