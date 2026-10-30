@@ -155,6 +155,12 @@ Non couvert (états exacts : `unknown`, `source-gap`, `missing source`,
   lecture inbox, wake et réponse. Le reste (résolution de noms, autres
   actions inbox, sessions, négociations, conducteur, délégation, autres
   lignes MCP) est `not covered` jusqu’aux lots L12–L15.
+- Verbes CLI (§5.1 : send, inbox `pop` et résolution de noms, sessions
+  list/resume/stop, host setup/status, refus d’upgrade) : `not covered`.
+  Chaque verbe a sa ligne `cli-verb:*` dans `docs/cross-cli-matrix.json`
+  (`scenario-undefined`, lot L15) en attendant sa ligne de scénario
+  pilotée par le `h2a` par rôle ; aucun verbe n’est couvert par le seul
+  fait d’apparaître dans `cli-command-map.ts`.
 - Consommation modèle/tokens par famille : `source-gap`. Aucun signal
   d’usage structuré démontré ; les plafonds lient sessions lancées,
   appels MCP et horloge.
