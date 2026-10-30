@@ -31,7 +31,7 @@ import { normalizeConfiguration, RegistryError, validateRegistryEntry, type Regi
 import { activateHostedLock, draftHostedLock, verifyHostedLock } from "./hosted.js";
 import { registryPackageManifest } from "./manifest.js";
 import { bridgeCentralAttachmentAdmitted } from "../runtime/mcp-central-policy.js";
-import { MEMORY_PROVIDER_ID, missingMemoryBuiltin, type MemoryProviderRegistration } from "./memory-provider.js";
+import { MEMORY_PROVIDER_ID, resolveHostMemoryRegistration, type MemoryProviderRegistration } from "./memory-provider.js";
 import type { ComposeDaemonOptions } from "./sentropic-daemon.js";
 import type { McpServer } from "../runtime/mcp/server.js";
 
@@ -534,7 +534,7 @@ export async function cmdRegistryBridge(
   let selectedTools: ReturnType<McpServer["listTools"]> | undefined;
   try {
     const memoryEntry = lock.selection.some(selected => selected.id === MEMORY_PROVIDER_ID)
-      ? deps.memory?.entry ?? missingMemoryBuiltin() : undefined;
+      ? (await resolveHostMemoryRegistration(deps.memory)).entry : undefined;
     const entries = new Map(packedEntries(memoryEntry).map((entry) => [entry.id, entry]));
     for (const selected of lock.selection) {
       if (!entries.has(selected.id)) return refuse("invalid_entry", `unknown provider ${selected.id}`);

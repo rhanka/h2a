@@ -165,6 +165,12 @@
       "fullName": "NativeTerminalHostSupervisor takeover reconcile reap treats unknown per identity, never as a global state",
       "status": "skipped",
       "reason": "Owner round 6: declared non-test; Pre-existing tracked debt outside spec §5"
+    },
+    {
+      "file": "packages/h2a/test/registry-memory-round3.test.js",
+      "fullName": "L2: producer wire descriptors stay SDK-accepted through the h2a mapping — waiting on sentropic#844",
+      "status": "todo",
+      "reason": "Round 3 RED witness: installed @sentropic/cluster-mesh 0.22.4 exposes no ./mcp/memory acquisition point and the pre-fix producer descriptors are not SDK-accepted; passes once sentropic#844 publishes the configured memory builtin with the wire-manifest fix. Owner declares it is not yet a test."
     }
   ]
 }
