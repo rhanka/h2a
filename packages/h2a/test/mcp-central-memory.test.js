@@ -7,28 +7,27 @@
 // - caller cancellation (extra.signal) reaches the producer seam within the
 //   same invocation; the idempotency key and a host-verified elicitation ref
 //   ride the producer envelope;
-// - runtime discovery surfaces producer annotations and _meta['sentropic.engram/memory'].
+// - runtime discovery surfaces producer annotations and _meta['sentropic.engram/memory'];
+// - the frozen 11-key H3 record reaches the resolver with the lateral
+//   transport material (transportMac, channelBinding, sessionId) on the
+//   sibling `transport` member, never on the wire record.
 //
-// Negative lane — the Blocker-3 replay corpus. The referenced 12-vector list
-// has no literal §3.1 in consumer-context.md; the corpus below is derived
-// from r2.md §6.2 (the five substitution classes: cross-tenant, cross-agent,
-// stale association, stale key-set revision, unmapped workspace) plus the
-// h2a-side dispatch duties named in the lot (attachment alone, no evidence,
-// out-of-set tool, superseded policy, policy unavailable, resolver defect,
-// invalid evidence). Every vector must refuse with ZERO producer dispatches
-// and a stable typed reason:
-//   V1  attachment alone (no MemoryHostResolverPort bound)
-//   V2  no H3 admission evidence for the call
-//   V3  cross-tenant substitution
-//   V4  cross-agent substitution
-//   V5  stale association revision
-//   V6  stale key-set revision
-//   V7  unmapped workspace
-//   V8  out-of-set tool (F15 per-call tool set)
-//   V9  superseded policy revision
-//   V10 policy unavailable (H1 fail-closed)
-//   V11 resolver defect (propagates loudly, never fabricates a context)
-//   V12 invalid H3 evidence (digest tampering)
+// Negative lane — the M0-frozen 12-vector Blocker-3 replay corpus
+// (spec-r4-h2a-cosign.md §1.2.2). The bijective mapping between the h2a test
+// vector ids and the cluster-mesh internal audit sub-reasons:
+//   V1  / B3-V01  missing_binding            / authority_binding_missing
+//   V2  / B3-V02  admission_required         / central_admission_required
+//   V3  / B3-V03  cross_tenant               / tenant_membership_mismatch, membership_receipt_subject_mismatch
+//   V4  / B3-V04  cross_agent                / agent_association_mismatch, instance_id_substituted_for_agent_id
+//   V5  / B3-V05  association_stale          / stale_association_revision
+//   V6  / B3-V06  key_set_stale              / superseded_key_set_revision
+//   V7  / B3-V07  workspace_unmapped         / workspace_unmapped
+//   V8  / B3-V08  tool_not_allowed           / tool_not_allowed, passthrough_memory_disabled, purpose_not_granted
+//   V9  / B3-V09  policy_superseded          / policy_revision_superseded
+//   V10 / B3-V10  policy_unavailable         / policy_unavailable
+//   V11 / B3-V11  resolver_exception, receipt_window_invalid / receipt_window_or_replay_invalid
+//   V12 / B3-V12  admission_invalid          / forged_connection_or_credential_proof
+// Every vector refuses with ZERO producer dispatches and a stable typed reason.
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -50,7 +49,7 @@ const IDENTITY = { agentUuid: "01234567-89ab-4cde-8f01-234567890123", instanceId
 const MATERIAL = {
   attachmentId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
   transportMac: "cd".repeat(32),
-  transportEpoch: "1",
+  transportEpoch: 1,
   centralHost: "codex",
   channelBinding: "in_process_verified",
   sessionId: "session-disp-354",
@@ -58,6 +57,8 @@ const MATERIAL = {
   identity: IDENTITY,
   admittedAt: "2026-10-30T00:00:00.000Z"
 };
+const EVIDENCE_KEYS = ["format", "agentUuid", "instanceId", "launchName", "attachmentRef",
+  "transportEpoch", "centralHost", "verdict", "admittedAt", "signedRequestId", "evidenceDigest"];
 
 function lockFor() {
   const entries = [...registryPackageManifest.entries, ...trackRegistryPackageManifest.entries, entry];
@@ -98,7 +99,7 @@ async function scratch(fn) {
  * In-process memory session through the real attachment protocol:
  * openCentralAttachment (registry plan installed on the attachment server)
  * + the central protocol server + an SDK client. The default session has a
- * permissive resolver double and valid H3 evidence; each test overrides what
+ * permissive resolver double and valid H3 admission; each test overrides what
  * its vector needs.
  */
 async function memorySession(setup = {}) {
@@ -129,9 +130,13 @@ test("DISP354: producer success envelope crosses unchanged with auditId and reda
   let resolved;
   const session = await memorySession({ resolver: { resolveContext: async input => {
     assert.ok(context.verifySessionAdmissionEvidence(input.evidence), "the resolver must receive verifiable H3 evidence");
+    assert.deepEqual(Object.keys(input.evidence).sort(), [...EVIDENCE_KEYS].sort(), "the resolver must receive the frozen 11-key record");
     assert.equal(input.evidence.attachmentRef, MATERIAL.attachmentId);
-    assert.equal(input.evidence.transportMac, MATERIAL.transportMac);
-    assert.equal(input.evidence.channelBinding, "in_process_verified");
+    assert.equal(input.evidence.transportEpoch, "epoch:20261030:0001", "a fenced numeric epoch formats into the frozen epoch token");
+    // The lateral transport material rides the sibling member, never the record.
+    assert.equal(input.transport.transportMac, MATERIAL.transportMac);
+    assert.equal(input.transport.channelBinding, "in_process_verified");
+    assert.equal(input.transport.sessionId, MATERIAL.sessionId);
     assert.equal(input.tool, MEMORY_NAMES[2]);
     resolved = { marker: "resolved-context", policy: input.evidence.launchName };
     return { ok: true, context: resolved, allowedTools: [...MEMORY_NAMES], policyRevision: "rev-1" };
@@ -203,9 +208,9 @@ test("DISP354: runtime descriptors surface producer annotations and _meta[sentro
   } finally { await session.close(); }
 }));
 
-// ---- Negative lane: the 12 Blocker-3 replay vectors (zero producer calls each) ----
+// ---- Negative lane: the M0-frozen Blocker-3 replay corpus (zero producer calls each) ----
 
-test("V1: the attachment alone (no MemoryHostResolverPort) refuses with zero producer calls", async () => scratch(async () => {
+test("V1/B3-V01: the attachment alone (no MemoryHostResolverPort) refuses with zero producer calls", async () => scratch(async () => {
   const session = await memorySession({ resolver: null });
   try {
     await assert.rejects(session.client.callTool({ name: MEMORY_NAMES[0], arguments: {} }), /missing_binding.*resolver|resolver.*missing_binding/i);
@@ -213,7 +218,7 @@ test("V1: the attachment alone (no MemoryHostResolverPort) refuses with zero pro
   } finally { await session.close(); }
 }));
 
-test("V2: no H3 admission evidence refuses fail-closed", async () => scratch(async () => {
+test("V2/B3-V02: no H3 admission evidence refuses fail-closed", async () => scratch(async () => {
   const session = await memorySession({ admission: () => undefined });
   try {
     const result = await session.client.callTool({ name: MEMORY_NAMES[0], arguments: {} });
@@ -223,27 +228,43 @@ test("V2: no H3 admission evidence refuses fail-closed", async () => scratch(asy
   } finally { await session.close(); }
 }));
 
+// Frozen resolver-refusal replay: the exact h2a typed codes with the frozen
+// cluster-mesh internal audit sub-reasons riding the refusal messages
+// (spec-r4-h2a-cosign.md §1.2.2, B3-V03..B3-V10).
 for (const vector of [
-  { id: "V3", code: "cross_tenant", message: "tenant does not match the admission" },
-  { id: "V4", code: "cross_agent", message: "agent does not match the admission" },
-  { id: "V5", code: "association_stale", message: "L1↔L2 association revision is stale" },
-  { id: "V6", code: "key_set_stale", message: "key-set revision is stale" },
-  { id: "V7", code: "workspace_unmapped", message: "workspace has no durable id mapping" },
-  { id: "V9", code: "policy_superseded", message: "policy revision superseded" },
-  { id: "V10", code: "policy_unavailable", message: "F15 decision producer unavailable (H1 fail-closed)" }
+  { id: "V3/B3-V03", code: "cross_tenant", reason: "tenant_membership_mismatch", message: "tenant does not match the admission (tenant_membership_mismatch)" },
+  { id: "V4/B3-V04", code: "cross_agent", reason: "agent_association_mismatch", message: "agent does not match the admission (agent_association_mismatch)" },
+  { id: "V5/B3-V05", code: "association_stale", reason: "stale_association_revision", message: "L1↔L2 association revision is stale (stale_association_revision)" },
+  { id: "V6/B3-V06", code: "key_set_stale", reason: "superseded_key_set_revision", message: "key-set revision is stale (superseded_key_set_revision)" },
+  { id: "V7/B3-V07", code: "workspace_unmapped", reason: "workspace_unmapped", message: "workspace has no durable id mapping (workspace_unmapped)" },
+  { id: "V9/B3-V09", code: "policy_superseded", reason: "policy_revision_superseded", message: "policy revision superseded (policy_revision_superseded)" },
+  { id: "V10/B3-V10", code: "policy_unavailable", reason: "policy_unavailable", message: "F15 decision producer unavailable (policy_unavailable)" },
+  { id: "V11/B3-V11", code: "receipt_window_invalid", reason: "receipt_window_or_replay_invalid", message: "admission receipt window or replay violation (receipt_window_or_replay_invalid)" }
 ]) {
-  test(`${vector.id}: resolver refusal "${vector.code}" surfaces the typed reason with zero producer calls`, async () => scratch(async () => {
+  test(`${vector.id}: resolver refusal "${vector.code}" surfaces the typed reason and the frozen sub-reason with zero producer calls`, async () => scratch(async () => {
     const session = await memorySession({ resolver: { resolveContext: async () => ({ ok: false, code: vector.code, message: vector.message }) } });
     try {
       const result = await session.client.callTool({ name: MEMORY_NAMES[0], arguments: {} });
       assert.equal(result.isError, true);
-      assert.match(JSON.parse(result.content[0].text).error, new RegExp(`^${vector.code}:`), "the resolver's typed code must survive to the client");
+      const error = JSON.parse(result.content[0].text).error;
+      assert.match(error, new RegExp(`^${vector.code}:`), "the resolver's typed code must survive to the client");
+      assert.ok(error.includes(vector.reason), `the frozen internal audit sub-reason ${vector.reason} must ride the refusal`);
       assert.equal(session.f.calls.length, 0);
     } finally { await session.close(); }
   }));
 }
 
-test("V8: an out-of-set tool refuses before producer dispatch (F15 per-call tool set)", async () => scratch(async () => {
+test("V4/B3-V04: instance-id substitution for the agent id is a cross-agent refusal (instance_id_substituted_for_agent_id)", async () => scratch(async () => {
+  const session = await memorySession({ resolver: { resolveContext: async () => ({ ok: false, code: "cross_agent", message: "per-conversation instanceId substituted for binding.agent_id (instance_id_substituted_for_agent_id)" }) } });
+  try {
+    const result = await session.client.callTool({ name: MEMORY_NAMES[0], arguments: {} });
+    assert.equal(result.isError, true);
+    assert.match(JSON.parse(result.content[0].text).error, /^cross_agent:/);
+    assert.equal(session.f.calls.length, 0);
+  } finally { await session.close(); }
+}));
+
+test("V8/B3-V08: an out-of-set tool refuses before producer dispatch (F15 per-call tool set)", async () => scratch(async () => {
   const session = await memorySession({ resolver: { resolveContext: async () => ({ ok: true, context: { marker: "partial" }, allowedTools: [MEMORY_NAMES[0]], policyRevision: "rev-8" }) } });
   try {
     const result = await session.client.callTool({ name: MEMORY_NAMES[1], arguments: {} });
@@ -253,7 +274,23 @@ test("V8: an out-of-set tool refuses before producer dispatch (F15 per-call tool
   } finally { await session.close(); }
 }));
 
-test("V11: a resolver defect propagates loudly and never fabricates a context", async () => scratch(async () => {
+test("V8/B3-V08: a pass-through CLI session and an ungranted purpose are typed resolver refusals", async () => scratch(async () => {
+  for (const refusal of [
+    { code: "passthrough_memory_disabled", message: "pass-through CLI session has no memory authority (passthrough_memory_disabled)" },
+    { code: "purpose_not_granted", message: "no purpose granted for this attachment (purpose_not_granted)" }
+  ]) {
+    const session = await memorySession({ resolver: { resolveContext: async () => ({ ok: false, code: refusal.code, message: refusal.message }) } });
+    try {
+      const result = await session.client.callTool({ name: MEMORY_NAMES[0], arguments: {} });
+      assert.equal(result.isError, true);
+      const error = JSON.parse(result.content[0].text).error;
+      assert.match(error, new RegExp(`^${refusal.code}:`));
+      assert.equal(session.f.calls.length, 0);
+    } finally { await session.close(); }
+  }
+}));
+
+test("V11/B3-V11: a resolver defect propagates loudly and never fabricates a context", async () => scratch(async () => {
   const session = await memorySession({ resolver: { resolveContext: async () => { throw new Error("resolver exploded"); } } });
   try {
     await assert.rejects(session.client.callTool({ name: MEMORY_NAMES[0], arguments: {} }), /resolver exploded/);
@@ -261,8 +298,8 @@ test("V11: a resolver defect propagates loudly and never fabricates a context", 
   } finally { await session.close(); }
 }));
 
-test("V12: tampered H3 evidence (digest mismatch) refuses fail-closed", async () => scratch(async () => {
-  const tampered = { ...admissionEvidence(), sessionId: `${MATERIAL.sessionId}-forged` };
+test("V12/B3-V12: tampered H3 evidence (digest mismatch) refuses fail-closed", async () => scratch(async () => {
+  const tampered = { ...admissionEvidence(), evidence: { ...admissionEvidence().evidence, signedRequestId: `${MATERIAL.signedRequestId}-forged` } };
   const session = await memorySession({ admission: () => tampered });
   try {
     const result = await session.client.callTool({ name: MEMORY_NAMES[0], arguments: {} });

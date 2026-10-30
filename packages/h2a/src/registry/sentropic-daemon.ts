@@ -61,7 +61,8 @@ import { createMcpServer, isMcpTransportResult, type McpCallContext, type McpSer
 import { UI_RENDER_PROVIDER_ID } from "../runtime/mcp/ui-render/registry-entry.js";
 import { UI_RENDER_TOOL_NAMES } from "../runtime/mcp/ui-render/tools.js";
 import { H2A_CLI_MCP_TOOL_DESCRIPTORS } from "../runtime/mcp/tools.js";
-import { verifySessionAdmissionEvidence, type SessionAdmissionEvidenceV1 } from "../runtime/mcp-central-context.js";
+import { verifySessionAdmissionEvidence } from "../runtime/mcp-central-context.js";
+import type { CentralAdmission } from "../runtime/mcp-central-attachment.js";
 import { validateBridgeLock, type BridgeLock } from "./bridge-lock.js";
 import { missingMemoryBuiltin, resolveHostMemoryRegistration, MEMORY_PROVIDER_ID, MEMORY_TOOL_NAMES, type MemoryProviderRegistration } from "./memory-provider.js";
 import { isMemoryResolverRefusal, memoryResolverRefusal, memoryRuntimeServer } from "./memory-resolver.js";
@@ -79,13 +80,14 @@ export interface ComposeDaemonOptions {
   lock?: BridgeLock;
   memory?: MemoryProviderRegistration;
   /**
-   * H2A-DISP-354: per-call H3 session admission evidence for memory
-   * dispatch, supplied by the attachment layer (the central route builds it
-   * from the verified request; tests inject it). It replaces the interim
-   * direct-field ctx: without verifiable evidence there is NO memory
-   * dispatch (fail-closed, zero producer calls).
+   * H2A-DISP-354: per-call H3 admission (the frozen 11-key evidence plus the
+   * lateral transport material) for memory dispatch, supplied by the
+   * attachment layer (the central route builds it from the verified
+   * request; tests inject it). It replaces the interim direct-field ctx:
+   * without verifiable evidence there is NO memory dispatch (fail-closed,
+   * zero producer calls).
    */
-  admission?: () => SessionAdmissionEvidenceV1 | undefined;
+  admission?: () => CentralAdmission | undefined;
 }
 
 /** Per-call dispatch context threaded from the MCP transport into the plan. */
@@ -451,10 +453,13 @@ export async function composeDaemonRegistryForServer(
       if (!resolver || typeof resolver.resolveContext !== "function") {
         fail("missing_binding", "memory dispatch requires a bound MemoryHostResolverPort; a central attachment alone is not admission");
       }
-      const evidence = options.admission?.();
+      const admitted = options.admission?.();
+      const evidence = admitted?.evidence;
       if (!evidence) fail("admission_required", "no verified H3 session admission evidence for this call; refusing fail-closed");
       if (!verifySessionAdmissionEvidence(evidence)) fail("admission_invalid", "H3 session admission evidence failed verification; refusing fail-closed");
-      const decision = await resolver.resolveContext({ tool: toolName, args: args ?? {}, evidence, ...(context?.signal ? { signal: context.signal } : {}) });
+      const decision = await resolver.resolveContext({ tool: toolName, args: args ?? {}, evidence,
+        ...(admitted?.transport ? { transport: admitted.transport } : {}),
+        ...(context?.signal ? { signal: context.signal } : {}) });
       if (!decision || decision.ok !== true) {
         const refusal = (decision ?? {}) as { code?: unknown; message?: unknown };
         memoryResolverRefusal(
@@ -609,7 +614,7 @@ export function isDaemonDomainRefusal(error: unknown): boolean {
  */
 export function wrapMcpServerWithDaemonRegistry(
   server: Pick<McpServer, "callTool">,
-  options: { root: string; workspaceRoot?: string }
+  options: { root: string; workspaceRoot?: string } & Pick<ComposeDaemonOptions, "lock" | "memory" | "admission">
 ): Pick<McpServer, "callTool"> {
   // Bound NOW: the original function object, so the adapter never re-enters
   // the wrapper installed below (a property lookup at call time would).
@@ -619,7 +624,13 @@ export function wrapMcpServerWithDaemonRegistry(
     (composedPromise ??= composeDaemonRegistryForServer(rawCallTool, {
       view: "combined",
       root: options.root,
-      workspaceRoot: options.workspaceRoot
+      workspaceRoot: options.workspaceRoot,
+      // The locked plan needs the memory registration and the per-call
+      // admission thunk; dropping them would silently demote every memory
+      // tool to unknown_tool.
+      ...(options.lock ? { lock: options.lock } : {}),
+      ...(options.memory ? { memory: options.memory } : {}),
+      ...(options.admission ? { admission: options.admission } : {})
     }));
   const wrapped: McpServer["callTool"] = (async (name: string, args: Record<string, unknown> | undefined, context?: McpCallContext) => {
     const plan = await composed();

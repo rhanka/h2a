@@ -1,8 +1,11 @@
 /** Release qualification is exact, evidence based and independent of host flags. */
 /** Native CLIs with a central admission adapter. H1 mechanism only: the
  * shipped manifest stays empty and H6 populates it from measured evidence.
- * Hosts outside this set (hermes, gemini, opencode, ...) stay on stdio. */
-export const SUPPORTED_CENTRAL_HOSTS = Object.freeze(["claude", "codex", "agy", "Muse", "vibe"] as const);
+ * Hosts outside this set (hermes, gemini, opencode, ...) stay on stdio.
+ * `muse` is the canonical host id (as in hosts/* and `--host` flags); the
+ * capitalized `Muse` stays accepted because main's H1 attachment fixtures
+ * use it verbatim — both spellings qualify, and neither test world breaks. */
+export const SUPPORTED_CENTRAL_HOSTS = Object.freeze(["claude", "codex", "agy", "Muse", "muse", "vibe"] as const);
 export type SupportedCentralHost = (typeof SUPPORTED_CENTRAL_HOSTS)[number];
 
 export function isSupportedCentralHost(host: unknown): host is SupportedCentralHost {

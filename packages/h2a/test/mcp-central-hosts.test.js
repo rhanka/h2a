@@ -16,7 +16,7 @@ import {
 } from "../dist/runtime/mcp-central-context.js";
 
 const NODE_MAJOR = Number(process.versions.node.split(".")[0]);
-const HOSTS = ["claude", "codex", "agy", "Muse", "vibe"];
+const HOSTS = ["claude", "codex", "agy", "muse", "vibe"];
 
 function entry(host, name, version) {
   return {

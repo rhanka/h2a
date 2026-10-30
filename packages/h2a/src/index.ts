@@ -1166,3 +1166,35 @@ export const H2A_CLI_ADAPTER = {
 } as const;
 
 export { ensureCentralForRoot } from "./runtime/mcp-central-start.js";
+
+// H2A-DISP-354: the frozen H3 session-admission contract (r2.md §8.1;
+// spec-r4-h2a-cosign.md §3.4) and the memory host resolver port, re-exported
+// for cross-repo consumers (cluster-mesh at cutover W5).
+export {
+  buildSessionAdmissionEvidence,
+  verifySessionAdmissionEvidence,
+  sessionAdmissionEvidenceDigest,
+  SESSION_ADMISSION_CHANNEL_BINDINGS,
+  SESSION_ADMISSION_EVIDENCE_KEYS,
+  type SessionAdmissionEvidenceV1,
+  type SessionAdmissionIdentity,
+  type SessionAdmissionEvidenceParts
+} from "./runtime/mcp-central-context.js";
+export {
+  sessionAdmissionEvidence,
+  type CentralAdmission,
+  type CentralAdmissionMaterial,
+  type CentralAdmissionTransport
+} from "./runtime/mcp-central-attachment.js";
+export {
+  memoryResolverRefusal,
+  isMemoryResolverRefusal,
+  memoryRuntimeServer,
+  type MemoryHostResolverPort,
+  type MemoryHostResolveInput,
+  type MemoryHostResolution,
+  type MemoryHostResolvedContext,
+  type MemoryHostTransportMaterial,
+  type MemoryRuntimeServer
+} from "./registry/memory-resolver.js";
+export type { MemoryProviderRegistration } from "./registry/memory-provider.js";

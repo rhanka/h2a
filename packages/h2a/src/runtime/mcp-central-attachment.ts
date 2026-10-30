@@ -13,7 +13,7 @@ import type { createLocalStore } from "./local-files/index.js";
 import { createMcpServer, type McpCallContext, type McpServer } from "./mcp/server.js";
 import { createUiRenderModule, type UiRenderModule } from "./mcp/ui-render/index.js";
 import type { H2aRunExecutor } from "./mcp/agent-launch.js";
-import { CENTRAL_ATTACHMENT_ENV, buildSessionAdmissionEvidence, type CentralMcpAttachment, type SessionAdmissionEvidenceV1, type SessionAdmissionIdentity } from "./mcp-central-context.js";
+import { CENTRAL_ATTACHMENT_ENV, buildSessionAdmissionEvidence, SESSION_ADMISSION_CHANNEL_BINDINGS, type CentralMcpAttachment, type SessionAdmissionEvidenceV1, type SessionAdmissionIdentity } from "./mcp-central-context.js";
 import type { AttachmentParticipant } from "./handover/participants.js";
 import type { ComposeDaemonOptions } from "../registry/sentropic-daemon.js";
 
@@ -22,10 +22,30 @@ export type CentralAttachmentHandle = { mcp: McpServer; ready?: Promise<void>; c
 export type { SessionAdmissionEvidenceV1 } from "./mcp-central-context.js";
 
 /**
- * The verified transport material the central holds for one call. The
- * assembler below turns it into H3 evidence, or refuses closed (undefined)
- * when any binding is missing or partial — a central attachment alone is
- * never admission.
+ * The verified transport material the central holds for one call. It rides
+ * ALONGSIDE the H3 record (the sibling `transport` member of the resolver
+ * input), never inside the frozen 11-key wire shape.
+ */
+export interface CentralAdmissionTransport {
+  /** Verified per-request transport MAC (admitted request proof). */
+  readonly transportMac: string;
+  /** Channel binding from the closed set (attachment: `stdio_host_managed_verified`). */
+  readonly channelBinding: string;
+  /** The admitted MCP session id of this attachment. */
+  readonly sessionId: string;
+}
+
+/** A per-call admission: the frozen H3 record plus its lateral transport material. */
+export interface CentralAdmission {
+  readonly evidence: SessionAdmissionEvidenceV1;
+  readonly transport: CentralAdmissionTransport;
+}
+
+/**
+ * The runtime material the assembler turns into a `CentralAdmission`. The
+ * `transportEpoch` is the attachment's fenced logical counter (a positive
+ * integer, formatted into the frozen `epoch:YYYYMMDD:NNNN` token from the
+ * admission instant) or a preformed epoch token/decimal string.
  */
 export interface CentralAdmissionMaterial {
   /** Verified attachment id (participant token binding). */
@@ -33,7 +53,7 @@ export interface CentralAdmissionMaterial {
   /** Verified per-request transport MAC (admitted request proof). */
   readonly transportMac: string;
   /** Fenced transport epoch of the attachment's logical transport. */
-  readonly transportEpoch: string;
+  readonly transportEpoch: number | string;
   /** The admitted MCP session id of this attachment. */
   readonly sessionId: string;
   /** The supported central host that admitted the attachment. */
@@ -48,28 +68,42 @@ export interface CentralAdmissionMaterial {
   readonly admittedAt?: string;
 }
 
+const TRANSPORT_MAC_PATTERN = /^[0-9a-f]{64}$/;
+
+/** Format the fenced logical counter into the frozen epoch token (`epoch:YYYYMMDD:NNNN`). */
+function formatTransportEpoch(counter: number, admittedAt: string): string {
+  if (!Number.isInteger(counter) || counter < 1) throw new Error("invalid transport epoch counter");
+  const date = admittedAt.slice(0, 10).replace(/-/g, "");
+  return `epoch:${date}:${String(counter).padStart(4, "0")}`;
+}
+
 /**
- * Total H3 assembler: binds the verified material into a
- * `SessionAdmissionEvidenceV1`, or returns undefined when the material is
- * absent, partial or inconsistent (fail-closed — never a partial record,
- * never a throw).
+ * Total H3 assembler: binds the verified material into a `CentralAdmission`
+ * (the frozen 11-key evidence plus the lateral transport material), or
+ * returns undefined when the material is absent, partial or inconsistent
+ * (fail-closed — never a partial record, never a throw).
  */
-export function sessionAdmissionEvidence(material: CentralAdmissionMaterial | undefined): SessionAdmissionEvidenceV1 | undefined {
+export function sessionAdmissionEvidence(material: CentralAdmissionMaterial | undefined): CentralAdmission | undefined {
   if (!material?.identity) return undefined;
   try {
-    return buildSessionAdmissionEvidence({
+    if (typeof material.transportMac !== "string" || !TRANSPORT_MAC_PATTERN.test(material.transportMac)) return undefined;
+    if (typeof material.channelBinding !== "string" || !(SESSION_ADMISSION_CHANNEL_BINDINGS as readonly string[]).includes(material.channelBinding)) return undefined;
+    if (typeof material.sessionId !== "string" || !material.sessionId) return undefined;
+    const admittedAt = material.admittedAt ?? new Date().toISOString();
+    const transportEpoch = typeof material.transportEpoch === "number"
+      ? formatTransportEpoch(material.transportEpoch, admittedAt)
+      : material.transportEpoch;
+    const evidence = buildSessionAdmissionEvidence({
       attachmentRef: material.attachmentId,
-      transportMac: material.transportMac,
-      transportEpoch: material.transportEpoch,
+      transportEpoch,
       centralHost: material.centralHost as SessionAdmissionEvidenceV1["centralHost"],
-      channelBinding: material.channelBinding,
-      sessionId: material.sessionId,
       agentUuid: material.identity.agentUuid,
       instanceId: material.identity.instanceId,
       launchName: material.identity.launchName,
-      admittedAt: material.admittedAt ?? new Date().toISOString(),
+      admittedAt,
       signedRequestId: material.signedRequestId
     });
+    return { evidence, transport: { transportMac: material.transportMac, channelBinding: material.channelBinding, sessionId: material.sessionId } };
   } catch {
     return undefined;
   }
@@ -84,7 +118,7 @@ export function sessionAdmissionEvidence(material: CentralAdmissionMaterial | un
  * synchronously at install time, so the later wrapper can never recurse
  * into itself.
  */
-function installRegistryDispatch(mcp: McpServer, options: { root: string; workspaceRoot: string }): void {
+function installRegistryDispatch(mcp: McpServer, options: { root: string; workspaceRoot: string } & Pick<ComposeDaemonOptions, "lock" | "memory" | "admission">): void {
   const rawCallTool = mcp.callTool.bind(mcp) as McpServer["callTool"];
   let delegate: McpServer["callTool"] | undefined;
   let pending: Promise<McpServer["callTool"]> | undefined;
