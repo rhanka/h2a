@@ -135,6 +135,7 @@ import type {
   H2AActorRegistration,
   H2ALaunchContext,
   H2AEnvelope,
+  H2APolicySigningClass,
   H2AReplayGuard,
   H2ARole,
   H2AWorkspaceRef,
@@ -3790,6 +3791,22 @@ export function cmdOrg(argv: readonly string[], streams: H2ACliStreams): number 
       );
       return 1;
     }
+    // H2A-ORG-H1 r2: the emission parameters are validated up front — an
+    // unknown signing class refuses before any grant is applied (fail closed).
+    const signingClassStr = flags["signing-class"] ?? "D2";
+    if (signingClassStr !== "D0" && signingClassStr !== "D1" && signingClassStr !== "D2") {
+      streams.stderr.write(
+        `h2a org provision: --signing-class must be one of D0, D1, D2 (got "${signingClassStr}")\n`
+      );
+      return 1;
+    }
+    const csvList = (value: string | undefined): string[] =>
+      value === undefined
+        ? []
+        : value
+            .split(",")
+            .map((entry) => entry.trim())
+            .filter((entry) => entry !== "");
     // H2A-ORG-H1: fail closed. A validated manifest alone creates no rights —
     // provisioning requires the owning PRINCIPAL's verified `org-ratified`
     // envelope over exactly this manifest (no second approval step behind the
@@ -3815,11 +3832,29 @@ export function cmdOrg(argv: readonly string[], streams: H2ACliStreams): number 
       return 1;
     }
     const store = createLocalStore({ root: resolveRoot(flags, cwd) });
+    // H2A-ORG-H1 r2: the active key set of an instance is the DEC-078 keyring
+    // union (registration-baked + rotated-in, minus rotated-out), resolved by
+    // instance name AND registration id — and an offboard tombstone (DEC-089)
+    // empties it fail-closed: an offboarded ratifier ratifies nothing.
+    const activeKeysFor = (instance: string): string[] => {
+      const registration = store
+        .listInstances()
+        .find((row) => row.instance === instance);
+      const keys = new Set<string>(store.listInstanceKeys(instance));
+      if (registration && registration.id !== instance) {
+        for (const pem of store.listInstanceKeys(registration.id)) keys.add(pem);
+      }
+      const offboarded = store.listOffboards().some(
+        (tombstone) =>
+          tombstone.instance === instance ||
+          (registration !== undefined && tombstone.instance === registration.id)
+      );
+      return offboarded ? [] : [...keys];
+    };
     const ratification = verifyOrgRatification({
       envelope,
       committedManifest: parsed.manifest,
-      publicKeysFor: (instance) =>
-        store.listInstances().find((registration) => registration.instance === instance)?.publicKeys ?? []
+      publicKeysFor: activeKeysFor
     });
     if (!ratification.ok) {
       streams.stderr.write(
@@ -3832,11 +3867,15 @@ export function cmdOrg(argv: readonly string[], streams: H2ACliStreams): number 
     const unchanged: string[] = [];
     const pending: Array<{ instance: string; reason: string }> = [];
 
-    // H2A-ORG-H1: each declared memorial agent gets a signed RoleScopePolicyV1
-    // (scope = the org root, governance role asserted for audit only). The
-    // emission is prepared before any grant is applied, so a builder or
-    // signer failure leaves no partial state. Emission requires the
-    // ratifying PRINCIPAL's own key (custody check against the registry).
+    // H2A-ORG-H1 r2: each declared memorial agent gets one signed
+    // RoleScopePolicyV1 per (actorLaunchName, scope) key — r2 §2.6: "Key: (org
+    // actor launch name, scope). Exactly one policy document per (actor,
+    // scope)" — carrying the agent's OWN declared L1 ceiling (never the
+    // manifest-level general pass-through policy, never silent hardcoded
+    // defaults). The emission is prepared before any grant is applied, so a
+    // builder or signer failure leaves no partial state. Emission requires
+    // the ratifying PRINCIPAL's own key (custody check against the active
+    // keyring union).
     const memorialInstances = parsed.manifest.instances.filter(
       (inst) => inst.memorialAgent !== undefined
     );
@@ -3869,10 +3908,7 @@ export function cmdOrg(argv: readonly string[], streams: H2ACliStreams): number 
         );
         return 1;
       }
-      const ratifierKeys =
-        store.listInstances().find((registration) => registration.instance === ratification.actor)
-          ?.publicKeys ?? [];
-      const custody = ratifierKeys.some((pem) => {
+      const custody = activeKeysFor(ratification.actor).some((pem) => {
         try {
           return createPublicKey(pem).export({ type: "spki", format: "der" }).equals(derivedSpki);
         } catch {
@@ -3885,33 +3921,35 @@ export function cmdOrg(argv: readonly string[], streams: H2ACliStreams): number 
         );
         return 1;
       }
+      const mcpTools = csvList(flags["mcp-tools"]);
+      const mcpConnectorClasses = csvList(flags["mcp-connector-classes"]);
+      const driveConsentClass = flags["drive-consent-class"] ?? "pair-time-scoped";
       try {
-        policies = memorialInstances.map((inst) => {
+        policies = memorialInstances.flatMap((inst) => {
           const declaration = inst.memorialAgent!;
-          const unsigned = buildRoleScopePolicyV1({
-            actorLaunchName: declaration.launchName,
-            scope: parsed.manifest!.scope,
-            governanceRoles: [inst.role],
-            ...(declaration.cliPassThrough
-              ? {
-                  allowedCliKinds: declaration.cliPassThrough.allowedCliKinds,
-                  ...(declaration.cliPassThrough.allowedModels
-                    ? { allowedModels: declaration.cliPassThrough.allowedModels }
-                    : {}),
-                  ...(declaration.cliPassThrough.effortCeiling
-                    ? { effortCeiling: declaration.cliPassThrough.effortCeiling }
-                    : {})
-                }
-              : {}),
-            memoryScopes: declaration.memoryPurpose !== undefined ? ["role"] : [],
-            driveConsentClass: "pair-time-scoped",
-            signingClass: "D2",
-            validFrom: at,
-            revision: 1,
-            signerInstance: ratification.actor,
-            signerKeyId
-          });
-          return signRoleScopePolicyV1(unsigned, { by: ratification.actor, privateKeyPem });
+          return inst.scopes.map((scope) =>
+            signRoleScopePolicyV1(
+              buildRoleScopePolicyV1({
+                actorLaunchName: declaration.launchName,
+                scope,
+                governanceRoles: [inst.role],
+                allowedCliKinds: declaration.allowedCliKinds,
+                allowedModels: declaration.allowedModels,
+                ...(declaration.effortCeiling !== undefined
+                  ? { effortCeiling: declaration.effortCeiling }
+                  : {}),
+                mcpRights: { tools: mcpTools, connectorClasses: mcpConnectorClasses },
+                memoryScopes: declaration.memoryScopes,
+                driveConsentClass,
+                signingClass: signingClassStr as H2APolicySigningClass,
+                validFrom: at,
+                revision: 1,
+                signerInstance: ratification.actor,
+                signerKeyId
+              }),
+              { by: ratification.actor, privateKeyPem }
+            )
+          );
         });
       } catch (error) {
         streams.stderr.write(

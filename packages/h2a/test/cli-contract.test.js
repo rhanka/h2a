@@ -1018,7 +1018,7 @@ function buildHappyArgv(verb, ctx) {
         });
         writeFileSync(
           file,
-          "scope: org:acme\ninstances:\n  - instance: org-principal\n    role: PRINCIPAL\n    scopes: [org:acme]\n",
+          "scope: org:acme\ninstances:\n  - instance: org-principal\n    role: PRINCIPAL\n    scopes: [org:acme]\n    mandateRights: [ratify-org]\n",
           "utf8"
         );
         const sink = captureStreams(join(root, ".."));

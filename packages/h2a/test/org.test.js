@@ -167,67 +167,80 @@ test("a proposal signs + verifies (round-trip); tampering with the manifest brea
 });
 
 // ---------------------------------------------------------------------------
-// H2A-ORG-H1 — memorial-agent declarations (r2 §2.4): an org actor may carry a
-// memorial-agent block (launch name, agentUuid enrolment reference, H1 policy
-// reference, role-memory purpose, sub-agent purpose opt-in, CLI pass-through
-// ceiling). validateOrgManifest enforces the block's invariants; the block is
-// the versioned schema extension of the committed org.h2a.yaml.
+// H2A-ORG-H1 — memorial-agent declarations in the co-signed `org.h2a.yaml`
+// v2 schema (spec-r4-h2a-cosign §2.1, r2 §2.4): per org actor, the L1
+// declaration (launch name equal to the instance, agentUuid enrolment
+// reference, H1 policy references, requested memory scopes, purpose grants
+// with the explicit sub-agent opt-in, CLI/model/effort ceiling, declaring
+// owner). The general CLI pass-through ceiling (runs WITHOUT a memorial
+// agent, Q-D) lives at the manifest level (`generalCliPolicy`), never on the
+// agent's L1 declaration. validateOrgManifest enforces the §2.2 codes.
 // ---------------------------------------------------------------------------
 
 function memorialAgent(overrides = {}) {
   return {
-    launchName: "dev-1",
-    agentUuid: "0199c0de-0000-7000-8000-000000000001",
-    policyRef: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-    memoryPurpose: "purpose:org:acme/role-memory",
-    subAgentMemory: "none",
-    cliPassThrough: {
-      allowedCliKinds: ["claude", "codex"],
-      allowedModels: ["muse-spark-1.3"],
-      effortCeiling: "high"
-    },
+    launchName: "claude:dev-1",
+    agentUuidRef: "0199c0de-0000-7000-8000-000000000001",
+    policyRefs: ["pol:org:acme:dev-1:v1"],
+    memoryScopes: ["role", "repo"],
+    purposeGrants: [
+      { scopeKind: "role", purposeRef: "purpose:org:acme/dev-1/role", allowSubagentExec: false },
+      { scopeKind: "repo", purposeRef: "purpose:org:acme/dev-1/repo", allowSubagentExec: true }
+    ],
+    allowedCliKinds: ["claude", "codex"],
+    allowedModels: ["muse-spark-1.3"],
+    effortCeiling: "high",
+    declaringOwner: "claude:lead",
     ...overrides
   };
 }
 
-test("a memorial-agent declaration passes validation", () => {
+function memorialManifest(declarationOverrides = {}, extra = {}) {
   const manifest = validManifest();
-  manifest.instances[2] = { ...manifest.instances[2], memorialAgent: memorialAgent() };
-  const result = validateOrgManifest(manifest);
+  manifest.instances[2] = { ...manifest.instances[2], memorialAgent: memorialAgent(declarationOverrides) };
+  return { ...manifest, ...extra };
+}
+
+test("a memorial-agent declaration passes validation", () => {
+  const result = validateOrgManifest(memorialManifest());
   assert.equal(result.ok, true);
   assert.deepEqual(result.errors, []);
 });
 
-test("an explicit sub-agent memory opt-in (inherit) also passes", () => {
-  const manifest = validManifest();
-  manifest.instances[2] = {
-    ...manifest.instances[2],
-    memorialAgent: memorialAgent({ subAgentMemory: "inherit" })
-  };
-  const result = validateOrgManifest(manifest);
+test("a declaration without any memory scope also passes (no memory requested)", () => {
+  const result = validateOrgManifest(
+    memorialManifest({ memoryScopes: [], purposeGrants: [] })
+  );
   assert.equal(result.ok, true);
+  assert.deepEqual(result.errors, []);
 });
 
 test("an empty launch name → memorial-agent-bad-launch-name", () => {
-  const manifest = validManifest();
-  manifest.instances[2] = {
-    ...manifest.instances[2],
-    memorialAgent: memorialAgent({ launchName: "" })
-  };
-  const result = validateOrgManifest(manifest);
+  const result = validateOrgManifest(memorialManifest({ launchName: "" }));
   assert.equal(result.ok, false);
   assert.ok(result.errors.includes("memorial-agent-bad-launch-name"));
 });
 
 test("a per-conversation instance id is not a launch name → memorial-agent-bad-launch-name", () => {
-  const manifest = validManifest();
-  manifest.instances[2] = {
-    ...manifest.instances[2],
-    memorialAgent: memorialAgent({ launchName: "claude:h2a:c18853e319ea" })
-  };
-  const result = validateOrgManifest(manifest);
+  const result = validateOrgManifest(memorialManifest({ launchName: "claude:h2a:c18853e319ea" }));
   assert.equal(result.ok, false);
   assert.ok(result.errors.includes("memorial-agent-bad-launch-name"));
+});
+
+test("a per-conversation instance id is never a valid org instance id → instance-per-conversation-id-forbidden", () => {
+  const manifest = validManifest();
+  manifest.instances[2] = { ...manifest.instances[2], instance: "claude:h2a:c18853e319ea" };
+  const result = validateOrgManifest(manifest);
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.includes("instance-per-conversation-id-forbidden"));
+});
+
+test("a launch name that is not the parent instance id → memorial-launch-name-mismatch", () => {
+  // the declaration names org actors by their bare launch name, which must be
+  // exactly the instance id it hangs from (spec §2.1)
+  const result = validateOrgManifest(memorialManifest({ launchName: "someone-else" }));
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.includes("memorial-launch-name-mismatch"));
 });
 
 test("two actors claiming one launch name → memorial-agent-duplicate-launch-name", () => {
@@ -239,64 +252,75 @@ test("two actors claiming one launch name → memorial-agent-duplicate-launch-na
   assert.ok(result.errors.includes("memorial-agent-duplicate-launch-name"));
 });
 
-test("an empty memory purpose → memorial-agent-bad-purpose", () => {
-  const manifest = validManifest();
-  manifest.instances[2] = {
-    ...manifest.instances[2],
-    memorialAgent: memorialAgent({ memoryPurpose: "" })
-  };
+test("an empty allowedCliKinds → memorial-empty-cli-kinds", () => {
+  const result = validateOrgManifest(memorialManifest({ allowedCliKinds: [] }));
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.includes("memorial-empty-cli-kinds"));
+});
+
+test("an absent allowedCliKinds → memorial-empty-cli-kinds (required field)", () => {
+  const manifest = memorialManifest();
+  delete manifest.instances[2].memorialAgent.allowedCliKinds;
   const result = validateOrgManifest(manifest);
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.includes("memorial-empty-cli-kinds"));
+});
+
+test("an empty allowedModels → memorial-empty-models", () => {
+  const result = validateOrgManifest(memorialManifest({ allowedModels: [] }));
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.includes("memorial-empty-models"));
+});
+
+test("an unknown memory scope → memorial-invalid-memory-scope", () => {
+  const result = validateOrgManifest(memorialManifest({ memoryScopes: ["team"] }));
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.includes("memorial-invalid-memory-scope"));
+});
+
+test("a purpose grant naming an unrequested scope → memorial-purpose-scope-unlisted", () => {
+  const result = validateOrgManifest(
+    memorialManifest({ memoryScopes: ["role"], purposeGrants: [{ scopeKind: "repo", purposeRef: "purpose:x" }] })
+  );
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.includes("memorial-purpose-scope-unlisted"));
+});
+
+test("an empty purposeRef → memorial-agent-bad-purpose", () => {
+  const result = validateOrgManifest(
+    memorialManifest({ purposeGrants: [{ scopeKind: "role", purposeRef: "" }] })
+  );
   assert.equal(result.ok, false);
   assert.ok(result.errors.includes("memorial-agent-bad-purpose"));
 });
 
-test("an unknown sub-agent policy → memorial-agent-bad-subagent-policy", () => {
-  const manifest = validManifest();
-  manifest.instances[2] = {
-    ...manifest.instances[2],
-    memorialAgent: memorialAgent({ subAgentMemory: "always" })
-  };
-  const result = validateOrgManifest(manifest);
+test("a non-boolean sub-agent opt-in → memorial-agent-bad-subagent-policy", () => {
+  const result = validateOrgManifest(
+    memorialManifest({
+      purposeGrants: [{ scopeKind: "role", purposeRef: "purpose:x", allowSubagentExec: "yes" }]
+    })
+  );
   assert.equal(result.ok, false);
   assert.ok(result.errors.includes("memorial-agent-bad-subagent-policy"));
 });
 
-test("a pass-through ceiling without CLI kinds → memorial-agent-bad-passthrough", () => {
-  const manifest = validManifest();
-  manifest.instances[2] = {
-    ...manifest.instances[2],
-    memorialAgent: memorialAgent({ cliPassThrough: { allowedCliKinds: [] } })
-  };
-  const result = validateOrgManifest(manifest);
-  assert.equal(result.ok, false);
-  assert.ok(result.errors.includes("memorial-agent-bad-passthrough"));
-});
+test("malformed required declaration scalars → memorial-agent-bad-declaration", () => {
+  const emptyUuid = validateOrgManifest(memorialManifest({ agentUuidRef: "" }));
+  assert.ok(emptyUuid.errors.includes("memorial-agent-bad-declaration"));
 
-test("a non-mapping pass-through ceiling → memorial-agent-bad-passthrough", () => {
-  const manifest = validManifest();
-  manifest.instances[2] = {
-    ...manifest.instances[2],
-    memorialAgent: memorialAgent({ cliPassThrough: "yes" })
-  };
-  const result = validateOrgManifest(manifest);
-  assert.equal(result.ok, false);
-  assert.ok(result.errors.includes("memorial-agent-bad-passthrough"));
-});
+  const noRefs = memorialManifest();
+  delete noRefs.instances[2].memorialAgent.policyRefs;
+  assert.ok(validateOrgManifest(noRefs).errors.includes("memorial-agent-bad-declaration"));
 
-test("empty optional declaration scalars → memorial-agent-bad-declaration", () => {
-  const manifest = validManifest();
-  manifest.instances[2] = {
-    ...manifest.instances[2],
-    memorialAgent: memorialAgent({ agentUuid: "" })
-  };
-  assert.ok(validateOrgManifest(manifest).errors.includes("memorial-agent-bad-declaration"));
+  const emptyRefs = validateOrgManifest(memorialManifest({ policyRefs: [] }));
+  assert.ok(emptyRefs.errors.includes("memorial-agent-bad-declaration"));
 
-  const manifest2 = validManifest();
-  manifest2.instances[2] = {
-    ...manifest2.instances[2],
-    memorialAgent: memorialAgent({ policyRef: "" })
-  };
-  assert.ok(validateOrgManifest(manifest2).errors.includes("memorial-agent-bad-declaration"));
+  const noOwner = memorialManifest();
+  delete noOwner.instances[2].memorialAgent.declaringOwner;
+  assert.ok(validateOrgManifest(noOwner).errors.includes("memorial-agent-bad-declaration"));
+
+  const badEffort = validateOrgManifest(memorialManifest({ effortCeiling: "" }));
+  assert.ok(badEffort.errors.includes("memorial-agent-bad-declaration"));
 });
 
 test("a non-mapping memorial-agent block → memorial-agent-bad-declaration", () => {
@@ -305,4 +329,63 @@ test("a non-mapping memorial-agent block → memorial-agent-bad-declaration", ()
   const result = validateOrgManifest(manifest);
   assert.equal(result.ok, false);
   assert.ok(result.errors.includes("memorial-agent-bad-declaration"));
+});
+
+// ---------------------------------------------------------------------------
+// The manifest-level general CLI policy (Q-D): the pass-through ceiling for
+// runs WITHOUT a memorial agent — never on the agent's L1 declaration.
+// ---------------------------------------------------------------------------
+
+function generalCliPolicy(overrides = {}) {
+  return {
+    generalPolicyRef: "gpol:org:acme:passthrough-readonly:v1",
+    allowedCliKinds: ["claude", "codex"],
+    allowedModels: ["*"],
+    effortCeiling: "high",
+    allowedTools: ["h2a_discover_sessions"],
+    allowMemory: false,
+    ...overrides
+  };
+}
+
+test("a well-formed generalCliPolicy passes (Q-D default posture)", () => {
+  const manifest = validManifest();
+  const result = validateOrgManifest({ ...manifest, generalCliPolicy: generalCliPolicy() });
+  assert.equal(result.ok, true, JSON.stringify(result.errors));
+});
+
+test("a generalCliPolicy granting memory → passthrough-memory-forbidden (R4-05)", () => {
+  const manifest = validManifest();
+  const result = validateOrgManifest({
+    ...manifest,
+    generalCliPolicy: generalCliPolicy({ allowMemory: true })
+  });
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.includes("passthrough-memory-forbidden"));
+});
+
+test("a generalCliPolicy allowing an engram_memory_* tool → passthrough-memory-forbidden", () => {
+  const manifest = validManifest();
+  const result = validateOrgManifest({
+    ...manifest,
+    generalCliPolicy: generalCliPolicy({ allowedTools: ["h2a_org_show", "engram_memory_get"] })
+  });
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.includes("passthrough-memory-forbidden"));
+});
+
+test("a malformed generalCliPolicy → general-cli-policy-bad", () => {
+  const manifest = validManifest();
+  for (const bad of [
+    "yes",
+    { ...generalCliPolicy(), generalPolicyRef: "" },
+    { ...generalCliPolicy(), allowedCliKinds: [] },
+    { ...generalCliPolicy(), allowedCliKinds: "claude" },
+    { ...generalCliPolicy(), allowedTools: "h2a_org_show" },
+    { ...generalCliPolicy(), effortCeiling: "" }
+  ]) {
+    const result = validateOrgManifest({ ...manifest, generalCliPolicy: bad });
+    assert.equal(result.ok, false, JSON.stringify(bad));
+    assert.ok(result.errors.includes("general-cli-policy-bad"), JSON.stringify(bad));
+  }
 });
