@@ -8,12 +8,13 @@
  * ~/.h2a).
  */
 import assert from "node:assert/strict";
-import { generateKeyPairSync } from "node:crypto";
+import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync } from "node:crypto";
 import test from "node:test";
 
 import {
   H2A_ROLE_AGENT_ATTESTATION_V1_FORMAT,
   buildRoleAgentAttestationV1,
+  canonicalize,
   computeKeySetRevision,
   inventoryEstate,
   verifyRoleAgentAttestationV1
@@ -85,11 +86,12 @@ test("H4 refusal corpus: named reasons, no silent acceptance", () => {
     { ok: false, reason: "bad_signature" }
   );
 
-  // Unknown format/version.
+  // Unknown version: a well-formed document carrying a foreign format literal
+  // is a version refusal (VEC-NEG-UNKNOWN-VERSION), never a generic format one.
   const wrongFormat = { ...att, format: "h2a.role-agent-attestation/v2" };
   assert.deepEqual(
     verifyRoleAgentAttestationV1(wrongFormat, { resolveSignerKey: () => signer.publicKeyPem }),
-    { ok: false, reason: "unknown_format" }
+    { ok: false, reason: "unknown_version" }
   );
 
   // Signer key not resolvable through H2.
@@ -306,4 +308,212 @@ test("estate inventory: agentUuid without a resolvable launch name is queued", (
   const item = report.resolutionQueue.find((i) => i.kind === "agent_without_launch_name");
   assert.ok(item);
   assert.deepEqual(item.agentUuids, ["uuid-d"]);
+});
+
+test("H4 verdicts distinguish unknown version, malformed fields, and expiry", () => {
+  const signer = keypair();
+  const base = buildRoleAgentAttestationV1({
+    ...attestationInput(signer),
+    keySetRevision: computeKeySetRevision(["sha256:aa", "sha256:bb"])
+  });
+  const resolveKey = { resolveSignerKey: () => signer.publicKeyPem };
+
+  // An unrecognized format literal is a VERSION refusal, never a generic
+  // format refusal (M0 negative vector VEC-NEG-UNKNOWN-VERSION).
+  const wrongVersion = { ...base, format: "h2a.role-agent-attestation/v2" };
+  assert.deepEqual(verifyRoleAgentAttestationV1(wrongVersion, resolveKey), {
+    ok: false,
+    reason: "unknown_version"
+  });
+
+  // A document that is not an object at all has no recognizable format.
+  assert.deepEqual(verifyRoleAgentAttestationV1("junk", resolveKey), {
+    ok: false,
+    reason: "unknown_format"
+  });
+
+  // A required field missing, empty, or mistyped is a malformed-field refusal
+  // (never collapsed into unknown_field / bad_signature).
+  const { scope, ...missingScope } = base;
+  assert.deepEqual(verifyRoleAgentAttestationV1(missingScope, resolveKey), {
+    ok: false,
+    reason: "malformed_field"
+  });
+  assert.deepEqual(
+    verifyRoleAgentAttestationV1({ ...base, agentUuid: "" }, resolveKey),
+    { ok: false, reason: "malformed_field" }
+  );
+  assert.deepEqual(
+    verifyRoleAgentAttestationV1({ ...base, keyIds: [] }, resolveKey),
+    { ok: false, reason: "malformed_field" }
+  );
+  assert.deepEqual(
+    verifyRoleAgentAttestationV1({ ...base, keyIds: ["sha256:aa", 42] }, resolveKey),
+    { ok: false, reason: "malformed_field" }
+  );
+
+  // An unknown property stays an unknown-field refusal (VEC-NEG-UNKNOWN-FIELD).
+  assert.deepEqual(
+    verifyRoleAgentAttestationV1({ ...base, extraField: true }, resolveKey),
+    { ok: false, reason: "unknown_field" }
+  );
+
+  // Expiry is always evaluated — a consumer `now` only pins the instant: an
+  // expired attestation refuses even when `now` is not supplied (P2-1).
+  const expired = buildRoleAgentAttestationV1({
+    ...attestationInput(signer),
+    keySetRevision: computeKeySetRevision(["sha256:aa", "sha256:bb"]),
+    expiresAt: "2026-10-01T00:00:00.000Z"
+  });
+  assert.deepEqual(verifyRoleAgentAttestationV1(expired, resolveKey), {
+    ok: false,
+    reason: "expired"
+  });
+  assert.deepEqual(
+    verifyRoleAgentAttestationV1(expired, {
+      resolveSignerKey: () => signer.publicKeyPem,
+      now: "2026-10-30T00:00:00.000Z"
+    }),
+    { ok: false, reason: "expired" }
+  );
+  const notYetExpired = buildRoleAgentAttestationV1({
+    ...attestationInput(signer),
+    keySetRevision: computeKeySetRevision(["sha256:aa", "sha256:bb"]),
+    expiresAt: "2027-10-30T00:00:00.000Z"
+  });
+  // Without `now` the current time applies, so an unexpired attestation
+  // still verifies (H1-style default path is intact).
+  assert.deepEqual(verifyRoleAgentAttestationV1(notYetExpired, resolveKey), { ok: true });
+  assert.deepEqual(
+    verifyRoleAgentAttestationV1(notYetExpired, {
+      resolveSignerKey: () => signer.publicKeyPem,
+      now: "2026-10-30T00:00:00.000Z"
+    }),
+    { ok: true }
+  );
+});
+
+test("estate inventory: one agentUuid under two distinct launch names is queued, never silently picked", () => {
+  const report = inventoryEstate({
+    registrations: [
+      {
+        id: "claude:alpha:aaaaaaaaaaaa",
+        instance: "claude:alpha:aaaaaaaaaaaa",
+        roles: ["AGENTS"],
+        scopes: ["scope:default"],
+        capabilities: [],
+        endpoints: [{ kind: "local-files", uri: "file://x" }],
+        publicKeys: ["pem-a"],
+        acceptedPolicies: [],
+        createdAt: FIXED_AT,
+        agentUuid: "uuid-a",
+        name: "alpha"
+      },
+      {
+        id: "claude:beta:bbbbbbbbbbbb",
+        instance: "claude:beta:bbbbbbbbbbbb",
+        roles: ["AGENTS"],
+        scopes: ["scope:default"],
+        capabilities: [],
+        endpoints: [{ kind: "local-files", uri: "file://x" }],
+        publicKeys: ["pem-b"],
+        acceptedPolicies: [],
+        createdAt: "2026-10-30T02:00:00.000Z",
+        agentUuid: "uuid-a",
+        name: "beta"
+      }
+    ],
+    bindings: [
+      {
+        host: "claude",
+        providerSessionId: "conv-1",
+        workspaceId: "ws:one",
+        instance: "claude:alpha:aaaaaaaaaaaa",
+        agentUuid: "uuid-a",
+        at: FIXED_AT
+      },
+      {
+        host: "claude",
+        providerSessionId: "conv-2",
+        workspaceId: "ws:one",
+        instance: "claude:beta:bbbbbbbbbbbb",
+        agentUuid: "uuid-a",
+        at: FIXED_AT
+      }
+    ]
+  });
+
+  // Never auto-merged and never silently resolved to the earliest name:
+  // no MemorialAgent is minted until the owner resolves the launch name.
+  assert.equal(report.memorialAgents.length, 0);
+  const item = report.resolutionQueue.find((i) => i.kind === "agent_uuid_multi_launch_name");
+  assert.ok(item, "an agentUuid carrying two distinct launch names must be queued");
+  assert.deepEqual(item.agentUuids, ["uuid-a"]);
+  assert.deepEqual(item.instances, ["claude:alpha:aaaaaaaaaaaa", "claude:beta:bbbbbbbbbbbb"]);
+});
+
+test("H4-POS-1 frozen M0 vector replays against the pinned key and canonical digest", () => {
+  // Deterministic M0 keypair (co-sign §3.1): sha256("h2a-m0-r4-spec-principal-key-v1")
+  // as the raw ed25519 seed, exported through PKCS#8.
+  const seed = createHash("sha256").update("h2a-m0-r4-spec-principal-key-v1", "utf8").digest();
+  const pkcs8Der = Buffer.concat([
+    Buffer.from("302e020100300506032b657004220420", "hex"),
+    seed
+  ]);
+  const privateKey = createPrivateKey({ key: pkcs8Der, format: "der", type: "pkcs8" });
+  const publicKeyPem = createPublicKey(privateKey)
+    .export({ type: "spki", format: "pem" })
+    .toString();
+  assert.equal(
+    publicKeyPem,
+    "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAu5m/6eQPjJaZHUZBTYXR2aR81VPzBzd9qrrjK85JjFI=\n-----END PUBLIC KEY-----\n"
+  );
+
+  const H4_POS_1 = {
+    format: "h2a.role-agent-attestation/v1",
+    agentUuid: "8f14e45f-ceea-467a-a839-f4c8553e319e",
+    launchName: "arch",
+    actorLaunchName: "arch",
+    scope: "org:h2a",
+    attestingInstance: "claude:arch:8f14e45fceea",
+    keySetRevision: "ksrev:1",
+    keyIds: ["key:agent:arch:ed25519:1"],
+    issuedAt: "2026-10-30T10:00:00.000Z",
+    expiresAt: "2027-10-30T00:00:00.000Z",
+    signerInstance: "fabien",
+    signerKeyId: "key:principal:fabien:ed25519:1",
+    signature: "I9iX5OAl9ArYGbRTarIVdRMeCgE0tF1IT2eJbsxNZ90JzjtMTkZIXo4KxXRXIyMiCkZT5u+i3QtM+8N/VYI8CQ=="
+  };
+  // Pinned canonical digest of the full vector (co-sign §3.5, SHA-256 f9147afa…).
+  assert.equal(
+    createHash("sha256").update(canonicalize(H4_POS_1), "utf8").digest("hex"),
+    "f9147afaabbaed3ea0670e3e6b28470b31bf8e878d7b8d8a41c4e0653f728c9a"
+  );
+
+  const resolveKey = { resolveSignerKey: () => publicKeyPem };
+  // Positive replay.
+  assert.deepEqual(verifyRoleAgentAttestationV1(H4_POS_1, resolveKey), { ok: true });
+  // VEC-NEG-BAD-SIG: any mutated field without re-signing refuses.
+  assert.deepEqual(
+    verifyRoleAgentAttestationV1({ ...H4_POS_1, scope: "org:mallory" }, resolveKey),
+    { ok: false, reason: "bad_signature" }
+  );
+  // VEC-NEG-UNKNOWN-FIELD.
+  assert.deepEqual(
+    verifyRoleAgentAttestationV1({ ...H4_POS_1, extraField: true }, resolveKey),
+    { ok: false, reason: "unknown_field" }
+  );
+  // VEC-NEG-UNKNOWN-VERSION.
+  assert.deepEqual(
+    verifyRoleAgentAttestationV1({ ...H4_POS_1, format: "h2a.role-agent-attestation/v2" }, resolveKey),
+    { ok: false, reason: "unknown_version" }
+  );
+  // VEC-NEG-SUPERSEDED-KEYSET: H2 reports ksrev:2 while the attestation is ksrev:1.
+  assert.deepEqual(
+    verifyRoleAgentAttestationV1(H4_POS_1, {
+      resolveSignerKey: () => publicKeyPem,
+      expectedKeySetRevision: "ksrev:2"
+    }),
+    { ok: false, reason: "key_set_revision_superseded" }
+  );
 });

@@ -301,7 +301,10 @@ export type RoleAgentAttestationVerdict =
       ok: false;
       reason:
         | "unknown_format"
+        | "unknown_version"
         | "unknown_field"
+        | "malformed_field"
+        | "expired"
         | "bad_signature"
         | "signer_key_unavailable"
         | "key_set_revision_superseded";
@@ -379,9 +382,23 @@ export function buildRoleAgentAttestationV1(input: RoleAgentAttestationInput): R
   return Object.freeze({ ...document, signature: signature.value } as RoleAgentAttestationV1);
 }
 
-function isRoleAgentAttestationShape(value: unknown): value is RoleAgentAttestationV1 {
-  if (value === null || typeof value !== "object") return false;
+/**
+ * Classify a candidate attestation BEFORE any signature work. Every refusal is
+ * named: a foreign `format` literal is an `unknown_version` refusal (M0 negative
+ * vector VEC-NEG-UNKNOWN-VERSION); a document with no recognizable format at
+ * all is `unknown_format`; an out-of-schema property is `unknown_field`; a
+ * required field that is missing, empty or mistyped (including an empty or
+ * non-string `keyIds` entry) is `malformed_field`.
+ */
+function roleAgentAttestationProblem(
+  value: unknown
+): "unknown_format" | "unknown_version" | "unknown_field" | "malformed_field" | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return "unknown_format";
+  }
   const v = value as Record<string, unknown>;
+  if (typeof v.format !== "string") return "unknown_format";
+  if (v.format !== H2A_ROLE_AGENT_ATTESTATION_V1_FORMAT) return "unknown_version";
   const expected = new Set([
     "format", "agentUuid", "launchName", "actorLaunchName", "scope",
     "attestingInstance", "keySetRevision", "keyIds", "issuedAt",
@@ -389,22 +406,28 @@ function isRoleAgentAttestationShape(value: unknown): value is RoleAgentAttestat
   ]);
   if (v.expiresAt !== undefined) expected.add("expiresAt");
   const keys = Object.keys(v);
-  if (keys.length !== expected.size || keys.some((key) => !expected.has(key))) return false;
-  return (
-    typeof v.format === "string" &&
-    typeof v.agentUuid === "string" &&
-    typeof v.launchName === "string" &&
-    typeof v.actorLaunchName === "string" &&
-    typeof v.scope === "string" &&
-    typeof v.attestingInstance === "string" &&
-    typeof v.keySetRevision === "string" &&
-    Array.isArray(v.keyIds) &&
-    typeof v.issuedAt === "string" &&
-    typeof v.signerInstance === "string" &&
-    typeof v.signerKeyId === "string" &&
-    typeof v.signature === "string" &&
-    (v.expiresAt === undefined || typeof v.expiresAt === "string")
-  );
+  if (keys.some((key) => !expected.has(key))) return "unknown_field";
+  if (keys.length < expected.size) return "malformed_field";
+  for (const field of [
+    "format", "agentUuid", "launchName", "actorLaunchName", "scope",
+    "attestingInstance", "keySetRevision", "issuedAt",
+    "signerInstance", "signerKeyId", "signature"
+  ]) {
+    if (typeof v[field] !== "string" || (v[field] as string).length === 0) {
+      return "malformed_field";
+    }
+  }
+  if (v.expiresAt !== undefined && (typeof v.expiresAt !== "string" || (v.expiresAt as string).length === 0)) {
+    return "malformed_field";
+  }
+  if (
+    !Array.isArray(v.keyIds) ||
+    v.keyIds.length === 0 ||
+    v.keyIds.some((keyId) => typeof keyId !== "string" || keyId.length === 0)
+  ) {
+    return "malformed_field";
+  }
+  return null;
 }
 
 /**
@@ -412,7 +435,10 @@ function isRoleAgentAttestationShape(value: unknown): value is RoleAgentAttestat
  * resolved by (`signerInstance`, `signerKeyId`) through the consumer's own H2
  * reader (cluster-mesh side); only literal key resolution + signature +
  * key-set-revision checks live here. Every refusal is named — never a silent
- * acceptance.
+ * acceptance. When the consumer supplies `now` (an ISO-8601 instant), an
+ * attestation whose `expiresAt` is not strictly in the future refuses with
+ * `expired`; an unparseable `expiresAt` or `now` refuses with `malformed_field`
+ * (fail-closed on either side).
  */
 export function verifyRoleAgentAttestationV1(
   attestation: unknown,
@@ -420,40 +446,49 @@ export function verifyRoleAgentAttestationV1(
     resolveSignerKey(signerInstance: string, signerKeyId: string): string | undefined;
     /** When supplied, a mismatching key-set revision refuses (key rotation). */
     expectedKeySetRevision?: string;
+    /**
+     * Optional evaluation instant (ISO-8601). When absent the current time
+     * applies — an expired `expiresAt` refuses with `expired` either way.
+     * Must itself be parseable.
+     */
+    now?: string;
   }
 ): RoleAgentAttestationVerdict {
-  if (!isRoleAgentAttestationShape(attestation)) {
-    // An unknown shape is either a foreign format or a document with unknown
-    // fields; both refuse, distinguished for the audit trail.
-    if (attestation !== null && typeof attestation === "object") {
-      const format = (attestation as Record<string, unknown>).format;
-      if (typeof format !== "string" || format !== H2A_ROLE_AGENT_ATTESTATION_V1_FORMAT) {
-        return { ok: false, reason: "unknown_format" };
-      }
-      return { ok: false, reason: "unknown_field" };
-    }
-    return { ok: false, reason: "unknown_format" };
+  const problem = roleAgentAttestationProblem(attestation);
+  if (problem !== null) {
+    return { ok: false, reason: problem };
   }
-  if (attestation.format !== H2A_ROLE_AGENT_ATTESTATION_V1_FORMAT) {
-    return { ok: false, reason: "unknown_format" };
-  }
-  const publicKeyPem = deps.resolveSignerKey(attestation.signerInstance, attestation.signerKeyId);
+  const verified = attestation as RoleAgentAttestationV1;
+  const publicKeyPem = deps.resolveSignerKey(verified.signerInstance, verified.signerKeyId);
   if (publicKeyPem === undefined) {
     return { ok: false, reason: "signer_key_unavailable" };
   }
   const signature: H2ASignature = {
-    by: attestation.signerInstance,
+    by: verified.signerInstance,
     alg: "ed25519",
-    value: attestation.signature
+    value: verified.signature
   };
-  if (!verifyCanonical(attestationDocument(attestation), signature, publicKeyPem)) {
+  if (!verifyCanonical(attestationDocument(verified), signature, publicKeyPem)) {
     return { ok: false, reason: "bad_signature" };
   }
   if (
     deps.expectedKeySetRevision !== undefined &&
-    deps.expectedKeySetRevision !== attestation.keySetRevision
+    deps.expectedKeySetRevision !== verified.keySetRevision
   ) {
     return { ok: false, reason: "key_set_revision_superseded" };
+  }
+  if (verified.expiresAt !== undefined) {
+    const expiresMs = Date.parse(verified.expiresAt);
+    if (Number.isNaN(expiresMs)) {
+      return { ok: false, reason: "malformed_field" };
+    }
+    const nowMs = Date.parse(deps.now ?? new Date().toISOString());
+    if (Number.isNaN(nowMs)) {
+      return { ok: false, reason: "malformed_field" };
+    }
+    if (expiresMs <= nowMs) {
+      return { ok: false, reason: "expired" };
+    }
   }
   return { ok: true };
 }
@@ -485,6 +520,7 @@ export interface EstateMemorialAgentEntry {
 export type EstateResolutionKind =
   | "registration_without_perennial_binding"
   | "launch_name_claimed_by_two_agents"
+  | "agent_uuid_multi_launch_name"
   | "agent_without_launch_name";
 
 export interface EstateResolutionItem {
@@ -589,6 +625,21 @@ export function inventoryEstate(input: EstateInventoryInput): EstateInventoryRep
       queue.push({
         kind: "agent_without_launch_name",
         detail: `agentUuid ${agentUuid} has no registration carrying a launch name`,
+        agentUuids: [agentUuid],
+        instances
+      });
+      continue;
+    }
+    // One agentUuid carrying TWO DISTINCT launch names is an owner conflict:
+    // never auto-merged, never silently resolved to the earliest name. No
+    // MemorialAgent is minted until the owner picks the launch name.
+    const distinctNames = [...new Set(named.map((reg) => reg.name as string))];
+    if (distinctNames.length > 1) {
+      queue.push({
+        kind: "agent_uuid_multi_launch_name",
+        detail:
+          `agentUuid ${agentUuid} carries ${distinctNames.length} distinct launch names: ` +
+          distinctNames.map((name) => JSON.stringify(name)).join(", "),
         agentUuids: [agentUuid],
         instances
       });
