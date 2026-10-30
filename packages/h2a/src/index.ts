@@ -342,17 +342,18 @@ export {
   verifyRoleScopePolicyV1
 } from "./org.js";
 export type {
-  H2ACliPassThroughCeiling,
   H2AOrgAssignmentActor,
   H2AOrgAssignmentBody,
   H2AOrgAssignmentKind,
   H2AOrgCommEdge,
   H2AOrgDiff,
   H2AOrgDiffEntry,
+  H2AOrgGeneralCliPolicy,
   H2AOrgInstance,
   H2AOrgManifest,
   H2AOrgMemorialAgentDeclaration,
   H2AOrgMembershipGrant,
+  H2AOrgPurposeGrantRequest,
   H2AOrgRatificationRefusal,
   H2AOrgRatificationResult,
   H2AOrgRegisteredInstance,
@@ -365,6 +366,7 @@ export type {
   H2APolicySignOptions,
   H2APolicySigningClass,
   H2APolicyVerification,
+  H2APolicyVerifyOptions,
   RoleScopePolicyInput,
   RoleScopePolicyRevocationInput,
   RoleScopePolicyRevocationV1,

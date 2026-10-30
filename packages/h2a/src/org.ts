@@ -29,43 +29,77 @@ import { signCanonical, verifyCanonical } from "./signature.js";
 import { H2A_ROLES, type H2AEnvelope, type H2ARole } from "./types.js";
 
 /**
- * CLI pass-through ceiling (r2 §2.6 pass-through vocabulary): the explicit
- * record naming what a run without a memorial agent may use in this org
- * actor's scope. Absent a recorded ceiling, pass-through is refused — there
- * is no implicit pass-through.
+ * The two engram memory scope kinds (r2 §2.5).
  */
-export interface H2ACliPassThroughCeiling {
-  readonly allowedCliKinds: readonly string[];
-  readonly allowedModels?: readonly string[];
-  readonly effortCeiling?: string;
+export type H2APolicyMemoryScope = "role" | "repo";
+
+/**
+ * One requested memory purpose grant (co-signed spec §2.1): the scope kind it
+ * lives under, the purpose reference, and the explicit sub-agent execution
+ * opt-in. Memory purpose is never inherited implicitly — absent
+ * `allowSubagentExec` means sub-agent memory calls are refused
+ * (`purpose_not_granted`).
+ */
+export interface H2AOrgPurposeGrantRequest {
+  /** The memory scope this purpose lives under — must be listed in `memoryScopes`. */
+  readonly scopeKind: H2APolicyMemoryScope;
+  /** Purpose reference; non-empty. */
+  readonly purposeRef: string;
+  /** Explicit sub-agent execution opt-in for this purpose. */
+  readonly allowSubagentExec?: boolean;
 }
 
 /**
- * Memorial-agent declaration (r2 §2.4, Q-C): the versioned `org.h2a.yaml`
- * schema extension. Per org actor: the durable launch name (the L1 anchor
- * component with `agentUuid`), the `agentUuid` enrolment reference or
- * enrolment request, the H1 policy reference, the role-memory purpose grant,
- * the sub-agent purpose opt-in and the CLI pass-through ceiling. A
- * declaration names org actors (bare launch names), never a per-conversation
- * instance id.
+ * Memorial-agent declaration (co-signed spec §2.1, r2 §2.4): the versioned
+ * `org.h2a.yaml` per-actor L1 block. Per org actor: the durable launch name
+ * (equal to the instance id it hangs from), the agentUuid enrolment reference,
+ * the H1 policy references, the requested memory scopes, the purpose grants,
+ * the CLI/model/effort ceiling and the declaring owner. A declaration names
+ * org actors by their bare launch name, never a per-conversation instance
+ * id. The general CLI pass-through policy (Q-D — runs WITHOUT a memorial
+ * agent) lives at the manifest level ({@link H2AOrgGeneralCliPolicy}),
+ * never on the agent's L1 declaration.
  */
 export interface H2AOrgMemorialAgentDeclaration {
-  /** Durable launch name (`h2a run --name`); never a per-conversation instance id. */
+  /** Durable launch name; must equal the parent instance id, never per-conversation. */
   readonly launchName: string;
   /** agentUuid enrolment reference or enrolment request token, once enrolled. */
-  readonly agentUuid?: string;
-  /** Reference to the signed `RoleScopePolicyV1` (H1) covering this actor. */
-  readonly policyRef?: string;
-  /** Role-memory purpose reference; present means role memory is requested. */
-  readonly memoryPurpose?: string;
+  readonly agentUuidRef: string;
+  /** References to the signed `RoleScopePolicyV1` (H1) documents covering this actor. */
+  readonly policyRefs: readonly string[];
+  /** Requested memory scopes; empty means no memory requested. */
+  readonly memoryScopes: readonly H2APolicyMemoryScope[];
+  /** Requested purpose grants; each scope kind must be listed in `memoryScopes`. */
+  readonly purposeGrants: readonly H2AOrgPurposeGrantRequest[];
+  /** CLI kinds a memorial-agent run of this actor may launch. Non-empty. */
+  readonly allowedCliKinds: readonly string[];
+  /** Models a memorial-agent run of this actor may use. Non-empty. */
+  readonly allowedModels: readonly string[];
+  /** Optional effort ceiling. */
+  readonly effortCeiling?: string;
+  /** The declaring owner (the ratifying authority of the declaration). */
+  readonly declaringOwner: string;
+}
+
+/**
+ * The manifest-level general CLI pass-through policy (Q-D, co-signed spec
+ * §2.1): what a run WITHOUT a memorial agent may use in this org. Memory is
+ * never granted here — `allowMemory` is frozen `false` and no `engram_memory_*`
+ * tool may appear in `allowedTools` (R4-05). Absent a recorded policy,
+ * pass-through is refused — there is no implicit pass-through.
+ */
+export interface H2AOrgGeneralCliPolicy {
+  readonly generalPolicyRef: string;
+  readonly allowedCliKinds: readonly string[];
+  readonly allowedModels: readonly string[];
+  readonly effortCeiling?: string;
+  readonly allowedTools: readonly string[];
   /**
-   * Sub-agent purpose policy. Memory purpose is never inherited implicitly:
-   * absent or `"none"` refuses sub-agent memory calls (`purpose_not_granted`);
-   * only `"inherit"` opts in.
+   * Frozen `false` on any policy that passes {@link validateOrgManifest} —
+   * typed `boolean` only so a memory-granting policy can be carried to the
+   * validator and refused there (`passthrough-memory-forbidden`, R4-05).
    */
-  readonly subAgentMemory?: "none" | "inherit";
-  /** CLI pass-through ceiling for runs without a memorial agent. */
-  readonly cliPassThrough?: H2ACliPassThroughCeiling;
+  readonly allowMemory: boolean;
 }
 
 /** One instance's place in the org: its role + the scopes it sits in. */
@@ -97,7 +131,16 @@ export interface H2AOrgManifest {
   readonly instances: ReadonlyArray<H2AOrgInstance>;
   /** Optional who-may-message-whom hints (informational). */
   readonly commEdges?: ReadonlyArray<H2AOrgCommEdge>;
+  /** Optional manifest-level general CLI pass-through policy (Q-D, spec §2.1). */
+  readonly generalCliPolicy?: H2AOrgGeneralCliPolicy;
 }
+
+/**
+ * A per-conversation h2a instance id (`host:agent:12-hex`, minted per
+ * conversation). A manifest that names one is stale by construction — org
+ * actors are keyed by their durable launch name (DOC-03).
+ */
+const PER_CONVERSATION_INSTANCE_ID_RE = /^[a-z0-9_-]+:[a-z0-9_-]+:[0-9a-f]{12}$/i;
 
 /** Validation error codes for an org manifest (total — never thrown). */
 export type H2AOrgValidationError =
@@ -106,13 +149,20 @@ export type H2AOrgValidationError =
   | "instance-empty"
   | "instance-no-scope"
   | "instance-bad-role"
+  | "instance-per-conversation-id-forbidden"
   | "edge-unknown-instance"
   | "memorial-agent-bad-launch-name"
   | "memorial-agent-duplicate-launch-name"
+  | "memorial-launch-name-mismatch"
+  | "memorial-agent-bad-declaration"
   | "memorial-agent-bad-purpose"
   | "memorial-agent-bad-subagent-policy"
-  | "memorial-agent-bad-passthrough"
-  | "memorial-agent-bad-declaration";
+  | "memorial-empty-cli-kinds"
+  | "memorial-empty-models"
+  | "memorial-invalid-memory-scope"
+  | "memorial-purpose-scope-unlisted"
+  | "general-cli-policy-bad"
+  | "passthrough-memory-forbidden";
 
 export interface H2AOrgValidationResult {
   readonly ok: boolean;
@@ -124,8 +174,10 @@ export interface H2AOrgValidationResult {
  * returns the (deduped, stable-ordered) set of error codes.
  *
  * Invariants enforced:
- *  - every instance id is non-empty (`instance-empty`) and unique
- *    (`duplicate-instance`);
+ *  - every instance id is non-empty (`instance-empty`), unique
+ *    (`duplicate-instance`) and never a per-conversation instance id
+ *    (`instance-per-conversation-id-forbidden` — org actors are keyed by their
+ *    durable launch name, DOC-03);
  *  - every `role` is a canonical {@link H2A_ROLES} member (`instance-bad-role`);
  *  - every instance lists at least one scope (`instance-no-scope`);
  *  - at least one `PRINCIPAL` is declared — anything owned needs a PRINCIPAL
@@ -137,12 +189,19 @@ export interface H2AOrgValidationResult {
  *    `memorial-agent-duplicate-launch-name` — a declaration names org actors,
  *    never a per-conversation instance id, and a launch name claimed twice is
  *    a collision to resolve, never auto-merged);
- *  - declaration scalars are non-empty when present
- *    (`memorial-agent-bad-purpose`, `memorial-agent-bad-declaration`);
- *  - the sub-agent purpose policy comes from the closed
- *    `"none" | "inherit"` vocabulary (`memorial-agent-bad-subagent-policy`);
- *  - a declared pass-through ceiling carries at least one CLI kind and
- *    well-formed optional fields (`memorial-agent-bad-passthrough`).
+ *  - the declared launch name is exactly the instance id the declaration
+ *    hangs from (`memorial-launch-name-mismatch`, spec §2.1);
+ *  - required declaration scalars and policy refs are present and non-empty
+ *    (`memorial-agent-bad-declaration`); the L1 ceiling is non-empty
+ *    (`memorial-empty-cli-kinds`, `memorial-empty-models`);
+ *  - requested memory scopes come from the closed `"role" | "repo"`
+ *    vocabulary (`memorial-invalid-memory-scope`) and every purpose grant
+ *    names a listed scope (`memorial-purpose-scope-unlisted`) with a
+ *    non-empty purpose (`memorial-agent-bad-purpose`) and a boolean
+ *    sub-agent opt-in (`memorial-agent-bad-subagent-policy`);
+ *  - the manifest-level general CLI policy is well-formed
+ *    (`general-cli-policy-bad`) and never grants memory
+ *    (`passthrough-memory-forbidden`, R4-05).
  */
 export function validateOrgManifest(manifest: H2AOrgManifest): H2AOrgValidationResult {
   const errors = new Set<H2AOrgValidationError>();
@@ -163,6 +222,9 @@ export function validateOrgManifest(manifest: H2AOrgManifest): H2AOrgValidationR
       }
       seen.add(id);
       declared.add(id);
+      if (PER_CONVERSATION_INSTANCE_ID_RE.test(id)) {
+        errors.add("instance-per-conversation-id-forbidden");
+      }
     }
 
     if (!validRoles.has(inst.role)) {
@@ -179,52 +241,102 @@ export function validateOrgManifest(manifest: H2AOrgManifest): H2AOrgValidationR
     if (ma === undefined) {
       continue;
     }
-    if (typeof ma !== "object" || ma === null) {
+    if (typeof ma !== "object" || ma === null || Array.isArray(ma)) {
       errors.add("memorial-agent-bad-declaration");
       continue;
     }
-    if (typeof ma.launchName !== "string" || ma.launchName === "" || ma.launchName.includes(":")) {
+    // launch name: bare, non-empty, never a per-conversation instance id
+    if (
+      typeof ma.launchName !== "string" ||
+      ma.launchName === "" ||
+      PER_CONVERSATION_INSTANCE_ID_RE.test(ma.launchName)
+    ) {
       errors.add("memorial-agent-bad-launch-name");
     } else if (launchNames.has(ma.launchName)) {
       errors.add("memorial-agent-duplicate-launch-name");
     } else {
       launchNames.add(ma.launchName);
+      // the declaration names this very org actor (spec §2.1)
+      if (typeof id === "string" && ma.launchName !== id) {
+        errors.add("memorial-launch-name-mismatch");
+      }
     }
-    if (ma.agentUuid !== undefined && (typeof ma.agentUuid !== "string" || ma.agentUuid === "")) {
+    // required declaration scalars (spec §2.1: all required but effortCeiling)
+    if (typeof ma.agentUuidRef !== "string" || ma.agentUuidRef === "") {
       errors.add("memorial-agent-bad-declaration");
     }
-    if (ma.policyRef !== undefined && (typeof ma.policyRef !== "string" || ma.policyRef === "")) {
+    if (typeof ma.declaringOwner !== "string" || ma.declaringOwner === "") {
       errors.add("memorial-agent-bad-declaration");
     }
-    if (ma.memoryPurpose !== undefined && (typeof ma.memoryPurpose !== "string" || ma.memoryPurpose === "")) {
-      errors.add("memorial-agent-bad-purpose");
+    if (ma.effortCeiling !== undefined && (typeof ma.effortCeiling !== "string" || ma.effortCeiling === "")) {
+      errors.add("memorial-agent-bad-declaration");
     }
-    if (ma.subAgentMemory !== undefined && ma.subAgentMemory !== "none" && ma.subAgentMemory !== "inherit") {
-      errors.add("memorial-agent-bad-subagent-policy");
+    if (!isStringList(ma.policyRefs) || ma.policyRefs.length === 0) {
+      errors.add("memorial-agent-bad-declaration");
     }
-    const ceiling = ma.cliPassThrough;
-    if (ceiling !== undefined) {
-      const kindsOk =
-        typeof ceiling === "object" &&
-        ceiling !== null &&
-        Array.isArray(ceiling.allowedCliKinds) &&
-        ceiling.allowedCliKinds.length > 0 &&
-        ceiling.allowedCliKinds.every((k) => typeof k === "string" && k !== "");
-      const modelsOk =
-        ceiling.allowedModels === undefined ||
-        (Array.isArray(ceiling.allowedModels) &&
-          ceiling.allowedModels.every((m) => typeof m === "string" && m !== ""));
-      const effortOk =
-        ceiling.effortCeiling === undefined ||
-        (typeof ceiling.effortCeiling === "string" && ceiling.effortCeiling !== "");
-      if (!kindsOk || !modelsOk || !effortOk) {
-        errors.add("memorial-agent-bad-passthrough");
+    // the agent's own L1 ceiling — never the general pass-through policy
+    if (!isStringList(ma.allowedCliKinds) || ma.allowedCliKinds.length === 0) {
+      errors.add("memorial-empty-cli-kinds");
+    }
+    if (!isStringList(ma.allowedModels) || ma.allowedModels.length === 0) {
+      errors.add("memorial-empty-models");
+    }
+    // requested memory scopes: the closed role/repo vocabulary
+    const memoryScopes = Array.isArray(ma.memoryScopes) ? ma.memoryScopes : [];
+    if (!isStringList(memoryScopes) || !memoryScopes.every((s) => s === "role" || s === "repo")) {
+      errors.add("memorial-invalid-memory-scope");
+    }
+    // purpose grants: listed scope kinds, non-empty purposes, boolean opt-ins
+    const grants = Array.isArray(ma.purposeGrants) ? ma.purposeGrants : [];
+    for (const grant of grants) {
+      if (typeof grant !== "object" || grant === null || Array.isArray(grant)) {
+        errors.add("memorial-agent-bad-declaration");
+        continue;
+      }
+      const g = grant as H2AOrgPurposeGrantRequest;
+      if (g.scopeKind !== "role" && g.scopeKind !== "repo") {
+        errors.add("memorial-invalid-memory-scope");
+      } else if (!memoryScopes.includes(g.scopeKind)) {
+        errors.add("memorial-purpose-scope-unlisted");
+      }
+      if (typeof g.purposeRef !== "string" || g.purposeRef === "") {
+        errors.add("memorial-agent-bad-purpose");
+      }
+      if (g.allowSubagentExec !== undefined && typeof g.allowSubagentExec !== "boolean") {
+        errors.add("memorial-agent-bad-subagent-policy");
       }
     }
   }
 
   if (!hasPrincipal) {
     errors.add("no-principal");
+  }
+
+  // the manifest-level general CLI pass-through policy (Q-D): well-formed,
+  // and never a memory grant (R4-05)
+  const gpol = manifest.generalCliPolicy;
+  if (gpol !== undefined) {
+    const shapeOk =
+      typeof gpol === "object" &&
+      gpol !== null &&
+      !Array.isArray(gpol) &&
+      typeof gpol.generalPolicyRef === "string" &&
+      gpol.generalPolicyRef !== "" &&
+      isStringList(gpol.allowedCliKinds) &&
+      gpol.allowedCliKinds.length > 0 &&
+      isStringList(gpol.allowedModels) &&
+      isStringList(gpol.allowedTools) &&
+      (gpol.effortCeiling === undefined ||
+        (typeof gpol.effortCeiling === "string" && gpol.effortCeiling !== "")) &&
+      typeof gpol.allowMemory === "boolean";
+    if (!shapeOk) {
+      errors.add("general-cli-policy-bad");
+    } else if (
+      gpol.allowMemory !== false ||
+      gpol.allowedTools.some((tool) => tool.startsWith("engram_memory_"))
+    ) {
+      errors.add("passthrough-memory-forbidden");
+    }
   }
 
   for (const edge of manifest.commEdges ?? []) {
@@ -416,12 +528,33 @@ export interface H2AOrgMembershipGrant {
 }
 
 /**
+ * Defensive list normalization for store rows: arrays keep only their string
+ * entries, a scalar string becomes a one-element list, a legacy singular key
+ * (`role`/`scope`) becomes a one-element list, anything else is empty. Rows
+ * persisted by older store formats must never crash the diff with
+ * `TypeError: r.roles is not iterable`.
+ */
+function normalizeStringList(plural: unknown, singular: unknown): readonly string[] {
+  if (Array.isArray(plural)) {
+    return plural.filter((entry) => typeof entry === "string");
+  }
+  if (typeof plural === "string") {
+    return plural === "" ? [] : [plural];
+  }
+  if (typeof singular === "string") {
+    return singular === "" ? [] : [singular];
+  }
+  return [];
+}
+
+/**
  * The *effective* registry view: each registered instance's roles + scopes,
  * unioned across all its registration rows AND any membership grants. Grants to
- * an unregistered instance are ignored (keyed-only). Pure — the CLI gathers
- * `listInstances()` + `listOrgMembership()` and hands them in; `diffOrgManifest`
- * then reconciles the manifest against this view, so a provisioned org reads
- * back in-sync without ever rewriting a registration.
+ * an unregistered instance are ignored (keyed-only). Legacy rows carrying
+ * singular or scalar keys normalize defensively instead of throwing. Pure —
+ * the CLI gathers `listInstances()` + `listOrgMembership()` and hands them in;
+ * `diffOrgManifest` then reconciles the manifest against this view, so a
+ * provisioned org reads back in-sync without ever rewriting a registration.
  */
 export function effectiveOrgInstances(
   registrations: readonly H2AOrgRegisteredInstance[],
@@ -430,8 +563,9 @@ export function effectiveOrgInstances(
   const acc = new Map<string, { roles: Set<string>; scopes: Set<string> }>();
   for (const r of registrations) {
     const entry = acc.get(r.instance) ?? { roles: new Set<string>(), scopes: new Set<string>() };
-    for (const role of r.roles) entry.roles.add(role);
-    for (const scope of r.scopes) entry.scopes.add(scope);
+    const legacy = r as unknown as { role?: unknown; scope?: unknown };
+    for (const role of normalizeStringList(r.roles, legacy.role)) entry.roles.add(role);
+    for (const scope of normalizeStringList(r.scopes, legacy.scope)) entry.scopes.add(scope);
     acc.set(r.instance, entry);
   }
   for (const g of grants) {
@@ -462,8 +596,6 @@ export const H2A_ROLE_SCOPE_POLICY_REVOCATION_FORMAT = "h2a.role-scope-policy-re
 
 /** Decision-authority classes from the role-structure spec (D0/D1/D2). */
 export type H2APolicySigningClass = "D0" | "D1" | "D2";
-/** The two engram memory scope kinds (r2 §2.5). */
-export type H2APolicyMemoryScope = "role" | "repo";
 
 /**
  * H1 — signed role/scope policy, exactly one document per (actor, scope) key.
@@ -513,15 +645,31 @@ export interface RoleScopePolicyRevocationV1 {
 
 export type UnsignedRoleScopePolicyRevocationV1 = Omit<RoleScopePolicyRevocationV1, "signature">;
 
-/** Named refusals for H1 verification (r2 §8.1: refuse, never repair). */
+/**
+ * Named refusals for H1 verification (r2 §8.1: refuse, never repair), in the
+ * co-signed snake_case wire vocabulary (spec §2.2 / §3.5).
+ */
 export type H2APolicyRefusalReason =
-  | "not-an-object"
-  | "unknown-version"
-  | "unknown-field"
-  | "missing-field"
-  | "bad-field"
-  | "stale-revision"
-  | "bad-signature";
+  | "invalid_payload"
+  | "unknown_version"
+  | "unknown_field"
+  | "bad_signature"
+  | "stale_or_downgraded_revision"
+  | "policy_revoked"
+  | "expired_or_not_yet_valid";
+
+/**
+ * Contextual verification options (spec §3.5 negative vectors): a revision
+ * floor (the highest revision already held for this (actor, scope) key), the
+ * instant the validity window is evaluated at (default: now), and the signed
+ * revocation documents to consider. Anything unverified or non-covering in
+ * `revocations` leaves the policy standing.
+ */
+export interface H2APolicyVerifyOptions {
+  readonly minRevision?: number;
+  readonly now?: string;
+  readonly revocations?: readonly unknown[];
+}
 
 export interface H2APolicyVerification {
   readonly ok: boolean;
@@ -739,19 +887,24 @@ function checkPolicyFieldSet(
 ): { reason: H2APolicyRefusalReason; error: string } | undefined {
   const missing = required.filter((field) => !(field in value));
   if (missing.length > 0) {
-    return { reason: "missing-field", error: `missing field(s): ${missing.join(", ")}` };
+    return { reason: "invalid_payload", error: `missing field(s): ${missing.join(", ")}` };
   }
   const unknown = Object.keys(value).filter(
     (field) => !required.includes(field) && !optional.includes(field)
   );
   if (unknown.length > 0) {
-    return { reason: "unknown-field", error: `unknown field(s): ${unknown.join(", ")}` };
+    return { reason: "unknown_field", error: `unknown field(s): ${unknown.join(", ")}` };
   }
   return undefined;
 }
 
 function isStringList(value: unknown): value is readonly string[] {
   return Array.isArray(value) && value.every((entry) => typeof entry === "string" && entry !== "");
+}
+
+function parseInstant(value: string): number | undefined {
+  const t = Date.parse(value);
+  return Number.isNaN(t) ? undefined : t;
 }
 
 function checkPolicyShape(
@@ -775,22 +928,27 @@ function checkPolicyShape(
   ];
   for (const field of nonEmpty) {
     if (field in value && (typeof value[field] !== "string" || (value[field] as string) === "")) {
-      return { reason: "bad-field", error: `${field} must be a non-empty string` };
+      return { reason: "invalid_payload", error: `${field} must be a non-empty string` };
+    }
+  }
+  for (const field of ["validFrom", "validUntil", "revokedAt"]) {
+    if (field in value && parseInstant(value[field] as string) === undefined) {
+      return { reason: "invalid_payload", error: `${field} must be a parseable instant` };
     }
   }
   if (kind === "policy") {
     for (const field of ["governanceRoles", "allowedCliKinds", "allowedModels", "memoryScopes"]) {
       if (!isStringList(value[field])) {
-        return { reason: "bad-field", error: `${field} must be a list of non-empty strings` };
+        return { reason: "invalid_payload", error: `${field} must be a list of non-empty strings` };
       }
     }
     const memoryScopes = value.memoryScopes as readonly string[];
     if (!memoryScopes.every((s) => s === "role" || s === "repo")) {
-      return { reason: "bad-field", error: 'memoryScopes entries must be "role" or "repo"' };
+      return { reason: "invalid_payload", error: 'memoryScopes entries must be "role" or "repo"' };
     }
     const signingClass = value.signingClass;
     if (signingClass !== "D0" && signingClass !== "D1" && signingClass !== "D2") {
-      return { reason: "bad-field", error: 'signingClass must be "D0", "D1" or "D2"' };
+      return { reason: "invalid_payload", error: 'signingClass must be "D0", "D1" or "D2"' };
     }
     const rights = value.mcpRights;
     if (
@@ -800,7 +958,7 @@ function checkPolicyShape(
       !isStringList((rights as Record<string, unknown>).connectorClasses)
     ) {
       return {
-        reason: "bad-field",
+        reason: "invalid_payload",
         error: "mcpRights must carry tools and connectorClasses lists of non-empty strings"
       };
     }
@@ -808,7 +966,10 @@ function checkPolicyShape(
   const revisionField = kind === "policy" ? "revision" : "revokedRevision";
   const revision = value[revisionField];
   if (!Number.isInteger(revision) || (revision as number) < 1) {
-    return { reason: "stale-revision", error: `${revisionField} must be an integer >= 1` };
+    return {
+      reason: "stale_or_downgraded_revision",
+      error: `${revisionField} must be an integer >= 1`
+    };
   }
   return undefined;
 }
@@ -817,16 +978,17 @@ function verifySignedPolicyLike(
   value: unknown,
   kind: "policy" | "revocation",
   expectedFormat: string,
-  publicKeyPem: string
+  publicKeyPem: string,
+  options?: H2APolicyVerifyOptions
 ): H2APolicyVerification {
   if (typeof value !== "object" || value === null) {
-    return { ok: false, reason: "not-an-object", error: "the document must be a JSON object" };
+    return { ok: false, reason: "invalid_payload", error: "the document must be a JSON object" };
   }
   const record = value as Record<string, unknown>;
   if (record.format !== expectedFormat) {
     return {
       ok: false,
-      reason: "unknown-version",
+      reason: "unknown_version",
       error: `format must be "${expectedFormat}" (saw ${JSON.stringify(record.format)})`
     };
   }
@@ -848,18 +1010,91 @@ function verifySignedPolicyLike(
     publicKeyPem
   );
   if (!verified) {
-    return { ok: false, reason: "bad-signature", error: "the signature does not verify" };
+    return { ok: false, reason: "bad_signature", error: "the signature does not verify" };
+  }
+  if (kind !== "policy") {
+    return { ok: true };
+  }
+  const policy = record as unknown as RoleScopePolicyV1;
+  // validity window: [validFrom, validUntil) evaluated at `now` (default: the
+  // current time); an inverted window is never valid
+  const now =
+    options?.now !== undefined
+      ? parseInstant(options.now)
+      : Date.parse(new Date().toISOString());
+  if (options?.now !== undefined && now === undefined) {
+    return { ok: false, reason: "invalid_payload", error: "options.now must be a parseable instant" };
+  }
+  const from = parseInstant(policy.validFrom);
+  const until = policy.validUntil !== undefined ? parseInstant(policy.validUntil) : undefined;
+  const inverted = until !== undefined && from !== undefined && until < from;
+  if (
+    inverted ||
+    now === undefined ||
+    from === undefined ||
+    now < from ||
+    (until !== undefined && now >= until)
+  ) {
+    return {
+      ok: false,
+      reason: "expired_or_not_yet_valid",
+      error: inverted
+        ? "validUntil precedes validFrom"
+        : `the policy is not valid at ${options?.now ?? new Date().toISOString()}`
+    };
+  }
+  // revision floor: at or below the highest revision already held for this
+  // (actor, scope) key is a downgrade replay
+  const minRevision = options?.minRevision ?? 0;
+  if (policy.revision <= minRevision) {
+    return {
+      ok: false,
+      reason: "stale_or_downgraded_revision",
+      error: `revision ${policy.revision} is at or below the floor ${minRevision}`
+    };
+  }
+  // revocations: only a verified revocation covering this (actor, scope) key
+  // and revision refuses; anything else leaves the policy standing
+  for (const candidate of options?.revocations ?? []) {
+    const revocationCheck = verifySignedPolicyLike(
+      candidate,
+      "revocation",
+      H2A_ROLE_SCOPE_POLICY_REVOCATION_FORMAT,
+      publicKeyPem
+    );
+    if (!revocationCheck.ok) {
+      continue;
+    }
+    const revocation = candidate as RoleScopePolicyRevocationV1;
+    if (
+      revocation.actorLaunchName === policy.actorLaunchName &&
+      revocation.scope === policy.scope &&
+      revocation.revokedRevision >= policy.revision
+    ) {
+      return {
+        ok: false,
+        reason: "policy_revoked",
+        error: `revoked at revision ${revocation.revokedRevision} (${revocation.reason})`
+      };
+    }
   }
   return { ok: true };
 }
 
 /**
  * Total verifier for a signed {@link RoleScopePolicyV1}. Checks the wire shape
- * exactly (unknown fields and versions refuse), the revision floor and the
- * ed25519 signature over the canonical bytes excluding `signature`.
+ * exactly (unknown fields and versions refuse), the ed25519 signature over the
+ * canonical bytes excluding `signature`, the validity window at `now`
+ * (default: the current time), the `minRevision` floor and any covering
+ * verified revocation. Check order: field set → shape → signature → window →
+ * revision floor → revocations.
  */
-export function verifyRoleScopePolicyV1(value: unknown, publicKeyPem: string): H2APolicyVerification {
-  return verifySignedPolicyLike(value, "policy", H2A_ROLE_SCOPE_POLICY_FORMAT, publicKeyPem);
+export function verifyRoleScopePolicyV1(
+  value: unknown,
+  publicKeyPem: string,
+  options?: H2APolicyVerifyOptions
+): H2APolicyVerification {
+  return verifySignedPolicyLike(value, "policy", H2A_ROLE_SCOPE_POLICY_FORMAT, publicKeyPem, options);
 }
 
 /** Total verifier for a signed {@link RoleScopePolicyRevocationV1}. */
@@ -934,6 +1169,7 @@ export type H2AOrgRatificationRefusal =
   | "invalid-manifest"
   | "manifest-mismatch"
   | "actor-not-declared-principal"
+  | "principal-missing-ratify-org"
   | "signer-not-registered"
   | "bad-signature";
 
@@ -954,8 +1190,10 @@ export type H2AOrgRatificationResult =
  * (2) its actor is a PRINCIPAL; (3) its manifest passes the org invariants and
  * is exactly the committed manifest (an unsigned or unratified edit of the
  * committed file creates no rights); (4) the ratifier is a declared PRINCIPAL
- * of that manifest; (5) the signature verifies against a registered key of
- * the ratifier. Pure — the caller gathers the registered keys.
+ * of that manifest; (5) that PRINCIPAL carries the `ratify-org` mandate right
+ * (spec §2.2 — a valid signature by an unmandated PRINCIPAL is still not a
+ * ratification); (6) the signature verifies against a registered key of the
+ * ratifier. Pure — the caller gathers the registered keys.
  */
 export function verifyOrgRatification(input: {
   readonly envelope: unknown;
@@ -987,11 +1225,14 @@ export function verifyOrgRatification(input: {
   if (canonicalize(manifest) !== canonicalize(input.committedManifest)) {
     return { ok: false, refusal: "manifest-mismatch" };
   }
-  const declaredPrincipal = (manifest as H2AOrgManifest).instances.some(
+  const principalRow = (manifest as H2AOrgManifest).instances.find(
     (inst) => inst.instance === envelope.actor.instance && inst.role === "PRINCIPAL"
   );
-  if (!declaredPrincipal) {
+  if (!principalRow) {
     return { ok: false, refusal: "actor-not-declared-principal" };
+  }
+  if (!principalRow.mandateRights || !principalRow.mandateRights.includes("ratify-org")) {
+    return { ok: false, refusal: "principal-missing-ratify-org" };
   }
   const keys = input.publicKeysFor(envelope.actor.instance);
   if (keys.length === 0) {

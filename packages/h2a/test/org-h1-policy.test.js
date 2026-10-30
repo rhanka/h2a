@@ -122,69 +122,161 @@ test("sign → verify round-trip against the signer's public key", () => {
   assert.equal(check.ok, true, JSON.stringify(check));
 });
 
-test("tampering with any signed field refuses with bad-signature", () => {
+test("tampering with any signed field refuses with bad_signature", () => {
   const { privatePem, publicPem } = keys();
   const signed = signRoleScopePolicyV1(buildRoleScopePolicyV1(policyInput()), {
     by: "claude:lead",
     privateKeyPem: privatePem
   });
   const tampered = { ...signed, actorLaunchName: "someone-else" };
-  assert.equal(verifyRoleScopePolicyV1(tampered, publicPem).reason, "bad-signature");
+  assert.equal(verifyRoleScopePolicyV1(tampered, publicPem).reason, "bad_signature");
 });
 
-test("verifying against a foreign key refuses with bad-signature", () => {
+test("verifying against a foreign key refuses with bad_signature", () => {
   const a = keys();
   const b = keys();
   const signed = signRoleScopePolicyV1(buildRoleScopePolicyV1(policyInput()), {
     by: "claude:lead",
     privateKeyPem: a.privatePem
   });
-  assert.equal(verifyRoleScopePolicyV1(signed, b.publicPem).reason, "bad-signature");
+  assert.equal(verifyRoleScopePolicyV1(signed, b.publicPem).reason, "bad_signature");
 });
 
-test("an unknown field refuses with unknown-field", () => {
+test("an unknown field refuses with unknown_field", () => {
   const { privatePem, publicPem } = keys();
   const signed = signRoleScopePolicyV1(buildRoleScopePolicyV1(policyInput()), {
     by: "claude:lead",
     privateKeyPem: privatePem
   });
   const extra = { ...signed, extraField: "nope" };
-  assert.equal(verifyRoleScopePolicyV1(extra, publicPem).reason, "unknown-field");
+  assert.equal(verifyRoleScopePolicyV1(extra, publicPem).reason, "unknown_field");
 });
 
-test("an unknown version refuses with unknown-version", () => {
+test("an unknown version refuses with unknown_version", () => {
   const { privatePem, publicPem } = keys();
   const signed = signRoleScopePolicyV1(buildRoleScopePolicyV1(policyInput()), {
     by: "claude:lead",
     privateKeyPem: privatePem
   });
   const v2 = { ...signed, format: "h2a.role-scope-policy/v2" };
-  assert.equal(verifyRoleScopePolicyV1(v2, publicPem).reason, "unknown-version");
+  assert.equal(verifyRoleScopePolicyV1(v2, publicPem).reason, "unknown_version");
 });
 
-test("a missing required field refuses with missing-field", () => {
+test("a missing required field refuses with invalid_payload", () => {
   const { privatePem, publicPem } = keys();
   const signed = signRoleScopePolicyV1(buildRoleScopePolicyV1(policyInput()), {
     by: "claude:lead",
     privateKeyPem: privatePem
   });
   const { mcpRights: _drop, ...noRights } = signed;
-  assert.equal(verifyRoleScopePolicyV1(noRights, publicPem).reason, "missing-field");
+  assert.equal(verifyRoleScopePolicyV1(noRights, publicPem).reason, "invalid_payload");
 });
 
-test("revision 0 refuses with stale-revision", () => {
+test("revision 0 refuses with stale_or_downgraded_revision", () => {
   const { privatePem, publicPem } = keys();
   const unsigned = buildRoleScopePolicyV1(policyInput());
   const zeroed = signRoleScopePolicyV1({ ...unsigned, revision: 0 }, {
     by: "claude:lead",
     privateKeyPem: privatePem
   });
-  assert.equal(verifyRoleScopePolicyV1(zeroed, publicPem).reason, "stale-revision");
+  assert.equal(verifyRoleScopePolicyV1(zeroed, publicPem).reason, "stale_or_downgraded_revision");
 });
 
-test("a non-object refuses with not-an-object", () => {
-  assert.equal(verifyRoleScopePolicyV1("nope", "pem").reason, "not-an-object");
-  assert.equal(verifyRoleScopePolicyV1(null, "pem").reason, "not-an-object");
+test("a non-object refuses with invalid_payload", () => {
+  assert.equal(verifyRoleScopePolicyV1("nope", "pem").reason, "invalid_payload");
+  assert.equal(verifyRoleScopePolicyV1(null, "pem").reason, "invalid_payload");
+});
+
+test("minRevision: a replayed revision at or below the floor refuses with stale_or_downgraded_revision", () => {
+  const { privatePem, publicPem } = keys();
+  const signed = signRoleScopePolicyV1(buildRoleScopePolicyV1(policyInput({ revision: 1 })), {
+    by: "claude:lead",
+    privateKeyPem: privatePem
+  });
+  // the store already holds revision 2: importing revision 1 is a downgrade
+  assert.equal(verifyRoleScopePolicyV1(signed, publicPem, { minRevision: 2 }).reason, "stale_or_downgraded_revision");
+  assert.equal(verifyRoleScopePolicyV1(signed, publicPem, { minRevision: 1 }).reason, "stale_or_downgraded_revision");
+  // strictly above the floor: verified
+  const bumped = verifyRoleScopePolicyV1(signed, publicPem, { minRevision: 0 });
+  assert.equal(bumped.ok, true, JSON.stringify(bumped));
+});
+
+test("validity window: an inverted window refuses with expired_or_not_yet_valid", () => {
+  const { privatePem, publicPem } = keys();
+  const inverted = signRoleScopePolicyV1(
+    buildRoleScopePolicyV1(policyInput({ validUntil: "2026-01-01T00:00:00.000Z" })),
+    { by: "claude:lead", privateKeyPem: privatePem }
+  );
+  assert.equal(verifyRoleScopePolicyV1(inverted, publicPem).reason, "expired_or_not_yet_valid");
+});
+
+test("validity window: `now` outside [validFrom, validUntil) refuses with expired_or_not_yet_valid", () => {
+  const { privatePem, publicPem } = keys();
+  const signed = signRoleScopePolicyV1(buildRoleScopePolicyV1(policyInput()), {
+    by: "claude:lead",
+    privateKeyPem: privatePem
+  });
+  // validFrom 2026-10-30, no validUntil in the fixture input
+  const before = verifyRoleScopePolicyV1(signed, publicPem, { now: "2026-10-29T00:00:00.000Z" });
+  assert.equal(before.reason, "expired_or_not_yet_valid");
+  const during = verifyRoleScopePolicyV1(signed, publicPem, { now: "2026-10-30T12:00:00.000Z" });
+  assert.equal(during.ok, true, JSON.stringify(during));
+  const windowed = signRoleScopePolicyV1(
+    buildRoleScopePolicyV1(policyInput({ validUntil: "2027-10-30T00:00:00.000Z" })),
+    { by: "claude:lead", privateKeyPem: privatePem }
+  );
+  const lastDay = verifyRoleScopePolicyV1(windowed, publicPem, { now: "2027-10-29T23:00:00.000Z" });
+  assert.equal(lastDay.ok, true, JSON.stringify(lastDay));
+  const after = verifyRoleScopePolicyV1(windowed, publicPem, { now: "2027-10-30T00:00:00.000Z" });
+  assert.equal(after.reason, "expired_or_not_yet_valid");
+});
+
+test("revocations: a verified covering revocation refuses with policy_revoked; others leave the policy standing", () => {
+  const { privatePem, publicPem } = keys();
+  const signed = signRoleScopePolicyV1(buildRoleScopePolicyV1(policyInput({ revision: 3 })), {
+    by: "claude:lead",
+    privateKeyPem: privatePem
+  });
+  const revocation = (overrides = {}) =>
+    signRoleScopePolicyRevocationV1(
+      buildRoleScopePolicyRevocationV1({
+        actorLaunchName: "dev-1",
+        scope: "org:acme",
+        revokedRevision: 3,
+        revokedAt: "2026-10-30T00:00:00.000Z",
+        reason: "offboarded",
+        signerInstance: "claude:lead",
+        signerKeyId: "sha256:abcd1234",
+        ...overrides
+      }),
+      { by: "claude:lead", privateKeyPem: privatePem }
+    );
+  // covers revision 3 → revoked
+  assert.equal(verifyRoleScopePolicyV1(signed, publicPem, { revocations: [revocation()] }).reason, "policy_revoked");
+  // revokedRevision below the policy revision → the policy stands
+  const below = verifyRoleScopePolicyV1(signed, publicPem, { revocations: [revocation({ revokedRevision: 2 })] });
+  assert.equal(below.ok, true, JSON.stringify(below));
+  // another (actor, scope) key → the policy stands
+  const foreign = verifyRoleScopePolicyV1(signed, publicPem, {
+    revocations: [revocation({ scope: "org:other" })]
+  });
+  assert.equal(foreign.ok, true, JSON.stringify(foreign));
+  // a revocation that does not verify (foreign key) grants nothing
+  const other = keys();
+  const unverified = signRoleScopePolicyRevocationV1(
+    buildRoleScopePolicyRevocationV1({
+      actorLaunchName: "dev-1",
+      scope: "org:acme",
+      revokedRevision: 3,
+      revokedAt: "2026-10-30T00:00:00.000Z",
+      reason: "offboarded",
+      signerInstance: "claude:lead",
+      signerKeyId: "sha256:abcd1234"
+    }),
+    { by: "claude:lead", privateKeyPem: other.privatePem }
+  );
+  const ignored = verifyRoleScopePolicyV1(signed, publicPem, { revocations: [unverified] });
+  assert.equal(ignored.ok, true, JSON.stringify(ignored));
 });
 
 test("revocation: build → sign → verify round-trip; tampering refuses", () => {
@@ -206,9 +298,9 @@ test("revocation: build → sign → verify round-trip; tampering refuses", () =
   const check = verifyRoleScopePolicyRevocationV1(signed, publicPem);
   assert.equal(check.ok, true, JSON.stringify(check));
   const tampered = { ...signed, revokedRevision: 4 };
-  assert.equal(verifyRoleScopePolicyRevocationV1(tampered, publicPem).reason, "bad-signature");
+  assert.equal(verifyRoleScopePolicyRevocationV1(tampered, publicPem).reason, "bad_signature");
   const unknown = { ...signed, format: "h2a.role-scope-policy-revocation/v2" };
-  assert.equal(verifyRoleScopePolicyRevocationV1(unknown, publicPem).reason, "unknown-version");
+  assert.equal(verifyRoleScopePolicyRevocationV1(unknown, publicPem).reason, "unknown_version");
 });
 
 test("isRoleScopePolicyRevoked — a matching revocation revokes; stale, foreign or unverifiable ones do not", () => {
@@ -271,7 +363,12 @@ function committedManifest() {
   return {
     scope: "org:acme",
     instances: [
-      { instance: "claude:lead", role: "PRINCIPAL", scopes: ["org:acme"] },
+      {
+        instance: "claude:lead",
+        role: "PRINCIPAL",
+        scopes: ["org:acme"],
+        mandateRights: ["ratify-org", "accept-uat"]
+      },
       { instance: "codex:dev-1", role: "AGENTS", scopes: ["org:acme"] }
     ]
   };
@@ -358,6 +455,28 @@ test("verifyOrgRatification — the ratifier must be a declared PRINCIPAL of the
   });
   assert.equal(check.ok, false);
   assert.equal(check.refusal, "actor-not-declared-principal");
+});
+
+test("verifyOrgRatification — a declared PRINCIPAL without the ratify-org mandate right cannot ratify", () => {
+  // spec §2.2 rule 2: the ratifier must be a declared PRINCIPAL carrying
+  // 'ratify-org' in mandateRights
+  const manifest = committedManifest();
+  const unmandated = {
+    ...manifest,
+    instances: manifest.instances.map((inst) =>
+      inst.instance === "claude:lead"
+        ? { ...inst, mandateRights: ["accept-uat"] }
+        : inst
+    )
+  };
+  const { envelope, key } = ratifiedEnvelope(unmandated);
+  const check = verifyOrgRatification({
+    envelope,
+    committedManifest: unmandated,
+    publicKeysFor: () => [key.publicPem]
+  });
+  assert.equal(check.ok, false);
+  assert.equal(check.refusal, "principal-missing-ratify-org");
 });
 
 test("verifyOrgRatification — an envelope whose manifest violates the invariants refuses (invalid-manifest)", () => {
