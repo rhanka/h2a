@@ -385,7 +385,7 @@ describe('Lot L3 — union + reseal (merge=union + track reseal)', () => {
     const root = join(__dirname, '..', '..', '..', '..')
     const gitattributes = readFileSync(join(root, '.gitattributes'), 'utf8')
     expect(gitattributes).toContain('.track/events.jsonl merge=union')
-    const skill = readFileSync(join(__dirname, '..', '..', '..', 'skills', 'branch-lifecycle', 'SKILL.md'), 'utf8')
+    const skill = readFileSync(join(__dirname, '..', '..', 'skills', 'branch-lifecycle', 'SKILL.md'), 'utf8')
     expect(skill).toContain('git merge origin/main && npx track reseal && npx track validate')
   })
 })
