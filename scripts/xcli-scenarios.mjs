@@ -23,10 +23,23 @@ export const LOOP_TWINS = Object.freeze(['join-unknown', 'report-without-join', 
 export const NEGOTIATION_FLOW = 'flow';
 export const NEGOTIATION_TWINS = Object.freeze(['offer-unknown', 'stabilize-without-offer', 'replayed-stabilization']);
 
-// Lot L15: remaining inventory by class. Drive-consent paths are not
-// published at the tested SHA, so the group stays not-covered with a named
-// blocker instead of an unexecutable scenario.
+// Lot L15: remaining inventory by class. Drive-consent paths are published
+// at the tested SHA (packages/h2a/src/runtime/mcp/tools.ts,
+// runtime/drive/consent-tools.ts) but have no S-tier executable scenario
+// yet (L15c owns them), so the group stays not-covered with a named blocker
+// instead of an unexecutable scenario.
 export const INVENTORY_GROUPS = Object.freeze(['read-paths', 'session-paths', 'conductor-paths', 'governance-paths']);
+
+// Lot L15 (SPEC v3 §5.1, R15/P2-4): the cli-command-map.ts cross-CLI verb
+// subset the matrix cares about — send, inbox actions including pop and
+// name resolution, sessions list/resume/stop, host setup/status, upgrade
+// refusal paths. Each verb gets one scenario row, driven through the
+// per-role h2a shim; until that row exists the verb stays explicitly
+// not-covered in docs/cross-cli-matrix.json (scenario-undefined), never
+// silently uncovered.
+export const CLI_VERBS = Object.freeze(['send', 'inbox-pop', 'inbox-name-resolution',
+  'session-list', 'session-resume', 'session-stop',
+  'host-setup', 'host-status', 'upgrade-refusal']);
 
 // Every scenario row the S matrix covers.
 export const SCENARIO_ROWS = Object.freeze([
