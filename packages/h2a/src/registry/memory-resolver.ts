@@ -14,7 +14,15 @@
  * internals: `runtime.server.callTool(name, args, ctx, envelope?, signal?)`.
  */
 import type { SessionAdmissionEvidenceV1 } from "../runtime/mcp-central-context.js";
+import type { CentralAdmissionTransport } from "../runtime/mcp-central-attachment.js";
 import type { MemoryProviderRegistration } from "./memory-provider.js";
+
+/**
+ * The lateral transport material the daemon binds per call. It rides as a
+ * SIBLING of the H3 evidence, never inside the frozen 11-key record
+ * (spec-r4-h2a-cosign.md §3.4 action 1).
+ */
+export type MemoryHostTransportMaterial = CentralAdmissionTransport;
 
 export interface MemoryHostResolveInput {
   /** The exact tool being dispatched. */
@@ -23,6 +31,8 @@ export interface MemoryHostResolveInput {
   readonly args: Record<string, unknown>;
   /** H3 session admission evidence (inputs only; no authority). */
   readonly evidence: SessionAdmissionEvidenceV1;
+  /** The verified transport material of the admitted request (MAC, channel binding, session id). */
+  readonly transport?: MemoryHostTransportMaterial;
   /** Caller cancellation for this call, when the transport provides one. */
   readonly signal?: AbortSignal;
 }

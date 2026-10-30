@@ -37,7 +37,7 @@ import {
 } from "node:fs";
 import { once } from "node:events";
 import { monitorEventLoopDelay } from "node:perf_hooks";
-import { dirname, isAbsolute, join, resolve, relative } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve, relative } from "node:path";
 import { realpathSync, statSync } from "node:fs";
 
 import { StreamableHTTPTransport } from "./mcp/transport/streamable-http.js";
@@ -73,10 +73,16 @@ import { createLocalStore } from "./local-files/index.js";
 import { openCentralAttachment, sessionAdmissionEvidence, type CentralAdmissionMaterial, type CentralAttachmentHandle } from "./mcp-central-attachment.js";
 import type { CentralMcpAttachment, SessionAdmissionIdentity } from "./mcp-central-context.js";
 import { findBinding } from "./identity/bindings.js";
+import { resolveProviderSession } from "./identity/resolver.js";
+import { defaultProviderSessionReaders } from "./identity/readers.js";
+import { durableWorkspaceId } from "./identity/workspace-id.js";
+import { readMachineId } from "./identity/live.js";
+import { deriveWorkspaceId } from "../identity.js";
 import type { ComposeDaemonOptions } from "../registry/sentropic-daemon.js";
 import { parseCentralAttachment } from "./mcp-central-context.js";
 import { executeH2aRun, type H2aRunExecutor } from "./mcp/agent-launch.js";
 import { centralPausePath } from "./mcp-central-operator.js";
+import { AsyncLocalStorage } from "node:async_hooks";
 
 import { H2A_MCP_CENTRAL_ENDPOINT_ENV, centralMcpMarkerPath, expectedMode, isLoopbackHostname, markerDirectory, parseCentralMcpEndpoint, runtimeBase, uid, type CentralMcpMarker, type CentralMcpPathsOptions } from "./mcp-central-discovery.js";
 export { H2A_MCP_CENTRAL_ENV, H2A_MCP_CENTRAL_ENDPOINT_ENV, centralMcpEnabled, centralMcpClientEndpoint, centralMcpMarkerPath, parseCentralMcpEndpoint, readCentralMcpMarker } from "./mcp-central-discovery.js";
@@ -138,22 +144,70 @@ async function centralToolResult(
 }
 
 /**
+ * H2A-DISP-354: the admitted HTTP request (`{ mac, requestUid }` verified by
+ * the authenticated server) threaded PER CALL through an AsyncLocalStorage —
+ * never through shared mutable attachment state, so two concurrent calls on
+ * the same attachment can never read each other's transport proof.
+ */
+const admittedRequestScope = new AsyncLocalStorage<{ mac: string; requestUid: string } | undefined>();
+
+function admittedRequestOf(env: unknown): { mac: string; requestUid: string } | undefined {
+  if (typeof env !== "object" || env === null) return undefined;
+  const value = env as { mac?: unknown; requestUid?: unknown };
+  if (typeof value.mac !== "string" || !/^[0-9a-f]{64}$/.test(value.mac)) return undefined;
+  if (typeof value.requestUid !== "string" || !value.requestUid) return undefined;
+  return { mac: value.mac, requestUid: value.requestUid };
+}
+
+/**
+ * Derive the attachment's binding stability unit exactly the way a live
+ * session does (`resolveLiveIdentity`): the captured provider session id
+ * (Claude binds CLAUDE_CODE_SESSION_ID; other hosts read their native
+ * transcripts through the default readers with the captured env overlaid),
+ * else the per-workspace fallback id keyed on the DERIVED workspace id —
+ * never the raw disk path.
+ */
+function attachmentBindingKey(captured: CentralMcpAttachment): { providerSessionId: string; workspaceId: string } {
+  const readers = { ...defaultProviderSessionReaders, env: (name: string) => captured.env[name] ?? defaultProviderSessionReaders.env(name) };
+  const provider = resolveProviderSession({ host: captured.host, cwd: captured.workspace, readers });
+  let realPath = captured.workspace;
+  try { realPath = realpathSync(captured.workspace); } catch { /* keep the captured path */ }
+  const workspaceId =
+    durableWorkspaceId(realPath) ??
+    provider.workspaceHint ??
+    deriveWorkspaceId({ machineId: readMachineId(), path: realPath });
+  const providerSessionId =
+    captured.env.CLAUDE_CODE_SESSION_ID?.trim() ||
+    provider.providerSessionId ||
+    `fallback:${captured.host}:${workspaceId}`;
+  return { providerSessionId, workspaceId };
+}
+
+/**
  * H2A-DISP-354: resolve the identity correlation for admission evidence
  * from the attachment's captured stability unit (host + provider session id
- * captured by the stdio shim). A binding mismatch with the expected resume
- * instance, a missing launch name or an unreadable store all yield NO
- * identity — hence no evidence, hence no memory dispatch (fail-closed).
+ * captured by the stdio shim). The binding key mirrors the live session's
+ * derivation, so a REAL session (no --name flag, derived fallback id)
+ * resolves its perennial identity; the launch name falls back to the
+ * registration's display name, then the workspace basename. A binding
+ * mismatch with the expected resume instance, or an unreadable store all
+ * yield NO identity — hence no evidence, hence no memory dispatch
+ * (fail-closed).
  */
-function centralAdmissionIdentity(root: string, captured: CentralMcpAttachment, expectedInstance: string | undefined): SessionAdmissionIdentity | undefined {
-  const launchName = captured.flags.name?.trim();
-  if (!launchName) return undefined;
-  const providerSessionId = captured.env.CLAUDE_CODE_SESSION_ID?.trim() || `fallback:${captured.host}:${captured.workspace}`;
+function centralAdmissionIdentity(root: string, store: ReturnType<typeof createLocalStore> | undefined, captured: CentralMcpAttachment, expectedInstance: string | undefined): SessionAdmissionIdentity | undefined {
   try {
-    const binding = findBinding(root, { host: captured.host, providerSessionId, workspaceId: captured.workspace });
+    const { providerSessionId, workspaceId } = attachmentBindingKey(captured);
+    let binding = findBinding(root, { host: captured.host, providerSessionId, workspaceId });
+    if (!binding && providerSessionId.startsWith("fallback:")) {
+      // Synthetic fixtures may have planted the legacy raw-path fallback key;
+      // a derived-key miss gets exactly one legacy probe before refusing.
+      binding = findBinding(root, { host: captured.host, providerSessionId: `fallback:${captured.host}:${captured.workspace}`, workspaceId });
+    }
     if (!binding || typeof binding.agentUuid !== "string" || typeof binding.instance !== "string") return undefined;
     // The resume lease stamps the expected instance once identity is ready;
     // the "identity_disabled" sentinel means no expectation is set.
     if (expectedInstance && expectedInstance !== "identity_disabled" && binding.instance !== expectedInstance) return undefined;
+    const launchName = captured.flags.name?.trim() || store?.findInstance(binding.instance)?.name?.trim() || basename(captured.workspace);
     return { agentUuid: binding.agentUuid, instanceId: binding.instance, launchName };
   } catch {
     return undefined;
@@ -163,29 +217,28 @@ function centralAdmissionIdentity(root: string, captured: CentralMcpAttachment, 
 /**
  * H2A-DISP-354: assemble the per-call admission material from the verified
  * route state — the admitted request (transport MAC + signed request id,
- * stashed by the route from the authenticated server's env), the fenced
- * logical transport epoch, the transport session id, and the identity
- * correlation. Anything missing or partial refuses closed (undefined).
+ * threaded per call through the request scope), the fenced logical transport
+ * epoch, the transport session id, and the identity correlation. Anything
+ * missing or partial refuses closed (undefined).
  */
-function routeAdmissionMaterial(root: string, captured: CentralMcpAttachment | undefined,
-  record: { participant: import('./handover/participants.js').AttachmentParticipant; transport: StreamableHTTPTransport; logical?: any; admitted?: unknown } | undefined): CentralAdmissionMaterial | undefined {
+function routeAdmissionMaterial(root: string, store: ReturnType<typeof createLocalStore> | undefined, captured: CentralMcpAttachment | undefined,
+  record: { participant: import('./handover/participants.js').AttachmentParticipant; transport: StreamableHTTPTransport; logical?: any } | undefined): CentralAdmissionMaterial | undefined {
   if (!record || !captured) return undefined;
-  const admitted = record.admitted as { mac?: unknown; requestUid?: unknown } | undefined;
+  const admitted = admittedRequestScope.getStore();
+  if (!admitted) return undefined;
   const sessionId = record.transport.sessionId;
   if (typeof sessionId !== "string" || !sessionId) return undefined;
-  if (typeof admitted?.mac !== "string" || !/^[0-9a-f]{64}$/.test(admitted.mac)) return undefined;
-  if (typeof admitted.requestUid !== "string" || !admitted.requestUid) return undefined;
   const epoch = record.logical?.transportEpoch;
   if (typeof epoch !== "number" || !Number.isInteger(epoch) || epoch < 1) return undefined;
   return {
     attachmentId: record.participant.token.attachmentId,
     transportMac: admitted.mac,
-    transportEpoch: String(epoch),
+    transportEpoch: epoch,
     sessionId,
     centralHost: captured.host,
     channelBinding: "stdio_host_managed_verified",
     signedRequestId: admitted.requestUid,
-    identity: centralAdmissionIdentity(root, captured, record.logical?.expectedInstance)
+    identity: centralAdmissionIdentity(root, store, captured, record.logical?.expectedInstance)
   };
 }
 
@@ -274,7 +327,7 @@ function createCentralApp(
   const lag = monitorEventLoopDelay({ resolution: 20 });
   lag.enable();
   app.use(new URL(endpoint).pathname, bodyLimit({ maxSize: 4 * 1024 * 1024 }));
-  type Attachment = { participant: import("./handover/participants.js").AttachmentParticipant; transport: StreamableHTTPTransport; handle: CentralAttachmentHandle; touched: number; closing?: Promise<void>; logical?: any; disconnected?: boolean; admitted?: unknown };
+  type Attachment = { participant: import("./handover/participants.js").AttachmentParticipant; transport: StreamableHTTPTransport; handle: CentralAttachmentHandle; touched: number; closing?: Promise<void>; logical?: any; disconnected?: boolean };
   const sessions = new Map<string, Attachment>();
   const transports = new AttachmentTransports({ generation, capacity: options.maxAttachments });
   let descriptor = describeCatalogue(JSON.parse(JSON.stringify(H2A_CLI_MCP_TOOL_DESCRIPTORS)));
@@ -557,13 +610,13 @@ function createCentralApp(
         if (requestedLock !== bridgeLockDigest(options.registry.lock)) return context.json({ error: "integrity_mismatch: bridge and central registry locks differ" }, 409);
         registry = options.registry;
       }
-      // H2A-DISP-354: per-attachment admission thunk — builds H3 evidence per
-      // call from the verified route state (stashed admitted request + the
-      // attachment's logical transport + the binding-store identity). The
-      // thunk stays lazy: memory dispatch without verifiable material
-      // refuses closed inside the daemon.
+      // H2A-DISP-354: per-attachment admission thunk — builds H3 admission
+      // per call from the verified route state (the per-call admitted
+      // request in the request scope + the attachment's logical transport +
+      // the binding-store identity). The thunk stays lazy: memory dispatch
+      // without verifiable material refuses closed inside the daemon.
       if (registry) {
-        registry = { ...registry, admission: () => sessionAdmissionEvidence(routeAdmissionMaterial(root, captured, created)) };
+        registry = { ...registry, admission: () => sessionAdmissionEvidence(routeAdmissionMaterial(root, sharedStore, captured, created)) };
       }
       const participant = participants()!.attach(logicalId, { workspace, ...(captured ? { attachment: captured } : {}) });
       participant.initialized = false;
@@ -605,11 +658,15 @@ function createCentralApp(
       return context.body(null, 200);
     }
     // H2A-DISP-354: the authenticated server passes the verified request
-    // (MAC, requestUid, attachmentId, transportEpoch) as the route env;
-    // stash it for this call's admission evidence before dispatch.
-    attachment.admitted = context.env ?? attachment.admitted;
+    // (MAC, requestUid, attachmentId, transportEpoch) as the route env.
+    // Thread it PER CALL through the request scope wrapping the transport
+    // handling, so the admission thunk always reads THIS call's transport
+    // proof — never a previous call's (there is no shared stash to keep or
+    // reuse; a request without a valid admitted proof composes no material
+    // and refuses fail-closed).
+    const admitted = admittedRequestOf(context.env);
     let response;
-    try { response = await attachment.transport.handleRequest(context); }
+    try { response = await admittedRequestScope.run(admitted, () => attachment.transport.handleRequest(context)); }
     catch (error) {
       if (!requestedSessionId) { await attachment.participant.close(() => attachment.handle.close()); await attachment.transport.close(); }
       throw error;

@@ -13,13 +13,16 @@ import { sessionAdmissionEvidence } from "../../dist/runtime/mcp-central-attachm
 export const MEMORY_ID = "sentropic.engram.memory";
 export const MEMORY_NAMES = ["search", "get", "capture", "request_admission", "withdraw", "forget"].map(x => "engram_memory_" + x);
 export const configuration = { mode: "embedded-local", hostBindingRef: "memory-pilot" };
-// Valid H3 admission evidence for contract tests that dispatch through the
-// daemon seam directly (no authenticated central route to compose it).
+// Valid H3 admission (evidence + lateral transport material) for contract
+// tests that dispatch through the daemon seam directly (no authenticated
+// central route to compose it). The frozen 11-key record carries the epoch
+// token; the verified transport MAC, channel binding and session id ride the
+// sibling `transport` member, never the wire record.
 export function admissionEvidence() {
   return sessionAdmissionEvidence({
     attachmentId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
     transportMac: "cd".repeat(32),
-    transportEpoch: "1",
+    transportEpoch: 1,
     centralHost: "codex",
     channelBinding: "in_process_verified",
     sessionId: "session-contract-l2",
