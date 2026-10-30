@@ -872,10 +872,10 @@ export const H2A_CLI_VERB_CONTRACTS: readonly H2ACliVerbContract[] = [
     verb: "org provision",
     outputShape: "action",
     exitCodes: [0, 1, 3],
-    requiredFlags: [],
-    optionalFlags: ["file", "root", "by"],
+    requiredFlags: ["ratified"],
+    optionalFlags: ["file", "root", "by", "private-key"],
     description:
-      "Apply a (ratified) org manifest to the live estate — **reconcile keyed-only**: for each declared instance already registered, append role/scope membership **grants** (append-only `org-membership.jsonl`, DEC-078-style; never a registration rewrite; idempotent). A declared-but-unregistered instance is reported under `pending` (needs key + register), never auto-stubbed. Returns `{ ok, scope, applied, unchanged, pending }`. Refuses an invalid manifest (exit 1), exit 3 if unreadable. EVO-7, DEC-109."
+      "Apply the PRINCIPAL-ratified org manifest to the live estate — **reconcile keyed-only**: for each declared instance already registered, append role/scope membership **grants** (append-only `org-membership.jsonl`, DEC-078-style; never a registration rewrite; idempotent). Fails closed (H2A-ORG-H1): `--ratified <envelope.json>` must carry the owning PRINCIPAL's signed `org-ratified` envelope over exactly the committed manifest, verified against a registered key — no verified ratification, no grant (no second approval step behind the check). Each declared memorial agent also gets a signed `RoleScopePolicyV1` emitted under `policies` (`--private-key`, the ratifying PRINCIPAL's own key). A declared-but-unregistered instance is reported under `pending` (needs key + register), never auto-stubbed. Returns `{ ok, scope, applied, unchanged, pending, policies }`. Refuses an invalid or unratified org (exit 1), exit 3 if unreadable. EVO-7, DEC-109, H2A-ORG-H1."
   },
   {
     verb: "coach propose",

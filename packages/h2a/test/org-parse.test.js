@@ -131,3 +131,83 @@ test("empty document parses to an empty mapping → shape errors, no throw", () 
   assert.equal(manifest, undefined);
   assert.ok(errors.length >= 1);
 });
+
+// ---------------------------------------------------------------------------
+// H2A-ORG-H1 — the memorial-agent declaration block (r2 §2.4) parses from the
+// committed block-YAML subset into the typed declaration, with the same
+// path-anchored shape errors as every other manifest field.
+// ---------------------------------------------------------------------------
+
+const MEMORIAL_YAML = `scope: org:acme
+instances:
+  - instance: claude:lead
+    role: PRINCIPAL
+    scopes: [org:acme]
+  - instance: codex:dev-1
+    role: AGENTS
+    scopes: [org:acme]
+    memorialAgent:
+      launchName: dev-1
+      agentUuid: 0199c0de-0000-7000-8000-000000000001
+      policyRef: sha256:0000
+      memoryPurpose: purpose:org:acme/role-memory
+      subAgentMemory: none
+      cliPassThrough:
+        allowedCliKinds: [claude, codex]
+        allowedModels: [muse-spark-1.3]
+        effortCeiling: high
+`;
+
+test("parses a memorial-agent declaration block", () => {
+  const { manifest, errors } = parseOrgManifest(MEMORIAL_YAML);
+  assert.deepEqual(errors, []);
+  assert.ok(manifest);
+  assert.deepEqual(manifest.instances[1].memorialAgent, {
+    launchName: "dev-1",
+    agentUuid: "0199c0de-0000-7000-8000-000000000001",
+    policyRef: "sha256:0000",
+    memoryPurpose: "purpose:org:acme/role-memory",
+    subAgentMemory: "none",
+    cliPassThrough: {
+      allowedCliKinds: ["claude", "codex"],
+      allowedModels: ["muse-spark-1.3"],
+      effortCeiling: "high"
+    }
+  });
+  // an instance without a block stays without one
+  assert.equal(manifest.instances[0].memorialAgent, undefined);
+});
+
+test("a missing launchName in the memorial-agent block is a shape error", () => {
+  const bad = MEMORIAL_YAML.replace("      launchName: dev-1\n", "");
+  const { manifest, errors } = parseOrgManifest(bad);
+  assert.equal(manifest, undefined);
+  assert.ok(errors.some((e) => /instances\[1\]\.memorialAgent\.launchName: a non-empty string is required/.test(e)));
+});
+
+test("an unknown sub-agent policy in YAML is a shape error", () => {
+  const bad = MEMORIAL_YAML.replace("subAgentMemory: none", "subAgentMemory: always");
+  const { manifest, errors } = parseOrgManifest(bad);
+  assert.equal(manifest, undefined);
+  assert.ok(errors.some((e) => /instances\[1\]\.memorialAgent\.subAgentMemory: expected "none" or "inherit"/.test(e)));
+});
+
+test("a pass-through ceiling without CLI kinds in YAML is a shape error", () => {
+  const bad = MEMORIAL_YAML.replace("        allowedCliKinds: [claude, codex]", "        allowedModels: [muse-spark-1.3]");
+  const { manifest, errors } = parseOrgManifest(bad);
+  assert.equal(manifest, undefined);
+  assert.ok(
+    errors.some((e) =>
+      /instances\[1\]\.memorialAgent\.cliPassThrough\.allowedCliKinds: at least one CLI kind is required/.test(e)
+    )
+  );
+});
+
+test("a non-mapping memorialAgent in YAML is a shape error", () => {
+  // the whole declaration block collapses into a bare scalar
+  const bad =
+    MEMORIAL_YAML.slice(0, MEMORIAL_YAML.indexOf("    memorialAgent:")) + "    memorialAgent: dev-1\n";
+  const { manifest, errors } = parseOrgManifest(bad);
+  assert.equal(manifest, undefined);
+  assert.ok(errors.some((e) => /instances\[1\]\.memorialAgent: expected a mapping/.test(e)));
+});

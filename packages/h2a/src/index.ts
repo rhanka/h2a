@@ -326,12 +326,23 @@ export type { H2ABlockage, H2ABlockageBody } from "./blockage.js";
 export {
   H2A_ORG_PROPOSAL_BODY_KIND,
   H2A_ORG_RATIFIED_BODY_KIND,
+  H2A_ROLE_SCOPE_POLICY_FORMAT,
+  H2A_ROLE_SCOPE_POLICY_REVOCATION_FORMAT,
+  buildRoleScopePolicyRevocationV1,
+  buildRoleScopePolicyV1,
   diffOrgManifest,
   effectiveOrgInstances,
+  isRoleScopePolicyRevoked,
   orgAssignmentEnvelope,
-  validateOrgManifest
+  signRoleScopePolicyRevocationV1,
+  signRoleScopePolicyV1,
+  validateOrgManifest,
+  verifyOrgRatification,
+  verifyRoleScopePolicyRevocationV1,
+  verifyRoleScopePolicyV1
 } from "./org.js";
 export type {
+  H2ACliPassThroughCeiling,
   H2AOrgAssignmentActor,
   H2AOrgAssignmentBody,
   H2AOrgAssignmentKind,
@@ -340,10 +351,26 @@ export type {
   H2AOrgDiffEntry,
   H2AOrgInstance,
   H2AOrgManifest,
+  H2AOrgMemorialAgentDeclaration,
   H2AOrgMembershipGrant,
+  H2AOrgRatificationRefusal,
+  H2AOrgRatificationResult,
   H2AOrgRegisteredInstance,
   H2AOrgValidationError,
-  H2AOrgValidationResult
+  H2AOrgValidationResult,
+  H2APolicyMemoryScope,
+  H2APolicyRefusalReason,
+  H2APolicyRevocationCheck,
+  H2APolicyRevocationReason,
+  H2APolicySignOptions,
+  H2APolicySigningClass,
+  H2APolicyVerification,
+  RoleScopePolicyInput,
+  RoleScopePolicyRevocationInput,
+  RoleScopePolicyRevocationV1,
+  RoleScopePolicyV1,
+  UnsignedRoleScopePolicyRevocationV1,
+  UnsignedRoleScopePolicyV1
 } from "./org.js";
 export { H2A_ORG_MANIFEST_FILENAME, parseOrgManifest } from "./org-parse.js";
 export type { H2AOrgParseResult, YamlValue } from "./org-parse.js";
