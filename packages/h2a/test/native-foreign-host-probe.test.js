@@ -4,7 +4,7 @@ import {
 } from "./helpers/native-isolation.js";
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { existsSync, linkSync, mkdirSync, readdirSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, linkSync, mkdirSync, openSync, readdirSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { createConnection } from "node:net";
 import { basename, dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -13,6 +13,18 @@ import { NativeTerminalClient } from "../../h2a-runtime/dist/native-terminal/cli
 
 const terminal = resolve(import.meta.dirname, "../../h2a-runtime/dist/native-terminal");
 const cli = resolve(import.meta.dirname, "../dist/bin.js");
+
+function directoryDescriptor(path, parent, stat = statSync) {
+  try {
+    const info = stat(path);
+    return info.isDirectory() && info.dev === parent.dev && info.ino === parent.ino;
+  } catch (error) {
+    // A live listener can close a startup FD after readdir. A vanished FD no
+    // longer pins the directory; every other inspection error remains fatal.
+    if (error.code === "ENOENT") return false;
+    throw error;
+  }
+}
 
 async function fixture(context, body) {
   assert.equal(process.platform, "linux", "real procfs qualification requires Linux; never skip");
@@ -126,10 +138,8 @@ async function fixture(context, body) {
     await once(connection, "connect");
     const parent = statSync(dirname(socketPath));
     const fdDir = `/proc/${launched.child.pid}/fd`;
-    assert.ok(!readdirSync(fdDir).some(fd => {
-      const info = statSync(join(fdDir, fd));
-      return info.isDirectory() && info.dev === parent.dev && info.ino === parent.ino;
-    }), "legacy host must not pin its bind directory");
+    assert.ok(!readdirSync(fdDir).some(fd => directoryDescriptor(join(fdDir, fd), parent)),
+      "legacy host must not pin its bind directory");
     return { ...launched, async ping() {
       const response = once(connection, "data");
       connection.write("alive");
@@ -194,6 +204,28 @@ test("should prove the target absent beside a foreign host with a deleted socket
     assert.equal(result.status, 0, JSON.stringify(result));
     assert.equal(JSON.parse(result.stdout).verdict, "dead", JSON.stringify(result));
   }));
+
+test("should tolerate a closed legacy descriptor without hiding pinned directories or access errors", context => {
+  const root = createPrivateTestDirectory("f"), opened = new Set();
+  context.after(() => {
+    try { for (const fd of opened) closeSync(fd); }
+    finally { rmSync(root, { recursive: true, force: true }); }
+  });
+  const parent = statSync(root), fdDir = `/proc/${process.pid}/fd`;
+  const transient = openSync(join(root, "transient"), "w");
+  opened.add(transient);
+  const path = join(fdDir, String(transient));
+  assert.equal(directoryDescriptor(path, parent), false, "a regular file does not pin the directory");
+  assert.ok(readdirSync(fdDir).includes(String(transient)), "the real descriptor was enumerated");
+  closeSync(transient);
+  opened.delete(transient);
+  assert.equal(directoryDescriptor(path, parent), false, "an enumerated descriptor can close before stat");
+  const pinned = openSync(root, "r");
+  opened.add(pinned);
+  assert.equal(directoryDescriptor(join(fdDir, String(pinned)), parent), true, "a real directory pin remains visible");
+  const denied = Object.assign(new Error("private descriptor access denied"), { code: "EACCES" });
+  assert.throws(() => directoryDescriptor(path, parent, () => { throw denied; }), error => error === denied);
+});
 
 test("should find a real live session on the target", { timeout: 12_000 }, context =>
   fixture(context, async f => {

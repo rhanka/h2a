@@ -1,5 +1,6 @@
 // Node's event stream is execution evidence; stdout text and exit 0 are not.
 import { identityPath } from './test-execution-evidence.mjs'
+import { CONTRACT_PREFIX } from './cleanse-contract-ledger.mjs'
 
 export default async function* reporter(events) {
   const files = new Map()
@@ -10,6 +11,11 @@ export default async function* reporter(events) {
     if (!data?.file) continue
     const identity = identityPath(data.file)
     if (!files.has(identity)) files.set(identity, { name: identity, status: 'passed', assertionResults: [] })
+    if (type === 'test:diagnostic' && data.message.startsWith(CONTRACT_PREFIX)) {
+      const file = files.get(identity)
+      file.cleanseContracts ??= []
+      file.cleanseContracts.push(JSON.parse(data.message.slice(CONTRACT_PREFIX.length)))
+    }
     if (type === 'test:dequeue') {
       const stack = parents.get(identity) ?? []
       stack[data.nesting] = data.name

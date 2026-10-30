@@ -1,7 +1,7 @@
 // Isolated incident lab: no installed h2a, provider, user bus or owner process.
 // Mandatory Node discovery/release regression. Run after the build with a private TMPDIR.
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
 import { pathToFileURL } from 'node:url';
@@ -372,4 +372,45 @@ test('startup-latency: fresh, resume and restore add at most 500 ms with 500 mix
     t.diagnostic(JSON.stringify({ scenario, emptyMs: samples[0], registry500Ms: samples[1], overheadMs }));
     assert.ok(overheadMs <= 500, `${scenario} added ${overheadMs} ms with 500 rows`);
   }
+});
+
+test('cleanup: wait for the recorded detached writer to die before deleting its fixture', async t => {
+  const f = fixture(t), writer = join(f.root, 'detached-writer.mjs');
+  writeFileSync(writer, `import {mkdirSync} from 'node:fs';
+    setInterval(() => mkdirSync(${JSON.stringify(join(f.root, 'late-write'))}, {recursive:true}), 1);`);
+  const parent = join(f.root, 'parent.mjs');
+  writeFileSync(parent, `import {spawn} from 'node:child_process';
+    const child = spawn(process.execPath, [${JSON.stringify(writer)}], {env:process.env, detached:true, stdio:'ignore'});
+    child.unref();`);
+  assert.equal((await f.start([], parent).done).code, 0);
+  const row = await eventually(() => f.recorded().find(r => r.args[1] === writer), Boolean);
+  const live = () => {
+    try {
+      const stat = readFileSync('/proc/' + row.pid + '/stat', 'utf8').split(') ')[1].split(' ');
+      return stat[19] === row.start && !['Z', 'X'].includes(stat[0]);
+    } catch (error) { if (['ENOENT', 'ESRCH'].includes(error.code)) return false; throw error; }
+  };
+  const kill = process.kill;
+  let delayed;
+  t.after(async () => {
+    process.kill = kill;
+    clearTimeout(delayed);
+    if (live()) kill(row.pid, 'SIGKILL');
+    await eventually(() => !live(), Boolean);
+    rmSync(f.root, { recursive:true, force:true });
+  });
+  // Make signal delivery asynchronous, as for the CI race. Only our own
+  // generation-checked detached child is affected; direct children are reaped.
+  process.kill = function(pid, signal) {
+    if (pid === row.pid && signal === 'SIGKILL') {
+      delayed = setTimeout(() => { if (live()) kill(pid, signal); }, 50);
+      return true;
+    }
+    return kill(pid, signal);
+  };
+  try {
+    await f.dispose();
+    assert.equal(live(), false, 'a signal request is not proof that the detached writer has stopped');
+    assert.equal(existsSync(f.root), false);
+  } finally { process.kill = kill; }
 });

@@ -1,3 +1,45 @@
+# Native cleanse — L0, PR #396 round 8
+
+- Scope: fix the shared round-7 P2 on f40d77204; L0 witnesses only.
+- Root cause: RED MCP signatures omitted global activation/filter choices, hiding selection regressions behind stale-target failures.
+- Fix: bind native global choices and observed effective selection to all eight MCP proofs; preserve ordered OpenCode permission rules.
+- Snapshot: verdict and evidence share one parsed configuration; all adapters reject a change visible only on the first read.
+- Controls: each adapter mutates a global-user selection on an already-RED route, both in the oracle and the installed-candidate baseline; masked choices and rule ordering are covered.
+- Promotion: negative controls restore the post-install configuration after exercising the pre-install stale route; a repaired MCP with a declared GREEN ledger entry remains accepted.
+- Ledger: only eight evidence hashes change; all 42 states stay RED, comparator and execution gates unchanged.
+- Evidence, commands and limitations: docs/reviews/native-cleanse-l0-r8.md; no Python, owner state, installed h2a, full local suite or new peer consensus.
+- Direct CI blockers on 503c52f8d: enrollment fixtures now pass arbitrary base64url nonces through the public JSON challenge route; the journal classification fixture qualifies its real writer before provoking startup failure. Production behavior, assertions and timeouts are unchanged.
+
+# Native cleanse — L0, PR #396 round 7
+
+- Base: rebased onto ec04054b6, merged #395; preserve both branch dossiers and main Hono 2.1.5 lockfile.
+- Scope: resolve round-6 Astra/Sol P2s in L0 witnesses; no L1–L6 product changes.
+- Root cause: universal activation aliases and a transport-only boolean bypassed native tool selection.
+- Fix: adapter-native activation/filter snapshots, real MCP catalogue, env/cwd-aware probes; permanent installed Vibe controls and five mandatory npm oracle identities.
+- Evidence: docs/reviews/native-cleanse-l0-r7.md; reviewer reproductions RED then GREEN on the installed candidate; 42 ledger states remain RED.
+- Targeted gates: baseline/oracle 75 PASS, trust 120 PASS, a/b/c rejected; main and rc.7 48 PASS each. No full local suite or new peer consensus claimed.
+
+# Native cleanse — L0, PR #396 round 5
+
+- Scope: fix the two round-4 P2 findings; L0 witnesses only, no L1–L6 product changes.
+- Vibe: validate the selected transport and initial disabled state before the argv/protocol cache; preserve an initially disabled route without launching it, while still checking its candidate target.
+- Recovery observations: stat/read within the traversal's ENOENT boundary, keep socket device/inode and JSON contents rather than volatile paths; propagate other errors, no retries.
+- RED: Vibe disabled/http false GREEN controls 0/2; four regression controls on f38a98626 helpers 0/4. Deterministic removal of an enumerated lock: 43/48, gate 1; after repair 48/48, gate 0, all 42 exact contract outcomes retained.
+- GREEN: oracle 13/13; baseline + oracle 61/61 through the real npm tests verifier; gate/cache regressions 120/120. Zero skip/todo. Four new identities are required in inventory and the independent trust root.
+- Main 912dd3035 and rc.7 8d588db05: 48/48 each, gate 0, same 42 contract results. Native recovery/contention: 19/19, no skip/todo.
+- First CI: 18/19 success, Node 24 fails in terminal-reset.functional.test.ts while pinning an exited stty descendant. Direct CI blocker: move raw readiness after successful stty completion and remove the 500 ms timer; the real stty stream marker proves ordering deterministically (5/6 RED, 6/6 GREEN on Node 22 and 24, no skip). Terminal-reset assertions and isolation guard remain intact.
+- Evidence and remaining lots: docs/reviews/native-cleanse-l0-r5.md. Private TMPDIR /home/antoinefa/.cache-tmp/h2a-test/run-gVodW4; cleanup and CI recorded at delivery. No Python, installed h2a, owner state, full local suite or new peer consensus.
+
+# Native cleanse — L0, PR #396 round 4
+
+- Scope: resolve all round-3 P1/P2 in L0 witnesses and their npm gate; no L1–L6 product implementation.
+- Committed 42-contract ledger with exact RED signatures or GREEN state. No environment flag controls verdicts; every result is carried by the reporter into the production tests-step verifier. Repairs must flip their ledger entry in the same change.
+- Independent CI controls reject GREEN→RED (including original stale bytes), changed RED signatures and undeclared RED→GREEN, plus missing/duplicate/unknown observations and swallowed assertions.
+- Host controls reject duplicate hook options, Agy enablement changes, and an active plugin MCP resolving to a stale PATH binary despite a healthy direct MCP.
+- Targeted verification: packaged baseline+oracle 57/57, trust root 48/48, adjacent gate/cache tests 72/72, no skip/todo. Main 912dd3035 and rc.7 8d588db05: baseline 48/48 with the same 42 exact RED outcomes; actual npm verifier accepts the matching ledger.
+- First CI: 13/15; fix the directly blocking detached-writer teardown race (deterministic RED→GREEN, crash tests 17/17) and replace the binding-contention release timer with an observed retry (same 1500 ms bound, 2/2). Trust root remains 48/48.
+- Details, RED/GREEN commands and qualification limits: docs/reviews/native-cleanse-l0-r4.md. Private TMPDIR /home/antoinefa/.cache-tmp/h2a-test/run-xyfAMY to remove at delivery; no Python, owner state, installed h2a or new peer consensus.
+
 # Memory MCP — L1 producer skill installation
 
 ## Objective
