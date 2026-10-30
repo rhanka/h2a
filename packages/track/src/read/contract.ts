@@ -58,7 +58,7 @@ import { buildSnapshot, type SnapshotOptions, type SnapshotV1 } from '../report/
  * shapes it returns may only GROW (new methods / new optional fields); nothing is removed or
  * repurposed without a major bump. Consumers gate on `reader.contractVersion`.
  */
-export const READ_CONTRACT_VERSION = '1.24.0' // +reportSnapshot.events: window projection shares the complete folded log
+export const READ_CONTRACT_VERSION = '1.25.0' // B1 readers: report stages grow review/published (writers stay gated until Lot L5)
 
 /** Provenance of the last `branch.imported` for a locator (drawn from the raw event log). */
 export interface BranchProvenance {
