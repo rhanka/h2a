@@ -51,6 +51,57 @@ export type Disposition = 'required' | 'skipped' | 'not-applicable' | 'completed
 export interface Link {
   kind: string
   locator: string
+  /**
+   * Optional motive/justification (required when kind === 'spec-exempt'). Absent => dropped by
+   * canonicalize() (packages/track/src/events/canonical.ts), so a reason-less Link serializes and
+   * hashes byte-identically to the pre-L2 two-field shape.
+   */
+  reason?: string
+}
+
+/**
+ * Request-lifecycle Part 1 (Lot L2) — the `item.link-added` payload: ONE validated link appended to an
+ * existing item's `links[]`.
+ */
+export interface ItemLinkAddedPayload {
+  link: Link
+}
+
+/**
+ * Request-lifecycle Part 1 (Lot L2) — fail-closed validation of a Link payload (mirrors
+ * {@link assertScopeDecl}). Trims `kind`/`locator`/`reason`; rejects a non-object, a blank `kind`, or a
+ * blank `locator`. Enforces C commune's *reasoned spec-exempt* at the write boundary: `kind ===
+ * 'spec-exempt'` requires a non-empty trimmed `reason`. A present-but-blank `reason` on ANY kind is
+ * rejected (never silently dropped); an absent `reason` is omitted so the canonical form stays
+ * hash-minimal. `reason` is dropped when `undefined`, so every pre-L2 `{ kind, locator }` link
+ * serializes byte-identically.
+ */
+export function assertItemLink(input: unknown): Link {
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) {
+    throw new DomainError('item.link: the link must be an object')
+  }
+  const a = input as Record<string, unknown>
+  const kindRaw = a['kind']
+  const locatorRaw = a['locator']
+  if (typeof kindRaw !== 'string' || kindRaw.trim().length === 0) {
+    throw new DomainError('item.link: kind must be a non-empty string')
+  }
+  if (typeof locatorRaw !== 'string' || locatorRaw.trim().length === 0) {
+    throw new DomainError('item.link: locator must be a non-empty string')
+  }
+  const kind = kindRaw.trim()
+  const reason = a['reason']
+  if (kind === 'spec-exempt' && (typeof reason !== 'string' || reason.trim().length === 0)) {
+    throw new DomainError('item.link: kind "spec-exempt" requires a non-empty reason')
+  }
+  if (reason !== undefined && (typeof reason !== 'string' || reason.trim().length === 0)) {
+    throw new DomainError('item.link: reason must be a non-empty string')
+  }
+  return {
+    kind,
+    locator: locatorRaw.trim(),
+    ...(reason !== undefined ? { reason: (reason as string).trim() } : {}),
+  }
 }
 
 /** A realization → `rejected` is the consequence of a `no-go` Decision (SPEC §2.3, §2.6). */

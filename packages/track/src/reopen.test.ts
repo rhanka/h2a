@@ -77,7 +77,7 @@ describe('reopen — contract pins', () => {
   it('pins the new event type, the work-event kind, and the INGEST minor bump', () => {
     expect(EVENT_TYPES).toContain('realization.reopened')
     expect([...WORK_EVENT_KINDS]).toContain('item.reopen')
-    expect(INGEST_CONTRACT_VERSION).toBe('2.2.0')
+    expect(INGEST_CONTRACT_VERSION).toBe('2.3.0')
   })
 
   it('declares the two owner-ratified motives and nothing else', () => {

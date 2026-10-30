@@ -11,7 +11,7 @@
 
 import type { RunResult } from '../model/acceptance.js'
 import type { Dossier, DossierArtifact, Outcome } from '../model/decision.js'
-import type { Disposition, Gate, ItemId, ItemRole, Realization, ScopeDecl, SpecStatus } from '../model/item.js'
+import type { Disposition, Gate, ItemId, ItemRole, Link, Realization, ScopeDecl, SpecStatus } from '../model/item.js'
 import type { ItemCreatedPayload } from '../model/item.js'
 import type { DecisionCreatedPayload } from '../model/decision.js'
 import type { WsjfInputs } from '../model/priority.js'
@@ -108,6 +108,10 @@ function resolveWorkspace(cmd: MappedCommand, state: State): { create: boolean; 
       return { create: false, workspace: item(p['itemId']) ?? state.decisions.get(p['itemId'] as ItemId)?.workspace }
     case 'item.set-raci':
       // RACI is set on the named existing item; a W-pinned channel cannot change accountability on a V item.
+      return { create: false, workspace: item(p['itemId']) }
+    case 'item.add-link':
+      // Request-lifecycle Part 1 (Lot L2) — addItemLink mutates the named item aggregate; contained by
+      // the item's workspace (a W-pinned channel can't pin/exempt/link a V item). Resolved from folded state.
       return { create: false, workspace: item(p['itemId']) }
     case 'item.reparent':
       // The CHILD item is the mutated aggregate; the new parent is checked via affectedTargetWorkspaces.
@@ -287,6 +291,12 @@ function applyCommand(track: Track, cmd: MappedCommand, ctx: IngestContext): str
       // setRaci(itemId, {accountable?, responsible?}) — the clientToken is already in scope via the
       // ingest seam's withClientToken. The payload uses the creation-payload field names unchanged.
       track.setRaci(a[0] as ItemId, a[1] as Parameters<Track['setRaci']>[1])
+      return undefined
+    case 'item.add-link':
+      // addItemLink(itemId, link) — the link shape was validated at the MAP boundary (assertItemLink);
+      // the clientToken is already in scope via the ingest seam's withClientToken (do not double-pass).
+      // Request-lifecycle Part 1 (Lot L2).
+      track.addItemLink(a[0] as ItemId, a[1] as Link)
       return undefined
     case 'item.reparent':
       track.reparentItem(a[0] as ItemId, a[1] as ItemId | undefined)
