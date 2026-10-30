@@ -472,7 +472,9 @@ function itemAffordances(state: State, itemId: ItemId): WorkEventKind[] {
   else if (item.realization === 'in-progress') out.push('item.realize')
   // Cross-cutting actions available while the item is live (not terminal).
   if (item.realization !== 'done' && item.realization !== 'cancelled' && item.realization !== 'rejected') {
-    out.push('item.reparent', 'priority.assess', 'acceptance.criterion', 'blocker.raise')
+    // Request-lifecycle Part 1 (Lot L2) — a link/pin is attachable while the item is live (the facade
+    // re-checks the item exists and the link shape; the fold dedups).
+    out.push('item.reparent', 'item.add-link', 'priority.assess', 'acceptance.criterion', 'blocker.raise')
   }
   return out
 }
@@ -561,6 +563,9 @@ const ITEM_LIFECYCLE_EVENT_TYPES: ReadonlySet<EventType> = new Set<EventType>([
   // trace that already carries the closure must carry its correction too; a trace that showed the `done` and
   // hid the reopening would be exactly the assertion-wider-than-its-evidence the 2026-07-29 ruling attacks.
   'realization.reopened',
+  // Request-lifecycle Part 1 (Lot L2) — attaching a link/pin is a lifecycle FACT (the trace that shows
+  // an item must show its pins/exemptions/delivery links, the C commune evidence surface).
+  'item.link-added',
 ])
 
 /** Origin of a lifecycle step's write — `'agent'` iff `prov.proposed` (an AI proposal), else `'human'`. */

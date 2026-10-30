@@ -41,6 +41,7 @@ import {
   type Outcome,
 } from './model/decision.js'
 import {
+  assertItemLink,
   assertRealizationTransition,
   assertReopenPayload,
   assertReopenTransition,
@@ -404,6 +405,25 @@ export class Track {
     if (!this.state().items.has(itemId)) throw new DomainError(`unknown item ${itemId}`)
     assertItemReportStatus(report)
     this.emit('item', itemId, 'item.report-updated', { ...report })
+  }
+
+  /**
+   * Request-lifecycle Part 1 (Lot L2) — attach ONE link (a spec pin, a REASONED spec-exempt, delivery
+   * evidence, a cross-repo item, …) to an EXISTING item. Appends `item.link-added` on the item's own
+   * aggregate (next seq, no recreate; existing hashes untouched). Strictly additive: no persisted value
+   * is withdrawn, and the fold deduplicates by exact (kind, locator, reason) so an idempotent retry
+   * never duplicates state. Guards (reject with DomainError BEFORE any append): the item exists; the
+   * link shape is validated fail-closed (assertItemLink — kind:'spec-exempt' requires a non-empty
+   * `reason`). `clientToken`-idempotent via withClientToken, matching the other binding item mutations.
+   */
+  addItemLink(itemId: ItemId, link: Link, clientToken?: string): void {
+    if (!this.state().items.has(itemId)) throw new DomainError(`unknown item ${itemId}`)
+    const validated = assertItemLink(link)
+    const emit = (): void => {
+      this.emit('item', itemId, 'item.link-added', { link: validated })
+    }
+    if (clientToken !== undefined) this.withClientToken(clientToken, emit)
+    else emit()
   }
 
   /**
