@@ -15,6 +15,20 @@ import { createHash } from 'node:crypto';
 
 export const CLIS = Object.freeze(['claude', 'codex', 'agy', 'gemini', 'muse', 'vibe']);
 
+// R15 (class-c): the exact launch flags the harness passes each CLI before
+// the prompt, single-sourced. qualify-cross-cli.mjs launches from this map;
+// the seat preflight re-verifies them against `<cli> --help` (no login), so
+// a version drift that drops a flag fails closed as preflight-args-unproven
+// instead of an unexplained cli-exited-before-ready.
+export const PINNED_CLI_ARGS = Object.freeze({
+  claude: Object.freeze([]),
+  codex: Object.freeze(['--no-daemon', '--no-alt-screen']),
+  agy: Object.freeze(['--prompt-interactive']),
+  gemini: Object.freeze(['--prompt-interactive']),
+  muse: Object.freeze(['--no-session-log']),
+  vibe: Object.freeze([]),
+});
+
 // Lot L11 (SPEC v3 §7.1): single-sourced tier-C oracle table. Families with
 // kind 'npm'/'uv' are installed pinned by xcli-install-oracles.mjs and must
 // answer their config oracle with no login. Families with kind 'none' have
@@ -298,17 +312,31 @@ export function vendorRuntimeLabel(cli, path) {
   return pythonEntrypoint(path) ? 'python (not shipped)' : 'non-python (upstream follow-up)';
 }
 
-export function copyLogin(cli, authHome, target, env) {
+// R15 (class-c): the copy report names every skipped allowlisted file with
+// its reason. A missing source used to copy silently: the cell then failed
+// with authentication-required and nothing said which file was absent.
+export function copyLoginReport(cli, authHome, target, env) {
   const copied = [];
-  if (!authHome) return copied;
+  const skipped = [];
+  if (!authHome) return { copied, skipped };
   assert.ok(LOGIN_ROLES.includes(cli), `login-not-confined:${cli}`);
+  if (LOGIN_ALLOWLIST[cli].length === 0) {
+    skipped.push({ file: '(allowlist-empty)', reason: `no-allowlisted-login-files:${cli}` });
+    return { copied, skipped };
+  }
   for (const name of LOGIN_ALLOWLIST[cli]) {
     let fd = null;
     try { fd = openLoginFile(authHome, name); }
-    catch (error) { if (['ENOENT', 'ELOOP', 'ENOTDIR'].includes(error.code)) continue; throw error; }
+    catch (error) {
+      if (['ENOENT', 'ELOOP', 'ENOTDIR'].includes(error.code)) {
+        skipped.push({ file: name, reason: `login-source-${error.code.toLowerCase()}` });
+        continue;
+      }
+      throw error;
+    }
     try {
       const info = fs.fstatSync(fd);
-      if (!info.isFile()) continue;
+      if (!info.isFile()) { skipped.push({ file: name, reason: 'login-source-not-regular' }); continue; }
       const out = loginCopyPath(env, cli, name);
       inside(target, out);
       let bytes = fs.readFileSync(fd);
@@ -326,7 +354,11 @@ export function copyLogin(cli, authHome, target, env) {
       copied.push(name);
     } finally { if (fd !== null) fs.closeSync(fd); }
   }
-  return copied;
+  return { copied, skipped };
+}
+
+export function copyLogin(cli, authHome, target, env) {
+  return copyLoginReport(cli, authHome, target, env).copied;
 }
 
 // Descriptor-relative walk: O_NOFOLLOW protects EVERY component, even if
@@ -423,15 +455,24 @@ function shebangInterpreter(text) {
   if (!tokens.length) return '';
   let rest = tokens;
   if (rest[0] === '/usr/bin/env' || rest[0] === 'env') {
-    rest = rest.slice(1).filter(token => !token.startsWith('-') || /^-\d/.test(token));
+    // env forms take options (-S, -u…) and VAR=val assignments before the
+    // interpreter: skipping only dash-options leaves an assignment in the
+    // interpreter slot and the guard misses the Python behind it.
+    rest = rest.slice(1)
+      .filter(token => !token.startsWith('-') || /^-\d/.test(token))
+      .filter(token => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(token));
   }
   return rest[0] ?? '';
 }
 function isPythonWrapper(text) {
   const lines = text.split('\n');
   if (!/^#!\s*\/bin\/(ba)?sh\b/.test(lines[0] ?? '') && !/^#!\s*\/usr\/bin\/env\s+(ba)?sh\b/.test(lines[0] ?? '')) return false;
+  // VAR=val assignments may precede the interpreter with or without env
+  // (exec FOO=bar python3, exec env FOO=bar python3 -u): skip them so the
+  // guard sees the interpreter behind them, never the assignment.
+  const assignment = String.raw`(?:[A-Za-z_]\w*=(?:"[^"]*"|'[^']*'|\S+)\s+)*`;
   return lines.slice(1).some(line =>
-    /(^|[;&|]\s*|\bexec\s+)(python(\d+(\.\d+){0,2})?|\/[\w./~+-]*python(\d+(\.\d+){0,2})?|(\/[\w./~+-]*env\s+)?(-S\s+)?python(\d+(\.\d+){0,2})?)\b/.test(line));
+    new RegExp(String.raw`(^|[;&|]\s*|\bexec\s+)${assignment}(python(\d+(\.\d+){0,2})?|\/[\w./~+-]*python(\d+(\.\d+){0,2})?|((?:\/[\w./~+-]*env|env\b)\s+)?${assignment}(-S\s+)?${assignment}python(\d+(\.\d+){0,2})?)\b`).test(line));
 }
 // Explicit instrumentation is useful for direct-worker diagnostics, but
 // proves no descendant observation. The parent replaces this partial view

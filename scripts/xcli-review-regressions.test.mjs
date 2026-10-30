@@ -75,10 +75,13 @@ test('L8 review: versions and config oracles use private HOME/XDG/cwd and nested
     const source = join(root, 'source'); fs.mkdirSync(join(source, '.codex'), { recursive: true });
     fs.writeFileSync(join(source, '.codex/auth.json'), '{}');
     const cli = join(root, 'codex'), log = join(root, 'calls.jsonl');
-    fs.writeFileSync(cli, `#!${process.execPath}\nimport fs from 'node:fs';\nfs.appendFileSync(${JSON.stringify(log)},JSON.stringify({home:process.env.HOME,xdg:process.env.XDG_CONFIG_HOME,runtime:process.env.XDG_RUNTIME_DIR,cwd:process.cwd()})+'\\n');\nconsole.log(process.argv.includes('--version')?'1.2.3':'[]');\n`, { mode: 0o700 });
+    // R15: the fixture emulates a real codex --help (pinned flags listed),
+    // so the preflight's three binary probes are version, --help, and the
+    // tier-C oracle — all private.
+    fs.writeFileSync(cli, `#!${process.execPath}\nimport fs from 'node:fs';\nfs.appendFileSync(${JSON.stringify(log)},JSON.stringify({home:process.env.HOME,xdg:process.env.XDG_CONFIG_HOME,runtime:process.env.XDG_RUNTIME_DIR,cwd:process.cwd()})+'\\n');\nconsole.log(process.argv.includes('--version')?'1.2.3':process.argv.includes('--help')?'Usage: codex [--no-daemon] [--no-alt-screen]':'[]');\n`, { mode: 0o700 });
     const result = await runSeatPreflight({ seatId: 'c', family: 'codex', authSource: source }, { executables: { codex: cli } });
     const calls = fs.readFileSync(log, 'utf8').trim().split('\n').map(JSON.parse);
-    assert.equal(calls.length, 2);
+    assert.equal(calls.length, 3);
     for (const call of calls) {
       assert.notEqual(call.home, process.env.HOME);
       assert.ok(call.runtime.startsWith(tmpdir() + '/'));

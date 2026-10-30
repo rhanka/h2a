@@ -611,6 +611,60 @@
         "h2a_drive_consent_status",
         "h2a_drive_consent_revoke"
       ]
+    },
+    {
+      "scenario": "cli-verb:send",
+      "status": "not-covered",
+      "blocker": "scenario-undefined",
+      "owner": "L15"
+    },
+    {
+      "scenario": "cli-verb:inbox-pop",
+      "status": "not-covered",
+      "blocker": "scenario-undefined",
+      "owner": "L15"
+    },
+    {
+      "scenario": "cli-verb:inbox-name-resolution",
+      "status": "not-covered",
+      "blocker": "scenario-undefined",
+      "owner": "L15"
+    },
+    {
+      "scenario": "cli-verb:session-list",
+      "status": "not-covered",
+      "blocker": "scenario-undefined",
+      "owner": "L15"
+    },
+    {
+      "scenario": "cli-verb:session-resume",
+      "status": "not-covered",
+      "blocker": "scenario-undefined",
+      "owner": "L15"
+    },
+    {
+      "scenario": "cli-verb:session-stop",
+      "status": "not-covered",
+      "blocker": "scenario-undefined",
+      "owner": "L15"
+    },
+    {
+      "scenario": "cli-verb:host-setup",
+      "status": "not-covered",
+      "blocker": "scenario-undefined",
+      "owner": "L15"
+    },
+    {
+      "scenario": "cli-verb:host-status",
+      "status": "not-covered",
+      "blocker": "scenario-undefined",
+      "owner": "L15"
+    },
+    {
+      "scenario": "cli-verb:upgrade-refusal",
+      "status": "not-covered",
+      "blocker": "scenario-undefined",
+      "owner": "L15"
     }
   ],
   "simulationMandatory": {

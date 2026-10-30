@@ -49,6 +49,16 @@ test('startup can keep the normal default permissions without auto-approving a t
   assert.equal(startupKey('Allow this shell command? Press Enter to confirm'), undefined);
 });
 
+// R15 (class-c): the post-trust MCP-approval Allow screen (captured 2.1.314
+// vocabulary) is a normal startup action; a shell-command approval stays
+// undefined and fails closed through the tool-approval blocker.
+test('R15: startup handles the MCP-approval Allow screen, never a shell approval', () => {
+  const allow = 'MCP servers need permission to run in this workspace\nOnly allow tools from sources you trust\n[Allow] [Deny]\nPress Enter to confirm your choice';
+  assert.equal(startupKey(allow), 'mcp-approval-allow');
+  assert.equal(startupKey('Allow this shell command? Press Enter to confirm'), undefined);
+  assert.equal(startupKey('Allow "h2a" MCP tool usage?\nPress Enter to confirm'), 'mcp-approval-allow');
+});
+
 test('AGY login selection blocks authentication before messaging can be measured', () => {
   assert.equal(blockingScreen('Select login method: Other sign-in options'), 'authentication-required');
   assert.equal(blockingScreen('Ready · /tmp/private-workspace'), undefined);
@@ -150,10 +160,39 @@ test('L4: login copies accept only the codex and Muse login roles, never ambient
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+// R15 (class-c RED): a missing login source is witnessed as login-skipped
+// with its reason instead of copying silently. Red on pre-fix code:
+// copyLoginReport does not exist.
+test('R15: a missing login source reports login-skipped with its reason', async () => {
+  const { copyLoginReport, environment } = await import('./xcli-lab.mjs');
+  const root = mkdtempSync(join(tmpdir(), 'xcli-login-skipped-'));
+  try {
+    const authHome = join(root, 'auth');
+    fs.mkdirSync(join(authHome, '.codex'), { recursive: true });
+    const cell = join(root, 'cell');
+    const env = environment(join(cell, 'role'));
+    // No .codex/auth.json present: the allowlisted file is skipped, named.
+    const missing = copyLoginReport('codex', authHome, cell, env);
+    assert.deepEqual(missing.copied, []);
+    assert.deepEqual(missing.skipped, [{ file: '.codex/auth.json', reason: 'login-source-enoent' }]);
+    // Present files still copy and report no skip.
+    writeFileSync(join(authHome, '.codex/auth.json'), JSON.stringify({ token: 'dummy-zz9' }));
+    const present = copyLoginReport('codex', authHome, cell, env);
+    assert.deepEqual(present.copied, ['.codex/auth.json']);
+    assert.deepEqual(present.skipped, []);
+    // An empty allowlist reports its own reason, still copying nothing.
+    const vibe = copyLoginReport('vibe', authHome, cell, env);
+    assert.deepEqual(vibe.copied, []);
+    assert.equal(vibe.skipped.length, 1);
+    assert.match(vibe.skipped[0].reason, /no-allowlisted-login-files/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 // Lot L6 RED: the entrypoint guard recognises versioned interpreters, env -S
-// forms, absolute interpreter paths and one-level shell wrappers that exec
-// Python (dummy files, never executed). Red on current code for the
-// versioned, absolute-path and wrapper cases.
+// forms (including VAR=val assignments before the interpreter), absolute
+// interpreter paths and one-level shell wrappers that exec Python (dummy
+// files, never executed). Red on current code for the versioned,
+// absolute-path and wrapper cases; R15 adds the assignment forms.
 test('L6: the entrypoint guard rejects versioned, env-form, absolute and wrapper Python', () => {
   const root = mkdtempSync(join(tmpdir(), 'xcli-guard-'));
   try {
@@ -164,6 +203,12 @@ test('L6: the entrypoint guard rejects versioned, env-form, absolute and wrapper
       ['#!/opt/tools/python3.12\n', true],
       ['#!/bin/sh\nexec /usr/bin/python3 "$@"\n', true],
       ['#!/bin/sh\n/usr/bin/env python3.14 "$@"\n', true],
+      ['#!/usr/bin/env FOO=bar python3.14\n', true],
+      ['#!/usr/bin/env FOO=bar BAR=baz python3\n', true],
+      ['#!/usr/bin/env -S FOO=bar python3 -u\n', true],
+      ['#!/bin/sh\nexec env FOO=bar python3 "$@"\n', true],
+      ['#!/bin/sh\nFOO=bar exec python3.12 "$@"\n', true],
+      ['#!/usr/bin/env FOO=bar node\n', false],
       ['#!/usr/bin/env node\n', false],
       ['#!/bin/sh\necho hi\n', false],
     ];
