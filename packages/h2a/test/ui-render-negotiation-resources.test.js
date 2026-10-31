@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { readInlineModule } from "../dist/runtime/mcp/ui-render/inline.js";
 
 import {
   CATALOG_MIME_TYPE,
@@ -92,7 +93,7 @@ test("listResources returns the 5 pinned descriptors with the pilot CSP declarat
   }
 });
 
-test("readResource render/v1: the MCP App shell inlines the core and #st-host-config", () => {
+test("readResource render/v1: an oversized combined closure explicitly directs to per-component tools", () => {
   const resources = createUiRenderResources({ assets, env: {} });
   const { contents } = resources.readResource(RENDER_URI);
   assert.equal(contents.length, 1);
@@ -103,38 +104,32 @@ test("readResource render/v1: the MCP App shell inlines the core and #st-host-co
   assert.ok(content.text.startsWith("<!DOCTYPE html>"));
   assert.ok(content.text.includes('<script type="application/json" id="st-host-config">'));
   assert.ok(content.text.includes('"theme":"sent-tech"'));
-  // The vendored core runtime is inlined verbatim (it defines all three
-  // custom elements and reads #st-host-config).
-  const core = readFileSync(new URL("dist/browser/elements.js", VENDOR), "utf8");
-  assert.ok(content.text.includes(core.slice(0, 200)), "the core runtime text is inlined");
-  assert.ok(content.text.includes("customElements.define(`st-bar-chart`"));
+  assert.match(content.text, /data-st-resource-degraded="true"/);
+  for (const name of ["BarChart", "DecisionDossier", "BpmnCanvas"]) assert.ok(content.text.includes(`render_${name}`));
+  assert.ok(Buffer.byteLength(content.text) < 960 * 1024);
+  const bar = resources.readResource("ui://sentropic/BarChart/v1").contents[0];
+  assert.ok(bar.text.includes(readInlineModule(assets, "BarChart")));
   // The SEP-1865 shell protocol (h2a spec §3.3).
-  assert.ok(content.text.includes("ui/initialize"));
-  assert.ok(content.text.includes("ui/notifications/tool-input"));
-  assert.ok(content.text.includes("ui/notifications/tool-result"));
-  assert.ok(content.text.includes("host-context-changed"));
-  assert.ok(content.text.includes("submit_intent"));
-  assert.ok(content.text.includes("st-intent"));
-  assert.ok(content.text.includes('"events":{"BarChart":["select"]'));
+  for (const method of ["ui/initialize", "ui/notifications/tool-input", "ui/notifications/tool-result", "host-context-changed", "submit_intent", "st-intent"]) assert.ok(bar.text.includes(method));
+  assert.ok(bar.text.includes('"events":{"BarChart":["select"]'));
 });
 
 test("readResource per-component: core plus only the requested component's chunk", () => {
   const resources = createUiRenderResources({ assets, env: {} });
-  const focusChunk = readFileSync(
-    new URL("dist/browser/chunks/focus-renderer-C4z8aS9F.js", VENDOR),
-    "utf8"
-  );
+  const focusChunk = readInlineModule(assets, "DecisionDossier");
   const dossier = resources.readResource("ui://sentropic/DecisionDossier/v1").contents[0];
   assert.equal(dossier.mimeType, UI_MIME_TYPE);
-  assert.ok(dossier.text.includes(focusChunk.slice(0, 120)), "the focus chunk text is inlined");
-  assert.ok(dossier.text.includes("customElements.define(`st-decision-dossier`"));
+  assert.ok(dossier.text.includes(focusChunk), "the complete focus closure is inlined");
   const bar = resources.readResource("ui://sentropic/BarChart/v1").contents[0];
-  assert.ok(bar.text.includes("customElements.define(`st-bar-chart`"));
+  assert.ok(bar.text.includes(readInlineModule(assets, "BarChart")));
   assert.equal(
-    bar.text.includes(focusChunk.slice(0, 120)),
+    bar.text.includes(focusChunk),
     false,
     "BarChart's resource must not inline another component's chunk"
   );
+  const bpmn = resources.readResource("ui://sentropic/BpmnCanvas/v1").contents[0];
+  assert.match(bpmn.text, /data-st-resource-degraded="true"/);
+  assert.match(bpmn.text, /non-UI text fallback/);
 });
 
 test("readResource a2ui catalog: the exact pinned catalog text", () => {
