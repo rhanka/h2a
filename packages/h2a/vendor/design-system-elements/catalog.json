@@ -1,0 +1,1234 @@
+{
+  "$defs": {
+    "CatalogComponentCommon": {
+      "properties": {
+        "weight": {
+          "description": "The relative weight of this component within a Row or Column. This is similar to the CSS 'flex-grow' property. Note: this may ONLY be set when the component is a direct descendant of a Row or Column.",
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "DecisionDossierDocument": {
+      "$defs": {
+        "amendmentStep": {
+          "additionalProperties": false,
+          "properties": {
+            "at": {
+              "type": "string"
+            },
+            "author": {
+              "type": "string"
+            },
+            "summary": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "at",
+            "author",
+            "summary"
+          ],
+          "type": "object"
+        },
+        "amendmentTraceNode": {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "amendmentTrace"
+            },
+            "steps": {
+              "items": {
+                "$ref": "#/$defs/DecisionDossierDocument/$defs/amendmentStep"
+              },
+              "type": "array"
+            },
+            "targetRef": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "steps",
+            "targetRef"
+          ],
+          "type": "object"
+        },
+        "comprehensionEvidence": {
+          "additionalProperties": false,
+          "properties": {
+            "dossierHash": {
+              "type": "string"
+            },
+            "signature": {
+              "type": "string"
+            },
+            "subject": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "dossierHash",
+            "subject"
+          ],
+          "type": "object"
+        },
+        "diagramNode": {
+          "additionalProperties": false,
+          "properties": {
+            "alt": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "diagram"
+            },
+            "scene": {
+              "description": "diagram-core SemanticDocument, profile generic@1, without views, geometry or layout hints. Opaque JSON until the design-system publishes its authoritative schema; no Focus-specific scene model.",
+              "type": "object"
+            },
+            "source": {
+              "type": "string"
+            },
+            "syntax": {
+              "enum": [
+                "mermaid",
+                "plantuml"
+              ]
+            },
+            "targetRef": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "alt",
+            "id",
+            "kind",
+            "source",
+            "syntax",
+            "targetRef"
+          ],
+          "type": "object"
+        },
+        "glossaryEntry": {
+          "additionalProperties": false,
+          "properties": {
+            "definition": {
+              "type": "string"
+            },
+            "term": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "definition",
+            "term"
+          ],
+          "type": "object"
+        },
+        "interaction": {
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "const": false
+            },
+            "label": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "targetRef": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "enabled",
+            "label",
+            "name",
+            "targetRef"
+          ],
+          "type": "object"
+        },
+        "optionNode": {
+          "additionalProperties": false,
+          "properties": {
+            "annotation": {
+              "enum": [
+                "accept",
+                "comment",
+                "none",
+                "reject"
+              ]
+            },
+            "annotationComment": {
+              "type": "string"
+            },
+            "body": {
+              "type": "string"
+            },
+            "consequence": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "option"
+            },
+            "label": {
+              "type": "string"
+            },
+            "targetRef": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "annotation",
+            "id",
+            "kind",
+            "label",
+            "targetRef"
+          ],
+          "type": "object"
+        },
+        "optionSetNode": {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "optionSet"
+            },
+            "options": {
+              "items": {
+                "$ref": "#/$defs/DecisionDossierDocument/$defs/optionNode"
+              },
+              "type": "array"
+            },
+            "questionId": {
+              "type": "string"
+            },
+            "targetRef": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "options",
+            "targetRef"
+          ],
+          "type": "object"
+        },
+        "outcomeNode": {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "outcome"
+            },
+            "modality": {
+              "enum": [
+                "amendment",
+                "comment",
+                "decision",
+                "orientation"
+              ]
+            },
+            "questionId": {
+              "type": "string"
+            },
+            "statement": {
+              "type": "string"
+            },
+            "targetRef": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "modality",
+            "statement",
+            "targetRef"
+          ],
+          "type": "object"
+        },
+        "proseNode": {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "prose"
+            },
+            "markdown": {
+              "type": "string"
+            },
+            "questionId": {
+              "type": "string"
+            },
+            "targetRef": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "markdown",
+            "targetRef"
+          ],
+          "type": "object"
+        },
+        "provenance": {
+          "additionalProperties": false,
+          "properties": {
+            "comprehensionEvidence": {
+              "$ref": "#/$defs/DecisionDossierDocument/$defs/comprehensionEvidence"
+            },
+            "readAt": {
+              "type": "string"
+            },
+            "source": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "readAt",
+            "source"
+          ],
+          "type": "object"
+        },
+        "questionNode": {
+          "additionalProperties": false,
+          "properties": {
+            "answer": {
+              "type": "string"
+            },
+            "context": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "question"
+            },
+            "question": {
+              "type": "string"
+            },
+            "readingTimeMinutes": {
+              "type": "number"
+            },
+            "recommendedAnswer": {
+              "type": "string"
+            },
+            "recommendedOptionId": {
+              "type": "string"
+            },
+            "state": {
+              "enum": [
+                "answered",
+                "open",
+                "validated"
+              ]
+            },
+            "targetRef": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "question",
+            "state",
+            "targetRef"
+          ],
+          "type": "object"
+        },
+        "readability": {
+          "additionalProperties": false,
+          "properties": {
+            "glossary": {
+              "items": {
+                "$ref": "#/$defs/DecisionDossierDocument/$defs/glossaryEntry"
+              },
+              "type": "array"
+            },
+            "noOwnerRequest": {
+              "type": "boolean"
+            },
+            "ownerRequestQuote": {
+              "type": "string"
+            },
+            "readingBudgetMinutes": {
+              "type": "number"
+            },
+            "stakes": {
+              "type": "string"
+            },
+            "stakesLevel": {
+              "enum": [
+                "high",
+                "low",
+                "medium"
+              ]
+            }
+          },
+          "type": "object"
+        },
+        "section": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/DecisionDossierDocument/$defs/proseNode"
+            },
+            {
+              "$ref": "#/$defs/DecisionDossierDocument/$defs/questionNode"
+            },
+            {
+              "$ref": "#/$defs/DecisionDossierDocument/$defs/optionSetNode"
+            },
+            {
+              "$ref": "#/$defs/DecisionDossierDocument/$defs/outcomeNode"
+            },
+            {
+              "$ref": "#/$defs/DecisionDossierDocument/$defs/amendmentTraceNode"
+            },
+            {
+              "$ref": "#/$defs/DecisionDossierDocument/$defs/diagramNode"
+            }
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Read-only decision-dossier snapshot published by @sentropic/focus. Closed: unknown fields refuse. Snapshot interactions are disabled metadata (enabled:false); live decisions, signatures and amendments require separately qualified runtime capabilities.",
+      "properties": {
+        "amendmentTrace": {
+          "items": {
+            "$ref": "#/$defs/DecisionDossierDocument/$defs/amendmentStep"
+          },
+          "type": "array"
+        },
+        "cursor": {
+          "type": "string"
+        },
+        "hash": {
+          "type": "string"
+        },
+        "interactions": {
+          "items": {
+            "$ref": "#/$defs/DecisionDossierDocument/$defs/interaction"
+          },
+          "type": "array"
+        },
+        "provenance": {
+          "$ref": "#/$defs/DecisionDossierDocument/$defs/provenance"
+        },
+        "readability": {
+          "$ref": "#/$defs/DecisionDossierDocument/$defs/readability"
+        },
+        "ref": {
+          "type": "string"
+        },
+        "sections": {
+          "items": {
+            "$ref": "#/$defs/DecisionDossierDocument/$defs/section"
+          },
+          "type": "array"
+        },
+        "subject": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "amendmentTrace",
+        "cursor",
+        "hash",
+        "interactions",
+        "provenance",
+        "ref",
+        "sections",
+        "subject",
+        "title"
+      ],
+      "title": "DecisionDossierDocument",
+      "type": "object"
+    },
+    "anyComponent": {
+      "oneOf": [
+        {
+          "$ref": "#/components/BarChart"
+        },
+        {
+          "$ref": "#/components/BpmnCanvas"
+        },
+        {
+          "$ref": "#/components/DecisionDossier"
+        }
+      ]
+    },
+    "theme": {
+      "properties": {
+        "themeId": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "$id": "https://design-system.sent-tech.ca/catalogs/elements/v1/catalog.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "catalogId": "https://design-system.sent-tech.ca/catalogs/elements/v1/catalog.json",
+  "components": {
+    "BarChart": {
+      "allOf": [
+        {
+          "$ref": "https://a2ui.org/specification/v0_9_1/common_types.json#/$defs/ComponentCommon"
+        },
+        {
+          "$ref": "#/$defs/CatalogComponentCommon"
+        },
+        {
+          "properties": {
+            "accessibility": {
+              "additionalProperties": false,
+              "properties": {
+                "description": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "annotations": {
+              "description": "Annotation overlay in data space (see ChartAnnotation).",
+              "items": {
+                "anyOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "kind": {
+                        "const": "point",
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string"
+                      },
+                      "marker": {
+                        "description": "Marker glyph for a point annotation.",
+                        "enum": [
+                          "circle",
+                          "diamond",
+                          "square"
+                        ],
+                        "type": "string"
+                      },
+                      "x": {
+                        "type": [
+                          "number",
+                          "string"
+                        ]
+                      },
+                      "y": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "x",
+                      "y"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "anchor": {
+                        "enum": [
+                          "end",
+                          "middle",
+                          "start"
+                        ],
+                        "type": "string"
+                      },
+                      "kind": {
+                        "const": "label",
+                        "type": "string"
+                      },
+                      "text": {
+                        "type": "string"
+                      },
+                      "x": {
+                        "type": [
+                          "number",
+                          "string"
+                        ]
+                      },
+                      "y": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "text",
+                      "x",
+                      "y"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "axis": {
+                        "enum": [
+                          "x",
+                          "y"
+                        ],
+                        "type": "string"
+                      },
+                      "kind": {
+                        "const": "line",
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string"
+                      },
+                      "value": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "axis",
+                      "kind",
+                      "value"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "axis": {
+                        "enum": [
+                          "x",
+                          "y"
+                        ],
+                        "type": "string"
+                      },
+                      "from": {
+                        "type": "number"
+                      },
+                      "kind": {
+                        "const": "region",
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string"
+                      },
+                      "to": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "axis",
+                      "from",
+                      "kind",
+                      "to"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "kind": {
+                        "const": "shape",
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string"
+                      },
+                      "points": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "x": {
+                              "type": [
+                                "number",
+                                "string"
+                              ]
+                            },
+                            "y": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "x",
+                            "y"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "points"
+                    ],
+                    "type": "object"
+                  }
+                ],
+                "description": "Annotation overlay in data space, discriminated on `kind`. The `x` coordinate is categorical for this chart: it matches a bar by its `label` and is ignored otherwise; `y` and every value-axis number are numeric."
+              },
+              "type": "array"
+            },
+            "bands": {
+              "description": "Shaded value-axis bands.",
+              "items": {
+                "additionalProperties": false,
+                "description": "A shaded band between two value-axis positions.",
+                "properties": {
+                  "from": {
+                    "description": "Band start in value-axis units.",
+                    "type": "number"
+                  },
+                  "label": {
+                    "description": "Human-readable band label.",
+                    "type": "string"
+                  },
+                  "to": {
+                    "description": "Band end in value-axis units.",
+                    "type": "number"
+                  },
+                  "tone": {
+                    "description": "Feedback-token tone for the band.",
+                    "enum": [
+                      "error",
+                      "info",
+                      "neutral",
+                      "success",
+                      "warning"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "from",
+                  "to"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "component": {
+              "const": "BarChart"
+            },
+            "data": {
+              "description": "The bars, in draw order. Required.",
+              "items": {
+                "additionalProperties": false,
+                "description": "One bar: its label is also its selection key.",
+                "properties": {
+                  "errorHigh": {
+                    "description": "Upper error-bar extent (value-axis units). Drawn only when finite.",
+                    "type": "number"
+                  },
+                  "errorLow": {
+                    "description": "Lower error-bar extent (value-axis units). Drawn only when finite.",
+                    "type": "number"
+                  },
+                  "label": {
+                    "description": "The bar's category label; also its key for selection and hover.",
+                    "type": "string"
+                  },
+                  "tone": {
+                    "description": "Explicit categorical tone; the palette default when absent.",
+                    "enum": [
+                      "category1",
+                      "category2",
+                      "category3",
+                      "category4",
+                      "category5",
+                      "category6",
+                      "category7",
+                      "category8"
+                    ],
+                    "type": "string"
+                  },
+                  "value": {
+                    "description": "The bar's value (value-axis units).",
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "label",
+                  "value"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "dataLabels": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "position": {
+                      "description": "Placement hint; the chart's default when absent.",
+                      "enum": [
+                        "auto",
+                        "center",
+                        "inside",
+                        "outside",
+                        "top"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              ],
+              "description": "Per-bar value labels; absent or false renders none."
+            },
+            "domain": {
+              "description": "Fixed value-axis domain [min, max]; the auto data range when absent.",
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            "goalLine": {
+              "additionalProperties": false,
+              "description": "A single goal line, emphasised above the bars.",
+              "properties": {
+                "label": {
+                  "description": "Human-readable goal label.",
+                  "type": "string"
+                },
+                "value": {
+                  "description": "Position of the goal line in value-axis units.",
+                  "type": "number"
+                }
+              },
+              "required": [
+                "value"
+              ],
+              "type": "object"
+            },
+            "height": {
+              "description": "Fixed pixel height; the component's default when absent.",
+              "type": "number"
+            },
+            "hoverKey": {
+              "description": "Controlled synchronised hover key (a bar's label, or null for none).",
+              "type": [
+                "null",
+                "string"
+              ]
+            },
+            "invertAxis": {
+              "description": "Inverts the value axis (high values toward the origin). Default false.",
+              "type": "boolean"
+            },
+            "keyboardNav": {
+              "description": "Keyboard navigation of the data points (roving tabindex).",
+              "type": "boolean"
+            },
+            "label": {
+              "description": "Human-readable chart label (also the accessible name). Required.",
+              "type": "string"
+            },
+            "orientation": {
+              "description": "Bar direction; \"vertical\" by default.",
+              "enum": [
+                "horizontal",
+                "vertical"
+              ],
+              "type": "string"
+            },
+            "referenceLines": {
+              "description": "Reference lines on the value axis.",
+              "items": {
+                "additionalProperties": false,
+                "description": "A reference line on one axis (default axis: \"y\").",
+                "properties": {
+                  "axis": {
+                    "description": "Which axis the line spans; \"y\" by default.",
+                    "enum": [
+                      "x",
+                      "y"
+                    ],
+                    "type": "string"
+                  },
+                  "label": {
+                    "description": "Human-readable line label.",
+                    "type": "string"
+                  },
+                  "tone": {
+                    "description": "Feedback-token tone for the line.",
+                    "enum": [
+                      "error",
+                      "info",
+                      "neutral",
+                      "success",
+                      "warning"
+                    ],
+                    "type": "string"
+                  },
+                  "value": {
+                    "description": "Position of the line in value-axis units.",
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "value"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "scale": {
+              "description": "Value-axis scale; \"linear\" by default, \"log\" needs positive values.",
+              "enum": [
+                "linear",
+                "log"
+              ],
+              "type": "string"
+            },
+            "selectedKeys": {
+              "description": "Keys of the currently selected bars (a bar's key is its label). Controlled.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "showLegend": {
+              "description": "Accepted for cross-chart parity; BarChart has no separate legend surface.",
+              "type": "boolean"
+            },
+            "width": {
+              "description": "Fixed pixel width; the container's when absent.",
+              "type": "number"
+            }
+          },
+          "required": [
+            "component",
+            "data",
+            "label"
+          ],
+          "type": "object"
+        }
+      ],
+      "type": "object",
+      "unevaluatedProperties": false,
+      "x-sentropic": {
+        "contract": "1.0",
+        "element": "st-bar-chart",
+        "engine": "core",
+        "events": [
+          "select"
+        ],
+        "example": {
+          "component": "BarChart",
+          "data": [
+            {
+              "label": "Q1",
+              "value": 12
+            },
+            {
+              "label": "Q2",
+              "value": 18
+            },
+            {
+              "label": "Q3",
+              "value": 9
+            }
+          ],
+          "dataLabels": true,
+          "id": "root",
+          "label": "Revenue (M€)",
+          "referenceLines": [
+            {
+              "label": "Target",
+              "value": 15
+            }
+          ]
+        },
+        "fallback": "svg",
+        "parity": {
+          "angular": {
+            "comparedProps": 17,
+            "file": "packages/components-angular/src/BarChart.ts",
+            "status": "match",
+            "type": "BarChartProps"
+          },
+          "react": {
+            "comparedProps": 17,
+            "file": "packages/components-react/src/BarChart.tsx",
+            "note": "Own members after subtracting React.HTMLAttributes<HTMLDivElement>; className is React's name for the class style hook.",
+            "status": "match",
+            "type": "BarChartProps"
+          },
+          "svelte": {
+            "file": "packages/components-svelte/src/lib/BarChart.svelte",
+            "note": "Reference pilot (§3.1); not mechanically generatable (Svelte file), mirrored here member for member.",
+            "status": "source-of-truth",
+            "type": "BarChartProps"
+          },
+          "vue": {
+            "comparedProps": 17,
+            "file": "packages/components-vue/src/BarChart.ts",
+            "status": "match",
+            "type": "BarChartProps"
+          }
+        },
+        "schema": "https://design-system.sent-tech.ca/catalogs/elements/v1/components/BarChart.json"
+      }
+    },
+    "BpmnCanvas": {
+      "allOf": [
+        {
+          "$ref": "https://a2ui.org/specification/v0_9_1/common_types.json#/$defs/ComponentCommon"
+        },
+        {
+          "$ref": "#/$defs/CatalogComponentCommon"
+        },
+        {
+          "properties": {
+            "accessibility": {
+              "additionalProperties": false,
+              "properties": {
+                "description": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "component": {
+              "const": "BpmnCanvas"
+            },
+            "document": {
+              "additionalProperties": {},
+              "description": "The F1 document to render: a structural envelope the engine's hydrate validates.",
+              "properties": {
+                "$type": {
+                  "description": "F1 type discriminator, e.g. \"bpmn:Definitions\".",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "$type"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "component",
+            "document"
+          ],
+          "type": "object"
+        }
+      ],
+      "type": "object",
+      "unevaluatedProperties": false,
+      "x-sentropic": {
+        "contract": "1.0",
+        "element": "st-bpmn-canvas",
+        "engine": "lazy:bpmn-canvas",
+        "events": [],
+        "example": {
+          "component": "BpmnCanvas",
+          "document": {
+            "$type": "bpmn:Definitions",
+            "id": "definitions-1",
+            "targetNamespace": "https://example.com/bpmn"
+          },
+          "id": "root"
+        },
+        "fallback": "svg",
+        "parity": {
+          "angular": {
+            "file": "packages/components-angular",
+            "note": "No counterpart in this framework package (§5.1: components with no framework counterpart record that fact).",
+            "status": "no-counterpart"
+          },
+          "react": {
+            "file": "packages/components-react",
+            "note": "No counterpart in this framework package (§5.1: components with no framework counterpart record that fact).",
+            "status": "no-counterpart"
+          },
+          "svelte": {
+            "file": "packages/components-svelte",
+            "note": "No counterpart in this framework package (§5.1: components with no framework counterpart record that fact).",
+            "status": "no-counterpart"
+          },
+          "vue": {
+            "file": "packages/components-vue",
+            "note": "No counterpart in this framework package (§5.1: components with no framework counterpart record that fact).",
+            "status": "no-counterpart"
+          }
+        },
+        "schema": "https://design-system.sent-tech.ca/catalogs/elements/v1/components/BpmnCanvas.json",
+        "semantic": {
+          "runtimePackage": "@sentropic/bpmn-canvas",
+          "source": "bpmn-canvas"
+        }
+      }
+    },
+    "DecisionDossier": {
+      "allOf": [
+        {
+          "$ref": "https://a2ui.org/specification/v0_9_1/common_types.json#/$defs/ComponentCommon"
+        },
+        {
+          "$ref": "#/$defs/CatalogComponentCommon"
+        },
+        {
+          "properties": {
+            "accessibility": {
+              "additionalProperties": false,
+              "properties": {
+                "description": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "component": {
+              "const": "DecisionDossier"
+            },
+            "document": {
+              "$ref": "#/$defs/DecisionDossierDocument"
+            }
+          },
+          "required": [
+            "component",
+            "document"
+          ],
+          "type": "object"
+        }
+      ],
+      "type": "object",
+      "unevaluatedProperties": false,
+      "x-sentropic": {
+        "contract": "1.0",
+        "element": "st-decision-dossier",
+        "engine": "lazy:focus",
+        "events": [
+          "choose-option"
+        ],
+        "example": {
+          "component": "DecisionDossier",
+          "document": {
+            "amendmentTrace": [],
+            "cursor": "2026-10-30T10:00:00Z",
+            "hash": "b7d3f0c9",
+            "interactions": [],
+            "provenance": {
+              "readAt": "2026-10-30T10:00:00Z",
+              "source": "track"
+            },
+            "ref": "decision-1",
+            "sections": [
+              {
+                "id": "q1",
+                "kind": "question",
+                "question": "Which rendering contract do we adopt?",
+                "state": "open",
+                "targetRef": "decision-1"
+              },
+              {
+                "id": "options-1",
+                "kind": "optionSet",
+                "options": [
+                  {
+                    "annotation": "none",
+                    "id": "opt-json",
+                    "kind": "option",
+                    "label": "Adopt the JSON render standard",
+                    "targetRef": "q1"
+                  },
+                  {
+                    "annotation": "none",
+                    "id": "opt-status-quo",
+                    "kind": "option",
+                    "label": "Keep the status quo",
+                    "targetRef": "q1"
+                  }
+                ],
+                "targetRef": "q1",
+                "title": "Options"
+              }
+            ],
+            "subject": "Adopt the JSON render standard for design-system rendering",
+            "title": "Decision: adopt the JSON render standard"
+          },
+          "id": "root"
+        },
+        "fallback": "text",
+        "parity": {
+          "angular": {
+            "file": "packages/components-angular",
+            "note": "No counterpart in this framework package (§5.1: components with no framework counterpart record that fact).",
+            "status": "no-counterpart"
+          },
+          "react": {
+            "file": "packages/components-react",
+            "note": "No counterpart in this framework package (§5.1: components with no framework counterpart record that fact).",
+            "status": "no-counterpart"
+          },
+          "svelte": {
+            "file": "packages/components-svelte",
+            "note": "No counterpart in this framework package (§5.1: components with no framework counterpart record that fact).",
+            "status": "no-counterpart"
+          },
+          "vue": {
+            "file": "packages/components-vue",
+            "note": "No counterpart in this framework package (§5.1: components with no framework counterpart record that fact).",
+            "status": "no-counterpart"
+          }
+        },
+        "schema": "https://design-system.sent-tech.ca/catalogs/elements/v1/components/DecisionDossier.json",
+        "semantic": {
+          "runtimePackage": "@sentropic/focus@0.5.0",
+          "schemaId": "urn:sentropic:focus:DecisionDossierDocument:1.0.0",
+          "schemaSubpath": "schemas/decision-dossier-document.v1.schema.json",
+          "sha256": "725bc07e7c6b6ad51a1f720cc9fb02649d8f31bc54e71c61c350fd20058c8852",
+          "source": "focus"
+        }
+      }
+    }
+  },
+  "description": "A2UI v0.9.1 basic catalogue of the Sentropic design system elements (JSON render standard, spec/SPEC_EVOL_DS_JSON_RENDER_STANDARD.md §5.2). Each component carries its x-sentropic contract version, element name, engine, events, fallback and standalone schema id; semantic documents are validated by their owning runtimes (§4.3).",
+  "functions": {},
+  "title": "Sentropic design system elements catalogue"
+}
