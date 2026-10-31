@@ -79,6 +79,13 @@ import { PAYLOAD_MAX_READ_BYTES } from "./payload-store.js";
 import { H2A_CLI_MCP_TOOL_NAMES } from "../../mcp.js";
 import { MCP_IDENTITY_RETRY_MIN_MS } from "./identity-state.js";
 import type { McpIdentityController, McpIdentityStatus } from "./identity-state.js";
+import {
+  UnknownResourceError,
+  type McpReadResourceResult,
+  type McpResourceDescriptor,
+  type UiExtensionCapability
+} from "./ui-render/types.js";
+import type { UiRenderModule } from "./ui-render/index.js";
 
 export interface CreateMcpServerOptions {
   /** In-memory notices captured/refreshed outside request handling. */
@@ -133,6 +140,13 @@ export interface CreateMcpServerOptions {
   /** L1: frame budget override (tests). Defaults to `resolveFrameBudget()`. */
   frameBudget?: FrameBudget;
   /**
+   * L3: the composed ui:// render module (SEP-1865 resources). When absent
+   * (asset integrity failure or an explicit opt-out) the server advertises no
+   * resource content: `resources/list` answers the empty set and every
+   * `resources/read` refuses with -32002.
+   */
+  uiRender?: UiRenderModule;
+  /**
    * L2: when `false`, the auto-created store does NOT initialize the layout
    * (no directory / sentinel / file writes) so `initialize` / `tools/list` /
    * `h2a_identity_status` and every read-only tool answer on a read-only or
@@ -145,6 +159,8 @@ export interface CreateMcpServerOptions {
 /** L1: optional per-call transport context (reserved for exact-id budgeting). */
 export interface McpCallContext {
   readonly budget?: FrameBudget;
+  /** L3: the SEP-1865 ui capability negotiated for THIS connection. */
+  readonly uiCapability?: UiExtensionCapability;
 }
 
 export interface McpServer {
@@ -154,6 +170,13 @@ export interface McpServer {
     args: Record<string, unknown> | undefined,
     context?: McpCallContext
   ): McpToolResult | McpErrorResult | McpTransportResult | Promise<McpToolResult | McpErrorResult | McpTransportResult>;
+  /** L3: the `resources/list` surface (empty when no ui render module). */
+  listResources(context?: McpCallContext): { resources: McpResourceDescriptor[] };
+  /**
+   * L3: the `resources/read` surface; an unknown URI (or a server without
+   * the ui render module) raises `UnknownResourceError` → JSON-RPC -32002.
+   */
+  readResource(uri: string, context?: McpCallContext): McpReadResourceResult;
   /** Per-server SessionRegistry, exposed for transport-layer shutdown hooks. */
   readonly sessions: SessionRegistry;
   /** Per-server NotificationDispatcher (DEC-052). */
@@ -162,6 +185,8 @@ export interface McpServer {
   readonly payloadStore: PayloadStore;
   /** L1: the frame budget bounding every emission of this server. */
   readonly frameBudget: FrameBudget;
+  /** L3: the composed ui render module, when the asset set verified. */
+  readonly uiRender?: UiRenderModule;
 }
 
 /** A tool result already formatted for the MCP transport (used by Track reads). */
@@ -490,10 +515,18 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
   return {
     listTools: () => H2A_CLI_MCP_TOOL_DESCRIPTORS.slice(),
     callTool,
+    listResources: (context?: McpCallContext) =>
+      options.uiRender?.resources.listResources(context) ?? { resources: [] },
+    readResource: (uri: string, context?: McpCallContext): McpReadResourceResult => {
+      const uiRender = options.uiRender;
+      if (!uiRender) throw new UnknownResourceError(uri);
+      return uiRender.resources.readResource(uri, context);
+    },
     sessions,
     notifications,
     payloadStore,
-    frameBudget
+    frameBudget,
+    ...(options.uiRender ? { uiRender: options.uiRender } : {})
   };
 }
 

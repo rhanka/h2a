@@ -16,7 +16,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { readdir, readFile } from "node:fs/promises";
+import { readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -122,33 +122,37 @@ function toDirUrl(dir: string | URL): URL {
   return url.href.endsWith("/") ? url : new URL(`${url.href}/`);
 }
 
-/** Lists every file under `root`, as forward-slash paths relative to `root`. */
-async function listTreeFiles(root: string): Promise<string[]> {
+/**
+ * Lists every file under `root`, as forward-slash paths relative to `root`.
+ * Synchronous by design: the transports compose the module during their own
+ * synchronous boot (the stdio readiness contract), and `resources/read` is
+ * a synchronous handler.
+ */
+function listTreeFiles(root: string): string[] {
   const files: string[] = [];
-  async function walk(dir: string, prefix: string): Promise<void> {
-    const entries = await readdir(dir, { withFileTypes: true });
+  function walk(dir: string, prefix: string): void {
+    const entries = readdirSync(dir, { withFileTypes: true });
     for (const entry of entries) {
       const rel = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
       if (entry.isFile()) files.push(rel);
-      else if (entry.isDirectory()) await walk(join(dir, entry.name), rel);
+      else if (entry.isDirectory()) walk(join(dir, entry.name), rel);
     }
   }
-  await walk(root, "");
+  walk(root, "");
   files.sort();
   return files;
 }
 
 /** SHA-256 of one file's bytes. */
-async function sha256OfFile(path: string): Promise<string> {
-  const bytes = await readFile(path);
-  return createHash("sha256").update(bytes).digest("hex");
+function sha256OfFile(path: string): string {
+  return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
 /** Reads and parses the pinned manifest of a vendor tree. */
-async function readVendorManifest(vendorDir: URL): Promise<UiRenderVendorManifest> {
+function readVendorManifest(vendorDir: URL): UiRenderVendorManifest {
   let text: string;
   try {
-    text = await readFile(join(fileURLToPath(vendorDir), "manifest.json"), "utf8");
+    text = readFileSync(join(fileURLToPath(vendorDir), "manifest.json"), "utf8");
   } catch {
     throw integrityMismatch(
       `the vendored snapshot has no readable manifest.json under ${fileURLToPath(vendorDir)}`
@@ -173,9 +177,15 @@ async function readVendorManifest(vendorDir: URL): Promise<UiRenderVendorManifes
   return manifest;
 }
 
-export async function loadUiRenderAssets(
+/**
+ * Loads and verifies the vendored asset set, synchronously: the stdio
+ * transport composes the module inside its own synchronous boot (the
+ * readiness ACK must be on disk before `runMcpStdio` returns), and the
+ * `resources/read` handlers are synchronous.
+ */
+export function loadUiRenderAssetsSync(
   options?: LoadUiRenderAssetsOptions
-): Promise<UiRenderAssets> {
+): UiRenderAssets {
   const workspaceOption =
     options?.workspaceDir ?? process.env["H2A_DS_ELEMENTS_WORKSPACE_DIR"];
   const workspaceDir =
@@ -184,14 +194,14 @@ export async function loadUiRenderAssets(
 
   // The pinned digests always come from a vendor manifest: the given vendor
   // tree, or the default snapshot when a workspace overlay is admitted.
-  const manifest = await readVendorManifest(workspaceDir === undefined ? vendorDir : DEFAULT_VENDOR_DIR);
+  const manifest = readVendorManifest(workspaceDir === undefined ? vendorDir : DEFAULT_VENDOR_DIR);
 
   // The artifacts come from the vendor tree, or from the workspace overlay.
   // The vendor tree's own `manifest.json` is the pinning record, not a
   // vendored artifact: it is excluded from the verified file set.
   const sourceDir = workspaceDir ?? vendorDir;
   const sourcePath = fileURLToPath(sourceDir);
-  const actualFiles = (await listTreeFiles(sourcePath)).filter((file) => file !== "manifest.json");
+  const actualFiles = listTreeFiles(sourcePath).filter((file) => file !== "manifest.json");
   const pinnedFiles = Object.keys(manifest.files);
 
   if (workspaceDir === undefined) {
@@ -231,7 +241,7 @@ export async function loadUiRenderAssets(
     if (pinned === undefined || typeof pinned.sha256 !== "string") {
       throw integrityMismatch(`file ${JSON.stringify(file)} has no pinned sha256`);
     }
-    const actual = await sha256OfFile(join(sourcePath, file));
+    const actual = sha256OfFile(join(sourcePath, file));
     if (actual !== pinned.sha256) {
       throw integrityMismatch(
         `file ${JSON.stringify(file)} does not match the pinned sha256 (expected ${pinned.sha256}, got ${actual})`
@@ -239,7 +249,7 @@ export async function loadUiRenderAssets(
     }
   }
 
-  const catalogText = await readFile(join(sourcePath, "catalog.json"), "utf8");
+  const catalogText = readFileSync(join(sourcePath, "catalog.json"), "utf8");
   let catalog: UiRenderCatalogDocument;
   try {
     catalog = JSON.parse(catalogText) as UiRenderCatalogDocument;
@@ -267,7 +277,7 @@ export async function loadUiRenderAssets(
     );
   }
 
-  const envelopeText = await readFile(join(sourcePath, "envelope.json"), "utf8");
+  const envelopeText = readFileSync(join(sourcePath, "envelope.json"), "utf8");
   let envelopeSchema: Record<string, unknown>;
   try {
     envelopeSchema = JSON.parse(envelopeText) as Record<string, unknown>;
@@ -279,7 +289,7 @@ export async function loadUiRenderAssets(
 
   let sri: UiRenderSriDocument;
   try {
-    sri = JSON.parse(await readFile(join(sourcePath, "dist/browser/sri.json"), "utf8")) as UiRenderSriDocument;
+    sri = JSON.parse(readFileSync(join(sourcePath, "dist/browser/sri.json"), "utf8")) as UiRenderSriDocument;
   } catch (error) {
     throw integrityMismatch(
       `dist/browser/sri.json is not readable or not parseable JSON: ${
@@ -295,7 +305,7 @@ export async function loadUiRenderAssets(
     if (!file.startsWith("schemas/") || !file.endsWith(".v1.json")) continue;
     const component = basename(file, ".v1.json");
     try {
-      schemas[component] = JSON.parse(await readFile(join(sourcePath, file), "utf8")) as Record<
+      schemas[component] = JSON.parse(readFileSync(join(sourcePath, file), "utf8")) as Record<
         string,
         unknown
       >;
@@ -317,4 +327,15 @@ export async function loadUiRenderAssets(
     schemas,
     sri,
   };
+}
+
+/**
+ * The async public loader: the same verified load, exposed as a Promise for
+ * external consumers (the transports use the synchronous core during their
+ * own synchronous boot).
+ */
+export async function loadUiRenderAssets(
+  options?: LoadUiRenderAssetsOptions
+): Promise<UiRenderAssets> {
+  return loadUiRenderAssetsSync(options);
 }
