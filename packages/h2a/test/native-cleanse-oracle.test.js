@@ -36,7 +36,8 @@ test('L0 contracts: only the committed state and exact failure signature are acc
 function fixture(t, options) {
   const root = mkdtempSync(join(tmpdir(), 'oracle-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  const a = { root, packages: join(root, 'payload'), env: isolatedEnv(root), version: '0.98.7', cli: join(root, 'candidate.cjs') };
+  const version = JSON.parse(readFileSync(new URL('../../../package.json', import.meta.url), 'utf8')).version;
+  const a = { root, packages: join(root, 'payload'), env: isolatedEnv(root), version, cli: join(root, 'candidate.cjs') };
   for (const path of ['hooks', 'skills', '.claude-plugin', '.codex-plugin', '.mcp.json']) {
     cpSync(new URL('../' + path, import.meta.url), join(a.packages, 'h2a', path), { recursive: true });
   }
@@ -47,7 +48,7 @@ function fixture(t, options) {
   put(a.cli, `#!${process.execPath}
 const readline=require('node:readline');readline.createInterface({input:process.stdin}).on('line',line=>{
     const q=JSON.parse(line);if(q.id===undefined)return;
-    const result=q.method==='initialize'?{protocolVersion:'2024-11-05',serverInfo:{name:'@sentropic/h2a',version:'0.98.7'},capabilities:{tools:{}}}:
+    const result=q.method==='initialize'?{protocolVersion:'2024-11-05',serverInfo:{name:'@sentropic/h2a',version:${JSON.stringify(a.version)}},capabilities:{tools:{}}}:
       {tools:[{name:'h2a_status'}]};
     console.log(JSON.stringify({jsonrpc:'2.0',id:q.id,result}));
   });`);

@@ -376,7 +376,7 @@
     "packaged .claude-plugin/plugin.json exact RC": {
       "state": "RED",
       "signature": {
-        "actual": "0.98.7",
+        "actual": "<repo-version>",
         "code": "ERR_ASSERTION",
         "evidenceSha256": "c08db5f686fa766e5eefe038c8ef5b7c4d866fc4f5f189ce2bd3ab17b345e32f",
         "expected": "<candidate-version>",
@@ -388,7 +388,7 @@
     "packaged .codex-plugin/plugin.json exact RC": {
       "state": "RED",
       "signature": {
-        "actual": "0.98.7",
+        "actual": "<repo-version>",
         "code": "ERR_ASSERTION",
         "evidenceSha256": "c08db5f686fa766e5eefe038c8ef5b7c4d866fc4f5f189ce2bd3ab17b345e32f",
         "expected": "<candidate-version>",

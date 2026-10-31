@@ -18,6 +18,20 @@ runtime manifest is `0.98.5`, including the two crash suites. This gates checkou
 retains its existing `0.98.4` manifests; it cannot run the packaged `0.98.5` smoke
 until the conductor integrates the runtime fixes and version bump.
 
+The frozen L0 ledger in `scripts/native-cleanse-contracts.json` keeps exact
+failure signatures, with the fixture path, Node executable, candidate version
+and current root `package.json` version normalized. The candidate is normalized
+first because it can contain the repository version as a prefix. Historical
+versions and changed failure evidence remain significant.
+
+To regenerate the ledger, run only `native-cleanse-baseline.test.js` with
+`scripts/node-evidence-reporter.mjs` and a private TMPDIR. Collect the report's
+`testResults[].cleanseContracts`; require exactly 42 unique identities matching
+the committed ledger and explicitly check every old/new state before writing
+the observed entries back. Inspect the signature diff and rerun the baseline
+through the production execution verifier. A version-only correction must keep
+all contract states unchanged; regeneration never runs inside the test gate.
+
 Vitest configurations are literal data contracts. Unsupported effective options
 are rejected, including hooks that suppress unhandled asynchronous errors.
 
