@@ -72,5 +72,9 @@
         "dist/browser/elements.js"
       ]
     }
+  },
+  "serverPort": {
+    "sha256": "41845c420a6d9ffcede7387793314a7dcc998587fe3a1c385b42020982df2a58",
+    "rawBytes": 73848
   }
 }

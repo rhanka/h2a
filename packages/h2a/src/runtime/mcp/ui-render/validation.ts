@@ -9,6 +9,8 @@
  * check order, the same closed §4.5 diagnostic shape, the same ajv 2020-12
  * registration set (vendored A2UI common types, the empty-function-set
  * catalogue stub, the catalogue itself), and the same focus port.
+ * TODO(DS L7a, h2a spec §7.3): replace this mirror with the published
+ * createEnvelopeValidator; retain the contract tests when removing it.
  *
  * Check order (every step that refuses returns immediately):
  *   1. JSON-serializable, then the 1 MiB UTF-8 budget (§4.3 item 3);
@@ -29,6 +31,7 @@ import { Ajv2020 } from "ajv/dist/2020.js";
 import { validateDecisionDossierDocument } from "@sentropic/focus/validate";
 
 import { a2uiCommonTypes, a2uiSdkCatalogSchema } from "./a2ui-common-types.js";
+import { port as bpmnCanvasPort } from "./bpmn-port.js";
 import type { UiRenderCatalogDocument, UiRenderAssets } from "./assets.js";
 import type { SemanticFinding, SemanticPort, UiRenderDiagnostic } from "./types.js";
 
@@ -553,13 +556,9 @@ function createEnvelopeValidatorCore(
 /**
  * Creates the ui:// render validator for the verified asset set: the ajv
  * 2020-12 structure bridge over the vendored catalogue, envelope schema and
- * mirrored A2UI common types, with the focus port wired by default
- * (`createFocusPort({ validate: validateDecisionDossierDocument })`).
- *
- * `@sentropic/bpmn-canvas` is not a dependency of this package, so no
- * `bpmn-canvas` port exists to inject: a `lazy:bpmn-canvas` envelope
- * honestly refuses `host-capability-missing` until the owning runtime ships
- * a Node-side port.
+ * mirrored A2UI common types. The focus port and the pure BPMN F1 port
+ * extracted from the pinned DS chunk are wired by default. Explicit ports
+ * replace that set so missing-capability behavior remains testable.
  */
 export function createUiRenderValidator(options: CreateUiRenderValidatorOptions): UiRenderValidator {
   const structure = createAjvStructure({
@@ -568,7 +567,10 @@ export function createUiRenderValidator(options: CreateUiRenderValidatorOptions)
     commonTypes: a2uiCommonTypes,
   });
   const ports =
-    options.ports ?? { focus: createFocusPort({ validate: validateDecisionDossierDocument }) };
+    options.ports ?? {
+      focus: createFocusPort({ validate: validateDecisionDossierDocument }),
+      "bpmn-canvas": bpmnCanvasPort as SemanticPort
+    };
   return createEnvelopeValidatorCore({
     assets: options.assets,
     ports,
