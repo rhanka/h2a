@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync
@@ -591,6 +592,10 @@ test("memory skill is read from the published @sentropic/engram package source p
   assert.equal(result.status, 0, result.stderr);
   const report = result.json(), source = report.sources.find(s => s.source === "engram");
   assert.equal(source.version, pinned);
+  // Node resolves the package through the producer symlink to its real
+  // installed path: the provenance dir is the pinned dependency's own
+  // skills tree, never a copy vendored into this repo.
+  assert.equal(source.dir, join(realpathSync(fixture.producer), "skills"));
   assert.equal(source.status, "available");
   assert.deepEqual(source.skills, [{ name: "engram-memory", path: "skills/engram-memory/SKILL.md", sha256: sha256(raw) }]);
   const target = join(report.targetBase, "engram-memory/SKILL.md");
