@@ -155,8 +155,18 @@ export function createUiRenderTools(options: CreateUiRenderToolsOptions): UiRend
     options.inlineLimitBytes ?? 1_048_576 - 16_384; // resolveFrameBudget default − 16 KiB (§5.2)
   const components = Object.keys(assets.catalog.components);
   const perComponentUri = (component: string): string => `ui://sentropic/${component}/v1`;
-  /** The last successfully rendered component (submit_intent fallback, §4.2.4). */
-  let lastRenderedComponent: string | undefined;
+  /** Per-connection intent fallback (§4.2.4); closed sessions can be collected. */
+  const sessionStates = new WeakMap<object, { lastRenderedComponent?: string }>();
+  const defaultConnection = {};
+  function sessionState(context?: UiRenderCallContext): { lastRenderedComponent?: string } {
+    const key = context ?? defaultConnection;
+    let state = sessionStates.get(key);
+    if (state === undefined) {
+      state = {};
+      sessionStates.set(key, state);
+    }
+    return state;
+  }
 
   function cspDeclaration(): { resourceDomains: string[]; connectDomains: [] } {
     return { resourceDomains: [PILOT_RESOURCE_DOMAIN], connectDomains: [] };
@@ -377,7 +387,7 @@ export function createUiRenderTools(options: CreateUiRenderToolsOptions): UiRend
     const component =
       typeof contextComponent === "string"
         ? contextComponent
-        : lastRenderedComponent;
+        : sessionState(context).lastRenderedComponent;
     if (component === undefined) {
       return refused({
         diagnostics: [
@@ -475,7 +485,7 @@ export function createUiRenderTools(options: CreateUiRenderToolsOptions): UiRend
     const diagnostics = [...validator.validate(envelope)];
     const hasError = diagnostics.some((item) => item.severity === "error");
     if (!hasError && typeof rootComponent === "string") {
-      lastRenderedComponent = rootComponent;
+      sessionState(context).lastRenderedComponent = rootComponent;
     }
     const serialized = JSON.stringify(envelope);
     const structuredContent =

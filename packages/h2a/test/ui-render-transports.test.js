@@ -9,6 +9,7 @@ import test from "node:test";
 
 import {
   runMcpStdio,
+  loadUiRenderAssets,
   startCentralMcpServer,
   H2A_MCP_CENTRAL_ENDPOINT_ENV
 } from "../dist/index.js";
@@ -141,6 +142,23 @@ test("stdio: initialize without the ui extension still advertises the server cap
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("stdio: render and implicit-component intent share a stable connection context", async () => {
+  const root = freshRoot();
+  try {
+    const assets = await loadUiRenderAssets();
+    const responses = await runScenario(root, [
+      JSON.stringify(initializeRequest(1)),
+      JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "render",
+        arguments: { contract: "1.0", root: assets.catalog.components.BarChart["x-sentropic"].example } } }),
+      JSON.stringify({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "submit_intent",
+        arguments: { event: "intent", name: "select", target: "Q1", context: {} } } })
+    ]);
+    const result = responses.find(response => response.id === 3).result;
+    assert.equal(result.isError, undefined);
+    assert.equal(result.structuredContent.ok, true);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 // ---------------------------------------------------------------------------

@@ -34,9 +34,9 @@ export function buildResourceHostConfig(
   }
 ): UiResourceHostConfig {
   const base: UiResourceHostConfig = {
-    theme: options?.theme ?? "sent-tech",
-    colorScheme: options?.colorScheme ?? "light",
-    locale: options?.locale ?? "fr",
+    theme: options?.theme ?? (env["H2A_UI_THEME"]?.trim() || "sent-tech"),
+    colorScheme: options?.colorScheme ?? (env["H2A_UI_COLOR_SCHEME"] === "dark" ? "dark" : "light"),
+    locale: options?.locale ?? (env["H2A_UI_LOCALE"]?.trim() || "fr"),
     assetBase:
       options?.assetBase ??
       "https://cdn.jsdelivr.net/npm/@sentropic/bpmn-canvas@0.3.0/dist/assets/",

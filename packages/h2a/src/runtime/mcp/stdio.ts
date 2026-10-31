@@ -333,14 +333,14 @@ function handleMethod(
     return { tools: server.listTools() };
   }
   if (method === "resources/list") {
-    return server.listResources({ uiCapability: connection.uiCapability });
+    return server.listResources(connection);
   }
   if (method === "resources/read") {
     const p = (params ?? {}) as { uri?: unknown };
     if (typeof p.uri !== "string" || p.uri.length === 0) {
       throw new InvalidParamsError("resources/read requires a string uri");
     }
-    return server.readResource(p.uri, { uiCapability: connection.uiCapability });
+    return server.readResource(p.uri, connection);
   }
   if (method === "tools/call") {
     const p = (params ?? {}) as { name?: unknown; arguments?: unknown };
@@ -356,7 +356,7 @@ function handleMethod(
         isError: Boolean(result && typeof result === "object" && "error" in result),
       };
     };
-    const result = server.callTool(name, args, { uiCapability: connection.uiCapability });
+    const result = server.callTool(name, args, connection);
     return result instanceof Promise ? result.then(format) : format(result);
   }
   // Sentinel: the caller will map this to JSON-RPC -32601.

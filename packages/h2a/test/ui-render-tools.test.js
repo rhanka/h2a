@@ -353,15 +353,16 @@ test("submit_intent: a whitelisted intent is forwarded and acknowledged", async 
 test("submit_intent: without context.component the last rendered component is used", async () => {
   const module = await createUiRenderModule();
   const example = module.assets.catalog.components.BarChart["x-sentropic"].example;
+  const connection = { uiCapability: NEGOTIATED };
   module.tools.callTool(
     "render",
     { contract: "1.0", root: { ...example, id: "root" } },
-    { uiCapability: NEGOTIATED }
+    connection
   );
   const result = module.tools.callTool(
     "submit_intent",
     { event: "intent", name: "select", target: "Q1", context: {} },
-    { uiCapability: NEGOTIATED }
+    connection
   );
   assert.ok(result);
   assert.ok(!result.isError);
