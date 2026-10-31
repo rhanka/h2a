@@ -18,11 +18,11 @@
     {
       "uri": "ui://sentropic/render/v1",
       "role": "combined-pilot-shell",
-      "rawBytes": 467,
-      "gzipBytes": 347,
+      "rawBytes": 581,
+      "gzipBytes": 418,
       "withinBudgets": true,
-      "completeRawBytes": 1269387,
-      "completeGzipBytes": 318613,
+      "completeRawBytes": 1271599,
+      "completeGzipBytes": 319184,
       "degraded": true
     },
     {
@@ -38,35 +38,35 @@
     {
       "uri": "ui://sentropic/BarChart/v1",
       "role": "per-component-shell",
-      "rawBytes": 474425,
-      "gzipBytes": 84078,
+      "rawBytes": 476637,
+      "gzipBytes": 84649,
       "withinBudgets": true,
-      "completeRawBytes": 474425,
-      "completeGzipBytes": 84078,
+      "completeRawBytes": 476637,
+      "completeGzipBytes": 84649,
       "degraded": false
     },
     {
       "uri": "ui://sentropic/BpmnCanvas/v1",
       "role": "per-component-shell",
-      "rawBytes": 451,
-      "gzipBytes": 340,
+      "rawBytes": 565,
+      "gzipBytes": 412,
       "withinBudgets": true,
-      "completeRawBytes": 1216770,
-      "completeGzipBytes": 300065,
+      "completeRawBytes": 1218982,
+      "completeGzipBytes": 300657,
       "degraded": true
     },
     {
       "uri": "ui://sentropic/DecisionDossier/v1",
       "role": "per-component-shell",
-      "rawBytes": 526789,
-      "gzipBytes": 103910,
+      "rawBytes": 529001,
+      "gzipBytes": 104486,
       "withinBudgets": true,
-      "completeRawBytes": 526789,
-      "completeGzipBytes": 103910,
+      "completeRawBytes": 529001,
+      "completeGzipBytes": 104486,
       "degraded": false
     }
   ],
-  "coreBarChartGzip": 84078,
+  "coreBarChartGzip": 84649,
   "zeroExternalRequests": {
     "method": "static-html-verification (core/BarChart, h2a spec §10.2 item 1)",
     "scriptSrc": 0,
