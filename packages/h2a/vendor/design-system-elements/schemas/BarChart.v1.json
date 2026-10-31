@@ -1,0 +1,556 @@
+{
+  "$defs": {
+    "CatalogComponentCommon": {
+      "properties": {
+        "weight": {
+          "description": "The relative weight of this component within a Row or Column. This is similar to the CSS 'flex-grow' property. Note: this may ONLY be set when the component is a direct descendant of a Row or Column.",
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "component": {
+      "allOf": [
+        {
+          "$ref": "https://a2ui.org/specification/v0_9_1/common_types.json#/$defs/ComponentCommon"
+        },
+        {
+          "$ref": "#/$defs/CatalogComponentCommon"
+        },
+        {
+          "properties": {
+            "accessibility": {
+              "additionalProperties": false,
+              "properties": {
+                "description": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "annotations": {
+              "description": "Annotation overlay in data space (see ChartAnnotation).",
+              "items": {
+                "anyOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "kind": {
+                        "const": "point",
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string"
+                      },
+                      "marker": {
+                        "description": "Marker glyph for a point annotation.",
+                        "enum": [
+                          "circle",
+                          "diamond",
+                          "square"
+                        ],
+                        "type": "string"
+                      },
+                      "x": {
+                        "type": [
+                          "number",
+                          "string"
+                        ]
+                      },
+                      "y": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "x",
+                      "y"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "anchor": {
+                        "enum": [
+                          "end",
+                          "middle",
+                          "start"
+                        ],
+                        "type": "string"
+                      },
+                      "kind": {
+                        "const": "label",
+                        "type": "string"
+                      },
+                      "text": {
+                        "type": "string"
+                      },
+                      "x": {
+                        "type": [
+                          "number",
+                          "string"
+                        ]
+                      },
+                      "y": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "text",
+                      "x",
+                      "y"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "axis": {
+                        "enum": [
+                          "x",
+                          "y"
+                        ],
+                        "type": "string"
+                      },
+                      "kind": {
+                        "const": "line",
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string"
+                      },
+                      "value": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "axis",
+                      "kind",
+                      "value"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "axis": {
+                        "enum": [
+                          "x",
+                          "y"
+                        ],
+                        "type": "string"
+                      },
+                      "from": {
+                        "type": "number"
+                      },
+                      "kind": {
+                        "const": "region",
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string"
+                      },
+                      "to": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "axis",
+                      "from",
+                      "kind",
+                      "to"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "kind": {
+                        "const": "shape",
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string"
+                      },
+                      "points": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "x": {
+                              "type": [
+                                "number",
+                                "string"
+                              ]
+                            },
+                            "y": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "x",
+                            "y"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "points"
+                    ],
+                    "type": "object"
+                  }
+                ],
+                "description": "Annotation overlay in data space, discriminated on `kind`. The `x` coordinate is categorical for this chart: it matches a bar by its `label` and is ignored otherwise; `y` and every value-axis number are numeric."
+              },
+              "type": "array"
+            },
+            "bands": {
+              "description": "Shaded value-axis bands.",
+              "items": {
+                "additionalProperties": false,
+                "description": "A shaded band between two value-axis positions.",
+                "properties": {
+                  "from": {
+                    "description": "Band start in value-axis units.",
+                    "type": "number"
+                  },
+                  "label": {
+                    "description": "Human-readable band label.",
+                    "type": "string"
+                  },
+                  "to": {
+                    "description": "Band end in value-axis units.",
+                    "type": "number"
+                  },
+                  "tone": {
+                    "description": "Feedback-token tone for the band.",
+                    "enum": [
+                      "error",
+                      "info",
+                      "neutral",
+                      "success",
+                      "warning"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "from",
+                  "to"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "component": {
+              "const": "BarChart"
+            },
+            "data": {
+              "description": "The bars, in draw order. Required.",
+              "items": {
+                "additionalProperties": false,
+                "description": "One bar: its label is also its selection key.",
+                "properties": {
+                  "errorHigh": {
+                    "description": "Upper error-bar extent (value-axis units). Drawn only when finite.",
+                    "type": "number"
+                  },
+                  "errorLow": {
+                    "description": "Lower error-bar extent (value-axis units). Drawn only when finite.",
+                    "type": "number"
+                  },
+                  "label": {
+                    "description": "The bar's category label; also its key for selection and hover.",
+                    "type": "string"
+                  },
+                  "tone": {
+                    "description": "Explicit categorical tone; the palette default when absent.",
+                    "enum": [
+                      "category1",
+                      "category2",
+                      "category3",
+                      "category4",
+                      "category5",
+                      "category6",
+                      "category7",
+                      "category8"
+                    ],
+                    "type": "string"
+                  },
+                  "value": {
+                    "description": "The bar's value (value-axis units).",
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "label",
+                  "value"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "dataLabels": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "position": {
+                      "description": "Placement hint; the chart's default when absent.",
+                      "enum": [
+                        "auto",
+                        "center",
+                        "inside",
+                        "outside",
+                        "top"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              ],
+              "description": "Per-bar value labels; absent or false renders none."
+            },
+            "domain": {
+              "description": "Fixed value-axis domain [min, max]; the auto data range when absent.",
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            "goalLine": {
+              "additionalProperties": false,
+              "description": "A single goal line, emphasised above the bars.",
+              "properties": {
+                "label": {
+                  "description": "Human-readable goal label.",
+                  "type": "string"
+                },
+                "value": {
+                  "description": "Position of the goal line in value-axis units.",
+                  "type": "number"
+                }
+              },
+              "required": [
+                "value"
+              ],
+              "type": "object"
+            },
+            "height": {
+              "description": "Fixed pixel height; the component's default when absent.",
+              "type": "number"
+            },
+            "hoverKey": {
+              "description": "Controlled synchronised hover key (a bar's label, or null for none).",
+              "type": [
+                "null",
+                "string"
+              ]
+            },
+            "invertAxis": {
+              "description": "Inverts the value axis (high values toward the origin). Default false.",
+              "type": "boolean"
+            },
+            "keyboardNav": {
+              "description": "Keyboard navigation of the data points (roving tabindex).",
+              "type": "boolean"
+            },
+            "label": {
+              "description": "Human-readable chart label (also the accessible name). Required.",
+              "type": "string"
+            },
+            "orientation": {
+              "description": "Bar direction; \"vertical\" by default.",
+              "enum": [
+                "horizontal",
+                "vertical"
+              ],
+              "type": "string"
+            },
+            "referenceLines": {
+              "description": "Reference lines on the value axis.",
+              "items": {
+                "additionalProperties": false,
+                "description": "A reference line on one axis (default axis: \"y\").",
+                "properties": {
+                  "axis": {
+                    "description": "Which axis the line spans; \"y\" by default.",
+                    "enum": [
+                      "x",
+                      "y"
+                    ],
+                    "type": "string"
+                  },
+                  "label": {
+                    "description": "Human-readable line label.",
+                    "type": "string"
+                  },
+                  "tone": {
+                    "description": "Feedback-token tone for the line.",
+                    "enum": [
+                      "error",
+                      "info",
+                      "neutral",
+                      "success",
+                      "warning"
+                    ],
+                    "type": "string"
+                  },
+                  "value": {
+                    "description": "Position of the line in value-axis units.",
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "value"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "scale": {
+              "description": "Value-axis scale; \"linear\" by default, \"log\" needs positive values.",
+              "enum": [
+                "linear",
+                "log"
+              ],
+              "type": "string"
+            },
+            "selectedKeys": {
+              "description": "Keys of the currently selected bars (a bar's key is its label). Controlled.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "showLegend": {
+              "description": "Accepted for cross-chart parity; BarChart has no separate legend surface.",
+              "type": "boolean"
+            },
+            "width": {
+              "description": "Fixed pixel width; the container's when absent.",
+              "type": "number"
+            }
+          },
+          "required": [
+            "component",
+            "data",
+            "label"
+          ],
+          "type": "object"
+        }
+      ],
+      "type": "object",
+      "unevaluatedProperties": false,
+      "x-sentropic": {
+        "contract": "1.0",
+        "element": "st-bar-chart",
+        "engine": "core",
+        "events": [
+          "select"
+        ],
+        "example": {
+          "component": "BarChart",
+          "data": [
+            {
+              "label": "Q1",
+              "value": 12
+            },
+            {
+              "label": "Q2",
+              "value": 18
+            },
+            {
+              "label": "Q3",
+              "value": 9
+            }
+          ],
+          "dataLabels": true,
+          "id": "root",
+          "label": "Revenue (M€)",
+          "referenceLines": [
+            {
+              "label": "Target",
+              "value": 15
+            }
+          ]
+        },
+        "fallback": "svg",
+        "parity": {
+          "angular": {
+            "comparedProps": 17,
+            "file": "packages/components-angular/src/BarChart.ts",
+            "status": "match",
+            "type": "BarChartProps"
+          },
+          "react": {
+            "comparedProps": 17,
+            "file": "packages/components-react/src/BarChart.tsx",
+            "note": "Own members after subtracting React.HTMLAttributes<HTMLDivElement>; className is React's name for the class style hook.",
+            "status": "match",
+            "type": "BarChartProps"
+          },
+          "svelte": {
+            "file": "packages/components-svelte/src/lib/BarChart.svelte",
+            "note": "Reference pilot (§3.1); not mechanically generatable (Svelte file), mirrored here member for member.",
+            "status": "source-of-truth",
+            "type": "BarChartProps"
+          },
+          "vue": {
+            "comparedProps": 17,
+            "file": "packages/components-vue/src/BarChart.ts",
+            "status": "match",
+            "type": "BarChartProps"
+          }
+        },
+        "schema": "https://design-system.sent-tech.ca/catalogs/elements/v1/components/BarChart.json"
+      }
+    }
+  },
+  "$id": "https://design-system.sent-tech.ca/catalogs/elements/v1/components/BarChart.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "The envelope schema specialised to one component (§5.2): the §4.2 render envelope (optional catalogId, contract, optional mode, root) whose root is the BarChart component object; its component part ($defs.component) is equivalent, after canonical sorting, to catalog.json#/components/BarChart. Requires the A2UI common types under https://a2ui.org/specification/v0_9_1/common_types.json.",
+  "properties": {
+    "catalogId": {
+      "const": "https://design-system.sent-tech.ca/catalogs/elements/v1/catalog.json",
+      "description": "Optional catalogue identifier; absent = the renderer's catalogue (§4.2).",
+      "type": "string"
+    },
+    "contract": {
+      "description": "Component-contract version the producer targets (§4.2, §4.4).",
+      "pattern": "^[0-9]+\\.[0-9]+$",
+      "type": "string"
+    },
+    "mode": {
+      "description": "\"snapshot\" (default) | \"preview\" (reserved, §10.3).",
+      "enum": [
+        "preview",
+        "snapshot"
+      ],
+      "type": "string"
+    },
+    "root": {
+      "$ref": "#/$defs/component"
+    }
+  },
+  "required": [
+    "contract",
+    "root"
+  ],
+  "title": "BarChart standalone envelope schema",
+  "type": "object",
+  "unevaluatedProperties": false
+}

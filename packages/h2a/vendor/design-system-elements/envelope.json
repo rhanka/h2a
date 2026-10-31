@@ -1,0 +1,43 @@
+{
+  "$id": "https://design-system.sent-tech.ca/catalogs/elements/v1/envelope.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "The render envelope of the JSON render standard (§4.2): one A2UI v0.9.1 component object under `root`, with the targeted component's contract version and an optional mode. The root interior is validated by the targeted component's catalogue entry, not by this schema.",
+  "properties": {
+    "catalogId": {
+      "type": "string"
+    },
+    "contract": {
+      "pattern": "^[0-9]+\\.[0-9]+$",
+      "type": "string"
+    },
+    "mode": {
+      "enum": [
+        "preview",
+        "snapshot"
+      ],
+      "type": "string"
+    },
+    "root": {
+      "properties": {
+        "component": {
+          "type": "string"
+        },
+        "id": {
+          "const": "root"
+        }
+      },
+      "required": [
+        "component",
+        "id"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "contract",
+    "root"
+  ],
+  "title": "Sentropic render envelope",
+  "type": "object",
+  "unevaluatedProperties": false
+}

@@ -1,0 +1,139 @@
+{
+  "$defs": {
+    "CatalogComponentCommon": {
+      "properties": {
+        "weight": {
+          "description": "The relative weight of this component within a Row or Column. This is similar to the CSS 'flex-grow' property. Note: this may ONLY be set when the component is a direct descendant of a Row or Column.",
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "component": {
+      "allOf": [
+        {
+          "$ref": "https://a2ui.org/specification/v0_9_1/common_types.json#/$defs/ComponentCommon"
+        },
+        {
+          "$ref": "#/$defs/CatalogComponentCommon"
+        },
+        {
+          "properties": {
+            "accessibility": {
+              "additionalProperties": false,
+              "properties": {
+                "description": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "component": {
+              "const": "BpmnCanvas"
+            },
+            "document": {
+              "additionalProperties": {},
+              "description": "The F1 document to render: a structural envelope the engine's hydrate validates.",
+              "properties": {
+                "$type": {
+                  "description": "F1 type discriminator, e.g. \"bpmn:Definitions\".",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "$type"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "component",
+            "document"
+          ],
+          "type": "object"
+        }
+      ],
+      "type": "object",
+      "unevaluatedProperties": false,
+      "x-sentropic": {
+        "contract": "1.0",
+        "element": "st-bpmn-canvas",
+        "engine": "lazy:bpmn-canvas",
+        "events": [],
+        "example": {
+          "component": "BpmnCanvas",
+          "document": {
+            "$type": "bpmn:Definitions",
+            "id": "definitions-1",
+            "targetNamespace": "https://example.com/bpmn"
+          },
+          "id": "root"
+        },
+        "fallback": "svg",
+        "parity": {
+          "angular": {
+            "file": "packages/components-angular",
+            "note": "No counterpart in this framework package (§5.1: components with no framework counterpart record that fact).",
+            "status": "no-counterpart"
+          },
+          "react": {
+            "file": "packages/components-react",
+            "note": "No counterpart in this framework package (§5.1: components with no framework counterpart record that fact).",
+            "status": "no-counterpart"
+          },
+          "svelte": {
+            "file": "packages/components-svelte",
+            "note": "No counterpart in this framework package (§5.1: components with no framework counterpart record that fact).",
+            "status": "no-counterpart"
+          },
+          "vue": {
+            "file": "packages/components-vue",
+            "note": "No counterpart in this framework package (§5.1: components with no framework counterpart record that fact).",
+            "status": "no-counterpart"
+          }
+        },
+        "schema": "https://design-system.sent-tech.ca/catalogs/elements/v1/components/BpmnCanvas.json",
+        "semantic": {
+          "runtimePackage": "@sentropic/bpmn-canvas",
+          "source": "bpmn-canvas"
+        }
+      }
+    }
+  },
+  "$id": "https://design-system.sent-tech.ca/catalogs/elements/v1/components/BpmnCanvas.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "The envelope schema specialised to one component (§5.2): the §4.2 render envelope (optional catalogId, contract, optional mode, root) whose root is the BpmnCanvas component object; its component part ($defs.component) is equivalent, after canonical sorting, to catalog.json#/components/BpmnCanvas. Requires the A2UI common types under https://a2ui.org/specification/v0_9_1/common_types.json.",
+  "properties": {
+    "catalogId": {
+      "const": "https://design-system.sent-tech.ca/catalogs/elements/v1/catalog.json",
+      "description": "Optional catalogue identifier; absent = the renderer's catalogue (§4.2).",
+      "type": "string"
+    },
+    "contract": {
+      "description": "Component-contract version the producer targets (§4.2, §4.4).",
+      "pattern": "^[0-9]+\\.[0-9]+$",
+      "type": "string"
+    },
+    "mode": {
+      "description": "\"snapshot\" (default) | \"preview\" (reserved, §10.3).",
+      "enum": [
+        "preview",
+        "snapshot"
+      ],
+      "type": "string"
+    },
+    "root": {
+      "$ref": "#/$defs/component"
+    }
+  },
+  "required": [
+    "contract",
+    "root"
+  ],
+  "title": "BpmnCanvas standalone envelope schema",
+  "type": "object",
+  "unevaluatedProperties": false
+}
