@@ -1,0 +1,1 @@
+import{O as e}from"./dist-Co2MgHWm.js";function t(e,t){var n=r(e);return n&&typeof n.$instanceOf==`function`&&n.$instanceOf(t)}function n(n,r){return e(r,function(e){return t(n,e)})}function r(e){return e&&e.businessObject||e}function i(e){return e&&e.di}export{n as i,i as n,t as r,r as t};

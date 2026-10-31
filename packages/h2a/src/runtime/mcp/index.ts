@@ -77,3 +77,58 @@ export {
   type McpIdentityStatus,
   type ResolvedIdentityMessage
 } from "./identity-state.js";
+
+export {
+  FOCUS_DECISION_DOSSIER_V1_SHA256,
+  loadUiRenderAssets,
+  type LoadUiRenderAssetsOptions,
+  type UiRenderAssets,
+  type UiRenderCatalogDocument,
+  type UiRenderCatalogEntry,
+  type UiRenderSriDocument,
+  type UiRenderVendorManifest
+} from "./ui-render/assets.js";
+
+export {
+  createUiRenderValidator,
+  createFocusPort,
+  focusPathToPointer,
+  createAjvStructure,
+  normalizeEnvelopeInput,
+  utf8ByteLength,
+  ENVELOPE_LIMIT_BYTES,
+  type AjvStructureOptions,
+  type CreateUiRenderValidatorOptions,
+  type FocusValidate,
+  type FocusValidationIssue,
+  type FocusValidationResult,
+  type StructureIssue,
+  type StructureValidator,
+  type UiRenderValidator
+} from "./ui-render/validation.js";
+
+export {
+  buildResourceHostConfig,
+  serializeHostConfigScript,
+  type UiResourceHostConfig
+} from "./ui-render/watermark.js";
+
+export {
+  CATALOG_MIME_TYPE,
+  PILOT_RESOURCE_DOMAIN,
+  UI_MIME_TYPE,
+  UnknownResourceError,
+  type DiagnosticCode,
+  type DiagnosticSource,
+  type EngineSource,
+  type IntentEvent,
+  type McpReadResourceResult,
+  type McpResourceContents,
+  type McpResourceDescriptor,
+  type SemanticFinding,
+  type SemanticPort,
+  type UiCspDeclaration,
+  type UiExtensionCapability,
+  type UiRenderCallContext,
+  type UiRenderDiagnostic
+} from "./ui-render/types.js";
