@@ -156,7 +156,7 @@ export interface CreateMcpServerOptions {
   storeInitialize?: boolean;
 }
 
-/** L1: optional per-call transport context (reserved for exact-id budgeting). */
+/** Transport context; reuse its identity per connection for UI session state. */
 export interface McpCallContext {
   readonly budget?: FrameBudget;
   /** L3: the SEP-1865 ui capability negotiated for THIS connection. */

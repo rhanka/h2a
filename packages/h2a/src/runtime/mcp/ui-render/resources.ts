@@ -3,7 +3,7 @@
  * descriptors (`resources/list`) and the exact-URI `resources/read`
  * handler. The pilot MCP App shell is assembled server-side from the
  * vendored build — the core runtime (and, for per-component resources, the
- * requested component's engine chunk) is inlined into the HTML together
+ * requested component's transitive engine/theme closure) is inlined together
  * with `#st-host-config`, and the SEP-1865 postMessage bridge script
  * (h2a spec §3.3) implements `ui/initialize`, `ui/notifications/tool-input`
  * / `tool-result` / `host-context-changed`, the §4.4 contract check, the
@@ -97,6 +97,9 @@ function shellScript(metaJson: string): string {
   try { hostConfig = JSON.parse(configElement ? configElement.textContent : "{}") || {}; } catch (error) { hostConfig = {}; }
   var root = document.getElementById("st-root");
   var envelope = null;
+  var toolInputEnvelope = null;
+  var mountedElement = null;
+  var resultRevision = 0;
   var diagnostics = [];
   var requestCounter = 0;
 
@@ -109,7 +112,12 @@ function shellScript(metaJson: string): string {
     if (!context || typeof context !== "object") return;
     if (context.colorScheme === "dark" || context.colorScheme === "light") {
       document.documentElement.setAttribute("data-st-color-scheme", context.colorScheme);
+      hostConfig = Object.assign({}, hostConfig, { colorScheme: context.colorScheme });
     }
+    if (typeof context.locale === "string" && context.locale.trim()) {
+      hostConfig = Object.assign({}, hostConfig, { locale: context.locale });
+    }
+    if (mountedElement) mountedElement.hostConfig = hostConfig;
     var variables = context.cssVariables || context.variables;
     if (variables && typeof variables === "object") {
       for (var name in variables) {
@@ -128,6 +136,7 @@ function shellScript(metaJson: string): string {
   }
 
   function showDiagnostics() {
+    mountedElement = null;
     var panel = document.createElement("div");
     panel.setAttribute("role", "alert");
     panel.setAttribute("data-st-diagnostics", String(diagnostics.length));
@@ -163,8 +172,8 @@ function shellScript(metaJson: string): string {
   }
 
   function mount() {
-    if (!envelope || typeof envelope !== "object") return;
     if (hasErrorDiagnostics()) { showDiagnostics(); return; }
+    if (!envelope || typeof envelope !== "object") return;
     var target = envelope.root || {};
     var component = typeof target.component === "string" ? target.component : "";
     if (!Object.prototype.hasOwnProperty.call(META.tags, component) ||
@@ -178,6 +187,7 @@ function shellScript(metaJson: string): string {
     element.envelope = envelope;
     element.addEventListener("st-intent", onIntent);
     while (root.firstChild) root.removeChild(root.firstChild);
+    mountedElement = element;
     root.appendChild(element);
   }
 
@@ -192,7 +202,7 @@ function shellScript(metaJson: string): string {
       event: "intent",
       name: name,
       target: typeof detail.target === "string" ? detail.target : "",
-      context: detail.context && typeof detail.context === "object" ? detail.context : {}
+      context: Object.assign({ component: component }, detail.context && typeof detail.context === "object" ? detail.context : {})
     };
     postToHost({ jsonrpc: "2.0", id: nextRequestId(), method: "tools/call", params: { name: "submit_intent", arguments: intent } });
     if (name === "select" || name === "choose-option" || name === "open") {
@@ -203,20 +213,53 @@ function shellScript(metaJson: string): string {
     }
   }
 
-  window.addEventListener("message", function (event) {
+  async function verifyInputDigest(expected, input) {
+    function failure(code, message) {
+      return { code: code, path: "", message: message, severity: "error", source: "host" };
+    }
+    if (!input || typeof input !== "object") {
+      return failure("schema-violation", "SHA-256 verification requires a retained tool-input envelope");
+    }
+    if (typeof crypto === "undefined" || !crypto || !crypto.subtle || typeof TextEncoder === "undefined") {
+      return failure("host-capability-missing", "SHA-256 verification requires Web Crypto and TextEncoder");
+    }
+    try {
+      var hash = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(input))));
+      var actual = "";
+      for (var index = 0; index < hash.length; index += 1) actual += hash[index].toString(16).padStart(2, "0");
+      if (actual !== expected) return failure("schema-violation", "SHA-256 does not match the retained tool-input envelope");
+    } catch (error) {
+      return failure("host-capability-missing", "SHA-256 verification failed in the host");
+    }
+    return null;
+  }
+
+  window.addEventListener("message", async function (event) {
     var message = event.data;
     if (!message || typeof message !== "object") return;
     if (typeof message.method === "string" && message.method.indexOf("ui/notifications/") === 0) {
       var params = message.params && typeof message.params === "object" ? message.params : {};
       if (message.method === "ui/notifications/tool-input") {
-        envelope = params.arguments; // retained in memory (DS §8.2)
+        resultRevision += 1;
+        toolInputEnvelope = params.arguments;
+        envelope = toolInputEnvelope; // retained in memory (DS §8.2)
         diagnostics = [];
         mount();
       } else if (message.method === "ui/notifications/tool-result") {
+        var revision = ++resultRevision;
         var structured = params.structuredContent;
         if (structured && typeof structured === "object") {
-          if (structured.envelope && typeof structured.envelope === "object") envelope = structured.envelope;
-          if (Array.isArray(structured.diagnostics)) diagnostics = structured.diagnostics;
+          var nextDiagnostics = Array.isArray(structured.diagnostics) ? structured.diagnostics : [];
+          if (structured.envelope && typeof structured.envelope === "object") {
+            envelope = structured.envelope;
+          } else if (typeof structured.envelopeSha256 === "string") {
+            var retained = toolInputEnvelope;
+            var failure = await verifyInputDigest(structured.envelopeSha256, retained);
+            if (revision !== resultRevision) return; // a newer input/result owns the surface
+            if (failure) nextDiagnostics = nextDiagnostics.concat([failure]);
+            else envelope = retained;
+          }
+          diagnostics = nextDiagnostics;
         }
         mount();
       } else if (message.method === "ui/notifications/host-context-changed") {
@@ -273,7 +316,7 @@ function shellContents(uri: string, html: string): McpResourceContents {
       ? "Use render_BarChart, render_DecisionDossier or render_BpmnCanvas (per-component resources, DS §8.3)."
       : "The complete BPMN module also exceeds the frame budget. Use the non-UI text fallback.";
     const hostConfigScript = html.match(/<script type="application\/json" id="st-host-config">[\s\S]*?<\/script>/)?.[0] ?? "";
-    html = `<!DOCTYPE html><html lang="en"><body><div role="alert" data-st-resource-degraded="true">Complete resource: ${bytes} bytes; limit: 983040 bytes. ${fallback}</div>${hostConfigScript}</body></html>`;
+    html = `<!DOCTYPE html><html lang="en"><body><div role="alert" data-st-resource-degraded="true">Complete resource: ${bytes} bytes; limit: 983040 bytes. ${fallback}</div>${hostConfigScript}<script>window.parent.postMessage({jsonrpc:"2.0",id:"st-degraded",method:"ui/initialize",params:{}},"*");</script></body></html>`;
   }
   return { uri, mimeType: UI_MIME_TYPE, text: html, _meta: { ui: { csp: PILOT_CSP } } };
 }

@@ -118,7 +118,7 @@ export class UnknownResourceError extends Error {
   }
 }
 
-/** Per-call context threaded by the transports (h2a spec §1.2). */
+/** Stable per-connection context threaded by the transports (h2a spec §1.2). */
 export interface UiRenderCallContext {
   readonly uiCapability?: UiExtensionCapability;
 }
