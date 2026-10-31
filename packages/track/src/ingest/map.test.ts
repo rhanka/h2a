@@ -15,6 +15,12 @@ describe('mapWorkEvent — valid kinds → normalized {method, settles, args}', 
       { method: 'createItem', settles: 'never', args: [{ kind: 'bug', title: 'T', workspace: 'ws', parentId: 'p', body: 'b', sourceKey: 'k' }] }],
     ['item.set-raci ⇒ always (creation-payload RACI fields on an existing item)', ev('item.set-raci', { itemId: 'i', accountable: 'human:alice', responsible: ['agent:codex'] }),
       { method: 'setRaci', settles: 'always', args: ['i', { accountable: 'human:alice', responsible: ['agent:codex'] }] }],
+    // Request-lifecycle Part 1 (Lot L2) — attach one link/pin to an existing item; the link shape is
+    // validated at the MAP boundary (assertItemLink), so the args carry the normalized link.
+    ['item.add-link ⇒ evidence (link validated at the MAP boundary)', ev('item.add-link', { itemId: 'i', kind: 'spec', locator: 'e:s#sha256:ab' }),
+      { method: 'addItemLink', settles: 'evidence', args: ['i', { kind: 'spec', locator: 'e:s#sha256:ab' }] }],
+    ['item.add-link +reason (trimmed, hash-minimal)', ev('item.add-link', { itemId: 'i', kind: 'spec-exempt', locator: ' none ', reason: ' mechanical refactor ' }),
+      { method: 'addItemLink', settles: 'evidence', args: ['i', { kind: 'spec-exempt', locator: 'none', reason: 'mechanical refactor' }] }],
     ['item.spec', ev('item.spec', { itemId: 'i', to: 'specified' }),
       { method: 'setSpec', settles: 'never', args: ['i', 'specified'] }],
     ['item.realize done ⇒ realize-terminal', ev('item.realize', { itemId: 'i', to: 'done' }),

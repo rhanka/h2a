@@ -19,7 +19,7 @@ export interface StageStatusLabels {
 const FR: StageStatusLabels = {
   // French keeps the neutral stage tokens (no invented French stage words);
   // statuses are plain French words.
-  stage: { spec: 'spec', dev: 'dev', pr: 'pr', merged: 'merged', deployed: 'deployed' },
+  stage: { spec: 'spec', dev: 'dev', pr: 'pr', review: 'review', merged: 'merged', published: 'published', deployed: 'deployed' },
   status: {
     progressing: 'en progression',
     unforeseen: 'imprévu',
@@ -31,7 +31,7 @@ const FR: StageStatusLabels = {
 }
 
 const EN: StageStatusLabels = {
-  stage: { spec: 'spec', dev: 'dev', pr: 'pr', merged: 'merged', deployed: 'deployed' },
+  stage: { spec: 'spec', dev: 'dev', pr: 'pr', review: 'review', merged: 'merged', published: 'published', deployed: 'deployed' },
   status: {
     progressing: 'progressing',
     unforeseen: 'unforeseen',
@@ -43,7 +43,7 @@ const EN: StageStatusLabels = {
 }
 
 const ES: StageStatusLabels = {
-  stage: { spec: 'spec', dev: 'dev', pr: 'pr', merged: 'merged', deployed: 'deployed' },
+  stage: { spec: 'spec', dev: 'dev', pr: 'pr', review: 'review', merged: 'merged', published: 'published', deployed: 'deployed' },
   status: {
     progressing: 'en progreso',
     unforeseen: 'imprevisto',
@@ -55,7 +55,7 @@ const ES: StageStatusLabels = {
 }
 
 const JA: StageStatusLabels = {
-  stage: { spec: 'spec', dev: 'dev', pr: 'pr', merged: 'merged', deployed: 'deployed' },
+  stage: { spec: 'spec', dev: 'dev', pr: 'pr', review: 'review', merged: 'merged', published: 'published', deployed: 'deployed' },
   status: {
     progressing: '進行中',
     unforeseen: '想定外',
@@ -67,7 +67,7 @@ const JA: StageStatusLabels = {
 }
 
 const AR: StageStatusLabels = {
-  stage: { spec: 'spec', dev: 'dev', pr: 'pr', merged: 'merged', deployed: 'deployed' },
+  stage: { spec: 'spec', dev: 'dev', pr: 'pr', review: 'review', merged: 'merged', published: 'published', deployed: 'deployed' },
   status: {
     progressing: 'قيد التقدم',
     unforeseen: 'غير متوقع',
@@ -89,7 +89,7 @@ export const STAGE_STATUS_LEXICON: Record<string, StageStatusLabels> = {
 
 /** Neutral codes used when no language matches — the identity, not a fallback tongue. */
 export const CODE_LABELS: StageStatusLabels = {
-  stage: { spec: 'spec', dev: 'dev', pr: 'pr', merged: 'merged', deployed: 'deployed' },
+  stage: { spec: 'spec', dev: 'dev', pr: 'pr', review: 'review', merged: 'merged', published: 'published', deployed: 'deployed' },
   status: {
     progressing: 'progressing',
     unforeseen: 'unforeseen',

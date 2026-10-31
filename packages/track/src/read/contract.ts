@@ -58,7 +58,7 @@ import { buildSnapshot, type SnapshotOptions, type SnapshotV1 } from '../report/
  * shapes it returns may only GROW (new methods / new optional fields); nothing is removed or
  * repurposed without a major bump. Consumers gate on `reader.contractVersion`.
  */
-export const READ_CONTRACT_VERSION = '1.24.0' // +reportSnapshot.events: window projection shares the complete folded log
+export const READ_CONTRACT_VERSION = '1.25.0' // B1 readers: report stages grow review/published (writers stay gated until Lot L5)
 
 /** Provenance of the last `branch.imported` for a locator (drawn from the raw event log). */
 export interface BranchProvenance {
@@ -472,7 +472,9 @@ function itemAffordances(state: State, itemId: ItemId): WorkEventKind[] {
   else if (item.realization === 'in-progress') out.push('item.realize')
   // Cross-cutting actions available while the item is live (not terminal).
   if (item.realization !== 'done' && item.realization !== 'cancelled' && item.realization !== 'rejected') {
-    out.push('item.reparent', 'priority.assess', 'acceptance.criterion', 'blocker.raise')
+    // Request-lifecycle Part 1 (Lot L2) — a link/pin is attachable while the item is live (the facade
+    // re-checks the item exists and the link shape; the fold dedups).
+    out.push('item.reparent', 'item.add-link', 'priority.assess', 'acceptance.criterion', 'blocker.raise')
   }
   return out
 }
@@ -561,6 +563,9 @@ const ITEM_LIFECYCLE_EVENT_TYPES: ReadonlySet<EventType> = new Set<EventType>([
   // trace that already carries the closure must carry its correction too; a trace that showed the `done` and
   // hid the reopening would be exactly the assertion-wider-than-its-evidence the 2026-07-29 ruling attacks.
   'realization.reopened',
+  // Request-lifecycle Part 1 (Lot L2) — attaching a link/pin is a lifecycle FACT (the trace that shows
+  // an item must show its pins/exemptions/delivery links, the C commune evidence surface).
+  'item.link-added',
 ])
 
 /** Origin of a lifecycle step's write — `'agent'` iff `prov.proposed` (an AI proposal), else `'human'`. */

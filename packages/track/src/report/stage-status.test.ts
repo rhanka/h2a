@@ -12,9 +12,12 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { EventStore } from '../events/store.js'
+import { DomainError } from '../model/item.js'
+import { assertItemReportStatus, normalizeReportStage, REPORT_STATUSES } from '../model/report-status.js'
 import { fold } from '../state/fold.js'
 import { Track } from '../track.js'
-import { deriveItemStageStatus, STATUS_HEALTH, type ItemStageStatus } from './stage-status.js'
+import { CODE_LABELS, resolveStageStatusLabels, STAGE_STATUS_LEXICON } from './stage-status-lexicon.js'
+import { deriveItemStageStatus, STATUS_HEALTH, STAGE_RANK, type ItemStageStatus } from './stage-status.js'
 
 let dir: string
 let store: EventStore
@@ -340,5 +343,148 @@ describe('legacy French stage values are read-compatible and rejected on write',
       })).toThrow()
     }
     expect(fold(store.readAll()).items.get(id)?.report).toBeUndefined()
+  })
+})
+
+describe('B1 readers — review/published stages (Lot L1)', () => {
+  it('normalises review/published codes and their French reader aliases', () => {
+    const aliases = [
+      ['review', 'review'],
+      ['revue', 'review'],
+      ['en revue', 'review'],
+      ['published', 'published'],
+      ['publié', 'published'],
+      ['publication', 'published'],
+    ] as const
+    for (const [stored, neutral] of aliases) {
+      expect(normalizeReportStage(stored)).toBe(neutral)
+    }
+  })
+
+  it('derives stage review from a stored review assertion with evidence', () => {
+    const id = item('in review')
+    track.setRealization(id, 'in-progress')
+    store.appendCommand([{
+      id: 'review-assertion',
+      type: 'item.report-updated',
+      aggregate: 'item',
+      aggregateId: id,
+      at: '2026-10-10T12:00:00.000Z',
+      by: 'test-stage-status',
+      payload: { stage: { value: 'review', evidence: 'https://github.com/org/repo/pull/1#pullrequestreview-1' } },
+    }])
+    expect(fold(store.readAll()).items.get(id)?.report?.stage?.value).toBe('review')
+    const derived = derive(id)
+    expect(derived.stage).toBe('review')
+    expect(derived.stageEvidence).toBe('https://github.com/org/repo/pull/1#pullrequestreview-1')
+  })
+
+  it('derives stage published from a stored published assertion with evidence', () => {
+    const id = item('published work')
+    track.setRealization(id, 'in-progress')
+    store.appendCommand([{
+      id: 'published-assertion',
+      type: 'item.report-updated',
+      aggregate: 'item',
+      aggregateId: id,
+      at: '2026-10-10T12:00:00.000Z',
+      by: 'test-stage-status',
+      payload: { stage: { value: 'published', evidence: 'npm:@sentropic/track@0.99.0' } },
+    }])
+    expect(fold(store.readAll()).items.get(id)?.report?.stage?.value).toBe('published')
+    const derived = derive(id)
+    expect(derived.stage).toBe('published')
+    expect(derived.stageEvidence).toBe('npm:@sentropic/track@0.99.0')
+  })
+
+  it('derives stage review/published from explicit pr-review/published links', () => {
+    const reviewed = item('linked work', { links: [{ kind: 'pr-review', locator: '#1' }] })
+    const reviewedDerived = derive(reviewed)
+    expect(reviewedDerived.stage).toBe('review')
+    expect(reviewedDerived.stageEvidence).toBe('#1')
+    const published = item('released work', { links: [{ kind: 'published', locator: 'v0.99.0' }] })
+    const publishedDerived = derive(published)
+    expect(publishedDerived.stage).toBe('published')
+    expect(publishedDerived.stageEvidence).toBe('v0.99.0')
+  })
+
+  it('honours the review and release link kinds as review/published evidence', () => {
+    const reviewed = item('review link', { links: [{ kind: 'review', locator: 'https://example.test/review/2' }] })
+    expect(derive(reviewed).stage).toBe('review')
+    const released = item('release link', { links: [{ kind: 'release', locator: 'https://example.test/r/7' }] })
+    expect(derive(released).stage).toBe('published')
+  })
+
+  it('ranks pr < review < merged < published < deployed, so the highest delivery link wins', () => {
+    expect(STAGE_RANK['pr']).toBeLessThan(STAGE_RANK['review'])
+    expect(STAGE_RANK['review']).toBeLessThan(STAGE_RANK['merged'])
+    expect(STAGE_RANK['merged']).toBeLessThan(STAGE_RANK['published'])
+    expect(STAGE_RANK['published']).toBeLessThan(STAGE_RANK['deployed'])
+    const mixed = item('mixed links', {
+      links: [
+        { kind: 'pr-review', locator: '#1' },
+        { kind: 'pr-merged', locator: '#2' },
+      ],
+    })
+    expect(derive(mixed).stage).toBe('merged')
+  })
+
+  it('carries neutral review/published stage labels in every lexicon', () => {
+    expect(resolveStageStatusLabels('fr').labels.stage.review).toBe('review')
+    expect(resolveStageStatusLabels('en').labels.stage.published).toBe('published')
+    for (const labels of [...Object.values(STAGE_STATUS_LEXICON), CODE_LABELS]) {
+      expect(labels.stage.review).toBe('review')
+      expect(labels.stage.published).toBe('published')
+    }
+  })
+
+  it('holds the writer gate closed on review/published until Lot L5', () => {
+    const id = item()
+    const before = store.readAll().length
+    for (const stage of ['review', 'published'] as const) {
+      expect(() => assertItemReportStatus({ stage: { value: stage, evidence: 'x' } })).toThrow(DomainError)
+      expect(() => track.setReportStatus(id, { stage: { value: stage, evidence: 'x' } })).toThrow()
+    }
+    expect(store.readAll()).toHaveLength(before)
+  })
+
+  it('a stored review/published assertion without evidence folds but asserts nothing (parity with merged)', () => {
+    const id = item('bare review claim')
+    track.setRealization(id, 'in-progress')
+    store.appendCommand([{
+      id: 'bare-review-assertion',
+      type: 'item.report-updated',
+      aggregate: 'item',
+      aggregateId: id,
+      at: '2026-10-10T12:00:00.000Z',
+      by: 'test-stage-status',
+      payload: { stage: { value: 'review' } },
+    }])
+    expect(fold(store.readAll()).items.get(id)?.report?.stage?.value).toBe('review')
+    expect(derive(id).stage).toBe('dev')
+    const twin = item('bare merged claim')
+    track.setRealization(twin, 'in-progress')
+    store.appendCommand([{
+      id: 'bare-merged-assertion',
+      type: 'item.report-updated',
+      aggregate: 'item',
+      aggregateId: twin,
+      at: '2026-10-10T12:00:00.000Z',
+      by: 'test-stage-status',
+      payload: { stage: { value: 'merged' } },
+    }])
+    expect(fold(store.readAll()).items.get(twin)?.report?.stage?.value).toBe('merged')
+    expect(derive(twin).stage).toBe('dev')
+  })
+
+  it('keeps every legacy stage alias and report status normalising identically', () => {
+    for (const [legacy, neutral] of [['PR', 'pr'], ['mergé', 'merged'], ['déployé', 'deployed']] as const) {
+      expect(normalizeReportStage(legacy)).toBe(neutral)
+    }
+    const id = item()
+    for (const status of REPORT_STATUSES) {
+      track.setReportStatus(id, { status })
+      expect(fold(store.readAll()).items.get(id)?.report?.status).toBe(status)
+    }
   })
 })

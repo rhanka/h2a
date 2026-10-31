@@ -2,12 +2,16 @@ import { DomainError } from './item.js'
 
 /**
  * Neutral stage codes (D2) — the identity carried by JSON, never localised
- * words. The 2026-10-17 French values (`mergé`/`déployé`) and `PR` are legacy
- * aliases: normalised on read (`normalizeReportStage`, fold-time), rejected on
- * new writes (`assertItemReportStatus`). Historical events are never rewritten.
+ * words. B1 (Lot L1) adds `review` and `published` as READERS first: the write
+ * grammar stays `WRITABLE_REPORT_STAGES` until Lot L5 opens the writers. The
+ * 2026-10-17 French values (`mergé`/`déployé`) and `PR` are legacy aliases:
+ * normalised on read (`normalizeReportStage`, fold-time), rejected on new
+ * writes (`assertItemReportStatus`). Historical events are never rewritten.
  */
-export const REPORT_STAGES = ['spec', 'dev', 'pr', 'merged', 'deployed'] as const
+export const REPORT_STAGES = ['spec', 'dev', 'pr', 'review', 'merged', 'published', 'deployed'] as const
 export type ReportStage = typeof REPORT_STAGES[number]
+/** Stages accepted on NEW writes (B1 Lot L1): the `review`/`published` writers open in Lot L5. */
+export const WRITABLE_REPORT_STAGES = ['spec', 'dev', 'pr', 'merged', 'deployed'] as const
 export const REPORT_STATUSES = ['progressing', 'unforeseen', 'blocked', 'decision-awaited', 'not-qualified', 'withdrawn'] as const
 export type ReportStatus = typeof REPORT_STATUSES[number]
 
@@ -16,6 +20,10 @@ const LEGACY_STAGE_ALIASES: Record<string, ReportStage> = {
   PR: 'pr',
   'mergé': 'merged',
   'déployé': 'deployed',
+  'revue': 'review',
+  'en revue': 'review',
+  'publié': 'published',
+  'publication': 'published',
 }
 
 /**
@@ -97,7 +105,13 @@ export function assertDecisionExpectations(value: unknown): asserts value is Dec
   if (words > 400) fail('decision summary exceeds 400 words (two minutes)')
 }
 
-export function assertItemReportStatus(value: unknown): asserts value is ItemReportStatus {
+/**
+ * Validate a report assertion. The default `'write'` grammar accepts only
+ * `WRITABLE_REPORT_STAGES` (B1 Lot L1: the `review`/`published` writers open
+ * in Lot L5); `'read'` accepts the full `REPORT_STAGES` grammar, so a stored
+ * review/published assertion still asserts on the fold/derivation path.
+ */
+export function assertItemReportStatus(value: unknown, grammar: 'read' | 'write' = 'write'): asserts value is ItemReportStatus {
   if (!object(value)) fail('report must be an object')
   keys(value, ['ownerRequest', 'stage', 'status', 'proposal', 'decisionExpectations', 'facts', 'nextAction', 'waitingOn', 'suspended'])
   for (const key of ['ownerRequest', 'proposal', 'facts', 'nextAction', 'waitingOn', 'suspended']) {
@@ -107,9 +121,13 @@ export function assertItemReportStatus(value: unknown): asserts value is ItemRep
   if (value["stage"] !== undefined) {
     if (!object(value["stage"])) fail('stage must be an object')
     keys(value["stage"], ['value', 'evidence'])
-    if (!REPORT_STAGES.includes(value["stage"]["value"] as ReportStage)) fail('invalid stage')
+    const stageGrammar = (grammar === 'read' ? REPORT_STAGES : WRITABLE_REPORT_STAGES) as readonly string[]
+    if (!stageGrammar.includes(value["stage"]["value"] as string)) fail('invalid stage')
     if (value["stage"]["evidence"] !== undefined && !text(value["stage"]["evidence"])) fail('stage evidence must be non-empty')
-    if (['pr', 'merged', 'deployed'].includes(String(value["stage"]["value"])) && !text(value["stage"]["evidence"])) fail('pr/merged/deployed requires evidence')
+    const evidenceStages = grammar === 'read'
+      ? ['pr', 'review', 'merged', 'published', 'deployed']
+      : ['pr', 'merged', 'deployed']
+    if (evidenceStages.includes(String(value["stage"]["value"])) && !text(value["stage"]["evidence"])) fail(`${evidenceStages.join('/')} requires evidence`)
   }
   if (value["decisionExpectations"] !== undefined) assertDecisionExpectations(value["decisionExpectations"])
   // Incomplete red/blue declarations are retained so the renderer can flag and route their repair.

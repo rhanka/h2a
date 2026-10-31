@@ -7,20 +7,21 @@ description: "Use at a branch merge or branch-close to protect track's event log
 
 Run this at a `.track`-bearing merge or branch-close. It is **record-only and detect-and-GUIDE**: it
 diagnoses and reports, it **never repairs in autonomy**. It orchestrates the existing `track` CLI
-(`events-contains`, `query`, `report`, `consolidate`, `audit`, `restructure apply`) and reimplements
-nothing. All git is done **in the shell** — track's core stays git-free.
+(`events-contains`, `reseal`, `validate`, `query`, `report`, `consolidate`, `audit`, `restructure
+apply`) and reimplements nothing. All git is done **in the shell** — track's core stays git-free.
 
 ## Why this exists
 
 Track's system of record is one append-only NDJSON stream (`.track/events.jsonl`). A merge can silently
 **drop committed events** — the graphify incident: a squash-merge threw away 18 committed reparent
-events. This skill's **CONTAINMENT GATE** is the protection: a disjoint merge that would drop (or
-conflict on) events is caught and **fails closed** — nothing is lost silently. (A `.gitattributes
-merge=union` *auto-reconcile* is a planned follow-up, paired with a `reseal` verb — union keeps every
-event but breaks the positional hash-chain, so a union-merged log is read/fold-recoverable yet NOT
-re-appendable until re-chained; shipping union without reseal would freeze writes, so it is deferred.)
-Until then the gate is the safety: a disjoint merge without union conflicts on `events.jsonl`, which the
-trial-merge check reads as an unevaluable candidate (rc=2) ⇒ the merge is blocked, never a silent loss.
+events. Two protections now work together: (1) the repo pins `.track/events.jsonl merge=union` in
+`.gitattributes`, so disjoint appends auto-reconcile — union keeps EVERY line from both parents, so the
+merged log is always fold-recoverable; (2) a union-merged log carries a broken positional hash-chain
+(and possibly duplicate `seq`, plus one side's stale `head.json`), so the **merge preparation step**
+runs `npx track reseal && npx track validate` right after the merge (see "Merge preparation" below)
+before any further `track` append — the store fail-closes on an invalid log. This skill's
+**CONTAINMENT GATE** remains the safety net over whatever the merge driver did: it proves the
+post-merge log contains every branch event id.
 
 The gate is **event-id CONTAINMENT, not "squash vs merge-commit"**. Squash-vs-merge is the wrong
 predicate — too weak (a default-driver merge-commit on a divergent log can still lose/conflict) and too
@@ -111,9 +112,29 @@ commit"** (that proxy both misses real losses and blocks harmless squashes). The
 closed on any candidate it cannot evaluate, so a lossy or conflicting merge is blocked regardless of the
 merge driver.
 
+## Merge preparation (union + reseal)
+
+Union keeps every line, so completing the merge means re-chaining the journal. When you merge — the
+branch into the base, or the base into the branch — run:
+
+```bash
+git merge origin/main && npx track reseal && npx track validate
+```
+
+`track reseal` rewrites ONLY the integrity frame (`seq`, `prevHash`) of every event plus the `head.json`
+anchor — never an event `id` or `contentHash`, so `events-contains` containment over ids survives a
+reseal. It is idempotent on an already-valid log (byte-identical no-op) and fails closed — refusing to
+write — on a tampered event core (`content-hash`), a duplicate id with divergent content
+(`duplicate-event-id`), or a command batch interleaved across the merge seam
+(`batch-noncontiguous`); in that last case the merged log is not resealable as-is — recover a
+well-ordered copy from a surviving ref/reflog (step 3), reseal THAT, and only then re-apply any
+residual facts through the normal CLI.
+
 ## Hard rules
 
-- Record-only. Never auto-repair, never hand-edit `.track/events.jsonl`.
+- Record-only. Never auto-repair, never hand-edit `.track/events.jsonl`. The ONLY sanctioned
+  whole-log rewrite is `track reseal` as merge preparation — it re-chains the integrity frame; it
+  never invents, rewrites, or drops an event.
 - Detect loss via `events-contains`, never via `audit.orphan`.
 - Git lives in the shell / this skill; track's core stays git-free.
 - Orchestrate the existing CLI; reimplement nothing.
