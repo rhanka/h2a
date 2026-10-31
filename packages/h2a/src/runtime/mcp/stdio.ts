@@ -43,6 +43,10 @@ import {
   type JsonRpcId
 } from "./frame-budget.js";
 import type { PayloadRecoveryRef } from "./payload-store.js";
+import { createUiRenderModule } from "./ui-render/index.js";
+import { negotiateUiExtension, serverUiExtensionCapability } from "./ui-render/negotiation.js";
+import { UnknownResourceError, type UiExtensionCapability } from "./ui-render/types.js";
+import type { UiRenderModule } from "./ui-render/index.js";
 
 /**
  * Minimal subset of the JSON-RPC 2.0 spec we accept on the wire. The spec
@@ -287,20 +291,56 @@ function successResponse(id: unknown, result: unknown): JsonRpcSuccessResponse {
   return { jsonrpc: "2.0", id, result };
 }
 
+/**
+ * L3: the SEP-1865 ui capability negotiated on THIS stdio connection. One
+ * `runMcpStdio` process serves one client, but the negotiated state still
+ * lives per-connection (initialize is the only method allowed to write it).
+ */
+interface StdioConnectionState {
+  uiCapability?: UiExtensionCapability;
+}
+
+/** A malformed JSON-RPC params payload for a method that requires arguments. */
+class InvalidParamsError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "InvalidParamsError";
+  }
+}
+
 function handleMethod(
   server: McpServer,
   method: string,
-  params: unknown
+  params: unknown,
+  connection: StdioConnectionState
 ): unknown | Promise<unknown> {
   if (method === "initialize") {
+    // L3: negotiate io.modelcontextprotocol/ui from the client's advertised
+    // capabilities and ALWAYS advertise the extension back with the
+    // resource surface (h2a spec §2.1).
+    connection.uiCapability = negotiateUiExtension(params);
     return {
       protocolVersion: PROTOCOL_VERSION,
       serverInfo: { name: SERVER_NAME, version: serverVersion() },
-      capabilities: { tools: {} }
+      capabilities: {
+        tools: { listChanged: true },
+        resources: {},
+        extensions: { "io.modelcontextprotocol/ui": serverUiExtensionCapability }
+      }
     };
   }
   if (method === "tools/list") {
     return { tools: server.listTools() };
+  }
+  if (method === "resources/list") {
+    return server.listResources({ uiCapability: connection.uiCapability });
+  }
+  if (method === "resources/read") {
+    const p = (params ?? {}) as { uri?: unknown };
+    if (typeof p.uri !== "string" || p.uri.length === 0) {
+      throw new InvalidParamsError("resources/read requires a string uri");
+    }
+    return server.readResource(p.uri, { uiCapability: connection.uiCapability });
   }
   if (method === "tools/call") {
     const p = (params ?? {}) as { name?: unknown; arguments?: unknown };
@@ -316,7 +356,7 @@ function handleMethod(
         isError: Boolean(result && typeof result === "object" && "error" in result),
       };
     };
-    const result = server.callTool(name, args);
+    const result = server.callTool(name, args, { uiCapability: connection.uiCapability });
     return result instanceof Promise ? result.then(format) : format(result);
   }
   // Sentinel: the caller will map this to JSON-RPC -32601.
@@ -352,6 +392,17 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
   }
   if (options.autoOpen && options.identityRequest) {
     throw new Error("autoOpen and identityRequest are mutually exclusive");
+  }
+  // L3: load and verify the vendored DS elements build (synchronously, so the
+  // readiness contract below is unchanged). An integrity_mismatch (or any
+  // load failure) NEVER takes the transport down (§7.2): the server starts
+  // without the ui:// resource surface, the refusal noted on stderr only.
+  let uiRender: UiRenderModule | undefined;
+  try {
+    uiRender = createUiRenderModule();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    stderr.write(`h2a mcp-serve: ui-render assets unavailable (ui:// resources disabled): ${message}\n`);
   }
   // L2: the live signing identity, set only once identity is really bound. The
   // server reads it on each h2a_send via `getSendContext`, so a signer that only
@@ -394,6 +445,10 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
     ...(options.sendContext ? { sendContext: options.sendContext } : {}),
     messageBackend: options.messageBackend,
     getClusterMesh: () => liveClusterMesh ?? options.clusterMesh,
+    // L3: the verified ui:// render module composes the SEP-1865 resource
+    // surface into this server; absent → resources/* answers the honest
+    // empty set / -32002 refusal.
+    ...(uiRender ? { uiRender } : {}),
     // L2: with a deferred identity, the store must not write on boot so
     // initialize/tools-list/status answer on a read-only or not-yet-created root.
     ...(options.identityRequest ? { storeInitialize: false } : {}),
@@ -795,6 +850,9 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
     }
   }
 
+  // L3: per-connection SEP-1865 negotiation state (written by initialize).
+  const connection: StdioConnectionState = {};
+
   const rl = createInterface({ input: stdin, crlfDelay: Infinity });
   (stdin as Readable & { ref?: () => void }).ref?.();
   stdin.resume();
@@ -878,7 +936,7 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
             ...(requestId !== undefined ? { requestId } : {})
           });
         }
-        const pending = handleMethod(server, request.method, request.params);
+        const pending = handleMethod(server, request.method, request.params, connection);
         // Drain asynchronous mesh requests at EOF while detached launches stay
         // independent of the client transport's lifetime.
         const isLaunch = request.method === "tools/call" &&
@@ -941,6 +999,22 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
           emitResponse(
             (request.id ?? null) as JsonRpcId,
             errorResponse(request.id ?? null, -32601, `Method not found: ${err.method}`)
+          );
+          return;
+        }
+        // L3: an unknown resource URI is a typed -32002 refusal, never a
+        // generic internal error (h2a spec §3.3); malformed params → -32602.
+        if (err instanceof UnknownResourceError) {
+          emitResponse(
+            (request.id ?? null) as JsonRpcId,
+            errorResponse(request.id ?? null, -32002, err.message)
+          );
+          return;
+        }
+        if (err instanceof InvalidParamsError) {
+          emitResponse(
+            (request.id ?? null) as JsonRpcId,
+            errorResponse(request.id ?? null, -32602, err.message)
           );
           return;
         }

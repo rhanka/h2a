@@ -81,6 +81,7 @@ export {
 export {
   FOCUS_DECISION_DOSSIER_V1_SHA256,
   loadUiRenderAssets,
+  loadUiRenderAssetsSync,
   type LoadUiRenderAssetsOptions,
   type UiRenderAssets,
   type UiRenderCatalogDocument,
@@ -132,3 +133,22 @@ export {
   type UiRenderCallContext,
   type UiRenderDiagnostic
 } from "./ui-render/types.js";
+
+export {
+  negotiateUiExtension,
+  serverUiExtensionCapability
+} from "./ui-render/negotiation.js";
+
+export {
+  A2UI_CATALOG_RESOURCE_URI,
+  UI_RENDER_RESOURCE_URI,
+  createUiRenderResources,
+  type CreateUiRenderResourcesOptions,
+  type UiRenderResources
+} from "./ui-render/resources.js";
+
+export {
+  createUiRenderModule,
+  type CreateUiRenderModuleOptions,
+  type UiRenderModule
+} from "./ui-render/index.js";
