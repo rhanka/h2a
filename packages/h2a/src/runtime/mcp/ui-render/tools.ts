@@ -83,8 +83,10 @@ export interface CreateUiRenderToolsOptions {
   /**
    * The envelope-echo threshold: above it `structuredContent` carries
    * `envelopeSha256` instead of the envelope. Defaults to the h2a frame
-   * ceiling minus 16 KiB (never triggering `boundCallToolResult`); L3.5
-   * fixes the real value from host measurement (U-1).
+   * ceiling minus 16 KiB (never triggering `boundCallToolResult`). The
+   * L3.5 offline measurement (fixtures/ui-render-ac-l3) kept this
+   * default: every pilot resource fits the 1 MiB frame with the echo;
+   * fixing the value from real-host caps (U-1) stays open.
    */
   readonly inlineLimitBytes?: number;
 }

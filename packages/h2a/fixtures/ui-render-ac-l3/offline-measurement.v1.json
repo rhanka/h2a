@@ -1,0 +1,75 @@
+{
+  "format": "sentropic.ui-render-offline-measurement/v1",
+  "lot": "L3.5",
+  "note": "Offline AC-L3 measurement of the vendored DS L2 build (cc29be88). The Playwright sandbox run and every reference-host capture (Claude Desktop, VS Code, ChatGPT, Claude Code) still need real hosts and stay open.",
+  "vendored": {
+    "sourceCommit": "cc29be88",
+    "catalogSha256": "f2358a8f96cdf28949d1b17f7c29c287201efb53c6b8ba709b4a27165206a36c",
+    "envelopeSha256": "6bf3351ba45c90a0dd3b40a7e7eddf019e72379a4551acc07a89f4436fc6cf2e",
+    "sriSha256": "03e5a2fb85181d3ea6fe427c4edd253975974b15a546c6f5d6b271893c694c4b"
+  },
+  "budgets": {
+    "dsRaw": 2097152,
+    "h2aRaw": 983040,
+    "frame": 1048576,
+    "coreGzip": 153600
+  },
+  "resources": [
+    {
+      "uri": "ui://sentropic/render/v1",
+      "role": "combined-pilot-shell",
+      "rawBytes": 248085,
+      "gzipBytes": 56379,
+      "withinBudgets": true
+    },
+    {
+      "uri": "a2ui://sentropic/catalog/v1",
+      "role": "catalog",
+      "rawBytes": 37723,
+      "gzipBytes": 5323,
+      "withinBudgets": true
+    },
+    {
+      "uri": "ui://sentropic/BarChart/v1",
+      "role": "per-component-shell",
+      "rawBytes": 248085,
+      "gzipBytes": 56379,
+      "withinBudgets": true
+    },
+    {
+      "uri": "ui://sentropic/BpmnCanvas/v1",
+      "role": "per-component-shell",
+      "rawBytes": 413859,
+      "gzipBytes": 94602,
+      "withinBudgets": true
+    },
+    {
+      "uri": "ui://sentropic/DecisionDossier/v1",
+      "role": "per-component-shell",
+      "rawBytes": 299336,
+      "gzipBytes": 74442,
+      "withinBudgets": true
+    }
+  ],
+  "coreBarChartGzip": 56379,
+  "zeroExternalRequests": {
+    "method": "static-html-verification (core/BarChart, h2a spec §10.2 item 1)",
+    "scriptSrc": 0,
+    "networkElements": 0,
+    "networkCallSites": 0,
+    "jsdelivrOnlyInHostConfig": true,
+    "dynamicImportSites": 6,
+    "dynamicImportNote": "The lazy-engine (bpmn-canvas, focus) dynamic import sites exist in the combined shell; core/BarChart never reaches them, and under the MCP Apps default CSP (script-src 'unsafe-inline') an external module load would be blocked (U-12/U-16 real-host decision)."
+  },
+  "inlineThreshold": {
+    "inlineLimitBytes": 1032192,
+    "decision": "Default kept (frame ceiling minus 16 KiB): every measured pilot resource fits the 1 MiB frame with the envelope echo, and no reference-host cap is known yet (U-1). Fixing from real hosts stays open."
+  },
+  "open": [
+    "U-1: Playwright offline sandbox run and per-host resources/read caps (Claude Desktop, VS Code) — threshold to fix from host measurement",
+    "U-5: Claude Code non-negotiated fallback transcript capture",
+    "U-12/U-16: pilot jsDelivr asset loading for BpmnCanvas and effective host CSP",
+    "U-13: ChatGPT SEP-1865 conformance report",
+    "U-20: cluster-mesh MCP registration record under s-conductor (registry path PR #354 not on main)"
+  ]
+}
