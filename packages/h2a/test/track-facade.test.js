@@ -16,7 +16,7 @@ test("h2a item délègue à `track item` (façade track)", () => {
   // `track item` sans sous-commande imprime son usage → preuve de délégation.
   assert.match(
     runH2a(["item"]),
-    /track item <new\|reparent/,
+    /track item <new\|link\|reparent/,
     "h2a item doit produire l'usage de `track item` (délégation)"
   );
 });
