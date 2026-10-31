@@ -16,12 +16,15 @@ export function readCleanseLedger() {
   return ledger.contracts;
 }
 
-// Ignore only fixture location, Node installation and the synthetic candidate
-// version. All assertion values and historical payload/configuration bytes count.
+// Ignore only fixture location, Node installation, the synthetic candidate
+// version and the current repository version. Historical payload/configuration
+// bytes and other assertion values still count. Normalize the candidate first:
+// its version can contain the repository version as a prefix.
 function canonical(value, context) {
   if (value === undefined) return { $undefined: true };
   if (typeof value === 'string') {
-    for (const [from, to] of [[context.root, '<fixture>'], [process.execPath, '<node>'], [context.version, '<candidate-version>']]) {
+    for (const [from, to] of [[context.root, '<fixture>'], [process.execPath, '<node>'],
+      [context.version, '<candidate-version>'], [context.repoVersion, '<repo-version>']]) {
       if (from) value = value.replaceAll(from, to);
     }
     return value;
@@ -37,6 +40,7 @@ export function observeContract({ id, lot, actual, expected, evidence }, context
     return { id, state: 'GREEN' };
   } catch (error) {
     assert.equal(error.code, 'ERR_ASSERTION');
+    context = { ...context, repoVersion: JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version };
     return { id, state: 'RED', signature: canonical({ name: error.name, code: error.code,
       operator: error.operator, actual: error.actual, expected: error.expected,
       message: error.message.split('\n')[0],
