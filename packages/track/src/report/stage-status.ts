@@ -56,11 +56,16 @@ export const STATUS_HEALTH: Record<StatusCode, string | undefined> = {
  */
 const EVIDENCE_LINK_STAGES: Record<string, StageCode> = {
   'pr-open': 'pr',
+  'pr-review': 'review',
+  review: 'review',
   'pr-merged': 'merged',
+  published: 'published',
+  release: 'published',
   deployed: 'deployed',
 }
 
-const STAGE_RANK: Record<StageCode, number> = { spec: 0, dev: 1, pr: 2, merged: 3, deployed: 4 }
+/** Ordered rank of the report stages (B1 Lot L1: review/published readers). */
+export const STAGE_RANK: Record<StageCode, number> = { spec: 0, dev: 1, pr: 2, review: 3, merged: 4, published: 5, deployed: 6 }
 
 export interface ItemStageStatus {
   stage: StageCode
@@ -89,11 +94,12 @@ function lastStoredAssertion(
   let found: { report: ItemReportStatus; index: number; at: string } | undefined
   events.forEach((event, index) => {
     if (event.type !== 'item.report-updated' || event.aggregateId !== itemId) return
-    // Read-path tolerance (same as fold): historical French stage values
-    // still assert; only genuinely invalid events are skipped.
+    // Read-path tolerance (same as fold): historical French stage values and
+    // B1's review/published stages still assert; only genuinely invalid
+    // events are skipped.
     const report = normalizeStoredReport(event.payload)
     try {
-      assertItemReportStatus(report)
+      assertItemReportStatus(report, 'read')
     } catch {
       return // an invalid report event asserts nothing; a later valid one still counts
     }

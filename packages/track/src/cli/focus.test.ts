@@ -22,6 +22,7 @@ import { runCli, type CliIO } from './index.js'
 // load must not consume the first render's default test deadline.
 import '../focus-vendor/index.js'
 import '../focus-vendor/track/index.js'
+import { validateDecisionDossierForPresentation } from '../focus-vendor/validation/index.js'
 
 let root: string
 let trackDir: string
@@ -86,6 +87,34 @@ describe('track focus', () => {
     const before = readFileSync(eventsPath, 'utf8')
     const code = await runCli(
       ['focus', decisionId, '--workspace', 'ws-1', '--baseline-commit', 'c1', '--format', format], io(root),
+    )
+    expect(code).toBe(1)
+    expect(out).toEqual([])
+    expect(err.join('')).toContain('$.readability.ownerRequestQuote')
+    expect(err.join('')).toContain('owner request')
+    expect(readFileSync(eventsPath, 'utf8')).toBe(before)
+  })
+
+  it('renders readable json decisions as a presentation-validated v1 document without writing the log', async () => {
+    const { decisionId } = seed(true)
+    const before = readFileSync(eventsPath, 'utf8')
+    expect(await runCli(['focus', decisionId, '--workspace', 'ws-1', '--baseline-commit', 'c1', '--format', 'json'], io(root))).toBe(0)
+    expect(err).toEqual([])
+    const text = out.join('')
+    expect(text.endsWith('}\n')).toBe(true)
+    const doc = JSON.parse(text) as Record<string, unknown>
+    // v1 is selected by the ABSENCE of schemaVersion (U-19: track's dossier model carries no embedded evidence).
+    expect('schemaVersion' in doc).toBe(false)
+    expect(doc['title']).toBe(DECISION_TITLE)
+    expect(validateDecisionDossierForPresentation(doc).ok).toBe(true)
+    expect(readFileSync(eventsPath, 'utf8')).toBe(before)
+  })
+
+  it('blocks json presentation when the stored dossier lacks readability information (same gate as terminal|md|html)', async () => {
+    const { decisionId } = seed()
+    const before = readFileSync(eventsPath, 'utf8')
+    const code = await runCli(
+      ['focus', decisionId, '--workspace', 'ws-1', '--baseline-commit', 'c1', '--format', 'json'], io(root),
     )
     expect(code).toBe(1)
     expect(out).toEqual([])

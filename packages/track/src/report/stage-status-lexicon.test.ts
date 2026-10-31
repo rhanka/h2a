@@ -12,7 +12,7 @@ import {
 describe('stage/status lexicon — codes are the identity', () => {
   it('covers every stage and status code in every shipped language', () => {
     for (const [lang, labels] of Object.entries(STAGE_STATUS_LEXICON)) {
-      expect(Object.keys(labels.stage).sort()).toEqual(['deployed', 'dev', 'merged', 'pr', 'spec'])
+      expect(Object.keys(labels.stage).sort()).toEqual(['deployed', 'dev', 'merged', 'pr', 'published', 'review', 'spec'])
       expect(Object.keys(labels.status).sort()).toEqual([
         'blocked',
         'decision-awaited',
@@ -41,7 +41,9 @@ describe('stage/status lexicon — codes are the identity', () => {
       spec: 'spec',
       dev: 'dev',
       pr: 'pr',
+      review: 'review',
       merged: 'merged',
+      published: 'published',
       deployed: 'deployed',
     })
     expect(resolved.labels.status).toEqual({

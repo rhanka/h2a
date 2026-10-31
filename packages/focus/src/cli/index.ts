@@ -12,7 +12,7 @@
  * — missing args, decision not found, contract mismatch). It is READ-ONLY: NO track write, NO new
  * track event (those are L4).
  *
- *   stp focus <decision-id> [--format terminal|md|html] [--workspace <ws>]
+ *   stp focus <decision-id> [--format terminal|md|html|json] [--workspace <ws>]
  *                           [--baseline-commit <sha>] [--events-path <path>]
  *
  * Defaults: `--events-path` = `.track/events.jsonl`, `--format` = `terminal`. `--workspace` is
@@ -28,6 +28,7 @@ import {
   TrackContractMismatchError,
   readDecisionDossier,
 } from "../track/index.js";
+import { assertDecisionDossierForPresentation } from "../validation/index.js";
 
 /** The package version, read from the package manifest (single source of truth). */
 const pkg = createRequire(import.meta.url)("../../package.json") as {
@@ -38,7 +39,7 @@ const pkg = createRequire(import.meta.url)("../../package.json") as {
 export const version: string = pkg.version;
 
 /** The supported render formats. */
-const FORMATS = ["terminal", "md", "html"] as const;
+const FORMATS = ["terminal", "md", "html", "json"] as const;
 type Format = (typeof FORMATS)[number];
 
 const DEFAULT_EVENTS_PATH = ".track/events.jsonl";
@@ -57,7 +58,7 @@ interface ParsedArgs {
 class UsageError extends Error {}
 
 const USAGE =
-  "Usage: stp focus <decision-id> [--format terminal|md|html] " +
+  "Usage: stp focus <decision-id> [--format terminal|md|html|json] " +
   "[--workspace <ws>] [--baseline-commit <sha>] [--events-path <path>]\n" +
   "Render a track decision dossier read-only. Defaults: --format terminal, " +
   `--events-path ${DEFAULT_EVENTS_PATH}. --workspace is required.`;
@@ -218,6 +219,14 @@ export const run = async (
       case "html":
         out(renderHtml(doc, defaultHtmlHooks));
         break;
+      case "json": {
+        // No renderer: validate through the SAME presentation gate (readability included) and
+        // serialize the validated document verbatim — v1 today, v2 the day a dossier carries
+        // embedded evidence (assertDecisionDossierForPresentation is the v1|v2 union validator).
+        const validated = assertDecisionDossierForPresentation(doc);
+        out(`${JSON.stringify(validated, null, 2)}\n`);
+        break;
+      }
     }
     return 0;
   } catch (err) {

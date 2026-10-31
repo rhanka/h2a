@@ -25,6 +25,7 @@ import type {
   ItemRaciUpdate,
   ItemRole,
   ItemState,
+  Link,
   Realization,
   ReopenPayload,
   ScopeDecl,
@@ -137,6 +138,34 @@ function applyEvent(state: State, event: TrackEvent): void {
       }
       break
     }
+    case 'item.link-added': {
+      // Request-lifecycle Part 1 (Lot L2) — append ONE link to the EXISTING item's links[] (next seq,
+      // no recreate; prior hashes untouched). Legality (the item exists; the link shape incl. the
+      // REQUIRED reason on kind:'spec-exempt') is asserted AT APPEND (Track.addItemLink /
+      // assertItemLink) — NEVER in the fold (the established pattern). Deduplicated by exact
+      // (kind, locator, reason): a re-applied identical link (an idempotent retry) is a no-op. An old
+      // reader without this case hits `default` (fail-safe: it keeps the item's links as it knew them).
+      const item = state.items.get(event.aggregateId)
+      if (item) {
+        const link = (event.payload as { link?: Link }).link
+        if (link !== undefined) {
+          const reason = link.reason
+          const present = (item.links ?? []).some(
+            (l) => l.kind === link.kind && l.locator === link.locator && (l.reason ?? undefined) === (reason ?? undefined),
+          )
+          if (!present) {
+            const normalizedLink: Link = {
+              kind: link.kind,
+              locator: link.locator,
+              ...(reason !== undefined ? { reason } : {}),
+            }
+            item.links = [...(item.links ?? []), normalizedLink]
+          }
+        }
+      }
+      break
+    }
+
     case 'item.created': {
       const payload = event.payload as unknown as ItemCreatedPayload
       const item: ItemState = {
