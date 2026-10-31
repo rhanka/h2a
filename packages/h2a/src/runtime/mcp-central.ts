@@ -809,15 +809,17 @@ function createCentralProtocolServer(mcp: McpServer): Server {
   // getClientCapabilities() reflects THIS session's initialize params.
   const negotiated = (): UiExtensionCapability =>
     negotiateUiExtension({ capabilities: server.getClientCapabilities() });
+  // Stable identity for this transport; capability stays current after initialize.
+  const connection: McpCallContext = { get uiCapability() { return negotiated(); } };
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: mcp.listTools() }));
   server.setRequestHandler(ListResourcesRequestSchema, async (): Promise<ListResourcesResult> => ({
-    resources: mcp.listResources({ uiCapability: negotiated() }).resources
+    resources: mcp.listResources(connection).resources
   }));
   server.setRequestHandler(ReadResourceRequestSchema, async (request): Promise<ReadResourceResult> => {
     try {
       // Shape-compatible with the SDK's TextResourceContents modulo readonly
       // arrays (the handler-side descriptors are deeply readonly).
-      return mcp.readResource(request.params.uri, { uiCapability: negotiated() }) as ReadResourceResult;
+      return mcp.readResource(request.params.uri, connection) as ReadResourceResult;
     } catch (error) {
       // An unknown resource URI is a typed -32002 refusal (h2a spec §3.3).
       if (error instanceof UnknownResourceError) {
@@ -829,9 +831,7 @@ function createCentralProtocolServer(mcp: McpServer): Server {
   server.setRequestHandler(
     CallToolRequestSchema,
     async (request): Promise<CallToolResult> =>
-      centralToolResult(mcp, request.params.name, request.params.arguments ?? {}, {
-        uiCapability: negotiated()
-      })
+      centralToolResult(mcp, request.params.name, request.params.arguments ?? {}, connection)
   );
   return server;
 }
@@ -1040,7 +1040,7 @@ export async function startCentralMcpServer(
     // stderr only.
     let uiRender: UiRenderModule | undefined;
     try {
-      uiRender = createUiRenderModule();
+      uiRender = createUiRenderModule({ env: env as Record<string, string | undefined> });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       process.stderr.write(`h2a central MCP: ui-render assets unavailable (ui:// resources disabled): ${message}\n`);
