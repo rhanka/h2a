@@ -25,6 +25,7 @@ for (const component of ["render", "BarChart", "BpmnCanvas", "DecisionDossier"])
   const result = await build({
     entryPoints: [new URL("elements.js", browser).pathname],
     bundle: true, splitting: false, format: "esm", minify: true,
+    supported: { "template-literal": false },
     write: false, metafile: true, legalComments: "none",
     plugins: [{ name: "requested-component", setup(builder) {
       builder.onLoad({ filter: /elements\.js$/ }, ({ path }) => {
@@ -59,6 +60,7 @@ for (const component of ["render", "BarChart", "BpmnCanvas", "DecisionDossier"])
 const semantic = await build({
   stdin: { contents: 'export { port } from "./chunks/bpmn-canvas-DeAWdJFy.js";', resolveDir: browser.pathname },
   bundle: true, write: false, format: "esm", minify: true, legalComments: "none",
+  supported: { "template-literal": false },
   plugins: [{ name: "node-semantic-port", setup(builder) {
     builder.onResolve({ filter: /elements\.js$/ }, args => ({ path: resolve(args.resolveDir, args.path), sideEffects: false }));
     builder.onLoad({ filter: /bpmn-canvas-DeAWdJFy\.js$/ }, ({ path }) => {
