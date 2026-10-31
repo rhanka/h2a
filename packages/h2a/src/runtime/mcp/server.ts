@@ -390,6 +390,10 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
         (name === "h2a_inbox" && args?.action === "read")) options.identity?.retry();
     const guard = guardIdentity(name, args);
     if (guard) return guard;
+    // L3: the ui:// render tools compose behind the same dispatch; the
+    // module returns undefined for names it does not own.
+    const uiToolResult = options.uiRender?.tools.callTool(name, args, _context);
+    if (uiToolResult !== undefined) return uiToolResult;
     if (TRACK_READ_TOOL_NAMES.has(name)) {
       try {
         const result = callTrackReadTool(
@@ -513,7 +517,10 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
   }
 
   return {
-    listTools: () => H2A_CLI_MCP_TOOL_DESCRIPTORS.slice(),
+    listTools: () =>
+      options.uiRender
+        ? [...H2A_CLI_MCP_TOOL_DESCRIPTORS, ...options.uiRender.tools.listTools()]
+        : H2A_CLI_MCP_TOOL_DESCRIPTORS.slice(),
     callTool,
     listResources: (context?: McpCallContext) =>
       options.uiRender?.resources.listResources(context) ?? { resources: [] },

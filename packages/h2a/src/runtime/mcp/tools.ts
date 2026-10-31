@@ -4,6 +4,21 @@ import { NATIVE_QUESTION_GUIDANCE } from "../../hosts/native-questions.js";
 
 export type McpToolName = (typeof H2A_CLI_MCP_TOOL_NAMES)[number];
 
+/**
+ * SEP-1865 UI metadata on a tool definition (json-render L3, h2a spec §1.2):
+ * `resourceUri` links the tool to the ui:// resource the host renders,
+ * `visibility` states who sees the tool, `csp` declares the domains the
+ * linked resource needs.
+ */
+export interface McpToolUiMeta {
+  readonly resourceUri?: string;
+  readonly visibility?: readonly ("model" | "app")[];
+  readonly csp?: {
+    readonly resourceDomains?: readonly string[];
+    readonly connectDomains?: readonly string[];
+  };
+}
+
 export interface McpToolDescriptor {
   name: string;
   description: string;
@@ -12,6 +27,14 @@ export interface McpToolDescriptor {
     properties?: Record<string, unknown>;
     required?: readonly string[];
     additionalProperties?: boolean;
+    unevaluatedProperties?: boolean;
+    [key: string]: unknown;
+  };
+  outputSchema?: Record<string, unknown>;
+  annotations?: Record<string, unknown>;
+  _meta?: {
+    ui?: McpToolUiMeta;
+    [key: string]: unknown;
   };
 }
 

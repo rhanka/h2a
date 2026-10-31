@@ -403,9 +403,20 @@ test("runMcpStdio: tools/list returns all canonical tool names (DEC-051 added 3)
     const [res] = responses;
     assert.equal(res.id, 2);
     assert.ok(Array.isArray(res.result.tools));
-    assert.equal(res.result.tools.length, H2A_CLI_MCP_TOOL_NAMES.length);
+    // L3 (json-render): the vendored ui:// module composes its seven tools
+    // into the same endpoint (h2a spec §4.1).
+    const uiRenderToolNames = [
+      "list_components",
+      "get_schema",
+      "render",
+      "render_BarChart",
+      "render_BpmnCanvas",
+      "render_DecisionDossier",
+      "submit_intent"
+    ];
+    assert.equal(res.result.tools.length, H2A_CLI_MCP_TOOL_NAMES.length + uiRenderToolNames.length);
     const names = res.result.tools.map((t) => t.name).sort();
-    assert.deepEqual(names, [...H2A_CLI_MCP_TOOL_NAMES].sort());
+    assert.deepEqual(names, [...H2A_CLI_MCP_TOOL_NAMES, ...uiRenderToolNames].sort());
     for (const tool of res.result.tools) {
       assert.equal(typeof tool.name, "string");
       assert.equal(typeof tool.description, "string");

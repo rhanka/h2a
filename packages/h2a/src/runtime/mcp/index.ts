@@ -9,7 +9,8 @@ export {
 export {
   H2A_CLI_MCP_TOOL_DESCRIPTORS,
   type McpToolDescriptor,
-  type McpToolName
+  type McpToolName,
+  type McpToolUiMeta
 } from "./tools.js";
 
 export {
@@ -152,3 +153,17 @@ export {
   type CreateUiRenderModuleOptions,
   type UiRenderModule
 } from "./ui-render/index.js";
+
+export {
+  UI_RENDER_TOOL_NAMES,
+  createUiRenderTools,
+  type CreateUiRenderToolsOptions,
+  type UiRenderIntentConsumer,
+  type UiRenderTools
+} from "./ui-render/tools.js";
+
+export {
+  fallbackContent,
+  formatDiagnosticsSummary,
+  truncateUtf8Bytes
+} from "./ui-render/fallback.js";
