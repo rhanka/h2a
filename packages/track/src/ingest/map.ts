@@ -11,6 +11,7 @@ import {
   type WorkEvent,
   type WorkEventKind,
 } from './contract.js'
+import { assertItemLink, DomainError, type Link } from '../model/item.js'
 
 /** A validated, normalized command ready for `ingest` to authorize and apply. */
 export interface MappedCommand {
@@ -123,6 +124,20 @@ export function mapWorkEvent(ev: WorkEvent): MappedCommand {
       // Omitted axes are preserved by design.
       args = [p['itemId'], { ...opt('accountable'), ...opt('responsible') }]
       break
+    case 'item.add-link': {
+      // addItemLink(itemId, link, clientToken?) — the link shape (incl. the REQUIRED reason on a
+      // 'spec-exempt') is validated HERE with the facade's fail-closed asserter, so a malformed link is
+      // rejected at the MAP boundary (pre-state, pre-append); a DomainError surfaces as the seam's
+      // IngestError. clientToken is threaded by `ingest` via withClientToken, not as an arg. Lot L2.
+      let link: Link
+      try {
+        link = assertItemLink({ ...opt('kind'), ...opt('locator'), ...opt('reason') })
+      } catch (err) {
+        throw err instanceof DomainError ? new IngestError(err.message) : err
+      }
+      args = [p['itemId'], link]
+      break
+    }
     case 'item.reparent':
       // reparentItem(itemId, parentId?) — parentId is undefined when absent (detach to root).
       args = [p['itemId'], p['parentId']]

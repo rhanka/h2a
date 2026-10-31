@@ -6,10 +6,12 @@ import { INGEST_CONTRACT_VERSION, WORK_EVENT_KINDS, WORK_EVENT_SCHEMA } from './
 // required field) MUST fail here — this is the contract's snapshot gate (v2.3b-DESIGN.md §6/§7).
 describe('WorkEvent contract surface', () => {
   it('pins the contract version and the kind list', () => {
-    expect(INGEST_CONTRACT_VERSION).toBe('2.2.0') // + item.set-raci (2.2.0) and item.reopen (2.1.0)
+    expect(INGEST_CONTRACT_VERSION).toBe('2.3.0') // + item.add-link (2.3.0), item.set-raci (2.2.0) and item.reopen (2.1.0)
     expect([...WORK_EVENT_KINDS]).toEqual([
       'item.create',
       'item.set-raci',
+      // Request-lifecycle Part 1 (Lot L2) — 2.3.0 additive kind (attach one link/pin to an existing item).
+      'item.add-link',
       'item.reparent',
       'item.spec',
       'item.realize',
@@ -64,6 +66,9 @@ describe('WorkEvent contract surface', () => {
     expect(surface).toEqual({
       'item.create': { method: 'createItem', settles: 'never', required: ['kind', 'title', 'workspace'] },
       'item.set-raci': { method: 'setRaci', settles: 'always', required: ['itemId'] },
+      // Request-lifecycle Part 1 (Lot L2) — an attributable producer claim (a pin/exemption records WHY
+      // work is covered), gated like acceptance.run: denied on an unauthenticated channel.
+      'item.add-link': { method: 'addItemLink', settles: 'evidence', required: ['itemId', 'kind', 'locator'] },
       'item.reparent': { method: 'reparentItem', settles: 'always', required: ['itemId'] },
       'item.spec': { method: 'setSpec', settles: 'never', required: ['itemId', 'to'] },
       'item.realize': { method: 'setRealization', settles: 'realize-terminal', required: ['itemId', 'to'] },

@@ -5,6 +5,13 @@
 // One WorkEvent ⇒ one Track command. This module is the SINGLE SOURCE of the write enums (so the CLI's
 // `oneOf` checks and the mapper cannot diverge on accepted values) and of the per-kind payload schema.
 
+// 2.3.0 — request-lifecycle Part 1 (Lot L2): one ADDITIVE WorkEvent kind `item.add-link` → the persisted
+// `item.link-added` event (attach ONE link — spec pin, REASONED spec-exempt, delivery evidence — to an
+// EXISTING item). `settles:'evidence'`: an attributable producer claim (a pin/exemption records WHY work is
+// covered), like acceptance.run — denied on an unauthenticated channel, admitted on local-user/signed.
+// MINOR bump (a new optional kind; no kind removed, no required field added to an existing kind, envelope
+// keys unchanged; old producers never send it and still validate). The link shape (incl. the REQUIRED
+// non-empty reason on kind:'spec-exempt') is re-asserted fail-closed at the MAP boundary (assertItemLink).
 // 2.2.0 — one ADDITIVE WorkEvent kind `item.set-raci` → the persisted `item.raci-assigned` event, which sets or
 // replaces the creation-payload RACI fields on an existing item. It is a binding governance write
 // (`settles:'always'`): changing who is accountable/responsible requires auth ∈ {local-user, signed}.
@@ -42,7 +49,7 @@
 // removed, no required field added, envelope keys unchanged; old producers never send them and still validate).
 // 1.1.0 — seam v0 FREEZE: two ADDITIVE optional producer fields (artifactLocator on scope.verification,
 // caller-supplied evidenceId on acceptance.link).
-export const INGEST_CONTRACT_VERSION = '2.2.0'
+export const INGEST_CONTRACT_VERSION = '2.3.0'
 
 // --- write enums (shared with src/cli/index.ts) ------------------------------------------------------
 export const ITEM_KINDS = ['feature', 'bug', 'chore'] as const
@@ -73,6 +80,7 @@ export const DISPOSITION_OUTCOMES = ['rejected', 'duplicate', 'parked'] as const
 export const WORK_EVENT_KINDS = [
   'item.create',
   'item.set-raci', // Set/replace accountable/responsible on an existing item (→ item.raci-assigned)
+  'item.add-link', // Request-lifecycle Part 1 (Lot L2) — attach ONE link/pin to an existing item (→ item.link-added)
   'item.reparent',
   'item.spec',
   'item.realize',
@@ -195,6 +203,18 @@ export const WORK_EVENT_SCHEMA: Record<WorkEventKind, KindSchema> = {
     method: 'setRaci',
     settles: 'always',
     fields: { itemId: str(true), accountable: str(false), responsible: { type: 'string[]', required: false } },
+  },
+  'item.add-link': {
+    // Request-lifecycle Part 1 (Lot L2) — attach ONE link (spec pin, REASONED spec-exempt, delivery
+    // evidence, cross-repo item, …) to an EXISTING item (→ the persisted `item.link-added` event).
+    // `settles:'evidence'`: an attributable producer claim, like acceptance.run — denied on an
+    // unauthenticated channel, admitted on local-user/signed. `kind` is an OPEN grammar (spec,
+    // spec-exempt, pr-open, pr-review, pr-merged, published, deployed, related-item, …); the link shape
+    // (incl. the REQUIRED non-empty reason on kind:'spec-exempt') is validated fail-closed at the MAP
+    // boundary (assertItemLink → IngestError) and re-checked in the facade.
+    method: 'addItemLink',
+    settles: 'evidence',
+    fields: { itemId: str(true), kind: str(true), locator: str(true), reason: str(false) },
   },
   'item.reparent': {
     // Workpackages §2 — move/detach an item. Binding (`always`): moving work between WPs is
