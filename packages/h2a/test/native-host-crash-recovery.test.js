@@ -417,13 +417,13 @@ test('cleanup: wait for the recorded detached writer to die before deleting its 
 });
 
 test('cleanup: a writer registering after convergence is reaped and cannot keep the fixture', async t => {
-  const f = fixture(t);
-  // Bulk so removal is still walking the tree when the late writer starts:
-  // the walk must outlast the writer's node boot, or its import hook would
-  // only run after the fixture is already gone.
-  const bulk = join(f.root, 'bulk');
-  mkdirSync(bulk, { recursive: true });
-  for (let i = 0; i < 100000; i++) writeFileSync(join(bulk, `f-${i}`), 'x');
+  // dispose holds its removal window open until the writer's registration
+  // row is observed: the row lands after convergence and before any rmSync
+  // pass by construction, whatever the writer's boot latency is under load.
+  // The bulk tree that used to stretch the walk was a timing bet CI load
+  // already broke (job 124490655280): no walk duration bounds a node boot.
+  let registered;
+  const f = fixture(t, { removalHold: () => Promise.resolve(registered).catch(() => {}) });
   const writer = join(f.root, 'late-writer.mjs');
   writeFileSync(writer, `import {mkdirSync} from 'node:fs';
     const dir = ${JSON.stringify(join(f.root, 'late-write'))};
@@ -431,9 +431,10 @@ test('cleanup: a writer registering after convergence is reaped and cannot keep 
   // The writer is started by dispose itself, not by a wall-clock sleep: a
   // live registered child anchors convergence, and the kill wave that ends
   // it deterministically spawns the detached writer, whose import hook then
-  // registers after convergence converged, while removal is still walking
-  // the bulk — the CI race (job 124193907640 ENOTEMPTY). No self-extinguish
-  // bound: a survivor must fail the assertions, never outlive them quietly.
+  // registers after convergence converged, while dispose is still held in
+  // its removal window — the CI race (job 124193907640 ENOTEMPTY). No
+  // self-extinguish bound: a survivor must fail the assertions, never
+  // outlive them quietly.
   const blocker = join(f.root, 'blocker.mjs');
   writeFileSync(blocker, 'setInterval(() => {}, 1000);\n');
   f.start([], blocker);
@@ -469,11 +470,13 @@ test('cleanup: a writer registering after convergence is reaped and cannot keep 
   try {
     // The registration observed while dispose runs is the proof the late
     // writer really entered the race window: a row that vanishes with the
-    // walked tree means dispose destroyed the writer's only identity.
-    const registered = eventually(() => {
+    // walked tree means dispose destroyed the writer's only identity. The
+    // bound is failure-only — the hold keeps dispose's removal window open,
+    // so a healthy writer always registers long before it expires.
+    registered = eventually(() => {
       if (!writerChild) return 'the kill wave has not fired yet';
       return f.recorded().find(r => r.pid === writerChild.pid) ?? 'spawned but no surviving registration row';
-    }, row => typeof row === 'object');
+    }, row => typeof row === 'object', 30000);
     registered.catch(() => { /* dispose failing first must not leave it unhandled */ });
     await f.dispose();
     const writerRow = await registered;

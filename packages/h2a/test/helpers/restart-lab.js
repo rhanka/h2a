@@ -22,7 +22,7 @@ appendFileSync(process.env.LAB_PIDS,JSON.stringify({pid:process.pid,start,args:p
 try{symlinkSync('/proc/'+process.pid,process.env.H2A_TEST_PROC_ROOT+'/'+process.pid)}catch(e){if(e.code!=='EEXIST')throw e}
 `;
 
-export function fixture(t) {
+export function fixture(t, opts = {}) {
   assert.ok(process.env.TMPDIR && resolve(process.env.TMPDIR) !== '/tmp', 'Supply a disposable TMPDIR');
   const root = mkdtempSync(join(tmpdir(), 'r-'));
   // The registration ledger and its import hook live OUTSIDE root: dispose
@@ -92,6 +92,12 @@ export function fixture(t) {
       stopRecorded();
       return [...observed.values()].every(dead);
     }, Boolean);
+    // A writer forked at the kill wave only registers when its node boot
+    // finishes; no walk duration can bound that under load. An optional
+    // removalHold lets a test hold the removal window open until that
+    // registration is observed, so the row lands inside the window by
+    // construction instead of by timing.
+    if (opts.removalHold) await opts.removalHold();
     // The same late registration can start writing after convergence, while
     // removal walks the tree (ENOTEMPTY) or recreate deleted paths after it.
     // Its ledger row survives the walk, so re-kill on every pass and leave
