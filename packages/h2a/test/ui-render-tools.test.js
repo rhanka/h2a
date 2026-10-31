@@ -237,17 +237,41 @@ test("render: a non-negotiated BarChart client receives the markdown table and t
   assert.ok(utf8ByteLength(svg) <= 32768);
 });
 
-test("render_BpmnCanvas: an envelope the runtime cannot validate is refused honestly", async () => {
+test("render_BpmnCanvas: catalogue example passes semantics in UI and fallback modes", async () => {
   const module = await createUiRenderModule();
   const example = module.assets.catalog.components.BpmnCanvas["x-sentropic"].example;
   const envelope = { contract: "1.0", root: { ...example, id: "root" } };
-  const result = module.tools.callTool("render_BpmnCanvas", envelope, { uiCapability: NOT_NEGOTIATED });
-  assert.ok(result);
-  assert.equal(result.isError, true);
-  const diagnostic = result.structuredContent?.diagnostics[0];
-  assert.equal(diagnostic.code, "host-capability-missing");
-  assert.equal(diagnostic.path, "/root/document");
-  assert.equal(diagnostic.detail.chunk, "bpmn-canvas");
+  for (const capability of [NOT_NEGOTIATED, NEGOTIATED]) {
+    for (const tool of ["render", "render_BpmnCanvas"]) {
+      const result = module.tools.callTool(tool, envelope, { uiCapability: capability });
+      assert.ok(result);
+      assert.equal(result.isError, undefined);
+      assert.deepEqual(result.structuredContent.diagnostics, []);
+      if (!capability.negotiated) assert.equal(firstText(result), fallbackContent("BpmnCanvas", envelope.root)[0].text);
+    }
+  }
+});
+
+test("render_BpmnCanvas: invalid F1 type and unresolved reference fail in the owning semantic port", async () => {
+  const module = await createUiRenderModule();
+  const example = module.assets.catalog.components.BpmnCanvas["x-sentropic"].example;
+  const documents = [
+    { ...example.document, $type: "bpmn:UnknownType" },
+    { ...example.document, rootElements: [{ $type: "bpmn:Process", id: "p", flowElements: [
+      { $type: "bpmn:SequenceFlow", id: "f", sourceRef: "missing", targetRef: "missing" }
+    ] }] }
+  ];
+  for (const document of documents) {
+    const result = module.tools.callTool("render_BpmnCanvas", {
+      contract: "1.0", root: { ...example, id: "root", document }
+    }, { uiCapability: NOT_NEGOTIATED });
+    assert.equal(result.isError, true);
+    const diagnostic = result.structuredContent.diagnostics[0];
+    assert.equal(diagnostic.code, "semantic-invalid");
+    assert.equal(diagnostic.source, "bpmn-canvas");
+    assert.match(diagnostic.path, /^\/root\/document/);
+    assert.ok(["unknown-type", "unresolved-reference"].includes(diagnostic.detail.code));
+  }
 });
 
 test("fallback: the BPMN text summary is deterministic and bounded", async () => {
