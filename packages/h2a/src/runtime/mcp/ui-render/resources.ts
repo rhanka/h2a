@@ -10,9 +10,7 @@
  * `st-intent` whitelist and the `submit_intent` bridge.
  */
 
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { readInlineModule } from "./inline.js";
 
 import type { UiRenderAssets, UiRenderCatalogEntry } from "./assets.js";
 import { buildResourceHostConfig, serializeHostConfigScript } from "./watermark.js";
@@ -66,22 +64,6 @@ function sentropicOf(entry: UiRenderCatalogEntry | undefined): {
   return entry?.["x-sentropic"] as ReturnType<typeof sentropicOf>;
 }
 
-/**
- * The sri chunk file (relative to `dist/browser`) that implements one
- * `lazy:<chunk>` engine's entry point: the chunk file whose basename starts
- * with `<chunk>-`. `core` engines have no chunk.
- */
-function entryChunkFile(assets: UiRenderAssets, component: string): string | undefined {
-  const engine = sentropicOf(assets.catalog.components[component])?.engine;
-  if (typeof engine !== "string" || !engine.startsWith("lazy:")) return undefined;
-  const chunk = engine.slice("lazy:".length);
-  for (const file of Object.keys(assets.sri.files)) {
-    const base = file.split("/").pop() ?? "";
-    if (file.startsWith("chunks/") && base.startsWith(`${chunk}-`)) return file;
-  }
-  return undefined;
-}
-
 /** The derived per-component metadata the shell script embeds (§3.3). */
 function shellComponentMeta(assets: UiRenderAssets): string {
   const events: Record<string, string[]> = {};
@@ -98,24 +80,6 @@ function shellComponentMeta(assets: UiRenderAssets): string {
     tags[name] = componentTag(name);
   }
   return JSON.stringify({ events, contracts, engines, tags });
-}
-
-/** Cached vendored file texts (keyed by vendor dir + file). */
-const textCache = new Map<string, string>();
-
-function readVendorText(assets: UiRenderAssets, relative: string): string | undefined {
-  const cacheKey = `${assets.vendorDir.href}::${relative}`;
-  const cached = textCache.get(cacheKey);
-  if (cached !== undefined) return cached;
-  try {
-    const text = readFileSync(join(fileURLToPath(assets.vendorDir), relative), "utf8");
-    textCache.set(cacheKey, text);
-    return text;
-  } catch {
-    // A workspace overlay may legitimately miss dist files; the shell is
-    // served without the missing piece rather than refused whole.
-    return undefined;
-  }
 }
 
 /**
@@ -271,19 +235,9 @@ function shellScript(metaJson: string): string {
 }
 
 /** Assembles the pilot MCP App shell HTML for the full or per-component resource. */
-function buildShellHtml(assets: UiRenderAssets, hostConfigScript: string, component?: string): string {
-  const core = readVendorText(assets, "dist/browser/elements.js") ?? "";
-  let chunkScript = "";
-  if (component !== undefined) {
-    const chunkFile = entryChunkFile(assets, component);
-    if (chunkFile !== undefined) {
-      const chunkText = readVendorText(assets, join("dist/browser", chunkFile));
-      if (chunkText !== undefined) {
-        chunkScript = `<script type="module">\n${chunkText}\n</script>\n`;
-      }
-    }
-  }
-  return `<!DOCTYPE html>
+export function buildShellHtml(assets: UiRenderAssets, hostConfigScript: string, component?: string): string {
+  const core = readInlineModule(assets, component);
+  const html = `<!DOCTYPE html>
 <html lang="fr">
 <head>
 <meta charset="utf-8">
@@ -302,16 +256,25 @@ ${hostConfigScript}
 <script type="module">
 ${core}
 </script>
-${chunkScript}<script>
+<script>
 ${shellScript(shellComponentMeta(assets))}
 </script>
 </body>
 </html>
 `;
+  return html;
 }
 
 /** The `resources/read` contents entry for one ui:// shell resource. */
 function shellContents(uri: string, html: string): McpResourceContents {
+  const bytes = Buffer.byteLength(html);
+  if (bytes > 960 * 1024) {
+    const fallback = uri === UI_RENDER_RESOURCE_URI
+      ? "Use render_BarChart, render_DecisionDossier or render_BpmnCanvas (per-component resources, DS §8.3)."
+      : "The complete BPMN module also exceeds the frame budget. Use the non-UI text fallback.";
+    const hostConfigScript = html.match(/<script type="application\/json" id="st-host-config">[\s\S]*?<\/script>/)?.[0] ?? "";
+    html = `<!DOCTYPE html><html lang="en"><body><div role="alert" data-st-resource-degraded="true">Complete resource: ${bytes} bytes; limit: 983040 bytes. ${fallback}</div>${hostConfigScript}</body></html>`;
+  }
   return { uri, mimeType: UI_MIME_TYPE, text: html, _meta: { ui: { csp: PILOT_CSP } } };
 }
 

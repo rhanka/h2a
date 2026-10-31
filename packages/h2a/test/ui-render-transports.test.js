@@ -107,7 +107,8 @@ test("stdio: initialize negotiates io.modelcontextprotocol/ui and advertises res
     assert.equal(renderContent.uri, RENDER_URI);
     assert.equal(renderContent.mimeType, UI_MIME);
     assert.ok(renderContent.text.includes('id="st-host-config"'));
-    assert.ok(renderContent.text.includes("customElements.define(`st-bar-chart`"));
+    assert.match(renderContent.text, /data-st-resource-degraded="true"/);
+    assert.ok(renderContent.text.includes("render_BarChart"));
     assert.deepEqual(renderContent._meta.ui.csp, {
       resourceDomains: ["https://cdn.jsdelivr.net"],
       connectDomains: []

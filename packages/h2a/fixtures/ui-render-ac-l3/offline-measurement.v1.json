@@ -18,52 +18,67 @@
     {
       "uri": "ui://sentropic/render/v1",
       "role": "combined-pilot-shell",
-      "rawBytes": 248085,
-      "gzipBytes": 56379,
-      "withinBudgets": true
+      "rawBytes": 467,
+      "gzipBytes": 347,
+      "withinBudgets": true,
+      "completeRawBytes": 1269387,
+      "completeGzipBytes": 318613,
+      "degraded": true
     },
     {
       "uri": "a2ui://sentropic/catalog/v1",
       "role": "catalog",
       "rawBytes": 37723,
       "gzipBytes": 5323,
-      "withinBudgets": true
+      "withinBudgets": true,
+      "completeRawBytes": 37723,
+      "completeGzipBytes": 5323,
+      "degraded": false
     },
     {
       "uri": "ui://sentropic/BarChart/v1",
       "role": "per-component-shell",
-      "rawBytes": 248085,
-      "gzipBytes": 56379,
-      "withinBudgets": true
+      "rawBytes": 474425,
+      "gzipBytes": 84078,
+      "withinBudgets": true,
+      "completeRawBytes": 474425,
+      "completeGzipBytes": 84078,
+      "degraded": false
     },
     {
       "uri": "ui://sentropic/BpmnCanvas/v1",
       "role": "per-component-shell",
-      "rawBytes": 413859,
-      "gzipBytes": 94602,
-      "withinBudgets": true
+      "rawBytes": 451,
+      "gzipBytes": 340,
+      "withinBudgets": true,
+      "completeRawBytes": 1216770,
+      "completeGzipBytes": 300065,
+      "degraded": true
     },
     {
       "uri": "ui://sentropic/DecisionDossier/v1",
       "role": "per-component-shell",
-      "rawBytes": 299336,
-      "gzipBytes": 74442,
-      "withinBudgets": true
+      "rawBytes": 526789,
+      "gzipBytes": 103910,
+      "withinBudgets": true,
+      "completeRawBytes": 526789,
+      "completeGzipBytes": 103910,
+      "degraded": false
     }
   ],
-  "coreBarChartGzip": 56379,
+  "coreBarChartGzip": 84078,
   "zeroExternalRequests": {
     "method": "static-html-verification (core/BarChart, h2a spec §10.2 item 1)",
     "scriptSrc": 0,
     "networkElements": 0,
     "networkCallSites": 0,
     "jsdelivrOnlyInHostConfig": true,
-    "dynamicImportSites": 6,
-    "dynamicImportNote": "The lazy-engine (bpmn-canvas, focus) dynamic import sites exist in the combined shell; core/BarChart never reaches them, and under the MCP Apps default CSP (script-src 'unsafe-inline') an external module load would be blocked (U-12/U-16 real-host decision)."
+    "dynamicImportSites": 0,
+    "dynamicImportNote": "Each complete entry bundles its transitive static and dynamic imports, including both theme chunks; modulePreload is disabled. Sandboxed DOM-free linking covers all four complete entries. Combined and BPMN resources explicitly degrade above 960 KiB; no chunk is truncated."
   },
   "inlineThreshold": {
     "inlineLimitBytes": 1032192,
-    "decision": "Default kept (frame ceiling minus 16 KiB): every measured pilot resource fits the 1 MiB frame with the envelope echo, and no reference-host cap is known yet (U-1). Fixing from real hosts stays open."
+    "decision": "Envelope echo threshold unchanged; resources/read independently enforces 960 KiB on complete HTML. Combined resource directs to per-component tools; BPMN also exceeds the cap and explicitly requires non-UI text fallback. Host caps remain U-1."
   },
   "open": [
     "U-1: Playwright offline sandbox run and per-host resources/read caps (Claude Desktop, VS Code) — threshold to fix from host measurement",

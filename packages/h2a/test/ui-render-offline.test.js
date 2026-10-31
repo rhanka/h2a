@@ -12,6 +12,8 @@ import {
   UI_RENDER_RESOURCE_URI,
   utf8ByteLength
 } from "../dist/index.js";
+import { buildShellHtml } from "../dist/runtime/mcp/ui-render/resources.js";
+import { buildResourceHostConfig, serializeHostConfigScript } from "../dist/runtime/mcp/ui-render/watermark.js";
 
 /**
  * json-render L3.5 (offline part) — AC-L3 measurement (h2a spec §10.2
@@ -47,11 +49,15 @@ let resources;
 let sizes;
 test.before(async () => {
   const assets = await loadUiRenderAssets();
-  resources = createUiRenderResources({ assets });
+  resources = createUiRenderResources({ assets, env: {} });
   sizes = new Map(
     RESOURCE_URIS.map((uri) => {
       const text = resources.readResource(uri).contents[0].text;
-      return [uri, { raw: utf8ByteLength(text), gzip: gzipSync(Buffer.from(text, "utf8")).length }];
+      const component = uri.split("/")[3];
+      const candidate = uri.startsWith("ui://") ? buildShellHtml(assets,
+        serializeHostConfigScript(buildResourceHostConfig({})), component === "render" ? undefined : component) : text;
+      return [uri, { raw: utf8ByteLength(text), gzip: gzipSync(Buffer.from(text, "utf8")).length,
+        completeRaw: Buffer.byteLength(candidate), completeGzip: gzipSync(candidate).length }];
     })
   );
 });
@@ -66,19 +72,19 @@ test("measurement: every pilot resource fits the DS 2 MiB and h2a 960 KiB raw ce
 });
 
 test("measurement: every resources/read JSON-RPC response fits the 1 MiB frame ceiling", () => {
-  for (const [uri, { raw }] of sizes) {
-    const encoded = raw + 512; // JSON-RPC envelope overhead around the text contents
+  for (const [uri] of sizes) {
+    const encoded = Buffer.byteLength(JSON.stringify({ jsonrpc: "2.0", id: 1, result: resources.readResource(uri) }));
     assert.ok(encoded <= FRAME_BUDGET, `${uri} framed response exceeds MCP_MAX_FRAME_BYTES: ${encoded}`);
   }
 });
 
 test("measurement: the core+BarChart shell gzip fits the DS 150 kB budget", () => {
-  const { gzip } = sizes.get(UI_RENDER_RESOURCE_URI);
+  const { gzip } = sizes.get("ui://sentropic/BarChart/v1");
   assert.ok(gzip <= CORE_GZIP_BUDGET, `core+BarChart gzip exceeds 150 kB: ${gzip}`);
 });
 
 test("zero-external: the core/BarChart shell loads no external resource", () => {
-  const html = resources.readResource(UI_RENDER_RESOURCE_URI).contents[0].text;
+  const html = resources.readResource("ui://sentropic/BarChart/v1").contents[0].text;
   assert.equal((html.match(/<script[^>]*\bsrc=/gi) || []).length, 0, "external script src");
   assert.equal((html.match(/<(link|img|iframe|source|video|audio|track|embed|object)\b/gi) || []).length, 0, "network-triggering element");
   assert.equal((html.match(/\bsrcset=/gi) || []).length, 0, "srcset attribute");
@@ -88,7 +94,7 @@ test("zero-external: the core/BarChart shell loads no external resource", () => 
 });
 
 test("zero-external: the only jsDelivr URL is the #st-host-config assetBase data island", () => {
-  const html = resources.readResource(UI_RENDER_RESOURCE_URI).contents[0].text;
+  const html = resources.readResource("ui://sentropic/BarChart/v1").contents[0].text;
   const island = html.match(
     /<script type="application\/json" id="st-host-config">([\s\S]*?)<\/script>/
   );
@@ -121,7 +127,12 @@ test("record: the committed offline measurement matches the vendored build and p
     assert.ok(live, `${measured.uri} not served`);
     assert.ok(measured.rawBytes <= record.budgets.dsRaw, `${measured.uri} recorded above the DS budget`);
     assert.ok(measured.rawBytes <= record.budgets.h2aRaw, `${measured.uri} recorded above the h2a ceiling`);
-    assert.ok(measured.gzipBytes <= record.budgets.coreGzip, `${measured.uri} gzip recorded above the DS core budget`);
+    assert.equal(measured.rawBytes, live.raw, `${measured.uri}: stale raw size`);
+    assert.equal(measured.gzipBytes, live.gzip, `${measured.uri}: stale gzip size`);
+    assert.equal(measured.completeRawBytes, live.completeRaw);
+    assert.equal(measured.completeGzipBytes, live.completeGzip);
+    assert.equal(measured.degraded, live.completeRaw > H2A_RAW_BUDGET);
+    if (measured.degraded) assert.match(resources.readResource(measured.uri).contents[0].text, /data-st-resource-degraded="true"/);
   }
   const combined = record.resources.find((r) => r.uri === UI_RENDER_RESOURCE_URI);
   assert.equal(combined.role, "combined-pilot-shell");
