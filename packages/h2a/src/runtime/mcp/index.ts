@@ -167,3 +167,19 @@ export {
   formatDiagnosticsSummary,
   truncateUtf8Bytes
 } from "./ui-render/fallback.js";
+
+export {
+  UI_RENDER_REGISTRY_ENTRY,
+  UI_RENDER_PROVIDER_ID,
+  UI_RENDER_CONNECTOR_ID,
+  UI_RENDER_MANIFEST_ASSET_PATH,
+  UI_RENDER_MODES,
+  uiRenderManifestAssetJson,
+  uiRenderManifestAssetSha256,
+  uiRenderProviderManifest,
+  uiRenderToolNamesForMode,
+  type UiRenderCapabilityResource,
+  type UiRenderCapabilityTool,
+  type UiRenderMode,
+  type UiRenderProviderManifest
+} from "./ui-render/registry-entry.js";
