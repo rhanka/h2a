@@ -21,7 +21,7 @@ import {
  * exact pinned catalog text under a2ui://, and refuses every other URI.
  */
 
-const CANARY = "CANARY-WM-SECRET-DO-NOT-EMIT-9f3a";
+const CANARY = "CANARY-NEGOTIATION-SECRET-DO-NOT-EMIT-b41c";
 const RENDER_URI = "ui://sentropic/render/v1";
 const CATALOG_URI = "a2ui://sentropic/catalog/v1";
 const PILOT_CSP = { resourceDomains: ["https://cdn.jsdelivr.net"], connectDomains: [] };
