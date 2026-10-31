@@ -22,20 +22,27 @@ appendFileSync(process.env.LAB_PIDS,JSON.stringify({pid:process.pid,start,args:p
 try{symlinkSync('/proc/'+process.pid,process.env.H2A_TEST_PROC_ROOT+'/'+process.pid)}catch(e){if(e.code!=='EEXIST')throw e}
 `;
 
-export function fixture(t) {
+export function fixture(t, opts = {}) {
   assert.ok(process.env.TMPDIR && resolve(process.env.TMPDIR) !== '/tmp', 'Supply a disposable TMPDIR');
   const root = mkdtempSync(join(tmpdir(), 'r-'));
+  // The registration ledger and its import hook live OUTSIDE root: dispose
+  // walks root with rmSync, and a late writer can only be reaped if its
+  // registration survives that walk instead of being deleted with the very
+  // tree it is still writing into. Both siblings are removed at the very end
+  // of dispose, once the tree is gone and every registration is dead.
+  const ledger = root + '.pids';
+  const hook = root + '.track.mjs';
   const env = { PATH: join(root, 'bin') + ':/usr/bin:/bin', HOME: join(root, 'home'), TMPDIR: root,
     XDG_RUNTIME_DIR: root, TMUX_TMPDIR: root, TMUX: '', XDG_CONFIG_HOME: join(root, 'config'), XDG_STATE_HOME: join(root, 'state'),
     XDG_CACHE_HOME: join(root, 'cache'), REMOTE_CLI_CONFIG_HOME: join(root, 'config'),
     H2A_ROOT: join(root, 'store'), H2A_MCP_CENTRAL: 'off', H2A_NATIVE_SOCKET: join(root, 'h'), H2A_TEST_PROC_ROOT: join(root, 'proc'),
-    DBUS_SESSION_BUS_ADDRESS: 'unix:path=' + join(root, 'no-bus'), LAB_PIDS: join(root, 'pids'), TERM: 'xterm-256color',
+    DBUS_SESSION_BUS_ADDRESS: 'unix:path=' + join(root, 'no-bus'), LAB_PIDS: ledger, TERM: 'xterm-256color',
     LAB_BASELINE_GUARD: process.env.H2A_LAB_BASELINE_GUARD ?? '',
-    NODE_OPTIONS: '--import=' + pathToFileURL(join(root, 'track.mjs')).href };
+    NODE_OPTIONS: '--import=' + pathToFileURL(hook).href };
   for (const key of ['HOME', 'XDG_CONFIG_HOME', 'XDG_STATE_HOME', 'XDG_CACHE_HOME', 'H2A_TEST_PROC_ROOT'])
     mkdirSync(env[key], { recursive: true, mode: 0o700 });
   mkdirSync(join(root, 'bin'));
-  writeFileSync(join(root, 'track.mjs'), tracker);
+  writeFileSync(hook, tracker);
   writeFileSync(join(root, 'agent.mjs'), "process.stdout.write('agent-ready\\n');process.stdin.on('data',b=>process.stdout.write('ack:'+b));setInterval(()=>{},1000);\n");
   writeFileSync(join(root, 'bin/codex'), `#!/bin/sh\nexec '${process.execPath}' '${join(root, 'agent.mjs')}' "$@"\n`, { mode: 0o700 });
   const registry = join(env.REMOTE_CLI_CONFIG_HOME, '.config/sentropic/h2a/registry.json');
@@ -49,18 +56,27 @@ export function fixture(t) {
     const done = once(child, 'close').then(([code, signal]) => ({ code, signal, stdout, stderr }));
     return { child, done, output: () => ({ stdout, stderr }) };
   }
-  const recorded = () => existsSync(env.LAB_PIDS) ? readFileSync(env.LAB_PIDS, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse) : [];
+  // Memoize every pid:start pair the ledger ever exposed: a row read once
+  // must stay reapable even if the ledger file is later lost or recreated.
+  const observed = new Map();
+  const recorded = () => {
+    const rows = existsSync(env.LAB_PIDS) ? readFileSync(env.LAB_PIDS, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse) : [];
+    for (const row of rows) observed.set(row.pid + ':' + row.start, row);
+    return rows;
+  };
   let disposed = false;
   const dispose = async () => {
     if (disposed) return; disposed = true;
+    const dead = ({ pid, start }) => {
+      try {
+        const stat = readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ')[1].split(' ');
+        return stat[19] !== start || ['Z', 'X'].includes(stat[0]);
+      } catch (error) { if (['ENOENT', 'ESRCH'].includes(error.code)) return true; throw error; }
+    };
     const stopRecorded = () => {
       let pending = 0;
-      for (const { pid, start } of recorded().reverse()) {
-        try {
-          const stat = readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ')[1].split(' ');
-          if (stat[19] === start && !['Z', 'X'].includes(stat[0])) { pending++; process.kill(pid, 'SIGKILL'); }
-        } catch (e) { if (!['ENOENT', 'ESRCH'].includes(e.code)) throw e; }
-      }
+      recorded();
+      for (const row of observed.values()) if (!dead(row)) { pending++; process.kill(row.pid, 'SIGKILL'); }
       return pending;
     };
     stopRecorded();
@@ -68,15 +84,47 @@ export function fixture(t) {
     // Detached hosts/PTYs are not represented by the direct ChildProcess
     // handles. SIGKILL delivery must finish before they can stop writing:
     // verify every birth-checked recorded descendant is actually dead (or
-    // reaped/reused) instead of only signalling the direct children.
-    await eventually(() => recorded().every(({ pid, start }) => {
+    // reaped/reused) instead of only signalling the direct children. A writer
+    // forked just before teardown only registers in LAB_PIDS when its import
+    // hook runs, which can be after this loop converged: keep reaping new
+    // registrations while converging, never wait on an unkilled writer.
+    await eventually(() => {
+      stopRecorded();
+      return [...observed.values()].every(dead);
+    }, Boolean);
+    // A writer forked at the kill wave only registers when its node boot
+    // finishes; no walk duration can bound that under load. An optional
+    // removalHold lets a test hold the removal window open until that
+    // registration is observed, so the row lands inside the window by
+    // construction instead of by timing.
+    if (opts.removalHold) await opts.removalHold();
+    // The same late registration can start writing after convergence, while
+    // removal walks the tree (ENOTEMPTY) or recreate deleted paths after it.
+    // Its ledger row survives the walk, so re-kill on every pass and leave
+    // the loop only when the fixture is gone AND every registration ever
+    // seen is dead: a writer still breathing here would recreate the
+    // fixture right after a bare existsSync check passed. The ledger and
+    // hook siblings are deleted only after that — removing them earlier is
+    // what would orphan a writer that still has to register.
+    const removalDeadline = performance.now() + 15000;
+    for (;;) {
+      stopRecorded();
       try {
-        const stat = readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ')[1].split(' ');
-        return stat[19] !== start || ['Z', 'X'].includes(stat[0]);
-      } catch (error) { if (['ENOENT', 'ESRCH'].includes(error.code)) return true; throw error; }
-    }), Boolean);
-    rmSync(root, { recursive: true, force: true });
-    assert.equal(existsSync(root), false);
+        rmSync(root, { recursive: true, force: true });
+      } catch (error) {
+        if (!['ENOTEMPTY', 'EBUSY'].includes(error.code) || performance.now() >= removalDeadline) throw error;
+        await pause(10);
+        continue;
+      }
+      stopRecorded();
+      if (!existsSync(root) && [...observed.values()].every(dead)) break;
+      if (performance.now() >= removalDeadline) break;
+      await pause(10);
+    }
+    assert.equal(existsSync(root), false, 'fixture removal did not converge');
+    assert.ok([...observed.values()].every(dead), 'a recorded lab process outlived its fixture');
+    rmSync(ledger, { force: true });
+    rmSync(hook, { force: true });
   };
   t.after(dispose);
   const entries = n => Array.from({ length: n }, (_, i) => ({ id: `old-${i}`, tool: 'codex', kind: 'local-native',
