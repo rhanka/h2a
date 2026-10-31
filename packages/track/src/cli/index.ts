@@ -12,7 +12,7 @@ import { initTrackDir, resolveTrackDir, resolveTrackDirOrNull } from './resolve.
 import type { EvidenceKind, RunResult } from '../model/acceptance.js'
 import type { BlockerKind, BlockerScope, ResolutionRule } from '../model/blocker.js'
 import type { DecisionKind, Dossier, DossierArtifact, Outcome } from '../model/decision.js'
-import { DomainError, type Disposition, type Gate, type ItemKind, type ItemRole, type Realization, type ReopenMotive, type ScopeDecl, type SpecStatus } from '../model/item.js'
+import { assertItemLink, DomainError, type Disposition, type Gate, type ItemKind, type ItemRole, type Link, type Realization, type ReopenMotive, type ScopeDecl, type SpecStatus } from '../model/item.js'
 import type { Bucket } from '../report/buckets.js'
 import type { ItemReportStatus } from '../model/report-status.js'
 import { displayText, formatRows, type Format } from '../report/format.js'
@@ -72,7 +72,8 @@ const USAGE = `usage: track <command>
     may appear before or after the command; it redirects reads AND writes to that directory
   --version | -v
   init
-  item new --kind <feature|bug|chore> --title <t> --workspace <w> [--body <b>] [--parent <id>] [--role <workpackage|spec-phase|stream>] [--accountable <a>] [--responsible <a,a>] (trim actor IDs; blank responsible members are dropped)
+  item new --kind <feature|bug|chore> --title <t> --workspace <w> [--body <b>] [--parent <id>] [--role <workpackage|spec-phase|stream>] [--accountable <a>] [--responsible <a,a>] [--link <kind=locator>] (repeatable --link; trim actor IDs; blank responsible members are dropped)
+  item link <itemId> --kind <kind> --locator <locator> [--reason <text>] [--client-token <t>] (attach one link/pin to an existing item; kind spec-exempt requires --reason)
   item reparent <itemId> [--parent <pid>] [--detach]
   item set-raci <itemId> [--accountable <a>] [--responsible <a,a>] [--client-token <t>] (trimmed blank members are rejected, unlike item new)
   item set-role <itemId> <workpackage|stream>
@@ -109,9 +110,10 @@ const USAGE = `usage: track <command>
   workspace-activity --workspace <id> [--baseline-commit <sha>] [--now <iso>] [--idle-ms <ms>] [--format json|text]
   scope validate --workspace <id> [--baseline-commit <sha>] [--content <path>] [--locator <l>] [--claimed-item <id>] [--infer-delivered-out-of-scope] [--format json|text]
   validate [--commit <sha>]
+  reseal
   events-contains --base <log> --candidate <log> [--format json|text]
   audit [--format json|text]
-  focus <decision-id> --workspace <w> [--format terminal|md|html] [--baseline-commit <sha>]
+  focus <decision-id> --workspace <w> [--format terminal|md|html|json] [--baseline-commit <sha>]
   branch import <BRANCH.md> [--commit <sha>]
   restructure apply --plan <plan.json>
   ingest <file.jsonl> --workspace <w>
@@ -459,6 +461,30 @@ function extractTrackDirFlag(argv: string[]): { trackDirFlag?: string; rest: str
   return trackDirFlag !== undefined ? { trackDirFlag, rest } : { rest }
 }
 
+/**
+ * Request-lifecycle Part 1 (Lot L2) — pull a REPEATABLE value flag's occurrences out of argv.
+ * `parseFlags` keeps only the LAST occurrence of a repeated key, so `item new --link a --link b`
+ * needs the pairs extracted BEFORE the standard single-value parse. Fail-closed on a missing value.
+ */
+function extractRepeatableFlag(args: string[], key: string): { values: string[]; rest: string[] } {
+  const values: string[] = []
+  const rest: string[] = []
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!
+    if (a === `--${key}`) {
+      const next = args[i + 1]
+      if (next === undefined || next.startsWith('--')) {
+        throw new DomainError(`--${key} requires a value`)
+      }
+      values.push(next)
+      i++
+      continue
+    }
+    rest.push(a)
+  }
+  return { values, rest }
+}
+
 const REPORT_USAGE = `usage: track report [--status-table] [--scope <container-id|code|label>] [--since <sha|YYYY-MM-DD> [--until <sha|YYYY-MM-DD>] | --period <today|week|month|all|last-week|last-day>] [--raw] [--wp] [--flat] [--inline|--width <40..240>] [--decisions] [--active-roster] [--require-accepted] [--resolve <handle>] [--commit <sha>] [--now <iso>] [--sub-wp] [--lang <bcp47>] [--format json|text|md] [--track-dir <directory-containing-events.jsonl>]
 
 --status-table selects the validated four-section report: À-FAIRE carries WP · av. · étape · statut · à faire · bloqué · prochaine action over a rolling last-week window by default (an explicit period always wins). Stage/status are neutral codes over recorded evidence; missing information is flagged, never colored. It preserves DÉCISIONS and supports scoped Markdown.
@@ -604,7 +630,8 @@ export function runCli(rawArgv: string[], io: CliIO): number | Promise<number> {
       case 'priority':
       case 'branch':
       case 'restructure':
-      case 'ingest': {
+      case 'ingest':
+      case 'reseal': {
         const ctx: Ctx = { io, eventsPath: eventsPathOf(resolveTrackDir(resolveOpts)) }
         switch (cmd) {
           case 'item':
@@ -625,6 +652,10 @@ export function runCli(rawArgv: string[], io: CliIO): number | Promise<number> {
             return cmdBranch(rest, ctx)
           case 'ingest':
             return cmdIngest(rest, ctx)
+          case 'reseal':
+            // Mutating like the group it dispatches in (it rewrites the log + head under the lock);
+            // unlike a read, it must NOT serve-empty — resealing a nonexistent store is a user error.
+            return cmdReseal(rest, ctx)
         }
         // unreachable — the outer case list and this inner switch are identical
         io.err(USAGE)
@@ -679,20 +710,57 @@ function cmdItem(args: string[], ctx: Ctx): number {
     return 0
   }
   if (sub === 'new') {
+    // Request-lifecycle Part 1 (Lot L2) — `--link <kind=locator>` is REPEATABLE (parseFlags keeps only
+    // the LAST occurrence), so the pairs are pulled out of raw argv before the standard parse; each is
+    // validated fail-closed (assertItemLink — a kind:'spec-exempt' needs its reason, which the
+    // `<kind>=<locator>` grammar cannot carry: use `item link` for that).
+    const { values: linkValues, rest } = extractRepeatableFlag(args.slice(1), 'link')
+    const { flags: newFlags } = parseFlags(rest)
+    const links = linkValues.map((raw): Link => {
+      const eq = raw.indexOf('=')
+      if (eq <= 0) throw new DomainError(`item new: --link must be <kind>=<locator> (got "${raw}")`)
+      return assertItemLink({ kind: raw.slice(0, eq), locator: raw.slice(eq + 1) })
+    })
     const id = track.createItem({
-      kind: oneOf(req(flags, 'kind'), ITEM_KINDS, '--kind') as ItemKind,
-      title: req(flags, 'title'),
-      workspace: req(flags, 'workspace'),
-      ...(opt(flags, 'body') !== undefined ? { body: req(flags, 'body') } : {}),
-      ...(opt(flags, 'parent') !== undefined ? { parentId: req(flags, 'parent') } : {}),
-      ...(opt(flags, 'role') !== undefined ? { role: oneOf(req(flags, 'role'), ITEM_ROLES, '--role') as ItemRole } : {}),
-      ...(opt(flags, 'accountable') !== undefined ? { accountable: req(flags, 'accountable') } : {}),
-      ...(opt(flags, 'responsible') !== undefined
-        ? { responsible: req(flags, 'responsible').split(',').map((s) => s.trim()).filter(Boolean) }
+      kind: oneOf(req(newFlags, 'kind'), ITEM_KINDS, '--kind') as ItemKind,
+      title: req(newFlags, 'title'),
+      workspace: req(newFlags, 'workspace'),
+      ...(opt(newFlags, 'body') !== undefined ? { body: req(newFlags, 'body') } : {}),
+      ...(opt(newFlags, 'parent') !== undefined ? { parentId: req(newFlags, 'parent') } : {}),
+      ...(opt(newFlags, 'role') !== undefined ? { role: oneOf(req(newFlags, 'role'), ITEM_ROLES, '--role') as ItemRole } : {}),
+      ...(opt(newFlags, 'accountable') !== undefined ? { accountable: req(newFlags, 'accountable') } : {}),
+      ...(opt(newFlags, 'responsible') !== undefined
+        ? { responsible: req(newFlags, 'responsible').split(',').map((s) => s.trim()).filter(Boolean) }
         : {}),
-      ...(opt(flags, 'engagement-ref') !== undefined ? { engagementRef: req(flags, 'engagement-ref') } : {}),
+      ...(opt(newFlags, 'engagement-ref') !== undefined ? { engagementRef: req(newFlags, 'engagement-ref') } : {}),
+      ...(links.length > 0 ? { links } : {}),
     })
     io.out(`${id}\n`)
+    return 0
+  }
+  if (sub === 'link') {
+    // Request-lifecycle Part 1 (Lot L2) — attach ONE link (a spec pin, a REASONED spec-exempt, delivery
+    // evidence, a cross-repo item, …) to an EXISTING item. The link shape is validated fail-closed in the
+    // facade (assertItemLink — kind:'spec-exempt' requires --reason). `--client-token` gives append-once
+    // idempotency at the CLI boundary (mirrors assign-code/reopen): a retried delivery reads as the
+    // no-op it is.
+    const itemId = positional[0]!
+    const clientToken = opt(flags, 'client-token')
+    if (clientToken !== undefined && store(ctx).readAll().some((e) => e.clientToken === clientToken)) {
+      io.out('no-op: client-token already applied\n')
+      return 0
+    }
+    const reason = opt(flags, 'reason')
+    track.addItemLink(
+      itemId,
+      {
+        kind: req(flags, 'kind'),
+        locator: req(flags, 'locator'),
+        ...(reason !== undefined ? { reason } : {}),
+      },
+      clientToken,
+    )
+    io.out('ok\n')
     return 0
   }
   if (sub === 'reparent') {
@@ -862,7 +930,7 @@ function cmdItem(args: string[], ctx: Ctx): number {
     rowsOut(rows, fmt(flags), io)
     return 0
   }
-  io.err('usage: track item <new|reparent|report-set|set-raci|set-role|scope-declare|spec-amend|spec|realize|assign-code|show|ls>\n')
+  io.err('usage: track item <new|link|reparent|report-set|set-raci|set-role|scope-declare|spec-amend|spec|realize|assign-code|show|ls>\n')
   return 2
 }
 
@@ -1486,12 +1554,13 @@ const HTML_HOOKS = {
 }
 
 /**
- * `track focus <decision-id> --workspace <w> [--format terminal|md|html] [--baseline-commit <sha>]` —
+ * `track focus <decision-id> --workspace <w> [--format terminal|md|html|json] [--baseline-commit <sha>]` —
  * a READ-ONLY render of a track decision as a focus DecisionDossierDocument (focus@0.3.0 is itself
  * read-only). track resolves the store THE TRACK WAY (`ctx.eventsPath` — NO `--events-path`; track owns
  * store resolution via `--track-dir`/`TRACK_DIR`/ancestor-walk) and the baseline commit via `resolveCommit`,
  * then calls focus's `readDecisionDossier(eventsPath, {workspace, baselineCommit, decisionId}, readAt)` and
- * dispatches the render-core (terminal/md/html). It is the HOME of Focus (`stp focus` is a shortcut alias).
+ * dispatches the render-core (terminal/md/html) or the JSON serialization (U-19). It is the HOME of Focus
+ * (`stp focus` is a shortcut alias).
  *
  * ASYNC (the only such command): `../focus-vendor/index.js` is an `integrated dependency` consumed via dynamic
  * `import()`, so track's CORE stays publishable with ZERO knowledge of focus and `track focus` is an
@@ -1502,7 +1571,7 @@ const HTML_HOOKS = {
  */
 async function cmdFocus(args: string[], ctx: Ctx, _noStore: boolean): Promise<number> {
   const { io } = ctx
-  const FOCUS_USAGE = 'usage: track focus <decision-id> --workspace <w> [--format terminal|md|html] [--baseline-commit <sha>]\n'
+  const FOCUS_USAGE = 'usage: track focus <decision-id> --workspace <w> [--format terminal|md|html|json] [--baseline-commit <sha>]\n'
   const { positional, flags } = parseFlags(args)
   try {
     assertOnlyFlags(flags, ['workspace', 'format', 'baseline-commit'])
@@ -1522,9 +1591,9 @@ async function cmdFocus(args: string[], ctx: Ctx, _noStore: boolean): Promise<nu
   }
   // `--format` is validated via the shared `oneOf` (CLI-boundary input check) BEFORE the import too, so a
   // bad format fails fast as a usage error rather than a render error.
-  let format: 'terminal' | 'md' | 'html'
+  let format: 'terminal' | 'md' | 'html' | 'json'
   try {
-    format = oneOf(opt(flags, 'format') ?? 'terminal', ['terminal', 'md', 'html'], '--format')
+    format = oneOf(opt(flags, 'format') ?? 'terminal', ['terminal', 'md', 'html', 'json'], '--format')
   } catch (error) {
     io.err(`error: ${error instanceof Error ? error.message : String(error)}\n`)
     return 2
@@ -1544,9 +1613,11 @@ async function cmdFocus(args: string[], ctx: Ctx, _noStore: boolean): Promise<nu
   // integrated focus renderer is unavailable: map it to rc=1 + a helpful hint (NOT a stack trace).
   let focusTrack: typeof import('../focus-vendor/track/index.js')
   let core: typeof import('../focus-vendor/index.js')
+  let validation: typeof import('../focus-vendor/validation/index.js')
   try {
     focusTrack = await import('../focus-vendor/track/index.js')
     core = await import('../focus-vendor/index.js')
+    validation = await import('../focus-vendor/validation/index.js')
   } catch (error) {
     const code = (error as { code?: string }).code
     if (code === 'ERR_MODULE_NOT_FOUND' || code === 'MODULE_NOT_FOUND') {
@@ -1565,6 +1636,15 @@ async function cmdFocus(args: string[], ctx: Ctx, _noStore: boolean): Promise<nu
       { workspace, baselineCommit, decisionId },
       new Date().toISOString(),
     )
+    // U-19: the JSON surface has no renderer, so it validates the doc through the SAME presentation
+    // gate (readability included) via the vendored union validator (`v1 | v2` — Track's dossier
+    // model stores v1 fields today, so the serialized document carries no `schemaVersion`), then
+    // emits the validated document verbatim.
+    if (format === 'json') {
+      const validated = validation.assertDecisionDossierForPresentation(doc)
+      io.out(`${JSON.stringify(validated, null, 2)}\n`)
+      return 0
+    }
     const rendered =
       format === 'md' ? core.renderMd(doc) : format === 'html' ? core.renderHtml(doc, HTML_HOOKS) : core.renderTerminal(doc)
     io.out(rendered.endsWith('\n') ? rendered : `${rendered}\n`)
@@ -1661,6 +1741,31 @@ function cmdValidate(args: string[], ctx: Ctx, noStore = false): number {
   io.out(`INVALID: ${integrity.findings.length} integrity + ${desync.length} desync finding(s)\n`)
   io.out(`${JSON.stringify(findings, null, 2)}\n`)
   return 1
+}
+
+/**
+ * `track reseal` (Lot L3, spec §1.3) — re-chain a union-merged `.track/events.jsonl` in place.
+ * `.gitattributes` pins `merge=union`, so a merge of two branches that each appended disjoint events
+ * keeps BOTH suffixes — but the union-merged log carries a broken positional `prevHash` chain, which
+ * makes the store fail-closed on the next append. `reseal` recomputes ONLY the integrity frame
+ * (`seq`, `prevHash`) of every event: `id` and `contentHash` (the hash of the frame-free `EventCore`)
+ * are preserved verbatim, so `events-contains` containment over ids survives a reseal. Fail-closed
+ * (`IntegrityError` → rc=1, log untouched): a tampered core (`content-hash`), a duplicate id with
+ * divergent content (`duplicate-event-id`), or any `validate` finding the re-chain cannot repair
+ * (e.g. a command batch interleaved across the merge seam, `batch-noncontiguous`).
+ */
+function cmdReseal(args: string[], ctx: Ctx): number {
+  const { io } = ctx
+  if (args.length > 0) {
+    io.err('usage: track reseal\n')
+    return 2
+  }
+  const result = store(ctx).reseal()
+  io.out(
+    `resealed ${result.events} events (${result.resealed} frames updated, ` +
+      `${result.deduplicated} duplicates collapsed)\n`,
+  )
+  return 0
 }
 
 function cmdBranch(args: string[], ctx: Ctx): number {

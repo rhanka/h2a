@@ -103,7 +103,7 @@ afterEach(() => {
 
 describe('read contract — version + curated surface (snapshot gate)', () => {
   it('exposes a stable semver and the documented read methods', () => {
-    expect(READ_CONTRACT_VERSION).toBe('1.24.0') // +reportSnapshot exposes its complete folded event source (additive)
+    expect(READ_CONTRACT_VERSION).toBe('1.25.0') // B1 readers: report stages grow review/published (additive; writers gated until Lot L5)
     expect(reader.contractVersion).toBe(READ_CONTRACT_VERSION)
     expect(typeof trackObjectiveRef).toBe('function')
     expect(typeof parseTrackObjectiveRef).toBe('function')
