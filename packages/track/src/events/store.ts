@@ -5,6 +5,7 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  renameSync,
   writeSync,
 } from 'node:fs'
 import { dirname } from 'node:path'
@@ -13,6 +14,7 @@ import { canonicalize, materialize } from './canonical.js'
 import { contentHashOf } from './frame.js'
 import { readHead, writeHead } from './head.js'
 import { withFileLock, type LockOptions } from './lock.js'
+import { resealEvents, type ResealResult } from './reseal.js'
 import type { CommandEvent, EventCore, Sha256, TrackEvent, Ulid } from './types.js'
 import { validate } from './validate.js'
 
@@ -204,6 +206,36 @@ export class EventStore {
   }
 
   /**
+   * Re-seal the store's log in place (Lot L3, spec §1.3 — `merge=union` + `track reseal`). A
+   * union-merged `.track/events.jsonl` keeps every line from both parents but carries a broken
+   * positional `prevHash` chain (and possibly duplicate per-aggregate `seq` and a stale head), which
+   * `appendCommand`'s fail-closed guard then turns into a write-DoS. Under the same cross-process
+   * lock as an append, `reseal` reads the whole log, runs the PURE `resealEvents` (core-integrity
+   * guard → duplicate collapse → re-frame `seq`/`prevHash` → full `validate` gate), atomically
+   * rewrites the log (temp file + fsync + rename — never in place, so a crash cannot tear it), and
+   * rewrites the head. Every event `id` and `contentHash` is preserved verbatim, so
+   * `track events-contains` containment over ids survives a reseal. Throws `IntegrityError` and
+   * leaves the file byte-identical when the log is not resealable (tampered core, divergent
+   * duplicate id, or any `validate` finding the re-chain cannot repair). On an already-valid log it
+   * is a byte-identical no-op (`resealed: 0`).
+   */
+  reseal(): ResealResult {
+    return withFileLock(
+      this.filePath,
+      () => {
+        const { events, result } = resealEvents(this.readAll())
+        this.rewriteAtomic(events)
+        writeHead(this.filePath, {
+          streamLength: events.length,
+          lastContentHash: events.length > 0 ? events[events.length - 1]!.contentHash : null,
+        })
+        return result
+      },
+      lockOptionsFromEnv(),
+    )
+  }
+
+  /**
    * Under-lock delivery-idempotency recheck. Returns the EXACT persisted events for this command's
    * `clientToken` when the command is a true atomic-batch retry (dedup), `null` when it is a fresh write
    * (append normally), and THROWS fail-closed when a delivery token is reused across a logically distinct
@@ -355,5 +387,32 @@ export class EventStore {
     } finally {
       closeSync(fd)
     }
+  }
+
+  /**
+   * Full-log rewrite for `reseal` — the one sanctioned whole-file rewrite of an existing log
+   * (appendAtomic only ever appends). Each line is the event's `canonicalize` form, the SAME
+   * serialization used for `contentHash`, so persisted bytes can never diverge from the hashed
+   * bytes. Written to `<eventsPath>.tmp` (fsync'd) then `renameSync`d over the log: a crash leaves
+   * either the whole old log or the whole resealed log, never a torn mix.
+   */
+  private rewriteAtomic(events: ReadonlyArray<TrackEvent>): void {
+    mkdirSync(dirname(this.filePath), { recursive: true })
+    const buffer =
+      events.length === 0
+        ? Buffer.from('', 'utf8')
+        : Buffer.from(events.map((e) => canonicalize(e)).join('\n') + '\n', 'utf8')
+    const tmp = `${this.filePath}.tmp`
+    const fd = openSync(tmp, 'w')
+    try {
+      let offset = 0
+      while (offset < buffer.length) {
+        offset += writeSync(fd, buffer, offset, buffer.length - offset)
+      }
+      fsyncSync(fd)
+    } finally {
+      closeSync(fd)
+    }
+    renameSync(tmp, this.filePath)
   }
 }

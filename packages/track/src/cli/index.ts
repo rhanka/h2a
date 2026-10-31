@@ -110,6 +110,7 @@ const USAGE = `usage: track <command>
   workspace-activity --workspace <id> [--baseline-commit <sha>] [--now <iso>] [--idle-ms <ms>] [--format json|text]
   scope validate --workspace <id> [--baseline-commit <sha>] [--content <path>] [--locator <l>] [--claimed-item <id>] [--infer-delivered-out-of-scope] [--format json|text]
   validate [--commit <sha>]
+  reseal
   events-contains --base <log> --candidate <log> [--format json|text]
   audit [--format json|text]
   focus <decision-id> --workspace <w> [--format terminal|md|html] [--baseline-commit <sha>]
@@ -629,7 +630,8 @@ export function runCli(rawArgv: string[], io: CliIO): number | Promise<number> {
       case 'priority':
       case 'branch':
       case 'restructure':
-      case 'ingest': {
+      case 'ingest':
+      case 'reseal': {
         const ctx: Ctx = { io, eventsPath: eventsPathOf(resolveTrackDir(resolveOpts)) }
         switch (cmd) {
           case 'item':
@@ -650,6 +652,10 @@ export function runCli(rawArgv: string[], io: CliIO): number | Promise<number> {
             return cmdBranch(rest, ctx)
           case 'ingest':
             return cmdIngest(rest, ctx)
+          case 'reseal':
+            // Mutating like the group it dispatches in (it rewrites the log + head under the lock);
+            // unlike a read, it must NOT serve-empty — resealing a nonexistent store is a user error.
+            return cmdReseal(rest, ctx)
         }
         // unreachable — the outer case list and this inner switch are identical
         io.err(USAGE)
@@ -1723,6 +1729,31 @@ function cmdValidate(args: string[], ctx: Ctx, noStore = false): number {
   io.out(`INVALID: ${integrity.findings.length} integrity + ${desync.length} desync finding(s)\n`)
   io.out(`${JSON.stringify(findings, null, 2)}\n`)
   return 1
+}
+
+/**
+ * `track reseal` (Lot L3, spec §1.3) — re-chain a union-merged `.track/events.jsonl` in place.
+ * `.gitattributes` pins `merge=union`, so a merge of two branches that each appended disjoint events
+ * keeps BOTH suffixes — but the union-merged log carries a broken positional `prevHash` chain, which
+ * makes the store fail-closed on the next append. `reseal` recomputes ONLY the integrity frame
+ * (`seq`, `prevHash`) of every event: `id` and `contentHash` (the hash of the frame-free `EventCore`)
+ * are preserved verbatim, so `events-contains` containment over ids survives a reseal. Fail-closed
+ * (`IntegrityError` → rc=1, log untouched): a tampered core (`content-hash`), a duplicate id with
+ * divergent content (`duplicate-event-id`), or any `validate` finding the re-chain cannot repair
+ * (e.g. a command batch interleaved across the merge seam, `batch-noncontiguous`).
+ */
+function cmdReseal(args: string[], ctx: Ctx): number {
+  const { io } = ctx
+  if (args.length > 0) {
+    io.err('usage: track reseal\n')
+    return 2
+  }
+  const result = store(ctx).reseal()
+  io.out(
+    `resealed ${result.events} events (${result.resealed} frames updated, ` +
+      `${result.deduplicated} duplicates collapsed)\n`,
+  )
+  return 0
 }
 
 function cmdBranch(args: string[], ctx: Ctx): number {
