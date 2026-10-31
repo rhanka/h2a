@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import test from "node:test";
 import { readInlineModule } from "../dist/runtime/mcp/ui-render/inline.js";
 
@@ -26,8 +25,6 @@ const CANARY = "CANARY-NEGOTIATION-SECRET-DO-NOT-EMIT-b41c";
 const RENDER_URI = "ui://sentropic/render/v1";
 const CATALOG_URI = "a2ui://sentropic/catalog/v1";
 const PILOT_CSP = { resourceDomains: ["https://cdn.jsdelivr.net"], connectDomains: [] };
-
-const VENDOR = new URL("../vendor/design-system-elements/", import.meta.url);
 
 let assets;
 test.before(async () => {
