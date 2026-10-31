@@ -22,8 +22,11 @@
 // asserters); it exists so the two repos agree on the frozen shape.
 
 /** Semver of the seam v0 schema artifact itself (the contract-snapshot version, distinct from the
- *  INGEST/READ contract versions it references). Bumped MINOR for additive schema growth. */
-export const SEAM_V0_SCHEMA_VERSION = '1.0.0'
+ *  INGEST/READ contract versions it references). Bumped MINOR for additive schema growth.
+ *  1.1.0 — request-lifecycle Part 1 (Lot L2): ONE ADDITIVE payload kind `item.add-link` (the request-
+ *  lifecycle link/pin write) joins the three frozen evidence payloads. Additive only — the three frozen
+ *  payloads and every enum are unchanged, so an old validator/producer pair still validates. */
+export const SEAM_V0_SCHEMA_VERSION = '1.1.0'
 
 /** The frozen v0 seam JSON-Schema (Draft 2020-12) — a REAL envelope schema with a kind dispatch (validatable
  *  by a standard validator). Pinned by `seam-schema.test.ts` (the snapshot gate + the WORK_EVENT_SCHEMA
@@ -33,8 +36,8 @@ export const SEAM_V0_SCHEMA = {
   $id: 'https://sentropic.dev/schema/harness-track-seam/v0',
   title: 'harness↔track seam v0',
   description:
-    'The frozen v0 evidence seam: the WorkEvent envelope (the ROOT schema) with a kind-driven payload dispatch, the three seam payloads (scope.verification, acceptance.run, acceptance.link) + the harness-internal per-check VerificationRun the adapter fans out from. The harness EMITS these; track INGESTS them. Neither imports the other runtime.',
-  version: '1.0.0',
+    'The frozen v0 evidence seam: the WorkEvent envelope (the ROOT schema) with a kind-driven payload dispatch, the three seam payloads (scope.verification, acceptance.run, acceptance.link) + the harness-internal per-check VerificationRun the adapter fans out from, plus the ADDITIVE request-lifecycle item.add-link payload (seam artifact 1.1.0, Lot L2). The harness EMITS the evidence kinds; track INGESTS them; item.add-link is emitted by the request-lifecycle writer (the conductor/PR automation). Neither imports the other runtime.',
+  version: '1.1.0',
   ingestContractVersion: '1.1.0',
   readContractVersion: '1.9.0',
   // The ROOT IS the WorkEvent envelope (validatable): required keys + no extra envelope keys, then an
@@ -44,7 +47,7 @@ export const SEAM_V0_SCHEMA = {
   additionalProperties: false,
   properties: {
     v: { const: 1, description: 'Contract major. Unknown major ⇒ fail-closed reject.' },
-    kind: { enum: ['scope.verification', 'acceptance.run', 'acceptance.link'] },
+    kind: { enum: ['scope.verification', 'acceptance.run', 'acceptance.link', 'item.add-link'] },
     payload: {
       type: 'object',
       description: 'Per-kind shape enforced by the allOf/if-then dispatch below (NOT a bare {type:object}).',
@@ -71,6 +74,12 @@ export const SEAM_V0_SCHEMA = {
     {
       if: { properties: { kind: { const: 'acceptance.link' } }, required: ['kind'] },
       then: { properties: { payload: { $ref: '#/$defs/AcceptanceLinkPayload' } } },
+    },
+    {
+      // Request-lifecycle Part 1 (Lot L2) — the ADDITIVE link/pin write (seam artifact 1.1.0). The
+      // three evidence branches above are FROZEN; this branch is purely additive.
+      if: { properties: { kind: { const: 'item.add-link' } }, required: ['kind'] },
+      then: { properties: { payload: { $ref: '#/$defs/ItemAddLinkPayload' } } },
     },
   ],
   $defs: {
@@ -252,6 +261,39 @@ export const SEAM_V0_SCHEMA = {
         },
       },
     },
+    ItemAddLinkPayload: {
+      description:
+        'Request-lifecycle Part 1 (Lot L2, seam artifact 1.1.0) — attach ONE link (spec pin, REASONED spec-exempt, delivery evidence, cross-repo item) to an EXISTING item (→ the persisted item.link-added event). ADDITIVE optional kind: old producers never send it and still validate. Non-empty strings carry minLength:1 to match the runtime asserter (assertItemLink).',
+      type: 'object',
+      required: ['itemId', 'kind', 'locator'],
+      additionalProperties: false,
+      properties: {
+        itemId: {
+          type: 'string',
+          minLength: 1,
+          description:
+            'The EXISTING item the link attaches to (the persisted item.link-added lands on this aggregateId; unknown-item is a facade DomainError).',
+        },
+        kind: {
+          type: 'string',
+          minLength: 1,
+          description:
+            'The link kind — OPEN grammar (spec, spec-exempt, pr-open, pr-review, pr-merged, published, deployed, related-item, …). kind:"spec-exempt" REQUIRES a non-empty reason (assertItemLink, C commune).',
+        },
+        locator: {
+          type: 'string',
+          minLength: 1,
+          description:
+            'The opaque locator (e.g. "<repoKey>:<path>#sha256:<64hex>", "<owner>/<repo>#<n>"). track records it VERBATIM, NEVER resolves/fetches it (the engram spec-pin validator does, at verify-pins time).',
+        },
+        reason: {
+          type: 'string',
+          minLength: 1,
+          description:
+            'OPTIONAL motive/justification — REQUIRED (non-empty) when kind is "spec-exempt". Dropped when absent (hash-minimal: a reason-less link serializes byte-identically to the pre-L2 shape).',
+        },
+      },
+    },
     WorkEventEnvelope: {
       description:
         'The v0 wire envelope (SHIPPED, unchanged by the freeze) — published as a $def for reference; the ROOT schema IS this envelope plus the kind dispatch. Any other top-level key is rejected fail-closed (WHO/trust come from the ingest CONTEXT). The harness emits a SEQUENCE of these (one per check-target branch), never a single VerificationRun envelope.',
@@ -260,7 +302,7 @@ export const SEAM_V0_SCHEMA = {
       additionalProperties: false,
       properties: {
         v: { const: 1, description: 'Contract major. Unknown major ⇒ fail-closed reject.' },
-        kind: { enum: ['scope.verification', 'acceptance.run', 'acceptance.link'] },
+        kind: { enum: ['scope.verification', 'acceptance.run', 'acceptance.link', 'item.add-link'] },
         payload: { type: 'object' },
         clientToken: {
           type: 'string',
@@ -283,4 +325,5 @@ export const SEAM_V0_PAYLOAD_DEFS = {
   'scope.verification': SEAM_V0_SCHEMA.$defs.ScopeVerificationPayload,
   'acceptance.run': SEAM_V0_SCHEMA.$defs.AcceptanceRunPayload,
   'acceptance.link': SEAM_V0_SCHEMA.$defs.AcceptanceLinkPayload,
+  'item.add-link': SEAM_V0_SCHEMA.$defs.ItemAddLinkPayload,
 } as const

@@ -50,7 +50,7 @@ describe('./ingest barrel — the submit-facing surface', () => {
     // The runtime VALUE exports the host needs: the function, the contract version, the error, the
     // binding-auth pre-check (predicate + decoupled frozen copy).
     expect(typeof ingest).toBe('function')
-    expect(INGEST_CONTRACT_VERSION).toBe('2.2.0')
+    expect(INGEST_CONTRACT_VERSION).toBe('2.3.0')
     expect(typeof IngestError).toBe('function')
 
     // The pre-check PREDICATE — the host's "does my channel auth admit binding writes?" question.
@@ -255,7 +255,7 @@ describe('./ingest package export — compiled entry and export mapping', () => 
       ) as Record<string, unknown>
       expect(nativeSurface).toEqual({
         ingest: 'function',
-        contractVersion: '2.2.0',
+        contractVersion: '2.3.0',
         ingestError: 'function',
         isBindingAuth: 'function',
         bindingAuth: true,

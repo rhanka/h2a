@@ -12,7 +12,7 @@ import { initTrackDir, resolveTrackDir, resolveTrackDirOrNull } from './resolve.
 import type { EvidenceKind, RunResult } from '../model/acceptance.js'
 import type { BlockerKind, BlockerScope, ResolutionRule } from '../model/blocker.js'
 import type { DecisionKind, Dossier, DossierArtifact, Outcome } from '../model/decision.js'
-import { DomainError, type Disposition, type Gate, type ItemKind, type ItemRole, type Realization, type ReopenMotive, type ScopeDecl, type SpecStatus } from '../model/item.js'
+import { assertItemLink, DomainError, type Disposition, type Gate, type ItemKind, type ItemRole, type Link, type Realization, type ReopenMotive, type ScopeDecl, type SpecStatus } from '../model/item.js'
 import type { Bucket } from '../report/buckets.js'
 import type { ItemReportStatus } from '../model/report-status.js'
 import { displayText, formatRows, type Format } from '../report/format.js'
@@ -72,7 +72,8 @@ const USAGE = `usage: track <command>
     may appear before or after the command; it redirects reads AND writes to that directory
   --version | -v
   init
-  item new --kind <feature|bug|chore> --title <t> --workspace <w> [--body <b>] [--parent <id>] [--role <workpackage|spec-phase|stream>] [--accountable <a>] [--responsible <a,a>] (trim actor IDs; blank responsible members are dropped)
+  item new --kind <feature|bug|chore> --title <t> --workspace <w> [--body <b>] [--parent <id>] [--role <workpackage|spec-phase|stream>] [--accountable <a>] [--responsible <a,a>] [--link <kind=locator>] (repeatable --link; trim actor IDs; blank responsible members are dropped)
+  item link <itemId> --kind <kind> --locator <locator> [--reason <text>] [--client-token <t>] (attach one link/pin to an existing item; kind spec-exempt requires --reason)
   item reparent <itemId> [--parent <pid>] [--detach]
   item set-raci <itemId> [--accountable <a>] [--responsible <a,a>] [--client-token <t>] (trimmed blank members are rejected, unlike item new)
   item set-role <itemId> <workpackage|stream>
@@ -459,6 +460,30 @@ function extractTrackDirFlag(argv: string[]): { trackDirFlag?: string; rest: str
   return trackDirFlag !== undefined ? { trackDirFlag, rest } : { rest }
 }
 
+/**
+ * Request-lifecycle Part 1 (Lot L2) — pull a REPEATABLE value flag's occurrences out of argv.
+ * `parseFlags` keeps only the LAST occurrence of a repeated key, so `item new --link a --link b`
+ * needs the pairs extracted BEFORE the standard single-value parse. Fail-closed on a missing value.
+ */
+function extractRepeatableFlag(args: string[], key: string): { values: string[]; rest: string[] } {
+  const values: string[] = []
+  const rest: string[] = []
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!
+    if (a === `--${key}`) {
+      const next = args[i + 1]
+      if (next === undefined || next.startsWith('--')) {
+        throw new DomainError(`--${key} requires a value`)
+      }
+      values.push(next)
+      i++
+      continue
+    }
+    rest.push(a)
+  }
+  return { values, rest }
+}
+
 const REPORT_USAGE = `usage: track report [--status-table] [--scope <container-id|code|label>] [--since <sha|YYYY-MM-DD> [--until <sha|YYYY-MM-DD>] | --period <today|week|month|all|last-week|last-day>] [--raw] [--wp] [--flat] [--inline|--width <40..240>] [--decisions] [--active-roster] [--require-accepted] [--resolve <handle>] [--commit <sha>] [--now <iso>] [--sub-wp] [--lang <bcp47>] [--format json|text|md] [--track-dir <directory-containing-events.jsonl>]
 
 --status-table selects the validated four-section report: À-FAIRE carries WP · av. · étape · statut · à faire · bloqué · prochaine action over a rolling last-week window by default (an explicit period always wins). Stage/status are neutral codes over recorded evidence; missing information is flagged, never colored. It preserves DÉCISIONS and supports scoped Markdown.
@@ -679,20 +704,57 @@ function cmdItem(args: string[], ctx: Ctx): number {
     return 0
   }
   if (sub === 'new') {
+    // Request-lifecycle Part 1 (Lot L2) — `--link <kind=locator>` is REPEATABLE (parseFlags keeps only
+    // the LAST occurrence), so the pairs are pulled out of raw argv before the standard parse; each is
+    // validated fail-closed (assertItemLink — a kind:'spec-exempt' needs its reason, which the
+    // `<kind>=<locator>` grammar cannot carry: use `item link` for that).
+    const { values: linkValues, rest } = extractRepeatableFlag(args.slice(1), 'link')
+    const { flags: newFlags } = parseFlags(rest)
+    const links = linkValues.map((raw): Link => {
+      const eq = raw.indexOf('=')
+      if (eq <= 0) throw new DomainError(`item new: --link must be <kind>=<locator> (got "${raw}")`)
+      return assertItemLink({ kind: raw.slice(0, eq), locator: raw.slice(eq + 1) })
+    })
     const id = track.createItem({
-      kind: oneOf(req(flags, 'kind'), ITEM_KINDS, '--kind') as ItemKind,
-      title: req(flags, 'title'),
-      workspace: req(flags, 'workspace'),
-      ...(opt(flags, 'body') !== undefined ? { body: req(flags, 'body') } : {}),
-      ...(opt(flags, 'parent') !== undefined ? { parentId: req(flags, 'parent') } : {}),
-      ...(opt(flags, 'role') !== undefined ? { role: oneOf(req(flags, 'role'), ITEM_ROLES, '--role') as ItemRole } : {}),
-      ...(opt(flags, 'accountable') !== undefined ? { accountable: req(flags, 'accountable') } : {}),
-      ...(opt(flags, 'responsible') !== undefined
-        ? { responsible: req(flags, 'responsible').split(',').map((s) => s.trim()).filter(Boolean) }
+      kind: oneOf(req(newFlags, 'kind'), ITEM_KINDS, '--kind') as ItemKind,
+      title: req(newFlags, 'title'),
+      workspace: req(newFlags, 'workspace'),
+      ...(opt(newFlags, 'body') !== undefined ? { body: req(newFlags, 'body') } : {}),
+      ...(opt(newFlags, 'parent') !== undefined ? { parentId: req(newFlags, 'parent') } : {}),
+      ...(opt(newFlags, 'role') !== undefined ? { role: oneOf(req(newFlags, 'role'), ITEM_ROLES, '--role') as ItemRole } : {}),
+      ...(opt(newFlags, 'accountable') !== undefined ? { accountable: req(newFlags, 'accountable') } : {}),
+      ...(opt(newFlags, 'responsible') !== undefined
+        ? { responsible: req(newFlags, 'responsible').split(',').map((s) => s.trim()).filter(Boolean) }
         : {}),
-      ...(opt(flags, 'engagement-ref') !== undefined ? { engagementRef: req(flags, 'engagement-ref') } : {}),
+      ...(opt(newFlags, 'engagement-ref') !== undefined ? { engagementRef: req(newFlags, 'engagement-ref') } : {}),
+      ...(links.length > 0 ? { links } : {}),
     })
     io.out(`${id}\n`)
+    return 0
+  }
+  if (sub === 'link') {
+    // Request-lifecycle Part 1 (Lot L2) — attach ONE link (a spec pin, a REASONED spec-exempt, delivery
+    // evidence, a cross-repo item, …) to an EXISTING item. The link shape is validated fail-closed in the
+    // facade (assertItemLink — kind:'spec-exempt' requires --reason). `--client-token` gives append-once
+    // idempotency at the CLI boundary (mirrors assign-code/reopen): a retried delivery reads as the
+    // no-op it is.
+    const itemId = positional[0]!
+    const clientToken = opt(flags, 'client-token')
+    if (clientToken !== undefined && store(ctx).readAll().some((e) => e.clientToken === clientToken)) {
+      io.out('no-op: client-token already applied\n')
+      return 0
+    }
+    const reason = opt(flags, 'reason')
+    track.addItemLink(
+      itemId,
+      {
+        kind: req(flags, 'kind'),
+        locator: req(flags, 'locator'),
+        ...(reason !== undefined ? { reason } : {}),
+      },
+      clientToken,
+    )
+    io.out('ok\n')
     return 0
   }
   if (sub === 'reparent') {
@@ -862,7 +924,7 @@ function cmdItem(args: string[], ctx: Ctx): number {
     rowsOut(rows, fmt(flags), io)
     return 0
   }
-  io.err('usage: track item <new|reparent|report-set|set-raci|set-role|scope-declare|spec-amend|spec|realize|assign-code|show|ls>\n')
+  io.err('usage: track item <new|link|reparent|report-set|set-raci|set-role|scope-declare|spec-amend|spec|realize|assign-code|show|ls>\n')
   return 2
 }
 
