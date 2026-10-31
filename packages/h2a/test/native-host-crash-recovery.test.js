@@ -1,6 +1,7 @@
 // Isolated incident lab: no installed h2a, provider, user bus or owner process.
 // Mandatory Node discovery/release regression. Run after the build with a private TMPDIR.
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
@@ -417,27 +418,69 @@ test('cleanup: wait for the recorded detached writer to die before deleting its 
 
 test('cleanup: a writer registering after convergence is reaped and cannot keep the fixture', async t => {
   const f = fixture(t);
-  // Bulk so removal is still walking the tree when the late writer starts.
+  // Bulk so removal is still walking the tree when the late writer starts:
+  // the walk must outlast the writer's node boot, or its import hook would
+  // only run after the fixture is already gone.
   const bulk = join(f.root, 'bulk');
   mkdirSync(bulk, { recursive: true });
-  for (let i = 0; i < 30000; i++) writeFileSync(join(bulk, `f-${i}`), 'x');
+  for (let i = 0; i < 100000; i++) writeFileSync(join(bulk, `f-${i}`), 'x');
   const writer = join(f.root, 'late-writer.mjs');
   writeFileSync(writer, `import {mkdirSync} from 'node:fs';
     const dir = ${JSON.stringify(join(f.root, 'late-write'))};
-    // A writer whose registration lands only after dispose finished cannot be
-    // reaped by it: bound its life so a slipped race self-cleans instead of
-    // leaking an immortal orphan that recreates the fixture behind the test.
-    const end = Date.now() + 20000;
-    setInterval(() => { try { if (Date.now() >= end) process.exit(0); mkdirSync(dir, { recursive: true }); } catch {} }, 1);`);
-  const parent = join(f.root, 'parent.mjs');
-  // The writer registers only when its import hook runs: the shell delay puts
-  // that registration after dispose converged on the recorded pids, the CI
-  // race (job 124193907640 ENOTEMPTY), not before it.
-  writeFileSync(parent, `import {spawn} from 'node:child_process';
-    const child = spawn('/bin/sh', ['-c', 'sleep 0.1; exec "$0" "$@"', ${JSON.stringify(process.execPath)}, ${JSON.stringify(writer)}],
-      {env: process.env, detached: true, stdio: 'ignore'});
-    child.unref();`);
-  assert.equal((await f.start([], parent).done).code, 0);
-  await f.dispose();
-  assert.equal(existsSync(f.root), false);
+    setInterval(() => { try { mkdirSync(dir, { recursive: true }); } catch {} }, 1);`);
+  // The writer is started by dispose itself, not by a wall-clock sleep: a
+  // live registered child anchors convergence, and the kill wave that ends
+  // it deterministically spawns the detached writer, whose import hook then
+  // registers after convergence converged, while removal is still walking
+  // the bulk — the CI race (job 124193907640 ENOTEMPTY). No self-extinguish
+  // bound: a survivor must fail the assertions, never outlive them quietly.
+  const blocker = join(f.root, 'blocker.mjs');
+  writeFileSync(blocker, 'setInterval(() => {}, 1000);\n');
+  f.start([], blocker);
+  const blockerRow = await eventually(() => f.recorded().find(r => r.args[1] === blocker), Boolean);
+  assert.ok(f.recorded().length >= 1, 'the convergence anchor never registered');
+  const live = row => {
+    try {
+      const stat = readFileSync('/proc/' + row.pid + '/stat', 'utf8').split(') ')[1].split(' ');
+      return stat[19] === row.start && !['Z', 'X'].includes(stat[0]);
+    } catch (error) { if (['ENOENT', 'ESRCH'].includes(error.code)) return false; throw error; }
+  };
+  const kill = process.kill;
+  let triggered = false, writerChild;
+  t.after(async () => {
+    process.kill = kill;
+    for (const row of f.recorded()) if (live(row)) kill(row.pid, 'SIGKILL');
+    if (writerChild) {
+      try { kill(writerChild.pid, 'SIGKILL'); } catch { /* already gone */ }
+      await eventually(() => { try { kill(writerChild.pid, 0); return false; } catch { return true; } }, Boolean).catch(() => {});
+    }
+    rmSync(f.root, { recursive: true, force: true });
+    rmSync(f.root + '.pids', { force: true });
+    rmSync(f.root + '.track.mjs', { force: true });
+  });
+  process.kill = function (pid, signal) {
+    if (pid === blockerRow.pid && signal === 'SIGKILL' && !triggered) {
+      triggered = true;
+      writerChild = spawn(process.execPath, [writer], { env: f.env, detached: true, stdio: 'ignore' });
+      writerChild.unref();
+    }
+    return kill(pid, signal);
+  };
+  try {
+    // The registration observed while dispose runs is the proof the late
+    // writer really entered the race window: a row that vanishes with the
+    // walked tree means dispose destroyed the writer's only identity.
+    const registered = eventually(() => {
+      if (!writerChild) return 'the kill wave has not fired yet';
+      return f.recorded().find(r => r.pid === writerChild.pid) ?? 'spawned but no surviving registration row';
+    }, row => typeof row === 'object');
+    registered.catch(() => { /* dispose failing first must not leave it unhandled */ });
+    await f.dispose();
+    const writerRow = await registered;
+    assert.equal(live(blockerRow), false, 'the convergence anchor outlived dispose');
+    assert.equal(live(writerRow), false, 'the late writer outlived dispose');
+    assert.equal(existsSync(f.root), false);
+    await pause(250); // a survivor ticks every millisecond: stillness is the proof
+    assert.equal(existsSync(f.root), false, 'the fixture was recreated behind the test');
+  } finally { process.kill = kill; }
 });
