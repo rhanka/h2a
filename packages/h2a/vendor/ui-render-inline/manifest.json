@@ -5,8 +5,8 @@
   "modulePreload": false,
   "files": {
     "render.js": {
-      "sha256": "b6985c596d241482ddfce44c5848b7a91ce333c2e06dcf2c5b93e2348914425c",
-      "rawBytes": 1262055,
+      "sha256": "8db6f4d55c6b14e3e97d0a28dc1520b740bf23acfcfe034687cf34c8ce4177c8",
+      "rawBytes": 1276251,
       "inputs": [
         "dist/browser/chunks/BpmnRenderUtil-WMCgqGDs.js",
         "dist/browser/chunks/BpmnUpdater-C-UNbzXl.js",
@@ -30,8 +30,8 @@
       ]
     },
     "BarChart.js": {
-      "sha256": "ae1a5c584ef86945322bbc0e8d7099f9dd12fcac9c17ea933b355c81527db8ef",
-      "rawBytes": 467093,
+      "sha256": "ff52499ca161aaa8ed3070593ba3937ee92bccf3e752d5262f17a67e676b34f7",
+      "rawBytes": 474586,
       "inputs": [
         "dist/browser/chunks/entropic-CM5BHERN.js",
         "dist/browser/chunks/forge-B8hrW4lA.js",
@@ -39,8 +39,8 @@
       ]
     },
     "BpmnCanvas.js": {
-      "sha256": "c69ab9147737dc79c2ea68c6e5782738a5dbdc3c45b64395de843fdab2fcae6c",
-      "rawBytes": 1209438,
+      "sha256": "c3c5519e966032466a2fce65b1c7fffb753e60e8c851f2f3f410c4158e5133d8",
+      "rawBytes": 1222509,
       "inputs": [
         "dist/browser/chunks/BpmnRenderUtil-WMCgqGDs.js",
         "dist/browser/chunks/BpmnUpdater-C-UNbzXl.js",
@@ -63,8 +63,8 @@
       ]
     },
     "DecisionDossier.js": {
-      "sha256": "7413ce7e52bbf1c53b436ea7d9d963e11708ee09fcf5c71d498fddb6559e33ec",
-      "rawBytes": 519457,
+      "sha256": "32ebf08a416538f5d4dd91a571fd57e6c7b0af9985cff250b216ec085a9f8388",
+      "rawBytes": 528075,
       "inputs": [
         "dist/browser/chunks/entropic-CM5BHERN.js",
         "dist/browser/chunks/focus-renderer-C4z8aS9F.js",
@@ -74,7 +74,7 @@
     }
   },
   "serverPort": {
-    "sha256": "41845c420a6d9ffcede7387793314a7dcc998587fe3a1c385b42020982df2a58",
-    "rawBytes": 73848
+    "sha256": "e618dfc9acd1703fe3092005b1879d219a270f5356354dcea6ca94ea6c35297b",
+    "rawBytes": 73964
   }
 }
