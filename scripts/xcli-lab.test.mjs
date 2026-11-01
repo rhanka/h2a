@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 import test from 'node:test';
 import { pathToFileURL } from 'node:url';
 import { CLIS, classify, matrix, environment, inside, pythonEntrypoint, privateExecutable, compliantQualificationRoot, repo } from './xcli-lab.mjs';
@@ -129,11 +130,13 @@ test('L4: login copies accept only the codex and Muse login roles, never ambient
     fs.mkdirSync(join(authHome, '.claude'), { recursive: true });
     fs.mkdirSync(join(authHome, '.gemini'), { recursive: true });
     fs.mkdirSync(join(authHome, '.config/muse'), { recursive: true });
+    fs.mkdirSync(join(authHome, '.vibe'), { recursive: true });
     fs.mkdirSync(join(ambient, '.codex'), { recursive: true });
     writeFileSync(join(authHome, '.codex/auth.json'), JSON.stringify({ token: CANARY_TOKEN }));
     writeFileSync(join(authHome, '.claude/.credentials.json'), JSON.stringify({ token: CANARY_TOKEN }));
     writeFileSync(join(authHome, '.gemini/oauth_creds.json'), JSON.stringify({ token: CANARY_TOKEN }));
     writeFileSync(join(authHome, '.config/muse/auth.json'), JSON.stringify({ token: CANARY_TOKEN }));
+    writeFileSync(join(authHome, '.vibe/MISTRAL_API_KEY'), `${CANARY_TOKEN}\n`);
     // Decoys the copier must never touch: extra files, ambient owner-style
     // config, and a planted instance-shaped name.
     writeFileSync(join(authHome, '.codex/config.toml'), `instance = "${CANARY_INSTANCE}"\n`);
@@ -161,13 +164,15 @@ test('L4: login copies accept only the codex and Muse login roles, never ambient
       assert.ok(!content.includes(ambient), 'no ambient path received');
       assert.ok(!content.includes(join(authHome, '.codex/config.toml')), 'decoy files never copied');
     }
-    // Lot L7 (QO4): 'vibe' maps an empty allowlist — no login files,
-    // no ambient reads, and no planted names or paths received.
+    // R19: 'vibe' seats its auth-only custody projection — exactly the
+    // MISTRAL_API_KEY value file, byte-identical, nothing else.
     {
       const cell = join(root, 'cell-vibe');
       const env = environment(join(cell, 'role'));
       const copied = copyLogin('vibe', authHome, cell, env);
-      assert.deepEqual(copied, []);
+      assert.deepEqual(copied, ['.vibe/MISTRAL_API_KEY']);
+      assert.equal(fs.readFileSync(join(cell, 'role/home/.vibe/MISTRAL_API_KEY'), 'utf8'), `${CANARY_TOKEN}\n`);
+      assert.equal(fs.statSync(join(cell, 'role/home/.vibe/MISTRAL_API_KEY')).mode & 0o777, 0o600);
       const walk = dir => fs.readdirSync(dir, { withFileTypes: true }).flatMap(e =>
         e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)]);
       const content = walk(cell).map(f => fs.readFileSync(f, 'utf8')).join('\n');
@@ -196,11 +201,39 @@ test('R15: a missing login source reports login-skipped with its reason', async 
     const present = copyLoginReport('codex', authHome, cell, env);
     assert.deepEqual(present.copied, ['.codex/auth.json']);
     assert.deepEqual(present.skipped, []);
-    // An empty allowlist reports its own reason, still copying nothing.
+    // The vibe seat file copies when present, witnessed like the others.
+    fs.mkdirSync(join(authHome, '.vibe'), { recursive: true });
+    writeFileSync(join(authHome, '.vibe/MISTRAL_API_KEY'), 'vibe-key-zz9\n');
     const vibe = copyLoginReport('vibe', authHome, cell, env);
-    assert.deepEqual(vibe.copied, []);
-    assert.equal(vibe.skipped.length, 1);
-    assert.match(vibe.skipped[0].reason, /no-allowlisted-login-files/);
+    assert.deepEqual(vibe.copied, ['.vibe/MISTRAL_API_KEY']);
+    assert.deepEqual(vibe.skipped, []);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+// R19: the vibe seat value crosses into the cell only as MISTRAL_API_KEY,
+// from the allowlisted seat file, with a names-only witness. Anything else
+// leaves the environment untouched.
+test('R19: vibe cells export the seat key, other cells gain nothing', async () => {
+  const { copyLoginReport, environment, loginCopyPath, vibeCellKey } = await import('./xcli-lab.mjs');
+  const root = mkdtempSync(join(tmpdir(), 'xcli-vibe-key-'));
+  try {
+    const authHome = join(root, 'auth');
+    fs.mkdirSync(join(authHome, '.vibe'), { recursive: true });
+    writeFileSync(join(authHome, '.vibe/MISTRAL_API_KEY'), 'vibe-key-zz9\n');
+    const cell = join(root, 'cell');
+    const env = environment(join(cell, 'role'));
+    const report = copyLoginReport('vibe', authHome, cell, env);
+    const witness = vibeCellKey(env, 'vibe', report.copied);
+    assert.equal(env.MISTRAL_API_KEY, 'vibe-key-zz9');
+    assert.deepEqual(witness, { file: '.vibe/MISTRAL_API_KEY',
+      sha256: createHash('sha256').update('vibe-key-zz9').digest('hex') });
+    assert.equal(loginCopyPath(env, 'vibe', '.vibe/MISTRAL_API_KEY'),
+      join(env.HOME, '.vibe/MISTRAL_API_KEY'));
+    const plain = environment(join(root, 'other'));
+    assert.equal(vibeCellKey(plain, 'vibe', []), null);
+    assert.equal(plain.MISTRAL_API_KEY, undefined);
+    assert.equal(vibeCellKey(plain, 'codex', ['.codex/auth.json']), null);
+    assert.equal(plain.MISTRAL_API_KEY, undefined);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
