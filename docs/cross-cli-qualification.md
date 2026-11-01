@@ -22,9 +22,12 @@ sans node-gyp/Python. Aucun binaire h2a installé n’est exécuté.
 ```sh
 npm ci --ignore-scripts
 node scripts/qualify-cross-cli.mjs --seat-manifest /path/to/seats.json \
-  --pair claude-a:claude-b --timeout-ms 120000 --wake-release-offsets-ms 0,30000,6000 \
+  --pair claude:codex --timeout-ms 120000 --wake-release-offsets-ms 0,30000,6000 \
   --output /tmp/xcli-real.json --markdown /tmp/xcli-real.md
 ```
+Le manifeste est produit par l’étape fixe de la lane protégée depuis les
+secrets `SEAT_USE_<CLI>_<SLOT>` ; il n’est jamais assemblé depuis un home
+ambiant (`--auth-home` supprimé, refus `auth-home-removed`).
 
 Les six CLI doivent être présentes sur le PATH initial. Chaque cellule a deux
 workspaces et identités distincts, un host natif dédié, un store et des HOME/XDG
@@ -36,15 +39,22 @@ vendeur inclus (règle owner QO4 du 11/10 : ce que nous livrons reste 0
 Python), et chaque preuve Vibe porte le label `vendor-runtime: python (not
 shipped)`. Aucun backend Vibe non-Python n’existe aujourd’hui : en adopter un
 serait un changement suivi, jamais un remplacement silencieux. Sans
-`--auth-home`, aucun login existant n’est lu.
+manifeste de sièges, aucun login existant n’est lu.
 
 Une cellule peut être rejouée sans relancer les autres :
 
 ```sh
-node scripts/qualify-cross-cli.mjs --pair claude-a:codex \
+node scripts/qualify-cross-cli.mjs --pair claude:codex \
   --seat-manifest /path/to/seats.json --timeout-ms 120000 \
   --wake-release-offsets-ms 0,30000,6000 --output /tmp/xcli-cell.json
 ```
+
+Prompt interactif Allow/MCP de Claude (constaté le 30/10, Claude 2.1.314) :
+la cellule auto-confirme cette unique forme d’approbation dans son HOME
+isolé (presses bornées, `mcp-approval-allow`) ; au-delà du budget, la
+cellule échoue avec le motif typé `<cli>-mcp-approval-unresolved` au lieu
+d’un timeout générique. Aucune confiance ni approbation n’est pré-chargée
+hors du HOME de cellule, aucune permission n’est désactivée.
 
 | Statut réel | Exigence |
 |---|---|
@@ -121,13 +131,28 @@ les 34 suites runtime et neuf suites source ciblées ; l’intégration des entr
 globales dans un domaine PID privé est câblée ; sa preuve GREEN reste requise
 sur CI. Le confinement local refuse `sudo` avec `no new privileges`.
 
-Campagne réelle aux sièges : un manifeste de sièges (`--seat-manifest`)
+Campagne réelle aux sièges (garde cyber R18, décision owner D1 du 01/11) :
+même mode que les sièges cyber de sentropic, garde dans le même dépôt. Un
+manifeste de sièges (`--seat-manifest`, `seatMode: cyber-seat-custody`)
 nomme une source d’authentification par siège et par rôle ; les paires
-nomment des sièges (`claude-a:claude-b`), jamais des familles. Chaque
+nomment des sièges (`claude:codex`), jamais des familles. Le flag
+`--auth-home` (copie de logins depuis un home ambiant) est supprimé : un
+run réel sans manifeste refuse (`seat-manifest-required`), avec manifeste
+non-cyber refuse (`seat-mode-superseded`). La matière siège vit uniquement
+dans l’environnement protégé `cross-cli-seats` sous les noms fixes
+`SEAT_<CLI>_<SLOT>` / `SEAT_CANDIDATE_<CLI>_<SLOT>` /
+`SEAT_USE_<CLI>_<SLOT>` ; le slot manifest relu
+(`docs/cross-cli-seat-slots.json`, un slot par famille assise) est
+l’unique correspondance nom→secret. L’étape fixe de confiance du workflow
+valide chaque enveloppe par les adaptateurs d’import seat-bundle de
+llm-mesh (copie vendored épinglée `scripts/xcli-seat-vendor/`, jamais
+ré-implémentés), matérialise l’auth de chaque cellule dans un HOME de
+cellule isolé (fichiers 0600), puis l’efface après la cellule avec un reçu
+sans bytes (`CredentialProvisioningReceiptV1` : noms et digests). Gemini ne
+détient aucun slot : il passe par le siège agy (tuple cloud-code
+antigravity/cloudcode-pa, `gemini-via-agy-required` sinon). Chaque
 cellule enregistre ses identifiants de siège, le mode de siège et le
-drapeau diagonale ; sans manifeste, `--auth-home` reste un alias
-mono-siège déprécié dont chaque famille implicite subit le même
-pré-vol débité qu'un siège nommé. Un registre persistant (0600) débite chaque session
+drapeau diagonale. Un registre persistant (0600) débite chaque session
 lancée avant le spawn — pré-vols, réessais et reprises inclus — et refuse
 sans spawn au-delà des plafonds (nombres PROPOSITION en attente de D2) ;
 la reprise recharge le registre au lieu de le réinitialiser. Un quota
@@ -136,15 +161,18 @@ coupe la session fautive au témoin. Les diagonales passent d’abord, sans
 jamais abandonner une cellule obligatoire.
 
 La lane protégée exige une référence protégée et le SHA exact de son propre
-workflow avant le checkout et l’exposition des bundles. Les variables owner
+workflow avant le checkout et l’exposition des sièges. Les variables owner
 `XCLI_CAMPAIGN_RUNNER` (labels JSON d’un runner éphémère provisionné avec les
-cinq binaires), `XCLI_SESSION_CAP`, `XCLI_MCP_CAP` et `XCLI_WALL_CLOCK_CAP_MS`
+binaires requis), `XCLI_SESSION_CAP`, `XCLI_MCP_CAP` et `XCLI_WALL_CLOCK_CAP_MS`
 portent D3/D2 ; aucune valeur de runner implicite ne les remplace.
-Les gates PR/release utilisent `--fetch-trusted` : téléchargement authentifié
-de l’artefact du run réussi, vérification de son digest et du head candidat
-(jamais le SHA de merge synthétique), puis des preuves, plafonds et nettoyages.
-`--content-only` sert uniquement à l’assemblage avant publication et ne prouve
-aucune provenance. Aucun reçu de qualification réelle n’a été produit ici.
+Le reçu est produit uniquement par cette lane sur le SHA exact du commit
+(garde cyber §7.1) ; les gates PR/release résolvent le run
+cross-cli-campaign réussi pour ce SHA, téléchargent son artefact publié via
+l’API authentifiée (provenance par remise) et en vérifient le contenu —
+jamais le SHA de merge synthétique. Il n’existe aucun chemin de reçu signé
+local (`--fetch-trusted` et `--content-only` supprimés, refus
+`trusted-receipt-path-removed`). Aucun reçu de qualification réelle n’a été
+produit ici.
 
 Non couvert (états exacts : `unknown`, `source-gap`, `missing source`,
 `unverified`, `partial`, `not covered`) :
@@ -172,5 +200,6 @@ Non couvert (états exacts : `unknown`, `source-gap`, `missing source`,
 - Gemini : `missing source` (aucun siège). Vibe : `not covered` en R
   jusqu’à un siège (la frontière Python n’est pas le bloqueur, QO4).
   Aucun backend Vibe non-Python existant.
-- Enrôlement live des sièges : `partial` (chemin fichier intérimaire ;
-  pas d’import L1 publié, pas de preuve keyring/billing/refresh).
+- Enrôlement live des sièges : `partial` (garde cyber : environnement
+  protégé, noms fixes, adaptateurs vendored épinglés, reçu sans bytes ;
+  pas de preuve keyring/billing/refresh).

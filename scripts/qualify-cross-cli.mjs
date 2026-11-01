@@ -13,6 +13,7 @@ import { CLIS, PROBE, REPLY, repo, environment, sourceBuild, copyLogin, copyLogi
 import { loadSeatManifest, resolveCampaignPair, createCampaignLedger, loadCampaignLedger,
   debitSession, fitsSessions, noteWallClock, wallClockFits, renderSeatLedger, persistLedger,
   runSeatPreflight, applyPreflightDebit } from './xcli-seats.mjs';
+import { assertCyberManifest, assertNoAuthHome } from './xcli-seat-custody.mjs';
 import { startupTerminal } from './xcli-terminal.mjs';
 import { verifyWakeBatch } from './xcli-ci-check.mjs';
 import { correlateWakeInput } from './xcli-wake-host.mjs';
@@ -113,6 +114,23 @@ function argsFor(cli, prompt) {
   return [...(PINNED_CLI_ARGS[cli] ?? []), prompt];
 }
 
+// R18: deterministic MCP-approval exhaustion. Claude >=2.1.314 shows an
+// interactive MCP/tool-approval Allow screen after the trust dialog. The cell
+// auto-confirms that one approval form inside its isolated HOME (bounded
+// presses, startupKey 'mcp-approval-allow'); when the presses are exhausted
+// and MCP never loads, the cell fails with this typed reason instead of the
+// bare mcp-not-loaded-before-deadline. No trust or approval is pre-seeded
+// outside the cell HOME, and no permission is disabled.
+export const MCP_APPROVAL_PRESS_LIMIT = 5;
+
+export function classifyApprovalExhaustion({ cli, presses, limit, mcpLoaded }) {
+  if (mcpLoaded) return undefined;
+  if (Number.isSafeInteger(presses) && Number.isSafeInteger(limit) && presses > limit) {
+    return `${cli}-mcp-approval-unresolved`;
+  }
+  return undefined;
+}
+
 // Only normal startup UI interactions in our empty temporary workspace.
 // No bypass flags, persisted trust edits, or inputs after the idle barrier.
 export function startupKey(screen) {
@@ -137,16 +155,16 @@ export function startupKey(screen) {
 
 async function worker() {
   const request = JSON.parse(fs.readFileSync(0, 'utf8'));
-  const { sender, receiver, root, build, executables, timeoutMs, authHome, simulated, dropWake,
+  const { sender, receiver, root, build, executables, timeoutMs, simulated, dropWake,
     wake, poll, simPop, withholdForever, replayWake, releaseOffsetMs } = request;
   // Lot L12: scripted scenario mode. Probe is the default; unavailability
   // states fault the peer, refusal twins inject a faulty wake after a live
   // phase A. Unknown specs never reach the worker (parsed in main).
   const scenario = parseScenario(request.scenario ?? 'probe');
   // Lot L8: per-role auth sources from the seat manifest, seat attribution,
-  // and the per-session MCP-call cap. Older requests without them fall back
-  // to the single authHome with no seats and no cap.
-  const authHomes = request.authHomes ?? { sender: authHome, receiver: authHome };
+  // and the per-session MCP-call cap. R18: requests without them carry no
+  // credential paths at all.
+  const authHomes = request.authHomes ?? {};
   const mcpCallCap = Number(request.mcpCallCap ?? 0);
   // Lot L5: the parent pre-creates the cell and passes it in the request so a
   // lost worker's secrets stay attributable and wipable. A provided cell must
@@ -310,7 +328,7 @@ async function worker() {
   // second confirmation (Muse 1.4.14). A repeat needs fresh output since the
   // last press of the same action — never key spam on a static screen — and
   // stays bounded per target. Anything else remains single-shot.
-  const STARTUP_REPEAT_LIMIT = Object.freeze({ 'mcp-approval-allow': 5, 'trust-empty-workspace': 1 });
+  const STARTUP_REPEAT_LIMIT = Object.freeze({ 'mcp-approval-allow': MCP_APPROVAL_PRESS_LIMIT, 'trust-empty-workspace': 1 });
   async function startup(target, screen) {
     target.startupActions ??= new Set();
     target.startupPresses ??= {};
@@ -423,6 +441,17 @@ async function worker() {
       permission: /permission|approval|trust/i, noTools: /no (?:MCP|tools)|tools.{0,30}unavailable/i,
       cursorQuery: /\x1b\[6n/.test(target.screen) ? /[\s\S]/ : /(?!) /,
     }).filter(([, pattern]) => pattern.test(screen)).map(([name]) => name) });
+    // R18: an exhausted MCP-approval Allow screen is a typed blocker, never
+    // a bare deadline. The presses happened inside the isolated cell HOME;
+    // nothing outside the cell was trusted or disabled.
+    const exhaustion = classifyApprovalExhaustion({ cli: target.cli,
+      presses: target.startupPresses?.['mcp-approval-allow'] ?? 0,
+      limit: MCP_APPROVAL_PRESS_LIMIT, mcpLoaded: loaded(target) });
+    if (exhaustion) {
+      row.evidence.push({ event: 'approval-exhausted', role: target.role,
+        action: 'mcp-approval-allow', presses: target.startupPresses?.['mcp-approval-allow'] ?? 0 });
+      return { blocker: exhaustion };
+    }
     return loaded(target) ? { blocker: 'initial-model-tool-turn-not-observed' } : { failure: 'mcp-not-loaded-before-deadline' };
   }
   try {
@@ -1014,6 +1043,14 @@ function markdown(result) {
 
 async function main() {
   assert.ok([22, 24].includes(Number(process.versions.node.split('.')[0])), 'Node 22/24 required');
+  // R18 (owner D1): refuse the removed copy-from-home path before minting
+  // any campaign state.
+  assertNoAuthHome(process.argv);
+  // R18: real runs require a seat manifest from the protected environment.
+  // Refuse before minting a campaign root, a ledger, or a build.
+  if (!process.argv.includes('--simulated') && option('--seat-manifest') === undefined) {
+    throw new Error('seat-manifest-required');
+  }
   // Lot L8 (§6.1/§6.4): campaign root (fresh, or resumed from --campaign-root
   // with its persisted ledger) and composite caps. Cap numbers are
   // PROPOSITION until the owner ratifies D2; counting, stop rules, and
@@ -1040,7 +1077,6 @@ async function main() {
   const supervisor = buildSupervisor(root);
   const sourcePath = process.env.PATH ?? '/usr/bin:/bin';
   const simulated = process.argv.includes('--simulated');
-  assert.ok(!simulated || !option('--auth-home'), 'simulated CI must never read login files');
   const executables = Object.fromEntries(CLIS.map(cli => [cli, cliPath(cli, sourcePath)]));
   if (simulated) {
     fs.mkdirSync(join(root, 'sim-bin'), { recursive: true });
@@ -1056,17 +1092,17 @@ async function main() {
   const stop = () => { stopping = true; active?.kill('SIGTERM'); };
   process.on('SIGTERM', stop);
   process.on('SIGINT', stop);
-  // Lot L8 (§6.1): seat manifest, deprecated --auth-home alias, or family
-  // mode. Manifest pairs name seats (or the manifest's explicit pairs
-  // field); the default scope is the full ordered seat product, stated in
-  // evidence. The 16-profile R1 default stays a proposition until D2
-  // ratifies the roster — no silent scope trimming here.
+  // R18 (owner D1): cyber-seat custody only. Manifest pairs name seats (or
+  // the manifest's explicit pairs field); the default scope is the full
+  // ordered seat product, stated in evidence. The 16-profile R1 default
+  // stays a proposition until D2 ratifies the roster — no silent scope
+  // trimming here. Real runs require the cyber seat mode; the login-free
+  // simulated mode is unchanged.
   const manifestFile = option('--seat-manifest');
-  assert.ok(!manifestFile || !option('--auth-home'), 'seat manifest and --auth-home conflict');
   const manifest = manifestFile ? loadSeatManifest(resolve(manifestFile), { simulated }) : null;
-  const authHomeAlias = option('--auth-home');
-  if (authHomeAlias) process.stderr.write('warning: --auth-home is deprecated; use --seat-manifest\n');
-  const seatMode = manifest ? manifest.seatMode : (authHomeAlias ? 'interim-file-copy' : 'no-seats');
+  if (manifest && !simulated) assertCyberManifest(manifest);
+  if (!simulated && !manifest) throw new Error('seat-manifest-required');
+  const seatMode = manifest ? manifest.seatMode : 'no-seats';
   const selected = option('--pair');
   const selectedSender = option('--sender');
   assert.ok(!selectedSender || (simulated && CLIS.includes(selectedSender) && !selected && !manifest), '--sender selects a simulated family shard');
@@ -1080,16 +1116,8 @@ async function main() {
         senderSeat: resolved.senderSeat, receiverSeat: resolved.receiverSeat,
         sharedSeat: resolved.sharedSeat, authHomes: resolved.authHomes });
     }
-  } else if (authHomeAlias) {
-    const familyPairs = CLIS.flatMap(sender => CLIS.map(receiver => ({ sender, receiver })))
-      .filter(p => !selected || `${p.sender}:${p.receiver}` === selected);
-    for (const { sender, receiver } of familyPairs) {
-      seatRuns.push({ sender, receiver, senderSeat: `${sender}-default`, receiverSeat: `${receiver}-default`,
-        sharedSeat: sender === receiver,
-        authHomes: { sender: authHomeAlias, receiver: authHomeAlias } });
-    }
   }
-  const pairs = manifest || authHomeAlias
+  const pairs = manifest
     ? seatRuns.map(({ sender, receiver }) => ({ sender, receiver }))
     : CLIS.flatMap(sender => CLIS.map(receiver => ({ sender, receiver })))
       .filter(p => (!selected || `${p.sender}:${p.receiver}` === selected) && (!selectedSender || p.sender === selectedSender));
@@ -1107,7 +1135,7 @@ async function main() {
   const releaseOffsets = parseOffsets(option('--wake-release-offsets-ms'));
   assert.ok(!withholdForever || releaseOffsets.length === 1, '--withhold-forever runs a single cell');
   const runs = [];
-  const baseRuns = (manifest || authHomeAlias) ? seatRuns : pairs;
+  const baseRuns = manifest ? seatRuns : pairs;
   for (const base of baseRuns) for (const releaseOffsetMs of releaseOffsets) {
     const { sender, receiver } = base;
     runs.push({ sender, receiver, releaseOffsetMs,
@@ -1120,15 +1148,8 @@ async function main() {
   runs.sort((a, b) => Number(!(a.sharedSeat ?? a.sender === a.receiver)) - Number(!(b.sharedSeat ?? b.sender === b.receiver)));
   // Lot L8 (§6.4/§6.5): per-seat quota stops, one preflight per seat, and the
   // pre-spawn cap gates. Nothing spawns and no seat is touched on refusal.
-  // R17 (P2-1): one preflight scope for both real-seat entry modes. The
-  // deprecated --auth-home alias contributes one implicit seat per campaign
-  // family, auth-sourced from the alias itself, so its cells are preflighted
-  // exactly like manifest seats (§6.5 has no un-preflighted real-seat path).
-  const preflightSeats = !simulated && (manifest || authHomeAlias)
-    ? (manifest ? manifest.seats
-      : [...new Set(runs.flatMap(one => [one.sender, one.receiver]))]
-        .map(family => ({ seatId: `${family}-default`, family, authSource: resolve(authHomeAlias) })))
-    : null;
+  // R18: manifest seats only (§6.5 has no un-preflighted real-seat path).
+  const preflightSeats = !simulated && manifest ? manifest.seats : null;
   const quotaSeats = new Set(ledger.quotaSeats ?? []);
   const preflighted = new Map();
   const runAuthPrecheck = async (seat, { executable }) => {
@@ -1196,8 +1217,7 @@ async function main() {
     }
     // Preflights gate real seats only: simulated cells spend no model turns
     // and read no logins, so there is nothing a preflight could protect.
-    // R17 (P2-1): the deprecated --auth-home alias gets the same protection
-    // through implicit per-family seats — no real-seat path is un-preflighted.
+    // R18: manifest seats only — no real-seat path is un-preflighted.
     if (preflightSeats) {
       let preflightBlocker = null;
       let preflightCap = null;
@@ -1271,7 +1291,7 @@ async function main() {
     child.stdout.on('data', bytes => { output += bytes; });
     child.stdin.end(JSON.stringify({ sender, receiver, root, build: built.path, executables, timeoutMs, cell,
       scenario: scenarioSpec,
-      authHome: authHomeAlias, authHomes: run.authHomes,
+      authHomes: run.authHomes,
       seats: { sender: run.senderSeat, receiver: run.receiverSeat }, seatMode,
       mcpCallCap: caps.mcpCallsPerSession,
       simulated, dropWake: process.argv.includes('--drop-simulated-wake'),
@@ -1396,9 +1416,9 @@ async function main() {
   }
   const sha = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).stdout.trim();
   // Lot L4 receipt hygiene: the retained command never carries owner-side
-  // paths (--auth-home, --seat-manifest, --campaign-root name directories
-  // outside the campaign root).
-  const redactable = new Set(['--auth-home', '--seat-manifest', '--campaign-root']);
+  // paths (--seat-manifest, --campaign-root name directories outside the
+  // campaign root).
+  const redactable = new Set(['--seat-manifest', '--campaign-root']);
   const redactedArgs = process.argv.slice(2).map((arg, index, args) =>
     redactable.has(args[index - 1]) ? `<${args[index - 1].slice(2)}>` : arg);
   // Lot L8 (§5.5/§6.4): the receipt carries the seat mode, the composite

@@ -1,8 +1,11 @@
 // Lot L8 (SPEC v3 §6.1/§6.4/§6.5, §5.5): seat manifest and campaign engine.
 // Seats are named per-role auth sources; pairs name seats, not families.
-// Dummy seat dirs in mkdtemp; no real login, no model. Until sentropic L1
-// publishes importSeatBundle, the file-copy path is interim and labelled so
-// in code, docs, and evidence (seatMode: interim-file-copy).
+// Dummy seat dirs in mkdtemp; no real login, no model. R18 (owner D1):
+// the campaign lane uses cyber-seat custody only (see
+// scripts/xcli-seat-custody.mjs): seatMode cyber-seat-custody, envelopes
+// validated by the vendored llm-mesh adapters, no copy from a home
+// directory. The interim-file-copy mode is superseded and refused by the
+// lane gate; loadSeatManifest itself stays mode-agnostic.
 import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
