@@ -13,6 +13,8 @@
  *
  * This module publishes complete, synced owner records with an exclusive hard
  * link from a private same-directory file. No empty sentinel is ever visible.
+ * Where the filesystem cannot link, publication falls back to exclusive-create
+ * (`O_EXCL`), which still never replaces an owner.
  * It is intentionally limited to **same-machine** coordination: a lock file
  * holding a foreign-host PID would be treated as live (we cannot
  * `process.kill(pid, 0)` across hosts). Cross-machine sharing of a store
@@ -275,7 +277,28 @@ function acquire(
     } finally {
       closeSync(fd);
     }
-    linkSync(temporary, lockPath); // atomic, complete, and never replaces an owner
+    try {
+      linkSync(temporary, lockPath); // atomic, complete, and never replaces an owner
+    } catch (linkErr) {
+      if ((linkErr as NodeJS.ErrnoException).code === "EEXIST") throw linkErr;
+      // The filesystem cannot publish through a same-directory link: fall back
+      // to exclusive-create publication, which still never replaces an owner.
+      // Only the legacy create/write window remains on such filesystems, and a
+      // post-reboot quarantine still recovers it.
+      const fallbackFd = openSync(lockPath, "wx", 0o600);
+      try {
+        writeFileSync(fallbackFd, raw);
+        fsyncSync(fallbackFd);
+        owned = { stat: fstatSync(fallbackFd), raw };
+      } finally {
+        closeSync(fallbackFd);
+      }
+      published = true;
+      syncDirectory(dirname(lockPath));
+      owned = capture(lockPath);
+      if (!owned || !owned.raw.equals(raw)) throw new Error("published lock ownership changed");
+      return { ok: true, owned };
+    }
     published = true;
     unlinkSync(temporary);
     owned = capture(lockPath);
