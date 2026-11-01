@@ -4,11 +4,14 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import { runCli } from "../dist/index.js";
@@ -568,4 +571,35 @@ test("install-skills rejects unknown host", () => {
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }
+});
+
+test("memory skill is read from the published @sentropic/engram package source pinned for h2a", t => {
+  const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
+  const fixture = memorySkillConsumer(t);
+  // Swap the fabricated producer for the real dependency installed from the
+  // published 0.23.1 tarball: install-skills must resolve and read the skill
+  // from the package source, never from a copy vendored into this repo.
+  rmSync(fixture.producer, { recursive: true, force: true });
+  symlinkSync(join(repoRoot, "node_modules/@sentropic/engram"), fixture.producer);
+  const pinned = JSON.parse(readFileSync(join(repoRoot, "packages/h2a/package.json"), "utf8")).dependencies["@sentropic/engram"];
+  const producer = JSON.parse(readFileSync(join(fixture.producer, "package.json"), "utf8"));
+  assert.equal(pinned, "0.23.1");
+  assert.equal(producer.name, "@sentropic/engram");
+  assert.equal(producer.version, pinned);
+  const raw = readFileSync(join(fixture.producer, "skills/engram-memory/SKILL.md"));
+  assert.equal(sha256(raw), "dd4f17695844a65ae10fa7c9b023578f0c9f8688b446e5ba790fbb39f3abfbaf");
+  const result = fixture.cli(["install-skills", "--host", "claude", "--scope", "user"]);
+  assert.equal(result.status, 0, result.stderr);
+  const report = result.json(), source = report.sources.find(s => s.source === "engram");
+  assert.equal(source.version, pinned);
+  // Node resolves the package through the producer symlink to its real
+  // installed path: the provenance dir is the pinned dependency's own
+  // skills tree, never a copy vendored into this repo.
+  assert.equal(source.dir, join(realpathSync(fixture.producer), "skills"));
+  assert.equal(source.status, "available");
+  assert.deepEqual(source.skills, [{ name: "engram-memory", path: "skills/engram-memory/SKILL.md", sha256: sha256(raw) }]);
+  const target = join(report.targetBase, "engram-memory/SKILL.md");
+  assert.equal(readFileSync(target, "utf8"), raw.toString());
+  const receipt = JSON.parse(readFileSync(join(report.targetBase, "engram-memory/.h2a-source.json")));
+  assert.deepEqual(receipt, { package: "@sentropic/engram", version: pinned, path: "skills/engram-memory/SKILL.md", sha256: sha256(raw), renderedSha256: sha256(readFileSync(target)) });
 });
