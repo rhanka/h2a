@@ -1,0 +1,635 @@
+{
+  "$defs": {
+    "CatalogComponentCommon": {
+      "properties": {
+        "weight": {
+          "description": "The relative weight of this component within a Row or Column. This is similar to the CSS 'flex-grow' property. Note: this may ONLY be set when the component is a direct descendant of a Row or Column.",
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "DecisionDossierDocument": {
+      "$defs": {
+        "amendmentStep": {
+          "additionalProperties": false,
+          "properties": {
+            "at": {
+              "type": "string"
+            },
+            "author": {
+              "type": "string"
+            },
+            "summary": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "at",
+            "author",
+            "summary"
+          ],
+          "type": "object"
+        },
+        "amendmentTraceNode": {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "amendmentTrace"
+            },
+            "steps": {
+              "items": {
+                "$ref": "#/$defs/DecisionDossierDocument/$defs/amendmentStep"
+              },
+              "type": "array"
+            },
+            "targetRef": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "steps",
+            "targetRef"
+          ],
+          "type": "object"
+        },
+        "comprehensionEvidence": {
+          "additionalProperties": false,
+          "properties": {
+            "dossierHash": {
+              "type": "string"
+            },
+            "signature": {
+              "type": "string"
+            },
+            "subject": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "dossierHash",
+            "subject"
+          ],
+          "type": "object"
+        },
+        "diagramNode": {
+          "additionalProperties": false,
+          "properties": {
+            "alt": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "diagram"
+            },
+            "scene": {
+              "description": "diagram-core SemanticDocument, profile generic@1, without views, geometry or layout hints. Opaque JSON until the design-system publishes its authoritative schema; no Focus-specific scene model.",
+              "type": "object"
+            },
+            "source": {
+              "type": "string"
+            },
+            "syntax": {
+              "enum": [
+                "mermaid",
+                "plantuml"
+              ]
+            },
+            "targetRef": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "alt",
+            "id",
+            "kind",
+            "source",
+            "syntax",
+            "targetRef"
+          ],
+          "type": "object"
+        },
+        "glossaryEntry": {
+          "additionalProperties": false,
+          "properties": {
+            "definition": {
+              "type": "string"
+            },
+            "term": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "definition",
+            "term"
+          ],
+          "type": "object"
+        },
+        "interaction": {
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "const": false
+            },
+            "label": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "targetRef": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "enabled",
+            "label",
+            "name",
+            "targetRef"
+          ],
+          "type": "object"
+        },
+        "optionNode": {
+          "additionalProperties": false,
+          "properties": {
+            "annotation": {
+              "enum": [
+                "accept",
+                "comment",
+                "none",
+                "reject"
+              ]
+            },
+            "annotationComment": {
+              "type": "string"
+            },
+            "body": {
+              "type": "string"
+            },
+            "consequence": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "option"
+            },
+            "label": {
+              "type": "string"
+            },
+            "targetRef": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "annotation",
+            "id",
+            "kind",
+            "label",
+            "targetRef"
+          ],
+          "type": "object"
+        },
+        "optionSetNode": {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "optionSet"
+            },
+            "options": {
+              "items": {
+                "$ref": "#/$defs/DecisionDossierDocument/$defs/optionNode"
+              },
+              "type": "array"
+            },
+            "questionId": {
+              "type": "string"
+            },
+            "targetRef": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "options",
+            "targetRef"
+          ],
+          "type": "object"
+        },
+        "outcomeNode": {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "outcome"
+            },
+            "modality": {
+              "enum": [
+                "amendment",
+                "comment",
+                "decision",
+                "orientation"
+              ]
+            },
+            "questionId": {
+              "type": "string"
+            },
+            "statement": {
+              "type": "string"
+            },
+            "targetRef": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "modality",
+            "statement",
+            "targetRef"
+          ],
+          "type": "object"
+        },
+        "proseNode": {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "prose"
+            },
+            "markdown": {
+              "type": "string"
+            },
+            "questionId": {
+              "type": "string"
+            },
+            "targetRef": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "markdown",
+            "targetRef"
+          ],
+          "type": "object"
+        },
+        "provenance": {
+          "additionalProperties": false,
+          "properties": {
+            "comprehensionEvidence": {
+              "$ref": "#/$defs/DecisionDossierDocument/$defs/comprehensionEvidence"
+            },
+            "readAt": {
+              "type": "string"
+            },
+            "source": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "readAt",
+            "source"
+          ],
+          "type": "object"
+        },
+        "questionNode": {
+          "additionalProperties": false,
+          "properties": {
+            "answer": {
+              "type": "string"
+            },
+            "context": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "question"
+            },
+            "question": {
+              "type": "string"
+            },
+            "readingTimeMinutes": {
+              "type": "number"
+            },
+            "recommendedAnswer": {
+              "type": "string"
+            },
+            "recommendedOptionId": {
+              "type": "string"
+            },
+            "state": {
+              "enum": [
+                "answered",
+                "open",
+                "validated"
+              ]
+            },
+            "targetRef": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "question",
+            "state",
+            "targetRef"
+          ],
+          "type": "object"
+        },
+        "readability": {
+          "additionalProperties": false,
+          "properties": {
+            "glossary": {
+              "items": {
+                "$ref": "#/$defs/DecisionDossierDocument/$defs/glossaryEntry"
+              },
+              "type": "array"
+            },
+            "noOwnerRequest": {
+              "type": "boolean"
+            },
+            "ownerRequestQuote": {
+              "type": "string"
+            },
+            "readingBudgetMinutes": {
+              "type": "number"
+            },
+            "stakes": {
+              "type": "string"
+            },
+            "stakesLevel": {
+              "enum": [
+                "high",
+                "low",
+                "medium"
+              ]
+            }
+          },
+          "type": "object"
+        },
+        "section": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/DecisionDossierDocument/$defs/proseNode"
+            },
+            {
+              "$ref": "#/$defs/DecisionDossierDocument/$defs/questionNode"
+            },
+            {
+              "$ref": "#/$defs/DecisionDossierDocument/$defs/optionSetNode"
+            },
+            {
+              "$ref": "#/$defs/DecisionDossierDocument/$defs/outcomeNode"
+            },
+            {
+              "$ref": "#/$defs/DecisionDossierDocument/$defs/amendmentTraceNode"
+            },
+            {
+              "$ref": "#/$defs/DecisionDossierDocument/$defs/diagramNode"
+            }
+          ]
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Read-only decision-dossier snapshot published by @sentropic/focus. Closed: unknown fields refuse. Snapshot interactions are disabled metadata (enabled:false); live decisions, signatures and amendments require separately qualified runtime capabilities.",
+      "properties": {
+        "amendmentTrace": {
+          "items": {
+            "$ref": "#/$defs/DecisionDossierDocument/$defs/amendmentStep"
+          },
+          "type": "array"
+        },
+        "cursor": {
+          "type": "string"
+        },
+        "hash": {
+          "type": "string"
+        },
+        "interactions": {
+          "items": {
+            "$ref": "#/$defs/DecisionDossierDocument/$defs/interaction"
+          },
+          "type": "array"
+        },
+        "provenance": {
+          "$ref": "#/$defs/DecisionDossierDocument/$defs/provenance"
+        },
+        "readability": {
+          "$ref": "#/$defs/DecisionDossierDocument/$defs/readability"
+        },
+        "ref": {
+          "type": "string"
+        },
+        "sections": {
+          "items": {
+            "$ref": "#/$defs/DecisionDossierDocument/$defs/section"
+          },
+          "type": "array"
+        },
+        "subject": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "amendmentTrace",
+        "cursor",
+        "hash",
+        "interactions",
+        "provenance",
+        "ref",
+        "sections",
+        "subject",
+        "title"
+      ],
+      "title": "DecisionDossierDocument",
+      "type": "object"
+    },
+    "component": {
+      "allOf": [
+        {
+          "$ref": "https://a2ui.org/specification/v0_9_1/common_types.json#/$defs/ComponentCommon"
+        },
+        {
+          "$ref": "#/$defs/CatalogComponentCommon"
+        },
+        {
+          "properties": {
+            "accessibility": {
+              "additionalProperties": false,
+              "properties": {
+                "description": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "component": {
+              "const": "DecisionDossier"
+            },
+            "document": {
+              "$ref": "#/$defs/DecisionDossierDocument"
+            }
+          },
+          "required": [
+            "component",
+            "document"
+          ],
+          "type": "object"
+        }
+      ],
+      "type": "object",
+      "unevaluatedProperties": false,
+      "x-sentropic": {
+        "contract": "1.0",
+        "element": "st-decision-dossier",
+        "engine": "lazy:focus",
+        "events": [
+          "choose-option"
+        ],
+        "example": {
+          "component": "DecisionDossier",
+          "document": {
+            "amendmentTrace": [],
+            "cursor": "2026-10-30T10:00:00Z",
+            "hash": "b7d3f0c9",
+            "interactions": [],
+            "provenance": {
+              "readAt": "2026-10-30T10:00:00Z",
+              "source": "track"
+            },
+            "ref": "decision-1",
+            "sections": [
+              {
+                "id": "q1",
+                "kind": "question",
+                "question": "Which rendering contract do we adopt?",
+                "state": "open",
+                "targetRef": "decision-1"
+              },
+              {
+                "id": "options-1",
+                "kind": "optionSet",
+                "options": [
+                  {
+                    "annotation": "none",
+                    "id": "opt-json",
+                    "kind": "option",
+                    "label": "Adopt the JSON render standard",
+                    "targetRef": "q1"
+                  },
+                  {
+                    "annotation": "none",
+                    "id": "opt-status-quo",
+                    "kind": "option",
+                    "label": "Keep the status quo",
+                    "targetRef": "q1"
+                  }
+                ],
+                "targetRef": "q1",
+                "title": "Options"
+              }
+            ],
+            "subject": "Adopt the JSON render standard for design-system rendering",
+            "title": "Decision: adopt the JSON render standard"
+          },
+          "id": "root"
+        },
+        "fallback": "text",
+        "parity": {
+          "angular": {
+            "file": "packages/components-angular",
+            "note": "No counterpart in this framework package (§5.1: components with no framework counterpart record that fact).",
+            "status": "no-counterpart"
+          },
+          "react": {
+            "file": "packages/components-react",
+            "note": "No counterpart in this framework package (§5.1: components with no framework counterpart record that fact).",
+            "status": "no-counterpart"
+          },
+          "svelte": {
+            "file": "packages/components-svelte",
+            "note": "No counterpart in this framework package (§5.1: components with no framework counterpart record that fact).",
+            "status": "no-counterpart"
+          },
+          "vue": {
+            "file": "packages/components-vue",
+            "note": "No counterpart in this framework package (§5.1: components with no framework counterpart record that fact).",
+            "status": "no-counterpart"
+          }
+        },
+        "schema": "https://design-system.sent-tech.ca/catalogs/elements/v1/components/DecisionDossier.json",
+        "semantic": {
+          "runtimePackage": "@sentropic/focus@0.5.0",
+          "schemaId": "urn:sentropic:focus:DecisionDossierDocument:1.0.0",
+          "schemaSubpath": "schemas/decision-dossier-document.v1.schema.json",
+          "sha256": "725bc07e7c6b6ad51a1f720cc9fb02649d8f31bc54e71c61c350fd20058c8852",
+          "source": "focus"
+        }
+      }
+    }
+  },
+  "$id": "https://design-system.sent-tech.ca/catalogs/elements/v1/components/DecisionDossier.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "The envelope schema specialised to one component (§5.2): the §4.2 render envelope (optional catalogId, contract, optional mode, root) whose root is the DecisionDossier component object; its component part ($defs.component) is equivalent, after canonical sorting, to catalog.json#/components/DecisionDossier. Requires the A2UI common types under https://a2ui.org/specification/v0_9_1/common_types.json.",
+  "properties": {
+    "catalogId": {
+      "const": "https://design-system.sent-tech.ca/catalogs/elements/v1/catalog.json",
+      "description": "Optional catalogue identifier; absent = the renderer's catalogue (§4.2).",
+      "type": "string"
+    },
+    "contract": {
+      "description": "Component-contract version the producer targets (§4.2, §4.4).",
+      "pattern": "^[0-9]+\\.[0-9]+$",
+      "type": "string"
+    },
+    "mode": {
+      "description": "\"snapshot\" (default) | \"preview\" (reserved, §10.3).",
+      "enum": [
+        "preview",
+        "snapshot"
+      ],
+      "type": "string"
+    },
+    "root": {
+      "$ref": "#/$defs/component"
+    }
+  },
+  "required": [
+    "contract",
+    "root"
+  ],
+  "title": "DecisionDossier standalone envelope schema",
+  "type": "object",
+  "unevaluatedProperties": false
+}

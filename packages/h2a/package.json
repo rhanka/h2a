@@ -50,7 +50,8 @@
     "focus-kit/dossier.schema.json",
     "focus-kit/dossier.v2.schema.json",
     "focus-kit/dossier.evidence.template.json",
-    "focus-kit/ecosystem.json"
+    "focus-kit/ecosystem.json",
+    "vendor"
   ],
   "publishConfig": {
     "access": "public"
@@ -72,6 +73,7 @@
     "@sentropic/engram": "0.23.1",
     "@sentropic/events": "^0.2.0",
     "@sentropic/track": "0.98.7",
+    "ajv": "^8.20.0",
     "hono": "^4.13.13",
     "toml-eslint-parser": "0.10.1"
   },

@@ -25,9 +25,14 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
   CallToolRequestSchema,
+  ListResourcesRequestSchema,
+  ListToolsRequestSchema,
+  McpError,
+  ReadResourceRequestSchema,
   type CallToolResult,
   type JSONRPCMessage,
-  ListToolsRequestSchema
+  type ListResourcesResult,
+  type ReadResourceResult
 } from "@modelcontextprotocol/sdk/types.js";
 import { Hono } from "hono";
 import type { Readable, Writable } from "node:stream";
@@ -36,9 +41,16 @@ import { currentCliVersion } from "./upgrade/index.js";
 import {
   createMcpServer,
   isMcpTransportResult,
+  type McpCallContext,
   type McpServer
 } from "./mcp/server.js";
 import { boundCallToolResult } from "./mcp/frame-budget.js";
+import { createUiRenderModule, type UiRenderModule } from "./mcp/ui-render/index.js";
+import {
+  negotiateUiExtension,
+  serverUiExtensionCapability
+} from "./mcp/ui-render/negotiation.js";
+import { UnknownResourceError, type UiExtensionCapability } from "./mcp/ui-render/types.js";
 
 export const H2A_MCP_CENTRAL_ENV = "H2A_MCP_CENTRAL";
 export const H2A_MCP_CENTRAL_ENDPOINT_ENV = "H2A_MCP_CENTRAL_ENDPOINT";
@@ -756,8 +768,13 @@ async function claimCentralMarker(
   }
 }
 
-async function centralToolResult(server: McpServer, name: string, args: Record<string, unknown>): Promise<CallToolResult> {
-  const result = await server.callTool(name, args);
+async function centralToolResult(
+  server: McpServer,
+  name: string,
+  args: Record<string, unknown>,
+  context: McpCallContext
+): Promise<CallToolResult> {
+  const result = await server.callTool(name, args, context);
   const shaped: CallToolResult = isMcpTransportResult(result)
     ? (result as CallToolResult)
     : {
@@ -776,15 +793,45 @@ async function centralToolResult(server: McpServer, name: string, args: Record<s
 }
 
 function createCentralProtocolServer(mcp: McpServer): Server {
+  // L3 (json-render): the central server advertises tools.listChanged, the
+  // resource surface and the SEP-1865 ui extension (h2a spec §2.1.3).
   const server = new Server(
     { name: "@sentropic/h2a", version: currentCliVersion() },
-    { capabilities: { tools: {} } }
+    {
+      capabilities: {
+        tools: { listChanged: true },
+        resources: {},
+        extensions: { "io.modelcontextprotocol/ui": serverUiExtensionCapability }
+      }
+    }
   );
+  // L3: one SDK Server per transport → one negotiation per HTTP session:
+  // getClientCapabilities() reflects THIS session's initialize params.
+  const negotiated = (): UiExtensionCapability =>
+    negotiateUiExtension({ capabilities: server.getClientCapabilities() });
+  // Stable identity for this transport; capability stays current after initialize.
+  const connection: McpCallContext = { get uiCapability() { return negotiated(); } };
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: mcp.listTools() }));
+  server.setRequestHandler(ListResourcesRequestSchema, async (): Promise<ListResourcesResult> => ({
+    resources: mcp.listResources(connection).resources
+  }));
+  server.setRequestHandler(ReadResourceRequestSchema, async (request): Promise<ReadResourceResult> => {
+    try {
+      // Shape-compatible with the SDK's TextResourceContents modulo readonly
+      // arrays (the handler-side descriptors are deeply readonly).
+      return mcp.readResource(request.params.uri, connection) as ReadResourceResult;
+    } catch (error) {
+      // An unknown resource URI is a typed -32002 refusal (h2a spec §3.3).
+      if (error instanceof UnknownResourceError) {
+        throw new McpError(-32002, error.message);
+      }
+      throw error;
+    }
+  });
   server.setRequestHandler(
     CallToolRequestSchema,
     async (request): Promise<CallToolResult> =>
-      centralToolResult(mcp, request.params.name, request.params.arguments ?? {})
+      centralToolResult(mcp, request.params.name, request.params.arguments ?? {}, connection)
   );
   return server;
 }
@@ -987,7 +1034,22 @@ export async function startCentralMcpServer(
         markerPath
       };
     }
-    mcp = createMcpServer({ root: options.root, workspaceRoot: process.cwd() });
+    // L3: load and verify the vendored DS elements build before serving. An
+    // integrity_mismatch (or any load failure) NEVER takes the central server
+    // down (§7.2): it serves without the ui:// resource surface, noted on
+    // stderr only.
+    let uiRender: UiRenderModule | undefined;
+    try {
+      uiRender = createUiRenderModule({ env: env as Record<string, string | undefined> });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      process.stderr.write(`h2a central MCP: ui-render assets unavailable (ui:// resources disabled): ${message}\n`);
+    }
+    mcp = createMcpServer({
+      root: options.root,
+      workspaceRoot: process.cwd(),
+      ...(uiRender ? { uiRender } : {})
+    });
     await options.afterMarkerClaim?.();
   } catch (error) {
     try {

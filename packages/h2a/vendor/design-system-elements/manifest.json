@@ -1,0 +1,101 @@
+{
+  "format": "h2a.ds-elements-vendor/v1",
+  "sourceRepo": "sent-tech-design-system",
+  "sourceCommit": "cc29be886b543ffa29592afbc6b4482c104b1fb4",
+  "sourceTar": {
+    "path": "scratchpad/json-render/elements-build-cc29be88/elements-build-cc29be88.tar",
+    "sha256": "7b20326c2bc8219d44648979e3a94c1f8519bb3938bea7e9a0d2f2de47bb99d4",
+    "manifestSha256": "a50eb84e0b470c5d57c1da6101e1032ce602ae43ea5c399a5d76e6e55b33a965"
+  },
+  "packageName": "@sentropic/design-system-elements",
+  "packageVersion": "0.0.0",
+  "files": {
+    "catalog.json": {
+      "sha256": "f2358a8f96cdf28949d1b17f7c29c287201efb53c6b8ba709b4a27165206a36c"
+    },
+    "dist/browser/assets/bpmn-CZlEAdL6.ttf": {
+      "sha256": "dc0ed1bbe9a4ec02aefc12d63948caa3896f61928c676bf3724ad13b3ed4a8be"
+    },
+    "dist/browser/assets/bpmn-DaGVGZ7K.woff": {
+      "sha256": "47230fa23929798dd5ec8b4a59bf23f96024804572b36c7db4888af6723d7e76"
+    },
+    "dist/browser/assets/bpmn-DaJ2be00.woff2": {
+      "sha256": "3cb77a7fa2461bb23b2e1af4cc70133fe1e3377ca73ff827394439b6b9335848"
+    },
+    "dist/browser/chunks/BpmnRenderUtil-WMCgqGDs.js": {
+      "sha256": "603f61c66a2bce6b8fde18bc2ea8a6a4eebf4538f93b18d6ae012ff348a85d27"
+    },
+    "dist/browser/chunks/BpmnUpdater-C-UNbzXl.js": {
+      "sha256": "6ad2b374bba7480944b719ff14b40637ced54b4da2ff3caed68b3ac89e7f38d4"
+    },
+    "dist/browser/chunks/LabelUtil-7QpE43Ed.js": {
+      "sha256": "3105c9c4d75d8ee6300234713d95544b68c30201f2136446973f9886684f20df"
+    },
+    "dist/browser/chunks/LayoutUtil-hAMJmJFU.js": {
+      "sha256": "d91269d6ad60f984a64abef240b427bb9159b8723db006e30d792c5531504417"
+    },
+    "dist/browser/chunks/ModelUtil-CMh7LuN4.js": {
+      "sha256": "a6dceb7a4a479556adc303f3276d2c0cc6dabdac29a2c46c354fe2bd5688a669"
+    },
+    "dist/browser/chunks/Modeler-BfAmwsmK.js": {
+      "sha256": "cf0fb41286048d84eb4ea018ec10d2a4acad42ab5b7b54855042b92db736070d"
+    },
+    "dist/browser/chunks/Viewer-eYLzc3fD.js": {
+      "sha256": "c2cef44e57305bec73bf97d82eaae0efbcea37a013f9863f6bffa9869757e8a8"
+    },
+    "dist/browser/chunks/bpmn-canvas-DeAWdJFy.js": {
+      "sha256": "d5267bfdf1096fa59b1f2b5f13ac97c838b0ef269446377e5ba90fcbcdecad94"
+    },
+    "dist/browser/chunks/colored-CSIQaGsQ.js": {
+      "sha256": "368ea2515a0fe174ccef6b339f9332fd575921a64b1f499d05f13affcae07949"
+    },
+    "dist/browser/chunks/dist-Co2MgHWm.js": {
+      "sha256": "db1b85098e836e36cea89d24af03d55f6d63645c6f500ccf92396bf3b5616dfa"
+    },
+    "dist/browser/chunks/dist-O6_2ByYB.js": {
+      "sha256": "b5a3b87f2a0db74f5fec478aa973c606c4ca27247cdddf95fb217f32dee855d6"
+    },
+    "dist/browser/chunks/dist-kvAYI1vo.js": {
+      "sha256": "abdef21c41ada92b96bab8e55ae7882ac4f4da163c7ceb1a9a06e5829649c763"
+    },
+    "dist/browser/chunks/entropic-CM5BHERN.js": {
+      "sha256": "c23ab86faa27ce9b54091d3964cd060c6c1000ead04611cea32317bed71d93f5"
+    },
+    "dist/browser/chunks/focus-renderer-C4z8aS9F.js": {
+      "sha256": "f2d6132c59535fe522ad9b3d915e6ade17d2a5390f67ac6594fa6db46ee65e0f"
+    },
+    "dist/browser/chunks/forge-B8hrW4lA.js": {
+      "sha256": "72c6ccd28812605b4dbfc688601efa90a9dd9d8e7148ae027225d128b556b45c"
+    },
+    "dist/browser/chunks/layout-q0TR9-aY.js": {
+      "sha256": "fc027fb3700758b165c1cc1e5be5fdd449e22f1dac784eb35cbab0fe324e0cc8"
+    },
+    "dist/browser/chunks/legend-CXdfCBh6.js": {
+      "sha256": "cfdec3db3f44052cd3d2c4b257e135580085e93abec5d29390808ceda9be5fee"
+    },
+    "dist/browser/chunks/textMetrics-BrMS6-sA.js": {
+      "sha256": "083ad5adcb41a51a0bb5e4327137f2a0f30dbdb8d17f8122bc505b708dacab48"
+    },
+    "dist/browser/chunks/tokens-DFPpCvf1.js": {
+      "sha256": "741b74404863361003ef2136621c9bc4d768607cd93a2b4a7f60cc3615f5191f"
+    },
+    "dist/browser/elements.js": {
+      "sha256": "4e212395be2437600e6d0d17ead58c18c69ee30b685ec0d55c36cabb2af6d108"
+    },
+    "dist/browser/sri.json": {
+      "sha256": "03e5a2fb85181d3ea6fe427c4edd253975974b15a546c6f5d6b271893c694c4b"
+    },
+    "envelope.json": {
+      "sha256": "6bf3351ba45c90a0dd3b40a7e7eddf019e72379a4551acc07a89f4436fc6cf2e"
+    },
+    "schemas/BarChart.v1.json": {
+      "sha256": "1dbb9620e6d3a78322325209f412ef23bc8b4f91833ed002690728667c4ed12c"
+    },
+    "schemas/BpmnCanvas.v1.json": {
+      "sha256": "09a1e8bf19ef90bcd398d7051553368f890f1f7cbb8f96a306937175115a9607"
+    },
+    "schemas/DecisionDossier.v1.json": {
+      "sha256": "fce4404669e7a80fc3aece426fc4fdb2216d3d7e2da0c50d64cc1644d567f062"
+    }
+  }
+}

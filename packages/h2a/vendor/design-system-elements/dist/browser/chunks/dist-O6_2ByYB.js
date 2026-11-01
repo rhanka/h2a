@@ -1,0 +1,1 @@
+export{g as BpmnModdle}from"./bpmn-canvas-DeAWdJFy.js";
