@@ -18,7 +18,8 @@
 
 import { resolveLiveIdentityAsync } from "./live.js";
 import type { ResolveLiveIdentityInput } from "./live.js";
-import { LockCancelledError, LockTimeoutError } from "../local-files/locks.js";
+import { LockCancelledError, LockTimeoutError, observeLocks } from "../local-files/locks.js";
+import type { IdentityPhase } from "../mcp/identity-state.js";
 import { createMcpTrace, setActiveMcpTrace } from "../mcp/phase-trace.js";
 
 interface ResolveRequest {
@@ -180,7 +181,15 @@ process.on("message", (raw: unknown) => {
     throw new LockCancelledError("identity", "cancelled");
   };
 
-  void resolveWithRetry()
+  let phase: IdentityPhase = 'worker';
+  void observeLocks(event => {
+    const next: IdentityPhase = event.event === 'wait'
+      ? event.lock === 'registry' ? 'registry_lock_wait' : event.lock === 'identity' ? 'fence_wait' : phase
+      : event.event === 'acquired' ? 'worker' : phase;
+    if (next === phase) return;
+    phase = next;
+    send({ kind: 'identity_phase', v: 1, phase });
+  }, resolveWithRetry)
     .then((identity) => {
       send({
         kind: "identity_resolved",
