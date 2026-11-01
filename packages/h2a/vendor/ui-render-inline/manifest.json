@@ -1,0 +1,80 @@
+{
+  "sourceCommit": "cc29be886b543ffa29592afbc6b4482c104b1fb4",
+  "sourceManifestSha256": "67abca02ccbf00d2a3aac7ce6fea0fdcb629895fe0b969a36fa7579964fd5458",
+  "bundler": "esbuild@0.27.7",
+  "modulePreload": false,
+  "files": {
+    "render.js": {
+      "sha256": "8db6f4d55c6b14e3e97d0a28dc1520b740bf23acfcfe034687cf34c8ce4177c8",
+      "rawBytes": 1276251,
+      "inputs": [
+        "dist/browser/chunks/BpmnRenderUtil-WMCgqGDs.js",
+        "dist/browser/chunks/BpmnUpdater-C-UNbzXl.js",
+        "dist/browser/chunks/LabelUtil-7QpE43Ed.js",
+        "dist/browser/chunks/LayoutUtil-hAMJmJFU.js",
+        "dist/browser/chunks/ModelUtil-CMh7LuN4.js",
+        "dist/browser/chunks/Modeler-BfAmwsmK.js",
+        "dist/browser/chunks/Viewer-eYLzc3fD.js",
+        "dist/browser/chunks/bpmn-canvas-DeAWdJFy.js",
+        "dist/browser/chunks/colored-CSIQaGsQ.js",
+        "dist/browser/chunks/dist-Co2MgHWm.js",
+        "dist/browser/chunks/dist-kvAYI1vo.js",
+        "dist/browser/chunks/entropic-CM5BHERN.js",
+        "dist/browser/chunks/focus-renderer-C4z8aS9F.js",
+        "dist/browser/chunks/forge-B8hrW4lA.js",
+        "dist/browser/chunks/layout-q0TR9-aY.js",
+        "dist/browser/chunks/legend-CXdfCBh6.js",
+        "dist/browser/chunks/textMetrics-BrMS6-sA.js",
+        "dist/browser/chunks/tokens-DFPpCvf1.js",
+        "dist/browser/elements.js"
+      ]
+    },
+    "BarChart.js": {
+      "sha256": "ff52499ca161aaa8ed3070593ba3937ee92bccf3e752d5262f17a67e676b34f7",
+      "rawBytes": 474586,
+      "inputs": [
+        "dist/browser/chunks/entropic-CM5BHERN.js",
+        "dist/browser/chunks/forge-B8hrW4lA.js",
+        "dist/browser/elements.js"
+      ]
+    },
+    "BpmnCanvas.js": {
+      "sha256": "c3c5519e966032466a2fce65b1c7fffb753e60e8c851f2f3f410c4158e5133d8",
+      "rawBytes": 1222509,
+      "inputs": [
+        "dist/browser/chunks/BpmnRenderUtil-WMCgqGDs.js",
+        "dist/browser/chunks/BpmnUpdater-C-UNbzXl.js",
+        "dist/browser/chunks/LabelUtil-7QpE43Ed.js",
+        "dist/browser/chunks/LayoutUtil-hAMJmJFU.js",
+        "dist/browser/chunks/ModelUtil-CMh7LuN4.js",
+        "dist/browser/chunks/Modeler-BfAmwsmK.js",
+        "dist/browser/chunks/Viewer-eYLzc3fD.js",
+        "dist/browser/chunks/bpmn-canvas-DeAWdJFy.js",
+        "dist/browser/chunks/colored-CSIQaGsQ.js",
+        "dist/browser/chunks/dist-Co2MgHWm.js",
+        "dist/browser/chunks/dist-kvAYI1vo.js",
+        "dist/browser/chunks/entropic-CM5BHERN.js",
+        "dist/browser/chunks/forge-B8hrW4lA.js",
+        "dist/browser/chunks/layout-q0TR9-aY.js",
+        "dist/browser/chunks/legend-CXdfCBh6.js",
+        "dist/browser/chunks/textMetrics-BrMS6-sA.js",
+        "dist/browser/chunks/tokens-DFPpCvf1.js",
+        "dist/browser/elements.js"
+      ]
+    },
+    "DecisionDossier.js": {
+      "sha256": "32ebf08a416538f5d4dd91a571fd57e6c7b0af9985cff250b216ec085a9f8388",
+      "rawBytes": 528075,
+      "inputs": [
+        "dist/browser/chunks/entropic-CM5BHERN.js",
+        "dist/browser/chunks/focus-renderer-C4z8aS9F.js",
+        "dist/browser/chunks/forge-B8hrW4lA.js",
+        "dist/browser/elements.js"
+      ]
+    }
+  },
+  "serverPort": {
+    "sha256": "e618dfc9acd1703fe3092005b1879d219a270f5356354dcea6ca94ea6c35297b",
+    "rawBytes": 73964
+  }
+}

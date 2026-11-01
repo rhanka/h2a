@@ -354,7 +354,13 @@ test("runMcpStdio: initialize returns the expected serverInfo", async () => {
     // currentCliVersion), no longer a frozen "0.1.1" that drifted from the
     // plugin manifest and `h2a --version` (#275 diagnosis).
     assert.equal(res.result.serverInfo.version, currentCliVersion());
-    assert.deepEqual(res.result.capabilities, { tools: {} });
+    // L3 (json-render): initialize now advertises tools.listChanged, the
+    // resource surface and the SEP-1865 ui extension (h2a spec §2.1.3).
+    assert.deepEqual(res.result.capabilities, {
+      tools: { listChanged: true },
+      resources: {},
+      extensions: { "io.modelcontextprotocol/ui": { mimeTypes: ["text/html;profile=mcp-app"] } }
+    });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -397,9 +403,20 @@ test("runMcpStdio: tools/list returns all canonical tool names (DEC-051 added 3)
     const [res] = responses;
     assert.equal(res.id, 2);
     assert.ok(Array.isArray(res.result.tools));
-    assert.equal(res.result.tools.length, H2A_CLI_MCP_TOOL_NAMES.length);
+    // L3 (json-render): the vendored ui:// module composes its seven tools
+    // into the same endpoint (h2a spec §4.1).
+    const uiRenderToolNames = [
+      "list_components",
+      "get_schema",
+      "render",
+      "render_BarChart",
+      "render_BpmnCanvas",
+      "render_DecisionDossier",
+      "submit_intent"
+    ];
+    assert.equal(res.result.tools.length, H2A_CLI_MCP_TOOL_NAMES.length + uiRenderToolNames.length);
     const names = res.result.tools.map((t) => t.name).sort();
-    assert.deepEqual(names, [...H2A_CLI_MCP_TOOL_NAMES].sort());
+    assert.deepEqual(names, [...H2A_CLI_MCP_TOOL_NAMES, ...uiRenderToolNames].sort());
     for (const tool of res.result.tools) {
       assert.equal(typeof tool.name, "string");
       assert.equal(typeof tool.description, "string");
