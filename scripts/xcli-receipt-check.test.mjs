@@ -1,7 +1,8 @@
-// Lot L11 RED set (SPEC v3 §7.1): dummy receipts in temp dirs, no secrets.
-// Each refusal carries its distinct classified code; the all-green
-// exact-SHA fixture passes. Red while xcli-receipt-check.mjs is absent or
-// misses the merge-scope R2 ratchet.
+// Lot L11 RED set (SPEC v3 §7.1, R18 cyber-seat custody): dummy receipts in
+// temp dirs, no secrets. Each refusal carries its distinct classified code;
+// the all-green exact-SHA fixture passes. The receipt comes only from the
+// protected campaign lane for the exact SHA (provenance by delivery); the
+// removed --fetch-trusted/--content-only paths refuse.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -9,31 +10,24 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { spawnSync } from 'node:child_process';
 import { checkReceipt, computeHarnessDigests, loadMatrixManifest, STAGE_KEYS } from './xcli-receipt-check.mjs';
-import { createHash } from 'node:crypto';
 import { buildCampaignReceipt } from './xcli-ci-check.mjs';
 import { environment, ORACLE_SOURCES } from './xcli-lab.mjs';
 
 const repo = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
 const SHA = 'a'.repeat(40);
 
-test('L11: a branch-only campaign without a receipt reports pending qualification and still blocks merge', () => {
-  const root = fs.mkdtempSync(join(os.tmpdir(), 'xcli-receipt-pending-'));
+test('R18: the removed trusted-fetch paths refuse with a typed code', () => {
+  const root = fs.mkdtempSync(join(os.tmpdir(), 'xcli-receipt-removed-'));
   try {
-    const preload = join(root, 'github.mjs');
-    fs.writeFileSync(preload, `
-      globalThis.fetch = async url => new Response(JSON.stringify(
-        url === 'https://api.github.com/repos/rhanka/h2a/actions/runs?status=success&per_page=100&head_sha=${SHA}'
-          ? { workflow_runs: [] } : { message: 'Not Found' }
-      ), { status: url.includes('/actions/workflows/') ? 404 : 200 });
-    `);
-    const out = spawnSync(process.execPath, ['--import', preload, join(repo, 'scripts/xcli-receipt-check.mjs'),
-      '--fetch-trusted', '--sha', SHA, '--gate', 'merge'], {
-      env: { ...environment(join(root, 'env')), GH_TOKEN: 'fixture-only' }, encoding: 'utf8', timeout: 10000,
-    });
-    assert.equal(out.status, 1, out.stderr);
-    assert.match(out.stdout, /code=trusted-receipt-absent/);
-    assert.match(out.stdout, /receipt absent, qualification pending/);
-    assert.doesNotMatch(out.stdout, /github-api-failed|receipt-check: pass/);
+    for (const flag of ['--fetch-trusted', '--content-only']) {
+      const out = spawnSync(process.execPath, [join(repo, 'scripts/xcli-receipt-check.mjs'),
+        flag, '--sha', SHA, '--gate', 'merge'], {
+        env: { ...environment(join(root, 'env')) }, encoding: 'utf8', timeout: 10000,
+      });
+      assert.equal(out.status, 1, out.stderr);
+      assert.match(out.stdout, /code=trusted-receipt-path-removed/);
+      assert.doesNotMatch(out.stdout, /receipt-check: pass/);
+    }
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 const stages = () => Object.fromEntries(STAGE_KEYS.map(key => [key, true]));
@@ -77,20 +71,13 @@ function goodReceipt(overrides = {}) {
   };
 }
 
-const ctx = (overrides = {}) => ({ sha: SHA, gate: 'merge', repoRoot: repo, contentOnly: true, ...overrides });
+const ctx = (overrides = {}) => ({ sha: SHA, gate: 'merge', repoRoot: repo, ...overrides });
 
-test('L11 review: a self-declared campaign without authenticated run provenance refuses', () => {
-  assert.throws(() => checkReceipt(goodReceipt(), ctx({ provenance: undefined, contentOnly: false })), /provenance-untrusted/);
-});
-
-test('L11 review: only the authenticated artifact for this run and exact head passes provenance', () => {
-  const receipt = goodReceipt();
-  const provenance = { authenticated: true, repository: 'rhanka/h2a', workflow: '.github/workflows/cross-cli-campaign.yml',
-    candidateSha: SHA, runId: 123, runAttempt: 1, receiptDigest: createHash('sha256').update(JSON.stringify(receipt)).digest('hex') };
-  assert.equal(checkReceipt(receipt, ctx({ contentOnly: false, provenance })).cells, 16);
-  for (const mutation of [{ runId: 124 }, { candidateSha: 'f'.repeat(40) }, { authenticated: false }, { workflow: 'other.yml' }]) {
-    assert.throws(() => checkReceipt(receipt, ctx({ contentOnly: false, provenance: { ...provenance, ...mutation } })), /provenance-untrusted/);
-  }
+test('R18 review: a receipt without its producing-run binding refuses (provenance by delivery)', () => {
+  assert.throws(() => checkReceipt(goodReceipt({ provenance: undefined }), ctx()), /provenance-missing/);
+  assert.throws(() => checkReceipt(goodReceipt({ provenance: { runId: 0, runAttempt: 1 } }), ctx()), /provenance-missing/);
+  assert.throws(() => checkReceipt(goodReceipt({ provenance: { runId: 123 } }), ctx()), /provenance-missing/);
+  assert.equal(checkReceipt(goodReceipt(), ctx()).cells, 16);
 });
 
 test('L11 review: false stages, a blocker, failed process recovery and zero debits each refuse', () => {
@@ -119,7 +106,7 @@ test('L11 review: source SHA and (scenario,pair) are required, a probe cannot ma
     fs.writeFileSync(join(dir, 'qualification.json'), JSON.stringify(qualify));
     fs.writeFileSync(join(dir, 'campaign-ledger.json'), '{"sessionsDebited":32}');
     const assemble = () => buildCampaignReceipt({ campaignRoot: dir, sha: SHA, gate: 'merge', manifestFile: file, repoRoot: repo,
-      cliVersions: cliVersions(), seatManifestDigest: 'f'.repeat(64) });
+      cliVersions: cliVersions(), seatManifestDigest: 'f'.repeat(64), provenance: { runId: 7, runAttempt: 1 } });
     assert.equal(assemble().cells.at(-1).status, 'blocked', 'loop was never run');
     qualify.sha = 'b'.repeat(40);
     fs.writeFileSync(join(dir, 'qualification.json'), JSON.stringify(qualify));
@@ -204,13 +191,13 @@ test('L11: the lane-built receipt for an all-green campaign passes the check', (
       caps: { launchedSessions: 32, mcpCallsPerSession: 60, wallClockMs: 7200000 },
       sessionsDebited: 96, perSeatDebited: {}, wallClockSpentMs: 1000, attempts: {}, mcpRefusals: [] }));
     const receipt = buildCampaignReceipt({ campaignRoot: dir, sha: SHA, gate: 'merge',
-      repoRoot: repo, cliVersions: cliVersions(), seatManifestDigest: 'f'.repeat(64) });
+      repoRoot: repo, cliVersions: cliVersions(), seatManifestDigest: 'f'.repeat(64), provenance: { runId: 7, runAttempt: 1 } });
     assert.equal(checkReceipt(receipt, ctx()).cells, 16);
     const blocked = { ...qualifyOutput, cells: qualifyOutput.cells.map((cell, index) =>
       index === 0 ? { ...cell, status: 'blocked', blocker: 'seat-blocked', secretWipe: true } : cell) };
     fs.writeFileSync(join(dir, 'qualification.json'), JSON.stringify(blocked));
     assert.throws(() => checkReceipt(buildCampaignReceipt({ campaignRoot: dir, sha: SHA,
-      gate: 'merge', repoRoot: repo, cliVersions: cliVersions(), seatManifestDigest: 'f'.repeat(64) }), ctx()), /cell-blocked/);
+      gate: 'merge', repoRoot: repo, cliVersions: cliVersions(), seatManifestDigest: 'f'.repeat(64), provenance: { runId: 7, runAttempt: 1 } }), ctx()), /cell-blocked/);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 

@@ -126,15 +126,24 @@ jobs:
           node -e 'if (process.versions.node.split(".")[0] !== process.argv[1]) process.exit(1)' "${{ matrix.node }}"
           test "$(git rev-parse HEAD)" = "${{ needs.resolve-release-sha.outputs.release-sha }}"
 
-      # Lot L11 (SPEC v3 §7.1): no passing trusted-lane receipt for the exact
-      # release SHA → no release. A release dry-run refuses the same way.
+      # Lot L11 (SPEC v3 §7.1, R18 cyber-seat custody): no campaign-lane
+      # receipt published for the exact release SHA → no release. The gate
+      # resolves the successful cross-cli-campaign run for that SHA and
+      # downloads its artifact over the authenticated API (provenance by
+      # delivery). A release dry-run refuses the same way.
       - name: Require the campaign receipt for the exact release SHA
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: >-
-          node scripts/xcli-receipt-check.mjs --fetch-trusted
-          --sha "${{ needs.resolve-release-sha.outputs.release-sha }}" --gate release
+        run: |
+          set -euo pipefail
+          release_sha="${{ needs.resolve-release-sha.outputs.release-sha }}"
+          run_id="$(gh run list --workflow cross-cli-campaign.yml --commit "$release_sha" --limit 1 \
+            --json databaseId,conclusion --jq '.[0] | select(.conclusion == "success") | .databaseId')"
+          test -n "$run_id" || { echo "receipt-check: REFUSED code=receipt-absent (no successful campaign run for the exact release SHA)"; exit 1; }
+          gh run download "$run_id" -n "xcli-campaign-${release_sha}"
+          node scripts/xcli-receipt-check.mjs --receipt "xcli-campaign-${release_sha}/campaign-receipt.json" \
+            --sha "$release_sha" --gate release
 
       - run: npm ci
         shell: bash

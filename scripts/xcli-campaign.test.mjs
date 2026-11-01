@@ -16,7 +16,7 @@ const shellQuote = value => "'" + value.replaceAll("'", "'\\''") + "'";
 function writeManifest(dir, seats, pairs) {
   for (const seat of seats) fs.mkdirSync(join(dir, seat.authSource), { recursive: true });
   const file = join(dir, 'seats.json');
-  fs.writeFileSync(file, JSON.stringify({ version: 1, seatMode: 'interim-file-copy', seats, ...(pairs ? { pairs } : {}) }, null, 2));
+  fs.writeFileSync(file, JSON.stringify({ version: 1, seatMode: 'cyber-seat-custody', seats, ...(pairs ? { pairs } : {}) }, null, 2));
   return file;
 }
 
@@ -67,7 +67,7 @@ test('L8 R3: a simulated seat-qualified pair keeps role attribution without auth
       assert.deepEqual(routing.authHomes, {}, 'simulated workers receive no credential paths');
       assert.deepEqual(run.receipt.cells[0].seats, { sender: 'claude-a', receiver: 'claude-b' });
       assert.equal(run.receipt.cells[0].sharedSeat, false);
-      assert.equal(run.receipt.seatMode, 'interim-file-copy');
+      assert.equal(run.receipt.seatMode, 'cyber-seat-custody');
     } finally { removeCampaignRoot(run.root); fs.rmSync(run.dir, { recursive: true, force: true }); }
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
@@ -328,13 +328,32 @@ test('R5: a receiver quota leaves the unlaunched sender usable on resume', () =>
   const root = compliantQualificationRoot();
   try {
     const env = environment(join(root, 'env')), launches = join(root, 'launches.jsonl');
+    // R18: real runs go through cyber-seat manifests. The fakes answer the
+    // seat preflight probes (version/help/read-only oracle) and plant dummy
+    // seat login files; cell runs keep their quota/simulated behavior.
+    const seatDir = join(root, 'seats');
+    fs.mkdirSync(join(seatDir, 'codex', '.codex'), { recursive: true });
+    fs.mkdirSync(join(seatDir, 'claude', '.claude'), { recursive: true });
+    fs.writeFileSync(join(seatDir, 'codex', '.codex/auth.json'), '{"token":"dummy-only"}');
+    fs.writeFileSync(join(seatDir, 'claude', '.claude/.credentials.json'), '{"token":"dummy-only"}');
+    const manifest = join(root, 'seats.json');
+    fs.writeFileSync(manifest, JSON.stringify({ version: 1, seatMode: 'cyber-seat-custody', seats: [
+      { seatId: 'codex', family: 'codex', authSource: join(seatDir, 'codex') },
+      { seatId: 'claude', family: 'claude', authSource: join(seatDir, 'claude') } ] }));
+    const probes = { codex: { version: 'codex 0.162.1', help: 'Usage: codex [--no-daemon] [--no-alt-screen]' },
+      claude: { version: 'claude 2.1.301', help: 'Usage: claude' } };
     for (const [cli, body] of [
       ['codex', `process.stdout.write('quota exceeded\\r\\n');setInterval(()=>{},1000);`],
       ['claude', `process.argv.splice(2,0,'claude');await import(${JSON.stringify(new URL('./xcli-simulated-model.mjs', import.meta.url).href)});`],
     ]) {
       const program = join(root, cli + '.mjs');
       fs.writeFileSync(program, `import fs from 'node:fs';fs.appendFileSync(${JSON.stringify(launches)},${JSON.stringify(cli + '\n')});\n` + body);
-      fs.writeFileSync(join(root, 'env/bin', cli), `#!/bin/sh\nexec ${shellQuote(process.execPath)} ${shellQuote(program)} "$@"\n`, { mode: 0o700 });
+      fs.writeFileSync(join(root, 'env/bin', cli), `#!/bin/sh
+if [ "$1" = "--version" ]; then echo ${shellQuote(probes[cli].version)}; exit 0; fi
+if [ "$1" = "--help" ]; then echo ${shellQuote(probes[cli].help)}; exit 0; fi
+if [ "$1" = "mcp" ]; then echo "[]"; exit 0; fi
+exec ${shellQuote(process.execPath)} ${shellQuote(program)} "$@"
+`, { mode: 0o700 });
     }
     const campaign = compliantQualificationRoot();
     try {
@@ -342,7 +361,7 @@ test('R5: a receiver quota leaves the unlaunched sender usable on resume', () =>
       for (const pair of ['claude:codex', 'claude:claude']) {
         const output = join(root, pair.replace(':', '-') + '.json');
         const result = spawnSync(process.execPath, [QUALIFY, '--pair', pair, '--timeout-ms', pair.endsWith('codex') ? '1000' : '5000',
-          '--campaign-root', campaign, '--output', output], { cwd: repo, env: { ...process.env, ...env },
+          '--seat-manifest', manifest, '--campaign-root', campaign, '--output', output], { cwd: repo, env: { ...process.env, ...env },
           encoding: 'utf8', timeout: 120000, maxBuffer: 4 * 1024 * 1024 });
         assert.equal(result.status, 2, result.stderr);
         rows.push(JSON.parse(fs.readFileSync(output)).cells[0]);
@@ -613,42 +632,19 @@ exit 0
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
-// R17 (P2-1 RED): the deprecated --auth-home alias may not bypass §6.5. The
-// pre-fix campaign runs its cells with no preflight at all (preflights: []);
-// the fixed campaign builds one implicit seat per campaign family and
-// preflights it exactly like a manifest seat.
-test('R17: the deprecated --auth-home alias runs implicit per-family seat preflights', () => {
-  const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-authhome-preflight-'));
+// R18 (owner D1): the copy-from-home path is removed. --auth-home refuses
+// with a typed reason before minting any campaign state; seat material
+// comes only from the protected environment through the slot manifest.
+test('R18: --auth-home refuses with auth-home-removed before any campaign state', () => {
+  const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-authhome-removed-'));
   try {
-    const bins = join(dir, 'bins');
-    fs.mkdirSync(bins);
-    fs.writeFileSync(join(bins, 'codex'), `#!/bin/sh
-if [ "$1" = "--version" ]; then echo "codex 0.162.1"; exit 0; fi
-if [ "$1" = "--help" ]; then echo "Usage: codex [--no-daemon] [--no-alt-screen]"; exit 0; fi
-if [ "$1" = "mcp" ]; then echo "[]"; exit 0; fi
-exit 0
-`, { mode: 0o700 });
-    const authHome = join(dir, 'auth');
-    fs.mkdirSync(join(authHome, '.codex'), { recursive: true });
-    fs.writeFileSync(join(authHome, '.codex/auth.json'), '{"token":"dummy-only"}');
     const output = join(dir, 'receipt.json');
-    const stub = join(dir, 'stub.mjs');
-    fs.writeFileSync(stub, stubRow('stub-no-model'));
-    const result = spawnSync(process.execPath, [QUALIFY, '--auth-home', authHome,
+    const result = spawnSync(process.execPath, [QUALIFY, '--auth-home', join(dir, 'auth'),
       '--pair', 'codex:codex', '--timeout-ms', '10000', '--output', output],
-    { env: { ...process.env, PATH: `${bins}:${process.env.PATH}`, XCLI_WORKER_STUB: stub },
-      encoding: 'utf8', timeout: 120000, maxBuffer: 4 * 1024 * 1024 });
-    const root = (result.stdout.match(/Private qualification root: (\S+)/) ?? [])[1];
-    assert.ok(root, `parent reports its root\n${result.stdout}\n${result.stderr}`);
-    const receipt = JSON.parse(fs.readFileSync(output, 'utf8'));
-    console.log({ exit: result.status, preflights: receipt.preflights.map(p => ({ seatId: p.seatId, ok: p.ok })),
-      seatMode: receipt.seatMode, invocations: receipt.cells.length });
-    assert.equal(receipt.preflights.length, 1, 'the implicit codex-default seat is preflighted');
-    assert.equal(receipt.preflights[0].seatId, 'codex-default');
-    assert.equal(receipt.preflights[0].ok, true, 'the preflight passes with the seat login files');
-    assert.equal(receipt.preflights[0].modelCalls, 0, 'no model turn is spent');
-    assert.equal(result.status, 2, 'the stub cell reports its blocker, exit is classified');
-    assert.equal(receipt.cells[0].blocker, 'stub-no-model', 'the preflighted cell runs');
-    removeCampaignRoot(root);
+    { env: { ...process.env }, encoding: 'utf8', timeout: 60000, maxBuffer: 4 * 1024 * 1024 });
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stdout}${result.stderr}`, /auth-home-removed/);
+    assert.ok(!fs.existsSync(output), 'no receipt is written on refusal');
+    assert.ok(!/Private qualification root:/.test(result.stdout), 'no campaign root is minted on refusal');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       seat_set:
-        description: Explicit seat set; each name maps to its XCLI_SEAT_BUNDLE_<NAME> secret (family names while one seat per family)
+        description: Explicit seat set; each name maps to its slot in docs/cross-cli-seat-slots.json and its SEAT_USE_<CLI>_<SLOT> secret (family names while one seat per family)
         required: true
       candidate_sha:
         description: Frozen candidate head the receipt will bind
@@ -32,9 +32,10 @@ jobs:
     runs-on: ${{ fromJSON(vars.XCLI_CAMPAIGN_RUNNER) }}
     timeout-minutes: 120
     if: github.event_name != 'pull_request'
-    # One secret bundle per seated family, exposed only inside this
-    # protected environment. The seat_set input names seats; a seat without
-    # its bundle here refuses at materialisation, never from elsewhere.
+    # One runtime projection secret per seated slot (SEAT_USE_<CLI>_<SLOT>),
+    # exposed only inside this protected environment. The seat_set input
+    # names seats from the reviewed slot manifest; a seat without its
+    # projection here refuses at materialisation, never from elsewhere.
     steps:
       - name: Validate the protected candidate before checkout or secrets
         id: validate
@@ -104,54 +105,31 @@ jobs:
           root="$(mktemp -d "$base/run-XXXXXX")"
           chmod 700 "$root"
           echo "XCLI_CAMPAIGN_ROOT=$root" >> "$GITHUB_ENV"
-      # Interim file-copy path (§7.3): one environment secret bundle per seat
-      # (XCLI_SEAT_BUNDLE_<SEATID> holding {family, files:{relpath: base64}}),
-      # written into 0700 temp HOMEs; the manifest is validated at load and
-      # carries paths only, never secret bytes.
+      # Cyber-seat custody (R18, owner D1): the reviewed slot manifest maps
+      # each seat to its fixed SEAT_USE_<CLI>_<SLOT> runtime projection in
+      # this protected environment. This fixed trusted step is the only step
+      # that reads them; every envelope is validated by the vendored llm-mesh
+      # seat-bundle import adapters (never re-implemented) before any byte
+      # reaches the 0700 seat HOMEs. The published manifest carries paths
+      # only, never secret bytes.
       - name: Materialise seat HOMEs from environment bundles
         env:
           SEAT_SET: ${{ inputs.seat_set || vars.XCLI_SEAT_SET }}
-          XCLI_SEAT_BUNDLE_CLAUDE: ${{ secrets.XCLI_SEAT_BUNDLE_CLAUDE }}
-          XCLI_SEAT_BUNDLE_CODEX: ${{ secrets.XCLI_SEAT_BUNDLE_CODEX }}
-          XCLI_SEAT_BUNDLE_MUSE: ${{ secrets.XCLI_SEAT_BUNDLE_MUSE }}
-          XCLI_SEAT_BUNDLE_AGY: ${{ secrets.XCLI_SEAT_BUNDLE_AGY }}
+          SEAT_USE_CLAUDE_00: ${{ secrets.SEAT_USE_CLAUDE_00 }}
+          SEAT_USE_CODEX_00: ${{ secrets.SEAT_USE_CODEX_00 }}
+          SEAT_USE_MUSE_00: ${{ secrets.SEAT_USE_MUSE_00 }}
+          SEAT_USE_AGY_00: ${{ secrets.SEAT_USE_AGY_00 }}
         run: >-
           node --input-type=module -e "
           import fs from 'node:fs';
-          import { createHash } from 'node:crypto';
-          import { join } from 'node:path';
-          import { loadSeatManifest } from './scripts/xcli-seats.mjs';
-          import { LOGIN_ALLOWLIST } from './scripts/xcli-lab.mjs';
-          const ids = (process.env.SEAT_SET ?? '').split(',').map(s => s.trim()).filter(Boolean);
-          if (!ids.length) { console.error('seat set is required'); process.exit(1); }
-          for (const seatId of ids) {
-            if (!/^[a-z][a-z0-9-]{0,39}$/.test(seatId)) throw new Error('invalid seat ID');
-            const key = 'XCLI_SEAT_BUNDLE_' + seatId.replace(/[^A-Za-z0-9]/g, '_').toUpperCase();
-            if (!process.env[key]) { console.error('no bundle mapped for seat: ' + seatId); process.exit(1); }
-          }
-          const base = join(process.env.RUNNER_TEMP, 'seats');
+          import { materialiseSeatEnvelopes } from './scripts/xcli-seat-import.mjs';
           if (fs.realpathSync(process.env.RUNNER_TEMP) !== process.env.RUNNER_TEMP) throw new Error('aliased runner temp');
-          fs.mkdirSync(base, { mode: 0o700 });
-          const seats = ids.map(seatId => {
-            let bundle;
-            try { bundle = JSON.parse(process.env['XCLI_SEAT_BUNDLE_' + seatId.replace(/[^A-Za-z0-9]/g, '_').toUpperCase()] ?? 'null'); }
-            catch { throw new Error('seat-bundle-invalid'); }
-            const home = join(base, seatId);
-            fs.mkdirSync(home, { mode: 0o700 });
-            for (const [rel, b64] of Object.entries(bundle.files ?? {})) {
-              if (!(LOGIN_ALLOWLIST[bundle.family] ?? []).includes(rel)) throw new Error('seat file not allowlisted');
-              const target = join(home, rel);
-              fs.mkdirSync(join(target, '..'), { recursive: true, mode: 0o700 });
-              fs.writeFileSync(target, Buffer.from(b64, 'base64'), { mode: 0o600, flag: 'wx' });
-            }
-            return { seatId, family: bundle.family, authSource: home };
-          });
-          const manifest = { version: 1, seatMode: 'interim-file-copy', seats };
-          const file = join(process.env.RUNNER_TEMP, 'seats.json');
-          fs.writeFileSync(file, JSON.stringify(manifest, null, 2), { mode: 0o600 });
-          loadSeatManifest(file);
-          console.log('seats=' + seats.map(s => s.seatId).join(','));
-          console.log('manifest-digest=' + createHash('sha256').update(fs.readFileSync(file)).digest('hex'));
+          const slotManifest = JSON.parse(fs.readFileSync('./docs/cross-cli-seat-slots.json', 'utf8'));
+          const { manifestDigest, receipt } = materialiseSeatEnvelopes({
+            seatSet: process.env.SEAT_SET ?? '', slotManifest,
+            secrets: process.env, baseDir: process.env.RUNNER_TEMP });
+          console.log('seats=' + receipt.seats.map(s => s.seatId).join(','));
+          console.log('manifest-digest=' + manifestDigest);
           "
       - name: Run the R1 campaign on the frozen head
         id: qualify
@@ -191,7 +169,7 @@ jobs:
       - name: Check the receipt before publishing
         if: ${{ !cancelled() && steps.receipt.outcome == 'success' }}
         run: >-
-          node scripts/xcli-receipt-check.mjs --content-only --receipt "${RUNNER_TEMP}/campaign-receipt.json"
+          node scripts/xcli-receipt-check.mjs --receipt "${RUNNER_TEMP}/campaign-receipt.json"
           --sha "${{ steps.validate.outputs.sha }}" --gate merge
       - name: Wipe seat HOMEs unconditionally
         if: always()
