@@ -1,3 +1,37 @@
+# Node 22 CI suite split — conductor decision 2026-11-01
+
+- Scope: `scripts/run-tests.mjs`, the gate deadline comment, independent
+  trust-root regressions and their observation lab, CI budget/diagnostic docs.
+- Implement the accepted corpus / native-* / remainder partition by filename
+  rule over sorted discovery. Each invocation retains its 600000 ms ceiling,
+  native isolation and spec/evidence reporters; each has its own report path.
+- Aggregate all three reports with Track before the existing inventory and
+  42-contract cleanse verifier. Keep every gate, identity lane, independent
+  trust-root entrypoint, 21-minute outer and 25-minute CI ceilings.
+- RED: missing partition export; then the production observation rejects the
+  unsplit invocation. GREEN: partition, production execution and four evidence
+  fault injections pass (3 tests, 0 skip). Broader targeted gate results and
+  CI bucket durations are recorded in `tmp/h-cond/node22-split-last.md`.
+- Private TMPDIR: `/home/antoinefa/.cache-tmp/h2a-test/run-858qUw`; remove at
+  delivery. No full local suite or installed host access. Independent h2a
+  consensus unavailable: no h2a MCP tool in this confinement.
+- Targeted gate qualification: five files, 128 passed / 0 skipped on both
+  Node 22.22.1 (17.765 s) and Node 24.22.0 (13.255 s). Inventory 349 = 1+27+321.
+
+# Prior Node 22 CI backstop diagnosis
+
+- Scope: `docs/reviews/node22-suite-duration.md` and this branch note only.
+- Evidence: the Node suite in run 41252615306 completes in 599719.947 ms on
+  Node 22 and 589587.776 ms on Node 24; both fail L0 assertions, neither hangs.
+  Same-commit main jobs complete in 409.687/418.476 s while trust-root reaches
+  the 600 s backstop. PR #401's same-SHA rerun completes in 394.301 s.
+- No leaking child identified. The diagnostic records the limits of the old
+  reporters, targeted exit/process observations and an exact 1/27/321-file
+  partition proposal for the conductor. No runtime, test, assertion or ceiling
+  change; the proposal is not claimed as an implemented CI fix.
+- Private TMPDIR: `/home/antoinefa/.cache-tmp/h2a-test/run-Pvuxaq`; cleanup and
+  terminal CI are recorded in `tmp/h-cond/node22-hang-last.md` at delivery.
+
 # Hygiene 0.98.8 — release-verify flakes and the published engram tuple
 
 - Scope: two release-verify flakes (Node 24 job 124193907640 teardown ENOTEMPTY, Node 22 job 124245471852 B5 fence timeout); tests and dependency manifest only, no product code. Round 3 (CI run 41185216253): the `@sentropic/engram` 0.22.1 pin is withdrawn (security-debt advisories) and the late-writer control is made deterministic.

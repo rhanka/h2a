@@ -26,7 +26,7 @@ import { test } from 'node:test'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { readCleanseLedger, observeContract } from '../../../scripts/cleanse-contract-ledger.mjs'
-import { discoverTestFiles, RUNNER_TEST_FILE, listNodeTrackSuiteFiles, verifyNodeTrackExecution } from '../../../scripts/run-tests.mjs'
+import { discoverTestFiles, RUNNER_TEST_FILE, listNodeTrackSuiteFiles, verifyNodeTrackExecution, partitionNodeTestFiles } from '../../../scripts/run-tests.mjs'
 
 import { configContractFailures } from '../../../scripts/test-config-contract.mjs'
 import { readInventory, inventoryFailures, verifyExecutionReport, readTrainRequirements } from '../../../scripts/test-execution-evidence.mjs'
@@ -1452,6 +1452,45 @@ test('C9 A01/A03/A04: effective config and versioned test inventory are mandator
 
 test('C9 A04: execute the effective Node/Track entry and observe both required suites', () => {
   observeNodeTrackEntry(readFileSync(resolve(REPO_ROOT, 'scripts/run-tests.mjs'), 'utf8'), REPO_ROOT)
+})
+
+test('Node buckets partition the full discovered inventory exactly once by filename rule', () => {
+  const inventory = discoverTestFiles()
+  const buckets = partitionNodeTestFiles(inventory)
+  assert.deepEqual(buckets.map(bucket => bucket.name), ['corpus', 'native', 'rest'])
+  assert.deepEqual(buckets.flatMap(bucket => bucket.files).sort(), [...inventory].sort())
+  assert.equal(new Set(buckets.flatMap(bucket => bucket.files)).size, inventory.length)
+  for (let i = 0; i < buckets.length; i++) {
+    for (let j = i + 1; j < buckets.length; j++) {
+      assert.ok(buckets[i].files.every(file => !buckets[j].files.includes(file)), 'buckets must be pairwise disjoint')
+    }
+  }
+  assert.deepEqual(buckets[0].files, ['packages/h2a/test/drive-consent-index.test.js'])
+  assert.ok(buckets[1].files.length > 0)
+  assert.ok(buckets[1].files.every(file => /\/native-[^/]+\.test\.js$/.test(file.replaceAll('\\', '/'))))
+  assert.ok(!buckets[2].files.some(file => /\/(?:native-[^/]+|drive-consent-index)\.test\.js$/.test(file.replaceAll('\\', '/'))))
+
+  // Future files are selected by rule, including Windows discovery paths;
+  // neither the production partition nor this check maintains a file allowlist.
+  for (const [file, expected] of [
+    ['packages/h2a/test/native-future.test.js', 'native'],
+    ['packages/focus-interactive/test/future.test.js', 'rest'],
+    ['packages/h2a/test/drive-consent-index-future.test.js', 'rest'],
+    ['packages\\h2a\\test\\native-future.test.js', 'native'],
+    ['packages\\h2a\\test\\drive-consent-index.test.js', 'corpus'],
+  ]) {
+    const extended = [...inventory, file]
+    const result = partitionNodeTestFiles(extended)
+    assert.deepEqual(result.filter(bucket => bucket.files.includes(file)).map(bucket => bucket.name), [expected])
+    assert.deepEqual(result.flatMap(bucket => bucket.files).sort(), extended.sort())
+  }
+})
+
+test('Node bucket evidence fails closed on missing, duplicate, malformed reports and nonzero invocations', () => {
+  const source = readFileSync(resolve(REPO_ROOT, 'scripts/run-tests.mjs'), 'utf8')
+  for (const fault of ['missing', 'duplicate', 'malformed', 'nonzero']) {
+    observeNodeTrackEntry(source, REPO_ROOT, { nodeBucketFault: fault })
+  }
 })
 
 test('L0 trust root: every baseline contract and oracle is required by the production execution verifier', () => {
