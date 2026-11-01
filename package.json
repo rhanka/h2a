@@ -26,11 +26,14 @@
     "typecheck": "npm run build -w @sentropic/track && tsc -b --pretty false",
     "lint:focus-imports": "node apps/focus/scripts/check-imports.mjs",
     "smoke:artifact": "node scripts/smoke-artifact.mjs",
-    "test": "node scripts/run-test-gates.mjs"
+    "test": "node scripts/run-test-gates.mjs",
+    "build:ui-render-inline": "node scripts/build-ui-render-inline.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.19.19",
     "typescript": "^5.9.3",
-    "yaml": "^2.9.0"
+    "yaml": "^2.9.0",
+    "esbuild": "0.27.7",
+    "fflate": "0.8.3"
   }
 }

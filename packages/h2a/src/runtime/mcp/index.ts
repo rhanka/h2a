@@ -9,7 +9,8 @@ export {
 export {
   H2A_CLI_MCP_TOOL_DESCRIPTORS,
   type McpToolDescriptor,
-  type McpToolName
+  type McpToolName,
+  type McpToolUiMeta
 } from "./tools.js";
 
 export {
@@ -77,3 +78,108 @@ export {
   type McpIdentityStatus,
   type ResolvedIdentityMessage
 } from "./identity-state.js";
+
+export {
+  FOCUS_DECISION_DOSSIER_V1_SHA256,
+  loadUiRenderAssets,
+  loadUiRenderAssetsSync,
+  type LoadUiRenderAssetsOptions,
+  type UiRenderAssets,
+  type UiRenderCatalogDocument,
+  type UiRenderCatalogEntry,
+  type UiRenderSriDocument,
+  type UiRenderVendorManifest
+} from "./ui-render/assets.js";
+
+export {
+  createUiRenderValidator,
+  createFocusPort,
+  focusPathToPointer,
+  createAjvStructure,
+  normalizeEnvelopeInput,
+  utf8ByteLength,
+  ENVELOPE_LIMIT_BYTES,
+  type AjvStructureOptions,
+  type CreateUiRenderValidatorOptions,
+  type FocusValidate,
+  type FocusValidationIssue,
+  type FocusValidationResult,
+  type StructureIssue,
+  type StructureValidator,
+  type UiRenderValidator
+} from "./ui-render/validation.js";
+
+export {
+  buildResourceHostConfig,
+  serializeHostConfigScript,
+  type UiResourceHostConfig
+} from "./ui-render/watermark.js";
+
+export {
+  CATALOG_MIME_TYPE,
+  PILOT_RESOURCE_DOMAIN,
+  UI_MIME_TYPE,
+  UnknownResourceError,
+  type DiagnosticCode,
+  type DiagnosticSource,
+  type EngineSource,
+  type IntentEvent,
+  type McpReadResourceResult,
+  type McpResourceContents,
+  type McpResourceDescriptor,
+  type SemanticFinding,
+  type SemanticPort,
+  type UiCspDeclaration,
+  type UiExtensionCapability,
+  type UiRenderCallContext,
+  type UiRenderDiagnostic
+} from "./ui-render/types.js";
+
+export {
+  negotiateUiExtension,
+  serverUiExtensionCapability
+} from "./ui-render/negotiation.js";
+
+export {
+  A2UI_CATALOG_RESOURCE_URI,
+  UI_RENDER_RESOURCE_URI,
+  createUiRenderResources,
+  type CreateUiRenderResourcesOptions,
+  type UiRenderResources
+} from "./ui-render/resources.js";
+
+export {
+  createUiRenderModule,
+  type CreateUiRenderModuleOptions,
+  type UiRenderModule
+} from "./ui-render/index.js";
+
+export {
+  UI_RENDER_TOOL_NAMES,
+  createUiRenderTools,
+  type CreateUiRenderToolsOptions,
+  type UiRenderIntentConsumer,
+  type UiRenderTools
+} from "./ui-render/tools.js";
+
+export {
+  fallbackContent,
+  formatDiagnosticsSummary,
+  truncateUtf8Bytes
+} from "./ui-render/fallback.js";
+
+export {
+  UI_RENDER_REGISTRY_ENTRY,
+  UI_RENDER_PROVIDER_ID,
+  UI_RENDER_CONNECTOR_ID,
+  UI_RENDER_MANIFEST_ASSET_PATH,
+  UI_RENDER_MODES,
+  uiRenderManifestAssetJson,
+  uiRenderManifestAssetSha256,
+  uiRenderProviderManifest,
+  uiRenderToolNamesForMode,
+  type UiRenderCapabilityResource,
+  type UiRenderCapabilityTool,
+  type UiRenderMode,
+  type UiRenderProviderManifest
+} from "./ui-render/registry-entry.js";

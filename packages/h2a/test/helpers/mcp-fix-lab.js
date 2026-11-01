@@ -139,6 +139,7 @@ function labEnv(extra = {}) {
   const env = {
     PATH: process.env.PATH ?? "",
     HOME: home,
+    TMPDIR: process.env.TMPDIR ?? home,
     XDG_RUNTIME_DIR: join(home, "runtime"),
     LANG: process.env.LANG ?? "C.UTF-8",
     // Deterministic, offline, never a real credential.

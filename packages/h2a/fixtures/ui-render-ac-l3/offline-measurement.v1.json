@@ -1,0 +1,105 @@
+{
+  "format": "sentropic.ui-render-offline-measurement/v1",
+  "lot": "L3.5",
+  "note": "Offline AC-L3 measurement of the vendored DS L2 build (cc29be88). The Playwright sandbox run and every reference-host capture (Claude Desktop, VS Code, ChatGPT, Claude Code) still need real hosts and stay open.",
+  "vendored": {
+    "sourceCommit": "cc29be88",
+    "catalogSha256": "f2358a8f96cdf28949d1b17f7c29c287201efb53c6b8ba709b4a27165206a36c",
+    "envelopeSha256": "6bf3351ba45c90a0dd3b40a7e7eddf019e72379a4551acc07a89f4436fc6cf2e",
+    "sriSha256": "03e5a2fb85181d3ea6fe427c4edd253975974b15a546c6f5d6b271893c694c4b"
+  },
+  "budgets": {
+    "dsRaw": 2097152,
+    "h2aRaw": 983040,
+    "frame": 1048576,
+    "coreGzip": 153600
+  },
+  "resources": [
+    {
+      "uri": "ui://sentropic/render/v1",
+      "role": "combined-pilot-shell",
+      "rawBytes": 581,
+      "gzipBytes": 418,
+      "withinBudgets": true,
+      "completeRawBytes": 1285795,
+      "completeGzipBytes": 331286,
+      "degraded": true,
+      "rawSha256": "5bc08eacc6e2a577490b1db2f454f93f7708fcc8d6a22082e43147032cad6697",
+      "completeSha256": "a6e9cd3dada620cdef5881371af7caea560651203c9a3b403170e634e12ebb78"
+    },
+    {
+      "uri": "a2ui://sentropic/catalog/v1",
+      "role": "catalog",
+      "rawBytes": 37723,
+      "gzipBytes": 5330,
+      "withinBudgets": true,
+      "completeRawBytes": 37723,
+      "completeGzipBytes": 5330,
+      "degraded": false,
+      "rawSha256": "f2358a8f96cdf28949d1b17f7c29c287201efb53c6b8ba709b4a27165206a36c",
+      "completeSha256": "f2358a8f96cdf28949d1b17f7c29c287201efb53c6b8ba709b4a27165206a36c"
+    },
+    {
+      "uri": "ui://sentropic/BarChart/v1",
+      "role": "per-component-shell",
+      "rawBytes": 484130,
+      "gzipBytes": 87399,
+      "withinBudgets": true,
+      "completeRawBytes": 484130,
+      "completeGzipBytes": 87399,
+      "degraded": false,
+      "rawSha256": "017fb65bb8c4e21dcb14776ab487dbec94591495440cbcf8458fa62d04ca23cb",
+      "completeSha256": "017fb65bb8c4e21dcb14776ab487dbec94591495440cbcf8458fa62d04ca23cb"
+    },
+    {
+      "uri": "ui://sentropic/BpmnCanvas/v1",
+      "role": "per-component-shell",
+      "rawBytes": 565,
+      "gzipBytes": 412,
+      "withinBudgets": true,
+      "completeRawBytes": 1232053,
+      "completeGzipBytes": 311259,
+      "degraded": true,
+      "rawSha256": "c8c0fdef5fb74701b49d6810c876b68763afb59b5a7a6a0d0878b21f692af597",
+      "completeSha256": "fcdd84d7528c103990996f2bfd697279a23c0d97378fabfd8c543ebdb76c7ed2"
+    },
+    {
+      "uri": "ui://sentropic/DecisionDossier/v1",
+      "role": "per-component-shell",
+      "rawBytes": 537619,
+      "gzipBytes": 107344,
+      "withinBudgets": true,
+      "completeRawBytes": 537619,
+      "completeGzipBytes": 107344,
+      "degraded": false,
+      "rawSha256": "9214be03eb6dff898c42bd84ba216a1a84b7c0b0c00da1b80c319bdeedc96784",
+      "completeSha256": "9214be03eb6dff898c42bd84ba216a1a84b7c0b0c00da1b80c319bdeedc96784"
+    }
+  ],
+  "coreBarChartGzip": 87399,
+  "zeroExternalRequests": {
+    "method": "static-html-verification (core/BarChart, h2a spec §10.2 item 1)",
+    "scriptSrc": 0,
+    "networkElements": 0,
+    "networkCallSites": 0,
+    "jsdelivrOnlyInHostConfig": true,
+    "dynamicImportSites": 0,
+    "dynamicImportNote": "Each complete entry bundles its transitive static and dynamic imports, including both theme chunks; modulePreload is disabled. Sandboxed DOM-free linking covers all four complete entries. Combined and BPMN resources explicitly degrade above 960 KiB; no chunk is truncated."
+  },
+  "inlineThreshold": {
+    "inlineLimitBytes": 1032192,
+    "decision": "Envelope echo threshold unchanged; resources/read independently enforces 960 KiB on complete HTML. Combined resource directs to per-component tools; BPMN also exceeds the cap and explicitly requires non-UI text fallback. Host caps remain U-1."
+  },
+  "open": [
+    "U-1: Playwright offline sandbox run and per-host resources/read caps (Claude Desktop, VS Code) — threshold to fix from host measurement",
+    "U-5: Claude Code non-negotiated fallback transcript capture",
+    "U-12/U-16: pilot jsDelivr asset loading for BpmnCanvas and effective host CSP",
+    "U-13: ChatGPT SEP-1865 conformance report",
+    "U-20: cluster-mesh MCP registration record under s-conductor (registry path PR #354 not on main)"
+  ],
+  "compression": {
+    "engine": "fflate@0.8.3",
+    "level": 6,
+    "mtime": 0
+  }
+}
