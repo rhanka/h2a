@@ -470,6 +470,7 @@ export interface IdentityBlockerInfo {
 }
 
 export interface IdentityLockDiagnostic extends IdentityBlockerInfo {
+  readonly phase?: "registry_lock_wait" | "fence_wait" | "worker";
   readonly elapsedMs: number;
   readonly budgetMs: number;
   readonly lock: string;
@@ -1167,7 +1168,7 @@ function newLoopContext(lockPath: string, options: IdentityFenceOptions): FenceL
     lockPath,
     dir,
     relative: options.relativeLockPath ?? defaultRelativeLockPath(lockPath),
-    lock: observe ? logicalLockId(lockPath) : "",
+    lock: logicalLockId(lockPath),
     ...(observe ? { observe } : {}),
     startedAt: performance.now(),
     deadline: performance.now() + (options.timeoutMs ?? DEFAULT_TIMEOUT_MS),
@@ -1217,7 +1218,9 @@ function withIdentityFenceSyncInternal<T>(
   const ctx = newLoopContext(lockPath, options);
   try {
   const pollMs = options.pollMs ?? DEFAULT_POLL_MS;
-  notifyObserver(ctx.observe, { lock: ctx.lock, event: "wait" });
+  // `wait` fires only when a round actually fails by contention (live holder or
+  // retry), never before an uncontended first round.
+  let waited = false;
   let lease: IdentityFenceLease | undefined;
   for (;;) {
     fenceTimedOut(ctx);
@@ -1226,6 +1229,7 @@ function withIdentityFenceSyncInternal<T>(
       lease = outcome;
       break;
     }
+    if (!waited) { waited = true; notifyObserver(ctx.observe, { lock: ctx.lock, event: "wait" }); }
     fenceTimedOut(ctx);
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Math.min(pollMs, Math.max(0, ctx.deadline - performance.now())));
   }
@@ -1267,7 +1271,8 @@ async function withIdentityFenceInternal<T>(
   try {
   const pollMs = options.pollMs ?? DEFAULT_POLL_MS;
   const signal = options.signal;
-  notifyObserver(ctx.observe, { lock: ctx.lock, event: "wait" });
+  // Same lazy `wait` as the sync variant above: real contention only.
+  let waited = false;
   let lease: IdentityFenceLease | undefined;
   for (;;) {
     fenceTimedOut(ctx);
@@ -1285,6 +1290,7 @@ async function withIdentityFenceInternal<T>(
       lease = outcome;
       break;
     }
+    if (!waited) { waited = true; notifyObserver(ctx.observe, { lock: ctx.lock, event: "wait" }); }
     fenceTimedOut(ctx);
     // Cooperative cancellation between poll attempts only; a transaction
     // already entered under the fence finishes (released in the finally).
