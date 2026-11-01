@@ -37,9 +37,11 @@ test("loadUiRenderAssets: the vendored snapshot loads and exposes the pinned art
     assets.manifest.files["envelope.json"].sha256,
     "6bf3351ba45c90a0dd3b40a7e7eddf019e72379a4551acc07a89f4436fc6cf2e"
   );
+  assert.equal(assets.manifest.packageVersion, "0.1.0");
+  assert.equal(assets.sri.version, "0.1.0");
   assert.equal(
     assets.manifest.files["dist/browser/sri.json"].sha256,
-    "03e5a2fb85181d3ea6fe427c4edd253975974b15a546c6f5d6b271893c694c4b"
+    "0979a58b9c10fc9d02189ac20d43f070a645e897e5966b5b4ddfcf93b2bc9193"
   );
   assert.equal(assets.catalog.catalogId, "https://design-system.sent-tech.ca/catalogs/elements/v1/catalog.json");
   assert.equal(assets.envelopeSchema.$id, "https://design-system.sent-tech.ca/catalogs/elements/v1/envelope.json");

@@ -1,16 +1,16 @@
 {
-  "version": "0.0.0",
+  "version": "0.1.0",
   "files": {
     "assets/bpmn-CZlEAdL6.ttf": {
       "bytes": 48652,
-      "gzip": 16278,
+      "gzip": 16428,
       "brotli": 14794,
       "integrity": "sha384-l7q+y9HCK5Gj6J6zjVBDaiaHYNTw4/aomO6uLglcLCtqVNRGa5BvASPzxC41ucDq",
       "group": "engine:bpmn-canvas"
     },
     "assets/bpmn-DaGVGZ7K.woff": {
       "bytes": 16160,
-      "gzip": 16159,
+      "gzip": 16171,
       "brotli": 16030,
       "integrity": "sha384-kFHrXxv7h2MWhU2/Fzf29BeNYqLpJqwcz/AtOQkKfFrQr5Pklk7RRIAjMa9sZrNM",
       "group": "engine:bpmn-canvas"
@@ -24,142 +24,142 @@
     },
     "chunks/BpmnRenderUtil-WMCgqGDs.js": {
       "bytes": 4851,
-      "gzip": 2051,
+      "gzip": 2056,
       "brotli": 1825,
       "integrity": "sha384-aiIFrSlj8SsM84cplJsIW6NentFjYfka3WdMuvxZiqyhOHmHMPlQtwhQsK9TEEEW",
       "group": "engine:bpmn-canvas"
     },
     "chunks/BpmnUpdater-C-UNbzXl.js": {
       "bytes": 8066,
-      "gzip": 2551,
+      "gzip": 2550,
       "brotli": 2329,
       "integrity": "sha384-PQ/KkzKhCig6BruG2BW1JLGWEbFJG2wX8jgotnhbVopsIRkidolrKHHOYUgpqby0",
       "group": "engine:bpmn-canvas"
     },
     "chunks/LabelUtil-7QpE43Ed.js": {
       "bytes": 1882,
-      "gzip": 790,
+      "gzip": 797,
       "brotli": 711,
       "integrity": "sha384-IH9BLr6dCGhhByV5xZjfAgK3vVRL2+MnBY3EYymU3FHYzNDt5y0rEt1LnBDA8yQs",
       "group": "engine:bpmn-canvas"
     },
     "chunks/LayoutUtil-hAMJmJFU.js": {
       "bytes": 10197,
-      "gzip": 4664,
+      "gzip": 4715,
       "brotli": 4208,
       "integrity": "sha384-qhUATdNGHkga5eSxXA0pIjOnaapmzFvd5nflYkFAU+UFye+Am7ZHFQBAstm5btlH",
       "group": "engine:bpmn-canvas"
     },
     "chunks/ModelUtil-CMh7LuN4.js": {
       "bytes": 291,
-      "gzip": 196,
+      "gzip": 193,
       "brotli": 168,
       "integrity": "sha384-3TjN9AKie6jVg1XbjmJUgmyL5NsOZ0/cSmlJ+zVKJg3n5r3uyg+c5BCkicQXTX7U",
       "group": "engine:bpmn-canvas"
     },
     "chunks/Modeler-BfAmwsmK.js": {
       "bytes": 365486,
-      "gzip": 104354,
+      "gzip": 104569,
       "brotli": 87851,
       "integrity": "sha384-iVwbjyftSwu9AL/pZFbXY//yf2ekZ2Uw3d5yNf3/ha3/mfBo4hli2X7lWmu2DNlg",
       "group": "engine:bpmn-canvas"
     },
     "chunks/Viewer-eYLzc3fD.js": {
       "bytes": 107289,
-      "gzip": 33258,
+      "gzip": 33371,
       "brotli": 28862,
       "integrity": "sha384-sGyqCibIey2fyV3P0J2yjen44ntsUaHGFzbZ8ZvkCF7nj8p2SjOFt6KODAYLraZn",
       "group": "engine:bpmn-canvas"
     },
     "chunks/bpmn-canvas-DeAWdJFy.js": {
       "bytes": 165740,
-      "gzip": 38155,
+      "gzip": 38294,
       "brotli": 33661,
       "integrity": "sha384-/NUNXChKGZnJ8lah3JgFqH3PBepTKfIzxUB7uw57AzhCzSAcryHiDwigq1fOl6B8",
       "group": "engine:bpmn-canvas"
     },
     "chunks/colored-CSIQaGsQ.js": {
       "bytes": 4182,
-      "gzip": 1612,
+      "gzip": 1608,
       "brotli": 1432,
       "integrity": "sha384-A6TWyL5F2fBA+F4vlHc6QOFkdE2nfoKm8DZYQ44CoFfmUUtypIYyozwqpanXm0al",
       "group": "engine:bpmn-canvas"
     },
     "chunks/dist-Co2MgHWm.js": {
       "bytes": 3257,
-      "gzip": 1262,
+      "gzip": 1259,
       "brotli": 1137,
       "integrity": "sha384-KTqZGeMBw0b7U/9zsE4+SBiRWZhnf81JLd1Be7uY7YsdeZ1QBDt6TqM+wmzlAw2T",
       "group": "engine:bpmn-canvas"
     },
     "chunks/dist-O6_2ByYB.js": {
       "bytes": 55,
-      "gzip": 74,
+      "gzip": 75,
       "brotli": 59,
       "integrity": "sha384-jb0mctMGK51aSxNooKQ9akyb0V7IdJ5EQaXIhEd2ydGN2S7Ggc+9jmE4PRLO1Ama",
       "group": "engine:bpmn-canvas"
     },
     "chunks/dist-kvAYI1vo.js": {
       "bytes": 5679,
-      "gzip": 2412,
+      "gzip": 2413,
       "brotli": 2106,
       "integrity": "sha384-OmtEyDUvxFayjXe8Efj+01AdOBSIyf3vn83OFJEBIWFK7LrtWlaz2ScbhBvUmOuS",
       "group": "engine:bpmn-canvas"
     },
     "chunks/entropic-CM5BHERN.js": {
       "bytes": 112899,
-      "gzip": 13220,
+      "gzip": 13233,
       "brotli": 5259,
       "integrity": "sha384-k/IBoHbdks/+6maYUo8tyGlwgYpHZlQPZWZU77Yhx3BdmT85wFafDhD7LioQ6bSJ",
       "group": "theme:entropic"
     },
-    "chunks/focus-renderer-C4z8aS9F.js": {
-      "bytes": 51217,
-      "gzip": 18314,
-      "brotli": 16336,
-      "integrity": "sha384-cAtl7GSOo1AaGpgtk+FMMLAxY0eVFvP1UKWsFkiq7uVB2vgRjKeO8+NWzUFpHy4O",
+    "chunks/focus-renderer-BgsZGo7n.js": {
+      "bytes": 53400,
+      "gzip": 19285,
+      "brotli": 17022,
+      "integrity": "sha384-pgrHCl0m3N31klcRikWpHMcsHuzDew0bof+qMVK+H2eFITYAHtg7bL9wRCdU0mOZ",
       "group": "engine:focus"
     },
     "chunks/forge-B8hrW4lA.js": {
       "bytes": 112469,
-      "gzip": 13257,
+      "gzip": 13270,
       "brotli": 5248,
       "integrity": "sha384-YHfC5LNSEL2MTXFpILe4WRWvxN+rHmC+8xXbFVAaJJg47g5EHawae/7J/6qWWSu/",
       "group": "theme:forge"
     },
     "chunks/layout-q0TR9-aY.js": {
       "bytes": 39559,
-      "gzip": 13387,
+      "gzip": 13440,
       "brotli": 12196,
       "integrity": "sha384-548lUKMqoVsMkjgmv02vdwu1TVlWZ181HEjgMAQEU4+bPRwRWk2xZjPnlNhCowr/",
       "group": "engine:bpmn-canvas"
     },
     "chunks/legend-CXdfCBh6.js": {
       "bytes": 17445,
-      "gzip": 5870,
+      "gzip": 5886,
       "brotli": 5334,
       "integrity": "sha384-yPXIb60WpnXZ+iS6xn4QKyLfQ7qDLyWiJrbyj5ncwkPlH/yXV/Um9e1JNYn3Eca7",
       "group": "engine:bpmn-canvas"
     },
     "chunks/textMetrics-BrMS6-sA.js": {
       "bytes": 1614,
-      "gzip": 698,
+      "gzip": 704,
       "brotli": 645,
       "integrity": "sha384-XE2Q9DTbGUlluNwVcAhbuu9VEDP4Q/VjC4ASkWY61hI3h1RyE8WQxl/eFR2s/CBr",
       "group": "engine:bpmn-canvas"
     },
     "chunks/tokens-DFPpCvf1.js": {
       "bytes": 4871,
-      "gzip": 2001,
+      "gzip": 2013,
       "brotli": 1795,
       "integrity": "sha384-KH/LVZKzkq0XDa6h0Saw3BoHBSkewVPWkAv6v6LNMaCWKY9eX6K9D0zVjwEgfYgY",
       "group": "engine:bpmn-canvas"
     },
     "elements.js": {
       "bytes": 240753,
-      "gzip": 53922,
-      "brotli": 40877,
-      "integrity": "sha384-9LNZGti80Q6N7zwyy4BpRxo4AVeilxZPlj3gYgGCI10zOxvT64iToaOJpAYGdCIs",
+      "gzip": 54153,
+      "brotli": 40800,
+      "integrity": "sha384-HinwhQaL9Xe+nrnD+WnXIjOC5HrgC6srM3Xjq60l+EAV9jrGN0whFwQXnYkpCRaK",
       "group": "core"
     }
   }

@@ -8,7 +8,7 @@ import { buildShellHtml } from "../dist/runtime/mcp/ui-render/resources.js";
 
 test("every pilot entry closes all static and lazy imports in one sandboxed module", async () => {
   const assets = await loadUiRenderAssets();
-  const resources = createUiRenderResources({ assets, env: {} });
+  const resources = createUiRenderResources({ assets, env: {}, mode: "pilot-inline" });
   for (const name of ["render", "BarChart", "BpmnCanvas", "DecisionDossier"]) {
     const served = resources.readResource(`ui://sentropic/${name}/v1`).contents[0].text;
     const html = buildShellHtml(assets, "", name === "render" ? undefined : name);
