@@ -139,6 +139,22 @@ export function discoverTestFiles() {
   return files;
 }
 
+/** Rule-based, exhaustive partition; preserve discovery paths on every OS. */
+export function partitionNodeTestFiles(files) {
+  const buckets = [
+    { name: "corpus", files: [] },
+    { name: "native", files: [] },
+    { name: "rest", files: [] },
+  ];
+  for (const file of [...files].sort()) {
+    const normalized = file.replaceAll("\\", "/");
+    const bucket = normalized.endsWith("/drive-consent-index.test.js") ? buckets[0]
+      : /\/native-[^/]+\.test\.js$/.test(normalized) ? buckets[1] : buckets[2];
+    bucket.files.push(file);
+  }
+  return buckets;
+}
+
 export const NODE_TRACK_EXECUTION_REPORT = join(REPO_ROOT, "tmp", "node-track-report.json");
 export function listNodeTrackSuiteFiles() {
   const track = discoverSuites(join(REPO_ROOT, "packages/track/src"), [".test.ts", ".spec.ts"]);
@@ -422,7 +438,11 @@ function main() {
     return existsSync(local) ? local : join(REPO_ROOT, "node_modules", "vitest", "vitest.mjs");
   }
 
-  const nodeReport = join(testRoot, "node.json");
+  // Each Node invocation keeps the existing backstop and reporters. Separate
+  // evidence paths prevent a later bucket from overwriting an earlier one.
+  const nodeBuckets = partitionNodeTestFiles(nodeTestFiles).map((bucket) => ({
+    ...bucket, report: join(testRoot, `node-${bucket.name}.json`),
+  }));
   const trackReport = join(testRoot, "track.json");
   // One JSON evidence report per Vitest suite: every suite uses the same
   // `--reporter=json --outputFile`, so sharing a single path would let the
@@ -434,9 +454,18 @@ function main() {
   try { lanePointerBefore = readFileSync(join(REPO_ROOT, "tmp", "idlock-build2-lane.txt"), "utf8"); } catch {}
   let exitCode = 0;
   try {
-    const nodeStatus = runSuite("Node test suite", process.execPath,
-      ["--import", join(REPO_ROOT, "packages/h2a/test/helpers/native-isolation.js"), "--test", "--test-reporter=spec", `--test-reporter=${join(REPO_ROOT, "scripts/node-evidence-reporter.mjs")}`, "--test-reporter-destination=stdout", `--test-reporter-destination=${nodeReport}`, ...nodeTestFiles],
-      REPO_ROOT, trackFixtureEnv);
+    const nodeStatuses = nodeBuckets.map((bucket) => {
+      const started = performance.now();
+      // Never pass an empty file list to node --test: it would rediscover the
+      // whole repository instead of executing just this bucket.
+      let status = 1;
+      if (!bucket.files.length) process.stderr.write(`run-tests: Node bucket ${bucket.name} has no test files\n`);
+      else status = runSuite(`Node ${bucket.name} test suite`, process.execPath,
+        ["--import", join(REPO_ROOT, "packages/h2a/test/helpers/native-isolation.js"), "--test", "--test-reporter=spec", `--test-reporter=${join(REPO_ROOT, "scripts/node-evidence-reporter.mjs")}`, "--test-reporter-destination=stdout", `--test-reporter-destination=${bucket.report}`, ...bucket.files],
+        REPO_ROOT, trackFixtureEnv);
+      process.stdout.write(`run-tests: Node bucket ${bucket.name}: ${bucket.files.length} file(s), ${((performance.now() - started) / 1000).toFixed(3)}s, exit ${status}\n`);
+      return status;
+    });
     const vitestStatuses = vitestSuites.map((suite) => {
       const cwd = join(REPO_ROOT, suite.dir);
       const configArgs = suite.config === undefined ? [] : ["--config", suite.config];
@@ -462,22 +491,25 @@ function main() {
       [join(REPO_ROOT, "packages/h2a/test/helpers/identity-isolated-run.mjs"), ...LANE_TEST_FILES],
       REPO_ROOT, trackFixtureEnv);
     let reports;
-    try { reports = [nodeReport, trackReport].map((path) => JSON.parse(readFileSync(path, "utf8"))); }
+    try { reports = [...nodeBuckets.map((bucket) => bucket.report), trackReport].map((path) => JSON.parse(readFileSync(path, "utf8"))); }
     catch { reports = []; }
     const required = listNodeTrackSuiteFiles();
     const combined = {
-      success: reports.length === 2 && reports.every((report) => report.success !== false),
+      success: reports.length === nodeBuckets.length + 1 && reports.every((report) => report.success !== false),
       testResults: reports.flatMap((report) => report.testResults ?? []),
       ...Object.fromEntries(["numTotalTests", "numPassedTests", "numFailedTests", "numPendingTests", "numTodoTests"]
         .map((key) => [key, reports.reduce((sum, report) => sum + report[key], 0)])),
     };
     const holes = verifyNodeTrackExecution(combined, required);
     if (holes.length) process.stderr.write(holes.join("\n") + "\n");
-    else process.stdout.write(`RC 0.98.6: ${readDeclaredNonTests(REPO_ROOT).length} declared non-tests observed at their exact expected statuses; not claimed as coverage.\n`);
+    else {
+      process.stdout.write(`run-tests: Node buckets inventory verified: ${nodeTestFiles.length} files exactly once across ${nodeBuckets.length} buckets (plus Track).\n`);
+      process.stdout.write(`RC 0.98.6: ${readDeclaredNonTests(REPO_ROOT).length} declared non-tests observed at their exact expected statuses; not claimed as coverage.\n`);
+    }
     const reportPath = process.env.H2A_TEST_REPORT_PATH ?? NODE_TRACK_EXECUTION_REPORT;
     mkdirSync(dirname(reportPath), { recursive: true });
     writeFileSync(reportPath, JSON.stringify(combined));
-    exitCode = holes.length ? 1 : [nodeStatus, ...vitestStatuses, laneStatus].every((status) => status === 0) ? 0 : Math.max(nodeStatus, ...vitestStatuses, laneStatus);
+    exitCode = holes.length ? 1 : [...nodeStatuses, ...vitestStatuses, laneStatus].every((status) => status === 0) ? 0 : Math.max(...nodeStatuses, ...vitestStatuses, laneStatus);
   } finally {
     // Best-effort cleanup of what this run provisioned. A preset legacy dir
     // (owner-provided) is never ours to delete. The lane helper records the
