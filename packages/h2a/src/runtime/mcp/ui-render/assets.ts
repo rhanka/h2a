@@ -55,6 +55,13 @@ export interface UiRenderVendorManifest {
     readonly sha256: string;
     readonly manifestSha256: string;
   };
+  /** The published npm tarball the snapshot was synchronized against (L7a). */
+  readonly packageTarball?: {
+    readonly registry: string;
+    readonly version: string;
+    readonly distIntegrity: string;
+    readonly tarballSha256: string;
+  };
   readonly files: Readonly<Record<string, UiRenderVendorFilePin>>;
 }
 
@@ -77,9 +84,15 @@ export interface UiRenderCatalogDocument {
 export interface UiRenderSriDocument {
   readonly version: string;
   readonly files: Readonly<
-    Record<string, { readonly [property: string]: unknown; readonly integrity: string }>
+    Record<
+      string,
+      { readonly [property: string]: unknown; readonly integrity: string; readonly group?: string }
+    >
   >;
 }
+
+/** `sha384-<base64>` (48 digest bytes, no padding): the only admitted SRI form. */
+const SRI_SHA384_PATTERN = /^sha384-[A-Za-z0-9+/]{64}$/;
 
 /** The verified, ready-to-serve asset set (h2a spec §7.2). */
 export interface UiRenderAssets {
@@ -296,6 +309,56 @@ export function loadUiRenderAssetsSync(
         error instanceof Error ? error.message : String(error)
       }`
     );
+  }
+
+  // The SRI index version must equal the pinned package version: the CDN
+  // base URL is derived from exactly this version (SPEC-H2A-UIRENDER-CDN §4).
+  if (typeof sri.version !== "string" || sri.version !== manifest.packageVersion) {
+    throw integrityMismatch(
+      `dist/browser/sri.json version is ${JSON.stringify(
+        (sri as { version?: unknown }).version
+      )}, not the pinned package version ${JSON.stringify(manifest.packageVersion)}`
+    );
+  }
+  if (sri.files === undefined || sri.files === null || typeof sri.files !== "object") {
+    throw integrityMismatch("dist/browser/sri.json carries no files integrity map");
+  }
+  for (const [file, entry] of Object.entries(sri.files)) {
+    if (
+      entry === undefined ||
+      entry === null ||
+      typeof entry !== "object" ||
+      typeof (entry as { integrity?: unknown }).integrity !== "string" ||
+      !SRI_SHA384_PATTERN.test((entry as { integrity: string }).integrity)
+    ) {
+      throw integrityMismatch(
+        `dist/browser/sri.json entry ${JSON.stringify(file)} carries no valid sha384 integrity`
+      );
+    }
+  }
+
+  // Dual startup verification of the inlined core (SPEC-H2A-UIRENDER-CDN §4):
+  // SHA-256 against the manifest pin and SHA-384 against the SRI index, both
+  // recomputed on the local `elements.js` bytes. A workspace overlay without
+  // the core keeps operating on its required trio; the vendor tree always
+  // carries the core.
+  const elementsRel = "dist/browser/elements.js";
+  if (actualFiles.includes(elementsRel)) {
+    const elementsBytes = readFileSync(join(sourcePath, elementsRel));
+    const elementsSha256 = createHash("sha256").update(elementsBytes).digest("hex");
+    if (elementsSha256 !== manifest.files[elementsRel]?.sha256) {
+      throw integrityMismatch(
+        `file ${JSON.stringify(elementsRel)} does not match the pinned sha256 (expected ${
+          manifest.files[elementsRel]?.sha256
+        }, got ${elementsSha256})`
+      );
+    }
+    const elementsSha384 = `sha384-${createHash("sha384").update(elementsBytes).digest("base64")}`;
+    if (sri.files["elements.js"]?.integrity !== elementsSha384) {
+      throw integrityMismatch(
+        "dist/browser/elements.js does not match the pinned sri sha384 integrity"
+      );
+    }
   }
 
   // The standalone per-component schemas: pinned when vendored, optional in

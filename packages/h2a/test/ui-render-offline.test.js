@@ -17,14 +17,15 @@ import { buildResourceHostConfig, serializeHostConfigScript } from "../dist/runt
 import { gzipOfflineResource, OFFLINE_GZIP } from "../../../scripts/ui-render-offline-gzip.mjs";
 
 /**
- * json-render L3.5 (offline part) — AC-L3 measurement (h2a spec §10.2
- * & §6.6/DS §8.3): the pilot resources are measured against the DS
- * `<= 2 MiB` raw budget and the h2a `<= 960 KiB` raw (`1 MiB`
- * JSON-RPC frame) ceiling, the core+BarChart gzip budget (`<= 150 kB`,
- * DS §6.6) is recorded, and the core/BarChart zero-external-request
- * property is verified statically (no network-triggering element, no
- * network call site; the only jsDelivr URL is the `#st-host-config`
- * assetBase data island). The Playwright sandbox run and the
+ * json-render CDN-3 — AC-L3 measurement (h2a spec §10.2 & §6.6/DS §8.3):
+ * the default (`auto` → `cdn-sri`) resources are measured against the DS
+ * `<= 2 MiB` raw budget and the h2a `<= 960 KiB` raw (`1 MiB` JSON-RPC
+ * frame) ceiling, the gzip budgets (`<= 150 kB`, DS §6.6) are recorded,
+ * and the BarChart/DecisionDossier zero-external-request property is
+ * verified statically (no network-triggering element, no network call
+ * site; the only fetchable jsDelivr URL is the `#st-host-config`
+ * assetBase data island). The retained offline bundles are verified
+ * under `H2A_UI_RENDER_OFFLINE=1`. The Playwright sandbox run and the
  * reference-host captures (U-1/U-5/U-12/U-13/U-16/U-20) need real
  * hosts and stay OPEN; the committed measurement record is
  * `fixtures/ui-render-ac-l3/offline-measurement.v1.json`.
@@ -112,7 +113,9 @@ test("zero-external: the only jsDelivr URL is the #st-host-config assetBase data
   assert.equal(typeof config.assetBase, "string");
   assert.ok(config.assetBase.startsWith("https://cdn.jsdelivr.net/"));
   const withoutIsland = html.replace(island[0], "");
-  assert.equal((withoutIsland.match(/cdn\.jsdelivr\.net/g) || []).length, 0, "jsDelivr URL outside the host-config island");
+  // The offline fallback diagnostic prose names the CDN domain (§5.2); only
+  // fetchable https:// URLs count as external requests.
+  assert.equal((withoutIsland.match(/https:\/\/cdn\.jsdelivr\.net/g) || []).length, 0, "jsDelivr URL outside the host-config island");
 });
 
 test("record: the committed offline measurement matches the vendored build and passes the ceilings", () => {
@@ -126,7 +129,8 @@ test("record: the committed offline measurement matches the vendored build and p
   assert.equal(record.vendored.catalogSha256, catalogDigest);
   assert.equal(record.vendored.sriSha256, sriDigest);
   assert.equal(record.vendored.catalogSha256, "f2358a8f96cdf28949d1b17f7c29c287201efb53c6b8ba709b4a27165206a36c");
-  assert.equal(record.vendored.sriSha256, "03e5a2fb85181d3ea6fe427c4edd253975974b15a546c6f5d6b271893c694c4b");
+  assert.equal(record.vendored.sriSha256, "0979a58b9c10fc9d02189ac20d43f070a645e897e5966b5b4ddfcf93b2bc9193");
+  assert.equal(record.vendored.packageVersion, "0.1.0");
   assert.equal(record.budgets.dsRaw, DS_RAW_BUDGET);
   assert.equal(record.budgets.h2aRaw, H2A_RAW_BUDGET);
   assert.equal(record.budgets.frame, FRAME_BUDGET);
@@ -143,14 +147,39 @@ test("record: the committed offline measurement matches the vendored build and p
     assert.equal(measured.completeGzipBytes, live.completeGzip);
     assert.equal(measured.rawSha256, live.rawSha256, `${measured.uri}: stale served content`);
     assert.equal(measured.completeSha256, live.completeSha256, `${measured.uri}: stale complete content`);
-    assert.equal(measured.degraded, live.completeRaw > H2A_RAW_BUDGET);
-    if (measured.degraded) assert.match(resources.readResource(measured.uri).contents[0].text, /data-st-resource-degraded="true"/);
+    const served = resources.readResource(measured.uri).contents[0].text;
+    assert.equal(measured.degraded, served.includes('data-st-resource-degraded="true"'), `${measured.uri}: stale degraded flag`);
+    if (measured.degraded) assert.match(served, /data-st-resource-degraded="true"/);
   }
   const combined = record.resources.find((r) => r.uri === UI_RENDER_RESOURCE_URI);
-  assert.equal(combined.role, "combined-pilot-shell");
+  assert.equal(combined.role, "combined-cdn-shell");
+  assert.equal(combined.degraded, false);
   assert.equal(record.zeroExternalRequests.scriptSrc, 0);
   assert.equal(record.zeroExternalRequests.networkElements, 0);
   assert.equal(record.zeroExternalRequests.networkCallSites, 0);
   assert.equal(record.zeroExternalRequests.jsdelivrOnlyInHostConfig, true);
   assert.ok(Array.isArray(record.open) && record.open.length > 0, "the offline record must name the open real-host items");
+});
+
+test("offline-retained: H2A_UI_RENDER_OFFLINE=1 keeps the complete inline bundles without jsDelivr", async () => {
+  const offline = createUiRenderResources({ assets: await loadUiRenderAssets(), env: { H2A_UI_RENDER_OFFLINE: "1" } });
+  for (const uri of ["ui://sentropic/BarChart/v1", "ui://sentropic/DecisionDossier/v1"]) {
+    const text = offline.readResource(uri).contents[0].text;
+    assert.equal(text.includes('data-st-resource-degraded="true"'), false, `${uri} renders offline`);
+  }
+  for (const uri of [UI_RENDER_RESOURCE_URI, "ui://sentropic/BpmnCanvas/v1"]) {
+    const text = offline.readResource(uri).contents[0].text;
+    assert.match(text, /data-st-resource-degraded="true"/, `${uri} degrades at the default ceiling`);
+  }
+  const raised = createUiRenderResources({
+    assets: await loadUiRenderAssets(),
+    env: { H2A_UI_RENDER_OFFLINE: "1" },
+    inlineMaxBytes: 2_097_152
+  });
+  for (const uri of [UI_RENDER_RESOURCE_URI, "ui://sentropic/BpmnCanvas/v1"]) {
+    const text = raised.readResource(uri).contents[0].text;
+    assert.equal(text.includes('data-st-resource-degraded="true"'), false, `${uri} serves complete offline`);
+    assert.ok(Buffer.byteLength(text) > H2A_RAW_BUDGET, `${uri} is the complete bundle`);
+    assert.ok(Buffer.byteLength(text) <= DS_RAW_BUDGET, `${uri} fits the DS 2 MiB budget`);
+  }
 });

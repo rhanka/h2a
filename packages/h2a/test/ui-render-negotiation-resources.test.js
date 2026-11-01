@@ -90,8 +90,25 @@ test("listResources returns the 5 pinned descriptors with the pilot CSP declarat
   }
 });
 
-test("readResource render/v1: an oversized combined closure explicitly directs to per-component tools", () => {
+test("readResource render/v1: the cdn-sri shell inlines the verified core with an SRI importmap", () => {
   const resources = createUiRenderResources({ assets, env: {} });
+  const { contents } = resources.readResource(RENDER_URI);
+  assert.equal(contents.length, 1);
+  const [content] = contents;
+  assert.equal(content.uri, RENDER_URI);
+  assert.equal(content.mimeType, UI_MIME_TYPE);
+  assert.deepEqual(content._meta.ui.csp, PILOT_CSP);
+  assert.ok(content.text.startsWith("<!DOCTYPE html>"));
+  assert.ok(content.text.includes('<script type="application/json" id="st-host-config">'));
+  assert.ok(content.text.includes('"theme":"sent-tech"'));
+  assert.ok(content.text.includes('<script type="importmap">'));
+  assert.ok(content.text.includes("https://cdn.jsdelivr.net/npm/@sentropic/design-system-elements@0.1.0/dist/browser/"));
+  assert.equal(content.text.includes('data-st-resource-degraded="true"'), false);
+  assert.ok(Buffer.byteLength(content.text) < 960 * 1024);
+});
+
+test("readResource render/v1 in pilot-inline: an oversized combined closure explicitly directs to per-component tools", () => {
+  const resources = createUiRenderResources({ assets, env: {}, mode: "pilot-inline" });
   const { contents } = resources.readResource(RENDER_URI);
   assert.equal(contents.length, 1);
   const [content] = contents;
@@ -112,7 +129,7 @@ test("readResource render/v1: an oversized combined closure explicitly directs t
 });
 
 test("readResource per-component: core plus only the requested component's chunk", () => {
-  const resources = createUiRenderResources({ assets, env: {} });
+  const resources = createUiRenderResources({ assets, env: {}, mode: "pilot-inline" });
   const focusChunk = readInlineModule(assets, "DecisionDossier");
   const dossier = resources.readResource("ui://sentropic/DecisionDossier/v1").contents[0];
   assert.equal(dossier.mimeType, UI_MIME_TYPE);

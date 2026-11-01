@@ -8,7 +8,7 @@
     "manifestSha256": "a50eb84e0b470c5d57c1da6101e1032ce602ae43ea5c399a5d76e6e55b33a965"
   },
   "packageName": "@sentropic/design-system-elements",
-  "packageVersion": "0.0.0",
+  "packageVersion": "0.1.0",
   "files": {
     "catalog.json": {
       "sha256": "f2358a8f96cdf28949d1b17f7c29c287201efb53c6b8ba709b4a27165206a36c"
@@ -61,9 +61,6 @@
     "dist/browser/chunks/entropic-CM5BHERN.js": {
       "sha256": "c23ab86faa27ce9b54091d3964cd060c6c1000ead04611cea32317bed71d93f5"
     },
-    "dist/browser/chunks/focus-renderer-C4z8aS9F.js": {
-      "sha256": "f2d6132c59535fe522ad9b3d915e6ade17d2a5390f67ac6594fa6db46ee65e0f"
-    },
     "dist/browser/chunks/forge-B8hrW4lA.js": {
       "sha256": "72c6ccd28812605b4dbfc688601efa90a9dd9d8e7148ae027225d128b556b45c"
     },
@@ -80,10 +77,10 @@
       "sha256": "741b74404863361003ef2136621c9bc4d768607cd93a2b4a7f60cc3615f5191f"
     },
     "dist/browser/elements.js": {
-      "sha256": "4e212395be2437600e6d0d17ead58c18c69ee30b685ec0d55c36cabb2af6d108"
+      "sha256": "34e8da63d43c569abd48c1149d8dc32b573f7dd5e28c0d4093a23da3213e0113"
     },
     "dist/browser/sri.json": {
-      "sha256": "03e5a2fb85181d3ea6fe427c4edd253975974b15a546c6f5d6b271893c694c4b"
+      "sha256": "0979a58b9c10fc9d02189ac20d43f070a645e897e5966b5b4ddfcf93b2bc9193"
     },
     "envelope.json": {
       "sha256": "6bf3351ba45c90a0dd3b40a7e7eddf019e72379a4551acc07a89f4436fc6cf2e"
@@ -96,6 +93,15 @@
     },
     "schemas/DecisionDossier.v1.json": {
       "sha256": "fce4404669e7a80fc3aece426fc4fdb2216d3d7e2da0c50d64cc1644d567f062"
+    },
+    "dist/browser/chunks/focus-renderer-BgsZGo7n.js": {
+      "sha256": "6955f6b54f34e9fb3263590848f0fbc9475a2b0d92df0a3c6c3031470bb203a6"
     }
+  },
+  "packageTarball": {
+    "registry": "https://registry.npmjs.org",
+    "version": "0.1.0",
+    "distIntegrity": "sha512-TYiy3QHNZSM3/K6trixitoEynY6XXk8JbwR4x821m+9RA4jZAT7PIsbysQbvnps5KVlr7IwHl03dZzVrjSgDSQ==",
+    "tarballSha256": "1ff0c9c8a69b72ed2fbf0bc17f76b05fd3e3d81d4737b17a5d663c376f183403"
   }
 }
