@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { gzipSync } from "node:zlib";
+import { gunzipSync, gzipSync } from "node:zlib";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -14,6 +14,7 @@ import {
 } from "../dist/index.js";
 import { buildShellHtml } from "../dist/runtime/mcp/ui-render/resources.js";
 import { buildResourceHostConfig, serializeHostConfigScript } from "../dist/runtime/mcp/ui-render/watermark.js";
+import { gzipOfflineResource, OFFLINE_GZIP } from "../../../scripts/ui-render-offline-gzip.mjs";
 
 /**
  * json-render L3.5 (offline part) — AC-L3 measurement (h2a spec §10.2
@@ -36,6 +37,7 @@ const DS_RAW_BUDGET = 2_097_152; // DS §8.3/§8.4: <= 2 MiB raw
 const H2A_RAW_BUDGET = 960 * 1024; // h2a: <= 960 KiB raw
 const FRAME_BUDGET = 1_048_576; // MCP_MAX_FRAME_BYTES
 const CORE_GZIP_BUDGET = 150 * 1024; // DS §6.6: core + BarChart <= 150 kB gzip
+const sha256 = text => createHash("sha256").update(text).digest("hex");
 
 const RESOURCE_URIS = [
   UI_RENDER_RESOURCE_URI,
@@ -56,8 +58,13 @@ test.before(async () => {
       const component = uri.split("/")[3];
       const candidate = uri.startsWith("ui://") ? buildShellHtml(assets,
         serializeHostConfigScript(buildResourceHostConfig({})), component === "render" ? undefined : component) : text;
-      return [uri, { raw: utf8ByteLength(text), gzip: gzipSync(Buffer.from(text, "utf8")).length,
-        completeRaw: Buffer.byteLength(candidate), completeGzip: gzipSync(candidate).length }];
+      const gzip = gzipOfflineResource(text);
+      const completeGzip = gzipOfflineResource(candidate);
+      assert.equal(gunzipSync(gzip).toString("utf8"), text);
+      assert.equal(gunzipSync(completeGzip).toString("utf8"), candidate);
+      return [uri, { raw: utf8ByteLength(text), gzip: gzip.length,
+        completeRaw: Buffer.byteLength(candidate), completeGzip: completeGzip.length,
+        rawSha256: sha256(text), completeSha256: sha256(candidate) }];
     })
   );
 });
@@ -81,6 +88,8 @@ test("measurement: every resources/read JSON-RPC response fits the 1 MiB frame c
 test("measurement: the core+BarChart shell gzip fits the DS 150 kB budget", () => {
   const { gzip } = sizes.get("ui://sentropic/BarChart/v1");
   assert.ok(gzip <= CORE_GZIP_BUDGET, `core+BarChart gzip exceeds 150 kB: ${gzip}`);
+  const nativeGzip = gzipSync(resources.readResource("ui://sentropic/BarChart/v1").contents[0].text).length;
+  assert.ok(nativeGzip <= CORE_GZIP_BUDGET, `native core+BarChart gzip exceeds 150 kB: ${nativeGzip}`);
 });
 
 test("zero-external: the core/BarChart shell loads no external resource", () => {
@@ -122,6 +131,7 @@ test("record: the committed offline measurement matches the vendored build and p
   assert.equal(record.budgets.h2aRaw, H2A_RAW_BUDGET);
   assert.equal(record.budgets.frame, FRAME_BUDGET);
   assert.equal(record.budgets.coreGzip, CORE_GZIP_BUDGET);
+  assert.deepEqual(record.compression, OFFLINE_GZIP);
   for (const measured of record.resources) {
     const live = sizes.get(measured.uri);
     assert.ok(live, `${measured.uri} not served`);
@@ -131,6 +141,8 @@ test("record: the committed offline measurement matches the vendored build and p
     assert.equal(measured.gzipBytes, live.gzip, `${measured.uri}: stale gzip size`);
     assert.equal(measured.completeRawBytes, live.completeRaw);
     assert.equal(measured.completeGzipBytes, live.completeGzip);
+    assert.equal(measured.rawSha256, live.rawSha256, `${measured.uri}: stale served content`);
+    assert.equal(measured.completeSha256, live.completeSha256, `${measured.uri}: stale complete content`);
     assert.equal(measured.degraded, live.completeRaw > H2A_RAW_BUDGET);
     if (measured.degraded) assert.match(resources.readResource(measured.uri).contents[0].text, /data-st-resource-degraded="true"/);
   }
