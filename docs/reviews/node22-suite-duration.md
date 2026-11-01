@@ -1,5 +1,40 @@
 # Node 22 : épuisement du budget de la suite Node
 
+## Décision adoptée et implémentation — 1 novembre 2026
+
+Le conducteur adopte le découpage en trois invocations séquentielles : corpus,
+`native-*`, reste. `partitionNodeTestFiles()` applique les prédicats ci-dessous
+à la découverte triée, sans liste de fichiers maintenue à la main ; les chemins
+Windows sont normalisés pour la sélection. Chaque invocation conserve le
+backstop **600000 ms**, le préchargement d'isolation et les deux reporters.
+Les plafonds extérieurs de 21 minutes et de 25 minutes ne changent pas.
+
+Les trois rapports ont des chemins distincts. Leur agrégation avec Track
+passe par `verifyNodeTrackExecution()` : inventaire complet, identités de
+fichiers uniques, compteurs et statuts recomptés, déclarations non-tests et
+42 contrats cleanse inchangés. Un rapport absent ou malformé, un fichier
+dupliqué ou un code de sortie non nul fait échouer l'entrée. Les autres
+invocations et gates continuent. Chaque groupe publie sa durée murale et
+son code de sortie, puis l'inventaire agrégé confirmé est journalisé.
+
+La régression indépendante dans `run-test-gates.test.js` vérifie union,
+disjonction et ajout futur par règle, puis exécute l'entrée réelle dans un
+laboratoire à frontière de processus simulée. RED : export absent ; puis
+l'ancienne invocation unique est refusée. GREEN : les trois tests ciblés
+passent, avec quatre injections de défaut de preuve/code de sortie.
+Commande : `node --test --test-name-pattern='Node buckets partition|Node bucket evidence|C9 A04: execute' packages/h2a/test/run-test-gates.test.js`,
+TMPDIR privé `run-858qUw` ; 3 pass, 0 fail, 0 skip, 2678 ms sur Node 22.
+Les jobs 22/24 et trust-root utilisent automatiquement cette entrée commune.
+Qualification locale ciblée : `run-test-gates`, `gate-execution-evidence`,
+`lane-test-scope`, `prepared-npm-cache` et `native-spawn-guard` : **128/128**,
+zéro skip/todo, sous Node 22.22.1 (17,765 s) et Node 24.22.0 (13,255 s).
+La suite locale complète n'a pas été exécutée. Revue indépendante indisponible :
+aucun outil h2a MCP dans le confinement ; aucun consensus revendiqué.
+Les mesures CI et la qualification ciblée finale figurent dans le rapport
+conducteur `tmp/h-cond/node22-split-last.md` et le corps de la PR #405.
+
+## Diagnostic préalable
+
 Diagnostic du HEAD `ccb7549456790863aee01a7ba07b1e01af086aeb` et des runs
 signalés pour les PR #401, #402 et #403. Aucun plafond modifié.
 
@@ -125,7 +160,7 @@ avant/après d'un correctif de fuite : aucune fuite n'a été reproduite, aucun
 correctif de fuite n'est proposé. Le blocage CI nécessite la mesure et la
 réalisation du découpage par le conducteur.
 
-## Proposition précise au conducteur
+## Proposition initiale au conducteur (adoptée le 1 novembre)
 
 Responsable : conducteur h-cond. Implémenter trois invocations Node séparées,
 chacune conservant le backstop **600000 ms**, depuis `discoverTestFiles()` trié :
