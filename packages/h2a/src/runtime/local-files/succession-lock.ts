@@ -849,7 +849,7 @@ export function classifyLiveness(r: LockHolder, self: SelfIdent, deps: LivenessD
 /**
  * Identity protocol classifier (0.98.6 spec v4 R3, rules 0–9 in order). The
  * first applicable rule decides; a death verdict only ever comes from:
- *  - rule 3: same strong machine, same known pid namespace, both boots valid
+ *  - rule 3: same strong machine, both boots valid
  *    and different (stale boot — no PID probe, no signal);
  *  - rule 4: same boot, PID absent (ESRCH) in the known shared namespace;
  *  - rule 6: start times comparable and different (PID reused);
@@ -869,15 +869,16 @@ function classifyIdentityLiveness(r: LockRec, self: SelfIdent, deps: LivenessDep
   if (r.hostKind !== "machine-id" || self.hostKind !== "machine-id") return undecidable;
   if (!MACHINE_ID_RE.test(r.host) || isNullMachineId(r.host) || !MACHINE_ID_RE.test(self.host)) return undecidable;
   if (r.host !== self.host) return undecidable; // foreign machine, known: rule 2
-  // Rules 1–2: the pid namespace must be known, well-formed and equal on both sides.
-  if (r.ns === null || self.ns === null || !PID_NS_RE.test(r.ns) || !PID_NS_RE.test(self.ns)) return undecidable;
-  if (r.ns !== self.ns) return undecidable; // foreign namespace, known: rule 2
   // Rules 1 and 3: boots must be present and valid on both sides; equal boots
   // fall through to the PID probe, different boots are the stale-boot death.
   if (r.boot === null || self.boot === null || !BOOT_ID_RE.test(r.boot) || !BOOT_ID_RE.test(self.boot)) {
     return undecidable;
   }
   if (r.boot !== self.boot) return { verdict: "dead", datable: false }; // rule 3: stale boot
+  // Namespaces can change on reboot. Only a SAME-boot PID probe requires
+  // known, well-formed and equal namespaces.
+  if (r.ns === null || self.ns === null || !PID_NS_RE.test(r.ns) || !PID_NS_RE.test(self.ns)) return undecidable;
+  if (r.ns !== self.ns) return undecidable;
   // Same boot, known shared namespace: probe the recorded PID.
   const probe = deps.probe ?? procIdentityStartInfo;
   let exists = false;

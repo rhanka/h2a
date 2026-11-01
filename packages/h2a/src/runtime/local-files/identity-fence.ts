@@ -470,6 +470,7 @@ export interface IdentityBlockerInfo {
 }
 
 export interface IdentityLockDiagnostic extends IdentityBlockerInfo {
+  readonly phase?: "registry_lock_wait" | "fence_wait" | "worker";
   readonly elapsedMs: number;
   readonly budgetMs: number;
   readonly lock: string;
@@ -1167,7 +1168,7 @@ function newLoopContext(lockPath: string, options: IdentityFenceOptions): FenceL
     lockPath,
     dir,
     relative: options.relativeLockPath ?? defaultRelativeLockPath(lockPath),
-    lock: observe ? logicalLockId(lockPath) : "",
+    lock: logicalLockId(lockPath),
     ...(observe ? { observe } : {}),
     startedAt: performance.now(),
     deadline: performance.now() + (options.timeoutMs ?? DEFAULT_TIMEOUT_MS),
