@@ -12,6 +12,7 @@ import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import {
   CYBER_SEAT_MODE,
+  CYBER_SEATED_FAMILIES,
   SEAT_ENVIRONMENT,
   SEAT_SLOT_CLIS,
   assertCyberManifest,
@@ -22,6 +23,8 @@ import {
   materialiseSeatEnvelopes,
   validateSeatBundle,
   translateAgySeatToApplication,
+  MistralVibeEnrollmentProvider,
+  MISTRAL_VIBE_SIGN_IN_URL,
   vendoredDigest,
 } from './xcli-seat-import.mjs';
 import { classifyApprovalExhaustion } from './qualify-cross-cli.mjs';
@@ -44,6 +47,26 @@ test('R18: single protected environment and cyber seat mode', () => {
   assert.deepEqual([...SEAT_SLOT_CLIS].sort(), ['agy', 'claude', 'codex', 'muse', 'vibe']);
 });
 
+test('R19: the five seated families include vibe, with fixed slot secret names', () => {
+  assert.deepEqual([...CYBER_SEATED_FAMILIES].sort(), ['agy', 'claude', 'codex', 'muse', 'vibe']);
+  assert.deepEqual(slotSecretNames('vibe', '00'),
+    { canonical: 'SEAT_VIBE_00', candidate: 'SEAT_CANDIDATE_VIBE_00', projection: 'SEAT_USE_VIBE_00' });
+});
+
+test('R19: the reviewed slot manifest seats vibe 00 with the fixed names', () => {
+  const manifest = JSON.parse(fs.readFileSync(new URL('../docs/cross-cli-seat-slots.json', import.meta.url), 'utf8'));
+  assert.equal(manifest.environment, SEAT_ENVIRONMENT);
+  const vibe = (manifest.seats ?? []).find(seat => seat.seatId === 'vibe');
+  assert.deepEqual(vibe, { seatId: 'vibe', cli: 'vibe', slot: '00', secret: 'SEAT_VIBE_00',
+    candidateSecret: 'SEAT_CANDIDATE_VIBE_00', useSecret: 'SEAT_USE_VIBE_00' });
+  assert.deepEqual(manifest.seats.map(seat => seat.seatId).sort(),
+    ['agy', 'claude', 'codex', 'muse', 'vibe']);
+  for (const seat of manifest.seats) {
+    assert.deepEqual(slotSecretNames(seat.cli, seat.slot),
+      { canonical: seat.secret, candidate: seat.candidateSecret, projection: seat.useSecret });
+  }
+});
+
 test('R18: campaign manifests must carry the cyber seat mode', () => {
   const cyber = { version: 1, seatMode: 'cyber-seat-custody',
     seats: [{ seatId: 'claude', family: 'claude', authSource: 'seats/claude' }] };
@@ -64,7 +87,7 @@ test('R18: the copy-from-home path is removed', () => {
 
 test('R18: vendored adapters are digest-pinned, never re-implemented', async () => {
   const vendor = await vendoredDigest();
-  for (const file of ['seat-bundle.js', 'cli-seat-import.js', 'agy-cli-import.js']) {
+  for (const file of ['seat-bundle.js', 'cli-seat-import.js', 'agy-cli-import.js', 'mistral-vibe.js', 'pkce.js']) {
     const bytes = fs.readFileSync(new URL(`./xcli-seat-vendor/${file}`, import.meta.url));
     assert.equal(sha256(bytes), vendor.outputs[file], `vendored ${file} matches its pin`);
   }
@@ -72,6 +95,20 @@ test('R18: vendored adapters are digest-pinned, never re-implemented', async () 
   assert.match(vendor.ref, /^[0-9a-f]{40}$/);
   const direct = await import('./xcli-seat-vendor/seat-bundle.js');
   assert.equal(validateSeatBundle, direct.validateSeatBundle, 'the bridge re-exports the vendored validator');
+  const vibeDirect = await import('./xcli-seat-vendor/mistral-vibe.js');
+  assert.equal(MistralVibeEnrollmentProvider, vibeDirect.MistralVibeEnrollmentProvider,
+    'the bridge re-exports the vendored mistral-vibe adapter, never re-implements it');
+  assert.equal(MISTRAL_VIBE_SIGN_IN_URL, 'https://console.mistral.ai/api/vibe/sign-in');
+});
+
+test('R19: a vibe consumer bundle validates with the mistral-vibe provider id', () => {
+  const bundle = consumerBundle({ identity: { schemaVersion: 1, seatRef: 'vibe',
+    refreshFamilyRef: 'family-vibe', ownerScope: 'owner', cli: 'vibe',
+    packageProviderId: 'mistral-vibe', issuingClientRef: 'mistral-vibe-cli',
+    endpointFamily: 'mistral', credentialFormatVersion: 'v1', os: 'linux' } });
+  assert.equal(validateSeatBundle(bundle).ok, true);
+  assert.equal(validateSeatBundle(consumerBundle({ identity: { ...consumerBundle().identity, cli: 'vibe' } })).ok,
+    false, 'a vibe seat with the wrong provider id is refused');
 });
 
 const consumerBundle = (overrides = {}) => ({
