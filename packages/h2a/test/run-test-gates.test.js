@@ -1574,6 +1574,52 @@ test('L0 ledger gate: a RED contract with a different signature fails', () => {
   }
 });
 
+test('L0 ledger gate: repository version bumps preserve verdicts and different failures still fail', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'cleanse-version-'));
+  try {
+    mkdirSync(join(root, 'scripts'));
+    const modulePath = join(root, 'scripts/cleanse-contract-ledger.mjs');
+    writeFileSync(modulePath, readFileSync(resolve(REPO_ROOT, 'scripts/cleanse-contract-ledger.mjs')));
+    writeFileSync(join(root, 'scripts/native-cleanse-contracts.json'), readFileSync(resolve(REPO_ROOT, 'scripts/native-cleanse-contracts.json')));
+    const { observeContract, contractFailure, readCleanseLedger } = await import(pathToFileURL(modulePath).href);
+    const observe = version => {
+      writeFileSync(join(root, 'package.json'), JSON.stringify({ version }));
+      const context = { root, version: version + '-rc.999' };
+      const observations = [
+        ...['.claude-plugin/plugin.json', '.codex-plugin/plugin.json'].map(path => ({
+          id: 'packaged ' + path + ' exact RC', lot: 'L3', actual: version, expected: context.version,
+        })),
+        { id: 'evidence', lot: 'L0', actual: false, expected: true,
+          evidence: { path: root + '/plugin', versions: [version, context.version], historical: '0.98.6' } },
+        { id: 'current', lot: 'L0', actual: version, expected: version },
+      ];
+      return { context, observations, results: observations.map(o => observeContract(o, context)) };
+    };
+    // Reuse the imported observer: the root package version must be read at
+    // observation time, and the candidate includes the repository version.
+    const before = observe('0.98.7');
+    const after = observe('0.98.8');
+    assert.deepEqual(after.results, before.results);
+    assert.equal(after.results[0].signature.actual, '<repo-version>');
+    assert.equal(after.results[0].signature.expected, '<candidate-version>');
+    for (const result of [...before.results.slice(0, 2), ...after.results.slice(0, 2)]) {
+      assert.equal(contractFailure(result, readCleanseLedger()), undefined, result.id);
+    }
+    const ledger = Object.fromEntries(before.results.map(({ id, ...entry }) => [id, entry]));
+    assert.deepEqual(after.results.map(result => contractFailure(result, ledger)), Array(4).fill(undefined));
+    for (const change of [
+      { ...after.observations[0], actual: '9.8.7' },
+      { ...after.observations[0], expected: '9.8.7-rc.999' },
+      { ...after.observations[2], evidence: { ...after.observations[2].evidence, historical: '0.98.5' } },
+      { ...after.observations[2], evidence: { ...after.observations[2].evidence, versions: ['9.8.7', after.context.version] } },
+    ]) {
+      assert.match(contractFailure(observeContract(change, after.context), ledger), /different failure signature/);
+    }
+    const repaired = observeContract({ ...after.observations[0], actual: after.context.version }, after.context);
+    assert.match(contractFailure(repaired, ledger), /RED -> observed GREEN/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test('L0 ledger gate: a repaired RED contract requires a committed ledger update', () => {
   const { report, ledger, verify, results } = cleanseGateFixture();
   const id = results[0].id;
