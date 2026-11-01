@@ -11,23 +11,26 @@
  * `appendNegotiationEvent`, the whole `stabilizeNegotiation` transaction)
  * remains a race.
  *
- * This module implements **advisory** file locking via exclusive-create
- * sentinel files (`O_CREAT | O_EXCL` semantics through `openSync(path, "wx")`).
+ * This module publishes complete, synced owner records with an exclusive hard
+ * link from a private same-directory file. No empty sentinel is ever visible.
  * It is intentionally limited to **same-machine** coordination: a lock file
  * holding a foreign-host PID would be treated as live (we cannot
  * `process.kill(pid, 0)` across hosts). Cross-machine sharing of a store
  * remains out of scope (V2).
  *
- * Stale-lock recovery: if the lock file already exists, we parse its JSON
- * payload `{pid, hostname, startedAt}`. If `hostname` matches and the PID is
- * gone (`process.kill(pid, 0)` throws `ESRCH`), we reclaim the lock by
- * unlinking and retrying. Otherwise we poll up to `timeoutMs` and throw
- * `LockTimeoutError`.
+ * Recovery requires a death proof on qualified local storage. Opaque legacy
+ * files additionally require inode timestamps before a coherent current boot.
+ * Reclaimers serialize, sync a private quarantine copy before removal, and
+ * revalidate the generation; releases also verify their own generation.
  */
 
-import { closeSync, openSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { constants, closeSync, existsSync, fstatSync, fsyncSync, linkSync, lstatSync, openSync, readFileSync, readlinkSync, statfsSync, unlinkSync, writeFileSync, type Stats } from "node:fs";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { randomBytes } from "node:crypto";
 import { hostname } from "node:os";
 import { basename, dirname } from "node:path";
+import { classifyLiveness, makeLockRec, me, parseLockRec, type LockRec } from "./succession-lock.js";
+import { syncDirectory } from "../identity/durable.js";
 
 /**
  * A passive observation of a lock critical section, for the L0 phase trace.
@@ -44,6 +47,12 @@ export interface LockObservation {
   readonly attempts?: number;
 }
 
+const lockObserver = new AsyncLocalStorage<(event: LockObservation) => void>();
+/** Scope worker progress to this resolution, including possession's registry wait. */
+export function observeLocks<T>(observe: (event: LockObservation) => void, fn: () => T): T {
+  return lockObserver.run(observe, fn);
+}
+
 export function logicalLockId(lockPath: string): string {
   try {
     const label = basename(dirname(lockPath)) || basename(lockPath);
@@ -57,11 +66,8 @@ export function notifyObserver(
   observe: ((event: LockObservation) => void) | undefined,
   event: LockObservation
 ): void {
-  if (!observe) return;
-  try {
-    observe(event);
-  } catch {
-    /* a passive observer must never disturb the critical section */
+  for (const callback of [observe, lockObserver.getStore()]) {
+    try { callback?.(event); } catch { /* passive observations cannot affect locking */ }
   }
 }
 
@@ -73,6 +79,8 @@ export interface LockOwner {
   readonly protocol?: string;
   /** Caller-issued generation for a fenced critical section. */
   readonly fenceEpoch?: string;
+  /** Boot, namespace and process-start provenance for new advisory locks. */
+  readonly provenance?: LockRec;
 }
 
 export interface WithLockOptions {
@@ -141,16 +149,17 @@ function tryParseOwner(raw: string): LockOwner | undefined {
     const parsed = JSON.parse(raw) as Partial<LockOwner>;
     if (
       parsed &&
-      typeof parsed.pid === "number" &&
+      Number.isSafeInteger(parsed.pid) && (parsed.pid ?? 0) > 0 &&
       typeof parsed.hostname === "string" &&
       typeof parsed.startedAt === "string"
     ) {
       return {
-        pid: parsed.pid,
+        pid: parsed.pid!,
         hostname: parsed.hostname,
         startedAt: parsed.startedAt,
         ...(typeof parsed.protocol === "string" ? { protocol: parsed.protocol } : {}),
-        ...(typeof parsed.fenceEpoch === "string" ? { fenceEpoch: parsed.fenceEpoch } : {})
+        ...(typeof parsed.fenceEpoch === "string" ? { fenceEpoch: parsed.fenceEpoch } : {}),
+        ...(parsed.provenance ? { provenance: parseLockRec(parsed.provenance) } : {})
       };
     }
   } catch {
@@ -178,46 +187,128 @@ function pidIsAliveOnSameHost(owner: LockOwner, selfHostname: string): boolean {
   }
 }
 
+interface LockCapture { stat: Stats; raw: Buffer; }
+function capture(lockPath: string): LockCapture | undefined {
+  let fd: number | undefined;
+  try {
+    fd = openSync(lockPath, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const stat = fstatSync(fd);
+    if (!stat.isFile() || stat.size > 65536) return undefined;
+    const raw = readFileSync(fd);
+    const result = { stat, raw };
+    return unchanged(lockPath, result) ? result : undefined;
+  } catch { return undefined; }
+  finally { if (fd !== undefined) closeSync(fd); }
+}
+
+function unchanged(lockPath: string, previous: LockCapture): boolean {
+  try {
+    const st = lstatSync(lockPath), old = previous.stat;
+    return st.isFile() && st.dev === old.dev && st.ino === old.ino && st.size === old.size
+      && st.mtimeMs === old.mtimeMs && st.ctimeMs === old.ctimeMs && st.nlink === old.nlink
+      && st.uid === old.uid && st.mode === old.mode && readFileSync(lockPath).equals(previous.raw);
+  } catch { return false; }
+}
+
+function qualified(lockPath: string): boolean {
+  try { return process.platform === "linux" && new Set([0xef53, 0x58465342, 0x9123683e, 0xf2f52010]).has(statfsSync(dirname(lockPath)).type >>> 0); }
+  catch { return false; }
+}
+
+/** No age-only recovery: both inode timestamps must precede a coherent boot.
+ * ctime prevents a live holder's backdated payload/mtime from qualifying. */
+function predatesBoot(st: Stats): boolean {
+  try {
+    if (readlinkSync('/proc/self/ns/time') !== 'time:[4026531834]') return false;
+    const lines = readFileSync('/proc/stat', 'utf8').split('\n').filter(line => line.startsWith('btime '));
+    if (lines.length !== 1 || !/^btime [0-9]+$/.test(lines[0])) return false;
+    const before = Date.now(), up = readFileSync('/proc/uptime', 'utf8'), after = Date.now();
+    const match = /^([0-9]+(?:\.[0-9]+)?)\s+[0-9]+(?:\.[0-9]+)?\s*$/.exec(up);
+    if (!match || after < before || after - before > 2000) return false;
+    const boot = Number(lines[0].slice(6)) * 1000, uptime = Number(match[1]) * 1000;
+    const low = before - uptime, high = after - uptime;
+    return Number.isFinite(boot) && Number.isFinite(uptime) && Math.max(low - boot, boot - high, 0) <= 2000
+      && Math.max(st.mtimeMs, st.ctimeMs) < Math.min(boot, low) - 2000;
+  } catch { return false; }
+}
+
+function reclaimable(lockPath: string, seen: LockCapture, selfHostname: string): boolean {
+  if (!qualified(lockPath) || seen.stat.uid !== process.geteuid?.()) return false;
+  const owner = tryParseOwner(seen.raw.toString('utf8'));
+  if (owner?.provenance) return owner.pid === owner.provenance.pid
+    && classifyLiveness(owner.provenance, me(), { protocol: "identity" }).verdict === "dead";
+  if (owner) return !pidIsAliveOnSameHost(owner, selfHostname);
+  return seen.stat.nlink === 1 && predatesBoot(seen.stat);
+}
+
+/** Never unlink a replacement, including when a caller lost ownership. */
+function release(lockPath: string, owned: LockCapture): void {
+  if (unchanged(lockPath, owned)) unlinkSync(lockPath);
+}
+
 function acquire(
   lockPath: string,
   selfHostname: string,
-  options: Pick<WithLockOptions, "ownerMetadata" | "reclaimStale">
-): { ok: true } | { ok: false; lastSeen?: LockOwner } {
+  options: Pick<WithLockOptions, "ownerMetadata" | "reclaimStale">,
+  depth = 0
+): { ok: true; owned: LockCapture } | { ok: false; lastSeen?: LockOwner } {
   const ownerPayload: LockOwner = {
     pid: process.pid,
     hostname: selfHostname,
     startedAt: new Date().toISOString(),
-    ...options.ownerMetadata
+    ...options.ownerMetadata,
+    provenance: makeLockRec(randomBytes(16).toString("hex"))
   };
+  const raw = Buffer.from(JSON.stringify(ownerPayload));
+  const temporary = `${lockPath}.tmp-${ownerPayload.provenance!.token}`;
+  let published = false;
+  let owned: LockCapture | undefined;
   try {
-    const fd = openSync(lockPath, "wx");
+    // Contended polls need no staging write or fsync. linkSync below remains
+    // the exclusive publication decision if this preliminary read races.
+    if (existsSync(lockPath)) throw Object.assign(new Error("lock exists"), { code: "EEXIST" });
+    const fd = openSync(temporary, "wx", 0o600);
     try {
-      writeFileSync(fd, JSON.stringify(ownerPayload));
+      writeFileSync(fd, raw);
+      fsyncSync(fd);
+      owned = { stat: fstatSync(fd), raw };
     } finally {
       closeSync(fd);
     }
-    return { ok: true };
+    linkSync(temporary, lockPath); // atomic, complete, and never replaces an owner
+    published = true;
+    unlinkSync(temporary);
+    owned = capture(lockPath);
+    if (!owned || !owned.raw.equals(raw)) throw new Error("published lock ownership changed");
+    syncDirectory(dirname(lockPath));
+    return { ok: true, owned };
   } catch (err) {
+    if (published && owned) release(lockPath, owned);
     const code = (err as NodeJS.ErrnoException).code;
     if (code !== "EEXIST") throw err;
+  } finally {
+    try { unlinkSync(temporary); } catch { /* unpublished private staging file */ }
   }
 
-  // Lock exists — inspect the owner record for staleness.
-  let raw: string;
-  try {
-    raw = readFileSync(lockPath, "utf8");
-  } catch {
-    // The lock was released between EEXIST and our read. Caller should retry.
-    return { ok: false };
-  }
-  const owner = tryParseOwner(raw);
-  if (options.reclaimStale !== false && owner && !pidIsAliveOnSameHost(owner, selfHostname)) {
-    // Stale: reclaim by unlinking. The next loop iteration retries the create.
+  const seen = capture(lockPath);
+  if (!seen) return { ok: false };
+  const owner = tryParseOwner(seen.raw.toString('utf8'));
+  if (options.reclaimStale !== false && depth < 8 && reclaimable(lockPath, seen, selfHostname)) {
+    // Serialize reclaimers. The guard uses the same atomic publication and
+    // death proof, so a crashed reclaimer is recoverable too. Bound nesting.
+    const guardPath = `${lockPath}.recovery`;
+    const guard = acquire(guardPath, selfHostname, {}, depth + 1);
+    if (!guard.ok) return { ok: false, lastSeen: owner };
     try {
+      if (!unchanged(lockPath, seen) || !reclaimable(lockPath, seen, selfHostname)) return { ok: false };
+      const backup = `${lockPath}.quarantine-${randomBytes(16).toString("hex")}`;
+      const fd = openSync(backup, "wx", 0o600);
+      try { writeFileSync(fd, seen.raw); fsyncSync(fd); } finally { closeSync(fd); }
+      syncDirectory(dirname(lockPath)); // backup durable BEFORE removal
+      if (!unchanged(lockPath, seen)) return { ok: false };
       unlinkSync(lockPath);
-    } catch {
-      /* concurrent reclaim — fine */
-    }
+      syncDirectory(dirname(lockPath));
+    } finally { release(guardPath, guard.owned); }
     return { ok: false };
   }
   return { ok: false, lastSeen: owner };
@@ -253,12 +344,13 @@ export async function withLock<T>(
   const pollMs = options.pollMs ?? DEFAULT_POLL_MS;
   const selfHostname = hostname();
   const observe = options.observe;
-  const lock = observe ? logicalLockId(lockPath) : "";
+  const lock = logicalLockId(lockPath);
 
   const startedAt = Date.now();
   const deadline = startedAt + timeoutMs;
   let lastSeen: LockOwner | undefined;
   let attempts = 0;
+  let owned: LockCapture;
   notifyObserver(observe, { lock, event: "wait" });
   while (true) {
     if (options.signal?.aborted) {
@@ -267,7 +359,7 @@ export async function withLock<T>(
     }
     attempts++;
     const attempt = acquire(lockPath, selfHostname, options);
-    if (attempt.ok) break;
+    if (attempt.ok) { owned = attempt.owned; break; }
     lastSeen = attempt.lastSeen ?? lastSeen;
     if (Date.now() >= deadline) {
       notifyObserver(observe, { lock, event: "timeout", waitMs: Date.now() - startedAt, attempts });
@@ -283,7 +375,7 @@ export async function withLock<T>(
   } finally {
     notifyObserver(observe, { lock, event: "released", holdMs: Date.now() - acquiredAt });
     try {
-      unlinkSync(lockPath);
+      release(lockPath, owned);
     } catch {
       /* lock file already gone — fine */
     }
@@ -299,17 +391,18 @@ export function withLockSync<T>(
   const pollMs = options.pollMs ?? DEFAULT_POLL_MS;
   const selfHostname = hostname();
   const observe = options.observe;
-  const lock = observe ? logicalLockId(lockPath) : "";
+  const lock = logicalLockId(lockPath);
 
   const startedAt = Date.now();
   const deadline = startedAt + timeoutMs;
   let lastSeen: LockOwner | undefined;
   let attempts = 0;
+  let owned: LockCapture;
   notifyObserver(observe, { lock, event: "wait" });
   while (true) {
     attempts++;
     const attempt = acquire(lockPath, selfHostname, options);
-    if (attempt.ok) break;
+    if (attempt.ok) { owned = attempt.owned; break; }
     lastSeen = attempt.lastSeen ?? lastSeen;
     if (Date.now() >= deadline) {
       notifyObserver(observe, { lock, event: "timeout", waitMs: Date.now() - startedAt, attempts });
@@ -325,7 +418,7 @@ export function withLockSync<T>(
   } finally {
     notifyObserver(observe, { lock, event: "released", holdMs: Date.now() - acquiredAt });
     try {
-      unlinkSync(lockPath);
+      release(lockPath, owned);
     } catch {
       /* lock file already gone — fine */
     }
