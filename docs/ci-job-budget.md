@@ -46,10 +46,14 @@ lane and additional standalone workflow steps retain their existing timing
 logs; they are not included in this report-based ranking.
 
 Investigate warnings and job-time growth before raising this budget again.
-Sharding is deferred here because the independent trust root pins the complete
-production invocation and its execution proof. Splitting that contract needs
-its own proof of exhaustive shard coverage; extending the measured job budget
-does not change it.
+Conductor decision 2026-11-01 splits the Node run into three sequential
+invocations (drive-consent-index corpus, native-*, remainder), each retaining
+the 600000 ms backstop. The independent trust root proves exhaustive,
+disjoint discovery and observes all three commands with distinct evidence
+reports. Their aggregate retains the existing inventory and cleanse-contract
+verification. Each bucket logs its wall duration and exit status. The outer
+21-minute gate and 25-minute job ceilings remain unchanged; see
+`docs/reviews/node22-suite-duration.md` for the duration diagnosis and proof.
 
 Required check names remain **`build-and-test (ubuntu-latest, 22)`**,
 **`build-and-test (ubuntu-latest, 24)`**, and **`npm-test-trust-root`**.
