@@ -100,8 +100,9 @@ export interface WithLockOptions {
    */
   readonly reclaimStale?: boolean;
   /**
-   * Passive instrumentation hook (L0). Called on `wait` (once, before the first
-   * acquire attempt), `acquired` (with `waitMs`/`attempts`), `released` (with
+   * Passive instrumentation hook (L0). Called on `wait` (once, when the first
+   * acquire attempt actually fails by contention — never before an uncontended
+   * acquisition), `acquired` (with `waitMs`/`attempts`), `released` (with
    * `holdMs`) and `timeout` (with `waitMs`). It cannot change locking behaviour.
    */
   readonly observe?: (event: LockObservation) => void;
@@ -145,6 +146,15 @@ export class LockTimeoutError extends Error {
 
 const DEFAULT_TIMEOUT_MS = 5000;
 const DEFAULT_POLL_MS = 50;
+
+/**
+ * `link(2)` failure codes that authorize the exclusive-create fallback: the
+ * same hardlink-unavailable set as `identity-fence.ts` (`LINK_FALLBACK_CODES`
+ * there). Any other error (EEXIST contention, EACCES/EIO/ENOSPC storage
+ * failures) is rethrown, never masked by the fallback. Kept local (not
+ * imported) because `identity-fence.ts` imports this module.
+ */
+const LINK_FALLBACK_CODES: ReadonlySet<string> = new Set(["EPERM", "ENOTSUP", "EOPNOTSUPP", "ENOSYS"]);
 
 function tryParseOwner(raw: string): LockOwner | undefined {
   try {
@@ -280,29 +290,45 @@ function acquire(
     try {
       linkSync(temporary, lockPath); // atomic, complete, and never replaces an owner
     } catch (linkErr) {
-      if ((linkErr as NodeJS.ErrnoException).code === "EEXIST") throw linkErr;
+      const linkCode = (linkErr as NodeJS.ErrnoException).code;
+      // EEXIST is contention (another owner won); any code outside the
+      // hardlink-unavailable set is a genuine storage failure — rethrow it
+      // instead of masking it behind the exclusive-create fallback.
+      if (linkCode === "EEXIST" || !LINK_FALLBACK_CODES.has(linkCode ?? "")) throw linkErr;
       // The filesystem cannot publish through a same-directory link: fall back
       // to exclusive-create publication, which still never replaces an owner.
       // Only the legacy create/write window remains on such filesystems, and a
       // post-reboot quarantine still recovers it.
+      const stagingOwned = owned;
       const fallbackFd = openSync(lockPath, "wx", 0o600);
       try {
         writeFileSync(fallbackFd, raw);
         fsyncSync(fallbackFd);
         owned = { stat: fstatSync(fallbackFd), raw };
+      } catch (fallbackErr) {
+        // The fallback file is ours alone (O_EXCL just created it): remove it
+        // so no empty or truncated lock is left behind, then propagate.
+        owned = stagingOwned;
+        try { unlinkSync(lockPath); } catch { /* best-effort residue removal */ }
+        throw fallbackErr;
       } finally {
         closeSync(fallbackFd);
       }
       published = true;
       syncDirectory(dirname(lockPath));
-      owned = capture(lockPath);
-      if (!owned || !owned.raw.equals(raw)) throw new Error("published lock ownership changed");
+      // Never overwrite `owned` before the ownership check: on a verification
+      // failure the outer handler must still release our own generation.
+      const verified = capture(lockPath);
+      if (!verified || !verified.raw.equals(raw)) throw new Error("published lock ownership changed");
+      owned = verified;
       return { ok: true, owned };
     }
     published = true;
     unlinkSync(temporary);
-    owned = capture(lockPath);
-    if (!owned || !owned.raw.equals(raw)) throw new Error("published lock ownership changed");
+    // Same no-overwrite-before-check hardening as the fallback path above.
+    const linked = capture(lockPath);
+    if (!linked || !linked.raw.equals(raw)) throw new Error("published lock ownership changed");
+    owned = linked;
     syncDirectory(dirname(lockPath));
     return { ok: true, owned };
   } catch (err) {
@@ -374,7 +400,10 @@ export async function withLock<T>(
   let lastSeen: LockOwner | undefined;
   let attempts = 0;
   let owned: LockCapture;
-  notifyObserver(observe, { lock, event: "wait" });
+  // `wait` fires only on real contention (first failed attempt), never before
+  // an uncontended acquisition, so phase diagnostics cannot mistake the sync
+  // staging fsync of a free lock for a wait.
+  let waited = false;
   while (true) {
     if (options.signal?.aborted) {
       notifyObserver(observe, { lock, event: "timeout", waitMs: Date.now() - startedAt, attempts });
@@ -383,6 +412,7 @@ export async function withLock<T>(
     attempts++;
     const attempt = acquire(lockPath, selfHostname, options);
     if (attempt.ok) { owned = attempt.owned; break; }
+    if (!waited) { waited = true; notifyObserver(observe, { lock, event: "wait" }); }
     lastSeen = attempt.lastSeen ?? lastSeen;
     if (Date.now() >= deadline) {
       notifyObserver(observe, { lock, event: "timeout", waitMs: Date.now() - startedAt, attempts });
@@ -421,11 +451,13 @@ export function withLockSync<T>(
   let lastSeen: LockOwner | undefined;
   let attempts = 0;
   let owned: LockCapture;
-  notifyObserver(observe, { lock, event: "wait" });
+  // Same lazy `wait` as the async variant above: real contention only.
+  let waited = false;
   while (true) {
     attempts++;
     const attempt = acquire(lockPath, selfHostname, options);
     if (attempt.ok) { owned = attempt.owned; break; }
+    if (!waited) { waited = true; notifyObserver(observe, { lock, event: "wait" }); }
     lastSeen = attempt.lastSeen ?? lastSeen;
     if (Date.now() >= deadline) {
       notifyObserver(observe, { lock, event: "timeout", waitMs: Date.now() - startedAt, attempts });
