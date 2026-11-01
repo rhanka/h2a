@@ -164,6 +164,7 @@ export interface CreateIdentityControllerOptions<P = unknown> {
 
 /** Minimal handle over the identity worker child (real fork or test double). */
 export interface IdentityWorkerHandle {
+  onPhase?(cb: (phase: IdentityPhase) => void): void;
   onObservation?(cb: (observation: IdentityContentionObservation) => void): void;
   onResolved(cb: (identity: ResolvedIdentityMessage) => void): void;
   onError(cb: (cause: IdentityFailureCode, message: string, diagnostic?: IdentityLockDiagnostic) => void): void;
@@ -173,6 +174,7 @@ export interface IdentityWorkerHandle {
 }
 export interface IdentityWorkerContext { attemptId: string; diagnosticKey: string; deadlineNs?:string; }
 export interface IdentityContentionObservation { attemptId: string; sequence: number; diagnostic: IdentityBlockerInfo; stabilityKey: string; }
+export type IdentityPhase = "registry_lock_wait" | "fence_wait" | "worker";
 
 function randomAttemptId(): string {
   // A short, non-secret correlation id for the attempt (never a nonce/key).
@@ -196,6 +198,7 @@ export function forkIdentityWorker(
   let resolvedCb: ((identity: ResolvedIdentityMessage) => void) | undefined;
   let errorCb: ((cause: IdentityFailureCode, message: string, diagnostic?: IdentityLockDiagnostic) => void) | undefined;
   let observationCb: ((observation: IdentityContentionObservation) => void) | undefined;
+  let phaseCb: ((phase: IdentityPhase) => void) | undefined;
   let exitCb: (() => void) | undefined;
   let sawResult = false;
   let started = false;
@@ -238,6 +241,9 @@ export function forkIdentityWorker(
       if (m.kind === "identity_resolved") {
         sawResult = true;
         resolvedCb?.((m as { identity: ResolvedIdentityMessage }).identity);
+      } else if (m.kind === 'identity_phase') {
+        const phase = (m as { phase?: unknown }).phase;
+        if (phase === 'registry_lock_wait' || phase === 'fence_wait' || phase === 'worker') phaseCb?.(phase);
       } else if (m.kind === 'identity_observation') {
         observationCb?.(m as unknown as IdentityContentionObservation);
       } else if (m.kind === "identity_error") {
@@ -273,6 +279,7 @@ export function forkIdentityWorker(
   };
 
   return {
+    onPhase(cb) { phaseCb = cb; },
     onObservation(cb) { observationCb = cb; },
     onResolved(cb) {
       resolvedCb = cb;
@@ -313,6 +320,7 @@ export function createIdentityController<P = unknown>(
     ((req, budget, context) => forkIdentityWorker(req, budget, options.log, context));
   const diagnosticKey = randomBytes(32).toString('hex');
   let lastObservation: IdentityContentionObservation | undefined;
+  let phase: IdentityPhase = 'worker';
   let observationStable = true;
   let observationCount = 0;
   let lastObservedNs = 0n;
@@ -351,11 +359,21 @@ export function createIdentityController<P = unknown>(
     clearTimer();
     failedAtNs = nowNs();
     const recent = Number((nowNs()-lastObservedNs)/1_000_000n) <= 250;
-    const diagnostic: IdentityLockDiagnostic | undefined = cause === 'identity_timeout' && lastObservation ? {
+    let diagnostic: IdentityLockDiagnostic | undefined = cause === 'identity_timeout' && lastObservation ? {
       ...lastObservation.diagnostic, elapsedMs:elapsedMs(),budgetMs:timeoutMs,lock:'identity/.lock',
       stable:observationStable && observationCount >= 2 && recent,
       retryCondition: observationStable && observationCount >= 2 && recent ? lastObservation.diagnostic.retryCondition : 'interval'
     } : reported;
+    if (cause === 'identity_timeout') {
+      diagnostic = diagnostic ? { ...diagnostic, phase } : {
+        phase, reasonCode: phase,
+        reason: `identity deadline expired during ${phase}`,
+        elapsedMs: elapsedMs(), budgetMs: timeoutMs,
+        lock: phase === 'registry_lock_wait' ? 'registry/.lock' : phase === 'fence_wait' ? 'identity/.lock' : 'worker',
+        stable: false, retryCondition: 'interval', blockerType: 'unknown', pid: 'unknown',
+        machineClass: 'unknown', bootClass: 'unknown', ns: 'unknown', start: 'unknown', generation: 'unknown', target: 'unknown'
+      };
+    }
     if (diagnostic) message=diagnosticMessage(diagnostic);
     state = {
       state: "identity_failed",
@@ -480,6 +498,7 @@ export function createIdentityController<P = unknown>(
   // Every callback and the deadline are gated on the attemptId captured here, so a late
   // callback from a superseded attempt (after a retry) can never act on the current one.
   const beginAttempt = (): void => {
+    phase = 'worker';
     lastObservation=undefined;observationStable=true;observationCount=0;
     failedBlockerBytes=undefined;blockerChanged=false;
     terminal = false;
@@ -505,6 +524,22 @@ export function createIdentityController<P = unknown>(
     deadlineTimer = setTimeout(onDeadline, timeoutMs);
     deadlineTimer.unref?.();
     worker = spawnWorker(options.request, Math.max(0,timeoutMs-elapsedMs()), {attemptId,diagnosticKey,deadlineNs:(startedNs+BigInt(Math.floor(timeoutMs))*1_000_000n).toString()});
+    worker.onPhase?.(value => {
+      if (terminal || cancelled || attemptId !== thisAttempt) return;
+      if (value !== 'registry_lock_wait' && value !== 'fence_wait' && value !== 'worker') return;
+      // A return to `worker` (e.g. an uncontended registry acquisition on a
+      // worker retry) must not destroy the structured blocker already observed
+      // on `identity/.lock`. Only an effective entry into `registry_lock_wait`
+      // resets the observation; `fence_wait` keeps it by construction.
+      if (value === phase) return;
+      phase = value;
+      if (value === 'registry_lock_wait') {
+        lastObservation = undefined;
+        observationStable = true;
+        observationCount = 0;
+        failedBlockerBytes = undefined;
+      }
+    });
     worker.onObservation?.(observation => {
       if (terminal || cancelled || attemptId !== thisAttempt || observation.attemptId !== thisAttempt || !Number.isSafeInteger(observation.sequence)
         || observation.sequence <= (lastObservation?.sequence ?? 0)) return;
