@@ -197,6 +197,18 @@ test('L11 review: the allocated campaign root passes the admission guard and cle
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('R19: the materialise step exposes one runtime projection per seated slot', () => {
+  const slots = JSON.parse(fs.readFileSync(join(repo, 'docs/cross-cli-seat-slots.json'), 'utf8'));
+  const step = parse(campaign).jobs.campaign.steps.find(s => s.name === 'Materialise seat HOMEs from environment bundles');
+  assert.ok(step, 'the fixed trusted materialise step exists');
+  const names = Object.keys(step.env ?? {});
+  assert.ok(names.includes('SEAT_SET'), 'the seat set selects the slots');
+  for (const seat of slots.seats) {
+    assert.ok(names.includes(seat.useSecret),
+      `the lane reads the ${seat.seatId} runtime projection ${seat.useSecret} from the protected environment only`);
+  }
+});
+
 test('L11: the campaign lane demands an explicit seat set', () => {
   assert.ok(/seat_set:\s*\n(\s+\S.*\n)*?\s+required:\s*true/.test(campaign), 'seat_set input is required');
   assert.ok(campaign.includes('test -n "${SEAT_SET}"') || campaign.includes('seat set is required'),
