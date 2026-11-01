@@ -1,3 +1,17 @@
+# Node 22 CI backstop diagnosis
+
+- Scope: `docs/reviews/node22-suite-duration.md` and this branch note only.
+- Evidence: the Node suite in run 41252615306 completes in 599719.947 ms on
+  Node 22 and 589587.776 ms on Node 24; both fail L0 assertions, neither hangs.
+  Same-commit main jobs complete in 409.687/418.476 s while trust-root reaches
+  the 600 s backstop. PR #401's same-SHA rerun completes in 394.301 s.
+- No leaking child identified. The diagnostic records the limits of the old
+  reporters, targeted exit/process observations and an exact 1/27/321-file
+  partition proposal for the conductor. No runtime, test, assertion or ceiling
+  change; the proposal is not claimed as an implemented CI fix.
+- Private TMPDIR: `/home/antoinefa/.cache-tmp/h2a-test/run-Pvuxaq`; cleanup and
+  terminal CI are recorded in `tmp/h-cond/node22-hang-last.md` at delivery.
+
 # Hygiene 0.98.8 — release-verify flakes and the published engram tuple
 
 - Scope: two release-verify flakes (Node 24 job 124193907640 teardown ENOTEMPTY, Node 22 job 124245471852 B5 fence timeout); tests and dependency manifest only, no product code. Round 3 (CI run 41185216253): the `@sentropic/engram` 0.22.1 pin is withdrawn (security-debt advisories) and the late-writer control is made deterministic.
