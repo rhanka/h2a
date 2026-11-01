@@ -1,10 +1,14 @@
-// Lot L11 (SPEC v3 §7.1): no-secrets receipt check for the campaign lane.
-// Verifies a presented campaign receipt against the candidate tree: exact
-// SHA, harness digests, seat-manifest digest binding, pinned CLI versions,
-// matrix version, the mandatory set for the gate, every mandatory cell
-// measured-OK (never simulated), and proven cleanup everywhere. Each refusal
-// carries a distinct classified code. Report-only mode never fails: it
-// prints `qualification: open` with the current balance.
+// Lot L11 (SPEC v3 §7.1, R18 cyber-seat custody): no-secrets receipt check
+// for the campaign lane. Verifies a presented campaign receipt against the
+// candidate tree: exact SHA, harness digests, seat-manifest digest binding,
+// pinned CLI versions, matrix version, the mandatory set for the gate,
+// every mandatory cell measured-OK (never simulated), and proven cleanup
+// everywhere. Each refusal carries a distinct classified code.
+// The receipt is produced only by the protected cross-cli-campaign route on
+// the exact commit SHA; gates consume it as that run's published artifact
+// (provenance by delivery, bound run→SHA at download). There is no local
+// signed-receipt path: --fetch-trusted is removed. Report-only mode never
+// fails: it prints `qualification: open` with the current balance.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -12,7 +16,6 @@ import { join } from 'node:path';
 import { ORACLE_SOURCES } from './xcli-lab.mjs';
 import { SEATED_FAMILIES } from './xcli-matrix-check.mjs';
 import { verifyWakeBatch } from './xcli-ci-check.mjs';
-import { fetchTrustedReceipt } from './xcli-trusted-artifact.mjs';
 
 export const RECEIPT_VERSION = 1;
 export const STAGE_KEYS = ['senderMcp', 'receiverMcp', 'sent', 'delivered', 'received', 'woke', 'replied', 'replyDelivered'];
@@ -41,13 +44,12 @@ export function checkReceipt(receipt, ctx) {
   assert.equal(receipt.version, RECEIPT_VERSION, 'receipt-malformed: version');
   assert.equal(receipt.lane, 'campaign', 'receipt-malformed: lane');
   if (receipt.sha !== ctx.sha) refuse('sha-mismatch');
-  if (!ctx.contentOnly) {
-    const p = ctx.provenance;
-    if (p?.authenticated !== true || p.repository !== 'rhanka/h2a' ||
-        p.workflow !== '.github/workflows/cross-cli-campaign.yml' ||
-        p.candidateSha !== ctx.sha || p.runId !== receipt.provenance?.runId ||
-        p.runAttempt !== receipt.provenance?.runAttempt ||
-        p.receiptDigest !== createHash('sha256').update(JSON.stringify(receipt)).digest('hex')) refuse('provenance-untrusted');
+  // R18: provenance by delivery. The lane records the producing run; the
+  // gate binds that run to the exact SHA when it downloads the artifact.
+  // The script requires the run binding to be present and well-formed.
+  if (!Number.isSafeInteger(receipt.provenance?.runId) || receipt.provenance.runId <= 0 ||
+      !Number.isSafeInteger(receipt.provenance?.runAttempt) || receipt.provenance.runAttempt <= 0) {
+    refuse('provenance-missing');
   }
   if (receipt.source?.sha !== ctx.sha) refuse('source-sha-mismatch');
   if (!/^[0-9a-f]{64}$/.test(receipt.source?.digest ?? '')) refuse('source-digest-missing');
@@ -118,26 +120,23 @@ if (invokedAsCli) {
   }
   const repoRoot = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
   const receiptFile = args.receipt ?? join(repoRoot, 'docs/cross-cli-receipt.json');
+  if (args['fetch-trusted'] || args['content-only']) {
+    console.log('receipt-check: REFUSED code=trusted-receipt-path-removed (consume the protected lane artifact for the exact SHA)');
+    process.exit(1);
+  }
   const ctx = { sha: args.sha, gate: args.gate ?? 'merge', repoRoot,
-    contentOnly: args['content-only'] === true,
     seatManifestDigest: typeof args['seat-manifest-digest'] === 'string' ? args['seat-manifest-digest'] : undefined };
   let receipt;
   try {
-    if (args['fetch-trusted']) {
-      assert.ok(!args['content-only'], 'trusted gate cannot use content-only');
-      const fetched = await fetchTrustedReceipt({ sha: args.sha });
-      receipt = fetched.receipt; ctx.provenance = fetched.provenance;
-    } else receipt = JSON.parse(fs.readFileSync(receiptFile, 'utf8'));
-  } catch (error) {
+    receipt = JSON.parse(fs.readFileSync(receiptFile, 'utf8'));
+  } catch {
     if (args['report-only']) { printOpen('no receipt presented'); process.exit(0); }
-    const code = args['fetch-trusted'] ? error.message : 'receipt-absent';
-    const pending = ['receipt-absent', 'trusted-receipt-absent'].includes(code);
-    console.log(`receipt-check: REFUSED code=${code}${pending ? ' (receipt absent, qualification pending)' : ''}`);
+    console.log('receipt-check: REFUSED code=receipt-absent (receipt absent, qualification pending)');
     process.exit(1);
   }
   try {
     const result = checkReceipt(receipt, ctx);
-    console.log(`receipt-check: ${ctx.contentOnly ? 'content-only (provenance not yet authenticated)' : 'pass'} gate=${result.gate} cells=${result.cells} sha=${receipt.sha}`);
+    console.log(`receipt-check: pass gate=${result.gate} cells=${result.cells} sha=${receipt.sha}`);
   } catch (error) {
     if (args['report-only']) {
       printOpen(error.message);
