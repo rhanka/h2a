@@ -108,8 +108,11 @@ test("stdio: initialize negotiates io.modelcontextprotocol/ui and advertises res
     assert.equal(renderContent.uri, RENDER_URI);
     assert.equal(renderContent.mimeType, UI_MIME);
     assert.ok(renderContent.text.includes('id="st-host-config"'));
-    assert.match(renderContent.text, /data-st-resource-degraded="true"/);
-    assert.ok(renderContent.text.includes("render_BarChart"));
+    assert.ok(renderContent.text.includes('<script type="importmap">'));
+    assert.ok(
+      renderContent.text.includes("https://cdn.jsdelivr.net/npm/@sentropic/design-system-elements@0.1.0/dist/browser/")
+    );
+    assert.equal(renderContent.text.includes('data-st-resource-degraded="true"'), false);
     assert.deepEqual(renderContent._meta.ui.csp, {
       resourceDomains: ["https://cdn.jsdelivr.net"],
       connectDomains: []
