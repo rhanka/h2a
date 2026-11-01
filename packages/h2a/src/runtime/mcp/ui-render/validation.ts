@@ -26,9 +26,9 @@
  *      port of the entry's `lazy:` engine. `core` engines have no port.
  */
 
-import { Ajv2020 } from "ajv/dist/2020.js";
-
-import { validateDecisionDossierDocument } from "@sentropic/focus/validate";
+import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
+import type { Ajv2020 } from "ajv/dist/2020.js";
 
 import { a2uiCommonTypes, a2uiSdkCatalogSchema } from "./a2ui-common-types.js";
 import { port as bpmnCanvasPort } from "./bpmn-port.js";
@@ -242,6 +242,9 @@ export function createAjvStructure(options: AjvStructureOptions): StructureValid
     throw new Error("the catalogue document's $id and catalogId disagree (§5.2)");
   }
 
+  // Resolve UI-only dependencies inside module creation, where the transports
+  // can catch load failures and retain their core CLI/MCP surface.
+  const { Ajv2020 } = createRequire(import.meta.url)("ajv/dist/2020.js") as typeof import("ajv/dist/2020.js");
   const ajv = new Ajv2020({ allErrors: true, strict: false });
   ajv.addSchema(options.commonTypes);
   ajv.addSchema(a2uiSdkCatalogSchema);
@@ -566,11 +569,18 @@ export function createUiRenderValidator(options: CreateUiRenderValidatorOptions)
     envelopeSchema: options.assets.envelopeSchema,
     commonTypes: a2uiCommonTypes,
   });
-  const ports =
-    options.ports ?? {
+  let ports = options.ports;
+  if (ports === undefined) {
+    // Focus publishes an import-only export. Resolve that public ESM export
+    // before loading it synchronously; never depend on its private dist path.
+    const { validateDecisionDossierDocument } = createRequire(import.meta.url)(
+      fileURLToPath(import.meta.resolve("@sentropic/focus/validate"))
+    ) as typeof import("@sentropic/focus/validate");
+    ports = {
       focus: createFocusPort({ validate: validateDecisionDossierDocument }),
       "bpmn-canvas": bpmnCanvasPort as SemanticPort
     };
+  }
   return createEnvelopeValidatorCore({
     assets: options.assets,
     ports,
