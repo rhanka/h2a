@@ -201,10 +201,10 @@ export const STEPS = [
     command: process.execPath,
     args: ['scripts/run-tests.mjs'],
     requiresBuild: true,
-    // Node, Track, AgentStats, Focus and the identity lane run sequentially, each
-    // with a ten-minute deadline in run-tests.mjs. Allow all runs plus report
-    // verification; the integrated inventory alone exceeds the former
-    // four-minute outer budget.
+    // Three Node buckets, Track, AgentStats, Focus and the identity lane run
+    // sequentially with individual ten-minute deadlines in run-tests.mjs.
+    // This independent outer backstop stays at 21 minutes; it does not promise
+    // to wait out the sum of all child deadlines (docs/ci-job-budget.md).
     timeoutMs: 21 * MINUTE_MS,
     reportPath: NODE_TRACK_EXECUTION_REPORT,
     requiredFiles: listNodeTrackSuiteFiles,
