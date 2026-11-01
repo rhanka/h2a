@@ -527,8 +527,13 @@ export function createIdentityController<P = unknown>(
     worker.onPhase?.(value => {
       if (terminal || cancelled || attemptId !== thisAttempt) return;
       if (value !== 'registry_lock_wait' && value !== 'fence_wait' && value !== 'worker') return;
+      // A return to `worker` (e.g. an uncontended registry acquisition on a
+      // worker retry) must not destroy the structured blocker already observed
+      // on `identity/.lock`. Only an effective entry into `registry_lock_wait`
+      // resets the observation; `fence_wait` keeps it by construction.
+      if (value === phase) return;
       phase = value;
-      if (phase !== 'fence_wait') {
+      if (value === 'registry_lock_wait') {
         lastObservation = undefined;
         observationStable = true;
         observationCount = 0;
