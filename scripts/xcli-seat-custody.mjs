@@ -31,8 +31,10 @@ export const CYBER_SEAT_MODE = 'cyber-seat-custody';
 export const SEAT_SLOT_CLIS = Object.freeze(['claude', 'codex', 'muse', 'vibe', 'agy']);
 
 // Campaign-seated families for the R1 matrix. Gemini holds no seat: it runs
-// through the agy seat (cloud-code). Vibe holds no seat yet (not covered).
-export const CYBER_SEATED_FAMILIES = Object.freeze(['claude', 'codex', 'muse', 'agy']);
+// through the agy seat (cloud-code). Vibe holds slot 00 (R19): its seat
+// file is the harness-defined MISTRAL_API_KEY custody projection, validated
+// by the vendored mistral-vibe adapter's five-CLI bundle contract.
+export const CYBER_SEATED_FAMILIES = Object.freeze(['claude', 'codex', 'muse', 'agy', 'vibe']);
 
 export const MAX_SLOTS = 40;
 

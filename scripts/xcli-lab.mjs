@@ -262,7 +262,13 @@ export const LOGIN_ALLOWLIST = Object.freeze({
   codex: Object.freeze(['.codex/auth.json']),
   claude: Object.freeze(['.claude/.credentials.json', '.claude.json']),
   muse: Object.freeze(['.config/muse/auth.json']),
-  vibe: Object.freeze([]),
+  // R19: the vendor Vibe product keeps no auth file: the Mistral API key
+  // resolves from the MISTRAL_API_KEY environment value first, else the OS
+  // keyring (service ai.mistral.vibe). The seat file below is the
+  // harness-defined custody projection carrying exactly that value and
+  // nothing else — never product config, hooks, plugins or MCP settings.
+  // The cell launcher exports it as MISTRAL_API_KEY for vibe cells only.
+  vibe: Object.freeze(['.vibe/MISTRAL_API_KEY']),
 });
 const LOGIN_ROLES = Object.freeze(Object.keys(LOGIN_ALLOWLIST));
 // Absolute destination of an allowlisted login copy inside a role env.
@@ -271,6 +277,21 @@ export function loginCopyPath(env, cli, name) {
   if (cli === 'claude') return join(env.CLAUDE_CONFIG_DIR ?? join(env.HOME, '.claude'),
     name === '.claude.json' ? '.claude.json' : '.credentials.json');
   return join(env.HOME, name);
+}
+// R19: the vendor Vibe product reads its key from MISTRAL_API_KEY (env
+// wins, else the OS keyring — no auth file). The seated value crosses into
+// a vibe cell only through the allowlisted seat file: this helper exports
+// exactly that file's bytes as the cell process variable and returns the
+// names-only witness. Any other family, or a vibe cell without its seat
+// file, leaves the environment untouched (null, no witness).
+export function vibeCellKey(env, cli, copied) {
+  if (cli !== 'vibe' || !(copied ?? []).includes('.vibe/MISTRAL_API_KEY')) return null;
+  const keyFile = loginCopyPath(env, cli, '.vibe/MISTRAL_API_KEY');
+  const key = fs.readFileSync(keyFile, 'utf8').trim();
+  assert.ok(key.length > 0, 'vibe seat file must carry the key');
+  env.MISTRAL_API_KEY = key;
+  return { file: '.vibe/MISTRAL_API_KEY',
+    sha256: createHash('sha256').update(key).digest('hex') };
 }
 // Lot L5 secret wipe: absolute secret-bearing paths inside a cell: recorded
 // login copies or, when the worker never reported, the allowlisted candidates

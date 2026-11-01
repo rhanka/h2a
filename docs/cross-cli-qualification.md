@@ -146,7 +146,8 @@ dans l’environnement protégé `cross-cli-seats` sous les noms fixes
 l’unique correspondance nom→secret. L’étape fixe de confiance du workflow
 valide chaque enveloppe par les adaptateurs d’import seat-bundle de
 llm-mesh (copie vendored épinglée `scripts/xcli-seat-vendor/`, jamais
-ré-implémentés), matérialise l’auth de chaque cellule dans un HOME de
+ré-implémentés, adaptateur vendored `mistral-vibe` inclus pour le siège
+vibe), matérialise l’auth de chaque cellule dans un HOME de
 cellule isolé (fichiers 0600), puis l’efface après la cellule avec un reçu
 sans bytes (`CredentialProvisioningReceiptV1` : noms et digests). Gemini ne
 détient aucun slot : il passe par le siège agy (tuple cloud-code
@@ -164,7 +165,13 @@ La lane protégée exige une référence protégée et le SHA exact de son propr
 workflow avant le checkout et l’exposition des sièges. Les variables owner
 `XCLI_CAMPAIGN_RUNNER` (labels JSON d’un runner éphémère provisionné avec les
 binaires requis), `XCLI_SESSION_CAP`, `XCLI_MCP_CAP` et `XCLI_WALL_CLOCK_CAP_MS`
-portent D3/D2 ; aucune valeur de runner implicite ne les remplace.
+portent D3/D2 ; aucune valeur de runner implicite ne les remplace. Le jeu de
+sièges par défaut (`XCLI_SEAT_SET`) est `claude,codex,muse,agy,vibe` (R19 :
+vibe assis au slot 00) ; gemini reste sans siège et passe par agy. Le siège
+vibe porte le fichier auth-only `.vibe/MISTRAL_API_KEY` (projection de garde
+définie par le harnais : le produit vendeur ne garde aucun fichier auth, la
+clé Mistral y est lue depuis `MISTRAL_API_KEY` ou le trousseau OS) ; la
+cellule l’exporte comme `MISTRAL_API_KEY` pour les cellules vibe uniquement.
 Le reçu est produit uniquement par cette lane sur le SHA exact du commit
 (garde cyber §7.1) ; les gates PR/release résolvent le run
 cross-cli-campaign réussi pour ce SHA, téléchargent son artefact publié via
@@ -197,8 +204,8 @@ Non couvert (états exacts : `unknown`, `source-gap`, `missing source`,
   fixtures natives à 1/10/100 ms. Les autres plateformes restent `not covered`.
 - Polling dont la phase varie entre sessions : `not covered`, même avec les
   trois répétitions séparées ; la preuve exclut uniquement la fenêtre annoncée.
-- Gemini : `missing source` (aucun siège). Vibe : `not covered` en R
-  jusqu’à un siège (la frontière Python n’est pas le bloqueur, QO4).
+- Gemini : `missing source` (aucun siège). Vibe : assis au slot 00 (R19 ;
+  la frontière Python n’est pas le bloqueur, QO4).
   Aucun backend Vibe non-Python existant.
 - Enrôlement live des sièges : `partial` (garde cyber : environnement
   protégé, noms fixes, adaptateurs vendored épinglés, reçu sans bytes ;

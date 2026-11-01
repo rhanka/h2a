@@ -7,7 +7,7 @@ import { pathToFileURL, fileURLToPath } from 'node:url';
 import { createHash, generateKeyPairSync } from 'node:crypto';
 import { CLIS, PROBE, REPLY, repo, environment, sourceBuild, copyLogin, copyLoginReport, PINNED_CLI_ARGS,
   cliPath, privateExecutable, pythonEntrypoint, classify, matrix, inside,
-  rehydrateEventRecord, cellSecretPaths, wipeSecrets, loginCopyPath,
+  rehydrateEventRecord, cellSecretPaths, wipeSecrets, loginCopyPath, vibeCellKey,
   recordExec, readExecJournal, classifyExecJournal, vendorRuntimeLabel,
   compliantQualificationRoot } from './xcli-lab.mjs';
 import { loadSeatManifest, resolveCampaignPair, createCampaignLedger, loadCampaignLedger,
@@ -266,6 +266,12 @@ async function worker() {
       row.evidence.push({ event: 'login-mapped', role, cli, file: name,
         sha256: createHash('sha256').update(fs.readFileSync(mapped)).digest('hex') });
     }
+    // R19: the vendor Vibe product reads its key from MISTRAL_API_KEY (env
+    // wins, else the OS keyring — no auth file). The seated value crosses
+    // into the cell only through the allowlisted seat file above (see
+    // vibeCellKey); the parent wipe erases both afterwards.
+    const vibeWitness = vibeCellKey(env, cli, row.credentialsCopied[role]);
+    if (vibeWitness) row.evidence.push({ event: 'vibe-key-exported', role, cli, ...vibeWitness });
     // Every nested h2a invocation resolves to this witnessed checkout build.
     fs.writeFileSync(join(dir, 'bin/h2a'), `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(proxy)} "$@"\n`, { mode: 0o700 });
     const workspace = join(dir, 'workspace');

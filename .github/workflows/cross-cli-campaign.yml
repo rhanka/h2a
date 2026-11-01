@@ -119,6 +119,7 @@ jobs:
           SEAT_USE_CODEX_00: ${{ secrets.SEAT_USE_CODEX_00 }}
           SEAT_USE_MUSE_00: ${{ secrets.SEAT_USE_MUSE_00 }}
           SEAT_USE_AGY_00: ${{ secrets.SEAT_USE_AGY_00 }}
+          SEAT_USE_VIBE_00: ${{ secrets.SEAT_USE_VIBE_00 }}
         run: >-
           node --input-type=module -e "
           import fs from 'node:fs';
