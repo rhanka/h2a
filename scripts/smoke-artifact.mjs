@@ -88,7 +88,7 @@ function runSync(command, args, options = {}) {
 // exists to close. The focus pin closes the same hole on the independent
 // focus train: h2a's exact focus dependency must resolve from the candidate
 // tarball, never the registry.
-const PINNED_RUNTIME_VERSION = '0.98.7'
+const PINNED_RUNTIME_VERSION = '0.98.8'
 const PINNED_FOCUS_VERSION = '0.5.0'
 const runtimeVersion = JSON.parse(
   readFileSync(join(REPO_ROOT, 'packages', 'h2a-runtime', 'package.json'), 'utf8'),
