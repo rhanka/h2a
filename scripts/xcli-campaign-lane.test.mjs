@@ -23,7 +23,7 @@ test('L4: malformed seat bundles never expose their bytes in job logs', () => {
     const script = parse(campaign).jobs.campaign.steps.find(s => s.name === 'Materialise seat HOMEs from environment bundles').run;
     const canary = 'CANARY42';
     const out = spawnSync('/bin/bash', ['-c', script], { cwd: repo,
-      env: { ...environment(join(root, 'env')), RUNNER_TEMP: root, SEAT_SET: 'codex', XCLI_SEAT_BUNDLE_CODEX: canary },
+      env: { ...environment(join(root, 'env')), RUNNER_TEMP: root, SEAT_SET: 'codex', SEAT_USE_CODEX_00: canary },
       encoding: 'utf8', timeout: 10000 });
     assert.notEqual(out.status, 0);
     assert.ok(!`${out.stdout}${out.stderr}`.includes(canary), 'a parse failure must be a closed diagnostic');
@@ -35,11 +35,22 @@ test('L4: campaign materialization refuses an aliased or reused seat root before
   try {
     const script = parse(campaign).jobs.campaign.steps.find(s => s.name === 'Materialise seat HOMEs from environment bundles').run;
     const outside = join(root, 'outside'); fs.mkdirSync(outside); fs.symlinkSync(outside, join(root, 'seats'));
+    // A structurally valid envelope: only the aliased seat root may refuse.
+    const bundle = { identity: { schemaVersion: 1, seatRef: 'codex', refreshFamilyRef: 'family-codex',
+      ownerScope: 'owner', cli: 'codex', packageProviderId: 'codex',
+      issuingClientRef: 'codex-cli', endpointFamily: 'codex', credentialFormatVersion: 'v1' },
+    provenance: { enrollmentSource: 'cli', accountBinding: 'binding-1', entitlementClass: 'seat' },
+    authority: 'consumer', credentialClass: 'access-only',
+    lifecycle: { epoch: 1, generation: 0, operationId: 'op-1',
+      issuedAt: '2026-11-01T00:00:00Z', localExpiryPolicy: 'provider', refreshAuthority: 'none' },
+    meshUse: { kind: 'access', accessRef: 'ref-1' } };
     const out = spawnSync('/bin/bash', ['-c', script], { cwd: repo,
       env: { ...environment(join(root, 'env')), RUNNER_TEMP: root, SEAT_SET: 'codex',
-        XCLI_SEAT_BUNDLE_CODEX: JSON.stringify({ family: 'codex', files: { '.codex/auth.json': Buffer.from('{}').toString('base64') } }) },
+        SEAT_USE_CODEX_00: JSON.stringify({ bundle,
+          files: { '.codex/auth.json': Buffer.from('{}').toString('base64') } }) },
       encoding: 'utf8', timeout: 10000 });
     assert.notEqual(out.status, 0);
+    assert.match(`${out.stdout}${out.stderr}`, /aliased-seat-root/);
     assert.deepEqual(fs.readdirSync(outside), []);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
@@ -60,9 +71,9 @@ test('L11 review: candidate validation precedes checkout and every secret is ste
   await assert.rejects(execute(github, context, core, { env: { CANDIDATE_SHA: 'b'.repeat(40), SEAT_SET: 'claude' } }), /candidate/);
   protectedRef = false;
   await assert.rejects(execute(github, context, core, { env: { CANDIDATE_SHA: sha, SEAT_SET: 'claude' } }), /protected/);
-  for (const [i, step] of steps.entries()) if (Object.keys(step.env ?? {}).some(key => key.startsWith('XCLI_SEAT_BUNDLE_'))) assert.ok(i > validation);
+  for (const [i, step] of steps.entries()) if (Object.keys(step.env ?? {}).some(key => key.startsWith('SEAT_USE_'))) assert.ok(i > validation);
   const measurement = steps.findIndex(step => step.name?.startsWith('Measure all provisioned'));
-  assert.ok(measurement > validation && measurement < steps.findIndex(step => Object.keys(step.env ?? {}).some(key => key.startsWith('XCLI_SEAT_BUNDLE_'))),
+  assert.ok(measurement > validation && measurement < steps.findIndex(step => Object.keys(step.env ?? {}).some(key => key.startsWith('SEAT_USE_'))),
     'missing vendor binaries refuse before any seat material is exposed');
 });
 
@@ -76,13 +87,17 @@ test('L4: every workflow upload is preceded by a required publication scan', () 
   }
 });
 
-test('L11 review: PR and release fetch authenticated artifacts for the exact head', () => {
+test('R18 review: PR and release consume the protected lane artifact for the exact head', () => {
   for (const lane of [prLane, release]) {
-    assert.ok(lane.includes('--fetch-trusted'));
+    assert.ok(!lane.includes('--fetch-trusted'), 'the removed trusted-fetch path is gone');
+    assert.ok(!lane.includes('--content-only'), 'the assembly-only flag never gates');
+    assert.ok(lane.includes('gh run download'), 'provenance by delivery over the authenticated API');
+    assert.ok(lane.includes('xcli-campaign-${'), 'the artifact name binds the exact SHA');
     assert.ok(!lane.includes('--receipt docs/cross-cli-receipt.json'));
     assert.ok(lane.includes('actions: read'));
   }
   assert.ok(prLane.includes('github.event.pull_request.head.sha'));
+  assert.ok(release.includes('resolve-release-sha'));
 });
 
 test('campaign review: funded windows, guarded root, Vibe measurement and explicit provisioned runner', () => {
