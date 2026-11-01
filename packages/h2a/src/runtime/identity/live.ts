@@ -479,10 +479,21 @@ function resolveLiveIdentityInternal(input: ResolveLiveIdentityInput): ResolvedL
       ? step("identity_proof", () => provesLocalKey(input.root, preBinding.instance))
       : false;
     let mintKeypair: typeof keypair | undefined;
+    // The mint candidate is published at most once per resolve call for a
+    // given instance: the pre-fence publication already made the
+    // keyring/registration/alias durable, and every follow-up publication is
+    // idempotent. This saves one registry-lock acquisition (with its syncs)
+    // per fence retry cycle and preserves the fence observation budget.
+    let publishedInstance: string | undefined;
+    const publishOnce = (instance: string, agentUuid: string): void => {
+      if (mintKeypair !== undefined && publishedInstance === instance) return;
+      mintKeypair = publishIdentity(instance, agentUuid, "mint", { skipExistingCheck: true });
+      publishedInstance = instance;
+    };
     if (!(preBinding && preProof)) {
       // Mint likely: publish keyring / registration / alias BEFORE the binding.
       const cand = mint();
-      mintKeypair = publishIdentity(cand.instance, cand.agentUuid, "mint", { skipExistingCheck: true });
+      publishOnce(cand.instance, cand.agentUuid);
     }
     result = step("identity_binding", () =>
       reclaimOrMint(input.root, key, {
@@ -490,7 +501,7 @@ function resolveLiveIdentityInternal(input: ResolveLiveIdentityInput): ResolvedL
           step("identity_proof", () => provesLocalKey(input.root, binding.instance)),
         mint,
         now
-      }, { beforePublish: result => { mintKeypair = publishIdentity(result.instance, result.agentUuid, 'mint', {skipExistingCheck:true}); } })
+      }, { beforePublish: result => publishOnce(result.instance, result.agentUuid) })
     );
     if (result.action === "mint") {
       keypair = mintKeypair ?? publishIdentity(result.instance, result.agentUuid, "mint", { skipExistingCheck: true });
@@ -753,6 +764,16 @@ async function resolveLiveIdentityAsyncInternal(
   } else {
     const willReclaim = Boolean(P.preBinding && P.preProof);
     let mintKeypair: typeof keypair | undefined;
+    // Same at-most-once mint publication as the sync path above: the pre-fence
+    // publication already closed the keyring-before-binding window, and the
+    // `beforePublish` republication is idempotent. Saves one registry-lock
+    // acquisition per fence retry cycle.
+    let publishedInstance: string | undefined;
+    const publishOnce = (instance: string, agentUuid: string): void => {
+      if (mintKeypair !== undefined && publishedInstance === instance) return;
+      mintKeypair = publishIdentity(instance, agentUuid, "mint", { skipExistingCheck: true });
+      publishedInstance = instance;
+    };
     if (!willReclaim) {
       // Mint likely: publish keyring / registration / alias BEFORE the binding
       // append — window closure BY ORDER (a reader can only observe the binding
@@ -762,7 +783,7 @@ async function resolveLiveIdentityAsyncInternal(
       // retries WITHOUT re-parsing (this prep is cached) and WITHOUT the identity
       // lock held.
       const cand = mint();
-      mintKeypair = publishIdentity(cand.instance, cand.agentUuid, "mint", { skipExistingCheck: true });
+      publishOnce(cand.instance, cand.agentUuid);
     }
     // The critical section is now TINY: fresh findBinding + (reclaim | append).
     // No registry parse, no keygen, no proof sign under the identity lock on the
@@ -792,7 +813,7 @@ async function resolveLiveIdentityAsyncInternal(
       },
       {
         ...(options.signal ? { signal: options.signal } : {}),
-        beforePublish: result => { mintKeypair = publishIdentity(result.instance,result.agentUuid,'mint',{skipExistingCheck:true}); },
+        beforePublish: result => publishOnce(result.instance, result.agentUuid),
         ...(options.onBlocker ? {onBlocker: options.onBlocker} : {}),
         ...(options.diagnosticKey ? {diagnosticKey: options.diagnosticKey} : {}),
         ...(options.deadlineMs !== undefined ? { deadlineMs: Math.max(0,options.deadlineMs-(performance.now()-started)) } : {})

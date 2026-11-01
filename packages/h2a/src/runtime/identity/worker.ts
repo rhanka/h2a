@@ -182,10 +182,18 @@ process.on("message", (raw: unknown) => {
   };
 
   let phase: IdentityPhase = 'worker';
+  // Phase transitions only on REAL contention: a `wait` that follows a failed
+  // acquisition attempt, and an `acquired` that resolves such a wait. An
+  // uncontended acquisition (no preceding `wait` for that lock) never moves
+  // the phase, so the sync staging fsync of a free lock cannot surface as
+  // `registry_lock_wait` or overwrite a fence observation with `worker`.
+  const contended = new Set<string>();
   void observeLocks(event => {
+    if (event.event === 'wait') contended.add(event.lock);
     const next: IdentityPhase = event.event === 'wait'
       ? event.lock === 'registry' ? 'registry_lock_wait' : event.lock === 'identity' ? 'fence_wait' : phase
-      : event.event === 'acquired' ? 'worker' : phase;
+      : event.event === 'acquired' ? (contended.has(event.lock) ? 'worker' : phase) : phase;
+    if (event.event === 'acquired') contended.delete(event.lock);
     if (next === phase) return;
     phase = next;
     send({ kind: 'identity_phase', v: 1, phase });

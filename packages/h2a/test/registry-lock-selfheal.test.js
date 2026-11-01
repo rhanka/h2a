@@ -81,6 +81,48 @@ test('should recover a dead holder that crashed after link publication before st
   assert.equal(backups(lock).length,1);
 });
 
+test('should publish through the O_EXCL fallback when link is unavailable and keep exclusivity', t => {
+  const { lock } = lab(t);
+  const original = fs.linkSync;
+  fs.linkSync = () => { throw Object.assign(new Error('link unavailable'), { code: 'EPERM' }); };
+  syncBuiltinESMExports();
+  try {
+    assert.equal(withLockSync(lock, () => {
+      assert.throws(() => withLockSync(lock, () => assert.fail('fallback must stay exclusive'), options), { name: 'LockTimeoutError' });
+      assert.equal(fs.existsSync(lock), true);
+      return 'fallback';
+    }, options), 'fallback');
+  } finally { fs.linkSync = original; syncBuiltinESMExports(); }
+});
+
+test('should leave no residue when the O_EXCL fallback write or sync fails', t => {
+  const { lock } = lab(t);
+  const original = { linkSync: fs.linkSync, fsyncSync: fs.fsyncSync };
+  let linked = false;
+  fs.linkSync = (...args) => { linked = true; throw Object.assign(new Error('link unavailable'), { code: 'EPERM' }); };
+  fs.fsyncSync = fd => {
+    if (linked) throw Object.assign(new Error('injected fallback sync failure'), { code: 'EIO' });
+    return original.fsyncSync(fd);
+  };
+  syncBuiltinESMExports();
+  try {
+    assert.throws(() => withLockSync(lock, () => assert.fail('fallback failure must propagate'), options), /injected fallback sync failure/);
+    assert.equal(fs.existsSync(lock), false, 'a failed fallback publication must leave no lock file');
+  } finally { Object.assign(fs, original); syncBuiltinESMExports(); }
+  assert.equal(withLockSync(lock, () => 'recovered', options), 'recovered');
+});
+
+test('should rethrow link errors outside the hardlink-unavailable set instead of falling back', t => {
+  const { lock } = lab(t);
+  const original = fs.linkSync;
+  fs.linkSync = () => { throw Object.assign(new Error('injected link IO failure'), { code: 'EACCES' }); };
+  syncBuiltinESMExports();
+  try {
+    assert.throws(() => withLockSync(lock, () => assert.fail('EACCES must not fall back'), options), /injected link IO failure/);
+    assert.equal(fs.existsSync(lock), false, 'a non-fallback link error must create no lock file');
+  } finally { fs.linkSync = original; syncBuiltinESMExports(); }
+});
+
 test('should retain a live atomic owner and preserve malformed bytes exactly in quarantine', async t => {
   const {root,lock}=lab(t);
   await withLock(lock,async()=>{
