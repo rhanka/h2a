@@ -12,11 +12,14 @@ import { dirname, join, relative } from 'node:path';
 import { validateSeatBundle } from './xcli-seat-vendor/seat-bundle.js';
 import { parseCliSeatProfile, parseTokenSeatEnvelope } from './xcli-seat-vendor/cli-seat-import.js';
 import { translateAgySeatToApplication } from './xcli-seat-vendor/agy-cli-import.js';
+import { MistralVibeEnrollmentProvider, MISTRAL_VIBE_SIGN_IN_URL,
+  MISTRAL_VIBE_KEY_VALIDITY_MS } from './xcli-seat-vendor/mistral-vibe.js';
 import { LOGIN_ALLOWLIST } from './xcli-lab.mjs';
 import { loadSeatManifest } from './xcli-seats.mjs';
 import { CYBER_SEAT_MODE, SEAT_ENVIRONMENT, assertCyberManifest } from './xcli-seat-custody.mjs';
 
-export { validateSeatBundle, parseCliSeatProfile, parseTokenSeatEnvelope, translateAgySeatToApplication };
+export { validateSeatBundle, parseCliSeatProfile, parseTokenSeatEnvelope, translateAgySeatToApplication,
+  MistralVibeEnrollmentProvider, MISTRAL_VIBE_SIGN_IN_URL, MISTRAL_VIBE_KEY_VALIDITY_MS };
 
 export async function vendoredDigest() {
   return JSON.parse(fs.readFileSync(new URL('./xcli-seat-vendor/VENDOR.json', import.meta.url), 'utf8'));
