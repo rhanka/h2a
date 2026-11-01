@@ -14,6 +14,10 @@ import { computeHarnessDigests, loadMatrixManifest, RECEIPT_VERSION, STAGE_KEYS 
 // the manifest the lane used, and per-seat paths stay out.
 export function buildCampaignReceipt({ campaignRoot, sha, gate, repoRoot, cliVersions, manifestFile, seatManifestDigest, provenance }) {
   assert.ok(['merge', 'release'].includes(gate), 'receipt gate is merge or release');
+  // R18: the lane binds the receipt to its producing run; gates resolve that
+  // run to the exact SHA at artifact download (provenance by delivery).
+  assert.ok(Number.isSafeInteger(provenance?.runId) && provenance.runId > 0 &&
+    Number.isSafeInteger(provenance?.runAttempt) && provenance.runAttempt > 0, 'provenance-missing');
   // The seat manifest lives outside the candidate tree, so the lane measures
   // its digest from the exact file it used and passes it in: the receipt is
   // bound to that manifest by publication, never by re-derivation here.

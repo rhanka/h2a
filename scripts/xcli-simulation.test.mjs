@@ -200,26 +200,30 @@ test('L3: a receiver that pops the probe after reading keeps its wake proof', ()
 });
 
 test('L4: owner credential material never reaches qualification evidence', () => {
-  // Planted owner-style instances plus an ambient-looking config path flow
-  // through the login surface; the full evidence (receipt JSON, every event,
-  // every path-shaped string) must contain neither canary text, canary file
-  // names, canary-shaped instance names nor the owner config path. Real mode
-  // with a short budget blocks on wake-window funding before any model turn,
-  // so no seat is consumed; the receipt is still written and scanned.
+  // Planted owner-style instances flow through the cyber-seat surface: the
+  // seat dirs hold canary login files and the manifest names them. The full
+  // evidence (receipt JSON, every event, every path-shaped string) must
+  // contain neither canary text, canary file names, canary-shaped instance
+  // names nor the owner config path. Real mode with a short budget blocks on
+  // wake-window funding before any model turn, so no seat is consumed; the
+  // receipt is still written and scanned.
   const CANARY = 'canary-owner-zz9';
   const root = fs.mkdtempSync(join(tmpdir(), 'xcli-canary-'));
   try {
-    const authHome = join(root, `${CANARY}-seats`);
-    fs.mkdirSync(join(authHome, '.codex'), { recursive: true });
-    fs.mkdirSync(join(authHome, '.claude'), { recursive: true });
-    writeFileSyncJoin(authHome, '.codex/auth.json', JSON.stringify({ token: `${CANARY}-token` }));
-    writeFileSyncJoin(authHome, '.claude/.credentials.json', JSON.stringify({ token: `${CANARY}-token` }));
-    writeFileSyncJoin(authHome, '.claude.json', JSON.stringify({ oauthAccount: { id: `${CANARY}-instance` } }));
+    const seatDir = join(root, `${CANARY}-seats`);
+    for (const seat of ['codex', 'claude']) fs.mkdirSync(join(seatDir, seat), { recursive: true });
+    writeFileSyncJoin(seatDir, 'codex', '.codex/auth.json', JSON.stringify({ token: `${CANARY}-token` }));
+    writeFileSyncJoin(seatDir, 'claude', '.claude/.credentials.json', JSON.stringify({ token: `${CANARY}-token` }));
+    writeFileSyncJoin(seatDir, 'claude', '.claude.json', JSON.stringify({ oauthAccount: { id: `${CANARY}-instance` } }));
+    const manifest = join(root, 'seats.json');
+    fs.writeFileSync(manifest, JSON.stringify({ version: 1, seatMode: 'cyber-seat-custody', seats: [
+      { seatId: 'codex', family: 'codex', authSource: join(seatDir, 'codex') },
+      { seatId: 'claude', family: 'claude', authSource: join(seatDir, 'claude') } ] }));
     const output = join(root, 'receipt.json');
     const env = { ...environment(join(root, 'env')), TMPDIR: tmpdir(), [`${CANARY}_ENV`.toUpperCase()]: `${CANARY}-env-value`,
       ...(process.env.XCLI_NODE_HEADERS ? { XCLI_NODE_HEADERS: process.env.XCLI_NODE_HEADERS } : {}) };
     const result = spawnSync(process.execPath, [join(import.meta.dirname, 'qualify-cross-cli.mjs'),
-      '--pair', 'codex:codex', '--auth-home', authHome, '--timeout-ms', '20000', '--output', output],
+      '--pair', 'codex:codex', '--seat-manifest', manifest, '--timeout-ms', '20000', '--output', output],
     { env, encoding: 'utf8', timeout: 240000, maxBuffer: 4 * 1024 * 1024 });
     removeReportedCampaignRoot(result.stdout);
     assert.ok(fs.existsSync(output), `a receipt must be written (exit ${result.status})`);
@@ -227,18 +231,21 @@ test('L4: owner credential material never reaches qualification evidence', () =>
     assert.ok(!text.includes(`${CANARY}-token`), 'no planted credential text in evidence');
     assert.ok(!text.includes(`${CANARY}-instance`), 'no planted instance name in evidence');
     assert.ok(!text.includes(`${CANARY}-env-value`), 'no ambient carrier in evidence');
-    assert.ok(!text.includes(authHome), 'no owner config path in evidence');
+    assert.ok(!text.includes(seatDir), 'no owner config path in evidence');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
 function writeFileSyncJoin(...parts) {
-  fs.writeFileSync(join(...parts.slice(0, -1)), parts[parts.length - 1]);
+  const file = join(...parts.slice(0, -1));
+  fs.mkdirSync(join(file, '..'), { recursive: true });
+  fs.writeFileSync(file, parts[parts.length - 1]);
 }
 
-// Lot L9d: a login-free real Gemini cell completes blocked on seat/auth
-// grounds — notably blocked, never python-entrypoint-forbidden, wipe
-// proven. Durable collateral for the QO4 vendor-runtime invariant.
-test('L9d: a login-free real Gemini cell blocks on auth, never on Python', () => {
+// R18: a manifest-free real run refuses before spending anything. Gemini
+// holds no seat: it runs through the agy seat (cloud-code), so a real
+// gemini:gemini cell without a manifest is a seat-manifest-required refusal,
+// never a Python verdict and never a spawned cell.
+test('R18: a manifest-free real run refuses with seat-manifest-required', () => {
   const root = fs.mkdtempSync(join(tmpdir(), 'xcli-gemini-'));
   try {
     const output = join(root, 'receipt.json');
@@ -247,13 +254,10 @@ test('L9d: a login-free real Gemini cell blocks on auth, never on Python', () =>
     const result = spawnSync(process.execPath, [join(import.meta.dirname, 'qualify-cross-cli.mjs'),
       '--pair', 'gemini:gemini', '--timeout-ms', '30000', '--output', output],
     { env, encoding: 'utf8', timeout: 240000, maxBuffer: 4 * 1024 * 1024 });
-    removeReportedCampaignRoot(result.stdout);
-    assert.ok(fs.existsSync(output), `a receipt must be written (exit ${result.status})`);
-    const receipt = JSON.parse(fs.readFileSync(output, 'utf8'));
-    assert.equal(receipt.cells.length, 1);
-    assert.equal(receipt.cells[0].status, 'blocked');
-    assert.notEqual(receipt.cells[0].blocker, 'python-entrypoint-forbidden');
-    assert.notEqual(receipt.cells[0].cleanupFailed, true);
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stdout}${result.stderr}`, /seat-manifest-required/);
+    assert.ok(!fs.existsSync(output), 'no receipt is written on refusal');
+    assert.ok(!/Private qualification root:/.test(result.stdout), 'no campaign root is minted on refusal');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
