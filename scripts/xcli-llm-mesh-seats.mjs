@@ -41,17 +41,28 @@ export function meshOwnerScope(env = process.env) {
   return env.H2A_LLM_MESH_OWNER_SCOPE?.trim() || `cli:${hostname()}`;
 }
 
-// Public facade entry point, re-exported from the mesh facade module —
-// never re-implemented here. The config resolver honours H2A_LLM_MESH_CONFIG_JSON
-// (scoped object or whole blob), like the h2a CLI facade wiring.
-export async function createMeshSeatFacade({ ownerScope } = {}) {
+// Public facade entry point, re-exported from the mesh modules — never
+// re-implemented here. The store is the one h2a uses at runtime:
+// EncryptedFileKeyring at SENTROPIC_LLM_MESH_KEYRING_DIR ??
+// ~/.sentropic/llm-mesh-keyring, opened through the same createLlmMeshFacade
+// API the gateway uses (mode cli + legacyAccountOwnerScopeRef, like the h2a
+// CLI facade wiring). keyringDir makes the store explicit and wins over the
+// environment; without it the runtime default applies untouched. The config
+// resolver honours H2A_LLM_MESH_CONFIG_JSON (scoped object or whole blob).
+export async function createMeshSeatFacade({ ownerScope, keyringDir } = {}) {
   let createLlmMeshFacade = null;
+  let EncryptedFileKeyring = null;
   try {
     ({ createLlmMeshFacade } = await import('@sentropic/llm-mesh/facade'));
+    ({ EncryptedFileKeyring } = await import('@sentropic/llm-mesh/node'));
   } catch {
     throw new Error('llm-mesh-facade-unavailable');
   }
   const scope = ownerScope ?? meshOwnerScope();
+  // Re-exported keyring, never re-implemented: an explicit dir pins the
+  // runtime store; undefined keeps the runtime default (env, else owner
+  // ~/.sentropic/llm-mesh-keyring) exactly as the h2a gateway opens it.
+  const keyring = keyringDir ? new EncryptedFileKeyring(keyringDir) : undefined;
   return createLlmMeshFacade({
     configResolver: {
       async resolveConfig(configRef) {
@@ -69,7 +80,21 @@ export async function createMeshSeatFacade({ ownerScope } = {}) {
     },
     mode: 'cli',
     legacyAccountOwnerScopeRef: scope,
+    ...(keyring ? { keyring } : {}),
   });
+}
+
+// Names-only projection of the exact mesh call that failed: the first stack
+// frame inside the mesh account service. Never secret-adjacent (a class and
+// method name only), it lets the conductor report the upstream write-on-read
+// (EncryptedFileKeyring.readMasterKey) instead of a bare EROFS.
+export function meshCallOf(error) {
+  const stack = error?.stack ?? '';
+  for (const line of String(stack).split('\n')) {
+    const match = line.match(/(EncryptedFileKeyring|LocalAccountTransportService)\.(\w+)/);
+    if (match) return `${match[1]}.${match[2]}`;
+  }
+  return null;
 }
 
 // Require the enrolled mesh account for a bench CLI. Returns the public
@@ -85,6 +110,8 @@ export async function requireMeshAccount({ cli, facade, ownerScope }) {
   } catch (error) {
     const refusal = new Error(`llm-mesh-store-unreachable:${cli}`);
     refusal.cause = error?.code ?? 'unknown';
+    const meshCall = meshCallOf(error);
+    if (meshCall) refusal.meshCall = meshCall;
     throw refusal;
   }
   const account = (accounts ?? []).find((entry) => entry?.providerId === mapping.provider) ?? null;
