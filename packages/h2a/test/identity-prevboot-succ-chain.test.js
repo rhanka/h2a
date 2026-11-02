@@ -9,6 +9,7 @@ import {
   readFileSync,
   rmSync,
   statfsSync,
+  unlinkSync,
   writeFileSync
 } from "node:fs";
 import { spawn } from "node:child_process";
@@ -22,6 +23,7 @@ import {
   runCli,
   withIdentityFence
 } from "../dist/index.js";
+import { createIdentityController } from "../dist/runtime/mcp/identity-state.js";
 import { createMcpServer } from "../dist/runtime/mcp/server.js";
 
 const QUALIFIED_FS_TYPES = new Set(["ef53", "58465342", "9123683e", "f2f52010"]);
@@ -124,22 +126,39 @@ function streams(cwd) {
   };
 }
 
-function runFenceChild(lock, marker) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(
+function runFenceChild(lock, marker, timeoutMs = 15000, holdMs = 20, children) {
+  let child;
+  const done = new Promise((resolve, reject) => {
+    child = spawn(
       process.execPath,
-      [join(import.meta.dirname, "helpers/identity-fence-child.mjs"), lock, marker],
+      [join(import.meta.dirname, "helpers/identity-fence-child.mjs"), lock, marker, String(timeoutMs), String(holdMs)],
       { stdio: ["ignore", "pipe", "pipe"] }
     );
+    if (children) children.push(child);
     let out = "";
     let err = "";
     child.stdout.on("data", (b) => (out += b));
     child.stderr.on("data", (b) => (err += b));
     child.on("error", reject);
-    child.on("exit", (code) =>
-      code === 0 ? resolve(JSON.parse(out)) : reject(new Error(`child exit ${code}: ${err}`))
-    );
+    child.on("exit", (code) => {
+      if (children) {
+        const i = children.indexOf(child);
+        if (i !== -1) children.splice(i, 1);
+      }
+      code === 0 ? resolve(JSON.parse(out)) : reject(new Error(`child exit ${code}: ${err}`));
+    });
   });
+  return done;
+}
+
+function killChildren(children) {
+  for (const c of children.splice(0)) {
+    try {
+      if (c.exitCode === null) c.kill("SIGKILL");
+    } catch {
+      // best-effort
+    }
+  }
 }
 
 test("prevboot chain: lock + 8 previous-boot succ links recover automatically with recovered-previous-boot-chain", async () => {
@@ -262,6 +281,121 @@ test("prevboot chain: refusal on foreign host, corrupt record and o-excl publica
   }
 });
 
+test("prevboot chain: a 9th previous-boot link refuses without purging and reports succ-chain-exhausted", async () => {
+  const x = freshStore();
+  try {
+    const self = identitySelf();
+    const { generation, tokens } = writePreviousBootChain(x.lock, self, otherBoot());
+    writeFileSync(
+      `${x.lock}.succ.${tokens[7]}`,
+      JSON.stringify(v2Record(self, { boot: otherBoot(), pid: 99999, token: hexToken(0xcc00), target: generation }))
+    );
+    assert.equal(chainFiles(x.identityDir).length, 10);
+    const direct = recoverPreviousBootSuccessionChain(x.lock, self);
+    assert.equal(direct.recovered, false);
+    assert.equal(direct.reason, "chain-not-fully-previous-boot");
+    await assert.rejects(
+      () => withIdentityFence(x.lock, () => assert.fail("must not enter"), { timeoutMs: 600, pollMs: 10 }),
+      (e) => {
+        assert.equal(e.name, "LockTimeoutError");
+        assert.equal(e.diagnostic.reasonCode, "succ-chain-exhausted");
+        return true;
+      }
+    );
+    assert.equal(backupDirs(x.identityDir).length, 0);
+  } finally {
+    cleanup(x);
+  }
+});
+
+test("prevboot chain: a stale election file from a dead recoverer is stolen", async () => {
+  const x = freshStore();
+  try {
+    const self = identitySelf();
+    writePreviousBootChain(x.lock, self, otherBoot());
+    // Simulate a crashed recoverer: previous-boot election holder (rule 3 dead).
+    writeFileSync(
+      join(x.identityDir, ".lock.prevboot-recovery"),
+      JSON.stringify(v2Record(self, { boot: otherBoot(), pid: 27359, token: hexToken(0xdd00) }))
+    );
+    const lease = await withIdentityFence(x.lock, (l) => l, { timeoutMs: 8000, pollMs: 10 });
+    try {
+      assert.equal(lease.acquired, true);
+      assert.equal(lease.recovered, true);
+      assert.equal(lease.recoveryKind, "recovered-previous-boot-chain");
+    } finally {
+      lease.release();
+    }
+    assert.equal(existsSync(join(x.identityDir, ".lock.prevboot-recovery")), false);
+    assert.equal(backupDirs(x.identityDir).length, 1);
+  } finally {
+    cleanup(x);
+  }
+});
+
+test("prevboot chain: a live election file makes recovery back off without mutating", async () => {
+  const x = freshStore();
+  try {
+    const self = identitySelf();
+    writePreviousBootChain(x.lock, self, otherBoot());
+    // A live peer recoverer holds the election: same boot, running pid.
+    writeFileSync(
+      join(x.identityDir, ".lock.prevboot-recovery"),
+      JSON.stringify({
+        recordVersion: 2,
+        protocol: "identity-binding-fence-v1",
+        platform: "linux",
+        publication: "link",
+        hostKind: self.hostKind,
+        host: self.host,
+        boot: self.boot,
+        ns: self.ns,
+        timeNs: self.timeNs,
+        pid: process.pid,
+        start: self.start,
+        token: hexToken(0xee00),
+        fenceEpoch: hexToken(0xee00),
+        at: Date.now()
+      })
+    );
+    const before = chainFiles(x.identityDir).map((n) => readFileSync(join(x.identityDir, n), "utf8"));
+    const direct = recoverPreviousBootSuccessionChain(x.lock, self);
+    assert.equal(direct.recovered, false);
+    assert.equal(direct.reason, "chain-changed-during-recovery");
+    const after = chainFiles(x.identityDir).map((n) => readFileSync(join(x.identityDir, n), "utf8"));
+    assert.deepEqual(after, before);
+    assert.equal(backupDirs(x.identityDir).length, 0);
+  } finally {
+    cleanup(x);
+  }
+});
+
+test("prevboot chain: a 9th current-boot link backs off but still reports succ-chain-exhausted", async () => {
+  const x = freshStore();
+  try {
+    const self = identitySelf();
+    const { generation, tokens } = writePreviousBootChain(x.lock, self, otherBoot());
+    // A same-machine current-boot election residue on the tail path: the
+    // round backs off, but with nothing changed it must report the
+    // chain-exhausted blocker instead of spinning to no-observation.
+    writeFileSync(
+      `${x.lock}.succ.${tokens[7]}`,
+      JSON.stringify(v2Record(self, { boot: self.boot, ns: self.ns, timeNs: self.timeNs, pid: process.pid, token: hexToken(0xff00), target: generation }))
+    );
+    await assert.rejects(
+      () => withIdentityFence(x.lock, () => assert.fail("must not enter"), { timeoutMs: 1500, pollMs: 10 }),
+      (e) => {
+        assert.equal(e.name, "LockTimeoutError");
+        assert.equal(e.diagnostic.reasonCode, "succ-chain-exhausted");
+        return true;
+      }
+    );
+    assert.equal(backupDirs(x.identityDir).length, 0);
+  } finally {
+    cleanup(x);
+  }
+});
+
 test("prevboot chain: refusal on unqualified filesystem", async () => {
   const x = freshStore();
   try {
@@ -318,9 +452,9 @@ test("P1 race: two parallel recoverers plus a live acquirer keep mutual exclusio
   try {
     writePreviousBootChain(x.lock, identitySelf(), otherBoot());
     const marker = join(x.dir, "markers");
-    const first = [runFenceChild(x.lock, marker), runFenceChild(x.lock, marker)];
+    const first = [runFenceChild(x.lock, marker, 15000, 20, children), runFenceChild(x.lock, marker, 15000, 20, children)];
     await new Promise((r) => setTimeout(r, 20));
-    const late = runFenceChild(x.lock, marker);
+    const late = runFenceChild(x.lock, marker, 15000, 20, children);
     const results = await Promise.all([...first, late]);
     assert.equal(results.length, 3);
     const rows = readFileSync(marker, "utf8").trim().split("\n");
@@ -330,8 +464,8 @@ test("P1 race: two parallel recoverers plus a live acquirer keep mutual exclusio
     }
     assert.equal(backupDirs(x.identityDir).length, 1);
     assert.equal(existsSync(x.lock), false);
-    void children;
   } finally {
+    killChildren(children);
     cleanup(x);
   }
 });
@@ -356,11 +490,12 @@ test("startup storm: N sessions starting after reboot all reach identity_ready",
 
 test("startup storm (multi-process): 8 parallel recoverers keep one backup and mutual exclusion", async () => {
   const x = freshStore();
+  const children = [];
   try {
     writePreviousBootChain(x.lock, identitySelf(), otherBoot());
     const marker = join(x.dir, "markers-mp");
     const results = await Promise.all(
-      Array.from({ length: 8 }, () => runFenceChild(x.lock, marker))
+      Array.from({ length: 8 }, () => runFenceChild(x.lock, marker, 15000, 20, children))
     );
     assert.equal(results.length, 8);
     const rows = readFileSync(marker, "utf8").trim().split("\n");
@@ -371,6 +506,7 @@ test("startup storm (multi-process): 8 parallel recoverers keep one backup and m
     assert.equal(backupDirs(x.identityDir).length, 1);
     assert.equal(existsSync(x.lock), false);
   } finally {
+    killChildren(children);
     cleanup(x);
   }
 });
@@ -422,43 +558,75 @@ test("doctor --repair --dry-run never mutates identity/", async () => {
   }
 });
 
-test("h2a_identity_status reports a fresh attempt instead of the stale failure when the blocker is gone", async () => {
+test("h2a_identity_status with the real controller: keeps the stale failure while the blocker stands, kicks a fresh attempt once it is gone", async () => {
   const x = freshStore();
+  let controller;
   try {
-    let state = {
-      state: "identity_failed",
-      attemptId: "a1",
-      cause: "identity_timeout",
-      message: "stale blocker",
-      retryable: true,
-      elapsedMs: 10,
-      retryCondition: "blocker-change",
-      diagnostic: {
-        blockerType: "SUCC",
-        lock: "identity/.lock",
-        generation: "a".repeat(32),
-        reasonCode: "succ-chain-exhausted",
-        reason: "the succession chain reached its depth limit",
-        retryCondition: "blocker-change"
-      }
-    };
-    let retried = false;
-    const identity = {
-      status: () => state,
-      retry: () => {
-        retried = true;
-        state = { state: "identity_pending", attemptId: "a2", elapsedMs: 0, timeoutMs: 20000 };
-        return true;
+    const generation = "a".repeat(32);
+    // Drive a REAL controller into a blocker-change failure (no stubbed
+    // identity: retry() runs the production gate).
+    const handle = {};
+    let spawns = 0;
+    controller = createIdentityController({
+      request: { root: x.root, host: "status", cwd: x.dir },
+      timeoutMs: 5000,
+      retryMinIntervalMs: 30000,
+      spawnWorker: () => {
+        spawns += 1;
+        return {
+          onResolved: (cb) => { handle.resolved = cb; },
+          onError: (cb) => { handle.error = cb; },
+          onExitWithoutResult: () => {},
+          cancel: () => {}
+        };
       },
-      signer: () => undefined
-    };
-    const server = createMcpServer({ root: x.root, identity, storeInitialize: false });
+      activate: () => ({ ok: true, sessionId: "sess:r3" })
+    });
+    controller.start();
+    handle.error("identity_timeout", "contended", {
+      elapsedMs: 5000,
+      budgetMs: 5000,
+      lock: "identity/.lock",
+      blockerType: "SUCC",
+      pid: "unknown",
+      machineClass: "local",
+      bootClass: "other",
+      ns: "unknown",
+      start: "unknown",
+      generation,
+      target: generation,
+      reasonCode: "succ-chain-exhausted",
+      reason: "the succession chain reached its depth limit",
+      retryCondition: "blocker-change"
+    });
+    const failed = controller.status();
+    assert.equal(failed.state, "identity_failed");
+    assert.equal(failed.retryCondition, "blocker-change");
+    const failedAttempt = failed.attemptId;
+    assert.equal(spawns, 1);
+    const server = createMcpServer({ root: x.root, identity: controller, storeInitialize: false });
+    // Negative: the recorded generation still stands on disk → the stale
+    // failure is kept and no fresh attempt starts.
+    writeFileSync(x.lock, JSON.stringify({ token: generation }));
+    const kept = await server.callTool("h2a_identity_status", {});
+    const keptBody = JSON.parse(kept.content[0].text);
+    assert.equal(keptBody.state, "identity_failed");
+    assert.equal(keptBody.attemptId, failedAttempt);
+    assert.equal(spawns, 1);
+    // Positive: blocker gone from disk → a single status call kicks a fresh
+    // attempt at once (no async wait, no min-interval hold).
+    unlinkSync(x.lock);
     const res = await server.callTool("h2a_identity_status", {});
     const body = JSON.parse(res.content[0].text);
-    assert.equal(retried, true);
     assert.equal(body.state, "identity_pending");
-    assert.equal(body.attemptId, "a2");
+    assert.notEqual(body.attemptId, failedAttempt);
+    assert.equal(spawns, 2);
   } finally {
+    try {
+      controller?.cancel("transport_closed");
+    } catch {
+      // best-effort
+    }
     cleanup(x);
   }
 });
