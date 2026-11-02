@@ -1,8 +1,10 @@
-// R19 RED: the conductor provision script builds envelopes from local
-// auth-only material only, validates each through seat-load over a private
-// FD, uploads via gh --body-file (never argv), and shreds. Tests use
-// synthetic fixture homes and a stub gh only — never the real HOME, never
-// real secrets, never the network.
+// R23 RED: every seat is sourced from the llm-mesh account store — the
+// enrolled account is the seat of record. vibe bytes come from the mesh
+// mistral-vibe account (acquire/release through a stub facade here);
+// claude/codex/muse/agy bytes stay the live CLI login files, gated on the
+// mesh enrollment. No secret-tool, no MISTRAL_API_KEY, no keyring binary.
+// Tests use synthetic fixture homes, a stub mesh facade and a stub gh only
+// — never the real HOME, never the real mesh store, never real secrets.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -10,8 +12,32 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { buildSeatEnvelope, ensureEnvironment, provisionSeats, setSecret,
-  shredFiles, validateEnvelopeViaFd, resolveVibeKey,
+  shredFiles, validateEnvelopeViaFd,
   DEFAULT_SEAT_SET } from './xcli-seat-provision.mjs';
+
+// Synthetic mesh facade: enrolled accounts as public metadata only, a
+// fixed mistral-vibe key for acquire, call counters proving the script
+// never acquires without enrollment and always releases.
+const meshAccount = (provider, accountId = `acct-${provider}-01`) => ({
+  accountId, providerId: provider, status: 'active',
+  createdAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z',
+});
+const ALL_MESH_ACCOUNTS = ['claude-code', 'codex', 'muse', 'cloud-code', 'mistral-vibe']
+  .map((provider) => meshAccount(provider));
+function stubMesh({ accounts = ALL_MESH_ACCOUNTS, key = 'mesh-vibe-key-fixture', failList = null } = {}) {
+  const calls = { acquire: [], release: 0 };
+  const facade = {
+    listAccounts: async () => {
+      if (failList) throw failList;
+      return accounts;
+    },
+    acquire: async (input) => {
+      calls.acquire.push(input);
+      return { material: { accessToken: key }, release: async () => { calls.release++; } };
+    },
+  };
+  return { facade, calls };
+}
 
 const CANARY = 'canary-fixture-zz9';
 const slotManifest = new URL('../docs/cross-cli-seat-slots.json', import.meta.url).pathname;
@@ -31,7 +57,9 @@ function fixtureHome(root) {
   return home;
 }
 
-const fixtureEnv = { MISTRAL_API_KEY: `vibe-${CANARY}` };
+// R23: no environment key feeds the provision — vibe comes from the stub
+// mesh facade, the other seats from the fixture login files.
+const meshOnly = () => stubMesh();
 
 // A stub gh: records invocations (names only), serves the environment API,
 // and proves each --body-file exists and is 0600 at call time.
@@ -66,13 +94,14 @@ test('R19: the default seat set covers the five seated families', () => {
   assert.deepEqual(DEFAULT_SEAT_SET.split(',').sort(), ['agy', 'claude', 'codex', 'muse', 'vibe']);
 });
 
-test('R19: dry-run validates five envelopes and records gh calls without uploading', () => {
+test('R23: dry-run validates five mesh-sourced envelopes and records gh calls', async () => {
   const root = fs.mkdtempSync(join(tmpdir(), 'xcli-provision-dry-'));
   try {
     const home = fixtureHome(root);
     const { stub, calls } = stubGh(root);
-    const result = provisionSeats({ seatSet: DEFAULT_SEAT_SET, slotManifestFile: slotManifest,
-      homeDir: home, env: fixtureEnv, outBase: root, ghBin: stub, mode: 'dry-run' });
+    const { facade, calls: meshCalls } = meshOnly();
+    const result = await provisionSeats({ seatSet: DEFAULT_SEAT_SET, slotManifestFile: slotManifest,
+      homeDir: home, outBase: root, ghBin: stub, mode: 'dry-run', meshFacade: facade });
     assert.equal(result.seats.length, 5);
     for (const receipt of result.seats) {
       assert.equal(receipt.kind, 'CredentialProvisioningReceiptV1');
@@ -84,6 +113,14 @@ test('R19: dry-run validates five envelopes and records gh calls without uploadi
     const vibe = result.seats.find(receipt => receipt.seatId === 'vibe');
     assert.deepEqual(vibe.files, ['.vibe/MISTRAL_API_KEY']);
     assert.equal(vibe.useSecret, 'SEAT_USE_VIBE_00');
+    // Seat sources are names-only and single-sourced per CLI.
+    assert.deepEqual(result.sources.map(source => [source.seatId, source.kind, source.provider, source.meshGate]).sort(),
+      [['agy', 'cli-login', 'cloud-code', 'enrolled'], ['claude', 'cli-login', 'claude-code', 'enrolled'],
+        ['codex', 'cli-login', 'codex', 'enrolled'], ['muse', 'cli-login', 'muse', 'enrolled'],
+        ['vibe', 'llm-mesh', 'mistral-vibe', 'enrolled']].sort());
+    assert.ok(!JSON.stringify(result.sources).includes(CANARY), 'sources carry names only');
+    assert.deepEqual(meshCalls.acquire.length, 1, 'only the vibe seat is acquired from the mesh');
+    assert.equal(meshCalls.release, 1, 'the vibe lease is released after projection');
     // One environment PUT, two branch-policy POSTs, fifteen secret sets.
     assert.equal(result.ghCalls.length, 1 + 2 + 15);
     assert.ok(result.ghCalls.slice(3).every(call => call.argv.includes('secret')),
@@ -98,12 +135,12 @@ test('R19: dry-run validates five envelopes and records gh calls without uploadi
 // R22 (bench round 22, agy diagonal): agy carries its OAuth token file in
 // the envelope (auth-only, like the other families) while the envelope keeps
 // the adapter-validated cloud-code tuple. A missing token refuses names-only.
-test('R22: the agy envelope carries the token file plus the validated tuple', () => {
+test('R22: the agy envelope carries the token file plus the validated tuple', async () => {
   const root = fs.mkdtempSync(join(tmpdir(), 'xcli-provision-agy-'));
   try {
     const home = fixtureHome(root);
-    const built = buildSeatEnvelope({ seatId: 'agy', slot: '00',
-      homeDir: home, env: fixtureEnv });
+    const built = await buildSeatEnvelope({ seatId: 'agy', slot: '00',
+      homeDir: home, meshFacade: meshOnly().facade });
     assert.deepEqual(built.files, ['.gemini/antigravity-cli/antigravity-oauth-token']);
     assert.deepEqual(built.envelope.agy, {
       packageProviderId: 'cloud-code', packageAccountTransport: 'cloud-code',
@@ -111,37 +148,75 @@ test('R22: the agy envelope carries the token file plus the validated tuple', ()
       requestedTargetProviderId: 'cloudcode-pa', requestedTransportProviderId: 'antigravity' });
     assert.ok(!built.serialized.includes(CANARY), 'no secret bytes in the serialized envelope');
     assert.ok(Buffer.byteLength(built.serialized, 'utf8') < 48 * 1024, 'token envelope fits the cap');
+    assert.equal(built.source.meshGate, 'enrolled', 'the agy login is gated on the mesh enrollment');
     fs.rmSync(join(home, '.gemini/antigravity-cli/antigravity-oauth-token'));
-    assert.throws(() => buildSeatEnvelope({ seatId: 'agy', slot: '00',
-      homeDir: home, env: fixtureEnv }),
+    await assert.rejects(buildSeatEnvelope({ seatId: 'agy', slot: '00',
+      homeDir: home, meshFacade: meshOnly().facade }),
     /login-source-missing:agy:\.gemini\/antigravity-cli\/antigravity-oauth-token/);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
-test('R19: a missing allowlisted file refuses with a names-only code and shreds', () => {
+test('R23: a missing allowlisted file refuses with a names-only code and shreds', async () => {
   const root = fs.mkdtempSync(join(tmpdir(), 'xcli-provision-refuse-'));
   try {
     const home = fixtureHome(root);
     fs.rmSync(join(home, '.claude.json'));
     const { stub } = stubGh(root);
-    assert.throws(() => provisionSeats({ seatSet: 'claude', slotManifestFile: slotManifest,
-      homeDir: home, env: fixtureEnv, outBase: root, ghBin: stub, mode: 'dry-run' }),
+    await assert.rejects(provisionSeats({ seatSet: 'claude', slotManifestFile: slotManifest,
+      homeDir: home, outBase: root, ghBin: stub, mode: 'dry-run', meshFacade: meshOnly().facade }),
     /login-source-missing:claude:\.claude\.json/);
-    assert.throws(() => provisionSeats({ seatSet: 'vibe', slotManifestFile: slotManifest,
-      homeDir: home, env: {}, outBase: root, ghBin: stub, mode: 'dry-run' }),
-    /vibe-key-missing:vibe/);
-    assert.throws(() => buildSeatEnvelope({ seatId: 'unknown', slot: '00',
-      homeDir: home, env: fixtureEnv }), /seat-unknown:unknown/);
+    await assert.rejects(buildSeatEnvelope({ seatId: 'unknown', slot: '00',
+      homeDir: home, meshFacade: meshOnly().facade }), /seat-unknown:unknown/);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
-test('R19: provision uploads fifteen secrets and shreds through the stub gh', () => {
+test('R23: a CLI with no mesh account refuses with the exact enroll command', async () => {
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-provision-notenrolled-'));
+  try {
+    const home = fixtureHome(root);
+    const { stub } = stubGh(root);
+    const { facade, calls } = stubMesh({ accounts: [] });
+    const error = await provisionSeats({ seatSet: 'vibe', slotManifestFile: slotManifest,
+      homeDir: home, outBase: root, ghBin: stub, mode: 'dry-run', meshFacade: facade })
+      .then(() => null, (err) => err);
+    assert.ok(error instanceof Error, 'refusal is an error');
+    assert.equal(error.message, 'seat-not-enrolled-in-llm-mesh:vibe');
+    assert.equal(error.enroll, 'h2a llm-mesh account enroll mistral-vibe');
+    assert.deepEqual(calls.acquire, [], 'the script never acquires without enrollment');
+    const errorCodex = await provisionSeats({ seatSet: 'codex', slotManifestFile: slotManifest,
+      homeDir: home, outBase: root, ghBin: stub, mode: 'dry-run', meshFacade: facade })
+      .then(() => null, (err) => err);
+    assert.equal(errorCodex.message, 'seat-not-enrolled-in-llm-mesh:codex');
+    assert.equal(errorCodex.enroll, 'h2a llm-mesh account enroll codex');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('R23: an unreachable mesh store refuses vibe but keeps file seats measurable', async () => {
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-provision-unreachable-'));
+  try {
+    const home = fixtureHome(root);
+    const { stub } = stubGh(root);
+    const denied = new Error('denied');
+    denied.code = 'EROFS';
+    const { facade } = stubMesh({ failList: denied });
+    const vibeError = await provisionSeats({ seatSet: 'vibe', slotManifestFile: slotManifest,
+      homeDir: home, outBase: root, ghBin: stub, mode: 'dry-run', meshFacade: facade })
+      .then(() => null, (err) => err);
+    assert.equal(vibeError.message, 'llm-mesh-store-unreachable:vibe');
+    const result = await provisionSeats({ seatSet: 'codex', slotManifestFile: slotManifest,
+      homeDir: home, outBase: root, ghBin: stub, mode: 'dry-run', meshFacade: facade });
+    assert.equal(result.seats.length, 1);
+    assert.equal(result.sources[0].meshGate, 'store-unreachable');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('R19: provision uploads fifteen secrets and shreds through the stub gh', async () => {
   const root = fs.mkdtempSync(join(tmpdir(), 'xcli-provision-up-'));
   try {
     const home = fixtureHome(root);
     const { stub, calls } = stubGh(root);
-    const result = provisionSeats({ seatSet: DEFAULT_SEAT_SET, slotManifestFile: slotManifest,
-      homeDir: home, env: fixtureEnv, outBase: root, ghBin: stub, mode: 'provision' });
+    const result = await provisionSeats({ seatSet: DEFAULT_SEAT_SET, slotManifestFile: slotManifest,
+      homeDir: home, outBase: root, ghBin: stub, mode: 'provision', meshFacade: meshOnly().facade });
     assert.equal(result.uploaded.length, 15);
     const invocations = calls();
     const sets = invocations.filter(line => line.startsWith('secret set'));
@@ -161,13 +236,13 @@ test('R19: provision uploads fifteen secrets and shreds through the stub gh', ()
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
-test('R19: local mode materialises a lane manifest and keeps the dir for the campaign', () => {
+test('R19: local mode materialises a lane manifest and keeps the dir for the campaign', async () => {
   const root = fs.mkdtempSync(join(tmpdir(), 'xcli-provision-local-'));
   try {
     const home = fixtureHome(root);
     const { stub } = stubGh(root);
-    const result = provisionSeats({ seatSet: 'codex,vibe', slotManifestFile: slotManifest,
-      homeDir: home, env: fixtureEnv, outBase: root, ghBin: stub, mode: 'local' });
+    const result = await provisionSeats({ seatSet: 'codex,vibe', slotManifestFile: slotManifest,
+      homeDir: home, outBase: root, ghBin: stub, mode: 'local', meshFacade: meshOnly().facade });
     const manifest = JSON.parse(fs.readFileSync(result.manifestFile, 'utf8'));
     assert.equal(manifest.seatMode, 'cyber-seat-custody');
     assert.deepEqual(manifest.seats.map(seat => seat.seatId).sort(), ['codex', 'vibe']);
@@ -209,17 +284,17 @@ function oversizedClaudeHome(root) {
   return home;
 }
 
-test('R20: an oversized .claude.json is minimized into a capped claude envelope', () => {
+test('R20: an oversized .claude.json is minimized into a capped claude envelope', async () => {
   const root = fs.mkdtempSync(join(tmpdir(), 'xcli-provision-r20-'));
   try {
     const home = oversizedClaudeHome(root);
     const { stub } = stubGh(root);
-    const result = provisionSeats({ seatSet: 'claude', slotManifestFile: slotManifest,
-      homeDir: home, env: fixtureEnv, outBase: root, ghBin: stub, mode: 'dry-run' });
+    const result = await provisionSeats({ seatSet: 'claude', slotManifestFile: slotManifest,
+      homeDir: home, outBase: root, ghBin: stub, mode: 'dry-run', meshFacade: meshOnly().facade });
     assert.equal(result.seats.length, 1);
     assert.deepEqual(result.seats[0].files, ['.claude.json', '.claude/.credentials.json']);
-    const built = buildSeatEnvelope({ seatId: 'claude', slot: '00',
-      homeDir: home, env: fixtureEnv });
+    const built = await buildSeatEnvelope({ seatId: 'claude', slot: '00',
+      homeDir: home, meshFacade: meshOnly().facade });
     assert.ok(Buffer.byteLength(built.serialized, 'utf8') < 48 * 1024, 'minimized envelope fits the cap');
     const crossed = JSON.parse(Buffer.from(built.envelope.files['.claude.json'], 'base64').toString('utf8'));
     assert.ok(!('projects' in crossed) && !('history' in crossed), 'no product state crosses');
@@ -228,97 +303,84 @@ test('R20: an oversized .claude.json is minimized into a capped claude envelope'
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
-test('R20: a non-JSON .claude.json refuses with a names-only code', () => {
+test('R20: a non-JSON .claude.json refuses with a names-only code', async () => {
   const root = fs.mkdtempSync(join(tmpdir(), 'xcli-provision-r20bad-'));
   try {
     const home = fixtureHome(root);
     fs.writeFileSync(join(home, '.claude.json'), 'not-json{{{');
-    assert.throws(() => buildSeatEnvelope({ seatId: 'claude', slot: '00',
-      homeDir: home, env: fixtureEnv }),
+    await assert.rejects(buildSeatEnvelope({ seatId: 'claude', slot: '00',
+      homeDir: home, meshFacade: meshOnly().facade }),
     /login-source-invalid:claude:\.claude\.json/);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
-// R20: the OS keyring fallback. A stub secret-tool stands in for the native
-// binary (never the real keyring, never real bytes on stdout).
-const KEYRING_MARK = 'keyring-fixture-qq7';
-function stubKeyring(root, { succeed = true } = {}) {
-  const log = join(root, 'keyring-calls.log');
-  const bin = join(root, 'secret-tool');
-  fs.writeFileSync(bin, `#!/bin/sh
-echo "$@" >> ${JSON.stringify(log)}
-${succeed ? `echo ${JSON.stringify(KEYRING_MARK)}` : 'exit 1'}
-exit 0
-`);
-  fs.chmodSync(bin, 0o700);
-  const calls = () => fs.existsSync(log)
-    ? fs.readFileSync(log, 'utf8').split('\n').filter(Boolean) : [];
-  return { bin, calls };
-}
-
-test('R20: vibe falls back to the OS keyring item when the env key is absent', () => {
-  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-provision-keyring-'));
+// R23: the OS keyring path is removed. Passing --keyring-bin refuses loud
+// (stale conductor invocations fail closed instead of silently ignoring the
+// flag); vibe and codex resolve from the llm-mesh store only.
+test('R23: the keyring flag is refused and the mesh store decides alone', () => {
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-provision-nokeyring-'));
   try {
     const home = fixtureHome(root);
     const { stub } = stubGh(root);
-    const { bin, calls } = stubKeyring(root);
-    assert.equal(resolveVibeKey({ MISTRAL_API_KEY: 'env-key' }, '/bin/false'), 'env-key');
-    assert.equal(resolveVibeKey({}, bin), KEYRING_MARK);
-    assert.deepEqual(calls(), ['lookup service ai.mistral.vibe']);
-    const result = provisionSeats({ seatSet: 'vibe', slotManifestFile: slotManifest,
-      homeDir: home, env: {}, outBase: root, ghBin: stub,
-      mode: 'dry-run', keyringBin: bin });
-    assert.equal(result.seats.length, 1);
-    assert.deepEqual(result.seats[0].files, ['.vibe/MISTRAL_API_KEY']);
-    assert.ok(!JSON.stringify(result).includes(KEYRING_MARK), 'receipts carry names only');
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
-});
-
-test('R20: vibe refuses names-only when neither env nor keyring has a key', () => {
-  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-provision-nokey-'));
-  try {
-    const home = fixtureHome(root);
-    const { stub } = stubGh(root);
-    const { bin } = stubKeyring(root, { succeed: false });
-    assert.throws(() => resolveVibeKey({}, bin), /vibe-key-missing:vibe/);
-    assert.throws(() => resolveVibeKey({}, '/bin/false'), /vibe-key-missing:vibe/);
-    assert.throws(() => resolveVibeKey({}, '/nonexistent-secret-tool-bin'), /vibe-key-missing:vibe/);
-    assert.throws(() => provisionSeats({ seatSet: 'vibe', slotManifestFile: slotManifest,
-      homeDir: home, env: {}, outBase: root, ghBin: stub,
-      mode: 'dry-run', keyringBin: bin }),
-    /vibe-key-missing:vibe/);
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
-});
-
-test('R20: the dry-run CLI resolves vibe from the keyring without leaking bytes', () => {
-  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-provision-keyring-cli-'));
-  try {
-    const home = fixtureHome(root);
-    const { stub } = stubGh(root);
-    const { bin } = stubKeyring(root);
     const script = new URL('./xcli-seat-provision.mjs', import.meta.url).pathname;
-    const { MISTRAL_API_KEY: _dropped, ...rest } = process.env;
+    const keyringDir = join(root, 'mesh-keyring');
+    fs.mkdirSync(keyringDir, { recursive: true });
+    const env = { ...process.env, SENTROPIC_LLM_MESH_KEYRING_DIR: keyringDir,
+      MISTRAL_API_KEY: `vibe-${CANARY}` };
+    const refused = spawnSync(process.execPath,
+      [script, '--dry-run', '--seat-set', 'vibe', '--home', home,
+        '--out-base', root, '--gh-bin', stub, '--keyring-bin', '/bin/false'],
+      { env, encoding: 'utf8', timeout: 60000 });
+    assert.equal(refused.status, 1, 'the keyring flag fails the run');
+    assert.ok(refused.stdout.includes('keyring-source-removed'), 'the refusal is typed');
+    assert.ok(!refused.stdout.includes(CANARY), 'no secret bytes on stdout');
+    // An env key alone no longer provisions vibe: the mesh account decides.
     const probed = spawnSync(process.execPath,
       [script, '--dry-run', '--seat-set', 'vibe', '--home', home,
-        '--out-base', root, '--gh-bin', stub, '--keyring-bin', bin],
-      { env: rest, encoding: 'utf8', timeout: 60000 });
-    assert.equal(probed.status, 0, probed.stderr);
-    assert.ok(probed.stdout.includes('SEAT_USE_VIBE_00'), 'the receipt names the projection');
-    assert.ok(!probed.stdout.includes(KEYRING_MARK), 'no secret bytes on stdout');
+        '--out-base', root, '--gh-bin', stub],
+      { env, encoding: 'utf8', timeout: 60000 });
+    assert.equal(probed.status, 1, 'vibe without a mesh account refuses');
+    assert.ok(probed.stdout.includes('seat-not-enrolled-in-llm-mesh:vibe'),
+      'the refusal names the missing enrollment');
+    assert.ok(probed.stdout.includes('h2a llm-mesh account enroll mistral-vibe'),
+      'the refusal carries the exact enroll command');
+    assert.ok(!probed.stdout.includes(CANARY), 'no secret bytes on stdout');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
-test('R19: the dry-run CLI prints receipts with names only', () => {
-  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-provision-cli-'));
+test('R23: the dry-run CLI refuses a file seat with no mesh account', () => {
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-provision-cli-refuse-'));
   try {
     const home = fixtureHome(root);
     const { stub } = stubGh(root);
     const script = new URL('./xcli-seat-provision.mjs', import.meta.url).pathname;
+    const keyringDir = join(root, 'mesh-keyring');
+    fs.mkdirSync(keyringDir, { recursive: true });
     const probed = spawnSync(process.execPath,
-      [script, '--dry-run', '--seat-set', 'vibe', '--home', home, '--out-base', root, '--gh-bin', stub],
-      { env: { ...process.env, MISTRAL_API_KEY: `vibe-${CANARY}` }, encoding: 'utf8', timeout: 60000 });
-    assert.equal(probed.status, 0, probed.stderr);
-    assert.ok(probed.stdout.includes('SEAT_USE_VIBE_00'), 'the receipt names the projection');
+      [script, '--dry-run', '--seat-set', 'codex', '--home', home,
+        '--out-base', root, '--gh-bin', stub],
+      { env: { ...process.env, SENTROPIC_LLM_MESH_KEYRING_DIR: keyringDir },
+        encoding: 'utf8', timeout: 60000 });
+    assert.equal(probed.status, 1, 'codex without a mesh account refuses');
+    assert.ok(probed.stdout.includes('seat-not-enrolled-in-llm-mesh:codex'),
+      'the refusal names the missing enrollment');
+    assert.ok(probed.stdout.includes('h2a llm-mesh account enroll codex'),
+      'the refusal carries the exact enroll command');
     assert.ok(!probed.stdout.includes(CANARY), 'no secret bytes on stdout');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('R23: the dry-run provision prints receipts and sources with names only', async () => {
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-provision-cli-'));
+  try {
+    const { facade } = meshOnly();
+    const result = await provisionSeats({ seatSet: 'codex,vibe', slotManifestFile: slotManifest,
+      homeDir: fixtureHome(root), outBase: root, ghBin: '/bin/false',
+      mode: 'dry-run', meshFacade: facade });
+    const printed = result.seats.map((receipt) => JSON.stringify(receipt)).join('\n') +
+      result.sources.map((source) => JSON.stringify(source)).join('\n');
+    assert.ok(printed.includes('SEAT_USE_VIBE_00'), 'the receipt names the projection');
+    assert.ok(!printed.includes(CANARY), 'no secret bytes in receipts or sources');
+    assert.ok(!printed.includes('mesh-vibe-key-fixture'), 'no mesh key bytes in receipts or sources');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
