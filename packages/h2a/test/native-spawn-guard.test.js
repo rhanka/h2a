@@ -58,8 +58,10 @@ test("should install the repo-wide boundary in each default test runner", () => 
   for (const config of ["vitest.config.mjs", "packages/h2a-runtime/vitest.config.mjs", "packages/track/vitest.config.ts"]) {
     assert.match(readFileSync(new URL(config, repo), "utf8"), /setupFiles:.*vitest\.native-isolation\.mjs/);
   }
+  // run-tests.mjs inlined the node-bucket spawn during the M17/bulk partition
+  // refactor, so it must install the guard itself instead of delegating it.
   assert.match(readFileSync(new URL("scripts/run-tests.mjs", repo), "utf8"),
-    /scripts\/run-node-tests\.mjs/);
+    /"--import",\s*join\(REPO_ROOT,\s*"packages\/h2a\/test\/helpers\/native-isolation\.js"\)/);
   assert.match(readFileSync(new URL("scripts/run-node-tests.mjs", repo), "utf8"),
     /execArgv:\s*\['--import',.*native-isolation\.js/);
 });
