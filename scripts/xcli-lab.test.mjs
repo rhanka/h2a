@@ -60,6 +60,19 @@ test('R15: startup handles the MCP-approval Allow screen, never a shell approval
   assert.equal(startupKey('Allow "h2a" MCP tool usage?\nPress Enter to confirm'), 'mcp-approval-allow');
 });
 
+// R21 (bench round 21, claude diagonal): the 2.1.316 post-trust Allow dialog
+// carries the captured Enter+confirm+trust+Allow vocabulary with a permission
+// signal but no literal MCP token, so the MCP-worded key misses it and the
+// cell idles to mcp-not-loaded-before-deadline. The server-named variant is
+// the same single startup action; unscoped screens stay closed.
+test('R21: startup handles the server-named approval variant without its MCP word', () => {
+  const variant = '[Allow] [Deny]\nPress Enter to confirm your choice\nOnly continue in directories you trust';
+  assert.equal(startupKey(variant), undefined, 'unscoped screens never auto-press');
+  assert.equal(startupKey(variant, 'claude'), 'mcp-approval-allow');
+  assert.equal(startupKey('Allow this shell command? Press Enter to confirm', 'claude'), undefined);
+  assert.equal(blockingScreen(variant), undefined, 'the variant stays a startup action, never a blocker');
+});
+
 // R17 (P2-2): only an MCP server approval at startup is a startup action.
 // Any other tool, permission or shell-command approval must stay undefined
 // and fail closed through the tool-approval blocker — never an auto-\r.
