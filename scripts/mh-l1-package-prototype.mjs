@@ -103,7 +103,7 @@ async function buildPayload(root, { buildId, managedRoot, releaseVersion, packag
     // outputs are hardlinked (obj.target and Release share inodes) and break
     // the no-hardlink image invariant. node-gyp-build resolves the vendored
     // prebuilds without compiling, exactly as the workspace install does.
-    if (original.scripts?.install === "node-gyp-build" && existsSync(join(source, "binding.gyp"))) {
+    if (existsSync(join(source, "binding.gyp")) && (!original.scripts?.install || original.scripts.install === "node-gyp-build")) {
       metadata.scripts = { install: "node-gyp-build" };
     }
     // The copied tree is already the chosen payload. A second npm files filter
