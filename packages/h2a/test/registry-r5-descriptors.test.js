@@ -61,14 +61,14 @@ function withTempDir(fn) {
 
 test("R5 descriptors: h2a and track entries.v1.json exist with contract envelope", async () => {
   const { validateRegistryEntry } = await loadLib();
-  for (const [rel, pkgDir, pkg] of [
-    ["packages/h2a/registry/entries.v1.json", "packages/h2a", H2A_PKG],
-    ["packages/track/registry/entries.v1.json", "packages/track", TRACK_PKG]
+  for (const [rel, pkgDir, pkg, expectedEntries] of [
+    ["packages/h2a/registry/entries.v1.json", "packages/h2a", H2A_PKG, 2],
+    ["packages/track/registry/entries.v1.json", "packages/track", TRACK_PKG, 1]
   ]) {
     const raw = readFileSync(new URL(rel, REPO_ROOT));
     const wrapper = JSON.parse(raw.toString("utf8"));
     assert.equal(wrapper.format, "sentropic.registry-package/v1");
-    assert.equal(wrapper.entries.length, 1);
+    assert.equal(wrapper.entries.length, expectedEntries);
     const checked = validateRegistryEntry(wrapper.entries[0]);
     assert.equal(checked.entry.format, "sentropic.registry-entry/v1");
     assert.equal(checked.entry.contractVersion, "1.1.4");
@@ -78,6 +78,23 @@ test("R5 descriptors: h2a and track entries.v1.json exist with contract envelope
     assert.equal(checked.entry.publisher.packageVersion, pkg.version);
     void pkgDir;
   }
+  // M0-L0: entries[1] carries the verbatim sentropic.ui-render values wired
+  // from packages/h2a/src/runtime/mcp/ui-render/registry-entry.ts.
+  const { validateRegistryEntry: validateSecond } = await loadLib();
+  const uiRender = validateSecond(readJson("packages/h2a/registry/entries.v1.json").entries[1]).entry;
+  assert.equal(uiRender.id, "sentropic.ui-render");
+  assert.deepEqual(uiRender.mcp.connectorIds, ["h2a-ui-render"]);
+  assert.equal(uiRender.mcp.manifestAsset, "registry/manifest.ui-render.json");
+  assert.deepEqual(
+    [...new Set(uiRender.mcp.capabilityProfiles.flatMap((profile) => profile.resources))].sort(),
+    [
+      "ui://sentropic/render/v1",
+      "a2ui://sentropic/catalog/v1",
+      "ui://sentropic/BarChart/v1",
+      "ui://sentropic/BpmnCanvas/v1",
+      "ui://sentropic/DecisionDossier/v1"
+    ].sort()
+  );
 });
 
 test("R5 descriptors: exact entry ids and parameter profiles", async () => {

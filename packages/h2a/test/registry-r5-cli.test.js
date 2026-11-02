@@ -74,7 +74,8 @@ test("R5 CLI: registry catalog lists the publisher entries and writes nothing", 
     const code = await runCli(["registry", "catalog"], io, { doctorHostInstallations: healthy });
     assert.equal(code, 0);
     const listed = JSON.parse(io.text().stdout);
-    assert.deepEqual(listed.map((entry) => entry.id).sort(), ["sentropic.h2a", "sentropic.track"]);
+    // M0-L0: the catalog carries the wired sentropic.ui-render entry unselected.
+    assert.deepEqual(listed.map((entry) => entry.id).sort(), ["sentropic.h2a", "sentropic.track", "sentropic.ui-render"]);
     assert.deepEqual(treeFiles(home), []);
   });
 });
