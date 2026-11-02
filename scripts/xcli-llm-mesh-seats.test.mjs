@@ -214,25 +214,31 @@ test('R25: a store failure names the exact failing mesh call', async () => {
     'the refusal names the exact mesh call that insists on writing');
 });
 
-// R25 upstream pin (h2a/llm-mesh bug report): a pure-read listAccounts mutates
-// the store — EncryptedFileKeyring.readMasterKey runs mkdir+chmod on every
-// getSecret, and restorePersistedAccounts claims missing owner scopes with a
-// write. Until the mesh ships a read-only open path, a read-only mount
-// (EROFS on chmod) fails the bench and the conductor must bind the runtime
-// keyring writable. This test pins the mechanism: it flips red the day the
-// mesh stops writing on reads, signalling the ISO_RW can go.
-test('R25: a pure-read listAccounts mutates the store (upstream write-on-read pin)', async () => {
+// R26 (mesh 0.32.4, sentropic PR #887): reads are side-effect-free —
+// EncryptedFileKeyring.readMasterKey(false) only stats the store (no
+// mkdir/chmod; wrong modes refuse typed keyring_insecure_permissions
+// instead of repairing). A pure-read listAccounts therefore leaves the
+// store ctime/mtime unchanged, so the bench runs against a READ-ONLY
+// keyring mount with no ISO_RW on it. This test is the inverse of the R25
+// write-on-read pin: RED on mesh 0.26.0 (chmod-on-read advances ctime on
+// every read), GREEN on 0.32.4. The first read settles one-time owner-claim
+// writes; the measured read is the second one, which must mutate nothing.
+test('R26: a pure-read listAccounts leaves the store ctime/mtime unchanged (side-effect-free reads)', async () => {
   const { createMeshSeatFacade } = requireModule();
   const populated = await syntheticMeshStore();
   try {
     await withEnv('SENTROPIC_LLM_MESH_KEYRING_DIR', populated.dir, async () => {
       const facade = await createMeshSeatFacade({ ownerScope: SYNTH_SCOPE });
-      const before = fs.statSync(populated.dir).ctimeMs;
+      await facade.listAccounts({ ownerScope: SYNTH_SCOPE });
+      const before = fs.statSync(populated.dir);
       const accounts = await facade.listAccounts({ ownerScope: SYNTH_SCOPE });
       assert.ok(accounts.some((entry) => entry.providerId === SYNTH_PROVIDER),
         'the synthetic enrollment resolves through the real facade');
-      const after = fs.statSync(populated.dir).ctimeMs;
-      assert.ok(after > before, 'a pure read advances the store ctime (upstream chmod/write-on-read)');
+      const after = fs.statSync(populated.dir);
+      assert.equal(after.ctimeMs, before.ctimeMs,
+        'a pure read leaves the store ctime unchanged (no chmod/write-on-read)');
+      assert.equal(after.mtimeMs, before.mtimeMs,
+        'a pure read leaves the store mtime unchanged (no claim/write-on-read)');
     });
   } finally {
     fs.rmSync(populated.dir, { recursive: true, force: true });
