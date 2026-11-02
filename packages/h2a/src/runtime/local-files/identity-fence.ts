@@ -14,6 +14,7 @@ import {
   openSync,
   readFileSync,
   readSync,
+  rmSync,
   statfsSync,
   statSync,
   fstatSync,
@@ -932,11 +933,78 @@ export function recoverPreviousBootSuccessionChain(
     }
     t = link.rec.token;
   }
-  // Durable backup BEFORE removal: one directory holding byte copies.
+  // The chain must end here: a 9th link means a longer chain or a live
+  // election already in progress — never purge a partial chain.
+  const tailPath = succPathFor(lockPath, t);
+  const tailRead = readIdentityLock(tailPath);
+  if (tailRead !== "absent") {
+    if (typeof tailRead === "object" && tailRead.kind === "io-error") {
+      return { recovered: false, reason: "chain-changed-during-recovery" };
+    }
+    if (tailRead === "corrupt" || tailRead === "unknown"
+      || (typeof tailRead === "object" && (tailRead.kind === "legacy" || tailRead.kind === "cull"))) {
+      return { recovered: false, reason: "chain-not-fully-previous-boot" };
+    }
+    if (typeof tailRead === "object" && (tailRead.kind === "v2" || tailRead.kind === "adapter")) {
+      if (tailRead.rec.target !== generation) {
+        return { recovered: false, reason: "chain-not-fully-previous-boot" };
+      }
+      if (isPreviousBootRecord(tailRead, self)) {
+        // An extra previous-boot link beyond the depth bound: retry instead
+        // of purging a partial chain.
+        return { recovered: false, reason: "chain-changed-during-recovery" };
+      }
+      if (tailRead.kind === "v2" && (tailRead.rec.platform !== "linux" || tailRead.rec.publication !== "link")) {
+        return { recovered: false, reason: "chain-not-fully-previous-boot" };
+      }
+      const tailView = previousBootView(tailRead);
+      if (tailView.hostKind === "machine-id" && self.hostKind === "machine-id" && tailView.host === self.host) {
+        // A current-boot election record from a peer recoverer: back off.
+        return { recovered: false, reason: "chain-changed-during-recovery" };
+      }
+      return { recovered: false, reason: "chain-not-fully-previous-boot" };
+    }
+    return { recovered: false, reason: "chain-not-fully-previous-boot" };
+  }
+  // Elect ONE recoverer atomically with link(2) on the tail path BEFORE any
+  // backup or unlink — mirroring succeedDeadToken/retireDeadToken. Losers
+  // back off; only the holder may back up and unlink. This closes the P1
+  // race where a peer unlinks a freshly acquired live .lock.
+  const claimToken = newIdentityToken();
+  const claimPub = publishIdentityRecord(tailPath, makeIdentityRecord(self, claimToken, generation), true);
+  if (claimPub.status !== "ok") {
+    return { recovered: false, reason: "chain-changed-during-recovery" };
+  }
+  let electionHeld = true;
+  const releaseElection = (): void => {
+    if (!electionHeld) return;
+    electionHeld = false;
+    try {
+      unlinkSync(tailPath);
+    } catch {
+      // best-effort
+    }
+    try {
+      syncDirectory(dir);
+    } catch {
+      // best-effort
+    }
+  };
+  const removeBackup = (backupDir: string): void => {
+    try {
+      rmSync(backupDir, { recursive: true, force: true });
+    } catch {
+      // best-effort
+    }
+  };
+  // Durable backup BEFORE removal: one directory holding byte copies. Only
+  // the elected recoverer reaches this point, so concurrent recoveries
+  // never leave duplicate backup directories.
   const backupDir = join(dir, `.identity-prevboot-chain-backup-${randomBytes(8).toString("hex")}`);
   try {
     mkdirSync(backupDir, { recursive: true, mode: 0o700 });
   } catch {
+    releaseElection();
     return { recovered: false, reason: "backup-failed" };
   }
   try {
@@ -953,30 +1021,110 @@ export function recoverPreviousBootSuccessionChain(
     }
     syncDirectory(backupDir);
   } catch {
+    removeBackup(backupDir);
+    releaseElection();
     return { recovered: false, reason: "backup-failed" };
   }
-  // Revalidate every original before unlinking: a changed generation or a
-  // concurrent recovery must never lose a live owner's lock.
-  for (const item of collected) {
+  // Revalidate every original before unlinking, with NO ENOENT shortcut: an
+  // ENOENT here means the chain changed under us (a peer hold cannot exist
+  // while we hold the election, so a vanished file is a live-owner change).
+  // A changed generation must never lose a live owner's lock.
+  const recheckItem = (item: { path: string; bytes: Buffer; dev: number; ino: number }): boolean => {
     try {
       const st = statSync(item.path);
-      if (st.dev !== item.dev || st.ino !== item.ino) return { recovered: false, reason: "chain-changed-during-recovery" };
-      if (!readFileSync(item.path).equals(item.bytes)) return { recovered: false, reason: "chain-changed-during-recovery" };
-    } catch (e) {
-      if (errnoOf(e) === "ENOENT") {
-        // A concurrent recovery already moved this chain aside: converged.
-        return { recovered: true, reason: PREVIOUS_BOOT_CHAIN_RECOVERY_KIND, backupDir, moved: collected.map((c) => c.path.slice(dir.length + 1)) };
-      }
+      if (st.dev !== item.dev || st.ino !== item.ino) return false;
+      if (!readFileSync(item.path).equals(item.bytes)) return false;
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  for (const item of collected) {
+    if (!recheckItem(item)) {
+      removeBackup(backupDir);
+      releaseElection();
       return { recovered: false, reason: "chain-changed-during-recovery" };
     }
   }
-  for (const item of collected) {
+  try {
+    const tailCheck = readIdentityLock(tailPath);
+    if (typeof tailCheck !== "object" || tailCheck.kind !== "v2" || tailCheck.rec.token !== claimToken) {
+      removeBackup(backupDir);
+      releaseElection();
+      return { recovered: false, reason: "chain-changed-during-recovery" };
+    }
+  } catch {
+    removeBackup(backupDir);
+    releaseElection();
+    return { recovered: false, reason: "chain-changed-during-recovery" };
+  }
+  // Unlink with a per-item recheck immediately before each unlink (TOCTOU
+  // close). The .lock path is reoccupiable by a fresh live owner, so it is
+  // unlinked LAST; .succ.* paths are never reoccupied. After the first
+  // unlink the backup is kept for forensics even on abort.
+  const succItems = collected.slice(1);
+  const lockItem = collected[0];
+  for (const item of succItems) {
+    if (!recheckItem(item)) {
+      try {
+        syncDirectory(dir);
+      } catch {
+        // best-effort
+      }
+      releaseElection();
+      return { recovered: false, reason: "chain-changed-during-recovery" };
+    }
     try {
       unlinkSync(item.path);
     } catch (e) {
-      if (errnoOf(e) !== "ENOENT") return { recovered: false, reason: `error:${errnoOf(e)}` };
+      if (errnoOf(e) !== "ENOENT") {
+        try {
+          syncDirectory(dir);
+        } catch {
+          // best-effort
+        }
+        releaseElection();
+        return { recovered: false, reason: `error:${errnoOf(e)}` };
+      }
+      try {
+        syncDirectory(dir);
+      } catch {
+        // best-effort
+      }
+      releaseElection();
+      return { recovered: false, reason: "chain-changed-during-recovery" };
     }
   }
+  if (!recheckItem(lockItem)) {
+    try {
+      syncDirectory(dir);
+    } catch {
+      // best-effort
+    }
+    releaseElection();
+    return { recovered: false, reason: "chain-changed-during-recovery" };
+  }
+  try {
+    unlinkSync(lockItem.path);
+  } catch (e) {
+    if (errnoOf(e) !== "ENOENT") {
+      try {
+        syncDirectory(dir);
+      } catch {
+        // best-effort
+      }
+      releaseElection();
+      return { recovered: false, reason: `error:${errnoOf(e)}` };
+    }
+    try {
+      syncDirectory(dir);
+    } catch {
+      // best-effort
+    }
+    releaseElection();
+    return { recovered: false, reason: "chain-changed-during-recovery" };
+  }
+  releaseElection();
   syncDirectory(dir);
   return { recovered: true, reason: PREVIOUS_BOOT_CHAIN_RECOVERY_KIND, backupDir, moved: collected.map((c) => c.path.slice(dir.length + 1)) };
 }
@@ -1199,6 +1347,25 @@ function acquireIdentityRound(lockPath: string, dir: string, self: SelfIdent, ct
     if (prevBoot.recovered) {
       ctx.recovered = true;
       ctx.recoveryKind = PREVIOUS_BOOT_CHAIN_RECOVERY_KIND;
+      return { retry: true };
+    }
+    // A peer already recovered or replaced the chain between the scan and
+    // the recovery attempt: the stale read must retry, never wedge on a
+    // succ-chain-exhausted blocker built from it.
+    if (prevBoot.reason === "no-identity-lock"
+      || prevBoot.reason === "chain-not-exhausted"
+      || prevBoot.reason === "chain-changed-during-recovery") {
+      return { retry: true };
+    }
+    try {
+      const fresh = readIdentityLock(lockPath);
+      const readToken = (read as { rec?: { token?: string } })?.rec?.token;
+      if (fresh === "absent") return { retry: true };
+      if (typeof fresh === "object" && (fresh.kind === "v2" || fresh.kind === "adapter")
+        && readToken !== undefined && fresh.rec.token !== readToken) {
+        return { retry: true };
+      }
+    } catch {
       return { retry: true };
     }
     return {

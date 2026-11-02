@@ -378,11 +378,13 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
     // They must drive the same bounded recovery as signed calls. The
     // controller keeps pending/permanent failures and the retry gates inert.
     if (name === "h2a_identity_status") {
+      // Drive the same bounded recovery as signed calls, then report the
+      // LIVE state: when the recorded blocker no longer exists on disk the
+      // retry kicks a fresh bounded attempt and this call reports pending
+      // instead of the stale failure.
+      options.identity?.retry();
       const status = identityStatus();
       const notices = options.operatorNotices?.() ?? [];
-      options.identity?.retry();
-      // Preserve the just-observed failure for this response even when a
-      // zero-delay retry starts; subsequent calls see the new attempt.
       return { content: [{ type: "text", text: JSON.stringify({ ...status, root: store.paths.root,
         workspaceRoot: resolve(options.workspaceRoot ?? process.cwd()), ...(notices.length ? { operator_notices: notices } : {}) }) }] };
     }
