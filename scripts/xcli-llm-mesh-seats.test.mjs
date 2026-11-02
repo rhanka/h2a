@@ -9,7 +9,9 @@
 // script never enrolls). Tests use synthetic stub facades only — never the
 // real keyring, never real secrets.
 import assert from 'node:assert/strict';
-import { hostname } from 'node:os';
+import fs from 'node:fs';
+import { tmpdir, hostname } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 
 let meshSeats = null;
@@ -127,4 +129,112 @@ test('R23: a failed acquire refuses names-only', async () => {
   const { facade } = stubMesh({ failAcquire: new Error('no_account') });
   await assert.rejects(acquireVibeKey({ facade, ownerScope: 'owner', accountId: 'a' }),
     /llm-mesh-acquire-failed:vibe/);
+});
+
+// R25: the bench sources seats from the store h2a actually uses at runtime —
+// EncryptedFileKeyring at SENTROPIC_LLM_MESH_KEYRING_DIR ??
+// ~/.sentropic/llm-mesh-keyring, opened through the same createLlmMeshFacade
+// API the gateway uses (createCliLlmMeshFacade: mode cli +
+// legacyAccountOwnerScopeRef). The store is explicit: keyringDir wins over
+// the environment, the environment wins over the compiled default. Fixtures
+// below are synthetic records written through the REAL keyring API into temp
+// dirs — never the owner store, never real secrets.
+const SYNTH_SCOPE = 'test-scope-r25';
+const SYNTH_PROVIDER = 'mistral-vibe';
+
+async function syntheticMeshStore({ scope = SYNTH_SCOPE, provider = SYNTH_PROVIDER,
+  accountId = 'acct-synth-r25-1' } = {}) {
+  const { EncryptedFileKeyring } = await import('@sentropic/llm-mesh/node');
+  const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-mesh-r25-'));
+  const keyring = new EncryptedFileKeyring(dir);
+  const now = '2026-11-02T00:00:00.000Z';
+  await keyring.setSecret('sentropic-llm-mesh:accounts:index', JSON.stringify([accountId]));
+  await keyring.setSecret(`sentropic-llm-mesh:${accountId}:public`, JSON.stringify({
+    accountId, providerId: provider, status: 'active', createdAt: now, updatedAt: now,
+    account: { ownerScopeRef: scope, transportProviderId: provider, targetProviderId: 'mistral' },
+  }));
+  await keyring.setSecret(`sentropic-llm-mesh:${accountId}:envelope`, JSON.stringify({
+    accountId, accessToken: 'synthetic-access-token', refreshToken: 'synthetic-refresh-token',
+    expiresAt: '2030-01-01T00:00:00.000Z',
+  }));
+  return { dir, accountId };
+}
+
+async function withEnv(key, value, fn) {
+  const previous = process.env[key];
+  if (value === undefined) delete process.env[key];
+  else process.env[key] = value;
+  try { return await fn(); }
+  finally {
+    if (previous === undefined) delete process.env[key];
+    else process.env[key] = previous;
+  }
+}
+
+test('R25: createMeshSeatFacade honors an explicit keyringDir over the environment', async () => {
+  const { createMeshSeatFacade, requireMeshAccount } = requireModule();
+  const populated = await syntheticMeshStore();
+  const emptyDir = fs.mkdtempSync(join(tmpdir(), 'xcli-mesh-r25-empty-'));
+  try {
+    await withEnv('SENTROPIC_LLM_MESH_KEYRING_DIR', emptyDir, async () => {
+      // The ambient store is empty: without the explicit dir the seat refuses.
+      const ambient = await createMeshSeatFacade({ ownerScope: SYNTH_SCOPE });
+      await assert.rejects(requireMeshAccount({ cli: 'vibe', facade: ambient, ownerScope: SYNTH_SCOPE }),
+        /seat-not-enrolled-in-llm-mesh:vibe/);
+      // The explicit store decides: the same API finds the synthetic account.
+      const explicit = await createMeshSeatFacade({ ownerScope: SYNTH_SCOPE, keyringDir: populated.dir });
+      const found = await requireMeshAccount({ cli: 'vibe', facade: explicit, ownerScope: SYNTH_SCOPE });
+      assert.equal(found.accountId, populated.accountId);
+      assert.equal(found.provider, SYNTH_PROVIDER);
+      assert.equal(found.meshGate, 'enrolled');
+    });
+  } finally {
+    fs.rmSync(populated.dir, { recursive: true, force: true });
+    fs.rmSync(emptyDir, { recursive: true, force: true });
+  }
+});
+
+test('R25: a store failure names the exact failing mesh call', async () => {
+  const { requireMeshAccount } = requireModule();
+  const denied = new Error('read-only file system');
+  denied.code = 'EROFS';
+  denied.stack = [
+    'Error: EROFS: read-only file system, chmod',
+    '    at async chmod (node:internal/fs/promises)',
+    '    at async EncryptedFileKeyring.readMasterKey (llm-mesh/dist/node/keyring/encrypted-file-keyring.js)',
+    '    at async EncryptedFileKeyring.getSecret (llm-mesh/dist/node/keyring/encrypted-file-keyring.js)',
+    '    at async LocalAccountTransportService.listAccounts (llm-mesh/dist/service/local-account-transport-service.js)',
+  ].join('\n');
+  const { facade } = stubMesh({ failList: denied });
+  const error = await requireMeshAccount({ cli: 'agy', facade, ownerScope: 'owner' })
+    .then(() => null, (err) => err);
+  assert.equal(error.message, 'llm-mesh-store-unreachable:agy');
+  assert.equal(error.cause, 'EROFS');
+  assert.equal(error.meshCall, 'EncryptedFileKeyring.readMasterKey',
+    'the refusal names the exact mesh call that insists on writing');
+});
+
+// R25 upstream pin (h2a/llm-mesh bug report): a pure-read listAccounts mutates
+// the store — EncryptedFileKeyring.readMasterKey runs mkdir+chmod on every
+// getSecret, and restorePersistedAccounts claims missing owner scopes with a
+// write. Until the mesh ships a read-only open path, a read-only mount
+// (EROFS on chmod) fails the bench and the conductor must bind the runtime
+// keyring writable. This test pins the mechanism: it flips red the day the
+// mesh stops writing on reads, signalling the ISO_RW can go.
+test('R25: a pure-read listAccounts mutates the store (upstream write-on-read pin)', async () => {
+  const { createMeshSeatFacade } = requireModule();
+  const populated = await syntheticMeshStore();
+  try {
+    await withEnv('SENTROPIC_LLM_MESH_KEYRING_DIR', populated.dir, async () => {
+      const facade = await createMeshSeatFacade({ ownerScope: SYNTH_SCOPE });
+      const before = fs.statSync(populated.dir).ctimeMs;
+      const accounts = await facade.listAccounts({ ownerScope: SYNTH_SCOPE });
+      assert.ok(accounts.some((entry) => entry.providerId === SYNTH_PROVIDER),
+        'the synthetic enrollment resolves through the real facade');
+      const after = fs.statSync(populated.dir).ctimeMs;
+      assert.ok(after > before, 'a pure read advances the store ctime (upstream chmod/write-on-read)');
+    });
+  } finally {
+    fs.rmSync(populated.dir, { recursive: true, force: true });
+  }
 });
