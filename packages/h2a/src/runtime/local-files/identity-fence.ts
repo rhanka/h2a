@@ -10,6 +10,7 @@ import {
   constants,
   closeSync,
   fsyncSync,
+  mkdirSync,
   openSync,
   readFileSync,
   readSync,
@@ -677,6 +678,11 @@ export interface IdentityFenceLease extends PrefixLockLease {
   readonly publication: RecordPublication;
   /** True when acquisition recovered a provably dead previous holder. */
   readonly recovered: boolean;
+  /**
+   * Typed recovery diagnostic. Present only when the recovery quarantined a
+   * previous-boot succession chain (`recovered-previous-boot-chain`).
+   */
+  readonly recoveryKind?: string;
 }
 
 interface BlockerObservation {
@@ -817,7 +823,7 @@ function recoveryAuthorized(first: { kind: "v2"; rec: IdentityLockRec } | { kind
   return identityFsQualified(dir);
 }
 
-function makeIdentityLease(lockPath: string, token: string, publication: RecordPublication, recovered: boolean): IdentityFenceLease {
+function makeIdentityLease(lockPath: string, token: string, publication: RecordPublication, recovered: boolean, recoveryKind?: string): IdentityFenceLease {
   let done = false; let dirty = false;
   const stillHeld = (): boolean => { const read = identityChainView(lockPath); return !done && read !== 'absent' && read !== 'corrupt' && read.token === token; };
   const release = (): void => {
@@ -829,7 +835,155 @@ function makeIdentityLease(lockPath: string, token: string, publication: RecordP
   const exit = (): void => { try { release(); } catch { /* preserve barrier on storage failure */ } };
   process.on('exit', exit);
   return { acquired: true, token, stillHeld, release, publication, recovered,
+    ...(recoveryKind !== undefined ? { recoveryKind } : {}),
     beginMutation: () => { if (!stillHeld()) throw new Error('identity fence lost'); dirty = true; }, endMutation: () => { dirty = false; } };
+}
+
+/**
+ * Typed diagnostic for a quarantined previous-boot succession chain.
+ * The chain (LOCK + every SUCC link) provably belongs to another boot of
+ * this same machine, so no live holder can own it; the files are moved
+ * aside with a durable backup instead of being purged blindly.
+ */
+export const PREVIOUS_BOOT_CHAIN_RECOVERY_KIND = "recovered-previous-boot-chain";
+/** Depth at which the succession scan fails closed (mirrors the R4 scan bound). */
+const PREVIOUS_BOOT_CHAIN_DEPTH = 8;
+
+export interface PreviousBootChainRecovery {
+  readonly recovered: boolean;
+  readonly reason: string;
+  readonly backupDir?: string;
+  readonly moved?: readonly string[];
+}
+
+function previousBootView(read: { kind: "v2"; rec: IdentityLockRec } | { kind: "adapter"; rec: LockRec }): LockRec {
+  return read.kind === "v2" ? identityLockView(read.rec) : read.rec;
+}
+
+/**
+ * True only when the record is provably from another boot of THIS machine:
+ * strong machine identity known and equal on both sides, both boots present,
+ * valid and different. Namespaces are deliberately NOT compared: they can
+ * change across a reboot, and rule 3 already proves death before any probe.
+ * A v2 record must also be a Linux `link` publication (o-excl is never
+ * recovered); the 0.98.5 adapter format always publishes by link.
+ */
+function isPreviousBootRecord(
+  read: { kind: "v2"; rec: IdentityLockRec } | { kind: "adapter"; rec: LockRec },
+  self: SelfIdent
+): boolean {
+  if (process.platform !== "linux") return false;
+  if (read.kind === "v2" && (read.rec.platform !== "linux" || read.rec.publication !== "link")) return false;
+  const view = previousBootView(read);
+  if (view.hostKind !== "machine-id" || self.hostKind !== "machine-id") return false;
+  if (typeof view.host !== "string" || !MACHINE_ID_RE.test(view.host) || !MACHINE_ID_RE.test(self.host)) return false;
+  if (view.host !== self.host) return false;
+  if (view.boot === null || self.boot === null || !BOOT_ID_RE.test(view.boot) || !BOOT_ID_RE.test(self.boot)) return false;
+  if (view.boot === self.boot) return false;
+  return classifyLiveness(view, self, { protocol: "identity" }).verdict === "dead";
+}
+
+/**
+ * Quarantine a succession chain left by a PREVIOUS BOOT of this machine.
+ * Succeeds only when the LOCK and every SUCC link (up to the depth limit)
+ * are provably previous-boot records of this same machine; any current-boot,
+ * foreign, unknown, corrupt or unauthorized link keeps the refusal. The
+ * originals are copied to a durable backup directory first, revalidated
+ * byte-for-byte, then unlinked — never a blind purge.
+ */
+export function recoverPreviousBootSuccessionChain(
+  lockPath: string,
+  self: SelfIdent = identitySelf()
+): PreviousBootChainRecovery {
+  const dir = dirname(lockPath);
+  if (!identityFsQualified(dir)) return { recovered: false, reason: "fs-not-qualified" };
+  const first = readIdentityLock(lockPath);
+  if (first === "absent") return { recovered: false, reason: "no-identity-lock" };
+  if (first === "corrupt" || first === "unknown" || first.kind === "io-error"
+    || first.kind === "legacy" || first.kind === "cull") {
+    return { recovered: false, reason: "chain-not-fully-previous-boot" };
+  }
+  if (!isPreviousBootRecord(first, self)) return { recovered: false, reason: "chain-not-fully-previous-boot" };
+  const generation = first.rec.token;
+  const collected: Array<{ path: string; bytes: Buffer; dev: number; ino: number }> = [];
+  try {
+    const st = statSync(lockPath);
+    collected.push({ path: lockPath, bytes: first.bytes, dev: st.dev, ino: st.ino });
+  } catch {
+    return { recovered: false, reason: "chain-changed-during-recovery" };
+  }
+  let t = generation;
+  for (let depth = 0; depth < PREVIOUS_BOOT_CHAIN_DEPTH; depth++) {
+    const path = succPathFor(lockPath, t);
+    const link = readIdentityLock(path);
+    if (link === "absent") return { recovered: false, reason: "chain-not-exhausted" };
+    if (link === "corrupt" || link === "unknown" || link.kind === "io-error"
+      || link.kind === "legacy" || link.kind === "cull") {
+      return { recovered: false, reason: "chain-not-fully-previous-boot" };
+    }
+    if (link.rec.target !== generation || !isPreviousBootRecord(link, self)) {
+      return { recovered: false, reason: "chain-not-fully-previous-boot" };
+    }
+    try {
+      const st = statSync(path);
+      collected.push({ path, bytes: link.bytes, dev: st.dev, ino: st.ino });
+    } catch {
+      return { recovered: false, reason: "chain-changed-during-recovery" };
+    }
+    t = link.rec.token;
+  }
+  // Durable backup BEFORE removal: one directory holding byte copies.
+  const backupDir = join(dir, `.identity-prevboot-chain-backup-${randomBytes(8).toString("hex")}`);
+  try {
+    mkdirSync(backupDir, { recursive: true, mode: 0o700 });
+  } catch {
+    return { recovered: false, reason: "backup-failed" };
+  }
+  try {
+    for (const item of collected) {
+      const dest = join(backupDir, item.path.slice(dir.length + 1));
+      const fd = openSync(dest, "w", 0o600);
+      try {
+        const written = writeSync(fd, item.bytes);
+        if (written !== item.bytes.length) throw new Error("short backup write");
+        fsyncSync(fd);
+      } finally {
+        closeSync(fd);
+      }
+    }
+    syncDirectory(backupDir);
+  } catch {
+    return { recovered: false, reason: "backup-failed" };
+  }
+  // Revalidate every original before unlinking: a changed generation or a
+  // concurrent recovery must never lose a live owner's lock.
+  for (const item of collected) {
+    try {
+      const st = statSync(item.path);
+      if (st.dev !== item.dev || st.ino !== item.ino) return { recovered: false, reason: "chain-changed-during-recovery" };
+      if (!readFileSync(item.path).equals(item.bytes)) return { recovered: false, reason: "chain-changed-during-recovery" };
+    } catch (e) {
+      if (errnoOf(e) === "ENOENT") {
+        // A concurrent recovery already moved this chain aside: converged.
+        return { recovered: true, reason: PREVIOUS_BOOT_CHAIN_RECOVERY_KIND, backupDir, moved: collected.map((c) => c.path.slice(dir.length + 1)) };
+      }
+      return { recovered: false, reason: "chain-changed-during-recovery" };
+    }
+  }
+  for (const item of collected) {
+    try {
+      unlinkSync(item.path);
+    } catch (e) {
+      if (errnoOf(e) !== "ENOENT") return { recovered: false, reason: `error:${errnoOf(e)}` };
+    }
+  }
+  syncDirectory(dir);
+  return { recovered: true, reason: PREVIOUS_BOOT_CHAIN_RECOVERY_KIND, backupDir, moved: collected.map((c) => c.path.slice(dir.length + 1)) };
+}
+
+/** Doctor/repair entry point: the identity lock for a store root. */
+export function repairIdentityPreviousBootChainForRoot(root: string, self: SelfIdent = identitySelf()): PreviousBootChainRecovery {
+  return recoverPreviousBootSuccessionChain(join(root, "identity", ".lock"), self);
 }
 
 export function repairIdentityJournal(dir: string, held: () => boolean, slots:PreparedBindingSlots): void {
@@ -918,7 +1072,7 @@ function acquireIdentityRound(lockPath: string, dir: string, self: SelfIdent, ct
     const rec = makeIdentityRecord(self, tok);
     const pub = publishIdentityRecord(lockPath, rec);
     if (pub.status === "ok") {
-      return { lease: makeIdentityLease(lockPath, tok, pub.publication ?? "link", ctx.recovered===true) };
+      return { lease: makeIdentityLease(lockPath, tok, pub.publication ?? "link", ctx.recovered===true, ctx.recoveryKind) };
     }
     if (pub.status === "exists" || pub.status === "retry") return { retry: true };
     const err = new Error(`identity fence publish failed: ${pub.code}`);
@@ -1038,7 +1192,15 @@ function acquireIdentityRound(lockPath: string, dir: string, self: SelfIdent, ct
     };
   }
   if (scan.exhausted) {
-    // Chain exhausted at depth 8 (R4): bounded wait, no blind purge.
+    // A chain left by a PREVIOUS BOOT of this same machine owns no live
+    // holder: quarantine it with a durable backup and retry. Any other
+    // chain keeps the bounded wait (R4) — no blind purge.
+    const prevBoot = recoverPreviousBootSuccessionChain(lockPath, self);
+    if (prevBoot.recovered) {
+      ctx.recovered = true;
+      ctx.recoveryKind = PREVIOUS_BOOT_CHAIN_RECOVERY_KIND;
+      return { retry: true };
+    }
     return {
       blocker: {
         key: "chain-exhausted",
@@ -1140,6 +1302,7 @@ function timeoutDiagnostic(
 /** Common per-round state shared by the sync and async acquisition loops. */
 interface FenceLoopContext {
   recovered?:boolean;
+  recoveryKind?: string;
   slotReceipts?:PreparedBindingSlots;
   quota: {passes:number};
   legacyAttempt?: { generation: string; capture?: LegacyCapture; result?: LegacyEvidenceResult; confirmed?: boolean };
