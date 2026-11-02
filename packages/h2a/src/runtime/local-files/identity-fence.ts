@@ -933,8 +933,10 @@ export function recoverPreviousBootSuccessionChain(
     }
     t = link.rec.token;
   }
-  // The chain must end here: a 9th link means a longer chain or a live
-  // election already in progress — never purge a partial chain.
+  // The chain must end here: a 9th link means a longer-than-depth chain —
+  // never purge a partial chain. A previous-boot 9th link reports the
+  // chain as not fully previous-boot (a bounded `succ-chain-exhausted`
+  // blocker), never a bare retry that would spin to `no-observation`.
   const tailPath = succPathFor(lockPath, t);
   const tailRead = readIdentityLock(tailPath);
   if (tailRead !== "absent") {
@@ -950,9 +952,10 @@ export function recoverPreviousBootSuccessionChain(
         return { recovered: false, reason: "chain-not-fully-previous-boot" };
       }
       if (isPreviousBootRecord(tailRead, self)) {
-        // An extra previous-boot link beyond the depth bound: retry instead
-        // of purging a partial chain.
-        return { recovered: false, reason: "chain-changed-during-recovery" };
+        // An extra previous-boot link beyond the depth bound (or a
+        // pre-round-3 election residue, which lived on this path): refuse
+        // without purging — the caller reports `succ-chain-exhausted`.
+        return { recovered: false, reason: "chain-not-fully-previous-boot" };
       }
       if (tailRead.kind === "v2" && (tailRead.rec.platform !== "linux" || tailRead.rec.publication !== "link")) {
         return { recovered: false, reason: "chain-not-fully-previous-boot" };
@@ -966,21 +969,48 @@ export function recoverPreviousBootSuccessionChain(
     }
     return { recovered: false, reason: "chain-not-fully-previous-boot" };
   }
-  // Elect ONE recoverer atomically with link(2) on the tail path BEFORE any
-  // backup or unlink — mirroring succeedDeadToken/retireDeadToken. Losers
-  // back off; only the holder may back up and unlink. This closes the P1
-  // race where a peer unlinks a freshly acquired live .lock.
+  // Elect ONE recoverer atomically with link(2) on a dedicated election file
+  // OUTSIDE the `.succ.*` namespace BEFORE any backup or unlink — mirroring
+  // succeedDeadToken/retireDeadToken. A claim published on the tail path
+  // would survive a crash between link(2) and unlink as a 9th link and wedge
+  // every later attempt (refusal → bare retry → `no-observation`); the
+  // sidecar file can only ever block a racing peer, never the chain walk.
+  // Losers back off; only the holder may back up and unlink.
+  const electionPath = join(dir, ".lock.prevboot-recovery");
   const claimToken = newIdentityToken();
-  const claimPub = publishIdentityRecord(tailPath, makeIdentityRecord(self, claimToken, generation), true);
+  let claimPub = publishIdentityRecord(electionPath, makeIdentityRecord(self, claimToken), true);
   if (claimPub.status !== "ok") {
-    return { recovered: false, reason: "chain-changed-during-recovery" };
+    // A peer recoverer may hold (or have crashed holding) the election:
+    // steal it only when its holder is provably dead (identity rule 3/4 via
+    // classifyLiveness), otherwise back off.
+    let holderDead = false;
+    const existing = readIdentityLock(electionPath);
+    if (typeof existing === "object" && (existing.kind === "v2" || existing.kind === "adapter")) {
+      try {
+        holderDead = classifyLiveness(previousBootView(existing), self, { protocol: "identity" }).verdict === "dead";
+      } catch {
+        holderDead = false;
+      }
+    }
+    if (!holderDead) {
+      return { recovered: false, reason: "chain-changed-during-recovery" };
+    }
+    try {
+      unlinkSync(electionPath);
+    } catch {
+      return { recovered: false, reason: "chain-changed-during-recovery" };
+    }
+    claimPub = publishIdentityRecord(electionPath, makeIdentityRecord(self, claimToken), true);
+    if (claimPub.status !== "ok") {
+      return { recovered: false, reason: "chain-changed-during-recovery" };
+    }
   }
   let electionHeld = true;
   const releaseElection = (): void => {
     if (!electionHeld) return;
     electionHeld = false;
     try {
-      unlinkSync(tailPath);
+      unlinkSync(electionPath);
     } catch {
       // best-effort
     }
@@ -1047,8 +1077,8 @@ export function recoverPreviousBootSuccessionChain(
     }
   }
   try {
-    const tailCheck = readIdentityLock(tailPath);
-    if (typeof tailCheck !== "object" || tailCheck.kind !== "v2" || tailCheck.rec.token !== claimToken) {
+    const electionCheck = readIdentityLock(electionPath);
+    if (typeof electionCheck !== "object" || electionCheck.kind !== "v2" || electionCheck.rec.token !== claimToken) {
       removeBackup(backupDir);
       releaseElection();
       return { recovered: false, reason: "chain-changed-during-recovery" };
@@ -1124,8 +1154,9 @@ export function recoverPreviousBootSuccessionChain(
     releaseElection();
     return { recovered: false, reason: "chain-changed-during-recovery" };
   }
+  // releaseElection() already fsyncs the directory (persisting both the
+  // chain unlink and the election release): no second syncDirectory here.
   releaseElection();
-  syncDirectory(dir);
   return { recovered: true, reason: PREVIOUS_BOOT_CHAIN_RECOVERY_KIND, backupDir, moved: collected.map((c) => c.path.slice(dir.length + 1)) };
 }
 
@@ -1351,22 +1382,25 @@ function acquireIdentityRound(lockPath: string, dir: string, self: SelfIdent, ct
     }
     // A peer already recovered or replaced the chain between the scan and
     // the recovery attempt: the stale read must retry, never wedge on a
-    // succ-chain-exhausted blocker built from it.
+    // succ-chain-exhausted blocker built from it — but ONLY when a fresh
+    // re-read proves something actually changed (lock absent or generation
+    // replaced). When nothing changed, fall through to the chain-exhausted
+    // blocker instead of spinning hot until the deadline reports
+    // `no-observation`.
     if (prevBoot.reason === "no-identity-lock"
       || prevBoot.reason === "chain-not-exhausted"
       || prevBoot.reason === "chain-changed-during-recovery") {
-      return { retry: true };
-    }
-    try {
-      const fresh = readIdentityLock(lockPath);
-      const readToken = (read as { rec?: { token?: string } })?.rec?.token;
-      if (fresh === "absent") return { retry: true };
-      if (typeof fresh === "object" && (fresh.kind === "v2" || fresh.kind === "adapter")
-        && readToken !== undefined && fresh.rec.token !== readToken) {
+      try {
+        const fresh = readIdentityLock(lockPath);
+        const readToken = (read as { rec?: { token?: string } })?.rec?.token;
+        if (fresh === "absent") return { retry: true };
+        if (typeof fresh === "object" && (fresh.kind === "v2" || fresh.kind === "adapter")
+          && readToken !== undefined && fresh.rec.token !== readToken) {
+          return { retry: true };
+        }
+      } catch {
         return { retry: true };
       }
-    } catch {
-      return { retry: true };
     }
     return {
       blocker: {

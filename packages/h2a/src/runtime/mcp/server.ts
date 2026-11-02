@@ -1,6 +1,5 @@
 import { handleDriveConsent, CONSENT_TOOLS } from "../drive/consent-tools.js";
-import { readFileSync } from "node:fs";
-import { join, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { createLocalStore, type LocalStore } from "../local-files/store.js";
 
 import {
@@ -78,7 +77,7 @@ import { createPayloadStore, type PayloadStore } from "./payload-store.js";
 import { resolveFrameBudget, type FrameBudget } from "./frame-budget.js";
 import { PAYLOAD_MAX_READ_BYTES } from "./payload-store.js";
 import { H2A_CLI_MCP_TOOL_NAMES } from "../../mcp.js";
-import { MCP_IDENTITY_RETRY_MIN_MS } from "./identity-state.js";
+import { identityBlockerGone, MCP_IDENTITY_RETRY_MIN_MS } from "./identity-state.js";
 import type { McpIdentityController, McpIdentityStatus } from "./identity-state.js";
 import {
   UnknownResourceError,
@@ -338,31 +337,12 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
   }
 
   /**
-   * Synchronous witness for the status addendum: the recorded identity-fence
-   * blocker is gone when `identity/.lock` is absent or no longer carries the
-   * recorded generation. Registry and other blockers stay on the
-   * controller's async snapshot path (never forced from status).
+   * Status addendum witness: shared with the controller retry gate
+   * (`identity-state.ts`). A diagnostic without a known generation never
+   * counts as gone: the stale failure is kept.
    */
-  function identityBlockerGone(root: string, status: McpIdentityStatus): boolean {
-    if (status.state !== "identity_failed") return false;
-    const diagnostic = (status as { diagnostic?: { lock?: string; generation?: string } }).diagnostic;
-    if (!diagnostic || diagnostic.lock !== "identity/.lock") return false;
-    let raw: Buffer;
-    try {
-      raw = readFileSync(join(root, "identity", ".lock"));
-    } catch (e) {
-      return (e as NodeJS.ErrnoException)?.code === "ENOENT";
-    }
-    try {
-      const rec = JSON.parse(raw.toString("utf8")) as { token?: unknown };
-      const token = typeof rec?.token === "string" ? rec.token : undefined;
-      if (typeof diagnostic.generation === "string" && diagnostic.generation !== "unknown" && token !== undefined) {
-        return token !== diagnostic.generation;
-      }
-      return false;
-    } catch {
-      return false;
-    }
+  function identityBlockerGoneHere(status: McpIdentityStatus): boolean {
+    return identityBlockerGone(store.paths.root, status);
   }
 
   /**
@@ -414,7 +394,7 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
       // sessions kept the stale failure until another h2a tool was called).
       const before = identityStatus();
       const kicked = options.identity?.retry() ?? false;
-      const status = kicked && identityBlockerGone(store.paths.root, before) ? identityStatus() : before;
+      const status = kicked && identityBlockerGoneHere(before) ? identityStatus() : before;
       const notices = options.operatorNotices?.() ?? [];
       return { content: [{ type: "text", text: JSON.stringify({ ...status, root: store.paths.root,
         workspaceRoot: resolve(options.workspaceRoot ?? process.cwd()), ...(notices.length ? { operator_notices: notices } : {}) }) }] };
