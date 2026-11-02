@@ -25,6 +25,15 @@ const repoRoot = dirname(dirname(self));
 
 export const LOCAL_GATE = 'local-non-merge-gating';
 
+// R22 (bench round 22, claude diagonal 01/11): a measured cell can fail its
+// wake proof with neither a blocker nor a failure (wakeFailure only), and
+// the report printed `unknown`. Keep the wake failure typed; blockers and
+// failures keep their precedence, measured-OK keeps its round-trip label.
+export function classifyLocalCellReason(cell, okStatus) {
+  return cell.blocker ?? cell.failure ?? cell.wakeFailure ??
+    (cell.status === okStatus ? 'round-trip' : 'unknown');
+}
+
 // Run one local campaign: provision envelopes, run the lane once per pair
 // set through a single qualify invocation (pairs injected into the
 // materialised manifest in place, so relative seat paths keep resolving),
@@ -70,7 +79,7 @@ export function runLocalCampaign({ seatSet = DEFAULT_SEAT_SET, pairs = null,
       sender: cell.sender, receiver: cell.receiver,
       senderSeat: cell.seats?.sender ?? cell.senderSeat ?? null,
       receiverSeat: cell.seats?.receiver ?? cell.receiverSeat ?? null,
-      status: cell.status, reason: cell.blocker ?? cell.failure ?? (cell.status === okStatus ? 'round-trip' : 'unknown'),
+      status: cell.status, reason: classifyLocalCellReason(cell, okStatus),
       elapsedMs: cell.elapsedMs ?? cell.parentElapsedMs ?? null,
       parentSecretWipe: cell.parentSecretWipe ?? null }));
     const report = { version: 1, gate: LOCAL_GATE, seatSet,
