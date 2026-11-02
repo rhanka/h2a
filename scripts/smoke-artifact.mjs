@@ -130,11 +130,16 @@ try {
   // -------------------------------------------------------------------------
   // (2)+(3) clean prefix, install FROM the candidate tarballs
   // -------------------------------------------------------------------------
+  // The installed tree must match the verified payload image: no lifecycle
+  // script runs here, so native rebuilds cannot add files or hardlinks the
+  // manifest did not cover. Production installs still run the kept prebuild
+  // resolver scripts, which resolve the vendored prebuilds without compiling.
   runSync('npm', [
     'install',
     '--prefix', prefix,
     '--no-audit',
     '--no-fund',
+    '--ignore-scripts',
     ...PACKAGES.map((pkg) => join(staging, tarballName(pkg))),
   ])
 
