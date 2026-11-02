@@ -73,6 +73,42 @@ test('R21: startup handles the server-named approval variant without its MCP wor
   assert.equal(blockingScreen(variant), undefined, 'the variant stays a startup action, never a blocker');
 });
 
+// R22 (bench round 22, codex diagonal): the codex composer prose ("choose
+// what Codex is allowed to do" + "No h2a MCP tools are available") matched
+// the MCP-worded approval key through the "allowed" substring, so the cell
+// pressed Enter into the composer until the presses exhausted and blamed a
+// phantom approval (codex-mcp-approval-unresolved) while the server never
+// started. Prose is not a dialog: the key needs the whole approval word.
+test('R22: codex composer prose never reads as an MCP approval', () => {
+  const composer = '/permissions - choose what Codex is allowed to do\n' +
+    '/model - choose what model and reasoning effort to use\n' +
+    '› Qualification h2a. Use only h2a MCP tools.\n' +
+    '• No h2a MCP tools are available in this session, so I can’t check identity status.';
+  assert.equal(startupKey(composer), undefined, 'prose "allowed" is not an approval');
+  assert.equal(startupKey(composer, 'codex'), undefined, 'scoped prose is not an approval either');
+  assert.equal(startupKey('MCP servers need permission to run in this workspace\n' +
+    'Only allow tools from sources you trust\n[Allow] [Deny]\nPress Enter to confirm your choice'),
+  'mcp-approval-allow', 'a real approval dialog still auto-confirms');
+});
+
+// R22 (bench round 22, agy + muse diagonals): two startup gates need their
+// own typed blocker instead of a generic one. The agy first-run Terms/Data-Use
+// dialog (default opted-in) is a human consent gate the harness must not
+// click through; the muse runtime host refuses a TMPDIR-derived tool-output
+// root inside a workspace or repository.
+test('R22: consent and tmpdir-guard screens block with typed reasons', () => {
+  const consent = 'Terms of Service & Data Use\n' +
+    '> [x] Yes, I agree to help improve Antigravity CLI by allowing\n' +
+    'Google to collect and use my Interactions data,\n' +
+    'choose to opt out later whenever I want';
+  assert.equal(blockingScreen(consent), 'tos-consent-required');
+  assert.equal(startupKey(consent), undefined, 'consent is never auto-pressed');
+  assert.equal(startupKey(consent, 'agy'), undefined, 'consent is never auto-pressed when scoped either');
+  const guard = "runtime host failed to start: TMPDIR '/c/tmp' produced " +
+    "process-lifetime tool-output root '/c/tmp/x' inside the configured workspace or repository";
+  assert.equal(blockingScreen(guard), 'tmpdir-guard-refusal');
+});
+
 // R17 (P2-2): only an MCP server approval at startup is a startup action.
 // Any other tool, permission or shell-command approval must stay undefined
 // and fail closed through the tool-approval blocker — never an auto-\r.
@@ -142,29 +178,33 @@ test('L4: login copies accept only the codex and Muse login roles, never ambient
     fs.mkdirSync(join(authHome, '.codex'), { recursive: true });
     fs.mkdirSync(join(authHome, '.claude'), { recursive: true });
     fs.mkdirSync(join(authHome, '.gemini'), { recursive: true });
+    fs.mkdirSync(join(authHome, '.gemini/antigravity-cli'), { recursive: true });
     fs.mkdirSync(join(authHome, '.config/muse'), { recursive: true });
     fs.mkdirSync(join(authHome, '.vibe'), { recursive: true });
     fs.mkdirSync(join(ambient, '.codex'), { recursive: true });
     writeFileSync(join(authHome, '.codex/auth.json'), JSON.stringify({ token: CANARY_TOKEN }));
     writeFileSync(join(authHome, '.claude/.credentials.json'), JSON.stringify({ token: CANARY_TOKEN }));
     writeFileSync(join(authHome, '.gemini/oauth_creds.json'), JSON.stringify({ token: CANARY_TOKEN }));
+    writeFileSync(join(authHome, '.gemini/antigravity-cli/antigravity-oauth-token'),
+      `${CANARY_TOKEN}\n`);
     writeFileSync(join(authHome, '.config/muse/auth.json'), JSON.stringify({ token: CANARY_TOKEN }));
     writeFileSync(join(authHome, '.vibe/MISTRAL_API_KEY'), `${CANARY_TOKEN}\n`);
     // Decoys the copier must never touch: extra files, ambient owner-style
-    // config, and a planted instance-shaped name.
+    // config, and a planted instance-shaped name. The stale gemini-CLI
+    // oauth file is a decoy too: only the agy CLI token crosses.
     writeFileSync(join(authHome, '.codex/config.toml'), `instance = "${CANARY_INSTANCE}"\n`);
     writeFileSync(join(ambient, '.codex/auth.json'), JSON.stringify({ token: 'ambient-canary-zz9' }));
-    // Roles beyond 'codex'|'claude' map no login files: installer families with
-    // credential files are refused; 'vibe' maps an empty allowlist (QO4, Lot L7).
-    for (const cli of ['gemini', 'agy']) {
-      const cell = join(root, 'cell-' + cli);
+    // Gemini maps no login files and stays refused. Agy carries its OAuth
+    // token (R22) like the other seated families.
+    {
+      const cell = join(root, 'cell-gemini');
       const env = environment(join(cell, 'role'));
-      assert.throws(() => copyLogin(cli, authHome, cell, env), /login-not-confined/,
-        `${cli} logins must be refused`);
+      assert.throws(() => copyLogin('gemini', authHome, cell, env), /login-not-confined/,
+        'gemini logins must be refused');
     }
     // Allowed roles copy exactly their allowlisted files, byte-identical,
     // with no ambient read and no planted names or paths received.
-    for (const cli of ['codex', 'claude', 'muse']) {
+    for (const cli of ['codex', 'claude', 'muse', 'agy']) {
       const cell = join(root, 'cell-' + cli);
       const env = environment(join(cell, 'role'));
       const copied = copyLogin(cli, authHome, cell, env);

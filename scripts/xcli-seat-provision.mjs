@@ -100,7 +100,7 @@ export function buildSeatEnvelope({ seatId, slot, homeDir, env = {}, ownerScope 
   const identity = SEAT_IDENTITIES[seatId];
   if (!identity) throw new Error(`seat-unknown:${seatId}`);
   const allowlisted = LOGIN_ALLOWLIST[identity.cli] ?? null;
-  if (allowlisted === null && identity.cli !== 'agy') throw new Error(`login-not-confined:${seatId}`);
+  if (allowlisted === null) throw new Error(`login-not-confined:${seatId}`);
   const raws = [];
   const files = {};
   if (identity.cli === 'vibe') {
@@ -108,11 +108,6 @@ export function buildSeatEnvelope({ seatId, slot, homeDir, env = {}, ownerScope 
     const bytes = Buffer.from(key, 'utf8');
     raws.push(bytes);
     files[VIBE_SEAT_FILE] = bytes.toString('base64');
-  } else if (identity.cli === 'agy') {
-    // Agy keeps no local auth files: its seat binds the cloud-code tuple
-    // below (keyring-held account, never copied). The binding digests the
-    // tuple itself, so re-provisioning the same tuple is stable.
-    raws.push(Buffer.from(JSON.stringify(AGY_TUPLE), 'utf8'));
   } else {
     if (!allowlisted?.length) throw new Error(`no-allowlisted-login-files:${seatId}`);
     for (const rel of allowlisted) {

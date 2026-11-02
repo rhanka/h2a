@@ -100,6 +100,12 @@ function startupFacts(screen) {
 
 }
 export function blockingScreen(screen) {
+  // R22: the agy first-run Terms/Data-Use dialog (default opted-in) is a
+  // human consent gate — the harness never presses it, so it blocks typed.
+  if (/terms of service.{0,40}data use|improve .{0,40} by allowing|collect and use my .{0,20}data/i.test(screen)) return 'tos-consent-required';
+  // R22: the muse runtime host refuses a TMPDIR-derived tool-output root
+  // inside a workspace or repository and exits before readiness.
+  if (/process-lifetime tool-output root.{0,80}inside the configured workspace or repository/i.test(screen)) return 'tmpdir-guard-refusal';
   if (/sign in|log in|login required|not logged in|authentication required|please authenticate|API key.{0,30}(?:missing|required)|Select authentication|Select login method|How would you like to authenticate/i.test(screen)) return 'authentication-required';
   if (/quota exceeded|usage limit|rate.?limit|credits exhausted|insufficient credits|limit reached/i.test(screen)) return 'provider-quota';
   if (/trust (?:this|the) (?:folder|workspace)|Do you trust|trust this project|security notes|choose.{0,20}theme|select.{0,20}theme|Welcome to Claude/i.test(screen)) return 'onboarding-or-trust';
@@ -114,16 +120,39 @@ function argsFor(cli, prompt) {
   return [...(PINNED_CLI_ARGS[cli] ?? []), prompt];
 }
 
-// R21 (bench round 21, codex diagonal): the isolated codex cell shows the
-// MCP/tool approval until its presses exhaust
-// (codex-mcp-approval-unresolved). The cell HOME config therefore pre-seeds
-// the documented per-server approval (`default_tools_approval_mode` takes
-// `auto | prompt | writes | approve`; `approve` pre-approves) for our own
-// h2a server only — cell HOME only, never the real HOME, and no permission
-// is disabled. Every other family renders its previous bytes unchanged.
-export function cellMcpConfigText(cli, endpoint) {
+// R21 (bench round 21, codex diagonal) + R22 correction: the isolated codex
+// cell never showed a real MCP approval — the composer prose matched the
+// key through "allowed" (R22 tightened it to the whole word). The cell HOME
+// config still pre-seeds the documented per-server approval
+// (`default_tools_approval_mode` takes `auto | prompt | writes | approve`;
+// `approve` pre-approves) for our own h2a server only — cell HOME only,
+// never the real HOME, and no permission is disabled. Every other family
+// renders its previous bytes unchanged.
+// R22 (bench round 22, codex diagonal): codex spawns MCP servers with a
+// curated environment (its own --env design), so the proxy died instantly on
+// its missing XCLI_* variables. The cell wrapper therefore carries the
+// harness env snapshot itself (shell-quoted exports) before exec, so the
+// spawner's environment no longer matters. Secret-shaped names
+// (KEY/TOKEN/SECRET/PASSWORD/CREDENTIAL) never persist; only valid shell
+// names with string values are exported.
+export function cellWrapperScript({ node, proxy, env }) {
+  const lines = ['#!/bin/sh'];
+  for (const [name, value] of Object.entries(env ?? {})) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) continue;
+    if (/KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL/i.test(name)) continue;
+    if (typeof value !== 'string' || !value) continue;
+    lines.push(`export ${name}=${quote(value)}`);
+  }
+  lines.push(`exec ${quote(node)} ${quote(proxy)} "$@"`, '');
+  return lines.join('\n');
+}
+
+export function cellMcpConfigText(cli, endpoint, { command = null } = {}) {
   if (cli === 'codex') {
-    return `[mcp_servers.h2a]\ncommand = ${JSON.stringify(endpoint.command)}\n` +
+    // R22: the codex spawner does not resolve the bare `h2a` command, so
+    // the cell names its private wrapper by absolute path (cell HOME only).
+    const resolved = command ?? endpoint.command;
+    return `[mcp_servers.h2a]\ncommand = ${JSON.stringify(resolved)}\n` +
       `args = ${JSON.stringify(endpoint.args)}\ndefault_tools_approval_mode = "approve"\n`;
   }
   return `[[mcp_servers]]\nname = "h2a"\ntransport = "stdio"\n` +
@@ -171,7 +200,10 @@ export function startupKey(screen, cli) {
   // R17 (P2-2): only an MCP server approval is auto-confirmed; any other
   // tool, permission or shell-command approval stays undefined and fails
   // closed through the tool-approval blocker.
-  if (/allow/i.test(screen) && /\bmcp\b/i.test(screen) &&
+  // R22: the codex composer prose ("allowed to do") matched the substring
+  // above and auto-pressed Enter into the composer. Prose is not a dialog:
+  // the key needs the whole approval word (dialogs say Allow/approve).
+  if (/\ballow\b/i.test(screen) && /\bmcp\b/i.test(screen) &&
     /(server|\btools?\b|permission|approv|h2a)/i.test(screen) &&
     !/shell command/i.test(screen)) return 'mcp-approval-allow';
   // R21 (bench round 21, claude diagonal 01/11): Claude 2.1.316 shows the
@@ -315,7 +347,14 @@ async function worker() {
     const vibeWitness = vibeCellKey(env, cli, row.credentialsCopied[role]);
     if (vibeWitness) row.evidence.push({ event: 'vibe-key-exported', role, cli, ...vibeWitness });
     // Every nested h2a invocation resolves to this witnessed checkout build.
-    fs.writeFileSync(join(dir, 'bin/h2a'), `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(proxy)} "$@"\n`, { mode: 0o700 });
+    // R22: the wrapper carries the harness env snapshot itself (see
+    // cellWrapperScript) because spawners may curate the server environment.
+    // The snapshot is the isolated target env — exactly what the CLI
+    // receives below — never the pre-isolation env (XDG_RUNTIME_DIR and
+    // H2A_TEST_QUALIFICATION_ROOT are added by isolation).
+    const targetEnv = isolation.isolatedNativeTestEnvironment(env);
+    fs.writeFileSync(join(dir, 'bin/h2a'),
+      cellWrapperScript({ node: process.execPath, proxy, env: targetEnv }), { mode: 0o700 });
     const workspace = join(dir, 'workspace');
     fs.mkdirSync(workspace);
     const rendered = spawnSync(process.execPath, [bin, 'host', 'setup', '--host', cli, '--print', '--root', env.H2A_ROOT],
@@ -333,7 +372,15 @@ async function worker() {
     fs.mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     if (path.endsWith('.toml')) {
       const endpoint = config.mcpServers.h2a;
-      fs.writeFileSync(path, cellMcpConfigText(cli, endpoint));
+      // R22: the codex spawner does not resolve the bare endpoint command,
+      // so the cell names its private wrapper (written above) by absolute
+      // path. Cell HOME only; every other family keeps the endpoint command.
+      // R22: the codex spawner does not resolve the bare endpoint command,
+      // so the cell names its private wrapper (written above) by absolute
+      // path. Cell HOME only; every other family keeps the endpoint command.
+      fs.writeFileSync(path, cli === 'codex'
+        ? cellMcpConfigText(cli, endpoint, { command: join(dir, 'bin', 'h2a') })
+        : cellMcpConfigText(cli, endpoint));
     } else {
       let previous = {};
       if (fs.existsSync(path)) previous = JSON.parse(fs.readFileSync(path, 'utf8'));
@@ -343,7 +390,7 @@ async function worker() {
     if (executable.version) row.evidence.push({ event: 'private-program-copy', role, cli,
       version: executable.version, hashes: executable.hashes });
     const state = await client.create({ id: `h2a-${role}`, command: executable.path,
-      args: argsFor(cli, prompt), cwd: workspace, env: isolation.isolatedNativeTestEnvironment(env), cols: 140, rows: 40 });
+      args: argsFor(cli, prompt), cwd: workspace, env: targetEnv, cols: 140, rows: 40 });
     isolation.pinPrivateNativeProcess(state.pid, env);
     enroll({ id: role, label: role, tool: cli, kind: 'local-native', cwd: workspace,
       tmuxSession: state.id, source: 'run', sessionClass: 'human' }, registry);

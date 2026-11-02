@@ -655,6 +655,55 @@ test('R21: the codex cell config pre-seeds approval for the h2a server only', ()
   }
 });
 
+// R22 (bench round 22, codex diagonal): the codex TUI never spawned the h2a
+// server (no proxy-start, "No h2a MCP tools are available", two warnings)
+// while the entry parses cleanly, so the bare `h2a` command does not resolve
+// in the spawner's environment. The cell config therefore names the private
+// cell wrapper by absolute path (cell HOME only, like the approval
+// pre-seed); every other family keeps the endpoint command untouched.
+test('R22: the codex cell config names the h2a wrapper by absolute path', () => {
+  const endpoint = { command: 'h2a', args: ['mcp-serve', '--root', '/tmp/store'] };
+  const wrapper = '/tmp/cell/receiver/bin/h2a';
+  const codex = qualify.cellMcpConfigText('codex', endpoint, { command: wrapper });
+  assert.ok(codex.includes(`command = ${JSON.stringify(wrapper)}`), 'codex resolves the wrapper absolutely');
+  assert.ok(codex.includes('default_tools_approval_mode = "approve"'), 'the approval pre-seed survives');
+  const bare = qualify.cellMcpConfigText('codex', endpoint);
+  assert.ok(bare.includes('command = "h2a"'), 'no override keeps the endpoint command');
+  const claude = qualify.cellMcpConfigText('claude', endpoint, { command: wrapper });
+  assert.ok(!claude.includes(wrapper), 'other families ignore the override');
+});
+
+// R22 (bench round 22, agy diagonal): the --settings telemetry key is not
+// part of the agy settings schema ("unknown setting"), so no session-only
+// opt-out exists — the first-run Terms/Data-Use dialog keeps its human
+// gate (see the tos-consent-required blocker below).
+test('R22: agy launches without a fabricated settings bypass', () => {
+  assert.equal(typeof qualify.argsFor, 'undefined', 'no launch-args seam ships a settings bypass');
+});
+
+// R22 (bench round 22, codex diagonal): codex spawns MCP servers with a
+// curated environment (its own --env design; `mcp get` shows `env: -`), so
+// the proxy died instantly on its missing XCLI_* variables — no proxy-start,
+// "No h2a MCP tools are available". The cell wrapper therefore carries the
+// harness env snapshot itself (shell-quoted exports) before exec, so the
+// spawn environment no longer matters. Secret-shaped names never persist.
+test('R22: the cell wrapper carries the harness env snapshot, never secrets', () => {
+  assert.equal(typeof qualify.cellWrapperScript, 'function', 'the wrapper writer is single-sourced');
+  const script = qualify.cellWrapperScript({
+    node: '/n/node', proxy: '/p/xcli-proxy.mjs',
+    env: { XCLI_CELL: '/c', XCLI_EVENTS: '/c/e.jsonl', XCLI_BIN: '/b/bin.js',
+      PATH: '/c/bin:/usr/bin:/bin', HOME: '/c/home', MISTRAL_API_KEY: 'vibe-secret-zz9',
+      ODD: "a'b" },
+  });
+  assert.ok(script.startsWith('#!/bin/sh\n'), 'the wrapper stays a shell script');
+  assert.ok(script.includes(`exec ${"'/n/node'"} ${"'/p/xcli-proxy.mjs'"} "$@"`), 'the exec line is preserved quoted');
+  assert.ok(script.includes(`XCLI_CELL='/c'`), 'the witness env is exported');
+  assert.ok(script.includes(`XCLI_BIN='/b/bin.js'`), 'the server entrypoint is exported');
+  assert.ok(script.includes(`ODD='a'\\''b'`), 'values are shell-quoted');
+  assert.ok(!script.includes('vibe-secret-zz9'), 'secret-shaped values never persist');
+  assert.ok(!script.includes('MISTRAL_API_KEY'), 'secret-shaped names never persist');
+});
+
 // R21 (bench round 21, muse diagonal): `muse config status` reports the
 // enterprise plane with exit 0 whether or not a login exists, so the
 // config-status contrast can never prove auth (preflight-auth-unproven).
