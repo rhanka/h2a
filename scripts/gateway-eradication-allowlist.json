@@ -66,5 +66,36 @@
     "specifier": "@sentropic/llm-gateway/node_modules/",
     "classification": "negative-assertion",
     "reason": "Single-mesh unit probe data; never loaded as a dependency."
+  },
+  {
+    "file": "scripts/xcli-llm-mesh-seats.mjs",
+    "specifier": "@sentropic/llm-mesh/facade",
+    "classification": "retained-h2a-adapter",
+    "reason": "Bench seats resolve through the mesh facade acquire/release pair (auth-only projection, lease released immediately); the module re-exports the facade and never re-implements enrollment.",
+    "decision": "Owner directive 2026-11-01 (bench round 23): vibe and agy seats sourced from llm-mesh, like the cyber seats."
+  },
+  {
+    "file": "scripts/xcli-seat-vendor/agy-cli-import.js",
+    "specifier": "@sentropic/llm-mesh/enrollment/agy-cli-import.ts",
+    "classification": "retained-h2a-adapter",
+    "reason": "Vendored mesh enrollment adapter, digest-pinned in VENDOR.json (sentropic bcc7d695); provenance header only, consumed by xcli-seat-import.mjs for the agy cloud-code tuple."
+  },
+  {
+    "file": "scripts/xcli-seat-vendor/cli-seat-import.js",
+    "specifier": "@sentropic/llm-mesh/enrollment/cli-seat-import.ts",
+    "classification": "retained-h2a-adapter",
+    "reason": "Vendored mesh enrollment adapter, digest-pinned in VENDOR.json (sentropic bcc7d695); provenance header only, consumed by xcli-seat-import.mjs for seat parsing."
+  },
+  {
+    "file": "scripts/xcli-seat-vendor/mistral-vibe.js",
+    "specifier": "@sentropic/llm-mesh/enrollment/mistral-vibe.ts",
+    "classification": "retained-h2a-adapter",
+    "reason": "Vendored mesh enrollment adapter, digest-pinned in VENDOR.json (sentropic bcc7d695); provenance header only, consumed for the mistral-vibe key validity constant."
+  },
+  {
+    "file": "scripts/xcli-seat-vendor/seat-bundle.js",
+    "specifier": "@sentropic/llm-mesh/enrollment/seat-bundle.ts",
+    "classification": "retained-h2a-adapter",
+    "reason": "Vendored mesh enrollment adapter, digest-pinned in VENDOR.json (sentropic bcc7d695); provenance header only, consumed by xcli-seat-import.mjs and xcli-seat-load.mjs for seat-bundle validation."
   }
 ]
