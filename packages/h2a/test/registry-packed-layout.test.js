@@ -266,7 +266,8 @@ test("LOT-6 F-10 (i): sibling tree serves catalog and bridge preflight", async (
     });
     assert.equal(catalogOut.code, 0);
     const entries = JSON.parse(catalogOut.out);
-    assert.deepEqual(entries.map((entry) => entry.id).sort(), ["sentropic.h2a", "sentropic.track"]);
+    // M0-L0: the packed catalog carries the wired sentropic.ui-render entry unselected.
+    assert.deepEqual(entries.map((entry) => entry.id).sort(), ["sentropic.h2a", "sentropic.track", "sentropic.ui-render"]);
     const { lock } = await installInTree(bin, dir, dir);
     // No fixture central: the bridge stops at the attachment refusal.
     const env = { ...baseEnv, H2A_ROOT: join(dir, "serve-root"), H2A_MCP_CENTRAL: "0" };
