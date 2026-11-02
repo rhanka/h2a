@@ -75,6 +75,20 @@
     "decision": "Owner directive 2026-11-01 (bench round 23): vibe and agy seats sourced from llm-mesh, like the cyber seats."
   },
   {
+    "file": "scripts/xcli-llm-mesh-seats.mjs",
+    "specifier": "@sentropic/llm-mesh/node",
+    "classification": "retained-h2a-adapter",
+    "reason": "Bench seats open the runtime mesh store (EncryptedFileKeyring) through the re-exported keyring only; the module never re-implements keyring crypto or enrollment.",
+    "decision": "Owner directive 2026-11-02 (bench round 25): source the seats from the llm-mesh store h2a actually uses."
+  },
+  {
+    "file": "scripts/xcli-llm-mesh-seats.test.mjs",
+    "specifier": "@sentropic/llm-mesh/node",
+    "classification": "retained-h2a-adapter",
+    "reason": "R25 synthetic fixtures write through the real keyring API into temp dirs only; never the owner store, never real secrets.",
+    "decision": "Owner directive 2026-11-02 (bench round 25): RED-GREEN proof through the real facade."
+  },
+  {
     "file": "scripts/xcli-seat-vendor/agy-cli-import.js",
     "specifier": "@sentropic/llm-mesh/enrollment/agy-cli-import.ts",
     "classification": "retained-h2a-adapter",
