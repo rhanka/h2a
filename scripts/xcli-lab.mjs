@@ -262,6 +262,14 @@ export const LOGIN_ALLOWLIST = Object.freeze({
   codex: Object.freeze(['.codex/auth.json']),
   claude: Object.freeze(['.claude/.credentials.json', '.claude.json']),
   muse: Object.freeze(['.config/muse/auth.json']),
+  // R22 (bench round 22, agy diagonal): agy (Antigravity) keeps its OAuth
+  // login at .gemini/antigravity-cli/antigravity-oauth-token — measured
+  // 2026-11-01 on this machine by stat only (regular file, 568 bytes, mode
+  // 0600, fresh mtime; the agy CLI state dir; the sibling oauth_creds.json /
+  // google_accounts.json are stale gemini-CLI artifacts and stay decoys).
+  // Auth-only like the other families: token file only, never settings or
+  // workspace state.
+  agy: Object.freeze(['.gemini/antigravity-cli/antigravity-oauth-token']),
   // R19: the vendor Vibe product keeps no auth file: the Mistral API key
   // resolves from the MISTRAL_API_KEY environment value first, else the OS
   // keyring (service ai.mistral.vibe). The seat file below is the

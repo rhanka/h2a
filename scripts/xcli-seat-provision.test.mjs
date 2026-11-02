@@ -18,7 +18,7 @@ const slotManifest = new URL('../docs/cross-cli-seat-slots.json', import.meta.ur
 
 function fixtureHome(root) {
   const home = join(root, 'home');
-  for (const dir of ['.codex', '.claude', '.config/muse', '.vibe']) {
+  for (const dir of ['.codex', '.claude', '.config/muse', '.vibe', '.gemini/antigravity-cli']) {
     fs.mkdirSync(join(home, dir), { recursive: true });
   }
   fs.writeFileSync(join(home, '.codex/auth.json'), JSON.stringify({ token: CANARY }));
@@ -26,6 +26,8 @@ function fixtureHome(root) {
   fs.writeFileSync(join(home, '.claude.json'),
     JSON.stringify({ oauthAccount: { email: 'fixture@example.test' }, hasCompletedOnboarding: true }));
   fs.writeFileSync(join(home, '.config/muse/auth.json'), JSON.stringify({ token: CANARY }));
+  fs.writeFileSync(join(home, '.gemini/antigravity-cli/antigravity-oauth-token'),
+    JSON.stringify({ token: CANARY }));
   return home;
 }
 
@@ -90,6 +92,29 @@ test('R19: dry-run validates five envelopes and records gh calls without uploadi
     assert.deepEqual(fs.readdirSync(result.outDir).filter(name => name.endsWith('.envelope.json')), [],
       'envelopes are shredded after a dry-run');
     assert.deepEqual(result.shredded.seats.sort(), ['agy', 'claude', 'codex', 'muse', 'vibe']);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+// R22 (bench round 22, agy diagonal): agy carries its OAuth token file in
+// the envelope (auth-only, like the other families) while the envelope keeps
+// the adapter-validated cloud-code tuple. A missing token refuses names-only.
+test('R22: the agy envelope carries the token file plus the validated tuple', () => {
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-provision-agy-'));
+  try {
+    const home = fixtureHome(root);
+    const built = buildSeatEnvelope({ seatId: 'agy', slot: '00',
+      homeDir: home, env: fixtureEnv });
+    assert.deepEqual(built.files, ['.gemini/antigravity-cli/antigravity-oauth-token']);
+    assert.deepEqual(built.envelope.agy, {
+      packageProviderId: 'cloud-code', packageAccountTransport: 'cloud-code',
+      issuingClientRef: 'agy-cli', endpointFamily: 'antigravity',
+      requestedTargetProviderId: 'cloudcode-pa', requestedTransportProviderId: 'antigravity' });
+    assert.ok(!built.serialized.includes(CANARY), 'no secret bytes in the serialized envelope');
+    assert.ok(Buffer.byteLength(built.serialized, 'utf8') < 48 * 1024, 'token envelope fits the cap');
+    fs.rmSync(join(home, '.gemini/antigravity-cli/antigravity-oauth-token'));
+    assert.throws(() => buildSeatEnvelope({ seatId: 'agy', slot: '00',
+      homeDir: home, env: fixtureEnv }),
+    /login-source-missing:agy:\.gemini\/antigravity-cli\/antigravity-oauth-token/);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
