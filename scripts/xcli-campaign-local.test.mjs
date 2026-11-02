@@ -15,6 +15,26 @@ import { LOCAL_GATE, classifyLocalCellReason, runLocalCampaign } from './xcli-ca
 const CANARY = 'canary-fixture-zz9';
 const slotManifest = new URL('../docs/cross-cli-seat-slots.json', import.meta.url).pathname;
 
+// R23: synthetic mesh facade — enrolled accounts as public metadata only.
+// Code paths stay hermetic: never the real keyring, never real secrets.
+const meshAccount = (provider, accountId = `acct-${provider}-01`) => ({
+  accountId, providerId: provider, status: 'active',
+  createdAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z',
+});
+const ALL_MESH_ACCOUNTS = ['claude-code', 'codex', 'muse', 'cloud-code', 'mistral-vibe']
+  .map((provider) => meshAccount(provider));
+function stubMesh({ accounts = ALL_MESH_ACCOUNTS, key = 'mesh-vibe-key-fixture' } = {}) {
+  const facade = {
+    listAccounts: async () => accounts,
+    acquire: async (input) => ({
+      input,
+      material: { accessToken: key },
+      release: async () => {},
+    }),
+  };
+  return { facade };
+}
+
 function fixtureHome(root) {
   const home = join(root, 'home');
   for (const dir of ['.codex', '.claude', '.config/muse']) fs.mkdirSync(join(home, dir), { recursive: true });
@@ -29,13 +49,13 @@ function fixtureHome(root) {
 const walk = dir => fs.readdirSync(dir, { withFileTypes: true }).flatMap(entry =>
   entry.isDirectory() ? walk(join(dir, entry.name)) : [join(dir, entry.name)]);
 
-test('R19: a simulated local campaign reports typed cells and shreds the provision dir', { timeout: 300000 }, () => {
+test('R19: a simulated local campaign reports typed cells and shreds the provision dir', { timeout: 300000 }, async () => {
   const root = fs.mkdtempSync(join(tmpdir(), 'xcli-local-'));
   try {
     const home = fixtureHome(root);
     const outBase = join(root, 'provision');
-    const { report, green } = runLocalCampaign({ seatSet: 'codex,vibe', pairs: ['codex:codex'],
-      slotManifestFile: slotManifest, homeDir: home, env: { MISTRAL_API_KEY: `vibe-${CANARY}` },
+    const { report, green } = await runLocalCampaign({ seatSet: 'codex,vibe', pairs: ['codex:codex'],
+      slotManifestFile: slotManifest, homeDir: home, meshFacade: stubMesh().facade,
       outBase, timeoutMs: 15000, wakeOffsets: '0', simulated: true, spawnTimeoutMs: 290000 });
     try {
       assert.equal(report.gate, LOCAL_GATE);
@@ -58,7 +78,7 @@ test('R19: a simulated local campaign reports typed cells and shreds the provisi
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
-test('R20: a simulated claude cell provisions past product-state bloat', { timeout: 300000 }, () => {
+test('R20: a simulated claude cell provisions past product-state bloat', { timeout: 300000 }, async () => {
   const root = fs.mkdtempSync(join(tmpdir(), 'xcli-local-r20-'));
   try {
     const home = fixtureHome(root);
@@ -68,8 +88,8 @@ test('R20: a simulated claude cell provisions past product-state bloat', { timeo
     fs.writeFileSync(join(home, '.claude.json'), JSON.stringify(big));
     assert.ok(fs.statSync(join(home, '.claude.json')).size > 200 * 1024, 'fixture exceeds the cap like the real file');
     const outBase = join(root, 'provision');
-    const { report } = runLocalCampaign({ seatSet: 'claude', pairs: ['claude:claude'],
-      slotManifestFile: slotManifest, homeDir: home, env: {}, outBase,
+    const { report } = await runLocalCampaign({ seatSet: 'claude', pairs: ['claude:claude'],
+      slotManifestFile: slotManifest, homeDir: home, meshFacade: stubMesh().facade, outBase,
       timeoutMs: 15000, wakeOffsets: '0', simulated: true, spawnTimeoutMs: 290000 });
     try {
       assert.equal(report.gate, LOCAL_GATE);
@@ -97,14 +117,14 @@ test('R22: a measured-KO cell with only a wake failure keeps its typed reason', 
   assert.equal(classifyLocalCellReason({ status: 'measured-KO' }, 'measured-OK'), 'unknown');
 });
 
-test('R19: a failed local provision refuses names-only and leaves no envelopes', () => {
+test('R19: a failed local provision refuses names-only and leaves no envelopes', async () => {
   const root = fs.mkdtempSync(join(tmpdir(), 'xcli-local-refuse-'));
   try {
     const home = fixtureHome(root);
     fs.rmSync(join(home, '.codex/auth.json'));
     const outBase = join(root, 'provision');
-    assert.throws(() => runLocalCampaign({ seatSet: 'codex', pairs: ['codex:codex'],
-      slotManifestFile: slotManifest, homeDir: home, env: {}, outBase,
+    await assert.rejects(runLocalCampaign({ seatSet: 'codex', pairs: ['codex:codex'],
+      slotManifestFile: slotManifest, homeDir: home, meshFacade: stubMesh().facade, outBase,
       timeoutMs: 15000, simulated: true }),
     /login-source-missing:codex:\.codex\/auth\.json/);
     assert.ok(!fs.existsSync(outBase) || walk(outBase).every(name => !name.endsWith('.envelope.json')),
@@ -112,29 +132,28 @@ test('R19: a failed local provision refuses names-only and leaves no envelopes',
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
-test('R19: the local CLI labels its report non-merge-gating', { timeout: 300000 }, () => {
+// R23: the spawned CLI resolves seats from the llm-mesh store, which the
+// test pins to a fresh empty keyring dir — deterministic on every machine:
+// codex refuses with the exact enroll command, names only.
+test('R23: the local CLI refuses a seat with no mesh account', { timeout: 300000 }, () => {
   const root = fs.mkdtempSync(join(tmpdir(), 'xcli-local-cli-'));
   try {
     const home = fixtureHome(root);
     const script = new URL('./xcli-campaign-local.mjs', import.meta.url).pathname;
+    const keyringDir = join(root, 'mesh-keyring');
+    fs.mkdirSync(keyringDir, { recursive: true });
     const env = { ...environment(join(root, 'env')), TMPDIR: tmpdir(),
-      MISTRAL_API_KEY: `vibe-${CANARY}`,
+      SENTROPIC_LLM_MESH_KEYRING_DIR: keyringDir,
       ...(process.env.XCLI_NODE_HEADERS ? { XCLI_NODE_HEADERS: process.env.XCLI_NODE_HEADERS } : {}) };
     const probed = spawnSync(process.execPath,
       [script, '--simulated', '--seat-set', 'codex', '--pair', 'codex:codex',
         '--home', home, '--out-base', join(root, 'provision'), '--timeout-ms', '15000'],
       { env, encoding: 'utf8', timeout: 290000, maxBuffer: 16 * 1024 * 1024 });
-    const lines = `${probed.stdout ?? ''}`.split('\n').filter(Boolean);
-    const event = lines.map(line => { try { return JSON.parse(line); } catch { return null; } })
-      .find(entry => entry?.event === 'local-campaign-report');
-    assert.ok(event, `the CLI prints the report event\n${probed.stdout}\n${probed.stderr}`);
-    assert.equal(event.gate, LOCAL_GATE);
+    assert.equal(probed.status, 1, 'the CLI refuses without a mesh account');
+    assert.ok(probed.stdout.includes('seat-not-enrolled-in-llm-mesh:codex'),
+      `the refusal names the missing enrollment\n${probed.stdout}\n${probed.stderr}`);
+    assert.ok(probed.stdout.includes('h2a llm-mesh account enroll codex'),
+      'the refusal carries the exact enroll command');
     assert.ok(!probed.stdout.includes(CANARY), 'no secret bytes on stdout');
-    const report = JSON.parse(fs.readFileSync(event.reportFile, 'utf8'));
-    assert.equal(report.gate, LOCAL_GATE);
-    assert.equal(report.cells.length, 1);
-    // The lane mints an admitted sibling root that outlives this dir by
-    // design; remove the exact root the report names.
-    removeCampaignRoot(report.campaignRoot);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

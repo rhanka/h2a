@@ -1,9 +1,11 @@
-// R19 local campaign mode (owner 01/11 17:40: test locally before burning
-// GitHub CI). Runs the same cells on this machine, under the iso-w.sh
-// confinement the conductor provides, with the same envelopes built by
-// scripts/xcli-seat-provision.mjs --local from the local auth-only material
-// (exact LOGIN_ALLOWLIST paths under the real HOME, read only by the
-// provision script; MISTRAL_API_KEY from its environment for vibe).
+// R23 local campaign mode (owner 01/11 17:40: test locally before burning
+// GitHub CI; bench round 23: every seat from the llm-mesh account store).
+// Runs the same cells on this machine, under the confinement the conductor
+// provides, with the same envelopes built by scripts/xcli-seat-provision.mjs
+// --local (vibe bytes from the enrolled mistral-vibe mesh account; the other
+// seats from the local auth-only material — exact LOGIN_ALLOWLIST paths
+// under the real HOME, read only by the provision script — gated on the mesh
+// enrollment; no secret-tool, no MISTRAL_API_KEY requirement).
 // Envelopes travel to the cells through 0600 files in a 0700 dir — never
 // into the real HOME — and the provision dir is shredded with a receipt
 // after the run. No GitHub secret, no workflow run. The local campaign
@@ -38,16 +40,16 @@ export function classifyLocalCellReason(cell, okStatus) {
 // set through a single qualify invocation (pairs injected into the
 // materialised manifest in place, so relative seat paths keep resolving),
 // then report and shred. Returns the report object.
-export function runLocalCampaign({ seatSet = DEFAULT_SEAT_SET, pairs = null,
+export async function runLocalCampaign({ seatSet = DEFAULT_SEAT_SET, pairs = null,
   fullMatrix = false, slotManifestFile = join(repoRoot, 'docs/cross-cli-seat-slots.json'),
-  homeDir = homedir(), env = process.env, ownerScope = 'owner', outBase = null,
+  homeDir = homedir(), ownerScope = 'owner', outBase = null,
   campaignRoot = null, reportFile = null, timeoutMs = 60000, sessionCap = null,
   mcpCallCap = 100, wallClockMs = 3600000, wakeOffsets = '0',
-  simulated = false, spawnTimeoutMs = 600000 } = {}) {
+  simulated = false, spawnTimeoutMs = 600000, meshFacade = null } = {}) {
   let outDir = null;
   try {
-    const provisioned = provisionSeats({ seatSet, slotManifestFile, homeDir, env,
-      ownerScope, ...(outBase ? { outBase } : {}), mode: 'local' });
+    const provisioned = await provisionSeats({ seatSet, slotManifestFile, homeDir,
+      ownerScope, ...(outBase ? { outBase } : {}), mode: 'local', ...(meshFacade ? { meshFacade } : {}) });
     outDir = provisioned.outDir;
     const manifest = JSON.parse(fs.readFileSync(provisioned.manifestFile, 'utf8'));
     const seatIds = manifest.seats.map(seat => seat.seatId);
@@ -112,12 +114,12 @@ if (process.argv[1] && resolve(process.argv[1]) === self) {
   const args = process.argv.slice(2);
   const pairs = repeated(args, '--pair');
   try {
-    const { report, green } = runLocalCampaign({
+    const { report, green } = await runLocalCampaign({
       seatSet: option(args, '--seat-set', DEFAULT_SEAT_SET),
       pairs: pairs.length ? pairs : null,
       fullMatrix: args.includes('--full-matrix'),
       slotManifestFile: option(args, '--slot-manifest', join(repoRoot, 'docs/cross-cli-seat-slots.json')),
-      homeDir: option(args, '--home', homedir()), env: process.env,
+      homeDir: option(args, '--home', homedir()),
       ownerScope: option(args, '--owner-scope', 'owner'),
       ...(option(args, '--out-base', null) ? { outBase: option(args, '--out-base', null) } : {}),
       ...(option(args, '--campaign-root', null) ? { campaignRoot: option(args, '--campaign-root', null) } : {}),
@@ -137,6 +139,7 @@ if (process.argv[1] && resolve(process.argv[1]) === self) {
     process.exitCode = green ? 0 : 2;
   } catch (error) {
     console.log(`local-campaign: REFUSED code=${error.message}`);
+    if (error.enroll) console.log(`local-campaign: ENROLL ${error.enroll}`);
     process.exit(1);
   }
 }
