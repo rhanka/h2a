@@ -5922,7 +5922,9 @@ function cmdDoctor(
   // of this same machine is quarantined with a durable backup (typed
   // diagnostic `recovered-previous-boot-chain`); any other chain is left
   // untouched. Without `--repair` this probe never mutates.
-  if (flags.repair === "true") {
+  // `--repair --dry-run` reports without mutating, like every other doctor
+  // repair surface.
+  if (flags.repair === "true" && flags["dry-run"] !== "true") {
     try {
       const prevBoot = repairIdentityPreviousBootChainForRoot(root);
       checks.identityPreviousBootChain = {
@@ -5940,6 +5942,13 @@ function cmdDoctor(
         message: (error as Error).message
       };
     }
+  } else if (flags.repair === "true" && flags["dry-run"] === "true") {
+    checks.identityPreviousBootChain = {
+      ok: true,
+      skipped: true,
+      dryRun: true,
+      message: "dry-run: pass --repair without --dry-run to recover a previous-boot identity succession chain"
+    };
   } else {
     checks.identityPreviousBootChain = {
       ok: true,
