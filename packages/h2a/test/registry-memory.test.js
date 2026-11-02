@@ -21,7 +21,11 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { MEMORY_ID, MEMORY_NAMES, entry, configuration, fixture } from "./helpers/engram-memory-contract.js";
 
 function lockFor(memory = true) {
-  const entries = [...registryPackageManifest.entries, ...trackRegistryPackageManifest.entries, ...(memory ? [entry] : [])];
+  // M0-L0: select the providers under test by id. The catalog may carry
+  // further known entries (e.g. sentropic.ui-render) that stay unselected.
+  const h2aEntry = registryPackageManifest.entries.find(e => e.id === "sentropic.h2a");
+  const trackEntry = trackRegistryPackageManifest.entries.find(e => e.id === "sentropic.track");
+  const entries = [h2aEntry, trackEntry, ...(memory ? [entry] : [])];
   const configs = [{ mode: "shared-central", serviceBindingRef: "h2a-local-central" }, { access: "read-only", repositoryBindingRef: "h2a-attachment-workspace" }, { ...configuration }];
   return { format: "h2a.registry-bridge-lock/v1", lockVersion: 1, revision: 1, host: "claude", profile: "default",
     bridge: { command: "h2a", args: [] },

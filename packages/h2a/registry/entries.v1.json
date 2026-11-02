@@ -11,7 +11,7 @@
       "entryVersion": "1.0.0",
       "publisher": {
         "packageName": "@sentropic/h2a",
-        "packageVersion": "0.98.7"
+        "packageVersion": "0.98.8"
       },
       "compatibility": {
         "entryContract": "1.1.4",
@@ -189,6 +189,164 @@
           }
         ]
       }
+    },
+    {
+      "format": "sentropic.registry-entry/v1",
+      "contractVersion": "1.1.4",
+      "kind": "mcp",
+      "id": "sentropic.ui-render",
+      "name": "ui-render",
+      "description": "Design-system JSON_RENDER MCP module (ui://sentropic/render/v1): component catalogue, standalone JSON schemas, 9-step envelope validation, and sandboxed SEP-1865 MCP App rendering.",
+      "entryVersion": "1.0.0",
+      "publisher": {
+        "packageName": "@sentropic/h2a",
+        "packageVersion": "0.98.7"
+      },
+      "compatibility": {
+        "entryContract": "1.1.4",
+        "packages": [
+          {
+            "name": "@sentropic/focus",
+            "range": "0.5.0"
+          }
+        ],
+        "schemaProfiles": [
+          "sentropic.parameters/2020-12-bounded-v1"
+        ],
+        "requiredHostFeatures": [
+          "stdio"
+        ],
+        "optionalHostFeatures": [
+          "streamable-http",
+          "mcp-app-ui"
+        ]
+      },
+      "parameters": {
+        "schemaVersion": "1.0.0",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "$id": "urn:sentropic:registry:parameters:sentropic.ui-render:1.0.0",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode"
+          ],
+          "properties": {
+            "mode": {
+              "enum": [
+                "pilot-inline",
+                "pilot-per-component",
+                "cdn-sri"
+              ]
+            }
+          }
+        },
+        "defaults": {
+          "mode": "pilot-inline"
+        }
+      },
+      "bindings": [],
+      "assets": [
+        {
+          "role": "manifest",
+          "path": "registry/manifest.ui-render.json",
+          "mediaType": "application/json",
+          "sha256": "3bee3628cd1b9b1fe2ef1696d307264f53264f53e6d1665f5ac68c2f72af2863"
+        },
+        {
+          "role": "catalog-schema",
+          "path": "vendor/design-system-elements/catalog.json",
+          "mediaType": "application/schema+json",
+          "sha256": "f2358a8f96cdf28949d1b17f7c29c287201efb53c6b8ba709b4a27165206a36c"
+        },
+        {
+          "role": "envelope-schema",
+          "path": "vendor/design-system-elements/envelope.json",
+          "mediaType": "application/schema+json",
+          "sha256": "6bf3351ba45c90a0dd3b40a7e7eddf019e72379a4551acc07a89f4436fc6cf2e"
+        }
+      ],
+      "mcp": {
+        "manifestAsset": "registry/manifest.ui-render.json",
+        "connectorIds": [
+          "h2a-ui-render"
+        ],
+        "transportProfiles": [
+          {
+            "id": "shared-central-stdio",
+            "mode": "in-process",
+            "protocolVersions": [
+              "2025-06-18"
+            ],
+            "requiredHostFeatures": [
+              "stdio"
+            ]
+          },
+          {
+            "id": "hosted-read-only-http",
+            "mode": "streamable-http",
+            "protocolVersions": [
+              "2025-06-18"
+            ],
+            "requiredHostFeatures": [
+              "streamable-http"
+            ]
+          }
+        ],
+        "protocolVersions": [
+          "2025-06-18"
+        ],
+        "capabilityProfiles": [
+          {
+            "id": "default",
+            "tools": [
+              "list_components",
+              "get_schema",
+              "render",
+              "submit_intent"
+            ],
+            "resources": [
+              "ui://sentropic/render/v1",
+              "a2ui://sentropic/catalog/v1",
+              "ui://sentropic/BarChart/v1",
+              "ui://sentropic/BpmnCanvas/v1",
+              "ui://sentropic/DecisionDossier/v1"
+            ],
+            "prompts": [],
+            "readOnly": true
+          },
+          {
+            "id": "per-component-fallback",
+            "tools": [
+              "get_schema",
+              "list_components",
+              "render",
+              "render_BarChart",
+              "render_BpmnCanvas",
+              "render_DecisionDossier",
+              "submit_intent"
+            ],
+            "resources": [
+              "ui://sentropic/render/v1",
+              "a2ui://sentropic/catalog/v1",
+              "ui://sentropic/BarChart/v1",
+              "ui://sentropic/BpmnCanvas/v1",
+              "ui://sentropic/DecisionDossier/v1"
+            ],
+            "prompts": [],
+            "readOnly": true
+          }
+        ]
+      },
+      "extensions": {
+        "io.modelcontextprotocol/ui": {
+          "resourceUri": "ui://sentropic/render/v1",
+          "mimeTypes": [
+            "text/html;profile=mcp-app"
+          ]
+        }
+      },
+      "requiredExtensions": []
     }
   ]
 }

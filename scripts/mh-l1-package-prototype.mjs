@@ -98,6 +98,14 @@ async function buildPayload(root, { buildId, managedRoot, releaseVersion, packag
     if (release && ['@sentropic/h2a', '@sentropic/h2a-runtime'].includes(original.name)) metadata.version = releaseVersion;
     for (const key of ['scripts', 'devDependencies', 'peerDependencies', 'peerDependenciesMeta',
       'optionalDependencies', 'bundledDependencies', 'bundleDependencies', 'files']) delete metadata[key];
+    // Keep the bare prebuild resolver verbatim. Without its own install script
+    // npm falls back to a raw node-gyp rebuild at install time, whose build
+    // outputs are hardlinked (obj.target and Release share inodes) and break
+    // the no-hardlink image invariant. node-gyp-build resolves the vendored
+    // prebuilds without compiling, exactly as the workspace install does.
+    if (original.scripts?.install === "node-gyp-build" && existsSync(join(source, "binding.gyp"))) {
+      metadata.scripts = { install: "node-gyp-build" };
+    }
     // The copied tree is already the chosen payload. A second npm files filter
     // must not silently drop part of that tree (e.g. installed CHANGELOGs).
     metadata.dependencies = {};
@@ -106,12 +114,24 @@ async function buildPayload(root, { buildId, managedRoot, releaseVersion, packag
     if (original.name === '@sentropic/h2a') dependencies['@sentropic/h2a-runtime'] = json(join(repo, 'packages/h2a-runtime/package.json')).version;
     if (release && original.name === '@sentropic/h2a-runtime') dependencies['@sentropic/h2a'] = releaseVersion;
     records.set(destination, metadata);
+    // The h2a↔h2a-runtime lockstep cross-dep resolves after direct deps so a
+    // direct pin of the requesting package claims the top-level path (npm
+    // semantics). Otherwise a forced-sibling transitive recorded first makes
+    // the later direct copy nest under '' as '/node_modules/<name>'.
+    const forcedSiblings = ["@sentropic/h2a", "@sentropic/h2a-runtime"].filter((name) => dependencies[name] !== undefined);
     for (const name of Object.keys(dependencies).sort()) {
+      if (forcedSiblings.includes(name)) continue;
       const directory = dependencyDirectory(name, source, release);
       if (!directory) {
         if (original.optionalDependencies?.[name] || original.peerDependenciesMeta?.[name]?.optional) continue;
         throw new Error(`prototype_dependency_missing:${original.name}:${name}`);
       }
+      const child = copyPackage(directory, destination);
+      metadata.dependencies[name] = records.get(child).version;
+    }
+    for (const name of forcedSiblings) {
+      const directory = dependencyDirectory(name, source, release);
+      if (!directory) throw new Error(`prototype_dependency_missing:${original.name}:${name}`);
       const child = copyPackage(directory, destination);
       metadata.dependencies[name] = records.get(child).version;
     }

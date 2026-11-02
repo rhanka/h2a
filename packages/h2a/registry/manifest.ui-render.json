@@ -1,0 +1,87 @@
+{
+  "providerId": "sentropic.ui-render",
+  "appId": "@sentropic/h2a",
+  "connectorIds": [
+    "h2a-ui-render"
+  ],
+  "resources": [
+    {
+      "uri": "ui://sentropic/render/v1",
+      "name": "Sentropic Design-System JSON Renderer (v1)",
+      "description": "Sandboxed SEP-1865 MCP App shell hosting @sentropic/design-system-elements.",
+      "mutability": "read-only",
+      "mutatesExternalSystem": false,
+      "idempotency": {
+        "required": false
+      },
+      "_meta": {
+        "ui": {
+          "csp": {
+            "resourceDomains": [
+              "https://cdn.jsdelivr.net"
+            ],
+            "connectDomains": []
+          }
+        }
+      }
+    },
+    {
+      "uri": "a2ui://sentropic/catalog/v1",
+      "name": "Sentropic Design-System Elements Catalogue (v1)",
+      "description": "Machine-readable JSON Schema 2020-12 component catalogue of the design system.",
+      "mutability": "read-only",
+      "mutatesExternalSystem": false,
+      "idempotency": {
+        "required": false
+      }
+    },
+    {
+      "uri": "ui://sentropic/BarChart/v1",
+      "name": "Sentropic BarChart Component Shell (v1)",
+      "description": "Per-component MCP App shell mounting <st-bar-chart>.",
+      "mutability": "read-only",
+      "mutatesExternalSystem": false,
+      "idempotency": {
+        "required": false
+      }
+    },
+    {
+      "uri": "ui://sentropic/BpmnCanvas/v1",
+      "name": "Sentropic BpmnCanvas Component Shell (v1)",
+      "description": "Per-component MCP App shell mounting <st-bpmn-canvas>.",
+      "mutability": "read-only",
+      "mutatesExternalSystem": false,
+      "idempotency": {
+        "required": false
+      }
+    },
+    {
+      "uri": "ui://sentropic/DecisionDossier/v1",
+      "name": "Sentropic DecisionDossier Component Shell (v1)",
+      "description": "Per-component MCP App shell mounting <st-decision-dossier>.",
+      "mutability": "read-only",
+      "mutatesExternalSystem": false,
+      "idempotency": {
+        "required": false
+      }
+    }
+  ],
+  "tools": [
+    {
+      "name": "list_components",
+      "readOnly": true
+    },
+    {
+      "name": "get_schema",
+      "readOnly": true
+    },
+    {
+      "name": "render",
+      "readOnly": true
+    },
+    {
+      "name": "submit_intent",
+      "readOnly": true
+    }
+  ]
+}

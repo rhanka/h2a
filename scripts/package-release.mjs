@@ -9,6 +9,21 @@ import { stop } from 'esbuild';
 import { buildReleasePayload } from './mh-l1-package-prototype.mjs';
 import { verifyPublishablePayload } from './check-publish-payload.mjs';
 const exec = promisify(execFile), repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+function breakInstallHardlinks(root) {
+  const walk = (directory) => {
+    for (const name of fs.readdirSync(directory)) {
+      const path = join(directory, name), info = fs.lstatSync(path);
+      if (info.isDirectory() && !info.isSymbolicLink()) walk(path);
+      else if (info.isFile() && info.nlink > 1) {
+        const tmp = `${path}.delink`;
+        fs.writeFileSync(tmp, fs.readFileSync(path));
+        fs.chmodSync(tmp, info.mode);
+        fs.renameSync(tmp, path);
+      }
+    }
+  };
+  walk(root);
+}
 export async function packRelease(directory, options) {
   directory = resolve(directory); fs.mkdirSync(directory, { mode: 0o700 });
   const payload = await buildReleasePayload(join(directory, 'payload'), options), artifacts = join(directory, 'artifacts');
@@ -34,8 +49,17 @@ export async function packRelease(directory, options) {
     // npm omits .bin links from the tar and recreates them during installation.
     // Verify the real installed tree, including those links; add no exclusions
     // to the executable payload and do not regenerate/bless a different manifest.
-    const installArgs = ['install', '-g', '--prefix', check, '--offline', '--umask=022', '--no-audit', '--no-fund', filename];
+    // The check install proves the tarball extracts to the manifest image, so no
+    // lifecycle script runs here: a native rebuild would add files and hardlinks
+    // the manifest does not cover. Production installs still run the kept
+    // prebuild resolver scripts, which resolve the vendored prebuilds.
+    const installArgs = ['install', '-g', '--prefix', check, '--offline', '--umask=022', '--no-audit', '--no-fund', '--ignore-scripts', filename];
     const installed = await exec('npm', installArgs, { cwd: directory, env, timeout: 120000, maxBuffer: 8 * 1024 * 1024 });
+    // npm links byte-identical files on install. The image invariant forbids
+    // shared inodes, but the manifest covers bytes: break install-time
+    // hardlinks into real copies (identical bytes, exclusive inodes) so the
+    // verified tree matches the manifest exactly.
+    breakInstallHardlinks(join(check, 'lib/node_modules', original.packageName));
     const actual = verifyPublishablePayload(join(check, 'lib/node_modules', original.packageName));
     if (actual.publishedDigest !== original.publishedDigest) throw Error('release_packed_manifest_changed');
     return { payload, root: payload.root, filename, integrity, name: receipt.name, version: receipt.version,

@@ -25,8 +25,14 @@ export function verifyPublishablePayload(directory) {
     const metadataPath = path ? `${path}/package.json` : 'package.json';
     if (!files.has(metadataPath)) throw Error('release_dependency_unrecorded');
     const metadata = json(metadataPath), record = lock.packages[path];
-    if (record.name !== metadata.name || record.version !== metadata.version ||
-      ['scripts', 'peerDependencies', 'peerDependenciesMeta', 'optionalDependencies', 'devDependencies'].some(field => metadata[field] !== undefined) ||
+    // Only the bare prebuild resolver is allowed through the lifecycle closure:
+    // without it npm falls back to a raw node-gyp rebuild whose hardlinked
+    // outputs break the no-hardlink image invariant. Anything it compiles
+    // would still fail image verification loudly.
+    const scriptsOk = metadata.scripts === undefined ||
+      JSON.stringify(metadata.scripts) === JSON.stringify({ install: "node-gyp-build" });
+    if (record.name !== metadata.name || record.version !== metadata.version || !scriptsOk ||
+      ['peerDependencies', 'peerDependenciesMeta', 'optionalDependencies', 'devDependencies'].some(field => metadata[field] !== undefined) ||
       JSON.stringify(record.dependencies ?? {}) !== JSON.stringify(metadata.dependencies ?? {})) throw Error('release_dependency_metadata_invalid');
     for (const [name, version] of Object.entries(metadata.dependencies ?? {})) {
       const target = dependencyPath(path, name);
