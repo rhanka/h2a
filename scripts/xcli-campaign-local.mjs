@@ -84,8 +84,12 @@ export async function runLocalCampaign({ seatSet = DEFAULT_SEAT_SET, pairs = nul
       status: cell.status, reason: classifyLocalCellReason(cell, okStatus),
       elapsedMs: cell.elapsedMs ?? cell.parentElapsedMs ?? null,
       parentSecretWipe: cell.parentSecretWipe ?? null }));
+    // R23: the seat source of record per seat (mesh gate, names only) is
+    // part of the report — file seats running degraded carry
+    // meshGate store-unreachable here.
     const report = { version: 1, gate: LOCAL_GATE, seatSet,
-      manifestDigest: provisioned.manifestDigest, pairs: wanted, campaignRoot: root,
+      manifestDigest: provisioned.manifestDigest, sources: provisioned.sources,
+      pairs: wanted, campaignRoot: root,
       qualifyStatus: probed.status, counts: {
         pass: cells.filter(cell => cell.status === okStatus).length,
         fail: cells.filter(cell => cell.status !== okStatus).length },
