@@ -49,7 +49,13 @@ function endpoint() {
 }
 
 const config = endpoint();
-assert.equal(config.command, 'h2a', 'fixture must launch the private witnessed product shim');
+// R22: the codex cell names its private wrapper by absolute path (the
+// spawner does not resolve the bare command), so the provenance check
+// accepts the cell's private wrapper — resolved from the role workspace the
+// harness always launches from — as well as the bare name.
+const privateWrapper = join(process.cwd(), '..', 'bin', 'h2a');
+assert.ok(config.command === 'h2a' || config.command === privateWrapper,
+  'fixture must launch the private witnessed product shim');
 const mcp = spawn(config.command, config.args, { env: process.env, stdio: ['pipe', 'pipe', 'ignore'] });
 let stopping = false;
 // The proxy writes its final server-exit witness before closing. Await that

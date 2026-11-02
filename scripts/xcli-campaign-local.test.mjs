@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { environment, removeCampaignRoot } from './xcli-lab.mjs';
-import { LOCAL_GATE, runLocalCampaign } from './xcli-campaign-local.mjs';
+import { LOCAL_GATE, classifyLocalCellReason, runLocalCampaign } from './xcli-campaign-local.mjs';
 
 const CANARY = 'canary-fixture-zz9';
 const slotManifest = new URL('../docs/cross-cli-seat-slots.json', import.meta.url).pathname;
@@ -78,6 +78,23 @@ test('R20: a simulated claude cell provisions past product-state bloat', { timeo
       assert.deepEqual(walk(outBase), [], 'the provision dir is shredded after the run');
     } finally { removeCampaignRoot(report.campaignRoot); }
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+// R22 (bench round 22, claude diagonal 01/11): the campaign report lost
+// the typed reason of a measured cell whose wake proof failed without a
+// blocker or failure (sent/delivered/received/replied all true, woke
+// false, wakeFailure wake-delay-exceeded) and printed `unknown`. The local
+// reason keeps the wake failure typed.
+test('R22: a measured-KO cell with only a wake failure keeps its typed reason', () => {
+  assert.equal(typeof classifyLocalCellReason, 'function', 'the local reason is single-sourced');
+  assert.equal(classifyLocalCellReason({ status: 'measured-KO', wakeFailure: 'wake-delay-exceeded' }, 'measured-OK'),
+    'wake-delay-exceeded');
+  assert.equal(classifyLocalCellReason({ status: 'measured-KO', blocker: 'cli-exited-before-ready',
+    wakeFailure: 'wake-delay-exceeded' }, 'measured-OK'), 'cli-exited-before-ready');
+  assert.equal(classifyLocalCellReason({ status: 'measured-KO', failure: 'wake-not-proven',
+    wakeFailure: 'wake-delay-exceeded' }, 'measured-OK'), 'wake-not-proven');
+  assert.equal(classifyLocalCellReason({ status: 'measured-OK' }, 'measured-OK'), 'round-trip');
+  assert.equal(classifyLocalCellReason({ status: 'measured-KO' }, 'measured-OK'), 'unknown');
 });
 
 test('R19: a failed local provision refuses names-only and leaves no envelopes', () => {
