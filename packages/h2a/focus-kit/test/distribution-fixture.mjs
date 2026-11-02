@@ -43,7 +43,20 @@ export function installedEvidence(root) {
     if (path.startsWith('node_modules/') && !value.link) lock.packages[path] = hydrate(path, value);
     for (const p of packedPackages) {
       const short = p.name.split('/').at(-1), prefix = `packages/${short}/node_modules/`;
-      if (path.startsWith(prefix)) lock.packages[`node_modules/${p.name}/node_modules/${path.slice(prefix.length)}`] = hydrate(path, value);
+      if (!path.startsWith(prefix)) continue;
+      let target = `node_modules/${p.name}/node_modules/${path.slice(prefix.length)}`;
+      // Bench mesh 0.32.4 + gateway-pinned 0.26.0: a nested copy that
+      // shadows an ancestor's exact edge makes offline arborist REPLACE the
+      // node and fetch the registry manifest even though the lock pins both
+      // tarballs. The sibling copy exists only for llm-gateway's real
+      // ^0.26.0 edge (peers are skipped under --legacy-peer-deps), so nest
+      // it under the gateway itself: every edge then resolves to its locked
+      // node with zero metadata, and the tarball closure is unchanged.
+      if (path === 'packages/h2a-runtime/node_modules/@sentropic/llm-mesh'
+        && p.name === '@sentropic/h2a-runtime') {
+        target = `node_modules/@sentropic/h2a-runtime/node_modules/@sentropic/llm-gateway/node_modules/@sentropic/llm-mesh`;
+      }
+      lock.packages[target] = hydrate(path, value);
     }
   }
   packedPackages.forEach((p, i) => {
