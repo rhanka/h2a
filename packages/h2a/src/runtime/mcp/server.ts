@@ -1,5 +1,6 @@
 import { handleDriveConsent, CONSENT_TOOLS } from "../drive/consent-tools.js";
-import { resolve } from 'node:path';
+import { readFileSync } from "node:fs";
+import { join, resolve } from 'node:path';
 import { createLocalStore, type LocalStore } from "../local-files/store.js";
 
 import {
@@ -337,6 +338,34 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
   }
 
   /**
+   * Synchronous witness for the status addendum: the recorded identity-fence
+   * blocker is gone when `identity/.lock` is absent or no longer carries the
+   * recorded generation. Registry and other blockers stay on the
+   * controller's async snapshot path (never forced from status).
+   */
+  function identityBlockerGone(root: string, status: McpIdentityStatus): boolean {
+    if (status.state !== "identity_failed") return false;
+    const diagnostic = (status as { diagnostic?: { lock?: string; generation?: string } }).diagnostic;
+    if (!diagnostic || diagnostic.lock !== "identity/.lock") return false;
+    let raw: Buffer;
+    try {
+      raw = readFileSync(join(root, "identity", ".lock"));
+    } catch (e) {
+      return (e as NodeJS.ErrnoException)?.code === "ENOENT";
+    }
+    try {
+      const rec = JSON.parse(raw.toString("utf8")) as { token?: unknown };
+      const token = typeof rec?.token === "string" ? rec.token : undefined;
+      if (typeof diagnostic.generation === "string" && diagnostic.generation !== "unknown" && token !== undefined) {
+        return token !== diagnostic.generation;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * L2 guard: while identity is pending/failed, refuse a KNOWN tool that is not
    * identity-independent (and refuse `h2a_inbox` unless it is a read) with a
    * bounded typed error. Returns undefined to let the call proceed. An UNKNOWN
@@ -378,12 +407,14 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
     // They must drive the same bounded recovery as signed calls. The
     // controller keeps pending/permanent failures and the retry gates inert.
     if (name === "h2a_identity_status") {
-      // Drive the same bounded recovery as signed calls, then report the
-      // LIVE state: when the recorded blocker no longer exists on disk the
-      // retry kicks a fresh bounded attempt and this call reports pending
-      // instead of the stale failure.
-      options.identity?.retry();
-      const status = identityStatus();
+      // Drive the same bounded recovery as signed calls. When a zero-delay
+      // retry starts, preserve the just-observed failure for this response —
+      // EXCEPT when the recorded identity blocker no longer exists on disk:
+      // then report the fresh attempt instead of the stale failure (other
+      // sessions kept the stale failure until another h2a tool was called).
+      const before = identityStatus();
+      const kicked = options.identity?.retry() ?? false;
+      const status = kicked && identityBlockerGone(store.paths.root, before) ? identityStatus() : before;
       const notices = options.operatorNotices?.() ?? [];
       return { content: [{ type: "text", text: JSON.stringify({ ...status, root: store.paths.root,
         workspaceRoot: resolve(options.workspaceRoot ?? process.cwd()), ...(notices.length ? { operator_notices: notices } : {}) }) }] };
