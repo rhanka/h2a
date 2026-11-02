@@ -270,9 +270,9 @@ export const LOGIN_ALLOWLIST = Object.freeze({
   // Auth-only like the other families: token file only, never settings or
   // workspace state.
   agy: Object.freeze(['.gemini/antigravity-cli/antigravity-oauth-token']),
-  // R19: the vendor Vibe product keeps no auth file: the Mistral API key
-  // resolves from the MISTRAL_API_KEY environment value first, else the OS
-  // keyring (service ai.mistral.vibe). The seat file below is the
+  // R23: the vendor Vibe product keeps no auth file: the Mistral API key
+  // comes from the enrolled mistral-vibe llm-mesh account (no
+  // MISTRAL_API_KEY requirement, no OS keyring). The seat file below is the
   // harness-defined custody projection carrying exactly that value and
   // nothing else — never product config, hooks, plugins or MCP settings.
   // The cell launcher exports it as MISTRAL_API_KEY for vibe cells only.
@@ -286,12 +286,12 @@ export function loginCopyPath(env, cli, name) {
     name === '.claude.json' ? '.claude.json' : '.credentials.json');
   return join(env.HOME, name);
 }
-// R19: the vendor Vibe product reads its key from MISTRAL_API_KEY (env
-// wins, else the OS keyring — no auth file). The seated value crosses into
-// a vibe cell only through the allowlisted seat file: this helper exports
-// exactly that file's bytes as the cell process variable and returns the
-// names-only witness. Any other family, or a vibe cell without its seat
-// file, leaves the environment untouched (null, no witness).
+// R23: the vendor Vibe product reads its key from MISTRAL_API_KEY, fed only
+// by the mesh-sourced seat file (no auth file, no keyring). The seated value
+// crosses into a vibe cell only through the allowlisted seat file: this
+// helper exports exactly that file's bytes as the cell process variable and
+// returns the names-only witness. Any other family, or a vibe cell without
+// its seat file, leaves the environment untouched (null, no witness).
 export function vibeCellKey(env, cli, copied) {
   if (cli !== 'vibe' || !(copied ?? []).includes('.vibe/MISTRAL_API_KEY')) return null;
   const keyFile = loginCopyPath(env, cli, '.vibe/MISTRAL_API_KEY');

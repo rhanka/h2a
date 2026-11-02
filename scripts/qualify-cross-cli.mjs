@@ -116,6 +116,17 @@ export function blockingScreen(screen) {
   return undefined;
 }
 
+// R23 (bench round 23, muse diagonal): muse 1.4.14 engages — identity gate
+// ready, MCP loaded, wake armed, output quiet — while its composer shows the
+// ❯ mark and a status line without the 1.4.2 `· model · effort · cwd`
+// footer the pane pattern requires. The engaged composer counts as ready.
+// Startup dialogs and blockers exit earlier through startup()/
+// observedBlocker, and the ready() caller additionally requires the ready
+// identity gate, so this never fires on a dialog screen.
+export function museEngagedComposer(screen) {
+  return /[❯›]/.test(screen) && /·/.test(screen);
+}
+
 function argsFor(cli, prompt) {
   return [...(PINNED_CLI_ARGS[cli] ?? []), prompt];
 }
@@ -340,10 +351,10 @@ async function worker() {
       row.evidence.push({ event: 'login-mapped', role, cli, file: name,
         sha256: createHash('sha256').update(fs.readFileSync(mapped)).digest('hex') });
     }
-    // R19: the vendor Vibe product reads its key from MISTRAL_API_KEY (env
-    // wins, else the OS keyring — no auth file). The seated value crosses
-    // into the cell only through the allowlisted seat file above (see
-    // vibeCellKey); the parent wipe erases both afterwards.
+    // R23: the vendor Vibe product reads its key from MISTRAL_API_KEY, fed
+    // only by the mesh-sourced seat file (no auth file, no keyring). The
+    // seated value crosses into the cell only through the allowlisted seat
+    // file above (see vibeCellKey); the parent wipe erases both afterwards.
     const vibeWitness = vibeCellKey(env, cli, row.credentialsCopied[role]);
     if (vibeWitness) row.evidence.push({ event: 'vibe-key-exported', role, cli, ...vibeWitness });
     // Every nested h2a invocation resolves to this witnessed checkout build.
@@ -515,7 +526,12 @@ async function worker() {
       if (blocker) { row.evidence.push({ event: 'startup-screen-facts', role: target.role, facts: startupFacts(screen) }); return { blocker }; }
       const identity = events(target).find(e => e.event === 'identity' && e.ok && e.ready);
       const armed = events(target).some(e => e.event === 'wake-armed');
-      if (identity && loaded(target) && armed && paneIsReady(screen, target.cli) && Date.now() - (target.lastOutputAt ?? Date.now()) >= 2000) {
+      // R23 (muse diagonal): the engaged composer counts as ready alongside
+      // the pane pattern — the caller already requires the ready identity
+      // gate, MCP load, wake arm and output quiet.
+      const composerReady = paneIsReady(screen, target.cli) ||
+        (target.cli === 'muse' && Boolean(identity) && museEngagedComposer(screen));
+      if (identity && loaded(target) && armed && composerReady && Date.now() - (target.lastOutputAt ?? Date.now()) >= 2000) {
         quietSince ??= Date.now();
         if (Date.now() - quietSince >= 2000) return { instance: identity.instance };
       } else quietSince = undefined;
@@ -525,7 +541,9 @@ async function worker() {
     row.evidence.push({ event: 'startup-screen-facts', role: target.role, facts: startupFacts(target.terminal.screen()) });
     row.evidence.push({ event: 'readiness-deadline', role: target.role,
       modelToolCallObserved: e.some(v => ['identity', 'send', 'inbox'].includes(v.event)),
+      identityReady: e.some(v => v.event === 'identity' && v.ok && v.ready),
       composerReady: paneIsReady(stripAnsi(target.screen), target.cli),
+      engagedComposer: museEngagedComposer(target.terminal.screen()),
       mcpLoaded: loaded(target), wakeArmed: e.some(v => v.event === 'wake-armed') });
     const screen = stripAnsi(target.screen);
     row.evidence.push({ event: 'screen-signals', role: target.role, signals: Object.entries({

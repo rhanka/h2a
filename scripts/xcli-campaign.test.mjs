@@ -681,6 +681,21 @@ test('R22: agy launches without a fabricated settings bypass', () => {
   assert.equal(typeof qualify.argsFor, 'undefined', 'no launch-args seam ships a settings bypass');
 });
 
+// R23 (bench round 23, muse diagonal): muse 1.4.14 engages — identity gate
+// ready, MCP loaded, wake armed, output quiet — while its composer shows the
+// ❯ mark and a status line without the 1.4.2 `· model · effort · cwd`
+// footer the pane pattern requires. The engaged composer counts as ready;
+// startup dialogs and blockers exit earlier through startup()/observedBlocker
+// and the caller additionally requires the ready identity gate, so the
+// predicate never fires on a dialog screen.
+test('R23: an engaged muse composer counts as ready without the old footer', () => {
+  assert.equal(typeof qualify.museEngagedComposer, 'function', 'the engaged-composer predicate is single-sourced');
+  assert.equal(qualify.museEngagedComposer('❯\nsome status · high'), true);
+  assert.equal(qualify.museEngagedComposer('❯'), false, 'no status line, no engagement');
+  assert.equal(qualify.museEngagedComposer('plain text · dot, no mark'), false);
+  assert.equal(qualify.museEngagedComposer(''), false);
+});
+
 // R22 (bench round 22, codex diagonal): codex spawns MCP servers with a
 // curated environment (its own --env design; `mcp get` shows `env: -`), so
 // the proxy died instantly on its missing XCLI_* variables — no proxy-start,
