@@ -249,7 +249,9 @@ export function checkPinnedArgs(cli, executable, options = {}) {
   try {
     const probed = spawnSync(executable, ['--help'], { ...options, timeout: 15000, maxBuffer: 256 * 1024 });
     if (probed.status !== 0) return { ok: false, reason: 'preflight-args-unproven' };
-    text = `${probed.stdout ?? ''}`;
+    // R21: usage text lives on either stream — agy prints its help to
+    // stderr, never stdout. A stdout-only read mis-refuses a present flag.
+    text = `${probed.stdout ?? ''}\n${probed.stderr ?? ''}`;
   } catch { return { ok: false, reason: 'preflight-args-unproven' }; }
   const escaped = flag => flag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   // Usage lines bracket flags ([--no-daemon]); option rows follow them with

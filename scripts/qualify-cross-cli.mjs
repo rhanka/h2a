@@ -114,6 +114,22 @@ function argsFor(cli, prompt) {
   return [...(PINNED_CLI_ARGS[cli] ?? []), prompt];
 }
 
+// R21 (bench round 21, codex diagonal): the isolated codex cell shows the
+// MCP/tool approval until its presses exhaust
+// (codex-mcp-approval-unresolved). The cell HOME config therefore pre-seeds
+// the documented per-server approval (`default_tools_approval_mode` takes
+// `auto | prompt | writes | approve`; `approve` pre-approves) for our own
+// h2a server only — cell HOME only, never the real HOME, and no permission
+// is disabled. Every other family renders its previous bytes unchanged.
+export function cellMcpConfigText(cli, endpoint) {
+  if (cli === 'codex') {
+    return `[mcp_servers.h2a]\ncommand = ${JSON.stringify(endpoint.command)}\n` +
+      `args = ${JSON.stringify(endpoint.args)}\ndefault_tools_approval_mode = "approve"\n`;
+  }
+  return `[[mcp_servers]]\nname = "h2a"\ntransport = "stdio"\n` +
+    `command = ${JSON.stringify(endpoint.command)}\nargs = ${JSON.stringify(endpoint.args)}\n`;
+}
+
 // R18: deterministic MCP-approval exhaustion. Claude >=2.1.314 shows an
 // interactive MCP/tool-approval Allow screen after the trust dialog. The cell
 // auto-confirms that one approval form inside its isolated HOME (bounded
@@ -131,9 +147,24 @@ export function classifyApprovalExhaustion({ cli, presses, limit, mcpLoaded }) {
   return undefined;
 }
 
+// R21 (bench round 21, muse diagonal): `muse config status` reports the
+// enterprise plane with exit 0 whether or not a login exists, so a
+// config-status contrast can never prove auth. The `usage` oracle shows the
+// subscription allowance with no model turn: exit 1 with `not logged in`
+// without (or with invalid) auth — measured on 1.4.14-R7309.1 — and a
+// zero-exit allowance report with valid auth. A non-zero exit, empty output,
+// or any measured login-negative marker reads non-authed, fail closed.
+export const MUSE_NOAUTH_PATTERN = /not.*(logged|signed).?in|no .*auth|unauthenticated|missing.*(login|credential)|no_allowance|server_sent_no_usage|no subscription allowance|subscription allowance unavailable/i;
+
+export function classifyMuseUsageProbe({ status, text }) {
+  const body = `${text ?? ''}`;
+  const authed = status === 0 && body.trim().length > 0 && !MUSE_NOAUTH_PATTERN.test(body);
+  return { authed };
+}
+
 // Only normal startup UI interactions in our empty temporary workspace.
 // No bypass flags, persisted trust edits, or inputs after the idle barrier.
-export function startupKey(screen) {
+export function startupKey(screen, cli) {
   // Claude >=2.1.314 shows an MCP/tool-approval Allow screen after the trust
   // dialog (captured: Enter+confirm+trust+Allow vocabulary with a permission
   // signal). Without a key the cell idles to mcp-not-loaded-before-deadline.
@@ -143,6 +174,17 @@ export function startupKey(screen) {
   if (/allow/i.test(screen) && /\bmcp\b/i.test(screen) &&
     /(server|\btools?\b|permission|approv|h2a)/i.test(screen) &&
     !/shell command/i.test(screen)) return 'mcp-approval-allow';
+  // R21 (bench round 21, claude diagonal 01/11): Claude 2.1.316 shows the
+  // same post-trust Allow dialog (Enter+confirm+trust+Allow with a permission
+  // signal, composer ready, no MCP loaded) in a variant that names no
+  // literal MCP token, so the worded key above misses it and the cell idles
+  // the whole deadline. The variant is the same single startup action —
+  // claude-scoped, bounded presses, exhaustion-typed — never a shell or
+  // tool approval, which stay undefined and fail closed.
+  if (cli === 'claude' && /allow/i.test(screen) && /trust/i.test(screen) &&
+    /(confirm|press\s+enter)/i.test(screen) &&
+    !/shell command/i.test(screen) && !/\btools?\b/i.test(screen) &&
+    !/permission.{0,20}(?:required|denied)/i.test(screen)) return 'mcp-approval-allow';
   const normalized = screen.replace(/\s+/g, ' ');
   if (/choose.{0,25}permissions/i.test(normalized) && /default/i.test(normalized) && /press.{0,35}continue/i.test(normalized)) return 'permissions-keep-default';
   if (/Default permissions/i.test(screen) && /press[^\n]{0,35}continue/i.test(screen)) return 'permissions-keep-default';
@@ -291,8 +333,7 @@ async function worker() {
     fs.mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     if (path.endsWith('.toml')) {
       const endpoint = config.mcpServers.h2a;
-      const table = cli === 'codex' ? '[mcp_servers.h2a]\n' : '[[mcp_servers]]\nname = "h2a"\ntransport = "stdio"\n';
-      fs.writeFileSync(path, `${table}command = ${JSON.stringify(endpoint.command)}\nargs = ${JSON.stringify(endpoint.args)}\n`);
+      fs.writeFileSync(path, cellMcpConfigText(cli, endpoint));
     } else {
       let previous = {};
       if (fs.existsSync(path)) previous = JSON.parse(fs.readFileSync(path, 'utf8'));
@@ -339,7 +380,7 @@ async function worker() {
     target.startupActions ??= new Set();
     target.startupPresses ??= {};
     target.startupPressAt ??= {};
-    const action = startupKey(screen);
+    const action = startupKey(screen, target.cli);
     if (!action) return false;
     const presses = target.startupPresses[action] ?? 0;
     // Rendering a choice does not mean the CLI has installed its key handler.
@@ -1159,13 +1200,14 @@ async function main() {
   const quotaSeats = new Set(ledger.quotaSeats ?? []);
   const preflighted = new Map();
   const runAuthPrecheck = async (seat, { executable }) => {
-    // Muse config-status contrast: the control HOME (no logins) must not
-    // read authed while the seat HOME (seat files only) reads accepted.
+    // Muse usage contrast: the control HOME (no logins) must not read
+    // authed while the seat HOME (seat files only) reads accepted.
     // Closed-vocabulary match only; outputs discarded; both HOMEs deleted.
-    // No model turn is spent. XCLI_AUTH_PRECHECK_MODEL_CALLS is a test seam:
-    // it lets a campaign test drive a model-reaching precheck (§6.4) without
-    // a real vendor call, proving the cap accounting end to end. Any value
-    // outside a positive integer stays 0 (fail closed).
+    // No model turn is spent (`usage` shows the subscription allowance only).
+    // XCLI_AUTH_PRECHECK_MODEL_CALLS is a test seam: it lets a campaign test
+    // drive a model-reaching precheck (§6.4) without a real vendor call,
+    // proving the cap accounting end to end. Any value outside a positive
+    // integer stays 0 (fail closed).
     const raw = Number(process.env.XCLI_AUTH_PRECHECK_MODEL_CALLS ?? '0');
     const spent = Number.isSafeInteger(raw) && raw > 0 ? raw : 0;
     const probe = async withFiles => {
@@ -1173,18 +1215,15 @@ async function main() {
       try {
         const env = environment(home);
         if (withFiles) copyLogin(seat.family, seat.authSource, home, env);
-        const out = spawnSync(executable, ['config', 'status'],
+        const out = spawnSync(executable, ['usage'],
           { env, cwd: home, encoding: 'utf8', timeout: 30000, maxBuffer: 256 * 1024 });
-        const text = `${out.stdout ?? ''}\n${out.stderr ?? ''}`;
-        return { status: out.status,
-          authed: /logged.?in|authenticated|auth\S*ok/i.test(text),
-          noauth: /not.*(logged|signed).?in|no .*auth|unauthenticated|missing.*(login|credential)/i.test(text) };
+        return { status: out.status, text: `${out.stdout ?? ''}\n${out.stderr ?? ''}` };
       } finally { fs.rmSync(home, { recursive: true, force: true }); }
     };
-    const control = await probe(false);
+    const control = classifyMuseUsageProbe(await probe(false));
     if (control.authed) return { ok: false, reason: 'preflight-control-untrusted', modelCalls: spent };
-    const seated = await probe(true);
-    if (seated.status === 0 && seated.authed) return { ok: true, modelCalls: spent, detail: 'config-status-accepted' };
+    const seated = classifyMuseUsageProbe(await probe(true));
+    if (seated.authed) return { ok: true, modelCalls: spent, detail: 'usage-accepted' };
     return { ok: false, reason: 'preflight-auth-unproven', modelCalls: spent };
   };
   const seatKey = (run, role) => run[role === 'sender' ? 'senderSeat' : 'receiverSeat'] ?? (role === 'sender' ? run.sender : run.receiver);

@@ -10,6 +10,8 @@ import test from 'node:test';
 import { classifyScenarioRow } from './xcli-scenarios.mjs';
 import { repo, removeCampaignRoot, environment, sourceBuild, compliantQualificationRoot } from './xcli-lab.mjs';
 
+const qualify = await import('./qualify-cross-cli.mjs');
+
 const QUALIFY = join(repo, 'scripts/qualify-cross-cli.mjs');
 const shellQuote = value => "'" + value.replaceAll("'", "'\\''") + "'";
 
@@ -597,6 +599,10 @@ if [ "$1" = "config" ]; then
   if [ -f "$HOME/.config/muse/auth.json" ]; then echo "logged in"; exit 0; fi
   echo "no auth material"; exit 0
 fi
+if [ "$1" = "usage" ]; then
+  if [ -f "$HOME/.config/muse/auth.json" ]; then echo "Subscription allowance"; exit 0; fi
+  echo "muse usage: not logged in: run \`muse login\` first" >&2; exit 1
+fi
 exit 0
 `, { mode: 0o700 });
     const manifest = writeManifest(dir, [{ seatId: 'muse-seat', family: 'muse', authSource: 'seat-muse' }]);
@@ -630,6 +636,42 @@ exit 0
     assert.ok(receipt.ledgerTotals.includes('sessionsDebited: 1/2'), receipt.ledgerTotals);
     removeCampaignRoot(root);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+// R21 (bench round 21, codex diagonal): the isolated cell shows the MCP
+// approval until its presses exhaust (codex-mcp-approval-unresolved). The
+// cell HOME config pre-seeds the documented per-server approval for our own
+// h2a server only; every other family renders byte-identical config.
+test('R21: the codex cell config pre-seeds approval for the h2a server only', () => {
+  assert.equal(typeof qualify.cellMcpConfigText, 'function', 'the cell MCP writer is single-sourced');
+  const endpoint = { command: 'h2a', args: ['mcp-serve', '--root', '/tmp/store'] };
+  const codex = qualify.cellMcpConfigText('codex', endpoint);
+  assert.ok(codex.includes('[mcp_servers.h2a]'), 'codex keeps its native table');
+  assert.ok(codex.includes('default_tools_approval_mode = "approve"'), 'codex pre-approves the h2a server in the cell HOME only');
+  assert.ok(codex.includes('command = "h2a"'), 'the endpoint command is preserved');
+  for (const cli of ['claude', 'muse', 'agy', 'gemini', 'vibe']) {
+    const text = qualify.cellMcpConfigText(cli, endpoint);
+    assert.ok(!text.includes('default_tools_approval_mode'), `${cli} renders no approval pre-seed`);
+  }
+});
+
+// R21 (bench round 21, muse diagonal): `muse config status` reports the
+// enterprise plane with exit 0 whether or not a login exists, so the
+// config-status contrast can never prove auth (preflight-auth-unproven).
+// `muse usage` exits 1 with `not logged in` without (or with invalid) auth
+// and spends no model turn: the contrast reads that oracle instead.
+test('R21: the muse auth contrast reads the usage oracle, never config status', () => {
+  assert.equal(typeof qualify.classifyMuseUsageProbe, 'function', 'the muse probe verdict is single-sourced');
+  const control = qualify.classifyMuseUsageProbe({ status: 1,
+    text: '\nmuse usage: not logged in: run `muse login` first\n' });
+  assert.equal(control.authed, false, 'the empty-HOME control reads non-authed');
+  const invalid = qualify.classifyMuseUsageProbe({ status: 1,
+    text: '\nmuse usage: not logged in: run `muse login` first\n' });
+  assert.equal(invalid.authed, false, 'invalid auth reads non-authed');
+  const seated = qualify.classifyMuseUsageProbe({ status: 0,
+    text: 'Subscription allowance\nplan: pro\nremaining: 87%\n' });
+  assert.equal(seated.authed, true, 'a zero-exit allowance report reads authed');
+  assert.equal(qualify.classifyMuseUsageProbe({ status: 0, text: '' }).authed, false, 'empty output never reads authed');
 });
 
 // R18 (owner D1): the copy-from-home path is removed. --auth-home refuses
