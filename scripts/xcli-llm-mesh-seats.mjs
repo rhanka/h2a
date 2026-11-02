@@ -41,8 +41,8 @@ export function meshOwnerScope(env = process.env) {
   return env.H2A_LLM_MESH_OWNER_SCOPE?.trim() || `cli:${hostname()}`;
 }
 
-// Public facade entry point, re-exported from @sentropic/llm-mesh — never
-// re-implemented here. The config resolver honours H2A_LLM_MESH_CONFIG_JSON
+// Public facade entry point, re-exported from the mesh facade module —
+// never re-implemented here. The config resolver honours H2A_LLM_MESH_CONFIG_JSON
 // (scoped object or whole blob), like the h2a CLI facade wiring.
 export async function createMeshSeatFacade({ ownerScope } = {}) {
   let createLlmMeshFacade = null;
