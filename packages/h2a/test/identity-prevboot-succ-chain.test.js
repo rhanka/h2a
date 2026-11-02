@@ -435,6 +435,8 @@ test("h2a_identity_status reports a fresh attempt instead of the stale failure w
       retryCondition: "blocker-change",
       diagnostic: {
         blockerType: "SUCC",
+        lock: "identity/.lock",
+        generation: "a".repeat(32),
         reasonCode: "succ-chain-exhausted",
         reason: "the succession chain reached its depth limit",
         retryCondition: "blocker-change"
