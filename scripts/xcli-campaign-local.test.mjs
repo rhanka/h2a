@@ -58,6 +58,28 @@ test('R19: a simulated local campaign reports typed cells and shreds the provisi
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+test('R20: a simulated claude cell provisions past product-state bloat', { timeout: 300000 }, () => {
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-local-r20-'));
+  try {
+    const home = fixtureHome(root);
+    const big = { oauthAccount: { email: 'fixture@example.test' },
+      hasCompletedOnboarding: true, lastOnboardingVersion: '1.0.0', projects: {} };
+    for (let i = 0; i < 4000; i++) big.projects[`/home/user/proj${i}`] = [{ p: 'x'.repeat(60) }];
+    fs.writeFileSync(join(home, '.claude.json'), JSON.stringify(big));
+    assert.ok(fs.statSync(join(home, '.claude.json')).size > 200 * 1024, 'fixture exceeds the cap like the real file');
+    const outBase = join(root, 'provision');
+    const { report } = runLocalCampaign({ seatSet: 'claude', pairs: ['claude:claude'],
+      slotManifestFile: slotManifest, homeDir: home, env: {}, outBase,
+      timeoutMs: 15000, wakeOffsets: '0', simulated: true, spawnTimeoutMs: 290000 });
+    try {
+      assert.equal(report.gate, LOCAL_GATE);
+      assert.equal(report.cells.length, 1);
+      assert.equal(report.counts.pass + report.counts.fail, 1);
+      assert.deepEqual(walk(outBase), [], 'the provision dir is shredded after the run');
+    } finally { removeCampaignRoot(report.campaignRoot); }
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 test('R19: a failed local provision refuses names-only and leaves no envelopes', () => {
   const root = fs.mkdtempSync(join(tmpdir(), 'xcli-local-refuse-'));
   try {

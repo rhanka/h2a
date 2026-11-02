@@ -333,6 +333,23 @@ export function vendorRuntimeLabel(cli, path) {
   return pythonEntrypoint(path) ? 'python (not shipped)' : 'non-python (upstream follow-up)';
 }
 
+// R20: Claude Code keeps its OAuth credential in .claude/.credentials.json
+// and broad product state (projects/history) in .claude.json. Only the
+// minimal auth fields of .claude.json ever cross into a seat or a cell —
+// never the whole file: the real one exceeds the 48 KiB envelope cap. This
+// projection is single-sourced here for the cell copy and the seat envelope.
+export function minimizeClaudeJson(bytes) {
+  let source = null;
+  try { source = JSON.parse(Buffer.from(bytes).toString('utf8')); }
+  catch { throw new Error('login-source-invalid:claude:.claude.json'); }
+  if (!source || typeof source !== 'object' || Array.isArray(source)) {
+    throw new Error('login-source-invalid:claude:.claude.json');
+  }
+  return Buffer.from(JSON.stringify({ oauthAccount: source.oauthAccount,
+    hasCompletedOnboarding: source.hasCompletedOnboarding === true,
+    lastOnboardingVersion: /^\d+\.\d+\.\d+$/.test(source.lastOnboardingVersion ?? '') ? source.lastOnboardingVersion : undefined }), 'utf8');
+}
+
 // R15 (class-c): the copy report names every skipped allowlisted file with
 // its reason. A missing source used to copy silently: the cell then failed
 // with authentication-required and nothing said which file was absent.
@@ -361,12 +378,7 @@ export function copyLoginReport(cli, authHome, target, env) {
       const out = loginCopyPath(env, cli, name);
       inside(target, out);
       let bytes = fs.readFileSync(fd);
-      if (cli === 'claude' && name === '.claude.json') {
-        const source = JSON.parse(bytes.toString('utf8'));
-        bytes = JSON.stringify({ oauthAccount: source.oauthAccount,
-          hasCompletedOnboarding: source.hasCompletedOnboarding === true,
-          lastOnboardingVersion: /^\d+\.\d+\.\d+$/.test(source.lastOnboardingVersion ?? '') ? source.lastOnboardingVersion : undefined });
-      }
+      if (cli === 'claude' && name === '.claude.json') bytes = minimizeClaudeJson(bytes);
       const destination = openLoginFile(target, relative(target, out), true);
       try {
         assert.ok(fs.fstatSync(destination).isFile(), 'login destination must be regular');

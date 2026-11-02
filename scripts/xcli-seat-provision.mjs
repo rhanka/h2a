@@ -20,7 +20,7 @@ import { dirname, join, resolve } from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { LOGIN_ALLOWLIST } from './xcli-lab.mjs';
+import { LOGIN_ALLOWLIST, minimizeClaudeJson } from './xcli-lab.mjs';
 import { slotSecretNames, SEAT_ENVIRONMENT } from './xcli-seat-custody.mjs';
 import { materialiseSeatEnvelopes, parseCliSeatProfile,
   translateAgySeatToApplication } from './xcli-seat-import.mjs';
@@ -69,12 +69,33 @@ function readAuthFile(homeDir, seatId, rel) {
   return bytes;
 }
 
+// Resolve the vibe key without ever printing it: MISTRAL_API_KEY wins, else
+// the OS keyring item `ai.mistral.vibe` through the native `secret-tool`
+// lookup binary (no python, no library install — the only script allowed to
+// touch the keyring). The key travels by stdout-capture, never argv; absence
+// of both sources (or a missing/unreachable keyring backend) is a typed
+// refusal, never a crash.
+export function resolveVibeKey(env = {}, keyringBin = 'secret-tool') {
+  const direct = env.MISTRAL_API_KEY;
+  if (typeof direct === 'string' && direct.trim()) return direct.trim();
+  let probed = null;
+  try {
+    probed = spawnSync(keyringBin, ['lookup', 'service', 'ai.mistral.vibe'],
+      { encoding: 'utf8', timeout: 10000, maxBuffer: 64 * 1024 });
+  } catch { throw new Error('vibe-key-missing:vibe'); }
+  const key = `${probed?.stdout ?? ''}`.split('\n')[0].trim();
+  if (!probed || probed.status !== 0 || !key) throw new Error('vibe-key-missing:vibe');
+  return key;
+}
+
 // Build one seat envelope from local auth-only material. `env` supplies
 // MISTRAL_API_KEY for vibe (the vendor product keeps no auth file: env wins,
-// else the OS keyring — the script never touches the keyring). Returns the
-// envelope plus the file's names for receipts.
+// else the OS keyring via resolveVibeKey above). For claude the credential
+// file crosses whole but .claude.json crosses only as its minimal auth
+// fields (minimizeClaudeJson): the real whole file exceeds the 48 KiB cap.
+// Returns the envelope plus the file's names for receipts.
 export function buildSeatEnvelope({ seatId, slot, homeDir, env = {}, ownerScope = 'owner',
-  issuedAt = new Date().toISOString(), operationId = null } = {}) {
+  issuedAt = new Date().toISOString(), operationId = null, keyringBin = 'secret-tool' } = {}) {
   assert.ok(seatId && slot && homeDir, 'seat, slot and home required');
   const identity = SEAT_IDENTITIES[seatId];
   if (!identity) throw new Error(`seat-unknown:${seatId}`);
@@ -83,9 +104,8 @@ export function buildSeatEnvelope({ seatId, slot, homeDir, env = {}, ownerScope 
   const raws = [];
   const files = {};
   if (identity.cli === 'vibe') {
-    const key = env.MISTRAL_API_KEY;
-    if (typeof key !== 'string' || !key.trim()) throw new Error('vibe-key-missing:vibe');
-    const bytes = Buffer.from(key.trim(), 'utf8');
+    const key = resolveVibeKey(env, keyringBin);
+    const bytes = Buffer.from(key, 'utf8');
     raws.push(bytes);
     files[VIBE_SEAT_FILE] = bytes.toString('base64');
   } else if (identity.cli === 'agy') {
@@ -96,7 +116,8 @@ export function buildSeatEnvelope({ seatId, slot, homeDir, env = {}, ownerScope 
   } else {
     if (!allowlisted?.length) throw new Error(`no-allowlisted-login-files:${seatId}`);
     for (const rel of allowlisted) {
-      const bytes = readAuthFile(homeDir, seatId, rel);
+      let bytes = readAuthFile(homeDir, seatId, rel);
+      if (rel === '.claude.json') bytes = minimizeClaudeJson(bytes);
       raws.push(bytes);
       files[rel] = bytes.toString('base64');
     }
@@ -233,7 +254,7 @@ export function provisionSeats({ seatSet = DEFAULT_SEAT_SET,
   slotManifestFile = join(repoRoot, 'docs/cross-cli-seat-slots.json'),
   homeDir = homedir(), env = process.env, ownerScope = 'owner',
   outBase = join(homedir(), '.cache-tmp', 'h2a-test'),
-  ghBin = 'gh', mode = 'provision' } = {}) {
+  ghBin = 'gh', mode = 'provision', keyringBin = 'secret-tool' } = {}) {
   assert.ok(['provision', 'dry-run', 'local'].includes(mode), 'known provision mode');
   const slotManifest = JSON.parse(fs.readFileSync(slotManifestFile, 'utf8'));
   if (slotManifest.environment !== SEAT_ENVIRONMENT) throw new Error('environment-mismatch');
@@ -248,7 +269,7 @@ export function provisionSeats({ seatSet = DEFAULT_SEAT_SET,
     for (const seatId of ids) {
       const slot = byId[seatId];
       if (!slot) throw new Error(`seat-unknown:${seatId}`);
-      const built = buildSeatEnvelope({ seatId, slot, homeDir, env, ownerScope });
+      const built = buildSeatEnvelope({ seatId, slot, homeDir, env, ownerScope, keyringBin });
       const file = writeEnvelopeFile(outDir, seatId, built.serialized);
       assert.equal(fs.statSync(file).mode & 0o777, 0o600, 'envelope file is private');
       const receipt = validateEnvelopeViaFd({ seatId, slotManifestFile, envelopeFile: file });
@@ -307,7 +328,8 @@ if (process.argv[1] && resolve(process.argv[1]) === self) {
       homeDir: option(args, '--home', homedir()), env: process.env,
       ownerScope: option(args, '--owner-scope', 'owner'),
       outBase: option(args, '--out-base', join(homedir(), '.cache-tmp', 'h2a-test')),
-      ghBin: option(args, '--gh-bin', 'gh'), mode });
+      ghBin: option(args, '--gh-bin', 'gh'),
+      keyringBin: option(args, '--keyring-bin', 'secret-tool'), mode });
     for (const receipt of result.seats) console.log(JSON.stringify(receipt));
     if (mode === 'local') {
       console.log(JSON.stringify({ event: 'seat-provision-local', manifestFile: result.manifestFile,

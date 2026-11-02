@@ -10,7 +10,8 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { buildSeatEnvelope, ensureEnvironment, provisionSeats, setSecret,
-  shredFiles, validateEnvelopeViaFd, DEFAULT_SEAT_SET } from './xcli-seat-provision.mjs';
+  shredFiles, validateEnvelopeViaFd, resolveVibeKey,
+  DEFAULT_SEAT_SET } from './xcli-seat-provision.mjs';
 
 const CANARY = 'canary-fixture-zz9';
 const slotManifest = new URL('../docs/cross-cli-seat-slots.json', import.meta.url).pathname;
@@ -166,6 +167,119 @@ test('R19: a tampered envelope is refused over the FD with a typed code', () => 
     assert.throws(() => ensureEnvironment({ ghBin: '/bin/false' }), /gh-api-failed/);
     assert.deepEqual(shredFiles([bad]), []);
     assert.equal(fs.existsSync(bad), false);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+// R20: a product-state-sized .claude.json (projects/history bloat) crosses
+// only as its minimal auth fields, so the envelope stays under the 48 KiB
+// cap while still naming both allowlisted source files.
+function oversizedClaudeHome(root) {
+  const home = fixtureHome(root);
+  const big = { oauthAccount: { email: 'fixture@example.test' },
+    hasCompletedOnboarding: true, lastOnboardingVersion: '1.0.0',
+    projects: {}, history: [] };
+  for (let i = 0; i < 4000; i++) big.projects[`/home/user/proj${i}`] = [{ p: 'x'.repeat(60) }];
+  fs.writeFileSync(join(home, '.claude.json'), JSON.stringify(big));
+  assert.ok(fs.statSync(join(home, '.claude.json')).size > 200 * 1024, 'fixture exceeds the cap like the real file');
+  return home;
+}
+
+test('R20: an oversized .claude.json is minimized into a capped claude envelope', () => {
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-provision-r20-'));
+  try {
+    const home = oversizedClaudeHome(root);
+    const { stub } = stubGh(root);
+    const result = provisionSeats({ seatSet: 'claude', slotManifestFile: slotManifest,
+      homeDir: home, env: fixtureEnv, outBase: root, ghBin: stub, mode: 'dry-run' });
+    assert.equal(result.seats.length, 1);
+    assert.deepEqual(result.seats[0].files, ['.claude.json', '.claude/.credentials.json']);
+    const built = buildSeatEnvelope({ seatId: 'claude', slot: '00',
+      homeDir: home, env: fixtureEnv });
+    assert.ok(Buffer.byteLength(built.serialized, 'utf8') < 48 * 1024, 'minimized envelope fits the cap');
+    const crossed = JSON.parse(Buffer.from(built.envelope.files['.claude.json'], 'base64').toString('utf8'));
+    assert.ok(!('projects' in crossed) && !('history' in crossed), 'no product state crosses');
+    assert.deepEqual(crossed.oauthAccount, { email: 'fixture@example.test' });
+    assert.equal(crossed.hasCompletedOnboarding, true);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('R20: a non-JSON .claude.json refuses with a names-only code', () => {
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-provision-r20bad-'));
+  try {
+    const home = fixtureHome(root);
+    fs.writeFileSync(join(home, '.claude.json'), 'not-json{{{');
+    assert.throws(() => buildSeatEnvelope({ seatId: 'claude', slot: '00',
+      homeDir: home, env: fixtureEnv }),
+    /login-source-invalid:claude:\.claude\.json/);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+// R20: the OS keyring fallback. A stub secret-tool stands in for the native
+// binary (never the real keyring, never real bytes on stdout).
+const KEYRING_MARK = 'keyring-fixture-qq7';
+function stubKeyring(root, { succeed = true } = {}) {
+  const log = join(root, 'keyring-calls.log');
+  const bin = join(root, 'secret-tool');
+  fs.writeFileSync(bin, `#!/bin/sh
+echo "$@" >> ${JSON.stringify(log)}
+${succeed ? `echo ${JSON.stringify(KEYRING_MARK)}` : 'exit 1'}
+exit 0
+`);
+  fs.chmodSync(bin, 0o700);
+  const calls = () => fs.existsSync(log)
+    ? fs.readFileSync(log, 'utf8').split('\n').filter(Boolean) : [];
+  return { bin, calls };
+}
+
+test('R20: vibe falls back to the OS keyring item when the env key is absent', () => {
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-provision-keyring-'));
+  try {
+    const home = fixtureHome(root);
+    const { stub } = stubGh(root);
+    const { bin, calls } = stubKeyring(root);
+    assert.equal(resolveVibeKey({ MISTRAL_API_KEY: 'env-key' }, '/bin/false'), 'env-key');
+    assert.equal(resolveVibeKey({}, bin), KEYRING_MARK);
+    assert.deepEqual(calls(), ['lookup service ai.mistral.vibe']);
+    const result = provisionSeats({ seatSet: 'vibe', slotManifestFile: slotManifest,
+      homeDir: home, env: {}, outBase: root, ghBin: stub,
+      mode: 'dry-run', keyringBin: bin });
+    assert.equal(result.seats.length, 1);
+    assert.deepEqual(result.seats[0].files, ['.vibe/MISTRAL_API_KEY']);
+    assert.ok(!JSON.stringify(result).includes(KEYRING_MARK), 'receipts carry names only');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('R20: vibe refuses names-only when neither env nor keyring has a key', () => {
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-provision-nokey-'));
+  try {
+    const home = fixtureHome(root);
+    const { stub } = stubGh(root);
+    const { bin } = stubKeyring(root, { succeed: false });
+    assert.throws(() => resolveVibeKey({}, bin), /vibe-key-missing:vibe/);
+    assert.throws(() => resolveVibeKey({}, '/bin/false'), /vibe-key-missing:vibe/);
+    assert.throws(() => resolveVibeKey({}, '/nonexistent-secret-tool-bin'), /vibe-key-missing:vibe/);
+    assert.throws(() => provisionSeats({ seatSet: 'vibe', slotManifestFile: slotManifest,
+      homeDir: home, env: {}, outBase: root, ghBin: stub,
+      mode: 'dry-run', keyringBin: bin }),
+    /vibe-key-missing:vibe/);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('R20: the dry-run CLI resolves vibe from the keyring without leaking bytes', () => {
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-provision-keyring-cli-'));
+  try {
+    const home = fixtureHome(root);
+    const { stub } = stubGh(root);
+    const { bin } = stubKeyring(root);
+    const script = new URL('./xcli-seat-provision.mjs', import.meta.url).pathname;
+    const { MISTRAL_API_KEY: _dropped, ...rest } = process.env;
+    const probed = spawnSync(process.execPath,
+      [script, '--dry-run', '--seat-set', 'vibe', '--home', home,
+        '--out-base', root, '--gh-bin', stub, '--keyring-bin', bin],
+      { env: rest, encoding: 'utf8', timeout: 60000 });
+    assert.equal(probed.status, 0, probed.stderr);
+    assert.ok(probed.stdout.includes('SEAT_USE_VIBE_00'), 'the receipt names the projection');
+    assert.ok(!probed.stdout.includes(KEYRING_MARK), 'no secret bytes on stdout');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
