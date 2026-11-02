@@ -73,6 +73,11 @@ test('R19: a simulated local campaign reports typed cells and shreds the provisi
       const stored = JSON.parse(fs.readFileSync(report.reportFile, 'utf8'));
       assert.equal(stored.gate, LOCAL_GATE, 'the report file carries the non-merge-gating label');
       assert.ok(!JSON.stringify(stored).includes(CANARY), 'the report carries names only');
+      // R23: the report carries the seat source of record per seat (mesh
+      // gate), names only.
+      assert.deepEqual(report.sources.map(source => [source.seatId, source.kind, source.meshGate]).sort(),
+        [['codex', 'cli-login', 'enrolled'], ['vibe', 'llm-mesh', 'enrolled']].sort());
+      assert.deepEqual(stored.sources, report.sources, 'the report file carries the seat sources');
       assert.deepEqual(walk(outBase), [], 'the provision dir is shredded after the run');
     } finally { removeCampaignRoot(report.campaignRoot); }
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
