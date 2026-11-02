@@ -264,6 +264,21 @@ test('L8: manifest auth sources resolve against the manifest directory', () => {
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+// R21 (bench round 21, agy diagonal): agy prints its help to stderr, never
+// stdout. The pinned-args preflight must read usage text from both streams:
+// with a stderr-only help the --prompt-interactive launcher flag is present
+// and the gate passes instead of refusing preflight-args-unproven.
+test('R21: pinned launch flags are read from help text on either stream', () => {
+  const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-preflight-streams-'));
+  try {
+    const executable = join(dir, 'agy');
+    fs.writeFileSync(executable, '#!/bin/sh\ncat >&2 <<\'EOF\'\nUsage of agy:\n  --prompt-interactive\n    \tRun an initial prompt interactively and continue the session\nEOF\n', { mode: 0o700 });
+    const verdict = seats.checkPinnedArgs('agy', executable, { cwd: dir });
+    assert.equal(verdict.ok, true, `stderr-only help must satisfy the gate: ${JSON.stringify(verdict)}`);
+    assert.deepEqual(verdict.args, ['--prompt-interactive']);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('L8: campaign pairs resolve seats with single-seat family fallback', () => {
   const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-seats-'));
   try {
