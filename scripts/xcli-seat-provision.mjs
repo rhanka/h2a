@@ -1,18 +1,24 @@
-// R19 conductor seat provisioning (owner 01/11: the conductor provisions
-// the seats; vibe covered). For each seat in the set, this script — and only
-// this script — reads the LOCAL auth-only material of that CLI (the exact
-// LOGIN_ALLOWLIST paths under a home directory: the real HOME in conductor
-// use, a synthetic fixture HOME in tests), builds the seat envelope, writes
-// it 0600 in a private 0700 dir, validates it through
-// scripts/xcli-seat-load.mjs over --input-fd, then uploads it with
-// `gh secret set <NAME> --env cross-cli-seats --repo rhanka/h2a --body-file`
-// for the canonical, candidate and runtime projection names, and shreds the
-// files. Stdout carries receipts with names only — secret bytes never reach
-// argv, logs, or error messages. `--dry-run` validates without uploading;
-// `--local` validates and materialises a lane manifest for a local campaign
-// without any GitHub write. It also creates the `cross-cli-seats`
-// environment when absent, with the deployment branch policy limited to
-// `main` + `feat/live-cross-cli-messaging`.
+// R23 conductor seat provisioning (owner 01/11, bench round 23: every seat
+// comes from the llm-mesh account store — no secret-tool, no OS keyring,
+// no MISTRAL_API_KEY requirement). For each seat in the set, this script —
+// and only it — resolves the seat bytes through scripts/xcli-llm-mesh-seats.mjs:
+// vibe bytes come from the enrolled mistral-vibe mesh account (public
+// facade acquire/release); the other four seats keep the LOCAL auth-only
+// login files (the exact LOGIN_ALLOWLIST paths under a home directory: the
+// real HOME in conductor use, a synthetic fixture HOME in tests), gated on
+// the mesh enrollment. A CLI with no enrolled account refuses names-only as
+// seat-not-enrolled-in-llm-mesh:<cli> with the exact enroll command (the
+// script never enrolls). Each seat envelope is written 0600 in a private
+// 0700 dir, validated through scripts/xcli-seat-load.mjs over --input-fd,
+// then uploaded with `gh secret set <NAME> --env cross-cli-seats
+// --repo rhanka/h2a --body-file` for the canonical, candidate and runtime
+// projection names, and the files are shredded. Stdout carries receipts
+// with names only — secret bytes never reach argv, logs, or error messages.
+// `--dry-run` validates without uploading; `--local` validates and
+// materialises a lane manifest for a local campaign without any GitHub
+// write. It also creates the `cross-cli-seats` environment when absent,
+// with the deployment branch policy limited to `main` +
+// `feat/live-cross-cli-messaging`.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { homedir } from 'node:os';
@@ -25,6 +31,8 @@ import { slotSecretNames, SEAT_ENVIRONMENT } from './xcli-seat-custody.mjs';
 import { materialiseSeatEnvelopes, parseCliSeatProfile,
   translateAgySeatToApplication } from './xcli-seat-import.mjs';
 import { SEAT_BUNDLE_MAX_BYTES } from './xcli-seat-vendor/seat-bundle.js';
+import { MESH_SEAT_PROVIDERS, createMeshSeatFacade, requireMeshAccount,
+  acquireVibeKey, meshOwnerScope } from './xcli-llm-mesh-seats.mjs';
 
 const self = fileURLToPath(import.meta.url);
 const repoRoot = dirname(dirname(self));
@@ -69,33 +77,41 @@ function readAuthFile(homeDir, seatId, rel) {
   return bytes;
 }
 
-// Resolve the vibe key without ever printing it: MISTRAL_API_KEY wins, else
-// the OS keyring item `ai.mistral.vibe` through the native `secret-tool`
-// lookup binary (no python, no library install — the only script allowed to
-// touch the keyring). The key travels by stdout-capture, never argv; absence
-// of both sources (or a missing/unreachable keyring backend) is a typed
-// refusal, never a crash.
-export function resolveVibeKey(env = {}, keyringBin = 'secret-tool') {
-  const direct = env.MISTRAL_API_KEY;
-  if (typeof direct === 'string' && direct.trim()) return direct.trim();
-  let probed = null;
+// Resolve the mesh gate for one seat. Vibe has no other source: without a
+// readable mesh store the seat refuses (llm-mesh-store-unreachable). File
+// seats keep the live login files when the store is unreadable — the gate
+// verdict is recorded on the source receipt instead of blocking the bench.
+async function resolveMeshGate({ seatId, cli, meshFacade, meshScope }) {
+  const mapping = MESH_SEAT_PROVIDERS[cli];
+  if (!mapping) throw new Error(`seat-unknown:${seatId}`);
+  if (!meshFacade) {
+    if (cli === 'vibe') throw new Error('llm-mesh-store-unreachable:vibe');
+    return { provider: mapping.provider, accountId: null, meshGate: 'store-unreachable' };
+  }
   try {
-    probed = spawnSync(keyringBin, ['lookup', 'service', 'ai.mistral.vibe'],
-      { encoding: 'utf8', timeout: 10000, maxBuffer: 64 * 1024 });
-  } catch { throw new Error('vibe-key-missing:vibe'); }
-  const key = `${probed?.stdout ?? ''}`.split('\n')[0].trim();
-  if (!probed || probed.status !== 0 || !key) throw new Error('vibe-key-missing:vibe');
-  return key;
+    const held = await requireMeshAccount({ cli, facade: meshFacade, ownerScope: meshScope });
+    return { provider: held.provider, accountId: held.accountId, meshGate: 'enrolled' };
+  } catch (error) {
+    if (String(error.message ?? '').startsWith('seat-not-enrolled-in-llm-mesh:')) throw error;
+    if (cli === 'vibe') throw error;
+    return { provider: mapping.provider, accountId: null, meshGate: 'store-unreachable',
+      cause: error.cause ?? 'unknown' };
+  }
 }
 
-// Build one seat envelope from local auth-only material. `env` supplies
-// MISTRAL_API_KEY for vibe (the vendor product keeps no auth file: env wins,
-// else the OS keyring via resolveVibeKey above). For claude the credential
-// file crosses whole but .claude.json crosses only as its minimal auth
-// fields (minimizeClaudeJson): the real whole file exceeds the 48 KiB cap.
-// Returns the envelope plus the file's names for receipts.
-export function buildSeatEnvelope({ seatId, slot, homeDir, env = {}, ownerScope = 'owner',
-  issuedAt = new Date().toISOString(), operationId = null, keyringBin = 'secret-tool' } = {}) {
+// Build one seat envelope from mesh-sourced auth-only material. `meshFacade`
+// is the public llm-mesh facade (injected in tests, created from the owner
+// mesh store in production); `meshScope` is the mesh owner scope the
+// accounts are enrolled under. For vibe the bytes are the acquired mesh key
+// projected to the harness seat file; for the other families the bytes are
+// the live CLI login files, gated on the mesh enrollment (see
+// resolveMeshGate). For claude the credential file crosses whole but
+// .claude.json crosses only as its minimal auth fields (minimizeClaudeJson):
+// the real whole file exceeds the 48 KiB cap. Returns the envelope plus the
+// file's names and the seat source for receipts.
+export async function buildSeatEnvelope({ seatId, slot, homeDir, ownerScope = 'owner',
+  issuedAt = new Date().toISOString(), operationId = null, meshFacade = null,
+  meshScope = meshOwnerScope() } = {}) {
   assert.ok(seatId && slot && homeDir, 'seat, slot and home required');
   const identity = SEAT_IDENTITIES[seatId];
   if (!identity) throw new Error(`seat-unknown:${seatId}`);
@@ -103,8 +119,10 @@ export function buildSeatEnvelope({ seatId, slot, homeDir, env = {}, ownerScope 
   if (allowlisted === null) throw new Error(`login-not-confined:${seatId}`);
   const raws = [];
   const files = {};
+  const gate = await resolveMeshGate({ seatId, cli: identity.cli, meshFacade, meshScope });
   if (identity.cli === 'vibe') {
-    const key = resolveVibeKey(env, keyringBin);
+    const key = await acquireVibeKey({ facade: meshFacade, ownerScope: meshScope,
+      accountId: gate.accountId });
     const bytes = Buffer.from(key, 'utf8');
     raws.push(bytes);
     files[VIBE_SEAT_FILE] = bytes.toString('base64');
@@ -139,7 +157,12 @@ export function buildSeatEnvelope({ seatId, slot, homeDir, env = {}, ownerScope 
   if (Buffer.byteLength(serialized, 'utf8') > SEAT_BUNDLE_MAX_BYTES) {
     throw new Error(`seat-bundle-oversize:${seatId}`);
   }
-  return { envelope, serialized, files: Object.keys(files).sort() };
+  // Names-only seat source: which store decided, under which gate.
+  const source = { seatId, cli: identity.cli, kind: identity.cli === 'vibe' ? 'llm-mesh' : 'cli-login',
+    provider: gate.provider, meshGate: gate.meshGate, files: Object.keys(files).sort(),
+    ...(gate.accountId ? { accountId: gate.accountId } : {}),
+    ...(gate.cause ? { cause: gate.cause } : {}) };
+  return { envelope, serialized, files: Object.keys(files).sort(), source };
 }
 
 // Write one envelope 0600 (exclusive create, never overwrite).
@@ -245,11 +268,12 @@ export function shredFiles(files) {
 // set. Modes: 'provision' uploads then shreds; 'dry-run' records the gh
 // calls then shreds; 'local' materialises a lane manifest and keeps the dir
 // for the local campaign (its runner shreds it with a receipt).
-export function provisionSeats({ seatSet = DEFAULT_SEAT_SET,
+export async function provisionSeats({ seatSet = DEFAULT_SEAT_SET,
   slotManifestFile = join(repoRoot, 'docs/cross-cli-seat-slots.json'),
-  homeDir = homedir(), env = process.env, ownerScope = 'owner',
+  homeDir = homedir(), ownerScope = 'owner',
   outBase = join(homedir(), '.cache-tmp', 'h2a-test'),
-  ghBin = 'gh', mode = 'provision', keyringBin = 'secret-tool' } = {}) {
+  ghBin = 'gh', mode = 'provision', meshFacade = null,
+  meshScope = meshOwnerScope() } = {}) {
   assert.ok(['provision', 'dry-run', 'local'].includes(mode), 'known provision mode');
   const slotManifest = JSON.parse(fs.readFileSync(slotManifestFile, 'utf8'));
   if (slotManifest.environment !== SEAT_ENVIRONMENT) throw new Error('environment-mismatch');
@@ -259,17 +283,26 @@ export function provisionSeats({ seatSet = DEFAULT_SEAT_SET,
   fs.mkdirSync(outBase, { recursive: true });
   const outDir = fs.mkdtempSync(join(outBase, 'xcli-seat-provision-'));
   fs.chmodSync(outDir, 0o700);
+  // The production facade reads the owner mesh store (injected in tests).
+  // A facade that cannot be created degrades to null: vibe then refuses,
+  // file seats record store-unreachable on their source receipt.
+  let facade = meshFacade;
+  if (!facade) {
+    try { facade = await createMeshSeatFacade({ ownerScope: meshScope }); }
+    catch { facade = null; }
+  }
   const seats = [];
   try {
     for (const seatId of ids) {
       const slot = byId[seatId];
       if (!slot) throw new Error(`seat-unknown:${seatId}`);
-      const built = buildSeatEnvelope({ seatId, slot, homeDir, env, ownerScope, keyringBin });
+      const built = await buildSeatEnvelope({ seatId, slot, homeDir, ownerScope,
+        meshFacade: facade, meshScope });
       const file = writeEnvelopeFile(outDir, seatId, built.serialized);
       assert.equal(fs.statSync(file).mode & 0o777, 0o600, 'envelope file is private');
       const receipt = validateEnvelopeViaFd({ seatId, slotManifestFile, envelopeFile: file });
       const names = slotSecretNames(seatId, slot.slot);
-      seats.push({ seatId, slot: slot.slot, file, receipt, names });
+      seats.push({ seatId, slot: slot.slot, file, receipt, names, source: built.source });
     }
     if (mode === 'local') {
       const laneDir = join(outDir, 'lane');
@@ -277,7 +310,8 @@ export function provisionSeats({ seatSet = DEFAULT_SEAT_SET,
         [seat.names.projection, fs.readFileSync(seat.file, 'utf8')]));
       const materialised = materialiseSeatEnvelopes({ seatSet: ids.join(','), slotManifest, secrets, baseDir: laneDir });
       return { mode, outDir, manifestFile: materialised.manifestFile,
-        manifestDigest: materialised.manifestDigest, seats: seats.map(seat => seat.receipt) };
+        manifestDigest: materialised.manifestDigest, seats: seats.map(seat => seat.receipt),
+        sources: seats.map(seat => seat.source) };
     }
     const ghCalls = ensureEnvironment({ ghBin, dryRun: mode === 'dry-run' });
     const uploaded = [];
@@ -298,6 +332,7 @@ export function provisionSeats({ seatSet = DEFAULT_SEAT_SET,
     const surviving = shredFiles(seats.map(seat => seat.file));
     if (surviving.length) throw new Error('shred-unproven');
     return { mode, outDir, seats: seats.map(seat => seat.receipt), uploaded, ghCalls,
+      sources: seats.map(seat => seat.source),
       shredded: { seats: seats.map(seat => seat.seatId), files: seats.length, surviving: [] } };
   } catch (error) {
     const surviving = shredFiles(seats.map(seat => seat.file));
@@ -317,15 +352,23 @@ const option = (args, name, fallback) => {
 if (process.argv[1] && resolve(process.argv[1]) === self) {
   const args = process.argv.slice(2);
   const mode = args.includes('--local') ? 'local' : args.includes('--dry-run') ? 'dry-run' : 'provision';
+  // R23: the OS keyring path is removed — a stale --keyring-bin invocation
+  // fails closed instead of silently provisioning from another source.
+  if (args.includes('--keyring-bin')) {
+    console.log('seat-provision: REFUSED code=keyring-source-removed');
+    process.exit(1);
+  }
   try {
-    const result = provisionSeats({ seatSet: option(args, '--seat-set', DEFAULT_SEAT_SET),
+    const result = await provisionSeats({ seatSet: option(args, '--seat-set', DEFAULT_SEAT_SET),
       slotManifestFile: option(args, '--slot-manifest', join(repoRoot, 'docs/cross-cli-seat-slots.json')),
-      homeDir: option(args, '--home', homedir()), env: process.env,
+      homeDir: option(args, '--home', homedir()),
       ownerScope: option(args, '--owner-scope', 'owner'),
       outBase: option(args, '--out-base', join(homedir(), '.cache-tmp', 'h2a-test')),
-      ghBin: option(args, '--gh-bin', 'gh'),
-      keyringBin: option(args, '--keyring-bin', 'secret-tool'), mode });
+      ghBin: option(args, '--gh-bin', 'gh'), mode });
     for (const receipt of result.seats) console.log(JSON.stringify(receipt));
+    for (const source of result.sources ?? []) {
+      console.log(JSON.stringify({ event: 'seat-provision-sourced', ...source }));
+    }
     if (mode === 'local') {
       console.log(JSON.stringify({ event: 'seat-provision-local', manifestFile: result.manifestFile,
         manifestDigest: result.manifestDigest, seats: result.seats.map(receipt => receipt.seatId) }));
@@ -336,6 +379,7 @@ if (process.argv[1] && resolve(process.argv[1]) === self) {
     }
   } catch (error) {
     console.log(`seat-provision: REFUSED code=${error.message}`);
+    if (error.enroll) console.log(`seat-provision: ENROLL ${error.enroll}`);
     process.exit(1);
   }
 }
