@@ -1,0 +1,42 @@
+{
+  "run": 38909510272,
+  "sha": "2f4568a93922942c24dfc59d8b62de6725f0147c",
+  "job": 117001491674,
+  "name": "simulated-messaging (22)",
+  "conclusion": "success",
+  "url": "https://github.com/rhanka/h2a/actions/runs/38909510272/job/117001491674",
+  "commands": [
+    {
+      "command": "node scripts/xcli-node-headers.mjs",
+      "outputCounts": {},
+      "outcomes": []
+    },
+    {
+      "command": "node --test scripts/xcli-lab.test.mjs scripts/xcli-proxy.test.mjs scripts/xcli-simulation.test.mjs scripts/xcli-gemini-registry.test.mjs scripts/xcli-cleanup.test.mjs scripts/xcli-pid-namespace.test.mjs scripts/xcli-terminal.test.mjs scripts/xcli-startup.test.mjs scripts/xcli-evidence.test.mjs",
+      "outputCounts": {
+        "tests": 18,
+        "pass": 18,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0,
+        "todo": 0
+      },
+      "outcomes": []
+    },
+    {
+      "command": "node scripts/qualify-cross-cli.mjs --simulated --timeout-ms 30000 --output \"/home/runner/work/_temp/xcli-simulated.json\"",
+      "outputCounts": {},
+      "outcomes": []
+    },
+    {
+      "command": "node scripts/xcli-ci-check.mjs \"/home/runner/work/_temp/xcli-simulated.json\"",
+      "outputCounts": {},
+      "outcomes": [
+        {
+          "cells": 36,
+          "outcome": "simulated-round-trips-proven"
+        }
+      ]
+    }
+  ]
+}

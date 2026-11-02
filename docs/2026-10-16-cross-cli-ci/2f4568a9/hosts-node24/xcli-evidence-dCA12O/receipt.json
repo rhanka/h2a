@@ -1,0 +1,54 @@
+{
+  "command": [
+    "node",
+    "--import",
+    "/home/runner/work/_temp/xcli-ON47pA/build/packages/h2a/test/helpers/native-isolation.js",
+    "--test",
+    "--test-reporter=tap",
+    "--test-reporter-destination=stdout",
+    "--test-reporter=/home/runner/work/h2a/h2a/scripts/node-evidence-reporter.mjs",
+    "--test-reporter-destination=/home/runner/work/_temp/xcli-ON47pA/execution.json",
+    "--test-concurrency=1",
+    "packages/h2a/test/hosts-integration.test.js",
+    "packages/h2a/test/cli-host-status.test.js",
+    "packages/h2a/test/evo-host-setup-wake.test.js",
+    "packages/h2a/test/mcp-central.test.js",
+    "packages/h2a/test/host-connect.test.js",
+    "packages/h2a/test/host-plugin.test.js",
+    "packages/h2a/test/gateway-host-docs.test.js",
+    "packages/h2a/test/install-skills-hosts.test.js",
+    "packages/h2a/test/mcp-run.test.js",
+    "packages/h2a/test/cli-contract.test.js"
+  ],
+  "counts": {
+    "tests": 211,
+    "pass": 210,
+    "fail": 0,
+    "cancelled": 0,
+    "skipped": 1,
+    "todo": 0
+  },
+  "exitCode": 0,
+  "sourceBuild": {
+    "path": "/home/runner/work/_temp/xcli-ON47pA/build",
+    "sourceDigest": "0d8e37eb08160ab471d007cf0d9e90e3a630454abc3d251a75f005c6889c0f68",
+    "nativeBuild": {
+      "command": [
+        "/usr/bin/g++",
+        "-std=c++17",
+        "-shared",
+        "-fPIC",
+        "-O2",
+        "-pthread",
+        "-DNAPI_CPP_EXCEPTIONS",
+        "-I/tmp/xcli-headers-MBDXzl/node-v24.21.0/include/node",
+        "-I/home/runner/work/h2a/h2a/node_modules/node-addon-api",
+        "/home/runner/work/_temp/xcli-ON47pA/build/node_modules/node-pty/src/unix/pty.cc",
+        "-o",
+        "/home/runner/work/_temp/xcli-ON47pA/build/node_modules/node-pty/build/Release/pty.node",
+        "-lutil"
+      ],
+      "exitCode": 0
+    }
+  }
+}

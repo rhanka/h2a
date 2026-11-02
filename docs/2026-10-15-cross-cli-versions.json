@@ -1,0 +1,35 @@
+{
+  "command": "node version probe: each CLI --version in private HOME/XDG",
+  "versions": [
+    {
+      "cli": "claude",
+      "exitCode": 0,
+      "version": "2.1.301"
+    },
+    {
+      "cli": "codex",
+      "exitCode": 0,
+      "version": "0.162.1"
+    },
+    {
+      "cli": "agy",
+      "exitCode": 0,
+      "version": "1.3.6"
+    },
+    {
+      "cli": "gemini",
+      "exitCode": 0,
+      "version": "0.56.0"
+    },
+    {
+      "cli": "muse",
+      "exitCode": 0,
+      "version": "1.4.9"
+    },
+    {
+      "cli": "vibe",
+      "blocked": "python-entrypoint-forbidden",
+      "ownerProvidedVersion": "2.26.1"
+    }
+  ]
+}

@@ -1,0 +1,79 @@
+{
+  "run": 38854531546,
+  "sha": "3ef2030e441720850e8a00c37394b1c939d58481",
+  "node": 24,
+  "job": 116822925146,
+  "url": "https://github.com/rhanka/h2a/actions/runs/38854531546/job/116822925146",
+  "nativeConfiguration": {
+    "tests": 2,
+    "pass": 2,
+    "fail": 0,
+    "skipped": 0,
+    "todo": 0
+  },
+  "runtimeCommand": "node scripts/xcli-in-pid-namespace.mjs scripts/xcli-runtime-tests.mjs",
+  "runtime": {
+    "files": [
+      "packages/h2a-runtime/src/agents-projection.test.ts",
+      "packages/h2a-runtime/src/claude-bare.test.ts",
+      "packages/h2a-runtime/src/conv-guard-wiring.test.ts",
+      "packages/h2a-runtime/src/conv-guard.test.ts",
+      "packages/h2a-runtime/src/delegate.test.ts",
+      "packages/h2a-runtime/src/destructive-act-unknown-failclosed.test.ts",
+      "packages/h2a-runtime/src/enroll.test.ts",
+      "packages/h2a-runtime/src/h2a-jobs.test.ts",
+      "packages/h2a-runtime/src/host-decision-symmetry.test.ts",
+      "packages/h2a-runtime/src/host-selection-invariants.test.ts",
+      "packages/h2a-runtime/src/index.test.ts",
+      "packages/h2a-runtime/src/native-host-reuse.test.ts",
+      "packages/h2a-runtime/src/native-host.test.ts",
+      "packages/h2a-runtime/src/native-terminal/crash-safety.functional.test.ts",
+      "packages/h2a-runtime/src/native-terminal/drive.functional.test.ts",
+      "packages/h2a-runtime/src/native-terminal/host.test.ts",
+      "packages/h2a-runtime/src/native-terminal/process.functional.test.ts",
+      "packages/h2a-runtime/src/native-terminal/publication-proof.test.ts",
+      "packages/h2a-runtime/src/native-terminal/server.test.ts",
+      "packages/h2a-runtime/src/native-terminal/supervisor.test.ts",
+      "packages/h2a-runtime/src/native-terminal/upgrade.functional.test.ts",
+      "packages/h2a-runtime/src/proc-identity.test.ts",
+      "packages/h2a-runtime/src/registry.test.ts",
+      "packages/h2a-runtime/src/restore-convid-reconcile.test.ts",
+      "packages/h2a-runtime/src/restore-human-sessions.test.ts",
+      "packages/h2a-runtime/src/restore-launch.test.ts",
+      "packages/h2a-runtime/src/restore-live-recovery.test.ts",
+      "packages/h2a-runtime/src/restore-wiring.test.ts",
+      "packages/h2a-runtime/src/restore.test.ts",
+      "packages/h2a-runtime/src/session-lease-launch.test.ts",
+      "packages/h2a-runtime/src/session-lease-wiring.test.ts",
+      "packages/h2a-runtime/src/stop-reread-toctou.test.ts",
+      "packages/h2a-runtime/src/structured-gateway.test.ts",
+      "packages/h2a-runtime/src/wake-request.test.ts"
+    ],
+    "tests": 688,
+    "passed": 684,
+    "failed": 0,
+    "pending": 2,
+    "evidence": "/tmp/h2a-qual-O8jGRi",
+    "exitCode": 0
+  },
+  "sourceCommand": "node scripts/xcli-in-pid-namespace.mjs scripts/xcli-source-tests.mjs packages/h2a/test/runtime-llm-mesh-account.test.js packages/h2a/test/restore-dead-session-recovery.test.js packages/h2a/test/runtime-restore-native.test.js packages/h2a/test/cli-command-map.test.js packages/h2a/test/native-session-restart.test.js packages/h2a/test/resume-conflict-selfheal.test.js packages/h2a/test/native-inventory-absence.test.js packages/h2a/test/m02-drive-characterization.test.js packages/h2a/test/m04-wake-characterization.test.js",
+  "sourceEnvironment": {
+    "XCLI_SOURCE_TMP_PARENT": "/home/runner/work/_temp"
+  },
+  "sourceCounts": {
+    "tests": 106,
+    "pass": 94,
+    "fail": 0,
+    "skipped": 0,
+    "todo": 12
+  },
+  "harnessJob": 116822925324,
+  "harnessCommand": "node --test scripts/xcli-lab.test.mjs scripts/xcli-proxy.test.mjs scripts/xcli-simulation.test.mjs scripts/xcli-gemini-registry.test.mjs scripts/xcli-cleanup.test.mjs scripts/xcli-pid-namespace.test.mjs scripts/xcli-terminal.test.mjs",
+  "harnessCounts": {
+    "tests": 13,
+    "pass": 13,
+    "fail": 0,
+    "skipped": 0,
+    "todo": 0
+  }
+}

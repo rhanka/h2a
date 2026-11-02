@@ -18,6 +18,25 @@ import { nativeSidecarName, startNativeH2aSidecar } from "../native-host.js";
 import { NativeTerminalClient } from "./client.js";
 import { NativeTerminalHostSupervisor, type NativeTerminalHostSpawn } from "./supervisor.js";
 
+// TUIs treat a bulk input burst containing CR as pasted text. Only a later
+// Enter submits the draft. A byte-capture pipe cannot detect a missing submit.
+const COMPOSER_SOURCE = String.raw`
+process.stdin.setRawMode(true);
+process.stdin.resume();
+let draft = "";
+process.stdout.write("native-drive-ready\r\n");
+process.stdin.on("data", bytes => {
+  const input = bytes.toString();
+  if (input === "\r") {
+    process.stdout.write("\r\nnative-drive-received:" + draft + "\r\n");
+    draft = "";
+  } else {
+    draft += input.replaceAll("\r", "");
+    process.stdout.write("\r\n❯ " + draft);
+  }
+});
+`;
+
 const children = new Set<ChildProcess>();
 const directories = new Set<string>();
 
@@ -145,11 +164,8 @@ describe.skipIf(process.platform !== "linux")("h2a drive native PTY backchannel"
       };
       await client.create({
         id: sessionId,
-        command: "/bin/sh",
-        args: [
-          "-c",
-          "printf 'native-drive-ready\\r\\n'; while IFS= read -r line; do printf 'native-drive-received:%s\\r\\n' \"$line\"; done",
-        ],
+        command: process.execPath,
+        args: ["-e", COMPOSER_SOURCE],
         cwd: directory,
         env: isolatedNativeTestEnvironment({ PATH: process.env.PATH ?? "/usr/bin:/bin", TERM: "xterm-256color" }),
         cols: 80,
@@ -226,7 +242,7 @@ describe.skipIf(process.platform !== "linux")("h2a drive native PTY backchannel"
       assert.equal(delivery.driven, true);
       const replay = await eventually(
         () => client.readOutput(sessionId, 0),
-        (value) => value.chunks.some((chunk) => chunk.data.includes(delivery.instructionLine)),
+        (value) => value.chunks.map((chunk) => chunk.data).join("").includes("native-drive-received:" + delivery.instructionLine),
       );
       assert.match(
         replay.chunks.map((chunk) => chunk.data).join(""),

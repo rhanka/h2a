@@ -1,0 +1,366 @@
+name: cross-cli-messaging
+
+on:
+  push:
+    branches: [main, feat/live-cross-cli-messaging]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  harness-integrity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["22", "24"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - name: Use runner temporary storage
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - run: npm ci --ignore-scripts
+      - run: node scripts/xcli-node-headers.mjs
+      - run: npm run build -w @sentropic/track && npm run build:h2a
+      # Keep the long polling controls independent of the 108 pair
+      # replications. Each job retains its existing 30-minute budget.
+      - name: Test witness integrity and wake counterexamples
+        run: >-
+          node --test scripts/xcli-lab.test.mjs scripts/xcli-proxy.test.mjs
+          scripts/xcli-simulation.test.mjs scripts/xcli-gemini-registry.test.mjs
+          scripts/xcli-cleanup.test.mjs scripts/xcli-pid-namespace.test.mjs
+          scripts/xcli-terminal.test.mjs scripts/xcli-startup.test.mjs scripts/xcli-evidence.test.mjs
+          scripts/xcli-seats.test.mjs scripts/xcli-campaign.test.mjs scripts/xcli-matrix.test.mjs
+          scripts/xcli-receipt-check.test.mjs scripts/xcli-campaign-lane.test.mjs
+          scripts/xcli-scenarios.test.mjs scripts/xcli-docs.test.mjs
+          scripts/xcli-review-regressions.test.mjs scripts/xcli-wake-review.test.mjs
+          scripts/xcli-process-review.test.mjs scripts/xcli-trusted-artifact.test.mjs
+          scripts/xcli-evidence-scan.test.mjs scripts/xcli-packaged-review.test.mjs
+          scripts/xcli-npm-oracles.test.mjs scripts/xcli-runtime-runner.test.mjs
+          scripts/xcli-identity-pacing.test.mjs
+          scripts/xcli-wake-proof.test.mjs
+          scripts/xcli-node-headers.test.mjs
+
+  simulated-messaging:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["22", "24"]
+        sender: [claude, codex, agy, gemini, muse, vibe]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      # The temporary source builder compiles node-pty directly with g++.
+      # No install scripts, node-gyp, Python or installed h2a are needed.
+      - name: Use runner temporary storage
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - run: npm ci --ignore-scripts
+      - run: node scripts/xcli-node-headers.mjs
+      # The L15 remainder test and the drive-crypto twins read the served
+      # surface from the built dist (tsc only, no install scripts, no Python).
+      - run: npm run build -w @sentropic/track && npm run build:h2a
+      # Same exit-2 contract as the scenario matrix: the verdict belongs to
+      # the ci-check step, which fails a partial or non-green matrix itself.
+      - name: Exercise six ordered pairs in this sender shard with three repetitions each
+        run: >-
+          node scripts/qualify-cross-cli.mjs --simulated --sender "${{ matrix.sender }}" --timeout-ms 60000
+          --wake-release-offsets-ms 0,6000,1000
+          --output "${{ runner.temp }}/xcli-simulated.json" || code=$?;
+          if [ "${code:-0}" -ne 0 ] && [ "${code:-0}" -ne 2 ]; then exit "$code"; fi
+      - name: Require every cell and every live messaging stage
+        run: node scripts/xcli-ci-check.mjs "${{ runner.temp }}/xcli-simulated.json" --sender "${{ matrix.sender }}"
+      - name: Scan publication files
+        id: evidence-scan
+        if: always()
+        run: node scripts/xcli-evidence-scan.mjs "${{ runner.temp }}/xcli-simulated.json"
+      - name: Preserve safe qualification receipt
+        if: always() && steps.evidence-scan.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcli-simulated-node-${{ matrix.node }}-${{ matrix.sender }}
+          path: ${{ runner.temp }}/xcli-simulated.json
+          if-no-files-found: error
+
+  polling-controls:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["22", "24"]
+        period: ["1000", "5000", "15000", "45000", "90000"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - name: Use runner temporary storage
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - run: npm ci --ignore-scripts
+      - run: node scripts/xcli-node-headers.mjs
+      - name: Require all three phases for this fixed polling period to fail stage 7
+        env:
+          XCLI_POLL_PERIOD_MS: ${{ matrix.period }}
+        run: node --test scripts/xcli-polling-controls.test.mjs
+
+  native-configuration-oracles:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["22", "24"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - name: Use runner temporary storage
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - run: npm ci --ignore-scripts
+      - run: node scripts/xcli-node-headers.mjs
+      # Config discovery needs real CLI parsers, but no login/model/paid seat.
+      - run: node scripts/xcli-install-oracles.mjs
+      - run: node --test scripts/xcli-native-config.test.mjs
+      - name: Run all source suites referencing the changed runtime modules
+        run: node scripts/xcli-in-pid-namespace.mjs scripts/xcli-runtime-tests.mjs
+      - name: Scan publication files
+        id: evidence-scan
+        if: always()
+        run: node scripts/xcli-evidence-scan.mjs "${XCLI_EVIDENCE_EXPORT_DIR:?missing runtime evidence directory}/receipt.json"
+      - name: Preserve runtime execution receipts
+        if: always() && steps.evidence-scan.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcli-runtime-node-${{ matrix.node }}
+          path: ${{ env.XCLI_EVIDENCE_EXPORT_DIR }}/receipt.json
+          if-no-files-found: error
+
+  # The runtime and source consumers are independent checks. Serializing both
+  # exceeded the existing 10-minute job budget on Node 24 in run 38900923045.
+  source-consumers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["22", "24"]
+        scope: [native, hosts]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - name: Use runner temporary storage
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - run: npm ci --ignore-scripts
+      - run: node scripts/xcli-node-headers.mjs
+      - name: Run native source consumers in a private PID domain
+        if: matrix.scope == 'native'
+        env:
+          XCLI_SOURCE_TMP_PARENT: ${{ runner.temp }}
+        run: >-
+          node scripts/xcli-in-pid-namespace.mjs scripts/xcli-source-tests.mjs
+          packages/h2a/test/runtime-llm-mesh-account.test.js
+          packages/h2a/test/restore-dead-session-recovery.test.js
+          packages/h2a/test/runtime-restore-native.test.js
+          packages/h2a/test/cli-command-map.test.js
+          packages/h2a/test/native-session-restart.test.js
+          packages/h2a/test/resume-conflict-selfheal.test.js
+          packages/h2a/test/native-inventory-absence.test.js
+          packages/h2a/test/m02-drive-characterization.test.js
+          packages/h2a/test/m04-wake-characterization.test.js
+          packages/h2a/test/native-host-generations.test.js
+          packages/h2a/test/native-process-view.test.js
+          packages/h2a/test/native-spawn-guard.test.js
+          packages/h2a/test/pty-native-messaging.test.js
+          packages/h2a/test/drive.test.js
+      - name: Run host setup consumers in a private PID domain
+        if: matrix.scope == 'hosts'
+        env:
+          XCLI_SOURCE_TMP_PARENT: ${{ runner.temp }}
+        run: >-
+          node scripts/xcli-in-pid-namespace.mjs scripts/xcli-source-tests.mjs
+          packages/h2a/test/hosts-integration.test.js
+          packages/h2a/test/cli-host-status.test.js
+          packages/h2a/test/evo-host-setup-wake.test.js
+          packages/h2a/test/mcp-central.test.js
+          packages/h2a/test/host-connect.test.js
+          packages/h2a/test/host-plugin.test.js
+          packages/h2a/test/gateway-host-docs.test.js
+          packages/h2a/test/install-skills-hosts.test.js
+          packages/h2a/test/mcp-run.test.js
+          packages/h2a/test/cli-contract.test.js
+      - name: Scan publication files
+        id: evidence-scan
+        if: always()
+        run: node scripts/xcli-evidence-scan.mjs "${XCLI_EVIDENCE_EXPORT_DIR:?missing runtime evidence directory}/receipt.json" "${XCLI_EVIDENCE_EXPORT_DIR:?missing runtime evidence directory}/execution.json"
+      - name: Preserve source execution receipts
+        if: always() && steps.evidence-scan.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcli-source-${{ matrix.scope }}-node-${{ matrix.node }}
+          path: |
+            ${{ env.XCLI_EVIDENCE_EXPORT_DIR }}/receipt.json
+            ${{ env.XCLI_EVIDENCE_EXPORT_DIR }}/execution.json
+          if-no-files-found: error
+
+  # Lot L12-L15 scenario matrix (SPEC v3 §5.1 scenarios 2-4 + inventory):
+  # every mandated row runs the full 36-pair simulated matrix and must
+  # classify scenario-OK on all 36.
+  scenario-matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["22", "24"]
+        scenario: ["unavailability:stopped-receiver", "unavailability:unknown-instance",
+          "unavailability:identity-never-ready",
+          "loop:lifecycle", "loop:join-unknown", "loop:report-without-join",
+          "loop:report-after-done", "negotiation:flow", "negotiation:offer-unknown",
+          "negotiation:stabilize-without-offer", "negotiation:replayed-stabilization",
+          "inventory:read-paths", "inventory:session-paths",
+          "inventory:conductor-paths", "inventory:governance-paths"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - name: Use runner temporary storage
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - run: npm ci --ignore-scripts
+      - run: node scripts/xcli-node-headers.mjs
+      # qualify exits 2 when cells are not all simulated-OK — the expected
+      # shape for refusal/inventory twins. Only a crash (any other code) may
+      # fail here; the verdict belongs to the --check step below, which also
+      # fails a partial matrix (missing rows), so nothing is masked.
+      - name: Run the full simulated matrix for one scenario row
+        run: >-
+          node scripts/qualify-cross-cli.mjs --simulated --timeout-ms 30000
+          --scenario "${{ matrix.scenario }}"
+          --output "${{ runner.temp }}/xcli-scenario.json" || code=$?;
+          if [ "${code:-0}" -ne 0 ] && [ "${code:-0}" -ne 2 ]; then exit "$code"; fi
+      - name: Require scenario-OK on all 36 pairs
+        run: >-
+          node scripts/xcli-scenarios.mjs --check "${{ runner.temp }}/xcli-scenario.json"
+          --only "${{ matrix.scenario }}"
+      - name: Scan publication files
+        id: evidence-scan
+        if: always()
+        run: node scripts/xcli-evidence-scan.mjs "${{ runner.temp }}/xcli-scenario.json"
+      - name: Preserve the scenario receipt
+        if: always() && steps.evidence-scan.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcli-scenario-node-${{ matrix.node }}-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/xcli-scenario.json
+          if-no-files-found: error
+
+  # Refusal rows first prove a live wake. Fund W0=W1=13 s and D=3 s inside
+  # each original 60 s cell budget. Two complete sender groups keep every
+  # row's 36 ordered pairs inside the unchanged 30-minute job budget.
+  refusal-matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["22", "24"]
+        scenario: ["refusal:unsigned-wake", "refusal:misaddressed-wake", "refusal:replayed-wake"]
+        senders: ["claude codex agy", "gemini muse vibe"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - name: Use runner temporary storage
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - run: npm ci --ignore-scripts
+      - run: node scripts/xcli-node-headers.mjs
+      - name: Prove and verify all ordered pairs in this sender group
+        env:
+          XCLI_SENDERS: ${{ matrix.senders }}
+          XCLI_SCENARIO: ${{ matrix.scenario }}
+        run: |
+          for xcli_sender in $XCLI_SENDERS; do
+            code=0
+            output="$RUNNER_TEMP/xcli-refusal-$xcli_sender.json"
+            node scripts/qualify-cross-cli.mjs --simulated --sender "$xcli_sender" --timeout-ms 60000 \
+              --scenario "$XCLI_SCENARIO" --output "$output" || code=$?
+            if [ "$code" -ne 0 ] && [ "$code" -ne 2 ]; then exit "$code"; fi
+            node scripts/xcli-scenarios.mjs --check "$output" --only "$XCLI_SCENARIO" --sender "$xcli_sender"
+          done
+      - name: Scan publication files
+        id: evidence-scan
+        if: always()
+        env:
+          XCLI_SENDERS: ${{ matrix.senders }}
+        run: |
+          for xcli_sender in $XCLI_SENDERS; do
+            node scripts/xcli-evidence-scan.mjs "$RUNNER_TEMP/xcli-refusal-$xcli_sender.json"
+          done
+      - name: Preserve safe refusal evidence
+        if: always() && steps.evidence-scan.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcli-refusal-node-${{ matrix.node }}-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/xcli-refusal-*.json
+          if-no-files-found: error
+
+  # Lot L11 receipt gate (SPEC v3 §7.1, R18 cyber-seat custody): no secrets
+  # present, fork-safe. On the branch→main PR this job is a required check
+  # and refuses without the campaign-lane receipt published for the exact
+  # head: it resolves the successful cross-cli-campaign run for that SHA,
+  # downloads its artifact over the authenticated API (provenance by
+  # delivery), and checks the content. On lot PRs into the feature branch it
+  # reports `qualification: open` and passes — never worded as
+  # merge-readiness, never configured as required there.
+  receipt-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["22", "24"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Gate on the campaign-lane receipt, or report the open qualification
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.base_ref }}" = "main" ]; then
+            run_id="$(gh run list --workflow cross-cli-campaign.yml --commit "$CANDIDATE_SHA" --limit 1 \
+              --json databaseId,conclusion --jq '.[0] | select(.conclusion == "success") | .databaseId')"
+            test -n "$run_id" || { echo "receipt-check: REFUSED code=receipt-absent (no successful campaign run for the exact head)"; exit 1; }
+            gh run download "$run_id" -n "xcli-campaign-${CANDIDATE_SHA}"
+            node scripts/xcli-receipt-check.mjs --receipt "xcli-campaign-${CANDIDATE_SHA}/campaign-receipt.json" \
+              --sha "$CANDIDATE_SHA" --gate merge
+          else
+            node scripts/xcli-receipt-check.mjs --report-only
+          fi

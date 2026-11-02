@@ -1,0 +1,197 @@
+name: cross-cli-campaign
+
+# Lot L11 trusted campaign lane (SPEC v3 §7.1/§7.2, PROPOSITION, Decision D3
+# pending). Manual + scheduled + pre-merge on the frozen candidate head.
+# Never on forks, never on pull_request, never with pull_request_target
+# semantics. Concurrency 1: a queued campaign waits rather than racing seats.
+on:
+  workflow_dispatch:
+    inputs:
+      seat_set:
+        description: Explicit seat set; each name maps to its slot in docs/cross-cli-seat-slots.json and its SEAT_USE_<CLI>_<SLOT> secret (family names while one seat per family)
+        required: true
+      candidate_sha:
+        description: Frozen candidate head the receipt will bind
+        required: true
+  schedule:
+    - cron: "17 3 * * 0"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cross-cli-campaign
+  cancel-in-progress: false
+
+jobs:
+  campaign:
+    # Seat material lives in the protected environment only.
+    environment: cross-cli-seats
+    # D3: owner-selected ephemeral image with all five binaries pre-provisioned.
+    # No hosted fallback that lacks Muse/AGY. JSON runner labels are required.
+    runs-on: ${{ fromJSON(vars.XCLI_CAMPAIGN_RUNNER) }}
+    timeout-minutes: 120
+    if: github.event_name != 'pull_request'
+    # One runtime projection secret per seated slot (SEAT_USE_<CLI>_<SLOT>),
+    # exposed only inside this protected environment. The seat_set input
+    # names seats from the reviewed slot manifest; a seat without its
+    # projection here refuses at materialisation, never from elsewhere.
+    steps:
+      - name: Validate the protected candidate before checkout or secrets
+        id: validate
+        uses: actions/github-script@v7
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha || github.sha }}
+          SEAT_SET: ${{ inputs.seat_set || vars.XCLI_SEAT_SET }}
+        with:
+          script: |
+            const candidate = process.env.CANDIDATE_SHA;
+            if (!process.env.SEAT_SET) throw new Error('seat set is required');
+            if (context.repo.owner !== 'rhanka' || context.repo.repo !== 'h2a' ||
+                !['workflow_dispatch', 'schedule'].includes(context.eventName) ||
+                !['refs/heads/main', 'refs/heads/feat/live-cross-cli-messaging'].includes(context.ref))
+              throw new Error('candidate ref is not trusted');
+            if (!/^[0-9a-f]{40}$/.test(candidate) || candidate !== context.sha)
+              throw new Error('candidate must equal the exact workflow head');
+            const { data: branch } = await github.rest.repos.getBranch({ ...context.repo, branch: context.ref.slice(11) });
+            if (!branch.protected || branch.commit.sha !== candidate)
+              throw new Error('candidate must be the current protected head');
+            core.setOutput('sha', candidate);
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.validate.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Use runner temporary storage
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - run: npm ci --ignore-scripts
+      - name: Measure all provisioned CLI versions before exposing seats
+        run: >-
+          node --input-type=module -e "
+          import fs from 'node:fs';
+          import { spawnSync } from 'node:child_process';
+          import { createHash } from 'node:crypto';
+          import { join } from 'node:path';
+          import { ORACLE_SOURCES, environment, privateExecutable, pythonEntrypoint, vendorRuntimeLabel } from './scripts/xcli-lab.mjs';
+          const home = fs.mkdtempSync(join(process.env.RUNNER_TEMP, 'xcli-measure-'));
+          const versions = {};
+          try {
+            for (const family of Object.keys(ORACLE_SOURCES)) {
+              const found = spawnSync('/usr/bin/which', [family], { encoding: 'utf8' });
+              if (found.status !== 0) throw new Error('cli-not-provisioned:' + family);
+              const dir = join(home, family), env = environment(dir);
+              const path = privateExecutable(family, found.stdout.trim(), dir).path;
+              if (!vendorRuntimeLabel(family, path) && pythonEntrypoint(path))
+                throw new Error('python-entrypoint-forbidden:' + family);
+              const probe = spawnSync(path, ['--version'], { env, cwd: dir, encoding: 'utf8', timeout: 15000, maxBuffer: 65536 });
+              const version = probe.stdout?.match(/\d+\.\d+\.\d+(-R\d+(\.\d+)?)?/)?.[0];
+              if (probe.status !== 0 || !version) throw new Error('cli-version-unproven:' + family);
+              versions[family] = { version, binaryDigest: createHash('sha256').update(fs.readFileSync(path)).digest('hex') };
+            }
+            fs.writeFileSync(join(process.env.RUNNER_TEMP, 'cli-versions.json'), JSON.stringify(versions), { mode: 0o600 });
+          } finally { fs.rmSync(home, { recursive: true, force: true }); }
+          "
+      - name: Allocate a guarded campaign root
+        # The native-isolation admission guard (held from main) accepts only
+        # /tmp/h2a-qual-* (forbidden by the owner no-/tmp rule) or
+        # $HOME/.cache-tmp/h2a-test/run-*. RUNNER_TEMP is outside both, so
+        # the campaign root is minted under the admitted owner-cache base;
+        # workers import the guard with this root and refuse anything else.
+        run: |
+          base="$HOME/.cache-tmp/h2a-test"
+          mkdir -p "$base"
+          root="$(mktemp -d "$base/run-XXXXXX")"
+          chmod 700 "$root"
+          echo "XCLI_CAMPAIGN_ROOT=$root" >> "$GITHUB_ENV"
+      # Cyber-seat custody (R18, owner D1): the reviewed slot manifest maps
+      # each seat to its fixed SEAT_USE_<CLI>_<SLOT> runtime projection in
+      # this protected environment. This fixed trusted step is the only step
+      # that reads them; every envelope is validated by the vendored llm-mesh
+      # seat-bundle import adapters (never re-implemented) before any byte
+      # reaches the 0700 seat HOMEs. The published manifest carries paths
+      # only, never secret bytes.
+      - name: Materialise seat HOMEs from environment bundles
+        env:
+          SEAT_SET: ${{ inputs.seat_set || vars.XCLI_SEAT_SET }}
+          SEAT_USE_CLAUDE_00: ${{ secrets.SEAT_USE_CLAUDE_00 }}
+          SEAT_USE_CODEX_00: ${{ secrets.SEAT_USE_CODEX_00 }}
+          SEAT_USE_MUSE_00: ${{ secrets.SEAT_USE_MUSE_00 }}
+          SEAT_USE_AGY_00: ${{ secrets.SEAT_USE_AGY_00 }}
+          SEAT_USE_VIBE_00: ${{ secrets.SEAT_USE_VIBE_00 }}
+        run: >-
+          node --input-type=module -e "
+          import fs from 'node:fs';
+          import { materialiseSeatEnvelopes } from './scripts/xcli-seat-import.mjs';
+          if (fs.realpathSync(process.env.RUNNER_TEMP) !== process.env.RUNNER_TEMP) throw new Error('aliased runner temp');
+          const slotManifest = JSON.parse(fs.readFileSync('./docs/cross-cli-seat-slots.json', 'utf8'));
+          const { manifestDigest, receipt } = materialiseSeatEnvelopes({
+            seatSet: process.env.SEAT_SET ?? '', slotManifest,
+            secrets: process.env, baseDir: process.env.RUNNER_TEMP });
+          console.log('seats=' + receipt.seats.map(s => s.seatId).join(','));
+          console.log('manifest-digest=' + manifestDigest);
+          "
+      - name: Run the R1 campaign on the frozen head
+        id: qualify
+        continue-on-error: true
+        env:
+          SEAT_MANIFEST: ${{ runner.temp }}/seats.json
+          SESSION_CAP: ${{ vars.XCLI_SESSION_CAP }}
+          MCP_CAP: ${{ vars.XCLI_MCP_CAP }}
+          WALL_CLOCK_CAP_MS: ${{ vars.XCLI_WALL_CLOCK_CAP_MS }}
+        run: >-
+          node scripts/qualify-cross-cli.mjs --seat-manifest "${SEAT_MANIFEST}"
+          --campaign-root "$XCLI_CAMPAIGN_ROOT" --timeout-ms 120000
+          --wake-release-offsets-ms 0,30000,6000
+          --session-cap "$SESSION_CAP" --mcp-call-cap "$MCP_CAP" --campaign-wall-clock-ms "$WALL_CLOCK_CAP_MS"
+          --output "$XCLI_CAMPAIGN_ROOT/qualification.json"
+      # Filtered receipt only: digests recomputed from the candidate tree,
+      # never trusted from the qualify output; seat paths stay out.
+      - name: Assemble the filtered campaign receipt
+        id: receipt
+        if: ${{ !cancelled() && (steps.qualify.outcome == 'success' || steps.qualify.outcome == 'failure') }}
+        run: >-
+          node --input-type=module -e "
+          import fs from 'node:fs';
+          import { createHash } from 'node:crypto';
+          import { join } from 'node:path';
+          import { buildCampaignReceipt } from './scripts/xcli-ci-check.mjs';
+          const cliVersions = JSON.parse(fs.readFileSync(join(process.env.RUNNER_TEMP, 'cli-versions.json')));
+          const manifestFile = join(process.env.RUNNER_TEMP, 'seats.json');
+          const receipt = buildCampaignReceipt({ campaignRoot: process.env.XCLI_CAMPAIGN_ROOT,
+            sha: '${{ steps.validate.outputs.sha }}', gate: 'merge',
+            provenance: { runId: Number(process.env.GITHUB_RUN_ID), runAttempt: Number(process.env.GITHUB_RUN_ATTEMPT) },
+            repoRoot: '${{ github.workspace }}', cliVersions,
+            seatManifestDigest: createHash('sha256').update(fs.readFileSync(manifestFile)).digest('hex') });
+          fs.writeFileSync(join(process.env.RUNNER_TEMP, 'campaign-receipt.json'), JSON.stringify(receipt, null, 2) + '\n', { mode: 0o600 });
+          console.log('receipt cells=' + receipt.cells.length);
+          "
+      - name: Check the receipt before publishing
+        if: ${{ !cancelled() && steps.receipt.outcome == 'success' }}
+        run: >-
+          node scripts/xcli-receipt-check.mjs --receipt "${RUNNER_TEMP}/campaign-receipt.json"
+          --sha "${{ steps.validate.outputs.sha }}" --gate merge
+      - name: Wipe seat HOMEs unconditionally
+        if: always()
+        run: |
+          rm -rf "${RUNNER_TEMP}/seats" "${RUNNER_TEMP}/seats.json"
+          case "${XCLI_CAMPAIGN_ROOT:-}" in
+            "$HOME"/.cache-tmp/h2a-test/run-*) rm -rf "$XCLI_CAMPAIGN_ROOT"; test ! -e "$XCLI_CAMPAIGN_ROOT" ;;
+            "") ;;
+            *) exit 1 ;;
+          esac
+      - name: Scan every publication file
+        id: publication_scan
+        if: ${{ !cancelled() && steps.receipt.outcome == 'success' }}
+        run: node scripts/xcli-evidence-scan.mjs "${RUNNER_TEMP}/campaign-receipt.json"
+      - name: Publish the filtered receipt
+        if: ${{ !cancelled() && steps.publication_scan.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcli-campaign-${{ steps.validate.outputs.sha }}
+          path: ${{ runner.temp }}/campaign-receipt.json
+          if-no-files-found: error
+      - name: Require a successful campaign
+        if: ${{ always() && steps.qualify.outcome != 'success' }}
+        run: exit 1

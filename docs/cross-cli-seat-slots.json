@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "description": "Reviewed R1 seat slot manifest (owner D1, R18; vibe seated R19). Each seat names its fixed secrets in the protected cross-cli-seats environment: the canonical SEAT_<CLI>_<SLOT>, the rotation candidate SEAT_CANDIDATE_<CLI>_<SLOT>, and the runtime projection SEAT_USE_<CLI>_<SLOT> the campaign lane loads. One slot per seated family. Gemini holds no slot: it runs through the agy seat (cloud-code tuple). Vibe holds slot 00: its seat file is the harness-defined MISTRAL_API_KEY custody projection. Bundle seatRef must equal seatId.",
+  "environment": "cross-cli-seats",
+  "seats": [
+    {
+      "seatId": "claude",
+      "cli": "claude",
+      "slot": "00",
+      "secret": "SEAT_CLAUDE_00",
+      "candidateSecret": "SEAT_CANDIDATE_CLAUDE_00",
+      "useSecret": "SEAT_USE_CLAUDE_00"
+    },
+    {
+      "seatId": "codex",
+      "cli": "codex",
+      "slot": "00",
+      "secret": "SEAT_CODEX_00",
+      "candidateSecret": "SEAT_CANDIDATE_CODEX_00",
+      "useSecret": "SEAT_USE_CODEX_00"
+    },
+    {
+      "seatId": "muse",
+      "cli": "muse",
+      "slot": "00",
+      "secret": "SEAT_MUSE_00",
+      "candidateSecret": "SEAT_CANDIDATE_MUSE_00",
+      "useSecret": "SEAT_USE_MUSE_00"
+    },
+    {
+      "seatId": "agy",
+      "cli": "agy",
+      "slot": "00",
+      "secret": "SEAT_AGY_00",
+      "candidateSecret": "SEAT_CANDIDATE_AGY_00",
+      "useSecret": "SEAT_USE_AGY_00"
+    },
+    {
+      "seatId": "vibe",
+      "cli": "vibe",
+      "slot": "00",
+      "secret": "SEAT_VIBE_00",
+      "candidateSecret": "SEAT_CANDIDATE_VIBE_00",
+      "useSecret": "SEAT_USE_VIBE_00"
+    }
+  ]
+}
