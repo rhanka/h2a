@@ -106,8 +106,9 @@ assert.equal(
 );
 
 // The loader's own recheck guard: a definition that drifts after catalog
-// construction refuses instead of publishing.
-definition.displayName = "tampered-after-catalog";
+// construction refuses instead of publishing. invocationScope feeds
+// manifest.authz.scopes, which the digest covers (displayName does not).
+definition.invocationScope = "tampered-after-catalog";
 await assert.rejects(builtin.load(), /artifacts definition changed after catalog construction/u);
 console.log("PACKED_TUPLE_WITH_PEER_OK");
 `;
@@ -157,11 +158,8 @@ facade.select(["sentropic.artifacts"]);
 facade.configure("sentropic.artifacts", {});
 const result = await facade.compile({ bindings: {}, compatibility: {} });
 assert.equal(result.ok, false, "selection refuses atomically");
-assert.match(
-  JSON.stringify(result.diagnostics),
-  /providers\\["sentropic\\.artifacts"\\]\\.loader/u,
-  "diagnostic names the artifacts loader",
-);
+assert.equal(result.diagnostics[0]?.path, 'providers["sentropic.artifacts"].loader', "diagnostic names the artifacts loader");
+assert.match(String(result.diagnostics[0]?.message ?? ""), /builtin loader failed/u);
 assert.equal(facade.compiled(), undefined, "no plan publishes on refusal");
 
 // A clean facade advertises zero artifacts tools.
@@ -214,18 +212,19 @@ test("M0-L1 packed consumer proves the tuple", { timeout: 300_000 }, async () =>
     const withPeer = await exec(process.execPath, [join(consumer, "probe-with.mjs")],
       { cwd: consumer, env, timeout: 120_000 });
     assert.match(withPeer.stdout, /PACKED_TUPLE_WITH_PEER_OK/u);
+    // Selection atomicity through the same rejected loader (disabled stands
+    // in for absent at the resolution layer; see probe header). Runs before
+    // the peer is removed: this probe still imports its public surface.
+    writeFileSync(join(consumer, "probe-refusal.mjs"), PROBE_SELECTION_REFUSAL);
+    const refusal = await exec(process.execPath, [join(consumer, "probe-refusal.mjs")],
+      { cwd: consumer, env, timeout: 120_000 });
+    assert.match(refusal.stdout, /PACKED_TUPLE_SELECTION_REFUSAL_OK/u);
     // Genuine filesystem absence: the peer directory is really removed.
     rmSync(join(consumer, "node_modules", "@sentropic", "artifacts"), { recursive: true, force: true });
     writeFileSync(join(consumer, "probe-absent.mjs"), PROBE_PEER_ABSENT);
     const absent = await exec(process.execPath, [join(consumer, "probe-absent.mjs")],
       { cwd: consumer, env, timeout: 120_000 });
     assert.match(absent.stdout, /PACKED_TUPLE_PEER_ABSENT_OK not_installed/u);
-    // Selection atomicity through the same rejected loader (disabled stands
-    // in for absent at the resolution layer; see probe header).
-    writeFileSync(join(consumer, "probe-refusal.mjs"), PROBE_SELECTION_REFUSAL);
-    const refusal = await exec(process.execPath, [join(consumer, "probe-refusal.mjs")],
-      { cwd: consumer, env, timeout: 120_000 });
-    assert.match(refusal.stdout, /PACKED_TUPLE_SELECTION_REFUSAL_OK/u);
   } finally {
     rmSync(lab, { recursive: true, force: true });
   }
