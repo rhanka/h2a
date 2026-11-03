@@ -6,7 +6,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { startCentralMcpServer, H2A_MCP_CENTRAL_ENDPOINT_ENV, loadUiRenderAssets } from "../dist/index.js";
+import { authenticatedHttpRequest } from "../dist/runtime/handover/authenticated-http.js";
 
+// Same supported central path as ui-render-transports: the challenge/proof
+// envelope (unsigned direct posts are refused with 401). Shapes below are
+// the inner MCP bytes (unframed).
 async function withCentral(env, run) {
   const directory = mkdtempSync(join(tmpdir(), "h2a-ui-sessions-"));
   const runtimeBase = join(directory, "run", String(process.getuid()));
@@ -24,10 +28,13 @@ async function withCentral(env, run) {
     const marker = JSON.parse(readFileSync(started.markerPath, "utf8"));
     let id = 0;
     async function request(method, params, session) {
-      const response = await fetch(endpoint, { method: "POST", headers: {
-        "content-type": "application/json", accept: "application/json, text/event-stream",
-        authorization: `Bearer ${marker.token}`, ...(session ? { "mcp-session-id": session } : {})
-      }, body: JSON.stringify({ jsonrpc: "2.0", ...(method === "notifications/initialized" ? {} : { id: ++id }), method, params }) });
+      const response = await authenticatedHttpRequest(started.markerPath, marker, new URL(endpoint), {
+        method: "POST", headers: {
+          "content-type": "application/json", accept: "application/json, text/event-stream",
+          ...(session ? { "mcp-session-id": session } : {})
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", ...(method === "notifications/initialized" ? {} : { id: ++id }), method, params })
+      });
       assert.ok(response.ok, `${method}: HTTP ${response.status}`);
       return { session: response.headers.get("mcp-session-id"), body: response.status === 202 ? null : await response.json() };
     }

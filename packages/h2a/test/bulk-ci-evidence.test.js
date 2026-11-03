@@ -71,6 +71,12 @@ for (const key of Object.keys(context)) test(`bulk proof rejects stale or foreig
   const value=proof();value.context[key]=key==='inputs'?{}:'foreign';
   assert.throws(()=>verifyBulkEnvelope(value,context,inventory));
 });
+test('bulk proof admits an earlier-attempt producer and rejects a future attempt', () => {
+  const expectedLater = { ...context, attempt: '2' };
+  assert.equal(verifyBulkEnvelope(proof(), expectedLater, inventory).numPassedTests, 76);
+  const future = proof(); future.context.attempt = '2';
+  assert.throws(() => verifyBulkEnvelope(future, context, inventory), /attempt/);
+});
 const corruptions = {
   'unknown envelope field':v=>{v.optional=true;}, 'unknown schema':v=>{v.schema=2;},
   'failed process':v=>{v.exit.code=1;}, 'cancelled process':v=>{v.exit.signal='SIGTERM';},
@@ -158,7 +164,14 @@ test('bulk producer runs every case and seals only after successful execution an
     cleaned(output);
     const imported=loadBulkPartition([...BULK_FILES,'other.test.js'],root,{...env,H2A_TEST_CI_BULK_REPORT:join(output,'proof.json')});
     assert.deepEqual(imported.local,['other.test.js']);
-    assert.throws(()=>loadBulkPartition(BULK_FILES,root,{...env,GITHUB_RUN_ATTEMPT:'2',H2A_TEST_CI_BULK_REPORT:join(output,'proof.json')}));
+    // A rerun-partial consumer (attempt 2) imports the attempt-1 producer
+    // proof without re-executing the bulk suites; a future-sealed proof
+    // stays foreign.
+    const rerun=loadBulkPartition([...BULK_FILES,'other.test.js'],root,{...env,GITHUB_RUN_ATTEMPT:'2',H2A_TEST_CI_BULK_REPORT:join(output,'proof.json')});
+    assert.deepEqual(rerun.local,['other.test.js']);
+    const tampered=JSON.parse(fs.readFileSync(join(output,'proof.json'),'utf8'));tampered.context.attempt='2';
+    fs.writeFileSync(join(output,'future.json'),JSON.stringify(tampered));
+    assert.throws(()=>loadBulkPartition(BULK_FILES,root,{...env,H2A_TEST_CI_BULK_REPORT:join(output,'future.json')}),/attempt/);
     fs.symlinkSync(join(output,'proof.json'),join(output,'alias.json'));
     assert.throws(()=>loadBulkPartition(BULK_FILES,root,{...env,H2A_TEST_CI_BULK_REPORT:join(output,'alias.json')}),/regular file/);
     const failedOutput=join(root,'tmp/failed');

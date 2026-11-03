@@ -57,7 +57,9 @@ import type {
 import { computeManifestDigest } from "@sentropic/mcp-platform/tool-configuration";
 import { authorizeDispatch } from "@sentropic/mcp-platform/transport/dispatch";
 import { TRACK_READ_TOOL_DESCRIPTORS } from "@sentropic/track/mcp";
-import { createMcpServer, isMcpTransportResult, type McpServer } from "../runtime/mcp/server.js";
+import { createMcpServer, isMcpTransportResult, type McpCallContext, type McpServer } from "../runtime/mcp/server.js";
+import { UI_RENDER_PROVIDER_ID } from "../runtime/mcp/ui-render/registry-entry.js";
+import { UI_RENDER_TOOL_NAMES } from "../runtime/mcp/ui-render/tools.js";
 import { H2A_CLI_MCP_TOOL_DESCRIPTORS } from "../runtime/mcp/tools.js";
 import { validateBridgeLock, type BridgeLock } from "./bridge-lock.js";
 import { missingMemoryBuiltin, resolveHostMemoryRegistration, MEMORY_PROVIDER_ID, MEMORY_TOOL_NAMES, type MemoryProviderRegistration } from "./memory-provider.js";
@@ -176,7 +178,8 @@ function buildManifest(
  */
 export type DaemonRawCallTool = (
   name: string,
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
+  context?: McpCallContext
 ) => unknown | Promise<unknown>;
 
 function contentText(raw: unknown): { text: string; hint?: string } | null {
@@ -310,7 +313,7 @@ export interface ComposedDaemonRegistry {
   catalog: () => Array<{ providerId: string; version: string; capabilities: string[] }>;
   toolNames: () => string[];
   tools: () => ReturnType<McpServer["listTools"]>;
-  dispatch: (toolName: string, args: Record<string, unknown>) => Promise<DaemonDispatchResult>;
+  dispatch: (toolName: string, args: Record<string, unknown>, context?: McpCallContext) => Promise<DaemonDispatchResult>;
 }
 
 /**
@@ -398,7 +401,24 @@ export async function composeDaemonRegistryForServer(
   const adapters = new Map<string, Adapter>();
   for (const definition of registered) adapters.set(definition.manifest.providerId, definition.adapter);
 
-  async function dispatch(toolName: string, args: Record<string, unknown>): Promise<DaemonDispatchResult> {
+  async function dispatch(toolName: string, args: Record<string, unknown>, context?: McpCallContext): Promise<DaemonDispatchResult> {
+    if (options.view === "combined" && (UI_RENDER_TOOL_NAMES as readonly string[]).includes(toolName)) {
+      // The attachment's own server owns the ui:// tools: per-connection
+      // SEP-1865 state (last rendered component, negotiated capability) lives
+      // in its ui module. The plan admits the read-only `sentropic.ui-render`
+      // surface and delegates execution with the caller's connection context,
+      // preserving the exact transport bytes (`_meta` included). Without the
+      // module the name is unknown here, exactly like a plan denial.
+      const raw = await rawCallTool(toolName, args ?? {}, context);
+      if (raw !== null && typeof raw === "object" && !isMcpTransportResult(raw) &&
+          typeof (raw as { error?: unknown }).error === "string" &&
+          /unknown tool/.test((raw as { error: string }).error)) {
+        fail("unknown_tool", `unknown tool ${toolName} for the active selection`);
+      }
+      return { ok: !((raw as { isError?: unknown })?.isError === true),
+        output: { ...(contentText(raw) ?? { text: JSON.stringify(raw) }), transport: raw },
+        providerId: UI_RENDER_PROVIDER_ID, capabilityName: toolName };
+    }
     const resolved = compiled.resolveTool(toolName);
     if (!resolved) fail("unknown_tool", `unknown tool ${toolName} for the active selection`);
     if (resolved.providerId === MEMORY_PROVIDER_ID) {
@@ -544,10 +564,10 @@ export function wrapMcpServerWithDaemonRegistry(
       root: options.root,
       workspaceRoot: options.workspaceRoot
     }));
-  const wrapped: McpServer["callTool"] = (async (name: string, args: Record<string, unknown> | undefined) => {
+  const wrapped: McpServer["callTool"] = (async (name: string, args: Record<string, unknown> | undefined, context?: McpCallContext) => {
     const plan = await composed();
     try {
-      const result = await plan.dispatch(name, args ?? {});
+      const result = await plan.dispatch(name, args ?? {}, context);
       return result.output.transport as Awaited<ReturnType<McpServer["callTool"]>>;
     } catch (error) {
       if (isDaemonDomainRefusal(error)) return { error: (error as Error).message };
@@ -563,11 +583,14 @@ export async function configureMcpServerRegistry(server: McpServer, options: Com
   const rawCallTool = server.callTool.bind(server) as DaemonRawCallTool;
   const plan = await composeDaemonRegistryForServer(rawCallTool, options);
   const descriptors = plan.tools();
-  server.listTools = () => descriptors.slice();
-  server.callTool = ((name: string, args: Record<string, unknown> | undefined) => {
+  // The plan covers coordination/Track/memory; the attachment's own ui module
+  // (when it verified) owns the read-only `sentropic.ui-render` descriptors.
+  const uiDescriptors = server.uiRender?.tools.listTools() ?? [];
+  server.listTools = () => [...descriptors, ...uiDescriptors].slice();
+  server.callTool = ((name: string, args: Record<string, unknown> | undefined, context?: McpCallContext) => {
     // The H1 lifecycle depends on the synchronous identity fast path.
-    if (name === "h2a_identity_status" && plan.toolNames().includes(name)) return rawCallTool(name, args ?? {});
-    return plan.dispatch(name, args ?? {}).then(result => result.output.transport).catch(error => {
+    if (name === "h2a_identity_status" && plan.toolNames().includes(name)) return rawCallTool(name, args ?? {}, context);
+    return plan.dispatch(name, args ?? {}, context).then(result => result.output.transport).catch(error => {
       if (isDaemonDomainRefusal(error)) return { error: (error as Error).message };
       throw error;
     });

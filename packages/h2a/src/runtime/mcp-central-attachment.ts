@@ -10,7 +10,8 @@ import { PassThrough, Writable } from "node:stream";
 import type { Notification } from "@modelcontextprotocol/sdk/types.js";
 import { runMcpServe } from "../cli.js";
 import type { createLocalStore } from "./local-files/index.js";
-import { createMcpServer, type McpServer } from "./mcp/server.js";
+import { createMcpServer, type McpCallContext, type McpServer } from "./mcp/server.js";
+import { createUiRenderModule, type UiRenderModule } from "./mcp/ui-render/index.js";
 import type { H2aRunExecutor } from "./mcp/agent-launch.js";
 import { CENTRAL_ATTACHMENT_ENV, type CentralMcpAttachment } from "./mcp-central-context.js";
 import type { AttachmentParticipant } from "./handover/participants.js";
@@ -31,21 +32,23 @@ function installRegistryDispatch(mcp: McpServer, options: { root: string; worksp
   const rawCallTool = mcp.callTool.bind(mcp) as McpServer["callTool"];
   let delegate: McpServer["callTool"] | undefined;
   let pending: Promise<McpServer["callTool"]> | undefined;
-  const stub = ((name: string, args: Record<string, unknown> | undefined) => {
+  const stub = ((name: string, args: Record<string, unknown> | undefined, context?: McpCallContext) => {
     // H1 internals read `h2a_identity_status` SYNCHRONOUSLY
     // (`handover/participants.js identity()`, freeze/checkpoint path): the
     // raw call is sync for the status tool, while any plan route is async by
     // construction. The status read is side-effect-free, identity-scoped and
     // admitted in every view, so it keeps the exact historical sync bytes;
-    // every other tool routes through the composed plan below.
-    if (name === "h2a_identity_status") return rawCallTool(name, args);
+    // every other tool routes through the composed plan below. The MCP call
+    // context (per-connection SEP-1865 ui capability) travels with every
+    // routed tool so session-scoped tools keep their connection identity.
+    if (name === "h2a_identity_status") return rawCallTool(name, args, context);
     return (async () => {
       pending ??= (async () => {
         const { wrapMcpServerWithDaemonRegistry } = await import("../registry/sentropic-daemon.js");
         return wrapMcpServerWithDaemonRegistry({ callTool: rawCallTool }, options).callTool;
       })();
       delegate ??= await pending;
-      return delegate(name, args);
+      return delegate(name, args, context);
     })();
   }) as McpServer["callTool"];
   mcp.callTool = stub;
@@ -59,10 +62,25 @@ export function openCentralAttachment(
   notify: (notification: Notification) => Promise<void>,
   runExecutor?: H2aRunExecutor,
   participant?: AttachmentParticipant,
-  registry?: Pick<ComposeDaemonOptions, "lock" | "memory">
+  registry?: Pick<ComposeDaemonOptions, "lock" | "memory">,
+  attachmentOptions?: { env?: Readonly<Record<string, string | undefined>> }
 ): CentralAttachmentHandle {
   if (!context) {
-    const mcp = createMcpServer({ root, workspaceRoot: workspace, store, ...(participant ? { participant } : {}), ...(runExecutor ? { runExecutor } : {}) });
+    // Direct HTTP sessions serve the ui:// resource surface from the vendored
+    // DS build when it verifies (h2a spec §7.2: a load failure NEVER takes the
+    // central server down — it serves without ui:// resources, noted on stderr
+    // only). The central environment (theme, locale, watermark gate) comes
+    // from the server options, defaulting to the live process environment.
+    let uiRender: UiRenderModule | undefined;
+    try {
+      uiRender = createUiRenderModule(attachmentOptions?.env !== undefined
+        ? { env: { ...attachmentOptions.env } }
+        : undefined);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      process.stderr.write(`h2a central attachment: ui-render assets unavailable (ui:// resources disabled): ${message}\n`);
+    }
+    const mcp = createMcpServer({ root, workspaceRoot: workspace, store, ...(participant ? { participant } : {}), ...(runExecutor ? { runExecutor } : {}), ...(uiRender ? { uiRender } : {}) });
     participant?.bind(mcp);
     const ready = registry ? configureSelectedRegistry(mcp, root, workspace, registry, { context, participant }) : undefined;
     if (!registry) installRegistryDispatch(mcp, { root, workspaceRoot: workspace });
