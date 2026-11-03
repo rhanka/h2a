@@ -252,6 +252,22 @@ en moins, donc moins de variance. Cibles : `tests` ≈ 1090 s sur base
 node-24. Si le kill persiste, décision budget conducteur (pas de hausse
 aveugle ici).
 
+## Complément R4d : clé gelée + enveloppe B + lab
+
+Le run R4b montre deux reps : (1) le lab `node-track-observation` épingle la
+structure exacte des enfants — le spawn warmer y est admis (hors compteur
+des 4 suites, marqueur dédié), preuve locale 55/55 sur
+`run-test-gates.test.js` ; (2) un 2e pack mid-run (clé recalculée par
+processus sur un `git status` volatil) annule le gain : la clé est désormais
+gelée par `run-tests.mjs` (`H2A_SHARED_PACK_KEY`, import dynamique
+transparent pour le lab) et chaque pack écrit `key-inputs.json` pour nommer
+tout futur basculement. Enveloppe du B incident lane 2 s → 10 s (timers
+RPC à 2 s et assertions reclaim/instance inchangés ; bound mesuré >2 s sous
+charge lane + 3 suites vitest) — même classe que T4 en R3. Note : le lane ne
+copie jamais `vendor/` dans le candidat, d'où la mention stderr
+`integrity_mismatch` permanente (non fatale par conception, §7.2) ; écart de
+fidélité signalé au conducteur, hors périmètre ici.
+
 Revue indépendante : non réalisée ; aucun outil `h2a_run` n'est disponible
 dans ce confinement, et l'accès à l'hôte installé est interdit. Aucun consensus
 n'est revendiqué.
