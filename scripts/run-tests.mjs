@@ -237,6 +237,59 @@ async function main() {
     process.exit(1);
   }
 
+  // Pack warm-up starts here — before every sequential setup step (legacy
+  // provisioning, fixture downloads) and the Node buckets — so the candidate
+  // pack (~250 s wall on a contended CI runner) overlaps all of it instead
+  // of stacking on the rest bucket's critical path. This script only fills
+  // the shared cache (helpers/shared-pack-candidates.mjs); consumers wait on
+  // its lock solely while the pack is in flight and pack privately if it
+  // failed. Fire and forget here, reaped in settlePackWarmer before exit so
+  // no stray npm grandchildren can contend with the later h2a-runtime step.
+  // The pack needs none of the fixture variables: it inherits this process
+  // environment (disposable TMPDIR included). Placed after the discovery
+  // guards above so a collapse exit can never orphan it.
+  function startPackWarmer(env) {
+    try {
+      const child = spawn(process.execPath, [join(REPO_ROOT, "scripts", "warm-pack-candidates.mjs")],
+        { cwd: REPO_ROOT, env, stdio: ["ignore", "inherit", "inherit"] });
+      child.once("error", (error) => process.stderr.write(`run-tests: pack warmer: ${error.message}\n`));
+      return child;
+    } catch (error) {
+      process.stderr.write(`run-tests: pack warmer could not start (${(error && error.message) || error}); suites pack privately\n`);
+      return null;
+    }
+  }
+  async function settlePackWarmer(child) {
+    if (!child || child.exitCode !== null || child.signalCode !== null) return;
+    const closed = new Promise((resolve) => child.once("close", resolve));
+    const timeout = new Promise((resolve) => setTimeout(() => {
+      try { child.kill("SIGKILL"); } catch {}
+      resolve();
+    }, 30_000));
+    await Promise.race([closed, timeout]);
+  }
+  // `let` next to this block (not at the call site) so an early throw before
+  // the assignment cannot turn into a TDZ ReferenceError in the finally.
+  let packWarmer = null;
+  // One frozen pack key for the whole run: the tree is fixed for this
+  // invocation, so the warmer and every suite process must agree on the key
+  // even while test outputs land mid-run (a live recomputation per process
+  // repacks on volatile status). Dynamic import with a computed specifier so
+  // the observation lab (which rewrites only static relative imports) stays
+  // transparent: a missing helper simply leaves the key unset and every
+  // consumer computes it live, exactly as before sharing. The key travels in
+  // this process environment, so every testEnv derived below inherits it.
+  try {
+    const packHelper = await import(pathToFileURL(join(REPO_ROOT, 'packages', 'h2a', 'test', 'helpers', 'shared-pack-candidates.mjs')).href);
+    const frozenPackKey = packHelper.cacheKey();
+    if (typeof frozenPackKey === 'string' && /^[a-f0-9]{64}$/.test(frozenPackKey)) {
+      process.env.H2A_SHARED_PACK_KEY = frozenPackKey;
+    }
+  } catch {
+    // No frozen key: consumers fall back to live computation.
+  }
+  packWarmer = startPackWarmer(process.env);
+
   // CI can import only closed M17/bulk proofs from this exact workflow
   // run/attempt/checkout/Node. Discovery and the final inventory stay complete.
   // Without explicit proofs every file runs locally; malformed proof is fatal.
@@ -408,62 +461,15 @@ async function main() {
   delete testEnv.H2A_TEST_CI_M17_REPORT;
   delete testEnv.H2A_TEST_CI_BULK_REPORT;
 
-  // Pack warm-up overlaps the native bucket: the candidate pack (~250 s wall
-  // on a contended CI runner) would otherwise sit on the rest bucket's
-  // critical path three times over. This script only fills the shared cache
-  // (helpers/shared-pack-candidates.mjs); consumers wait on its lock solely
-  // while the pack is in flight and pack privately if it failed. Fire and
-  // forget here, reaped in settlePackWarmer before exit so no stray npm
-  // grandchildren can contend with the later h2a-runtime step.
-  function startPackWarmer(env) {
-    try {
-      const child = spawn(process.execPath, [join(REPO_ROOT, "scripts", "warm-pack-candidates.mjs")],
-        { cwd: REPO_ROOT, env, stdio: ["ignore", "inherit", "inherit"] });
-      child.once("error", (error) => process.stderr.write(`run-tests: pack warmer: ${error.message}\n`));
-      return child;
-    } catch (error) {
-      process.stderr.write(`run-tests: pack warmer could not start (${(error && error.message) || error}); suites pack privately\n`);
-      return null;
-    }
-  }
-  async function settlePackWarmer(child) {
-    if (!child || child.exitCode !== null || child.signalCode !== null) return;
-    const closed = new Promise((resolve) => child.once("close", resolve));
-    const timeout = new Promise((resolve) => setTimeout(() => {
-      try { child.kill("SIGKILL"); } catch {}
-      resolve();
-    }, 30_000));
-    await Promise.race([closed, timeout]);
-  }
-  // Assigned once the fixture environment exists; the finally below reaps it
-  // on every path. `let` (not const at the call site) so an early throw
-  // before the assignment cannot turn into a TDZ ReferenceError here.
-  let packWarmer = null;
-
   // These suites require the real pinned archives, never absent-state skips.
+  // (The pack warmer and its frozen key started before discovery guards
+  // above, so this download phase already overlaps the pack.)
   const prepared = spawnSync(process.execPath, [join(REPO_ROOT, "scripts/prepare-mh-test-fixtures.mjs")], {
     cwd: REPO_ROOT, env: testEnv, encoding: "utf8", timeout: 600_000, maxBuffer: 8 * 1024 * 1024,
   });
   if (prepared.status !== 0) throw new Error(`run-tests: MH fixtures failed: ${prepared.stderr ?? prepared.error}`);
   const mhFixtures = JSON.parse(prepared.stdout);
   Object.assign(testEnv, mhFixtures.env);
-  // One frozen pack key for the whole run: the tree is fixed for this
-  // invocation, so the warmer and every suite process must agree on the key
-  // even while test outputs land mid-run (a live recomputation per process
-  // repacks on volatile status). Dynamic import with a computed specifier so
-  // the observation lab (which rewrites only static relative imports) stays
-  // transparent: a missing helper simply leaves the key unset and every
-  // consumer computes it live, exactly as before sharing.
-  try {
-    const packHelper = await import(pathToFileURL(join(REPO_ROOT, 'packages', 'h2a', 'test', 'helpers', 'shared-pack-candidates.mjs')).href);
-    const frozenPackKey = packHelper.cacheKey();
-    if (typeof frozenPackKey === 'string' && /^[a-f0-9]{64}$/.test(frozenPackKey)) {
-      testEnv.H2A_SHARED_PACK_KEY = frozenPackKey;
-      process.env.H2A_SHARED_PACK_KEY = frozenPackKey;
-    }
-  } catch {
-    // No frozen key: consumers fall back to live computation.
-  }
 
   // Track's no-store fixtures intentionally walk to the filesystem root.
   // Use the invocation's temporary parent, and reject any .track ancestor.
@@ -589,11 +595,9 @@ async function main() {
   // overwrites tmp/idlock-build2-lane.txt on every full run.
   let lanePointerBefore = null;
   try { lanePointerBefore = readFileSync(join(REPO_ROOT, "tmp", "idlock-build2-lane.txt"), "utf8"); } catch {}
-  // Start the candidate pack here: everything above is setup that can still
-  // throw, and from here on the try/finally below reaps the warmer on every
-  // path. The pack overlaps the native bucket and the rest-bucket long pole
-  // instead of stacking behind them.
-  packWarmer = startPackWarmer(testEnv);
+  // The pack warmer already started right after the fixture environment (it
+  // overlaps legacy provisioning, fixture downloads and the buckets); the
+  // try/finally below reaps it on every path.
   let exitCode = 0;
   try {
     const nodeStatuses = nodeBuckets.map((bucket) => {
