@@ -178,6 +178,68 @@ describe("remote-action owner authority", () => {
     ).toEqual({ state: "outcome_unknown", queryOnly: true });
   });
 
+  it("refuses an unresolved projection as authority_refused, never control_disabled", () => {
+    const base = {
+      exactProjectedGrant: true,
+      exactProjectedRequest: true,
+      handedOff: false,
+      principalValid: true,
+      registeredExecutor: true,
+      revisionsMatch: true,
+      scopePresent: true,
+      side: "B",
+      transportLost: false,
+    } as const;
+    expect(evaluateConsentDecision({ ...base, projection: "unresolved" })).toEqual({
+      code: "authority_refused",
+      effectCalls: 0,
+    });
+  });
+
+  it("stays query-only on handoff only with transport loss or unreadable projection", () => {
+    const base = {
+      exactProjectedGrant: true,
+      exactProjectedRequest: true,
+      principalValid: true,
+      registeredExecutor: true,
+      revisionsMatch: true,
+      scopePresent: true,
+      side: "B",
+    } as const;
+    expect(
+      evaluateConsentDecision({ ...base, handedOff: true, projection: "positive", transportLost: false }),
+    ).toEqual({ decision: "allow-at-consent-model-only", effectCalls: 0 });
+    expect(
+      evaluateConsentDecision({ ...base, handedOff: true, projection: "revoked", transportLost: false }),
+    ).toEqual({ code: "control_disabled", effectCalls: 0 });
+    expect(
+      evaluateConsentDecision({ ...base, handedOff: true, projection: "unavailable", transportLost: false }),
+    ).toEqual({ state: "outcome_unknown", queryOnly: true });
+  });
+
+  it("refuses action evidence under a non-action operation", () => {
+    expect(
+      checkActionCorrelation(correlated({ evidencePurpose: "action", operation: "share" })),
+    ).toEqual({ code: "authority_refused", effectCalls: 0 });
+    expect(
+      checkActionCorrelation(
+        correlated({ evidencePurpose: "action", operation: "permission-response" }),
+      ),
+    ).toEqual({ decision: "correlation-preserved-model", effectCalls: 0 });
+  });
+
+  it("refuses when sessionTraceId equals actionId or actionId is empty", () => {
+    expect(checkActionCorrelation(correlated({ sessionTraceId: ACTION_ID }))).toEqual({
+      code: "authority_refused",
+      effectCalls: 0,
+    });
+    expect(
+      checkActionCorrelation(
+        correlated({ actionId: "", correlationId: "", idempotencyKey: "", invocationId: "" }),
+      ),
+    ).toEqual({ code: "authority_refused", effectCalls: 0 });
+  });
+
   it("refuses a correlation failure before any journal write", async () => {
     const dir = mkdtempSync(join(tmpdir(), "authority-composition-"));
     try {

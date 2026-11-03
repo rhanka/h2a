@@ -167,6 +167,102 @@ describe("session-content fence durability", () => {
     }
   });
 
+  it("fails closed on a contradictory duplicate key at reopen", async () => {
+    const dir = freshDir("fence-conflict-reopen-");
+    try {
+      const { writeFileSync } = await import("node:fs");
+      const key = "fixture-issuer:fixture-jti-8:input";
+      writeFileSync(
+        join(dir, "fence-journal.jsonl"),
+        `${JSON.stringify({ decision: "consumed", digest: "a".repeat(64), key, v: 1 })}\n${JSON.stringify({ decision: "denied", digest: "", key, v: 1 })}\n`,
+      );
+      const fence = await openContentFence(dir);
+      expect(
+        await consumeAction(fence, { digest: "a".repeat(64), key }),
+      ).toEqual({ ok: false, code: "ledger_unavailable" });
+      expect(queryAction(fence, key)).toBe("journal-unavailable");
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  it("fails closed when a record follows handoff at reopen", async () => {
+    const dir = freshDir("fence-posthandoff-");
+    try {
+      const { writeFileSync } = await import("node:fs");
+      const key = "fixture-issuer:fixture-jti-9:input";
+      writeFileSync(
+        join(dir, "fence-journal.jsonl"),
+        `${JSON.stringify({ handoff: true, v: 1 })}\n${JSON.stringify({ decision: "consumed", digest: "a".repeat(64), key, v: 1 })}\n`,
+      );
+      const fence = await openContentFence(dir);
+      expect(
+        await consumeAction(fence, { digest: "a".repeat(64), key }),
+      ).toEqual({ ok: false, code: "ledger_unavailable" });
+      expect(queryAction(fence, key)).toBe("journal-unavailable");
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  it("fails closed on a denied record carrying a digest at reopen", async () => {
+    const dir = freshDir("fence-denied-digest-");
+    try {
+      const { writeFileSync } = await import("node:fs");
+      const key = "fixture-issuer:fixture-jti-10:input";
+      writeFileSync(
+        join(dir, "fence-journal.jsonl"),
+        `${JSON.stringify({ decision: "denied", digest: "a".repeat(64), key, v: 1 })}\n`,
+      );
+      const fence = await openContentFence(dir);
+      expect(
+        await consumeAction(fence, { digest: "a".repeat(64), key }),
+      ).toEqual({ ok: false, code: "ledger_unavailable" });
+      expect(queryAction(fence, key)).toBe("journal-unavailable");
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  it("fails closed on records with unknown keys at reopen", async () => {
+    const dir = freshDir("fence-unknown-keys-");
+    try {
+      const { writeFileSync } = await import("node:fs");
+      const key = "fixture-issuer:fixture-jti-11:input";
+      writeFileSync(
+        join(dir, "fence-journal.jsonl"),
+        `${JSON.stringify({ decision: "consumed", digest: "a".repeat(64), extra: true, key, v: 1 })}\n`,
+      );
+      const fence = await openContentFence(dir);
+      expect(
+        await consumeAction(fence, { digest: "a".repeat(64), key }),
+      ).toEqual({ ok: false, code: "ledger_unavailable" });
+      expect(queryAction(fence, key)).toBe("journal-unavailable");
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  it("reports whether handoff took effect from markHandedOff", async () => {
+    const dir = freshDir("fence-handoff-result-");
+    try {
+      const fence = await openContentFence(dir);
+      await expect(markHandedOff(fence)).resolves.toBe(true);
+      await expect(markHandedOff(fence)).resolves.toBe(true);
+    } finally {
+      cleanup(dir);
+    }
+    const corruptDir = freshDir("fence-handoff-unavailable-");
+    try {
+      const { writeFileSync } = await import("node:fs");
+      writeFileSync(join(corruptDir, "fence-journal.jsonl"), "not-json{{{\n");
+      const fence = await openContentFence(corruptDir);
+      await expect(markHandedOff(fence)).resolves.toBe(false);
+    } finally {
+      cleanup(corruptDir);
+    }
+  });
+
   it("refuses an empty key before any journal write", async () => {
     const dir = freshDir("fence-invalid-");
     try {
