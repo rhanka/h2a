@@ -8,12 +8,18 @@ describe("remote-action export scaffolding", () => {
     expect(typeof entry.verifyActionEnvelope).toBe("function");
     expect(typeof entry.verifyNoncePublication).toBe("function");
     expect(typeof entry.verifyIdpEvidenceJws).toBe("function");
+    expect(typeof entry.verifySessionAttestation).toBe("function");
     expect(typeof entry.parseActionRouteRecord).toBe("function");
     expect(typeof entry.createPinnedTrust).toBe("function");
     expect(typeof entry.resolveTrustEntry).toBe("function");
+    expect(typeof entry.loadPublicFixtureTrust).toBe("function");
+    expect(typeof entry.loadRc0ImportedRecord).toBe("function");
+    expect(typeof entry.assertRc0ImportedRecordResolved).toBe("function");
     expect(typeof entry.evaluateAdmissionDeadline).toBe("function");
     expect(typeof entry.digestDomain).toBe("function");
     expect(typeof entry.isTargetRecord).toBe("function");
+    expect(typeof entry.refusalHttpStatus).toBe("function");
+    expect(typeof entry.FROZEN_REFUSAL_STATUS).toBe("object");
   });
 
   it("keeps every export a pure verifier primitive (no network, no store)", () => {

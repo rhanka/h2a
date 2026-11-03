@@ -11,6 +11,7 @@ export {
   ACTION_ROUTES,
   ACTION_TTL_MS,
   CONSERVATIVE_SKEW_MS,
+  ContractSourceGapError,
   MAX_ENVELOPE_BYTES,
   MAX_INPUT_BYTES,
   MAX_RESULT_BYTES,
@@ -22,13 +23,17 @@ export {
   JWS_ALGS,
   SIGNING_DOMAINS,
   TARGET_FIELDS,
+  assertRc0ImportedRecordResolved,
   canonicalJson,
   digestDomain,
   isGeneration,
   isTargetRecord,
   isWireId,
+  loadRc0ImportedRecord,
   rawHash,
   type ActionRouteId,
+  type ContractSourceGapCode,
+  type Rc0ImportedSlot,
   type SigningDomain,
 } from "./remote-action-contract.js";
 
@@ -38,6 +43,7 @@ export {
   createPinnedTrust,
   isAllowedBodyAlg,
   isAllowedJwsAlg,
+  loadPublicFixtureTrust,
   resolveTrustEntry,
   type PinnedKey,
   type PinnedTrust,
@@ -62,12 +68,14 @@ export {
   verifyIdpEvidenceJws,
   verifyNoncePublication,
   verifyResultReport,
+  verifySessionAttestation,
   type ExpectedBindings,
   type VerifyFailureCode,
   type VerifyOptions,
 } from "./remote-action-verifier.js";
 
 export {
+  FROZEN_REFUSAL_STATUS,
   isEndpointRefusalShape,
   parseActionRouteRecord,
   publicRefusalFor,

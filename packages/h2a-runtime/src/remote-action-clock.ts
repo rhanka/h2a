@@ -11,7 +11,7 @@
  * non-numeric values are malformed and refuse before any lifetime check.
  */
 
-import { CONSERVATIVE_SKEW_MS } from "./remote-action-contract.js";
+import { ACTION_TTL_MS, CONSERVATIVE_SKEW_MS } from "./remote-action-contract.js";
 
 export interface ClockState {
   known: boolean;
@@ -22,8 +22,8 @@ export type DeadlineDecision =
   | "allow"
   | "relay_grant_expired"
   | "relay_grant_revoked"
-  | "clock_unknown"
-  | "clock_rollback";
+  | "relay_grant_unavailable"
+  | "relay_scope_refused";
 
 export class ClockError extends Error {
   readonly code: "malformed_time";
@@ -42,12 +42,24 @@ export interface DeadlineInput {
   clock: ClockState;
   nowMs: number;
   revoked: boolean;
+  subscriptionGap?: boolean;
 }
 
 export function evaluateAdmissionDeadline(input: DeadlineInput): DeadlineDecision {
   if (input.revoked) return "relay_grant_revoked";
-  if (!input.clock.known) return "clock_unknown";
-  if (input.clock.rollback) return "clock_rollback";
+  if (!input.clock.known || input.clock.rollback || input.subscriptionGap === true) {
+    return "relay_grant_unavailable";
+  }
+  if (
+    !Number.isSafeInteger(input.issuedAtMs) ||
+    !Number.isSafeInteger(input.expiresAtMs) ||
+    input.issuedAtMs < 0 ||
+    input.expiresAtMs < 0 ||
+    input.issuedAtMs > input.expiresAtMs ||
+    input.expiresAtMs - input.issuedAtMs > ACTION_TTL_MS
+  ) {
+    return "relay_scope_refused";
+  }
   let floor = input.expiresAtMs;
   for (const deadline of input.otherDeadlinesMs) {
     if (deadline < floor) floor = deadline;

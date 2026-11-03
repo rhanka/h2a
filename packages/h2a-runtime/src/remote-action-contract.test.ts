@@ -15,6 +15,7 @@ import {
   SIGNING_DOMAINS,
   SIGNED_BODY_ALGS,
   TARGET_FIELDS,
+  canonicalJson,
   digestDomain,
   isTargetRecord,
   rawHash,
@@ -145,6 +146,12 @@ describe("remote-action-v1 frozen contract", () => {
       "6245d3ae51f601195926bc36600d1097cef30694f3feb01f79f1a7ec9fa17715",
     );
     expect(RC2_R3_PIN.revision).toBe("r3");
+    expect(RC2_R3_PIN.vectors["consent-native-canonical.json"]).toBe(
+      "436d59008001e58252000b040509d1dc551d9aa82370a57f6c514cdd8360d10a",
+    );
+    expect(RC2_R3_PIN.vectors["RC0ImportedRecord.json"]).toBe(
+      "951abfe00143599da7841707939bb5cec083665424b6cf5ed8ce986e818664c6",
+    );
     expect(RC2_R3_PIN.vectors["route-action-nonce.json"]).toBe(
       "9e3823d0ab962d3cba8924b19f08d4a05de205f1c24456be3b45301d8da15fdb",
     );
@@ -172,6 +179,13 @@ describe("remote-action-v1 frozen contract", () => {
     expect(a).toMatch(/^[a-f0-9]{64}$/);
     expect(digestDomain("input", "same")).not.toBe(digestDomain("target", "same"));
     expect(digestDomain("target", { a: 1 })).not.toBe(digestDomain("target", { a: 2 }));
+  });
+
+  it("refuses non-integer numbers in canonical JSON", () => {
+    expect(() => canonicalJson(1.5)).toThrowError(/not canonicalizable/);
+    expect(() => canonicalJson(Number.NaN)).toThrowError(/not canonicalizable/);
+    expect(() => canonicalJson({ a: 1.5 })).toThrowError(/not canonicalizable/);
+    expect(canonicalJson({ a: 1 })).toBe('{"a":1}');
   });
 
   it("matches the known SHA-256 answers for raw hashes", () => {

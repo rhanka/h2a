@@ -7,6 +7,7 @@ import {
   CONSERVATIVE_SKEW_MS,
   canonicalJson,
   digestDomain,
+  rawHash,
 } from "./remote-action-contract.js";
 import {
   createPinnedTrust,
@@ -17,8 +18,10 @@ import { parseActionRouteRecord } from "./remote-action-api.js";
 import {
   VerifyError,
   verifyActionEnvelope,
+  verifyCliSessionProof,
   verifyIdpEvidenceJws,
   verifyNoncePublication,
+  verifyResultReport,
 } from "./remote-action-verifier.js";
 
 const NOW_MS = 1793520000000;
@@ -195,6 +198,7 @@ function mintEnvelopeBody(target: Record<string, unknown>): Record<string, unkno
 function mintEvidenceJws(
   fixture: Fixture,
   overrides: Record<string, unknown> = {},
+  raw = false,
 ): string {
   const iatSec = Math.floor(NOW_MS / 1000) - 10;
   const payload = {
@@ -218,7 +222,9 @@ function mintEvidenceJws(
     ...overrides,
   };
   const header = { alg: "EdDSA", typ: "h2a-action-session+jwt", kid: "test-idp" };
-  const signing = `${b64url(canonicalJson(header))}.${b64url(canonicalJson(payload))}`;
+  const encode = (value: Record<string, unknown>): string =>
+    b64url(raw ? JSON.stringify(value) : canonicalJson(value));
+  const signing = `${encode(header)}.${encode(payload)}`;
   const signature = sign(null, Buffer.from(signing, "utf8"), fixture.idp.privateKey);
   return `${signing}.${unpadded(b64url(signature))}`;
 }
@@ -233,6 +239,203 @@ function opts(fixture: Fixture) {
   };
 }
 
+/** Flip the final base64url character to a non-canonical spelling (pad bits set). */
+function malleateLastChar(value: string): string {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+  const last = value[value.length - 1]!;
+  const dataBits = alphabet.indexOf(last) >> 2;
+  const replacement = [...alphabet].find(
+    (letter) => letter !== last && alphabet.indexOf(letter) >> 2 === dataBits,
+  )!;
+  const malleated = `${value.slice(0, -1)}${replacement}`;
+  expect(malleated).not.toBe(value);
+  expect(Buffer.from(malleated, "base64url").toString("base64url")).not.toBe(malleated);
+  return malleated;
+}
+
+function mintCliProofBody(
+  fixture: Fixture,
+  target: Record<string, unknown>,
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    version: "remote-action-v1",
+    kind: "cli-session-proof",
+    issuer: "test-source-issuer",
+    kid: "test-source",
+    audience: "test-b-audience",
+    proofId: "proof-1",
+    target,
+    ownerIssuer: "test-idp",
+    ownerSub: "user-1",
+    approvedRegistrationRef: "reg-1",
+    approvedRegistrationRevision: 1,
+    providerId: "provider-1",
+    providerVersion: "v1",
+    executableDigest: "e".repeat(64),
+    nativeSessionPublicKeyId: "native-key-1",
+    capabilitiesDigest: "d".repeat(64),
+    permissionMode: "interactive",
+    autoApprovePolicyDigest: null,
+    issuedAt: NOW_MS - 1000,
+    expiresAt: NOW_MS + 59000,
+    ...overrides,
+  };
+}
+
+function mintAttestationBody(
+  parts: {
+    target: Record<string, unknown>;
+    cliSessionProofDigest: string;
+    sessionEvidenceDigest: string;
+    payloadDigest: string;
+    nonceId: string;
+    nonce: string;
+  },
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    version: "remote-action-v1",
+    kind: "session-attestation",
+    issuer: "test-a-mesh",
+    kid: "test-a-att",
+    audience: "test-b-audience",
+    actor: { issuer: "test-idp", sub: "user-1", sid: "sid-1", sessionVersion: 1 },
+    tenantId: "tenant-1",
+    workspaceId: "ws-1",
+    target: parts.target,
+    cliSessionProofDigest: parts.cliSessionProofDigest,
+    actionId: "action-1",
+    operation: "input",
+    payloadDigest: parts.payloadDigest,
+    nonceId: parts.nonceId,
+    nonce: parts.nonce,
+    consentRevision: 1,
+    membershipRevision: 2,
+    role: "member",
+    actionScopes: ["remote.input"],
+    controlPolicyRevision: 3,
+    remoteControlEpoch: 4,
+    sessionEvidenceDigest: parts.sessionEvidenceDigest,
+    issuedAt: NOW_MS - 1000,
+    expiresAt: NOW_MS + 29000,
+    ...overrides,
+  };
+}
+
+function mintValidEnvelopeBody(
+  fixture: Fixture,
+  overrides: Record<string, unknown> = {},
+  cliOverrides: Record<string, unknown> = {},
+  attestationOverrides: Record<string, unknown> = {},
+  evidenceOverrides: Record<string, unknown> = {},
+): Record<string, unknown> {
+  const target = (overrides["target"] as Record<string, unknown> | undefined) ?? fixture.target;
+  const operation = (overrides["operation"] as string | undefined) ?? "input";
+  const payload =
+    operation === "input"
+      ? {
+          bytesBase64: Buffer.from("hello\n", "utf8").toString("base64"),
+          byteLength: 6,
+          appendNewline: true,
+        }
+      : {
+          decision: "allow",
+          permissionRequestId: "request-1",
+          requestGeneration: 1,
+          contextDigest: "a".repeat(64),
+        };
+  const payloadDigest =
+    operation === "input"
+      ? digestDomain("input", Buffer.from("hello\n", "utf8"))
+      : digestDomain("permission-response", payload);
+  const nonceId = "nonce-1";
+  const nonce = unpadded(b64url("0123456789abcdef0123456789abcdef"));
+  const cliProof = signBody(
+    mintCliProofBody(fixture, target, cliOverrides),
+    fixture.source.privateKey,
+  );
+  const cliSessionProofDigest = digestDomain("cli-session-proof", cliProof.body);
+  const evidence = mintEvidenceJws(fixture, {
+    actionId: "action-1",
+    targetDigest: digestDomain("target", target),
+    operation,
+    payloadDigest,
+    nonceId,
+    ...evidenceOverrides,
+  });
+  const sessionEvidenceDigest = rawHash(Buffer.from(evidence, "utf8"));
+  const attestation = signBody(
+    mintAttestationBody(
+      { target, cliSessionProofDigest, sessionEvidenceDigest, payloadDigest, nonceId, nonce },
+      attestationOverrides,
+    ),
+    fixture.attestation.privateKey,
+  );
+  return {
+    version: "remote-action-v1",
+    kind: "action-envelope",
+    issuer: "test-a-mesh",
+    kid: "test-a-workload",
+    audience: "test-b-audience",
+    actionId: "action-1",
+    target,
+    originAudience: "aud-a",
+    destinationAudience: "test-b-audience",
+    actor: { issuer: "test-idp", sub: "user-1", sid: "sid-1", sessionVersion: 1 },
+    sessionEvidence: evidence,
+    sessionEvidenceDigest,
+    cliSessionProof: cliProof,
+    cliSessionProofDigest,
+    sessionAttestation: attestation,
+    consentRevision: 1,
+    operation,
+    payload,
+    payloadDigest,
+    nonceId,
+    nonce,
+    issuedAt: NOW_MS - 1000,
+    expiresAt: NOW_MS + 29000,
+    contractRevision: "remote-action-v1",
+    capabilitiesDigest: "d".repeat(64),
+    ...overrides,
+  };
+}
+
+function mintResultBody(
+  target: Record<string, unknown>,
+  coreOverrides: Record<string, unknown> = {},
+  wrapperOverrides: Record<string, unknown> = {},
+): Record<string, unknown> {
+  const core = {
+    actionId: "action-1",
+    envelopeDigest: "a".repeat(64),
+    target,
+    resultSeq: 1,
+    state: "succeeded",
+    decision: null,
+    consumedAt: NOW_MS - 5000,
+    completedAt: NOW_MS - 1000,
+    reason: "none",
+    nativeReceiptRef: "receipt-1",
+    effectRef: null,
+    ...coreOverrides,
+  };
+  return {
+    version: "remote-action-v1",
+    kind: "result",
+    issuer: "test-source-issuer",
+    kid: "test-source",
+    audience: "test-b-audience",
+    ...core,
+    resultDigest: digestDomain("result", core),
+    queryId: null,
+    reportedAt: NOW_MS - 500,
+    nativeAuditCheckpointRef: null,
+    ...wrapperOverrides,
+  };
+}
+
 describe("remote-action verifier", () => {
   it("accepts a validly signed nonce publication", () => {
     const fixture = mintFixture();
@@ -241,11 +444,20 @@ describe("remote-action verifier", () => {
     expect(body["nonceId"]).toBe("nonce-1");
   });
 
-  it("accepts a validly signed action envelope", () => {
+  it("accepts a fully bound action envelope", () => {
+    const fixture = mintFixture();
+    const body = mintValidEnvelopeBody(fixture);
+    const record = {
+      ...signBody(body, fixture.workload.privateKey),
+      envelopeDigest: digestDomain("action-envelope", body),
+    };
+    expect(verifyActionEnvelope(record, opts(fixture))["actionId"]).toBe("action-1");
+  });
+
+  it("refuses an envelope carrying unverified nested proofs", () => {
     const fixture = mintFixture();
     const record = signBody(mintEnvelopeBody(fixture.target), fixture.workload.privateKey);
-    const body = verifyActionEnvelope(record, opts(fixture));
-    expect(body["actionId"]).toBe("action-1");
+    expect(() => verifyActionEnvelope(record, opts(fixture))).toThrowError(VerifyError);
   });
 
   it("accepts a valid IdP evidence JWS", () => {
@@ -279,7 +491,11 @@ describe("remote-action verifier", () => {
     const fixture = mintFixture();
     const expectedTargetDigest = digestDomain("target", fixture.target);
     const otherTarget = mintTarget({ sourceSessionId: "session-other" });
-    const record = signBody(mintEnvelopeBody(otherTarget), fixture.workload.privateKey);
+    const body = mintValidEnvelopeBody(fixture, { target: otherTarget });
+    const record = {
+      ...signBody(body, fixture.workload.privateKey),
+      envelopeDigest: digestDomain("action-envelope", body),
+    };
     expect(() =>
       verifyActionEnvelope(record, opts(fixture), { expectedTargetDigest }),
     ).toThrowError(expect.objectContaining({ code: "binding_mismatch" }));
@@ -315,8 +531,11 @@ describe("remote-action verifier", () => {
 
   it("refuses cross-purpose key use with a valid signature", () => {
     const fixture = mintFixture();
-    const body = { ...mintEnvelopeBody(fixture.target), kid: "test-a-att", issuer: "test-a-mesh" };
-    const record = signBody(body, fixture.attestation.privateKey);
+    const body = mintValidEnvelopeBody(fixture, { kid: "test-a-att", issuer: "test-a-mesh" });
+    const record = {
+      ...signBody(body, fixture.attestation.privateKey),
+      envelopeDigest: digestDomain("action-envelope", body),
+    };
     expect(() => verifyActionEnvelope(record, opts(fixture))).toThrowError(
       expect.objectContaining({ code: "wrong_purpose" }),
     );
@@ -367,7 +586,7 @@ describe("remote-action verifier", () => {
     ).toThrowError(expect.objectContaining({ code: "malformed_time" }));
     expect(() =>
       verifyIdpEvidenceJws(
-        mintEvidenceJws(fixture, { exp: Math.floor(NOW_MS / 1000) + 0.5 }),
+        mintEvidenceJws(fixture, { exp: Math.floor(NOW_MS / 1000) + 0.5 }, true),
         opts(fixture),
       ),
     ).toThrowError(expect.objectContaining({ code: "malformed_time" }));
@@ -493,7 +712,7 @@ describe("remote-action verifier", () => {
         nowMs: issuedAt + 1000,
         revoked: false,
       }),
-    ).toBe("clock_unknown");
+    ).toBe("relay_grant_unavailable");
     expect(
       evaluateAdmissionDeadline({
         issuedAtMs: issuedAt,
@@ -503,7 +722,7 @@ describe("remote-action verifier", () => {
         nowMs: issuedAt + 1000,
         revoked: false,
       }),
-    ).toBe("clock_rollback");
+    ).toBe("relay_grant_unavailable");
   });
 
   it("refuses a record bound to a different audience", () => {
@@ -514,6 +733,367 @@ describe("remote-action verifier", () => {
     );
     expect(() => verifyNoncePublication(record, opts(fixture))).toThrowError(
       expect.objectContaining({ code: "authority_refused" }),
+    );
+  });
+
+  it("refuses a signature with non-canonical base64url pad bits", () => {
+    const fixture = mintFixture();
+    const record = signBody(mintNonceBody(fixture.target), fixture.source.privateKey);
+    const malleated = {
+      ...record,
+      signature: { alg: "Ed25519", value: malleateLastChar(record.signature.value) },
+    };
+    expect(() => verifyNoncePublication(malleated, opts(fixture))).toThrowError(
+      expect.objectContaining({ code: "invalid_signature" }),
+    );
+  });
+
+  it("refuses nonces with non-canonical base64url encoding", () => {
+    const fixture = mintFixture();
+    const body = mintNonceBody(fixture.target);
+    const tampered = signBody(
+      { ...body, nonce: malleateLastChar(body["nonce"] as string) },
+      fixture.source.privateKey,
+    );
+    expect(() => verifyNoncePublication(tampered, opts(fixture))).toThrowError(
+      expect.objectContaining({ code: "invalid_request" }),
+    );
+    const envelope = mintValidEnvelopeBody(fixture);
+    const badEnvelope = signBody(
+      { ...envelope, nonce: malleateLastChar(envelope["nonce"] as string) },
+      fixture.workload.privateKey,
+    );
+    expect(() =>
+      verifyActionEnvelope(
+        { ...badEnvelope, envelopeDigest: digestDomain("action-envelope", badEnvelope.body) },
+        opts(fixture),
+      ),
+    ).toThrowError(expect.objectContaining({ code: "invalid_request" }));
+  });
+
+  it("refuses live admission on issuer mismatch with the pinned entry", () => {
+    const fixture = mintFixture();
+    const record = signBody(
+      { ...mintNonceBody(fixture.target), issuer: "rogue-issuer" },
+      fixture.source.privateKey,
+    );
+    expect(() => verifyNoncePublication(record, opts(fixture))).toThrowError(
+      expect.objectContaining({ code: "authority_refused" }),
+    );
+  });
+
+  it("refuses live admission on pinned-audience mismatch with the entry", () => {
+    const fixture = mintFixture();
+    const mismatched = createPinnedTrust([
+      {
+        kid: "test-source",
+        issuer: "test-source-issuer",
+        audience: "different-audience",
+        purposes: ["nonce-publication", "cli-session-proof", "action-claim", "result"],
+        publicKeySpkiBase64: fixture.source.spkiBase64,
+        revoked: false,
+        fixtureOnly: false,
+      },
+    ]);
+    const record = signBody(mintNonceBody(fixture.target), fixture.source.privateKey);
+    expect(() =>
+      verifyNoncePublication(record, { ...opts(fixture), trust: mismatched }),
+    ).toThrowError(expect.objectContaining({ code: "authority_refused" }));
+  });
+
+  it("refuses fixture-only keys for live admission", () => {
+    const fixture = mintFixture();
+    const fixtureTrust = createPinnedTrust([
+      {
+        kid: "test-source",
+        issuer: "test-source-issuer",
+        audience: "test-b-audience",
+        purposes: ["nonce-publication", "cli-session-proof", "action-claim", "result"],
+        publicKeySpkiBase64: fixture.source.spkiBase64,
+        revoked: false,
+        fixtureOnly: true,
+      },
+      {
+        kid: "test-idp",
+        issuer: "test-idp",
+        audience: "test-b-audience",
+        purposes: ["evidence"],
+        publicKeySpkiBase64: fixture.idp.spkiBase64,
+        revoked: false,
+        fixtureOnly: true,
+      },
+    ]);
+    const record = signBody(mintNonceBody(fixture.target), fixture.source.privateKey);
+    expect(() =>
+      verifyNoncePublication(record, { ...opts(fixture), trust: fixtureTrust }),
+    ).toThrowError(expect.objectContaining({ code: "authority_refused" }));
+    expect(() =>
+      verifyIdpEvidenceJws(
+        mintEvidenceJws(fixture),
+        { ...opts(fixture), trust: fixtureTrust },
+      ),
+    ).toThrowError(expect.objectContaining({ code: "authority_refused" }));
+  });
+
+  it("refuses every record when the clock is unknown or rolled back", () => {
+    const fixture = mintFixture();
+    const record = signBody(mintNonceBody(fixture.target), fixture.source.privateKey);
+    expect(() =>
+      verifyNoncePublication(record, { ...opts(fixture), clockKnown: false }),
+    ).toThrowError(expect.objectContaining({ code: "expired" }));
+    expect(() =>
+      verifyNoncePublication(record, { ...opts(fixture), clockRollback: true }),
+    ).toThrowError(expect.objectContaining({ code: "expired" }));
+    expect(() =>
+      verifyIdpEvidenceJws(mintEvidenceJws(fixture), { ...opts(fixture), clockKnown: false }),
+    ).toThrowError(expect.objectContaining({ code: "expired" }));
+  });
+
+  it("refuses IdP evidence minted in the future", () => {
+    const fixture = mintFixture();
+    const futureIat = Math.floor(NOW_MS / 1000) + 100;
+    expect(() =>
+      verifyIdpEvidenceJws(
+        mintEvidenceJws(fixture, { iat: futureIat, exp: futureIat + 60 }),
+        opts(fixture),
+      ),
+    ).toThrowError(expect.objectContaining({ code: "malformed_time" }));
+  });
+
+  it("refuses IdP evidence with an open header or open claims", () => {
+    const fixture = mintFixture();
+    const compact = mintEvidenceJws(fixture).split(".");
+    const payload = compact[1]!;
+    const signature = compact[2]!;
+    const openHeader = b64url(
+      canonicalJson({ alg: "EdDSA", typ: "h2a-action-session+jwt", kid: "test-idp", crit: ["exp"] }),
+    );
+    expect(() =>
+      verifyIdpEvidenceJws(`${openHeader}.${payload}.${signature}`, opts(fixture)),
+    ).toThrowError(expect.objectContaining({ code: "invalid_request" }));
+    const noTyp = b64url(canonicalJson({ alg: "EdDSA", kid: "test-idp" }));
+    expect(() =>
+      verifyIdpEvidenceJws(`${noTyp}.${payload}.${signature}`, opts(fixture)),
+    ).toThrowError(expect.objectContaining({ code: "invalid_request" }));
+    const extraClaim = mintEvidenceJws(fixture, { smuggled: "no" });
+    expect(() => verifyIdpEvidenceJws(extraClaim, opts(fixture))).toThrowError(
+      expect.objectContaining({ code: "invalid_request" }),
+    );
+  });
+
+  it("refuses IdP evidence with a non-canonical signature encoding", () => {
+    const fixture = mintFixture();
+    const compact = mintEvidenceJws(fixture).split(".");
+    const malleated = `${compact[0]}.${compact[1]}.${malleateLastChar(compact[2]!)}`;
+    expect(() => verifyIdpEvidenceJws(malleated, opts(fixture))).toThrowError(
+      expect.objectContaining({ code: "invalid_signature" }),
+    );
+  });
+
+  it("refuses an envelope whose evidence diverges from the bound identity", () => {
+    const fixture = mintFixture();
+    const body = mintValidEnvelopeBody(fixture, {}, {}, {}, { actionId: "other-action" });
+    const record = {
+      ...signBody(body, fixture.workload.privateKey),
+      envelopeDigest: digestDomain("action-envelope", body),
+    };
+    expect(() => verifyActionEnvelope(record, opts(fixture))).toThrowError(
+      expect.objectContaining({ code: "binding_mismatch" }),
+    );
+  });
+
+  it("refuses an envelope whose evidence digest does not match the bytes", () => {
+    const fixture = mintFixture();
+    const body = mintValidEnvelopeBody(fixture, { sessionEvidenceDigest: "0".repeat(64) });
+    const record = {
+      ...signBody(body, fixture.workload.privateKey),
+      envelopeDigest: digestDomain("action-envelope", body),
+    };
+    expect(() => verifyActionEnvelope(record, opts(fixture))).toThrowError(
+      expect.objectContaining({ code: "invalid_request" }),
+    );
+  });
+
+  it("requires the wire envelopeDigest on every action envelope", () => {
+    const fixture = mintFixture();
+    const body = mintValidEnvelopeBody(fixture);
+    const record = signBody(body, fixture.workload.privateKey);
+    expect(() => verifyActionEnvelope(record, opts(fixture))).toThrowError(
+      expect.objectContaining({ code: "invalid_request" }),
+    );
+    const openWire = {
+      ...record,
+      envelopeDigest: digestDomain("action-envelope", body),
+      smuggled: true,
+    };
+    expect(() => verifyActionEnvelope(openWire, opts(fixture))).toThrowError(
+      expect.objectContaining({ code: "invalid_request" }),
+    );
+  });
+
+  it("refuses input admitted under a non-interactive permission mode", () => {
+    const fixture = mintFixture();
+    const body = mintValidEnvelopeBody(
+      fixture,
+      {},
+      { permissionMode: "auto-approve", autoApprovePolicyDigest: "a".repeat(64) },
+    );
+    const record = {
+      ...signBody(body, fixture.workload.privateKey),
+      envelopeDigest: digestDomain("action-envelope", body),
+    };
+    expect(() => verifyActionEnvelope(record, opts(fixture))).toThrowError(
+      expect.objectContaining({ code: "input_mode_refused" }),
+    );
+  });
+
+  it("refuses a cli proof re-signed under the wrong purpose key", () => {
+    const fixture = mintFixture();
+    const proof = signBody(
+      mintCliProofBody(fixture, fixture.target, { kid: "test-a-att", issuer: "test-a-mesh" }),
+      fixture.attestation.privateKey,
+    );
+    const body = mintValidEnvelopeBody(fixture);
+    const forged = {
+      ...signBody(
+        { ...body, cliSessionProof: proof, cliSessionProofDigest: digestDomain("cli-session-proof", proof.body) },
+        fixture.workload.privateKey,
+      ),
+      envelopeDigest: "placeholder",
+    };
+    forged.envelopeDigest = digestDomain("action-envelope", forged.body);
+    expect(() => verifyActionEnvelope(forged, opts(fixture))).toThrowError(VerifyError);
+  });
+
+  it("accepts a valid cli-session-proof and a not_in_ledger observation", () => {
+    const fixture = mintFixture();
+    const proof = signBody(mintCliProofBody(fixture, fixture.target), fixture.source.privateKey);
+    expect(verifyCliSessionProof(proof, opts(fixture))["proofId"]).toBe("proof-1");
+    const observation = signBody(
+      mintResultBody(
+        fixture.target,
+        {
+          resultSeq: null,
+          state: "not_in_ledger",
+          consumedAt: null,
+          completedAt: null,
+          reason: "not_in_ledger",
+          nativeReceiptRef: null,
+        },
+        { queryId: "query-1" },
+      ),
+      fixture.source.privateKey,
+    );
+    expect(verifyResultReport(observation, opts(fixture))["state"]).toBe("not_in_ledger");
+  });
+
+  it("refuses result reports that break the immutable-core invariants", () => {
+    const fixture = mintFixture();
+    const check = (core: Record<string, unknown>): void =>
+      expect(() =>
+        verifyResultReport(signBody(mintResultBody(fixture.target, core), fixture.source.privateKey), opts(fixture)),
+      ).toThrowError(expect.objectContaining({ code: "invalid_request" }));
+    check({ resultSeq: 0 });
+    check({ state: "consumed", nativeReceiptRef: null });
+    check({ state: "denied", reason: "none" });
+    check({ state: "succeeded", reason: "not_in_ledger" });
+    check({ state: "not_in_ledger", resultSeq: null, reason: "not_in_ledger", nativeReceiptRef: "receipt-1" });
+    const tampered = signBody(
+      { ...mintResultBody(fixture.target), resultDigest: "0".repeat(64) },
+      fixture.source.privateKey,
+    );
+    expect(() => verifyResultReport(tampered, opts(fixture))).toThrowError(
+      expect.objectContaining({ code: "invalid_request" }),
+    );
+  });
+
+  it("closes the cli-session-proof mode and policy digest", () => {
+    const fixture = mintFixture();
+    const check = (overrides: Record<string, unknown>): void =>
+      expect(() =>
+        verifyCliSessionProof(
+          signBody(mintCliProofBody(fixture, fixture.target, overrides), fixture.source.privateKey),
+          opts(fixture),
+        ),
+      ).toThrowError(expect.objectContaining({ code: "invalid_request" }));
+    check({ permissionMode: "superuser" });
+    check({ autoApprovePolicyDigest: "not-hex" });
+  });
+
+  it("closes the input payload and rejects control bytes", () => {
+    const fixture = mintFixture();
+    const envelopeWith = (payload: Record<string, unknown>): Record<string, unknown> => {
+      const body = mintValidEnvelopeBody(fixture, { payload });
+      return {
+        ...signBody(
+          { ...body, payloadDigest: digestDomain("input", Buffer.from(payload["bytesBase64"] as string, "base64")) },
+          fixture.workload.privateKey,
+        ),
+        envelopeDigest: "placeholder",
+      };
+    };
+    const closed = (record: Record<string, unknown>): Record<string, unknown> => ({
+      ...record,
+      envelopeDigest: digestDomain("action-envelope", (record as { body: Record<string, unknown> }).body),
+    });
+    expect(() =>
+      verifyActionEnvelope(
+        closed(envelopeWith({ bytesBase64: "aGVsbG8K", byteLength: 6, appendNewline: true, extra: 1 })),
+        opts(fixture),
+      ),
+    ).toThrowError(expect.objectContaining({ code: "invalid_request" }));
+    expect(() =>
+      verifyActionEnvelope(
+        closed(envelopeWith({ bytesBase64: "aGVsbG8K", byteLength: 6, appendNewline: "yes" })),
+        opts(fixture),
+      ),
+    ).toThrowError(expect.objectContaining({ code: "invalid_request" }));
+    const esc = Buffer.from("hi\x1bbye\n", "utf8");
+    expect(() =>
+      verifyActionEnvelope(
+        closed(
+          envelopeWith({
+            bytesBase64: esc.toString("base64"),
+            byteLength: esc.length,
+            appendNewline: false,
+          }),
+        ),
+        opts(fixture),
+      ),
+    ).toThrowError(expect.objectContaining({ code: "invalid_request" }));
+  });
+
+  it("refuses records that exceed the frozen wire bounds", () => {
+    const fixture = mintFixture();
+    const bigPayload = {
+      decision: "allow",
+      permissionRequestId: "request-1",
+      requestGeneration: 1,
+      contextDigest: "a".repeat(64),
+      pad: "x".repeat(70000),
+    };
+    const body = mintValidEnvelopeBody(fixture, { operation: "permission-response" });
+    const oversized = {
+      ...signBody(
+        {
+          ...body,
+          payload: bigPayload,
+          payloadDigest: digestDomain("permission-response", bigPayload),
+        },
+        fixture.workload.privateKey,
+      ),
+      envelopeDigest: "placeholder",
+    };
+    oversized.envelopeDigest = digestDomain("action-envelope", oversized.body);
+    expect(() => verifyActionEnvelope(oversized, opts(fixture))).toThrowError(
+      expect.objectContaining({ code: "invalid_request" }),
+    );
+    const bigResult = signBody(
+      mintResultBody(fixture.target, {}, { nativeAuditCheckpointRef: "x".repeat(20000) }),
+      fixture.source.privateKey,
+    );
+    expect(() => verifyResultReport(bigResult, opts(fixture))).toThrowError(
+      expect.objectContaining({ code: "invalid_request" }),
     );
   });
 });
