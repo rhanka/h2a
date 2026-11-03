@@ -23,14 +23,14 @@ function assertGraph(workflow) {
   assert.deepEqual(producer.steps.filter(s => s.run).map(s => s.run), ['npm ci', 'npm run build',
     'node --test packages/h2a/test/bulk-ci-evidence.test.js', 'node scripts/ci-bulk-proof.mjs']);
   assert.deepEqual(producer.steps.find(s => s.uses === 'actions/upload-artifact@v4').with,
-    {name:'bulk-${{ github.run_id }}-${{ github.run_attempt }}-node${{ matrix.node }}',path:'tmp/bulk-export/proof.json','if-no-files-found':'error','retention-days':7});
+    {name:'bulk-${{ github.run_id }}-node${{ matrix.node }}',path:'tmp/bulk-export/proof.json','if-no-files-found':'error',overwrite:true,'retention-days':7});
   for (const name of ['build-and-test', 'npm-test-trust-root']) {
     assert.deepEqual(jobs[name].needs, ['m17-qualification', 'bulk-qualification']);
     assert.equal(jobs[name].if, '${{ always() }}');
     assert.deepEqual(jobs[name].steps.filter(s => s.name === 'Require both complete bulk qualifications'),
       [{name:'Require both complete bulk qualifications',env:{BULK_RESULT:'${{ needs.bulk-qualification.result }}'},run:'test "$BULK_RESULT" = success'}]);
     assert.deepEqual(jobs[name].steps.filter(s => s.uses === 'actions/download-artifact@v4' && s.with.path === 'tmp/bulk-import'),
-      [{uses:'actions/download-artifact@v4',with:{name:'bulk-${{ github.run_id }}-${{ github.run_attempt }}-node' + (name === 'build-and-test' ? '${{ matrix.node }}' : '22'),path:'tmp/bulk-import'}}]);
+      [{uses:'actions/download-artifact@v4',with:{name:'bulk-${{ github.run_id }}-node' + (name === 'build-and-test' ? '${{ matrix.node }}' : '22'),path:'tmp/bulk-import'}}]);
     assert.ok(jobs[name].steps.some(s => s.env?.H2A_TEST_CI_BULK_REPORT === '${{ github.workspace }}/tmp/bulk-import/proof.json'));
   }
 }
@@ -43,7 +43,7 @@ test('bulk CI negative controls reject skipped-green, optional and foreign-profi
     ['needs: [m17-qualification, bulk-qualification]', 'needs: [m17-qualification]'],
     ['run: test "$BULK_RESULT" = success', 'run: true'],
     ['needs.bulk-qualification.result','needs.bulk-qualification.outputs.optional'],
-    ['name: bulk-${{ github.run_id }}-${{ github.run_attempt }}-node22','name: bulk-last-success-node22'],
+    ['name: bulk-${{ github.run_id }}-node22','name: bulk-last-success-node22'],
     ['H2A_TEST_CI_BULK_REPORT:', 'OPTIONAL_BULK_REPORT:'],
     ['run: node --test packages/h2a/test/bulk-ci-evidence.test.js', 'run: true'],
     ['      - name: Require both complete bulk qualifications\n','      - name: Require both complete bulk qualifications\n        if: false\n'],
