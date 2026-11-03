@@ -61,7 +61,7 @@ export function expectedCandidateTarballs() {
   `sentropic-focus-${v.focus}.tgz`].sort();
 }
 
-function cacheKey() {
+export function keyInputs() {
   const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: REPO, encoding: 'utf8' }).trim();
   assert.match(head, /^[a-f0-9]{40}$/, 'shared pack key needs a git HEAD');
   let status;
@@ -70,16 +70,22 @@ function cacheKey() {
   } catch {
     status = null;
   }
-  const h = createHash('sha256');
-  h.update(`head:${head}\n`);
   // A dirty tree packs its working-copy bytes, so the key must bind them.
   // `git status` failing (foreign VCS layout) disables sharing: the caller
   // falls back to a private pack, never to a foreign cache entry.
   if (status === null) return null;
+  const producers = Object.fromEntries(PRODUCER_FILES.map((file) => [file, sha256File(file)]));
+  const v = versions();
+  const h = createHash('sha256');
+  h.update(`head:${head}\n`);
   h.update(`status:${status}\n`);
-  for (const file of PRODUCER_FILES) h.update(`${file}:${sha256File(file)}\n`);
-  h.update(`versions:${JSON.stringify(versions())}\n`);
-  return h.digest('hex');
+  for (const [file, digest] of Object.entries(producers)) h.update(`${file}:${digest}\n`);
+  h.update(`versions:${JSON.stringify(v)}\n`);
+  return { key: h.digest('hex'), head, status, producers, versions: v };
+}
+
+export function cacheKey() {
+  return keyInputs()?.key ?? null;
 }
 
 function lockIsStale(lockDir) {
@@ -142,7 +148,13 @@ async function runPack(output) {
  * state); the caller then packs privately, exactly as before.
  */
 export async function sharedPackCandidates() {
-  const key = cacheKey();
+  // One frozen key per runner invocation (H2A_SHARED_PACK_KEY, set by
+  // scripts/run-tests.mjs): the tree is fixed for the run, so every process
+  // must agree on the key even while test outputs land mid-run. A live
+  // computation is the fallback for direct `node --test` invocations.
+  // Mid-run tree changes are test outputs, never pack inputs.
+  const frozen = process.env.H2A_SHARED_PACK_KEY;
+  const key = (typeof frozen === 'string' && /^[a-f0-9]{64}$/.test(frozen)) ? frozen : cacheKey();
   if (key === null) return null;
   const root = join(tmpdir(), 'h2a-shared-pack-candidates', key);
   const lockDir = join(root, 'lock');
@@ -179,6 +191,11 @@ export async function sharedPackCandidates() {
     for (const entry of readdirSync(root)) {
       if (entry.startsWith('tarballs.stage-')) rmSync(join(root, entry), { recursive: true, force: true });
     }
+    // Diagnosis: record the exact key inputs with the pack, so a future key
+    // change names the files that flipped it instead of guessing.
+    try {
+      writeFileSync(join(root, 'key-inputs.json'), JSON.stringify(keyInputs(), null, 2) + '\n');
+    } catch { /* diagnosis must never break the pack */ }
     const staging = `${tarballs}.stage-${process.pid}`;
     rmSync(staging, { recursive: true, force: true });
     mkdirSync(staging, { recursive: true });
