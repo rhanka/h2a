@@ -13,6 +13,7 @@ import { CLIS, PROBE, REPLY, repo, environment, sourceBuild, copyLogin, copyLogi
 import { loadSeatManifest, resolveCampaignPair, createCampaignLedger, loadCampaignLedger,
   debitSession, fitsSessions, noteWallClock, wallClockFits, renderSeatLedger, persistLedger,
   runSeatPreflight, applyPreflightDebit } from './xcli-seats.mjs';
+import { materialiseSeatCell, onboardingLaunchBlock } from './xcli-seat-import.mjs';
 import { assertCyberManifest, assertNoAuthHome } from './xcli-seat-custody.mjs';
 import { startupTerminal } from './xcli-terminal.mjs';
 import { verifyWakeBatch } from './xcli-ci-check.mjs';
@@ -340,10 +341,43 @@ async function worker() {
     // (role, allowlisted name, sha256 — never content) in the row evidence.
     // R15 (class-c): every skipped allowlisted file is witnessed too, with
     // its reason — a missing source no longer copies silently.
+    // L7: an envelope seat with an open gate materialises through the
+    // published stage 2 instead — the library is the single writer of the
+    // role home (auth files plus the composed or synthesized onboarding
+    // file). A closed gate never reaches this point (the parent refuses
+    // pre-spawn); hitting one here fails closed. Vibe and simulated seats
+    // keep the copyLogin path.
     const roleAuthHome = simulated ? null : authHomes[role];
-    const report = roleAuthHome ? copyLoginReport(cli, roleAuthHome, cell, env) : { copied: [], skipped: [] };
+    const seatOb = (request.seatOnboarding ?? {})[role] ?? null;
+    const useLibraryCell = !!seatOb && cli !== 'vibe' && !simulated && !!roleAuthHome
+      && seatOb.status === 'present' && seatOb.gate?.eligible && !!seatOb.expectedNativeCliVersion;
+    if (seatOb && cli !== 'vibe' && !simulated && !useLibraryCell) throw new Error('onboarding-required');
+    let report;
+    let cellMcpComposed = false;
+    if (useLibraryCell) {
+      const workspace = join(dir, 'workspace');
+      fs.mkdirSync(workspace);
+      const setup = spawnSync(process.execPath, [bin, 'host', 'setup', '--host', cli, '--print', '--root', env.H2A_ROOT],
+        { env, cwd: workspace, encoding: 'utf8', timeout: 20000, maxBuffer: 1024 * 1024 });
+      if (Number.isSafeInteger(setup.pid)) recordExec(execJournal, { pid: setup.pid, path: bin, tag: 'harness' });
+      row.evidence.push({ event: 'host-setup', role, exitCode: setup.status });
+      let cellConfig;
+      try { cellConfig = JSON.parse(setup.stdout); } catch { throw new Error('host-setup-no-config'); }
+      const codexEndpoint = cellConfig?.mcpServers?.h2a;
+      report = await materialiseSeatCell({ cli, seatDir: roleAuthHome, cellHome: env.HOME,
+        workspaceDir: workspace, configDirs: { claudeConfigDir: env.CLAUDE_CONFIG_DIR,
+          codexHome: env.CODEX_HOME, xdgConfigHome: env.XDG_CONFIG_HOME },
+        expectedNativeCliVersion: seatOb.expectedNativeCliVersion, ownerScope: seatOb.ownerScope,
+        claudeMcpConfig: cellConfig,
+        codexMcpServers: codexEndpoint ? [{ name: 'h2a', command: join(dir, 'bin', 'h2a'),
+          args: [...(codexEndpoint.args ?? [])], defaultToolsApprovalMode: 'approve' }] : [],
+        authFiles: seatOb.authFiles ?? [], destKeys: seatOb.destKeys ?? [] });
+      cellMcpComposed = true;
+    } else {
+      report = roleAuthHome ? copyLoginReport(cli, roleAuthHome, cell, env) : { copied: [], skipped: [] };
+    }
     row.credentialsCopied[role] = report.copied;
-    for (const skip of report.skipped) {
+    for (const skip of report.skipped ?? []) {
       row.evidence.push({ event: 'login-skipped', role, cli, file: skip.file, reason: skip.reason });
     }
     for (const name of row.credentialsCopied[role]) {
@@ -355,7 +389,8 @@ async function worker() {
     // only by the mesh-sourced seat file (no auth file, no keyring). The
     // seated value crosses into the cell only through the allowlisted seat
     // file above (see vibeCellKey); the parent wipe erases both afterwards.
-    const vibeWitness = vibeCellKey(env, cli, row.credentialsCopied[role]);
+    // Library cells never carry vibe seats, so this stays on the old path.
+    const vibeWitness = cellMcpComposed ? null : vibeCellKey(env, cli, row.credentialsCopied[role]);
     if (vibeWitness) row.evidence.push({ event: 'vibe-key-exported', role, cli, ...vibeWitness });
     // Every nested h2a invocation resolves to this witnessed checkout build.
     // R22: the wrapper carries the harness env snapshot itself (see
@@ -366,36 +401,41 @@ async function worker() {
     const targetEnv = isolation.isolatedNativeTestEnvironment(env);
     fs.writeFileSync(join(dir, 'bin/h2a'),
       cellWrapperScript({ node: process.execPath, proxy, env: targetEnv }), { mode: 0o700 });
+    // L7: library cells already composed their MCP config (claude merged
+    // last, codex rendered from the custodian intent) — the bench writes no
+    // MCP file on top of the single writer.
     const workspace = join(dir, 'workspace');
-    fs.mkdirSync(workspace);
-    const rendered = spawnSync(process.execPath, [bin, 'host', 'setup', '--host', cli, '--print', '--root', env.H2A_ROOT],
-      { env, cwd: workspace, encoding: 'utf8', timeout: 20000, maxBuffer: 1024 * 1024 });
-    if (Number.isSafeInteger(rendered.pid)) recordExec(execJournal, { pid: rendered.pid, path: bin, tag: 'harness' });
-    row.evidence.push({ event: 'host-setup', role, exitCode: rendered.status });
-    let config;
-    try { config = JSON.parse(rendered.stdout); } catch { throw new Error('host-setup-no-config'); }
-    // Phase 1 deliberately uses the product descriptor's own default path.
-    const descriptor = await import(pathToFileURL(join(build, `packages/h2a/dist/hosts/${cli}.js`)));
-    const hint = descriptor.renderMcpConfig().path.example;
-    const path = cli === 'claude' && hint === '~/.claude.json'
-      ? join(env.CLAUDE_CONFIG_DIR, '.claude.json') : hint.replace(/^~(?=\/)/, env.HOME);
-    inside(cell, path);
-    fs.mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-    if (path.endsWith('.toml')) {
-      const endpoint = config.mcpServers.h2a;
-      // R22: the codex spawner does not resolve the bare endpoint command,
-      // so the cell names its private wrapper (written above) by absolute
-      // path. Cell HOME only; every other family keeps the endpoint command.
-      // R22: the codex spawner does not resolve the bare endpoint command,
-      // so the cell names its private wrapper (written above) by absolute
-      // path. Cell HOME only; every other family keeps the endpoint command.
-      fs.writeFileSync(path, cli === 'codex'
-        ? cellMcpConfigText(cli, endpoint, { command: join(dir, 'bin', 'h2a') })
-        : cellMcpConfigText(cli, endpoint));
-    } else {
-      let previous = {};
-      if (fs.existsSync(path)) previous = JSON.parse(fs.readFileSync(path, 'utf8'));
-      fs.writeFileSync(path, JSON.stringify({ ...previous, ...config }));
+    if (!cellMcpComposed) {
+      fs.mkdirSync(workspace);
+      const rendered = spawnSync(process.execPath, [bin, 'host', 'setup', '--host', cli, '--print', '--root', env.H2A_ROOT],
+        { env, cwd: workspace, encoding: 'utf8', timeout: 20000, maxBuffer: 1024 * 1024 });
+      if (Number.isSafeInteger(rendered.pid)) recordExec(execJournal, { pid: rendered.pid, path: bin, tag: 'harness' });
+      row.evidence.push({ event: 'host-setup', role, exitCode: rendered.status });
+      let config;
+      try { config = JSON.parse(rendered.stdout); } catch { throw new Error('host-setup-no-config'); }
+      // Phase 1 deliberately uses the product descriptor's own default path.
+      const descriptor = await import(pathToFileURL(join(build, `packages/h2a/dist/hosts/${cli}.js`)));
+      const hint = descriptor.renderMcpConfig().path.example;
+      const path = cli === 'claude' && hint === '~/.claude.json'
+        ? join(env.CLAUDE_CONFIG_DIR, '.claude.json') : hint.replace(/^~(?=\/)/, env.HOME);
+      inside(cell, path);
+      fs.mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+      if (path.endsWith('.toml')) {
+        const endpoint = config.mcpServers.h2a;
+        // R22: the codex spawner does not resolve the bare endpoint command,
+        // so the cell names its private wrapper (written above) by absolute
+        // path. Cell HOME only; every other family keeps the endpoint command.
+        // R22: the codex spawner does not resolve the bare endpoint command,
+        // so the cell names its private wrapper (written above) by absolute
+        // path. Cell HOME only; every other family keeps the endpoint command.
+        fs.writeFileSync(path, cli === 'codex'
+          ? cellMcpConfigText(cli, endpoint, { command: join(dir, 'bin', 'h2a') })
+          : cellMcpConfigText(cli, endpoint));
+      } else {
+        let previous = {};
+        if (fs.existsSync(path)) previous = JSON.parse(fs.readFileSync(path, 'utf8'));
+        fs.writeFileSync(path, JSON.stringify({ ...previous, ...config }));
+      }
     }
     const executable = simulated ? { path: executables[cli] } : privateExecutable(cli, executables[cli], dir);
     if (executable.version) row.evidence.push({ event: 'private-program-copy', role, cli,
@@ -1308,6 +1348,20 @@ async function main() {
         [{ event: 'seat-quota-stop', seats: [seatKey(run, 'sender'), seatKey(run, 'receiver')] }]));
       continue;
     }
+    // L7: onboarding cells never spawn on a closed gate — before preflight,
+    // before any debit, before any spawn. The gate code is the typed
+    // refusal; the launcher never touches the seat.
+    const gateBlocks = [];
+    for (const role of ['sender', 'receiver']) {
+      const seatEntry = (manifest?.seats ?? []).find(seat => seat.seatId === seatKey(run, role)) ?? null;
+      const block = onboardingLaunchBlock(seatEntry);
+      if (block) gateBlocks.push({ event: 'onboarding-gate-closed', role,
+        seat: seatKey(run, role), code: block });
+    }
+    if (gateBlocks.length) {
+      cells.push(blockedRow(run, releaseOffsetMs, 'onboarding-required', gateBlocks));
+      continue;
+    }
     // V3 §6.4 pre-launch check: the composite caps are verified before every
     // launch — preflight included. On refusal nothing is spawned and no seat
     // is touched; the refusal is witnessed in the ledger. A witnessed MCP
@@ -1399,9 +1453,22 @@ async function main() {
     const watchdog = setTimeout(() => child.kill('SIGTERM'), timeoutMs * 2 + 45000);
     let output = '';
     child.stdout.on('data', bytes => { output += bytes; });
+    // L7: onboarding state travels per role (status, gate, versions from
+    // the preflight map). Seats without onboarding state get null and keep
+    // the old cell path.
+    const seatObEntry = role => {
+      const seatId = seatKey(run, role);
+      const entry = (manifest?.seats ?? []).find(seat => seat.seatId === seatId) ?? null;
+      if (!entry?.onboarding) return null;
+      return { status: entry.onboarding.status, gate: entry.onboarding.gate,
+        ownerScope: manifest.ownerScope, authFiles: entry.onboarding.authFiles ?? [],
+        destKeys: entry.onboarding.destKeys ?? [],
+        expectedNativeCliVersion: preflighted.get(seatId)?.version ?? null };
+    };
     child.stdin.end(JSON.stringify({ sender, receiver, root, build: built.path, executables, timeoutMs, cell,
       scenario: scenarioSpec,
       authHomes: run.authHomes,
+      seatOnboarding: { sender: seatObEntry('sender'), receiver: seatObEntry('receiver') },
       seats: { sender: run.senderSeat, receiver: run.receiverSeat }, seatMode,
       mcpCallCap: caps.mcpCallsPerSession,
       simulated, dropWake: process.argv.includes('--drop-simulated-wake'),

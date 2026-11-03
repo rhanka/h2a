@@ -145,13 +145,13 @@ test('R18: agy maps only through the exact cloud-code tuple, never gemini', () =
   } catch (error) { assert.equal(error.code, 'mixed-tuple'); }
 });
 
-test('R18: seat envelopes materialise allowlisted files only, with a metadata-only receipt', () => {
+test('R18: seat envelopes materialise allowlisted files only, with a metadata-only receipt', async () => {
   const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-cyber-seat-'));
   try {
     const secret = 'SEAT_USE_CODEX_00';
     const envelope = { bundle: consumerBundle(),
       files: { '.codex/auth.json': Buffer.from('{"token":"canary-zz9"}').toString('base64') } };
-    const result = materialiseSeatEnvelopes({ seatSet: 'codex', slotManifest: {
+    const result = await materialiseSeatEnvelopes({ seatSet: 'codex', slotManifest: {
       version: 1, environment: SEAT_ENVIRONMENT,
       seats: [{ seatId: 'codex', cli: 'codex', slot: '00', secret,
         candidateSecret: 'SEAT_CANDIDATE_CODEX_00', useSecret: secret }] },
@@ -163,15 +163,15 @@ test('R18: seat envelopes materialise allowlisted files only, with a metadata-on
     assert.ok(!JSON.stringify(result.receipt).includes('canary-zz9'), 'the receipt carries names only, never bytes');
     assert.equal(result.receipt.seats[0].seatId, 'codex');
     assert.equal(result.manifest.seatMode, 'cyber-seat-custody');
-    assert.throws(() => materialiseSeatEnvelopes({ seatSet: 'codex',
+    await assert.rejects(materialiseSeatEnvelopes({ seatSet: 'codex',
       slotManifest: { version: 1, environment: SEAT_ENVIRONMENT, seats: [] },
       secrets: {}, baseDir: dir }), /seat-unknown/);
-    assert.throws(() => materialiseSeatEnvelopes({ seatSet: 'codex', slotManifest: {
+    await assert.rejects(materialiseSeatEnvelopes({ seatSet: 'codex', slotManifest: {
       version: 1, environment: SEAT_ENVIRONMENT,
       seats: [{ seatId: 'codex', cli: 'codex', slot: '00', secret,
         candidateSecret: 'SEAT_CANDIDATE_CODEX_00', useSecret: secret }] },
     secrets: { [secret]: 'not-json' }, baseDir: dir }), /seat-bundle-invalid/);
-    assert.throws(() => materialiseSeatEnvelopes({ seatSet: 'codex', slotManifest: {
+    await assert.rejects(materialiseSeatEnvelopes({ seatSet: 'codex', slotManifest: {
       version: 1, environment: SEAT_ENVIRONMENT,
       seats: [{ seatId: 'codex', cli: 'codex', slot: '00', secret,
         candidateSecret: 'SEAT_CANDIDATE_CODEX_00', useSecret: secret }] },

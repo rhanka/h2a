@@ -33,6 +33,8 @@ import { materialiseSeatEnvelopes, parseCliSeatProfile,
 import { SEAT_BUNDLE_MAX_BYTES } from './xcli-seat-vendor/seat-bundle.js';
 import { MESH_SEAT_PROVIDERS, createMeshSeatFacade, requireMeshAccount,
   acquireVibeKey, meshOwnerScope } from './xcli-llm-mesh-seats.mjs';
+import { CAPTURE_SOURCES, captureSeatOnboarding, seatLaunchGate } from './xcli-seat-vendor/seat-onboarding.js';
+import { cliPath } from './xcli-lab.mjs';
 
 const self = fileURLToPath(import.meta.url);
 const repoRoot = dirname(dirname(self));
@@ -61,6 +63,40 @@ export const AGY_TUPLE = Object.freeze({
 
 export const VIBE_SEAT_FILE = '.vibe/MISTRAL_API_KEY';
 const DEPLOY_BRANCHES = Object.freeze(['main', 'feat/live-cross-cli-messaging']);
+
+// L7 (bench round 27): the custodian codex policy intent transported in the
+// onboarding block. `approvalPolicy: 'untrusted'` is the codex default, so
+// the rendered cell config keeps today's effective behavior (MCP approval
+// press unchanged); `mcpServerNames` is the harness's closed codex MCP set
+// (the single h2a endpoint the cell renders). Harness and intent stay in
+// sync by construction — a wider cell set refuses loudly at stage 2.
+export const CODEX_SEAT_INTENT = Object.freeze({ approvalPolicy: 'untrusted',
+  mcpServerNames: Object.freeze(['h2a']) });
+
+// L7: per-CLI standing trust decision carried in the block (design D3).
+// agy carries consent state only; claude/muse/codex synthesize per-cell
+// trust at stage 2 from this decision. Vibe has no measured gate.
+export const SEAT_CELL_SYNTHESIS = Object.freeze({
+  agy: Object.freeze([]),
+  claude: Object.freeze(['claude-workspace-trust']),
+  muse: Object.freeze(['muse-workspace-trust']),
+  codex: Object.freeze(['codex-project-trust']),
+});
+
+// L7: read the installed CLI version for onboarding capture. Binary on
+// PATH only, `--version` only, first x.y.z only — no login, no model. A
+// missing binary or an unparseable version refuses (null): issuance then
+// fails closed instead of inventing a version.
+export function probeCliVersion(cli, { path = process.env.PATH ?? '' } = {}) {
+  const executable = cliPath(cli, path);
+  if (!executable) return null;
+  try {
+    const probed = spawnSync(executable, ['--version'], { encoding: 'utf8', timeout: 15000,
+      maxBuffer: 65536 });
+    if (probed.status !== 0) return null;
+    return `${probed.stdout ?? ''}\n${probed.stderr ?? ''}`.match(/\b\d+\.\d+\.\d+\b/)?.[0] ?? null;
+  } catch { return null; }
+}
 
 // Strict local auth read: a regular file only, never a symlink, never a
 // directory. Names-only errors: the path named is allowlisted, never bytes.
@@ -111,7 +147,7 @@ async function resolveMeshGate({ seatId, cli, meshFacade, meshScope }) {
 // file's names and the seat source for receipts.
 export async function buildSeatEnvelope({ seatId, slot, homeDir, ownerScope = 'owner',
   issuedAt = new Date().toISOString(), operationId = null, meshFacade = null,
-  meshScope = meshOwnerScope() } = {}) {
+  meshScope = meshOwnerScope(), cliVersions = {} } = {}) {
   assert.ok(seatId && slot && homeDir, 'seat, slot and home required');
   const identity = SEAT_IDENTITIES[seatId];
   if (!identity) throw new Error(`seat-unknown:${seatId}`);
@@ -136,13 +172,43 @@ export async function buildSeatEnvelope({ seatId, slot, homeDir, ownerScope = 'o
     }
   }
   const digest = createHash('sha256').update(Buffer.concat(raws)).digest('hex');
+  const opId = operationId ?? `op-${seatId}-${Date.now().toString(36)}-${randomBytes(4).toString('hex')}`;
+  // L7: issue the onboarding block through the published capture when the
+  // seat is enrolled. The binding is the enrolled mesh account id (a stable
+  // reference, never the hash-derived bundle binding); without it issuance
+  // refuses with a typed code and the seat provisions auth-only. Vibe has
+  // no measured gate and no block.
+  let onboarding = undefined;
+  let onboardingRefused = undefined;
+  if (identity.cli !== 'vibe' && gate.accountId) {
+    const nativeCliVersion = cliVersions[identity.cli];
+    const captureInput = { cli: identity.cli, seatRef: seatId, ownerScope,
+      accountBinding: gate.accountId, nativeCliVersion, os: 'linux', capturedAt: issuedAt,
+      lineage: { epoch: 1, generation: 0, operationId: opId },
+      cellSynthesis: [...(SEAT_CELL_SYNTHESIS[identity.cli] ?? [])] };
+    if (identity.cli === 'codex') captureInput.intent = { ...CODEX_SEAT_INTENT,
+      mcpServerNames: [...CODEX_SEAT_INTENT.mcpServerNames] };
+    else {
+      captureInput.sourceHome = homeDir;
+      captureInput.selector = { sourceRelPath: CAPTURE_SOURCES[identity.cli] };
+    }
+    const captured = await captureSeatOnboarding(captureInput);
+    if (captured.ok) onboarding = captured.block;
+    else onboardingRefused = captured.code;
+  } else if (identity.cli !== 'vibe') {
+    onboardingRefused = 'onboarding-binding-unverifiable';
+  }
   let bundle;
   try {
+    // L7 (design §3.4): when a block is issued, the bundle binding switches
+    // its source to the eligible one — the enrolled mesh account id — so it
+    // matches the block exactly. Without a block the hash binding stays.
     bundle = parseCliSeatProfile({ seatRef: seatId, ownerScope, cli: identity.cli,
       issuingClientRef: identity.issuingClientRef, endpointFamily: identity.endpointFamily,
-      credentialFormatVersion: 'v1', os: 'linux', accountBinding: `binding-${seatId}-${digest.slice(0, 16)}`,
-      entitlementClass: 'seat', epoch: 1, generation: 0,
-      operationId: operationId ?? `op-${seatId}-${Date.now().toString(36)}-${randomBytes(4).toString('hex')}`,
+      credentialFormatVersion: 'v1', os: 'linux',
+      accountBinding: onboarding ? gate.accountId : `binding-${seatId}-${digest.slice(0, 16)}`,
+      entitlementClass: 'seat', epoch: 1, generation: 0, operationId: opId,
+      ...(onboarding ? { nativeCliVersion: onboarding.nativeCliVersion } : {}),
       issuedAt, accessKind: 'access', accessRef: `access-${seatId}-${digest.slice(16, 32)}` });
   } catch (error) { throw new Error(`seat-bundle-rejected:${seatId}:${error.code ?? 'unknown'}`); }
   const envelope = { bundle, files };
@@ -153,15 +219,21 @@ export async function buildSeatEnvelope({ seatId, slot, homeDir, ownerScope = 'o
         accountBinding: bundle.provenance.accountBinding, ...envelope.agy });
     } catch (error) { throw new Error(`agy-tuple-rejected:${seatId}:${error.code ?? 'unknown'}`); }
   }
+  if (onboarding) envelope.onboarding = onboarding;
   const serialized = JSON.stringify(envelope);
   if (Buffer.byteLength(serialized, 'utf8') > SEAT_BUNDLE_MAX_BYTES) {
     throw new Error(`seat-bundle-oversize:${seatId}`);
   }
-  // Names-only seat source: which store decided, under which gate.
+  // Names-only seat source: which store decided, under which gate. The
+  // capture refusal code is names-only (design §3.4): it diagnoses why no
+  // block was issued while the gate code stays the launch channel.
+  const onboardingStatus = onboarding ? 'present' : 'absent';
   const source = { seatId, cli: identity.cli, kind: identity.cli === 'vibe' ? 'llm-mesh' : 'cli-login',
     provider: gate.provider, meshGate: gate.meshGate, files: Object.keys(files).sort(),
+    onboardingStatus, launchGate: seatLaunchGate(identity.cli, onboardingStatus),
     ...(gate.accountId ? { accountId: gate.accountId } : {}),
-    ...(gate.cause ? { cause: gate.cause } : {}) };
+    ...(gate.cause ? { cause: gate.cause } : {}),
+    ...(onboardingRefused ? { onboardingRefused } : {}) };
   return { envelope, serialized, files: Object.keys(files).sort(), source };
 }
 
@@ -273,7 +345,7 @@ export async function provisionSeats({ seatSet = DEFAULT_SEAT_SET,
   homeDir = homedir(), ownerScope = 'owner',
   outBase = join(homedir(), '.cache-tmp', 'h2a-test'),
   ghBin = 'gh', mode = 'provision', meshFacade = null,
-  meshScope = meshOwnerScope() } = {}) {
+  meshScope = meshOwnerScope(), cliVersions = {} } = {}) {
   assert.ok(['provision', 'dry-run', 'local'].includes(mode), 'known provision mode');
   const slotManifest = JSON.parse(fs.readFileSync(slotManifestFile, 'utf8'));
   if (slotManifest.environment !== SEAT_ENVIRONMENT) throw new Error('environment-mismatch');
@@ -297,7 +369,7 @@ export async function provisionSeats({ seatSet = DEFAULT_SEAT_SET,
       const slot = byId[seatId];
       if (!slot) throw new Error(`seat-unknown:${seatId}`);
       const built = await buildSeatEnvelope({ seatId, slot, homeDir, ownerScope,
-        meshFacade: facade, meshScope });
+        meshFacade: facade, meshScope, cliVersions });
       const file = writeEnvelopeFile(outDir, seatId, built.serialized);
       assert.equal(fs.statSync(file).mode & 0o777, 0o600, 'envelope file is private');
       const receipt = validateEnvelopeViaFd({ seatId, slotManifestFile, envelopeFile: file });
@@ -308,7 +380,7 @@ export async function provisionSeats({ seatSet = DEFAULT_SEAT_SET,
       const laneDir = join(outDir, 'lane');
       const secrets = Object.fromEntries(seats.map(seat =>
         [seat.names.projection, fs.readFileSync(seat.file, 'utf8')]));
-      const materialised = materialiseSeatEnvelopes({ seatSet: ids.join(','), slotManifest, secrets, baseDir: laneDir });
+      const materialised = await materialiseSeatEnvelopes({ seatSet: ids.join(','), slotManifest, secrets, baseDir: laneDir });
       return { mode, outDir, manifestFile: materialised.manifestFile,
         manifestDigest: materialised.manifestDigest, seats: seats.map(seat => seat.receipt),
         sources: seats.map(seat => seat.source) };
@@ -359,12 +431,22 @@ if (process.argv[1] && resolve(process.argv[1]) === self) {
     process.exit(1);
   }
   try {
+    // L7: probe the installed CLI versions once for onboarding capture.
+    // A missing binary refuses per seat (null): issuance fails closed.
+    const requested = option(args, '--seat-set', DEFAULT_SEAT_SET).split(',').map(s => s.trim()).filter(Boolean);
+    const cliVersions = {};
+    for (const seatId of requested) {
+      const identity = SEAT_IDENTITIES[seatId];
+      if (!identity || identity.cli === 'vibe') continue;
+      const version = probeCliVersion(identity.cli);
+      if (version) cliVersions[identity.cli] = version;
+    }
     const result = await provisionSeats({ seatSet: option(args, '--seat-set', DEFAULT_SEAT_SET),
       slotManifestFile: option(args, '--slot-manifest', join(repoRoot, 'docs/cross-cli-seat-slots.json')),
       homeDir: option(args, '--home', homedir()),
       ownerScope: option(args, '--owner-scope', 'owner'),
       outBase: option(args, '--out-base', join(homedir(), '.cache-tmp', 'h2a-test')),
-      ghBin: option(args, '--gh-bin', 'gh'), mode });
+      ghBin: option(args, '--gh-bin', 'gh'), mode, cliVersions });
     for (const receipt of result.seats) console.log(JSON.stringify(receipt));
     for (const source of result.sources ?? []) {
       console.log(JSON.stringify({ event: 'seat-provision-sourced', ...source }));

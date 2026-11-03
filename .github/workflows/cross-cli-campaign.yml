@@ -126,7 +126,7 @@ jobs:
           import { materialiseSeatEnvelopes } from './scripts/xcli-seat-import.mjs';
           if (fs.realpathSync(process.env.RUNNER_TEMP) !== process.env.RUNNER_TEMP) throw new Error('aliased runner temp');
           const slotManifest = JSON.parse(fs.readFileSync('./docs/cross-cli-seat-slots.json', 'utf8'));
-          const { manifestDigest, receipt } = materialiseSeatEnvelopes({
+          const { manifestDigest, receipt } = await materialiseSeatEnvelopes({
             seatSet: process.env.SEAT_SET ?? '', slotManifest,
             secrets: process.env, baseDir: process.env.RUNNER_TEMP });
           console.log('seats=' + receipt.seats.map(s => s.seatId).join(','));

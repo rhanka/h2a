@@ -19,7 +19,7 @@ import { dirname, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { compliantQualificationRoot } from './xcli-lab.mjs';
-import { DEFAULT_SEAT_SET, provisionSeats, shredFiles } from './xcli-seat-provision.mjs';
+import { DEFAULT_SEAT_SET, probeCliVersion, provisionSeats, shredFiles } from './xcli-seat-provision.mjs';
 import { scanEvidenceText } from './xcli-evidence-scan.mjs';
 
 const self = fileURLToPath(import.meta.url);
@@ -48,8 +48,15 @@ export async function runLocalCampaign({ seatSet = DEFAULT_SEAT_SET, pairs = nul
   simulated = false, spawnTimeoutMs = 600000, meshFacade = null } = {}) {
   let outDir = null;
   try {
+    // L7: probe the installed CLI versions once for onboarding capture.
+    const cliVersions = {};
+    for (const seatId of seatSet.split(',').map(s => s.trim()).filter(Boolean)) {
+      const version = probeCliVersion(seatId);
+      if (version) cliVersions[seatId] = version;
+    }
     const provisioned = await provisionSeats({ seatSet, slotManifestFile, homeDir,
-      ownerScope, ...(outBase ? { outBase } : {}), mode: 'local', ...(meshFacade ? { meshFacade } : {}) });
+      ownerScope, ...(outBase ? { outBase } : {}), mode: 'local', ...(meshFacade ? { meshFacade } : {}),
+      cliVersions });
     outDir = provisioned.outDir;
     const manifest = JSON.parse(fs.readFileSync(provisioned.manifestFile, 'utf8'));
     const seatIds = manifest.seats.map(seat => seat.seatId);
