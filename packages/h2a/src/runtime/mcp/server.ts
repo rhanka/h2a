@@ -77,7 +77,7 @@ import { createPayloadStore, type PayloadStore } from "./payload-store.js";
 import { resolveFrameBudget, type FrameBudget } from "./frame-budget.js";
 import { PAYLOAD_MAX_READ_BYTES } from "./payload-store.js";
 import { H2A_CLI_MCP_TOOL_NAMES } from "../../mcp.js";
-import { MCP_IDENTITY_RETRY_MIN_MS } from "./identity-state.js";
+import { identityBlockerGone, MCP_IDENTITY_RETRY_MIN_MS } from "./identity-state.js";
 import type { McpIdentityController, McpIdentityStatus } from "./identity-state.js";
 import {
   UnknownResourceError,
@@ -337,6 +337,15 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
   }
 
   /**
+   * Status addendum witness: shared with the controller retry gate
+   * (`identity-state.ts`). A diagnostic without a known generation never
+   * counts as gone: the stale failure is kept.
+   */
+  function identityBlockerGoneHere(status: McpIdentityStatus): boolean {
+    return identityBlockerGone(store.paths.root, status);
+  }
+
+  /**
    * L2 guard: while identity is pending/failed, refuse a KNOWN tool that is not
    * identity-independent (and refuse `h2a_inbox` unless it is a read) with a
    * bounded typed error. Returns undefined to let the call proceed. An UNKNOWN
@@ -378,11 +387,15 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
     // They must drive the same bounded recovery as signed calls. The
     // controller keeps pending/permanent failures and the retry gates inert.
     if (name === "h2a_identity_status") {
-      const status = identityStatus();
+      // Drive the same bounded recovery as signed calls. When a zero-delay
+      // retry starts, preserve the just-observed failure for this response —
+      // EXCEPT when the recorded identity blocker no longer exists on disk:
+      // then report the fresh attempt instead of the stale failure (other
+      // sessions kept the stale failure until another h2a tool was called).
+      const before = identityStatus();
+      const kicked = options.identity?.retry() ?? false;
+      const status = kicked && identityBlockerGoneHere(before) ? identityStatus() : before;
       const notices = options.operatorNotices?.() ?? [];
-      options.identity?.retry();
-      // Preserve the just-observed failure for this response even when a
-      // zero-delay retry starts; subsequent calls see the new attempt.
       return { content: [{ type: "text", text: JSON.stringify({ ...status, root: store.paths.root,
         workspaceRoot: resolve(options.workspaceRoot ?? process.cwd()), ...(notices.length ? { operator_notices: notices } : {}) }) }] };
     }

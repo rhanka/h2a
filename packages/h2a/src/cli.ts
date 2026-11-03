@@ -168,6 +168,7 @@ import {
   reapAllDeadPresence,
   reapDeadInstancePresence,
   readPresence,
+  repairIdentityPreviousBootChainForRoot,
   resolveRecipient,
   safePathSegment,
   sanitizeStorePaths,
@@ -5913,6 +5914,48 @@ function cmdDoctor(
 
   // 4. h2a binary reachable (self-check via existing API)
   checks.cliBinary = { ok: true };
+
+  // 4b. Identity previous-boot succession chain. A reboot can leave
+  // `identity/.lock` plus a full SUCC chain owned by the previous boot;
+  // the fence then fails closed (`succ-chain-exhausted`) forever. With
+  // `--repair`, a chain whose every record is provably from another boot
+  // of this same machine is quarantined with a durable backup (typed
+  // diagnostic `recovered-previous-boot-chain`); any other chain is left
+  // untouched. Without `--repair` this probe never mutates.
+  // `--repair --dry-run` reports without mutating, like every other doctor
+  // repair surface.
+  if (flags.repair === "true" && flags["dry-run"] !== "true") {
+    try {
+      const prevBoot = repairIdentityPreviousBootChainForRoot(root);
+      checks.identityPreviousBootChain = {
+        ok: true,
+        recovered: prevBoot.recovered,
+        reason: prevBoot.reason,
+        ...(prevBoot.backupDir !== undefined ? { backupDir: prevBoot.backupDir } : {}),
+        ...(prevBoot.moved !== undefined ? { moved: [...prevBoot.moved] } : {})
+      };
+    } catch (error) {
+      checks.identityPreviousBootChain = {
+        ok: true,
+        recovered: false,
+        reason: "repair-unavailable",
+        message: (error as Error).message
+      };
+    }
+  } else if (flags.repair === "true" && flags["dry-run"] === "true") {
+    checks.identityPreviousBootChain = {
+      ok: true,
+      skipped: true,
+      dryRun: true,
+      message: "dry-run: pass --repair without --dry-run to recover a previous-boot identity succession chain"
+    };
+  } else {
+    checks.identityPreviousBootChain = {
+      ok: true,
+      skipped: true,
+      message: "pass --repair to recover a previous-boot identity succession chain"
+    };
+  }
 
   // Legacy account-pool files can contain credentials. They are no longer read
   // by H2A and doctor deliberately performs existence checks only.

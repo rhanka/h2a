@@ -971,11 +971,14 @@ export {
 
 export {
   IDENTITY_BINDING_FENCE_PROTOCOL,
+  PREVIOUS_BOOT_CHAIN_RECOVERY_KIND,
   attestBindingsTailDurable,
   identityFsQualified,
   identitySelf,
   neutralizeBindingsTail,
   readIdentityLock,
+  recoverPreviousBootSuccessionChain,
+  repairIdentityPreviousBootChainForRoot,
   withIdentityFence,
   withIdentityFenceSync,
   breakIdentityLockAsOperator,
@@ -985,6 +988,7 @@ export {
   type IdentityLockDiagnostic,
   type IdentityLockRec,
   type IdentityLockRead,
+  type PreviousBootChainRecovery,
   type TailNeutralized
 } from "./runtime/local-files/identity-fence.js";
 
