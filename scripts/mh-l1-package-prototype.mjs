@@ -38,6 +38,79 @@ function dependencyDirectory(name, requester, closed = false) {
   }
 }
 
+/**
+ * Nearest reservation for `name` held by an ancestor strictly above
+ * `parent` (`{ claim, owner }`), or `undefined` when no ancestor reserves it.
+ *
+ * The lookup starts at the parent of `parent`: the enquiring package's own
+ * scope must not shadow the chain, otherwise every lookup hits at iteration
+ * 0 and the defer/nest branches below stay dead while a transitive squats a
+ * slot an ancestor reserved at another source.
+ */
+export function reservationFor(reservations, parent, name) {
+  if (!parent) return undefined;
+  for (let cursor = dirname(parent) === '.' ? '' : dirname(parent);;) {
+    const scope = reservations.get(cursor);
+    if (scope?.has(name)) return { claim: scope.get(name), owner: cursor };
+    if (!cursor) return undefined;
+    const next = dirname(cursor);
+    cursor = next === '.' ? '' : next;
+  }
+}
+
+/**
+ * Whether Node, resolving from `dest`, reaches the recorded `childPath` slot
+ * for `name` holding `dirReal`. Refuses when an intermediate holder between
+ * `dest` and the slot base records or reserves the same slot with another
+ * source (that mask is what `check-publish-payload.mjs` would reject as
+ * `release_dependency_not_exact`).
+ */
+export function slotVisibleFrom(records, slotSource, reservations, dest, childPath, name, dirReal) {
+  if (!childPath) return true;
+  const suffix = `/node_modules/${name}`;
+  let base = '';
+  if (childPath !== `node_modules/${name}`) {
+    if (!childPath.endsWith(suffix)) return false;
+    base = childPath.slice(0, -suffix.length);
+    if (dest !== base && !dest.startsWith(base + '/')) return false;
+  }
+  for (let cursor = dest; cursor && cursor !== base;) {
+    const cand = `${cursor}/node_modules/${name}`;
+    if (records.has(cand) && slotSource.get(cand) !== dirReal) return false;
+    const reserved = reservations.get(cursor)?.get(name);
+    if (reserved && reserved.source !== dirReal) return false;
+    const next = dirname(cursor);
+    cursor = next === '.' ? '' : next;
+  }
+  return true;
+}
+
+/**
+ * Source holding the `child` slot: the recorded source when the slot already
+ * materialized, else the source of the ancestor reservation the slot defers
+ * to (`claim.path === child`), else `undefined`. Lets `claimDirect`
+ * recognise a deferred same-source slot whose `slotSource` entry does not
+ * exist yet instead of force-copying it.
+ */
+export function deferredChildSource(slotSource, reservations, destination, child, name) {
+  if (slotSource.has(child)) return slotSource.get(child);
+  const ancestor = reservationFor(reservations, destination, name);
+  return ancestor?.claim.path === child ? ancestor.claim.source : undefined;
+}
+
+/**
+ * Register the verified native prebuild slot. Records the `slotSource` entry
+ * together with `records`/`top`/`bySource`: without it `claimDirect` never
+ * recognises the prebuild and force-copies the raw workspace `node-pty`
+ * under the runtime destination.
+ */
+export function recordNativeSlot(maps, nativeRelative, nativeSource, nativeInfo) {
+  maps.records.set(nativeRelative, nativeInfo);
+  maps.top.set('node-pty', nativeRelative);
+  maps.bySource.set(nativeSource, nativeRelative);
+  maps.slotSource.set(nativeRelative, nativeSource);
+}
+
 export async function buildPackagingPrototype(root, { buildId, managedRoot } = {}) {
   return buildPayload(root, { buildId, managedRoot });
 }
@@ -81,17 +154,11 @@ async function buildPayload(root, { buildId, managedRoot, releaseVersion, packag
   // ordering below fixes for the h2a↔h2a-runtime cross-dep; exposed by the
   // mesh 0.25.0 tuple (optional engram peer pulling commander transitively
   // ahead of the runtime direct; dual mcp-platform generations).
-  const slotVisibleFrom = (dest, childPath, name) => {
-    // A recorded same-source slot Node reaches from dest needs no duplicate:
-    // the payload root itself, the top-level slot, or an ancestor slot.
-    // Anything else (a sibling subtree) stays invisible and still forces.
-    if (!childPath) return true;
-    if (childPath === `node_modules/${name}`) return true;
-    const suffix = `/node_modules/${name}`;
-    if (!childPath.endsWith(suffix)) return false;
-    const base = childPath.slice(0, -suffix.length);
-    return dest === base || dest.startsWith(base + '/');
-  };
+  // A recorded same-source slot Node reaches from dest needs no duplicate:
+  // the payload root itself, the top-level slot, or an ancestor slot.
+  // Anything else (a sibling subtree, or a slot masked by an intermediate
+  // record/reservation at another source) stays invisible and still forces.
+  // Decided by the module-level `slotVisibleFrom`.
   const reservations = new Map();
   // Sources currently being copied above us in this walk. A force-copy of a
   // source already on the chain (the h2a<->h2a-runtime lockstep ping-pong
@@ -99,25 +166,16 @@ async function buildPayload(root, { buildId, managedRoot, releaseVersion, packag
   // (Invalid string length); accept the dedup path instead. Completed copies
   // leave the set, so intended same-bytes duplicates still materialize.
   const active = new Set();
-  const reservationFor = (parent, name) => {
-    for (let cursor = parent;;) {
-      const scope = reservations.get(cursor);
-      if (scope?.has(name)) return { claim: scope.get(name), owner: cursor };
-      if (!cursor) return undefined;
-      const next = dirname(cursor);
-      cursor = next === '.' ? '' : next;
-    }
-  };
   const nativeRelative = 'node_modules/node-pty';
   const nativeInfo = json(join(root, nativeRelative, 'package.json'));
-  records.set(nativeRelative, nativeInfo); top.set('node-pty', nativeRelative);
-  bySource.set(dependencyDirectory('node-pty', repo, release), nativeRelative);
+  recordNativeSlot({ records, bySource, top, slotSource },
+    nativeRelative, dependencyDirectory('node-pty', repo, release), nativeInfo);
 
   function copyPackage(source, parent, force) {
     source = realpathSync(source);
     if (!force && bySource.has(source)) return bySource.get(source);
     const original = json(join(source, 'package.json'));
-    const found = reservationFor(parent, original.name);
+    const found = reservationFor(reservations, parent, original.name);
     // Same source as an ancestor's reservation: defer to its own copy (the
     // reserving package's direct loop materializes it; same bytes).
     if (found && found.owner !== parent && found.claim.source === source && !records.has(found.claim.path)) {
@@ -198,8 +256,11 @@ async function buildPayload(root, { buildId, managedRoot, releaseVersion, packag
       const dirReal = realpathSync(directory);
       // Same bytes on a slot visible from here: reuse them instead of
       // nesting a duplicate whose subtree would be re-walked and re-forced
-      // (ENOSPC on real trees under the 0.25.0 tuple).
-      if (slotSource.get(child) === dirReal && slotVisibleFrom(destination, child, name)) return child;
+      // (ENOSPC on real trees under the 0.25.0 tuple). A slot deferred to an
+      // ancestor reservation has no `slotSource` entry yet: recognise it
+      // through the reservation instead of force-copying it.
+      const childSource = deferredChildSource(slotSource, reservations, destination, child, name);
+      if (childSource === dirReal && slotVisibleFrom(records, slotSource, reservations, destination, child, name, dirReal)) return child;
       if (records.has(want) && slotSource.get(want) !== dirReal) {
         throw new Error(`prototype_dependency_collision:${want}`);
       }
