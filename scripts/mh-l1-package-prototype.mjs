@@ -177,6 +177,10 @@ async function buildPayload(root, { buildId, managedRoot, releaseVersion, packag
       const want = destination ? `${destination}/node_modules/${name}` : `node_modules/${name}`;
       const child = copyPackage(directory, destination);
       if (child === want) return child;
+      // The payload root itself (destination ''): Node resolves it upward
+      // from any nested copy, so never force-copy it (that collapses to ''
+      // and trips the shrinkwrap collision). Lockstep edge h2a-runtime→h2a.
+      if (!child) return child;
       const dirReal = realpathSync(directory);
       if (records.has(want) && slotSource.get(want) !== dirReal) {
         throw new Error(`prototype_dependency_collision:${want}`);
