@@ -512,12 +512,19 @@ function assertM17CiGraph(source) {
   )
   for (const id of ['build-and-test', 'npm-test-trust-root']) {
     const block = workflowJobBlock(source, id)
-    assert.deepEqual(jobs[id].needs, ['m17-qualification', 'bulk-qualification'])
+    // build-and-test aggregates the node-shard matrix on top of the M17/bulk
+    // companion proofs; the trust root proves the complete entrypoint
+    // standalone and must never depend on shards.
+    assert.deepEqual(jobs[id].needs, id === 'build-and-test'
+      ? ['m17-qualification', 'bulk-qualification', 'node-shard']
+      : ['m17-qualification', 'bulk-qualification'])
     assert.equal(jobs[id].if, '${{ always() }}')
     const gates = jobs[id].steps.filter(step => step.name === 'Require both complete M17 qualifications')
     assert.deepEqual(gates, [{ name: 'Require both complete M17 qualifications',
       env: { M17_RESULT: '${{ needs.m17-qualification.result }}' }, run: 'test "$M17_RESULT" = success' }])
-    assert.match(block, /^    needs: \[m17-qualification, bulk-qualification\]$/m)
+    assert.match(block, id === 'build-and-test'
+      ? /^    needs: \[m17-qualification, bulk-qualification, node-shard\]$/m
+      : /^    needs: \[m17-qualification, bulk-qualification\]$/m)
     assert.match(block, /^    if: \$\{\{ always\(\) \}\}$/m,
       'failed producers must yield FAILED required consumers, never skipped-green')
     assert.match(block, /M17_RESULT: \$\{\{ needs\.m17-qualification\.result \}\}\n\s+run: test "\$M17_RESULT" = success/)
@@ -527,6 +534,16 @@ function assertM17CiGraph(source) {
     assert.match(block, /uses: actions\/download-artifact@v4/)
     assert.match(block, /path: tmp\/m17-import/)
     assert.match(block, /H2A_TEST_CI_M17_REPORT: \$\{\{ github.workspace \}\}\/tmp\/m17-import\/proof.json/)
+  }
+  {
+    // The aggregate fails when any shard fails or is missing: ordering comes
+    // from needs, the verdict from the require gate, the presence from the
+    // per-shard downloads (a missing artifact fails the download step).
+    const block = workflowJobBlock(source, 'build-and-test')
+    const gates = jobs['build-and-test'].steps.filter(step => step.name === 'Require all node shards complete')
+    assert.deepEqual(gates, [{ name: 'Require all node shards complete',
+      env: { SHARDS_RESULT: '${{ needs.node-shard.result }}' }, run: 'test "$SHARDS_RESULT" = success' }])
+    assert.match(block, /SHARDS_RESULT: \$\{\{ needs\.node-shard\.result \}\}\n\s+run: test "\$SHARDS_RESULT" = success/)
   }
   const producer = workflowJobBlock(source, 'm17-qualification')
   for (const step of jobs['m17-qualification'].steps) {
@@ -555,14 +572,17 @@ test('CI exposes an independent, stable npm-test-trust-root job with a closed M1
 })
 test('CI companion negative controls reject skipped-green dependencies and stale or optional evidence', () => {
   for (const [before, after] of [
-    ['    if: ${{ always() }}', '    if: ${{ success() }}'],
-    ['needs: [m17-qualification, bulk-qualification]', 'needs: []'],
-    ['run: test "$M17_RESULT" = success', 'run: true'],
-    ['needs.m17-qualification.result', 'needs.m17-qualification.outputs.optional'],
-    ['m17-${{ github.run_id }}-node', 'm17-last-success-node'],
-    ['H2A_TEST_CI_M17_REPORT:', 'OPTIONAL_M17_REPORT:'],
+    ['    if: ${{ always() }}\n    runs-on: ${{ matrix.os }}', '    if: ${{ success() }}\n    runs-on: ${{ matrix.os }}'],
+    ['needs: [m17-qualification, bulk-qualification, node-shard]', 'needs: [m17-qualification, bulk-qualification]'],
+    ['run: test "$SHARDS_RESULT" = success', 'run: true'],
+    ['needs: [m17-qualification, bulk-qualification]\n    if: ${{ always() }}', 'needs: []\n    if: ${{ always() }}'],
+    ['run: node --test packages/h2a/test/run-test-gates.test.js\n      - name: Require both complete M17 qualifications\n        env:\n          M17_RESULT: ${{ needs.m17-qualification.result }}\n        run: test "$M17_RESULT" = success',
+      'run: node --test packages/h2a/test/run-test-gates.test.js\n      - name: Require both complete M17 qualifications\n        env:\n          M17_RESULT: ${{ needs.m17-qualification.result }}\n        run: true'],
+    ['name: m17-${{ github.run_id }}-node22', 'name: m17-last-success-node22'],
+    ['H2A_TEST_CI_M17_REPORT: ${{ github.workspace }}/tmp/m17-import/proof.json\n          H2A_TEST_CI_BULK_REPORT: ${{ github.workspace }}/tmp/bulk-import/proof.json\n          H2A_TEST_NODE_SHARD_DIR:', 'OPTIONAL_M17_REPORT: ${{ github.workspace }}/tmp/m17-import/proof.json\n          H2A_TEST_CI_BULK_REPORT: ${{ github.workspace }}/tmp/bulk-import/proof.json\n          H2A_TEST_NODE_SHARD_DIR:'],
     ['if-no-files-found: error', 'if-no-files-found: warn'],
-    ['      - name: Require both complete M17 qualifications\n', '      - name: Require both complete M17 qualifications\n        if: false\n'],
+    ['      - name: Require both complete M17 qualifications\n        env:\n          M17_RESULT: ${{ needs.m17-qualification.result }}\n        run: test "$M17_RESULT" = success\n      - name: Require both complete bulk qualifications\n        env:\n          BULK_RESULT: ${{ needs.bulk-qualification.result }}\n        run: test "$BULK_RESULT" = success\n      - name: Require all node shards complete\n',
+      '      - name: Require both complete M17 qualifications\n        if: false\n        env:\n          M17_RESULT: ${{ needs.m17-qualification.result }}\n        run: test "$M17_RESULT" = success\n      - name: Require both complete bulk qualifications\n        env:\n          BULK_RESULT: ${{ needs.bulk-qualification.result }}\n        run: test "$BULK_RESULT" = success\n      - name: Require all node shards complete\n'],
     ['      - uses: actions/upload-artifact@v4', '      - if: ${{ always() }}\n        uses: actions/upload-artifact@v4'],
   ]) {
     assert.ok(CI_WORKFLOW.includes(before))
