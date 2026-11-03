@@ -1,0 +1,18 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l2-integration.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-nEfv5Q
+{"event":"drive-consent.full-verification","durationMs":0.006072000000017397,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.005981000000019776,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✔ central should publish v2 ready, refuse decoy, authenticate the bridge and persist an operator stop (627.065569ms)
+✔ central stop should reject force and report a durable deferred pause when no owner is published (4.314511ms)
+✔ operator stop should wait for an attachment admitted before its asynchronous protocol connection (1203.318949ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1878.670051
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l2-integration.test.js"],"code":0,"signal":null,"elapsedMs":1906}

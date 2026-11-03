@@ -1,0 +1,17 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/blockage-notifications.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-QoZq4C
+{"event":"drive-consent.full-verification","durationMs":0.019647000000020398,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.011311000000006288,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✔ dispatcher pushes peer.blocked / peer.unblocked to a subscribed peer in scope (5.368486ms)
+✔ dispatcher does not notify an instance of its own blockage, nor out-of-scope peers (1.402199ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 188.44577
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/blockage-notifications.test.js"],"code":0,"signal":null,"elapsedMs":217}

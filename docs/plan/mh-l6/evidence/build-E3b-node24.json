@@ -1,0 +1,13 @@
+{
+  "command": [
+    "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+    "node_modules/typescript/bin/tsc",
+    "-b",
+    "--pretty",
+    "false"
+  ],
+  "code": 0,
+  "signal": null,
+  "stdout": "",
+  "stderr": ""
+}

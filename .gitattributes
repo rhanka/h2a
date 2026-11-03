@@ -30,3 +30,5 @@ packages/h2a/src/*.ts diff
 # suffixes (P + A + B); the union-merged log is then re-chained in place by `track reseal` (Lot L3,
 # spec-track-lifecycle §1.3) — see packages/track/src/events/reseal.ts.
 .track/events.jsonl merge=union
+# Generated descriptor checks compare canonical bytes on every checkout.
+packages/h2a/src/runtime/mcp-central-descriptor.js text eol=lf

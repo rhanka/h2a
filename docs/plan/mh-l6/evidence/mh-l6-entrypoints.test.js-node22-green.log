@@ -1,0 +1,76 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-entrypoints.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-Urt36n
+case: all cases in explicit file
+TAP version 13
+# Subtest: E2b3 should refuse an image entry through async shell exec
+ok 1 - E2b3 should refuse an image entry through async shell exec
+  ---
+  duration_ms: 4211.069546
+  type: 'test'
+  ...
+# Subtest: E2b3 should pass an external shell command through exec untouched
+ok 2 - E2b3 should pass an external shell command through exec untouched
+  ---
+  duration_ms: 1155.83668
+  type: 'test'
+  ...
+# Subtest: E2b3 should refuse an image entry through sync shell exec
+ok 3 - E2b3 should refuse an image entry through sync shell exec
+  ---
+  duration_ms: 1096.913403
+  type: 'test'
+  ...
+# Subtest: E2b3 should pass an external shell command through execSync untouched
+ok 4 - E2b3 should pass an external shell command through execSync untouched
+  ---
+  duration_ms: 1129.053283
+  type: 'test'
+  ...
+# Subtest: E2b3 should refuse a bare image entry through execFile
+ok 5 - E2b3 should refuse a bare image entry through execFile
+  ---
+  duration_ms: 1212.427177
+  type: 'test'
+  ...
+# Subtest: E2b3 should pass a bare external program through execFile untouched
+ok 6 - E2b3 should pass a bare external program through execFile untouched
+  ---
+  duration_ms: 1179.535481
+  type: 'test'
+  ...
+# Subtest: E2b3 should refuse a bare image entry through spawn
+ok 7 - E2b3 should refuse a bare image entry through spawn
+  ---
+  duration_ms: 1126.753073
+  type: 'test'
+  ...
+# Subtest: E2b3 should pass a bare external shell command through spawn untouched
+ok 8 - E2b3 should pass a bare external shell command through spawn untouched
+  ---
+  duration_ms: 1069.970394
+  type: 'test'
+  ...
+# Subtest: E2b3 should refuse an eval worker before it can evaluate
+ok 9 - E2b3 should refuse an eval worker before it can evaluate
+  ---
+  duration_ms: 1170.920905
+  type: 'test'
+  ...
+# Subtest: E2b3 should refuse published legacy bytes loaded as image code
+ok 10 - E2b3 should refuse published legacy bytes loaded as image code
+  ---
+  duration_ms: 1268.826864
+  type: 'test'
+  ...
+1..10
+# tests 10
+# suites 0
+# pass 10
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 15232.157753
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-entrypoints.test.js"],"code":0,"signal":null,"tests":10,"invalid":false,"spawned":2,"leftovers":[]}

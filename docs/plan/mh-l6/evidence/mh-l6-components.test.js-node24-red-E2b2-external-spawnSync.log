@@ -1,0 +1,55 @@
+command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-components.test.js
+node: v24.21.0
+private root: /tmp/mh-l6-test-gKowkP
+case: all cases in explicit file
+TAP version 13
+# Subtest: U12 should allow an external Node application to receive image data through spawnSync
+not ok 1 - U12 should allow an external Node application to receive image data through spawnSync
+  ---
+  duration_ms: 3812.609499
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-components.test.js:10:84'
+  failureType: 'testCodeFailure'
+  error: |-
+    file:///tmp/mh-l6-test-gKowkP/tmpdir/mh-l5-image-5R6iaF/h2a-managed/1000/bootstrap/image-loader-f8666555468eeb5af9ee12c75ff37fecd9acb3bc2b0dcbb89f70da1e6219d360.mjs?image=%2Ftmp%2Fmh-l6-test-gKowkP%2Ftmpdir%2Fmh-l5-image-5R6iaF%2Fh2a-managed%2F1000%2Fimages%2F9fdcff1ecd72c505b28be82632cdf9f342429815cee80c4eaa8e769687dd7f48:977
+        if (!script || options.shell) throw new Error("image_child_entry_unqualified");
+                                            ^
+    
+    Error: image_child_entry_unqualified
+        at nodeArgs (file:///tmp/mh-l6-test-gKowkP/tmpdir/mh-l5-image-5R6iaF/h2a-managed/1000/bootstrap/image-loader-f8666555468eeb5af9ee12c75ff37fecd9acb3bc2b0dcbb89f70da1e6219d360.mjs?image=%2Ftmp%2Fmh-l6-test-gKowkP%2Ftmpdir%2Fmh-l5-image-5R6iaF%2Fh2a-managed%2F1000%2Fimages%2F9fdcff1ecd72c505b28be82632cdf9f342429815cee80c4eaa8e769687dd7f48:977:41)
+        at cp.<computed> [as spawnSync] (file:///tmp/mh-l6-test-gKowkP/tmpdir/mh-l5-image-5R6iaF/h2a-managed/1000/bootstrap/image-loader-f8666555468eeb5af9ee12c75ff37fecd9acb3bc2b0dcbb89f70da1e6219d360.mjs?image=%2Ftmp%2Fmh-l6-test-gKowkP%2Ftmpdir%2Fmh-l5-image-5R6iaF%2Fh2a-managed%2F1000%2Fimages%2F9fdcff1ecd72c505b28be82632cdf9f342429815cee80c4eaa8e769687dd7f48:987:23)
+        at execute (file:///tmp/mh-l6-test-gKowkP/tmpdir/mh-l5-image-5R6iaF/h2a-managed/1000/images/9fdcff1ecd72c505b28be82632cdf9f342429815cee80c4eaa8e769687dd7f48/execution-harness.mjs:77:14)
+        at file:///tmp/mh-l6-test-gKowkP/tmpdir/mh-l5-image-5R6iaF/h2a-managed/1000/images/9fdcff1ecd72c505b28be82632cdf9f342429815cee80c4eaa8e769687dd7f48/execution-harness.mjs:89:28
+    
+    Node.js v24.21.0
+    
+    
+    1 !== 0
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 0
+  actual: 1
+  operator: 'strictEqual'
+  stack: |-
+    nodeArgs (file:///tmp/mh-l6-test-gKowkP/tmpdir/mh-l5-image-5R6iaF/h2a-managed/1000/bootstrap/image-loader-f8666555468eeb5af9ee12c75ff37fecd9acb3bc2b0dcbb89f70da1e6219d360.mjs?image=%2Ftmp%2Fmh-l6-test-gKowkP%2Ftmpdir%2Fmh-l5-image-5R6iaF%2Fh2a-managed%2F1000%2Fimages%2F9fdcff1ecd72c505b28be82632cdf9f342429815cee80c4eaa8e769687dd7f48:977:41)
+    cp.<computed> [as spawnSync] (file:///tmp/mh-l6-test-gKowkP/tmpdir/mh-l5-image-5R6iaF/h2a-managed/1000/bootstrap/image-loader-f8666555468eeb5af9ee12c75ff37fecd9acb3bc2b0dcbb89f70da1e6219d360.mjs?image=%2Ftmp%2Fmh-l6-test-gKowkP%2Ftmpdir%2Fmh-l5-image-5R6iaF%2Fh2a-managed%2F1000%2Fimages%2F9fdcff1ecd72c505b28be82632cdf9f342429815cee80c4eaa8e769687dd7f48:987:23)
+    execute (file:///tmp/mh-l6-test-gKowkP/tmpdir/mh-l5-image-5R6iaF/h2a-managed/1000/images/9fdcff1ecd72c505b28be82632cdf9f342429815cee80c4eaa8e769687dd7f48/execution-harness.mjs:77:14)
+    file:///tmp/mh-l6-test-gKowkP/tmpdir/mh-l5-image-5R6iaF/h2a-managed/1000/images/9fdcff1ecd72c505b28be82632cdf9f342429815cee80c4eaa8e769687dd7f48/execution-harness.mjs:89:28
+    run (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-components.test.js:27:78)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-components.test.js:49:28)
+    process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    async Test.run (node:internal/test_runner/test:1409:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 3963.443351
+
+receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-components.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":2,"leftovers":[]}

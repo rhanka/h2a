@@ -1,0 +1,88 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-package.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-Ft1ONI
+case: all cases in explicit file
+TAP version 13
+# Subtest: U10 U12 should publish @sentropic/h2a with exact lockstep and install twice offline without a compiler
+not ok 1 - U10 U12 should publish @sentropic/h2a with exact lockstep and install twice offline without a compiler
+  ---
+  duration_ms: 225395.705748
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-package.test.js:14:96'
+  failureType: 'testCodeFailure'
+  error: "Cannot read properties of undefined (reading 'stdout')"
+  code: 'ERR_TEST_FAILURE'
+  name: 'TypeError'
+  stack: |-
+    packageScenario (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-package.test.js:190:167)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# npm scripts-enabled positive control: postinstall actually executed in a separate private fixture
+# {"npm":"pack --offline --json","filename":"sentropic-h2a-0.98.7.tgz","integrity":"sha512-Es1xCUc7KoRr9j6hW6ftVS0XMx8O5nICfsiafkLewZUy94EQ5LiUC+tLTW8+K+OPWT8ngMjhWRJyR1oIK4+KyA==","files":10075}
+# actual published 0.98.5: stageInstall(local .7 tar), probeStagedVersion=.7, verifyStagedNative=true; corrupt ELF=false; only temporary prefixes
+# actual published 0.98.6: stageInstall(local .7 tar), probeStagedVersion=.7, verifyStagedNative=true; corrupt ELF=false; only temporary prefixes
+# npm install -g --prefix <one> --offline (scripts enabled) => added 1 package in 16s
+# actual installed corrected MCP transport: reused numeric/string IDs and delayed batch replies passed
+# same actual npm tar => managed SDK and PTY {"node":"v22.22.1","abi":"127","profile":22,"manifest":"sha256:2dcb9dbad34bbecb7b3cfe52d540ebea5b0fa2bb2b45d6b9cfb2c5e4e43a7383","sdk":531,"native":true}
+# Subtest: U10 U12 should publish @sentropic/h2a-runtime with exact lockstep and install twice offline without a compiler
+not ok 2 - U10 U12 should publish @sentropic/h2a-runtime with exact lockstep and install twice offline without a compiler
+  ---
+  duration_ms: 175212.790513
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-package.test.js:14:96'
+  failureType: 'testCodeFailure'
+  error: "Cannot read properties of undefined (reading 'stdout')"
+  code: 'ERR_TEST_FAILURE'
+  name: 'TypeError'
+  stack: |-
+    packageScenario (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-package.test.js:190:167)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# npm scripts-enabled positive control: postinstall actually executed in a separate private fixture
+# {"npm":"pack --offline --json","filename":"sentropic-h2a-runtime-0.98.7.tgz","integrity":"sha512-yJXGozq/qZMtr+BJznlp012AngvyvSCQCnPUxUnRvYjxUwzUHVSBz/ZCJiNTMpXVLPqZVZ0FEaNtOtMnEGCJ2Q==","files":10075}
+# npm install -g --prefix <one> --offline (scripts enabled) => added 1 package in 17s
+# actual installed corrected MCP transport: reused numeric/string IDs and delayed batch replies passed
+# same actual npm tar => managed SDK and PTY {"node":"v22.22.1","abi":"127","profile":22,"manifest":"sha256:53498f63c0074f91d62d854097b8a4c58e79b48308abe0179ba243dbbd3b781c","sdk":531,"native":true}
+# Subtest: U10 should build the actual closed dependency graph from pinned prebuilds before invoking npm
+ok 3 - U10 should build the actual closed dependency graph from pinned prebuilds before invoking npm
+  ---
+  duration_ms: 9427.911966
+  type: 'test'
+  ...
+# Subtest: U10 should install @sentropic/h2a for off-profile diagnostics while refusing H4 preparation
+ok 4 - U10 should install @sentropic/h2a for off-profile diagnostics while refusing H4 preparation
+  ---
+  duration_ms: 94857.210491
+  type: 'test'
+  ...
+# npm scripts-enabled positive control: postinstall actually executed in a separate private fixture
+# {"npm":"pack --offline --json","filename":"sentropic-h2a-0.98.7.tgz","integrity":"sha512-Es1xCUc7KoRr9j6hW6ftVS0XMx8O5nICfsiafkLewZUy94EQ5LiUC+tLTW8+K+OPWT8ngMjhWRJyR1oIK4+KyA==","files":10075}
+# npm required-profile fixture control: incompatible linux/x64 package rejected with EBADPLATFORM
+# npm 11.19.0 required-profile fixture darwin/arm64: added 1 package in 12s; actual installed reader rejects H4 before preparation; no foreign runtime executed
+# npm 11.19.0 required-profile fixture win32/x64: added 1 package in 8s; actual installed reader rejects H4 before preparation; no foreign runtime executed
+# Subtest: U10 should install @sentropic/h2a-runtime for off-profile diagnostics while refusing H4 preparation
+ok 5 - U10 should install @sentropic/h2a-runtime for off-profile diagnostics while refusing H4 preparation
+  ---
+  duration_ms: 67207.881017
+  type: 'test'
+  ...
+# npm scripts-enabled positive control: postinstall actually executed in a separate private fixture
+# {"npm":"pack --offline --json","filename":"sentropic-h2a-runtime-0.98.7.tgz","integrity":"sha512-yJXGozq/qZMtr+BJznlp012AngvyvSCQCnPUxUnRvYjxUwzUHVSBz/ZCJiNTMpXVLPqZVZ0FEaNtOtMnEGCJ2Q==","files":10075}
+# npm required-profile fixture control: incompatible linux/x64 package rejected with EBADPLATFORM
+# npm 11.19.0 required-profile fixture darwin/arm64: added 1 package in 7s; actual installed reader rejects H4 before preparation; no foreign runtime executed
+# npm 11.19.0 required-profile fixture win32/x64: added 1 package in 9s; actual installed reader rejects H4 before preparation; no foreign runtime executed
+1..5
+# tests 5
+# suites 0
+# pass 3
+# fail 2
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 572297.337229
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-package.test.js"],"code":1,"signal":null,"tests":5,"invalid":false,"spawned":62,"leftovers":[]}

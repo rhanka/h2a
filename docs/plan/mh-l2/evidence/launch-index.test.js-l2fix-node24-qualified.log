@@ -1,0 +1,31 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/launch-index.test.js
+node: v24.21.0
+private test root: /tmp/mh-l2-test-kPe2Ck
+Claude config: /tmp/mh-l2-test-kPe2Ck/claude
+✔ indexed bindings preserve latest conversation binding, proof gating and append-only audit (5.776509ms)
+✔ explicit maintenance requires an absolute root and retains original bytes (1.43491ms)
+✔ an old writer or a failed derived-index update remains visible through tail replay (1.692695ms)
+✔ derived index manifest falls back to the authoritative binding reader (1.472821ms)
+✔ derived index bucket falls back to the authoritative binding reader (1.029247ms)
+✔ derived index replace falls back to the authoritative binding reader (0.872792ms)
+✔ derived index truncate falls back to the authoritative binding reader (0.721638ms)
+✔ derived index rewrite falls back to the authoritative binding reader (0.795987ms)
+✔ derived index partial falls back to the authoritative binding reader (0.773736ms)
+✔ indexed registry keeps first registration, role normalization and key revocations (3.579064ms)
+✔ indexed aliases preserve adoption, duplicate suppression and malformed-row tolerance (1.378273ms)
+✔ concurrent index publication and legacy appends never turn a known binding into absence (49.660748ms)
+✔ indexed point lookups do not read a complete historical journal (24.644038ms)
+✔ unrelated index publications cannot force a point lookup into a historical scan (2.021634ms)
+✔ a poisoned row cannot be silently removed by a derived index (1.014509ms)
+✔ a long history on one conversation needs only its latest binding row (16.298065ms)
+✔ legacy inbox ownership keeps earliest claimant and log-order ties without scanning aliases (4.584545ms)
+ℹ tests 17
+ℹ suites 0
+ℹ pass 17
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 321.790033
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/launch-index.test.js"],"code":0,"signal":null,"elapsedMs":350}

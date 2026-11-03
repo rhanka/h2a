@@ -1,0 +1,22 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test --test-reporter=tap packages/h2a/test/mh-l3-state.test.js
+node: v24.21.0
+private root: /tmp/mh-l3-test-qiP5SY
+case: request mappings should distinguish typed IDs, remap progress, settle once and cancel the original owner
+TAP version 13
+# Subtest: request mappings should distinguish typed IDs, remap progress, settle once and cancel the original owner
+ok 1 - request mappings should distinguish typed IDs, remap progress, settle once and cancel the original owner
+  ---
+  duration_ms: 2.321039
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 52.047771
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l3-state.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

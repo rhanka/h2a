@@ -1,0 +1,88 @@
+command: /usr/bin/node --import /home/antoinefa/src/h2a/tmp/worktrees/r5r6/packages/h2a/test/helpers/native-isolation.js --test --test-reporter=tap packages/h2a/test/registry-r5-cli.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-DnkCwg
+case: all cases in explicit file
+TAP version 13
+# Subtest: R5 CLI: registry catalog lists the publisher entries and writes nothing
+ok 1 - R5 CLI: registry catalog lists the publisher entries and writes nothing
+  ---
+  duration_ms: 4.016299
+  type: 'test'
+  ...
+# Subtest: R5 CLI: bootstrap preview/install/uninstall round-trips a JSON host
+ok 2 - R5 CLI: bootstrap preview/install/uninstall round-trips a JSON host
+  ---
+  duration_ms: 5.351081
+  type: 'test'
+  ...
+# Subtest: R5 CLI: host setup --write refuses a registry-migrated config
+ok 3 - R5 CLI: host setup --write refuses a registry-migrated config
+  ---
+  duration_ms: 1.527595
+  type: 'test'
+  ...
+# Subtest: R5 CLI: bridge serve without a lock fails typed and serves nothing
+ok 4 - R5 CLI: bridge serve without a lock fails typed and serves nothing
+  ---
+  duration_ms: 0.583739
+  type: 'test'
+  ...
+# Subtest: R5 CLI: a complete publisher tuple reaches the delegate with the exact served surface
+not ok 5 - R5 CLI: a complete publisher tuple reaches the delegate with the exact served surface
+  ---
+  duration_ms: 5.188385
+  type: 'test'
+  location: '/home/antoinefa/src/h2a/tmp/worktrees/r5r6/packages/h2a/test/registry-r5-cli.test.js:126:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    h2a registry-bridge serve: invalid_parameters: lock selection does not equal the served surface; subset locks need a filtered server (not covered in this increment)
+    
+    
+    2 !== 0
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 0
+  actual: 2
+  operator: 'strictEqual'
+  stack: |-
+    file:///home/antoinefa/src/h2a/tmp/worktrees/r5r6/packages/h2a/test/registry-r5-cli.test.js:139:12
+    async TestContext.<anonymous> (file:///home/antoinefa/src/h2a/tmp/worktrees/r5r6/packages/h2a/test/registry-r5-cli.test.js:127:3)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: R5 CLI: bridge refuses subset, reordered and digest-altered locks before delegation
+ok 6 - R5 CLI: bridge refuses subset, reordered and digest-altered locks before delegation
+  ---
+  duration_ms: 6.748602
+  type: 'test'
+  ...
+# Subtest: R5 CLI: hosted-lock drafts, verifies and activates
+ok 7 - R5 CLI: hosted-lock drafts, verifies and activates
+  ---
+  duration_ms: 0.967761
+  type: 'test'
+  ...
+# Subtest: R5 CLI: read-only verbs leave an isolated home empty
+ok 8 - R5 CLI: read-only verbs leave an isolated home empty
+  ---
+  duration_ms: 44.84303
+  type: 'test'
+  ...
+# Subtest: R5 CLI: vibe direct entry migrates through the CLI
+ok 9 - R5 CLI: vibe direct entry migrates through the CLI
+  ---
+  duration_ms: 2.451644
+  type: 'test'
+  ...
+1..9
+# tests 9
+# suites 0
+# pass 8
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 363.458617
+
+receipt: {"command":["/usr/bin/node","--import","/home/antoinefa/src/h2a/tmp/worktrees/r5r6/packages/h2a/test/helpers/native-isolation.js","--test","--test-reporter=tap","packages/h2a/test/registry-r5-cli.test.js"],"code":1,"signal":null,"tests":9,"invalid":false,"spawned":1,"leftovers":[]}

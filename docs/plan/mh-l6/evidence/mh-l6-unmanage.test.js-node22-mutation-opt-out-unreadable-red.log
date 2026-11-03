@@ -1,0 +1,38 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-unmanage.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-bxJdki
+case: D should fail closed on an unreadable opt-out marker
+TAP version 13
+# Subtest: D should fail closed on an unreadable opt-out marker
+not ok 1 - D should fail closed on an unreadable opt-out marker
+  ---
+  duration_ms: 15.168303
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-d2-0l6ViG/packages/h2a/test/mh-l6-unmanage.test.js:11:67'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    false !== true
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-d2-0l6ViG/packages/h2a/test/mh-l6-unmanage.test.js:112:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 139.703224
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-unmanage.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

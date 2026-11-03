@@ -1,0 +1,46 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test --test-reporter=tap packages/h2a/test/mcp-identity-readiness.test.js
+node: v24.21.0
+private root: /tmp/mh-l3-test-3JsKtM
+case: all cases in explicit file
+TAP version 13
+# Subtest: T3 identity-independent connection under a live registry lock (initialize/tools-list decoupled, pending visible)
+ok 1 - T3 identity-independent connection under a live registry lock (initialize/tools-list decoupled, pending visible)
+  ---
+  duration_ms: 386.631229
+  type: 'test'
+  ...
+# Subtest: T5 pending→ready: signed/mutating tools refused while pending, available after real activation
+ok 2 - T5 pending→ready: signed/mutating tools refused while pending, available after real activation
+  ---
+  duration_ms: 405.206813
+  type: 'test'
+  ...
+# Subtest: T5 pending→failed: identity_timeout at ~20s from pending, no ACK, no presence, signed tools refused
+ok 3 - T5 pending→failed: identity_timeout at ~20s from pending, no ACK, no presence, signed tools refused
+  ---
+  duration_ms: 20373.020778
+  type: 'test'
+  ...
+# Subtest: T5 transport close while pending: clean shutdown, no readiness ACK, no orphan
+ok 4 - T5 transport close while pending: clean shutdown, no readiness ACK, no orphan
+  ---
+  duration_ms: 630.807889
+  type: 'test'
+  ...
+# Subtest: T-retry: a dead-process-held lock fails identity, then freeing it + a tool call reaches ready (no restart)
+ok 5 - T-retry: a dead-process-held lock fails identity, then freeing it + a tool call reaches ready (no restart)
+  ---
+  duration_ms: 20671.422892
+  type: 'test'
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 5
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 42525.474506
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","--test-reporter=tap","packages/h2a/test/mcp-identity-readiness.test.js"],"code":0,"signal":null,"tests":5,"invalid":false,"spawned":25,"leftovers":[]}

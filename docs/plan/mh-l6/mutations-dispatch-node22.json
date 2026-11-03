@@ -1,0 +1,51 @@
+{
+  "node": "v22.22.1",
+  "files": [
+    {
+      "path": "packages/h2a/src/runtime/upgrade/upgrade-dispatch.js",
+      "sha256": "c04ad159b9546d8411ebf387b6c041f6da2b346afec278931b23594e32c5e8b9"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/upgrade/upgrade-dispatch.js",
+      "sha256": "265f4e94f94ab1fcb2762b682fcef28c70ffcb153de3b7ff3c2429bedac1272b"
+    }
+  ],
+  "results": [
+    {
+      "name": "resume-authority",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-dispatch.test.js-node22-mutation-resume-authority-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-dispatch.test.js-node22-mutation-resume-authority-green.log",
+      "restored": true
+    },
+    {
+      "name": "abort-authority",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-dispatch.test.js-node22-mutation-abort-authority-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-dispatch.test.js-node22-mutation-abort-authority-green.log",
+      "restored": true
+    },
+    {
+      "name": "resume-call",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-dispatch.test.js-node22-mutation-resume-call-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-dispatch.test.js-node22-mutation-resume-call-green.log",
+      "restored": true
+    },
+    {
+      "name": "abort-call",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-dispatch.test.js-node22-mutation-abort-call-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-dispatch.test.js-node22-mutation-abort-call-green.log",
+      "restored": true
+    },
+    {
+      "name": "controller-shape",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-dispatch.test.js-node22-mutation-controller-shape-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-dispatch.test.js-node22-mutation-controller-shape-green.log",
+      "restored": true
+    },
+    {
+      "name": "resume-frozen",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-dispatch.test.js-node22-mutation-resume-frozen-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-dispatch.test.js-node22-mutation-resume-frozen-green.log",
+      "restored": true
+    }
+  ]
+}

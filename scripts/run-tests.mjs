@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { loadM17Partition } from "./m17-ci-evidence.mjs";
+import { loadBulkPartition } from "./bulk-ci-evidence.mjs";
 /**
  * Cross-platform test runner. Used by `npm test` (via scripts/run-test-gates.mjs).
  *
@@ -25,7 +27,7 @@
  * represented by this root gate. Do not quote this runner as a whole-monorepo
  * test count.
  */
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir, tmpdir } from "node:os";
@@ -74,6 +76,12 @@ export const TEST_DIRS = ["packages/h2a/test", "packages/focus-interactive/test"
 // This test must run outside scripts/run-test-gates.mjs. See CI's dedicated
 // `npm-test-trust-root` job.
 export const RUNNER_TEST_FILE = "packages/h2a/test/run-test-gates.test.js";
+
+export function prioritizeNodeTestFiles(files) {
+  const packageFiles = new Set(['mh-l6-package.test.js', 'mh-l6-runtime-package.test.js']);
+  const priority = file => packageFiles.has(file.replaceAll('\\', '/').split('/').at(-1));
+  return files.sort((a, b) => Number(priority(b)) - Number(priority(a)));
+}
 
 // Lane-scoped identity-lock suites. They mount the previous release's real
 // bindings (lane/base) and confine every simulation root inside an isolated
@@ -177,7 +185,8 @@ export function verifyNodeTrackExecution(report, requiredFiles, ledger) {
     ...verifyCleanseContracts(report, requiredFiles, ledger)];
 }
 
-function main() {
+async function main() {
+  process.umask(0o022);
   // Each configured directory is REQUIRED, in the sense of main's original
   // contract: an unavailable directory, or one with no .test.js files at all,
   // is a broken suite root — not a silently skipped one.
@@ -201,6 +210,10 @@ function main() {
   let nodeTestFiles;
   try {
     nodeTestFiles = discoverTestFiles();
+    // Each package's real installations can take ~250s on CI. Start both
+    // independent package files with the pool, retaining every scenario and
+    // the existing shared 600s backstop.
+    prioritizeNodeTestFiles(nodeTestFiles);
   } catch (err) {
     process.stderr.write(`${(err && err.message) || err}\n`);
     process.exit(1);
@@ -223,6 +236,75 @@ function main() {
     );
     process.exit(1);
   }
+
+  // Pack warm-up starts here — before every sequential setup step (legacy
+  // provisioning, fixture downloads) and the Node buckets — so the candidate
+  // pack (~250 s wall on a contended CI runner) overlaps all of it instead
+  // of stacking on the rest bucket's critical path. This script only fills
+  // the shared cache (helpers/shared-pack-candidates.mjs); consumers wait on
+  // its lock solely while the pack is in flight and pack privately if it
+  // failed. Fire and forget here, reaped in settlePackWarmer before exit so
+  // no stray npm grandchildren can contend with the later h2a-runtime step.
+  // The pack needs none of the fixture variables: it inherits this process
+  // environment (disposable TMPDIR included). Placed after the discovery
+  // guards above so a collapse exit can never orphan it.
+  function startPackWarmer(env) {
+    try {
+      const child = spawn(process.execPath, [join(REPO_ROOT, "scripts", "warm-pack-candidates.mjs")],
+        { cwd: REPO_ROOT, env, stdio: ["ignore", "inherit", "inherit"] });
+      child.once("error", (error) => process.stderr.write(`run-tests: pack warmer: ${error.message}\n`));
+      return child;
+    } catch (error) {
+      process.stderr.write(`run-tests: pack warmer could not start (${(error && error.message) || error}); suites pack privately\n`);
+      return null;
+    }
+  }
+  async function settlePackWarmer(child) {
+    if (!child || child.exitCode !== null || child.signalCode !== null) return;
+    const closed = new Promise((resolve) => child.once("close", resolve));
+    const timeout = new Promise((resolve) => setTimeout(() => {
+      try { child.kill("SIGKILL"); } catch {}
+      resolve();
+    }, 30_000));
+    await Promise.race([closed, timeout]);
+  }
+  // `let` next to this block (not at the call site) so an early throw before
+  // the assignment cannot turn into a TDZ ReferenceError in the finally.
+  let packWarmer = null;
+  // One frozen pack key for the whole run: the tree is fixed for this
+  // invocation, so the warmer and every suite process must agree on the key
+  // even while test outputs land mid-run (a live recomputation per process
+  // repacks on volatile status). Dynamic import with a computed specifier so
+  // the observation lab (which rewrites only static relative imports) stays
+  // transparent: a missing helper simply leaves the key unset and every
+  // consumer computes it live, exactly as before sharing. The key travels in
+  // this process environment, so every testEnv derived below inherits it.
+  try {
+    const packHelper = await import(pathToFileURL(join(REPO_ROOT, 'packages', 'h2a', 'test', 'helpers', 'shared-pack-candidates.mjs')).href);
+    const frozenPackKey = packHelper.cacheKey();
+    if (typeof frozenPackKey === 'string' && /^[a-f0-9]{64}$/.test(frozenPackKey)) {
+      process.env.H2A_SHARED_PACK_KEY = frozenPackKey;
+    }
+  } catch {
+    // No frozen key: consumers fall back to live computation.
+  }
+  packWarmer = startPackWarmer(process.env);
+
+  // CI can import only closed M17/bulk proofs from this exact workflow
+  // run/attempt/checkout/Node. Discovery and the final inventory stay complete.
+  // Without explicit proofs every file runs locally; malformed proof is fatal.
+  const m17Partition = loadM17Partition(nodeTestFiles, REPO_ROOT);
+  const bulkPartition = loadBulkPartition(m17Partition.local, REPO_ROOT);
+  if (m17Partition.report) process.stdout.write(`M17 companion proof validated: ${JSON.stringify({
+    file: 'packages/h2a/test/mh-l5-concurrency.test.js', checkout: process.env.GITHUB_SHA,
+    runId: process.env.GITHUB_RUN_ID, attempt: process.env.GITHUB_RUN_ATTEMPT, node: process.version,
+    source: process.env.H2A_TEST_CI_M17_REPORT,
+  })}\n`);
+  if (bulkPartition.report) process.stdout.write(`Bulk companion proof validated: ${JSON.stringify({
+    checkout: process.env.GITHUB_SHA, runId: process.env.GITHUB_RUN_ID,
+    attempt: process.env.GITHUB_RUN_ATTEMPT, node: process.version,
+    source: process.env.H2A_TEST_CI_BULK_REPORT,
+  })}\n`);
 
   const VITEST_SUITES = [
     { name: "Track", dir: "packages/track", config: "vitest.config.ts" },
@@ -275,6 +357,12 @@ function main() {
   // and NAMED instead. Portable across node versions (a spawnSync option, not the
   // node-20-incompatible `--test-timeout` flag). Override via H2A_TEST_TIMEOUT_MS.
   const RUN_TIMEOUT_MS = Number(process.env.H2A_TEST_TIMEOUT_MS) || 600000;
+  // The expanded closed-package/Node-ABI qualification is still doing useful
+  // work at ten minutes (owned-child progress identifies the active files).
+  // The long backend campaign now overlaps the remaining Node phases; it keeps
+  // all 10,000 mutations/domain. This outer leak backstop is twenty minutes;
+  // individual case deadlines and the CI job's 25-minute budget are unchanged.
+  const NODE_TIMEOUT_MS = Number(process.env.H2A_TEST_TIMEOUT_MS) || 1200000;
 
   // Defense-in-depth: create a throwaway temp dir for H2A_ROOT so that any test
   // that runs a writing verb (connect/register/mcp-serve) without --root AND with
@@ -293,6 +381,8 @@ function main() {
 
   mkdirSync(join(testRoot, "home"), { recursive: true });
   mkdirSync(join(testRoot, "run"), { mode: 0o700 });
+  mkdirSync(join(testRoot, "cache"), { mode: 0o700 });
+  mkdirSync(join(testRoot, "data"), { mode: 0o700 });
 
   // Historical PTY host the pre-upgrade suites qualify against. The inventory
   // REQUIRES native-inventory-absence's legacy test passed, and the
@@ -355,6 +445,8 @@ function main() {
     XDG_RUNTIME_DIR: join(testRoot, "run"),
     XDG_CONFIG_HOME: join(testRoot, "home/.config"),
     XDG_STATE_HOME: join(testRoot, "home/.local/state"),
+    XDG_CACHE_HOME: join(testRoot, "cache"),
+    XDG_DATA_HOME: join(testRoot, "data"),
     H2A_ROOT: join(testRoot, ".h2a"),
     H2A_TEST_DURABLE_ROOT: durableRoot,
     H2A_TEST_LEGACY_HOST_DIR: legacyHost.dir,
@@ -364,6 +456,20 @@ function main() {
     H2A_RUN_EXAMPLE: "1",
     H2A_LOCK_STRESS: "1"
   };
+  // Only this orchestration imports the companion proof. Tests of the runner
+  // create their own private checkouts and must exercise the default full path.
+  delete testEnv.H2A_TEST_CI_M17_REPORT;
+  delete testEnv.H2A_TEST_CI_BULK_REPORT;
+
+  // These suites require the real pinned archives, never absent-state skips.
+  // (The pack warmer and its frozen key started before discovery guards
+  // above, so this download phase already overlaps the pack.)
+  const prepared = spawnSync(process.execPath, [join(REPO_ROOT, "scripts/prepare-mh-test-fixtures.mjs")], {
+    cwd: REPO_ROOT, env: testEnv, encoding: "utf8", timeout: 600_000, maxBuffer: 8 * 1024 * 1024,
+  });
+  if (prepared.status !== 0) throw new Error(`run-tests: MH fixtures failed: ${prepared.stderr ?? prepared.error}`);
+  const mhFixtures = JSON.parse(prepared.stdout);
+  Object.assign(testEnv, mhFixtures.env);
 
   // Track's no-store fixtures intentionally walk to the filesystem root.
   // Use the invocation's temporary parent, and reject any .track ancestor.
@@ -410,18 +516,18 @@ function main() {
     TEMP: trackTemp
   };
 
-  function runSuite(name, command, args, cwd, env = testEnv) {
+  function runSuite(name, command, args, cwd, env = testEnv, timeoutMs = RUN_TIMEOUT_MS) {
     const result = spawnSync(command, args, {
       cwd,
       stdio: "inherit",
-      timeout: RUN_TIMEOUT_MS,
+      timeout: timeoutMs,
       killSignal: "SIGKILL",
       env
     });
 
     if (result.error && result.error.code === "ETIMEDOUT") {
       process.stderr.write(
-        `\nrun-tests: ${name} HUNG — the test run exceeded ${RUN_TIMEOUT_MS}ms and was killed. ` +
+        `\nrun-tests: ${name} HUNG — the test run exceeded ${timeoutMs}ms and was killed. ` +
         `A test is not terminating (often a spawned child that never exits).\n`
       );
       return 124;
@@ -440,9 +546,46 @@ function main() {
 
   // Each Node invocation keeps the existing backstop and reporters. Separate
   // evidence paths prevent a later bucket from overwriting an earlier one.
-  const nodeBuckets = partitionNodeTestFiles(nodeTestFiles).map((bucket) => ({
+  // Buckets cover ONLY the local partition: the M17 campaign and the nine
+  // bulk suites run in their qualification jobs (same-run imported proofs),
+  // never redundantly here (their local re-execution + appended external
+  // reports used to duplicate every suite identity and blow the rest backstop).
+  // A bucket emptied by proof import (corpus holds only the bulk-covered
+  // drive-consent file) is skipped, not failed: its suite identity arrives
+  // via the imported proof and the report math counts executed buckets only.
+  const nodeBuckets = partitionNodeTestFiles(bulkPartition.local).map((bucket) => ({
     ...bucket, report: join(testRoot, `node-${bucket.name}.json`),
-  }));
+  })).filter((bucket) => {
+    if (!bucket.files.length) process.stderr.write(`run-tests: Node bucket ${bucket.name} is empty after proof import and is skipped\n`);
+    return bucket.files.length > 0;
+  });
+  function runIndependentSuite(name, command, args, cwd, env) {
+    return new Promise((done) => {
+      let child, timer, finished = false;
+      const finish = (code) => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(timer);
+        done(code);
+      };
+      try {
+        child = spawn(command, args, { cwd, env, stdio: "inherit" });
+        child.once("error", (error) => {
+          process.stderr.write(`run-tests: ${name}: ${error.message}\n`);
+          finish(1);
+        });
+        child.once("close", (code) => finish(code ?? 1));
+        timer = setTimeout(() => {
+          child.kill("SIGKILL");
+          process.stderr.write(`run-tests: ${name} HUNG — the test run exceeded ${RUN_TIMEOUT_MS}ms and was killed.\n`);
+          finish(124);
+        }, RUN_TIMEOUT_MS);
+      } catch (error) {
+        process.stderr.write(`run-tests: ${name}: ${error.message}\n`);
+        finish(1);
+      }
+    });
+  }
   const trackReport = join(testRoot, "track.json");
   // One JSON evidence report per Vitest suite: every suite uses the same
   // `--reporter=json --outputFile`, so sharing a single path would let the
@@ -452,27 +595,34 @@ function main() {
   // overwrites tmp/idlock-build2-lane.txt on every full run.
   let lanePointerBefore = null;
   try { lanePointerBefore = readFileSync(join(REPO_ROOT, "tmp", "idlock-build2-lane.txt"), "utf8"); } catch {}
+  // The pack warmer already started right after the fixture environment (it
+  // overlaps legacy provisioning, fixture downloads and the buckets); the
+  // try/finally below reaps it on every path.
   let exitCode = 0;
   try {
     const nodeStatuses = nodeBuckets.map((bucket) => {
       const started = performance.now();
-      // Never pass an empty file list to node --test: it would rediscover the
-      // whole repository instead of executing just this bucket.
-      let status = 1;
-      if (!bucket.files.length) process.stderr.write(`run-tests: Node bucket ${bucket.name} has no test files\n`);
-      else status = runSuite(`Node ${bucket.name} test suite`, process.execPath,
-        ["--import", join(REPO_ROOT, "packages/h2a/test/helpers/native-isolation.js"), "--test", "--test-reporter=spec", `--test-reporter=${join(REPO_ROOT, "scripts/node-evidence-reporter.mjs")}`, "--test-reporter-destination=stdout", `--test-reporter-destination=${bucket.report}`, ...bucket.files],
-        REPO_ROOT, trackFixtureEnv);
+      // Empty buckets are filtered above, so every bucket here executes.
+      // (run-node-tests.mjs asserts a non-empty explicit file list: an empty
+      // list would rediscover the repository.)
+      const status = runSuite(`Node ${bucket.name} test suite`, process.execPath,
+        [join(REPO_ROOT, "scripts/run-node-tests.mjs"), "--test", "--test-reporter=spec", `--test-reporter=${join(REPO_ROOT, "scripts/node-evidence-reporter.mjs")}`, "--test-reporter-destination=stdout", `--test-reporter-destination=${bucket.report}`, ...bucket.files],
+        REPO_ROOT, trackFixtureEnv, NODE_TIMEOUT_MS);
       process.stdout.write(`run-tests: Node bucket ${bucket.name}: ${bucket.files.length} file(s), ${((performance.now() - started) / 1000).toFixed(3)}s, exit ${status}\n`);
       return status;
     });
-    const vitestStatuses = vitestSuites.map((suite) => {
+    // These suites use distinct temporary state and evidence files. Start
+    // them after Node's protocol/package phase, together with the identity
+    // lane, so their individual deadlines do not accumulate at the outer gate.
+    const independent = await Promise.all([...vitestSuites.map(async (suite) => {
       const cwd = join(REPO_ROOT, suite.dir);
       const configArgs = suite.config === undefined ? [] : ["--config", suite.config];
-      const status = runSuite(
+      const status = await runIndependentSuite(
         `${suite.name} Vitest suite`,
         process.execPath,
-        [vitestEntrypoint(cwd), "run", ...configArgs, "--reporter=default", "--reporter=json", `--outputFile=${vitestReportFor(suite)}`, ...suite.files.map((file) => join(suite.testDir ?? "src", file))],
+        // Three Vitest processes share the runner with the identity lane.
+        // One file worker each avoids three independent all-CPU pools.
+        [vitestEntrypoint(cwd), "run", ...configArgs, "--maxWorkers=1", "--reporter=default", "--reporter=json", `--outputFile=${vitestReportFor(suite)}`, ...suite.files.map((file) => join(suite.testDir ?? "src", file))],
         cwd,
         trackTestEnv,
       );
@@ -482,25 +632,31 @@ function main() {
         process.stderr.write(`WARNING: ${suite.name}: suite timing unavailable (missing or malformed report).\n`);
       }
       return status;
-    });
+    }), runIndependentSuite("Identity lane suite", process.execPath,
+      [join(REPO_ROOT, "packages/h2a/test/helpers/identity-isolated-run.mjs"), ...LANE_TEST_FILES],
+      REPO_ROOT, trackFixtureEnv)]);
+    const vitestStatuses = independent.slice(0, vitestSuites.length);
     // Lane-scoped identity-lock suites (LANE_TEST_FILES): the isolated lane
     // they require exists only inside identity-isolated-run.mjs, which builds
     // it (previous-release bindings + lane TMPDIR) and runs exactly these
     // files under the lane guard. Gated on exit status like the Vitest suites.
-    const laneStatus = runSuite("Identity lane suite", process.execPath,
-      [join(REPO_ROOT, "packages/h2a/test/helpers/identity-isolated-run.mjs"), ...LANE_TEST_FILES],
-      REPO_ROOT, trackFixtureEnv);
+    const laneStatus = independent[vitestSuites.length];
     let reports;
     try { reports = [...nodeBuckets.map((bucket) => bucket.report), trackReport].map((path) => JSON.parse(readFileSync(path, "utf8"))); }
     catch { reports = []; }
+    const localReportCount = reports.length;
+    if (m17Partition.report) reports.push(m17Partition.report);
+    if (bulkPartition.report) reports.push(bulkPartition.report);
     const required = listNodeTrackSuiteFiles();
     const combined = {
-      success: reports.length === nodeBuckets.length + 1 && reports.every((report) => report.success !== false),
+      success: localReportCount === nodeBuckets.length + 1 && reports.every((report) => report.success !== false),
       testResults: reports.flatMap((report) => report.testResults ?? []),
       ...Object.fromEntries(["numTotalTests", "numPassedTests", "numFailedTests", "numPendingTests", "numTodoTests"]
         .map((key) => [key, reports.reduce((sum, report) => sum + report[key], 0)])),
     };
     const holes = verifyNodeTrackExecution(combined, required);
+    if (!holes.length && m17Partition.report) process.stdout.write('M17 local/external exhaustive inventory verification: passed\n');
+    if (!holes.length && bulkPartition.report) process.stdout.write('Bulk local/external exhaustive inventory verification: passed\n');
     if (holes.length) process.stderr.write(holes.join("\n") + "\n");
     else {
       process.stdout.write(`run-tests: Node buckets inventory verified: ${nodeTestFiles.length} files exactly once across ${nodeBuckets.length} buckets (plus Track).\n`);
@@ -511,6 +667,11 @@ function main() {
     writeFileSync(reportPath, JSON.stringify(combined));
     exitCode = holes.length ? 1 : [...nodeStatuses, ...vitestStatuses, laneStatus].every((status) => status === 0) ? 0 : Math.max(...nodeStatuses, ...vitestStatuses, laneStatus);
   } finally {
+    // Reap the pack warmer first: a still-packing warmer outliving this
+    // runner would contend with the later h2a-runtime step. Its lock is
+    // stale-takeover safe, so killing it can never wedge a consumer.
+    await settlePackWarmer(packWarmer);
+    for (const root of mhFixtures.owned) rmSync(root, { recursive: true, force: true });
     // Best-effort cleanup of what this run provisioned. A preset legacy dir
     // (owner-provided) is never ours to delete. The lane helper records the
     // lane it built in tmp/idlock-build2-lane.txt: remove that lane — and the

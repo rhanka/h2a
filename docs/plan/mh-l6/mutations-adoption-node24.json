@@ -1,0 +1,75 @@
+{
+  "node": "v24.21.0",
+  "files": [
+    {
+      "path": "packages/h2a/src/runtime/upgrade/adoption-need.js",
+      "sha256": "09a343154b5a6f1f2acb1d52e1bf5426c2a6714ae2384eec544546956ff5bf4c"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/upgrade/adoption-need.js",
+      "sha256": "225a3547c949f2ed1da23977a687b49c37bb0940c9dd5094b61b6d6b224954d5"
+    }
+  ],
+  "results": [
+    {
+      "name": "default-needed",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node24-mutation-default-needed-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node24-mutation-default-needed-green.log",
+      "restored": true
+    },
+    {
+      "name": "absent-installation",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node24-mutation-absent-installation-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node24-mutation-absent-installation-green.log",
+      "restored": true
+    },
+    {
+      "name": "absent-selection",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node24-mutation-absent-selection-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node24-mutation-absent-selection-green.log",
+      "restored": true
+    },
+    {
+      "name": "prefix-foreign",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node24-mutation-prefix-foreign-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node24-mutation-prefix-foreign-green.log",
+      "restored": true
+    },
+    {
+      "name": "selection-malformed",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node24-mutation-selection-malformed-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node24-mutation-selection-malformed-green.log",
+      "restored": true
+    },
+    {
+      "name": "target-mismatch",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node24-mutation-target-mismatch-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node24-mutation-target-mismatch-green.log",
+      "restored": true
+    },
+    {
+      "name": "physical-unreadable",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node24-mutation-physical-unreadable-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node24-mutation-physical-unreadable-green.log",
+      "restored": true
+    },
+    {
+      "name": "target-shape",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node24-mutation-target-shape-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node24-mutation-target-shape-green.log",
+      "restored": true
+    },
+    {
+      "name": "opt-out-check",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node24-mutation-opt-out-check-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node24-mutation-opt-out-check-green.log",
+      "restored": true
+    },
+    {
+      "name": "opt-out-reason",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node24-mutation-opt-out-reason-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node24-mutation-opt-out-reason-green.log",
+      "restored": true
+    }
+  ]
+}

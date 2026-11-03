@@ -1,0 +1,48 @@
+{
+  "source": "/tmp/mh-l3-qualification-b22-zJv4Ce",
+  "worktree": "/home/antoinefa/src/h2a/tmp/worktrees/mh-l0",
+  "files": [
+    {
+      "path": "packages/h2a/test/mh-l6-exclusion.test.js",
+      "sha256": "aebc86f61b68abd5f69ee4976cecba9623094c39e640a8645a45d8434d32c686"
+    },
+    {
+      "path": "packages/h2a/src/runtime/upgrade/legacy-exclusion.js",
+      "sha256": "84d2849a9a5fa7d4362eda790095852527ab63a518bbfc812609feb4ceb5ec50"
+    },
+    {
+      "path": "packages/h2a/src/runtime/upgrade/h4-store.js",
+      "sha256": "0eb99a17831c6f32405c0197d807be83f3053458f18125f83e820aeefb1f6443"
+    },
+    {
+      "path": "scripts/mh-l6-mutate.mjs",
+      "sha256": "5d5a380a8a1acb12e88efb3fb1b1f35881b04fb211a0d43d552d2dade7d0ea83"
+    },
+    {
+      "path": "scripts/mh-l6-test.mjs",
+      "sha256": "499fa0af002d05ef5dd7b8d36adb0679351c0542aa852cec13bceb8fbc23bd7d"
+    }
+  ],
+  "compiled": [
+    {
+      "path": "packages/h2a/dist/runtime/upgrade/legacy-exclusion.js",
+      "sha256": "c9fef27878592324225116c646297e6e5c7faf4cacf84ec6a2cf5f009b9797e5"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/upgrade/h4-store.js",
+      "sha256": "ab7c3108fd483853b074b9eac4e43d1250c31f2cc80231f7b4e627a8efa5e795"
+    }
+  ],
+  "profiles": [
+    {
+      "major": 22,
+      "tests": 35,
+      "mutations": 12
+    },
+    {
+      "major": 24,
+      "tests": 35,
+      "mutations": 12
+    }
+  ]
+}

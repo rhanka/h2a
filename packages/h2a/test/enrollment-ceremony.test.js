@@ -925,6 +925,35 @@ test("DOCUMENTED LIMIT: the instance id carries the workspace LABEL, never a pat
   }
 });
 
+test("the CLI accepts a base64url nonce beginning with two hyphens as a literal value", () => {
+  const { cwd, root, cleanup } = scratch();
+  try {
+    const nonce = "--" + NONCE.slice(2);
+    assertSignableEnrollmentChallenge({ nonce }, Date.now());
+    const streams = captureStreams(cwd);
+    const rc = withConversation("enroll-cli-literal-nonce", () => runCli(
+      ["keys", "prove-control", "--nonce", nonce, "--root", root, "--host", "claude"], streams
+    ));
+    assert.equal(rc, 0, streams.stderrText);
+    const envelope = JSON.parse(streams.stdoutText);
+    assert.equal(envelope.proof.nonce, nonce);
+    assert.equal(verifyEnrollmentProof(envelope.proof), true);
+    assert.ok(!streams.stdoutText.includes(root));
+    assert.deepEqual(envelope.submission, { attempted: false, reason: "no-transport-configured" });
+  } finally { cleanup(); }
+});
+
+test("the CLI emits no proof for an absent, bare or invalid nonce option", () => {
+  const { cwd, root, cleanup } = scratch();
+  try {
+    for (const suffix of [[], ["--nonce"], ["--nonce", "--instance"]]) {
+      const streams = captureStreams(cwd);
+      assert.equal(runCli(["keys", "prove-control", "--root", root, "--host", "claude", ...suffix], streams), 1);
+      assert.equal(streams.stdoutText, "");
+    }
+  } finally { cleanup(); }
+});
+
 test("the CLI STDOUT envelope is path-free — it exists to be pasted into a browser", () => {
   // SCOPED TO STDOUT on purpose. stderr legitimately prints absolute paths (the
   // unusable-key warning names a key file, and `warnIfCwdRootFallback` names two

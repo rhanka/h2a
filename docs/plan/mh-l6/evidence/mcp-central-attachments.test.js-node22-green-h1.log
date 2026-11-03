@@ -1,0 +1,253 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mcp-central-attachments.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-M7E7mQ
+case: all cases in explicit file
+TAP version 13
+# Subtest: fixture cleanup waits for its recorded daemon to finish late writes before removing private state
+ok 1 - fixture cleanup waits for its recorded daemon to finish late writes before removing private state
+  ---
+  duration_ms: 653.171971
+  type: 'test'
+  ...
+# Subtest: R20 auto wake probes and submits only on the client tmux socket with identical pane IDs
+ok 2 - R20 auto wake probes and submits only on the client tmux socket with identical pane IDs
+  ---
+  duration_ms: 3177.970972
+  type: 'test'
+  ...
+# Subtest: R20 local-tmux wake probes and submits only on the client tmux socket with identical pane IDs
+ok 3 - R20 local-tmux wake probes and submits only on the client tmux socket with identical pane IDs
+  ---
+  duration_ms: 4462.318881
+  type: 'test'
+  ...
+# Subtest: R21 auto wake inventories and writes only the client native socket with identical session names
+ok 4 - R21 auto wake inventories and writes only the client native socket with identical session names
+  ---
+  duration_ms: 1922.326918
+  type: 'test'
+  ...
+# Subtest: R21 native wake inventories and writes only the client native socket with identical session names
+ok 5 - R21 native wake inventories and writes only the client native socket with identical session names
+  ---
+  duration_ms: 2132.025514
+  type: 'test'
+  ...
+# Subtest: R21 local-tmux wake inventories and writes only the client native socket with identical session names
+ok 6 - R21 local-tmux wake inventories and writes only the client native socket with identical session names
+  ---
+  duration_ms: 2246.826435
+  type: 'test'
+  ...
+# Subtest: qualification guards reject paths resolving outside .qual-tmp
+ok 7 - qualification guards reject paths resolving outside .qual-tmp
+  ---
+  duration_ms: 1.549948
+  type: 'test'
+  ...
+# R6 default Claude: protocol=2 attachments=1 bytesEqual=true metadataEqual=true gitStatusEqual=true sha256=984069aaed26cd2ce888dc692a4400f9c9c1cbb5add9c86fedbed3fc6b3d5470
+# Subtest: R6 Claude defaults to central without configuration and preserves the exact incident bytes
+ok 8 - R6 Claude defaults to central without configuration and preserves the exact incident bytes
+  ---
+  duration_ms: 1566.425669
+  type: 'test'
+  ...
+# {"event":"drive-consent.full-verification","durationMs":0.004187999998976011,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# h2a mcp-serve: identity migration: claude:repo-a:6a17b5e5a82d reads legacy claude:repo-a; no proof of possession of a legacy key — mint net-new keys
+# h2a mcp-serve: auto-opened session for claude:repo-a:6a17b5e5a82d
+# h2a mcp-serve: identity ready: claude:repo-a:6a17b5e5a82d (signing available)
+# Subtest: R3 unqualified v1 connector leaves live central attachments unchanged with an inherited Claude ID
+ok 9 - R3 unqualified v1 connector leaves live central attachments unchanged with an inherited Claude ID
+  ---
+  duration_ms: 2214.905267
+  type: 'test'
+  ...
+# Subtest: R18 v1 unqualified connector selects stdio before reading invalid JSON central configuration
+ok 10 - R18 v1 unqualified connector selects stdio before reading invalid JSON central configuration
+  ---
+  duration_ms: 407.653276
+  type: 'test'
+  ...
+# Subtest: R18 v1 codex connector selects stdio before reading invalid JSON central configuration
+ok 11 - R18 v1 codex connector selects stdio before reading invalid JSON central configuration
+  ---
+  duration_ms: 373.647013
+  type: 'test'
+  ...
+# Subtest: R18 v1 agy connector selects stdio before reading invalid JSON central configuration
+ok 12 - R18 v1 agy connector selects stdio before reading invalid JSON central configuration
+  ---
+  duration_ms: 379.6486
+  type: 'test'
+  ...
+# Subtest: R18 v1 unqualified connector selects stdio before reading unreadable central configuration
+ok 13 - R18 v1 unqualified connector selects stdio before reading unreadable central configuration
+  ---
+  duration_ms: 455.478703
+  type: 'test'
+  ...
+# Subtest: R18 v1 codex connector selects stdio before reading unreadable central configuration
+ok 14 - R18 v1 codex connector selects stdio before reading unreadable central configuration
+  ---
+  duration_ms: 437.244028
+  type: 'test'
+  ...
+# Subtest: R18 v1 agy connector selects stdio before reading unreadable central configuration
+ok 15 - R18 v1 agy connector selects stdio before reading unreadable central configuration
+  ---
+  duration_ms: 452.670146
+  type: 'test'
+  ...
+# Subtest: R19 manual daemon native launcher context never becomes the target of a client without terminal context
+ok 16 - R19 manual daemon native launcher context never becomes the target of a client without terminal context
+  ---
+  duration_ms: 7792.899333
+  type: 'test'
+  ...
+# Subtest: R19 manual daemon tmux launcher context never becomes the target of a client without terminal context
+# {"event":"drive-consent.full-verification","durationMs":0.0034870000017690472,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+ok 17 - R19 manual daemon tmux launcher context never becomes the target of a client without terminal context
+  ---
+  duration_ms: 8250.721828
+  type: 'test'
+  ...
+# Subtest: missing systemd runtime chooses a fixed UID fallback, with private namespaces for isolation
+ok 18 - missing systemd runtime chooses a fixed UID fallback, with private namespaces for isolation
+  ---
+  duration_ms: 0.349588
+  type: 'test'
+  ...
+# Subtest: an HTTP attachment with unknown liveness is quarantined past its lease until explicit disconnect
+ok 19 - an HTTP attachment with unknown liveness is quarantined past its lease until explicit disconnect
+  ---
+  duration_ms: 809.075954
+  type: 'test'
+  ...
+# {"event":"drive-consent.full-verification","durationMs":0.003365999997186009,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# h2a mcp-serve: identity migration: claude:repo-a:3b50868afb5a reads legacy claude:repo-a; no proof of possession of a legacy key — mint net-new keys
+# h2a mcp-serve: auto-opened session for claude:repo-a:3b50868afb5a
+# h2a mcp-serve: identity ready: claude:repo-a:3b50868afb5a (signing available)
+# h2a mcp-serve: identity migration: claude:repo-b:efc827e411ae reads legacy claude:repo-b; no proof of possession of a legacy key — mint net-new keys
+# h2a mcp-serve: auto-opened session for claude:repo-b:efc827e411ae
+# h2a mcp-serve: identity ready: claude:repo-b:efc827e411ae (signing available)
+# Subtest: two attached repos route Track and h2a_run to their own workspace, sharing only state
+ok 20 - two attached repos route Track and h2a_run to their own workspace, sharing only state
+  ---
+  duration_ms: 2092.452753
+  type: 'test'
+  ...
+# {"event":"drive-consent.full-verification","durationMs":0.0032370000044465996,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# h2a mcp-serve: identity migration: claude:repo-a:9c1445d31d40 reads legacy claude:repo-a; no proof of possession of a legacy key — mint net-new keys
+# h2a mcp-serve: auto-opened session for claude:repo-a:9c1445d31d40
+# h2a mcp-serve: identity ready: claude:repo-a:9c1445d31d40 (signing available)
+# {"event":"drive-consent.full-verification","durationMs":0.040907000002334826,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# h2a mcp-serve: auto-opened session for claude:repo-a:9c1445d31d40
+# h2a mcp-serve: identity ready: claude:repo-a:9c1445d31d40 (signing available)
+# Subtest: a live shim survives central token rotation with the same identity and no added binding
+ok 21 - a live shim survives central token rotation with the same identity and no added binding
+  ---
+  duration_ms: 6281.158222
+  type: 'test'
+  ...
+# {"event":"drive-consent.full-verification","durationMs":0.003325999998196494,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# h2a mcp-serve: identity migration: claude:repo-a:cbf60db2ea69 reads legacy claude:repo-a; no proof of possession of a legacy key — mint net-new keys
+# h2a mcp-serve: auto-opened session for claude:repo-a:cbf60db2ea69
+# h2a mcp-serve: identity ready: claude:repo-a:cbf60db2ea69 (signing available)
+# {"event":"drive-consent.full-verification","durationMs":0.01706199999898672,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# h2a mcp-serve: identity failed (identity_worker_failed): identity proof failed: resume requires the existing conversation binding
+# Subtest: resume with a missing signing key fails closed without minting another binding
+ok 22 - resume with a missing signing key fails closed without minting another binding
+  ---
+  duration_ms: 2907.682942
+  type: 'test'
+  ...
+# Subtest: a lost mutation reply is outcome_unknown and is never replayed during recovery
+ok 23 - a lost mutation reply is outcome_unknown and is never replayed during recovery
+  ---
+  duration_ms: 118.121723
+  type: 'test'
+  ...
+# Subtest: SIGTERM of the real central leaves host stdio open and resumes the same binding
+ok 24 - SIGTERM of the real central leaves host stdio open and resumes the same binding
+  ---
+  duration_ms: 3630.016242
+  type: 'test'
+  ...
+# {"event":"drive-consent.full-verification","durationMs":0.008656000005430542,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# h2a mcp-serve: identity migration: claude:repo-a:55e2b4278336 reads legacy claude:repo-a; no proof of possession of a legacy key — mint net-new keys
+# h2a mcp-serve: auto-opened session for claude:repo-a:55e2b4278336
+# h2a mcp-serve: identity ready: claude:repo-a:55e2b4278336 (signing available)
+# Subtest: operator stop is authenticated, leaves shims open, and residue detection never changes files
+ok 25 - operator stop is authenticated, leaves shims open, and residue detection never changes files
+  ---
+  duration_ms: 864.062912
+  type: 'test'
+  ...
+# Subtest: mcp-serve defaults Claude to one ephemeral central without project writes; other hosts and opt-outs use stdio
+# {"event":"drive-consent.full-verification","durationMs":0.004287999996449798,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+ok 26 - mcp-serve defaults Claude to one ephemeral central without project writes; other hosts and opt-outs use stdio
+  ---
+  duration_ms: 9822.167116
+  type: 'test'
+  ...
+# Subtest: full MCP handshake through the shim consumes 202 without emitting invalid null frames
+ok 27 - full MCP handshake through the shim consumes 202 without emitting invalid null frames
+  ---
+  duration_ms: 446.081243
+  type: 'test'
+  ...
+# Subtest: a network cutoff during initialize recovers cleanly and returns the handshake result without HTTP 400
+ok 28 - a network cutoff during initialize recovers cleanly and returns the handshake result without HTTP 400
+  ---
+  duration_ms: 67.003678
+  type: 'test'
+  ...
+# {"event":"drive-consent.full-verification","durationMs":0.03391399999964051,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: v1 residual configurations without --host route to stdio on missing marker or opt-outs, and can be explicitly repaired
+ok 29 - v1 residual configurations without --host route to stdio on missing marker or opt-outs, and can be explicitly repaired
+  ---
+  duration_ms: 7119.988305
+  type: 'test'
+  ...
+# Subtest: relative H2A_ROOT deterministically selects stdio and never derives central root from cwd
+ok 30 - relative H2A_ROOT deterministically selects stdio and never derives central root from cwd
+  ---
+  duration_ms: 1083.56858
+  type: 'test'
+  ...
+# Subtest: central stop when daemon is already absent writes the pause inhibition
+ok 31 - central stop when daemon is already absent writes the pause inhibition
+  ---
+  duration_ms: 52.165186
+  type: 'test'
+  ...
+# {"event":"drive-consent.full-verification","durationMs":0.0057809999998426065,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: runtime-base namespace is strictly isolated across discovery, auto-start, policy, operator and exercises reconnection in real shim
+ok 32 - runtime-base namespace is strictly isolated across discovery, auto-start, policy, operator and exercises reconnection in real shim
+  ---
+  duration_ms: 7724.925078
+  type: 'test'
+  ...
+# Subtest: structured sidecar launches with readiness challenge stay on stdio and acknowledge without initial MCP request
+ok 33 - structured sidecar launches with readiness challenge stay on stdio and acknowledge without initial MCP request
+  ---
+  duration_ms: 1301.946564
+  type: 'test'
+  ...
+# Subtest: H2A_MCP_CENTRAL=0 acts as independent escape hatch before reading configuration, even with invalid JSON or unreadable file
+ok 34 - H2A_MCP_CENTRAL=0 acts as independent escape hatch before reading configuration, even with invalid JSON or unreadable file
+  ---
+  duration_ms: 4.244109
+  type: 'test'
+  ...
+1..34
+# tests 34
+# suites 0
+# pass 34
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 82428.929281
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mcp-central-attachments.test.js"],"code":0,"signal":null,"tests":34,"invalid":false,"spawned":188,"leftovers":[]}

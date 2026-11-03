@@ -1,0 +1,39 @@
+command: /usr/bin/node --test packages/h2a/test/mh-l0-state.test.js
+node: v22.22.1
+private test root: /tmp/mh-l2-test-R1JD2I
+TAP version 13
+# Subtest: U05 foundation: exclusive durable publication and inode/epoch compare preserve current marker
+ok 1 - U05 foundation: exclusive durable publication and inode/epoch compare preserve current marker
+  ---
+  duration_ms: 16.204372
+  type: 'test'
+  ...
+# Subtest: U06 foundation: corruption, unknown schema, symlinks, wrong owner/modes never become empty
+ok 2 - U06 foundation: corruption, unknown schema, symlinks, wrong owner/modes never become empty
+  ---
+  duration_ms: 1.849959
+  type: 'test'
+  ...
+# Subtest: U05 foundation: fsync failure before/after publication has no false success
+ok 3 - U05 foundation: fsync failure before/after publication has no false success
+  ---
+  duration_ms: 4.478935
+  type: 'test'
+  ...
+# Subtest: same-boot publication counter cannot regress under a fresh inode compare
+ok 4 - same-boot publication counter cannot regress under a fresh inode compare
+  ---
+  duration_ms: 5.082511
+  type: 'test'
+  ...
+1..4
+# tests 4
+# suites 0
+# pass 4
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 163.373483
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l0-state.test.js"],"code":0,"signal":null,"elapsedMs":269}

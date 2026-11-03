@@ -1,0 +1,26 @@
+command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l3-transfer.test.js
+node: v24.21.0
+private root: /tmp/mh-l5-test-8OMXeD
+case: all cases in explicit file
+TAP version 13
+# {"event":"drive-consent.full-verification","durationMs":0.0031159999998635612,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# h2a mcp-serve: identity migration: claude:mh-l2-live-image-wqbdjw:0cab741afcfd reads legacy claude:mh-l2-live-image-wQBdjW; no proof of possession of a legacy key — mint net-new keys
+# h2a mcp-serve: auto-opened session for claude:mh-l2-live-image-wqbdjw:0cab741afcfd
+# h2a mcp-serve: identity ready: claude:mh-l2-live-image-wqbdjw:0cab741afcfd (signing available)
+# Subtest: M21 real compiled shim should attach-transfer to the conformance peer while its real old central preserves G0 work
+ok 1 - M21 real compiled shim should attach-transfer to the conformance peer while its real old central preserves G0 work
+  ---
+  duration_ms: 11812.959837
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 11965.126929
+
+receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l3-transfer.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":7,"leftovers":[]}

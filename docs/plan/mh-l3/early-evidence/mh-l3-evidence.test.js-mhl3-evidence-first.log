@@ -1,0 +1,22 @@
+command: /usr/bin/node --test packages/h2a/test/mh-l3-evidence.test.js
+node: v22.22.1
+private test root: /tmp/mh-l2-test-JFSd5j
+Claude config: /tmp/mh-l2-test-JFSd5j/claude
+TAP version 13
+# Subtest: evidence should accept an unknown delegated build and acknowledge only its exact transaction after commit
+ok 1 - evidence should accept an unknown delegated build and acknowledge only its exact transaction after commit
+  ---
+  duration_ms: 6.40326
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 115.864582
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l3-evidence.test.js"],"code":0,"signal":null,"elapsedMs":199}

@@ -1,0 +1,7 @@
+command: /usr/bin/node --test --test-reporter=tap test/mcp-central-hosts.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-s3KQtr
+case: all cases in explicit file
+Could not find 'test/mcp-central-hosts.test.js'
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","test/mcp-central-hosts.test.js"],"code":1,"signal":null,"tests":0,"invalid":true,"spawned":0,"leftovers":[]}

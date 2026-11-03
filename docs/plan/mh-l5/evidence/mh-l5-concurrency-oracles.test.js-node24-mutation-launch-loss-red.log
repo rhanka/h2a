@@ -1,0 +1,41 @@
+command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l5-concurrency-oracles.test.js
+node: v24.21.0
+private root: /tmp/mh-l5-test-itmiF0
+case: all cases in explicit file
+TAP version 13
+# Subtest: M17 focused oracle must detect a missing write in any of the seven domains
+not ok 1 - M17 focused oracle must detect a missing write in any of the seven domains
+  ---
+  duration_ms: 868.268822
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-AogyQv/source/packages/h2a/test/mh-l5-concurrency-oracles.test.js:4:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + 'unknown'
+    - 'completed'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'completed'
+  actual: 'unknown'
+  operator: 'strictEqual'
+  stack: |-
+    runCampaign (file:///tmp/mh-l3-qualification-AogyQv/source/packages/h2a/test/helpers/mh-l5-campaign.js:54:14)
+    async TestContext.<anonymous> (file:///tmp/mh-l3-qualification-AogyQv/source/packages/h2a/test/mh-l5-concurrency-oracles.test.js:5:3)
+    async Test.run (node:internal/test_runner/test:1409:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1051.070801
+
+receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l5-concurrency-oracles.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":17,"leftovers":[]}

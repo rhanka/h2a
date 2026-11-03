@@ -1,3 +1,4 @@
+import { withWriterMutation } from "../handover/mutation.js";
 /**
  * Durable recovery store for oversize MCP outputs (lot L1).
  *
@@ -35,7 +36,7 @@ import {
   unlinkSync,
   writeFileSync
 } from "node:fs";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 
 /** Announced recovery window: a ref is readable for 24h after it is written. */
 export const PAYLOAD_TTL_MS = 24 * 60 * 60 * 1000;
@@ -47,6 +48,7 @@ export const PAYLOAD_ROOT_QUOTA_BYTES = 128 * 1024 * 1024;
 export const PAYLOAD_MAX_READ_BYTES = 65536;
 
 const REF_RE = /^[0-9a-f]{64}$/;
+const AUTO_SWEEP_INTERVAL_MS = 30_000;
 
 export interface PayloadRecoveryRef {
   /** Opaque 256-bit capability. */
@@ -117,9 +119,13 @@ function metaPath(dir: string, ref: string): string {
 
 function dirBytes(dir: string): number {
   let total = 0;
+  // readdir returns basenames, never separators or dot/parent entries. The
+  // directory is already joined; retain a fresh stat for every quota entry
+  // without normalizing that same directory once per file.
+  const prefix = dir + sep;
   for (const entry of readdirSync(dir)) {
     try {
-      total += statSync(join(dir, entry)).size;
+      total += statSync(prefix + entry).size;
     } catch {
       /* a racing unlink is not a measurement failure */
     }
@@ -133,6 +139,18 @@ function dirBytes(dir: string): number {
  */
 export function createPayloadStore(root: string, scope: string = root): PayloadStore {
   const dir = join(root, "mcp-payloads");
+  const prefix = dir + sep;
+  let lastSweepAt = Number.NEGATIVE_INFINITY;
+  // Derived parsing cache only. Every sweep checks current inode/size/times;
+  // expired records are always read again before deletion. No quota or read
+  // authority is cached, and a restart simply performs a cold scan.
+  let liveExpiries = new Map<string, { stamp: string; expiresAt: number }>();
+
+  function metadataStamp(path: string): string | undefined {
+    const info = lstatSync(path, { bigint: true });
+    if (!info.isFile()) return undefined;
+    return [info.dev, info.ino, info.size, info.mtimeNs, info.ctimeNs].join(":");
+  }
 
   function ensureDir(): void {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -146,13 +164,25 @@ export function createPayloadStore(root: string, scope: string = root): PayloadS
   function sweepExpired(now: number = Date.now()): number {
     if (!existsSync(dir)) return 0;
     let removed = 0;
+    const nextExpiries = new Map<string, { stamp: string; expiresAt: number }>();
     for (const entry of readdirSync(dir)) {
       if (!entry.endsWith(".json")) continue;
       const ref = entry.slice(0, -".json".length);
       if (!REF_RE.test(ref)) continue;
       try {
-        const meta = JSON.parse(readFileSync(join(dir, entry), "utf8")) as PayloadMeta;
-        if (Date.parse(meta.expiresAt) <= now) {
+        const path = prefix + entry, stamp = metadataStamp(path);
+        if (!stamp) continue;
+        const cached = liveExpiries.get(ref);
+        if (cached?.stamp === stamp && cached.expiresAt > now) {
+          nextExpiries.set(ref, cached);
+          continue;
+        }
+        const meta = JSON.parse(readFileSync(path, "utf8")) as PayloadMeta;
+        // External replacement during the read cannot authorize deletion or
+        // populate a cache entry for a different generation of the metadata.
+        if (metadataStamp(path) !== stamp) continue;
+        const expiresAt = Date.parse(meta.expiresAt);
+        if (expiresAt <= now) {
           try {
             unlinkSync(metaPath(dir, ref));
           } catch {
@@ -164,11 +194,15 @@ export function createPayloadStore(root: string, scope: string = root): PayloadS
             /* already gone */
           }
           removed += 1;
+        } else if (Number.isFinite(expiresAt)) {
+          nextExpiries.set(ref, { stamp, expiresAt });
         }
       } catch {
         /* a corrupt meta is left for a human sweep, never live source data */
       }
     }
+    liveExpiries = nextExpiries;
+    lastSweepAt = performance.now();
     return removed;
   }
 
@@ -182,11 +216,18 @@ export function createPayloadStore(root: string, scope: string = root): PayloadS
         `cannot create payload store directory: ${(err as Error).message}`
       );
     }
-    // Reclaim expired space before enforcing the quota; never evict live data.
+    // Avoid reparsing every expiry record for every output in a burst.
+    // Explicit maintenance is immediate; quota pressure always reclaims
+    // expired space before refusal. Reads still enforce the TTL themselves.
     let used = 0;
     try {
-      sweepExpired();
+      const swept = performance.now() - lastSweepAt >= AUTO_SWEEP_INTERVAL_MS;
+      if (swept) sweepExpired();
       used = dirBytes(dir);
+      if (!swept && used + bytes.length > PAYLOAD_ROOT_QUOTA_BYTES) {
+        sweepExpired();
+        used = dirBytes(dir);
+      }
     } catch {
       used = 0;
     }
@@ -314,5 +355,7 @@ export function createPayloadStore(root: string, scope: string = root): PayloadS
     };
   }
 
-  return { scope, persistOutput, readPayload, sweepExpired };
+  return { scope, readPayload,
+    persistOutput: bytes => withWriterMutation(root, 'payloads', () => persistOutput(bytes)),
+    sweepExpired: now => withWriterMutation(root, 'payloads', () => sweepExpired(now)) };
 }
