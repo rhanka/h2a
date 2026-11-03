@@ -445,12 +445,13 @@ describe("live GitHub transport", () => {
     // The overlap window must dwarf child-spawn skew: on a loaded CI runner
     // a gh child (real node startup) can start hundreds of ms after its
     // sibling, which serialized this assertion at peak 1 with a 100 ms
-    // window. Two seconds keep the exact peak-2 proof load-robust.
+    // window. One second keeps the exact peak-2 proof load-robust without
+    // holding the fixture servers (and the shared runner) much longer.
     handler = () => {
       peak = Math.max(peak, ++active);
-      const timer = setTimeout(() => active--, 2000);
+      const timer = setTimeout(() => active--, 1000);
       timer.unref();
-      return { body: [], delay: 2000 };
+      return { body: [], delay: 1000 };
     };
     const bounded = createLiveGithubTransport({ ghPath, hostDirectory: root, maxConcurrent: 2 });
     const results = await Promise.all(Array.from({ length: 5 }, () => bounded.fetchPage(request)));

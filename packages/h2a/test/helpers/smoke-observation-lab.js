@@ -53,7 +53,9 @@ export async function observeSmoke(source, scriptPath, options = {}) {
       fs.writeFileSync(join(staging, pkg.replace('@', '').replace('/', '-') + `-${tarballVersion(pkg)}.tgz`), pkg)
     } else if (command === 'npm' && args[0] === 'install') {
       const prefix = args[2]
-      observations.installed = args.slice(5)
+      // Tarball operands only: install flags (e.g. --ignore-scripts) ride
+      // the same argv and must not count as installed candidates.
+      observations.installed = args.filter((arg) => String(arg).endsWith('.tgz'))
       const dist = join(prefix, 'node_modules/@sentropic/h2a-runtime/dist')
       fs.mkdirSync(join(dist, 'native-terminal'), { recursive: true })
       for (const name of ['process.js', 'client.js', 'op.js']) fs.writeFileSync(join(dist, 'native-terminal', name), '')
