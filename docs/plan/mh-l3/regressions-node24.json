@@ -1,0 +1,772 @@
+{
+  "node": "v24.21.0",
+  "search": [
+    "rg",
+    "-l",
+    "(mcp-central(-client|-shim|-context|-attachment)?|authentication|authenticated-http|evidence|ownership|participants|schemas|catalogue|shim-bridge|attachment-transports|request-mappings|generation-end|shim-evidence|streamable-http)\\.(js|ts)|mh-l0/schemas\\.json",
+    "packages",
+    "apps",
+    "-g",
+    "*.test.js",
+    "-g",
+    "*.test.ts",
+    "-g",
+    "!**/node_modules/**",
+    "-g",
+    "!**/dist/**"
+  ],
+  "files": [
+    "packages/h2a-runtime/src/central-mcp-0980.test.ts",
+    "packages/h2a/test/mcp-central-attachments.test.js",
+    "packages/h2a/test/mcp-identity-burst.test.js",
+    "packages/h2a/test/mcp-identity-readiness.test.js",
+    "packages/h2a/test/mcp-sessions.test.js",
+    "packages/h2a/test/mcp-stdio.test.js",
+    "packages/h2a/test/mh-l0-formats.test.js",
+    "packages/h2a/test/mh-l0-peer.test.js",
+    "packages/h2a/test/mh-l0-state.test.js",
+    "packages/h2a/test/mh-l0-wire.test.js",
+    "packages/h2a/test/mh-l1-package.test.js",
+    "packages/h2a/test/mh-l1-preservation.test.js",
+    "packages/h2a/test/mh-l1-routing.test.js",
+    "packages/h2a/test/mh-l1-shim.test.js",
+    "packages/h2a/test/mh-l1-transport.test.js",
+    "packages/h2a/test/mh-l2-auth.test.js",
+    "packages/h2a/test/mh-l2-authority.test.js",
+    "packages/h2a/test/mh-l2-cold.test.js",
+    "packages/h2a/test/mh-l2-compensation.test.js",
+    "packages/h2a/test/mh-l2-identity-contention.test.js",
+    "packages/h2a/test/mh-l2-image.test.js",
+    "packages/h2a/test/mh-l2-integration.test.js",
+    "packages/h2a/test/mh-l2-live-central.test.js",
+    "packages/h2a/test/mh-l2-live.test.js",
+    "packages/h2a/test/mh-l2-starters.test.js",
+    "packages/h2a/test/mh-l3-central.test.js",
+    "packages/h2a/test/mh-l3-control.test.js",
+    "packages/h2a/test/mh-l3-evidence.test.js",
+    "packages/h2a/test/mh-l3-network.test.js",
+    "packages/h2a/test/mh-l3-ownership.test.js",
+    "packages/h2a/test/mh-l3-recovery.test.js",
+    "packages/h2a/test/mh-l3-source-offer.test.js",
+    "packages/h2a/test/mh-l3-state.test.js",
+    "packages/h2a/test/mh-l3-transfer.test.js",
+    "packages/h2a/test/mh-l3-transport.test.js",
+    "packages/h2a/test/mh-l4-central.test.js",
+    "packages/h2a/test/mh-l4-checkpoint.test.js",
+    "packages/h2a/test/mh-l4-concurrency.test.js",
+    "packages/h2a/test/mh-l4-cuts.test.js",
+    "packages/h2a/test/mh-l4-idle.test.js",
+    "packages/h2a/test/mh-l4-integration.test.js",
+    "packages/h2a/test/mh-l4-launch.test.js",
+    "packages/h2a/test/mh-l4-ownership.test.js",
+    "packages/h2a/test/mh-l4-wake.test.js",
+    "packages/h2a/test/mh-l4-writers.test.js"
+  ],
+  "gitDependent": "packages/h2a/test/mh-l0-formats.test.js",
+  "results": [
+    {
+      "file": "packages/h2a-runtime/src/central-mcp-0980.test.ts",
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "/tmp/mh-l3-qualification-bUCXsb/source/node_modules/vitest/vitest.mjs",
+        "run",
+        "packages/h2a-runtime/src/central-mcp-0980.test.ts"
+      ],
+      "log": "docs/plan/mh-l3/evidence/central-mcp-0980.test.ts-node24-qualified.log",
+      "code": 0,
+      "signal": null,
+      "tests": 5,
+      "invalid": false,
+      "spawned": 2,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mcp-central-attachments.test.js",
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mcp-central-attachments.test.js"
+      ],
+      "log": "docs/plan/mh-l3/evidence/mcp-central-attachments.test.js-node24-qualified.log",
+      "code": 0,
+      "signal": null,
+      "tests": 33,
+      "invalid": false,
+      "spawned": 187,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mcp-identity-burst.test.js",
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mcp-identity-burst.test.js"
+      ],
+      "log": "docs/plan/mh-l3/evidence/mcp-identity-burst.test.js-node24-qualified.log",
+      "code": 0,
+      "signal": null,
+      "tests": 5,
+      "invalid": false,
+      "spawned": 349,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mcp-identity-readiness.test.js",
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mcp-identity-readiness.test.js"
+      ],
+      "log": "docs/plan/mh-l3/evidence/mcp-identity-readiness.test.js-node24-qualified.log",
+      "code": 0,
+      "signal": null,
+      "tests": 5,
+      "invalid": false,
+      "spawned": 25,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mcp-sessions.test.js",
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mcp-sessions.test.js"
+      ],
+      "log": "docs/plan/mh-l3/evidence/mcp-sessions.test.js-node24-qualified.log",
+      "code": 0,
+      "signal": null,
+      "tests": 10,
+      "invalid": false,
+      "spawned": 1,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mcp-stdio.test.js",
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mcp-stdio.test.js"
+      ],
+      "log": "docs/plan/mh-l3/evidence/mcp-stdio.test.js-node24-qualified.log",
+      "code": 0,
+      "signal": null,
+      "tests": 16,
+      "invalid": false,
+      "spawned": 2,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l0-peer.test.js",
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l0-peer.test.js"
+      ],
+      "log": "docs/plan/mh-l3/evidence/mh-l0-peer.test.js-node24-qualified.log",
+      "code": 0,
+      "signal": null,
+      "tests": 1,
+      "invalid": false,
+      "spawned": 2,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l0-state.test.js",
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l0-state.test.js"
+      ],
+      "log": "docs/plan/mh-l3/evidence/mh-l0-state.test.js-node24-qualified.log",
+      "code": 0,
+      "signal": null,
+      "tests": 4,
+      "invalid": false,
+      "spawned": 1,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l0-wire.test.js",
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l0-wire.test.js"
+      ],
+      "log": "docs/plan/mh-l3/evidence/mh-l0-wire.test.js-node24-qualified.log",
+      "code": 0,
+      "signal": null,
+      "tests": 3,
+      "invalid": false,
+      "spawned": 1,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l1-package.test.js",
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l1-package.test.js"
+      ],
+      "log": "docs/plan/mh-l3/evidence/mh-l1-package.test.js-node24-qualified.log",
+      "code": 0,
+      "signal": null,
+      "tests": 1,
+      "invalid": false,
+      "spawned": 8,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l1-preservation.test.js",
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l1-preservation.test.js"
+      ],
+      "log": "docs/plan/mh-l3/evidence/mh-l1-preservation.test.js-node24-qualified.log",
+      "code": 0,
+      "signal": null,
+      "tests": 1,
+      "invalid": false,
+      "spawned": 1,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l1-routing.test.js",
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l1-routing.test.js"
+      ],
+      "log": "docs/plan/mh-l3/evidence/mh-l1-routing.test.js-node24-qualified.log",
+      "code": 0,
+      "signal": null,
+      "tests": 4,
+      "invalid": false,
+      "spawned": 1,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l1-shim.test.js",
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l1-shim.test.js"
+      ],
+      "log": "docs/plan/mh-l3/evidence/mh-l1-shim.test.js-node24-qualified.log",
+      "code": 0,
+      "signal": null,
+      "tests": 2,
+      "invalid": false,
+      "spawned": 3,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l1-transport.test.js",
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l1-transport.test.js"
+      ],
+      "log": "docs/plan/mh-l3/evidence/mh-l1-transport.test.js-node24-qualified.log",
+      "code": 0,
+      "signal": null,
+      "tests": 1,
+      "invalid": false,
+      "spawned": 1,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l2-auth.test.js",
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l2-auth.test.js"
+      ],
+      "log": "docs/plan/mh-l3/evidence/mh-l2-auth.test.js-node24-qualified.log",
+      "code": 0,
+      "signal": null,
+      "tests": 3,
+      "invalid": false,
+      "spawned": 1,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l2-authority.test.js",
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l2-authority.test.js"
+      ],
+      "log": "docs/plan/mh-l3/evidence/mh-l2-authority.test.js-node24-qualified.log",
+      "code": 0,
+      "signal": null,
+      "tests": 2,
+      "invalid": false,
+      "spawned": 3,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l2-cold.test.js",
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l2-cold.test.js"
+      ],
+      "log": "docs/plan/mh-l3/evidence/mh-l2-cold.test.js-node24-qualified.log",
+      "code": 0,
+      "signal": null,
+      "tests": 4,
+      "invalid": false,
+      "spawned": 1,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l2-compensation.test.js",
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l2-compensation.test.js"
+      ],
+      "log": "docs/plan/mh-l3/evidence/mh-l2-compensation.test.js-node24-qualified.log",
+      "code": 0,
+      "signal": null,
+      "tests": 1,
+      "invalid": false,
+      "spawned": 1,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l2-identity-contention.test.js",
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l2-identity-contention.test.js"
+      ],
+      "log": "docs/plan/mh-l3/evidence/mh-l2-identity-contention.test.js-node24-qualified.log",
+      "code": 0,
+      "signal": null,
+      "tests": 4,
+      "invalid": false,
+      "spawned": 5,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l2-image.test.js",
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l2-image.test.js"
+      ],
+      "log": "docs/plan/mh-l3/evidence/mh-l2-image.test.js-node24-qualified.log",
+      "code": 0,
+      "signal": null,
+      "tests": 1,
+      "invalid": false,
+      "spawned": 3,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l2-integration.test.js",
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l2-integration.test.js"
+      ],
+      "log": "docs/plan/mh-l3/evidence/mh-l2-integration.test.js-node24-qualified.log",
+      "code": 0,
+      "signal": null,
+      "tests": 3,
+      "invalid": false,
+      "spawned": 1,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l2-live-central.test.js",
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l2-live-central.test.js"
+      ],
+      "log": "docs/plan/mh-l3/evidence/mh-l2-live-central.test.js-node24-qualified.log",
+      "code": 0,
+      "signal": null,
+      "tests": 1,
+      "invalid": false,
+      "spawned": 4,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l2-live.test.js",
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l2-live.test.js"
+      ],
+      "log": "docs/plan/mh-l3/evidence/mh-l2-live.test.js-node24-qualified.log",
+      "code": 0,
+      "signal": null,
+      "tests": 65,
+      "invalid": false,
+      "spawned": 1,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l2-starters.test.js",
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l2-starters.test.js"
+      ],
+      "log": "docs/plan/mh-l3/evidence/mh-l2-starters.test.js-node24-qualified.log",
+      "code": 0,
+      "signal": null,
+      "tests": 1,
+      "invalid": false,
+      "spawned": 1,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l3-central.test.js",
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l3-central.test.js"
+      ],
+      "log": "docs/plan/mh-l3/evidence/mh-l3-central.test.js-node24-qualified.log",
+      "code": 0,
+      "signal": null,
+      "tests": 4,
+      "invalid": false,
+      "spawned": 2,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l3-control.test.js",
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l3-control.test.js"
+      ],
+      "log": "docs/plan/mh-l3/evidence/mh-l3-control.test.js-node24-qualified.log",
+      "code": 0,
+      "signal": null,
+      "tests": 1,
+      "invalid": false,
+      "spawned": 1,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l3-evidence.test.js",
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l3-evidence.test.js"
+      ],
+      "log": "docs/plan/mh-l3/evidence/mh-l3-evidence.test.js-node24-qualified.log",
+      "code": 0,
+      "signal": null,
+      "tests": 3,
+      "invalid": false,
+      "spawned": 1,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l3-network.test.js",
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l3-network.test.js"
+      ],
+      "log": "docs/plan/mh-l3/evidence/mh-l3-network.test.js-node24-qualified.log",
+      "code": 0,
+      "signal": null,
+      "tests": 7,
+      "invalid": false,
+      "spawned": 3,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l3-ownership.test.js",
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l3-ownership.test.js"
+      ],
+      "log": "docs/plan/mh-l3/evidence/mh-l3-ownership.test.js-node24-qualified.log",
+      "code": 0,
+      "signal": null,
+      "tests": 2,
+      "invalid": false,
+      "spawned": 1,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l3-recovery.test.js",
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l3-recovery.test.js"
+      ],
+      "log": "docs/plan/mh-l3/evidence/mh-l3-recovery.test.js-node24-qualified.log",
+      "code": 0,
+      "signal": null,
+      "tests": 1,
+      "invalid": false,
+      "spawned": 65,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l3-source-offer.test.js",
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l3-source-offer.test.js"
+      ],
+      "log": "docs/plan/mh-l3/evidence/mh-l3-source-offer.test.js-node24-qualified.log",
+      "code": 0,
+      "signal": null,
+      "tests": 1,
+      "invalid": false,
+      "spawned": 1,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l3-state.test.js",
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l3-state.test.js"
+      ],
+      "log": "docs/plan/mh-l3/evidence/mh-l3-state.test.js-node24-qualified.log",
+      "code": 0,
+      "signal": null,
+      "tests": 6,
+      "invalid": false,
+      "spawned": 1,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l3-transfer.test.js",
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l3-transfer.test.js"
+      ],
+      "log": "docs/plan/mh-l3/evidence/mh-l3-transfer.test.js-node24-qualified.log",
+      "code": 0,
+      "signal": null,
+      "tests": 1,
+      "invalid": false,
+      "spawned": 7,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l3-transport.test.js",
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l3-transport.test.js"
+      ],
+      "log": "docs/plan/mh-l3/evidence/mh-l3-transport.test.js-node24-qualified.log",
+      "code": 0,
+      "signal": null,
+      "tests": 1,
+      "invalid": false,
+      "spawned": 1,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l4-central.test.js",
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l4-central.test.js"
+      ],
+      "log": "docs/plan/mh-l3/evidence/mh-l4-central.test.js-node24-qualified.log",
+      "code": 0,
+      "signal": null,
+      "tests": 1,
+      "invalid": false,
+      "spawned": 2,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l4-checkpoint.test.js",
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l4-checkpoint.test.js"
+      ],
+      "log": "docs/plan/mh-l3/evidence/mh-l4-checkpoint.test.js-node24-qualified.log",
+      "code": 0,
+      "signal": null,
+      "tests": 2,
+      "invalid": false,
+      "spawned": 1,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l4-concurrency.test.js",
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l4-concurrency.test.js"
+      ],
+      "log": "docs/plan/mh-l3/evidence/mh-l4-concurrency.test.js-node24-qualified.log",
+      "code": 0,
+      "signal": null,
+      "tests": 2,
+      "invalid": false,
+      "spawned": 19,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l4-cuts.test.js",
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l4-cuts.test.js"
+      ],
+      "log": "docs/plan/mh-l3/evidence/mh-l4-cuts.test.js-node24-qualified.log",
+      "code": 0,
+      "signal": null,
+      "tests": 7,
+      "invalid": false,
+      "spawned": 1,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l4-idle.test.js",
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l4-idle.test.js"
+      ],
+      "log": "docs/plan/mh-l3/evidence/mh-l4-idle.test.js-node24-qualified.log",
+      "code": 0,
+      "signal": null,
+      "tests": 1,
+      "invalid": false,
+      "spawned": 1,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l4-integration.test.js",
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l4-integration.test.js"
+      ],
+      "log": "docs/plan/mh-l3/evidence/mh-l4-integration.test.js-node24-qualified.log",
+      "code": 0,
+      "signal": null,
+      "tests": 3,
+      "invalid": false,
+      "spawned": 1,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l4-launch.test.js",
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l4-launch.test.js"
+      ],
+      "log": "docs/plan/mh-l3/evidence/mh-l4-launch.test.js-node24-qualified.log",
+      "code": 0,
+      "signal": null,
+      "tests": 2,
+      "invalid": false,
+      "spawned": 1,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l4-ownership.test.js",
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l4-ownership.test.js"
+      ],
+      "log": "docs/plan/mh-l3/evidence/mh-l4-ownership.test.js-node24-qualified.log",
+      "code": 0,
+      "signal": null,
+      "tests": 4,
+      "invalid": false,
+      "spawned": 1,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l4-wake.test.js",
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l4-wake.test.js"
+      ],
+      "log": "docs/plan/mh-l3/evidence/mh-l4-wake.test.js-node24-qualified.log",
+      "code": 0,
+      "signal": null,
+      "tests": 2,
+      "invalid": false,
+      "spawned": 1,
+      "leftovers": []
+    },
+    {
+      "file": "packages/h2a/test/mh-l4-writers.test.js",
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "--test",
+        "--test-reporter=tap",
+        "packages/h2a/test/mh-l4-writers.test.js"
+      ],
+      "log": "docs/plan/mh-l3/evidence/mh-l4-writers.test.js-node24-qualified.log",
+      "code": 0,
+      "signal": null,
+      "tests": 5,
+      "invalid": false,
+      "spawned": 1,
+      "leftovers": []
+    }
+  ]
+}

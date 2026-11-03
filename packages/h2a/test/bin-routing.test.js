@@ -114,7 +114,8 @@ test("chaque 1er mot branché dans bin.ts est routable (natif, ou version servie
   // `--version` et `-v` avant leur branche. Chaque branche native de bin.ts
   // doit rester native (le dispatch ne la voit jamais) ; le trio version est
   // servi par bin.ts avant tout dispatch (couvert par bin-version.test.js).
-  const src = readFileSync(join(ROOT, "packages", "h2a", "src", "bin.ts"), "utf8");
+  const src = readFileSync(join(ROOT, "packages", "h2a", "src", "bin.ts"), "utf8") + "\n" +
+    readFileSync(join(ROOT, "packages", "h2a", "src", "bin-heavy.ts"), "utf8");
   const branched = new Set(
     [...src.matchAll(/argv\[0\] === "([^"]+)"/g)].map((m) => m[1])
   );

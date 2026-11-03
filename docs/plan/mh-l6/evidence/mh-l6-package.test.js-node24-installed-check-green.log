@@ -1,0 +1,128 @@
+command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-package.test.js
+node: v24.21.0
+private root: /tmp/mh-l6-test-v3Vc3I
+case: all cases in explicit file
+TAP version 13
+# Subtest: U10 U12 should publish @sentropic/h2a with exact lockstep and install twice offline without a compiler
+not ok 1 - U10 U12 should publish @sentropic/h2a with exact lockstep and install twice offline without a compiler
+  ---
+  duration_ms: 38765.330229
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-package.test.js:14:96'
+  failureType: 'testCodeFailure'
+  error: |-
+    file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/src/runtime/handover/image.js:20
+            if (!safeRelative(target)) throw new Error('image_link_outside');
+                                             ^
+    
+    Error: image_link_outside
+        at walk (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/src/runtime/handover/image.js:20:42)
+        at walk (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/src/runtime/handover/image.js:25:89)
+        at walk (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/src/runtime/handover/image.js:25:89)
+        at payload (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/src/runtime/handover/image.js:32:3)
+        at verifyImage (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/src/runtime/handover/image.js:64:61)
+        at preparePublishedImage (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/src/runtime/upgrade/published-payload.js:69:5)
+        at file:///tmp/mh-l3-qualification-YeHHOv/source/[eval1]:4:21
+        at ModuleJob.run (node:internal/modules/esm/module_job:561:25)
+        at async node:internal/modules/esm/loader:223:26
+        at async ModuleLoader.executeModuleJob (node:internal/modules/esm/loader:220:20)
+    
+    Node.js v24.21.0
+    
+    
+    1 !== 0
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 0
+  actual: 1
+  operator: 'strictEqual'
+  stack: |-
+    walk (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/src/runtime/handover/image.js:20:42)
+    walk (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/src/runtime/handover/image.js:25:89)
+    walk (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/src/runtime/handover/image.js:25:89)
+    payload (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/src/runtime/handover/image.js:32:3)
+    verifyImage (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/src/runtime/handover/image.js:64:61)
+    preparePublishedImage (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/src/runtime/upgrade/published-payload.js:69:5)
+    file:///tmp/mh-l3-qualification-YeHHOv/source/[eval1]:4:21
+    ModuleJob.run (node:internal/modules/esm/module_job:561:25)
+    async node:internal/modules/esm/loader:223:26
+    async ModuleLoader.executeModuleJob (node:internal/modules/esm/loader:220:20)
+    checkedExec (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-package.test.js:70:12)
+    process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    async packageScenario (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-package.test.js:146:36)
+    async Test.run (node:internal/test_runner/test:1409:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)
+  ...
+# npm scripts-enabled positive control: postinstall actually executed in a separate private fixture
+# {"npm":"pack --offline --json","filename":"sentropic-h2a-0.98.7.tgz","integrity":"sha512-hWXUw1I6hjr/CLyAm21XbGQo3yjzUlqGn0JZIIgtHDTdKSxgiPv+Xx0PEGiGGRBb+VMkEp/hXfcLgtbLv5KENg==","files":10075}
+# actual published 0.98.5: stageInstall(local .7 tar), probeStagedVersion=.7, verifyStagedNative=true; corrupt ELF=false; only temporary prefixes
+# actual published 0.98.6: stageInstall(local .7 tar), probeStagedVersion=.7, verifyStagedNative=true; corrupt ELF=false; only temporary prefixes
+# npm install -g --prefix <one> --offline (scripts enabled) => added 1 package in 4s
+# actual installed corrected MCP transport: reused numeric/string IDs and delayed batch replies passed
+# Subtest: U10 U12 should publish @sentropic/h2a-runtime with exact lockstep and install twice offline without a compiler
+not ok 2 - U10 U12 should publish @sentropic/h2a-runtime with exact lockstep and install twice offline without a compiler
+  ---
+  duration_ms: 29686.768358
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-package.test.js:14:96'
+  failureType: 'testCodeFailure'
+  error: |-
+    file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/src/runtime/handover/image.js:20
+            if (!safeRelative(target)) throw new Error('image_link_outside');
+                                             ^
+    
+    Error: image_link_outside
+        at walk (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/src/runtime/handover/image.js:20:42)
+        at walk (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/src/runtime/handover/image.js:25:89)
+        at walk (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/src/runtime/handover/image.js:25:89)
+        at payload (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/src/runtime/handover/image.js:32:3)
+        at verifyImage (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/src/runtime/handover/image.js:64:61)
+        at preparePublishedImage (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/src/runtime/upgrade/published-payload.js:69:5)
+        at file:///tmp/mh-l3-qualification-YeHHOv/source/[eval1]:4:21
+        at ModuleJob.run (node:internal/modules/esm/module_job:561:25)
+        at async node:internal/modules/esm/loader:223:26
+        at async ModuleLoader.executeModuleJob (node:internal/modules/esm/loader:220:20)
+    
+    Node.js v24.21.0
+    
+    
+    1 !== 0
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 0
+  actual: 1
+  operator: 'strictEqual'
+  stack: |-
+    walk (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/src/runtime/handover/image.js:20:42)
+    walk (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/src/runtime/handover/image.js:25:89)
+    walk (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/src/runtime/handover/image.js:25:89)
+    payload (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/src/runtime/handover/image.js:32:3)
+    verifyImage (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/src/runtime/handover/image.js:64:61)
+    preparePublishedImage (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/src/runtime/upgrade/published-payload.js:69:5)
+    file:///tmp/mh-l3-qualification-YeHHOv/source/[eval1]:4:21
+    ModuleJob.run (node:internal/modules/esm/module_job:561:25)
+    async node:internal/modules/esm/loader:223:26
+    async ModuleLoader.executeModuleJob (node:internal/modules/esm/loader:220:20)
+    checkedExec (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-package.test.js:70:12)
+    process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    async packageScenario (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-package.test.js:146:36)
+    async Test.run (node:internal/test_runner/test:1409:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:974:7)
+  ...
+# npm scripts-enabled positive control: postinstall actually executed in a separate private fixture
+# {"npm":"pack --offline --json","filename":"sentropic-h2a-runtime-0.98.7.tgz","integrity":"sha512-nQg6bk/NF6jadrcvXbxYfxMXuRYnhU6Gq+7vh2x3JUVB4nRT1jXDj5bsnJUQxmV3H1GrzxRdqu1NxvtwsHijrg==","files":10075}
+# npm install -g --prefix <one> --offline (scripts enabled) => added 1 package in 4s
+# actual installed corrected MCP transport: reused numeric/string IDs and delayed batch replies passed
+1..2
+# tests 2
+# suites 0
+# pass 0
+# fail 2
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 68536.732868
+
+receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-package.test.js"],"code":1,"signal":null,"tests":2,"invalid":false,"spawned":31,"leftovers":[]}

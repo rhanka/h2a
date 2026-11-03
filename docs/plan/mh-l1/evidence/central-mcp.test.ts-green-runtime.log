@@ -1,0 +1,14 @@
+command: /usr/bin/node /home/antoinefa/src/h2a/tmp/worktrees/mh-l0/node_modules/vitest/vitest.mjs run packages/h2a-runtime/src/central-mcp.test.ts
+private test root: /tmp/mh-l1-test-ATyAHW
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.11 [39m[90m/home/antoinefa/src/h2a/tmp/worktrees/mh-l0[39m
+
+ [32m✓[39m packages/h2a-runtime/src/central-mcp.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 133[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m1 passed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[32m5 passed[39m[22m[90m (5)[39m
+[2m   Start at [22m 09:30:42
+[2m   Duration [22m 475ms[2m (transform 167ms, setup 33ms, import 65ms, tests 133ms, environment 0ms)[22m
+
+
+receipt: {"command":["/usr/bin/node","/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/node_modules/vitest/vitest.mjs","run","packages/h2a-runtime/src/central-mcp.test.ts"],"code":0,"signal":null,"elapsedMs":1337}

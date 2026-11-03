@@ -1,0 +1,45 @@
+{
+  "node": "v24.21.0",
+  "files": [
+    {
+      "path": "packages/h2a/src/runtime/upgrade/launcher-install.js",
+      "sha256": "16f23d8f7087a4aa16e198a448690d7a90dea9e96840fe3e40add72b2f473c34"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/upgrade/launcher-install.js",
+      "sha256": "76b934c55d07b7a3696630e6e419adbfd1ee729f9b7687f03134a166f0264aac"
+    }
+  ],
+  "results": [
+    {
+      "name": "drift-check",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-launcher-install.test.js-node24-mutation-drift-check-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-launcher-install.test.js-node24-mutation-drift-check-green.log",
+      "restored": true
+    },
+    {
+      "name": "digest-record",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-launcher-install.test.js-node24-mutation-digest-record-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-launcher-install.test.js-node24-mutation-digest-record-green.log",
+      "restored": true
+    },
+    {
+      "name": "launcher-mode",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-launcher-install.test.js-node24-mutation-launcher-mode-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-launcher-install.test.js-node24-mutation-launcher-mode-green.log",
+      "restored": true
+    },
+    {
+      "name": "launcher-dir-mode",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-launcher-install.test.js-node24-mutation-launcher-dir-mode-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-launcher-install.test.js-node24-mutation-launcher-dir-mode-green.log",
+      "restored": true
+    },
+    {
+      "name": "launcher-filename",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-launcher-install.test.js-node24-mutation-launcher-filename-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-launcher-install.test.js-node24-mutation-launcher-filename-green.log",
+      "restored": true
+    }
+  ]
+}

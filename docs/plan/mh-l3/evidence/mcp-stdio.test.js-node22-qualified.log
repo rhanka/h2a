@@ -1,0 +1,127 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mcp-stdio.test.js
+node: v22.22.1
+private root: /tmp/mh-l3-test-sUHSYk
+case: all cases in explicit file
+TAP version 13
+# {"event":"drive-consent.full-verification","durationMs":0.04001600000000849,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.04098700000000122,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.009388000000001284,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.0033860000000061063,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: runMcpStdio: structured readiness ACK is correlated and emitted after auto-open
+ok 1 - runMcpStdio: structured readiness ACK is correlated and emitted after auto-open
+  ---
+  duration_ms: 10.909445
+  type: 'test'
+  ...
+# Subtest: runMcpStdio: structured auto-open failure emits no ACK and fails closed
+ok 2 - runMcpStdio: structured auto-open failure emits no ACK and fails closed
+  ---
+  duration_ms: 1.584863
+  type: 'test'
+  ...
+# Subtest: runMcpStdio: legacy auto-open remains best-effort without readiness
+ok 3 - runMcpStdio: legacy auto-open remains best-effort without readiness
+  ---
+  duration_ms: 1.277344
+  type: 'test'
+  ...
+# Subtest: runMcpServe: internal readiness without auto-open exits nonzero and emits no ACK
+ok 4 - runMcpServe: internal readiness without auto-open exits nonzero and emits no ACK
+  ---
+  duration_ms: 0.853707
+  type: 'test'
+  ...
+# {"event":"drive-consent.full-verification","durationMs":0.012193000000024767,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.009838000000058855,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: runMcpServe: auto-upgrade cannot block initialize or reexec the live stdio session
+ok 5 - runMcpServe: auto-upgrade cannot block initialize or reexec the live stdio session
+  ---
+  duration_ms: 264.261785
+  type: 'test'
+  ...
+# {"event":"drive-consent.full-verification","durationMs":0.009727999999995518,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.011050999999952182,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: runMcpStdio: initialize returns the expected serverInfo
+# {"event":"drive-consent.full-verification","durationMs":0.010008999999968182,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+ok 6 - runMcpStdio: initialize returns the expected serverInfo
+  ---
+  duration_ms: 1.56195
+  type: 'test'
+  ...
+# {"event":"drive-consent.full-verification","durationMs":0.011021000000027925,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.00930700000003526,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: runMcpStdio: a notification (no id) draws NO response — never id:null (DEC-115)
+# {"event":"drive-consent.full-verification","durationMs":0.008987000000047374,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+ok 7 - runMcpStdio: a notification (no id) draws NO response — never id:null (DEC-115)
+  ---
+  duration_ms: 1.685642
+  type: 'test'
+  ...
+# {"event":"drive-consent.full-verification","durationMs":0.008876999999984037,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.008755999999948472,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: runMcpStdio: tools/list returns all canonical tool names (DEC-051 added 3)
+ok 8 - runMcpStdio: tools/list returns all canonical tool names (DEC-051 added 3)
+  ---
+  duration_ms: 1.402931
+  type: 'test'
+  ...
+# {"event":"drive-consent.full-verification","durationMs":0.009326999999984764,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: runMcpStdio: tools/call h2a_register_instance round-trips via the store
+ok 9 - runMcpStdio: tools/call h2a_register_instance round-trips via the store
+  ---
+  duration_ms: 3.377176
+  type: 'test'
+  ...
+# Subtest: runMcpStdio: tools/call duplicate registration returns isError:true content
+ok 10 - runMcpStdio: tools/call duplicate registration returns isError:true content
+  ---
+  duration_ms: 1.693958
+  type: 'test'
+  ...
+# Subtest: runMcpStdio: tools/call unknown tool returns isError:true
+ok 11 - runMcpStdio: tools/call unknown tool returns isError:true
+  ---
+  duration_ms: 1.368767
+  type: 'test'
+  ...
+# Subtest: runMcpStdio: unknown method returns -32601
+ok 12 - runMcpStdio: unknown method returns -32601
+  ---
+  duration_ms: 1.012676
+  type: 'test'
+  ...
+# Subtest: runMcpStdio: malformed JSON returns -32700 with id:null
+ok 13 - runMcpStdio: malformed JSON returns -32700 with id:null
+  ---
+  duration_ms: 0.914702
+  type: 'test'
+  ...
+# Subtest: runMcpStdio: missing jsonrpc field returns -32600 Invalid Request
+ok 14 - runMcpStdio: missing jsonrpc field returns -32600 Invalid Request
+  ---
+  duration_ms: 0.859678
+  type: 'test'
+  ...
+# Subtest: L1: tools/list advertises h2a_read_payload and discover returns a bounded page shape
+ok 15 - L1: tools/list advertises h2a_read_payload and discover returns a bounded page shape
+  ---
+  duration_ms: 1.522947
+  type: 'test'
+  ...
+# Subtest: L1: a request id that is a huge string is refused with -32600 id:null before execution
+ok 16 - L1: a request id that is a huge string is refused with -32600 id:null before execution
+  ---
+  duration_ms: 1.255132
+  type: 'test'
+  ...
+1..16
+# tests 16
+# suites 0
+# pass 16
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 574.782783
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mcp-stdio.test.js"],"code":0,"signal":null,"tests":16,"invalid":false,"spawned":2,"leftovers":[]}

@@ -1,0 +1,14 @@
+{
+  "command": [
+    "/usr/bin/node",
+    "node_modules/typescript/bin/tsc",
+    "-b",
+    "packages/h2a",
+    "--pretty",
+    "false"
+  ],
+  "code": 0,
+  "signal": null,
+  "stdout": "",
+  "stderr": ""
+}

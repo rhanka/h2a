@@ -1,0 +1,72 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l2-live.test.js
+node: v24.21.0
+private test root: /tmp/mh-l2-test-YNw2No
+✔ owner A should accept passive live reservation without enabling a product live coordinator (102.62188ms)
+✔ passive source should authenticate durable delegation, reserve idempotently and refuse a conflicting step (50.328641ms)
+✔ passive source should refuse signed authorization with MAC (33.253328ms)
+✔ passive source should refuse signed authorization with ticket MAC (33.789998ms)
+✔ passive source should refuse signed authorization with old generation (193.299215ms)
+✔ passive source should refuse signed authorization with old publication epoch (511.823719ms)
+✔ passive source should refuse signed authorization with old process (369.836335ms)
+✔ passive source should refuse signed authorization with old build (40.127267ms)
+✔ passive source should refuse signed authorization with new generation (170.779332ms)
+✔ passive source should refuse signed authorization with new predecessor (35.711314ms)
+✔ passive source should refuse signed authorization with new epoch (36.660711ms)
+✔ passive source should refuse signed authorization with new endpoint (37.476237ms)
+✔ passive source should refuse signed authorization with new build (39.424805ms)
+✔ passive source should refuse signed authorization with new manifest (34.828463ms)
+✔ passive source should refuse signed authorization with new root (157.443949ms)
+✔ passive source should refuse signed authorization with new UID (31.884982ms)
+✔ passive source should refuse signed authorization with new namespace (33.608196ms)
+✔ passive source should refuse signed authorization with new process frame (28.158326ms)
+✔ passive source should refuse signed authorization with same process (155.183674ms)
+✔ passive source should refuse signed authorization with wrong controller (33.537422ms)
+✔ passive source should refuse signed authorization with wrong handover (28.633892ms)
+✔ passive source should refuse signed authorization with wrong transaction epoch (26.922801ms)
+✔ passive source should refuse signed authorization with stale session inventory (30.657101ms)
+✔ passive source should refuse signed authorization with wrong selection epoch (29.447954ms)
+✔ passive source should refuse signed authorization with expired (4334.544203ms)
+✔ passive source should refuse signed authorization with not yet valid (513.295539ms)
+✔ passive source should refuse durable revoked authority (146.2462ms)
+✔ passive source should refuse durable missing delegation (159.026078ms)
+✔ passive source should refuse durable wrong controller epoch (149.365072ms)
+✔ passive source should refuse durable wrong controller process (124.298124ms)
+✔ passive source should refuse durable wrong controller build (36.431691ms)
+✔ passive source should refuse durable wrong target manifest (27.62913ms)
+✔ passive source should refuse durable wrong component journal (29.532974ms)
+✔ passive source should refuse durable wrong receipt (33.259389ms)
+✔ passive source should refuse durable missing ticket (26.891281ms)
+✔ passive source should refuse durable unselected installation (134.545624ms)
+✔ passive source should refuse missing, changed or expired private ticket and receipt (106.524085ms)
+✔ passive source should revalidate source, coordinator, inventory and delegation before new mutations (113.733186ms)
+✔ passive retirement should preserve admitted G0 work and fence owners only after authenticated concordant publication (244.216202ms)
+✔ passive source should refuse publication with wrong MAC before fencing or closing (157.37537ms)
+✔ passive source should refuse publication with wrong authorization before fencing or closing (89.754488ms)
+✔ passive source should refuse publication with wrong target before fencing or closing (299.160732ms)
+✔ passive source should refuse publication with wrong checkpoint before fencing or closing (183.546996ms)
+✔ passive source should require a frozen checkpoint, unchanged inventory and current delegation at publication (1172.937397ms)
+✔ uncommitted publication or contradiction should prevent expiration, abort and operator stop from reopening G0 (351.69221ms)
+✔ unpublished live source should abort on expiry and reopen only after durable ABORTED (227.070347ms)
+✔ passive retirement should persist publication before fencing and reconcile uncertain ACK without reopening (538.953179ms)
+✔ passive source should preserve exact acquired G1 ownership and reject foreign generation, epoch or process (4769.311167ms)
+✔ passive source should refuse content changed under its immutable authorization digest (159.737346ms)
+✔ passive source should retire after valid publication and zero drain (208.008193ms)
+✔ uncommitted publication should prevent expiration before any administrative reconciliation (287.527034ms)
+✔ uncommitted publication should prevent operator stop from aborting before reconciliation (58.77948ms)
+✔ passive retirement should accept every valid stepId and resume its own durable publication after a lost ACK (550.40205ms)
+✔ passive source should retire after the authenticated acquired G1 opens its writer gate (230.78016ms)
+✔ passive source should drain only G0 while independently admitted G1 calls remain pending (245.215043ms)
+✔ passive source should neither reconcile nor count new G1 launch memos (309.544029ms)
+✔ passive source should refuse an opened gate without the exact acquired target authority (745.508748ms)
+✔ passive source should reconcile an uncertain ownership fence before checking participants again (124.798416ms)
+✔ passive source should revalidate selection, entry and precheck before publication commitment (972.082009ms)
+ℹ tests 59
+ℹ suites 0
+ℹ pass 59
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 20172.525804
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l2-live.test.js"],"code":0,"signal":null,"elapsedMs":20201}

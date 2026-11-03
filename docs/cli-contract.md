@@ -288,14 +288,14 @@ Stderr lines always follow the form `h2a <verb> [sub]: <message>` so callers can
 
 ### Host wiring
 
-#### `h2a host setup --host <codex|claude|gemini|agy|hermes|opencode|muse|vibe> [--endpoint local|remote] [--url <https://…/mcp>] [--root <path>] [--print | --write <file>] [--force] [--no-wake] [--remove]`
+#### `h2a host setup --host <codex|claude|gemini|agy|hermes|opencode|muse|vibe> [--endpoint local|remote] [--url <https://…/mcp>] [--root <path>] [--print | --write <file>] [--allow-tracked] [--force] [--no-wake] [--remove]`
 
 - **Required**: `--host`.
-- **Optional**: `--endpoint`, `--url`, `--root`, `--print`, `--write`, `--force`, `--no-wake`, `--remove` (vibe only: clears the interim direct entry for the R5/R7 registry migration; non-TOML targets refused with code `1`).
+- **Optional**: `--endpoint`, `--url`, `--root`, `--print`, `--write`, `--allow-tracked`, `--force`, `--no-wake`, `--remove` (vibe only: clears the interim direct entry for the R5/R7 registry migration; non-TOML targets refused with code `1`).
 - **Envelope (default / `--print`)**: `resource` — bare JSON of the `mcpServers.h2a` snippet on stdout, target path hint on stderr.
 - **Envelope (`--write <file>`)**: `action` — `{ "ok": true|false, "host": "<host>", "endpoint": "local|remote", "path": "<file>", "merged": true, "replacedH2a": true|false, "removedH2aMcpServers": [], "removedTrackMcpServers": [], "next"?: "h2a doctor --repair" }` on stdout.
 - **Exit codes**: `0`, `1`, `2`, `3`.
-- **Description**: Render exactly one selected `mcpServers.h2a` endpoint. `local` (default) is a coordination-ready stdio server; `remote` requires an absolute HTTP(S) `--url` and cannot combine local root/wake flags. The selected endpoint exposes h2a plus read-only Track tools. Reconfiguration replaces canonical or aliased h2a entries and removes standalone Track MCP entries, preserving unrelated servers. `--write` safely merges JSON only; it refuses Hermes YAML and OpenCode JSONC rather than overwriting them. Exception: Vibe `--write` installs the interim direct `[[mcp_servers]] h2a` entry into TOML (owner decision 16/10, derogation spec-astra-v9 O7.2; `--remove` clears it for the R5/R7 registry migration). `--force` is reserved for replacing malformed JSON. After Codex or Claude setup, h2a inspects the selected host without changing its installation; an incoherent result names the findings, recommends `h2a doctor --repair`, and exits `2`. Filesystem read/write failure → exit `3`.
+- **Description**: Render exactly one selected `mcpServers.h2a` endpoint. `local` (default) is a coordination-ready stdio server; `remote` requires an absolute HTTP(S) `--url` and cannot combine local root/wake flags. The selected endpoint exposes h2a plus read-only Track tools. Reconfiguration replaces canonical or aliased h2a entries and removes standalone Track MCP entries, preserving unrelated servers. Explicit `--write` edits only the h2a entry, preserves surrounding bytes and creates a backup; tracked files require `--allow-tracked`. `--write` safely merges JSON only; it refuses Hermes YAML and OpenCode JSONC rather than overwriting them. Exception: Vibe `--write` installs the interim direct `[[mcp_servers]] h2a` entry into TOML (owner decision 16/10, derogation spec-astra-v9 O7.2; `--remove` clears it for R5/R7 registry migration). `--force` is reserved for replacing malformed JSON. After Codex or Claude setup, h2a inspects the selected host without changing its installation; an incoherent result names the findings, recommends `h2a doctor --repair`, and exits `2`. Filesystem read/write failure → exit `3`.
 
 #### `h2a host status [--host <name>]`
 
@@ -349,3 +349,7 @@ Stderr lines always follow the form `h2a <verb> [sub]: <message>` so callers can
 - **Envelope**: `stream` — JSON-RPC 2.0 over stdio, long-running.
 - **Exit codes**: `0`, `1`.
 - **Description**: Run the built-in MCP server. Not bound by the envelope contract; covered by `mcp-stdio.test.js` and `examples/principal-conductors`.
+
+## MCP central control (0.98.8)
+
+`h2a central status|stop [--runtime-base <private-directory>] [--json]` emits a resource JSON object. `stop` persists the MCP operator pause and waits up to two seconds for verified closure. Exit 0 acknowledges the durable pause; `state: stopped` requires the source closure journal. `pause_active_stop_deferred` remains armed until drain reaches zero. Runtime failures return 2, user/flag errors 1, filesystem errors 3. Explicit serve resumes before commitment; an upgrade never clears pause or forces pending work.

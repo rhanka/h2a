@@ -1,0 +1,29 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test --test-reporter=tap packages/h2a/test/mh-l1-shim.test.js
+node: v24.21.0
+private root: /tmp/mh-l3-test-OSGHnB
+case: all cases in explicit file
+TAP version 13
+# Subtest: C01 should replay unknown initialize and its pipelined tail into the real stdio server without central or project writes
+ok 1 - C01 should replay unknown initialize and its pipelined tail into the real stdio server without central or project writes
+  ---
+  duration_ms: 171.385567
+  type: 'test'
+  ...
+# {"event":"drive-consent.full-verification","durationMs":0.0046280000000251675,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: C01 should route an exact fixture client through the real shim and central with one attachment for a pipelined handshake
+ok 2 - C01 should route an exact fixture client through the real shim and central with one attachment for a pipelined handshake
+  ---
+  duration_ms: 258.453861
+  type: 'test'
+  ...
+1..2
+# tests 2
+# suites 0
+# pass 2
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 609.998107
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l1-shim.test.js"],"code":0,"signal":null,"tests":2,"invalid":false,"spawned":3,"leftovers":[]}

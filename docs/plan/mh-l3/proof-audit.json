@@ -1,0 +1,286 @@
+{
+  "base": "513312b88766852572f515b3d3a7b71a0fcc2c27",
+  "qualificationCopy": "/tmp/mh-l3-qualification-bUCXsb/source",
+  "files": [
+    {
+      "path": "docs/plan/mh-l0/schemas.json",
+      "sha256": "5c458cf9ce1770f2a40f47b32909240aba4ec9dd30b6f4939a0ac01479ea83ab"
+    },
+    {
+      "path": "package.json",
+      "sha256": "c80142096d968fb57b17acf2f2600303ffce674350a119e7b0ef12f039e5591e"
+    },
+    {
+      "path": "packages/h2a/src/runtime/handover/attachment-transports.js",
+      "sha256": "dbf714263f90bbbb0d31bd3321c431a0e5b63f5e4ee6fa5d69f2d5224063fc4b"
+    },
+    {
+      "path": "packages/h2a/src/runtime/handover/authenticated-http.js",
+      "sha256": "1f9f2bcb2963093a32615e253a828b009ee547e93ac0f1995e749349e08f4a6d"
+    },
+    {
+      "path": "packages/h2a/src/runtime/handover/authentication.js",
+      "sha256": "f467d48117fec621e8c58ec0f8ee3d2c208647fed35086bdced5b7547c07c98e"
+    },
+    {
+      "path": "packages/h2a/src/runtime/handover/catalogue.js",
+      "sha256": "61130710f6736159c3123f3515aa8b4cb432ea49b498561ea80fabbcb3eacc6d"
+    },
+    {
+      "path": "packages/h2a/src/runtime/handover/evidence.js",
+      "sha256": "79668412a89ab87c32d4aaad6b388453e0f497527b56cb45249c82fa013a459d"
+    },
+    {
+      "path": "packages/h2a/src/runtime/handover/generation-end.js",
+      "sha256": "530c20c673e28e5883c7efe4a0c6d0ae3f361770a4bb5f5b13f106a21959cced"
+    },
+    {
+      "path": "packages/h2a/src/runtime/handover/ownership.js",
+      "sha256": "58727b8c115025f6437ea03cc366714091273b18e6e668270323c2f597986ca0"
+    },
+    {
+      "path": "packages/h2a/src/runtime/handover/participants.js",
+      "sha256": "8a9a7275a8204f2593c301670f26d674667c4acd08718c1d81cc7bf9bfddb0fc"
+    },
+    {
+      "path": "packages/h2a/src/runtime/handover/request-mappings.js",
+      "sha256": "1392994e33a71fc876b5a33f5f024ba5d9ce9ba03e2bca66376bd8e7704c4b67"
+    },
+    {
+      "path": "packages/h2a/src/runtime/handover/schemas.js",
+      "sha256": "b7ba2c1dae15b60c5e5d405467a3b278024019666489f40c040b566862ff0fed"
+    },
+    {
+      "path": "packages/h2a/src/runtime/handover/shim-bridge.js",
+      "sha256": "f29b3443e0bf1fdfd2e22e3acecc1de16ea8a7104881f6ece6873d087fb77a74"
+    },
+    {
+      "path": "packages/h2a/src/runtime/handover/shim-build.js",
+      "sha256": "8453d32701e0734c467ce328997138c24cc2119ebe6d9397dd088f81d15e47f9"
+    },
+    {
+      "path": "packages/h2a/src/runtime/handover/shim-evidence.js",
+      "sha256": "747b6ba7c6287bd13feb4ba4de64e8304fea8efc37709e2e4929b338f89309ae"
+    },
+    {
+      "path": "packages/h2a/src/runtime/mcp-central-client.ts",
+      "sha256": "ff51a8846f1dabe426d05cfcebf40ef24ae8ddc22ba1b0fa4519cbcedf62e134"
+    },
+    {
+      "path": "packages/h2a/src/runtime/mcp-central-context.ts",
+      "sha256": "bda80b2b6fdc6d8f2b21c467656b7757e2ae66e3e6117526d2da8511c495d72d"
+    },
+    {
+      "path": "packages/h2a/src/runtime/mcp-central-descriptor.js",
+      "sha256": "b08c1a5cdc3986907aeb1289ea13dee8d9fb3bf14cfc8b79d52d7e2141eba471"
+    },
+    {
+      "path": "packages/h2a/src/runtime/mcp-central-shim.ts",
+      "sha256": "222c71b76f681d0ce0d9922737edd790215312d84f6f7c0aa9645428f2370fb4"
+    },
+    {
+      "path": "packages/h2a/src/runtime/mcp-central.ts",
+      "sha256": "3b402cf6e3f32ce141b8eb568978ebe466a069ce2ee1d5f68fffc3ea782ec0e2"
+    },
+    {
+      "path": "packages/h2a/src/runtime/mcp/transport/streamable-http.ts",
+      "sha256": "4f5b31ef478d34db23e45554b077c6a7970146202126838ab7b9f21cd62098be"
+    },
+    {
+      "path": "packages/h2a/test/helpers/mh-l3-evidence.js",
+      "sha256": "6be192c0847630f3d7f13c368eec1451eb39b79babe7eb659e6af1e16e1202ba"
+    },
+    {
+      "path": "packages/h2a/test/helpers/mh-l3-network.js",
+      "sha256": "ff5ae51d407d83d2bfb2fa07b25f7d085ae410b1ad6a73ecb10eccdb03d265ac"
+    },
+    {
+      "path": "packages/h2a/test/helpers/mh-l3-peer.mjs",
+      "sha256": "d8bd0fb33be69486cd3d2c472776797368214228f8bba1ab17067246cd8804ef"
+    },
+    {
+      "path": "packages/h2a/test/helpers/mh-l3-shim.mjs",
+      "sha256": "8d836011ca466899718dd744e51722eec63cf102a23909c91ed464b705ac2ffd"
+    },
+    {
+      "path": "packages/h2a/test/mcp-central-attachments.test.js",
+      "sha256": "2dfb29b8b355d3244f555edc6e9868a1aa79218c3c5715c22000c4f767583611"
+    },
+    {
+      "path": "packages/h2a/test/mh-l1-shim.test.js",
+      "sha256": "f8619ecd047e24e1895f8aa5131325283431c86da04e951c30491af84a4d5276"
+    },
+    {
+      "path": "packages/h2a/test/mh-l2-live-central.test.js",
+      "sha256": "18d1abf5ad8e681e1672fb4ea462ebdcd8bfd16aa2202e22e0e0e729a2a25abf"
+    },
+    {
+      "path": "packages/h2a/test/mh-l3-central.test.js",
+      "sha256": "e204f6be56a396cd52aab043acb07082916b509c24f86039462d2e8126426253"
+    },
+    {
+      "path": "packages/h2a/test/mh-l3-control.test.js",
+      "sha256": "d47fc4b8d1a6b15ac6ed5333caca6334d49b25761fc6e64d4c632decfd3ab4e5"
+    },
+    {
+      "path": "packages/h2a/test/mh-l3-evidence.test.js",
+      "sha256": "1d6155c6d8c2f297a13895f163737a6005758970f085c58d2157f6b529f66c5d"
+    },
+    {
+      "path": "packages/h2a/test/mh-l3-network.test.js",
+      "sha256": "eee9cb276dcf44e5abc72312fa84809419727903ead9252ba1db5b3a4cddfcf0"
+    },
+    {
+      "path": "packages/h2a/test/mh-l3-ownership.test.js",
+      "sha256": "761945e752467be5d393fff22fc35368f9479abbd531006abec2d10dbfca2016"
+    },
+    {
+      "path": "packages/h2a/test/mh-l3-recovery.test.js",
+      "sha256": "d3412d75f58ee375ed0b6a89c30852c75cf21035a0433cea6c180107e4f94473"
+    },
+    {
+      "path": "packages/h2a/test/mh-l3-source-offer.test.js",
+      "sha256": "a793d73339eea5c34b4fa35149531e24b8f0204d48e8d09a29b5e5904475bcf7"
+    },
+    {
+      "path": "packages/h2a/test/mh-l3-state.test.js",
+      "sha256": "c3b6fce3b99e0d34c67bcda9c708456fcc924a19871e0eede3b0a0ab571babd7"
+    },
+    {
+      "path": "packages/h2a/test/mh-l3-transfer.test.js",
+      "sha256": "1c552a916e204152b1567d26a38a90956f7989497d30fb5c8889b579a0489473"
+    },
+    {
+      "path": "packages/h2a/test/mh-l3-transport.test.js",
+      "sha256": "add9849c579e0f029b412b88a2cf72983aca68647bba6b4d7603d03b595a4446"
+    },
+    {
+      "path": "packages/h2a/test/mh-l4-idle.test.js",
+      "sha256": "172acb7116a012373f46320e63af0eda8006a3b7922a3bf3521f54c35cd34d69"
+    },
+    {
+      "path": "scripts/generate-mcp-descriptor.mjs",
+      "sha256": "7862d195e36f4d22a6b3961d26d96ab6542fc4b57bd2c80958586fd51afa0fe3"
+    },
+    {
+      "path": "scripts/mh-l3-audit.mjs",
+      "sha256": "3e533274c47ad96356218c2cbe365aa1a6c25527b8d3e4d17bc174e73ac52424"
+    },
+    {
+      "path": "scripts/mh-l3-mutate.mjs",
+      "sha256": "00392ac713203543602928b09d8a2f23af64e9078129abb85972c3b61422f2f7"
+    },
+    {
+      "path": "scripts/mh-l3-qualification-copy.mjs",
+      "sha256": "a61fe80bddb76652ea2527a59c2fee5a5236729a9cb2c9e032881cc944a0ea2f"
+    },
+    {
+      "path": "scripts/mh-l3-regressions.mjs",
+      "sha256": "e7263f9b0c20bfd4bf677cf9c285b06bc01a407c4d08c95ed0459eb08a1f5022"
+    },
+    {
+      "path": "scripts/mh-l3-test.mjs",
+      "sha256": "ee778d3a3c9e4299e0dac1a5f82dd78209845a0ec8c8376cd48ea3ea34fa4fd9"
+    }
+  ],
+  "compiled": [
+    {
+      "path": "packages/h2a/dist/runtime/handover/attachment-transports.js",
+      "sha256": "49f80ff2323f11119d76efb9e7cca88908b2e3062da22dfcbe9be2c1146fbafa"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/handover/authenticated-http.js",
+      "sha256": "89c0454de7a19e79b0b4f7b61422472dfc482b193ee814b3ec83683d47b3e833"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/handover/authentication.js",
+      "sha256": "1d238dff9e36fce0c70e20007aed66c7de9bc5b59da2c32c2cd715701aec6520"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/handover/catalogue.js",
+      "sha256": "56e7bdb1f89f2cea93a097fbfa735b97c941f47c5c923602e61dd0c4702aed9a"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/handover/evidence.js",
+      "sha256": "0c6730d7fd02dcc0bca93b82d5388927493bc1ce35addadbb4392860090a7e2e"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/handover/generation-end.js",
+      "sha256": "b2bc7ae1a576e65f91fa31a044733fd50e7a360eee6df3765ddf69a7f1feb7e3"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/handover/ownership.js",
+      "sha256": "c3dea62be6915d0cff7f610e08b7bca15dde7815130d386ff4e7e301f2aa9e46"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/handover/participants.js",
+      "sha256": "dd142bbf34cecfae07f6568114d0240b5bd259b73d99914bfd8d72cf774b8ca7"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/handover/request-mappings.js",
+      "sha256": "fe1396db10e720944a5bd3b4152d23d196c9e288d9e7bf406f7672eafdfb8974"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/handover/schemas.js",
+      "sha256": "25ee720a0da3d271392d3c3332be0daad62a8b5827e548956bbca461f502dcbb"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/handover/shim-bridge.js",
+      "sha256": "eb5403fd43fc66bc497b59ee7dcd36acacbf6e7774d2146ee5a568942c40f981"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/handover/shim-build.js",
+      "sha256": "e0a785e4e66a01592546ef8c1d03b9842d650d93e22c20ea382656e222c1a032"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/handover/shim-evidence.js",
+      "sha256": "1dde2e84d4a3e408b310dea2f15550fff4032513dc991c10c632ed51067cbb95"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/mcp-central-client.js",
+      "sha256": "f57427fed974ff4c18d663672ee91ce42b58dcf1546c158f7c0c00222dfc587c"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/mcp-central-context.js",
+      "sha256": "76ee9455bdbaa9f1f0db8af1a32979ac7864f39db640e2443749fab50959ff81"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/mcp-central-descriptor.js",
+      "sha256": "7fcee75753dc06d5e3cde4593731beb9154be64cbe77f1518e855d1179d01a62"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/mcp-central-shim.js",
+      "sha256": "0b13cc88fd1257062d726871f40e9e89d3c1f239b1fbed4e212b63888bfdbd75"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/mcp-central.js",
+      "sha256": "3a33a9fa2ab5b64cd40e457ed94a569c713e97ac45a6052a330cad36a6e0dbd8"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/mcp/transport/streamable-http.js",
+      "sha256": "8c15acc22890cdda31bbfdc7af19e54ff6b6c66e05109646f572a8ddecca5d82"
+    }
+  ],
+  "profiles": [
+    {
+      "node": "v22.22.1",
+      "explicitFiles": 45,
+      "tests": 236,
+      "mutationPairs": 43,
+      "skipped": 0,
+      "cancelled": 0,
+      "remainingOwnChildren": 0,
+      "gitDependentLog": "docs/plan/mh-l3/evidence/mh-l0-formats.test.js-node22-qualified.log"
+    },
+    {
+      "node": "v24.21.0",
+      "explicitFiles": 45,
+      "tests": 236,
+      "mutationPairs": 43,
+      "skipped": 0,
+      "cancelled": 0,
+      "remainingOwnChildren": 0,
+      "gitDependentLog": "docs/plan/mh-l3/evidence/mh-l0-formats.test.js-node24-qualified.log"
+    }
+  ]
+}

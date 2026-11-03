@@ -1,0 +1,58 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-native-copy.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-EvN3Dg
+case: all cases in explicit file
+TAP version 13
+# Subtest: U10 should copy only the pinned native payload without a compiler or shared ELF inode
+ok 1 - U10 should copy only the pinned native payload without a compiler or shared ELF inode
+  ---
+  duration_ms: 42.767801
+  type: 'test'
+  ...
+# Subtest: U10 should reject altered release archive bytes before extracting anything into a payload
+ok 2 - U10 should reject altered release archive bytes before extracting anything into a payload
+  ---
+  duration_ms: 7.668257
+  type: 'test'
+  ...
+# Subtest: U10 should never overwrite an existing native copy destination
+ok 3 - U10 should never overwrite an existing native copy destination
+  ---
+  duration_ms: 6.788051
+  type: 'test'
+  ...
+# Subtest: U10 should prepare the real workspace prebuild idempotently without changing its JavaScript
+ok 4 - U10 should prepare the real workspace prebuild idempotently without changing its JavaScript
+  ---
+  duration_ms: 49.792286
+  type: 'test'
+  ...
+# Subtest: U10 should refuse a shared workspace dependency and leave the outside target untouched
+ok 5 - U10 should refuse a shared workspace dependency and leave the outside target untouched
+  ---
+  duration_ms: 19.221653
+  type: 'test'
+  ...
+# Subtest: U10 should refuse mismatched workspace JavaScript before changing its native binding
+ok 6 - U10 should refuse mismatched workspace JavaScript before changing its native binding
+  ---
+  duration_ms: 32.823773
+  type: 'test'
+  ...
+# Subtest: U10 should preserve the previous binding and remove its temporary file when native replacement fails
+ok 7 - U10 should preserve the previous binding and remove its temporary file when native replacement fails
+  ---
+  duration_ms: 36.705626
+  type: 'test'
+  ...
+1..7
+# tests 7
+# suites 0
+# pass 7
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 302.597802
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-native-copy.test.js"],"code":0,"signal":null,"tests":7,"invalid":false,"spawned":1,"leftovers":[]}

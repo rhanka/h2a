@@ -1,0 +1,50 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/lane-addressing-presence-name.test.js
+node: v24.21.0
+private test root: /tmp/mh-l2-test-nOtAZj
+Claude config: temporary HOME / injected homedir fallback
+✔ default host name reader follows CODEX_HOME (2.057191ms)
+✔ reader: the LAST customTitle wins (a rename appends to the transcript) (0.802149ms)
+✔ reader: customTitle beats agentName even when agentName is newer (0.361229ms)
+✔ reader: falls back to the first agentName when no customTitle exists (0.296037ms)
+✔ reader: aiTitle is never returned, even as a last resort (0.432073ms)
+✔ reader: finds a rename that sits far beyond the old 40-line head window (0.598506ms)
+✔ reader: a title older than the tail window yields undefined (not a wrong name) (1.276192ms)
+✔ reader: a file smaller than the tail window keeps its very first record (0.336844ms)
+✔ reader: a truncated leading record in the tail window is ignored (0.335411ms)
+✔ reader: codex thread_name still resolves last-match-wins (0.210036ms)
+✔ updatePresence({ name }) writes the new name and preserves every other field (3.377194ms)
+✔ updatePresence ignores an empty name rather than blanking a good one (1.175311ms)
+✔ touch(): writes the new display name when the host title changed (1.768738ms)
+✔ touch(): leaves the name alone when the resolver reports no change (1.105781ms)
+✔ touch(): keeps the previous name when the title is unreadable (1.04725ms)
+✔ touch(): a throwing resolver keeps the name and still advances the heartbeat (1.086104ms)
+✔ touch(): with no resolver installed the name is frozen (explicit --name) (0.8719ms)
+✔ end-to-end: a cwd-basename name converges to the host title and becomes findable (1.590191ms)
+✔ defaultHostNameReaders.readTailLines: drops the truncated leading record (0.314171ms)
+✔ defaultHostNameReaders.readTailLines: keeps the first record of a small file (0.191931ms)
+✔ defaultHostNameReaders.readTailLines: returns [] for a missing file (0.073318ms)
+✔ refresher: a repeated MISS does not re-walk the filesystem (0.189557ms)
+✔ refresher: the negative cache expires, so a late transcript is still found (0.062989ms)
+✔ refresher: a HIT is memoized — the walk happens once, not per heartbeat (0.296448ms)
+✔ reader: a customTitle on a non-rename record is IGNORED (policy matches restore.ts) (0.305515ms)
+✔ reader: agentName is NOT subject to the custom-title type check (0.297189ms)
+✔ reader: a whitespace-only title is rejected, not written verbatim (0.335651ms)
+✔ reader: titles are trimmed and length-capped before reaching presence (0.309232ms)
+✔ resolveAutoOpen: installs a title refresher only when --name was NOT given (14.954958ms)
+✔ refresher: a transcript that appears LATE resolves to its title (absent -> present) (0.424889ms)
+✔ refresher: a rename A -> B -> A is followed each way (1.311007ms)
+✔ resolveAutoOpen: no refresher is installed when --host is omitted (5.634521ms)
+✔ resolveAutoOpen: host 'remote' resolves a session id but installs NO refresher (4.657293ms)
+✔ reader: a Codex thread_name is trimmed, whitespace-rejected and length-capped (0.214193ms)
+✔ reader: control and bidi characters are stripped from a Claude display name (0.463973ms)
+✔ reader: a Codex thread_name is also stripped of control/bidi characters (0.114425ms)
+ℹ tests 36
+ℹ suites 0
+ℹ pass 36
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 266.28023
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/lane-addressing-presence-name.test.js"],"code":0,"signal":null,"elapsedMs":296}

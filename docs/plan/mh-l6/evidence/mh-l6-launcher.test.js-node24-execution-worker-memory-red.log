@@ -1,0 +1,40 @@
+command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-launcher.test.js
+node: v24.21.0
+private root: /tmp/mh-l6-test-DBKwyL
+case: all cases in explicit file
+TAP version 13
+# Subtest: U12 should preserve a guarded Worker when the launcher has a qualified memory option
+not ok 1 - U12 should preserve a guarded Worker when the launcher has a qualified memory option
+  ---
+  duration_ms: 105.506335
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-launcher.test.js:13:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    h2a: Initiated Worker with invalid execArgv flags: --max-old-space-size=128
+    
+    
+    1 !== 0
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 0
+  actual: 1
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-launcher.test.js:230:86)
+    process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    async Test.run (node:internal/test_runner/test:1409:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 153.143001
+
+receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-launcher.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":2,"leftovers":[]}

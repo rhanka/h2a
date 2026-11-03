@@ -1,0 +1,39 @@
+{
+  "node": "v22.22.1",
+  "files": [
+    {
+      "path": "packages/h2a/src/runtime/upgrade/adoption-execute.js",
+      "sha256": "15be128694a2ef2644fdcd03901625d0b9ff4c47a9302875845254de288ad6d8"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/upgrade/adoption-execute.js",
+      "sha256": "4762456322e518c1592f23a5e5de75c024ea62e42db1044505f0454d00614d6a"
+    }
+  ],
+  "results": [
+    {
+      "name": "need-shortcut",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node22-mutation-need-shortcut-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node22-mutation-need-shortcut-green.log",
+      "restored": true
+    },
+    {
+      "name": "exclusion-wiring",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node22-mutation-exclusion-wiring-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node22-mutation-exclusion-wiring-green.log",
+      "restored": true
+    },
+    {
+      "name": "session-revalidate",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node22-mutation-session-revalidate-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node22-mutation-session-revalidate-green.log",
+      "restored": true
+    },
+    {
+      "name": "install-call",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node22-mutation-install-call-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-adoption.test.js-node22-mutation-install-call-green.log",
+      "restored": true
+    }
+  ]
+}

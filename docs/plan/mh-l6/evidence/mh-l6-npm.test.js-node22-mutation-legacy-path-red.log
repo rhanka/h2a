@@ -1,0 +1,50 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-npm.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-9jId90
+case: D should report a legacy command link awaiting adoption
+TAP version 13
+# Subtest: D should report a legacy command link awaiting adoption
+not ok 1 - D should report a legacy command link awaiting adoption
+  ---
+  duration_ms: 6.823865
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-d2b-EJi7lx/packages/h2a/test/mh-l6-npm.test.js:9:67'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly deep-equal:
+    + actual - expected
+    
+      {
+    +   action: 'diagnose',
+    +   actual: '/tmp/mh-l6-test-9jId90/tmpdir/mh-l6-npm-XYlxvK/prefix/lib/node_modules/pkg/dist/bin.js',
+    +   state: 'foreign'
+    -   action: 'adopt',
+    -   state: 'legacy'
+      }
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+    state: 'legacy'
+    action: 'adopt'
+  actual:
+    state: 'foreign'
+    action: 'diagnose'
+    actual: '/tmp/mh-l6-test-9jId90/tmpdir/mh-l6-npm-XYlxvK/prefix/lib/node_modules/pkg/dist/bin.js'
+  operator: 'deepStrictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-d2b-EJi7lx/packages/h2a/test/mh-l6-npm.test.js:43:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 109.384082
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-npm.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

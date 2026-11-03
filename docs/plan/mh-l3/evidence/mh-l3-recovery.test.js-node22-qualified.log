@@ -1,0 +1,23 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l3-recovery.test.js
+node: v22.22.1
+private root: /tmp/mh-l3-test-QbPhwb
+case: all cases in explicit file
+TAP version 13
+# {"event":"drive-consent.full-verification","durationMs":0.006011999999998352,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: 32 real shims should retain their PIDs and activations across 20 transport recoveries with G0 alive
+ok 1 - 32 real shims should retain their PIDs and activations across 20 transport recoveries with G0 alive
+  ---
+  duration_ms: 26601.864755
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 26884.672478
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l3-recovery.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":65,"leftovers":[]}

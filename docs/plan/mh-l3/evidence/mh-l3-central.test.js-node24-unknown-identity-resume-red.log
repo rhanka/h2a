@@ -1,0 +1,37 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test --test-reporter=tap packages/h2a/test/mh-l3-central.test.js
+node: v24.21.0
+private root: /tmp/mh-l3-test-y6Y4Dn
+case: resume should discover an unknown expected identity without weakening the instance guard or creating another binding
+TAP version 13
+# {"event":"drive-consent.full-verification","durationMs":0.0028560000000084074,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# h2a mcp-serve: identity migration: claude:mh-l3-identity-ack-bxpjht:7c3f404cb539 reads legacy claude:mh-l3-identity-ack-BXpjHT; no proof of possession of a legacy key — mint net-new keys
+# h2a mcp-serve: auto-opened session for claude:mh-l3-identity-ack-bxpjht:7c3f404cb539
+# h2a mcp-serve: identity ready: claude:mh-l3-identity-ack-bxpjht:7c3f404cb539 (signing available)
+# Subtest: resume should discover an unknown expected identity without weakening the instance guard or creating another binding
+not ok 1 - resume should discover an unknown expected identity without weakening the instance guard or creating another binding
+  ---
+  duration_ms: 361.318179
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-bUCXsb/source/packages/h2a/test/mh-l3-central.test.js:2:94'
+  failureType: 'testCodeFailure'
+  error: '[{"jsonrpc":"2.0","id":"init","result":{"protocolVersion":"2025-06-18","capabilities":{"tools":{"listChanged":true}},"serverInfo":{"name":"@sentropic/h2a","version":"0.98.5"}}},{"jsonrpc":"2.0","id":"identity","error":{"code":-32011,"message":"central MCP HTTP 409","data":{"code":"central_unavailable","retrySafe":false}}}]'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  operator: '=='
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-bUCXsb/source/packages/h2a/test/mh-l3-central.test.js:145:58)
+    async Test.run (node:internal/test_runner/test:1409:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 602.215195
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l3-central.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":2,"leftovers":[]}

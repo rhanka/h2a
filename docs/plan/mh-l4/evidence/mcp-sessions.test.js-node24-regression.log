@@ -1,0 +1,28 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mcp-sessions.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-3muCLH
+{"event":"drive-consent.full-verification","durationMs":0.007764000000008764,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.01755299999999238,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.031158000000004904,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.012733999999994694,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.010320000000007212,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✔ h2a_session_open writes a presence file and returns the session + peers (4.821025ms)
+✔ h2a_session_open with no instance returns a friendly error (0.949507ms)
+✔ h2a_session_open rejects unknown subscribedTopics (1.462523ms)
+✔ h2a_discover_sessions returns peers from disk and filters by scope/instance (1.951814ms)
+✔ h2a_discover_sessions matches native or presence names case-insensitively and slug-stably (5.562601ms)
+✔ h2a_session_close deletes the presence file and stops the heartbeat (3.33608ms)
+✔ SessionRegistry expires stale peer presence files on scan (0.617061ms)
+✔ SessionRegistry.touch keeps the heartbeat fresh (6.1253ms)
+✔ SessionRegistry.touch recreates a missing presence file for a still-open session (0.568811ms)
+✔ H2A_SESSION_DEFAULT_HEARTBEAT_INTERVAL_MS is < expiry (sanity) (0.153048ms)
+ℹ tests 10
+ℹ suites 0
+ℹ pass 10
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 218.508521
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mcp-sessions.test.js"],"code":0,"signal":null,"elapsedMs":240}

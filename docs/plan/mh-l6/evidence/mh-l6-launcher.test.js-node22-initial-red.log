@@ -1,0 +1,188 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-launcher.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-t93Zfs
+case: all cases in explicit file
+TAP version 13
+# Subtest: U04 should import the verified absolute image in the launcher PID without npm imports
+not ok 1 - U04 should import the verified absolute image in the launcher PID without npm imports
+  ---
+  duration_ms: 2.420877
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-launcher.test.js:12:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    standalone same-process launcher required
+    + actual - expected
+    
+    + 'undefined'
+    - 'function'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'function'
+  actual: 'undefined'
+  operator: 'strictEqual'
+  stack: |-
+    fixture (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-launcher.test.js:14:10)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-launcher.test.js:34:19)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.start (node:internal/test_runner/test:944:17)
+    startSubtestAfterBootstrap (node:internal/test_runner/harness:296:17)
+  ...
+# Subtest: U12 should remove NODE_PATH and refuse external loading flags from env or node argv
+not ok 2 - U12 should remove NODE_PATH and refuse external loading flags from env or node argv
+  ---
+  duration_ms: 0.345731
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-launcher.test.js:12:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    standalone same-process launcher required
+    + actual - expected
+    
+    + 'undefined'
+    - 'function'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'function'
+  actual: 'undefined'
+  operator: 'strictEqual'
+  stack: |-
+    fixture (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-launcher.test.js:14:10)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-launcher.test.js:45:19)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: U06 should keep status read-only and use verified history only for diagnostics when selection is corrupt
+not ok 3 - U06 should keep status read-only and use verified history only for diagnostics when selection is corrupt
+  ---
+  duration_ms: 0.260811
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-launcher.test.js:12:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    standalone same-process launcher required
+    + actual - expected
+    
+    + 'undefined'
+    - 'function'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'function'
+  actual: 'undefined'
+  operator: 'strictEqual'
+  stack: |-
+    fixture (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-launcher.test.js:14:10)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-launcher.test.js:56:19)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: U06 should reject altered payload and foreign selection before importing code
+not ok 4 - U06 should reject altered payload and foreign selection before importing code
+  ---
+  duration_ms: 0.189066
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-launcher.test.js:12:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    standalone same-process launcher required
+    + actual - expected
+    
+    + 'undefined'
+    - 'function'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'function'
+  actual: 'undefined'
+  operator: 'strictEqual'
+  stack: |-
+    fixture (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-launcher.test.js:14:10)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-launcher.test.js:72:19)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: U09 should diagnose PATH shadowing and a changed command link without rewriting either
+not ok 5 - U09 should diagnose PATH shadowing and a changed command link without rewriting either
+  ---
+  duration_ms: 0.282482
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-launcher.test.js:12:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    standalone same-process launcher required
+    + actual - expected
+    
+    + 'undefined'
+    - 'function'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'function'
+  actual: 'undefined'
+  operator: 'strictEqual'
+  stack: |-
+    fixture (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-launcher.test.js:14:10)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-launcher.test.js:80:19)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: U06 should never import an older fallback during an engaged selection transaction
+not ok 6 - U06 should never import an older fallback during an engaged selection transaction
+  ---
+  duration_ms: 0.251734
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-launcher.test.js:12:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    standalone same-process launcher required
+    + actual - expected
+    
+    + 'undefined'
+    - 'function'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'function'
+  actual: 'undefined'
+  operator: 'strictEqual'
+  stack: |-
+    fixture (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-launcher.test.js:14:10)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-launcher.test.js:91:19)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+1..6
+# tests 6
+# suites 0
+# pass 0
+# fail 6
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 175.186836
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-launcher.test.js"],"code":1,"signal":null,"tests":6,"invalid":false,"spawned":1,"leftovers":[]}

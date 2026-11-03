@@ -1,0 +1,22 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test --test-reporter=tap packages/h2a/test/mh-l2-live.test.js
+node: v24.21.0
+private root: /tmp/mh-l2-amendment-w3OPJ6
+env selection: {"MH_L2_LIVE_CASE":"reserved live source should durably close admissions on every publication contradiction without a deadline"}; unset: 
+TAP version 13
+# Subtest: reserved live source should durably close admissions on every publication contradiction without a deadline
+ok 1 - reserved live source should durably close admissions on every publication contradiction without a deadline
+  ---
+  duration_ms: 400.220852
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 446.624962
+
+receipt: {"code":0,"signal":null}

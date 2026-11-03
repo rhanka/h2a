@@ -1,0 +1,406 @@
+command: /usr/bin/node --test packages/h2a/test/mcp-central.test.js
+node: v22.22.1
+private test root: /tmp/mh-l2-test-M4hq38
+TAP version 13
+# {"event":"drive-consent.full-verification","durationMs":0.004377999999860549,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.012284000000136075,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: M1: central marker is uid-addressed, user-owned, and private
+ok 1 - M1: central marker is uid-addressed, user-owned, and private
+  ---
+  duration_ms: 975.332128
+  type: 'test'
+  ...
+# Subtest: F1 negative: wildcard central endpoint is refused before bind
+ok 2 - F1 negative: wildcard central endpoint is refused before bind
+  ---
+  duration_ms: 448.449166
+  type: 'test'
+  ...
+# Subtest: F1 negative: LAN-style central endpoint is refused before bind
+ok 3 - F1 negative: LAN-style central endpoint is refused before bind
+  ---
+  duration_ms: 15.658127
+  type: 'test'
+  ...
+# Subtest: F2 negative: port zero central endpoint is refused before bind
+ok 4 - F2 negative: port zero central endpoint is refused before bind
+  ---
+  duration_ms: 11.37817
+  type: 'test'
+  ...
+# Subtest: F1 negative: MCP requests without the marker token are unauthorized
+ok 5 - F1 negative: MCP requests without the marker token are unauthorized
+  ---
+  duration_ms: 216.639769
+  type: 'test'
+  ...
+# {"event":"drive-consent.full-verification","durationMs":0.004597999999987223,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: F1 negative: cross-origin MCP requests are refused even with the marker token
+not ok 6 - F1 negative: cross-origin MCP requests are refused even with the marker token
+  ---
+  duration_ms: 83.881142
+  type: 'test'
+  location: '/tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mcp-central.test.js:532:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    401 !== 403
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 403
+  actual: 401
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mcp-central.test.js:558:12)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: M1 negative: an unexpected marker mode is refused without a write
+not ok 7 - M1 negative: an unexpected marker mode is refused without a write
+  ---
+  duration_ms: 12.834131
+  type: 'test'
+  location: '/tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mcp-central.test.js:565:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    The input did not match the regular expression /marker must have mode 0600/. Input:
+    
+    'Error: private_state_required'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual:
+  error: 'private_state_required'
+  stack: |-
+    readMarkerObservation (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/dist/runtime/handover/admission.js:79:15)
+    startCentralMcpServer (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/dist/runtime/mcp-central.js:376:21)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async waitForActual (node:assert:644:5)
+    async Function.rejects (node:assert:767:25)
+    async TestContext.<anonymous> (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mcp-central.test.js:577:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  operator: 'rejects'
+  stack: |-
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async TestContext.<anonymous> (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mcp-central.test.js:577:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: a protected malformed marker is reclaimable rather than a permanent startup loop
+not ok 8 - a protected malformed marker is reclaimable rather than a permanent startup loop
+  ---
+  duration_ms: 12.269047
+  type: 'test'
+  location: '/tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mcp-central.test.js:590:1'
+  failureType: 'testCodeFailure'
+  error: "Expected property name or '}' in JSON at position 1 (line 1 column 2)"
+  code: 'ERR_TEST_FAILURE'
+  name: 'SyntaxError'
+  stack: |-
+    JSON.parse (<anonymous>)
+    readMarkerObservation (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/dist/runtime/handover/admission.js:86:28)
+    startCentralMcpServer (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/dist/runtime/mcp-central.js:376:21)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async TestContext.<anonymous> (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mcp-central.test.js:601:15)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: a protected malformed reclaim lock is reclaimed rather than wedging central startup
+# {"event":"drive-consent.full-verification","durationMs":0.003517000000101689,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+not ok 9 - a protected malformed reclaim lock is reclaimed rather than wedging central startup
+  ---
+  duration_ms: 12.645145
+  type: 'test'
+  location: '/tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mcp-central.test.js:614:1'
+  failureType: 'testCodeFailure'
+  error: 'owner_liveness_unknown'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    startCentralMcpServer (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/dist/runtime/mcp-central.js:385:19)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async TestContext.<anonymous> (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mcp-central.test.js:628:15)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: M2: a live divergent endpoint refuses sterilely and names both endpoints
+not ok 10 - M2: a live divergent endpoint refuses sterilely and names both endpoints
+  ---
+  duration_ms: 40.854441
+  type: 'test'
+  location: '/tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mcp-central.test.js:643:1'
+  failureType: 'testCodeFailure'
+  error: 'foreign_installation_authority'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    prepareAuthority (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/dist/runtime/handover/admission.js:134:15)
+    startCentralMcpServer (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/dist/runtime/mcp-central.js:370:29)
+    TestContext.<anonymous> (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mcp-central.test.js:658:29)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# {"event":"drive-consent.full-verification","durationMs":0.005069999999705033,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: concurrent different endpoints leave exactly one live, marked central server
+not ok 11 - concurrent different endpoints leave exactly one live, marked central server
+  ---
+  duration_ms: 105.742667
+  type: 'test'
+  location: '/tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mcp-central.test.js:686:1'
+  failureType: 'testCodeFailure'
+  error: 'the losing launcher reuses or refuses the live owner'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: '=='
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mcp-central.test.js:720:12)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: finding-1: an in-progress reclaim lock never admits a second live owner
+not ok 12 - finding-1: an in-progress reclaim lock never admits a second live owner
+  ---
+  duration_ms: 385.833047
+  type: 'test'
+  location: '/tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mcp-central.test.js:793:1'
+  failureType: 'testCodeFailure'
+  error: 'contender 0 returned before staging: {"kind":"error","message":"owner_liveness_unknown"}'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  operator: 'fail'
+  stack: |-
+    file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mcp-central.test.js:835:58
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async TestContext.<anonymous> (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mcp-central.test.js:833:7)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: F3 lock: a controlled 24-process reclaim race elects one verified reclaimer
+not ok 13 - F3 lock: a controlled 24-process reclaim race elects one verified reclaimer
+  ---
+  duration_ms: 3288.597616
+  type: 'test'
+  location: '/tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mcp-central.test.js:880:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    false !== true
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mcp-central.test.js:904:12)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: F3 negative: two 24-process reclaim races elect exactly one dead-marker successor
+not ok 14 - F3 negative: two 24-process reclaim races elect exactly one dead-marker successor
+  ---
+  duration_ms: 750.07678
+  type: 'test'
+  location: '/tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mcp-central.test.js:935:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    one concurrent reclaimer wins the marker CAS
+    
+    0 !== 1
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 1
+  actual: 0
+  operator: 'strictEqual'
+  stack: |-
+    assertSingleConcurrentReclaimer (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mcp-central.test.js:773:12)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async TestContext.<anonymous> (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mcp-central.test.js:941:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: F4 negative: a liveness-budget-exhausting central ping is ambiguous and never reclaimed
+not ok 15 - F4 negative: a liveness-budget-exhausting central ping is ambiguous and never reclaimed
+  ---
+  duration_ms: 787.051237
+  type: 'test'
+  location: '/tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mcp-central.test.js:948:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    The input did not match the regular expression /liveness .* ambiguous/. Input:
+    
+    'foreign_installation_authority'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual: 'foreign_installation_authority'
+  operator: 'match'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mcp-central.test.js:983:12)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# {"event":"drive-consent.full-verification","durationMs":0.009758000000147149,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: concurrent same-endpoint launchers reuse the listener that won the bind
+not ok 16 - concurrent same-endpoint launchers reuse the listener that won the bind
+  ---
+  duration_ms: 507.313191
+  type: 'test'
+  location: '/tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mcp-central.test.js:999:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    the EADDRINUSE launcher reuses the marked live server
+    
+    0 !== 1
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 1
+  actual: 0
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mcp-central.test.js:1033:12)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: M3: endpoint generation alone decides liveness, never marker PID or age
+# {"event":"drive-consent.full-verification","durationMs":0.0026850000003832974,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+not ok 17 - M3: endpoint generation alone decides liveness, never marker PID or age
+  ---
+  duration_ms: 139.659729
+  type: 'test'
+  location: '/tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mcp-central.test.js:1054:1'
+  failureType: 'testCodeFailure'
+  error: 'owner_liveness_unknown'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    startCentralMcpServer (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/dist/runtime/mcp-central.js:385:19)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async TestContext.<anonymous> (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mcp-central.test.js:1074:17)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: M4: an absent preferred runtime base refuses without a /tmp fallback
+not ok 18 - M4: an absent preferred runtime base refuses without a /tmp fallback
+  ---
+  duration_ms: 105.716499
+  type: 'test'
+  location: '/tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mcp-central.test.js:1128:1'
+  failureType: 'testCodeFailure'
+  error: 'Missing expected rejection.'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  operator: 'rejects'
+  stack: |-
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async TestContext.<anonymous> (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mcp-central.test.js:1139:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: central client config reconnects after token rotation without rendering a credential
+not ok 19 - central client config reconnects after token rotation without rendering a credential
+  ---
+  duration_ms: 1.807944
+  type: 'test'
+  location: '/tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mcp-central.test.js:1162:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    The input did not match the regular expression /H2A_MCP_CENTRAL_ENDPOINT/. Input:
+    
+    "Error: ENOENT: no such file or directory, lstat '/tmp/mh-l2-test-M4hq38/run/h2a-mcp-central'"
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual:
+  error: "ENOENT: no such file or directory, lstat '/tmp/mh-l2-test-M4hq38/run/h2a-mcp-central'"
+  stack: |-
+    lstatSync (node:fs:1722:25)
+    readCentralClientMarker (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/dist/runtime/mcp-central-discovery.js:140:20)
+    centralMcpClientEndpoint (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/dist/runtime/mcp-central-discovery.js:64:20)
+    file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mcp-central.test.js:1176:13
+    getActual (node:assert:609:5)
+    Function.throws (node:assert:757:24)
+    TestContext.<anonymous> (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mcp-central.test.js:1175:12)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  operator: 'throws'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mcp-central.test.js:1175:12)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: host setup --write creates a private MCP config file
+ok 20 - host setup --write creates a private MCP config file
+  ---
+  duration_ms: 1.391239
+  type: 'test'
+  ...
+# {"event":"drive-consent.full-verification","durationMs":0.006883000001835171,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.006562000002304558,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.00609200000326382,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.005009000000427477,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.005469999996421393,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.004447999992407858,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.0052900000009685755,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.005591000008280389,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.0049589999980526045,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.004538000008324161,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.010358999992604367,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.012514000001829118,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.0049189999990630895,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.00495000000228174,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.005300000018905848,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.005871000001206994,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.0048390000010840595,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.005139999993843958,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.005139999993843958,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.005258999997749925,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.0046390000206884,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.004658999998355284,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.01006900001084432,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.01292399998055771,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.005569999979343265,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.006592999998247251,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.00905699998838827,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.009969000006094575,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.00550999998813495,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.004798999987542629,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.006791999971028417,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.006682999955955893,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.005490000010468066,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.004868999996688217,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.00534999999217689,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.009306999971158803,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.005329999956302345,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.005370000028051436,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.005640000046696514,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.00628199998755008,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.005439999978989363,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# {"event":"drive-consent.full-verification","durationMs":0.004718999960459769,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+1..20
+# tests 20
+# suites 0
+# pass 6
+# fail 14
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 397214.302695
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mcp-central.test.js"],"code":1,"signal":null,"elapsedMs":397298}

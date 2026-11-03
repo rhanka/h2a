@@ -1,0 +1,219 @@
+command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-entry.test.js
+node: v24.21.0
+private root: /tmp/mh-l6-test-h8gQB4
+case: all cases in explicit file
+TAP version 13
+# Subtest: U12 should reject an external loading profile on the real direct image CLI before reporting its version
+not ok 1 - U12 should reject an external loading profile on the real direct image CLI before reporting its version
+  ---
+  duration_ms: 2878.866749
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-entry.test.js:10:84'
+  failureType: 'testCodeFailure'
+  error: |-
+    The input did not match the regular expression /external_loader_unqualified/. Input:
+    
+    'h2a --version: selection_profile_mismatch\n'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual: |-
+    h2a --version: selection_profile_mismatch
+    
+  operator: 'match'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-entry.test.js:18:9)
+    process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    async Test.run (node:internal/test_runner/test:1409:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)
+  ...
+# Subtest: U12 should execute the real image CLI with qualified memory options and its exact version
+not ok 2 - U12 should execute the real image CLI with qualified memory options and its exact version
+  ---
+  duration_ms: 391.213799
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-entry.test.js:10:84'
+  failureType: 'testCodeFailure'
+  error: |-
+    h2a --version: selection_profile_mismatch
+    
+    
+    1 !== 0
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 0
+  actual: 1
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-entry.test.js:44:81)
+    process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    async Test.run (node:internal/test_runner/test:1409:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:974:7)
+  ...
+# Subtest: U12 should require the immutable loader on the real direct image path
+not ok 3 - U12 should require the immutable loader on the real direct image path
+  ---
+  duration_ms: 493.067502
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-entry.test.js:10:84'
+  failureType: 'testCodeFailure'
+  error: |-
+    The input did not match the regular expression /ENOENT/. Input:
+    
+    'h2a --version: selection_profile_mismatch\n'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual: |-
+    h2a --version: selection_profile_mismatch
+    
+  operator: 'match'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-entry.test.js:48:114)
+    process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    async Test.run (node:internal/test_runner/test:1409:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:974:7)
+  ...
+# Subtest: U12 should verify the loader before even its first instruction executes on a direct image path
+not ok 4 - U12 should verify the loader before even its first instruction executes on a direct image path
+  ---
+  duration_ms: 390.639088
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-entry.test.js:10:84'
+  failureType: 'testCodeFailure'
+  error: |-
+    The input did not match the regular expression /image_loader_integrity/. Input:
+    
+    'h2a --version: selection_profile_mismatch\n'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual: |-
+    h2a --version: selection_profile_mismatch
+    
+  operator: 'match'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-entry.test.js:52:192)
+    process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    async Test.run (node:internal/test_runner/test:1409:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:974:7)
+  ...
+# Subtest: U12 should refuse an unknown execution descriptor even when its payload hash is valid
+not ok 5 - U12 should refuse an unknown execution descriptor even when its payload hash is valid
+  ---
+  duration_ms: 4029.390303
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-entry.test.js:10:84'
+  failureType: 'testCodeFailure'
+  error: |-
+    The input did not match the regular expression /image_execution_descriptor_invalid/. Input:
+    
+    'h2a --version: selection_profile_mismatch\n'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual: |-
+    h2a --version: selection_profile_mismatch
+    
+  operator: 'match'
+  stack: |-
+    file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-entry.test.js:55:210
+    descriptor (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-entry.test.js:35:9)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-entry.test.js:55:98)
+    process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    async Test.run (node:internal/test_runner/test:1409:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:974:7)
+  ...
+# Subtest: U12 should refuse a missing execution descriptor on an otherwise valid image
+not ok 6 - U12 should refuse a missing execution descriptor on an otherwise valid image
+  ---
+  duration_ms: 795.81285
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-entry.test.js:10:84'
+  failureType: 'testCodeFailure'
+  error: |-
+    The input did not match the regular expression /ENOENT/. Input:
+    
+    'h2a --version: selection_profile_mismatch\n'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual: |-
+    h2a --version: selection_profile_mismatch
+    
+  operator: 'match'
+  stack: |-
+    file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-entry.test.js:58:125
+    descriptor (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-entry.test.js:35:9)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-entry.test.js:58:32)
+    process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    async Test.run (node:internal/test_runner/test:1409:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:974:7)
+  ...
+# Subtest: U12 should route the real mutable npm entry into the verified selected image
+not ok 7 - U12 should route the real mutable npm entry into the verified selected image
+  ---
+  duration_ms: 407.75582
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-entry.test.js:10:84'
+  failureType: 'testCodeFailure'
+  error: |-
+    h2a --version: selection_profile_mismatch
+    
+    
+    1 !== 0
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 0
+  actual: 1
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-entry.test.js:63:48)
+    process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    async Test.run (node:internal/test_runner/test:1409:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:974:7)
+  ...
+# Subtest: U04 should preserve the exact selected argv entry and PID when the real npm router imports it
+not ok 8 - U04 should preserve the exact selected argv entry and PID when the real npm router imports it
+  ---
+  duration_ms: 1317.32752
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-entry.test.js:10:84'
+  failureType: 'testCodeFailure'
+  error: |-
+    h2a --version: selection_profile_mismatch
+    
+    
+    1 !== 0
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 0
+  actual: 1
+  operator: 'strictEqual'
+  stack: |-
+    file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-entry.test.js:70:83
+    descriptor (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-entry.test.js:35:9)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-entry.test.js:70:8)
+    process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    async Test.run (node:internal/test_runner/test:1409:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:974:7)
+  ...
+1..8
+# tests 8
+# suites 0
+# pass 0
+# fail 8
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 11023.813673
+
+receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-entry.test.js"],"code":1,"signal":null,"tests":8,"invalid":false,"spawned":2,"leftovers":[]}

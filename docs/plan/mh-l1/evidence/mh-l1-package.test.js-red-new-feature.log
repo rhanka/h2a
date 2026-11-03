@@ -1,0 +1,35 @@
+command: /usr/bin/node --test packages/h2a/test/mh-l1-package.test.js
+private test root: /tmp/mh-l1-test-efZ49e
+TAP version 13
+# Subtest: MH-L1 prototype should pack/install twice offline with exact runtime, integrated transport and a real legacy node-pty probe
+not ok 1 - MH-L1 prototype should pack/install twice offline with exact runtime, integrated transport and a real legacy node-pty probe
+  ---
+  duration_ms: 3.385677
+  type: 'test'
+  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l1-package.test.js:13:1'
+  failureType: 'testCodeFailure'
+  error: "Cannot find module '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/scripts/mh-l1-package-prototype.mjs' imported from /home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l1-package.test.js"
+  code: 'ERR_MODULE_NOT_FOUND'
+  stack: |-
+    finalizeResolution (node:internal/modules/esm/resolve:275:11)
+    moduleResolve (node:internal/modules/esm/resolve:861:10)
+    defaultResolve (node:internal/modules/esm/resolve:985:11)
+    #cachedDefaultResolve (node:internal/modules/esm/loader:731:20)
+    ModuleLoader.resolve (node:internal/modules/esm/loader:708:38)
+    ModuleLoader.getModuleJobForImport (node:internal/modules/esm/loader:310:38)
+    onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:664:36)
+    TracingChannel.tracePromise (node:diagnostics_channel:350:14)
+    ModuleLoader.import (node:internal/modules/esm/loader:663:21)
+    defaultImportModuleDynamicallyForModule (node:internal/modules/esm/utils:222:31)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 135.876474
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l1-package.test.js"],"code":1,"signal":null,"elapsedMs":230}

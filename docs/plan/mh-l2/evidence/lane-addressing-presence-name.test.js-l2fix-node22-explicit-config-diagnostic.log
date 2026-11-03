@@ -1,0 +1,472 @@
+command: /usr/bin/node --test packages/h2a/test/lane-addressing-presence-name.test.js
+node: v22.22.1
+private test root: /tmp/mh-l2-test-XeI08H
+TAP version 13
+# Subtest: default host name reader follows CODEX_HOME
+ok 1 - default host name reader follows CODEX_HOME
+  ---
+  duration_ms: 3.749804
+  type: 'test'
+  ...
+# Subtest: reader: the LAST customTitle wins (a rename appends to the transcript)
+not ok 2 - reader: the LAST customTitle wins (a rename appends to the transcript)
+  ---
+  duration_ms: 1.790048
+  type: 'test'
+  location: '/tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/test/lane-addressing-presence-name.test.js:172:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    expected the newest title "auth", got undefined
+    + actual - expected
+    
+    + undefined
+    - 'auth'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'auth'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/test/lane-addressing-presence-name.test.js:186:12)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: reader: customTitle beats agentName even when agentName is newer
+not ok 3 - reader: customTitle beats agentName even when agentName is newer
+  ---
+  duration_ms: 0.603405
+  type: 'test'
+  location: '/tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/test/lane-addressing-presence-name.test.js:194:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + undefined
+    - 'TheTitle'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'TheTitle'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/test/lane-addressing-presence-name.test.js:207:12)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: reader: falls back to the first agentName when no customTitle exists
+not ok 4 - reader: falls back to the first agentName when no customTitle exists
+  ---
+  duration_ms: 0.548221
+  type: 'test'
+  location: '/tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/test/lane-addressing-presence-name.test.js:215:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + undefined
+    - 'FirstAgent'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'FirstAgent'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/test/lane-addressing-presence-name.test.js:230:12)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: reader: aiTitle is never returned, even as a last resort
+ok 5 - reader: aiTitle is never returned, even as a last resort
+  ---
+  duration_ms: 0.370327
+  type: 'test'
+  ...
+# Subtest: reader: finds a rename that sits far beyond the old 40-line head window
+not ok 6 - reader: finds a rename that sits far beyond the old 40-line head window
+  ---
+  duration_ms: 0.588817
+  type: 'test'
+  location: '/tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/test/lane-addressing-presence-name.test.js:256:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    RC-1 regression: a rename past line 40 must still be seen; got undefined
+    + actual - expected
+    
+    + undefined
+    - 'auth'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'auth'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/test/lane-addressing-presence-name.test.js:274:12)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: reader: a title older than the tail window yields undefined (not a wrong name)
+ok 7 - reader: a title older than the tail window yields undefined (not a wrong name)
+  ---
+  duration_ms: 0.984833
+  type: 'test'
+  ...
+# Subtest: reader: a file smaller than the tail window keeps its very first record
+not ok 8 - reader: a file smaller than the tail window keeps its very first record
+  ---
+  duration_ms: 0.49997
+  type: 'test'
+  location: '/tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/test/lane-addressing-presence-name.test.js:311:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + undefined
+    - 'OnlyOnLineOne'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'OnlyOnLineOne'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/test/lane-addressing-presence-name.test.js:323:12)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: reader: a truncated leading record in the tail window is ignored
+not ok 9 - reader: a truncated leading record in the tail window is ignored
+  ---
+  duration_ms: 0.615277
+  type: 'test'
+  location: '/tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/test/lane-addressing-presence-name.test.js:331:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + undefined
+    - 'TheCurrentOne'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'TheCurrentOne'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/test/lane-addressing-presence-name.test.js:352:12)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: reader: codex thread_name still resolves last-match-wins
+ok 10 - reader: codex thread_name still resolves last-match-wins
+  ---
+  duration_ms: 0.479252
+  type: 'test'
+  ...
+# Subtest: updatePresence({ name }) writes the new name and preserves every other field
+ok 11 - updatePresence({ name }) writes the new name and preserves every other field
+  ---
+  duration_ms: 5.22541
+  type: 'test'
+  ...
+# Subtest: updatePresence ignores an empty name rather than blanking a good one
+ok 12 - updatePresence ignores an empty name rather than blanking a good one
+  ---
+  duration_ms: 1.938367
+  type: 'test'
+  ...
+# Subtest: touch(): writes the new display name when the host title changed
+ok 13 - touch(): writes the new display name when the host title changed
+  ---
+  duration_ms: 2.004881
+  type: 'test'
+  ...
+# Subtest: touch(): leaves the name alone when the resolver reports no change
+ok 14 - touch(): leaves the name alone when the resolver reports no change
+  ---
+  duration_ms: 1.144433
+  type: 'test'
+  ...
+# Subtest: touch(): keeps the previous name when the title is unreadable
+ok 15 - touch(): keeps the previous name when the title is unreadable
+  ---
+  duration_ms: 1.225325
+  type: 'test'
+  ...
+# Subtest: touch(): a throwing resolver keeps the name and still advances the heartbeat
+ok 16 - touch(): a throwing resolver keeps the name and still advances the heartbeat
+  ---
+  duration_ms: 1.315334
+  type: 'test'
+  ...
+# Subtest: touch(): with no resolver installed the name is frozen (explicit --name)
+ok 17 - touch(): with no resolver installed the name is frozen (explicit --name)
+  ---
+  duration_ms: 1.08987
+  type: 'test'
+  ...
+# Subtest: end-to-end: a cwd-basename name converges to the host title and becomes findable
+not ok 18 - end-to-end: a cwd-basename name converges to the host title and becomes findable
+  ---
+  duration_ms: 2.022134
+  type: 'test'
+  location: '/tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/test/lane-addressing-presence-name.test.js:536:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    the auth lane must now be findable; got 0
+    
+    0 !== 1
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 1
+  actual: 0
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/test/lane-addressing-presence-name.test.js:586:12)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: defaultHostNameReaders.readTailLines: drops the truncated leading record
+ok 19 - defaultHostNameReaders.readTailLines: drops the truncated leading record
+  ---
+  duration_ms: 0.445367
+  type: 'test'
+  ...
+# Subtest: defaultHostNameReaders.readTailLines: keeps the first record of a small file
+ok 20 - defaultHostNameReaders.readTailLines: keeps the first record of a small file
+  ---
+  duration_ms: 0.276941
+  type: 'test'
+  ...
+# Subtest: defaultHostNameReaders.readTailLines: returns [] for a missing file
+ok 21 - defaultHostNameReaders.readTailLines: returns [] for a missing file
+  ---
+  duration_ms: 0.122911
+  type: 'test'
+  ...
+# Subtest: refresher: a repeated MISS does not re-walk the filesystem
+ok 22 - refresher: a repeated MISS does not re-walk the filesystem
+  ---
+  duration_ms: 0.28202
+  type: 'test'
+  ...
+# Subtest: refresher: the negative cache expires, so a late transcript is still found
+ok 23 - refresher: the negative cache expires, so a late transcript is still found
+  ---
+  duration_ms: 0.093446
+  type: 'test'
+  ...
+# Subtest: refresher: a HIT is memoized — the walk happens once, not per heartbeat
+ok 24 - refresher: a HIT is memoized — the walk happens once, not per heartbeat
+  ---
+  duration_ms: 0.513456
+  type: 'test'
+  ...
+# Subtest: reader: a customTitle on a non-rename record is IGNORED (policy matches restore.ts)
+not ok 25 - reader: a customTitle on a non-rename record is IGNORED (policy matches restore.ts)
+  ---
+  duration_ms: 0.453273
+  type: 'test'
+  location: '/tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/test/lane-addressing-presence-name.test.js:750:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    only a type:custom-title record may set the display name
+    + actual - expected
+    
+    + undefined
+    - 'TheRealTitle'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'TheRealTitle'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/test/lane-addressing-presence-name.test.js:783:12)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: reader: agentName is NOT subject to the custom-title type check
+not ok 26 - reader: agentName is NOT subject to the custom-title type check
+  ---
+  duration_ms: 0.554823
+  type: 'test'
+  location: '/tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/test/lane-addressing-presence-name.test.js:793:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + undefined
+    - 'TheAgent'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'TheAgent'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/test/lane-addressing-presence-name.test.js:805:12)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: reader: a whitespace-only title is rejected, not written verbatim
+ok 27 - reader: a whitespace-only title is rejected, not written verbatim
+  ---
+  duration_ms: 0.368393
+  type: 'test'
+  ...
+# Subtest: reader: titles are trimmed and length-capped before reaching presence
+not ok 28 - reader: titles are trimmed and length-capped before reaching presence
+  ---
+  duration_ms: 0.40965
+  type: 'test'
+  location: '/tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/test/lane-addressing-presence-name.test.js:830:1'
+  failureType: 'testCodeFailure'
+  error: "Cannot read properties of undefined (reading 'length')"
+  code: 'ERR_TEST_FAILURE'
+  name: 'TypeError'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/test/lane-addressing-presence-name.test.js:842:25)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: resolveAutoOpen: installs a title refresher only when --name was NOT given
+ok 29 - resolveAutoOpen: installs a title refresher only when --name was NOT given
+  ---
+  duration_ms: 20.642482
+  type: 'test'
+  ...
+# Subtest: refresher: a transcript that appears LATE resolves to its title (absent -> present)
+ok 30 - refresher: a transcript that appears LATE resolves to its title (absent -> present)
+  ---
+  duration_ms: 0.992386
+  type: 'test'
+  ...
+# Subtest: refresher: a rename A -> B -> A is followed each way
+not ok 31 - refresher: a rename A -> B -> A is followed each way
+  ---
+  duration_ms: 1.326446
+  type: 'test'
+  location: '/tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/test/lane-addressing-presence-name.test.js:934:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    undefined !== 'A'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'A'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/test/lane-addressing-presence-name.test.js:947:12)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: resolveAutoOpen: no refresher is installed when --host is omitted
+ok 32 - resolveAutoOpen: no refresher is installed when --host is omitted
+  ---
+  duration_ms: 5.327902
+  type: 'test'
+  ...
+# Subtest: resolveAutoOpen: host 'remote' resolves a session id but installs NO refresher
+ok 33 - resolveAutoOpen: host 'remote' resolves a session id but installs NO refresher
+  ---
+  duration_ms: 7.380283
+  type: 'test'
+  ...
+# Subtest: reader: a Codex thread_name is trimmed, whitespace-rejected and length-capped
+ok 34 - reader: a Codex thread_name is trimmed, whitespace-rejected and length-capped
+  ---
+  duration_ms: 0.29765
+  type: 'test'
+  ...
+# Subtest: reader: control and bidi characters are stripped from a Claude display name
+not ok 35 - reader: control and bidi characters are stripped from a Claude display name
+  ---
+  duration_ms: 0.721047
+  type: 'test'
+  location: '/tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/test/lane-addressing-presence-name.test.js:1040:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    bidi overrides and control chars must never reach presence
+    + actual - expected
+    
+    + undefined
+    - 'authgnitnuocca'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'authgnitnuocca'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/test/lane-addressing-presence-name.test.js:1057:12)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: reader: a Codex thread_name is also stripped of control/bidi characters
+ok 36 - reader: a Codex thread_name is also stripped of control/bidi characters
+  ---
+  duration_ms: 0.245873
+  type: 'test'
+  ...
+1..36
+# tests 36
+# suites 0
+# pass 24
+# fail 12
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 395.405836
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/lane-addressing-presence-name.test.js"],"code":1,"signal":null,"elapsedMs":485}

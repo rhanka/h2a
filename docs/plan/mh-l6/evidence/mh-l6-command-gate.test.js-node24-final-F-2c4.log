@@ -1,0 +1,64 @@
+command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-command-gate.test.js
+node: v24.21.0
+private root: /tmp/mh-l6-test-elXuPO
+case: all cases in explicit file
+TAP version 13
+# Subtest: F should refuse a plain-file occupant instead of replacing it
+ok 1 - F should refuse a plain-file occupant instead of replacing it
+  ---
+  duration_ms: 36.834379
+  type: 'test'
+  ...
+# Subtest: F should refuse a directory occupant as force-required
+ok 2 - F should refuse a directory occupant as force-required
+  ---
+  duration_ms: 34.779401
+  type: 'test'
+  ...
+# Subtest: F should refuse a foreign command link instead of replacing it
+ok 3 - F should refuse a foreign command link instead of replacing it
+  ---
+  duration_ms: 9.529727
+  type: 'test'
+  ...
+# Subtest: F should refuse a dangling command link for diagnosis
+ok 4 - F should refuse a dangling command link for diagnosis
+  ---
+  duration_ms: 3.866698
+  type: 'test'
+  ...
+# Subtest: F should adopt the legacy link and reinstall the managed link
+ok 5 - F should adopt the legacy link and reinstall the managed link
+  ---
+  duration_ms: 8.80915
+  type: 'test'
+  ...
+# Subtest: F should force an occupied command link only on explicit override
+ok 6 - F should force an occupied command link only on explicit override
+  ---
+  duration_ms: 6.784951
+  type: 'test'
+  ...
+# Subtest: F should force foreign and dangling links only on explicit override
+ok 7 - F should force foreign and dangling links only on explicit override
+  ---
+  duration_ms: 8.204803
+  type: 'test'
+  ...
+# Subtest: F should record an unforced installation without overriding
+ok 8 - F should record an unforced installation without overriding
+  ---
+  duration_ms: 5.116099
+  type: 'test'
+  ...
+1..8
+# tests 8
+# suites 0
+# pass 8
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 148.617846
+
+receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-command-gate.test.js"],"code":0,"signal":null,"tests":8,"invalid":false,"spawned":1,"leftovers":[]}

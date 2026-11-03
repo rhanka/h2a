@@ -1,0 +1,49 @@
+{"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","scripts/mh-l2-mutate.mjs","mac"],"pid":54551,"code":0,"signal":null,"elapsedMs":1418}
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l2-auth.test.js
+node: v24.21.0
+private test root: /tmp/mh-l2-test-gqqMKQ
+✔ M18c should never send an application body when a challenged TCP socket is replaced (159.314286ms)
+✔ authenticated SSE should preserve UTF-8 across fragmented source chunks before stdout forwarding (171.583613ms)
+✖ M03/M18b/c should bind challenges and every frame, reject decoy, replay, expiry and saturation (1.923331ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 2
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 394.071973
+
+✖ failing tests:
+
+test at packages/h2a/test/mh-l2-auth.test.js:58:1
+✖ M03/M18b/c should bind challenges and every frame, reject decoy, replay, expiry and saturation (1.923331ms)
+  AssertionError [ERR_ASSERTION]: Missing expected exception.
+      at TestContext.<anonymous> (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mh-l2-auth.test.js:71:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: /authentication_invalid/,
+    operator: 'throws',
+    diff: 'simple'
+  }
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l2-auth.test.js"],"code":1,"signal":null,"elapsedMs":422}
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l2-auth.test.js
+node: v24.21.0
+private test root: /tmp/mh-l2-test-JyHDKi
+✔ M18c should never send an application body when a challenged TCP socket is replaced (828.393275ms)
+✔ authenticated SSE should preserve UTF-8 across fragmented source chunks before stdout forwarding (23.576973ms)
+✔ M03/M18b/c should bind challenges and every frame, reject decoy, replay, expiry and saturation (3.160229ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 909.872277
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l2-auth.test.js"],"code":0,"signal":null,"elapsedMs":933}
+

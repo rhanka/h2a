@@ -1,0 +1,285 @@
+command: /usr/bin/node --test packages/h2a/test/mh-l2-live.test.js
+node: v22.22.1
+private test root: /tmp/mh-l2-test-Jo3Yxc
+TAP version 13
+# Subtest: owner A should accept passive live reservation without enabling a product live coordinator
+ok 1 - owner A should accept passive live reservation without enabling a product live coordinator
+  ---
+  duration_ms: 184.199366
+  type: 'test'
+  ...
+# Subtest: passive source should authenticate durable delegation, reserve idempotently and refuse a conflicting step
+ok 2 - passive source should authenticate durable delegation, reserve idempotently and refuse a conflicting step
+  ---
+  duration_ms: 416.262596
+  type: 'test'
+  ...
+# Subtest: passive source should refuse signed authorization with MAC
+ok 3 - passive source should refuse signed authorization with MAC
+  ---
+  duration_ms: 376.274707
+  type: 'test'
+  ...
+# Subtest: passive source should refuse signed authorization with old generation
+ok 4 - passive source should refuse signed authorization with old generation
+  ---
+  duration_ms: 151.151493
+  type: 'test'
+  ...
+# Subtest: passive source should refuse signed authorization with old publication epoch
+ok 5 - passive source should refuse signed authorization with old publication epoch
+  ---
+  duration_ms: 68.601381
+  type: 'test'
+  ...
+# Subtest: passive source should refuse signed authorization with old process
+ok 6 - passive source should refuse signed authorization with old process
+  ---
+  duration_ms: 212.042354
+  type: 'test'
+  ...
+# Subtest: passive source should refuse signed authorization with old build
+ok 7 - passive source should refuse signed authorization with old build
+  ---
+  duration_ms: 602.191351
+  type: 'test'
+  ...
+# Subtest: passive source should refuse signed authorization with new generation
+ok 8 - passive source should refuse signed authorization with new generation
+  ---
+  duration_ms: 413.188156
+  type: 'test'
+  ...
+# Subtest: passive source should refuse signed authorization with new predecessor
+ok 9 - passive source should refuse signed authorization with new predecessor
+  ---
+  duration_ms: 390.230952
+  type: 'test'
+  ...
+# Subtest: passive source should refuse signed authorization with new epoch
+ok 10 - passive source should refuse signed authorization with new epoch
+  ---
+  duration_ms: 126.509305
+  type: 'test'
+  ...
+# Subtest: passive source should refuse signed authorization with new endpoint
+ok 11 - passive source should refuse signed authorization with new endpoint
+  ---
+  duration_ms: 326.535551
+  type: 'test'
+  ...
+# Subtest: passive source should refuse signed authorization with new build
+ok 12 - passive source should refuse signed authorization with new build
+  ---
+  duration_ms: 459.707326
+  type: 'test'
+  ...
+# Subtest: passive source should refuse signed authorization with new manifest
+ok 13 - passive source should refuse signed authorization with new manifest
+  ---
+  duration_ms: 251.055149
+  type: 'test'
+  ...
+# Subtest: passive source should refuse signed authorization with new root
+ok 14 - passive source should refuse signed authorization with new root
+  ---
+  duration_ms: 238.490054
+  type: 'test'
+  ...
+# Subtest: passive source should refuse signed authorization with new UID
+ok 15 - passive source should refuse signed authorization with new UID
+  ---
+  duration_ms: 258.016234
+  type: 'test'
+  ...
+# Subtest: passive source should refuse signed authorization with new namespace
+ok 16 - passive source should refuse signed authorization with new namespace
+  ---
+  duration_ms: 191.613658
+  type: 'test'
+  ...
+# Subtest: passive source should refuse signed authorization with new process frame
+ok 17 - passive source should refuse signed authorization with new process frame
+  ---
+  duration_ms: 196.359056
+  type: 'test'
+  ...
+# Subtest: passive source should refuse signed authorization with same process
+ok 18 - passive source should refuse signed authorization with same process
+  ---
+  duration_ms: 61.961203
+  type: 'test'
+  ...
+# Subtest: passive source should refuse signed authorization with wrong controller
+ok 19 - passive source should refuse signed authorization with wrong controller
+  ---
+  duration_ms: 68.044409
+  type: 'test'
+  ...
+# Subtest: passive source should refuse signed authorization with wrong handover
+ok 20 - passive source should refuse signed authorization with wrong handover
+  ---
+  duration_ms: 263.888111
+  type: 'test'
+  ...
+# Subtest: passive source should refuse signed authorization with wrong transaction epoch
+ok 21 - passive source should refuse signed authorization with wrong transaction epoch
+  ---
+  duration_ms: 84.023857
+  type: 'test'
+  ...
+# Subtest: passive source should refuse signed authorization with stale session inventory
+ok 22 - passive source should refuse signed authorization with stale session inventory
+  ---
+  duration_ms: 8183.086372
+  type: 'test'
+  ...
+# Subtest: passive source should refuse signed authorization with wrong selection epoch
+ok 23 - passive source should refuse signed authorization with wrong selection epoch
+  ---
+  duration_ms: 1252.591916
+  type: 'test'
+  ...
+# Subtest: passive source should refuse signed authorization with expired
+ok 24 - passive source should refuse signed authorization with expired
+  ---
+  duration_ms: 1047.729772
+  type: 'test'
+  ...
+# Subtest: passive source should refuse signed authorization with not yet valid
+ok 25 - passive source should refuse signed authorization with not yet valid
+  ---
+  duration_ms: 300.57465
+  type: 'test'
+  ...
+# Subtest: passive source should refuse durable revoked authority
+ok 26 - passive source should refuse durable revoked authority
+  ---
+  duration_ms: 282.036127
+  type: 'test'
+  ...
+# Subtest: passive source should refuse durable missing delegation
+ok 27 - passive source should refuse durable missing delegation
+  ---
+  duration_ms: 296.630648
+  type: 'test'
+  ...
+# Subtest: passive source should refuse durable wrong controller epoch
+ok 28 - passive source should refuse durable wrong controller epoch
+  ---
+  duration_ms: 253.822249
+  type: 'test'
+  ...
+# Subtest: passive source should refuse durable wrong controller process
+ok 29 - passive source should refuse durable wrong controller process
+  ---
+  duration_ms: 256.486504
+  type: 'test'
+  ...
+# Subtest: passive source should refuse durable wrong controller build
+ok 30 - passive source should refuse durable wrong controller build
+  ---
+  duration_ms: 194.290106
+  type: 'test'
+  ...
+# Subtest: passive source should refuse durable wrong target manifest
+ok 31 - passive source should refuse durable wrong target manifest
+  ---
+  duration_ms: 66.768939
+  type: 'test'
+  ...
+# Subtest: passive source should refuse durable wrong component journal
+ok 32 - passive source should refuse durable wrong component journal
+  ---
+  duration_ms: 152.560086
+  type: 'test'
+  ...
+# Subtest: passive source should refuse durable wrong receipt
+ok 33 - passive source should refuse durable wrong receipt
+  ---
+  duration_ms: 203.628764
+  type: 'test'
+  ...
+# Subtest: passive source should refuse durable missing ticket
+ok 34 - passive source should refuse durable missing ticket
+  ---
+  duration_ms: 63.886692
+  type: 'test'
+  ...
+# Subtest: passive source should refuse durable unselected installation
+ok 35 - passive source should refuse durable unselected installation
+  ---
+  duration_ms: 59.64195
+  type: 'test'
+  ...
+# Subtest: passive source should refuse missing, changed or expired private ticket and receipt
+ok 36 - passive source should refuse missing, changed or expired private ticket and receipt
+  ---
+  duration_ms: 348.492665
+  type: 'test'
+  ...
+# Subtest: passive source should revalidate source, coordinator, inventory and delegation before new mutations
+ok 37 - passive source should revalidate source, coordinator, inventory and delegation before new mutations
+  ---
+  duration_ms: 404.095121
+  type: 'test'
+  ...
+# Subtest: passive retirement should preserve admitted G0 work and fence owners only after authenticated concordant publication
+ok 38 - passive retirement should preserve admitted G0 work and fence owners only after authenticated concordant publication
+  ---
+  duration_ms: 1141.470621
+  type: 'test'
+  ...
+# Subtest: passive source should refuse publication with wrong MAC before fencing or closing
+ok 39 - passive source should refuse publication with wrong MAC before fencing or closing
+  ---
+  duration_ms: 965.740689
+  type: 'test'
+  ...
+# Subtest: passive source should refuse publication with wrong authorization before fencing or closing
+ok 40 - passive source should refuse publication with wrong authorization before fencing or closing
+  ---
+  duration_ms: 473.301988
+  type: 'test'
+  ...
+# Subtest: passive source should refuse publication with wrong target before fencing or closing
+ok 41 - passive source should refuse publication with wrong target before fencing or closing
+  ---
+  duration_ms: 491.597953
+  type: 'test'
+  ...
+# Subtest: passive source should refuse publication with wrong checkpoint before fencing or closing
+ok 42 - passive source should refuse publication with wrong checkpoint before fencing or closing
+  ---
+  duration_ms: 369.677169
+  type: 'test'
+  ...
+# Subtest: passive source should require a frozen checkpoint, unchanged inventory and current delegation at publication
+ok 43 - passive source should require a frozen checkpoint, unchanged inventory and current delegation at publication
+  ---
+  duration_ms: 12622.523431
+  type: 'test'
+  ...
+# Subtest: uncommitted publication or contradiction should prevent expiration, abort and operator stop from reopening G0
+ok 44 - uncommitted publication or contradiction should prevent expiration, abort and operator stop from reopening G0
+  ---
+  duration_ms: 1053.733026
+  type: 'test'
+  ...
+# Subtest: unpublished live source should abort on expiry and reopen only after durable ABORTED
+ok 45 - unpublished live source should abort on expiry and reopen only after durable ABORTED
+  ---
+  duration_ms: 381.604961
+  type: 'test'
+  ...
+1..45
+# tests 45
+# suites 0
+# pass 45
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 36340.903948
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l2-live.test.js"],"code":0,"signal":null,"elapsedMs":36429}

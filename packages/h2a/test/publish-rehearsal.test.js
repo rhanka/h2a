@@ -91,7 +91,7 @@ test("the rehearsal stamps a unique CI version after build and before packing", 
   const steps = REHEARSAL.jobs["rehearse-publish"].steps;
   const stamp = steps.findIndex((step) => step.run === "node scripts/rehearsal-version.mjs");
   const build = steps.findIndex((step) => step.run === "npm run build");
-  const pack = steps.findIndex((step) => String(step.run ?? "").includes("npm pack --workspace"));
+  const pack = steps.findIndex((step) => String(step.run ?? "").includes("node scripts/pack-candidate.mjs"));
   assert.ok(build < stamp && stamp < pack, "stamp must run between build and pack");
   assert.equal(steps[stamp].if, undefined);
   assert.equal(steps[stamp]["continue-on-error"], undefined);
@@ -277,15 +277,15 @@ test("the rehearsal packs the five release tarballs exactly like verify, then sm
   const verify = RELEASE.jobs.verify;
   const rehearsal = REHEARSAL.jobs["rehearse-publish"];
   const verifyPack = (verify.steps ?? []).find((step) =>
-    String(step.run ?? "").includes("npm pack --workspace"),
+    String(step.run ?? "").includes("node scripts/pack-candidate.mjs"),
   );
   const rehearsalPack = (rehearsal.steps ?? []).find((step) =>
-    String(step.run ?? "").includes("npm pack --workspace"),
+    String(step.run ?? "").includes("node scripts/pack-candidate.mjs"),
   );
   assert.ok(verifyPack && rehearsalPack, "both verify and the rehearsal must pack the workspaces");
   for (const pkg of ["@sentropic/h2a", "@sentropic/h2a-runtime", "@sentropic/h2a-cli", "@sentropic/track", "@sentropic/focus"]) {
     assert.ok(
-      String(rehearsalPack.run).includes(pkg),
+      readFileSync(resolve(REPO_ROOT, "scripts/pack-candidate.mjs"), "utf8").includes(pkg.replace("@sentropic/", "'") + "'"),
       `the rehearsal must pack ${pkg} — the dry-run publish MUST address these exact bytes`,
     );
   }
@@ -327,7 +327,7 @@ test("the rehearsal builds before packing, like verify needs before pack", () =>
   const steps = rehearsal.steps ?? [];
   const ciIdx = steps.findIndex((step) => String(step.run ?? "").trim() === "npm ci");
   const buildIdx = steps.findIndex((step) => String(step.run ?? "").trim() === "npm run build");
-  const packIdx = steps.findIndex((step) => String(step.run ?? "").includes("npm pack --workspace"));
+  const packIdx = steps.findIndex((step) => String(step.run ?? "").includes("node scripts/pack-candidate.mjs"));
   assert.ok(ciIdx !== -1, "the rehearsal must install dependencies with npm ci");
   assert.ok(buildIdx !== -1, "the rehearsal must build (npm run build) before packing — dist/ is gitignored");
   assert.ok(packIdx !== -1, "the rehearsal must pack the workspaces");

@@ -1,0 +1,47 @@
+command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-authority.test.js
+node: v24.21.0
+private root: /tmp/mh-l6-test-g9zETy
+case: F should refuse a foreign controller with a CLI-level reason
+TAP version 13
+# Subtest: F should refuse a foreign controller with a CLI-level reason
+not ok 1 - F should refuse a foreign controller with a CLI-level reason
+  ---
+  duration_ms: 124.540919
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-f2b-YWVgcA/packages/h2a/test/mh-l6-authority.test.js:8:67'
+  failureType: 'testCodeFailure'
+  error: |-
+    The input did not match the regular expression /upgrade_authority_foreign/. Input:
+    
+    'Error: upgrade_authority_revoked'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual:
+  error: 'upgrade_authority_revoked'
+  stack: |-
+    assertUpgradeAuthority (file:///tmp/mh-l3-qualification-f2b-YWVgcA/packages/h2a/dist/runtime/upgrade/upgrade-authority.js:20:15)
+    file:///tmp/mh-l3-qualification-f2b-YWVgcA/packages/h2a/test/mh-l6-authority.test.js:42:23
+    getActual (node:assert:611:5)
+    strict.throws (node:assert:759:24)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-f2b-YWVgcA/packages/h2a/test/mh-l6-authority.test.js:42:10)
+    async Test.run (node:internal/test_runner/test:1409:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)
+  operator: 'throws'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-f2b-YWVgcA/packages/h2a/test/mh-l6-authority.test.js:42:10)
+    async Test.run (node:internal/test_runner/test:1409:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 174.831104
+
+receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-authority.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

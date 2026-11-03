@@ -1,0 +1,17 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l2-cold.test.js
+node: v24.21.0
+private test root: /tmp/mh-l2-test-lYUORi
+✔ M23/M24 should persist internal stop before close, reconcile lost ACK and never reopen (3950.736978ms)
+✔ operator pause should remain armed after timeout, cancel explicitly before commit and never clear on upgrade (115.59939ms)
+✔ M25 should durably consume at most three attempts, refuse live/unknown candidates and preserve pins (240.047966ms)
+✔ M24 should keep admissions closed after indeterminate fsync and reconcile the committed journal before close (22.756217ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 4378.679425
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l2-cold.test.js"],"code":0,"signal":null,"elapsedMs":4411}

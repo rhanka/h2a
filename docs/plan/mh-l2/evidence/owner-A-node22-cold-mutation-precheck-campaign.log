@@ -1,0 +1,72 @@
+{"command":["/usr/bin/node","scripts/mh-l2-mutate.mjs","precheck"],"pid":50186,"code":1,"signal":null,"elapsedMs":37707}
+command: /usr/bin/node --test packages/h2a/test/mh-l2-image.test.js
+node: v22.22.1
+private test root: /tmp/mh-l2-test-r6DD2V
+TAP version 13
+# {"event":"drive-consent.full-verification","durationMs":0.00783499999988635,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: nominal image should precheck in isolation, cold-stop G0 and start one reserved successor
+not ok 1 - nominal image should precheck in isolation, cold-stop G0 and start one reserved successor
+  ---
+  duration_ms: 9818.732284
+  type: 'test'
+  location: '/tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mh-l2-image.test.js:11:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    {"state":"PRECHECKED","handoverId":"h"}
+    
+    200 !== 409
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 409
+  actual: 200
+  operator: 'strictEqual'
+  stack: |-
+    call (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mh-l2-image.test.js:68:52)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async TestContext.<anonymous> (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mh-l2-image.test.js:70:21)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 9996.886435
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l2-image.test.js"],"code":1,"signal":null,"elapsedMs":10094}
+command: /usr/bin/node --test packages/h2a/test/mh-l2-image.test.js
+node: v22.22.1
+private test root: /tmp/mh-l2-test-TsPc2U
+TAP version 13
+# {"event":"drive-consent.full-verification","durationMs":0.005020000000513392,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: nominal image should precheck in isolation, cold-stop G0 and start one reserved successor
+not ok 1 - nominal image should precheck in isolation, cold-stop G0 and start one reserved successor
+  ---
+  duration_ms: 19636.28238
+  type: 'test'
+  location: '/tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mh-l2-image.test.js:11:1'
+  failureType: 'testCodeFailure'
+  error: 'precheck_failed'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    runIsolatedPrecheck (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/src/runtime/handover/precheck.js:58:39)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async TestContext.<anonymous> (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mh-l2-image.test.js:56:22)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 19778.560988
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l2-image.test.js"],"code":1,"signal":null,"elapsedMs":19861}
+

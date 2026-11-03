@@ -1,0 +1,38 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node scripts/mh-l2-test.mjs packages/h2a/test/mh-l2-live-central.test.js owner-A-node24-successor-control-red
+node: v24.21.0
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l2-live-central.test.js
+node: v24.21.0
+private test root: /tmp/mh-l2-test-xW96HV
+{"event":"drive-consent.full-verification","durationMs":0.00859600000330829,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✖ real .7 source should accept the external peer, preserve its admitted large reply and retire without deleting the successor marker (74547.289062ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 74634.40223
+
+✖ failing tests:
+
+test at packages/h2a/test/mh-l2-live-central.test.js:17:1
+✖ real .7 source should accept the external peer, preserve its admitted large reply and retire without deleting the successor marker (74547.289062ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  'CLOSED' !== 'ACTIVE'
+  
+      at TestContext.<anonymous> (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mh-l2-live-central.test.js:142:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'CLOSED',
+    expected: 'ACTIVE',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l2-live-central.test.js"],"code":1,"signal":null,"elapsedMs":74664}
+
+exitCode: 1

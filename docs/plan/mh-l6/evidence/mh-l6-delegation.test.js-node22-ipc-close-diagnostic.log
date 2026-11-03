@@ -1,0 +1,33 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-delegation.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-RY0QUc
+case: all cases in explicit file
+TAP version 13
+# DIAG cleanup start null null true
+# DIAG disconnect
+# DIAG stdout close 1 4
+# DIAG stderr close 2 4
+# DIAG exit 0 null 2 4
+# Subtest: T5 should revoke the source before the exact future controller acquires and acknowledges once
+not ok 1 - T5 should revoke the source before the exact future controller acquires and acknowledges once
+  ---
+  duration_ms: 280.064307
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-delegation.test.js:11:94'
+  failureType: 'cancelledByParent'
+  error: 'Promise resolution is still pending but the event loop has already resolved'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    process.emit (node:events:519:28)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 0
+# cancelled 1
+# skipped 0
+# todo 0
+# duration_ms 419.653276
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-delegation.test.js"],"code":1,"signal":null,"tests":1,"invalid":true,"spawned":3,"leftovers":[]}

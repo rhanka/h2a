@@ -1,0 +1,23 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l3-central.test.js
+node: v22.22.1
+private root: /tmp/mh-l3-test-wY17sG
+case: real central should keep one activation past its lease and resume with fencing and idempotent attempts
+TAP version 13
+# {"event":"drive-consent.full-verification","durationMs":0.006161999999960699,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: real central should keep one activation past its lease and resume with fencing and idempotent attempts
+ok 1 - real central should keep one activation past its lease and resume with fencing and idempotent attempts
+  ---
+  duration_ms: 312.857469
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 600.534011
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l3-central.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

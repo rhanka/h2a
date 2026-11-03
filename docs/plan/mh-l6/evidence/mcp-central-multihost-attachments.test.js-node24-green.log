@@ -1,0 +1,35 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test --test-reporter=tap packages/h2a/test/mcp-central-multihost-attachments.test.js
+node: v24.22.0
+private root: /tmp/mh-l6-test-pm1lup
+case: all cases in explicit file
+TAP version 13
+# {"event":"drive-consent.full-verification","durationMs":0.014087000000017724,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# h2a mcp-serve: identity migration: claude:repo-a:d2d29d51e211 reads legacy claude:repo-a; no proof of possession of a legacy key — mint net-new keys
+# h2a mcp-serve: auto-opened session for claude:repo-a:d2d29d51e211
+# h2a mcp-serve: identity ready: claude:repo-a:d2d29d51e211 (signing available)
+# h2a mcp-serve: identity migration: codex:repo-b:7648491ba9ea reads legacy codex:repo-b; no proof of possession of a legacy key — mint net-new keys
+# h2a mcp-serve: auto-opened session for codex:repo-b:7648491ba9ea
+# h2a mcp-serve: identity ready: codex:repo-b:7648491ba9ea (signing available)
+# h2a mcp-serve: identity migration: agy:repo-c:154700c5d8df reads legacy agy:repo-c; no proof of possession of a legacy key — mint net-new keys
+# h2a mcp-serve: auto-opened session for agy:repo-c:154700c5d8df
+# h2a mcp-serve: identity ready: agy:repo-c:154700c5d8df (signing available)
+# h2a mcp-serve: identity migration: Muse:repo-a:c149f98ec333 reads legacy Muse:repo-a; no proof of possession of a legacy key — mint net-new keys
+# h2a mcp-serve: auto-opened session for Muse:repo-a:c149f98ec333
+# h2a mcp-serve: identity ready: Muse:repo-a:c149f98ec333 (signing available)
+# Subtest: H1: one shared service carries isolated attachments from three native CLIs
+ok 1 - H1: one shared service carries isolated attachments from three native CLIs
+  ---
+  duration_ms: 10564.153832
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 11153.0763
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","--test-reporter=tap","packages/h2a/test/mcp-central-multihost-attachments.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":5,"leftovers":[]}

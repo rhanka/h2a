@@ -1,0 +1,64 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-entry.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-bXW278
+case: all cases in explicit file
+TAP version 13
+# Subtest: U12 should reject an external loading profile on the real direct image CLI before reporting its version
+ok 1 - U12 should reject an external loading profile on the real direct image CLI before reporting its version
+  ---
+  duration_ms: 4508.12383
+  type: 'test'
+  ...
+# Subtest: U12 should execute the real image CLI with qualified memory options and its exact version
+ok 2 - U12 should execute the real image CLI with qualified memory options and its exact version
+  ---
+  duration_ms: 2054.762896
+  type: 'test'
+  ...
+# Subtest: U12 should require the immutable loader on the real direct image path
+ok 3 - U12 should require the immutable loader on the real direct image path
+  ---
+  duration_ms: 907.513644
+  type: 'test'
+  ...
+# Subtest: U12 should verify the loader before even its first instruction executes on a direct image path
+ok 4 - U12 should verify the loader before even its first instruction executes on a direct image path
+  ---
+  duration_ms: 952.114354
+  type: 'test'
+  ...
+# Subtest: U12 should refuse an unknown execution descriptor even when its payload hash is valid
+ok 5 - U12 should refuse an unknown execution descriptor even when its payload hash is valid
+  ---
+  duration_ms: 1469.334467
+  type: 'test'
+  ...
+# Subtest: U12 should refuse a missing execution descriptor on an otherwise valid image
+ok 6 - U12 should refuse a missing execution descriptor on an otherwise valid image
+  ---
+  duration_ms: 1695.754127
+  type: 'test'
+  ...
+# Subtest: U12 should route the real mutable npm entry into the verified selected image
+ok 7 - U12 should route the real mutable npm entry into the verified selected image
+  ---
+  duration_ms: 2498.884631
+  type: 'test'
+  ...
+# Subtest: U04 should preserve the exact selected argv entry and PID when the real npm router imports it
+ok 8 - U04 should preserve the exact selected argv entry and PID when the real npm router imports it
+  ---
+  duration_ms: 2816.755015
+  type: 'test'
+  ...
+1..8
+# tests 8
+# suites 0
+# pass 8
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 17639.913353
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-entry.test.js"],"code":0,"signal":null,"tests":8,"invalid":false,"spawned":2,"leftovers":[]}

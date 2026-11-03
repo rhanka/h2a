@@ -1,0 +1,75 @@
+{
+  "recipe": {
+    "schemaVersion": 1,
+    "target": "x86_64-linux-gnu.2.31",
+    "napiVersion": 8,
+    "nodeMajors": [
+      22,
+      24
+    ],
+    "nodeAbis": [
+      "127",
+      "137"
+    ],
+    "sourceDateEpoch": "1767225600",
+    "archives": [
+      {
+        "name": "zig.tar.xz",
+        "url": "https://ziglang.org/download/0.14.1/zig-x86_64-linux-0.14.1.tar.xz",
+        "sha256": "24aeeec8af16c381934a6cd7d95c807a8cb2cf7df9fa40d359aa884195c4716c",
+        "root": "zig-x86_64-linux-0.14.1"
+      },
+      {
+        "name": "node-headers.tar.xz",
+        "url": "https://nodejs.org/dist/v22.22.1/node-v22.22.1-headers.tar.xz",
+        "sha256": "3f435f2ac1ab363f8220f4beb60c7493a3f680918a7426ff83b7d4c6e1d314fa",
+        "root": "node-v22.22.1"
+      },
+      {
+        "name": "node-pty.tgz",
+        "url": "https://registry.npmjs.org/node-pty/-/node-pty-1.1.0.tgz",
+        "sha256": "c7517f19083ddcb05f276904680eb2b11a6b5ecab778b8e4e5685a6d645b3f60",
+        "root": "package"
+      },
+      {
+        "name": "node-addon-api.tgz",
+        "url": "https://registry.npmjs.org/node-addon-api/-/node-addon-api-7.1.1.tgz",
+        "sha256": "b10455d15a977c0cd17a1cb0eb679e03d939f8ef8d4302eb33e1f78dacc71f82",
+        "root": "package"
+      }
+    ],
+    "flags": [
+      "c++",
+      "-target",
+      "x86_64-linux-gnu.2.31",
+      "-shared",
+      "-fPIC",
+      "-std=c++17",
+      "-O2",
+      "-g0",
+      "-s",
+      "-DNAPI_VERSION=8",
+      "-DNODE_ADDON_API_CPP_EXCEPTIONS",
+      "-DNODE_GYP_MODULE_NAME=pty",
+      "-ffile-prefix-map=@STAGE@=/h2a-release",
+      "-fmacro-prefix-map=@STAGE@=/h2a-release",
+      "-I@STAGE@/node-headers/node-v22.22.1/include/node",
+      "-I@STAGE@/node-addon-api/package",
+      "@STAGE@/node-pty/package/src/unix/pty.cc",
+      "-lutil",
+      "-pthread",
+      "-o",
+      "@BINARY@"
+    ]
+  },
+  "artifact": {
+    "schemaVersion": 1,
+    "recipeDigest": "sha256:5dec0d06f275a3a0be2987b5769b800833413db40c2942a6c8f8d6cad7e56387",
+    "payloadDigest": "sha256:3223226a22cdbe4ec144606544978829c1a9e7c1d0b94e4a24c214aa52cea34f",
+    "binaryDigest": "sha256:b6bc6f5c7562d0095da7e7fb6ff05b1a76206b0b796cef75ba66f9a85ea058c8"
+  },
+  "archive": {
+    "path": "artifacts/node-pty-linux-x64-gnu-napi8.tgz",
+    "sha256": "df515dce2883d24f64ce10663d864ee65918e0840adb42037ad7b3bad9b0c605"
+  }
+}

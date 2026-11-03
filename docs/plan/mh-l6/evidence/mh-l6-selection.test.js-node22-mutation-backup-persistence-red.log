@@ -1,0 +1,64 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-selection.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-ChkNGp
+case: all cases in explicit file
+TAP version 13
+# Subtest: U05 should select once with canonical journal, history and pins across HOME changes
+not ok 1 - U05 should select once with canonical journal, history and pins across HOME changes
+  ---
+  duration_ms: 79.155425
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-selection.test.js:12:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly deep-equal:
+    + actual - expected
+    
+    + undefined
+    - {
+    -   buildId: 'target',
+    -   canonicalPrefix: '/tmp/mh-l6-test-ChkNGp/tmpdir/mh-l6-installation-YNzrmk',
+    -   entrypoint: 'entry.mjs',
+    -   manifestDigest: 'sha256:f09b605d7f9adc1cd6fc29282a3d61531eb63beeebdfb41fbeac03c6ba807c2f',
+    -   packageVersion: '0.98.7',
+    -   prefixId: 'sha256:342859b35c65a0eb872e00ad9482cd58735ab5d856f9c6b62ed4aa6485f1ddfd',
+    -   previousSelectionReference: null,
+    -   schemaVersion: 1,
+    -   selectionEpoch: 1,
+    -   uid: 1000,
+    -   upgradeId: 'first'
+    - }
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+    buildId: 'target'
+    canonicalPrefix: '/tmp/mh-l6-test-ChkNGp/tmpdir/mh-l6-installation-YNzrmk'
+    entrypoint: 'entry.mjs'
+    manifestDigest: 'sha256:f09b605d7f9adc1cd6fc29282a3d61531eb63beeebdfb41fbeac03c6ba807c2f'
+    packageVersion: '0.98.7'
+    prefixId: 'sha256:342859b35c65a0eb872e00ad9482cd58735ab5d856f9c6b62ed4aa6485f1ddfd'
+    previousSelectionReference: ~
+    schemaVersion: 1
+    selectionEpoch: 1
+    uid: 1000
+    upgradeId: 'first'
+  operator: 'deepStrictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-selection.test.js:30:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.start (node:internal/test_runner/test:944:17)
+    startSubtestAfterBootstrap (node:internal/test_runner/harness:296:17)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 246.722197
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-selection.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

@@ -1,0 +1,63 @@
+{
+  "node": "v24.21.0",
+  "files": [
+    {
+      "path": "packages/h2a/src/runtime/upgrade/legacy-exclusion.js",
+      "sha256": "84d2849a9a5fa7d4362eda790095852527ab63a518bbfc812609feb4ceb5ec50"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/upgrade/legacy-exclusion.js",
+      "sha256": "c9fef27878592324225116c646297e6e5c7faf4cacf84ec6a2cf5f009b9797e5"
+    }
+  ],
+  "results": [
+    {
+      "name": "workers-closure",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-exclusion.test.js-node24-mutation-workers-closure-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-exclusion.test.js-node24-mutation-workers-closure-green.log",
+      "restored": true
+    },
+    {
+      "name": "relaunch-closure",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-exclusion.test.js-node24-mutation-relaunch-closure-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-exclusion.test.js-node24-mutation-relaunch-closure-green.log",
+      "restored": true
+    },
+    {
+      "name": "routing-closure",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-exclusion.test.js-node24-mutation-routing-closure-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-exclusion.test.js-node24-mutation-routing-closure-green.log",
+      "restored": true
+    },
+    {
+      "name": "installer-closure",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-exclusion.test.js-node24-mutation-installer-closure-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-exclusion.test.js-node24-mutation-installer-closure-green.log",
+      "restored": true
+    },
+    {
+      "name": "stated-basis",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-exclusion.test.js-node24-mutation-stated-basis-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-exclusion.test.js-node24-mutation-stated-basis-green.log",
+      "restored": true
+    },
+    {
+      "name": "strict-established",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-exclusion.test.js-node24-mutation-strict-established-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-exclusion.test.js-node24-mutation-strict-established-green.log",
+      "restored": true
+    },
+    {
+      "name": "envelope-rejection",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-exclusion.test.js-node24-mutation-envelope-rejection-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-exclusion.test.js-node24-mutation-envelope-rejection-green.log",
+      "restored": true
+    },
+    {
+      "name": "default-unfenced",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-exclusion.test.js-node24-mutation-default-unfenced-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-exclusion.test.js-node24-mutation-default-unfenced-green.log",
+      "restored": true
+    }
+  ]
+}

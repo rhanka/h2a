@@ -1,0 +1,4 @@
+{"command":["/usr/bin/node","scripts/mh-l2-live-central-mutate.mjs"],"pid":49156,"code":0,"signal":null,"elapsedMs":184889}
+node22 real source successor-control: mutant=1 (assertion), restored=0
+node22 real source published-source-authority: mutant=1 (assertion), restored=0
+

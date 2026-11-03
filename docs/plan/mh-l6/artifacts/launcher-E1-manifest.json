@@ -1,0 +1,119 @@
+{
+  "schemaVersion": 1,
+  "artifact": "docs/plan/mh-l6/artifacts/h2a-launcher-E1.mjs",
+  "digest": "sha256:cf5e29c4a5a3515b9cea3400a93de30b26ca84c2be8a48aefe9d0c85747c473f",
+  "imports": [
+    "node:fs",
+    "node:path",
+    "node:url",
+    "node:fs",
+    "node:path",
+    "node:crypto",
+    "node:path",
+    "node:fs",
+    "node:path",
+    "node:fs",
+    "node:path",
+    "node:fs",
+    "node:path",
+    "node:crypto",
+    "node:fs",
+    "node:module",
+    "node:path",
+    "node:url",
+    "node:crypto"
+  ],
+  "sourceFiles": [
+    {
+      "path": "packages/h2a/src/runtime/upgrade/image-policy.js",
+      "sha256": "ff20ee4243a3c6be71d86414a43f020aa29de32934dfdbf5d6048b7bd3bc4534"
+    },
+    {
+      "path": "packages/h2a/src/runtime/upgrade/h4-store.js",
+      "sha256": "0ab3868d3979c5e095b9b71dfa6d212a996d9be01c6ec65c7c8b01bd69b6bdb9"
+    },
+    {
+      "path": "packages/h2a/src/runtime/upgrade/managed-launcher.js",
+      "sha256": "aca0124f2b538a2fd108cf7242723998f88ac925c75c868ee5b4e18deeb4786b"
+    },
+    {
+      "path": "packages/h2a/test/mh-l6-image-policy.test.js",
+      "sha256": "ee9a5269ef5b64f82e0369ffb5be2ee73807bc7b22101d43740881cf20323445"
+    },
+    {
+      "path": "packages/h2a/test/mh-l6-launcher.test.js",
+      "sha256": "8d409a10bcb852fe8e1ad353100f4e3c26fad639ace433613d2b11ac4af2410a"
+    },
+    {
+      "path": "packages/h2a/test/mh-l6-selection.test.js",
+      "sha256": "3db592ca34a67e75f59eeb502fe9823f9ac0c7234903182d8738b5e962d693b0"
+    },
+    {
+      "path": "packages/h2a/test/mh-l6-delegation.test.js",
+      "sha256": "c563c7bd86ad3818881383a96775e3aeba75ccb0bbf08bab3ceadd09de42e635"
+    },
+    {
+      "path": "packages/h2a/test/helpers/mh-l6-image-reader.mjs",
+      "sha256": "ea2dd0708f82d5fe8993f03980cff955bca56ca9392403690e51e1629f09efc6"
+    },
+    {
+      "path": "packages/h2a/test/helpers/mh-l6-installation.js",
+      "sha256": "d7f56d076d6fd90ba09ca34088c0341af37b8135c1b1587d2b51d6998695bb6c"
+    },
+    {
+      "path": "packages/h2a/test/helpers/mh-l6-controller.mjs",
+      "sha256": "492e29578a21026ff54ef34357768ea1e2d3553069aeb5c27975770cf9de4377"
+    },
+    {
+      "path": "scripts/mh-l6-test.mjs",
+      "sha256": "5bd1a9d0402119fe24339bc2740f026b90a09a1c5a9ae411104fca69a9f26d3a"
+    },
+    {
+      "path": "scripts/mh-l6-image-mutate.mjs",
+      "sha256": "b45221e4d2403263acbaed193525c2b097257f0e4f3eb87428512ed9b1f416b4"
+    },
+    {
+      "path": "scripts/build-managed-launcher.mjs",
+      "sha256": "a0f1c52ca6599387577f1175dc416b7765d092cf412f727464028f405e87f43d"
+    },
+    {
+      "path": "scripts/mh-l0-native-prototype.mjs",
+      "sha256": "3fc7ac05e95d8761448c7a54917774284bf11c575dc0e048518378f90572c3f5"
+    },
+    {
+      "path": "package-lock.json",
+      "sha256": "b684ee430b41e01f2fa1a90a016cf01a322cf86744cdb3bee2022ee80f5db626"
+    },
+    {
+      "path": "packages/h2a/src/runtime/handover/authority.js",
+      "sha256": "857ca32c04daf901937bfc357ff402a941d8e1b2540903c06b2e717c843a5140"
+    },
+    {
+      "path": "packages/h2a/src/runtime/handover/state.js",
+      "sha256": "910a1cc6b94583ba5245af21852ecf72e86a63efa7b5d3ed46715abeeea58f20"
+    },
+    {
+      "path": "packages/h2a/src/runtime/handover/selection.js",
+      "sha256": "256f7d3072dd4f7ff5573eb34abbe8472a7faa657a6e2d61667d2e252ea73a5f"
+    },
+    {
+      "path": "packages/h2a/src/runtime/handover/image.js",
+      "sha256": "b1a179eb08a4250388811ebc5fe73492c970ec9a01dd5c15ed54dc992f2248cf"
+    },
+    {
+      "path": "packages/h2a/src/runtime/handover/formats.js",
+      "sha256": "33650c8876cff94465cdb4e6e87101cbb425dc15affd2a839bbe81ecba3a117a"
+    },
+    {
+      "path": "packages/h2a/src/runtime/handover/wire.js",
+      "sha256": "20838943242182bc871e0ebb2ac40e14b82c33dca0156905f65632b4c4f71d2d"
+    },
+    {
+      "path": "packages/h2a/src/runtime/handover/schemas.js",
+      "sha256": "73dc40bfecd8685058febf9c7498126e98cd0f8e1a15ab2e7d4ddeeef0839bc2"
+    }
+  ],
+  "standalone": true,
+  "releaseQualified": false,
+  "imagePolicyCoverage": "selected-entry-process-only"
+}

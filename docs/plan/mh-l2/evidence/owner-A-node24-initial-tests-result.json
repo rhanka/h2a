@@ -1,0 +1,88 @@
+{
+  "node": "v24.21.0",
+  "phase": "tests",
+  "commands": [
+    {
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "scripts/mh-l2-live-regressions.mjs"
+      ],
+      "pid": 33860,
+      "code": 1,
+      "signal": null,
+      "elapsedMs": 305812
+    },
+    {
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "scripts/mh-l2-test.mjs",
+        "packages/h2a/test/mh-l2-authority.test.js",
+        "owner-A-node24-lot-regression"
+      ],
+      "pid": 37693,
+      "code": 0,
+      "signal": null,
+      "elapsedMs": 612
+    },
+    {
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "scripts/mh-l2-test.mjs",
+        "packages/h2a/test/mh-l2-auth.test.js",
+        "owner-A-node24-lot-regression"
+      ],
+      "pid": 37720,
+      "code": 0,
+      "signal": null,
+      "elapsedMs": 179
+    },
+    {
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "scripts/mh-l2-test.mjs",
+        "packages/h2a/test/mh-l2-starters.test.js",
+        "owner-A-node24-lot-regression"
+      ],
+      "pid": 37741,
+      "code": 0,
+      "signal": null,
+      "elapsedMs": 220
+    },
+    {
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "scripts/mh-l2-test.mjs",
+        "packages/h2a/test/mh-l2-compensation.test.js",
+        "owner-A-node24-lot-regression"
+      ],
+      "pid": 37761,
+      "code": 0,
+      "signal": null,
+      "elapsedMs": 200
+    },
+    {
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "scripts/mh-l2-test.mjs",
+        "packages/h2a/test/mh-l4-concurrency.test.js",
+        "owner-A-node24-lot-regression"
+      ],
+      "pid": 37781,
+      "code": 0,
+      "signal": null,
+      "elapsedMs": 986
+    }
+  ],
+  "failures": [
+    {
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "scripts/mh-l2-live-regressions.mjs"
+      ],
+      "pid": 33860,
+      "code": 1,
+      "signal": null,
+      "elapsedMs": 305812
+    }
+  ]
+}

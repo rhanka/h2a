@@ -1,0 +1,47 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l0-authority.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-UZsnIy
+case: all cases in explicit file
+TAP version 13
+# fatal: not a git repository (or any of the parent directories): .git
+# Subtest: physical prefix identity survives aliases and rejects a different legacy lock directory
+ok 1 - physical prefix identity survives aliases and rejects a different legacy lock directory
+  ---
+  duration_ms: 4.04303
+  type: 'test'
+  ...
+# Subtest: M04 foundation: shared exclusive anchor, explicit netns admission and bounded real abstract socket
+not ok 2 - M04 foundation: shared exclusive anchor, explicit netns admission and bounded real abstract socket
+  ---
+  duration_ms: 5.33917
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l0-authority.test.js:23:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Command failed: git show 0b9cf8862be689380c3bcb6e7cb35dc1e10b5cbf:packages/h2a-runtime/src/proc-identity.ts
+    fatal: not a git repository (or any of the parent directories): .git
+    
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    genericNodeError (node:internal/errors:983:15)
+    wrappedFn (node:internal/errors:537:14)
+    checkExecSyncError (node:child_process:916:11)
+    execFileSync (node:child_process:952:15)
+    procClassifier (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/helpers/mh-l0-proc-frame.js:9:18)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l0-authority.test.js:26:28)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+  ...
+1..2
+# tests 2
+# suites 0
+# pass 1
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 129.266489
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l0-authority.test.js"],"code":1,"signal":null,"tests":2,"invalid":false,"spawned":1,"leftovers":[]}

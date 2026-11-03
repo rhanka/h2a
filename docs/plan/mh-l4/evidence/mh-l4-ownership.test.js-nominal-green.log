@@ -1,0 +1,27 @@
+command: /usr/bin/node --test packages/h2a/test/mh-l4-ownership.test.js
+node: v22.22.1
+private test root: /tmp/mh-l4-test-y6iF7K
+TAP version 13
+# Subtest: should fence a stale owner while admitted operations retain separate rights
+ok 1 - should fence a stale owner while admitted operations retain separate rights
+  ---
+  duration_ms: 68.108917
+  type: 'test'
+  ...
+# Subtest: should reconcile freeze after lost ACK and reject different handover tuples
+ok 2 - should reconcile freeze after lost ACK and reject different handover tuples
+  ---
+  duration_ms: 27.399581
+  type: 'test'
+  ...
+1..2
+# tests 2
+# suites 0
+# pass 2
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 202.152277
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l4-ownership.test.js"],"code":0,"signal":null,"elapsedMs":279}

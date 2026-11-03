@@ -1,0 +1,34 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/upgrade-boot-worker.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-IDilt8
+case: all cases in explicit file
+TAP version 13
+# Subtest: boot worker: the dist module exposes every symbol the worker imports
+ok 1 - boot worker: the dist module exposes every symbol the worker imports
+  ---
+  duration_ms: 78.406093
+  type: 'test'
+  ...
+# Subtest: boot worker: the REAL worker source surfaces an actionable outcome and stays quiet on a benign one
+ok 2 - boot worker: the REAL worker source surfaces an actionable outcome and stays quiet on a benign one
+  ---
+  duration_ms: 156.42112
+  type: 'test'
+  ...
+# Subtest: boot worker: a missing isQuietUpgradeOutcome fails OPEN (message shown, alarm not lost)
+ok 3 - boot worker: a missing isQuietUpgradeOutcome fails OPEN (message shown, alarm not lost)
+  ---
+  duration_ms: 77.806785
+  type: 'test'
+  ...
+1..3
+# tests 3
+# suites 0
+# pass 3
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 596.110942
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/upgrade-boot-worker.test.js"],"code":0,"signal":null,"tests":3,"invalid":false,"spawned":5,"leftovers":[]}

@@ -1,0 +1,25 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-cuts.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-VYmaD9
+{"event":"drive-consent.full-verification","durationMs":0.017642999999992526,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.012314000000003489,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.01551000000000613,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.013425999999981286,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+{"event":"drive-consent.full-verification","durationMs":0.013495000000034452,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✔ should close admissions at barrier and bind presence mutations to the exact session (97.025994ms)
+✔ should propagate the reserved token through the real async subprocess seam (1.630089ms)
+✔ should revalidate a replaced presence instance under the mutation lock for update and delete (27.970763ms)
+✔ should detect conflicting launch parameters through the MCP server cache (66.291158ms)
+✔ should reconcile a final memo after a crash before operation closure without executing again (43.434552ms)
+✔ should persist owner-directed delegation after freeze and deduplicate the eventual writer receipt (76.057973ms)
+✔ should recover the delegation event after final memo publication but before operation closure (53.962691ms)
+ℹ tests 7
+ℹ suites 0
+ℹ pass 7
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 554.81266
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-cuts.test.js"],"code":0,"signal":null,"elapsedMs":578}

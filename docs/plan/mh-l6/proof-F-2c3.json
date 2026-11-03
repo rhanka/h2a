@@ -1,0 +1,46 @@
+{
+  "source": "/tmp/mh-l3-qualification-f2c3-bgUdRZ",
+  "worktree": "/home/antoinefa/src/h2a/tmp/worktrees/mh-l0",
+  "files": [
+    {
+      "path": "packages/h2a/test/mh-l6-command-gate.test.js",
+      "sha256": "40eab9446d2768cabea6d4eaa5c7195c1b9f5216b3a6bf00fc3968d4251d78fe"
+    },
+    {
+      "path": "packages/h2a/src/runtime/upgrade/launcher-install.js",
+      "sha256": "40d2c49bbb1ea9a37967bacf641cce479437f4e704305a0c9721b5c134d33486"
+    },
+    {
+      "path": "scripts/mh-l6-mutate.mjs",
+      "sha256": "b66f0049cda01a7cba28bfa21e64ca5f4d6ce5ab15dca2a42e84bfadf922e6ab"
+    },
+    {
+      "path": "scripts/mh-l6-test.mjs",
+      "sha256": "499fa0af002d05ef5dd7b8d36adb0679351c0542aa852cec13bceb8fbc23bd7d"
+    }
+  ],
+  "compiled": {
+    "path": "packages/h2a/dist/runtime/upgrade/launcher-install.js",
+    "sha256": "e9aa03145c1c91369e9cbe2462649ec65f95f91dec691f8ced3edf4118664b6c"
+  },
+  "profiles": [
+    {
+      "major": 22,
+      "tests": 5,
+      "requalified": [
+        6,
+        13
+      ],
+      "mutations": 4
+    },
+    {
+      "major": 24,
+      "tests": 5,
+      "requalified": [
+        6,
+        13
+      ],
+      "mutations": 4
+    }
+  ]
+}

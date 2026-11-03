@@ -1,0 +1,127 @@
+{
+  "node": "v24.21.0",
+  "files": [
+    {
+      "path": "packages/h2a/src/runtime/upgrade/image-execution.js",
+      "sha256": "1e2934b6683fc0c25eaf2bcea3ce41471f7adebe09d3386503f859f021fe2099"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/upgrade/image-execution.js",
+      "sha256": "e901f33f95f0b374937204614ed3760a42064e4687c67ce921c03fdbe0e015e6"
+    },
+    {
+      "path": "packages/h2a/src/cli.ts",
+      "sha256": "64a1739efa5966e7b268105068addfe81144088e03773466b65476732a465663"
+    },
+    {
+      "path": "packages/h2a/dist/cli.js",
+      "sha256": "661eefad09376c161aa19422ef2d568823a366921ece194965c786fa7068a385"
+    },
+    {
+      "path": "packages/h2a/src/runtime/upgrade/boot-worker.js",
+      "sha256": "d567ba1c3911833457f6dd4042aa99ed7cdb93641a1630d7faf632e3fa011564"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/upgrade/boot-worker.js",
+      "sha256": "d584a40e67396e20c65cd560cb8d204f6026b40023ebff5c687b054b137e2927"
+    }
+  ],
+  "results": [
+    {
+      "name": "boot-file",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-components.test.js-node24-component-boot-file-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-components.test.js-node24-component-boot-file-green.log",
+      "restored": true
+    },
+    {
+      "name": "external-spawn",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-components.test.js-node24-component-external-spawn-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-components.test.js-node24-component-external-spawn-green.log",
+      "restored": true
+    },
+    {
+      "name": "external-spawnSync",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-components.test.js-node24-component-external-spawnSync-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-components.test.js-node24-component-external-spawnSync-green.log",
+      "restored": true
+    },
+    {
+      "name": "external-execFile",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-components.test.js-node24-component-external-execFile-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-components.test.js-node24-component-external-execFile-green.log",
+      "restored": true
+    },
+    {
+      "name": "external-execFileSync",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-components.test.js-node24-component-external-execFileSync-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-components.test.js-node24-component-external-execFileSync-green.log",
+      "restored": true
+    },
+    {
+      "name": "physical-entry",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-components.test.js-node24-component-physical-entry-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-components.test.js-node24-component-physical-entry-green.log",
+      "restored": true
+    },
+    {
+      "name": "node-alias",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-components.test.js-node24-component-node-alias-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-components.test.js-node24-component-node-alias-green.log",
+      "restored": true
+    },
+    {
+      "name": "entry-alias",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-components.test.js-node24-component-entry-alias-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-components.test.js-node24-component-entry-alias-green.log",
+      "restored": true
+    },
+    {
+      "name": "entry-uri",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-components.test.js-node24-component-entry-uri-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-components.test.js-node24-component-entry-uri-green.log",
+      "restored": true
+    },
+    {
+      "name": "real-fork-journal",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-components.test.js-node24-component-real-fork-journal-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-components.test.js-node24-component-real-fork-journal-green.log",
+      "restored": true
+    },
+    {
+      "name": "real-fork-identity",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-components.test.js-node24-component-real-fork-identity-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-components.test.js-node24-component-real-fork-identity-green.log",
+      "restored": true
+    },
+    {
+      "name": "internal-spawn",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-components.test.js-node24-component-internal-spawn-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-components.test.js-node24-component-internal-spawn-green.log",
+      "restored": true
+    },
+    {
+      "name": "internal-execFile",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-components.test.js-node24-component-internal-execFile-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-components.test.js-node24-component-internal-execFile-green.log",
+      "restored": true
+    },
+    {
+      "name": "internal-execFileSync",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-components.test.js-node24-component-internal-execFileSync-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-components.test.js-node24-component-internal-execFileSync-green.log",
+      "restored": true
+    },
+    {
+      "name": "direct-boot-gate",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-components.test.js-node24-component-direct-boot-gate-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-components.test.js-node24-component-direct-boot-gate-green.log",
+      "restored": true
+    },
+    {
+      "name": "opaque-data",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-components.test.js-node24-component-opaque-data-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-components.test.js-node24-component-opaque-data-green.log",
+      "restored": true
+    }
+  ]
+}

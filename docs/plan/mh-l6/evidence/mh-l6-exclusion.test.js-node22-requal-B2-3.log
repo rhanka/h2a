@@ -1,0 +1,82 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-exclusion.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-JEO9iU
+case: all cases in explicit file
+TAP version 13
+# Subtest: B2 should report fenced only when all four closures are established with stated basis
+ok 1 - B2 should report fenced only when all four closures are established with stated basis
+  ---
+  duration_ms: 1.700441
+  type: 'test'
+  ...
+# Subtest: B2 should report unfenced when legacy workers may still terminate late
+ok 2 - B2 should report unfenced when legacy workers may still terminate late
+  ---
+  duration_ms: 0.20706
+  type: 'test'
+  ...
+# Subtest: B2 should report unfenced when relaunch sources stay open
+ok 3 - B2 should report unfenced when relaunch sources stay open
+  ---
+  duration_ms: 0.081924
+  type: 'test'
+  ...
+# Subtest: B2 should report unfenced when future starts are not routed
+ok 4 - B2 should report unfenced when future starts are not routed
+  ---
+  duration_ms: 0.125235
+  type: 'test'
+  ...
+# Subtest: B2 should report unfenced when retained processes may reintroduce the installer
+ok 5 - B2 should report unfenced when retained processes may reintroduce the installer
+  ---
+  duration_ms: 0.08494
+  type: 'test'
+  ...
+# Subtest: B2 should report unfenced when a closure lacks its stated basis
+ok 6 - B2 should report unfenced when a closure lacks its stated basis
+  ---
+  duration_ms: 0.180961
+  type: 'test'
+  ...
+# Subtest: B2 should refuse an invalid exclusion envelope instead of verdicting
+ok 7 - B2 should refuse an invalid exclusion envelope instead of verdicting
+  ---
+  duration_ms: 0.280719
+  type: 'test'
+  ...
+# Subtest: B2 should tolerate forward-compatible extra closures once the four are established
+ok 8 - B2 should tolerate forward-compatible extra closures once the four are established
+  ---
+  duration_ms: 0.070343
+  type: 'test'
+  ...
+# Subtest: B2 should defer qualified selection while legacy exclusion is unfenced
+ok 9 - B2 should defer qualified selection while legacy exclusion is unfenced
+  ---
+  duration_ms: 52.057001
+  type: 'test'
+  ...
+# Subtest: B2 should select once legacy exclusion evidence is fenced
+ok 10 - B2 should select once legacy exclusion evidence is fenced
+  ---
+  duration_ms: 57.750307
+  type: 'test'
+  ...
+# Subtest: B2 should select without exclusion evidence until live observers land
+ok 11 - B2 should select without exclusion evidence until live observers land
+  ---
+  duration_ms: 54.646626
+  type: 'test'
+  ...
+1..11
+# tests 11
+# suites 0
+# pass 11
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 275.862445
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-exclusion.test.js"],"code":0,"signal":null,"tests":11,"invalid":false,"spawned":1,"leftovers":[]}

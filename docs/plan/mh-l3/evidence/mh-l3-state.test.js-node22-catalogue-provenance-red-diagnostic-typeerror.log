@@ -1,0 +1,32 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l3-state.test.js
+node: v22.22.1
+private root: /tmp/mh-l3-test-DB1XwU
+case: catalogue should retain its served view and reject changed tools while accepting only provenance-checked additions
+TAP version 13
+# Subtest: catalogue should retain its served view and reject changed tools while accepting only provenance-checked additions
+not ok 1 - catalogue should retain its served view and reject changed tools while accepting only provenance-checked additions
+  ---
+  duration_ms: 5.166465
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-bUCXsb/source/packages/h2a/test/mh-l3-state.test.js:2:94'
+  failureType: 'testCodeFailure'
+  error: "Cannot read properties of undefined (reading 'sourceContractDigest')"
+  code: 'ERR_TEST_FAILURE'
+  name: 'TypeError'
+  stack: |-
+    CatalogueView.install (file:///tmp/mh-l3-qualification-bUCXsb/source/packages/h2a/src/runtime/handover/catalogue.js:56:31)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-bUCXsb/source/packages/h2a/test/mh-l3-state.test.js:69:21)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 111.854505
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l3-state.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":0,"leftovers":[]}

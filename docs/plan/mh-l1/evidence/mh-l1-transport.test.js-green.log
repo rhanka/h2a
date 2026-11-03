@@ -1,0 +1,20 @@
+command: /usr/bin/node --test packages/h2a/test/mh-l1-transport.test.js
+private test root: /tmp/mh-l1-test-lGp8zk
+TAP version 13
+# Subtest: MH-L1 transport should not reuse a completed JSON reply in a later batch with the same typed ID
+ok 1 - MH-L1 transport should not reuse a completed JSON reply in a later batch with the same typed ID
+  ---
+  duration_ms: 35.255516
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 240.323365
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l1-transport.test.js"],"code":0,"signal":null,"elapsedMs":319}

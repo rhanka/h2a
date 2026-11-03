@@ -1,0 +1,22 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-bootstrap.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-14X8u4
+case: C2b should hold compatible exclusion while the session is open
+TAP version 13
+# Subtest: C2b should hold compatible exclusion while the session is open
+ok 1 - C2b should hold compatible exclusion while the session is open
+  ---
+  duration_ms: 56.04131
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 173.513233
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-bootstrap.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

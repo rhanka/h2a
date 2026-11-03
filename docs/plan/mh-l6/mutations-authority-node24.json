@@ -1,0 +1,39 @@
+{
+  "node": "v24.21.0",
+  "files": [
+    {
+      "path": "packages/h2a/src/runtime/upgrade/upgrade-authority.js",
+      "sha256": "1ac2d9b87e862809fbf879505b96fccd13140ca6da4cd7301a09220396c50342"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/upgrade/upgrade-authority.js",
+      "sha256": "2c6b954c19a0094fb14afbca6aa77de05604ab7cc8ce29fc2f899172d1345923"
+    }
+  ],
+  "results": [
+    {
+      "name": "mismatch-check",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-authority.test.js-node24-mutation-mismatch-check-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-authority.test.js-node24-mutation-mismatch-check-green.log",
+      "restored": true
+    },
+    {
+      "name": "revoked-check",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-authority.test.js-node24-mutation-revoked-check-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-authority.test.js-node24-mutation-revoked-check-green.log",
+      "restored": true
+    },
+    {
+      "name": "epoch-report",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-authority.test.js-node24-mutation-epoch-report-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-authority.test.js-node24-mutation-epoch-report-green.log",
+      "restored": true
+    },
+    {
+      "name": "foreign-reason",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-authority.test.js-node24-mutation-foreign-reason-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-authority.test.js-node24-mutation-foreign-reason-green.log",
+      "restored": true
+    }
+  ]
+}

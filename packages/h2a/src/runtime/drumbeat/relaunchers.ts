@@ -50,16 +50,18 @@ export interface RelauncherRuntime {
   notify?(line: string): void;
 }
 
-export const defaultRelauncherRuntime: RelauncherRuntime = {
+/** Bind process I/O to an attachment without changing the daemon environment. */
+export const createRelauncherRuntime = (env?: NodeJS.ProcessEnv): RelauncherRuntime => ({
   run(file, args) {
-    const res = spawnSync(file, [...args], { stdio: "ignore" });
+    const res = spawnSync(file, [...args], { stdio: "ignore", env });
     return res.status === 0;
   },
   capture(file, args) {
     try {
       const res = spawnSync(file, [...args], {
         encoding: "utf8",
-        stdio: ["ignore", "pipe", "ignore"]
+        stdio: ["ignore", "pipe", "ignore"],
+        env
       });
       return res.status === 0 ? res.stdout : undefined;
     } catch {
@@ -74,12 +76,14 @@ export const defaultRelauncherRuntime: RelauncherRuntime = {
               cwd: options.cwd,
               shell: true,
               detached: true,
-              stdio: "ignore"
+              stdio: "ignore",
+              env
             })
           : spawn(command.file, [...command.args], {
               cwd: command.cwd ?? options.cwd,
               detached: true,
-              stdio: "ignore"
+              stdio: "ignore",
+              env
             });
       child.unref();
       return child.pid !== undefined;
@@ -87,7 +91,9 @@ export const defaultRelauncherRuntime: RelauncherRuntime = {
       return false;
     }
   }
-};
+});
+
+export const defaultRelauncherRuntime: RelauncherRuntime = createRelauncherRuntime();
 
 interface RelauncherCommonOptions {
   runtime?: RelauncherRuntime;

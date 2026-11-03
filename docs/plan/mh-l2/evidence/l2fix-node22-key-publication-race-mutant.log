@@ -1,0 +1,50 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l2-identity-contention.test.js
+node: v22.22.1
+private root: /tmp/mh-l2-amendment-5tBHb3
+env selection: {"MH_L2_IDENTITY_CASE":"identity should preserve a competing keypair published while its candidate is generated"}; unset: 
+TAP version 13
+# Subtest: identity should preserve a competing keypair published while its candidate is generated
+not ok 1 - identity should preserve a competing keypair published while its candidate is generated
+  ---
+  duration_ms: 41.125252
+  type: 'test'
+  location: '/tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/test/mh-l2-identity-contention.test.js:15:85'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+      '-----BEGIN PRIVATE KEY-----\n' +
+    +   'MC4CAQAwBQYDK2VwBCIEILc9qg9PhKDc0azMwPJ9PvFk6IlMsdFQzvb24lzwVAGk\n' +
+    -   'MC4CAQAwBQYDK2VwBCIEICCSGmPJ4wBTUUP4tF2sLkUjlteCU9R/UyUYsKyXpc7l\n' +
+        '-----END PRIVATE KEY-----\n'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: |-
+    -----BEGIN PRIVATE KEY-----
+    MC4CAQAwBQYDK2VwBCIEICCSGmPJ4wBTUUP4tF2sLkUjlteCU9R/UyUYsKyXpc7l
+    -----END PRIVATE KEY-----
+    
+  actual: |-
+    -----BEGIN PRIVATE KEY-----
+    MC4CAQAwBQYDK2VwBCIEILc9qg9PhKDc0azMwPJ9PvFk6IlMsdFQzvb24lzwVAGk
+    -----END PRIVATE KEY-----
+    
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l2fix-qual-06K2z1/source/packages/h2a/test/mh-l2-identity-contention.test.js:72:12)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 359.054043
+
+receipt: {"code":1,"signal":null}

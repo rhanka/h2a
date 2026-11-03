@@ -1,0 +1,42 @@
+command: /usr/bin/node scripts/mh-l2-test.mjs packages/h2a/test/mh-l2-live-central.test.js owner-A-node22-successor-control-red
+node: v22.22.1
+command: /usr/bin/node --test packages/h2a/test/mh-l2-live-central.test.js
+node: v22.22.1
+private test root: /tmp/mh-l2-test-zHBpNn
+TAP version 13
+# {"event":"drive-consent.full-verification","durationMs":0.004318999999668449,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: real .7 source should accept the external peer, preserve its admitted large reply and retire without deleting the successor marker
+not ok 1 - real .7 source should accept the external peer, preserve its admitted large reply and retire without deleting the successor marker
+  ---
+  duration_ms: 65974.338636
+  type: 'test'
+  location: '/tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mh-l2-live-central.test.js:17:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    'CLOSED' !== 'ACTIVE'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'ACTIVE'
+  actual: 'CLOSED'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l2-owner-A-final-Tcelt2/source/packages/h2a/test/mh-l2-live-central.test.js:142:12)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 66113.826282
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l2-live-central.test.js"],"code":1,"signal":null,"elapsedMs":66191}
+
+exitCode: 1

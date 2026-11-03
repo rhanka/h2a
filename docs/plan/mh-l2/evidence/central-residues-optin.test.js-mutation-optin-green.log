@@ -1,0 +1,27 @@
+command: /usr/bin/node --test packages/h2a/test/central-residues-optin.test.js
+node: v22.22.1
+private test root: /tmp/mh-l2-test-piePgl
+TAP version 13
+# Subtest: residues --repair does not add --auto-upgrade when the prior config lacked it (spec v7 P9)
+ok 1 - residues --repair does not add --auto-upgrade when the prior config lacked it (spec v7 P9)
+  ---
+  duration_ms: 13.007107
+  type: 'test'
+  ...
+# Subtest: residues --repair keeps --auto-upgrade when the prior config had it (spec v7 P9)
+ok 2 - residues --repair keeps --auto-upgrade when the prior config had it (spec v7 P9)
+  ---
+  duration_ms: 11.278191
+  type: 'test'
+  ...
+1..2
+# tests 2
+# suites 0
+# pass 2
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 151.185655
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/central-residues-optin.test.js"],"code":0,"signal":null,"elapsedMs":232}

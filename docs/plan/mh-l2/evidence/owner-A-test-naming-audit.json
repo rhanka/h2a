@@ -1,0 +1,30 @@
+{
+  "command": [
+    "rg",
+    "--files",
+    "-g",
+    "!**/node_modules/**",
+    "-g",
+    "!**/dist/**",
+    "-g",
+    "!tmp/**"
+  ],
+  "outsidePackagesApps": [],
+  "alternate": [
+    "packages/focus/tests/cli.spec.ts",
+    "packages/focus/tests/track.spec.ts",
+    "packages/focus/tests/render.spec.ts"
+  ],
+  "focusSpecReferenceSearchExitCode": 1,
+  "focusSpecReferenceSearchCommand": [
+    "rg",
+    "-n",
+    "-f",
+    "/tmp/owner-A-touched-filenames.txt",
+    "-e",
+    "(administration|participants|schemas|live-source|ownership|launch-memo|mcp-central|mcp-central-attachment)\\.(js|ts)|runtime/mcp/stdio\\.(js|ts)|mh-l2-live(-peer)?\\.(js|mjs)|mh-l2-test\\.mjs|mh-l2-live-regressions\\.mjs",
+    "packages/focus/tests/cli.spec.ts",
+    "packages/focus/tests/track.spec.ts",
+    "packages/focus/tests/render.spec.ts"
+  ]
+}

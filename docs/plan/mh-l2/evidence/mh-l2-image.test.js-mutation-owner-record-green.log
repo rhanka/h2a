@@ -1,0 +1,21 @@
+command: /usr/bin/node --test packages/h2a/test/mh-l2-image.test.js
+node: v22.22.1
+private test root: /tmp/mh-l2-test-ZkX3W6
+TAP version 13
+# Subtest: nominal image should precheck in isolation, cold-stop G0 and start one reserved successor
+ok 1 - nominal image should precheck in isolation, cold-stop G0 and start one reserved successor
+  ---
+  duration_ms: 14726.057906
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 14859.101058
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l2-image.test.js"],"code":0,"signal":null,"elapsedMs":14937}

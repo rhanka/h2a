@@ -1,0 +1,33 @@
+command: /usr/bin/node --test packages/h2a/test/mh-l1-package.test.js
+private test root: /tmp/mh-l1-test-nVyt6V
+TAP version 13
+# Subtest: MH-L1 prototype should pack/install twice offline with exact runtime, integrated transport and a real legacy node-pty probe
+not ok 1 - MH-L1 prototype should pack/install twice offline with exact runtime, integrated transport and a real legacy node-pty probe
+  ---
+  duration_ms: 32859.257591
+  type: 'test'
+  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l1-package.test.js:15:1'
+  failureType: 'testCodeFailure'
+  error: 'payload_mismatch'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    verifyImage (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/src/runtime/handover/image.js:65:11)
+    TestContext.<anonymous> (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l1-package.test.js:61:20)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# npm pack --offline --ignore-scripts --json => {"filename":"sentropic-h2a-mh-l1-prototype-0.98.7-mh-l1.0.tgz","files":11053,"integrity":"sha512-tnW7XBNuJXB6y+dWjzyrKIBdIusyBLVTVybCUwHhUAnERSZgLZMcYVWs6FVyzKAtO1uu5u1SDn6QkfPAYRVNQQ=="}
+# npm install --prefix <install-a> --offline --umask=022 --ignore-scripts => added 1 package in 7s
+# {"payloadDifferences":7,"examples":[{"expected":{"path":"dist/bin.js","type":"file","mode":493,"digest":"sha256:1ca860abbe9783944da7860e6e745a05867cd85bb5a363b32a340090b14758fd","target":null},"actual":{"path":"dist/bin.js","type":"file","mode":509,"digest":"sha256:1ca860abbe9783944da7860e6e745a05867cd85bb5a363b32a340090b14758fd","target":null}},{"expected":{"path":"node_modules/.bin","type":"directory","mode":493,"digest":null,"target":null},"actual":{"path":"node_modules/.bin","type":"directory","mode":509,"digest":null,"target":null}},{"expected":{"path":"node_modules/@sentropic/h2a/dist/bin.js","type":"file","mode":493,"digest":"sha256:100b491ad4d98b9cd56ce51baca6e9700a3014fecbc78a12683a825d2ae17901","target":null},"actual":{"path":"node_modules/@sentropic/h2a/dist/bin.js","type":"file","mode":509,"digest":"sha256:100b491ad4d98b9cd56ce51baca6e9700a3014fecbc78a12683a825d2ae17901","target":null}},{"expected":{"path":"node_modules/@sentropic/track/dist/cli/bin.js","type":"file","mode":493,"digest":"sha256:7d6d1250ef0cdd7e183ccf41cc43a9dd61ba777b57f783777169d4b10be4c2e2","target":null},"actual":{"path":"node_modules/@sentropic/track/dist/cli/bin.js","type":"file","mode":509,"digest":"sha256:7d6d1250ef0cdd7e183ccf41cc43a9dd61ba777b57f783777169d4b10be4c2e2","target":null}},{"expected":{"path":"node_modules/@sentropic/track/dist/mcp/cli.js","type":"file","mode":493,"digest":"sha256:e28b1edc551b1b9553e9fc52ca5874c850a63e9f4d04f5f7c5e73d5e2bb53833","target":null},"actual":{"path":"node_modules/@sentropic/track/dist/mcp/cli.js","type":"file","mode":509,"digest":"sha256:e28b1edc551b1b9553e9fc52ca5874c850a63e9f4d04f5f7c5e73d5e2bb53833","target":null}},{"expected":{"path":"node_modules/ulid/dist/cli.js","type":"file","mode":493,"digest":"sha256:80169097a036e787a626e7188c39e29226a2e7f9d2f65cffc917dbbb1a601887","target":null},"actual":{"path":"node_modules/ulid/dist/cli.js","type":"file","mode":509,"digest":"sha256:80169097a036e787a626e7188c39e29226a2e7f9d2f65cffc917dbbb1a601887","target":null}},{"expected":{"path":"node_modules/which/bin/node-which","type":"file","mode":493,"digest":"sha256:055f0ac4eed1a1591d033d59462972968bf3483b4cc07e163589569c0fb999f0","target":null},"actual":{"path":"node_modules/which/bin/node-which","type":"file","mode":509,"digest":"sha256:055f0ac4eed1a1591d033d59462972968bf3483b4cc07e163589569c0fb999f0","target":null}}]}
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 33001.299458
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l1-package.test.js"],"code":1,"signal":null,"elapsedMs":33080}

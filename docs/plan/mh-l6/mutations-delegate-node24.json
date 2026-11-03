@@ -1,0 +1,39 @@
+{
+  "node": "v24.21.0",
+  "files": [
+    {
+      "path": "packages/h2a/src/runtime/upgrade/upgrade-delegate.js",
+      "sha256": "9501a91703572c18244b282833c65403b6781f96def91dac328ca3aae059722a"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/upgrade/upgrade-delegate.js",
+      "sha256": "fdb1aa69891ad9ef5a9b9aa44c03e2229c030357b5545efed580f14a5ddac799"
+    }
+  ],
+  "results": [
+    {
+      "name": "replay-branch",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-delegate.test.js-node24-mutation-replay-branch-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-delegate.test.js-node24-mutation-replay-branch-green.log",
+      "restored": true
+    },
+    {
+      "name": "authority-check",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-delegate.test.js-node24-mutation-authority-check-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-delegate.test.js-node24-mutation-authority-check-green.log",
+      "restored": true
+    },
+    {
+      "name": "delegate-call",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-delegate.test.js-node24-mutation-delegate-call-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-delegate.test.js-node24-mutation-delegate-call-green.log",
+      "restored": true
+    },
+    {
+      "name": "candidate-shape",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-delegate.test.js-node24-mutation-candidate-shape-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-delegate.test.js-node24-mutation-candidate-shape-green.log",
+      "restored": true
+    }
+  ]
+}

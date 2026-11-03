@@ -1,0 +1,40 @@
+command: /usr/bin/node --test packages/h2a/test/mh-l4-central.test.js
+node: v22.22.1
+private test root: /tmp/mh-l4-test-JF0D5P
+TAP version 13
+# {"event":"drive-consent.full-verification","durationMs":0.004167999999936001,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: should checkpoint a real source attachment and reject a cancellation string inside new tool arguments
+not ok 1 - should checkpoint a real source attachment and reject a cancellation string inside new tool arguments
+  ---
+  duration_ms: 6382.579069
+  type: 'test'
+  location: '/tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-central.test.js:11:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    200 !== 409
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 409
+  actual: 200
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-central.test.js:84:12)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Error: Test "should checkpoint a real source attachment and reject a cancellation string inside new tool arguments" at packages/h2a/test/mh-l4-central.test.js:11:1 generated asynchronous activity after the test ended. This activity created the error "Error: socket hang up" and would have caused the test to fail, but instead triggered an unhandledRejection event.
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 6530.691544
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l4-central.test.js"],"code":1,"signal":null,"elapsedMs":6625}

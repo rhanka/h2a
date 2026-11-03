@@ -1,0 +1,320 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l5-cold.test.js
+node: v22.22.1
+private root: /tmp/mh-l5-test-Xrx3U4
+case: all cases in explicit file
+TAP version 13
+# Subtest: M23 M24 cold process crash at before-file-sync must preserve the irreversible boundary
+not ok 1 - M23 M24 cold process crash at before-file-sync must preserve the irreversible boundary
+  ---
+  duration_ms: 83.002212
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-cold.test.js:10:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    shim closed 1/null: file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/formats.js:77
+            throw new Error('contradictory_marker');
+                  ^
+    
+    Error: contradictory_marker
+        at validate (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/formats.js:77:15)
+        at write (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/state.js:55:5)
+        at publishState (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/state.js:113:60)
+        at file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/helpers/mh-l5-cold-worker.mjs:37:54
+        at ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+        at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:665:26)
+        at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)
+    
+    Node.js v22.22.1
+    
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    validate (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/formats.js:77:15)
+    write (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/state.js:55:5)
+    publishState (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/state.js:113:60)
+    file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/helpers/mh-l5-cold-worker.mjs:37:54
+    ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+    async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:665:26)
+    async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)
+    ChildProcess.<anonymous> (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/helpers/mh-l1-shim.js:58:60)
+    Object.onceWrapper (node:events:634:26)
+    ChildProcess.emit (node:events:519:28)
+    maybeClose (node:internal/child_process:1101:16)
+    ChildProcess._handle.onexit (node:internal/child_process:304:5)
+  ...
+# Subtest: M23 M24 cold process crash at after-file-sync must preserve the irreversible boundary
+not ok 2 - M23 M24 cold process crash at after-file-sync must preserve the irreversible boundary
+  ---
+  duration_ms: 91.456241
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-cold.test.js:10:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    shim closed 1/null: file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/formats.js:77
+            throw new Error('contradictory_marker');
+                  ^
+    
+    Error: contradictory_marker
+        at validate (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/formats.js:77:15)
+        at write (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/state.js:55:5)
+        at publishState (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/state.js:113:60)
+        at file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/helpers/mh-l5-cold-worker.mjs:37:54
+        at ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+        at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:665:26)
+        at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)
+    
+    Node.js v22.22.1
+    
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    validate (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/formats.js:77:15)
+    write (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/state.js:55:5)
+    publishState (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/state.js:113:60)
+    file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/helpers/mh-l5-cold-worker.mjs:37:54
+    ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+    async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:665:26)
+    async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)
+    ChildProcess.<anonymous> (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/helpers/mh-l1-shim.js:58:60)
+    Object.onceWrapper (node:events:634:26)
+    ChildProcess.emit (node:events:519:28)
+    maybeClose (node:internal/child_process:1101:16)
+    ChildProcess._handle.onexit (node:internal/child_process:304:5)
+  ...
+# Subtest: M23 M24 cold process crash at after-rename must preserve the irreversible boundary
+not ok 3 - M23 M24 cold process crash at after-rename must preserve the irreversible boundary
+  ---
+  duration_ms: 98.064989
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-cold.test.js:10:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    shim closed 1/null: file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/formats.js:77
+            throw new Error('contradictory_marker');
+                  ^
+    
+    Error: contradictory_marker
+        at validate (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/formats.js:77:15)
+        at write (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/state.js:55:5)
+        at publishState (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/state.js:113:60)
+        at file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/helpers/mh-l5-cold-worker.mjs:37:54
+        at ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+        at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:665:26)
+        at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)
+    
+    Node.js v22.22.1
+    
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    validate (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/formats.js:77:15)
+    write (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/state.js:55:5)
+    publishState (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/state.js:113:60)
+    file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/helpers/mh-l5-cold-worker.mjs:37:54
+    ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+    async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:665:26)
+    async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)
+    ChildProcess.<anonymous> (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/helpers/mh-l1-shim.js:58:60)
+    Object.onceWrapper (node:events:634:26)
+    ChildProcess.emit (node:events:519:28)
+    maybeClose (node:internal/child_process:1101:16)
+    ChildProcess._handle.onexit (node:internal/child_process:304:5)
+  ...
+# Subtest: M23 M24 cold process crash at after-directory-sync must preserve the irreversible boundary
+not ok 4 - M23 M24 cold process crash at after-directory-sync must preserve the irreversible boundary
+  ---
+  duration_ms: 86.577125
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-cold.test.js:10:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    shim closed 1/null: file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/formats.js:77
+            throw new Error('contradictory_marker');
+                  ^
+    
+    Error: contradictory_marker
+        at validate (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/formats.js:77:15)
+        at write (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/state.js:55:5)
+        at publishState (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/state.js:113:60)
+        at file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/helpers/mh-l5-cold-worker.mjs:37:54
+        at ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+        at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:665:26)
+        at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)
+    
+    Node.js v22.22.1
+    
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    validate (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/formats.js:77:15)
+    write (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/state.js:55:5)
+    publishState (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/state.js:113:60)
+    file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/helpers/mh-l5-cold-worker.mjs:37:54
+    ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+    async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:665:26)
+    async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)
+    ChildProcess.<anonymous> (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/helpers/mh-l1-shim.js:58:60)
+    Object.onceWrapper (node:events:634:26)
+    ChildProcess.emit (node:events:519:28)
+    maybeClose (node:internal/child_process:1101:16)
+    ChildProcess._handle.onexit (node:internal/child_process:304:5)
+  ...
+# Subtest: M23 M24 cold process crash at listener-close must preserve the irreversible boundary
+not ok 5 - M23 M24 cold process crash at listener-close must preserve the irreversible boundary
+  ---
+  duration_ms: 83.536487
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-cold.test.js:10:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    shim closed 1/null: file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/formats.js:77
+            throw new Error('contradictory_marker');
+                  ^
+    
+    Error: contradictory_marker
+        at validate (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/formats.js:77:15)
+        at write (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/state.js:55:5)
+        at publishState (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/state.js:113:60)
+        at file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/helpers/mh-l5-cold-worker.mjs:37:54
+        at ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+        at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:665:26)
+        at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)
+    
+    Node.js v22.22.1
+    
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    validate (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/formats.js:77:15)
+    write (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/state.js:55:5)
+    publishState (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/state.js:113:60)
+    file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/helpers/mh-l5-cold-worker.mjs:37:54
+    ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+    async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:665:26)
+    async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)
+    ChildProcess.<anonymous> (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/helpers/mh-l1-shim.js:58:60)
+    Object.onceWrapper (node:events:634:26)
+    ChildProcess.emit (node:events:519:28)
+    maybeClose (node:internal/child_process:1101:16)
+    ChildProcess._handle.onexit (node:internal/child_process:304:5)
+  ...
+# Subtest: M23 M24 cold process crash at marker-cleanup must preserve the irreversible boundary
+not ok 6 - M23 M24 cold process crash at marker-cleanup must preserve the irreversible boundary
+  ---
+  duration_ms: 91.683548
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-cold.test.js:10:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    shim closed 1/null: file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/formats.js:77
+            throw new Error('contradictory_marker');
+                  ^
+    
+    Error: contradictory_marker
+        at validate (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/formats.js:77:15)
+        at write (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/state.js:55:5)
+        at publishState (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/state.js:113:60)
+        at file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/helpers/mh-l5-cold-worker.mjs:37:54
+        at ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+        at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:665:26)
+        at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)
+    
+    Node.js v22.22.1
+    
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    validate (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/formats.js:77:15)
+    write (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/state.js:55:5)
+    publishState (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/state.js:113:60)
+    file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/helpers/mh-l5-cold-worker.mjs:37:54
+    ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+    async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:665:26)
+    async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)
+    ChildProcess.<anonymous> (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/helpers/mh-l1-shim.js:58:60)
+    Object.onceWrapper (node:events:634:26)
+    ChildProcess.emit (node:events:519:28)
+    maybeClose (node:internal/child_process:1101:16)
+    ChildProcess._handle.onexit (node:internal/child_process:304:5)
+  ...
+# Subtest: M22 pause during a barrier must stay armed through restart and stop only after the admitted call drains
+not ok 7 - M22 pause during a barrier must stay armed through restart and stop only after the admitted call drains
+  ---
+  duration_ms: 87.488759
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-cold.test.js:10:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    shim closed 1/null: file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/formats.js:77
+            throw new Error('contradictory_marker');
+                  ^
+    
+    Error: contradictory_marker
+        at validate (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/formats.js:77:15)
+        at write (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/state.js:55:5)
+        at publishState (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/state.js:113:60)
+        at file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/helpers/mh-l5-cold-worker.mjs:37:54
+        at ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+        at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:665:26)
+        at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)
+    
+    Node.js v22.22.1
+    
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    validate (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/formats.js:77:15)
+    write (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/state.js:55:5)
+    publishState (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/state.js:113:60)
+    file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/helpers/mh-l5-cold-worker.mjs:37:54
+    ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+    async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:665:26)
+    async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)
+    ChildProcess.<anonymous> (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/helpers/mh-l1-shim.js:58:60)
+    Object.onceWrapper (node:events:634:26)
+    ChildProcess.emit (node:events:519:28)
+    maybeClose (node:internal/child_process:1101:16)
+    ChildProcess._handle.onexit (node:internal/child_process:304:5)
+  ...
+# Subtest: M24 M25 eight starters must share a crash-consumed three-attempt budget and refuse an unknown candidate
+not ok 8 - M24 M25 eight starters must share a crash-consumed three-attempt budget and refuse an unknown candidate
+  ---
+  duration_ms: 84.912635
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/mh-l5-cold.test.js:10:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    shim closed 1/null: file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/formats.js:77
+            throw new Error('contradictory_marker');
+                  ^
+    
+    Error: contradictory_marker
+        at validate (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/formats.js:77:15)
+        at write (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/state.js:55:5)
+        at publishState (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/state.js:113:60)
+        at file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/helpers/mh-l5-cold-worker.mjs:37:54
+        at ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+        at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:665:26)
+        at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)
+    
+    Node.js v22.22.1
+    
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    validate (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/formats.js:77:15)
+    write (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/state.js:55:5)
+    publishState (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/dist/runtime/handover/state.js:113:60)
+    file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/helpers/mh-l5-cold-worker.mjs:37:54
+    ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+    async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:665:26)
+    async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)
+    ChildProcess.<anonymous> (file:///tmp/mh-l3-qualification-aRKm7F/source/packages/h2a/test/helpers/mh-l1-shim.js:58:60)
+    Object.onceWrapper (node:events:634:26)
+    ChildProcess.emit (node:events:519:28)
+    maybeClose (node:internal/child_process:1101:16)
+    ChildProcess._handle.onexit (node:internal/child_process:304:5)
+  ...
+1..8
+# tests 8
+# suites 0
+# pass 0
+# fail 8
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 808.610636
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l5-cold.test.js"],"code":1,"signal":null,"tests":8,"invalid":false,"spawned":17,"leftovers":[]}
