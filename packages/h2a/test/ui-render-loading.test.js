@@ -23,6 +23,9 @@ for (const layout of ["ui-dependencies-absent", "focus-unbuilt"]) {
       cpSync(join(ROOT, "packages/h2a/package.json"), join(candidate, "package.json"));
       symlinkSync(join(ROOT, "packages/h2a/vendor"), join(candidate, "vendor"), "dir");
       symlinkSync(join(ROOT, "packages/h2a/fixtures"), join(candidate, "fixtures"), "dir");
+      // Package data like the registry entry descriptors (read at CLI
+      // startup): the layouts above predate the registry/ directory.
+      symlinkSync(join(ROOT, "packages/h2a/registry"), join(candidate, "registry"), "dir");
       const dependencies = layout === "focus-unbuilt" ? [...CORE_DEPENDENCIES, "ajv"] : CORE_DEPENDENCIES;
       for (const dependency of dependencies) {
         const destination = join(modules, dependency);
