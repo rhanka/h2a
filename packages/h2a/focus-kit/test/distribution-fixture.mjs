@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync, mkdirSync, realpathSync, copyFileSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { readFileSync, writeFileSync, mkdirSync, realpathSync, copyFileSync, readdirSync } from 'node:fs';
+import { join, dirname, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 const repo = fileURLToPath(new URL('../../../../', import.meta.url));
 export function installedEvidence(root) {
@@ -43,20 +44,7 @@ export function installedEvidence(root) {
     if (path.startsWith('node_modules/') && !value.link) lock.packages[path] = hydrate(path, value);
     for (const p of packedPackages) {
       const short = p.name.split('/').at(-1), prefix = `packages/${short}/node_modules/`;
-      if (!path.startsWith(prefix)) continue;
-      let target = `node_modules/${p.name}/node_modules/${path.slice(prefix.length)}`;
-      // Bench mesh 0.32.4 + gateway-pinned 0.26.0: a nested copy that
-      // shadows an ancestor's exact edge makes offline arborist REPLACE the
-      // node and fetch the registry manifest even though the lock pins both
-      // tarballs. The sibling copy exists only for llm-gateway's real
-      // ^0.26.0 edge (peers are skipped under --legacy-peer-deps), so nest
-      // it under the gateway itself: every edge then resolves to its locked
-      // node with zero metadata, and the tarball closure is unchanged.
-      if (path === 'packages/h2a-runtime/node_modules/@sentropic/llm-mesh'
-        && p.name === '@sentropic/h2a-runtime') {
-        target = `node_modules/@sentropic/h2a-runtime/node_modules/@sentropic/llm-gateway/node_modules/@sentropic/llm-mesh`;
-      }
-      lock.packages[target] = hydrate(path, value);
+      if (path.startsWith(prefix)) lock.packages[`node_modules/${p.name}/node_modules/${path.slice(prefix.length)}`] = hydrate(path, value);
     }
   }
   packedPackages.forEach((p, i) => {
@@ -81,9 +69,76 @@ export function installedEvidence(root) {
     copyFileSync(join(sourceCache, contentPath), target); tarballs++;
   }
   assert.ok(tarballs > 0, 'Missing locked tarballs fails the witness');
+  // Seeded packuments pruned to exact-pinned versions for multi-version
+  // names only (e.g. bench mesh 0.32.4 at the root + gateway-pinned 0.26.0
+  // nested): offline arborist re-reads an edge from the registry manifest
+  // when its only satisfying locked node is nested. A pruned manifest
+  // answers that lookup from cache with exactly the pinned versions, so a
+  // max-pick lands on a pinned tarball and anything unpinned keeps failing
+  // loudly; npm ci still errors on any lock/package.json mismatch first.
+  let packuments = 0;
+  const versionsByName = new Map();
+  for (const [path, entry] of Object.entries(lock.packages)) {
+    if (!entry.resolved?.startsWith('https:') || !entry.integrity?.startsWith('sha512-')) continue;
+    const name = path.split('node_modules/').at(-1);
+    if (!name) continue;
+    if (!versionsByName.has(name)) versionsByName.set(name, new Set());
+    versionsByName.get(name).add(entry.version);
+  }
+  const multiVersion = new Map([...versionsByName].filter(([, versions]) => versions.size > 1));
+  const blobPath = (integrity) => {
+    const pick = integrity.split(/\s+/).find(a => a.startsWith('sha512-'));
+    const hex = Buffer.from(pick.slice('sha512-'.length), 'base64').toString('hex');
+    return join('_cacache', 'content-v2', 'sha512', hex.slice(0,2), hex.slice(2,4), hex.slice(4));
+  };
+  const listFiles = (dir) => readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const full = join(dir, entry.name);
+    return entry.isDirectory() ? listFiles(full) : [full];
+  });
+  const indexRoot = join(sourceCache, '_cacache', 'index-v5');
+  for (const file of listFiles(indexRoot)) {
+    const outLines = [];
+    for (const line of readFileSync(file, 'utf8').trim().split('\n')) {
+      const tab = line.indexOf('\t');
+      if (tab === -1) continue;
+      let key, integrity;
+      try { ({ key, integrity } = JSON.parse(line.slice(tab + 1))); } catch { continue; }
+      const prefix = 'make-fetch-happen:request-cache:';
+      if (!key?.startsWith(prefix) || !integrity) continue;
+      // The packument URL carries the (possibly scoped) name as its last
+      // segment, encoded; a tarball URL carries a filename there instead,
+      // which never equals a package name.
+      let name;
+      try { name = decodeURIComponent(key.slice(prefix.length).split('/').at(-1)); } catch { continue; }
+      const pinned = multiVersion.get(name);
+      if (!pinned) continue;
+      let doc;
+      try {
+        doc = JSON.parse(readFileSync(join(sourceCache, blobPath(integrity)), 'utf8'));
+        if (!doc || typeof doc !== 'object' || !doc.versions) continue;
+      } catch { continue; }
+      doc.versions = Object.fromEntries(Object.entries(doc.versions).filter(([v]) => pinned.has(v)));
+      const bytes = Buffer.from(JSON.stringify(doc));
+      const hex = createHash('sha512').update(bytes).digest('hex');
+      const contentPath = join('_cacache', 'content-v2', 'sha512', hex.slice(0,2), hex.slice(2,4), hex.slice(4));
+      const target = join(cache, contentPath); mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, bytes);
+      // cacache ejects any index line whose leading hash is not sha1 of the
+      // JSON payload: recompute it for the pruned document.
+      const pruned = JSON.stringify({
+        ...JSON.parse(line.slice(tab + 1)), integrity: `sha512-${Buffer.from(hex, 'hex').toString('base64')}`,
+      });
+      outLines.push(`${createHash('sha1').update(pruned).digest('hex')}\t${pruned}`);
+      packuments++;
+    }
+    if (!outLines.length) continue;
+    const target = join(cache, '_cacache', 'index-v5', relative(indexRoot, file));
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, outLines.join('\n') + '\n');
+  }
   env.npm_config_cache = cache;
   run(npm, ['ci','--offline','--ignore-scripts','--legacy-peer-deps','--no-audit','--no-fund'], install);
-  console.log(`Fresh consumer: ${tarballs} platform tarballs, zero registry metadata entries`);
+  console.log(`Fresh consumer: ${tarballs} platform tarballs, ${packuments} pinned packument index entries, zero live registry fetches`);
   const packageRoot = join(install,'node_modules/@sentropic/h2a');
   assert.ok(realpathSync(packageRoot).startsWith(install), 'Package is installed, not a workspace alias');
   const guard = join(install,'guard.mjs');
