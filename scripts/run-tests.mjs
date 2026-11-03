@@ -447,6 +447,23 @@ async function main() {
   if (prepared.status !== 0) throw new Error(`run-tests: MH fixtures failed: ${prepared.stderr ?? prepared.error}`);
   const mhFixtures = JSON.parse(prepared.stdout);
   Object.assign(testEnv, mhFixtures.env);
+  // One frozen pack key for the whole run: the tree is fixed for this
+  // invocation, so the warmer and every suite process must agree on the key
+  // even while test outputs land mid-run (a live recomputation per process
+  // repacks on volatile status). Dynamic import with a computed specifier so
+  // the observation lab (which rewrites only static relative imports) stays
+  // transparent: a missing helper simply leaves the key unset and every
+  // consumer computes it live, exactly as before sharing.
+  try {
+    const packHelper = await import(pathToFileURL(join(REPO_ROOT, 'packages', 'h2a', 'test', 'helpers', 'shared-pack-candidates.mjs')).href);
+    const frozenPackKey = packHelper.cacheKey();
+    if (typeof frozenPackKey === 'string' && /^[a-f0-9]{64}$/.test(frozenPackKey)) {
+      testEnv.H2A_SHARED_PACK_KEY = frozenPackKey;
+      process.env.H2A_SHARED_PACK_KEY = frozenPackKey;
+    }
+  } catch {
+    // No frozen key: consumers fall back to live computation.
+  }
 
   // Track's no-store fixtures intentionally walk to the filesystem root.
   // Use the invocation's temporary parent, and reject any .track ancestor.
