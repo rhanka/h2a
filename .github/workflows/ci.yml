@@ -142,9 +142,13 @@ jobs:
         run: node scripts/ci-m17-proof.mjs finalize
       - uses: actions/upload-artifact@v4
         with:
-          name: m17-${{ github.run_id }}-${{ github.run_attempt }}-node${{ matrix.node }}
+          # Stable across attempts: rerun-failed jobs run under a new
+          # run_attempt and must find the producers' proofs; a full re-run
+          # overwrites them instead of colliding.
+          name: m17-${{ github.run_id }}-node${{ matrix.node }}
           path: tmp/m17-export/proof.json
           if-no-files-found: error
+          overwrite: true
           retention-days: 7
 
   bulk-qualification:
@@ -172,9 +176,11 @@ jobs:
           H2A_TEST_CI_BULK_OUTPUT: ${{ github.workspace }}/tmp/bulk-export
       - uses: actions/upload-artifact@v4
         with:
-          name: bulk-${{ github.run_id }}-${{ github.run_attempt }}-node${{ matrix.node }}
+          # Stable across attempts, same rerun contract as the M17 proof.
+          name: bulk-${{ github.run_id }}-node${{ matrix.node }}
           path: tmp/bulk-export/proof.json
           if-no-files-found: error
+          overwrite: true
           retention-days: 7
 
   build-and-test:
@@ -238,11 +244,11 @@ jobs:
         run: node --test packages/h2a/test/send.test.js packages/h2a/test/cluster-mesh-messaging.test.js
       - uses: actions/download-artifact@v4
         with:
-          name: m17-${{ github.run_id }}-${{ github.run_attempt }}-node${{ matrix.node }}
+          name: m17-${{ github.run_id }}-node${{ matrix.node }}
           path: tmp/m17-import
       - uses: actions/download-artifact@v4
         with:
-          name: bulk-${{ github.run_id }}-${{ github.run_attempt }}-node${{ matrix.node }}
+          name: bulk-${{ github.run_id }}-node${{ matrix.node }}
           path: tmp/bulk-import
       - name: Create a disposable TMPDIR admitted by both confinement guards
         shell: bash
@@ -348,11 +354,11 @@ jobs:
         run: test "$BULK_RESULT" = success
       - uses: actions/download-artifact@v4
         with:
-          name: m17-${{ github.run_id }}-${{ github.run_attempt }}-node22
+          name: m17-${{ github.run_id }}-node22
           path: tmp/m17-import
       - uses: actions/download-artifact@v4
         with:
-          name: bulk-${{ github.run_id }}-${{ github.run_attempt }}-node22
+          name: bulk-${{ github.run_id }}-node22
           path: tmp/bulk-import
       - name: Execute the production test entrypoint directly
         run: node scripts/run-test-gates.mjs
