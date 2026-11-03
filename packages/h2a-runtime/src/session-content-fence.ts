@@ -61,6 +61,7 @@ interface HandoffRecord {
 function isRecord(value: unknown): value is JournalRecord {
   if (typeof value !== "object" || value === null) return false;
   const record = value as Record<string, unknown>;
+  if (Object.keys(record).length !== 4) return false;
   if (
     record["v"] !== 1 ||
     typeof record["key"] !== "string" ||
@@ -74,12 +75,16 @@ function isRecord(value: unknown): value is JournalRecord {
   if (record["decision"] === "consumed" && (record["digest"] as string).length === 0) {
     return false;
   }
+  if (record["decision"] === "denied" && (record["digest"] as string).length !== 0) {
+    return false;
+  }
   return true;
 }
 
 function isHandoff(value: unknown): value is HandoffRecord {
   if (typeof value !== "object" || value === null) return false;
   const record = value as Record<string, unknown>;
+  if (Object.keys(record).length !== 2) return false;
   return record["v"] === 1 && record["handoff"] === true;
 }
 
@@ -134,10 +139,16 @@ export class ContentFence {
         return new ContentFence(journalPath, false, false, new Map());
       }
       if (isHandoff(value)) {
+        if (handedOff) {
+          return new ContentFence(journalPath, false, false, new Map());
+        }
         handedOff = true;
         continue;
       }
       if (!isRecord(value)) {
+        return new ContentFence(journalPath, false, false, new Map());
+      }
+      if (handedOff || records.has(value.key)) {
         return new ContentFence(journalPath, false, false, new Map());
       }
       records.set(value.key, { decision: value.decision, digest: value.digest });
@@ -224,15 +235,17 @@ export class ContentFence {
     });
   }
 
-  markHandedOff(): Promise<void> {
+  markHandedOff(): Promise<boolean> {
     return this.enqueue(async () => {
-      if (!this.available || this.handedOff) return;
+      if (!this.available) return false;
+      if (this.handedOff) return true;
       const persisted = await this.appendLine(`${JSON.stringify({ handoff: true, v: 1 })}\n`);
       if (!persisted) {
         this.available = false;
-        return;
+        return false;
       }
       this.handedOff = true;
+      return true;
     });
   }
 
@@ -260,8 +273,8 @@ export function denyAction(fence: ContentFence, args: { key: string }): Promise<
   return fence.deny(args.key);
 }
 
-/** Fence all future consumes into query-only after handoff. */
-export function markHandedOff(fence: ContentFence): Promise<void> {
+/** Fence all future consumes into query-only after handoff; resolves true when handoff holds. */
+export function markHandedOff(fence: ContentFence): Promise<boolean> {
   return fence.markHandedOff();
 }
 
