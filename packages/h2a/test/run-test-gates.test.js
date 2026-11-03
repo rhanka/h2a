@@ -487,7 +487,10 @@ function assertM17CiGraph(source) {
   assert.match(job, /^    name: npm-test-trust-root$/m)
   assert.match(job, /uses: actions\/checkout@v4/)
   assert.match(job, /uses: actions\/setup-node@v4/)
-  assert.match(job, /^          node-version: "22"$/m)
+  assert.match(job, /^          node-version: \$\{\{ env\.PIN_NODE_22 \}\}$/m)
+  // Exact runtime pins: bulk sealed v24.22.0 while consumers resolved v24.22.1.
+  assert.match(source, /^  PIN_NODE_22: "22\.23\.4"$/m)
+  assert.match(source, /^  PIN_NODE_24: "24\.22\.1"$/m)
   // A dependency verdict alone cannot replace independent execution evidence.
   // The direct guard still runs outside the production runner; the complete
   // same-run companion evidence is mandatory in its production invocation.
