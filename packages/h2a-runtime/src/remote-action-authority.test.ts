@@ -20,8 +20,20 @@ import {
   consumeCheckedAction,
   evaluateConsentDecision,
   mapNativeRefusal,
+  type ActionCorrelationInput,
+  type ConsentDecisionInput,
 } from "./remote-action-owner.js";
 import { openContentFence } from "./session-content-fence.js";
+
+const FIXTURES = new URL(
+  "./fixtures/session-content/v3/remote-action-v1/",
+  import.meta.url,
+);
+
+async function loadVectorJson(relative: string): Promise<any> {
+  const { readFile } = await import("node:fs/promises");
+  return JSON.parse(await readFile(new URL(relative, FIXTURES), "utf8"));
+}
 
 const ACTION_ID = "vZOMaI9Jt3x_xTfGuSIuLA";
 
@@ -180,6 +192,40 @@ describe("remote-action owner authority", () => {
       expect(existsSync(join(dir, "fence-journal.jsonl"))).toBe(false);
     } finally {
       rmSync(dir, { force: true, recursive: true });
+    }
+  });
+});
+
+describe("r3 refusal-mapping vectors (state-transitions.json)", () => {
+  it("executes every consentMapping case with zero effects", async () => {
+    const vectors = await loadVectorJson("vectors/state-transitions.json");
+    const cases = vectors.cases.filter(
+      (entry: { evaluator: string }) => entry.evaluator === "consentMapping",
+    );
+    expect(cases.length).toBe(14);
+    for (const entry of cases) {
+      expect(
+        evaluateConsentDecision(entry.input as ConsentDecisionInput),
+        entry.id,
+      ).toEqual(entry.expected);
+      if ("effectCalls" in (entry.expected as Record<string, unknown>)) {
+        expect(entry.expected.effectCalls, entry.id).toBe(0);
+      }
+    }
+  });
+
+  it("executes every actionCorrelation case with zero effects", async () => {
+    const vectors = await loadVectorJson("vectors/state-transitions.json");
+    const cases = vectors.cases.filter(
+      (entry: { evaluator: string }) => entry.evaluator === "actionCorrelation",
+    );
+    expect(cases.length).toBe(8);
+    for (const entry of cases) {
+      expect(
+        checkActionCorrelation(entry.input as ActionCorrelationInput),
+        entry.id,
+      ).toEqual(entry.expected);
+      expect(entry.expected.effectCalls, entry.id).toBe(0);
     }
   });
 });
