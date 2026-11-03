@@ -16,6 +16,7 @@ import { join } from 'node:path';
 import { readState } from './state.js';
 import { digest } from './wire.js';
 import { shimBuildInfo } from './shim-build.js';
+import { requestWithRetry } from './request-retry.js';
 
 const PROTOCOLS = ['2025-06-18', '2024-11-05'];
 const rpc = value => value && value.jsonrpc === '2.0' && !Array.isArray(value);
@@ -118,7 +119,12 @@ export async function bridgeCentralMcpStdio(options) {
     const { offer, receipt } = owner.pendingAcceptance;
     const recorded = () => shimAcceptanceRecorded(owner.marker, readAuthenticationKey(markerPath, owner.marker), receipt);
     if (!recorded()) {
-      const ack = await request(owner, `/_h2a-central/shim/${attachmentId}/ack`, { method: 'POST', headers: headers(owner), body: JSON.stringify(receipt) });
+      // The ack POST is idempotent (recorded() re-checks every attempt): a
+      // starved central may abort the first attempt without losing the
+      // acceptance. Non-transient failures still throw immediately.
+      const ack = await requestWithRetry(budget => request(owner, `/_h2a-central/shim/${attachmentId}/ack`,
+        { method: 'POST', headers: headers(owner), body: JSON.stringify(receipt),
+          signal: AbortSignal.any([controller.signal, AbortSignal.timeout(budget)]) }), { stopSignal: controller.signal });
       if (!ack.ok || digest(await ack.json()) !== digest(receipt) || !recorded()) throw new Error('shim_ack_invalid');
     }
     owner.acceptedProofDigest = receipt.proofDigest; owner.pendingAcceptance = undefined;
@@ -132,7 +138,11 @@ export async function bridgeCentralMcpStdio(options) {
   const pollOffer = async owner => {
     if (!options.attachment || !owner.registration) return;
     if (owner.pendingAcceptance) { await finishAcceptance(owner); return; }
-    const response = await request(owner, `/_h2a-central/shim/${attachmentId}/offer`);
+    // Same bounded retry as the ack: the offer GET costs up to ~1.8s under
+    // contention against a 2s blanket budget, so one slow answer must not
+    // drop the whole acceptance. HTTP-status failures still throw as before.
+    const response = await requestWithRetry(budget => request(owner, `/_h2a-central/shim/${attachmentId}/offer`,
+      { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(budget)]) }), { stopSignal: controller.signal });
     if (!response.ok) throw new Error('shim_offer_unavailable');
     const value = await response.json(), offer = value.offer;
     if (!offer || owner.acceptedProofDigest === digest(offer.proof)) return;
