@@ -11,6 +11,8 @@
  * is refused before any cryptographic work.
  */
 
+import { ContractSourceGapError } from "./remote-action-contract.js";
+
 export type TrustFailureCode =
   | "unknown_kid"
   | "revoked_key"
@@ -77,6 +79,59 @@ export function resolveTrustEntry(
 /** Fail closed when a fixture-only key is presented for live admission. */
 export function assertLiveKey(entry: PinnedKey): void {
   if (entry.fixtureOnly) throw new TrustError("fixture_only");
+}
+
+/**
+ * Load a `public-fixture-trust` vector into a pinned store. Every key keeps
+ * its fixture issuer and is marked `fixtureOnly`, so the loaded store can
+ * drive fixture execution but never live authority (`assertLiveKey` refuses
+ * each entry). Keys without the synthetic-fixture status are rejected: only
+ * the contract's public synthetic bytes load here.
+ */
+export function loadPublicFixtureTrust(
+  json: unknown,
+  purposes: readonly string[],
+  audience: string,
+): PinnedTrust {
+  const shape = (value: unknown): Record<string, unknown> | null =>
+    typeof value === "object" && value !== null && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
+  const keys = shape(json)?.["keys"];
+  if (!Array.isArray(keys) || keys.length === 0) {
+    throw new ContractSourceGapError(
+      "contract_shape_rejected",
+      "remote-action: public-fixture-trust has no keys array",
+    );
+  }
+  return createPinnedTrust(
+    keys.map((entry) => {
+      const key = shape(entry);
+      const kid = key?.["kid"];
+      const issuer = key?.["issuer"];
+      const spki = key?.["publicKeySpkiBase64"];
+      if (
+        typeof kid !== "string" ||
+        typeof issuer !== "string" ||
+        typeof spki !== "string" ||
+        key?.["status"] !== "synthetic-public-fixture-only"
+      ) {
+        throw new ContractSourceGapError(
+          "contract_shape_rejected",
+          "remote-action: public-fixture-trust key is not synthetic-public-fixture-only",
+        );
+      }
+      return {
+        kid,
+        issuer,
+        audience,
+        purposes: [...purposes],
+        publicKeySpkiBase64: spki,
+        revoked: false,
+        fixtureOnly: true,
+      };
+    }),
+  );
 }
 
 export function isAllowedBodyAlg(alg: unknown): boolean {

@@ -1,0 +1,104 @@
+{
+  "format": "rc2.public-fixture-trust/1",
+  "warning": "PUBLIC SYNTHETIC KEYS ONLY. Never trust these fixture issuers in a live installation.",
+  "keys": [
+    {
+      "role": "A-route",
+      "issuer": "fixture-A-route",
+      "kid": "fixture-A-route-key",
+      "publicKeySpkiBase64": "MCowBQYDK2VwAyEAeK044J1k5nanHVO0vL/zCKSsG+S8z6YK6//n9rTBjMs=",
+      "status": "synthetic-public-fixture-only"
+    },
+    {
+      "role": "B-installation",
+      "issuer": "fixture-B-installation",
+      "kid": "fixture-B-installation-key",
+      "publicKeySpkiBase64": "MCowBQYDK2VwAyEAqdDcAc3NCYLbDX6ThIBZpPiNvFS2ZlsMeKdjlcVMWo8=",
+      "status": "synthetic-public-fixture-only"
+    },
+    {
+      "role": "A-listing",
+      "issuer": "fixture-A-listing",
+      "kid": "fixture-A-listing-key",
+      "publicKeySpkiBase64": "MCowBQYDK2VwAyEAiG3Zuj2EgBWv9+jbLN60omNALs9HB6yXyr9rb9Ye1os=",
+      "status": "synthetic-public-fixture-only"
+    },
+    {
+      "role": "origin-registry",
+      "issuer": "fixture-origin-registry",
+      "kid": "fixture-origin-registry-key",
+      "publicKeySpkiBase64": "MCowBQYDK2VwAyEA4YP8REv5LNfQo2QfOEkZy0MNrSLnm3/afO8/QHOlvPk=",
+      "status": "synthetic-public-fixture-only"
+    },
+    {
+      "role": "A-drive-binding",
+      "issuer": "fixture-A-drive-binding",
+      "kid": "fixture-A-drive-binding-key",
+      "publicKeySpkiBase64": "MCowBQYDK2VwAyEALEhqwbhGDGtsWXS5Hp+9/rCH/84wAsGz720F4QO6b+M=",
+      "status": "synthetic-public-fixture-only"
+    },
+    {
+      "role": "B-native-source",
+      "issuer": "fixture-B-native-source",
+      "kid": "fixture-B-native-source-key",
+      "publicKeySpkiBase64": "MCowBQYDK2VwAyEA++w8uSKHfynKM7KuxeFiiBG0hL6e200hWO4EotYjWS4=",
+      "status": "synthetic-public-fixture-only"
+    },
+    {
+      "role": "origin-chat-export",
+      "issuer": "fixture-origin-chat-export",
+      "kid": "fixture-origin-chat-export-key",
+      "publicKeySpkiBase64": "MCowBQYDK2VwAyEAWegSqCyeYoVbdDfEUE0hekPmhPaDp/K+5grzGjDsprY=",
+      "status": "synthetic-public-fixture-only"
+    },
+    {
+      "role": "A-policy-attestation",
+      "issuer": "fixture-A-policy-attestation",
+      "kid": "fixture-A-policy-attestation-key",
+      "publicKeySpkiBase64": "MCowBQYDK2VwAyEAnu3Ufu8Mmz0ZNNYMgF7+9cs783Cu77z9OFceCjftGNM=",
+      "status": "synthetic-public-fixture-only"
+    },
+    {
+      "role": "A-policy-dispatch",
+      "issuer": "fixture-A-policy-dispatch",
+      "kid": "fixture-A-policy-dispatch-key",
+      "publicKeySpkiBase64": "MCowBQYDK2VwAyEAmcuq14dOtkCugmP83he3Wv7Z7FrLFoD3KjrzAXTnACY=",
+      "status": "synthetic-public-fixture-only"
+    },
+    {
+      "role": "IdP-policy",
+      "issuer": "fixture-IdP-policy",
+      "kid": "fixture-IdP-policy-key",
+      "publicKeySpkiBase64": "MCowBQYDK2VwAyEAbrn3xsPJ8AWzLJChS3Wjells/4jyUBEGsCzNnwkeJU8=",
+      "status": "synthetic-public-fixture-only"
+    },
+    {
+      "role": "wrong-purpose-fixture",
+      "issuer": "fixture-wrong-purpose-fixture",
+      "kid": "fixture-wrong-purpose-fixture-key",
+      "publicKeySpkiBase64": "MCowBQYDK2VwAyEAm2508tqe7fnrFATxAvFBD4Fi7sjKTrv4xqTiZdLJreo=",
+      "status": "synthetic-public-fixture-only"
+    },
+    {
+      "role": "native-from-fixture",
+      "issuer": "fixture-native-from-fixture",
+      "kid": "fixture-native-from-fixture-key",
+      "publicKeySpkiBase64": "MCowBQYDK2VwAyEAHFNNhreKy2m7ZzdrQ8DQ7WinfzZy/0RNhdaa24gV+PI=",
+      "status": "synthetic-public-fixture-only"
+    },
+    {
+      "role": "native-to-fixture",
+      "issuer": "fixture-native-to-fixture",
+      "kid": "fixture-native-to-fixture-key",
+      "publicKeySpkiBase64": "MCowBQYDK2VwAyEAY8/hBJUxkK4Q3LSSDf6s91tJjNDGqB3Hf+vcZyRI2JA=",
+      "status": "synthetic-public-fixture-only"
+    },
+    {
+      "role": "native-principal-fixture",
+      "issuer": "fixture-native-principal-fixture",
+      "kid": "fixture-native-principal-fixture-key",
+      "publicKeySpkiBase64": "MCowBQYDK2VwAyEAy15gfb3ooNSuJahOk5zzShF3BLqZOMvzpqxpdUsKIL0=",
+      "status": "synthetic-public-fixture-only"
+    }
+  ]
+}
