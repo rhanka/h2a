@@ -2553,3 +2553,41 @@ verified `sha256sum -c` clean, 303 OK / 0 failed).
 - RS256 / fresh-UV cadence (PR #361 ancestry only, must not survive).
 - Caller-selected trust roots or token-selected discovery in the verifier.
 - No Python anywhere; no `git stash`; no attribution trailers.
+
+# B2 — `feat/rc2-n2-fence` (cell N2: durable fence and clock, stacked on B1)
+
+Accountable build: Muse Spark 1.3 xhigh. Review: vibe code leg. Depends on: B1
+(`origin/feat/rc2-n1-verifier` @ `0df3f54f6`); contract r3 pin re-verified
+(`MANIFEST.sha256` `6245d3ae51f601195926bc36600d1097cef30694f3feb01f79f1a7ec9fa17715`).
+
+## Lots
+
+1. Red — `session-content-fence.test.ts`, `remote-action-authority.test.ts`
+   (replay, denial race, clock). Tests fail on missing modules (2 files, 0 run).
+2. Green — `session-content-fence.ts` (durable journal fence: atomic commit,
+   dedupe/conflict, restart replay, single-winner denial race, corrupt-journal
+   fail-closed, query-only handoff) + `remote-action-owner.ts` (correlation,
+   consent mapping, §9 refusal table) composed with the N1 clock; barrel
+   re-exports the owner only.
+3. Refusal-mapping vectors — 14 `consentMapping` + 8 `actionCorrelation`
+   cases executed from the pinned `state-transitions.json` with zero effects.
+
+## Allowed
+
+- `packages/h2a-runtime/src/session-content-fence.ts` (new)
+- `packages/h2a-runtime/src/remote-action-owner.ts` (new)
+- `packages/h2a-runtime/src/remote-action-{verifier,owner,clock}.ts` composition
+  (`remote-action.ts` barrel: owner exports appended; verifier/clock untouched)
+- `packages/h2a-runtime/src/session-content-fence.test.ts`,
+  `packages/h2a-runtime/src/remote-action-authority.test.ts`
+- This file (append own section only; never rewrite other lanes)
+
+## Forbidden
+
+- `packages/remote-protocol/**`, `packages/remote-k8s-orchestrator/**`.
+- `packages/h2a-runtime/package.json` (no export change in B2; fence stays
+  internal until N5 packaging).
+- Any `cluster-mesh` import; `packages/h2a/src/**` (B4 land).
+- `session-content-{v3-api,policy-proof,consent}.ts` (B5).
+- Local fill of any source-gap slot; invented capsule bytes/headers/trust roots.
+- No Python anywhere; no `git stash`; no attribution trailers.
