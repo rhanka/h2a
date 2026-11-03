@@ -32,6 +32,7 @@ export function observeNodeTrackEntry(source, repoRoot, { preparedNpmCache = fal
     const legacyEntry = 'packages/h2a-runtime/dist/native-terminal/process.js'
     writeFileSync(join(root, 'legacy', legacyEntry), '')
     const markers = join(root, 'observed.json')
+    const warmerMarker = join(root, 'warmer-launched.json')
     let copy = source
     for (const module of ['cleanse-contract-ledger', 'test-execution-evidence', 'test-inventory', 'historical-test-ref', 'report-test-durations', 'm17-ci-evidence', 'bulk-ci-evidence']) copy = copy.replace(`"./${module}.mjs"`, JSON.stringify(pathToFileURL(resolve(repoRoot, `scripts/${module}.mjs`)).href))
     writeFileSync(join(root, 'scripts/run-tests.mjs'), copy)
@@ -43,7 +44,7 @@ import {EventEmitter} from 'node:events';
 import {syncBuiltinESMExports} from 'node:module';
 import {writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
-const root = ${JSON.stringify(root)}, files = ${JSON.stringify(files)}, track = ${JSON.stringify(track)}, agentStats = ${JSON.stringify(agentStats)}, focus = ${JSON.stringify(focus)}, laneFiles = ${JSON.stringify(LANE_TEST_FILES)};
+const root = ${JSON.stringify(root)}, files = ${JSON.stringify(files)}, track = ${JSON.stringify(track)}, agentStats = ${JSON.stringify(agentStats)}, focus = ${JSON.stringify(focus)}, laneFiles = ${JSON.stringify(LANE_TEST_FILES)}, warmerMarker = ${JSON.stringify(warmerMarker)};
 const fault = ${JSON.stringify(nodeBucketFault ?? null)};
 const observed=[], reports=new Set();
 cp.spawnSync=(command,args,options)=>{
@@ -83,6 +84,18 @@ cp.spawnSync=(command,args,options)=>{
 };
 let launched=0;
 cp.spawn=(command,args,options)=>{
+  if (typeof args[0] === 'string' && args[0].endsWith('warm-pack-candidates.mjs')) {
+    // The pack warmer is not a suite: it fills the shared candidate cache
+    // ahead of the packed-tree suites and carries no verdict, so it is not
+    // counted among the launched independent suites and not recorded in the
+    // suite observation sequence. Its launch is proven through a separate
+    // marker (this mock runs in another process).
+    if (command!==process.execPath) throw Error('pack warmer must use the candidate Node');
+    writeFileSync(${JSON.stringify(warmerMarker)},JSON.stringify({launched:true}));
+    const child=new EventEmitter();child.kill=()=>true;
+    process.nextTick(()=>{ child.emit('close',0,null); });
+    return child;
+  }
   launched++;
   const child=new EventEmitter();child.kill=()=>true;
   process.nextTick(()=>{
@@ -100,6 +113,7 @@ cp.spawn=(command,args,options)=>{
     if (preparedNpmCache) { delete env.npm_config_cache; delete env.NPM_CONFIG_CACHE }
     const result = spawnSync(process.execPath, ['--import', join(root, 'mock-spawn.mjs'), join(root, 'scripts/run-tests.mjs')], { cwd: root, env, encoding: 'utf8', timeout: 30_000 })
     assert.equal(result.status, (nodeBucketFault || failedSuite) ? 1 : 0, `Node/Track production entry returned the wrong verdict (${nodeBucketFault ?? failedSuite ?? 'complete'}):\n${result.stdout}${result.stderr}`)
+    assert.deepEqual(JSON.parse(readFileSync(warmerMarker, 'utf8')), { launched: true }, 'the production entry must warm the shared candidate pack ahead of the packed-tree suites')
     assert.deepEqual(JSON.parse(readFileSync(markers, 'utf8')), ['Fixtures', 'Node:corpus', 'Node:native', 'Node:rest', 'Track', 'AgentStats', 'Focus', 'Lane'], 'each production suite must actually reach the execution boundary, even after a bucket fails')
     for (const bucket of ['corpus', 'native', 'rest']) assert.match(result.stdout, new RegExp('Node bucket ' + bucket + ': \\d+ file\\(s\\), \\d+\\.\\d+s, exit [01]'))
     if (nodeBucketFault === 'duplicate') assert.match(result.stderr, /duplicate suite identity/)
