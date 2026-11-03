@@ -26,7 +26,8 @@ export type ConsentProjection =
   | "refused"
   | "expired"
   | "absent"
-  | "unavailable";
+  | "unavailable"
+  | "unresolved";
 
 export interface ConsentDecisionInput {
   side: "A" | "B";
@@ -56,17 +57,26 @@ export type ConsentDecision =
 
 export function evaluateConsentDecision(input: ConsentDecisionInput): ConsentDecision {
   // Post-handoff transport loss preserves the consumed/ambiguous outcome and
-  // stays query-only; it never fabricates a no-effect denial.
-  if (input.handedOff) return { queryOnly: true, state: "outcome_unknown" };
+  // stays query-only; it never fabricates a no-effect denial. Handoff alone,
+  // with transport intact and a readable projection, keeps normal evaluation.
+  if (input.handedOff && (input.projection === "unavailable" || input.transportLost)) {
+    return { queryOnly: true, state: "outcome_unknown" };
+  }
   if (input.projection === "unavailable") {
     return input.side === "B"
       ? { code: "ledger_unavailable", effectCalls: 0 }
       : { code: "authority_unavailable", effectCalls: 0 };
   }
-  if (input.projection !== "positive") {
+  if (
+    input.projection === "revoked" ||
+    input.projection === "refused" ||
+    input.projection === "expired" ||
+    input.projection === "absent"
+  ) {
     return { code: "control_disabled", effectCalls: 0 };
   }
   if (
+    input.projection !== "positive" ||
     !input.exactProjectedRequest ||
     !input.exactProjectedGrant ||
     !input.registeredExecutor ||
@@ -98,7 +108,13 @@ export type CorrelationDecision =
   | { code: "authority_refused"; effectCalls: 0 };
 
 export function checkActionCorrelation(input: ActionCorrelationInput): CorrelationDecision {
-  if (input.evidencePurpose !== "action") {
+  if (
+    (input.operation !== "input" && input.operation !== "permission-response") ||
+    input.evidencePurpose !== "action"
+  ) {
+    return { code: "authority_refused", effectCalls: 0 };
+  }
+  if (!input.actionId || input.actionId === input.sessionTraceId) {
     return { code: "authority_refused", effectCalls: 0 };
   }
   if (
