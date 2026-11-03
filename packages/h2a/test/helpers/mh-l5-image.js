@@ -24,7 +24,16 @@ export async function managedImage() {
       selectionEpoch: 1, packageVersion: payload.manifest.packageVersion, buildId: payload.manifest.buildId,
       manifestDigest: payload.manifestDigest, entrypoint: 'dist/bin.js', previousSelectionReference: null, upgradeId: 'u' };
     const selectionPath = join(state, 'selected-build.json'); publishState(selectionPath, selection, 'selection');
-    const environment = { ...process.env, H2A_ROOT: root, XDG_RUNTIME_DIR: runtime }; delete environment.NODE_OPTIONS; delete environment.NODE_PATH;
+    // Neutral spawn environment (mirrors runIsolatedPrecheck): the successor
+    // is a verified closed-image entry, so the test spawn guard withholds
+    // its preload instrumentation only when no owner configuration leaks
+    // into the child. Inheriting the ambient HOME/XDG variables would fail
+    // that recognition and the image loader policy would refuse the child.
+    const environment = { PATH: process.env.PATH, LANG: 'C.UTF-8', H2A_ROOT: root, XDG_RUNTIME_DIR: runtime };
+    for (const [name, leaf] of Object.entries({ HOME: 'home', XDG_CONFIG_HOME: 'config', XDG_STATE_HOME: 'state',
+      XDG_DATA_HOME: 'data', XDG_CACHE_HOME: 'cache', TMPDIR: 'tmp' })) {
+      environment[name] = join(dir, leaf); fs.mkdirSync(environment[name], { mode: 0o700 });
+    }
     const children = [];
     return { dir, state, root, runtime, image, installation, payload, selection, selectionPath, children,
       startOptions: { directory: join(runtime, 'h2a-mcp-central'), root, installation, fallbackEntry: join(image, 'dist/bin.js'),
