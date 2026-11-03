@@ -261,12 +261,15 @@ maybe(
       // Every initialize must answer while the lock is HELD. RED on main: it
       // blocks in identity resolution and never returns (the server closes).
       // DECOUPLING bound: a FRACTION of the identity deadline, not a tight
-      // wall-clock — a lock-blocked initialize would scale to ~20s (or die). Half
-      // the deadline discriminates that and absorbs CI parallel-load jitter.
+      // wall-clock — a lock-blocked initialize would scale to ~20s (or die).
+      // Three fifths of the deadline discriminates that: the 36-spawn storm
+      // serializes process startup on slower 4-vCPU runners (measured max
+      // 10.7s against the 10s half), while a lock-blocked initialize still
+      // stands out at ~2x the deadline.
       const { max } = await initAll(handles, 18_000);
       assert.ok(
-        max < IDENTITY_DEADLINE_MS / 2,
-        `initialize must answer well before the identity deadline while contended (max ${max}ms, bound ${IDENTITY_DEADLINE_MS / 2}ms)`
+        max < IDENTITY_DEADLINE_MS * 0.6,
+        `initialize must answer well before the identity deadline while contended (max ${max}ms, bound ${IDENTITY_DEADLINE_MS * 0.6}ms)`
       );
       // Jitter-IMMUNE proof: the registry lock has NOT been released yet, so no
       // binding can exist — a decoupled transport wrote none while contended.
