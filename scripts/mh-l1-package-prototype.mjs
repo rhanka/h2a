@@ -81,6 +81,17 @@ async function buildPayload(root, { buildId, managedRoot, releaseVersion, packag
   // ordering below fixes for the h2a↔h2a-runtime cross-dep; exposed by the
   // mesh 0.25.0 tuple (optional engram peer pulling commander transitively
   // ahead of the runtime direct; dual mcp-platform generations).
+  const slotVisibleFrom = (dest, childPath, name) => {
+    // A recorded same-source slot Node reaches from dest needs no duplicate:
+    // the payload root itself, the top-level slot, or an ancestor slot.
+    // Anything else (a sibling subtree) stays invisible and still forces.
+    if (!childPath) return true;
+    if (childPath === `node_modules/${name}`) return true;
+    const suffix = `/node_modules/${name}`;
+    if (!childPath.endsWith(suffix)) return false;
+    const base = childPath.slice(0, -suffix.length);
+    return dest === base || dest.startsWith(base + '/');
+  };
   const reservations = new Map();
   // Sources currently being copied above us in this walk. A force-copy of a
   // source already on the chain (the h2a<->h2a-runtime lockstep ping-pong
@@ -185,6 +196,10 @@ async function buildPayload(root, { buildId, managedRoot, releaseVersion, packag
       const child = copyPackage(directory, destination);
       if (child === want) return child;
       const dirReal = realpathSync(directory);
+      // Same bytes on a slot visible from here: reuse them instead of
+      // nesting a duplicate whose subtree would be re-walked and re-forced
+      // (ENOSPC on real trees under the 0.25.0 tuple).
+      if (slotSource.get(child) === dirReal && slotVisibleFrom(destination, child, name)) return child;
       if (records.has(want) && slotSource.get(want) !== dirReal) {
         throw new Error(`prototype_dependency_collision:${want}`);
       }
