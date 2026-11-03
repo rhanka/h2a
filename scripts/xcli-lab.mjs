@@ -258,26 +258,20 @@ export function sourceBuild(root) {
 // LOGIN_ROLES is declared after LOGIN_ALLOWLIST below (derived keys).
 // Shared home for the login allowlist (Lot L5): the worker records copies
 // against it, the parent re-wipes a lost worker cell against it.
-export const LOGIN_ALLOWLIST = Object.freeze({
-  codex: Object.freeze(['.codex/auth.json']),
-  claude: Object.freeze(['.claude/.credentials.json', '.claude.json']),
-  muse: Object.freeze(['.config/muse/auth.json']),
-  // R22 (bench round 22, agy diagonal): agy (Antigravity) keeps its OAuth
-  // login at .gemini/antigravity-cli/antigravity-oauth-token — measured
-  // 2026-11-01 on this machine by stat only (regular file, 568 bytes, mode
-  // 0600, fresh mtime; the agy CLI state dir; the sibling oauth_creds.json /
-  // google_accounts.json are stale gemini-CLI artifacts and stay decoys).
-  // Auth-only like the other families: token file only, never settings or
-  // workspace state.
-  agy: Object.freeze(['.gemini/antigravity-cli/antigravity-oauth-token']),
-  // R23: the vendor Vibe product keeps no auth file: the Mistral API key
-  // comes from the enrolled mistral-vibe llm-mesh account (no
-  // MISTRAL_API_KEY requirement, no OS keyring). The seat file below is the
-  // harness-defined custody projection carrying exactly that value and
-  // nothing else — never product config, hooks, plugins or MCP settings.
-  // The cell launcher exports it as MISTRAL_API_KEY for vibe cells only.
-  vibe: Object.freeze(['.vibe/MISTRAL_API_KEY']),
-});
+// L7 (bench round 27): the auth allowlist is re-exported from the published
+// seat-onboarding API (single source, scripts/xcli-seat-vendor/
+// seat-onboarding.js) instead of defined here. Values are unchanged:
+// - codex `.codex/auth.json`; claude `.claude/.credentials.json` +
+//   `.claude.json` (minimized, never the whole file); muse
+//   `.config/muse/auth.json`.
+// - R22 agy: `.gemini/antigravity-cli/antigravity-oauth-token` only (568
+//   bytes measured 2026-11-01; sibling oauth_creds.json /
+//   google_accounts.json stay decoys); token file only, never settings.
+// - R23 vibe: harness-defined `.vibe/MISTRAL_API_KEY` custody projection
+//   (mesh-sourced key, never product config); exported as MISTRAL_API_KEY
+//   for vibe cells only.
+import { SEAT_ENVELOPE_AUTH_FILES as LOGIN_ALLOWLIST } from './xcli-seat-vendor/seat-onboarding.js';
+export { LOGIN_ALLOWLIST };
 const LOGIN_ROLES = Object.freeze(Object.keys(LOGIN_ALLOWLIST));
 // Absolute destination of an allowlisted login copy inside a role env.
 export function loginCopyPath(env, cli, name) {

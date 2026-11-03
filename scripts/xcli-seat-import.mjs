@@ -14,7 +14,9 @@ import { parseCliSeatProfile, parseTokenSeatEnvelope } from './xcli-seat-vendor/
 import { translateAgySeatToApplication } from './xcli-seat-vendor/agy-cli-import.js';
 import { MistralVibeEnrollmentProvider, MISTRAL_VIBE_SIGN_IN_URL,
   MISTRAL_VIBE_KEY_VALIDITY_MS } from './xcli-seat-vendor/mistral-vibe.js';
-import { LOGIN_ALLOWLIST } from './xcli-lab.mjs';
+import { materialiseSeatEnvelopes as materialiseSeatEnvelopesLib,
+  materialiseCellHome as materialiseCellHomeLib } from './xcli-seat-vendor/seat-onboarding.js';
+import { LOGIN_ALLOWLIST, loginCopyPath } from './xcli-lab.mjs';
 import { loadSeatManifest } from './xcli-seats.mjs';
 import { CYBER_SEAT_MODE, SEAT_ENVIRONMENT, assertCyberManifest } from './xcli-seat-custody.mjs';
 
@@ -29,7 +31,14 @@ export async function vendoredDigest() {
 // isolated seat HOME. `secrets` maps fixed secret names to envelope bytes;
 // the caller (a fixed trusted step) read them from the protected
 // environment, never from argv or a home directory.
-export function materialiseSeatEnvelopes({ seatSet, slotManifest, secrets, baseDir }) {
+//
+// L7 (bench round 27): phase 2 runs through the published seat-onboarding
+// stage 1. The bench keeps its phase-1 checks with their historical codes,
+// then the library re-validates the full envelope (bundle + files allowlist
+// + minimized claude projection + onboarding binding) and stages the auth
+// files plus the seat record. Native CLI versions are not known yet here;
+// stage 2 enforces them from the campaign preflight facts.
+export async function materialiseSeatEnvelopes({ seatSet, slotManifest, secrets, baseDir }) {
   assert.ok(slotManifest && typeof slotManifest === 'object', 'slot-manifest-required');
   if (slotManifest.environment !== SEAT_ENVIRONMENT) throw new Error('environment-mismatch');
   const ids = String(seatSet ?? '').split(',').map(s => s.trim()).filter(Boolean);
@@ -63,32 +72,49 @@ export function materialiseSeatEnvelopes({ seatSet, slotManifest, secrets, baseD
         throw new Error(`seat-file-not-allowlisted:${seatId}:${rel}`);
       }
     }
-    return { seatId, slot, files };
+    return { seatId, slot, files, envelope };
   });
-  // Phase 2: write validated files only. An aliased or reused seat root is
-  // refused before any credential reaches disk.
+  // A batch carries one owner scope: the stage-1 record binds every seat to
+  // it, so a mixed batch refuses before any credential reaches disk.
+  const scopes = new Set(validated.map(({ envelope }) => envelope.bundle?.identity?.ownerScope));
+  if (scopes.size !== 1 || !scopes.has(validated[0].envelope.bundle.identity.ownerScope)) {
+    throw new Error(`seat-owner-scope-mismatch:${[...scopes].join(',') || 'missing'}`);
+  }
+  const ownerScope = validated[0].envelope.bundle.identity.ownerScope;
+  // Phase 2: the library stages validated files plus the seat record. An
+  // aliased seat root is refused by both layers before any credential
+  // reaches disk.
   const seatsDir = join(baseDir, 'seats');
   refuseAliasedRoot(seatsDir);
-  fs.mkdirSync(seatsDir, { mode: 0o700, recursive: true });
+  const scope = validated.length === 1 ? validated[0].seatId : 'batch';
+  let staged;
+  try {
+    staged = await materialiseSeatEnvelopesLib({ seats: validated.map(({ seatId, envelope }) =>
+      ({ envelope, seatDir: join(seatsDir, seatId) })), ownerScope, expectedNativeCliVersions: {} });
+  } catch (error) {
+    throw new Error(`seat-stage-refused:${scope}:${error.code ?? 'unknown'}`);
+  }
+  if (!staged || staged.ok !== true) {
+    throw new Error(`seat-stage-refused:${scope}:${staged?.code ?? 'unknown'}`);
+  }
+  const stagedSeats = staged.receipt?.seats ?? [];
+  const stagedByRef = Object.fromEntries(stagedSeats.map(seat => [seat.seatRef, seat]));
   const seats = [];
   const receiptSeats = [];
   for (const { seatId, slot, files } of validated) {
+    const stagedSeat = stagedByRef[seatId];
+    assert.ok(stagedSeat, `seat-stage-missing:${seatId}`);
     const home = join(seatsDir, seatId);
-    refuseAliasedRoot(home);
-    fs.mkdirSync(home, { mode: 0o700, recursive: true });
-    const written = [];
-    for (const [rel, b64] of Object.entries(files)) {
-      const target = join(home, rel);
-      fs.mkdirSync(dirname(target), { recursive: true, mode: 0o700 });
-      fs.writeFileSync(target, Buffer.from(String(b64), 'base64'), { mode: 0o600, flag: 'wx' });
-      written.push(rel);
-    }
-    seats.push({ seatId, family: slot.cli, authSource: relative(baseDir, home) });
+    const onboarding = { status: stagedSeat.onboardingStatus, gate: stagedSeat.launchGate,
+      authFiles: [...stagedSeat.authFiles],
+      destKeys: (stagedSeat.onboarding?.files ?? []).map(file => file.destKey) };
+    seats.push({ seatId, family: slot.cli, authSource: relative(baseDir, home), onboarding });
     receiptSeats.push({ seatId, cli: slot.cli, slot: slot.slot,
       canonicalSecret: slot.secret, candidateSecret: slot.candidateSecret, useSecret: slot.useSecret,
-      files: [...written].sort() });
+      files: Object.keys(files).sort(), onboardingStatus: stagedSeat.onboardingStatus,
+      launchGate: stagedSeat.launchGate });
   }
-  const manifest = { version: 1, seatMode: CYBER_SEAT_MODE, seats };
+  const manifest = { version: 1, seatMode: CYBER_SEAT_MODE, ownerScope, seats };
   const manifestFile = join(baseDir, 'seats.json');
   fs.writeFileSync(manifestFile, JSON.stringify(manifest, null, 2) + '\n', { mode: 0o600 });
   loadSeatManifest(manifestFile);
@@ -97,6 +123,64 @@ export function materialiseSeatEnvelopes({ seatSet, slotManifest, secrets, baseD
   return { manifest, manifestFile, manifestDigest,
     receipt: { version: 1, kind: 'CredentialProvisioningReceiptV1', environment: SEAT_ENVIRONMENT,
       manifestDigest, seats: receiptSeats } };
+}
+
+// L7: onboarding cells never spawn on a closed gate. A manifest seat
+// without onboarding state (pre-L7 manifests, simulated seats) and vibe
+// keep the old cell path; every other closed gate is a typed refusal
+// before any copy, any spawn, any debit.
+export function onboardingLaunchBlock(manifestSeat) {
+  if (!manifestSeat?.onboarding || manifestSeat.family === 'vibe') return undefined;
+  return manifestSeat.onboarding.gate?.eligible ? undefined : 'onboarding-required';
+}
+
+// L7: the record-relative storage name for each composed or synthesized
+// onboarding file, so evidence and wipes cover exactly what stage 2
+// writes (names only, never bytes). The claude composed file lands on the
+// recorded `.claude.json` auth name, so it maps to no extra name.
+const ONBOARDING_EXTRA_NAME = Object.freeze({
+  'agy-jetski': '.gemini/antigravity-cli/jetski_state.pbtxt',
+  'muse-trust': '.config/muse/trust.json',
+  'codex-config': '.codex/config.toml',
+});
+
+// L7: run the published seat-onboarding stage 2 for one envelope seat and
+// report the written files in the copyLoginReport shape ({copied, skipped}
+// names). The caller pre-created empty dirs; the cell home itself is wiped
+// first so stage-2 freshness holds, then the library recreates it as the
+// single writer. A library refusal surfaces typed with zero bench writes
+// beyond the pre-created empties.
+export async function materialiseSeatCell({ cli, seatDir, cellHome, workspaceDir,
+  configDirs, expectedNativeCliVersion, ownerScope, claudeMcpConfig, codexMcpServers,
+  authFiles, destKeys }) {
+  assert.ok(cli, 'seat-cell-cli-required');
+  fs.rmSync(cellHome, { recursive: true, force: true });
+  let staged;
+  try {
+    staged = await materialiseCellHomeLib({ seatDir, cellHome, workspaceDir, configDirs,
+      expectedNativeCliVersion, ownerScope, claudeMcpConfig, codexMcpServers });
+  } catch (error) {
+    throw new Error(`seat-cell-refused:${error.code ?? 'unknown'}`);
+  }
+  if (!staged || staged.ok !== true) {
+    throw new Error(`seat-cell-refused:${staged?.code ?? 'unknown'}`);
+  }
+  const names = [...(authFiles ?? [])];
+  for (const key of destKeys ?? []) {
+    const extra = ONBOARDING_EXTRA_NAME[key];
+    if (extra && !names.includes(extra)) names.push(extra);
+  }
+  const env = { HOME: cellHome, CLAUDE_CONFIG_DIR: configDirs.claudeConfigDir,
+    CODEX_HOME: configDirs.codexHome };
+  const copied = [];
+  const skipped = [];
+  for (const name of names) {
+    try {
+      fs.statSync(loginCopyPath(env, cli, name));
+      copied.push(name);
+    } catch { skipped.push({ file: name, reason: 'cell-file-absent' }); }
+  }
+  return { copied, skipped };
 }
 
 // A seat root that already exists as a symlink, or resolves outside
