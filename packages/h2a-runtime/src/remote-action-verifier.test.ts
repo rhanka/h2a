@@ -257,10 +257,19 @@ describe("remote-action verifier", () => {
   it("refuses a tampered signature", () => {
     const fixture = mintFixture();
     const record = signBody(mintNonceBody(fixture.target), fixture.source.privateKey);
+    // Replace the first character with a different valid alphabet letter. The
+    // first character carries six full data bits, so any change alters the
+    // decoded bytes; fixed-letter replacement is a no-op whenever the
+    // signature already starts with that letter (random per key).
+    const first = record.signature.value[0]!;
+    const replacement = first === "g" ? "h" : "g";
     const tampered = {
       ...record,
-      signature: { alg: "Ed25519", value: `A${record.signature.value.slice(1)}` },
+      signature: { alg: "Ed25519", value: `${replacement}${record.signature.value.slice(1)}` },
     };
+    expect(Buffer.from(tampered.signature.value, "base64url")).not.toEqual(
+      Buffer.from(record.signature.value, "base64url"),
+    );
     expect(() => verifyNoncePublication(tampered, opts(fixture))).toThrowError(
       expect.objectContaining({ code: "invalid_signature" }),
     );
