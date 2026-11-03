@@ -7,6 +7,7 @@
 import fs from 'node:fs';
 import { validateSeatBundle } from './xcli-seat-vendor/seat-bundle.js';
 import { translateAgySeatToApplication } from './xcli-seat-vendor/agy-cli-import.js';
+import { seatLaunchGate, validateSeatEnvelope } from './xcli-seat-vendor/seat-onboarding.js';
 import { LOGIN_ALLOWLIST } from './xcli-lab.mjs';
 import { SEAT_ENVIRONMENT } from './xcli-seat-custody.mjs';
 
@@ -55,9 +56,21 @@ if (slot.cli === 'agy') {
 for (const rel of Object.keys(envelope.files ?? {})) {
   if (!(LOGIN_ALLOWLIST[slot.cli] ?? []).includes(rel)) refuse(`seat-file-not-allowlisted:${seatId}:${rel}`);
 }
+// L7: an envelope carrying an onboarding block re-validates the whole
+// envelope through the published API (binding, digests, versions); a
+// tampered block refuses typed. Envelopes without a block keep the checks
+// above only.
+let onboardingStatus = 'absent';
+let launchGate = seatLaunchGate(slot.cli, 'absent');
+if (envelope.onboarding !== undefined) {
+  const full = validateSeatEnvelope(envelope, { trustedAuthority: 'consumer' });
+  if (!full.ok) refuse(`seat-load-refused:${seatId}:${full.code}`);
+  onboardingStatus = full.onboardingStatus;
+  launchGate = full.launchGate;
+}
 console.log(JSON.stringify({ version: 1, kind: 'CredentialProvisioningReceiptV1',
   environment: SEAT_ENVIRONMENT, seatId, cli: slot.cli, slot: slot.slot,
   canonicalSecret: slot.secret, candidateSecret: slot.candidateSecret, useSecret: slot.useSecret,
-  files: Object.keys(envelope.files ?? {}).sort(),
+  files: Object.keys(envelope.files ?? {}).sort(), onboardingStatus, launchGate,
   bundle: { epoch: bundle.lifecycle.epoch, generation: bundle.lifecycle.generation,
     operationId: bundle.lifecycle.operationId } }));
