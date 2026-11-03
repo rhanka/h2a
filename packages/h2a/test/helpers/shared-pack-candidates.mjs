@@ -148,7 +148,11 @@ export async function sharedPackCandidates() {
   const lockDir = join(root, 'lock');
   const tarballs = join(root, 'tarballs');
   mkdirSync(root, { recursive: true });
-  if (readComplete(tarballs, key)) return tarballs;
+  const fast = readComplete(tarballs, key);
+  if (fast) {
+    process.stderr.write(`shared-pack-candidates: reused ${fast}\n`);
+    return fast;
+  }
   const deadline = Date.now() + LOCK_TIMEOUT_MS;
   for (;;) {
     try {
@@ -156,7 +160,11 @@ export async function sharedPackCandidates() {
       writeFileSync(join(lockDir, 'owner.json'), JSON.stringify({ pid: process.pid, at: Date.now() }) + '\n');
       break;
     } catch {
-      if (readComplete(tarballs, key)) return tarballs;
+      const waited = readComplete(tarballs, key);
+      if (waited) {
+        process.stderr.write(`shared-pack-candidates: reused ${waited}\n`);
+        return waited;
+      }
       if (lockIsStale(lockDir)) {
         rmSync(lockDir, { recursive: true, force: true });
         continue;
@@ -167,6 +175,10 @@ export async function sharedPackCandidates() {
   }
   try {
     if (readComplete(tarballs, key)) return tarballs;
+    // A killed packer leaves its staging behind; reclaim it under the lock.
+    for (const entry of readdirSync(root)) {
+      if (entry.startsWith('tarballs.stage-')) rmSync(join(root, entry), { recursive: true, force: true });
+    }
     const staging = `${tarballs}.stage-${process.pid}`;
     rmSync(staging, { recursive: true, force: true });
     mkdirSync(staging, { recursive: true });
@@ -179,6 +191,7 @@ export async function sharedPackCandidates() {
     writeFileSync(join(staging, 'complete.json'), JSON.stringify({ key, dir: tarballs, tarballs: names }) + '\n');
     renameSync(staging, tarballs);
     assert.ok(readComplete(tarballs, key), 'shared pack verifies after promotion');
+    process.stderr.write(`shared-pack-candidates: packed ${tarballs}\n`);
     return tarballs;
   } finally {
     rmSync(lockDir, { recursive: true, force: true });
