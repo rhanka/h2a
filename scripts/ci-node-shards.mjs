@@ -23,8 +23,9 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { createHash } from 'node:crypto';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { m17Context, verifyProofContext } from './m17-ci-evidence.mjs';
+import { identityPath } from './test-execution-evidence.mjs';
 
 // Number of parallel Node shard jobs per Node version. The CI matrix
 // (node-shard job, shard: [0..SHARD_COUNT-1]) must match; a unit test parses
@@ -100,8 +101,13 @@ export function verifyShardEnvelope(envelope, expected) {
   const report = envelope.report;
   assert.equal(report.success, true, 'shard report records failure');
   assert.ok(Array.isArray(report.testResults) && report.testResults.length > 0, 'shard report is empty');
-  const names = report.testResults.map((row) => row.name);
-  assert.deepEqual([...names].sort(), [...expected.files].sort(), 'shard report must cover exactly its partition files');
+  // The evidence reporter records absolute suite identities while the
+  // partition speaks repo-relative paths: compare both sides through the
+  // same identity normalization the aggregate inventory verifier uses, so a
+  // mere representation difference can never pass or fail the proof.
+  const names = report.testResults.map((row) => identityPath(row.name));
+  const wanted = expected.files.map((file) => identityPath(resolve(expected.root, file)));
+  assert.deepEqual([...names].sort(), [...wanted].sort(), 'shard report must cover exactly its partition files');
   return report;
 }
 
@@ -129,7 +135,7 @@ export function loadNodeShardReports(localFiles, root, env = process.env) {
     }
     assert.ok(stat && stat.isFile() && !stat.isSymbolicLink(), `node shard report missing or not a regular file: ${path}`);
     const envelope = JSON.parse(fs.readFileSync(path, 'utf8'));
-    return verifyShardEnvelope(envelope, { context: shardContext(root, env, shard.index), index: shard.index, files: shard.files });
+    return verifyShardEnvelope(envelope, { context: shardContext(root, env, shard.index), index: shard.index, files: shard.files, root });
   });
   return { local: [], reports };
 }

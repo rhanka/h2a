@@ -136,17 +136,22 @@ test('CI shard negative controls reject skipped-green producers and missing shar
   }
 })
 
-function envelopeFor(context, index, files, report) {
+function envelopeFor(context, index, names, report) {
   return { schema: 1, context: { ...context, shard: index, shards: SHARD_COUNT },
-    report: report ?? { success: true, testResults: files.map((name) => ({ name })) } }
+    report: report ?? { success: true, testResults: names.map((name) => ({ name })) } }
 }
 
 test('shard envelope admits the exact partition and rejects stale, foreign or partial evidence', () => {
   const context = { repository: 'rhanka/h2a', workflow: 'ci', runId: '1', attempt: '1', sha: 'a'.repeat(40), node: 'v22.23.4' }
+  // Production evidence rows carry absolute suite identities (identityPath);
+  // the partition speaks repo-relative paths. Both spellings of the same
+  // file must verify; a different file must not.
   const files = ['packages/h2a/test/a.test.js', 'packages/h2a/test/b.test.js']
-  const expected = { context, index: 0, files }
+  const absolute = files.map((file) => resolve(REPO_ROOT, file))
+  const expected = { context, index: 0, files, root: REPO_ROOT }
+  assert.equal(verifyShardEnvelope(envelopeFor(context, 0, absolute), expected).success, true)
   assert.equal(verifyShardEnvelope(envelopeFor(context, 0, files), expected).success, true)
-  const earlier = envelopeFor({ ...context, attempt: '0' }, 0, files)
+  const earlier = envelopeFor({ ...context, attempt: '0' }, 0, absolute)
   assert.throws(() => verifyShardEnvelope(earlier, expected), /attempt/)
   for (const [name, mutate] of Object.entries({
     'wrong index': (value) => { value.context.shard = 1 },
@@ -155,11 +160,11 @@ test('shard envelope admits the exact partition and rejects stale, foreign or pa
     'foreign checkout': (value) => { value.context.sha = 'b'.repeat(40) },
     'failed report': (value) => { value.report.success = false },
     'missing file': (value) => { value.report.testResults.pop() },
-    'foreign file': (value) => { value.report.testResults.push({ name: 'packages/h2a/test/c.test.js' }) },
+    'foreign file': (value) => { value.report.testResults.push({ name: resolve(REPO_ROOT, 'packages/h2a/test/c.test.js') }) },
     'duplicate file': (value) => { value.report.testResults.push(structuredClone(value.report.testResults[0])) },
     'unknown envelope field': (value) => { value.optional = true },
   })) {
-    const value = envelopeFor(context, 0, files)
+    const value = envelopeFor(context, 0, absolute)
     mutate(value)
     assert.throws(() => verifyShardEnvelope(value, expected), name)
   }
@@ -177,12 +182,14 @@ test('shard loader passes through locally and verifies same-run envelopes in agg
   try {
     for (const shard of expected) {
       writeFileSync(join(dir, `node-shard-${shard.index}.json`),
-        JSON.stringify(envelopeFor(shardContext(REPO_ROOT, env, shard.index), shard.index, shard.files)))
+        JSON.stringify(envelopeFor(shardContext(REPO_ROOT, env, shard.index), shard.index,
+          shard.files.map((file) => resolve(REPO_ROOT, file)))))
     }
     const loaded = loadNodeShardReports(files, REPO_ROOT, { ...env, [SHARD_DIR_ENV]: dir })
     assert.deepEqual(loaded.local, [])
     assert.equal(loaded.reports.length, SHARD_COUNT)
-    assert.deepEqual(loaded.reports.flatMap((report) => report.testResults.map((row) => row.name)).sort(), [...files].sort())
+    assert.deepEqual(loaded.reports.flatMap((report) => report.testResults.map((row) => row.name)).sort(),
+      files.map((file) => resolve(REPO_ROOT, file)).sort())
     rmSync(join(dir, 'node-shard-0.json'))
     assert.throws(() => loadNodeShardReports(files, REPO_ROOT, { ...env, [SHARD_DIR_ENV]: dir }), /node-shard-0\.json/)
   } finally {
