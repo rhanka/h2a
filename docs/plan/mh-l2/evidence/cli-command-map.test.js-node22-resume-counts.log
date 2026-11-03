@@ -1,0 +1,21 @@
+command: /usr/bin/node --test --test-name-pattern=announced CLI verb counts packages/h2a/test/cli-command-map.test.js
+node: v22.22.1
+private test root: /tmp/mh-l2-test-8PZ2aA
+TAP version 13
+# Subtest: the announced CLI verb counts match the golden fixture
+ok 1 - the announced CLI verb counts match the golden fixture
+  ---
+  duration_ms: 4.846276
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 356.119706
+
+receipt: {"command":["/usr/bin/node","--test","--test-name-pattern=announced CLI verb counts","packages/h2a/test/cli-command-map.test.js"],"code":0,"signal":null,"elapsedMs":440}

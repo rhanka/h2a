@@ -1,0 +1,46 @@
+{
+  "source": "/home/antoinefa/.cache-tmp/h2a-test/run-MZp8CW/qual-roots/mh-l3-qualification-19cu0a/source",
+  "worktree": "/home/antoinefa/src/h2a/tmp/worktrees/mh-l0",
+  "files": [
+    {
+      "path": "packages/h2a/src/runtime/upgrade/legacy-observers.js",
+      "sha256": "8db51d02f05f9c25463d4848035c46afabda3afef63d3eddf853e99f91a828af"
+    },
+    {
+      "path": "packages/h2a/test/mh-l6-exclusion-producer.test.js",
+      "sha256": "ed9826db5140134b057c7c7c90cca13aeba241c695073ab4cf1a754284ca98f0"
+    },
+    {
+      "path": "scripts/mh-l6-mutate.mjs",
+      "sha256": "96eed9b7c835982206c19425d9459b6ffa85697fbf9e336669276c6d4d0d5b48"
+    },
+    {
+      "path": "scripts/mh-l6-test.mjs",
+      "sha256": "2ca930a60b1d5d8399e3dc10bb4341936cd6ce75cb5216e69dfca0dbc004893a"
+    }
+  ],
+  "compiled": {
+    "path": "packages/h2a/dist/runtime/upgrade/legacy-observers.js",
+    "sha256": "68600ed3a71efb3cb25dccf5c9dc2b3faf30d9aaff1e1943985478d130a35392"
+  },
+  "profiles": [
+    {
+      "major": 22,
+      "tests": 4,
+      "requalified": [
+        9
+      ]
+    },
+    {
+      "major": 24,
+      "tests": 4,
+      "requalified": [
+        9
+      ]
+    }
+  ],
+  "mutations": [
+    "producer:3",
+    "observers:7"
+  ]
+}

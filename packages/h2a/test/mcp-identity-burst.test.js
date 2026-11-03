@@ -34,6 +34,7 @@ import {
   waitForIdentity
 } from "./helpers/mcp-fix-lab.js";
 import { resolveCohortAfterRelease } from "./helpers/mcp-cohort-readiness.js";
+import { qualifiedEnvironment } from "./helpers/qual-env.js";
 
 const SEED = process.env.H2A_MCP_TEST_SEED;
 if (process.env.H2A_MCP_REQUIRE_REAL_SEED === "1" && !SEED) {
@@ -79,6 +80,16 @@ async function initAll(handles, timeoutMs) {
       callRpc(h, { jsonrpc: "2.0", id: 1, method: "initialize" }, { timeoutMs }).then(() => Date.now() - t0)
     )
   );
+  if (process.env.H2A_MCP_TEST_CENTRAL === "1") {
+    const { centralOperator } = await import("../dist/runtime/mcp-central-operator.js");
+    assert.ok(handles[0].centralRuntimeBase, "central cohort requires its private runtime namespace");
+    const status = await centralOperator("status", { runtimeBase: handles[0].centralRuntimeBase });
+    assert.equal(status.running, true, "T4 must actually reach a live central daemon");
+    assert.equal(status.protocol, 2);
+    assert.equal(status.root, handles[0].root);
+    assert.equal(status.attachments, handles[0].centralExpectedAttachments(), "every active T4 connection, including earlier warm connections, must be attached to the central");
+    console.log(`T4 central witness: protocol=${status.protocol}, attachments=${status.attachments}`);
+  }
   return { latencies, max: Math.max(...latencies) };
 }
 
@@ -250,12 +261,15 @@ maybe(
       // Every initialize must answer while the lock is HELD. RED on main: it
       // blocks in identity resolution and never returns (the server closes).
       // DECOUPLING bound: a FRACTION of the identity deadline, not a tight
-      // wall-clock — a lock-blocked initialize would scale to ~20s (or die). Half
-      // the deadline discriminates that and absorbs CI parallel-load jitter.
+      // wall-clock — a lock-blocked initialize would scale to ~20s (or die).
+      // Three fifths of the deadline discriminates that: the 36-spawn storm
+      // serializes process startup on slower 4-vCPU runners (measured max
+      // 10.7s against the 10s half), while a lock-blocked initialize still
+      // stands out at ~2x the deadline.
       const { max } = await initAll(handles, 18_000);
       assert.ok(
-        max < IDENTITY_DEADLINE_MS / 2,
-        `initialize must answer well before the identity deadline while contended (max ${max}ms, bound ${IDENTITY_DEADLINE_MS / 2}ms)`
+        max < IDENTITY_DEADLINE_MS * 0.6,
+        `initialize must answer well before the identity deadline while contended (max ${max}ms, bound ${IDENTITY_DEADLINE_MS * 0.6}ms)`
       );
       // Jitter-IMMUNE proof: the registry lock has NOT been released yet, so no
       // binding can exist — a decoupled transport wrote none while contended.
@@ -295,8 +309,7 @@ function runConnect(root, conv) {
       {
         stdio: ["ignore", "ignore", "pipe"],
         env: {
-          PATH: process.env.PATH ?? "",
-          HOME: home,
+          ...qualifiedEnvironment(home),
           NO_COLOR: "1",
           CLAUDE_CODE_SESSION_ID: conv
         }

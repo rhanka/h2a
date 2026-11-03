@@ -1,0 +1,57 @@
+{
+  "node": "v24.21.0",
+  "files": [
+    {
+      "path": "packages/h2a/src/runtime/upgrade/upgrade-cli.js",
+      "sha256": "b9a9b2583e5598bceb4fd9033c8d380bfb9d722edb46e71e64919d9b237162a4"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/upgrade/upgrade-cli.js",
+      "sha256": "e02a71a2ec2e61b9448ec7aaeb87b958a961d5db9adbe1c1150f42e4792fa7a3"
+    }
+  ],
+  "results": [
+    {
+      "name": "unknown-flag",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-cli.test.js-node24-mutation-unknown-flag-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-cli.test.js-node24-mutation-unknown-flag-green.log",
+      "restored": true
+    },
+    {
+      "name": "misplaced-flag",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-cli.test.js-node24-mutation-misplaced-flag-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-cli.test.js-node24-mutation-misplaced-flag-green.log",
+      "restored": true
+    },
+    {
+      "name": "missing-id",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-cli.test.js-node24-mutation-missing-id-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-cli.test.js-node24-mutation-missing-id-green.log",
+      "restored": true
+    },
+    {
+      "name": "unknown-component",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-cli.test.js-node24-mutation-unknown-component-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-cli.test.js-node24-mutation-unknown-component-green.log",
+      "restored": true
+    },
+    {
+      "name": "failed-code",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-cli.test.js-node24-mutation-failed-code-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-cli.test.js-node24-mutation-failed-code-green.log",
+      "restored": true
+    },
+    {
+      "name": "completed-code",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-cli.test.js-node24-mutation-completed-code-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-cli.test.js-node24-mutation-completed-code-green.log",
+      "restored": true
+    },
+    {
+      "name": "strict-code",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-cli.test.js-node24-mutation-strict-code-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-cli.test.js-node24-mutation-strict-code-green.log",
+      "restored": true
+    }
+  ]
+}

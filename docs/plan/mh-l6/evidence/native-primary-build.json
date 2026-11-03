@@ -1,0 +1,49 @@
+{
+  "root": "/tmp/mh-l6-toolchain-coPPfH/primary",
+  "payload": "/tmp/mh-l6-toolchain-coPPfH/primary/payload",
+  "artifact": {
+    "schemaVersion": 1,
+    "recipeDigest": "sha256:5dec0d06f275a3a0be2987b5769b800833413db40c2942a6c8f8d6cad7e56387",
+    "payloadDigest": "sha256:3223226a22cdbe4ec144606544978829c1a9e7c1d0b94e4a24c214aa52cea34f",
+    "binaryDigest": "sha256:b6bc6f5c7562d0095da7e7fb6ff05b1a76206b0b796cef75ba66f9a85ea058c8"
+  },
+  "commands": [
+    {
+      "command": [
+        "/usr/bin/taskset",
+        "-c",
+        "0",
+        "/tmp/mh-l6-toolchain-coPPfH/.h2a-native-build-nWEui6/zig/zig-x86_64-linux-0.14.1/zig",
+        "c++",
+        "-target",
+        "x86_64-linux-gnu.2.31",
+        "-shared",
+        "-fPIC",
+        "-std=c++17",
+        "-O2",
+        "-g0",
+        "-s",
+        "-DNAPI_VERSION=8",
+        "-DNODE_ADDON_API_CPP_EXCEPTIONS",
+        "-DNODE_GYP_MODULE_NAME=pty",
+        "-ffile-prefix-map=/tmp/mh-l6-toolchain-coPPfH/.h2a-native-build-nWEui6=/h2a-release",
+        "-fmacro-prefix-map=/tmp/mh-l6-toolchain-coPPfH/.h2a-native-build-nWEui6=/h2a-release",
+        "-I/tmp/mh-l6-toolchain-coPPfH/.h2a-native-build-nWEui6/node-headers/node-v22.22.1/include/node",
+        "-I/tmp/mh-l6-toolchain-coPPfH/.h2a-native-build-nWEui6/node-addon-api/package",
+        "/tmp/mh-l6-toolchain-coPPfH/.h2a-native-build-nWEui6/node-pty/package/src/unix/pty.cc",
+        "-lutil",
+        "-pthread",
+        "-o",
+        "/tmp/mh-l6-toolchain-coPPfH/primary/payload/node_modules/node-pty/build/Release/pty.node"
+      ],
+      "stdout": "",
+      "stderr": "",
+      "code": 0
+    }
+  ],
+  "target": "x86_64-linux-gnu.2.31",
+  "testedHost": {
+    "node": "v22.22.1",
+    "glibc": "2.43"
+  }
+}

@@ -1,0 +1,36 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-launch.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-8pGLDO
+✖ should reserve before spawn, conflict on arguments and drain child/brief after a launching reply (456.355906ms)
+✔ should reconcile token-bound existing launch.json without a second spawn or brief (59.668974ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 1
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 556.650936
+
+✖ failing tests:
+
+test at packages/h2a/test/mh-l4-launch.test.js:17:1
+✖ should reserve before spawn, conflict on arguments and drain child/brief after a launching reply (456.355906ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + 'unknown'
+  - 'launching'
+  
+      at TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-launch.test.js:27:10)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'unknown',
+    expected: 'launching',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-launch.test.js"],"code":1,"signal":null,"elapsedMs":581}

@@ -1,0 +1,11 @@
+claude_build: "2.1.303 (Claude Code)" rc: 0
+platform: linux node: v22.22.1
+manifest_clients: []
+pinned_tuple_admitted: false
+bin_rc: 0
+bin_stderr_refusal: true
+bin_stderr_head: ["h2a mcp: claude_version_unqualified; using stdio","h2a.mcp.phase {\"v\":1,\"attemptId\":\"c6b7e5f0-dd8f-47f6-8a67-83aefa695c18\",\"pid\":45565,\"role\":\"server\",\"seq\":0,\"monotonicMs\":310.256,\"phase\":\"process_start\",\"event\":\"sample\",\"code\":\"0.98.7\"}","h2a.mcp.phase {\"v\":1,\"attemptId\":\"c6b7e5f0-dd8f-47f6-8a67-83aefa695c18\",\"pid\":45565,\"role\":\"server\",\"seq\":1,\"monotonicMs\":310.986,\"phase\":\"mcp_serve_enter\",\"event\":\"sample\"}"]
+claude_build: "2.1.303 (Claude Code)" rc: 0
+platform: linux node: v24.18.0
+manifest_clients: []
+pinned_tuple_admitted: false

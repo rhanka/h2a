@@ -1,0 +1,508 @@
+{
+  "source": "/tmp/mh-l3-qualification-YeHHOv/source",
+  "files": [
+    {
+      "path": "packages/h2a/src/bin.ts",
+      "sha256": "4e5aeb6b3ea64760d4bbbd45198ee14dced308c25680f374d91bb4fced705441"
+    },
+    {
+      "path": "packages/h2a/src/runtime/upgrade/image-entry.js",
+      "sha256": "15a55dad17c184ed8aaf32b1fbf81787b28942da38eb845d86fa377bfc5e0372"
+    },
+    {
+      "path": "packages/h2a/src/runtime/upgrade/image-execution.js",
+      "sha256": "671405f33084fed66a9b616d5b0e08146287919882b6ddaf044e0a6a6aa767f7"
+    },
+    {
+      "path": "packages/h2a/src/runtime/upgrade/image-policy.js",
+      "sha256": "ff20ee4243a3c6be71d86414a43f020aa29de32934dfdbf5d6048b7bd3bc4534"
+    },
+    {
+      "path": "packages/h2a/src/runtime/upgrade/managed-launcher.js",
+      "sha256": "9047ee442c62afa34b1da0b57608f419f000af43c43526079763e584f1039941"
+    },
+    {
+      "path": "packages/h2a/src/runtime/handover/selection.js",
+      "sha256": "71ce10e3d6a6bd91fbd4ab64d1706dff217d3d2a518b813b445f646788e6c6e1"
+    },
+    {
+      "path": "packages/h2a/src/runtime/handover/image.js",
+      "sha256": "b1a179eb08a4250388811ebc5fe73492c970ec9a01dd5c15ed54dc992f2248cf"
+    },
+    {
+      "path": "packages/h2a/src/runtime/handover/wire.js",
+      "sha256": "20838943242182bc871e0ebb2ac40e14b82c33dca0156905f65632b4c4f71d2d"
+    },
+    {
+      "path": "packages/h2a/src/runtime/handover/state.js",
+      "sha256": "910a1cc6b94583ba5245af21852ecf72e86a63efa7b5d3ed46715abeeea58f20"
+    },
+    {
+      "path": "packages/h2a/src/runtime/handover/authority.js",
+      "sha256": "857ca32c04daf901937bfc357ff402a941d8e1b2540903c06b2e717c843a5140"
+    },
+    {
+      "path": "packages/h2a/src/runtime/handover/schemas.js",
+      "sha256": "73dc40bfecd8685058febf9c7498126e98cd0f8e1a15ab2e7d4ddeeef0839bc2"
+    },
+    {
+      "path": "packages/h2a/src/runtime/handover/formats.js",
+      "sha256": "33650c8876cff94465cdb4e6e87101cbb425dc15affd2a839bbe81ecba3a117a"
+    },
+    {
+      "path": "packages/h2a/test/mh-l6-entry.test.js",
+      "sha256": "356757728e32d20efcc05353f5539e519ba39fa9292ffc1459bc571e39afcce7"
+    },
+    {
+      "path": "packages/h2a/test/mh-l6-launcher.test.js",
+      "sha256": "eb981843062ee7bba2305a06dafb23b588db2a915278986315fccaa371106484"
+    },
+    {
+      "path": "packages/h2a/test/mh-l1-package.test.js",
+      "sha256": "a60005d81f91f6e7ec27f8132a12fdf675f550743f160109436e1e97b7b82114"
+    },
+    {
+      "path": "packages/h2a/test/mh-l2-image.test.js",
+      "sha256": "7c50e51f20c90f2f65c95f31a7d1e9d25c343b4560423bab9f8abf06b3f01458"
+    },
+    {
+      "path": "packages/h2a/test/mh-l2-live-central.test.js",
+      "sha256": "ca11991c67fcc06aa98ef980bc991a23a14e75689eaeba001f6e8720187e0c51"
+    },
+    {
+      "path": "packages/h2a/test/mh-l3-transfer.test.js",
+      "sha256": "5616bc26e0490399f2411d45a0172f6c03b8fe5076da8bb9a0e13db8329559d7"
+    },
+    {
+      "path": "packages/h2a/test/mh-l4-central.test.js",
+      "sha256": "2f7e35ced5d31d4625949d69fb9cd4da32c3753cfdcdfecbfc67083a01fbacec"
+    },
+    {
+      "path": "packages/h2a/test/mh-l5-cold-network.test.js",
+      "sha256": "5aeece802b9b7e39b94f1c6175f58495afb3988b09c6cd038e6c8c3113333ba6"
+    },
+    {
+      "path": "packages/h2a/test/mh-l5-compensation.test.js",
+      "sha256": "0db0df9a8f0f40f668ee4daeafe2d956c8919f17ff4116e3763125348008451d"
+    },
+    {
+      "path": "packages/h2a/test/helpers/mh-l5-image.js",
+      "sha256": "561f272a1d840227c1767231d49694ff32e22eae309be33ac5e57c74c1b020c6"
+    },
+    {
+      "path": "packages/h2a/test/helpers/mh-l6-installation.js",
+      "sha256": "d7f56d076d6fd90ba09ca34088c0341af37b8135c1b1587d2b51d6998695bb6c"
+    },
+    {
+      "path": "scripts/mh-l6-test.mjs",
+      "sha256": "5bd1a9d0402119fe24339bc2740f026b90a09a1c5a9ae411104fca69a9f26d3a"
+    },
+    {
+      "path": "scripts/mh-l6-entry-mutate.mjs",
+      "sha256": "1eefc5ba8f4a85df8a732d7ed6efb1449b059c291cf1cc27704f0c1f8c6b5823"
+    },
+    {
+      "path": "scripts/mh-l6-e2b1-audit.mjs",
+      "sha256": "3b41ebae7abfbba93431de5e709bb92a9405f9891288584a8a4a0e22d7a44311"
+    },
+    {
+      "path": "scripts/mh-l1-package-prototype.mjs",
+      "sha256": "3e8f6b714d9a9c40234e718ff3f5a4d1302d74c1677f79bb82d079e2cdfc7a2a"
+    },
+    {
+      "path": "scripts/mh-l0-native-prototype.mjs",
+      "sha256": "3fc7ac05e95d8761448c7a54917774284bf11c575dc0e048518378f90572c3f5"
+    },
+    {
+      "path": "scripts/build-managed-launcher.mjs",
+      "sha256": "82eead93fe5cf4c2daa3d39d9118531ed1411c8eadd30466c92ea8a4894a2570"
+    },
+    {
+      "path": "package-lock.json",
+      "sha256": "b684ee430b41e01f2fa1a90a016cf01a322cf86744cdb3bee2022ee80f5db626"
+    }
+  ],
+  "compiled": [
+    {
+      "path": "packages/h2a/dist/bin.js",
+      "sha256": "6cc529fec24db50a74bc65a8188f025fe6cc755d8db1c1a9156de070395db0e8"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/handover/selection.js",
+      "sha256": "1e2147ff80acb2f99b6f1bc4f2ede5d1931a663cdec75884d0bcb74ac4b640a4"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/upgrade/image-entry.js",
+      "sha256": "fdc412dc1b85c20ad6adcff740cea0fd08dc52e99edd5e9d858bb476d9e0b767"
+    }
+  ],
+  "profiles": [
+    {
+      "major": 22,
+      "tests": 42,
+      "mutationPairs": 5,
+      "regression": {
+        "log": "docs/plan/mh-l6/evidence/mh-l6-entry.test.js-node22-red-E2b-entry.log",
+        "sha256": "379978ff92d30e5b341a3ba251e0adf6760886497a735dbd6e3180efdb044b7e",
+        "command": [
+          "/usr/bin/node",
+          "--test",
+          "--test-reporter=tap",
+          "packages/h2a/test/mh-l6-entry.test.js"
+        ],
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "invalid": false,
+        "spawned": 2,
+        "leftovers": []
+      },
+      "logs": [
+        {
+          "log": "docs/plan/mh-l6/evidence/mh-l6-entry.test.js-node22-final-E2b1.log",
+          "sha256": "80e71a48abd8c9c56cf52d0bb3b9f3103da01aae0861531fd2869bd513a7dcff",
+          "command": [
+            "/usr/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l6-entry.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 8,
+          "invalid": false,
+          "spawned": 2,
+          "leftovers": []
+        },
+        {
+          "log": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node22-final-E2b1.log",
+          "sha256": "4cfb114c3dbfa97e9ff74c181c5104cb7f9d2739e63301fcd4beca9516c8a794",
+          "command": [
+            "/usr/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l6-launcher.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 25,
+          "invalid": false,
+          "spawned": 2,
+          "leftovers": []
+        },
+        {
+          "log": "docs/plan/mh-l6/evidence/mh-l1-package.test.js-node22-final-E2b1.log",
+          "sha256": "94f2b32ca6de32ed587a90c267eed567c7d631523913a558ab47d1a82fadd21d",
+          "command": [
+            "/usr/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l1-package.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 1,
+          "invalid": false,
+          "spawned": 9,
+          "leftovers": []
+        },
+        {
+          "log": "docs/plan/mh-l6/evidence/mh-l2-image.test.js-node22-final-E2b1.log",
+          "sha256": "0f6b5afe45a06bacecb5752bc8bfe75e77e094019261accdddbde2431a0fc2ff",
+          "command": [
+            "/usr/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l2-image.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 1,
+          "invalid": false,
+          "spawned": 4,
+          "leftovers": []
+        },
+        {
+          "log": "docs/plan/mh-l6/evidence/mh-l2-live-central.test.js-node22-final-E2b1.log",
+          "sha256": "4bcfaa76f7afddeb2b8dd8d5d48060ecc31227e55f5f9ec9bf349eae06501601",
+          "command": [
+            "/usr/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l2-live-central.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 1,
+          "invalid": false,
+          "spawned": 5,
+          "leftovers": []
+        },
+        {
+          "log": "docs/plan/mh-l6/evidence/mh-l3-transfer.test.js-node22-final-E2b1.log",
+          "sha256": "19539760ecd27b792ee95bd1499b92c29b4ca01cffbc5eabba7a2a1be19b8fd3",
+          "command": [
+            "/usr/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l3-transfer.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 1,
+          "invalid": false,
+          "spawned": 8,
+          "leftovers": []
+        },
+        {
+          "log": "docs/plan/mh-l6/evidence/mh-l4-central.test.js-node22-final-E2b1.log",
+          "sha256": "e76ecb314a9842e489e03758d9836930642b6d3ec31c35ff7c39a7a4b6274b10",
+          "command": [
+            "/usr/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l4-central.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 1,
+          "invalid": false,
+          "spawned": 3,
+          "leftovers": []
+        },
+        {
+          "log": "docs/plan/mh-l6/evidence/mh-l5-cold-network.test.js-node22-final-E2b1.log",
+          "sha256": "436b3f5cc870294da3c2f5c629a508114eb7a965523619fea77fcb99b5308636",
+          "command": [
+            "/usr/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l5-cold-network.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 3,
+          "invalid": false,
+          "spawned": 10,
+          "leftovers": []
+        },
+        {
+          "log": "docs/plan/mh-l6/evidence/mh-l5-compensation.test.js-node22-final-E2b1.log",
+          "sha256": "08cc64a4424077016862eaed131ab70dae5d6fd2fa49b0eb3004c9620917ef9d",
+          "command": [
+            "/usr/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l5-compensation.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 1,
+          "invalid": false,
+          "spawned": 5,
+          "leftovers": []
+        }
+      ]
+    },
+    {
+      "major": 24,
+      "tests": 42,
+      "mutationPairs": 5,
+      "regression": {
+        "log": "docs/plan/mh-l6/evidence/mh-l6-entry.test.js-node24-red-E2b-entry.log",
+        "sha256": "8f26dfb89f76df43e576215137efdf9c7e23a4a8a8f3cd60d92d0201eb5c4cae",
+        "command": [
+          "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+          "--test",
+          "--test-reporter=tap",
+          "packages/h2a/test/mh-l6-entry.test.js"
+        ],
+        "code": 1,
+        "signal": null,
+        "tests": 1,
+        "invalid": false,
+        "spawned": 2,
+        "leftovers": []
+      },
+      "logs": [
+        {
+          "log": "docs/plan/mh-l6/evidence/mh-l6-entry.test.js-node24-final-E2b1.log",
+          "sha256": "534f2b0cf25510a8788a0237e7333f7f89fe48c4a662165125d979bfc5992440",
+          "command": [
+            "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l6-entry.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 8,
+          "invalid": false,
+          "spawned": 2,
+          "leftovers": []
+        },
+        {
+          "log": "docs/plan/mh-l6/evidence/mh-l6-launcher.test.js-node24-final-E2b1.log",
+          "sha256": "a59722e910743619a0db4f72364af34e0bc2dc616a2cb76d276d5135e6bd32d9",
+          "command": [
+            "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l6-launcher.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 25,
+          "invalid": false,
+          "spawned": 2,
+          "leftovers": []
+        },
+        {
+          "log": "docs/plan/mh-l6/evidence/mh-l1-package.test.js-node24-final-E2b1.log",
+          "sha256": "014d12c6d1f0786a31a9bc90f3d2933e53f6ea3ff30b72eb153e2769fc1c0239",
+          "command": [
+            "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l1-package.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 1,
+          "invalid": false,
+          "spawned": 9,
+          "leftovers": []
+        },
+        {
+          "log": "docs/plan/mh-l6/evidence/mh-l2-image.test.js-node24-final-E2b1.log",
+          "sha256": "7216a7aa608eeeadc0924f0bbd453d61ac213df7a711d97703937335bbdf8184",
+          "command": [
+            "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l2-image.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 1,
+          "invalid": false,
+          "spawned": 4,
+          "leftovers": []
+        },
+        {
+          "log": "docs/plan/mh-l6/evidence/mh-l2-live-central.test.js-node24-final-E2b1.log",
+          "sha256": "9c4197a818e674ff05ffb222e6ccf98047a4dd185b61abceff2fd5edea834684",
+          "command": [
+            "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l2-live-central.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 1,
+          "invalid": false,
+          "spawned": 5,
+          "leftovers": []
+        },
+        {
+          "log": "docs/plan/mh-l6/evidence/mh-l3-transfer.test.js-node24-final-E2b1.log",
+          "sha256": "1c22f30007a703c3951abe06ca42e37c79806b3fce9b26aab78eab838b6a5b22",
+          "command": [
+            "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l3-transfer.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 1,
+          "invalid": false,
+          "spawned": 8,
+          "leftovers": []
+        },
+        {
+          "log": "docs/plan/mh-l6/evidence/mh-l4-central.test.js-node24-final-E2b1.log",
+          "sha256": "e30b1a010e3da54015362cff04c8bbefcdd0b58d2771dba36d6bdfb3844eda74",
+          "command": [
+            "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l4-central.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 1,
+          "invalid": false,
+          "spawned": 3,
+          "leftovers": []
+        },
+        {
+          "log": "docs/plan/mh-l6/evidence/mh-l5-cold-network.test.js-node24-final-E2b1.log",
+          "sha256": "b174df3d44ce8fe2fa4d1bb910dd3b18eed607d021fbffeb6f68b92831623b61",
+          "command": [
+            "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l5-cold-network.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 3,
+          "invalid": false,
+          "spawned": 10,
+          "leftovers": []
+        },
+        {
+          "log": "docs/plan/mh-l6/evidence/mh-l5-compensation.test.js-node24-final-E2b1.log",
+          "sha256": "a797b5943b43ea6da74377183fe697834ce00256216474117be93d49268fb042",
+          "command": [
+            "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l5-compensation.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 1,
+          "invalid": false,
+          "spawned": 5,
+          "leftovers": []
+        }
+      ]
+    }
+  ],
+  "nativeSourceBaseline": "6e8f81c4c1b6b926f48f0924f795f8a6a4c0ef96",
+  "nativeSources": [
+    {
+      "path": "packages/h2a-runtime/src/launch-guard.ts",
+      "sha256": "cd39a70837e3c5f229f9b86c7ef101d676f2f27e56530faf134afde964ed1e70"
+    },
+    {
+      "path": "packages/h2a-runtime/src/native-host.ts",
+      "sha256": "98f908f8aa3e9076085e6a1df89809bffab8a3f95097e015e1fbf43a871c058f"
+    },
+    {
+      "path": "packages/h2a-runtime/src/native-terminal/op.ts",
+      "sha256": "b17c0bcc5ef6a891450e488026c02a54c5938ad038b922905baedc36996536de"
+    },
+    {
+      "path": "packages/h2a-runtime/src/native-terminal/process.ts",
+      "sha256": "c2ece458d4281dabe3928088fa8eff611b2cfb4e30a87fe52ad13c5c619918cf"
+    },
+    {
+      "path": "packages/h2a-runtime/src/native-terminal/supervisor.ts",
+      "sha256": "cbc4a8777508bbef60bbbd65ee1edf548263ae43356214fa2c1646b1b6a9dc0e"
+    },
+    {
+      "path": "packages/h2a-runtime/src/native-terminal/journal.ts",
+      "sha256": "c8b8e111cca8546566bf4c8ae22d62f13e05616b61df5a3148a6934c01c0a25b"
+    }
+  ],
+  "nativeReleaseFreezeQualified": false,
+  "artifact": "docs/plan/mh-l6/artifacts/h2a-launcher-E2b1.mjs",
+  "digest": "sha256:2ed27c2739f168ac087527763c6165da73f0c9951128d68a5d4edb3a82d6999a",
+  "loaderArtifact": "docs/plan/mh-l6/artifacts/image-loader-f8666555468eeb5af9ee12c75ff37fecd9acb3bc2b0dcbb89f70da1e6219d360.mjs",
+  "loaderDigest": "sha256:f8666555468eeb5af9ee12c75ff37fecd9acb3bc2b0dcbb89f70da1e6219d360",
+  "releaseQualified": false
+}

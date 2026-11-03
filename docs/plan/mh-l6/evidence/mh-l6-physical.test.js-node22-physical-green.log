@@ -1,0 +1,137 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-physical.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-KFYbuB
+case: all cases in explicit file
+TAP version 13
+# Subtest: U07 should derive physical prefix and original npm link without preparing managed state
+ok 1 - U07 should derive physical prefix and original npm link without preparing managed state
+  ---
+  duration_ms: 15.204499
+  type: 'test'
+  ...
+# Subtest: U07 should accept physical prefix aliases but reject a different caller npm prefix
+ok 2 - U07 should accept physical prefix aliases but reject a different caller npm prefix
+  ---
+  duration_ms: 2.211182
+  type: 'test'
+  ...
+# Subtest: U07 should reject a different physical prefix used by the legacy engine
+ok 3 - U07 should reject a different physical prefix used by the legacy engine
+  ---
+  duration_ms: 0.785468
+  type: 'test'
+  ...
+# Subtest: U07 should verify the npm package identity and declared command entry
+ok 4 - U07 should verify the npm package identity and declared command entry
+  ---
+  duration_ms: 18.332597
+  type: 'test'
+  ...
+# Subtest: U07 should reject a metadata file alias even when it names identical bytes
+ok 5 - U07 should reject a metadata file alias even when it names identical bytes
+  ---
+  duration_ms: 1.752318
+  type: 'test'
+  ...
+# Subtest: U07 should reject hardlinked npm code before adoption
+ok 6 - U07 should reject hardlinked npm code before adoption
+  ---
+  duration_ms: 0.927275
+  type: 'test'
+  ...
+# Subtest: U07 should reject a code directory alias to an external installation
+ok 7 - U07 should reject a code directory alias to an external installation
+  ---
+  duration_ms: 0.729393
+  type: 'test'
+  ...
+# Subtest: U07 should reject a writable physical package directory
+ok 8 - U07 should reject a writable physical package directory
+  ---
+  duration_ms: 0.795978
+  type: 'test'
+  ...
+# Subtest: U07 should reject writable npm metadata and entry bytes
+ok 9 - U07 should reject writable npm metadata and entry bytes
+  ---
+  duration_ms: 1.076176
+  type: 'test'
+  ...
+# Subtest: U07 should require the current command to be the direct original npm symlink
+not ok 10 - U07 should require the current command to be the direct original npm symlink
+  ---
+  duration_ms: 2.581349
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-physical.test.js:8:67'
+  failureType: 'testCodeFailure'
+  error: |-
+    The input did not match the regular expression /legacy_command_unqualified/. Input:
+    
+    'Error: legacy_entry_location_invalid'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  actual:
+  error: 'legacy_entry_location_invalid'
+  stack: |-
+    inspectLegacyInstallation (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/src/runtime/upgrade/physical-installation.js:58:21)
+    file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-physical.test.js:102:23
+    getActual (node:assert:609:5)
+    Function.throws (node:assert:757:24)
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-physical.test.js:102:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  operator: 'throws'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-physical.test.js:102:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: U07 should reject a shadowed npm command even when the chosen entry is real
+ok 11 - U07 should reject a shadowed npm command even when the chosen entry is real
+  ---
+  duration_ms: 0.896818
+  type: 'test'
+  ...
+# Subtest: U07 should detect changed entry bytes before a subsequent adoption mutation
+ok 12 - U07 should detect changed entry bytes before a subsequent adoption mutation
+  ---
+  duration_ms: 1.88085
+  type: 'test'
+  ...
+# Subtest: U07 should detect an identical-byte inode replacement of the original command
+ok 13 - U07 should detect an identical-byte inode replacement of the original command
+  ---
+  duration_ms: 1.810147
+  type: 'test'
+  ...
+# Subtest: U07 should detect alias retargeting after a physical observation
+ok 14 - U07 should detect alias retargeting after a physical observation
+  ---
+  duration_ms: 1.373065
+  type: 'test'
+  ...
+# Subtest: U07 should not accept a same-path substituted file between lstat and read
+ok 15 - U07 should not accept a same-path substituted file between lstat and read
+  ---
+  duration_ms: 0.834781
+  type: 'test'
+  ...
+# Subtest: U07 should recheck metadata after observing the command link
+ok 16 - U07 should recheck metadata after observing the command link
+  ---
+  duration_ms: 0.97766
+  type: 'test'
+  ...
+1..16
+# tests 16
+# suites 0
+# pass 15
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 143.552557
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-physical.test.js"],"code":1,"signal":null,"tests":16,"invalid":false,"spawned":1,"leftovers":[]}

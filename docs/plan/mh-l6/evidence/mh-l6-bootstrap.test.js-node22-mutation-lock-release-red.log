@@ -1,0 +1,38 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-bootstrap.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-h6HROn
+case: C2b should hold compatible exclusion while the session is open
+TAP version 13
+# Subtest: C2b should hold compatible exclusion while the session is open
+not ok 1 - C2b should hold compatible exclusion while the session is open
+  ---
+  duration_ms: 56.453235
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-c2b-UTvGJU/packages/h2a/test/mh-l6-bootstrap.test.js:9:67'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    false !== true
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-c2b-UTvGJU/packages/h2a/test/mh-l6-bootstrap.test.js:60:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 165.173517
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-bootstrap.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

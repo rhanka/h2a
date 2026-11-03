@@ -1,0 +1,52 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-launcher-install.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-HTzoCE
+case: all cases in explicit file
+TAP version 13
+# Subtest: C2b should install the managed launcher and link the command atomically
+ok 1 - C2b should install the managed launcher and link the command atomically
+  ---
+  duration_ms: 135.564989
+  type: 'test'
+  ...
+# Subtest: C2b should replace a pre-existing command link without touching npm bytes
+ok 2 - C2b should replace a pre-existing command link without touching npm bytes
+  ---
+  duration_ms: 7.492121
+  type: 'test'
+  ...
+# Subtest: C2b should write nothing when the installation drifted since the session opened
+ok 3 - C2b should write nothing when the installation drifted since the session opened
+  ---
+  duration_ms: 5.874787
+  type: 'test'
+  ...
+# Subtest: C2b should refuse an unreadable launcher source before touching the command
+ok 4 - C2b should refuse an unreadable launcher source before touching the command
+  ---
+  duration_ms: 5.507156
+  type: 'test'
+  ...
+# Subtest: C2b should record the exact digest of the installed launcher bytes
+ok 5 - C2b should record the exact digest of the installed launcher bytes
+  ---
+  duration_ms: 7.560671
+  type: 'test'
+  ...
+# Subtest: C2b should refuse an invalid launcher installation envelope
+ok 6 - C2b should refuse an invalid launcher installation envelope
+  ---
+  duration_ms: 3.613651
+  type: 'test'
+  ...
+1..6
+# tests 6
+# suites 0
+# pass 6
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 268.304417
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-launcher-install.test.js"],"code":0,"signal":null,"tests":6,"invalid":false,"spawned":1,"leftovers":[]}

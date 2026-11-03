@@ -888,6 +888,7 @@ describe("relaunch --apply retype resolves consent and scrubs direct (round-2 P1
     const home = mkdtempSync(join(SCRATCH, "history-"));
     const hist = join(home, "history"), output = join(home, "child-env"), bin = join(home, "bin");
     mkdirSync(bin);
+    writeFileSync(join(bin, "package.json"), JSON.stringify({ type: "commonjs" }));
     writeFileSync(join(bin, "claude"), `#!${process.execPath}\nconst fs = require("node:fs");\nif (JSON.parse(process.env.H2A_TEST_HANDOFF_PATHS).some(path => fs.existsSync(path))) process.exit(78);\nfs.writeFileSync(process.env.H2A_TEST_ENV_OUTPUT, Object.entries(process.env).map(([key, value]) => key + "=" + value).join("\\n") + "\\n");\n`, { mode: 0o700 });
     const before = new Set(readdirSync(tmpdir()));
     let terminal = "", history = "", childEnv = "", cmd = "";

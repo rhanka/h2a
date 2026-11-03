@@ -1,0 +1,22 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l3-evidence.test.js
+node: v22.22.1
+private root: /tmp/mh-l3-test-hVA55w
+case: durable shim acceptance should survive a lost ACK only for its exact authenticated source and receipt
+TAP version 13
+# Subtest: durable shim acceptance should survive a lost ACK only for its exact authenticated source and receipt
+ok 1 - durable shim acceptance should survive a lost ACK only for its exact authenticated source and receipt
+  ---
+  duration_ms: 14.726024
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 126.382714
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l3-evidence.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

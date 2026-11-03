@@ -1,0 +1,171 @@
+{
+  "node": "v24.21.0",
+  "phase": "mutations",
+  "commands": [
+    {
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "scripts/mh-l2-live-mutate.mjs"
+      ],
+      "pid": 50515,
+      "code": 0,
+      "signal": null,
+      "elapsedMs": 168066
+    },
+    {
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "scripts/mh-l2-live-central-mutate.mjs"
+      ],
+      "pid": 53714,
+      "code": 0,
+      "signal": null,
+      "elapsedMs": 144943
+    },
+    {
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "scripts/mh-l2-mutate.mjs",
+        "unicode"
+      ],
+      "pid": 54054,
+      "code": 0,
+      "signal": null,
+      "elapsedMs": 605
+    },
+    {
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "scripts/mh-l2-mutate.mjs",
+        "durable"
+      ],
+      "pid": 54103,
+      "code": 0,
+      "signal": null,
+      "elapsedMs": 59316
+    },
+    {
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "scripts/mh-l2-mutate.mjs",
+        "owner-record"
+      ],
+      "pid": 54230,
+      "code": 1,
+      "signal": null,
+      "elapsedMs": 46289
+    },
+    {
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "scripts/mh-l2-mutate.mjs",
+        "compensation"
+      ],
+      "pid": 54457,
+      "code": 0,
+      "signal": null,
+      "elapsedMs": 3588
+    },
+    {
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "scripts/mh-l2-mutate.mjs",
+        "pause"
+      ],
+      "pid": 54504,
+      "code": 0,
+      "signal": null,
+      "elapsedMs": 322
+    },
+    {
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "scripts/mh-l2-mutate.mjs",
+        "mac"
+      ],
+      "pid": 54551,
+      "code": 0,
+      "signal": null,
+      "elapsedMs": 1418
+    },
+    {
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "scripts/mh-l2-mutate.mjs",
+        "socket"
+      ],
+      "pid": 54600,
+      "code": 0,
+      "signal": null,
+      "elapsedMs": 962
+    },
+    {
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "scripts/mh-l2-mutate.mjs",
+        "owner"
+      ],
+      "pid": 54649,
+      "code": 0,
+      "signal": null,
+      "elapsedMs": 2091
+    },
+    {
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "scripts/mh-l2-mutate.mjs",
+        "inode"
+      ],
+      "pid": 54710,
+      "code": 0,
+      "signal": null,
+      "elapsedMs": 3635
+    },
+    {
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "scripts/mh-l2-mutate.mjs",
+        "precheck"
+      ],
+      "pid": 54772,
+      "code": 0,
+      "signal": null,
+      "elapsedMs": 35489
+    },
+    {
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "scripts/mh-l2-mutate.mjs",
+        "stop"
+      ],
+      "pid": 54973,
+      "code": 0,
+      "signal": null,
+      "elapsedMs": 4293
+    },
+    {
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "scripts/mh-l2-mutate.mjs",
+        "budget"
+      ],
+      "pid": 55020,
+      "code": 0,
+      "signal": null,
+      "elapsedMs": 480
+    }
+  ],
+  "failures": [
+    {
+      "command": [
+        "/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node",
+        "scripts/mh-l2-mutate.mjs",
+        "owner-record"
+      ],
+      "pid": 54230,
+      "code": 1,
+      "signal": null,
+      "elapsedMs": 46289
+    }
+  ]
+}

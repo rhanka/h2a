@@ -1,0 +1,317 @@
+[
+  {
+    "name": "wire-red",
+    "cmd": "mh_lab=$(rtk mktemp -d /tmp/mh-l0-wire.XXXXXX)\nXDG_RUNTIME_DIR=\"$mh_lab\" XDG_STATE_HOME=\"$mh_lab\" XDG_CONFIG_HOME=\"$mh_lab\" rtk node --test packages/h2a/test/mh-l0-wire.test.js\nmh_result=$?\nrtk rm -rf \"$mh_lab\"\nexit \"$mh_result\"",
+    "chunk_id": "6c81be",
+    "wall_time_seconds": 0.10694384,
+    "exit_code": 1,
+    "original_token_count": 368,
+    "output": "TAP version 13\n# node:internal/modules/esm/resolve:275\n#     throw new ERR_MODULE_NOT_FOUND(\n#           ^\n# Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/src/runtime/handover/wire.js' imported from /home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l0-wire.test.js\n#     at finalizeResolution (node:internal/modules/esm/resolve:275:11)\n#     at moduleResolve (node:internal/modules/esm/resolve:861:10)\n#     at defaultResolve (node:internal/modules/esm/resolve:985:11)\n#     at \\#cachedDefaultResolve (node:internal/modules/esm/loader:731:20)\n#     at ModuleLoader.resolve (node:internal/modules/esm/loader:708:38)\n#     at ModuleLoader.getModuleJobForImport (node:internal/modules/esm/loader:310:38)\n#     at ModuleJob._link (node:internal/modules/esm/module_job:182:49) {\n#   code: 'ERR_MODULE_NOT_FOUND',\n#   url: 'file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/src/runtime/handover/wire.js'\n# }\n# Node.js v22.22.1\n# Subtest: packages/h2a/test/mh-l0-wire.test.js\nnot ok 1 - packages/h2a/test/mh-l0-wire.test.js\n  ---\n  duration_ms: 87.309341\n  type: 'test'\n  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l0-wire.test.js:1:1'\n  failureType: 'testCodeFailure'\n  exitCode: 1\n  signal: ~\n  error: 'test failed'\n  code: 'ERR_TEST_FAILURE'\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 0\n# fail 1\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 93.367598\n"
+  },
+  {
+    "name": "wire-green",
+    "cmd": "mh_lab=$(rtk mktemp -d /tmp/mh-l0-wire.XXXXXX)\nXDG_RUNTIME_DIR=\"$mh_lab\" XDG_STATE_HOME=\"$mh_lab\" XDG_CONFIG_HOME=\"$mh_lab\" rtk node --test packages/h2a/test/mh-l0-wire.test.js\nmh_result=$?\nrtk rm -rf \"$mh_lab\"\nexit \"$mh_result\"",
+    "chunk_id": "e8fb65",
+    "wall_time_seconds": 0.122899018,
+    "exit_code": 0,
+    "original_token_count": 133,
+    "output": "TAP version 13\n# Subtest: RFC 8785 sorts numeric keys lexically and rejects non-I-JSON\nok 1 - RFC 8785 sorts numeric keys lexically and rejects non-I-JSON\n  ---\n  duration_ms: 1.468162\n  type: 'test'\n  ...\n# Subtest: domain separation binds service, namespace, generation and all payload bytes\nok 2 - domain separation binds service, namespace, generation and all payload bytes\n  ---\n  duration_ms: 1.512416\n  type: 'test'\n  ...\n1..2\n# tests 2\n# suites 0\n# pass 2\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 97.244202\n"
+  },
+  {
+    "name": "formats-red",
+    "cmd": "mh_lab=$(rtk mktemp -d /tmp/mh-l0-formats.XXXXXX)\nXDG_RUNTIME_DIR=\"$mh_lab\" rtk node --test packages/h2a/test/mh-l0-formats.test.js\nmh_result=$?\nrtk rm -rf \"$mh_lab\"\nexit \"$mh_result\"",
+    "chunk_id": "12663a",
+    "wall_time_seconds": 0.248328886,
+    "exit_code": 1,
+    "original_token_count": 373,
+    "output": "TAP version 13\n# node:internal/modules/esm/resolve:275\n#     throw new ERR_MODULE_NOT_FOUND(\n#           ^\n# Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/src/runtime/handover/formats.js' imported from /home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l0-formats.test.js\n#     at finalizeResolution (node:internal/modules/esm/resolve:275:11)\n#     at moduleResolve (node:internal/modules/esm/resolve:861:10)\n#     at defaultResolve (node:internal/modules/esm/resolve:985:11)\n#     at \\#cachedDefaultResolve (node:internal/modules/esm/loader:731:20)\n#     at ModuleLoader.resolve (node:internal/modules/esm/loader:708:38)\n#     at ModuleLoader.getModuleJobForImport (node:internal/modules/esm/loader:310:38)\n#     at ModuleJob._link (node:internal/modules/esm/module_job:182:49) {\n#   code: 'ERR_MODULE_NOT_FOUND',\n#   url: 'file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/src/runtime/handover/formats.js'\n# }\n# Node.js v22.22.1\n# Subtest: packages/h2a/test/mh-l0-formats.test.js\nnot ok 1 - packages/h2a/test/mh-l0-formats.test.js\n  ---\n  duration_ms: 127.629889\n  type: 'test'\n  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l0-formats.test.js:1:1'\n  failureType: 'testCodeFailure'\n  exitCode: 1\n  signal: ~\n  error: 'test failed'\n  code: 'ERR_TEST_FAILURE'\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 0\n# fail 1\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 138.452249\n"
+  },
+  {
+    "name": "formats-green",
+    "cmd": "mh_lab=$(rtk mktemp -d /tmp/mh-l0-formats.XXXXXX)\nXDG_RUNTIME_DIR=\"$mh_lab\" rtk node --test packages/h2a/test/mh-l0-formats.test.js\nmh_result=$?\nrtk rm -rf \"$mh_lab\"\nexit \"$mh_result\"",
+    "chunk_id": "2f2554",
+    "wall_time_seconds": 0.129746821,
+    "exit_code": 0,
+    "original_token_count": 193,
+    "output": "TAP version 13\n# Subtest: M18b/M18c format: v2 retains every v1 field, decoy and separate auth reference\nok 1 - M18b/M18c format: v2 retains every v1 field, decoy and separate auth reference\n  ---\n  duration_ms: 3.059395\n  type: 'test'\n  ...\n# Subtest: M10b format: future builds are open, schema/provenance fields are closed\nok 2 - M10b format: future builds are open, schema/provenance fields are closed\n  ---\n  duration_ms: 2.50868\n  type: 'test'\n  ...\n# Subtest: formats cover all L0 persistence families and reject unknown versions\nok 3 - formats cover all L0 persistence families and reject unknown versions\n  ---\n  duration_ms: 0.349688\n  type: 'test'\n  ...\n1..3\n# tests 3\n# suites 0\n# pass 3\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 109.484129\n"
+  },
+  {
+    "name": "state-red",
+    "cmd": "mh_lab=$(rtk mktemp -d /tmp/mh-l0-state.XXXXXX)\nXDG_RUNTIME_DIR=\"$mh_lab\" rtk node --test packages/h2a/test/mh-l0-state.test.js\nmh_result=$?\nrtk rm -rf \"$mh_lab\"\nexit \"$mh_result\"",
+    "chunk_id": "f04914",
+    "wall_time_seconds": 0.101036416,
+    "exit_code": 1,
+    "original_token_count": 369,
+    "output": "TAP version 13\n# node:internal/modules/esm/resolve:275\n#     throw new ERR_MODULE_NOT_FOUND(\n#           ^\n# Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/src/runtime/handover/state.js' imported from /home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l0-state.test.js\n#     at finalizeResolution (node:internal/modules/esm/resolve:275:11)\n#     at moduleResolve (node:internal/modules/esm/resolve:861:10)\n#     at defaultResolve (node:internal/modules/esm/resolve:985:11)\n#     at \\#cachedDefaultResolve (node:internal/modules/esm/loader:731:20)\n#     at ModuleLoader.resolve (node:internal/modules/esm/loader:708:38)\n#     at ModuleLoader.getModuleJobForImport (node:internal/modules/esm/loader:310:38)\n#     at ModuleJob._link (node:internal/modules/esm/module_job:182:49) {\n#   code: 'ERR_MODULE_NOT_FOUND',\n#   url: 'file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/src/runtime/handover/state.js'\n# }\n# Node.js v22.22.1\n# Subtest: packages/h2a/test/mh-l0-state.test.js\nnot ok 1 - packages/h2a/test/mh-l0-state.test.js\n  ---\n  duration_ms: 86.433102\n  type: 'test'\n  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l0-state.test.js:1:1'\n  failureType: 'testCodeFailure'\n  exitCode: 1\n  signal: ~\n  error: 'test failed'\n  code: 'ERR_TEST_FAILURE'\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 0\n# fail 1\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 92.382795\n"
+  },
+  {
+    "name": "state-green",
+    "cmd": "mh_lab=$(rtk mktemp -d /tmp/mh-l0-state.XXXXXX)\nXDG_RUNTIME_DIR=\"$mh_lab\" rtk node --test packages/h2a/test/mh-l0-state.test.js\nmh_result=$?\nrtk rm -rf \"$mh_lab\"\nexit \"$mh_result\"",
+    "chunk_id": "4b681b",
+    "wall_time_seconds": 0.133368194,
+    "exit_code": 0,
+    "original_token_count": 213,
+    "output": "TAP version 13\n# Subtest: U05 foundation: exclusive durable publication and inode/epoch compare preserve current marker\nok 1 - U05 foundation: exclusive durable publication and inode/epoch compare preserve current marker\n  ---\n  duration_ms: 16.645046\n  type: 'test'\n  ...\n# Subtest: U06 foundation: corruption, unknown schema, symlinks, wrong owner/modes never become empty\nok 2 - U06 foundation: corruption, unknown schema, symlinks, wrong owner/modes never become empty\n  ---\n  duration_ms: 2.196242\n  type: 'test'\n  ...\n# Subtest: U05 foundation: fsync failure before/after publication has no false success\nok 3 - U05 foundation: fsync failure before/after publication has no false success\n  ---\n  duration_ms: 6.154419\n  type: 'test'\n  ...\n1..3\n# tests 3\n# suites 0\n# pass 3\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 135.270483\n"
+  },
+  {
+    "name": "authority-red",
+    "cmd": "mh_lab=$(rtk mktemp -d /tmp/mh-l0-authority.XXXXXX)\nXDG_RUNTIME_DIR=\"$mh_lab\" rtk node --test packages/h2a/test/mh-l0-authority.test.js\nmh_result=$?\nrtk rm -rf \"$mh_lab\"\nexit \"$mh_result\"",
+    "chunk_id": "981c4b",
+    "wall_time_seconds": 0.286364741,
+    "exit_code": 1,
+    "original_token_count": 376,
+    "output": "TAP version 13\n# node:internal/modules/esm/resolve:275\n#     throw new ERR_MODULE_NOT_FOUND(\n#           ^\n# Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/src/runtime/handover/authority.js' imported from /home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l0-authority.test.js\n#     at finalizeResolution (node:internal/modules/esm/resolve:275:11)\n#     at moduleResolve (node:internal/modules/esm/resolve:861:10)\n#     at defaultResolve (node:internal/modules/esm/resolve:985:11)\n#     at \\#cachedDefaultResolve (node:internal/modules/esm/loader:731:20)\n#     at ModuleLoader.resolve (node:internal/modules/esm/loader:708:38)\n#     at ModuleLoader.getModuleJobForImport (node:internal/modules/esm/loader:310:38)\n#     at ModuleJob._link (node:internal/modules/esm/module_job:182:49) {\n#   code: 'ERR_MODULE_NOT_FOUND',\n#   url: 'file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/src/runtime/handover/authority.js'\n# }\n# Node.js v22.22.1\n# Subtest: packages/h2a/test/mh-l0-authority.test.js\nnot ok 1 - packages/h2a/test/mh-l0-authority.test.js\n  ---\n  duration_ms: 162.722207\n  type: 'test'\n  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l0-authority.test.js:1:1'\n  failureType: 'testCodeFailure'\n  exitCode: 1\n  signal: ~\n  error: 'test failed'\n  code: 'ERR_TEST_FAILURE'\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 0\n# fail 1\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 174.572411\n"
+  },
+  {
+    "name": "authority-green",
+    "cmd": "mh_lab=$(rtk mktemp -d /tmp/mh-l0-authority.XXXXXX)\nXDG_RUNTIME_DIR=\"$mh_lab\" rtk node --test packages/h2a/test/mh-l0-authority.test.js\nmh_result=$?\nrtk rm -rf \"$mh_lab\"\nexit \"$mh_result\"",
+    "chunk_id": "a1bfdf",
+    "wall_time_seconds": 0.580247835,
+    "exit_code": 1,
+    "original_token_count": 334,
+    "output": "TAP version 13\n# Subtest: physical prefix identity survives aliases and rejects a different legacy lock directory\nnot ok 1 - physical prefix identity survives aliases and rejects a different legacy lock directory\n  ---\n  duration_ms: 4.997402\n  type: 'test'\n  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l0-authority.test.js:10:1'\n  failureType: 'testCodeFailure'\n  error: 'prefix_owner_mismatch'\n  code: 'ERR_TEST_FAILURE'\n  stack: |-\n    prefixLayout (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/src/runtime/handover/authority.js:17:11)\n    TestContext.<anonymous> (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l0-authority.test.js:14:15)\n    Test.runInAsyncScope (node:async_hooks:214:14)\n    Test.run (node:internal/test_runner/test:1047:25)\n    Test.start (node:internal/test_runner/test:944:17)\n    startSubtestAfterBootstrap (node:internal/test_runner/harness:296:17)\n  ...\n# Subtest: M04 foundation: shared exclusive anchor, explicit netns admission and bounded real abstract socket\nok 2 - M04 foundation: shared exclusive anchor, explicit netns admission and bounded real abstract socket\n  ---\n  duration_ms: 314.859699\n  type: 'test'\n  ...\n1..2\n# tests 2\n# suites 0\n# pass 1\n# fail 1\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 511.309699\n"
+  },
+  {
+    "name": "authority-green-final",
+    "cmd": "mh_lab=$(rtk mktemp -d /tmp/mh-l0-authority.XXXXXX)\nXDG_RUNTIME_DIR=\"$mh_lab\" rtk node --test packages/h2a/test/mh-l0-authority.test.js\nmh_result=$?\nrtk rm -rf \"$mh_lab\"\nexit \"$mh_result\"",
+    "chunk_id": "9b6daf",
+    "wall_time_seconds": 0.333123721,
+    "exit_code": 0,
+    "original_token_count": 159,
+    "output": "TAP version 13\n# Subtest: physical prefix identity survives aliases and rejects a different legacy lock directory\nok 1 - physical prefix identity survives aliases and rejects a different legacy lock directory\n  ---\n  duration_ms: 3.945082\n  type: 'test'\n  ...\n# Subtest: M04 foundation: shared exclusive anchor, explicit netns admission and bounded real abstract socket\nok 2 - M04 foundation: shared exclusive anchor, explicit netns admission and bounded real abstract socket\n  ---\n  duration_ms: 181.361082\n  type: 'test'\n  ...\n1..2\n# tests 2\n# suites 0\n# pass 2\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 320.375887\n"
+  },
+  {
+    "name": "image-red",
+    "cmd": "mh_lab=$(rtk mktemp -d /tmp/mh-l0-image.XXXXXX)\nXDG_RUNTIME_DIR=\"$mh_lab\" rtk node --test packages/h2a/test/mh-l0-image.test.js\nmh_result=$?\nrtk rm -rf \"$mh_lab\"\nexit \"$mh_result\"",
+    "chunk_id": "714fa0",
+    "wall_time_seconds": 0.231551678,
+    "exit_code": 1,
+    "original_token_count": 370,
+    "output": "TAP version 13\n# node:internal/modules/esm/resolve:275\n#     throw new ERR_MODULE_NOT_FOUND(\n#           ^\n# Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/src/runtime/handover/image.js' imported from /home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l0-image.test.js\n#     at finalizeResolution (node:internal/modules/esm/resolve:275:11)\n#     at moduleResolve (node:internal/modules/esm/resolve:861:10)\n#     at defaultResolve (node:internal/modules/esm/resolve:985:11)\n#     at \\#cachedDefaultResolve (node:internal/modules/esm/loader:731:20)\n#     at ModuleLoader.resolve (node:internal/modules/esm/loader:708:38)\n#     at ModuleLoader.getModuleJobForImport (node:internal/modules/esm/loader:310:38)\n#     at ModuleJob._link (node:internal/modules/esm/module_job:182:49) {\n#   code: 'ERR_MODULE_NOT_FOUND',\n#   url: 'file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/src/runtime/handover/image.js'\n# }\n# Node.js v22.22.1\n# Subtest: packages/h2a/test/mh-l0-image.test.js\nnot ok 1 - packages/h2a/test/mh-l0-image.test.js\n  ---\n  duration_ms: 148.094798\n  type: 'test'\n  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l0-image.test.js:1:1'\n  failureType: 'testCodeFailure'\n  exitCode: 1\n  signal: ~\n  error: 'test failed'\n  code: 'ERR_TEST_FAILURE'\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 0\n# fail 1\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 159.483112\n"
+  },
+  {
+    "name": "image-green",
+    "cmd": "mh_lab=$(rtk mktemp -d /tmp/mh-l0-image.XXXXXX)\nXDG_RUNTIME_DIR=\"$mh_lab\" rtk node --test packages/h2a/test/mh-l0-image.test.js\nmh_result=$?\nrtk rm -rf \"$mh_lab\"\nexit \"$mh_result\"",
+    "chunk_id": "abdba1",
+    "wall_time_seconds": 0.599461243,
+    "exit_code": 0,
+    "original_token_count": 215,
+    "output": "TAP version 13\n# Subtest: U10/U12 foundations: deterministic complete manifest, no hardlink or outgoing symlink\nok 1 - U10/U12 foundations: deterministic complete manifest, no hardlink or outgoing symlink\n  ---\n  duration_ms: 13.347842\n  type: 'test'\n  ...\n# Subtest: U12 foundation: parent/HOME/NODE_PATH decoys cannot satisfy a missing internal dependency\nok 2 - U12 foundation: parent/HOME/NODE_PATH decoys cannot satisfy a missing internal dependency\n  ---\n  duration_ms: 2.678339\n  type: 'test'\n  ...\n# Subtest: native manifest refuses wrong ABI, absent binary, mismatching digest or fake legacy probe\nok 3 - native manifest refuses wrong ABI, absent binary, mismatching digest or fake legacy probe\n  ---\n  duration_ms: 0.897789\n  type: 'test'\n  ...\n1..3\n# tests 3\n# suites 0\n# pass 3\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 530.500123\n"
+  },
+  {
+    "name": "npm-red",
+    "cmd": "mh_lab=$(rtk mktemp -d /tmp/mh-l0-npm.XXXXXX)\nXDG_RUNTIME_DIR=\"$mh_lab\" rtk node --test packages/h2a/test/mh-l0-npm.test.js\nmh_result=$?\nrtk rm -rf \"$mh_lab\"\nexit \"$mh_result\"",
+    "chunk_id": "d6fd01",
+    "wall_time_seconds": 0.505068848,
+    "exit_code": 1,
+    "original_token_count": 327,
+    "output": "TAP version 13\n# Subtest: BX regression: spec v7 assumes ordinary npm preserves the managed entry with EEXIST\nnot ok 1 - BX regression: spec v7 assumes ordinary npm preserves the managed entry with EEXIST\n  ---\n  duration_ms: 213.158444\n  type: 'test'\n  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l0-npm.test.js:6:1'\n  failureType: 'testCodeFailure'\n  error: '{\"args\":[\"pack\",\"/home/antoinefa/.cache-tmp/mh-l0-npm-G6B0c5/source-0.98.6\",\"--json\",\"--offline\"],\"code\":1,\"stdout\":\"\",\"stderr\":\"Exit prior to config file resolving\\\\ncause\\\\ndouble-loading config \\\\\"/home/antoinefa/.cache-tmp/mh-l0-npm-G6B0c5/npmrc\\\\\" as \\\\\"global\\\\\", previously loaded as \\\\\"user\\\\\"\"}'\n  code: 'ERR_TEST_FAILURE'\n  stack: |-\n    npmLab (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/helpers/mh-l0-npm-lab.js:36:34)\n    process.processTicksAndRejections (node:internal/process/task_queues:103:5)\n    async TestContext.<anonymous> (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l0-npm.test.js:7:15)\n    async Test.run (node:internal/test_runner/test:1054:7)\n    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 0\n# fail 1\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 432.112973\n"
+  },
+  {
+    "name": "npm-red-reproduced",
+    "cmd": "mh_lab=$(rtk mktemp -d /tmp/mh-l0-npm.XXXXXX)\nXDG_RUNTIME_DIR=\"$mh_lab\" rtk node --test packages/h2a/test/mh-l0-npm.test.js\nmh_result=$?\nrtk rm -rf \"$mh_lab\"\nexit \"$mh_result\"",
+    "chunk_id": "f8c09a",
+    "wall_time_seconds": 2.1586208080000002,
+    "exit_code": 1,
+    "original_token_count": 354,
+    "output": "TAP version 13\n# Subtest: BX regression: spec v7 assumes ordinary npm preserves the managed entry with EEXIST\nnot ok 1 - BX regression: spec v7 assumes ordinary npm preserves the managed entry with EEXIST\n  ---\n  duration_ms: 1883.048231\n  type: 'test'\n  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l0-npm.test.js:6:1'\n  failureType: 'testCodeFailure'\n  error: |-\n    v7 EEXIST expectation\n    \n    0 !== 1\n    \n  code: 'ERR_ASSERTION'\n  name: 'AssertionError'\n  expected: 1\n  actual: 0\n  operator: 'strictEqual'\n  stack: |-\n    TestContext.<anonymous> (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l0-npm.test.js:13:12)\n    process.processTicksAndRejections (node:internal/process/task_queues:103:5)\n    async Test.run (node:internal/test_runner/test:1054:7)\n    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)\n  ...\n# {\"result\":{\"args\":[\"install\",\"-g\",\"/home/antoinefa/.cache-tmp/mh-l0-npm-S96SrB/sentropic-h2a-0.98.8.tgz\",\"--offline\"],\"code\":0,\"stdout\":\"changed 1 package in 158ms\",\"stderr\":\"npm warn Unknown builtin config \\\\\"globalignorefile\\\\\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\"},\"observedLink\":\"../lib/node_modules/@sentropic/h2a/bin.cjs\"}\n1..1\n# tests 1\n# suites 0\n# pass 0\n# fail 1\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 2098.502395\n"
+  },
+  {
+    "name": "npm-green",
+    "cmd": "mh_lab=$(rtk mktemp -d /tmp/mh-l0-npm.XXXXXX)\nXDG_RUNTIME_DIR=\"$mh_lab\" rtk node --test packages/h2a/test/mh-l0-npm.test.js\nmh_result=$?\nrtk rm -rf \"$mh_lab\"\nexit \"$mh_result\"",
+    "chunk_id": "ec462a",
+    "wall_time_seconds": 5.146679113,
+    "exit_code": 0,
+    "original_token_count": 766,
+    "output": "TAP version 13\n# Subtest: BX/U09 foundation: npm replaces a registered managed entry; all canonical-entry phases defer\nok 1 - BX/U09 foundation: npm replaces a registered managed entry; all canonical-entry phases defer\n  ---\n  duration_ms: 4851.947422\n  type: 'test'\n  ...\n# {\"action\":\"upgrade\",\"code\":0,\"stdout\":\"changed 1 package in 152ms\",\"stderr\":\"npm warn Unknown builtin config \\\\\"globalignorefile\\\\\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\",\"observedLink\":\"../lib/node_modules/@sentropic/h2a/bin.cjs\"}\n# {\"action\":\"downgrade\",\"code\":0,\"stdout\":\"changed 1 package in 156ms\",\"stderr\":\"npm warn Unknown builtin config \\\\\"globalignorefile\\\\\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\",\"observedLink\":\"../lib/node_modules/@sentropic/h2a/bin.cjs\"}\n# {\"action\":\"reinstall\",\"code\":0,\"stdout\":\"changed 1 package in 161ms\",\"stderr\":\"npm warn Unknown builtin config \\\\\"globalignorefile\\\\\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\",\"observedLink\":\"../lib/node_modules/@sentropic/h2a/bin.cjs\"}\n# {\"action\":\"update\",\"code\":0,\"stdout\":\"changed 1 package in 181ms\",\"stderr\":\"npm warn Unknown builtin config \\\\\"globalignorefile\\\\\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\",\"observedLink\":\"../lib/node_modules/@sentropic/h2a/bin.cjs\"}\n# {\"action\":\"force\",\"code\":0,\"stdout\":\"changed 1 package in 152ms\",\"stderr\":\"npm warn using --force Recommended protections disabled.\\\\nnpm warn Unknown builtin config \\\\\"globalignorefile\\\\\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\",\"observedLink\":\"../lib/node_modules/@sentropic/h2a/bin.cjs\"}\n# {\"action\":\"uninstall\",\"code\":0,\"stdout\":\"removed 1 package in 129ms\",\"stderr\":\"npm warn Unknown builtin config \\\\\"globalignorefile\\\\\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\",\"observedLink\":null}\n# {\"action\":\"absent-package-EEXIST\",\"args\":[\"install\",\"-g\",\"/home/antoinefa/.cache-tmp/mh-l0-npm-gMexZo/sentropic-h2a-0.98.8.tgz\",\"--offline\"],\"code\":1,\"stdout\":\"\",\"stderr\":\"npm warn Unknown builtin config \\\\\"globalignorefile\\\\\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\\\\nnpm error code EEXIST\\\\nnpm error path /home/antoinefa/.cache-tmp/mh-l0-npm-gMexZo/prefix/bin/h2a\\\\nnpm error EEXIST: file already exists\\\\nnpm error File exists: /home/antoinefa/.cache-tmp/mh-l0-npm-gMexZo/prefix/bin/h2a\\\\nnpm error Remove the existing file and try again, or run npm\\\\nnpm error with --force to overwrite files recklessly.\\\\nnpm error A complete log of this run can be found in: /home/antoinefa/.cache-tmp/mh-l0-npm-gMexZo/cache/_logs/2026-10-12T03_08_30_406Z-debug-0.log\"}\n1..1\n# tests 1\n# suites 0\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 5079.409837\n"
+  },
+  {
+    "name": "peer-red",
+    "cmd": "mh_lab=$(rtk mktemp -d /tmp/mh-l0-peer.XXXXXX)\nXDG_RUNTIME_DIR=\"$mh_lab\" rtk node --test packages/h2a/test/mh-l0-peer.test.js\nmh_result=$?\nrtk rm -rf \"$mh_lab\"\nexit \"$mh_result\"",
+    "chunk_id": "fedb6a",
+    "wall_time_seconds": 0.272256519,
+    "exit_code": 1,
+    "original_token_count": 370,
+    "output": "TAP version 13\n# node:internal/modules/esm/resolve:275\n#     throw new ERR_MODULE_NOT_FOUND(\n#           ^\n# Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/src/runtime/handover/evidence.js' imported from /home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l0-peer.test.js\n#     at finalizeResolution (node:internal/modules/esm/resolve:275:11)\n#     at moduleResolve (node:internal/modules/esm/resolve:861:10)\n#     at defaultResolve (node:internal/modules/esm/resolve:985:11)\n#     at \\#cachedDefaultResolve (node:internal/modules/esm/loader:731:20)\n#     at ModuleLoader.resolve (node:internal/modules/esm/loader:708:38)\n#     at ModuleLoader.getModuleJobForImport (node:internal/modules/esm/loader:310:38)\n#     at ModuleJob._link (node:internal/modules/esm/module_job:182:49) {\n#   code: 'ERR_MODULE_NOT_FOUND',\n#   url: 'file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/src/runtime/handover/evidence.js'\n# }\n# Node.js v22.22.1\n# Subtest: packages/h2a/test/mh-l0-peer.test.js\nnot ok 1 - packages/h2a/test/mh-l0-peer.test.js\n  ---\n  duration_ms: 173.07805\n  type: 'test'\n  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l0-peer.test.js:1:1'\n  failureType: 'testCodeFailure'\n  exitCode: 1\n  signal: ~\n  error: 'test failed'\n  code: 'ERR_TEST_FAILURE'\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 0\n# fail 1\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 184.10771\n"
+  },
+  {
+    "name": "peer-green",
+    "cmd": "mh_lab=$(rtk mktemp -d /tmp/mh-l0-peer.XXXXXX)\nXDG_RUNTIME_DIR=\"$mh_lab\" rtk node --test packages/h2a/test/mh-l0-peer.test.js\nmh_result=$?\nrtk rm -rf \"$mh_lab\"\nexit \"$mh_result\"",
+    "chunk_id": "75dbf6",
+    "wall_time_seconds": 0.634430402,
+    "exit_code": 0,
+    "original_token_count": 101,
+    "output": "TAP version 13\n# Subtest: L0 network pair: valid future verdict, negative provenance, CAS and lost ACK without duplicate restoration\nok 1 - L0 network pair: valid future verdict, negative provenance, CAS and lost ACK without duplicate restoration\n  ---\n  duration_ms: 310.12428\n  type: 'test'\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 564.104434\n"
+  },
+  {
+    "name": "native-red",
+    "cmd": "mh_lab=$(rtk mktemp -d /tmp/mh-l0-native.XXXXXX)\nXDG_RUNTIME_DIR=\"$mh_lab\" rtk node --test packages/h2a/test/mh-l0-native.test.js\nmh_result=$?\nrtk rm -rf \"$mh_lab\"\nexit \"$mh_result\"",
+    "chunk_id": "460f41",
+    "wall_time_seconds": 0.24352766,
+    "exit_code": 1,
+    "original_token_count": 367,
+    "output": "TAP version 13\n# node:internal/modules/esm/resolve:275\n#     throw new ERR_MODULE_NOT_FOUND(\n#           ^\n# Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/scripts/mh-l0-native-prototype.mjs' imported from /home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l0-native.test.js\n#     at finalizeResolution (node:internal/modules/esm/resolve:275:11)\n#     at moduleResolve (node:internal/modules/esm/resolve:861:10)\n#     at defaultResolve (node:internal/modules/esm/resolve:985:11)\n#     at \\#cachedDefaultResolve (node:internal/modules/esm/loader:731:20)\n#     at ModuleLoader.resolve (node:internal/modules/esm/loader:708:38)\n#     at ModuleLoader.getModuleJobForImport (node:internal/modules/esm/loader:310:38)\n#     at ModuleJob._link (node:internal/modules/esm/module_job:182:49) {\n#   code: 'ERR_MODULE_NOT_FOUND',\n#   url: 'file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/scripts/mh-l0-native-prototype.mjs'\n# }\n# Node.js v22.22.1\n# Subtest: packages/h2a/test/mh-l0-native.test.js\nnot ok 1 - packages/h2a/test/mh-l0-native.test.js\n  ---\n  duration_ms: 155.062556\n  type: 'test'\n  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l0-native.test.js:1:1'\n  failureType: 'testCodeFailure'\n  exitCode: 1\n  signal: ~\n  error: 'test failed'\n  code: 'ERR_TEST_FAILURE'\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 0\n# fail 1\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 166.478012\n"
+  },
+  {
+    "name": "native-green",
+    "cmd": "mh_lab=$(rtk mktemp -d /tmp/mh-l0-native.XXXXXX)\nXDG_RUNTIME_DIR=\"$mh_lab\" rtk node --test packages/h2a/test/mh-l0-native.test.js\nmh_result=$?\nrtk rm -rf \"$mh_lab\"\nexit \"$mh_result\"",
+    "chunk_id": "aa1783",
+    "wall_time_seconds": 1.9184451249999999,
+    "exit_code": 0,
+    "original_token_count": 259,
+    "output": "TAP version 13\n# Subtest: L0 native feasibility: direct C++ build is repeatable and the exact legacy node-pty require spawns a private PTY\nok 1 - L0 native feasibility: direct C++ build is repeatable and the exact legacy node-pty require spawns a private PTY\n  ---\n  duration_ms: 1672.535004\n  type: 'test'\n  ...\n# {\"binary\":\"<temporary>\",\"probePath\":\"<temporary>/node_modules/node-pty\",\"packageVersion\":\"1.1.0\",\"binaryDigest\":\"sha256:d68cf1ce4364775b75356edee9e54ad008b28d1f78368c5d88c68219873a64ac\",\"toolchainDigest\":\"sha256:812978cf085e6ab7abadabf40b3957fa220aab2b5032ba79c10c0b7f2e955052\",\"compiler\":\"c++ (Ubuntu 15.2.0-16ubuntu1) 15.2.0\",\"profile\":{\"platform\":\"linux\",\"arch\":\"x64\",\"libc\":\"glibc\",\"node\":\"v22.22.1\",\"nodeAbi\":\"127\",\"napi\":\"10\"},\"qualification\":\"L0-local-feasibility-only\",\"repeatedBinaryDigest\":\"sha256:d68cf1ce4364775b75356edee9e54ad008b28d1f78368c5d88c68219873a64ac\",\"probeOutput\":\"legacy-probe-real-pty-ok\"}\n1..1\n# tests 1\n# suites 0\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 1862.982972\n"
+  },
+  {
+    "name": "heritage-red",
+    "cmd": "mh_lab=$(rtk mktemp -d /tmp/mh-l0-heritage.XXXXXX)\nXDG_RUNTIME_DIR=\"$mh_lab\" rtk node --test packages/h2a/test/mh-l0-heritage.test.js\nmh_result=$?\nrtk rm -rf \"$mh_lab\"\nexit \"$mh_result\"",
+    "chunk_id": "9f04f7",
+    "wall_time_seconds": 0.10713096,
+    "exit_code": 1,
+    "original_token_count": 367,
+    "output": "TAP version 13\n# node:internal/modules/esm/resolve:275\n#     throw new ERR_MODULE_NOT_FOUND(\n#           ^\n# Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/scripts/mh-l0-heritage-audit.mjs' imported from /home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l0-heritage.test.js\n#     at finalizeResolution (node:internal/modules/esm/resolve:275:11)\n#     at moduleResolve (node:internal/modules/esm/resolve:861:10)\n#     at defaultResolve (node:internal/modules/esm/resolve:985:11)\n#     at \\#cachedDefaultResolve (node:internal/modules/esm/loader:731:20)\n#     at ModuleLoader.resolve (node:internal/modules/esm/loader:708:38)\n#     at ModuleLoader.getModuleJobForImport (node:internal/modules/esm/loader:310:38)\n#     at ModuleJob._link (node:internal/modules/esm/module_job:182:49) {\n#   code: 'ERR_MODULE_NOT_FOUND',\n#   url: 'file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/scripts/mh-l0-heritage-audit.mjs'\n# }\n# Node.js v22.22.1\n# Subtest: packages/h2a/test/mh-l0-heritage.test.js\nnot ok 1 - packages/h2a/test/mh-l0-heritage.test.js\n  ---\n  duration_ms: 91.303423\n  type: 'test'\n  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l0-heritage.test.js:1:1'\n  failureType: 'testCodeFailure'\n  exitCode: 1\n  signal: ~\n  error: 'test failed'\n  code: 'ERR_TEST_FAILURE'\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 0\n# fail 1\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 97.321155\n"
+  },
+  {
+    "name": "heritage-green",
+    "cmd": "mh_lab=$(rtk mktemp -d /tmp/mh-l0-heritage.XXXXXX)\nXDG_RUNTIME_DIR=\"$mh_lab\" rtk node --test packages/h2a/test/mh-l0-heritage.test.js\nmh_result=$?\nrtk rm -rf \"$mh_lab\"\nexit \"$mh_result\"",
+    "chunk_id": "2d86be",
+    "wall_time_seconds": 3.834517387,
+    "exit_code": 0,
+    "original_token_count": 94,
+    "output": "TAP version 13\n# Subtest: L0 heritage audit: relaunch roots, runtime closure and legacy native probe remain explicit\nok 1 - L0 heritage audit: relaunch roots, runtime closure and legacy native probe remain explicit\n  ---\n  duration_ms: 3312.78046\n  type: 'test'\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 3753.317302\n"
+  },
+  {
+    "name": "state-epoch-red",
+    "cmd": "mh_lab=$(rtk mktemp -d /tmp/mh-l0-state.XXXXXX)\nXDG_RUNTIME_DIR=\"$mh_lab\" rtk node --test packages/h2a/test/mh-l0-state.test.js\nmh_result=$?\nrtk rm -rf \"$mh_lab\"\nexit \"$mh_result\"",
+    "chunk_id": "d61a9b",
+    "wall_time_seconds": 0.222197039,
+    "exit_code": 1,
+    "original_token_count": 457,
+    "output": "TAP version 13\n# Subtest: U05 foundation: exclusive durable publication and inode/epoch compare preserve current marker\nok 1 - U05 foundation: exclusive durable publication and inode/epoch compare preserve current marker\n  ---\n  duration_ms: 19.765857\n  type: 'test'\n  ...\n# Subtest: U06 foundation: corruption, unknown schema, symlinks, wrong owner/modes never become empty\nok 2 - U06 foundation: corruption, unknown schema, symlinks, wrong owner/modes never become empty\n  ---\n  duration_ms: 3.351956\n  type: 'test'\n  ...\n# Subtest: U05 foundation: fsync failure before/after publication has no false success\nok 3 - U05 foundation: fsync failure before/after publication has no false success\n  ---\n  duration_ms: 9.589491\n  type: 'test'\n  ...\n# Subtest: same-boot publication counter cannot regress under a fresh inode compare\nnot ok 4 - same-boot publication counter cannot regress under a fresh inode compare\n  ---\n  duration_ms: 9.591956\n  type: 'test'\n  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l0-state.test.js:64:1'\n  failureType: 'testCodeFailure'\n  error: 'Missing expected exception.'\n  code: 'ERR_ASSERTION'\n  name: 'AssertionError'\n  expected:\n  operator: 'throws'\n  stack: |-\n    TestContext.<anonymous> (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l0-state.test.js:70:12)\n    Test.runInAsyncScope (node:async_hooks:214:14)\n    Test.run (node:internal/test_runner/test:1047:25)\n    Test.processPendingSubtests (node:internal/test_runner/test:744:18)\n    Test.postRun (node:internal/test_runner/test:1173:19)\n    Test.run (node:internal/test_runner/test:1101:12)\n    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)\n  ...\n1..4\n# tests 4\n# suites 0\n# pass 3\n# fail 1\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 177.031257\n"
+  },
+  {
+    "name": "state-epoch-green",
+    "cmd": "mh_lab=$(rtk mktemp -d /tmp/mh-l0-check.XXXXXX)\nXDG_RUNTIME_DIR=\"$mh_lab\" rtk node --test packages/h2a/test/mh-l0-state.test.js\nmh_result=$?\nrtk rm -rf \"$mh_lab\"\nexit \"$mh_result\"",
+    "chunk_id": "9f5643",
+    "wall_time_seconds": 0.3174649,
+    "exit_code": 0,
+    "original_token_count": 266,
+    "output": "TAP version 13\n# Subtest: U05 foundation: exclusive durable publication and inode/epoch compare preserve current marker\nok 1 - U05 foundation: exclusive durable publication and inode/epoch compare preserve current marker\n  ---\n  duration_ms: 33.223365\n  type: 'test'\n  ...\n# Subtest: U06 foundation: corruption, unknown schema, symlinks, wrong owner/modes never become empty\nok 2 - U06 foundation: corruption, unknown schema, symlinks, wrong owner/modes never become empty\n  ---\n  duration_ms: 3.326168\n  type: 'test'\n  ...\n# Subtest: U05 foundation: fsync failure before/after publication has no false success\nok 3 - U05 foundation: fsync failure before/after publication has no false success\n  ---\n  duration_ms: 7.024255\n  type: 'test'\n  ...\n# Subtest: same-boot publication counter cannot regress under a fresh inode compare\nok 4 - same-boot publication counter cannot regress under a fresh inode compare\n  ---\n  duration_ms: 6.105516\n  type: 'test'\n  ...\n1..4\n# tests 4\n# suites 0\n# pass 4\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 250.428622\n"
+  },
+  {
+    "name": "wire-vectors-green",
+    "cmd": "mh_lab=$(rtk mktemp -d /tmp/mh-l0-check.XXXXXX)\nXDG_RUNTIME_DIR=\"$mh_lab\" rtk node --test packages/h2a/test/mh-l0-wire.test.js\nmh_result=$?\nrtk rm -rf \"$mh_lab\"\nexit \"$mh_result\"",
+    "chunk_id": "f0e1e3",
+    "wall_time_seconds": 0.296558258,
+    "exit_code": 0,
+    "original_token_count": 186,
+    "output": "TAP version 13\n# Subtest: RFC 8785 sorts numeric keys lexically and rejects non-I-JSON\nok 1 - RFC 8785 sorts numeric keys lexically and rejects non-I-JSON\n  ---\n  duration_ms: 3.249704\n  type: 'test'\n  ...\n# Subtest: frozen HKDF/HMAC vectors match independent fixed bytes in every domain\nok 2 - frozen HKDF/HMAC vectors match independent fixed bytes in every domain\n  ---\n  duration_ms: 3.603459\n  type: 'test'\n  ...\n# Subtest: domain separation binds service, namespace, generation and all payload bytes\nok 3 - domain separation binds service, namespace, generation and all payload bytes\n  ---\n  duration_ms: 1.601643\n  type: 'test'\n  ...\n1..3\n# tests 3\n# suites 0\n# pass 3\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 208.421782\n"
+  },
+  {
+    "name": "authority-recovery-green",
+    "cmd": "mh_lab=$(rtk mktemp -d /tmp/mh-l0-check.XXXXXX)\nXDG_RUNTIME_DIR=\"$mh_lab\" rtk node --test packages/h2a/test/mh-l0-authority.test.js\nmh_result=$?\nrtk rm -rf \"$mh_lab\"\nexit \"$mh_result\"",
+    "chunk_id": "3cdd98",
+    "wall_time_seconds": 0.427434702,
+    "exit_code": 0,
+    "original_token_count": 158,
+    "output": "TAP version 13\n# Subtest: physical prefix identity survives aliases and rejects a different legacy lock directory\nok 1 - physical prefix identity survives aliases and rejects a different legacy lock directory\n  ---\n  duration_ms: 5.85213\n  type: 'test'\n  ...\n# Subtest: M04 foundation: shared exclusive anchor, explicit netns admission and bounded real abstract socket\nok 2 - M04 foundation: shared exclusive anchor, explicit netns admission and bounded real abstract socket\n  ---\n  duration_ms: 206.397625\n  type: 'test'\n  ...\n1..2\n# tests 2\n# suites 0\n# pass 2\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 385.815432\n"
+  },
+  {
+    "name": "authority-frame-red",
+    "cmd": "mh_lab=$(rtk mktemp -d /tmp/mh-l0-authority.XXXXXX)\nXDG_RUNTIME_DIR=\"$mh_lab\" rtk node --test packages/h2a/test/mh-l0-authority.test.js\nmh_result=$?\nrtk rm -rf \"$mh_lab\"\nexit \"$mh_result\"",
+    "chunk_id": "049734",
+    "wall_time_seconds": 0.349891009,
+    "exit_code": 1,
+    "original_token_count": 333,
+    "output": "TAP version 13\n# Subtest: physical prefix identity survives aliases and rejects a different legacy lock directory\nok 1 - physical prefix identity survives aliases and rejects a different legacy lock directory\n  ---\n  duration_ms: 7.699244\n  type: 'test'\n  ...\n# Subtest: M04 foundation: shared exclusive anchor, explicit netns admission and bounded real abstract socket\nnot ok 2 - M04 foundation: shared exclusive anchor, explicit netns admission and bounded real abstract socket\n  ---\n  duration_ms: 213.578929\n  type: 'test'\n  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l0-authority.test.js:23:1'\n  failureType: 'testCodeFailure'\n  error: 'authority_recovery_unproven'\n  code: 'ERR_TEST_FAILURE'\n  stack: |-\n    recoverDomainAfterBoot (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/src/runtime/handover/authority.js:59:65)\n    TestContext.<anonymous> (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l0-authority.test.js:47:23)\n    process.processTicksAndRejections (node:internal/process/task_queues:103:5)\n    async Test.run (node:internal/test_runner/test:1054:7)\n    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)\n  ...\n1..2\n# tests 2\n# suites 0\n# pass 1\n# fail 1\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 353.631225\n"
+  },
+  {
+    "name": "authority-frame-green",
+    "cmd": "mh_lab=$(rtk mktemp -d /tmp/mh-l0-authority.XXXXXX)\nXDG_RUNTIME_DIR=\"$mh_lab\" rtk node --test packages/h2a/test/mh-l0-authority.test.js\nmh_result=$?\nrtk rm -rf \"$mh_lab\"\nexit \"$mh_result\"",
+    "chunk_id": "c4c3f9",
+    "wall_time_seconds": 0.240126442,
+    "exit_code": 0,
+    "original_token_count": 159,
+    "output": "TAP version 13\n# Subtest: physical prefix identity survives aliases and rejects a different legacy lock directory\nok 1 - physical prefix identity survives aliases and rejects a different legacy lock directory\n  ---\n  duration_ms: 3.264031\n  type: 'test'\n  ...\n# Subtest: M04 foundation: shared exclusive anchor, explicit netns admission and bounded real abstract socket\nok 2 - M04 foundation: shared exclusive anchor, explicit netns admission and bounded real abstract socket\n  ---\n  duration_ms: 165.938635\n  type: 'test'\n  ...\n1..2\n# tests 2\n# suites 0\n# pass 2\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 273.261488\n"
+  },
+  {
+    "name": "image-authority-red",
+    "cmd": "mh_lab=$(rtk mktemp -d /tmp/mh-l0-image.XXXXXX)\nXDG_RUNTIME_DIR=\"$mh_lab\" rtk node --test packages/h2a/test/mh-l0-image.test.js\nmh_result=$?\nrtk rm -rf \"$mh_lab\"\nexit \"$mh_result\"",
+    "chunk_id": "96c0d2",
+    "wall_time_seconds": 0.380274478,
+    "exit_code": 1,
+    "original_token_count": 363,
+    "output": "TAP version 13\n# Subtest: U10/U12 foundations: deterministic complete manifest, no hardlink or outgoing symlink\nnot ok 1 - U10/U12 foundations: deterministic complete manifest, no hardlink or outgoing symlink\n  ---\n  duration_ms: 5.790724\n  type: 'test'\n  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l0-image.test.js:15:1'\n  failureType: 'testCodeFailure'\n  error: 'Missing expected exception.'\n  code: 'ERR_ASSERTION'\n  name: 'AssertionError'\n  expected:\n  operator: 'throws'\n  stack: |-\n    TestContext.<anonymous> (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l0-image.test.js:24:12)\n    Test.runInAsyncScope (node:async_hooks:214:14)\n    Test.run (node:internal/test_runner/test:1047:25)\n    Test.start (node:internal/test_runner/test:944:17)\n    startSubtestAfterBootstrap (node:internal/test_runner/harness:296:17)\n  ...\n# Subtest: U12 foundation: parent/HOME/NODE_PATH decoys cannot satisfy a missing internal dependency\nok 2 - U12 foundation: parent/HOME/NODE_PATH decoys cannot satisfy a missing internal dependency\n  ---\n  duration_ms: 5.459661\n  type: 'test'\n  ...\n# Subtest: native manifest refuses a wrong ABI and absent binary before selection\nok 3 - native manifest refuses a wrong ABI and absent binary before selection\n  ---\n  duration_ms: 0.633352\n  type: 'test'\n  ...\n1..3\n# tests 3\n# suites 0\n# pass 2\n# fail 1\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 383.827974\n"
+  },
+  {
+    "name": "image-authority-green",
+    "cmd": "mh_lab=$(rtk mktemp -d /tmp/mh-l0-image.XXXXXX)\nXDG_RUNTIME_DIR=\"$mh_lab\" rtk node --test packages/h2a/test/mh-l0-image.test.js\nmh_result=$?\nrtk rm -rf \"$mh_lab\"\nexit \"$mh_result\"",
+    "chunk_id": "d55cdd",
+    "wall_time_seconds": 0.37708052,
+    "exit_code": 0,
+    "original_token_count": 205,
+    "output": "TAP version 13\n# Subtest: U10/U12 foundations: deterministic complete manifest, no hardlink or outgoing symlink\nok 1 - U10/U12 foundations: deterministic complete manifest, no hardlink or outgoing symlink\n  ---\n  duration_ms: 9.884285\n  type: 'test'\n  ...\n# Subtest: U12 foundation: parent/HOME/NODE_PATH decoys cannot satisfy a missing internal dependency\nok 2 - U12 foundation: parent/HOME/NODE_PATH decoys cannot satisfy a missing internal dependency\n  ---\n  duration_ms: 2.216189\n  type: 'test'\n  ...\n# Subtest: native manifest refuses a wrong ABI and absent binary before selection\nok 3 - native manifest refuses a wrong ABI and absent binary before selection\n  ---\n  duration_ms: 0.651195\n  type: 'test'\n  ...\n1..3\n# tests 3\n# suites 0\n# pass 3\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 381.873827\n"
+  },
+  {
+    "name": "formats-v1-green",
+    "cmd": "mh_lab=$(rtk mktemp -d /tmp/mh-l0-formats.XXXXXX)\nXDG_RUNTIME_DIR=\"$mh_lab\" rtk node --test packages/h2a/test/mh-l0-formats.test.js\nmh_result=$?\nrtk rm -rf \"$mh_lab\"\nexit \"$mh_result\"",
+    "chunk_id": "7e7f26",
+    "wall_time_seconds": 0.303024911,
+    "exit_code": 0,
+    "original_token_count": 250,
+    "output": "TAP version 13\n# Subtest: M18b/M18c format: v2 retains every v1 field, decoy and separate auth reference\nok 1 - M18b/M18c format: v2 retains every v1 field, decoy and separate auth reference\n  ---\n  duration_ms: 4.347639\n  type: 'test'\n  ...\n# Subtest: M10b format: future builds are open, schema/provenance fields are closed\nok 2 - M10b format: future builds are open, schema/provenance fields are closed\n  ---\n  duration_ms: 2.650046\n  type: 'test'\n  ...\n# Subtest: formats cover all L0 persistence families and reject unknown versions\nok 3 - formats cover all L0 persistence families and reject unknown versions\n  ---\n  duration_ms: 0.48887\n  type: 'test'\n  ...\n# Subtest: published v1 reader accepts the actual v2 file and rejects insecure permissions\nok 4 - published v1 reader accepts the actual v2 file and rejects insecure permissions\n  ---\n  duration_ms: 176.186645\n  type: 'test'\n  ...\n1..4\n# tests 4\n# suites 0\n# pass 4\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 313.10808\n"
+  },
+  {
+    "name": "formats-freeze-red",
+    "cmd": "mh_lab=$(rtk mktemp -d /tmp/mh-l0-formats.XXXXXX)\nXDG_RUNTIME_DIR=\"$mh_lab\" rtk node --test packages/h2a/test/mh-l0-formats.test.js\nmh_result=$?\nrtk rm -rf \"$mh_lab\"\nexit \"$mh_result\"",
+    "chunk_id": "df0f4b",
+    "wall_time_seconds": 0.626016856,
+    "exit_code": 1,
+    "original_token_count": 459,
+    "output": "TAP version 13\n# Subtest: M18b/M18c format: v2 retains every v1 field, decoy and separate auth reference\nok 1 - M18b/M18c format: v2 retains every v1 field, decoy and separate auth reference\n  ---\n  duration_ms: 3.11508\n  type: 'test'\n  ...\n# Subtest: M10b format: future builds are open, schema/provenance fields are closed\nok 2 - M10b format: future builds are open, schema/provenance fields are closed\n  ---\n  duration_ms: 2.177696\n  type: 'test'\n  ...\n# Subtest: formats cover all L0 persistence families and reject unknown versions\nnot ok 3 - formats cover all L0 persistence families and reject unknown versions\n  ---\n  duration_ms: 0.799644\n  type: 'test'\n  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l0-formats.test.js:39:1'\n  failureType: 'testCodeFailure'\n  error: |-\n    Expected values to be strictly equal:\n    \n    false !== true\n    \n  code: 'ERR_ASSERTION'\n  name: 'AssertionError'\n  expected: true\n  actual: false\n  operator: 'strictEqual'\n  stack: |-\n    TestContext.<anonymous> (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l0-formats.test.js:40:10)\n    Test.runInAsyncScope (node:async_hooks:214:14)\n    Test.run (node:internal/test_runner/test:1047:25)\n    Test.processPendingSubtests (node:internal/test_runner/test:744:18)\n    Test.postRun (node:internal/test_runner/test:1173:19)\n    Test.run (node:internal/test_runner/test:1101:12)\n    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)\n  ...\n# Subtest: published v1 reader accepts the actual v2 file and rejects insecure permissions\nok 4 - published v1 reader accepts the actual v2 file and rejects insecure permissions\n  ---\n  duration_ms: 202.109482\n  type: 'test'\n  ...\n1..4\n# tests 4\n# suites 0\n# pass 3\n# fail 1\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 317.736428\n"
+  },
+  {
+    "name": "formats-freeze-green",
+    "cmd": "mh_lab=$(rtk mktemp -d /tmp/mh-l0-formats.XXXXXX)\nXDG_RUNTIME_DIR=\"$mh_lab\" rtk node --test packages/h2a/test/mh-l0-formats.test.js\nmh_result=$?\nrtk rm -rf \"$mh_lab\"\nexit \"$mh_result\"",
+    "chunk_id": "09316b",
+    "wall_time_seconds": 0.656996958,
+    "exit_code": 0,
+    "original_token_count": 251,
+    "output": "TAP version 13\n# Subtest: M18b/M18c format: v2 retains every v1 field, decoy and separate auth reference\nok 1 - M18b/M18c format: v2 retains every v1 field, decoy and separate auth reference\n  ---\n  duration_ms: 4.345475\n  type: 'test'\n  ...\n# Subtest: M10b format: future builds are open, schema/provenance fields are closed\nok 2 - M10b format: future builds are open, schema/provenance fields are closed\n  ---\n  duration_ms: 2.569334\n  type: 'test'\n  ...\n# Subtest: formats cover all L0 persistence families and reject unknown versions\nok 3 - formats cover all L0 persistence families and reject unknown versions\n  ---\n  duration_ms: 0.426572\n  type: 'test'\n  ...\n# Subtest: published v1 reader accepts the actual v2 file and rejects insecure permissions\nok 4 - published v1 reader accepts the actual v2 file and rejects insecure permissions\n  ---\n  duration_ms: 224.628466\n  type: 'test'\n  ...\n1..4\n# tests 4\n# suites 0\n# pass 4\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 365.522216\n"
+  },
+  {
+    "name": "heritage-constants-red",
+    "cmd": "mh_lab=$(rtk mktemp -d /tmp/mh-l0-heritage.XXXXXX)\nXDG_RUNTIME_DIR=\"$mh_lab\" rtk node --test packages/h2a/test/mh-l0-heritage.test.js\nmh_result=$?\nrtk rm -rf \"$mh_lab\"\nexit \"$mh_result\"",
+    "chunk_id": "ec8a57",
+    "wall_time_seconds": 1.444276591,
+    "exit_code": 1,
+    "original_token_count": 287,
+    "output": "TAP version 13\n# Subtest: L0 heritage audit: relaunch roots, runtime closure and legacy native probe remain explicit\nnot ok 1 - L0 heritage audit: relaunch roots, runtime closure and legacy native probe remain explicit\n  ---\n  duration_ms: 1135.231064\n  type: 'test'\n  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l0-heritage.test.js:5:1'\n  failureType: 'testCodeFailure'\n  error: |-\n    The expression evaluated to a falsy value:\n    \n      assert.ok(result.files.some(f => f.source === 'packages/h2a-runtime/src/index.ts'))\n    \n  code: 'ERR_ASSERTION'\n  name: 'AssertionError'\n  expected: true\n  actual: false\n  operator: '=='\n  stack: |-\n    TestContext.<anonymous> (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l0-heritage.test.js:11:10)\n    Test.runInAsyncScope (node:async_hooks:214:14)\n    Test.run (node:internal/test_runner/test:1047:25)\n    Test.start (node:internal/test_runner/test:944:17)\n    startSubtestAfterBootstrap (node:internal/test_runner/harness:296:17)\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 0\n# fail 1\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 1459.55315\n"
+  },
+  {
+    "name": "heritage-constants-green",
+    "cmd": "mh_lab=$(rtk mktemp -d /tmp/mh-l0-heritage.XXXXXX)\nXDG_RUNTIME_DIR=\"$mh_lab\" rtk node --test packages/h2a/test/mh-l0-heritage.test.js\nmh_result=$?\nrtk rm -rf \"$mh_lab\"\nexit \"$mh_result\"",
+    "chunk_id": "d02b43",
+    "wall_time_seconds": 2.995899741,
+    "exit_code": 0,
+    "original_token_count": 94,
+    "output": "TAP version 13\n# Subtest: L0 heritage audit: relaunch roots, runtime closure and legacy native probe remain explicit\nok 1 - L0 heritage audit: relaunch roots, runtime closure and legacy native probe remain explicit\n  ---\n  duration_ms: 2680.033411\n  type: 'test'\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 3010.318346\n"
+  },
+  {
+    "name": "heritage-artifact-green",
+    "cmd": "mh_lab=$(rtk mktemp -d /tmp/mh-l0-heritage.XXXXXX)\nXDG_RUNTIME_DIR=\"$mh_lab\" rtk node --test packages/h2a/test/mh-l0-heritage.test.js\nmh_result=$?\nrtk rm -rf \"$mh_lab\"\nexit \"$mh_result\"",
+    "chunk_id": "b62f2b",
+    "wall_time_seconds": 3.339527582,
+    "exit_code": 0,
+    "original_token_count": 94,
+    "output": "TAP version 13\n# Subtest: L0 heritage audit: relaunch roots, runtime closure and legacy native probe remain explicit\nok 1 - L0 heritage audit: relaunch roots, runtime closure and legacy native probe remain explicit\n  ---\n  duration_ms: 3032.123816\n  type: 'test'\n  ...\n1..1\n# tests 1\n# suites 0\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 3349.823041\n"
+  },
+  {
+    "name": "npm-versions-green",
+    "cmd": "mh_lab=$(rtk mktemp -d /tmp/mh-l0-npm.XXXXXX)\nXDG_RUNTIME_DIR=\"$mh_lab\" rtk node --test packages/h2a/test/mh-l0-npm.test.js\nmh_result=$?\nrtk rm -rf \"$mh_lab\"\nexit \"$mh_result\"",
+    "chunk_id": "863165",
+    "wall_time_seconds": 4.820761334,
+    "exit_code": 0,
+    "original_token_count": 807,
+    "output": "TAP version 13\n# Subtest: BX/U09 foundation: npm replaces a registered managed entry; all canonical-entry phases defer\nok 1 - BX/U09 foundation: npm replaces a registered managed entry; all canonical-entry phases defer\n  ---\n  duration_ms: 4343.345906\n  type: 'test'\n  ...\n# {\"action\":\"upgrade\",\"code\":0,\"stdout\":\"changed 1 package in 144ms\",\"stderr\":\"npm warn Unknown builtin config \\\\\"globalignorefile\\\\\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\",\"installedVersion\":\"0.98.8\",\"observedLink\":\"../lib/node_modules/@sentropic/h2a/bin.cjs\"}\n# {\"action\":\"downgrade\",\"code\":0,\"stdout\":\"changed 1 package in 145ms\",\"stderr\":\"npm warn Unknown builtin config \\\\\"globalignorefile\\\\\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\",\"installedVersion\":\"0.98.6\",\"observedLink\":\"../lib/node_modules/@sentropic/h2a/bin.cjs\"}\n# {\"action\":\"reinstall\",\"code\":0,\"stdout\":\"changed 1 package in 151ms\",\"stderr\":\"npm warn Unknown builtin config \\\\\"globalignorefile\\\\\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\",\"installedVersion\":\"0.98.7\",\"observedLink\":\"../lib/node_modules/@sentropic/h2a/bin.cjs\"}\n# {\"action\":\"update\",\"code\":0,\"stdout\":\"changed 1 package in 166ms\",\"stderr\":\"npm warn Unknown builtin config \\\\\"globalignorefile\\\\\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\",\"installedVersion\":\"0.98.8\",\"observedLink\":\"../lib/node_modules/@sentropic/h2a/bin.cjs\"}\n# {\"action\":\"force\",\"code\":0,\"stdout\":\"changed 1 package in 153ms\",\"stderr\":\"npm warn using --force Recommended protections disabled.\\\\nnpm warn Unknown builtin config \\\\\"globalignorefile\\\\\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\",\"installedVersion\":\"0.98.8\",\"observedLink\":\"../lib/node_modules/@sentropic/h2a/bin.cjs\"}\n# {\"action\":\"uninstall\",\"code\":0,\"stdout\":\"removed 1 package in 148ms\",\"stderr\":\"npm warn Unknown builtin config \\\\\"globalignorefile\\\\\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\",\"installedVersion\":null,\"observedLink\":null}\n# {\"action\":\"absent-package-EEXIST\",\"args\":[\"install\",\"-g\",\"/home/antoinefa/.cache-tmp/mh-l0-npm-cXbsSJ/sentropic-h2a-0.98.8.tgz\",\"--offline\"],\"code\":1,\"stdout\":\"\",\"stderr\":\"npm warn Unknown builtin config \\\\\"globalignorefile\\\\\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\\\\nnpm error code EEXIST\\\\nnpm error path /home/antoinefa/.cache-tmp/mh-l0-npm-cXbsSJ/prefix/bin/h2a\\\\nnpm error EEXIST: file already exists\\\\nnpm error File exists: /home/antoinefa/.cache-tmp/mh-l0-npm-cXbsSJ/prefix/bin/h2a\\\\nnpm error Remove the existing file and try again, or run npm\\\\nnpm error with --force to overwrite files recklessly.\\\\nnpm error A complete log of this run can be found in: /home/antoinefa/.cache-tmp/mh-l0-npm-cXbsSJ/cache/_logs/2026-10-12T03_45_35_948Z-debug-0.log\"}\n1..1\n# tests 1\n# suites 0\n# pass 1\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 4478.461879\n"
+  }
+]

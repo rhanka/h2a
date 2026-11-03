@@ -1,0 +1,7 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l5-v1.test.js
+node: v22.22.1
+private root: /tmp/mh-l5-test-SuETBa
+case: all cases in explicit file
+Could not find 'packages/h2a/test/mh-l5-v1.test.js'
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l5-v1.test.js"],"code":1,"signal":null,"tests":0,"invalid":true,"spawned":0,"leftovers":[]}

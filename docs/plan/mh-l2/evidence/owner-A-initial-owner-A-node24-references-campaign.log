@@ -1,0 +1,24 @@
+{"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","scripts/mh-l2-live-regressions.mjs"],"pid":33860,"code":1,"signal":null,"elapsedMs":305812}
+node24: packages/h2a-runtime/src/central-mcp-0980.test.ts: 5 passed, code=0
+node24: packages/h2a/test/mcp-central-attachments.test.js: FAILED code=1; see its owner-A-node24-references evidence log
+node24: packages/h2a/test/mcp-identity-readiness.test.js: 5 passed, code=0
+node24: packages/h2a/test/mcp-sessions.test.js: 10 passed, code=0
+node24: packages/h2a/test/mcp-stdio.test.js: 16 passed, code=0
+node24: packages/h2a/test/mh-l1-package.test.js: 1 passed, code=0
+node24: packages/h2a/test/mh-l1-shim.test.js: 2 passed, code=0
+node24: packages/h2a/test/mh-l2-cold.test.js: 4 passed, code=0
+node24: packages/h2a/test/mh-l2-image.test.js: 1 passed, code=0
+node24: packages/h2a/test/mh-l2-integration.test.js: 3 passed, code=0
+node24: packages/h2a/test/mh-l2-live-central.test.js: 1 passed, code=0
+node24: packages/h2a/test/mh-l2-live.test.js: 59 passed, code=0
+node24: packages/h2a/test/mh-l4-central.test.js: 1 passed, code=0
+node24: packages/h2a/test/mh-l4-checkpoint.test.js: 2 passed, code=0
+node24: packages/h2a/test/mh-l4-cuts.test.js: 7 passed, code=0
+node24: packages/h2a/test/mh-l4-idle.test.js: 1 passed, code=0
+node24: packages/h2a/test/mh-l4-integration.test.js: 3 passed, code=0
+node24: packages/h2a/test/mh-l4-launch.test.js: 2 passed, code=0
+node24: packages/h2a/test/mh-l4-ownership.test.js: 4 passed, code=0
+node24: packages/h2a/test/mh-l4-wake.test.js: 2 passed, code=0
+node24: packages/h2a/test/mh-l4-writers.test.js: 5 passed, code=0
+node24: 21 explicit reference/supplement files, 134 tests passed; failed files=1; Git-dependent format file verified separately; no skips
+

@@ -1,0 +1,93 @@
+{
+  "node": "v24.21.0",
+  "files": [
+    {
+      "path": "packages/h2a/src/runtime/upgrade/physical-installation.js",
+      "sha256": "760f24eeb0de5c04090c0cd4996a2dcb3bd4432248f0c9b575665a96fce59326"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/upgrade/physical-installation.js",
+      "sha256": "c6a7bf9368557b14e00e1b460f513a35f6695bc0d8cbbcb303dbd18a7101dbe0"
+    }
+  ],
+  "results": [
+    {
+      "name": "caller-prefix",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-physical.test.js-node24-physical-caller-prefix-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-physical.test.js-node24-physical-caller-prefix-green.log",
+      "restored": true
+    },
+    {
+      "name": "legacy-prefix",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-physical.test.js-node24-physical-legacy-prefix-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-physical.test.js-node24-physical-legacy-prefix-green.log",
+      "restored": true
+    },
+    {
+      "name": "package-metadata",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-physical.test.js-node24-physical-package-metadata-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-physical.test.js-node24-physical-package-metadata-green.log",
+      "restored": true
+    },
+    {
+      "name": "hardlink",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-physical.test.js-node24-physical-hardlink-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-physical.test.js-node24-physical-hardlink-green.log",
+      "restored": true
+    },
+    {
+      "name": "file-mode",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-physical.test.js-node24-physical-file-mode-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-physical.test.js-node24-physical-file-mode-green.log",
+      "restored": true
+    },
+    {
+      "name": "directory-mode",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-physical.test.js-node24-physical-directory-mode-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-physical.test.js-node24-physical-directory-mode-green.log",
+      "restored": true
+    },
+    {
+      "name": "direct-command",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-physical.test.js-node24-physical-direct-command-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-physical.test.js-node24-physical-direct-command-green.log",
+      "restored": true
+    },
+    {
+      "name": "command-target",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-physical.test.js-node24-physical-command-target-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-physical.test.js-node24-physical-command-target-green.log",
+      "restored": true
+    },
+    {
+      "name": "revalidate",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-physical.test.js-node24-physical-revalidate-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-physical.test.js-node24-physical-revalidate-green.log",
+      "restored": true
+    },
+    {
+      "name": "command-inode",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-physical.test.js-node24-physical-command-inode-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-physical.test.js-node24-physical-command-inode-green.log",
+      "restored": true
+    },
+    {
+      "name": "opened-file",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-physical.test.js-node24-physical-opened-file-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-physical.test.js-node24-physical-opened-file-green.log",
+      "restored": true
+    },
+    {
+      "name": "metadata-reread",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-physical.test.js-node24-physical-metadata-reread-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-physical.test.js-node24-physical-metadata-reread-green.log",
+      "restored": true
+    },
+    {
+      "name": "prefix-reread",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-physical.test.js-node24-physical-prefix-reread-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-physical.test.js-node24-physical-prefix-reread-green.log",
+      "restored": true
+    }
+  ]
+}

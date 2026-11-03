@@ -96,6 +96,12 @@ jobs:
         shell: bash
         run: node scripts/rehearsal-version.mjs
 
+      - name: Embed the stamped MCP package version
+        shell: bash
+        run: |
+          node scripts/generate-mcp-descriptor.mjs
+          npm run build:h2a
+
       # Same pack loop and sha256 manifest as the release verify job. Only the
       # SHA source differs: no gated SHA exists on a PR, so the manifest is
       # tied to this checkout and the integrity control re-checks that tie.
@@ -105,9 +111,7 @@ jobs:
           set -euo pipefail
           node scripts/check-lockstep-versions.mjs
           mkdir -p dist-tarballs
-          for pkg in @sentropic/h2a @sentropic/h2a-runtime @sentropic/h2a-cli @sentropic/track @sentropic/focus; do
-            npm pack --workspace "$pkg" --pack-destination dist-tarballs
-          done
+          node scripts/pack-candidate.mjs dist-tarballs
           (cd dist-tarballs && sha256sum *.tgz > sha256sums.txt && cat sha256sums.txt)
           echo "$(git rev-parse HEAD)" > dist-tarballs/release-sha.txt
 

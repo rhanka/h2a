@@ -33,7 +33,8 @@ test("should propagate a proven pre-create failure through the asynchronous laun
     });
   });
   assert.deepEqual(await launch(request), capabilityFailure);
-  assert.deepEqual(await launch({ ...request, prompt: "a different brief must never launch" }), capabilityFailure);
+  assert.throws(() => launch({ ...request, prompt: "a different brief must never launch" }), /launch_arguments_conflict/);
+  assert.deepEqual(await launch(request), capabilityFailure);
   assert.equal(launches, 1);
 });
 
@@ -145,8 +146,9 @@ test("should return launching within the response budget and deliver once after 
     return new Promise(resolve => { finish = () => { deliveries++; resolve({ ok: true, state: "started" }); }; });
   }, 20);
   const firstCaller = launch(request);
-  // The caller abandons its wait; the server retains the launch, even for a changed brief.
-  const current = await launch({ ...request, prompt: "must never be delivered" });
+  // The original operation survives disconnect; changed parameters conflict.
+  assert.throws(() => launch({ ...request, prompt: "must never be delivered" }), /launch_arguments_conflict/);
+  const current = await launch(request);
   assert.deepEqual(current, { state: "launching", launchId: "worker", retrySafe: false });
   assert.deepEqual(await firstCaller, current);
   finish();

@@ -1,0 +1,36 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-central.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-Ro4Nz7
+{"event":"drive-consent.full-verification","durationMs":0.0033060000000659784,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+✖ should checkpoint a real source attachment and reject a cancellation string inside new tool arguments (5577.524619ms)
+ℹ Error: Test "should checkpoint a real source attachment and reject a cancellation string inside new tool arguments" at packages/h2a/test/mh-l4-central.test.js:11:1 generated asynchronous activity after the test ended. This activity created the error "Error: socket hang up" and would have caused the test to fail, but instead triggered an unhandledRejection event.
+ℹ tests 1
+ℹ suites 0
+ℹ pass 0
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 5665.499554
+
+✖ failing tests:
+
+test at packages/h2a/test/mh-l4-central.test.js:11:1
+✖ should checkpoint a real source attachment and reject a cancellation string inside new tool arguments (5577.524619ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  200 !== 409
+  
+      at TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-central.test.js:84:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 200,
+    expected: 409,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-central.test.js"],"code":1,"signal":null,"elapsedMs":5693}

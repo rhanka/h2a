@@ -183,7 +183,7 @@ LIGNE_H2A=$(awk '$1 == "h2a" { $1=""; print; exit }' "$MCP_OUT")
 # H2A passait avec Oracle 2 OK, parce que je controlais l-entree que je CONNAIS au lieu de compter.
 # La doctrine du depot interdit le double endpoint ; un oracle qui ne compte pas ne peut pas le voir.
 # On compte toute ligne dont la COMMANDE ou les ARGS trahissent un serveur H2A, quel que soit son nom.
-NB_H2A=$(awk 'NR>1 && ($0 ~ /mcp-serve/ || $0 ~ /ANCIEN-mcp\.js/) { n++ } END { print n+0 }' "$MCP_OUT")
+NB_H2A=$(awk 'NR>1 && ($0 ~ /mcp-serve/ || $0 ~ /registry-bridge serve/ || $0 ~ /ANCIEN-mcp\.js/) { n++ } END { print n+0 }' "$MCP_OUT")
 # Le CONTRAT PUBLIC de doctor fait partie de l-oracle. Une revue a mesure : doctor sorti a 2 avec
 # report.ok=false, les deux oracles verts, et ce script rendait 0. Si l-hote va bien et que doctor
 # dit le contraire, l-un des deux a tort et il faut le dire - un desaccord n-est pas un succes.
@@ -194,7 +194,7 @@ case "$LIGNE_H2A" in
   *ANCIEN-mcp.js*) SERT_ANCIEN=1;;
 esac
 case "$LIGNE_H2A" in
-  *mcp-serve*) SERT_CANONIQUE=1;;
+  *mcp-serve*|*registry-bridge\ serve*) SERT_CANONIQUE=1;;
 esac
 grep -qi "failed to load marketplace\|^Error" "$MKT_OUT" && MKT_MORT=1
 # (declaration retiree : elle se trouvait APRES le relevement du drapeau d-echec natif de la ligne
@@ -213,7 +213,7 @@ if [ "$SERT_ANCIEN" = "1" ]; then
   echo "  INVALIDE : codex sert encore ANCIEN-mcp.js apres la reparation."
   echo "             C'est le symptome d'origine, reproduit par l'outil cense le fermer."
 elif [ "$SERT_CANONIQUE" = "1" ]; then
-  echo "  Oracle 1 OK : codex sert le canonique (h2a mcp-serve)."
+  echo "  Oracle 1 OK : codex sert le canonique (mcp-serve ou registry-bridge)."
 else
   VERDICT=1
   echo "  INVALIDE : codex ne sert AUCUN serveur h2a reconnaissable — lis la sortie ci-dessus."

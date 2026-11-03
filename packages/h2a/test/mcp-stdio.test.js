@@ -3,11 +3,16 @@ import {
   existsSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
+  renameSync,
   rmSync,
-  statSync
+  statSync,
+  symlinkSync,
+  writeFileSync,
+  mkdirSync
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { PassThrough } from "node:stream";
 import test from "node:test";
 import { waitForIdentity } from "./helpers/identity-readiness.js";
@@ -18,6 +23,11 @@ import {
   runMcpServe,
   runMcpStdio
 } from "../dist/index.js";
+
+import { publishState } from "../dist/runtime/handover/state.js";
+import { prefixLayout } from "../dist/runtime/handover/authority.js";
+import { createManifest } from "../src/runtime/handover/image.js";
+import { digest } from "../src/runtime/handover/wire.js";
 
 function freshRoot() {
   return mkdtempSync(join(tmpdir(), "h2a-mcp-stdio-"));
@@ -155,7 +165,127 @@ test("runMcpServe: internal readiness without auto-open exits nonzero and emits 
   }
 });
 
-test("runMcpServe: auto-upgrade cannot block initialize or reexec the live stdio session", { timeout: 8_000 }, async () => {
+// Fixture managed installation for the H4 boot seam: a fake npm prefix the
+// bootstrap session can verify, plus a managed root with a prepared image
+// for the stub registry's latest. Self-contained (no helper file) to stay
+// inside the lot's exact-files index.
+function h4Fixture() {
+  const root = realpathSync(mkdtempSync(join(realpathSync(tmpdir()), "h4seam-")));
+  const prefix = join(root, "prefix");
+  const pkg = join(prefix, "lib", "node_modules", "@sentropic", "h2a");
+  mkdirSync(join(pkg, "dist"), { recursive: true, mode: 0o755 });
+  mkdirSync(join(prefix, "bin"), { mode: 0o755 });
+  const entry = join(pkg, "dist", "bin.js");
+  writeFileSync(entry, "#!/usr/bin/env node\nprocess.stdout.write(\"fixture-legacy-entry\");\n", { mode: 0o755 });
+  writeFileSync(join(pkg, "package.json"),
+    JSON.stringify({ name: "@sentropic/h2a", version: "0.98.6", bin: { h2a: "dist/bin.js" } }), { mode: 0o644 });
+  const command = join(prefix, "bin", "h2a");
+  symlinkSync("../lib/node_modules/@sentropic/h2a/dist/bin.js", command);
+  const layout = prefixLayout(prefix, prefix, process.getuid());
+  for (const path of ["state", "state/upgrade", "state/upgrade/transactions", "state/upgrade/private",
+    "state/upgrade/receipts", "state/selection-history", "state/pins", "images"]) {
+    mkdirSync(join(layout.managedRoot, path), { recursive: true, mode: 0o700 });
+  }
+  publishState(join(layout.managedRoot, "installation.json"), {
+    schemaVersion: 1,
+    prefixId: layout.prefixId,
+    canonicalPrefix: prefix,
+    uid: process.getuid(),
+    managedRoot: layout.managedRoot
+  }, "installation");
+  const managedDir = join(layout.managedRoot, "managed");
+  mkdirSync(managedDir, { mode: 0o700 });
+  writeFileSync(join(layout.managedRoot, "launcher-source.mjs"), "export const launcher = true;\n");
+  writeFileSync(join(layout.managedRoot, "exclusion-evidence.json"), JSON.stringify({
+    workersTerminated: { established: true, detail: "no legacy worker alive" },
+    relaunchSourcesClosed: { established: true, detail: "autostart entries removed" },
+    futureStartsRouted: { established: true, detail: "managed launcher primary" },
+    installerReintroductionBarred: { established: true, detail: "installer path unreachable" }
+  }));
+  // Prepared image for the stub latest below.
+  const profile = { platform: "linux", arch: process.arch, libc: "glibc",
+    nodeMajor: Number(process.versions.node.split(".")[0]), nodeAbi: process.versions.modules };
+  const stage = mkdtempSync(join(root, "stage-"));
+  writeFileSync(join(stage, "entry.mjs"), "process.stdout.write(\"seam\\n\");\n");
+  writeFileSync(join(stage, "controller.json"),
+    JSON.stringify({ schemaVersion: 1, protocolVersion: 1, entrypoint: "entry.mjs" }));
+  const manifest = createManifest(stage, {
+    packageVersion: "0.98.7",
+    buildId: "build-seam",
+    profile,
+    entrypoints: { controller: "entry.mjs", shim: "entry.mjs" },
+    startupWaitBudgetMs: 10000,
+    maxAttachments: 64,
+    nativeArtifacts: []
+  });
+  writeFileSync(join(stage, "manifest.json"), JSON.stringify(manifest));
+  const imageRoot = join(layout.managedRoot, "images", digest(manifest).slice(7));
+  renameSync(stage, imageRoot);
+  return { root, managedRoot: layout.managedRoot };
+}
+
+// Stub npm registry in a SEPARATE process: the H4 pass spawns a real
+// `npm view` (spawnSync blocks this event loop), so an in-process server
+// could never answer. Hits append to a JSONL log.
+const H4_STUB_SOURCE = `
+const http = require("node:http");
+const fs = require("node:fs");
+const [logFile, latest] = process.argv.slice(1);
+const server = http.createServer((req, res) => {
+  let body = "";
+  req.on("data", (chunk) => { body += chunk; });
+  req.on("end", () => {
+    fs.appendFileSync(logFile, JSON.stringify({ method: req.method, url: req.url }) + "\\n");
+    const path = req.url.toLowerCase();
+    if (path === "/@sentropic%2fh2a" || path === "/@sentropic/h2a") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ name: "@sentropic/h2a", "dist-tags": { latest },
+        versions: { [latest]: { name: "@sentropic/h2a", version: latest, dist: { tarball: "http://127.0.0.1/x/y.tgz" } } } }));
+    } else {
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    }
+  });
+});
+server.listen(0, "127.0.0.1", () => {
+  process.stdout.write("PORT=" + server.address().port + "\\n");
+});
+`;
+
+async function h4StubRegistry(t, root, latest) {
+  const logFile = join(root, "h4reg-hits.jsonl");
+  writeFileSync(logFile, "");
+  const { spawn } = await import("node:child_process");
+  const child = spawn(process.execPath, ["--eval", H4_STUB_SOURCE, logFile, latest], {
+    stdio: ["ignore", "pipe", "ignore"]
+  });
+  t.after(() => {
+    try {
+      child.kill("SIGKILL");
+    } catch {
+      // Already exited.
+    }
+  });
+  const port = await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("stub registry did not report a port")), 15000);
+    let text = "";
+    child.stdout.on("data", (chunk) => {
+      text += String(chunk);
+      const match = /PORT=(\d+)/.exec(text);
+      if (match) {
+        clearTimeout(timer);
+        resolve(Number(match[1]));
+      }
+    });
+    child.on("error", reject);
+  });
+  const readLog = () =>
+    readFileSync(logFile, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line));
+  return { url: `http://127.0.0.1:${port}`,
+    tarballHits: () => readLog().filter((entry) => /\.tgz(\?|$)/.test(entry.url) || entry.url.includes("/-/")) };
+}
+
+test("runMcpServe: auto-upgrade cannot block initialize or reexec the live stdio session", { timeout: 120_000 }, async (t) => {
   const root = freshRoot();
   const readyFile = join(root, "ready.json");
   const stdin = new PassThrough();
@@ -164,8 +294,10 @@ test("runMcpServe: auto-upgrade cannot block initialize or reexec the live stdio
   const events = [];
   const originalExecve = Object.getOwnPropertyDescriptor(process, "execve");
   const originalGuard = process.env.H2A_UPGRADE_REEXECED;
-  let installFinished = false;
-  let swapped = false;
+  const savedEnv = {};
+  for (const key of ["npm_config_registry", "npm_config_prefix", "npm_config_cache"]) {
+    savedEnv[key] = process.env[key];
+  }
   let execveCalls = 0;
   let stdoutBuffer = "";
   let diagnostics = "";
@@ -176,6 +308,20 @@ test("runMcpServe: auto-upgrade cannot block initialize or reexec the live stdio
   });
   let resolveIdentityStatus;
 
+  // H4 seam fixture: prepared image build-seam for stub latest 0.98.7.
+  const h4 = h4Fixture();
+  const h4Registry = await h4StubRegistry(t, root, "0.98.7");
+  process.env.npm_config_registry = h4Registry.url;
+  process.env.npm_config_prefix = join(h4.root, "npmprefix");
+  process.env.npm_config_cache = join(h4.root, "npm-cache");
+  const h4Finished = () => {
+    try {
+      return JSON.parse(readFileSync(join(h4.managedRoot, "state", "selected-build.json"), "utf8")).buildId === "build-seam";
+    } catch {
+      return false;
+    }
+  };
+
   stdout.on("data", (chunk) => {
     stdoutBuffer += chunk.toString("utf8");
     const lines = stdoutBuffer.split("\n");
@@ -184,7 +330,7 @@ test("runMcpServe: auto-upgrade cannot block initialize or reexec the live stdio
       if (!line) continue;
       const response = JSON.parse(line);
       if (response.id === 41) {
-        events.push(installFinished ? "initialize-after-install" : "initialize-before-install");
+        events.push(h4Finished() ? "initialize-after-h4" : "initialize-before-h4");
         resolveInitialize(response);
       }
       if (response.id === 42) resolveIdentityStatus(response);
@@ -223,39 +369,10 @@ test("runMcpServe: auto-upgrade cannot block initialize or reexec the live stdio
           H2A_MCP_READY_NONCE:
             "44444444-4444-4444-8444-444444444444"
         },
-        upgradeRuntime: {
-          fetchLatest() {
-            events.push("upgrade-check");
-            return "999.0.0";
-          },
-          // The staged auto-upgrade orchestration replaces the old single
-          // runInstall. The bounded latch now lives in the staging step: a real
-          // stage/swap blocks the event loop, so this keeps the boot-ordering
-          // regression observable while staying deterministic and network-free.
-          resolvePrefix: () => root,
-          completeRepairIfPending: () => false,
-          acquirePrefixLock: () => ({ acquired: true, release: () => {} }),
-          fetchTarball: () => {
-            events.push("install-start");
-            return { ok: true, file: join(root, "staged.tgz") };
-          },
-          stageInstall: () => {
-            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
-            installFinished = true;
-            events.push("install-finish");
-            return { ok: true };
-          },
-          probeStagedVersion: () => "999.0.0",
-          verifyStagedNative: () => ({ ok: true }),
-          swapPackageDir: () => { swapped = true; return { ok: true, repaired: false }; },
-          // Stateful: the pre-swap (idempotence) read sees the pre-existing version, so
-          // the install proceeds; the post-swap verification sees the installed target.
-          readGlobalPkgVersion: () => (swapped ? "999.0.0" : "0.0.0"),
-          writeDiagnostics: () => {},
-          now: () => 1,
-          readCache: () => undefined,
-          writeCache: () => {}
-        }
+        // Since LOT-1 the boot seam enters the single H4 automatic pass
+        // (explicit: false) against a fixture managed installation. The
+        // legacy staged engine is unreachable here.
+        upgradeManagedRoot: h4.managedRoot
       }
     );
 
@@ -263,11 +380,12 @@ test("runMcpServe: auto-upgrade cannot block initialize or reexec the live stdio
     const response = await initialized;
 
     assert.equal(response.result.serverInfo.name, "@sentropic/h2a");
-    assert.equal(events.includes("initialize-before-install"), true);
-    // L2: initialize must not wait for the install — checked at the moment it
-    // returned. (The readiness ACK is now published only AFTER identity is bound,
-    // which happens asynchronously in the identity worker, so it is polled below.)
-    assert.equal(installFinished, false, "readiness and initialize must not wait for install");
+    assert.equal(events.includes("initialize-before-h4"), true);
+    // L2: initialize must not wait for the H4 pass — checked at the moment
+    // it returned. (The readiness ACK is now published only AFTER identity
+    // is bound, which happens asynchronously in the identity worker, so it
+    // is polled below.)
+    assert.equal(h4Finished(), false, "readiness and initialize must not wait for the H4 pass");
     await waitForIdentity(async () => {
       const answered = new Promise((resolve) => { resolveIdentityStatus = resolve; });
       stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: 42, method: "tools/call", params: { name: "h2a_identity_status", arguments: {} } })}\n`);
@@ -278,16 +396,20 @@ test("runMcpServe: auto-upgrade cannot block initialize or reexec the live stdio
     const ack = JSON.parse(readFileSync(readyFile, "utf8"));
     assert.equal(ack.nonce, "44444444-4444-4444-8444-444444444444");
 
-    // Yield to the scheduled upgrade and prove it was not accidentally
-    // dropped merely to make startup fast.
-    await new Promise((resolve) => setImmediate(resolve));
+    // The scheduled H4 pass must not be dropped merely to make startup fast:
+    // poll the fixture journal for the completed selection.
+    const deadline = Date.now() + 60000;
+    while (!h4Finished() && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    assert.equal(h4Finished(), true, "the H4 automatic pass must converge while serving");
+    events.push("h4-selected");
     assert.deepEqual(events, [
-      "initialize-before-install",
-      "upgrade-check",
-      "install-start",
-      "install-finish"
+      "initialize-before-h4",
+      "h4-selected"
     ]);
-    assert.match(diagnostics, /auto-upgraded .* \(applies on next launch\)/);
+    assert.match(diagnostics, /auto-selected h2a .* \(applies on next launch\)/);
+    assert.equal(h4Registry.tarballHits().length, 0, "the H4 pass fetches no tarball");
     assert.equal(execveCalls, 0, "mcp-serve must never execve while stdio is live");
 
     stdin.end();
@@ -305,6 +427,11 @@ test("runMcpServe: auto-upgrade cannot block initialize or reexec the live stdio
     } else {
       process.env.H2A_UPGRADE_REEXECED = originalGuard;
     }
+    for (const key of ["npm_config_registry", "npm_config_prefix", "npm_config_cache"]) {
+      if (savedEnv[key] === undefined) delete process.env[key];
+      else process.env[key] = savedEnv[key];
+    }
+    rmSync(h4.root, { recursive: true, force: true });
     rmSync(root, { recursive: true, force: true });
   }
 });
