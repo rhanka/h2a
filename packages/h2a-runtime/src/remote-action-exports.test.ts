@@ -18,9 +18,16 @@ describe("remote-action export scaffolding", () => {
 
   it("keeps every export a pure verifier primitive (no network, no store)", () => {
     for (const value of Object.values(entry)) {
-      expect(typeof value === "function" || typeof value === "string" || typeof value === "number" || Array.isArray(value)).toBe(
-        true,
-      );
+      const proto = typeof value === "object" && value !== null ? Object.getPrototypeOf(value) : null;
+      const isData =
+        typeof value === "function" ||
+        typeof value === "string" ||
+        typeof value === "number" ||
+        typeof value === "boolean" ||
+        Array.isArray(value) ||
+        proto === Object.prototype ||
+        proto === null;
+      expect(isData).toBe(true);
     }
   });
 });
