@@ -84,6 +84,48 @@ export function isGeneration(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
+export type ContractSourceGapCode = "contract_source_gap_blocked" | "contract_shape_rejected";
+
+export class ContractSourceGapError extends Error {
+  readonly code: ContractSourceGapCode;
+
+  constructor(code: ContractSourceGapCode, message?: string) {
+    super(message ?? code);
+    this.name = "ContractSourceGapError";
+    this.code = code;
+  }
+}
+
+export interface Rc0ImportedSlot {
+  readonly status: "BLOCKED_EXTERNAL";
+}
+
+/**
+ * Shape gate for an `RC0ImportedRecord` descriptor. Only the awaiting-producer
+ * slot (`null`, resolved by N1/N5 through a packed import) loads; any locally
+ * invented surrogate value is rejected before it can stand in for RC0 bytes.
+ */
+export function loadRc0ImportedRecord(value: unknown): Rc0ImportedSlot {
+  if (value === null) return Object.freeze({ status: "BLOCKED_EXTERNAL" as const });
+  throw new ContractSourceGapError(
+    "contract_shape_rejected",
+    "remote-action: RC0ImportedRecord surrogate is not external authority bytes",
+  );
+}
+
+/**
+ * Fail-closed resolution of an `RC0ImportedRecord` descriptor. The RC0 capsule
+ * bytes arrive via N1/N5 packed import only; while the pin reports
+ * `BLOCKED_EXTERNAL` no local fill exists, so every descriptor refuses here.
+ */
+export function assertRc0ImportedRecordResolved(descriptor: unknown): never {
+  void descriptor;
+  throw new ContractSourceGapError(
+    "contract_source_gap_blocked",
+    "remote-action: RC0 capsule not received (BLOCKED_EXTERNAL); no local fill",
+  );
+}
+
 /** True only for the exact closed 16-field Target: no missing, null or extra field. */
 export function isTargetRecord(value: unknown): boolean {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
@@ -137,6 +179,10 @@ export const RC2_R3_PIN = {
   revision: "r3",
   contractManifestSha256: "88823475eca151d908450e4abadcac7b2b60d4b5ea16bae0f590d419fa394565",
   vectors: {
+    "consent-native-canonical.json":
+      "436d59008001e58252000b040509d1dc551d9aa82370a57f6c514cdd8360d10a",
+    "RC0ImportedRecord.json":
+      "951abfe00143599da7841707939bb5cec083665424b6cf5ed8ce986e818664c6",
     "route-action-nonce.json":
       "9e3823d0ab962d3cba8924b19f08d4a05de205f1c24456be3b45301d8da15fdb",
     "route-action-claim.json":
@@ -157,7 +203,7 @@ export function canonicalJson(value: unknown): string {
   if (value === null) return "null";
   if (typeof value === "boolean") return value ? "true" : "false";
   if (typeof value === "number") {
-    if (!Number.isFinite(value)) throw new Error("remote-action: non-finite number is not canonicalizable");
+    if (!Number.isSafeInteger(value)) throw new Error("remote-action: non-integer number is not canonicalizable");
     return JSON.stringify(value);
   }
   if (typeof value === "string") return JSON.stringify(value);
