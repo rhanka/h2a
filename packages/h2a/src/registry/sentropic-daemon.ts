@@ -3,7 +3,7 @@
  *
  * H2a acceptance (SPEC §5 lot H2a): the daemon composes REAL coordination and
  * Track loaded definitions through `createMcpRegistry` from
- * `@sentropic/cluster-mesh/mcp/registry` (mesh 0.22.4 + platform 0.4.0), and
+ * `@sentropic/cluster-mesh/mcp/registry` (mesh 0.25.0 + platform 0.4.1), and
  * the private preparation compiler (`./registry.js` `createRegistry`) is no
  * longer on the service-dispatch preparation path. Coordination-only,
  * Track-only and combined views execute their real handlers; excluded calls
