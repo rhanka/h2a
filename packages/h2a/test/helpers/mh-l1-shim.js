@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
@@ -31,6 +31,18 @@ export const initialize = { jsonrpc: '2.0', id: 'init', method: 'initialize', pa
  * else, merging scope directories child by child. Replicated links use
  * absolute targets because the root closure holds relative workspace
  * links. Nothing is copied and the real trees are never written. */
+// cpSync preserves the source tree modes (a checkout under umask 002 ships
+// 775 directories). Fixture prefixes must stay owner-private regardless.
+function privatizeTree(root) {
+  const stack = [root];
+  while (stack.length) {
+    const current = stack.pop();
+    chmodSync(current, 0o700);
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      if (entry.isDirectory() && !entry.isSymbolicLink()) stack.push(join(current, entry.name));
+    }
+  }
+}
 function linkModuleClosure(directory, packageRoot, modules) {
   const target = join(directory, 'node_modules');
   const place = (source, placeTarget) => {
@@ -43,8 +55,10 @@ function linkModuleClosure(directory, packageRoot, modules) {
         // Real directories always merge child by child, so a nested scope
         // or package directory completes the root closure instead of
         // shadowing it. A non-directory already placed keeps priority.
+        // Owner-private even under a permissive umask: fixture prefixes
+        // refuse group/world access downstream.
         if (existing && (!existing.isDirectory() || existing.isSymbolicLink())) continue;
-        mkdirSync(to, { recursive: true });
+        mkdirSync(to, { recursive: true, mode: 0o700 });
         place(from, to);
         continue;
       }
@@ -53,7 +67,7 @@ function linkModuleClosure(directory, packageRoot, modules) {
       else symlinkSync(from, to);
     }
   };
-  mkdirSync(target, { recursive: true });
+  mkdirSync(target, { recursive: true, mode: 0o700 });
   const nested = join(packageRoot, 'node_modules');
   if (existsSync(nested)) place(nested, target);
   place(modules, target);
@@ -75,7 +89,7 @@ export function qualifiedShim(directory, manifest = fixtureQualification) {
       const to = join(compiled, relative(basePath, from));
       if (entry.isDirectory()) { copyTree(from); continue; }
       if (!entry.isFile()) continue;
-      mkdirSync(dirname(to), { recursive: true });
+      mkdirSync(dirname(to), { recursive: true, mode: 0o700 });
       if (from.endsWith('/mcp-central-qualification.js')) {
         const bytes = readFileSync(from, 'utf8');
         assert.ok(bytes.includes('clients: Object.freeze([])'), 'only shipped empty qualification data may be replaced');
@@ -87,6 +101,8 @@ export function qualifiedShim(directory, manifest = fixtureQualification) {
   if (packaged) {
     cpSync(registry, join(directory, 'registry'), { recursive: true });
     cpSync(join(packageRoot, 'fixtures'), join(directory, 'fixtures'), { recursive: true });
+    privatizeTree(join(directory, 'registry'));
+    privatizeTree(join(directory, 'fixtures'));
     copyFileSync(join(packageRoot, 'package.json'), join(directory, 'package.json'));
   } else writeFileSync(join(directory, 'package.json'), JSON.stringify({ type: 'module' }));
   linkModuleClosure(directory, packageRoot, modules);

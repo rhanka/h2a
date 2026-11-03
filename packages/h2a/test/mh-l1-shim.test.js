@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -40,6 +40,24 @@ test('C01 should replay unknown initialize and its pipelined tail into the real 
     assert.equal(existsSync(join(f.runtimeBase, 'h2a-mcp-central')), false);
     assert.equal(readFileSync(project, 'utf8'), bytes);
   } finally { await shim?.close(); rmSync(f.dir, { recursive: true, force: true }); }
+});
+
+test('qualified shim fixture directories stay owner-private under umask 0002', () => {
+  const previous = process.umask(0o002);
+  const dir = mkdtempSync(join(tmpdir(), 'mh-l1-shim-umask-'));
+  try {
+    qualifiedShim(join(dir, 'light'));
+    const directories = [dir];
+    for (let index = 0; index < directories.length; index++) {
+      for (const entry of readdirSync(directories[index], { withFileTypes: true })) {
+        if (entry.isDirectory() && !entry.isSymbolicLink()) directories.push(join(directories[index], entry.name));
+      }
+    }
+    assert.ok(directories.length > 3, 'the shim fixture must create nested directories');
+    for (const directory of directories) {
+      assert.equal(statSync(directory).mode & 0o077, 0, `owner-private fixture directory: ${directory}`);
+    }
+  } finally { process.umask(previous); rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('C01 should route an exact fixture client through the real shim and central with one attachment for a pipelined handshake', async () => {
