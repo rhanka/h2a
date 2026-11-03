@@ -82,6 +82,12 @@ async function buildPayload(root, { buildId, managedRoot, releaseVersion, packag
   // mesh 0.25.0 tuple (optional engram peer pulling commander transitively
   // ahead of the runtime direct; dual mcp-platform generations).
   const reservations = new Map();
+  // Sources currently being copied above us in this walk. A force-copy of a
+  // source already on the chain (the h2a<->h2a-runtime lockstep ping-pong
+  // under the 0.25.0 tuple) would nest forever until a string limit blows
+  // (Invalid string length); accept the dedup path instead. Completed copies
+  // leave the set, so intended same-bytes duplicates still materialize.
+  const active = new Set();
   const reservationFor = (parent, name) => {
     for (let cursor = parent;;) {
       const scope = reservations.get(cursor);
@@ -165,6 +171,7 @@ async function buildPayload(root, { buildId, managedRoot, releaseVersion, packag
       if (directory) scope.set(name, { path: destination ? `${destination}/node_modules/${name}` : `node_modules/${name}`, source: directory });
     }
     reservations.set(destination, scope);
+    active.add(source);
     // Version of a just-copied child; a deferred child (same source as a
     // reservation, materialized later by its owner) is read without copying.
     const childVersion = (name, directory, child) =>
@@ -177,15 +184,17 @@ async function buildPayload(root, { buildId, managedRoot, releaseVersion, packag
       const want = destination ? `${destination}/node_modules/${name}` : `node_modules/${name}`;
       const child = copyPackage(directory, destination);
       if (child === want) return child;
-      // The payload root itself (destination ''): Node resolves it upward
-      // from any nested copy, so never force-copy it (that collapses to ''
-      // and trips the shrinkwrap collision). Lockstep edge h2a-runtime→h2a.
-      if (!child) return child;
       const dirReal = realpathSync(directory);
       if (records.has(want) && slotSource.get(want) !== dirReal) {
         throw new Error(`prototype_dependency_collision:${want}`);
       }
-      if (!records.has(want)) return copyPackage(directory, destination, true);
+      // A source already copying above us must not be force-copied deeper:
+      // that is the lockstep ping-pong, and it only terminates as a crash.
+      // The dedup path resolves by Node's upward walk (same bytes).
+      if (!records.has(want)) {
+        if (active.has(dirReal)) return child;
+        return copyPackage(directory, destination, true);
+      }
       bySource.set(dirReal, want);
       return want;
     };
@@ -210,6 +219,7 @@ async function buildPayload(root, { buildId, managedRoot, releaseVersion, packag
       const child = claimDirect(name, directory);
       metadata.dependencies[name] = childVersion(name, directory, child);
     }
+    active.delete(source);
     write(join(absolute, 'package.json'), metadata);
     return destination;
   }
