@@ -111,5 +111,12 @@
     "specifier": "@sentropic/llm-mesh/enrollment/seat-bundle.ts",
     "classification": "retained-h2a-adapter",
     "reason": "Vendored mesh enrollment adapter, digest-pinned in VENDOR.json (sentropic bcc7d695); provenance header only, consumed by xcli-seat-import.mjs and xcli-seat-load.mjs for seat-bundle validation."
+  },
+  {
+    "file": "packages/h2a/focus-kit/test/distribution-fixture.mjs",
+    "specifier": "@sentropic/llm-mesh",
+    "classification": "retained-h2a-adapter",
+    "reason": "Offline consumer collapses the rewritten closure to the single gateway-serving line (lock paths only); never imported, never re-implemented.",
+    "decision": "Bench round 26 mesh vendor: keep the offline consumer resolvable with zero metadata."
   }
 ]
