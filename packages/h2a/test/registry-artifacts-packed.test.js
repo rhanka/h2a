@@ -129,29 +129,34 @@ console.log("PACKED_TUPLE_PEER_ABSENT_OK " + error.reason);
 
 const PROBE_SELECTION_REFUSAL = /* js */ `
 import assert from "node:assert/strict";
+import { rmSync } from "node:fs";
+import { join } from "node:path";
 import { createClusterMeshModules } from "@sentropic/cluster-mesh";
 import { createMcpRegistry } from "@sentropic/cluster-mesh/mcp/registry";
 import { createArtifactsBuiltin } from "@sentropic/cluster-mesh/mcp/artifacts";
 import { compileArtifactsProfile, RADAR_ARTIFACTS_PROFILE } from "@sentropic/artifacts/mcp";
 
-// 'disabled' stands in for 'absent' at the resolution layer only: the
-// facade sees the same rejected loader promise either way, so the
-// atomicity property is identical. Genuine filesystem absence is proven
-// separately by PROBE_PEER_ABSENT after rm -rf of the peer.
-const modules = createClusterMeshModules({ disabled: ["mcp/artifacts"] });
+// Genuine filesystem absence: the profile compiles in memory while the peer
+// is present (imports resolve once), then the peer directory is removed
+// before the mesh resolves anything, so selection refuses on the real
+// 'not_installed' loader rejection. Filesystem absence is also proven in its
+// own process by PROBE_PEER_ABSENT after rm -rf of the peer.
 const profile = compileArtifactsProfile(RADAR_ARTIFACTS_PROFILE);
+const definition = {
+  profile,
+  app: {
+    profileDigest: profile.profileDigest,
+    selectedCapabilities: profile.selectedCapabilities,
+  },
+  createInvocation: async () => {
+    throw new Error("no dispatch in the M0-L1 pack probe");
+  },
+};
+rmSync(join(process.cwd(), "node_modules", "@sentropic", "artifacts"), { recursive: true, force: true });
+const modules = createClusterMeshModules();
 const builtin = createArtifactsBuiltin({
   modules,
-  definition: {
-    profile,
-    app: {
-      profileDigest: profile.profileDigest,
-      selectedCapabilities: profile.selectedCapabilities,
-    },
-    createInvocation: async () => {
-      throw new Error("no dispatch in the M0-L1 pack probe");
-    },
-  },
+  definition,
 });
 const facade = createMcpRegistry({ modules, builtins: [builtin] });
 facade.select(["sentropic.artifacts"]);
@@ -162,8 +167,8 @@ assert.equal(result.diagnostics[0]?.path, 'providers["sentropic.artifacts"].load
 assert.match(String(result.diagnostics[0]?.message ?? ""), /builtin loader failed/u);
 assert.equal(facade.compiled(), undefined, "no plan publishes on refusal");
 
-// A clean facade advertises zero artifacts tools.
-const bare = createMcpRegistry({ modules });
+// A facade with the builtin registered but not selected advertises zero tools.
+const bare = createMcpRegistry({ modules, builtins: [builtin] });
 const compiled = await bare.compile({ bindings: {}, compatibility: {} });
 assert.equal(compiled.ok, true);
 assert.equal(compiled.registry.resolveTool("artifacts_list"), undefined);
@@ -212,9 +217,10 @@ test("M0-L1 packed consumer proves the tuple", { timeout: 300_000 }, async () =>
     const withPeer = await exec(process.execPath, [join(consumer, "probe-with.mjs")],
       { cwd: consumer, env, timeout: 120_000 });
     assert.match(withPeer.stdout, /PACKED_TUPLE_WITH_PEER_OK/u);
-    // Selection atomicity through the same rejected loader (disabled stands
-    // in for absent at the resolution layer; see probe header). Runs before
-    // the peer is removed: this probe still imports its public surface.
+    // Selection atomicity with the peer genuinely removed mid-process (the
+    // probe imports the public surface first, then removes the peer before
+    // resolving). Runs before the outer rm -rf below, which is kept so the
+    // peer-absent probe keeps an explicit precondition.
     writeFileSync(join(consumer, "probe-refusal.mjs"), PROBE_SELECTION_REFUSAL);
     const refusal = await exec(process.execPath, [join(consumer, "probe-refusal.mjs")],
       { cwd: consumer, env, timeout: 120_000 });
