@@ -68,22 +68,65 @@ async function buildPayload(root, { buildId, managedRoot, releaseVersion, packag
   mkdirSync(root, { recursive: true, mode: 0o700 });
   const native = release ? await copyReleaseNative(root) : await buildNativePrototype(root);
   removeTestsAndEmptyDirectories(root);
-  const records = new Map(); const bySource = new Map(); const top = new Map();
+  const records = new Map(); const bySource = new Map(); const top = new Map(); const slotSource = new Map();
+  // Every copied package reserves its directs' slots (scope dest → name →
+  // { path, source }) before descending into its closure (npm hoisting
+  // order). A transitive meeting the SAME source as a reservation defers to
+  // the reserving package's own copy (same bytes; the version is read without
+  // copying); a transitive with a DIFFERENT source nests under its own
+  // parent. Without this, a transitive recorded first squats the slot and the
+  // later direct copy escapes as `/node_modules/<name>`
+  // (release_shrinkwrap_path_invalid) or collides
+  // (prototype_dependency_collision). General case of what the forcedSiblings
+  // ordering below fixes for the h2a↔h2a-runtime cross-dep; exposed by the
+  // mesh 0.25.0 tuple (optional engram peer pulling commander transitively
+  // ahead of the runtime direct; dual mcp-platform generations).
+  const reservations = new Map();
+  const reservationFor = (parent, name) => {
+    for (let cursor = parent;;) {
+      const scope = reservations.get(cursor);
+      if (scope?.has(name)) return { claim: scope.get(name), owner: cursor };
+      if (!cursor) return undefined;
+      const next = dirname(cursor);
+      cursor = next === '.' ? '' : next;
+    }
+  };
   const nativeRelative = 'node_modules/node-pty';
   const nativeInfo = json(join(root, nativeRelative, 'package.json'));
   records.set(nativeRelative, nativeInfo); top.set('node-pty', nativeRelative);
   bySource.set(dependencyDirectory('node-pty', repo, release), nativeRelative);
 
-  function copyPackage(source, parent) {
+  function copyPackage(source, parent, force) {
     source = realpathSync(source);
-    if (bySource.has(source)) return bySource.get(source);
+    if (!force && bySource.has(source)) return bySource.get(source);
     const original = json(join(source, 'package.json'));
-    const existing = top.get(original.name);
+    const found = reservationFor(parent, original.name);
+    // Same source as an ancestor's reservation: defer to its own copy (the
+    // reserving package's direct loop materializes it; same bytes).
+    if (found && found.owner !== parent && found.claim.source === source && !records.has(found.claim.path)) {
+      return found.claim.path;
+    }
+    // Root directs win the top-level slot (npm hoisting): a transitive that
+    // would squat an empty top slot reserved by the payload root at another
+    // version nests under its own parent instead. Concrete case: engram's
+    // llm-mesh 0.19.3 must not claim node_modules/@sentropic/llm-mesh ahead
+    // of h2a's direct 0.26.0.
+    const rootClaim = parent ? reservations.get('')?.get(original.name) : undefined;
+    const existing = top.get(original.name)
+      ?? (found && found.claim.source !== source ? found.claim.path : undefined)
+      ?? (rootClaim && rootClaim.source !== source ? rootClaim.path : undefined);
+    // An empty parent is the payload root itself: `${parent}/node_modules/…`
+    // would emit a leading-slash key the shrinkwrap checker refuses
+    // (release_shrinkwrap_path_invalid). Fall back to the top-level path,
+    // mirroring npm nesting (or a loud prototype_dependency_collision when
+    // two distinct sources claim it).
     const destination = release && original.name === packageName ? '' :
-      existing ? `${parent}/node_modules/${original.name}` : `node_modules/${original.name}`;
+      !existing ? `node_modules/${original.name}` :
+      parent ? `${parent}/node_modules/${original.name}` : `node_modules/${original.name}`;
     if (records.has(destination)) throw new Error(`prototype_dependency_collision:${destination}`);
     if (!existing && destination) top.set(original.name, destination);
     bySource.set(source, destination);
+    slotSource.set(destination, source);
     const absolute = join(root, destination); mkdirSync(absolute, { recursive: true });
     const localWorkspace = dirname(source) === join(repo, 'packages');
     const filter = path => !relative(source, path).split('/').includes('node_modules') &&
@@ -114,6 +157,34 @@ async function buildPayload(root, { buildId, managedRoot, releaseVersion, packag
     if (original.name === '@sentropic/h2a') dependencies['@sentropic/h2a-runtime'] = json(join(repo, 'packages/h2a-runtime/package.json')).version;
     if (release && original.name === '@sentropic/h2a-runtime') dependencies['@sentropic/h2a'] = releaseVersion;
     records.set(destination, metadata);
+    // Reserve this package's directs before descending (npm hoisting order);
+    // see reservations above.
+    const scope = new Map();
+    for (const name of Object.keys(dependencies).sort()) {
+      const directory = dependencyDirectory(name, source, release);
+      if (directory) scope.set(name, { path: destination ? `${destination}/node_modules/${name}` : `node_modules/${name}`, source: directory });
+    }
+    reservations.set(destination, scope);
+    // Version of a just-copied child; a deferred child (same source as a
+    // reservation, materialized later by its owner) is read without copying.
+    const childVersion = (name, directory, child) =>
+      records.get(child)?.version ?? json(join(directory, 'package.json')).version;
+    // A direct claims its own Node-resolution slot: when a transitive
+    // recorded first shared the same source elsewhere, materialize a second
+    // same-bytes copy here (latest direct wins the bySource entry). A slot
+    // already held by a different source stays a loud collision.
+    const claimDirect = (name, directory) => {
+      const want = destination ? `${destination}/node_modules/${name}` : `node_modules/${name}`;
+      const child = copyPackage(directory, destination);
+      if (child === want) return child;
+      const dirReal = realpathSync(directory);
+      if (records.has(want) && slotSource.get(want) !== dirReal) {
+        throw new Error(`prototype_dependency_collision:${want}`);
+      }
+      if (!records.has(want)) return copyPackage(directory, destination, true);
+      bySource.set(dirReal, want);
+      return want;
+    };
     // The h2a↔h2a-runtime lockstep cross-dep resolves after direct deps so a
     // direct pin of the requesting package claims the top-level path (npm
     // semantics). Otherwise a forced-sibling transitive recorded first makes
@@ -126,14 +197,14 @@ async function buildPayload(root, { buildId, managedRoot, releaseVersion, packag
         if (original.optionalDependencies?.[name] || original.peerDependenciesMeta?.[name]?.optional) continue;
         throw new Error(`prototype_dependency_missing:${original.name}:${name}`);
       }
-      const child = copyPackage(directory, destination);
-      metadata.dependencies[name] = records.get(child).version;
+      const child = claimDirect(name, directory);
+      metadata.dependencies[name] = childVersion(name, directory, child);
     }
     for (const name of forcedSiblings) {
       const directory = dependencyDirectory(name, source, release);
       if (!directory) throw new Error(`prototype_dependency_missing:${original.name}:${name}`);
-      const child = copyPackage(directory, destination);
-      metadata.dependencies[name] = records.get(child).version;
+      const child = claimDirect(name, directory);
+      metadata.dependencies[name] = childVersion(name, directory, child);
     }
     write(join(absolute, 'package.json'), metadata);
     return destination;
