@@ -7,6 +7,7 @@ import { join, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
+import { sharedPackCandidates } from "./helpers/shared-pack-candidates.mjs";
 
 const root = fileURLToPath(new URL("../../../", import.meta.url));
 const seamName = "succession-lock-test-seam.mjs";
@@ -94,10 +95,21 @@ test("T-guard: dist, the npm pack tarball and package exports cannot load the se
   cp.spawn = function(...args) { const child = originalSpawn.apply(this, args); children.push({ child, closed: new Promise(resolve => child.once("close", resolve)) }); return child; };
   syncBuiltinESMExports();
   try {
-    const { packRelease } = await import("../../../scripts/package-release.mjs");
-    const artifact = await packRelease(join(packed, "closed"), { buildId: "lock-seam-distribution-guard" });
-    assert.equal(artifact.name, "@sentropic/h2a");
-    execFileSync("/usr/bin/tar", ["-xzf", artifact.filename, "--no-same-owner", "-C", packed]);
+    // The shipped-candidate h2a tarball is the seam-absence target: it is
+    // packed once per tree state and shared with the packed-tree suites
+    // (helpers/shared-pack-candidates.mjs) instead of a fourth duplicate
+    // esbuild pack. The walked bytes are the same published payload class;
+    // only the duplicate producer is gone.
+    const h2aVersion = JSON.parse(readFileSync(join(root, "packages/h2a/package.json"), "utf8")).version;
+    const candidates = await sharedPackCandidates();
+    let tarball = candidates === null ? null : join(candidates, `sentropic-h2a-${h2aVersion}.tgz`);
+    if (tarball === null || !existsSync(tarball)) {
+      const { packRelease } = await import("../../../scripts/package-release.mjs");
+      const artifact = await packRelease(join(packed, "closed"), { buildId: "lock-seam-distribution-guard" });
+      assert.equal(artifact.name, "@sentropic/h2a");
+      tarball = artifact.filename;
+    }
+    execFileSync("/usr/bin/tar", ["-xzf", tarball, "--no-same-owner", "-C", packed]);
     walk(join(packed, "package"));
   } finally {
     for (const { child } of children) {

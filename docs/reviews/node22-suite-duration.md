@@ -232,6 +232,26 @@ Aucune hausse de budget proposée : le volume pack dupliqué (≈2 packs de
 1260 s après ce retrait, la décision budget revient au conducteur avec les
 mesures ci-dessus.
 
+## Complément R4b : chevauchement du pack + 4e producteur supprimé
+
+Le run R4 ([41630476086](https://github.com/rhanka/h2a/actions/runs/41630476086))
+montre la limite du seul partage : node-22 vert (`tests` 970,0 s, rest
+783,4 s, h2a-runtime 162,2 s) mais node-24 au-dessus (rest 1079,4 s, kill à
+1260,2 s en phase Track ; un bound vitest de 2 s a flanché sous les orphelins,
+mécanisme déjà vu en R3). Le mur ne bouge presque pas car les 3 packs
+chevauchés coûtaient déjà ~250 s de mur : il faut sortir le pack du chemin
+critique, pas seulement le dédupliquer.
+`scripts/warm-pack-candidates.mjs`, lancé fire-and-forget par
+`run-tests.mjs` avant les buckets et moissonné dans le `finally` (kill borné
+30 s, verrou à reprise sur propriétaire mort) : le pack (~250 s) recouvre le
+bucket natif (~150 s) au lieu de s'empiler dans rest. Le garde-fou
+`succession-lock-seam-guard` (4e packRelease esbuild) qualifie désormais le
+tarball candidat partagé — même octets publiés, assertions inchangées, repli
+pack privé. Économie attendue : ~200-250 s de mur sur rest + 4e presseur CPU
+en moins, donc moins de variance. Cibles : `tests` ≈ 1090 s sur base
+node-24. Si le kill persiste, décision budget conducteur (pas de hausse
+aveugle ici).
+
 Revue indépendante : non réalisée ; aucun outil `h2a_run` n'est disponible
 dans ce confinement, et l'accès à l'hôte installé est interdit. Aucun consensus
 n'est revendiqué.
