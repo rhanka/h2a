@@ -1,0 +1,17 @@
+{
+  "_source": "Measured suite walls (seconds) from CI run 41304247550, job build-and-test node 22 (2026-11-01): 'Slowest suites: tests' ranking. Conservative (slower) node leg. Files absent here run under the default.",
+  "_usage": "scripts/ci-node-shards.mjs partitions the local Node suite across SHARD_COUNT CI jobs (longest-processing-time greedy). Unlisted files use defaultSeconds. Every key must exist in discovery (checked by ci-node-shards.test.js); add measurements when the ranking moves.",
+  "defaultSeconds": 3.0,
+  "files": {
+    "packages/h2a/test/drive-consent-index.test.js": 144.7,
+    "packages/h2a/test/native-inventory-absence.test.js": 108.5,
+    "packages/h2a/test/install-skills-hosts.test.js": 96.3,
+    "packages/h2a/test/workspace-scope-guard.test.js": 94.0,
+    "packages/h2a/test/native-host-generations.test.js": 77.9,
+    "packages/h2a/test/workspace-scope-hosts.test.js": 73.1,
+    "packages/h2a/test/mcp-discovery-budget.test.js": 68.3,
+    "packages/h2a/test/mcp-identity-burst.test.js": 66.8,
+    "packages/h2a/test/native-cleanse-oracle.test.js": 62.3,
+    "packages/h2a/test/mcp-identity-readiness.test.js": 56.0
+  }
+}

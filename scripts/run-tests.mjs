@@ -28,10 +28,11 @@ import { loadBulkPartition } from "./bulk-ci-evidence.mjs";
  * test count.
  */
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
-import { createRequire } from "node:module";
-import { homedir, tmpdir } from "node:os";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { verifyCleanseContracts } from "./cleanse-contract-ledger.mjs";
+import { setupNodeSuiteEnv, teardownNodeSuiteEnv } from "./node-suite-env.mjs";
+import { loadNodeShardReports } from "./ci-node-shards.mjs";
 
 // Disposable-TMPDIR guarantee (PR #390 R3 P1): `npm test` never inherits a
 // bare /tmp TMPDIR into the confinement assertion in restart-lab.js.
@@ -64,7 +65,6 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { discoverSuites, readInventory, verifyExecutionReport, inventoryFailures } from "./test-execution-evidence.mjs";
 import { policyFor, readDeclaredNonTests } from "./test-inventory.mjs";
-import { ensureHistoricalGitRef, LEGACY_HOST_REF } from "./historical-test-ref.mjs";
 import { reportSuiteDurations } from "./report-test-durations.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -237,59 +237,9 @@ async function main() {
     process.exit(1);
   }
 
-  // Pack warm-up starts here — before every sequential setup step (legacy
-  // provisioning, fixture downloads) and the Node buckets — so the candidate
-  // pack (~250 s wall on a contended CI runner) overlaps all of it instead
-  // of stacking on the rest bucket's critical path. This script only fills
-  // the shared cache (helpers/shared-pack-candidates.mjs); consumers wait on
-  // its lock solely while the pack is in flight and pack privately if it
-  // failed. Fire and forget here, reaped in settlePackWarmer before exit so
-  // no stray npm grandchildren can contend with the later h2a-runtime step.
-  // The pack needs none of the fixture variables: it inherits this process
-  // environment (disposable TMPDIR included). Placed after the discovery
-  // guards above so a collapse exit can never orphan it.
-  function startPackWarmer(env) {
-    try {
-      const child = spawn(process.execPath, [join(REPO_ROOT, "scripts", "warm-pack-candidates.mjs")],
-        { cwd: REPO_ROOT, env, stdio: ["ignore", "inherit", "inherit"] });
-      child.once("error", (error) => process.stderr.write(`run-tests: pack warmer: ${error.message}\n`));
-      return child;
-    } catch (error) {
-      process.stderr.write(`run-tests: pack warmer could not start (${(error && error.message) || error}); suites pack privately\n`);
-      return null;
-    }
-  }
-  async function settlePackWarmer(child) {
-    if (!child || child.exitCode !== null || child.signalCode !== null) return;
-    const closed = new Promise((resolve) => child.once("close", resolve));
-    const timeout = new Promise((resolve) => setTimeout(() => {
-      try { child.kill("SIGKILL"); } catch {}
-      resolve();
-    }, 30_000));
-    await Promise.race([closed, timeout]);
-  }
-  // `let` next to this block (not at the call site) so an early throw before
-  // the assignment cannot turn into a TDZ ReferenceError in the finally.
-  let packWarmer = null;
-  // One frozen pack key for the whole run: the tree is fixed for this
-  // invocation, so the warmer and every suite process must agree on the key
-  // even while test outputs land mid-run (a live recomputation per process
-  // repacks on volatile status). Dynamic import with a computed specifier so
-  // the observation lab (which rewrites only static relative imports) stays
-  // transparent: a missing helper simply leaves the key unset and every
-  // consumer computes it live, exactly as before sharing. The key travels in
-  // this process environment, so every testEnv derived below inherits it.
-  try {
-    const packHelper = await import(pathToFileURL(join(REPO_ROOT, 'packages', 'h2a', 'test', 'helpers', 'shared-pack-candidates.mjs')).href);
-    const frozenPackKey = packHelper.cacheKey();
-    if (typeof frozenPackKey === 'string' && /^[a-f0-9]{64}$/.test(frozenPackKey)) {
-      process.env.H2A_SHARED_PACK_KEY = frozenPackKey;
-    }
-  } catch {
-    // No frozen key: consumers fall back to live computation.
-  }
-  packWarmer = startPackWarmer(process.env);
-
+  // CI shard jobs execute their partition through scripts/run-node-shard.mjs on
+  // their own runners; the aggregate consumer below imports their envelopes
+  // instead of re-executing. See loadNodeShardReports.
   // CI can import only closed M17/bulk proofs from this exact workflow
   // run/attempt/checkout/Node. Discovery and the final inventory stay complete.
   // Without explicit proofs every file runs locally; malformed proof is fatal.
@@ -364,157 +314,11 @@ async function main() {
   // individual case deadlines and the CI job's 25-minute budget are unchanged.
   const NODE_TIMEOUT_MS = Number(process.env.H2A_TEST_TIMEOUT_MS) || 1200000;
 
-  // Defense-in-depth: create a throwaway temp dir for H2A_ROOT so that any test
-  // that runs a writing verb (connect/register/mcp-serve) without --root AND with
-  // H2A_ROOT unset writes to an isolated temp instead of the real shared bus.
-  // Tests that pass --root explicitly override this; tests that set H2A_ROOT
-  // themselves also override it within their own process.env assignments.
-  // Runtime launch workspaces are intentionally rejected under OS-global /tmp.
-  // Keep the process-wide OS temp semantics intact: tests rely on tmpdir() being
-  // outside the repository for non-git and /tmp rejection coverage. Tests that
-  // need a durable launch workspace opt into the dedicated repo-local root.
-  const testScratch = join(REPO_ROOT, "tmp", "test-runtime");
-  mkdirSync(testScratch, { recursive: true });
-  const testRoot = mkdtempSync(join(testScratch, "h2a-test-root-"));
-  const durableRoot = join(testRoot, "durable");
-  mkdirSync(durableRoot, { recursive: true });
-
-  mkdirSync(join(testRoot, "home"), { recursive: true });
-  mkdirSync(join(testRoot, "run"), { mode: 0o700 });
-  mkdirSync(join(testRoot, "cache"), { mode: 0o700 });
-  mkdirSync(join(testRoot, "data"), { mode: 0o700 });
-
-  // Historical PTY host the pre-upgrade suites qualify against. The inventory
-  // REQUIRES native-inventory-absence's legacy test passed, and the
-  // native-host-generations suites run (instead of skipping) once this build
-  // exists — so the runner provisions it instead of letting the suites skip.
-  // Transpile-only, no typecheck, no install: the same trick as the identity
-  // lane's compile(), with the worktree's node_modules symlinked so the
-  // legacy host loads the current native bindings (node-pty).
-  const LEGACY_HOST_ENTRY = join("packages", "h2a-runtime", "dist", "native-terminal", "process.js");
-  function transpilePackage(root, pkg) {
-    // Resolve the transpiler from the worktree, not from the provisioned
-    // tree: its node_modules symlink is only created after transpiling.
-    const ts = createRequire(join(REPO_ROOT, "package.json"))("typescript");
-    const base = join(root, "packages", pkg, "src");
-    const walk = (dir) => {
-      for (const ent of readdirSync(dir, { withFileTypes: true })) {
-        const path = join(dir, ent.name);
-        if (ent.isDirectory()) walk(path);
-        else {
-          const dest = path.replace("/src/", "/dist/").replace(/\.ts$/, ".js");
-          mkdirSync(resolve(dest, ".."), { recursive: true });
-          if (ent.name.endsWith(".d.ts")) continue;
-          const src = readFileSync(path);
-          writeFileSync(dest, ent.name.endsWith(".ts") ? ts.transpileModule(src.toString(), {
-            compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 }
-          }).outputText : src);
-        }
-      }
-    };
-    walk(base);
-  }
-  function provisionLegacyHostDir() {
-    const preset = process.env.H2A_TEST_LEGACY_HOST_DIR;
-    if (preset && existsSync(join(preset, LEGACY_HOST_ENTRY))) return { dir: preset, owned: false };
-    ensureHistoricalGitRef(REPO_ROOT, LEGACY_HOST_REF);
-    const dir = mkdtempSync(join(tmpdir(), "h2a-legacy-host-"));
-    const archive = spawnSync("git", ["archive", LEGACY_HOST_REF], { cwd: REPO_ROOT, encoding: "buffer", maxBuffer: 200 * 1024 * 1024 });
-    if (archive.status !== 0 || !archive.stdout) throw new Error(`run-tests: git archive ${LEGACY_HOST_REF} failed`);
-    const extract = spawnSync("tar", ["-x", "-C", dir], { input: archive.stdout });
-    if (extract.status !== 0) throw new Error(`run-tests: extracting ${LEGACY_HOST_REF} failed`);
-    transpilePackage(dir, "h2a-runtime");
-    if (!existsSync(join(dir, "node_modules"))) symlinkSync(join(REPO_ROOT, "node_modules"), join(dir, "node_modules"));
-    if (!existsSync(join(dir, LEGACY_HOST_ENTRY))) throw new Error(`run-tests: legacy host entry missing after provisioning ${LEGACY_HOST_REF}`);
-    return { dir, owned: true };
-  }
-  const legacyHost = provisionLegacyHostDir();
-
-  // Resolve npm's configured cache before HOME isolation, while its prepared
-  // tarballs and any npmrc/environment override still have their original meaning.
-  const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-  const cache = spawnSync(npm, ['config', 'get', 'cache'], { cwd: REPO_ROOT,
-    env: process.env, encoding: 'utf8', shell: process.platform === 'win32' });
-  if (cache.status !== 0 || !cache.stdout?.trim()) {
-    throw new Error(`run-tests: cannot resolve the prepared npm cache: ${cache.stderr ?? cache.error ?? ''}`);
-  }
-  const testEnv = {
-    ...process.env,
-    npm_config_cache: resolve(REPO_ROOT, cache.stdout.trim()),
-    HOME: join(testRoot, "home"),
-    XDG_RUNTIME_DIR: join(testRoot, "run"),
-    XDG_CONFIG_HOME: join(testRoot, "home/.config"),
-    XDG_STATE_HOME: join(testRoot, "home/.local/state"),
-    XDG_CACHE_HOME: join(testRoot, "cache"),
-    XDG_DATA_HOME: join(testRoot, "data"),
-    H2A_ROOT: join(testRoot, ".h2a"),
-    H2A_TEST_DURABLE_ROOT: durableRoot,
-    H2A_TEST_LEGACY_HOST_DIR: legacyHost.dir,
-    // Opt-in gates that are cheap and deterministic here: the full-stack
-    // example (~1s) and the lock-stress race (~30s). Running them keeps the
-    // execution proof complete instead of declaring `skipped`.
-    H2A_RUN_EXAMPLE: "1",
-    H2A_LOCK_STRESS: "1"
-  };
-  // Only this orchestration imports the companion proof. Tests of the runner
-  // create their own private checkouts and must exercise the default full path.
-  delete testEnv.H2A_TEST_CI_M17_REPORT;
-  delete testEnv.H2A_TEST_CI_BULK_REPORT;
-
-  // These suites require the real pinned archives, never absent-state skips.
-  // (The pack warmer and its frozen key started before discovery guards
-  // above, so this download phase already overlaps the pack.)
-  const prepared = spawnSync(process.execPath, [join(REPO_ROOT, "scripts/prepare-mh-test-fixtures.mjs")], {
-    cwd: REPO_ROOT, env: testEnv, encoding: "utf8", timeout: 600_000, maxBuffer: 8 * 1024 * 1024,
-  });
-  if (prepared.status !== 0) throw new Error(`run-tests: MH fixtures failed: ${prepared.stderr ?? prepared.error}`);
-  const mhFixtures = JSON.parse(prepared.stdout);
-  Object.assign(testEnv, mhFixtures.env);
-
-  // Track's no-store fixtures intentionally walk to the filesystem root.
-  // Use the invocation's temporary parent, and reject any .track ancestor.
-  function hasTrackAncestor(dir) {
-    let current = resolve(dir);
-    for (;;) {
-      if (existsSync(join(current, ".track"))) return true;
-      const parent = dirname(current);
-      if (parent === current) return false;
-      current = parent;
-    }
-  }
-
-  function makeCleanTrackTempDir(parent) {
-    const dir = mkdtempSync(join(parent, "h2a-track-tests-"));
-    if (!hasTrackAncestor(dir)) return dir;
-    rmSync(dir, { recursive: true, force: true });
-    throw new Error(`run-tests: Track test temporary directory inherits a .track ancestor from ${parent}`);
-  }
-
-  function makeTrackTempDir() {
-    const fallback = tmpdir();
-    const parents = [fallback];
-    let lastError;
-    for (const parent of parents) {
-      try {
-        return makeCleanTrackTempDir(parent);
-      } catch (error) {
-        lastError = error;
-      }
-    }
-    throw lastError;
-  }
-
-  const trackTemp = makeTrackTempDir();
-  const trackFixtureEnv = {
-    ...testEnv,
-    H2A_TEST_TRACK_TMPDIR: trackTemp
-  };
-  const trackTestEnv = {
-    ...trackFixtureEnv,
-    TMPDIR: trackTemp,
-    TMP: trackTemp,
-    TEMP: trackTemp
-  };
+  // Fixture environment shared with the CI shard executor
+  // (scripts/run-node-shard.mjs): identical isolated roots, legacy host,
+  // fixture archives and pack warmer, from one source of truth.
+  const { testRoot, testEnv, trackFixtureEnv, trackTestEnv, trackTemp, legacyHost, mhFixtures, packWarmer } =
+    await setupNodeSuiteEnv(REPO_ROOT);
 
   function runSuite(name, command, args, cwd, env = testEnv, timeoutMs = RUN_TIMEOUT_MS) {
     const result = spawnSync(command, args, {
@@ -553,7 +357,22 @@ async function main() {
   // A bucket emptied by proof import (corpus holds only the bulk-covered
   // drive-consent file) is skipped, not failed: its suite identity arrives
   // via the imported proof and the report math counts executed buckets only.
-  const nodeBuckets = partitionNodeTestFiles(bulkPartition.local).map((bucket) => ({
+  //
+  // CI aggregate mode (H2A_TEST_NODE_SHARD_DIR set by the build-and-test job):
+  // every local file arrives as a verified shard envelope from the node-shard
+  // matrix jobs instead of executing here. Nothing runs locally; a missing,
+  // stale or partial shard envelope throws above and fails the run. Unset:
+  // every local file runs here (trust-root job, maintainer boxes).
+  const shardPartition = loadNodeShardReports(bulkPartition.local, REPO_ROOT);
+  if (shardPartition.reports.length) {
+    if (shardPartition.local.length) {
+      throw new Error('run-tests: shard evidence imported yet local files remain; refusing a split inventory');
+    }
+    for (const report of shardPartition.reports) {
+      process.stdout.write(`run-tests: Node shard evidence validated: ${report.testResults.length} files\n`);
+    }
+  }
+  const nodeBuckets = partitionNodeTestFiles(shardPartition.local).map((bucket) => ({
     ...bucket, report: join(testRoot, `node-${bucket.name}.json`),
   })).filter((bucket) => {
     if (!bucket.files.length) process.stderr.write(`run-tests: Node bucket ${bucket.name} is empty after proof import and is skipped\n`);
@@ -595,9 +414,8 @@ async function main() {
   // overwrites tmp/idlock-build2-lane.txt on every full run.
   let lanePointerBefore = null;
   try { lanePointerBefore = readFileSync(join(REPO_ROOT, "tmp", "idlock-build2-lane.txt"), "utf8"); } catch {}
-  // The pack warmer already started right after the fixture environment (it
-  // overlaps legacy provisioning, fixture downloads and the buckets); the
-  // try/finally below reaps it on every path.
+  // The shared fixture environment (pack warmer included) is reaped by
+  // teardownNodeSuiteEnv in the try/finally below, on every path.
   let exitCode = 0;
   try {
     const nodeStatuses = nodeBuckets.map((bucket) => {
@@ -645,6 +463,10 @@ async function main() {
     try { reports = [...nodeBuckets.map((bucket) => bucket.report), trackReport].map((path) => JSON.parse(readFileSync(path, "utf8"))); }
     catch { reports = []; }
     const localReportCount = reports.length;
+    // Shard envelopes verified on import above merge here exactly like the
+    // M17/bulk companion proofs: the aggregate inventory below proves every
+    // required file executed exactly once, wherever it ran.
+    if (shardPartition.reports.length) reports.push(...shardPartition.reports);
     if (m17Partition.report) reports.push(m17Partition.report);
     if (bulkPartition.report) reports.push(bulkPartition.report);
     const required = listNodeTrackSuiteFiles();
@@ -657,9 +479,12 @@ async function main() {
     const holes = verifyNodeTrackExecution(combined, required);
     if (!holes.length && m17Partition.report) process.stdout.write('M17 local/external exhaustive inventory verification: passed\n');
     if (!holes.length && bulkPartition.report) process.stdout.write('Bulk local/external exhaustive inventory verification: passed\n');
+    if (!holes.length && shardPartition.reports.length) process.stdout.write(`Node shard/aggregate exhaustive inventory verification: passed (${shardPartition.reports.length} shards)\n`);
     if (holes.length) process.stderr.write(holes.join("\n") + "\n");
     else {
-      process.stdout.write(`run-tests: Node buckets inventory verified: ${nodeTestFiles.length} files exactly once across ${nodeBuckets.length} buckets (plus Track).\n`);
+      process.stdout.write(shardPartition.reports.length
+        ? `run-tests: Node shards inventory verified: ${nodeTestFiles.length} files exactly once across ${shardPartition.reports.length} shards (plus Track).\n`
+        : `run-tests: Node buckets inventory verified: ${nodeTestFiles.length} files exactly once across ${nodeBuckets.length} buckets (plus Track).\n`);
       process.stdout.write(`RC 0.98.6: ${readDeclaredNonTests(REPO_ROOT).length} declared non-tests observed at their exact expected statuses; not claimed as coverage.\n`);
     }
     const reportPath = process.env.H2A_TEST_REPORT_PATH ?? NODE_TRACK_EXECUTION_REPORT;
@@ -667,21 +492,11 @@ async function main() {
     writeFileSync(reportPath, JSON.stringify(combined));
     exitCode = holes.length ? 1 : [...nodeStatuses, ...vitestStatuses, laneStatus].every((status) => status === 0) ? 0 : Math.max(...nodeStatuses, ...vitestStatuses, laneStatus);
   } finally {
-    // Reap the pack warmer first: a still-packing warmer outliving this
-    // runner would contend with the later h2a-runtime step. Its lock is
-    // stale-takeover safe, so killing it can never wedge a consumer.
-    await settlePackWarmer(packWarmer);
-    for (const root of mhFixtures.owned) rmSync(root, { recursive: true, force: true });
-    // Best-effort cleanup of what this run provisioned. A preset legacy dir
-    // (owner-provided) is never ours to delete. The lane helper records the
+    await teardownNodeSuiteEnv({ testRoot, trackTemp, legacyHost, mhFixtures, packWarmer });
+    // Best-effort cleanup of the identity lane. The lane helper records the
     // lane it built in tmp/idlock-build2-lane.txt: remove that lane — and the
     // pointer, when it still names it — so OS tmp does not accumulate one lane
     // per run. Cleanup warnings never mask the suite verdict.
-    try {
-      if (legacyHost.owned) rmSync(legacyHost.dir, { recursive: true, force: true });
-    } catch (error) {
-      process.stderr.write(`run-tests: warning: legacy host cleanup failed (${(error && error.message) || error})\n`);
-    }
     try {
       const pointer = join(REPO_ROOT, "tmp", "idlock-build2-lane.txt");
       let after = null;
@@ -694,11 +509,6 @@ async function main() {
       }
     } catch (error) {
       process.stderr.write(`run-tests: warning: lane cleanup failed (${(error && error.message) || error})\n`);
-    }
-    try {
-      rmSync(testRoot, { recursive: true, force: true });
-    } finally {
-      rmSync(trackTemp, { recursive: true, force: true });
     }
   }
 
