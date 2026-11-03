@@ -520,7 +520,7 @@ function assertM17CiGraph(source) {
     assert.match(block, /M17_RESULT: \$\{\{ needs\.m17-qualification\.result \}\}\n\s+run: test "\$M17_RESULT" = success/)
     assert.doesNotMatch(block, /continue-on-error:|if:.*(?:success\(\)|!cancelled)/)
     const node = id === 'build-and-test' ? '${{ matrix.node }}' : '22'
-    assert.ok(block.includes('name: m17-${{ github.run_id }}-${{ github.run_attempt }}-node' + node))
+    assert.ok(block.includes('name: m17-${{ github.run_id }}-node' + node))
     assert.match(block, /uses: actions\/download-artifact@v4/)
     assert.match(block, /path: tmp\/m17-import/)
     assert.match(block, /H2A_TEST_CI_M17_REPORT: \$\{\{ github.workspace \}\}\/tmp\/m17-import\/proof.json/)
@@ -542,9 +542,10 @@ function assertM17CiGraph(source) {
   const upload = producer.slice(producer.indexOf('      - uses: actions/upload-artifact@v4'))
   assert.ok(upload.startsWith('      - uses: actions/upload-artifact@v4'))
   assert.doesNotMatch(upload, /\bif:/, 'acceptance artifact upload uses default success(), never always()')
-  assert.match(upload, /name: m17-\$\{\{ github.run_id \}\}-\$\{\{ github.run_attempt \}\}-node\$\{\{ matrix.node \}\}/)
+  assert.match(upload, /name: m17-\$\{\{ github.run_id \}\}-node\$\{\{ matrix.node \}\}/)
   assert.match(upload, /path: tmp\/m17-export\/proof.json/)
   assert.match(upload, /if-no-files-found: error/)
+  assert.match(upload, /overwrite: true/, 'a full re-run overwrites the stable proof instead of colliding')
 }
 test('CI exposes an independent, stable npm-test-trust-root job with a closed M17 companion proof', () => {
   assertM17CiGraph(CI_WORKFLOW)
@@ -555,7 +556,7 @@ test('CI companion negative controls reject skipped-green dependencies and stale
     ['needs: [m17-qualification, bulk-qualification]', 'needs: []'],
     ['run: test "$M17_RESULT" = success', 'run: true'],
     ['needs.m17-qualification.result', 'needs.m17-qualification.outputs.optional'],
-    ['m17-${{ github.run_id }}-${{ github.run_attempt }}-node', 'm17-last-success-node'],
+    ['m17-${{ github.run_id }}-node', 'm17-last-success-node'],
     ['H2A_TEST_CI_M17_REPORT:', 'OPTIONAL_M17_REPORT:'],
     ['if-no-files-found: error', 'if-no-files-found: warn'],
     ['      - name: Require both complete M17 qualifications\n', '      - name: Require both complete M17 qualifications\n        if: false\n'],
