@@ -495,9 +495,15 @@ async function main() {
   // bulk suites run in their qualification jobs (same-run imported proofs),
   // never redundantly here (their local re-execution + appended external
   // reports used to duplicate every suite identity and blow the rest backstop).
+  // A bucket emptied by proof import (corpus holds only the bulk-covered
+  // drive-consent file) is skipped, not failed: its suite identity arrives
+  // via the imported proof and the report math counts executed buckets only.
   const nodeBuckets = partitionNodeTestFiles(bulkPartition.local).map((bucket) => ({
     ...bucket, report: join(testRoot, `node-${bucket.name}.json`),
-  }));
+  })).filter((bucket) => {
+    if (!bucket.files.length) process.stderr.write(`run-tests: Node bucket ${bucket.name} is empty after proof import and is skipped\n`);
+    return bucket.files.length > 0;
+  });
   function runIndependentSuite(name, command, args, cwd, env) {
     return new Promise((done) => {
       let child, timer, finished = false;
@@ -538,11 +544,10 @@ async function main() {
   try {
     const nodeStatuses = nodeBuckets.map((bucket) => {
       const started = performance.now();
-      // Never pass an empty file list to the runner: it asserts a non-empty
-      // explicit file list (an empty list would rediscover the repository).
-      let status = 1;
-      if (!bucket.files.length) process.stderr.write(`run-tests: Node bucket ${bucket.name} has no test files\n`);
-      else status = runSuite(`Node ${bucket.name} test suite`, process.execPath,
+      // Empty buckets are filtered above, so every bucket here executes.
+      // (run-node-tests.mjs asserts a non-empty explicit file list: an empty
+      // list would rediscover the repository.)
+      const status = runSuite(`Node ${bucket.name} test suite`, process.execPath,
         [join(REPO_ROOT, "scripts/run-node-tests.mjs"), "--test", "--test-reporter=spec", `--test-reporter=${join(REPO_ROOT, "scripts/node-evidence-reporter.mjs")}`, "--test-reporter-destination=stdout", `--test-reporter-destination=${bucket.report}`, ...bucket.files],
         REPO_ROOT, trackFixtureEnv, NODE_TIMEOUT_MS);
       process.stdout.write(`run-tests: Node bucket ${bucket.name}: ${bucket.files.length} file(s), ${((performance.now() - started) / 1000).toFixed(3)}s, exit ${status}\n`);

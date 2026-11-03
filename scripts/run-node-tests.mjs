@@ -70,7 +70,13 @@ const bulk = bulkNames.flatMap(name => files.filter(file => basename(file) === n
 // The native inventory and packaging seam take several minutes on CI. Start
 // them with the protocol pool, so their tail cannot postpone every bulk file.
 // Preserve the cold-start and bulk barriers, worker count and complete scope.
-const longProtocols = ['native-inventory-absence.test.js', 'succession-lock-seam-guard.test.js']
+// The registry pack declarations and the workspace scope guards are the
+// measured rest-bucket long pole (each 150-235 s wall on a loaded 4-vCPU
+// runner, ending solo while every other worker idles): start them with the
+// protocol pool for the same reason.
+const longProtocols = ['native-inventory-absence.test.js', 'succession-lock-seam-guard.test.js',
+  'registry-packed-layout.test.js', 'registry-plugin-declarations.test.js',
+  'workspace-scope-guard.test.js', 'workspace-scope-hosts.test.js']
   .flatMap(name => files.filter(file => basename(file) === name));
 const remaining = [...longProtocols, ...files.filter(file => !standalone.includes(file) && !bulk.includes(file)
   && !backend.includes(file) && !longProtocols.includes(file))];
