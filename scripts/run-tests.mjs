@@ -408,6 +408,38 @@ async function main() {
   delete testEnv.H2A_TEST_CI_M17_REPORT;
   delete testEnv.H2A_TEST_CI_BULK_REPORT;
 
+  // Pack warm-up overlaps the native bucket: the candidate pack (~250 s wall
+  // on a contended CI runner) would otherwise sit on the rest bucket's
+  // critical path three times over. This script only fills the shared cache
+  // (helpers/shared-pack-candidates.mjs); consumers wait on its lock solely
+  // while the pack is in flight and pack privately if it failed. Fire and
+  // forget here, reaped in settlePackWarmer before exit so no stray npm
+  // grandchildren can contend with the later h2a-runtime step.
+  function startPackWarmer(env) {
+    try {
+      const child = spawn(process.execPath, [join(REPO_ROOT, "scripts", "warm-pack-candidates.mjs")],
+        { cwd: REPO_ROOT, env, stdio: ["ignore", "inherit", "inherit"] });
+      child.once("error", (error) => process.stderr.write(`run-tests: pack warmer: ${error.message}\n`));
+      return child;
+    } catch (error) {
+      process.stderr.write(`run-tests: pack warmer could not start (${(error && error.message) || error}); suites pack privately\n`);
+      return null;
+    }
+  }
+  async function settlePackWarmer(child) {
+    if (!child || child.exitCode !== null || child.signalCode !== null) return;
+    const closed = new Promise((resolve) => child.once("close", resolve));
+    const timeout = new Promise((resolve) => setTimeout(() => {
+      try { child.kill("SIGKILL"); } catch {}
+      resolve();
+    }, 30_000));
+    await Promise.race([closed, timeout]);
+  }
+  // Assigned once the fixture environment exists; the finally below reaps it
+  // on every path. `let` (not const at the call site) so an early throw
+  // before the assignment cannot turn into a TDZ ReferenceError here.
+  let packWarmer = null;
+
   // These suites require the real pinned archives, never absent-state skips.
   const prepared = spawnSync(process.execPath, [join(REPO_ROOT, "scripts/prepare-mh-test-fixtures.mjs")], {
     cwd: REPO_ROOT, env: testEnv, encoding: "utf8", timeout: 600_000, maxBuffer: 8 * 1024 * 1024,
@@ -540,6 +572,11 @@ async function main() {
   // overwrites tmp/idlock-build2-lane.txt on every full run.
   let lanePointerBefore = null;
   try { lanePointerBefore = readFileSync(join(REPO_ROOT, "tmp", "idlock-build2-lane.txt"), "utf8"); } catch {}
+  // Start the candidate pack here: everything above is setup that can still
+  // throw, and from here on the try/finally below reaps the warmer on every
+  // path. The pack overlaps the native bucket and the rest-bucket long pole
+  // instead of stacking behind them.
+  packWarmer = startPackWarmer(testEnv);
   let exitCode = 0;
   try {
     const nodeStatuses = nodeBuckets.map((bucket) => {
@@ -609,6 +646,10 @@ async function main() {
     writeFileSync(reportPath, JSON.stringify(combined));
     exitCode = holes.length ? 1 : [...nodeStatuses, ...vitestStatuses, laneStatus].every((status) => status === 0) ? 0 : Math.max(...nodeStatuses, ...vitestStatuses, laneStatus);
   } finally {
+    // Reap the pack warmer first: a still-packing warmer outliving this
+    // runner would contend with the later h2a-runtime step. Its lock is
+    // stale-takeover safe, so killing it can never wedge a consumer.
+    await settlePackWarmer(packWarmer);
     for (const root of mhFixtures.owned) rmSync(root, { recursive: true, force: true });
     // Best-effort cleanup of what this run provisioned. A preset legacy dir
     // (owner-provided) is never ours to delete. The lane helper records the
