@@ -216,7 +216,11 @@ async function buildPayload(root, { buildId, managedRoot, releaseVersion, packag
   const manifest = createManifest(root, { packageVersion: version, buildId,
     profile: { platform: 'linux', arch: process.arch, libc: 'glibc', nodeMajor: Number(process.versions.node.split('.')[0]), nodeAbi: process.versions.modules },
     entrypoints: { shim: release ? atCore('dist/bin.js') : 'dist/bin.js', core: atCore('dist/index.js'), runtime: atRuntime('dist/index.js') },
-    startupWaitBudgetMs: 10000, maxAttachments: 64,
+    // Measured 2026-11-03: a verified successor boot costs ~7.3s on an idle
+    // 32-CPU box (21k files / 396 MB re-hashed twice: once by the spawn guard,
+    // once in the child before serve), leaving no margin under the old 10s
+    // budget once CI contention and cold caches apply. Schema allows 60000.
+    startupWaitBudgetMs: 30000, maxAttachments: 64,
     nativeArtifacts: [{ path: `${nativeRelative}/build/Release/pty.node`, digest: native.binaryDigest,
       nodeAbi: process.versions.modules, arch: process.arch, libc: 'glibc', toolchainDigest: native.toolchainDigest, probePath: nativeRelative }]
   });
