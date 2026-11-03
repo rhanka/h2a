@@ -189,16 +189,100 @@ jobs:
           overwrite: true
           retention-days: 7
 
-  build-and-test:
+  # Duration-balanced Node shard. The aggregate build-and-test job cannot execute
+  # ~470 Node files in one process without stacking three sequential buckets
+  # (~781 s on Node 22, run 41304247550). Each shard runs ~1/4 of the local
+  # suite (scripts/ci-node-shards.mjs, measured walls in
+  # scripts/ci-node-shard-durations.json) on its own 4-vCPU runner with the
+  # same file concurrency, and seals a same-run evidence envelope
+  # (scripts/run-node-shard.mjs). The aggregate imports the envelopes instead
+  # of re-executing and proves exactly-once coverage over the merged reports.
+  node-shard:
     needs: [m17-qualification, bulk-qualification]
+    # Same fail-closed contract as the other producers: run and FAIL when a
+    # producer fails/cancels; dependency status is never itself a pass.
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    # Expected wall: ~1-2 min setup (checkout, npm ci, build) plus the slowest
+    # shard (~2-4 min of suite time). Generous headroom for slow runners, still
+    # well under the 21-minute sequential test step this sharding replaces.
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["22", "24"]
+        shard: [0, 1, 2, 3]
+    steps:
+      - name: Require both complete M17 qualifications
+        env:
+          M17_RESULT: ${{ needs.m17-qualification.result }}
+        run: test "$M17_RESULT" = success
+      - name: Require both complete bulk qualifications
+        env:
+          BULK_RESULT: ${{ needs.bulk-qualification.result }}
+        run: test "$BULK_RESULT" = success
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node == '24' && env.PIN_NODE_24 || env.PIN_NODE_22 }}
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Install the mandatory configuration oracles
+        run: npm install --global @openai/codex@0.145.0 @anthropic-ai/claude-code@2.1.296
+      - uses: actions/download-artifact@v4
+        with:
+          name: m17-${{ github.run_id }}-node${{ matrix.node }}
+          path: tmp/m17-import
+      - uses: actions/download-artifact@v4
+        with:
+          name: bulk-${{ github.run_id }}-node${{ matrix.node }}
+          path: tmp/bulk-import
+      - name: Create a disposable TMPDIR admitted by both confinement guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p -m 0700 "$HOME/.cache-tmp/h2a-test"
+          DIR="$(mktemp -d "$HOME/.cache-tmp/h2a-test/run-XXXXXX")"
+          echo "TMPDIR=$DIR" >> "$GITHUB_ENV"
+          echo "TMP=$DIR" >> "$GITHUB_ENV"
+          echo "TEMP=$DIR" >> "$GITHUB_ENV"
+          echo "H2A_TEST_QUALIFICATION_ROOT=$DIR" >> "$GITHUB_ENV"
+      - name: Execute one duration-balanced Node shard
+        run: node scripts/run-node-shard.mjs --shard=${{ matrix.shard }}
+        env:
+          H2A_TEST_CI_M17_REPORT: ${{ github.workspace }}/tmp/m17-import/proof.json
+          H2A_TEST_CI_BULK_REPORT: ${{ github.workspace }}/tmp/bulk-import/proof.json
+      - uses: actions/upload-artifact@v4
+        with:
+          # Stable across attempts: rerun-failed jobs run under a new
+          # run_attempt and must find the producers' proofs; a full re-run
+          # overwrites them instead of colliding.
+          name: node-shard-${{ github.run_id }}-node${{ matrix.node }}-shard${{ matrix.shard }}
+          path: tmp/node-shard/node-shard-${{ matrix.shard }}.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+      - name: Clean the disposable TMPDIR
+        if: always()
+        shell: bash
+        run: if [ -n "${TMPDIR:-}" ]; then rm -rf "$TMPDIR"; fi
+
+  build-and-test:
+    needs: [m17-qualification, bulk-qualification, node-shard]
     # A skipped required check can satisfy branch protection. Run and FAIL when
-    # either producer fails/cancels; dependency status is never itself a pass.
+    # a producer fails/cancels; dependency status is never itself a pass.
     if: ${{ always() }}
     runs-on: ${{ matrix.os }}
     # Measured 2026-10-17: 15m06s on main, including ~13m npm test.
     # 2026-10-18 lane growth (mh-l6/registry suites): 21-23m completions,
-    # four 25m14s timeout kills in eight executions. 35m budget and
-    # slow-suite guard: docs/ci-job-budget.md.
+    # four 25m14s timeout kills in eight executions. 2026-11-03 the Node
+    # suite moved to the node-shard matrix (4 duration-balanced jobs per
+    # node version); this job aggregates their evidence and keeps the
+    # Track/vitest/lane tail plus h2a-runtime. 35m budget and slow-suite
+    # guard: docs/ci-job-budget.md.
     # Keep the DEC-061 process backstop; child deadlines are unchanged.
     timeout-minutes: 35
     strategy:
@@ -235,6 +319,10 @@ jobs:
         env:
           BULK_RESULT: ${{ needs.bulk-qualification.result }}
         run: test "$BULK_RESULT" = success
+      - name: Require all node shards complete
+        env:
+          SHARDS_RESULT: ${{ needs.node-shard.result }}
+        run: test "$SHARDS_RESULT" = success
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -256,6 +344,22 @@ jobs:
         with:
           name: bulk-${{ github.run_id }}-node${{ matrix.node }}
           path: tmp/bulk-import
+      - uses: actions/download-artifact@v4
+        with:
+          name: node-shard-${{ github.run_id }}-node${{ matrix.node }}-shard0
+          path: tmp/node-shards
+      - uses: actions/download-artifact@v4
+        with:
+          name: node-shard-${{ github.run_id }}-node${{ matrix.node }}-shard1
+          path: tmp/node-shards
+      - uses: actions/download-artifact@v4
+        with:
+          name: node-shard-${{ github.run_id }}-node${{ matrix.node }}-shard2
+          path: tmp/node-shards
+      - uses: actions/download-artifact@v4
+        with:
+          name: node-shard-${{ github.run_id }}-node${{ matrix.node }}-shard3
+          path: tmp/node-shards
       - name: Create a disposable TMPDIR admitted by both confinement guards
         shell: bash
         run: |
@@ -270,6 +374,7 @@ jobs:
         env:
           H2A_TEST_CI_M17_REPORT: ${{ github.workspace }}/tmp/m17-import/proof.json
           H2A_TEST_CI_BULK_REPORT: ${{ github.workspace }}/tmp/bulk-import/proof.json
+          H2A_TEST_NODE_SHARD_DIR: ${{ github.workspace }}/tmp/node-shards
       - name: Exercise the native multi-session terminal host
         run: >-
           npx --no-install vitest run
