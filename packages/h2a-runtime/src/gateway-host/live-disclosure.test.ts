@@ -484,7 +484,10 @@ describe("Δ-L7a disclosure authority", () => {
       expect(JSON.parse(bytes.trim().split("\n").at(-1)!)).toMatchObject({ grantId: id, reason: "grant-revoked" });
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
-  it("should keep the emitted G4 consumer closed without L8 policy on an isolated installation", async () => {
+  // Slow fixture: this test shells out to a cold tsc compile plus two node
+  // probes. The default 5 s budget cannot hold on a loaded CI runner; the
+  // assertions are unchanged (options second: vitest 4 removed (name, fn, opts)).
+  it("should keep the emitted G4 consumer closed without L8 policy on an isolated installation", { timeout: 120_000 }, async () => {
     const root = mkdtempSync(join(tmpdir(), "h2a-disclosure-installed-"));
     try {
       const repo = resolve(import.meta.dirname, "../../../..");

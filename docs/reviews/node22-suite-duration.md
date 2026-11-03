@@ -190,6 +190,48 @@ CI pour couvrir la variabilité observée. Ajouter les contrôles de partition
 et de rapports manquants au trust-root. Aucun skip, retrait d'assertion ou
 changement de plafond n'est inclus dans ce diagnostic.
 
+## Addendum R4 (2026-11-03, PR #354) : dépassement node-22 ×2, croissance retirée sans hausse de budget
+
+Run [41609982366](https://github.com/rhanka/h2a/actions/runs/41609982366),
+job node-22 `125863903880` (attempt 2) : étape `tests` tuée à 1260,3 s sans
+exit ; vitest h2a-runtime 559,5 s avec 5 échecs (2 timeouts 5 s + 3
+crash-safety). Node 24 vert de bout en bout au même HEAD.
+
+| Mesure (logs CI) | main `bf5b685d1` (run 41304247550) | branche node-24 | branche node-22 |
+| --- | --- | --- | --- |
+| Fichiers node:test | 363 | 479 | 479 |
+| Étape `tests` | 839,9 s, exit 0 | 1249,4 s, exit 0 | tuée à 1260 s |
+| Bucket rest | — | 442 fichiers, 1036,2 s | ≈1060 s (orphelin) |
+| vitest h2a-runtime | 163,4 s | 184,1 s | 559,5 s (échec) |
+| Suites > 60 s (locales) | 9 (node) + 1 (runtime) | 19 (node, preuves M17/bulk incluses) + 1 | 3 (runtime) |
+
+Croissance introduite par la lane (heures locales node-24, bucket rest) :
+`registry-packed-layout` 325 s (NOUVEAU, pack-candidate en before),
+`registry-plugin-declarations` 298,8 s (NOUVEAU, même pack),
+`succession-lock-seam-guard` 290,6 s (main < 56 s ; packRelease sous
+contention), `workspace-scope-guard` 200,2 s (main 94 s).
+Les durées M17 (1056,5 s) et bulk importées via preuves ne sont pas du
+travail local. Le kill à 1260 s laisse des orphelins `node --test` qui
+concurrencent l'étape h2a-runtime suivante : c'est cette contention, et non
+le code, qui fait flancher les 5 tests vitest (verts sur 24).
+
+Retrait (aucune assertion relâchée, aucun budget relevé) :
+`packages/h2a/test/helpers/shared-pack-candidates.mjs` — un seul
+pack-candidate par état d'arbre (clé = HEAD + `git status` + producteurs +
+versions), verrou inter-processus, repli en pack privé ; les trois suites
+consommatrices gardent leurs noms de tests et assertions.
+`mh-l3-recovery` (échec réel node-22, 77,3 s ; vert sur 24 en 45,2 s) :
+boucle de stabilisation bornée en temps réel + suppression du assert
+dur mid-drive (attachement tardif) ; contrat final inchangé.
+Budgets explicites vitest : test tsc live-disclosure 120 s, pagination
+live-github 60 s, `eventually` crash-safety en temps réel (30 s) + timeouts
+de tests 60 s (bottes tsx lentes sous charge).
+
+Aucune hausse de budget proposée : le volume pack dupliqué (≈2 packs de
+~250 s contentionnés) est supprimé à la source. Si node-22 dépasse encore
+1260 s après ce retrait, la décision budget revient au conducteur avec les
+mesures ci-dessus.
+
 Revue indépendante : non réalisée ; aucun outil `h2a_run` n'est disponible
 dans ce confinement, et l'accès à l'hôte installé est interdit. Aucun consensus
 n'est revendiqué.
