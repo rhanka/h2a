@@ -210,6 +210,14 @@ test('L7: an unreachable store stages auth-only with a closed gate and a typed c
   } finally { fs.rmSync(homeDir, { recursive: true, force: true }); }
 });
 
+test('L7: the custodian codex intent uses a policy the binary supports', async () => {
+  const { CODEX_SEAT_INTENT } = await provision();
+  // codex 0.163.0 rejects `untrusted` at config load; `on-request` keeps
+  // the startup approval behavior the cells rely on.
+  assert.equal(CODEX_SEAT_INTENT.approvalPolicy, 'on-request');
+  assert.deepEqual([...CODEX_SEAT_INTENT.mcpServerNames], ['h2a']);
+});
+
 test('L7: the CLI version probe reads a binary, never a default', async () => {
   const { probeCliVersion } = await provision();
   const bin = fs.mkdtempSync(join(tmpdir(), 'xcli-onboard-bin-'));
