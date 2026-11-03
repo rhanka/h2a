@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { stop } from 'esbuild';
-import { packRelease } from './package-release.mjs';
+import { npmStep, NPM_STEP_TIMEOUT_MS, packRelease } from './package-release.mjs';
 
 const exec = promisify(execFile);
 const repo = fileURLToPath(new URL('../', import.meta.url));
@@ -27,10 +27,13 @@ export async function packCandidate(output, { buildId } = {}) {
       fs.copyFileSync(result.filename, join(output, result.filename.split('/').at(-1)), fs.constants.COPYFILE_EXCL);
     }
     // Focus joins the release wave at its own manifest version. It must use
-    // the same artifact/sha proof as the four lockstep packages.
+    // the same artifact/sha proof as the four lockstep packages. Workspace
+    // packs share the loaded-progress-tolerant npm backstop: on a contended
+    // CI runner even a small pack can outlast a 120 s deadline while the
+    // 600 s file-level backstops above still usefully wait.
     for (const name of ['track', 'h2a-cli', 'focus']) {
-      await exec('npm', ['pack', '--workspace', '@sentropic/' + name, '--pack-destination', output], {
-        cwd: repo, timeout: 120_000, maxBuffer: 16 * 1024 * 1024,
+      await npmStep(`npm pack --workspace @sentropic/${name}`, ['pack', '--workspace', '@sentropic/' + name, '--pack-destination', output], {
+        cwd: repo, timeout: NPM_STEP_TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024,
       });
     }
   } finally { fs.rmSync(stage, { recursive: true, force: true }); }

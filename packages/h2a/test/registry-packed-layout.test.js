@@ -180,7 +180,7 @@ before(async () => {
       env[name] = join(lab, name);
       mkdirSync(env[name], { mode: 0o700 });
     }
-    await exec(process.execPath, ["scripts/pack-candidate.mjs", output], { cwd: REPO, env, timeout: 230_000, maxBuffer: 8 * 1024 * 1024 });
+    await exec(process.execPath, ["scripts/pack-candidate.mjs", output], { cwd: REPO, env, timeout: 600_000, maxBuffer: 8 * 1024 * 1024 });
     PACKED = { lab, output };
   } catch (error) {
     rmSync(lab, { recursive: true, force: true });
