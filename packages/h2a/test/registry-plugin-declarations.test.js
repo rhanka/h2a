@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { after, before } from "node:test";
 import { promisify } from "node:util";
+import { sharedPackCandidates } from "./helpers/shared-pack-candidates.mjs";
 import { runCli } from "../dist/index.js";
 import { cmdRegistryBridge } from "../dist/registry/cli-registry.js";
 
@@ -71,15 +72,20 @@ function hashTree(root) {
 let EXTRACTED = null;
 
 before(async () => {
+  // Candidates shared with the other packed-tree suites (see
+  // helpers/shared-pack-candidates.mjs): one pack per tree state.
   const lab = mkdtempSync(join(tmpdir(), "h2a-4b-pack-"));
   try {
-    const output = join(lab, "tarballs");
-    const env = { PATH: process.env.PATH, LANG: "C.UTF-8" };
-    for (const name of ["HOME", "XDG_RUNTIME_DIR", "XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "TMPDIR"]) {
-      env[name] = join(lab, name);
-      mkdirSync(env[name], { mode: 0o700 });
+    let output = await sharedPackCandidates();
+    if (output === null) {
+      output = join(lab, "tarballs");
+      const env = { PATH: process.env.PATH, LANG: "C.UTF-8" };
+      for (const name of ["HOME", "XDG_RUNTIME_DIR", "XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "TMPDIR"]) {
+        env[name] = join(lab, name);
+        mkdirSync(env[name], { mode: 0o700 });
+      }
+      await exec(process.execPath, ["scripts/pack-candidate.mjs", output], { cwd: REPO, env, timeout: 600_000, maxBuffer: 8 * 1024 * 1024 });
     }
-    await exec(process.execPath, ["scripts/pack-candidate.mjs", output], { cwd: REPO, env, timeout: 600_000, maxBuffer: 8 * 1024 * 1024 });
     const tarball = join(output, `sentropic-h2a-${PKG.version}.tgz`);
     assert.ok(existsSync(tarball), "candidate h2a tarball produced");
     const dest = join(lab, "extracted");
