@@ -264,6 +264,13 @@ jobs:
         env:
           H2A_TEST_CI_M17_REPORT: ${{ github.workspace }}/tmp/m17-import/proof.json
           H2A_TEST_CI_BULK_REPORT: ${{ github.workspace }}/tmp/bulk-import/proof.json
+          # Measured 2026-11-03: the grown 450-file rest bucket (verified
+          # image boots ~7s idle, 20s identity budgets, 250s packaging
+          # suites) makes steady progress past the default 600s suite
+          # backstop on 4-vCPU runners (600.1s kills, 3/3 jobs, no hang).
+          # Real test volume, not a slowdown: keep every child deadline and
+          # stay inside the 35m job budget (docs/ci-job-budget.md).
+          H2A_TEST_TIMEOUT_MS: 1200000
       - name: Exercise the native multi-session terminal host
         run: >-
           npx --no-install vitest run
@@ -365,6 +372,8 @@ jobs:
         env:
           H2A_TEST_CI_M17_REPORT: ${{ github.workspace }}/tmp/m17-import/proof.json
           H2A_TEST_CI_BULK_REPORT: ${{ github.workspace }}/tmp/bulk-import/proof.json
+          # Same grown-suite backstop as the build-and-test npm test above.
+          H2A_TEST_TIMEOUT_MS: 1200000
       - name: Clean the disposable TMPDIR
         if: always()
         shell: bash
