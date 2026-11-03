@@ -13,6 +13,23 @@ import {
   startCentralMcpServer,
   H2A_MCP_CENTRAL_ENDPOINT_ENV
 } from "../dist/index.js";
+import { authenticatedHttpRequest } from "../dist/runtime/handover/authenticated-http.js";
+
+/**
+ * The branch central server only admits signed envelope POSTs (handover
+ * fencing): unsigned direct posts are refused with 401 before any MCP route.
+ * Tests drive the same supported path as every other central client — the
+ * challenge/proof envelope — so the assertions below prove the ui-render
+ * surface on the branch serving path. Request/response shapes are the inner
+ * MCP bytes (unframed).
+ */
+async function centralRpc(markerPath, marker, url, headers, body) {
+  return authenticatedHttpRequest(markerPath, marker, new URL(url), {
+    method: "POST",
+    headers,
+    body: typeof body === "string" ? body : JSON.stringify(body)
+  });
+}
 
 /**
  * json-render L3.2 — the SEP-1865 negotiation and resources/* routes on the
@@ -190,14 +207,9 @@ test("central HTTP: initialize advertises the ui extension and serves resources/
     const stored = JSON.parse(readFileSync(started.markerPath, "utf8"));
     const headers = {
       "content-type": "application/json",
-      accept: "application/json, text/event-stream",
-      authorization: `Bearer ${stored.token}`
+      accept: "application/json, text/event-stream"
     };
-    const initResponse = await fetch(requested, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(initializeRequest(1))
-    });
+    const initResponse = await centralRpc(started.markerPath, stored, requested, headers, initializeRequest(1));
     assert.equal(initResponse.status, 200);
     const sessionId = initResponse.headers.get("mcp-session-id");
     assert.ok(sessionId, "the streamable transport opens an MCP session");
@@ -207,17 +219,11 @@ test("central HTTP: initialize advertises the ui extension and serves resources/
     assert.equal(init.result.capabilities.tools.listChanged, true);
 
     const sessionHeaders = { ...headers, "mcp-session-id": sessionId };
-    await fetch(requested, {
-      method: "POST",
-      headers: sessionHeaders,
-      body: JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })
-    });
+    await centralRpc(started.markerPath, stored, requested, sessionHeaders,
+      { jsonrpc: "2.0", method: "notifications/initialized" });
 
-    const listResponse = await fetch(requested, {
-      method: "POST",
-      headers: sessionHeaders,
-      body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "resources/list" })
-    });
+    const listResponse = await centralRpc(started.markerPath, stored, requested, sessionHeaders,
+      { jsonrpc: "2.0", id: 2, method: "resources/list" });
     const list = await listResponse.json();
     assert.equal(list.result.resources.length, 5);
     assert.deepEqual(
@@ -231,24 +237,17 @@ test("central HTTP: initialize advertises the ui extension and serves resources/
       ]
     );
 
-    const readResponse = await fetch(requested, {
-      method: "POST",
-      headers: sessionHeaders,
-      body: JSON.stringify({ jsonrpc: "2.0", id: 3, method: "resources/read", params: { uri: CATALOG_URI } })
-    });
+    const readResponse = await centralRpc(started.markerPath, stored, requested, sessionHeaders,
+      { jsonrpc: "2.0", id: 3, method: "resources/read", params: { uri: CATALOG_URI } });
     const read = await readResponse.json();
     assert.equal(read.result.contents[0].mimeType, "application/schema+json");
     assert.ok(read.result.contents[0].text.includes('"catalogId"'));
 
-    const missingResponse = await fetch(requested, {
-      method: "POST",
-      headers: sessionHeaders,
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 4,
-        method: "resources/read",
-        params: { uri: "ui://sentropic/none/v1" }
-      })
+    const missingResponse = await centralRpc(started.markerPath, stored, requested, sessionHeaders, {
+      jsonrpc: "2.0",
+      id: 4,
+      method: "resources/read",
+      params: { uri: "ui://sentropic/none/v1" }
     });
     const missing = await missingResponse.json();
     assert.equal(missing.error.code, -32002);
