@@ -34,6 +34,14 @@ test("M17 companion rejects stale or foreign repository", () => rejectContext("r
 test("M17 companion rejects stale or foreign workflow", () => rejectContext("workflow"));
 test("M17 companion rejects stale or foreign runId", () => rejectContext("runId"));
 test("M17 companion rejects stale or foreign attempt", () => rejectContext("attempt"));
+test("M17 companion admits an earlier-attempt producer proof and rejects a future one", () => {
+  const earlier = proof(); earlier.context.attempt = "1";
+  assert.deepEqual(verifyM17Envelope(earlier, context), earlier.report);
+  for (const bad of ["3", "0", "-1", "2.5", ""]) {
+    const value = proof(); value.context.attempt = bad;
+    assert.throws(() => verifyM17Envelope(value, context), /attempt/);
+  }
+});
 test("M17 companion rejects stale or foreign sha", () => rejectContext("sha"));
 test("M17 companion rejects stale or foreign platform", () => rejectContext("platform"));
 test("M17 companion rejects stale or foreign arch", () => rejectContext("arch"));

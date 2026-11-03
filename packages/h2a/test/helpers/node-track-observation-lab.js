@@ -71,7 +71,7 @@ cp.spawnSync=(command,args,options)=>{
   if(command!==process.execPath || args.some((arg)=>/name-pattern|skip-pattern|test-only/.test(arg)) || JSON.stringify(actual.sort())!==JSON.stringify(required.sort())) throw Error('effective command omitted or filtered required tests');
   const path=node ? args.find((arg)=>arg.startsWith('--test-reporter-destination=') && !arg.endsWith('=stdout')).split('=').slice(1).join('=') : args.find((arg)=>arg.startsWith('--outputFile=')).split('=').slice(1).join('=');
   if(!path || (node && !args.some((arg)=>arg.includes('node-evidence-reporter.mjs'))) || (!node && !args.includes('--reporter=json'))) throw Error('no execution reporter');
-  if(node && (options.timeout!==600000 || options.killSignal!=='SIGKILL' || !args.includes('--test-reporter=spec') || !args.includes('--test-reporter-destination=stdout') || !args.includes(resolve(root,'packages/h2a/test/helpers/native-isolation.js')))) throw Error('Node bucket lost its ceiling, isolation or reporter');
+  if(node && (options.timeout!==1200000 || options.killSignal!=='SIGKILL' || !args.includes('--test-reporter=spec') || !args.includes('--test-reporter-destination=stdout') || !String(args[0]).endsWith('scripts/run-node-tests.mjs'))) throw Error('Node bucket lost its ceiling, isolation or reporter');
   if(reports.has(path)) throw Error('suite report path reused');
   reports.add(path);
   observed.push(node?'Node:'+bucket:suite);writeFileSync(${JSON.stringify(markers)},JSON.stringify(observed));

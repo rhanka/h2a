@@ -44,8 +44,13 @@ import { StreamableHTTPTransport } from "./mcp/transport/streamable-http.js";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import {
   CallToolRequestSchema,
+  ListResourcesRequestSchema,
   type CallToolResult,
-  ListToolsRequestSchema
+  ListToolsRequestSchema,
+  McpError,
+  ReadResourceRequestSchema,
+  type ListResourcesResult,
+  type ReadResourceResult
 } from "@modelcontextprotocol/sdk/types.js";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
@@ -54,8 +59,14 @@ import { currentCliVersion } from "./upgrade/index.js";
 import {
   createMcpServer,
   isMcpTransportResult,
+  type McpCallContext,
   type McpServer
 } from "./mcp/server.js";
+import {
+  negotiateUiExtension,
+  serverUiExtensionCapability
+} from "./mcp/ui-render/negotiation.js";
+import { UnknownResourceError, type UiExtensionCapability } from "./mcp/ui-render/types.js";
 import { boundCallToolResult } from "./mcp/frame-budget.js";
 import { createLocalStore } from "./local-files/index.js";
 import { openCentralAttachment, type CentralAttachmentHandle } from "./mcp-central-attachment.js";
@@ -99,8 +110,13 @@ export async function centralMcpPing(
   }
 }
 
-async function centralToolResult(server: McpServer, name: string, args: Record<string, unknown>): Promise<CallToolResult> {
-  const result = await server.callTool(name, args);
+async function centralToolResult(
+  server: McpServer,
+  name: string,
+  args: Record<string, unknown>,
+  context: McpCallContext
+): Promise<CallToolResult> {
+  const result = await server.callTool(name, args, context);
   const shaped: CallToolResult = isMcpTransportResult(result)
     ? (result as CallToolResult)
     : {
@@ -121,14 +137,42 @@ async function centralToolResult(server: McpServer, name: string, args: Record<s
 export function createCentralProtocolServer(mcp: McpServer, participant: import('./handover/participants.js').AttachmentParticipant): Server {
   const server = new Server(
     { name: "@sentropic/h2a", version: currentCliVersion() },
-    { capabilities: { tools: { listChanged: true } } }
+    {
+      capabilities: {
+        tools: { listChanged: true },
+        resources: {},
+        extensions: { "io.modelcontextprotocol/ui": serverUiExtensionCapability }
+      }
+    }
   );
+  // One SDK Server per transport → one SEP-1865 negotiation per HTTP session:
+  // getClientCapabilities() reflects THIS session's initialize params.
+  const negotiated = (): UiExtensionCapability =>
+    negotiateUiExtension({ capabilities: server.getClientCapabilities() });
+  // Stable identity for this transport; capability stays current after initialize.
+  const connection: McpCallContext = { get uiCapability() { return negotiated(); } };
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: mcp.listTools() }));
+  server.setRequestHandler(ListResourcesRequestSchema, async (): Promise<ListResourcesResult> => ({
+    resources: mcp.listResources(connection).resources
+  }));
+  server.setRequestHandler(ReadResourceRequestSchema, async (request): Promise<ReadResourceResult> => {
+    try {
+      // Shape-compatible with the SDK's TextResourceContents modulo readonly
+      // arrays (the handler-side descriptors are deeply readonly).
+      return mcp.readResource(request.params.uri, connection) as ReadResourceResult;
+    } catch (error) {
+      // An unknown resource URI is a typed -32002 refusal (h2a spec §3.3).
+      if (error instanceof UnknownResourceError) {
+        throw new McpError(-32002, error.message);
+      }
+      throw error;
+    }
+  });
   server.setRequestHandler(
     CallToolRequestSchema,
     async (request): Promise<CallToolResult> => participant.call(async () => {
       for (const session of mcp.sessions.list()) mcp.sessions.markActivity(session.sessionId);
-      return centralToolResult(mcp, request.params.name, request.params.arguments ?? {});
+      return centralToolResult(mcp, request.params.name, request.params.arguments ?? {}, connection);
     })
   );
   return server;
@@ -160,7 +204,7 @@ function createCentralApp(
   generation: string,
   administration: () => ColdAdministration | undefined,
   participants: () => Participants | undefined,
-  options: { requestStop(): void; idleTimeoutMs: number; sessionLeaseMs: number; maxAttachments: number; precheck?: boolean; endpointPinned?: boolean; managedImage?: boolean; runExecutor?: H2aRunExecutor; registry?: Pick<ComposeDaemonOptions, "lock" | "memory"> }
+  options: { requestStop(): void; idleTimeoutMs: number; sessionLeaseMs: number; maxAttachments: number; precheck?: boolean; endpointPinned?: boolean; managedImage?: boolean; runExecutor?: H2aRunExecutor; registry?: Pick<ComposeDaemonOptions, "lock" | "memory">; env?: Readonly<Record<string, string | undefined>> }
 ): { app: Hono; ready(tools?: ReturnType<McpServer["listTools"]>): void; inventory(): { revision: number; transports: unknown[] }; drain(): { revision: number; calls: number; children: number; briefs: number; callbacks: number; effects: number }; close(): Promise<void> } {
   const app = new Hono();
   const lag = monitorEventLoopDelay({ resolution: 20 });
@@ -444,7 +488,7 @@ function createCentralApp(
           catch (error) { participant.finish(operation, { state: 'unknown', error: String(error) }, true); throw error; }
           finally { callbacks--; drainRevision++; }
         }
-      }, runExecutor, participant, registry));
+      }, runExecutor, participant, registry, { env: options.env }));
       try { await handle.ready; }
       catch (error) { await participant.close(() => handle.close()); await transport.close(); throw error; }
       protocol = createCentralProtocolServer(handle.mcp, participant);
@@ -641,6 +685,7 @@ export async function startCentralMcpServer(
         token: randomUUID(), authKeyReference: authority.authKeyReference };
       application = createCentralApp(root, () => sharedStore, endpoint, marker.generation, () => administration, () => participants, {
         precheck: options.precheck,
+        env: options.env,
         endpointPinned: Boolean(explicitEndpoint), managedImage: Boolean(installation),
         idleTimeoutMs: options.idleTimeoutMs ?? 60_000, sessionLeaseMs: options.sessionLeaseMs ?? 90_000,
         maxAttachments: plan.manifest?.maxAttachments ?? 256,

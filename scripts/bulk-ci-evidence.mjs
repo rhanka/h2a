@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join, resolve } from 'node:path';
-import { m17Context } from './m17-ci-evidence.mjs';
+import { m17Context, verifyProofContext } from './m17-ci-evidence.mjs';
 import { BULK_FILES } from './bulk-test-files.mjs';
 import { verifyExecutionReport } from './test-execution-evidence.mjs';
 import { declaredTests } from './test-inventory.mjs';
@@ -33,7 +33,7 @@ export function bulkContext(root, env = process.env) {
 export function verifyBulkEnvelope(envelope, expected, inventory) {
   assert.deepEqual(Object.keys(envelope).sort(), ['schema', 'context', 'report', 'exit', 'cleanup'].sort());
   assert.equal(envelope.schema, 1);
-  assert.deepEqual(envelope.context, expected, 'bulk proof provenance/source inputs differ');
+  verifyProofContext(envelope.context, expected, 'bulk proof provenance/source inputs differ');
   assert.deepEqual(envelope.exit, { code: 0, signal: null, survivingOwnedProcesses: 0 });
   assert.deepEqual(envelope.cleanup, { privateStateRemoved: true, fixturesRemoved: true });
   assert.deepEqual(Object.keys(inventory).sort(), [...BULK_FILES].sort());

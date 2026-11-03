@@ -442,11 +442,15 @@ describe("live GitHub transport", () => {
   it("should enforce concurrency and terminate an owned gh child at the request deadline", async () => {
     let active = 0;
     let peak = 0;
+    // The overlap window must dwarf child-spawn skew: on a loaded CI runner
+    // a gh child (real node startup) can start hundreds of ms after its
+    // sibling, which serialized this assertion at peak 1 with a 100 ms
+    // window. Two seconds keep the exact peak-2 proof load-robust.
     handler = () => {
       peak = Math.max(peak, ++active);
-      const timer = setTimeout(() => active--, 100);
+      const timer = setTimeout(() => active--, 2000);
       timer.unref();
-      return { body: [], delay: 100 };
+      return { body: [], delay: 2000 };
     };
     const bounded = createLiveGithubTransport({ ghPath, hostDirectory: root, maxConcurrent: 2 });
     const results = await Promise.all(Array.from({ length: 5 }, () => bounded.fetchPage(request)));
@@ -459,7 +463,7 @@ describe("live GitHub transport", () => {
     expect(Date.now() - start).toBeLessThan(2000);
     const missing = createLiveGithubTransport({ ghPath: join(root, "missing-gh"), hostDirectory: root });
     expect(await missing.fetchPage(request)).toMatchObject({ ok: false, kind: "unavailable" });
-  });
+  }, 20000);
 
   it("should reject unapproved paths and invalid requests before invoking gh", async () => {
     expect(() => createLiveGithubTransport({ ghPath: "gh", hostDirectory: root })).toThrow();

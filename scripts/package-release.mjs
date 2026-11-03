@@ -9,6 +9,31 @@ import { stop } from 'esbuild';
 import { buildReleasePayload } from './mh-l1-package-prototype.mjs';
 import { verifyPublishablePayload } from './check-publish-payload.mjs';
 const exec = promisify(execFile), repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+// Measured 2026-11-03: the candidate payload (~525 MB tree, 61 MB tarball)
+// needs ~38 s CPU for `npm pack` alone and ~59 s for the whole flow on an
+// idle box. Under the full parallel CI campaign the 120 s backstop trips
+// (SIGTERM kill, empty stderr, exit 1) while npm is still usefully packing.
+// 600 s keeps a true hang loud without mistaking loaded progress for a hang.
+export const NPM_STEP_TIMEOUT_MS = 600_000;
+
+/**
+ * One npm invocation with a loaded-progress-tolerant backstop. Failures keep
+ * the command output tails: an empty-stderr SIGTERM kill reads as a timeout
+ * instead of masquerading as an npm usage error.
+ */
+export async function npmStep(label, args, options) {
+  try {
+    return await exec('npm', args, options);
+  } catch (error) {
+    const killed = error?.killed === true || error?.signal != null;
+    const stdout = typeof error?.stdout === 'string' ? error.stdout.slice(-4000) : '';
+    const stderr = typeof error?.stderr === 'string' ? error.stderr.slice(-4000) : '';
+    throw new Error(`${label} failed (${killed ? `killed${error?.signal ? ` by ${error.signal}` : ''}` : `code ${error?.code ?? 'unknown'}`})` +
+      `: ${error?.message ?? error}` +
+      (stdout ? `\n--- stdout tail ---\n${stdout}` : '') +
+      (stderr ? `\n--- stderr tail ---\n${stderr}` : ''));
+  }
+}
 function breakInstallHardlinks(root) {
   const walk = (directory) => {
     for (const name of fs.readdirSync(directory)) {
@@ -40,7 +65,7 @@ export async function packRelease(directory, options) {
   Object.assign(env, { npm_config_offline: 'true', npm_config_umask: '022', npm_config_bin_links: 'true', npm_config_cache: join(profile, 'cache') });
   const args = ['pack', '--offline', '--json', '--pack-destination', artifacts];
   try {
-    const packed = await exec('npm', args, { cwd: payload.root, env, timeout: 120000, maxBuffer: 16 * 1024 * 1024 });
+    const packed = await npmStep('npm pack', args, { cwd: payload.root, env, timeout: NPM_STEP_TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024 });
     const receipt = JSON.parse(packed.stdout)[0];
     if (!receipt?.filename || basename(receipt.filename) !== receipt.filename) throw Error('release_tarball_path_invalid');
     const filename = join(artifacts, receipt.filename), bytes = fs.readFileSync(filename);
@@ -54,7 +79,7 @@ export async function packRelease(directory, options) {
     // the manifest does not cover. Production installs still run the kept
     // prebuild resolver scripts, which resolve the vendored prebuilds.
     const installArgs = ['install', '-g', '--prefix', check, '--offline', '--umask=022', '--no-audit', '--no-fund', '--ignore-scripts', filename];
-    const installed = await exec('npm', installArgs, { cwd: directory, env, timeout: 120000, maxBuffer: 8 * 1024 * 1024 });
+    const installed = await npmStep('npm install', installArgs, { cwd: directory, env, timeout: NPM_STEP_TIMEOUT_MS, maxBuffer: 8 * 1024 * 1024 });
     // npm links byte-identical files on install. The image invariant forbids
     // shared inodes, but the manifest covers bytes: break install-time
     // hardlinks into real copies (identical bytes, exclusive inodes) so the

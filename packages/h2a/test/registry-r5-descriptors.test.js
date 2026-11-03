@@ -115,12 +115,14 @@ test("R5 descriptors: asset digests verify over exact file bytes", async () => {
   const { validateRegistryEntry, verifyAssetClosure } = await loadLib();
   for (const pkgDir of ["packages/h2a", "packages/track"]) {
     const wrapper = readJson(`${pkgDir}/registry/entries.v1.json`);
-    const checked = validateRegistryEntry(wrapper.entries[0]);
-    for (const asset of checked.entry.assets) {
-      const bytes = readFileSync(new URL(`${pkgDir}/${asset.path}`, REPO_ROOT));
-      assert.equal(sha256(bytes), asset.sha256, `${pkgDir}/${asset.path} digest`);
+    for (const rawEntry of wrapper.entries) {
+      const checked = validateRegistryEntry(rawEntry);
+      for (const asset of checked.entry.assets) {
+        const bytes = readFileSync(new URL(`${pkgDir}/${asset.path}`, REPO_ROOT));
+        assert.equal(sha256(bytes), asset.sha256, `${pkgDir}/${asset.path} digest`);
+      }
+      verifyAssetClosure(checked.entry, pkgDir, (rel) => readFileSync(new URL(`${pkgDir}/${rel}`, REPO_ROOT)));
     }
-    verifyAssetClosure(checked.entry, pkgDir, (rel) => readFileSync(new URL(`${pkgDir}/${rel}`, REPO_ROOT)));
   }
 });
 

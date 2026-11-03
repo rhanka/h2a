@@ -33,10 +33,27 @@ export function m17Context(root, env = process.env) {
       createHash('sha256').update(fs.readFileSync(join(root, file))).digest('hex')])) };
 }
 
+/**
+ * A rerun-partial consumer (GITHUB_RUN_ATTEMPT=2) may import a producer proof
+ * sealed on an earlier attempt ("1"): the artifact names no longer carry the
+ * attempt, so the check admits any positive-integer attempt at or below the
+ * expected one and compares the rest of the context strictly. A future or
+ * non-integer attempt is a foreign proof and stays fatal.
+ */
+export function verifyProofContext(actual, expected, message) {
+  const { attempt: actualAttempt, ...actualRest } = actual ?? {};
+  const { attempt: expectedAttempt, ...expectedRest } = expected ?? {};
+  assert.deepEqual(actualRest, expectedRest, message);
+  const seen = Number(actualAttempt);
+  const bound = Number(expectedAttempt);
+  assert.ok(Number.isSafeInteger(seen) && seen >= 1 && Number.isSafeInteger(bound) && seen <= bound,
+    `${message}: proof attempt ${JSON.stringify(actualAttempt)} must be a positive integer <= ${JSON.stringify(expectedAttempt)}`);
+}
+
 export function verifyM17Envelope(envelope, expected) {
   keys(envelope, ['schema', 'context', 'report', 'backend', 'exit', 'cleanup']);
   assert.equal(envelope.schema, 1);
-  assert.deepEqual(envelope.context, expected, 'M17 proof provenance/source inputs differ');
+  verifyProofContext(envelope.context, expected, 'M17 proof provenance/source inputs differ');
   assert.deepEqual(envelope.exit, { code: 0, signal: null, survivingOwnedProcesses: 0 });
   assert.deepEqual(envelope.cleanup, { volumeRemoved: true, privateStateRemoved: true });
   const report = envelope.report;
