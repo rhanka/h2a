@@ -65,12 +65,14 @@ export const VIBE_SEAT_FILE = '.vibe/MISTRAL_API_KEY';
 const DEPLOY_BRANCHES = Object.freeze(['main', 'feat/live-cross-cli-messaging']);
 
 // L7 (bench round 27): the custodian codex policy intent transported in the
-// onboarding block. `approvalPolicy: 'untrusted'` is the codex default, so
-// the rendered cell config keeps today's effective behavior (MCP approval
-// press unchanged); `mcpServerNames` is the harness's closed codex MCP set
-// (the single h2a endpoint the cell renders). Harness and intent stay in
-// sync by construction — a wider cell set refuses loudly at stage 2.
-export const CODEX_SEAT_INTENT = Object.freeze({ approvalPolicy: 'untrusted',
+// onboarding block. `approvalPolicy: 'on-request'` (the model decides when
+// to ask) keeps today's effective behavior (the startup MCP approval press
+// is unchanged); codex 0.163.0 rejects the old `untrusted` value at config
+// load, so `untrusted` must never be issued. `mcpServerNames` is the
+// harness's closed codex MCP set (the single h2a endpoint the cell renders).
+// Harness and intent stay in sync by construction — a wider cell set
+// refuses loudly at stage 2.
+export const CODEX_SEAT_INTENT = Object.freeze({ approvalPolicy: 'on-request',
   mcpServerNames: Object.freeze(['h2a']) });
 
 // L7: per-CLI standing trust decision carried in the block (design D3).
