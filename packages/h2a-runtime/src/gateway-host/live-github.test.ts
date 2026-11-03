@@ -152,7 +152,10 @@ describe("live GitHub transport", () => {
     }
   });
 
-  it("should never skip an unchanged boundary PR when a read PR moves during pagination", async () => {
+  // Slow-runner budget: in-memory pagination over 150 rows is fast when
+  // scheduled, but the default 5 s budget cannot hold on a loaded CI runner;
+  // the assertions are unchanged (options second: vitest 4 removed (name, fn, opts)).
+  it("should never skip an unchanged boundary PR when a read PR moves during pagination", { timeout: 60_000 }, async () => {
     const initial = Date.parse("2026-10-16T12:00:00Z");
     const rows = Array.from({ length: 150 }, (_, i) => pr(i + 1, {
       updated_at: new Date(initial + i * 1000).toISOString(),

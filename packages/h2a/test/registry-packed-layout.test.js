@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import test, { after, before } from "node:test";
 import { promisify } from "node:util";
+import { sharedPackCandidates } from "./helpers/shared-pack-candidates.mjs";
 
 const exec = promisify(execFile);
 const REPO = new URL("../../../", import.meta.url).pathname;
@@ -172,16 +173,22 @@ async function buildSiblingTree(dir) {
 let PACKED = null;
 
 before(async () => {
+  // One pack per tree state, shared with the other packed-tree suites (see
+  // helpers/shared-pack-candidates.mjs): the candidates are identical, only
+  // the extractions stay private to this file's lab.
   const lab = mkdtempSync(join(tmpdir(), "h2a-l6-pack-"));
   try {
-    const output = join(lab, "tarballs");
-    const env = { PATH: process.env.PATH, LANG: "C.UTF-8" };
-    for (const name of ["HOME", "XDG_RUNTIME_DIR", "XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "TMPDIR"]) {
-      env[name] = join(lab, name);
-      mkdirSync(env[name], { mode: 0o700 });
+    let output = await sharedPackCandidates();
+    if (output === null) {
+      output = join(lab, "tarballs");
+      const env = { PATH: process.env.PATH, LANG: "C.UTF-8" };
+      for (const name of ["HOME", "XDG_RUNTIME_DIR", "XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "TMPDIR"]) {
+        env[name] = join(lab, name);
+        mkdirSync(env[name], { mode: 0o700 });
+      }
+      await exec(process.execPath, ["scripts/pack-candidate.mjs", output], { cwd: REPO, env, timeout: 600_000, maxBuffer: 8 * 1024 * 1024 });
     }
-    await exec(process.execPath, ["scripts/pack-candidate.mjs", output], { cwd: REPO, env, timeout: 600_000, maxBuffer: 8 * 1024 * 1024 });
-    PACKED = { lab, output };
+    PACKED = { lab, output, shared: output !== join(lab, "tarballs") };
   } catch (error) {
     rmSync(lab, { recursive: true, force: true });
     throw error;
