@@ -21,6 +21,8 @@
 
 import { fork, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { identityBlockerSnapshot } from './identity-blocker-snapshot.js';
 import { diagnosticMessage, type IdentityBlockerInfo, type IdentityLockDiagnostic } from '../local-files/identity-fence.js';
 
@@ -82,6 +84,36 @@ export type McpIdentityStatus =
       retryCondition?: 'interval' | 'blocker-change';
       retryAfterMs?: number;
     };
+
+/**
+ * Synchronous witness shared by the controller retry gate and the
+ * `h2a_identity_status` addendum: the recorded identity-fence blocker is gone
+ * when `identity/.lock` is absent or no longer carries the recorded
+ * generation. Registry and other blockers stay on the controller's async
+ * snapshot path (never forced from status). A diagnostic without a known
+ * generation (fence-wait timeout with no observed blocker) never counts as
+ * gone: the stale failure is kept.
+ */
+export function identityBlockerGone(root: string, status: McpIdentityStatus): boolean {
+  if (status.state !== "identity_failed") return false;
+  const diagnostic = (status as { diagnostic?: { lock?: unknown; generation?: unknown } }).diagnostic;
+  if (!diagnostic || diagnostic.lock !== "identity/.lock") return false;
+  if (typeof diagnostic.generation !== "string" || diagnostic.generation === "unknown") return false;
+  let raw: Buffer;
+  try {
+    raw = readFileSync(join(root, "identity", ".lock"));
+  } catch (e) {
+    return (e as NodeJS.ErrnoException)?.code === "ENOENT";
+  }
+  try {
+    const rec = JSON.parse(raw.toString("utf8")) as { token?: unknown };
+    const token = typeof rec?.token === "string" ? rec.token : undefined;
+    if (token === undefined) return false;
+    return token !== diagnostic.generation;
+  } catch {
+    return false;
+  }
+}
 
 export interface McpIdentityController {
   status(): McpIdentityStatus;
@@ -584,8 +616,12 @@ export function createIdentityController<P = unknown>(
       // never re-attempt here.
       if (state.state !== "identity_failed") return false;
       if (!TRANSIENT_FAILURE_CAUSES.has(state.cause)) return false;
+      // A synchronously-gone identity blocker (lock absent or generation
+      // replaced on disk) kicks a fresh attempt at once: neither the async
+      // blocker-change snapshot nor the min-interval gate may hold it back.
+      const gone = identityBlockerGone(options.request.root, state);
       if (state.retryCondition === 'blocker-change') {
-        if (!blockerChanged) {
+        if (!blockerChanged && !gone) {
           if (!changeCheckPending && nowNs()>=nextChangeCheckNs) {
             changeCheckPending=true;
             nextChangeCheckNs=nowNs()+500_000_000n;
@@ -598,11 +634,12 @@ export function createIdentityController<P = unknown>(
           }
           return false;
         }
-        blockerChanged=false;failedBlockerBytes=undefined;
       }
       // At most one attempt per interval, so a hot-looping caller cannot spawn a worker per
       // call; within the interval the memoized failure is kept (returned by status()).
-      if (Number((nowNs() - failedAtNs) / 1_000_000n) < retryMinIntervalMs) return false;
+      // A gone blocker bypasses the gate: the wait it protected is over.
+      if (!gone && Number((nowNs() - failedAtNs) / 1_000_000n) < retryMinIntervalMs) return false;
+      blockerChanged=false;failedBlockerBytes=undefined;
       // One attempt at a time is guaranteed: we only enter from identity_failed, never pending.
       beginAttempt();
       return true;
