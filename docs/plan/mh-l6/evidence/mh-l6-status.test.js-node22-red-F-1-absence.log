@@ -1,0 +1,41 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-status.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-3j9SH0
+case: F should report an unchanged preparation before any selection
+TAP version 13
+# Subtest: F should report an unchanged preparation before any selection
+not ok 1 - F should report an unchanged preparation before any selection
+  ---
+  duration_ms: 2.57641
+  type: 'test'
+  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l6-status.test.js:8:67'
+  failureType: 'testCodeFailure'
+  error: |-
+    upgrade status composer required
+    + actual - expected
+    
+    + 'undefined'
+    - 'function'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'function'
+  actual: 'undefined'
+  operator: 'strictEqual'
+  stack: |-
+    api (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l6-status.test.js:14:10)
+    async TestContext.<anonymous> (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l6-status.test.js:31:36)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 116.882247
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-status.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

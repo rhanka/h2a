@@ -1,0 +1,23 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test --test-reporter=tap packages/h2a/test/mh-l3-argon.test.js
+node: v24.21.0
+private root: /tmp/mh-l3-test-7UX40w
+case: real central should register the retained shim catalogue as inventory without granting compatibility
+TAP version 13
+# {"event":"drive-consent.full-verification","durationMs":0.0032759999999996126,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: real central should register the retained shim catalogue as inventory without granting compatibility
+ok 1 - real central should register the retained shim catalogue as inventory without granting compatibility
+  ---
+  duration_ms: 206.548139
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 408.738221
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l3-argon.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

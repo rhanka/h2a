@@ -1,0 +1,41 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-selection.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-tqrMET
+case: all cases in explicit file
+TAP version 13
+# Subtest: U05 should select once with canonical journal, history and pins across HOME changes
+not ok 1 - U05 should select once with canonical journal, history and pins across HOME changes
+  ---
+  duration_ms: 66.999313
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-selection.test.js:12:94'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + undefined
+    - 'sha256:f09b605d7f9adc1cd6fc29282a3d61531eb63beeebdfb41fbeac03c6ba807c2f'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 'sha256:f09b605d7f9adc1cd6fc29282a3d61531eb63beeebdfb41fbeac03c6ba807c2f'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/mh-l6-selection.test.js:31:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.start (node:internal/test_runner/test:944:17)
+    startSubtestAfterBootstrap (node:internal/test_runner/harness:296:17)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 204.989524
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-selection.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import cp, { execFileSync } from "node:child_process";
+import { syncBuiltinESMExports } from "node:module";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
+import { sharedPackCandidates } from "./helpers/shared-pack-candidates.mjs";
 
 const root = fileURLToPath(new URL("../../../", import.meta.url));
 const seamName = "succession-lock-test-seam.mjs";
@@ -36,6 +38,7 @@ function isTest(file) {
 
 test("T-guard: no code outside tests depends on the separate lock seam", () => {
   const tracked = execFileSync("git", ["ls-files", "-z"], { cwd: root, encoding: "utf8" }).split("\0");
+  assert.ok(tracked.includes("packages/h2a/src/runtime/local-files/succession-lock.ts"), "the source inventory must include the real lock implementation, never pass on an empty index");
   const found = [];
   for (const file of tracked) {
     if (!/\.[cm]?[jt]sx?$/.test(file) || isTest(file)) continue;
@@ -88,16 +91,33 @@ test("T-guard: dist, the npm pack tarball and package exports cannot load the se
   }
   walk(dist);
   const packed = mkdtempSync(join(tmpdir(), "h2a-seam-pack-"));
+  const children = [], originalSpawn = cp.spawn;
+  cp.spawn = function(...args) { const child = originalSpawn.apply(this, args); children.push({ child, closed: new Promise(resolve => child.once("close", resolve)) }); return child; };
+  syncBuiltinESMExports();
   try {
-    execFileSync("npm", ["pack", "--json", "--pack-destination", packed], {
-      cwd: join(root, "packages/h2a"), encoding: "utf8"
-    });
-    const archives = readdirSync(packed).filter((name) => name.endsWith(".tgz"));
-    assert.equal(archives.length, 1);
-    execFileSync("tar", ["-xzf", join(packed, archives[0]), "-C", packed]);
+    // The shipped-candidate h2a tarball is the seam-absence target: it is
+    // packed once per tree state and shared with the packed-tree suites
+    // (helpers/shared-pack-candidates.mjs) instead of a fourth duplicate
+    // esbuild pack. The walked bytes are the same published payload class;
+    // only the duplicate producer is gone.
+    const h2aVersion = JSON.parse(readFileSync(join(root, "packages/h2a/package.json"), "utf8")).version;
+    const candidates = await sharedPackCandidates();
+    let tarball = candidates === null ? null : join(candidates, `sentropic-h2a-${h2aVersion}.tgz`);
+    if (tarball === null || !existsSync(tarball)) {
+      const { packRelease } = await import("../../../scripts/package-release.mjs");
+      const artifact = await packRelease(join(packed, "closed"), { buildId: "lock-seam-distribution-guard" });
+      assert.equal(artifact.name, "@sentropic/h2a");
+      tarball = artifact.filename;
+    }
+    execFileSync("/usr/bin/tar", ["-xzf", tarball, "--no-same-owner", "-C", packed]);
     walk(join(packed, "package"));
   } finally {
-    rmSync(packed, { recursive: true, force: true });
+    for (const { child } of children) {
+      if (child.exitCode === null && child.signalCode === null) child.ref();
+      for (const stream of [child.stdin, child.stdout, child.stderr]) stream?.ref?.();
+    }
+    (await import("esbuild")).stop(); await Promise.all(children.map(row => row.closed));
+    cp.spawn = originalSpawn; syncBuiltinESMExports(); rmSync(packed, { recursive: true, force: true });
   }
   assert.equal(existsSync(join(dist, "runtime/local-files", seamName)), false);
   await assert.rejects(import("@sentropic/h2a/test/succession-lock-test-seam.mjs"), { code: "ERR_PACKAGE_PATH_NOT_EXPORTED" });
@@ -105,7 +125,13 @@ test("T-guard: dist, the npm pack tarball and package exports cannot load the se
   for (const entry of manifest.files) {
     assert.equal(resolve(root, "packages/h2a", "test", seamName).startsWith(resolve(root, "packages/h2a", entry) + "/"), false, entry);
   }
-  assert.deepEqual(Object.keys(manifest.exports), [".", "./agy-claude"]);
+  assert.deepEqual(Object.keys(manifest.exports), [".", "./agy-claude", "./registry/manifest", "./registry/definitions"]);
+  assert.deepEqual(manifest.exports["./registry/manifest"], {
+    types: "./dist/registry/manifest.d.ts", import: "./dist/registry/manifest.js"
+  });
+  assert.deepEqual(manifest.exports["./registry/definitions"], {
+    types: "./dist/registry/definitions.d.ts", import: "./dist/registry/definitions.js"
+  });
   assert.deepEqual(manifest.exports["./agy-claude"], {
     types: "./dist/runtime/agy-claude.d.ts",
     import: "./dist/runtime/agy-claude.js"

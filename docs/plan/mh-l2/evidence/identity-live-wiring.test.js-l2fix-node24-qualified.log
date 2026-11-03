@@ -1,0 +1,18 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/identity-live-wiring.test.js
+node: v24.21.0
+private test root: /tmp/mh-l2-test-Q18EYc
+Claude config: /tmp/mh-l2-test-Q18EYc/claude
+✔ re-anchored on conversation: two distinct provider sessions in the SAME workspace get DISTINCT identities (concurrent agents never share an inbox — the BR25 collision fix) (18.582417ms)
+✔ connect reclaims the same perennial identity for the same provider session and local key (9.118453ms)
+✔ a same-leaf de-collisioned peer does NOT read the owner's legacy inbox (review BLOCKER #2) (7.20346ms)
+✔ inbox read on the perennial instance also reads its legacy alias inbox with dedup (5.243664ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 247.934271
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/identity-live-wiring.test.js"],"code":0,"signal":null,"elapsedMs":275}

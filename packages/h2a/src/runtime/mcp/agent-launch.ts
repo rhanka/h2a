@@ -1,3 +1,6 @@
+import { digest as argumentsDigest } from "../handover/wire.js";
+import { withWriterMutation } from "../handover/mutation.js";
+import { currentIdentity, observeProcess } from "../handover/admission.js";
 import { spawn, type SpawnSyncOptionsWithStringEncoding, type SpawnSyncReturns } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { appendFileSync, closeSync, fstatSync, mkdirSync, openSync, readFileSync, realpathSync, statSync, type Stats } from "node:fs";
@@ -16,6 +19,8 @@ export type H2aRunGateway = (typeof H2A_RUN_GATEWAYS)[number];
 export const H2A_RUN_API_VERSION = "h2a.run/v1";
 
 export type H2aRunRequest = {
+  /** Private participant seam, never accepted from MCP arguments. */
+  launchAuthority?: { token: string; launchId: string; onSpawn(identity: unknown): void };
   profile: H2aRunProfile;
   name: string;
   workspace: string;
@@ -421,7 +426,7 @@ export function executeH2aRunWithSpawn(
     Pick<SpawnSyncReturns<string>, "status" | "stdout" | "stderr" | "error">,
 ): unknown {
   const invocation = buildH2aRunInvocation(request);
-  const launchToken = randomUUID();
+  const launchToken = request.launchAuthority?.token ?? randomUUID();
   const result = spawn(invocation.command, invocation.args, {
     cwd: invocation.cwd,
     input: invocation.input,
@@ -497,13 +502,14 @@ export async function executeH2aRunWithAsyncSpawn(
   request: H2aRunRequest,
   spawnRuntime: typeof spawn = spawn,
   runtimeBudgetMs = request.profile === "codex" || request.profile === "muse" ? 270_000 : 180_000,
+  environment: NodeJS.ProcessEnv = process.env,
 ): Promise<Record<string, unknown>> {
   const invocation = buildH2aRunInvocation(request);
-  const launchToken = randomUUID();
+  const launchToken = request.launchAuthority?.token ?? randomUUID();
   const result = await new Promise<{ status: number | null; stdout: string; stderr: string; timedOut: boolean }>((resolve, reject) => {
     const child = spawnRuntime(invocation.command, invocation.args, {
       cwd: invocation.cwd, shell: false, stdio: ["pipe", "pipe", "pipe"],
-      env: { ...process.env, H2A_RUN_LAUNCH_TOKEN: launchToken },
+      env: { ...environment, H2A_RUN_LAUNCH_TOKEN: launchToken },
     });
     let stdout = "", stderr = "", timedOut = false, overflow = false;
     let escalation: ReturnType<typeof setTimeout> | undefined;
@@ -531,6 +537,13 @@ export async function executeH2aRunWithAsyncSpawn(
       else resolve({ status, stdout, stderr, timedOut: timedOut || status === null });
     });
     child.stdin!.end(invocation.input);
+    if (request.launchAuthority && child.pid) {
+      try {
+        const startTime = observeProcess(child.pid).startTime;
+        if (Number.isSafeInteger(startTime)) request.launchAuthority.onSpawn({ ...currentIdentity(), pid: child.pid, startTime });
+      } catch { /* A lost identity stays conservatively unresolved in the memo. */ }
+    }
+
   });
   if (!result.timedOut) {
     // Share contract validation with the synchronous compatibility/test seam.
@@ -566,9 +579,13 @@ export function createH2aRunLauncher(
 ): H2aRunExecutor {
   const launches = new Map<string, Record<string, unknown>>();
   const previousResults = new Map<string, Stats>();
+  const argumentsByName = new Map<string, string>();
   return request => {
+    const { launchAuthority: _authority, ...initialArguments } = request;
+    const digest = argumentsDigest(initialArguments);
     const existing = launches.get(request.name);
     if (existing) {
+      if (argumentsByName.get(request.name) !== digest) throw new Error("launch_arguments_conflict");
       // A run-once launch outlives the initial MCP response. Read its durable
       // completion on polling; never launch again or return stale "started".
       if (request.profile === "agy" && request.headless && isAgyClaudeModel(request.model) && existing.state === "started") {
@@ -594,6 +611,7 @@ export function createH2aRunLauncher(
       }
       return existing;
     }
+    argumentsByName.set(request.name, digest);
     const launching = { state: "launching", launchId: request.name, retrySafe: false };
     const canonicalResultPath = join(request.workspace, ".h2a", "runs", request.name, "result.json");
     if (request.profile === "agy" && request.headless && isAgyClaudeModel(request.model)) {
@@ -640,10 +658,11 @@ export function createH2aRunLauncher(
  * CLI has no argument or environment channel through which a direct caller
  * can assert this origin.
  */
-export function recordMcpRunDelegation(
+function recordMcpRunDelegationUnfenced(
   root: string,
   result: Record<string, unknown>,
   delegation: H2aRunDelegation | undefined,
+  eventId?: string,
 ): void {
   if (!delegation || result.ok !== true || result.state !== "started") return;
   const session = result.session;
@@ -655,10 +674,17 @@ export function recordMcpRunDelegation(
   try {
     const registry = join(root, "registry");
     mkdirSync(registry, { recursive: true, mode: 0o700 });
+    if (eventId) {
+      try {
+        if (readFileSync(join(registry, 'mcp-delegations.jsonl'), 'utf8').split('\n').filter(Boolean)
+          .some(line => (JSON.parse(line) as { eventId?: string }).eventId === eventId)) return;
+      } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+    }
     appendFileSync(
       join(registry, "mcp-delegations.jsonl"),
       `${JSON.stringify({
         version: 1,
+        ...(eventId ? { eventId } : {}),
         workerTmuxSession: tmuxSession,
         workerPid,
         origin: delegation.origin,
@@ -698,4 +724,8 @@ export function handleH2aRun(
     return { error: error instanceof Error ? error.message : String(error),
       ...((error as { code?: string })?.code ? { code: (error as { code: string }).code, retrySafe: false } : {}) };
   }
+}
+
+export function recordMcpRunDelegation(...args: Parameters<typeof recordMcpRunDelegationUnfenced>): ReturnType<typeof recordMcpRunDelegationUnfenced> {
+  return withWriterMutation(args[0], 'registry', () => recordMcpRunDelegationUnfenced(...args));
 }

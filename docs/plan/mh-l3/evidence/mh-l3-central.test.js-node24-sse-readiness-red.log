@@ -1,0 +1,35 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test --test-reporter=tap packages/h2a/test/mh-l3-central.test.js
+node: v24.21.0
+private root: /tmp/mh-l3-test-TuPj9J
+case: signed SSE should authenticate readiness promptly and release only its notification stream on disconnect
+TAP version 13
+# {"event":"drive-consent.full-verification","durationMs":0.003045999999983451,"alertThresholdMs":1000,"thresholdMs":2000,"budgetFraction":0.1,"identityDeadlineMs":20000,"due":false,"track":"01M39VC11XBNSE8W2ASMQRRKZV","action":"observe"}
+# Subtest: signed SSE should authenticate readiness promptly and release only its notification stream on disconnect
+not ok 1 - signed SSE should authenticate readiness promptly and release only its notification stream on disconnect
+  ---
+  duration_ms: 610.975753
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-bUCXsb/source/packages/h2a/test/mh-l3-central.test.js:2:94'
+  failureType: 'testCodeFailure'
+  error: 'signed SSE readiness failed: The operation was aborted'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  operator: 'fail'
+  stack: |-
+    open (file:///tmp/mh-l3-qualification-bUCXsb/source/packages/h2a/test/mh-l3-central.test.js:100:26)
+    process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    async TestContext.<anonymous> (file:///tmp/mh-l3-qualification-bUCXsb/source/packages/h2a/test/mh-l3-central.test.js:103:19)
+    async Test.run (node:internal/test_runner/test:1409:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 805.904869
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l3-central.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

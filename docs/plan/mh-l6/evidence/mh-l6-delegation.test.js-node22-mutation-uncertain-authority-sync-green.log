@@ -1,0 +1,22 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-delegation.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-gFdhyH
+case: all cases in explicit file
+TAP version 13
+# Subtest: U05 should resynchronize an uncertain acquisition before asserting mutation authority
+ok 1 - U05 should resynchronize an uncertain acquisition before asserting mutation authority
+  ---
+  duration_ms: 229.024825
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 344.27991
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-delegation.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":3,"leftovers":[]}

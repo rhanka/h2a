@@ -36,10 +36,15 @@ afterEach(async () => {
 });
 
 async function eventually<T>(read: () => Promise<T> | T, accept: (value: T) => boolean): Promise<T> {
+  // Time-based, not attempt-based: each spawn boots a host through the tsx
+  // loader, whose own startup exceeds a fixed 200-attempt budget on a loaded
+  // CI runner. The condition itself is unchanged.
+  const deadline = Date.now() + 30_000;
   let last: T | undefined;
-  for (let attempt = 0; attempt < 200; attempt += 1) {
+  for (;;) {
     last = await read();
     if (accept(last)) return last;
+    if (Date.now() >= deadline) break;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   throw new Error(`condition did not become true; last value: ${JSON.stringify(last)}`);
@@ -135,7 +140,8 @@ describe.skipIf(process.platform !== "linux")("native terminal host crash contai
     expect(diagnostics.faultCounters[counter]).toBe(1);
     expect(diagnostics.faultCounters["host-log.stderr-stream-error"]).toBe(1);
     expect(diagnostics.bufferedLines.some(line => line.includes(mode === "startup" ? "fatal:" : "shutdown failed"))).toBe(true);
-  });
+    // Slow-spawn budget: each case boots a host through the tsx loader.
+  }, 60_000);
   it.each(["legacy", "short"])("should attribute a live child through its %s staged socket after pathname and sidecar loss", async (grammar) => {
     const root = createPrivateTestDirectory("g");
     directories.add(root);
@@ -166,7 +172,8 @@ describe.skipIf(process.platform !== "linux")("native terminal host crash contai
     child.kill("SIGTERM");
     expect((await exited)[0]).toBe(0);
     client.close();
-  });
+    // Slow-spawn budget: the staged-socket host boots through tsx.
+  }, 60_000);
   it("should preserve Node's fatal behavior for an unguarded exception", async () => {
     const directory = await mkdtemp(join(tmpdir(), "n-"));
     directories.add(directory);
@@ -175,7 +182,8 @@ describe.skipIf(process.platform !== "linux")("native terminal host crash contai
     const exited = once(child, "exit");
     child.send!({ uncaught: true });
     expect((await exited)[0]).toBe(1);
-  });
+    // Slow-spawn budget: the fault-entry host boots through tsx.
+  }, 60_000);
   it("survives its stderr reader disappearing before a deferred durable-row prune", async () => {
     const directory = await mkdtemp(join(tmpdir(), "n-"));
     directories.add(directory);
@@ -238,7 +246,8 @@ describe.skipIf(process.platform !== "linux")("native terminal host crash contai
     ]);
     expect(exitCode).toBe(0);
     client.close();
-  });
+    // Slow-spawn budget: host boot plus two PTY lifecycles.
+  }, 60_000);
 
   it("isolates a faulty client connection: other clients and PTYs keep working", async () => {
     const directory = await mkdtemp(join(tmpdir(), "n-"));
@@ -299,5 +308,6 @@ describe.skipIf(process.platform !== "linux")("native terminal host crash contai
     ]);
     expect(exitCode).toBe(0);
     client.close();
-  }, 30_000);
+    // Slow-spawn budget: host boot plus a guarded PTY lifecycle.
+  }, 60_000);
 });

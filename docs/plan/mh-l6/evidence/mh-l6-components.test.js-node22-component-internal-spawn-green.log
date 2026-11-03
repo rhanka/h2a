@@ -1,0 +1,22 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-components.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-FVCRG7
+case: U12 should refuse an external late import from the internal spawn entry
+TAP version 13
+# Subtest: U12 should refuse an external late import from the internal spawn entry
+ok 1 - U12 should refuse an external late import from the internal spawn entry
+  ---
+  duration_ms: 3906.141619
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 4213.668502
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-components.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":2,"leftovers":[]}

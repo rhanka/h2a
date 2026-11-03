@@ -70,7 +70,10 @@ export function candidate(t) {
   const tarballs = join(root, 'tarballs');
   mkdirSync(tarballs);
   const artifacts = names.map(name => {
-    run('npm', ['pack', '--workspace', `@sentropic/${name}`, '--pack-destination', tarballs], source, env);
+    // The lab packs a local install candidate, never a publication: skip the
+    // closed-payload prepack gate (covered by the mh-l1/mh-l6 and candidate
+    // suites), mirroring the other workspace pack fixtures.
+    run('npm', ['pack', '--ignore-scripts', '--workspace', `@sentropic/${name}`, '--pack-destination', tarballs], source, env);
     // npm versions differ in whether lifecycle stdout precedes --json output.
     // Observe the actual artifact rather than parsing that mixed stream.
     const version = json(join(source, 'packages', name, 'package.json')).version;

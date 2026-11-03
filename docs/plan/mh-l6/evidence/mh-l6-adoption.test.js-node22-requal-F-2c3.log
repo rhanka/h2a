@@ -1,0 +1,94 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-adoption.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-UOqMx6
+case: all cases in explicit file
+TAP version 13
+# Subtest: C2b should require adoption when no managed selection exists
+ok 1 - C2b should require adoption when no managed selection exists
+  ---
+  duration_ms: 266.089549
+  type: 'test'
+  ...
+# Subtest: C2b should report already adopted when selection matches the target
+ok 2 - C2b should report already adopted when selection matches the target
+  ---
+  duration_ms: 2570.495861
+  type: 'test'
+  ...
+# Subtest: C2b should require adoption when the selection targets another build
+ok 3 - C2b should require adoption when the selection targets another build
+  ---
+  duration_ms: 206.656055
+  type: 'test'
+  ...
+# Subtest: C2b should require adoption when the physical installation is unreadable
+ok 4 - C2b should require adoption when the physical installation is unreadable
+  ---
+  duration_ms: 4225.475655
+  type: 'test'
+  ...
+# Subtest: C2b should require adoption when the managed layout is unrecognized
+ok 5 - C2b should require adoption when the managed layout is unrecognized
+  ---
+  duration_ms: 3648.451742
+  type: 'test'
+  ...
+# Subtest: C2b should refuse an invalid adoption assessment envelope
+ok 6 - C2b should refuse an invalid adoption assessment envelope
+  ---
+  duration_ms: 155.347011
+  type: 'test'
+  ...
+# Subtest: D should require no automatic adoption while management opted out
+ok 7 - D should require no automatic adoption while management opted out
+  ---
+  duration_ms: 54.08633
+  type: 'test'
+  ...
+# Subtest: D should report opt-out even when nothing is managed yet
+ok 8 - D should report opt-out even when nothing is managed yet
+  ---
+  duration_ms: 156.565645
+  type: 'test'
+  ...
+# Subtest: C2b should execute adoption from session to selected build
+ok 9 - C2b should execute adoption from session to selected build
+  ---
+  duration_ms: 67.102479
+  type: 'test'
+  ...
+# Subtest: C2b should return already adopted without mutating when selection matches
+ok 10 - C2b should return already adopted without mutating when selection matches
+  ---
+  duration_ms: 99.895151
+  type: 'test'
+  ...
+# Subtest: C2b should install the launcher but defer selection while exclusion is unfenced
+ok 11 - C2b should install the launcher but defer selection while exclusion is unfenced
+  ---
+  duration_ms: 107.566229
+  type: 'test'
+  ...
+# Subtest: C2b should write nothing when the session drifted before adoption
+ok 12 - C2b should write nothing when the session drifted before adoption
+  ---
+  duration_ms: 5.937776
+  type: 'test'
+  ...
+# Subtest: C2b should refuse an invalid adoption execution envelope
+ok 13 - C2b should refuse an invalid adoption execution envelope
+  ---
+  duration_ms: 6.350583
+  type: 'test'
+  ...
+1..13
+# tests 13
+# suites 0
+# pass 13
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 11702.810543
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-adoption.test.js"],"code":0,"signal":null,"tests":13,"invalid":false,"spawned":1,"leftovers":[]}

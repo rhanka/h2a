@@ -1,0 +1,58 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-image-prepare.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-VgZxWU
+case: all cases in explicit file
+TAP version 13
+# Subtest: C2b should prepare a verified adoption image under the session
+ok 1 - C2b should prepare a verified adoption image under the session
+  ---
+  duration_ms: 20.886556
+  type: 'test'
+  ...
+# Subtest: C2b should refuse a stage whose digest differs from the expected image
+ok 2 - C2b should refuse a stage whose digest differs from the expected image
+  ---
+  duration_ms: 5.83798
+  type: 'test'
+  ...
+# Subtest: C2b should refuse an image outside the qualified runtime profile
+ok 3 - C2b should refuse an image outside the qualified runtime profile
+  ---
+  duration_ms: 10.282455
+  type: 'test'
+  ...
+# Subtest: C2b should refuse a conflicting image already occupying the digest address
+ok 4 - C2b should refuse a conflicting image already occupying the digest address
+  ---
+  duration_ms: 13.620038
+  type: 'test'
+  ...
+# Subtest: C2b should prepare nothing when the installation drifted since the session opened
+ok 5 - C2b should prepare nothing when the installation drifted since the session opened
+  ---
+  duration_ms: 4.773646
+  type: 'test'
+  ...
+# Subtest: C2b should reuse an identical image already prepared at its digest address
+ok 6 - C2b should reuse an identical image already prepared at its digest address
+  ---
+  duration_ms: 17.098927
+  type: 'test'
+  ...
+# Subtest: C2b should refuse an invalid image preparation envelope
+ok 7 - C2b should refuse an invalid image preparation envelope
+  ---
+  duration_ms: 4.363453
+  type: 'test'
+  ...
+1..7
+# tests 7
+# suites 0
+# pass 7
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 211.067029
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-image-prepare.test.js"],"code":0,"signal":null,"tests":7,"invalid":false,"spawned":1,"leftovers":[]}

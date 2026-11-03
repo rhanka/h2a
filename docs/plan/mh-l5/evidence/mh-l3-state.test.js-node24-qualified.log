@@ -1,0 +1,52 @@
+command: /tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node --test --test-reporter=tap packages/h2a/test/mh-l3-state.test.js
+node: v24.21.0
+private root: /tmp/mh-l5-test-BLUnaT
+case: all cases in explicit file
+TAP version 13
+# Subtest: resume should fence transports, preserve one activation and quarantine unknown liveness within capacity
+ok 1 - resume should fence transports, preserve one activation and quarantine unknown liveness within capacity
+  ---
+  duration_ms: 1.933549
+  type: 'test'
+  ...
+# Subtest: request mappings should distinguish typed IDs, remap progress, settle once and cancel the original owner
+ok 2 - request mappings should distinguish typed IDs, remap progress, settle once and cancel the original owner
+  ---
+  duration_ms: 0.91941
+  type: 'test'
+  ...
+# Subtest: non-admission should require every binding from the authenticated response
+ok 3 - non-admission should require every binding from the authenticated response
+  ---
+  duration_ms: 0.22343
+  type: 'test'
+  ...
+# Subtest: catalogue should retain its served view and reject changed tools while accepting only provenance-checked additions
+ok 4 - catalogue should retain its served view and reject changed tools while accepting only provenance-checked additions
+  ---
+  duration_ms: 4.341741
+  type: 'test'
+  ...
+# Subtest: catalogue pages should stay under the frame bound and refuse a cursor from another revision
+ok 5 - catalogue pages should stay under the frame bound and refuse a cursor from another revision
+  ---
+  duration_ms: 29.169086
+  type: 'test'
+  ...
+# Subtest: schema instance values and properties named description or dollar-ref should remain normative
+ok 6 - schema instance values and properties named description or dollar-ref should remain normative
+  ---
+  duration_ms: 0.505441
+  type: 'test'
+  ...
+1..6
+# tests 6
+# suites 0
+# pass 6
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 81.801511
+
+receipt: {"command":["/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l3-state.test.js"],"code":0,"signal":null,"tests":6,"invalid":false,"spawned":1,"leftovers":[]}

@@ -1,0 +1,198 @@
+{
+  "source": "/tmp/mh-l3-qualification-YeHHOv/source",
+  "worktree": "/home/antoinefa/src/h2a/tmp/worktrees/mh-l0",
+  "files": [
+    {
+      "path": "packages/h2a/test/mh-l6-delegation.test.js",
+      "sha256": "c563c7bd86ad3818881383a96775e3aeba75ccb0bbf08bab3ceadd09de42e635"
+    },
+    {
+      "path": "packages/h2a/test/helpers/mh-l6-controller.mjs",
+      "sha256": "492e29578a21026ff54ef34357768ea1e2d3553069aeb5c27975770cf9de4377"
+    },
+    {
+      "path": "packages/h2a/src/runtime/upgrade/h4-store.js",
+      "sha256": "06d6bb515be9e9b0178e9225de47334eca53bd332b7b5253fda2eec4e44ac39a"
+    },
+    {
+      "path": "packages/h2a/test/mh-l6-selection.test.js",
+      "sha256": "3db592ca34a67e75f59eeb502fe9823f9ac0c7234903182d8738b5e962d693b0"
+    },
+    {
+      "path": "packages/h2a/test/helpers/mh-l6-installation.js",
+      "sha256": "d7f56d076d6fd90ba09ca34088c0341af37b8135c1b1587d2b51d6998695bb6c"
+    },
+    {
+      "path": "scripts/mh-l6-test.mjs",
+      "sha256": "5bd1a9d0402119fe24339bc2740f026b90a09a1c5a9ae411104fca69a9f26d3a"
+    },
+    {
+      "path": "scripts/mh-l6-mutate.mjs",
+      "sha256": "d2541c76032c0fd16b892330aca4b3102fda961f9252e454225f81f46b163fcf"
+    }
+  ],
+  "compiled": {
+    "path": "packages/h2a/dist/runtime/upgrade/h4-store.js",
+    "sha256": "400c7f6f20d1b03fc6300844884f6f02c756eb4992ffb3c831450bf6523b88cf"
+  },
+  "profiles": [
+    {
+      "major": 22,
+      "tests": 24,
+      "mutations": 30,
+      "logs": [
+        {
+          "log": "docs/plan/mh-l6/evidence/mh-l6-selection.test.js-node22-final-B1.log",
+          "sha256": "1246bb0afef7f3f660579f4cdd67b138837a526a553027e8467281a0e19af852",
+          "command": [
+            "/usr/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l6-selection.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 10,
+          "invalid": false,
+          "spawned": 1,
+          "leftovers": []
+        },
+        {
+          "log": "docs/plan/mh-l6/evidence/mh-l6-delegation.test.js-node22-final-B1.log",
+          "sha256": "fa53f7ba4e9a5ede22d380ba6f0fff593128c3396dbce7014bfe001d3c48aa80",
+          "command": [
+            "/usr/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l6-delegation.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 14,
+          "invalid": false,
+          "spawned": 53,
+          "leftovers": []
+        }
+      ]
+    },
+    {
+      "major": 24,
+      "tests": 24,
+      "mutations": 30,
+      "logs": [
+        {
+          "log": "docs/plan/mh-l6/evidence/mh-l6-selection.test.js-node24-final-B1.log",
+          "sha256": "15e90555a187decb98bd6cd5c5fec3092fa9c8c50e40ad9d3306c050be59477a",
+          "command": [
+            "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l6-selection.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 10,
+          "invalid": false,
+          "spawned": 1,
+          "leftovers": []
+        },
+        {
+          "log": "docs/plan/mh-l6/evidence/mh-l6-delegation.test.js-node24-final-B1.log",
+          "sha256": "9a2899eb112b9865e7e7490e19c330fdf692733a910c77a04b6551d5840857c1",
+          "command": [
+            "/tmp/mh-l5-artifacts-shD7Sf/node-v24.21.0-linux-x64/bin/node",
+            "--test",
+            "--test-reporter=tap",
+            "packages/h2a/test/mh-l6-delegation.test.js"
+          ],
+          "code": 0,
+          "signal": null,
+          "tests": 14,
+          "invalid": false,
+          "spawned": 53,
+          "leftovers": []
+        }
+      ]
+    }
+  ],
+  "diagnostics": [
+    {
+      "path": "docs/plan/mh-l6/evidence/mh-l0-authority.test.js-node22-selection-regression.log",
+      "code": 1,
+      "tests": 2,
+      "sha256": "8910f9ec02059972982bec3264cafe05fbeea55abebc3fcb8014c1097fcbfb70"
+    },
+    {
+      "path": "docs/plan/mh-l6/evidence/mh-l0-formats.test.js-node22-selection-regression.log",
+      "code": 1,
+      "tests": 4,
+      "sha256": "a34dbaa71d959c2a70bb07aacf99970ecae5b1713fe644ed4b8fae1c9f7f54e2"
+    },
+    {
+      "path": "docs/plan/mh-l6/evidence/mh-l6-delegation.test.js-node22-initial-red.log",
+      "code": 1,
+      "tests": 7,
+      "sha256": "f4b288410b65e4df85a3e532d1b7b4d6917b68662ab3b080b99845ace24ac34d"
+    },
+    {
+      "path": "docs/plan/mh-l6/evidence/mh-l6-delegation.test.js-node22-ipc-close-diagnostic.log",
+      "code": 1,
+      "tests": 1,
+      "sha256": "fd1b12f577dfed554b07058947ae39b041fbec533b6c59e099e3b27e34c1939c"
+    },
+    {
+      "path": "docs/plan/mh-l6/evidence/mh-l6-delegation.test.js-node22-ipc-diagnostic.log",
+      "code": 1,
+      "tests": 1,
+      "sha256": "99fc1568d5b2ed6d1f9ed489f738098dfcff04ff3458561d3f324777744bd36c"
+    },
+    {
+      "path": "docs/plan/mh-l6/evidence/mh-l6-delegation.test.js-node22-receipt-sync-red.log",
+      "code": 1,
+      "tests": 9,
+      "sha256": "f691565e55ea2beffafed5da404b805e0859b62b4d222d0239c06f3f1894eac3"
+    },
+    {
+      "path": "docs/plan/mh-l6/evidence/mh-l6-delegation.test.js-node22-receipt-sync-valid-red.log",
+      "code": 1,
+      "tests": 9,
+      "sha256": "46be3151ccf947e79e22fd08e80ac4fcfd124e1661ab43bbebf927fabe505287"
+    },
+    {
+      "path": "docs/plan/mh-l6/evidence/mh-l6-delegation.test.js-node22-recovery-red.log",
+      "code": 1,
+      "tests": 1,
+      "sha256": "918e2fe308804412661db2b02106ba5768146efdbbe2c733859684f7edd9d29d"
+    },
+    {
+      "path": "docs/plan/mh-l6/evidence/mh-l6-delegation.test.js-node22-recovery-revision-red.log",
+      "code": 1,
+      "tests": 1,
+      "sha256": "a0f1dfa5e40b09cdac21993f27d7d2d4885bc65be0a00289565ec3c84ce2a7d5"
+    },
+    {
+      "path": "docs/plan/mh-l6/evidence/mh-l6-selection.test.js-node22-first-green.log",
+      "code": 1,
+      "tests": 6,
+      "sha256": "76f5090473976de7ad24e55cf6338765f2ac248cca81141d4c747a2e74b6747e"
+    },
+    {
+      "path": "docs/plan/mh-l6/evidence/mh-l6-selection.test.js-node22-history-red.log",
+      "code": 1,
+      "tests": 9,
+      "sha256": "49dc4b8cdef79910b47ad824f98d8acc9dd73d38bb2e3b6d4b222ad18f56b72e"
+    },
+    {
+      "path": "docs/plan/mh-l6/evidence/mh-l6-selection.test.js-node22-initial-red.log",
+      "code": 1,
+      "tests": 6,
+      "sha256": "b756686e1c435e8fe01a1c6e8f2ad85450c02efeb282a6cb819ecc8d396e6b19"
+    },
+    {
+      "path": "docs/plan/mh-l6/evidence/mh-l6-selection.test.js-node22-intent-red.log",
+      "code": 1,
+      "tests": 1,
+      "sha256": "eead740fc292c0c8c0aa22e9d1645795098b7c27e9033c4b6ac3558759200b06"
+    }
+  ]
+}

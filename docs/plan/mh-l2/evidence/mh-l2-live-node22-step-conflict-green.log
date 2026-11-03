@@ -1,0 +1,22 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l2-live.test.js
+node: v22.22.1
+explicit oracle: passive retirement should accept every valid stepId and resume its own durable publication after a lost ACK
+private root: /tmp/mh-l2-live-mutation-3eEfbO
+TAP version 13
+# Subtest: passive retirement should accept every valid stepId and resume its own durable publication after a lost ACK
+ok 1 - passive retirement should accept every valid stepId and resume its own durable publication after a lost ACK
+  ---
+  duration_ms: 878.664437
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 999.049805
+
+receipt: {"code":0,"signal":null}

@@ -1,0 +1,33 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l3-argon.test.js
+node: v22.22.1
+private root: /tmp/mh-l3-test-JN5q9Q
+case: authority should reject group or world writable physical prefixes including umask 0002 worktrees
+TAP version 13
+# Subtest: authority should reject group or world writable physical prefixes including umask 0002 worktrees
+not ok 1 - authority should reject group or world writable physical prefixes including umask 0002 worktrees
+  ---
+  duration_ms: 97.839257
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-QCpN2Q/source/packages/h2a/test/mh-l3-argon.test.js:2:94'
+  failureType: 'testCodeFailure'
+  error: 'Missing expected rejection.'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+  operator: 'rejects'
+  stack: |-
+    async TestContext.<anonymous> (file:///tmp/mh-l3-qualification-QCpN2Q/source/packages/h2a/test/mh-l3-argon.test.js:172:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 388.887433
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l3-argon.test.js"],"code":1,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

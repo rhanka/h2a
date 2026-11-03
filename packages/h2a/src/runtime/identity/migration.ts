@@ -1,3 +1,4 @@
+import { withWriterMutation } from "../handover/mutation.js";
 /**
  * Transparent migration dual-read (DEC-116).
  *
@@ -136,7 +137,7 @@ export function legacyAliasOwner(root: string, legacyInstance: string, allAliase
     !first || alias.at < first.at ? alias : first, undefined);
 }
 
-export function recordIdentityAlias(root: string, alias: H2AIdentityAlias): void {
+function recordIdentityAliasUnfenced(root: string, alias: H2AIdentityAlias): void {
   mkdirSync(identityDir(root), { recursive: true });
   const indexed = lookupLaunchRows<H2AIdentityAlias>(aliasesFile(root), "aliases", launchLookupKey("pair", alias.instance, alias.legacyInstance));
   const exists = (indexed ?? listIdentityAliases(root)).some(
@@ -145,4 +146,8 @@ export function recordIdentityAlias(root: string, alias: H2AIdentityAlias): void
   );
   if (exists) return;
   appendLaunchRow(aliasesFile(root), "aliases", alias);
+}
+
+export function recordIdentityAlias(...args: Parameters<typeof recordIdentityAliasUnfenced>): ReturnType<typeof recordIdentityAliasUnfenced> {
+  return withWriterMutation(args[0], 'registry', () => recordIdentityAliasUnfenced(...args));
 }

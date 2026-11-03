@@ -1,0 +1,37 @@
+command: /home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node --test packages/h2a/test/mh-l4-ownership.test.js
+node: v24.21.0
+private test root: /tmp/mh-l4-test-NrmZpx
+✔ should fence a stale owner while admitted operations retain separate rights (41.722599ms)
+✔ should reconcile freeze after lost ACK and reject different handover tuples (23.837381ms)
+✖ should close ownership admissions after publication fsync uncertainty until explicit reconciliation (13.64209ms)
+✔ should refuse only the stale ownership epoch even when generation and process stay identical (9.546271ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 3
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 138.906961
+
+✖ failing tests:
+
+test at packages/h2a/test/mh-l4-ownership.test.js:55:1
+✖ should close ownership admissions after publication fsync uncertainty until explicit reconciliation (13.64209ms)
+  AssertionError [ERR_ASSERTION]: Missing expected exception.
+      at TestContext.<anonymous> (file:///tmp/mh-l4-release-check-RvMsgD/packages/h2a/test/mh-l4-ownership.test.js:63:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: /reconciliation_required/,
+    operator: 'throws',
+    diff: 'simple'
+  }
+
+receipt: {"command":["/home/antoinefa/.npm/_npx/387698761821791d/node_modules/node/bin/node","--test","packages/h2a/test/mh-l4-ownership.test.js"],"code":1,"signal":null,"elapsedMs":166}

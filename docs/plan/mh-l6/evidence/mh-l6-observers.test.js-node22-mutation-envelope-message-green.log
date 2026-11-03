@@ -1,0 +1,22 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/mh-l6-observers.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-yQzpxt
+case: B2 should refuse an invalid observer envelope instead of observing
+TAP version 13
+# Subtest: B2 should refuse an invalid observer envelope instead of observing
+ok 1 - B2 should refuse an invalid observer envelope instead of observing
+  ---
+  duration_ms: 1.323351
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 117.799559
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/mh-l6-observers.test.js"],"code":0,"signal":null,"tests":1,"invalid":false,"spawned":1,"leftovers":[]}

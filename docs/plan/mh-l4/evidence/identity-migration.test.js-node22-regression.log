@@ -1,0 +1,63 @@
+command: /usr/bin/node --test packages/h2a/test/identity-migration.test.js
+node: v22.22.1
+private test root: /tmp/mh-l4-test-dR5ttC
+TAP version 13
+# Subtest: empty / no sets → []
+ok 1 - empty / no sets → []
+  ---
+  duration_ms: 1.764471
+  type: 'test'
+  ...
+# Subtest: single set passes through, sorted by id
+ok 2 - single set passes through, sorted by id
+  ---
+  duration_ms: 0.182333
+  type: 'test'
+  ...
+# Subtest: dedup by id across sets — current (first) set wins on collision
+ok 3 - dedup by id across sets — current (first) set wins on collision
+  ---
+  duration_ms: 0.168728
+  type: 'test'
+  ...
+# Subtest: legacy-only ids are surfaced (transparent dual-read)
+ok 4 - legacy-only ids are surfaced (transparent dual-read)
+  ---
+  duration_ms: 0.096211
+  type: 'test'
+  ...
+# Subtest: entries without a string id are skipped, never throw
+ok 5 - entries without a string id are skipped, never throw
+  ---
+  duration_ms: 0.124654
+  type: 'test'
+  ...
+# Subtest: decideLegacyAdoption: first to prove possession inherits the legacy keyring
+ok 6 - decideLegacyAdoption: first to prove possession inherits the legacy keyring
+  ---
+  duration_ms: 0.07471
+  type: 'test'
+  ...
+# Subtest: decideLegacyAdoption: de-collided peer (already adopted) mints net-new keys
+ok 7 - decideLegacyAdoption: de-collided peer (already adopted) mints net-new keys
+  ---
+  duration_ms: 0.089669
+  type: 'test'
+  ...
+# Subtest: decideLegacyAdoption: no proof of possession → never inherits, mints net-new
+ok 8 - decideLegacyAdoption: no proof of possession → never inherits, mints net-new
+  ---
+  duration_ms: 0.070493
+  type: 'test'
+  ...
+1..8
+# tests 8
+# suites 0
+# pass 8
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 287.868744
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/identity-migration.test.js"],"code":0,"signal":null,"elapsedMs":363}

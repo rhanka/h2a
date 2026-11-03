@@ -1,0 +1,33 @@
+{
+  "node": "v24.21.0",
+  "files": [
+    {
+      "path": "packages/h2a/src/runtime/upgrade/legacy-observers.js",
+      "sha256": "8db51d02f05f9c25463d4848035c46afabda3afef63d3eddf853e99f91a828af"
+    },
+    {
+      "path": "packages/h2a/dist/runtime/upgrade/legacy-observers.js",
+      "sha256": "68600ed3a71efb3cb25dccf5c9dc2b3faf30d9aaff1e1943985478d130a35392"
+    }
+  ],
+  "results": [
+    {
+      "name": "no-persist",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-exclusion-producer.test.js-node24-mutation-no-persist-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-exclusion-producer.test.js-node24-mutation-no-persist-green.log",
+      "restored": true
+    },
+    {
+      "name": "verdict-upgrade",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-exclusion-producer.test.js-node24-mutation-verdict-upgrade-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-exclusion-producer.test.js-node24-mutation-verdict-upgrade-green.log",
+      "restored": true
+    },
+    {
+      "name": "observation-skip",
+      "red": "docs/plan/mh-l6/evidence/mh-l6-exclusion-producer.test.js-node24-mutation-observation-skip-red.log",
+      "green": "docs/plan/mh-l6/evidence/mh-l6-exclusion-producer.test.js-node24-mutation-observation-skip-green.log",
+      "restored": true
+    }
+  ]
+}

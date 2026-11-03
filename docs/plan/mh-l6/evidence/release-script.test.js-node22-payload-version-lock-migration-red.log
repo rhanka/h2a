@@ -1,0 +1,163 @@
+command: /usr/bin/node --test --test-reporter=tap packages/h2a/test/release-script.test.js
+node: v22.22.1
+private root: /tmp/mh-l6-test-dHQvpv
+case: all cases in explicit file
+TAP version 13
+# Subtest: parseVersion accepts strict X.Y.Z and returns numeric components
+ok 1 - parseVersion accepts strict X.Y.Z and returns numeric components
+  ---
+  duration_ms: 1.794346
+  type: 'test'
+  ...
+# Subtest: parseVersion rejects bad inputs
+ok 2 - parseVersion rejects bad inputs
+  ---
+  duration_ms: 0.393721
+  type: 'test'
+  ...
+# Subtest: bumpPackageJsonContent updates the version field
+ok 3 - bumpPackageJsonContent updates the version field
+  ---
+  duration_ms: 0.33445
+  type: 'test'
+  ...
+# Subtest: bumpPackageJsonContent rewrites the @sentropic/h2a dep to ^X.Y.Z
+ok 4 - bumpPackageJsonContent rewrites the @sentropic/h2a dep to ^X.Y.Z
+  ---
+  duration_ms: 0.099768
+  type: 'test'
+  ...
+# Subtest: bumpPackageJsonContent rewrites the @sentropic/track dep to ^X.Y.Z (lockstep)
+ok 5 - bumpPackageJsonContent rewrites the @sentropic/track dep to ^X.Y.Z (lockstep)
+  ---
+  duration_ms: 0.08509
+  type: 'test'
+  ...
+# Subtest: bumpPackageJsonContent migrates the runtime peer to an exact required dependency
+ok 6 - bumpPackageJsonContent migrates the runtime peer to an exact required dependency
+  ---
+  duration_ms: 0.099076
+  type: 'test'
+  ...
+# Subtest: bumpPackageLockContent keeps the exact required runtime and preserves unrelated dependency ranges
+not ok 7 - bumpPackageLockContent keeps the exact required runtime and preserves unrelated dependency ranges
+  ---
+  duration_ms: 1.004189
+  type: 'test'
+  location: '/tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/release-script.test.js:110:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    + actual - expected
+    
+    + undefined
+    - '0.98.7'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: '0.98.7'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/mh-l3-qualification-YeHHOv/source/packages/h2a/test/release-script.test.js:115:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: bumpPackageJsonContent leaves the @sentropic/h2a dep alone when absent
+ok 8 - bumpPackageJsonContent leaves the @sentropic/h2a dep alone when absent
+  ---
+  duration_ms: 0.097072
+  type: 'test'
+  ...
+# Subtest: bumpPackageJsonContent preserves trailing newline state
+ok 9 - bumpPackageJsonContent preserves trailing newline state
+  ---
+  duration_ms: 0.248397
+  type: 'test'
+  ...
+# Subtest: bumpPackageJsonContent validates the new version through parseVersion
+ok 10 - bumpPackageJsonContent validates the new version through parseVersion
+  ---
+  duration_ms: 0.277943
+  type: 'test'
+  ...
+# Subtest: bumpPackageLockContent updates root and workspace package versions
+ok 11 - bumpPackageLockContent updates root and workspace package versions
+  ---
+  duration_ms: 0.222458
+  type: 'test'
+  ...
+# Subtest: bumpPackageLockContent bumps packages/track and rewrites its caret in packages/h2a
+ok 12 - bumpPackageLockContent bumps packages/track and rewrites its caret in packages/h2a
+  ---
+  duration_ms: 0.117972
+  type: 'test'
+  ...
+# Subtest: bumpPackageLockContent validates the new version through parseVersion
+ok 13 - bumpPackageLockContent validates the new version through parseVersion
+  ---
+  duration_ms: 0.067948
+  type: 'test'
+  ...
+# Subtest: gitStatusIsClean accepts empty porcelain output only
+ok 14 - gitStatusIsClean accepts empty porcelain output only
+  ---
+  duration_ms: 0.047229
+  type: 'test'
+  ...
+# Subtest: resolveReleaseBranch creates release/vX.Y.Z when launched from main
+ok 15 - resolveReleaseBranch creates release/vX.Y.Z when launched from main
+  ---
+  duration_ms: 0.075963
+  type: 'test'
+  ...
+# Subtest: resolveReleaseBranch keeps the current non-main branch (bump inside the feature PR)
+ok 16 - resolveReleaseBranch keeps the current non-main branch (bump inside the feature PR)
+  ---
+  duration_ms: 0.057808
+  type: 'test'
+  ...
+# Subtest: resolveReleaseBranch refuses a detached HEAD or an empty branch name
+ok 17 - resolveReleaseBranch refuses a detached HEAD or an empty branch name
+  ---
+  duration_ms: 0.263085
+  type: 'test'
+  ...
+# Subtest: planReleaseGitSteps from main switches to release/vX.Y.Z before committing
+ok 18 - planReleaseGitSteps from main switches to release/vX.Y.Z before committing
+  ---
+  duration_ms: 0.145975
+  type: 'test'
+  ...
+# Subtest: planReleaseGitSteps never commits on main and never creates a tag
+ok 19 - planReleaseGitSteps never commits on main and never creates a tag
+  ---
+  duration_ms: 0.157537
+  type: 'test'
+  ...
+# Subtest: formatNextSteps describes branch push -> PR -> CI -> merge -> tag on merged commit
+ok 20 - formatNextSteps describes branch push -> PR -> CI -> merge -> tag on merged commit
+  ---
+  duration_ms: 0.112482
+  type: 'test'
+  ...
+# Subtest: formatNextSteps uses a signed tag when requested
+ok 21 - formatNextSteps uses a signed tag when requested
+  ---
+  duration_ms: 0.097283
+  type: 'test'
+  ...
+1..21
+# tests 21
+# suites 0
+# pass 20
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 106.936274
+
+receipt: {"command":["/usr/bin/node","--test","--test-reporter=tap","packages/h2a/test/release-script.test.js"],"code":1,"signal":null,"tests":21,"invalid":false,"spawned":1,"leftovers":[]}

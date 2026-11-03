@@ -1,0 +1,33 @@
+command: /usr/bin/node --test packages/h2a/test/mh-l1-package.test.js
+private test root: /tmp/mh-l1-test-NLffbM
+TAP version 13
+# Subtest: MH-L1 prototype should pack/install twice offline with exact runtime, integrated transport and a real legacy node-pty probe
+not ok 1 - MH-L1 prototype should pack/install twice offline with exact runtime, integrated transport and a real legacy node-pty probe
+  ---
+  duration_ms: 32717.344472
+  type: 'test'
+  location: '/home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l1-package.test.js:15:1'
+  failureType: 'testCodeFailure'
+  error: 'payload_mismatch'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    verifyImage (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/src/runtime/handover/image.js:65:11)
+    TestContext.<anonymous> (file:///home/antoinefa/src/h2a/tmp/worktrees/mh-l0/packages/h2a/test/mh-l1-package.test.js:64:20)
+    process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# npm pack --offline --ignore-scripts --json => {"filename":"sentropic-h2a-mh-l1-prototype-0.98.7-mh-l1.0.tgz","files":10703,"integrity":"sha512-NEzkhuaCyPKZbHq1Bv2W4ZqOHwy164hHEm5fsu5xkWyd0De6cjsjZRk6lpVjZo7+NgF9qkS4z3KzdhXZW/GQaA=="}
+# npm install --prefix <install-a> --offline --umask=022 --ignore-scripts => added 1 package in 6s
+# {"missing":[{"path":"node_modules/@smithy/core/CHANGELOG.md","type":"file","mode":420,"digest":"sha256:8163f31980f790dbfd7364157471c3640729ac258d39b2e863b1dbd5fa0eebcb","target":null},{"path":"node_modules/@smithy/credential-provider-imds/CHANGELOG.md","type":"file","mode":420,"digest":"sha256:6a84c4bc3f6207da510e91820303a9b2facbde30ce1d1f91c40e3cdcb42d3bf6","target":null},{"path":"node_modules/@smithy/fetch-http-handler/CHANGELOG.md","type":"file","mode":420,"digest":"sha256:4c3c5206f9b138f21fb5ad63a76346cbc02399cfdd6632cf854e42b9cbdca3d9","target":null},{"path":"node_modules/@smithy/node-http-handler/CHANGELOG.md","type":"file","mode":420,"digest":"sha256:035f61ae4ca7e92f803c6bdf64486616eb0d2ed5e22999b046e3603e4ec6d82f","target":null},{"path":"node_modules/@smithy/signature-v4/CHANGELOG.md","type":"file","mode":420,"digest":"sha256:83ee0297141c251cf3b6de503aca13e407804d63395104cda140dacb3853c95f","target":null},{"path":"node_modules/@smithy/types/CHANGELOG.md","type":"file","mode":420,"digest":"sha256:591b7bb745397de0655f7f2e0d8280edec4cabaaa1486e6c07dc0a7de3e754c5","target":null},{"path":"node_modules/which/CHANGELOG.md","type":"file","mode":420,"digest":"sha256:89bc599ca0b3a119d711c62855b2e3619b734bf371ef55dcc049454313f9904e","target":null}],"missingCount":7,"payloadDifferences":0,"examples":[]}
+1..1
+# tests 1
+# suites 0
+# pass 0
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 32888.76006
+
+receipt: {"command":["/usr/bin/node","--test","packages/h2a/test/mh-l1-package.test.js"],"code":1,"signal":null,"elapsedMs":32969}
