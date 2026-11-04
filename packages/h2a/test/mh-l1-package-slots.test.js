@@ -15,7 +15,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  assertSingleHoistedMesh,
   deferredChildSource,
+  existingTopSlot,
   recordNativeSlot,
   reservationFor,
   slotVisibleFrom,
@@ -130,6 +132,46 @@ test('P2: slotVisibleFrom refuses sibling-subtree slots', () => {
   assert.equal(
     slotVisibleFrom(m.records, m.slotSource, m.reservations, 'node_modules/a', 'node_modules/other', 'commander', '/s'),
     false,
+  );
+});
+
+test('M0-L1 single mesh: the image manifest keeps one hoisted llm-mesh, never nested duplicates', () => {
+  // CI shape (run 41931739434): the managed image held the same 0.26.0 under
+  // both top-level parents, so the single-mesh guard refused with
+  // divergent_llm_mesh. The validator below runs on the planner records that
+  // become npm-shrinkwrap (no payload tree needed).
+  const divergent = new Map([
+    ['node_modules/@sentropic/cluster-mesh', { name: '@sentropic/cluster-mesh', version: '0.25.0' }],
+    ['node_modules/@sentropic/cluster-mesh/node_modules/@sentropic/llm-mesh', { name: '@sentropic/llm-mesh', version: '0.26.0' }],
+    ['node_modules/@sentropic/llm-gateway', { name: '@sentropic/llm-gateway', version: '0.20.0' }],
+    ['node_modules/@sentropic/llm-gateway/node_modules/@sentropic/llm-mesh', { name: '@sentropic/llm-mesh', version: '0.26.0' }],
+  ]);
+  assert.throws(() => assertSingleHoistedMesh(divergent), /nested.*llm-mesh|divergent/i);
+  const single = new Map([
+    ['node_modules/@sentropic/cluster-mesh', { name: '@sentropic/cluster-mesh', version: '0.25.0' }],
+    ['node_modules/@sentropic/llm-gateway', { name: '@sentropic/llm-gateway', version: '0.20.0' }],
+    ['node_modules/@sentropic/llm-mesh', { name: '@sentropic/llm-mesh', version: '0.26.0' }],
+  ]);
+  assert.doesNotThrow(() => assertSingleHoistedMesh(single));
+});
+
+test('M0-L1 single mesh: a transitive with another version nests instead of squatting the reserved top slot', () => {
+  // Payload-root reservation holds the published 0.26.0 hoisted source; the
+  // engram-bundled 0.19.3 arriving first (via the cluster-mesh subtree before
+  // any direct) must see the top slot as taken and nest under its parent.
+  const top = new Map();
+  const reservations = new Map([
+    ['', new Map([['@sentropic/llm-mesh', { path: 'node_modules/@sentropic/llm-mesh', source: '/repo/llm-mesh-0.26.0' }]])],
+  ]);
+  assert.equal(
+    existingTopSlot(top, reservations, 'node_modules/@sentropic/engram', '@sentropic/llm-mesh', '/repo/llm-mesh-0.19.3'),
+    'node_modules/@sentropic/llm-mesh',
+    'another version nests instead of squatting the reserved top slot',
+  );
+  assert.equal(
+    existingTopSlot(top, reservations, 'node_modules/@sentropic/cluster-mesh', '@sentropic/llm-mesh', '/repo/llm-mesh-0.26.0'),
+    undefined,
+    'the reserved same source still hoists to the top slot',
   );
 });
 

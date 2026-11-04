@@ -111,6 +111,38 @@ export function recordNativeSlot(maps, nativeRelative, nativeSource, nativeInfo)
   maps.slotSource.set(nativeRelative, nativeSource);
 }
 
+/**
+ * Top slot already taken for `name` (`{ path }` value) when `source` must
+ * nest under its parent instead of squatting it: the recorded top entry, a
+ * nearer ancestor reservation holding another source, or the payload-root
+ * reservation holding another source. Returns `undefined` when the top slot
+ * is free for `source` (same source as the root reservation still hoists).
+ * Extracted for the M0-L1 single-mesh unit probe; `copyPackage` below is the
+ * only production caller.
+ */
+export function existingTopSlot(top, reservations, parent, name, source) {
+  const found = parent ? reservationFor(reservations, parent, name) : undefined;
+  const rootClaim = parent ? reservations.get('')?.get(name) : undefined;
+  return top.get(name)
+    ?? (found && found.claim.source !== source ? found.claim.path : undefined)
+    ?? (rootClaim && rootClaim.source !== source ? rootClaim.path : undefined);
+}
+
+/**
+ * Single-mesh invariant for the planner records that become
+ * npm-shrinkwrap: cluster-mesh and the gateway share ONE hoisted mesh copy.
+ * Throws on any nested mesh copy under either parent (the divergent shape
+ * the 0.25.0 guard refuses at runtime). Runs before the shrinkwrap is
+ * written so a regressing planner fails the build instead of shipping a
+ * divergent image.
+ */
+export function assertSingleHoistedMesh(records) {
+  const nested = [...records.keys()].filter(path =>
+    /node_modules\/@sentropic\/cluster-mesh\/node_modules\/@sentropic\/llm-mesh(?:\/|$)/.test(path)
+    || /node_modules\/@sentropic\/llm-gateway\/node_modules\/@sentropic\/llm-mesh(?:\/|$)/.test(path));
+  if (nested.length) throw new Error(`prototype_nested_llm_mesh:${nested.sort().join(',')}`);
+}
+
 export async function buildPackagingPrototype(root, { buildId, managedRoot } = {}) {
   return buildPayload(root, { buildId, managedRoot });
 }
@@ -177,19 +209,18 @@ async function buildPayload(root, { buildId, managedRoot, releaseVersion, packag
     const original = json(join(source, 'package.json'));
     const found = reservationFor(reservations, parent, original.name);
     // Same source as an ancestor's reservation: defer to its own copy (the
-    // reserving package's direct loop materializes it; same bytes).
-    if (found && found.owner !== parent && found.claim.source === source && !records.has(found.claim.path)) {
+    // reserving package's direct loop materializes it; same bytes). The
+    // payload root never materializes its own copy, so its reservation only
+    // decides hoisting below and never defers.
+    if (found && found.owner !== parent && found.owner !== '' && found.claim.source === source && !records.has(found.claim.path)) {
       return found.claim.path;
     }
     // Root directs win the top-level slot (npm hoisting): a transitive that
     // would squat an empty top slot reserved by the payload root at another
-    // version nests under its own parent instead. Concrete case: engram's
-    // llm-mesh 0.19.3 must not claim node_modules/@sentropic/llm-mesh ahead
-    // of h2a's direct 0.26.0.
-    const rootClaim = parent ? reservations.get('')?.get(original.name) : undefined;
-    const existing = top.get(original.name)
-      ?? (found && found.claim.source !== source ? found.claim.path : undefined)
-      ?? (rootClaim && rootClaim.source !== source ? rootClaim.path : undefined);
+    // version nests under its own parent instead. Concrete case: the
+    // engram-bundled mesh generation must not claim the top mesh slot ahead
+    // of h2a's direct 0.26.0 (single-mesh guard).
+    const existing = existingTopSlot(top, reservations, parent, original.name, source);
     // An empty parent is the payload root itself: `${parent}/node_modules/…`
     // would emit a leading-slash key the shrinkwrap checker refuses
     // (release_shrinkwrap_path_invalid). Fall back to the top-level path,
@@ -299,6 +330,27 @@ async function buildPayload(root, { buildId, managedRoot, releaseVersion, packag
     write(join(absolute, 'package.json'), metadata);
     return destination;
   }
+  // Payload-root hoisting reservations: the union of the core and runtime
+  // directs, resolved from their workspace dirs. Without this the root-claim
+  // branch stays dead and a transitive with another version (the
+  // engram-bundled mesh generation pulled via the cluster-mesh subtree
+  // before any direct) squats the top slot, forcing the published mesh to
+  // nest under both parents (divergent mesh). First workspace wins, mirroring
+  // the copy order below.
+  {
+    const rootScope = new Map();
+    for (const workspace of ['packages/h2a', 'packages/h2a-runtime']) {
+      const manifest = json(join(repo, workspace, 'package.json'));
+      const directs = { ...manifest.peerDependencies, ...manifest.optionalDependencies, ...manifest.dependencies };
+      if (workspace === 'packages/h2a') directs['@sentropic/h2a-runtime'] = json(join(repo, 'packages/h2a-runtime/package.json')).version;
+      for (const name of Object.keys(directs).sort()) {
+        if (rootScope.has(name)) continue;
+        const directory = dependencyDirectory(name, join(repo, workspace), release);
+        if (directory) rootScope.set(name, { path: `node_modules/${name}`, source: directory });
+      }
+    }
+    reservations.set('', rootScope);
+  }
   if (release) copyPackage(join(repo, packageName === '@sentropic/h2a' ? 'packages/h2a' : 'packages/h2a-runtime'), '');
   const corePath = copyPackage(join(repo, 'packages/h2a'), '');
   const runtimePath = copyPackage(join(repo, 'packages/h2a-runtime'), '');
@@ -325,6 +377,9 @@ async function buildPayload(root, { buildId, managedRoot, releaseVersion, packag
     writeFileSync(join(root, 'dist/bin.js'), `#!/usr/bin/env node\nimport '../${corePath}/dist/bin.js';\n`, { mode: 0o755 });
     writeFileSync(join(root, 'dist/index.js'), `export * from '../${corePath}/dist/index.js';\n`);
   }
+  // Single-mesh gate: fail the build here instead of shipping a divergent
+  // image the 0.25.0 guard would refuse at runtime.
+  assertSingleHoistedMesh(records);
   const lock = { name: pkg.name, version, lockfileVersion: 3, requires: true, packages: {
     '': { name: pkg.name, version, dependencies: pkg.dependencies, engines: pkg.engines, bundleDependencies: pkg.bundleDependencies }
   } };
