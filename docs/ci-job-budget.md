@@ -144,3 +144,21 @@ slowdown of existing cases, so the job budget moves 25m to 35m; the
 component allowances above are unchanged and the extra 10m extends the
 contingency. No test, subprocess, or child deadline changes. The
 m17-qualification jobs still complete inside their unchanged 25m budget.
+
+## Node shard matrix (2026-11-03)
+
+The Node `*.test.js` suite outgrew one job: three sequential buckets took
+~781 s on Node 22 (run 41304247550) inside a 1260 s step backstop, with the
+job at 18m46s. In-job file concurrency was already at the safe max
+(`availableParallelism()` on a 4-vCPU runner; the long poles are CPU-bound
+single files with 150-235 s solo tails, so more workers cannot shorten them).
+
+Four `node-shard (node x shard)` jobs now run duration-balanced partitions
+(`scripts/ci-node-shards.mjs`, longest-processing-time greedy over the measured
+walls in `scripts/ci-node-shard-durations.json`) on their own runners and seal
+same-run evidence envelopes. `build-and-test` requires all shards (fails when
+any shard fails or its artifact is missing), imports the envelopes, and proves
+exactly-once coverage over the merged reports with the unchanged inventory
+verifier. `npm-test-trust-root` still executes the complete entrypoint
+standalone. Required check names are unchanged; no branch-protection change is
+required. Shard jobs carry a 20-minute budget against ~5-minute expected wall.
