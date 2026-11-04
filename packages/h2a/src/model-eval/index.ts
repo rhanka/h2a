@@ -45,8 +45,11 @@ export {
   BUILD_MIN_INTEL_ENV,
   DEFAULT_BUILD_MIN_INTELLIGENCE,
   DESIGN_MIN_INTELLIGENCE,
+  LAUNCH_NAME_PATTERN,
   collectCandidates,
+  designLaunchName,
   maxEffortFor,
+  quoteArg,
   recommend,
   renderRunCommand,
   resolveBuildMinIntelligence
