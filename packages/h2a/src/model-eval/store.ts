@@ -6,8 +6,10 @@
  * `ARTIFICIAL_ANALYSIS_API_KEY` **by name only** — the value is never logged,
  * never echoed, never persisted.
  *
- * Cache layout under the h2a state dir (`$H2A_ROOT`, else
- * `~/h2a-workspace/.h2a` — the shared-bus default from `cli.ts`):
+ * Every state-dir value names the parent state dir: `$MODEL_EVAL_STATE_DIR`,
+ * `--state-dir`, `$H2A_ROOT`, or `~/h2a-workspace/.h2a` (the shared-bus
+ * default from `cli.ts`). The module always appends the `model-eval/`
+ * segment itself, so the cache files land at:
  *   `<stateDir>/model-eval/aa-index.json`          dated AA snapshot
  *   `<stateDir>/model-eval/quota-overrides.json`   local exhausted-seat list
  *
@@ -29,10 +31,15 @@ export const MODEL_EVAL_STATE_SUBDIR = "model-eval";
 export const MODEL_EVAL_CACHE_FILE = "aa-index.json";
 export const MODEL_EVAL_QUOTA_FILE = "quota-overrides.json";
 
-/** State dir: explicit test override, then `$H2A_ROOT`, then the bus default. */
-export function resolveModelEvalStateDir(): string {
+/**
+ * State dir: the given dir (or, when omitted, `$MODEL_EVAL_STATE_DIR`, then
+ * `$H2A_ROOT`, then the bus default) names the parent state dir; the
+ * `model-eval/` segment is always appended by this function.
+ */
+export function resolveModelEvalStateDir(explicit?: string): string {
+  if (explicit !== undefined && explicit.length > 0) return join(explicit, MODEL_EVAL_STATE_SUBDIR);
   const override = process.env["MODEL_EVAL_STATE_DIR"];
-  if (override !== undefined && override.length > 0) return override;
+  if (override !== undefined && override.length > 0) return join(override, MODEL_EVAL_STATE_SUBDIR);
   const root = process.env["H2A_ROOT"];
   const base =
     root !== undefined && root.length > 0
@@ -42,11 +49,11 @@ export function resolveModelEvalStateDir(): string {
 }
 
 export function cacheFilePath(stateDir?: string): string {
-  return join(stateDir ?? resolveModelEvalStateDir(), MODEL_EVAL_CACHE_FILE);
+  return join(resolveModelEvalStateDir(stateDir), MODEL_EVAL_CACHE_FILE);
 }
 
 export function quotaFilePath(stateDir?: string): string {
-  return join(stateDir ?? resolveModelEvalStateDir(), MODEL_EVAL_QUOTA_FILE);
+  return join(resolveModelEvalStateDir(stateDir), MODEL_EVAL_QUOTA_FILE);
 }
 
 function isFiniteNumber(value: unknown): value is number {
@@ -182,6 +189,12 @@ export async function fetchAaIndex(
     page += 1;
     if (page > 50) break;
   }
+  if (models.length === 0) {
+    throw new ModelEvalError(
+      "MODEL_EVAL_FETCH_FAILED",
+      `AA free endpoint returned no usable models (skipped ${skipped}): refusing to cache an empty index.`
+    );
+  }
   return {
     cache: {
       source: `aa-api-v2:${AA_FREE_ENDPOINT}`,
@@ -249,7 +262,8 @@ export function loadCache(stateDir?: string): AaIndexCache {
 
 /**
  * Load the local exhausted-seat list. Missing file → no overrides (not an
- * error). Malformed file → `MODEL_EVAL_BAD_CACHE`.
+ * error). Malformed file or malformed entry → `MODEL_EVAL_BAD_CACHE`
+ * (fail-closed: a misspelled exhausted seat must never be recommended).
  *
  * Format: `{ "exhausted": [{ "seat": "codex", "until": "<ISO>", "note": "…" }] }`
  * `seat` matches a profile name, a full model id, or a mapping alias.
@@ -279,19 +293,33 @@ export function loadQuotaOverrides(stateDir?: string): QuotaExhaustion[] {
   }
   const out: QuotaExhaustion[] = [];
   for (const item of list as unknown[]) {
-    if (typeof item !== "object" || item === null) continue;
-    const r = item as Record<string, unknown>;
-    if (typeof r["seat"] !== "string" || typeof r["until"] !== "string") continue;
+    const r =
+      typeof item === "object" && item !== null
+        ? (item as Record<string, unknown>)
+        : null;
+    const seat = r?.["seat"];
+    const until = r?.["until"];
+    if (
+      typeof seat !== "string" ||
+      seat.length === 0 ||
+      typeof until !== "string" ||
+      !Number.isFinite(new Date(until).getTime())
+    ) {
+      throw new ModelEvalError(
+        "MODEL_EVAL_BAD_CACHE",
+        `Quota file at ${path} has a malformed entry (want { seat, until ISO }): ${JSON.stringify(item)}.`
+      );
+    }
     out.push({
-      seat: r["seat"] as string,
-      until: r["until"] as string,
-      note: typeof r["note"] === "string" ? (r["note"] as string) : ""
+      seat,
+      until,
+      note: typeof r?.["note"] === "string" ? (r?.["note"] as string) : ""
     });
   }
   return out;
 }
 
-/** True while `now < until` (invalid dates never exhaust). */
+/** True while `now < until` (invalid dates never exhaust — belt and braces, entries are validated at load). */
 export function isSeatExhausted(
   seat: string,
   overrides: readonly QuotaExhaustion[],
