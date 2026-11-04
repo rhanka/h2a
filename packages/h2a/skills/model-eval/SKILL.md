@@ -24,10 +24,12 @@ or paste `cli` at a terminal.
   persist it; refer to it by name only.
 - The public leaderboard page is NOT a fallback: it embeds no scores
   (client-side fetch, key-gated) — verified 2026-11-04.
-- Snapshot cached at `<stateDir>/model-eval/aa-index.json` with `fetchedAt`
-  (`<stateDir>` = `$H2A_ROOT`, else `~/h2a-workspace/.h2a`, override
-  `$MODEL_EVAL_STATE_DIR`). Always work offline from the cache and show its
-  date. No cache + no fetch possible → typed refusal, never a guess.
+- Snapshot cached at `<stateDir>/model-eval/aa-index.json` with `fetchedAt`.
+  `<stateDir>` names the parent state dir: `$MODEL_EVAL_STATE_DIR`, else
+  `$H2A_ROOT`, else `~/h2a-workspace/.h2a` (the `model-eval/` segment is
+  always appended by the module, including under the override and
+  `--state-dir`). Always work offline from the cache and show its date. No
+  cache + no fetch possible → typed refusal, never a guess.
 
 ## Step 1 — ensure a dated cache
 
@@ -49,7 +51,9 @@ the network.
 
 `seat` matches a profile name, a full model id, or a mapping alias. A seat is
 exhausted while `now < until`. (No other quota signal exists in-tree as of
-2026-11-04; this file is the signal.)
+2026-11-04; this file is the signal.) Malformed entries fail closed: a bad
+seat, a missing field, or an unparseable date is a typed refusal
+(`MODEL_EVAL_BAD_CACHE`), never a silent skip.
 
 ## Step 3 — recommend
 
@@ -69,8 +73,13 @@ Rules:
 - **build**: intelligence ≥ threshold (`--build-min-intel`, else
   `$MODEL_EVAL_BUILD_MIN_INTEL`, else default **30**), fastest
   `outputTokensPerSec` wins.
-- **review**: `--author-model` required; most intelligent model distinct from
-  it (opus/quota guards apply).
+- **review**: `--author-model` required; most intelligent scored
+  (non-null intelligence) model distinct from it (opus/quota guards apply).
+- Design launches derive distinct names from `--name`: `<name>-author` and
+  `<name>-reviewer` (truncated to fit `^[A-Za-z0-9_-]{1,64}$`), so the two
+  `h2a_run` calls and the two `h2a run` commands never collide.
+- CLI gateway rendering mirrors the runtime launcher: `required` → `--gw`,
+  `off` → `--no-gw`, `auto` (codex default, direct) → no flag.
 - **Opus guard**: Opus-class entries are excluded unless
   `--owner-authorized-opus` is passed (owner authorized it). The flag never
   invents a launch id — a flagged Opus slug without a mapping row stays
@@ -83,20 +92,30 @@ Rules:
 | AA slug | profile | h2a model id | notes |
 |---|---|---|---|
 | `gpt-5-3-codex` | codex | `gpt-5.6-terra` | Terra xhigh class (h2a-run skill) |
-| `gpt-5-5-pro` | codex | `gpt-5.6-terra` | pro GPT via codex lane |
-| `gpt-5-5-instant-06-26` | codex | `gpt-5.6-terra` | fast GPT; build-lane candidate |
-| `gemini-*` (prefix) | agy | `gemini-3.7-flash-high` | family rule; agy max effort `high` |
+| `gemini-3-7-flash` | agy | `gemini-3.7-flash-high` | agy max effort `high` (h2a-run skill) |
+
+One source slug per launch id: a score always comes from the single reviewed
+slug mapped to that launch id, never borrowed from a sibling. Withheld on
+purpose: `gpt-5-5-pro` and `gpt-5-5-instant-06-26` share the `gpt-5.6-terra`
+launch id without sourced equivalence, so they stay unmapped (excluded as
+"no mapping row"). No prefix rules: an unreviewed slug stays excluded even
+inside a known family.
 
 AA slugs above were observed on the AA leaderboard page on 2026-11-04; launch
 ids are attested by the h2a-run skill. Re-verify each launch id against the
 live gateway catalog (`GET <gateway>/v1/models`) before relying on it — the
 table is reviewed, not live. To extend: resolve the exact id, add a row with
-today's review stamp in `packages/h2a/src/model-eval/mapping.ts`, extend the
-fixture in `packages/h2a/test/model-eval.test.js`, rebuild, retest.
+today's review stamp in `packages/h2a/src/model-eval/mapping.ts` (keeping the
+one-slug-per-launch-id invariant, asserted in
+`packages/h2a/test/model-eval.test.js`), extend the fixture in that test
+file, rebuild, retest.
 
-No rows exist yet for `muse`, `vibe`, or non-Opus `claude` (no attested launch
-ids in-tree) — those AA models are excluded as unmapped until rows are added.
-Opus has no launchable row by policy (see guard above).
+Scope choice: no rows exist yet for `muse`, `vibe`, or non-Opus `claude`.
+The gateway catalog does attest launch ids for those lanes
+(`muse-spark-1.3`, `muse-wonder-1.0`, `muse-wonder-full-1.0`), but no AA slug
+for those families was observed and reviewed, and a row needs both — so those
+AA models are excluded as unmapped until such a pair is attested. Opus has no
+launchable row by policy (see guard above).
 
 ## Output
 
