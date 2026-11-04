@@ -28,7 +28,8 @@ Tests: `packages/h2a/test/model-eval.test.js` (node:test, frozen fixture, no net
 ## Extending the mapping table
 
 `packages/h2a/src/model-eval/mapping.ts` + fixture rows in the test file.
-Exact slug beats prefix. Rows need `reviewed: YYYY-MM-DD`. No attested launch
+Exact slugs only (no prefix rules); one source slug per launch id (scores
+are never borrowed). Rows need `reviewed: YYYY-MM-DD`. No attested launch
 id → `model: null` (excluded, reported). Opus rows additionally need the
 recommender flag (`ownerAuthorizedOpus`) at call time.
 

@@ -10,6 +10,9 @@
  *     [--author-model <id>] [--owner-authorized-opus] [--build-min-intel <n>]
  *     [--state-dir <dir>]
  *
+ * `--state-dir` (like `$MODEL_EVAL_STATE_DIR`) names the parent state dir;
+ * the module appends `model-eval/` itself.
+ *
  * `fetch` needs `$ARTIFICIAL_ANALYSIS_API_KEY` (name only on the CLI; the
  * value is never printed). All other commands work offline from the dated
  * cache. Exit codes: 0 ok · 1 bad input · 2 state error (no source, no
@@ -42,12 +45,31 @@ function usage(): string {
   ].join("\n");
 }
 
+/** Flags allowed per command (anything else is a typed refusal, not ignored). */
+const FETCH_FLAGS = new Set(["state-dir"]);
+const STATUS_FLAGS = new Set(["state-dir"]);
+const RECOMMEND_FLAGS = new Set([
+  "role",
+  "name",
+  "workspace",
+  "prompt",
+  "author-model",
+  "owner-authorized-opus",
+  "build-min-intel",
+  "state-dir"
+]);
+
 function parseArgs(argv: string[]): { cmd: string; flags: Record<string, string> } {
   const [cmd, ...rest] = argv;
   const flags: Record<string, string> = {};
   for (let i = 0; i < rest.length; i++) {
     const arg = rest[i] as string;
-    if (!arg.startsWith("--")) continue;
+    if (!arg.startsWith("--")) {
+      throw new ModelEvalError(
+        "MODEL_EVAL_BAD_INPUT",
+        `Unexpected positional argument ${JSON.stringify(arg)} (only flags are accepted).\n${usage()}`
+      );
+    }
     const key = arg.slice(2);
     if (key === "owner-authorized-opus") {
       flags[key] = "true";
@@ -67,6 +89,19 @@ function stateDirFrom(flags: Record<string, string>): string | undefined {
   return flags["state-dir"] === undefined ? undefined : flags["state-dir"];
 }
 
+function assertKnownFlags(cmd: string, flags: Record<string, string>): void {
+  const allowed =
+    cmd === "fetch" ? FETCH_FLAGS : cmd === "status" ? STATUS_FLAGS : RECOMMEND_FLAGS;
+  for (const key of Object.keys(flags)) {
+    if (!allowed.has(key)) {
+      throw new ModelEvalError(
+        "MODEL_EVAL_BAD_INPUT",
+        `Unknown flag --${key} for command '${cmd}'.\n${usage()}`
+      );
+    }
+  }
+}
+
 async function main(argv: string[]): Promise<number> {
   let parsed;
   try {
@@ -77,6 +112,13 @@ async function main(argv: string[]): Promise<number> {
   }
   const { cmd, flags } = parsed;
   try {
+    if (cmd !== "fetch" && cmd !== "status" && cmd !== "recommend") {
+      throw new ModelEvalError(
+        "MODEL_EVAL_BAD_INPUT",
+        `Unknown command ${JSON.stringify(cmd)} (want fetch|status|recommend).\n${usage()}`
+      );
+    }
+    assertKnownFlags(cmd, flags);
     if (cmd === "fetch") {
       const apiKey = process.env[AA_API_KEY_ENV];
       if (apiKey === undefined || apiKey.length === 0) {
@@ -94,13 +136,19 @@ async function main(argv: string[]): Promise<number> {
       return 0;
     }
     if (cmd === "status") {
-      const dir = stateDirFrom(flags) ?? resolveModelEvalStateDir();
+      const dir = resolveModelEvalStateDir(stateDirFrom(flags));
       let cache: { fetchedAt: string; models: number; source: string } | null = null;
       try {
         const loaded = loadCache(stateDirFrom(flags));
         cache = { fetchedAt: loaded.fetchedAt, models: loaded.models.length, source: loaded.source };
-      } catch {
-        cache = null;
+      } catch (error) {
+        // Missing cache is a normal offline state; anything else (corrupt
+        // cache) must surface instead of hiding behind `cache: null`.
+        if (error instanceof ModelEvalError && error.code === "MODEL_EVAL_NO_SOURCE") {
+          cache = null;
+        } else {
+          throw error;
+        }
       }
       const overrides = loadQuotaOverrides(stateDirFrom(flags));
       process.stdout.write(

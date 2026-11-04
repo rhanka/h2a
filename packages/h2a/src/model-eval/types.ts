@@ -50,10 +50,8 @@ export interface AaIndexCache {
 
 /** One row of the reviewed AA-slug → h2a-launch mapping table. */
 export interface ModelEvalMappingRow {
-  /** Exact AA slug match. Exactly one of `aaSlug` / `aaPrefix` is set. */
-  readonly aaSlug?: string;
-  /** Prefix match on the AA slug (family rule, e.g. `gemini-`). */
-  readonly aaPrefix?: string;
+  /** Exact AA slug match — the single source slug for this launch id. */
+  readonly aaSlug: string;
   readonly profile: ModelEvalProfile;
   /**
    * Exact `--model` / `model` id to launch. `null` means "known family, no

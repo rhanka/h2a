@@ -4,16 +4,22 @@
  *
  * Rules (owner 03/11):
  * - design/spec/design-review → intelligence STRICTLY > 50, effort max
- *   (`xhigh`; agy cannot take `xhigh` so it never serves design). Most
- *   intelligent available wins; author and reviewer are two DIFFERENT models.
+ *   (`xhigh`; agy caps at `high`, so agy serves design only as reviewer at
+ *   its max effort). Most intelligent available wins; author and reviewer
+ *   are two DIFFERENT models launched under distinct names.
  * - build → intelligence >= minimal threshold (configurable via
  *   `MODEL_EVAL_BUILD_MIN_INTEL`, default `30`, documented), fastest
  *   `outputTokensPerSec` wins.
- * - review → most intelligent available model DISTINCT from the author's.
+ * - review → most intelligent scored (non-null intelligence) model DISTINCT
+ *   from the author's, at its profile's max effort. No fixed floor beyond
+ *   requiring a score: the author already passed the design floor, and the
+ *   reviewer only needs a ranked, distinct alternative.
  * - Opus-class: excluded unless `ownerAuthorizedOpus` is true.
  * - Quota: seats exhausted per the local override file are excluded.
- * - Unknown AA slug (no mapping row, or row without launch id): excluded and
- *   reported, never guessed.
+ * - Unknown AA slug (no mapping row, or row without attested launch id):
+ *   excluded and reported, never guessed.
+ * - Every launchable candidate lands either in `picks` or in `excluded`
+ *   with a reason, so the audit trail is complete per role.
  */
 import { isOpusSlug, mapAaToH2a } from "./mapping.js";
 import { isSeatExhausted } from "./store.js";
@@ -33,6 +39,9 @@ import type {
 export const DESIGN_MIN_INTELLIGENCE = 50;
 export const DEFAULT_BUILD_MIN_INTELLIGENCE = 30;
 export const BUILD_MIN_INTEL_ENV = "MODEL_EVAL_BUILD_MIN_INTEL";
+
+/** Launch-name pattern shared with the `h2a_run` MCP tool. */
+export const LAUNCH_NAME_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
 /** Profiles that accept `xhigh` (agy caps at `high`, vibe takes no effort). */
 export function maxEffortFor(profile: ModelEvalProfile): ModelEvalEffort | null {
@@ -128,6 +137,19 @@ function headlessFor(profile: ModelEvalProfile): boolean {
   return profile !== "muse" && profile !== "vibe";
 }
 
+/**
+ * Design launches share one base name; the author and reviewer picks each
+ * get their own suffixed launch name (mcp `name` / cli `--name` must be
+ * unique — a second `h2a_run` with the same name but different arguments is
+ * rejected as `launch_arguments_conflict`). The suffix is preserved while
+ * the stem is truncated to fit `^[A-Za-z0-9_-]{1,64}$`.
+ */
+export function designLaunchName(base: string, pick: "author" | "reviewer"): string {
+  const suffix = pick === "author" ? "-author" : "-reviewer";
+  const stem = base.length + suffix.length <= 64 ? base : base.slice(0, 64 - suffix.length);
+  return `${stem}${suffix}`;
+}
+
 function toRecommendation(
   role: ModelEvalRole,
   candidate: ModelEvalCandidate,
@@ -176,9 +198,17 @@ function toRecommendation(
   };
 }
 
+/** Quote one argv word when it leaves the safe literal set. */
+export function quoteArg(word: string): string {
+  if (/^[A-Za-z0-9_@%+=:,./-]+$/.test(word)) return word;
+  return `'${word.replace(/'/g, `'\\''`)}'`;
+}
+
 /**
  * Render the reference `h2a run` CLI form (see the h2a-run skill).
  * Prompt travels on stdin (`--prompt-stdin`); never in argv.
+ * Gateway mirrors the runtime launcher: `required` → `--gw`,
+ * `off` → `--no-gw`, `auto` → no flag (direct by default).
  */
 export function renderRunCommand(
   profile: ModelEvalProfile,
@@ -188,10 +218,11 @@ export function renderRunCommand(
   headless: boolean,
   launch: { name: string; workspace: string }
 ): string {
-  const parts = ["h2a", "run", profile, launch.workspace, "--model", model];
+  const parts = ["h2a", "run", profile, quoteArg(launch.workspace), "--model", quoteArg(model)];
   if (effort !== null) parts.push("--effort", effort);
-  parts.push(gateway === "off" ? "--no-gw" : "--gw");
-  parts.push("--name", launch.name);
+  if (gateway === "required") parts.push("--gw");
+  else if (gateway === "off") parts.push("--no-gw");
+  parts.push("--name", quoteArg(launch.name));
   if (headless) {
     parts.push("--no-attach", "--background", "--json", "--headless", "--no-h2a");
   }
@@ -201,16 +232,40 @@ export function renderRunCommand(
 
 /** Build-min-intelligence: explicit arg > env > documented default. */
 export function resolveBuildMinIntelligence(explicit?: number): number {
-  if (explicit !== undefined && Number.isFinite(explicit)) return explicit;
+  if (explicit !== undefined) {
+    if (!Number.isFinite(explicit)) {
+      throw new ModelEvalError(
+        "MODEL_EVAL_BAD_INPUT",
+        `Invalid build intelligence floor ${explicit}: pass a finite number via --build-min-intel or $${BUILD_MIN_INTEL_ENV}.`
+      );
+    }
+    return explicit;
+  }
   const raw = process.env[BUILD_MIN_INTEL_ENV];
   if (raw !== undefined && raw.length > 0) {
     const parsed = Number(raw);
-    if (Number.isFinite(parsed)) return parsed;
+    if (!Number.isFinite(parsed)) {
+      throw new ModelEvalError(
+        "MODEL_EVAL_BAD_INPUT",
+        `Invalid $${BUILD_MIN_INTEL_ENV} value ${JSON.stringify(raw)}: set a finite number or unset it for the default.`
+      );
+    }
+    return parsed;
   }
   return DEFAULT_BUILD_MIN_INTELLIGENCE;
 }
 
+function validateLaunchName(name: string): void {
+  if (!LAUNCH_NAME_PATTERN.test(name)) {
+    throw new ModelEvalError(
+      "MODEL_EVAL_BAD_INPUT",
+      `Invalid launch name ${JSON.stringify(name)}: want ^[A-Za-z0-9_-]{1,64}$ (h2a_run name contract).`
+    );
+  }
+}
+
 export function recommend(input: RecommendInput): ModelEvalOutcome {
+  validateLaunchName(input.launch.name);
   const now = input.now ?? new Date();
   const { candidates, excluded } = collectCandidates(
     input.models,
@@ -227,28 +282,47 @@ export function recommend(input: RecommendInput): ModelEvalOutcome {
   }
   if (input.role === "design") {
     // Effort max is per-profile (agy caps at `high` — it rejects `xhigh`).
-    const eligible = candidates
-      .filter(
-        (c) =>
-          c.entry.intelligence !== null &&
-          c.entry.intelligence > DESIGN_MIN_INTELLIGENCE &&
-          maxEffortFor(c.row.profile) !== null
-      )
-      .sort(byIntelligenceDesc);
+    const eligible = candidates.filter(
+      (c) =>
+        c.entry.intelligence !== null &&
+        c.entry.intelligence > DESIGN_MIN_INTELLIGENCE &&
+        maxEffortFor(c.row.profile) !== null
+    );
+    const roleExcluded: ModelEvalExclusion[] = candidates
+      .filter((c) => !eligible.includes(c))
+      .map((c) => ({
+        slug: c.entry.slug,
+        name: c.entry.name,
+        reason:
+          c.entry.intelligence === null
+            ? "design: unscored (no intelligence index), excluded"
+            : c.entry.intelligence <= DESIGN_MIN_INTELLIGENCE
+              ? `design: intelligence ${c.entry.intelligence} ≤ ${DESIGN_MIN_INTELLIGENCE}, excluded`
+              : "design: profile takes no effort, excluded"
+      }));
     if (eligible.length === 0) {
       throw new ModelEvalError(
         "MODEL_EVAL_NO_CANDIDATE",
         `No model with intelligence > ${DESIGN_MIN_INTELLIGENCE} for design.`
       );
     }
-    const author = eligible[0]!;
-    const reviewer = eligible.find((c) => c.row.model !== author.row.model);
+    const sorted = [...eligible].sort(byIntelligenceDesc);
+    const author = sorted[0]!;
+    const reviewer = sorted.find((c) => c.row.model !== author.row.model);
     if (reviewer === undefined) {
       throw new ModelEvalError(
         "MODEL_EVAL_NO_REVIEWER",
         "Design needs two different models (author + reviewer) but only one is eligible."
       );
     }
+    const picked = new Set([author, reviewer]);
+    const unpicked: ModelEvalExclusion[] = sorted
+      .filter((c) => !picked.has(c))
+      .map((c) => ({
+        slug: c.entry.slug,
+        name: c.entry.name,
+        reason: "design: eligible but not selected (a more intelligent pick won)"
+      }));
     return {
       picks: [
         toRecommendation(
@@ -256,17 +330,17 @@ export function recommend(input: RecommendInput): ModelEvalOutcome {
           author,
           maxEffortFor(author.row.profile),
           input.source,
-          input.launch
+          { ...input.launch, name: designLaunchName(input.launch.name, "author") }
         ),
         toRecommendation(
           "design",
           reviewer,
           maxEffortFor(reviewer.row.profile),
           input.source,
-          input.launch
+          { ...input.launch, name: designLaunchName(input.launch.name, "reviewer") }
         )
       ],
-      excluded,
+      excluded: [...excluded, ...roleExcluded, ...unpicked],
       source: { ...input.source }
     };
   }
@@ -278,24 +352,43 @@ export function recommend(input: RecommendInput): ModelEvalOutcome {
         c.entry.intelligence >= minIntel &&
         c.entry.outputTokensPerSec !== null
     );
+    const roleExcluded: ModelEvalExclusion[] = candidates
+      .filter((c) => !eligible.includes(c))
+      .map((c) => ({
+        slug: c.entry.slug,
+        name: c.entry.name,
+        reason:
+          c.entry.intelligence === null
+            ? "build: unscored (no intelligence index), excluded"
+            : c.entry.intelligence < minIntel
+              ? `build: intelligence ${c.entry.intelligence} below threshold ${minIntel}, excluded`
+              : "build: unknown output speed, excluded"
+      }));
     if (eligible.length === 0) {
       throw new ModelEvalError(
         "MODEL_EVAL_NO_CANDIDATE",
         `No model with intelligence >= ${minIntel} and known output speed for build.`
       );
     }
-    eligible.sort(
+    const sorted = [...eligible].sort(
       (a, b) => (b.entry.outputTokensPerSec as number) - (a.entry.outputTokensPerSec as number)
     );
-    const winner = eligible[0]!;
+    const winner = sorted[0]!;
     const effort = maxEffortFor(winner.row.profile);
+    const unpicked: ModelEvalExclusion[] = sorted
+      .slice(1)
+      .map((c) => ({
+        slug: c.entry.slug,
+        name: c.entry.name,
+        reason: "build: eligible but not selected (a faster pick won)"
+      }));
     return {
       picks: [toRecommendation("build", winner, effort, input.source, input.launch)],
-      excluded,
+      excluded: [...excluded, ...roleExcluded, ...unpicked],
       source: { ...input.source }
     };
   }
-  // review: most intelligent model distinct from the author's.
+  // review: most intelligent scored model distinct from the author's.
   if (input.authorModel === undefined || input.authorModel.length === 0) {
     throw new ModelEvalError(
       "MODEL_EVAL_BAD_INPUT",
@@ -303,8 +396,18 @@ export function recommend(input: RecommendInput): ModelEvalOutcome {
     );
   }
   const eligible = candidates
-    .filter((c) => c.row.model !== input.authorModel)
+    .filter((c) => c.row.model !== input.authorModel && c.entry.intelligence !== null)
     .sort(byIntelligenceDesc);
+  const roleExcluded: ModelEvalExclusion[] = candidates
+    .filter((c) => !eligible.includes(c))
+    .map((c) => ({
+      slug: c.entry.slug,
+      name: c.entry.name,
+      reason:
+        c.row.model === input.authorModel
+          ? "review: same model as the author, excluded"
+          : "review: unscored (no intelligence index), excluded"
+    }));
   if (eligible.length === 0) {
     throw new ModelEvalError(
       "MODEL_EVAL_NO_CANDIDATE",
@@ -312,15 +415,17 @@ export function recommend(input: RecommendInput): ModelEvalOutcome {
     );
   }
   const winner = eligible[0]!;
-  const effort =
-    winner.entry.intelligence !== null &&
-    winner.entry.intelligence > DESIGN_MIN_INTELLIGENCE &&
-    maxEffortFor(winner.row.profile) === "xhigh"
-      ? "xhigh"
-      : maxEffortFor(winner.row.profile);
+  const effort = maxEffortFor(winner.row.profile);
+  const unpicked: ModelEvalExclusion[] = eligible
+    .slice(1)
+    .map((c) => ({
+      slug: c.entry.slug,
+      name: c.entry.name,
+      reason: "review: eligible but not selected (a more intelligent pick won)"
+    }));
   return {
     picks: [toRecommendation("review", winner, effort, input.source, input.launch)],
-    excluded,
+    excluded: [...excluded, ...roleExcluded, ...unpicked],
     source: { ...input.source }
   };
 }
