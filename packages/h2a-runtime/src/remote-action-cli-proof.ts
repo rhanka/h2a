@@ -111,11 +111,18 @@ export interface CliProofBindingExpectation {
   targetDigest: string;
   ownerIssuer: string;
   ownerSub: string;
+  approvedRegistrationRef: string;
+  approvedRegistrationRevision: number;
   providerId: string;
   providerVersion: string;
+  executableDigest: string;
+  nativeSessionPublicKeyId: string;
   capabilitiesDigest: string;
   permissionMode: CliProofPermissionMode;
   autoApprovePolicyDigest: string | null;
+  proofId: string;
+  issuedAt: number;
+  expiresAt: number;
 }
 
 function failVerify(code: "invalid_request" | "invalid_target"): never {
@@ -148,6 +155,9 @@ export function mintCliSessionProof(
   }
   if (input.signer === null) {
     failGap("remote-action cli-proof: no enrolled native signer");
+  }
+  if (input.signer.privateKey.asymmetricKeyType !== "ed25519") {
+    failVerify("invalid_request");
   }
   if (input.provider === null) {
     failGap("remote-action cli-proof: no provider metadata");
@@ -196,7 +206,7 @@ export function mintCliSessionProof(
   if (
     !Number.isSafeInteger(issuedAt) ||
     !Number.isSafeInteger(expiresAt) ||
-    issuedAt > expiresAt ||
+    issuedAt >= expiresAt ||
     expiresAt - issuedAt > PROOF_TTL_MS
   ) {
     failVerify("invalid_request");
@@ -255,10 +265,28 @@ export function verifyCliSessionProofBinding(
     throw new VerifyError("binding_mismatch", "remote-action cli-proof: owner mismatch");
   }
   if (
+    body["approvedRegistrationRef"] !== expected.approvedRegistrationRef ||
+    body["approvedRegistrationRevision"] !== expected.approvedRegistrationRevision
+  ) {
+    throw new VerifyError("binding_mismatch", "remote-action cli-proof: registration mismatch");
+  }
+  if (
     body["providerId"] !== expected.providerId ||
     body["providerVersion"] !== expected.providerVersion
   ) {
     throw new VerifyError("binding_mismatch", "remote-action cli-proof: provider mismatch");
+  }
+  if (body["executableDigest"] !== expected.executableDigest) {
+    throw new VerifyError(
+      "binding_mismatch",
+      "remote-action cli-proof: executable digest mismatch",
+    );
+  }
+  if (body["nativeSessionPublicKeyId"] !== expected.nativeSessionPublicKeyId) {
+    throw new VerifyError(
+      "binding_mismatch",
+      "remote-action cli-proof: native session key mismatch",
+    );
   }
   if (body["capabilitiesDigest"] !== expected.capabilitiesDigest) {
     throw new VerifyError(
@@ -271,6 +299,13 @@ export function verifyCliSessionProofBinding(
     body["autoApprovePolicyDigest"] !== expected.autoApprovePolicyDigest
   ) {
     throw new VerifyError("binding_mismatch", "remote-action cli-proof: mode mismatch");
+  }
+  if (
+    body["proofId"] !== expected.proofId ||
+    body["issuedAt"] !== expected.issuedAt ||
+    body["expiresAt"] !== expected.expiresAt
+  ) {
+    throw new VerifyError("binding_mismatch", "remote-action cli-proof: identity mismatch");
   }
   return body;
 }

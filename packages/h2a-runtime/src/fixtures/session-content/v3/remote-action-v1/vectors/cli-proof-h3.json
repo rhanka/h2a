@@ -99,6 +99,48 @@
       "field": "capabilitiesDigest",
       "value": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
       "expectCode": "binding_mismatch"
+    },
+    {
+      "id": "mut-executable-digest",
+      "scope": "body",
+      "field": "executableDigest",
+      "value": "fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe",
+      "expectCode": "binding_mismatch"
+    },
+    {
+      "id": "mut-approved-ref",
+      "scope": "body",
+      "field": "approvedRegistrationRef",
+      "value": "reg-h3-2",
+      "expectCode": "binding_mismatch"
+    },
+    {
+      "id": "mut-approved-rev",
+      "scope": "body",
+      "field": "approvedRegistrationRevision",
+      "value": 2,
+      "expectCode": "binding_mismatch"
+    },
+    {
+      "id": "mut-native-key",
+      "scope": "body",
+      "field": "nativeSessionPublicKeyId",
+      "value": "native-key-h3-2",
+      "expectCode": "binding_mismatch"
+    },
+    {
+      "id": "mut-owner-issuer",
+      "scope": "body",
+      "field": "ownerIssuer",
+      "value": "test-idp-h3-2",
+      "expectCode": "binding_mismatch"
+    },
+    {
+      "id": "mut-policy-digest",
+      "scope": "body",
+      "field": "autoApprovePolicyDigest",
+      "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expectCode": "binding_mismatch"
     }
   ],
   "registrationMapping": {

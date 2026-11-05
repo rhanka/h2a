@@ -40,7 +40,7 @@ import {
 } from "./protocol.js";
 // N3 CLI proof authority: host-local mint/verify bound to the session table.
 // Reads this host through the structural `CliProofHostReader` surface only
-// (`generation` + `state`); adds no transport, route or effect.
+// (`state`); adds no transport, route or effect.
 import {
   NativeTerminalActionAuthority,
   type CliProofSessionComposition,
