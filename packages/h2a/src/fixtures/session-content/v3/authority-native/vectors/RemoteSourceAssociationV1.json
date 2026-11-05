@@ -1,0 +1,138 @@
+{
+  "record": "RemoteSourceAssociationV1",
+  "evidenceLevel": "synthetic schema and signature fixtures only; no installed authority",
+  "positive": [
+    {
+      "id": "RemoteSourceAssociationV1-shape-positive",
+      "expect": "ACCEPT_SHAPE",
+      "value": {
+        "format": "h2a.remote-source-association/1",
+        "kind": "managed-cli",
+        "sessionRef": {
+          "originInstanceId": "fixture-B",
+          "sessionId": "fixture-session",
+          "incarnation": "fixture-incarnation"
+        },
+        "sourceRef": {
+          "sourceSessionId": "fixture-source-session",
+          "sourceGeneration": 1,
+          "streamIncarnation": "fixture-stream"
+        },
+        "originAgentSessionId": "fixture-originAgentSessionId-0",
+        "launchDecisionRef": {
+          "id": "fixture-id-0",
+          "revision": 1,
+          "digest": "77dba9dca43899eb72a333e4039b3550e78252680a2a240b95f12c82cf0bc438"
+        },
+        "processBindingRef": {
+          "id": "fixture-id-0",
+          "revision": 1,
+          "digest": "85377b83d4a01d48c2cf733296c2cb8076e5e21aebafa9e290122ca57346946c"
+        },
+        "childEnvironmentAgentSessionId": "fixture-childEnvironmentAgentSessionId-0"
+      },
+      "bytes": {
+        "json": {
+          "base64": "eyJjaGlsZEVudmlyb25tZW50QWdlbnRTZXNzaW9uSWQiOiJmaXh0dXJlLWNoaWxkRW52aXJvbm1lbnRBZ2VudFNlc3Npb25JZC0wIiwiZm9ybWF0IjoiaDJhLnJlbW90ZS1zb3VyY2UtYXNzb2NpYXRpb24vMSIsImtpbmQiOiJtYW5hZ2VkLWNsaSIsImxhdW5jaERlY2lzaW9uUmVmIjp7ImRpZ2VzdCI6Ijc3ZGJhOWRjYTQzODk5ZWI3MmEzMzNlNDAzOWIzNTUwZTc4MjUyNjgwYTJhMjQwYjk1ZjEyYzgyY2YwYmM0MzgiLCJpZCI6ImZpeHR1cmUtaWQtMCIsInJldmlzaW9uIjoxfSwib3JpZ2luQWdlbnRTZXNzaW9uSWQiOiJmaXh0dXJlLW9yaWdpbkFnZW50U2Vzc2lvbklkLTAiLCJwcm9jZXNzQmluZGluZ1JlZiI6eyJkaWdlc3QiOiI4NTM3N2I4M2Q0YTAxZDQ4YzJjZjczMzI5NmMyY2I4MDc2ZTVlMjFhZWJhZmE5ZTI5MDEyMmNhNTczNDY5NDZjIiwiaWQiOiJmaXh0dXJlLWlkLTAiLCJyZXZpc2lvbiI6MX0sInNlc3Npb25SZWYiOnsiaW5jYXJuYXRpb24iOiJmaXh0dXJlLWluY2FybmF0aW9uIiwib3JpZ2luSW5zdGFuY2VJZCI6ImZpeHR1cmUtQiIsInNlc3Npb25JZCI6ImZpeHR1cmUtc2Vzc2lvbiJ9LCJzb3VyY2VSZWYiOnsic291cmNlR2VuZXJhdGlvbiI6MSwic291cmNlU2Vzc2lvbklkIjoiZml4dHVyZS1zb3VyY2Utc2Vzc2lvbiIsInN0cmVhbUluY2FybmF0aW9uIjoiZml4dHVyZS1zdHJlYW0ifX0=",
+          "byteLength": 686,
+          "sha256": "7dc5557421495b15febc82153ad075689c44924756a40f9daa8982a3a7676e16"
+        }
+      }
+    },
+    {
+      "id": "RemoteSourceAssociationV1-variant-0",
+      "expect": "ACCEPT_SHAPE",
+      "value": {
+        "format": "h2a.remote-source-association/1",
+        "kind": "managed-cli",
+        "sessionRef": {
+          "originInstanceId": "fixture-B",
+          "sessionId": "fixture-session",
+          "incarnation": "fixture-incarnation"
+        },
+        "sourceRef": {
+          "sourceSessionId": "fixture-source-session",
+          "sourceGeneration": 1,
+          "streamIncarnation": "fixture-stream"
+        },
+        "originAgentSessionId": "fixture-originAgentSessionId-0",
+        "launchDecisionRef": {
+          "id": "fixture-id-0",
+          "revision": 1,
+          "digest": "77dba9dca43899eb72a333e4039b3550e78252680a2a240b95f12c82cf0bc438"
+        },
+        "processBindingRef": {
+          "id": "fixture-id-0",
+          "revision": 1,
+          "digest": "85377b83d4a01d48c2cf733296c2cb8076e5e21aebafa9e290122ca57346946c"
+        },
+        "childEnvironmentAgentSessionId": "fixture-childEnvironmentAgentSessionId-0"
+      },
+      "bytes": {
+        "json": {
+          "base64": "eyJjaGlsZEVudmlyb25tZW50QWdlbnRTZXNzaW9uSWQiOiJmaXh0dXJlLWNoaWxkRW52aXJvbm1lbnRBZ2VudFNlc3Npb25JZC0wIiwiZm9ybWF0IjoiaDJhLnJlbW90ZS1zb3VyY2UtYXNzb2NpYXRpb24vMSIsImtpbmQiOiJtYW5hZ2VkLWNsaSIsImxhdW5jaERlY2lzaW9uUmVmIjp7ImRpZ2VzdCI6Ijc3ZGJhOWRjYTQzODk5ZWI3MmEzMzNlNDAzOWIzNTUwZTc4MjUyNjgwYTJhMjQwYjk1ZjEyYzgyY2YwYmM0MzgiLCJpZCI6ImZpeHR1cmUtaWQtMCIsInJldmlzaW9uIjoxfSwib3JpZ2luQWdlbnRTZXNzaW9uSWQiOiJmaXh0dXJlLW9yaWdpbkFnZW50U2Vzc2lvbklkLTAiLCJwcm9jZXNzQmluZGluZ1JlZiI6eyJkaWdlc3QiOiI4NTM3N2I4M2Q0YTAxZDQ4YzJjZjczMzI5NmMyY2I4MDc2ZTVlMjFhZWJhZmE5ZTI5MDEyMmNhNTczNDY5NDZjIiwiaWQiOiJmaXh0dXJlLWlkLTAiLCJyZXZpc2lvbiI6MX0sInNlc3Npb25SZWYiOnsiaW5jYXJuYXRpb24iOiJmaXh0dXJlLWluY2FybmF0aW9uIiwib3JpZ2luSW5zdGFuY2VJZCI6ImZpeHR1cmUtQiIsInNlc3Npb25JZCI6ImZpeHR1cmUtc2Vzc2lvbiJ9LCJzb3VyY2VSZWYiOnsic291cmNlR2VuZXJhdGlvbiI6MSwic291cmNlU2Vzc2lvbklkIjoiZml4dHVyZS1zb3VyY2Utc2Vzc2lvbiIsInN0cmVhbUluY2FybmF0aW9uIjoiZml4dHVyZS1zdHJlYW0ifX0=",
+          "byteLength": 686,
+          "sha256": "7dc5557421495b15febc82153ad075689c44924756a40f9daa8982a3a7676e16"
+        }
+      }
+    },
+    {
+      "id": "RemoteSourceAssociationV1-variant-1",
+      "expect": "ACCEPT_SHAPE",
+      "value": {
+        "format": "h2a.remote-source-association/1",
+        "kind": "app-chat",
+        "sessionRef": {
+          "originInstanceId": "fixture-B",
+          "sessionId": "fixture-session",
+          "incarnation": "fixture-incarnation"
+        },
+        "sourceRef": null,
+        "originAgentSessionId": null,
+        "launchDecisionRef": null,
+        "processBindingRef": null,
+        "childEnvironmentAgentSessionId": null
+      },
+      "bytes": {
+        "json": {
+          "base64": "eyJjaGlsZEVudmlyb25tZW50QWdlbnRTZXNzaW9uSWQiOm51bGwsImZvcm1hdCI6ImgyYS5yZW1vdGUtc291cmNlLWFzc29jaWF0aW9uLzEiLCJraW5kIjoiYXBwLWNoYXQiLCJsYXVuY2hEZWNpc2lvblJlZiI6bnVsbCwib3JpZ2luQWdlbnRTZXNzaW9uSWQiOm51bGwsInByb2Nlc3NCaW5kaW5nUmVmIjpudWxsLCJzZXNzaW9uUmVmIjp7ImluY2FybmF0aW9uIjoiZml4dHVyZS1pbmNhcm5hdGlvbiIsIm9yaWdpbkluc3RhbmNlSWQiOiJmaXh0dXJlLUIiLCJzZXNzaW9uSWQiOiJmaXh0dXJlLXNlc3Npb24ifSwic291cmNlUmVmIjpudWxsfQ==",
+          "byteLength": 307,
+          "sha256": "606438dddd765fbd0bde2aa91b4533f00e5cc0fc99ca2736a19d3e0856aaaea9"
+        }
+      }
+    }
+  ],
+  "negative": [
+    {
+      "id": "RemoteSourceAssociationV1-unknown-field",
+      "expect": "REJECT_SCHEMA",
+      "value": {
+        "format": "h2a.remote-source-association/1",
+        "kind": "managed-cli",
+        "sessionRef": {
+          "originInstanceId": "fixture-B",
+          "sessionId": "fixture-session",
+          "incarnation": "fixture-incarnation"
+        },
+        "sourceRef": {
+          "sourceSessionId": "fixture-source-session",
+          "sourceGeneration": 1,
+          "streamIncarnation": "fixture-stream"
+        },
+        "originAgentSessionId": "fixture-originAgentSessionId-0",
+        "launchDecisionRef": {
+          "id": "fixture-id-0",
+          "revision": 1,
+          "digest": "77dba9dca43899eb72a333e4039b3550e78252680a2a240b95f12c82cf0bc438"
+        },
+        "processBindingRef": {
+          "id": "fixture-id-0",
+          "revision": 1,
+          "digest": "85377b83d4a01d48c2cf733296c2cb8076e5e21aebafa9e290122ca57346946c"
+        },
+        "childEnvironmentAgentSessionId": "fixture-childEnvironmentAgentSessionId-0",
+        "__unknown": "forbidden"
+      }
+    }
+  ]
+}

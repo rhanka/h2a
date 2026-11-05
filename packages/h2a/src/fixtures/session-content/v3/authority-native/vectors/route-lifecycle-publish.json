@@ -1,0 +1,1143 @@
+{
+  "routeId": "lifecycle-publish",
+  "method": "POST",
+  "path": "/mesh/v1/remote-sessions/:sessionId/lifecycle",
+  "evidenceLevel": "model route admission only; no handler/network executed; all authority values synthetic assumptions",
+  "positive": [
+    {
+      "id": "lifecycle-publish-positive",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "lifecycle-publish",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/lifecycle",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "allow",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "lifecycle-publish-matrix-bound-cli-lifecycle",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "lifecycle-publish",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/lifecycle",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "allow",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "lifecycle-publish-matrix-bound-app-chat-lifecycle",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "lifecycle-publish",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/lifecycle",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "app-chat",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "allow",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "lifecycle-publish-http-media",
+      "evaluator": "routeHttp",
+      "input": {
+        "routeId": "lifecycle-publish",
+        "contentType": "application/json",
+        "bodyBytes": 2,
+        "contentEncoding": null
+      },
+      "expected": {
+        "decision": "allow",
+        "code": null
+      }
+    }
+  ],
+  "negative": [
+    {
+      "id": "lifecycle-publish-wrong-method",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "lifecycle-publish",
+        "method": "GET",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/lifecycle",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "lifecycle-publish-extra-path",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "lifecycle-publish",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/lifecycle/extra",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "lifecycle-publish-caller-invented-resolved-path",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "lifecycle-publish",
+        "method": "POST",
+        "path": "/arbitrary",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false,
+        "expectedResolvedPath": "/arbitrary"
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "lifecycle-publish-extra-parameter",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "lifecycle-publish",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/lifecycle",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "arbitrary": "forbidden"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "lifecycle-publish-foreign-session-scope",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "lifecycle-publish",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/lifecycle",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId"
+        },
+        "authenticated": true,
+        "scopeMatches": false,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "lifecycle-publish-missing-authority",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "lifecycle-publish",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/lifecycle",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId"
+        },
+        "authenticated": false,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_auth_required",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "lifecycle-publish-purpose-withdrawn",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "lifecycle-publish",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/lifecycle",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": false,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_consent_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "lifecycle-publish-wrong-lane",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "lifecycle-publish",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/lifecycle",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "content",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_lane_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "lifecycle-publish-unbound",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "lifecycle-publish",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/lifecycle",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": false,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_auth_required",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "lifecycle-publish-escaped-path",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "lifecycle-publish",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/%252fsessionId/lifecycle",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "lifecycle-publish-matrix-listing-cli-lifecycle",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "lifecycle-publish",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/lifecycle",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "lifecycle-publish-matrix-listing-cli-content",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "lifecycle-publish",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/lifecycle",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "cli",
+        "lane": "content",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "lifecycle-publish-matrix-listing-cli-actions",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "lifecycle-publish",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/lifecycle",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "cli",
+        "lane": "actions",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "lifecycle-publish-matrix-listing-cli-results",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "lifecycle-publish",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/lifecycle",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "cli",
+        "lane": "results",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "lifecycle-publish-matrix-listing-app-chat-lifecycle",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "lifecycle-publish",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/lifecycle",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "app-chat",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "lifecycle-publish-matrix-listing-app-chat-content",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "lifecycle-publish",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/lifecycle",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "app-chat",
+        "lane": "content",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "lifecycle-publish-matrix-listing-app-chat-actions",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "lifecycle-publish",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/lifecycle",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "app-chat",
+        "lane": "actions",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "lifecycle-publish-matrix-listing-app-chat-results",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "lifecycle-publish",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/lifecycle",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "app-chat",
+        "lane": "results",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "lifecycle-publish-matrix-bootstrap-cli-lifecycle",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "lifecycle-publish",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/lifecycle",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "lifecycle-publish-matrix-bootstrap-cli-content",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "lifecycle-publish",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/lifecycle",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "cli",
+        "lane": "content",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "lifecycle-publish-matrix-bootstrap-cli-actions",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "lifecycle-publish",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/lifecycle",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "cli",
+        "lane": "actions",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "lifecycle-publish-matrix-bootstrap-cli-results",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "lifecycle-publish",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/lifecycle",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "cli",
+        "lane": "results",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "lifecycle-publish-matrix-bootstrap-app-chat-lifecycle",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "lifecycle-publish",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/lifecycle",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "app-chat",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "lifecycle-publish-matrix-bootstrap-app-chat-content",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "lifecycle-publish",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/lifecycle",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "app-chat",
+        "lane": "content",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "lifecycle-publish-matrix-bootstrap-app-chat-actions",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "lifecycle-publish",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/lifecycle",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "app-chat",
+        "lane": "actions",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "lifecycle-publish-matrix-bootstrap-app-chat-results",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "lifecycle-publish",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/lifecycle",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "app-chat",
+        "lane": "results",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "lifecycle-publish-matrix-bound-cli-content",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "lifecycle-publish",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/lifecycle",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "content",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_lane_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "lifecycle-publish-matrix-bound-cli-actions",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "lifecycle-publish",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/lifecycle",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "actions",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_lane_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "lifecycle-publish-matrix-bound-cli-results",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "lifecycle-publish",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/lifecycle",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "results",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_lane_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "lifecycle-publish-matrix-bound-app-chat-content",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "lifecycle-publish",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/lifecycle",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "app-chat",
+        "lane": "content",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_lane_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "lifecycle-publish-matrix-bound-app-chat-actions",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "lifecycle-publish",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/lifecycle",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "app-chat",
+        "lane": "actions",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_lane_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "lifecycle-publish-matrix-bound-app-chat-results",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "lifecycle-publish",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/lifecycle",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "app-chat",
+        "lane": "results",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_lane_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "lifecycle-publish-http-encoding",
+      "evaluator": "routeHttp",
+      "input": {
+        "routeId": "lifecycle-publish",
+        "contentType": "application/json",
+        "bodyBytes": 2,
+        "contentEncoding": "gzip"
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_protocol_refused"
+      }
+    },
+    {
+      "id": "lifecycle-publish-http-body-or-media",
+      "evaluator": "routeHttp",
+      "input": {
+        "routeId": "lifecycle-publish",
+        "contentType": "text/plain",
+        "bodyBytes": 2,
+        "contentEncoding": null
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_protocol_refused"
+      }
+    }
+  ],
+  "http": {
+    "requestContentType": "application/json",
+    "responseContentType": "application/json",
+    "body": "strict JSON if present; zero bytes otherwise",
+    "streamProfile": null
+  },
+  "successStatus": 200
+}
