@@ -31,7 +31,6 @@ export type { SignedCliSessionProof } from "../remote-action-cli-proof.js";
 
 /** Structural host surface the authority reads; satisfied by `NativeTerminalHost`. */
 export interface CliProofHostReader {
-  readonly generation: string;
   state(id: string): NativeTerminalSessionState;
 }
 
@@ -45,10 +44,17 @@ interface IssuedCliProof {
   targetDigest: string;
   ownerIssuer: string;
   ownerSub: string;
+  approvedRegistrationRef: string;
+  approvedRegistrationRevision: number;
   providerId: string;
   providerVersion: string;
+  executableDigest: string;
+  nativeSessionPublicKeyId: string;
   capabilitiesDigest: string;
   autoApprovePolicyDigest: string | null;
+  proofId: string;
+  issuedAt: number;
+  expiresAt: number;
 }
 
 function authorityRefused(message: string): never {
@@ -103,16 +109,28 @@ export class NativeTerminalActionAuthority {
       // Unreachable: minting refused the missing provider above.
       authorityRefused(`terminal session composition lost its provider: ${sessionId}`);
     }
+    const enrollment = composition.enrollment;
+    if (enrollment === null) {
+      // Unreachable: minting refused the missing enrollment above.
+      authorityRefused(`terminal session composition lost its enrollment: ${sessionId}`);
+    }
     this.#issued.set(sessionId, {
       incarnation: state.incarnation,
       permissionMode: composition.permissionMode,
       targetDigest: digestDomain("target", target),
       ownerIssuer: composition.owner.issuer,
       ownerSub: composition.owner.sub,
+      approvedRegistrationRef: enrollment.approvedRegistrationRef,
+      approvedRegistrationRevision: enrollment.approvedRegistrationRevision,
       providerId: provider.providerId,
       providerVersion: provider.providerVersion,
+      executableDigest: provider.executableDigest,
+      nativeSessionPublicKeyId: composition.nativeSessionPublicKeyId,
       capabilitiesDigest: composition.capabilitiesDigest,
       autoApprovePolicyDigest: composition.autoApprovePolicyDigest,
+      proofId: record.body["proofId"] as string,
+      issuedAt: record.body["issuedAt"] as number,
+      expiresAt: record.body["expiresAt"] as number,
     });
     return record;
   }
@@ -142,11 +160,18 @@ export class NativeTerminalActionAuthority {
       targetDigest: issued.targetDigest,
       ownerIssuer: issued.ownerIssuer,
       ownerSub: issued.ownerSub,
+      approvedRegistrationRef: issued.approvedRegistrationRef,
+      approvedRegistrationRevision: issued.approvedRegistrationRevision,
       providerId: issued.providerId,
       providerVersion: issued.providerVersion,
+      executableDigest: issued.executableDigest,
+      nativeSessionPublicKeyId: issued.nativeSessionPublicKeyId,
       capabilitiesDigest: issued.capabilitiesDigest,
       permissionMode: issued.permissionMode,
       autoApprovePolicyDigest: issued.autoApprovePolicyDigest,
+      proofId: issued.proofId,
+      issuedAt: issued.issuedAt,
+      expiresAt: issued.expiresAt,
     });
   }
 

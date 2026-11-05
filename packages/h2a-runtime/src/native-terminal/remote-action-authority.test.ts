@@ -9,6 +9,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vites
 import { digestDomain } from "../remote-action-contract.js";
 import { createPinnedTrust } from "../remote-action-trust.js";
 import type { PtyHandle, PtySpawner } from "../pty.js";
+import { mintCliSessionProof } from "../remote-action-cli-proof.js";
 import { NativeTerminalHost } from "./host.js";
 import {
   NativeTerminalActionAuthority,
@@ -245,6 +246,38 @@ describe("native terminal action authority", () => {
     expect(() => authority.verifySessionProof("cli-1", record, opts())).toThrowError(
       expect.objectContaining({ code: "binding_mismatch" }),
     );
+  });
+
+  it("refuses re-signed executable and session-key mutations the authority did not issue", () => {
+    const { spawn } = stubSpawner();
+    const host = createHost(spawn);
+    createSession(host, "cli-1");
+    const authority = new NativeTerminalActionAuthority(host);
+    const issued = authority.issueSessionProof("cli-1", composition(), NOW_MS);
+    const target = issued.body["target"];
+    const mutatedDigest = mintCliSessionProof(
+      {
+        ...composition(),
+        target,
+        provider: {
+          providerId: "provider-1",
+          providerVersion: "v1",
+          executableDigest: "f".repeat(64),
+        },
+      },
+      NOW_MS,
+    );
+    expect(() => authority.verifySessionProof("cli-1", mutatedDigest, opts())).toThrowError(
+      expect.objectContaining({ code: "binding_mismatch" }),
+    );
+    const mutatedKey = mintCliSessionProof(
+      { ...composition(), target, nativeSessionPublicKeyId: "native-key-2" },
+      NOW_MS,
+    );
+    expect(() => authority.verifySessionProof("cli-1", mutatedKey, opts())).toThrowError(
+      expect.objectContaining({ code: "binding_mismatch" }),
+    );
+    expect(() => authority.verifySessionProof("cli-1", issued, opts())).not.toThrow();
   });
 
   it("refuses mutated proof bytes against the live session", () => {
