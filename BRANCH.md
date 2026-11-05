@@ -2836,6 +2836,25 @@ The lanes slice stays blocked by relay-1 (no L-1 export).
 - The four new paths above.
 - This file (append own section only; never rewrite other lanes).
 
+## Round 2 (reviews `d8de4ebc3`: Wonder CHANGES P1 + 2×P2, mistral FUSIONNABLE)
+
+- P1: the five methods return the closed r3 shape `{status:"refused",error}`
+  (`MeshOriginRefusedResult`); probe detail moved to the consumer-side
+  `unavailability` diagnostic (`MeshOriginUnavailability`, ex-`refusal`);
+  `isMeshOriginRefusal` aligned (2 keys, 4-key error, both relay codes).
+- P2 abort: an already-aborted `signal` refuses `relay_unavailable` /
+  `retryable:false` after `checkCallShape` (precedence abort >
+  unavailability), covered on the five methods.
+- P2 ESM: `import.meta.resolve` + `fileURLToPath` in one `try…return null`;
+  node:test probe motif aligned.
+- P3 free in the same round: `dispose` documented as internal lifecycle
+  outside the r3 contract, fs reads bounded to `package.json` alone,
+  runtime-case coverage stated as envelope (3 executed of 8). Deferred
+  (named in the PR body): runtime-options hardening at factory time,
+  `scripts/test-inventory.json` titles.
+- Pin `0.22.4` kept, tripwires kept. RED then GREEN: vitest 12/12,
+  node:test 8/8, `tsc` zero errors, N1/N2 103/103.
+
 ## Conditional
 
 - `packages/h2a-runtime/package.json` + lock (pin only): NOT exercised —
