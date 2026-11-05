@@ -220,16 +220,14 @@ function createCentralApp(
     if (!a || context.req.header('x-h2a-auth-attachment-id') !== id) throw new Error('attachment_context_mismatch');
     return a;
   };
-  let lastBusy = Date.now();
-  // Event-loop time the server was starved (preempted) since durable
-  // readiness. Starved time is not idle time: a connecting client delayed by
-  // shard scheduling must not find a retired server. Measured from the
-  // sweep's own overdue arrival, so every stall shape counts (OS preemption,
-  // a frozen loop): a tick arriving more than one period late banks the
-  // excess as starved, never idle, time. The session lease above stays on
-  // wall-clock: peer liveness is a wire fact, idleness is a loop fact.
-  let starvedMs = 0;
-  let lastTick = 0;
+  // Idle retirement counts consecutive quiet sweep ticks, never wall-clock
+  // milliseconds. A loop slowed by shard scheduling (or frozen outright)
+  // still retires an orphan after the same number of ticks it served, so a
+  // connecting client delayed alongside the server is never outrun by the
+  // clock: relative order is preserved under any dilation. The session lease
+  // above stays on wall-clock: peer liveness is a wire fact, idleness is a
+  // loop fact.
+  let quietTicks = 0;
   let everAttached = false;
   let ready = false;
   let closing = false;
@@ -247,19 +245,14 @@ function createCentralApp(
       inventoryRevision++;
       await attachment.participant.close(() => attachment.handle.close());
       await attachment.transport.close();
-      lastBusy = Date.now();
     })();
     return attachment.closing;
   };
   const sweepPeriodMs = Math.max(25, Math.min(1000, options.idleTimeoutMs, options.sessionLeaseMs) / 2);
+  const quietTicksForIdle = Math.max(1, Math.ceil(options.idleTimeoutMs / sweepPeriodMs));
   const sweep = setInterval(() => {
     if (!ready) return;
     const now = Date.now();
-    // Bank this tick's scheduling lateness as starved time. A healthy tick
-    // arrives one period after the previous; anything beyond one period plus
-    // 10 ms of jitter tolerance is time the loop could serve nobody.
-    if (lastTick > 0) starvedMs += Math.max(0, now - lastTick - sweepPeriodMs - 10);
-    lastTick = now;
     const liveTransaction = administration()?.transaction()?.value;
     const pendingAttachments = new Set(participants()?.ledger.operations().filter((op: any) => op.state !== 'completed').map((op: any) => op.attachmentId));
     for (const [id, attachment] of sessions) {
@@ -281,12 +274,18 @@ function createCentralApp(
     const pending = transaction && !["ABORTED", "READY"].includes(transaction.state);
     // A connecting client holding a live challenge is not an orphan, even when
     // no session exists yet: the handshake it started must be allowed to land.
-    // Once a session has lived and gone (or the challenge lapses), the wall
-    // idle bound applies again, so a used-then-abandoned server still retires.
+    // A live handshake counts as activity (it resets the count); once a
+    // session has lived and gone, or the challenge lapses, consecutive quiet
+    // ticks retire the server again.
     const handshakeAlive = !everAttached && options.pendingHandshake?.() === true;
-    if (!closing && activeCalls === 0 && launches === 0 && callbacks === 0 && unresolvedEffects === 0 && sessions.size === 0 &&
-      participants()?.drain().complete && administration()?.admissionsOpen() && !pending && !handshakeAlive &&
-      now - lastBusy - starvedMs > options.idleTimeoutMs) options.requestStop();
+    const quiet = !closing && activeCalls === 0 && launches === 0 && callbacks === 0 && unresolvedEffects === 0 && sessions.size === 0 &&
+      participants()?.drain().complete && administration()?.admissionsOpen() && !pending && !handshakeAlive;
+    if (quiet) {
+      quietTicks += 1;
+      if (quietTicks >= quietTicksForIdle) options.requestStop();
+    } else {
+      quietTicks = 0;
+    }
   }, sweepPeriodMs);
   sweep.unref();
   app.use("*", async (context, next) => {
@@ -527,12 +526,8 @@ function createCentralApp(
       attachment.transport.detachNotifications();
       const pending = participants()?.ledger.operations().some((op: any) => op.attachmentId === attachment!.participant.token.attachmentId && op.state !== 'completed');
       if (!pending) await closeAttachment(requestedSessionId!, attachment);
-      // Serving teardown is activity too: the client is still reading this
-      // response, so retirement must wait a fresh idle bound after it.
-      lastBusy = Date.now();
       return context.body(null, 200);
     }
-    lastBusy = Date.now();
     let response;
     try { response = await attachment.transport.handleRequest(context); }
     catch (error) {
@@ -560,7 +555,7 @@ function createCentralApp(
     return response ?? context.body(null, 202);
     } finally { activeCalls--; drainRevision++; }
   });
-  return { app, ready(tools) { if (tools) descriptor = describeCatalogue(tools); lastBusy = Date.now(); starvedMs = 0; lastTick = Date.now(); ready = true; }, inventory: () => ({ ...(participants()?.inventory() ?? { schemaVersion: 1, shims: [], transports: [], operations: [], quarantines: [], launches: [], writerRestrictions: ["precheck_admission_closed"] }),
+  return { app, ready(tools) { if (tools) descriptor = describeCatalogue(tools); quietTicks = 0; ready = true; }, inventory: () => ({ ...(participants()?.inventory() ?? { schemaVersion: 1, shims: [], transports: [], operations: [], quarantines: [], launches: [], writerRestrictions: ["precheck_admission_closed"] }),
     shims: [...transports.attachments.values()].flatMap(a => a.advertisement ? [a.advertisement] : []),
     transports: [...transports.attachments.values()].map(a => ({ attachmentId: a.id, transportEpoch: a.transportEpoch, state: a.state,
       ownershipEpoch: a.activation.participant.token.ownershipEpoch, ownerGeneration: generation,
