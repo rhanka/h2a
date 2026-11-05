@@ -1,0 +1,194 @@
+{
+  "format": "h2a.rc2-n3-h3/1",
+  "contractManifestSha256": "88823475eca151d908450e4abadcac7b2b60d4b5ea16bae0f590d419fa394565",
+  "signingDomain": "sentropic.remote-action-v1/cli-session-proof",
+  "canonicalBody": {
+    "version": "remote-action-v1",
+    "kind": "cli-session-proof",
+    "issuer": "test-source-issuer",
+    "kid": "test-source",
+    "audience": "test-b-audience",
+    "proofId": "proof-h3-1",
+    "target": {
+      "appMeshId": "mesh-a",
+      "sourceMeshId": "mesh-b",
+      "nativeAudience": "aud-b",
+      "registrationId": "reg-1",
+      "tenantId": "tenant-1",
+      "workspaceId": "ws-1",
+      "bindingId": "binding-1",
+      "sourceId": "source-1",
+      "sourceSessionId": "session-h3",
+      "nativeSessionId": "cli-h3-1",
+      "sourceGeneration": 3,
+      "bootGeneration": 7,
+      "custodyEpoch": 1,
+      "controllerEpoch": 2,
+      "connectionId": "conn-h3",
+      "connectionGeneration": 4
+    },
+    "ownerIssuer": "test-idp",
+    "ownerSub": "user-h3",
+    "approvedRegistrationRef": "reg-1",
+    "approvedRegistrationRevision": 1,
+    "providerId": "provider-h3",
+    "providerVersion": "v3",
+    "executableDigest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "nativeSessionPublicKeyId": "native-key-h3",
+    "capabilitiesDigest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "permissionMode": "interactive",
+    "autoApprovePolicyDigest": null,
+    "issuedAt": 1793519999000,
+    "expiresAt": 1793520059000
+  },
+  "bodyDigest": "cfe3137eeb01f2460c42a62b9b8da33304b2397a9b31fe21652190fe00825b0c",
+  "targetDigest": "fe12ec4216e07ce96f521d22964c582b11c67169ce55920da13097a84dbdd4dc",
+  "mutationCorpus": [
+    {
+      "id": "mut-target-session",
+      "scope": "target",
+      "field": "nativeSessionId",
+      "value": "cli-h3-2",
+      "expectCode": "binding_mismatch"
+    },
+    {
+      "id": "mut-target-generation",
+      "scope": "target",
+      "field": "sourceGeneration",
+      "value": 4,
+      "expectCode": "binding_mismatch"
+    },
+    {
+      "id": "mut-target-controller",
+      "scope": "target",
+      "field": "controllerEpoch",
+      "value": 3,
+      "expectCode": "binding_mismatch"
+    },
+    {
+      "id": "mut-provider-id",
+      "scope": "body",
+      "field": "providerId",
+      "value": "provider-h3-2",
+      "expectCode": "binding_mismatch"
+    },
+    {
+      "id": "mut-provider-version",
+      "scope": "body",
+      "field": "providerVersion",
+      "value": "v4",
+      "expectCode": "binding_mismatch"
+    },
+    {
+      "id": "mut-mode",
+      "scope": "body",
+      "field": "permissionMode",
+      "value": "auto-approve",
+      "expectCode": "binding_mismatch"
+    },
+    {
+      "id": "mut-owner",
+      "scope": "body",
+      "field": "ownerSub",
+      "value": "user-h3-2",
+      "expectCode": "binding_mismatch"
+    },
+    {
+      "id": "mut-capabilities",
+      "scope": "body",
+      "field": "capabilitiesDigest",
+      "value": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "expectCode": "binding_mismatch"
+    },
+    {
+      "id": "mut-executable-digest",
+      "scope": "body",
+      "field": "executableDigest",
+      "value": "fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe",
+      "expectCode": "binding_mismatch"
+    },
+    {
+      "id": "mut-approved-ref",
+      "scope": "body",
+      "field": "approvedRegistrationRef",
+      "value": "reg-h3-2",
+      "expectCode": "binding_mismatch"
+    },
+    {
+      "id": "mut-approved-rev",
+      "scope": "body",
+      "field": "approvedRegistrationRevision",
+      "value": 2,
+      "expectCode": "binding_mismatch"
+    },
+    {
+      "id": "mut-native-key",
+      "scope": "body",
+      "field": "nativeSessionPublicKeyId",
+      "value": "native-key-h3-2",
+      "expectCode": "binding_mismatch"
+    },
+    {
+      "id": "mut-owner-issuer",
+      "scope": "body",
+      "field": "ownerIssuer",
+      "value": "test-idp-h3-2",
+      "expectCode": "binding_mismatch"
+    },
+    {
+      "id": "mut-policy-digest",
+      "scope": "body",
+      "field": "autoApprovePolicyDigest",
+      "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expectCode": "binding_mismatch"
+    }
+  ],
+  "registrationMapping": {
+    "hostFacts": {
+      "sessionId": "cli-h3-1",
+      "hostGeneration": "42",
+      "incarnation": "7-uuid-h3",
+      "controllerEpoch": 2
+    },
+    "approvedAdmission": {
+      "appMeshId": "mesh-a",
+      "sourceMeshId": "mesh-b",
+      "nativeAudience": "aud-b",
+      "registrationId": "reg-1",
+      "tenantId": "tenant-1",
+      "workspaceId": "ws-1",
+      "bindingId": "binding-1",
+      "sourceId": "source-1",
+      "sourceSessionId": "session-h3",
+      "connectionId": "conn-h3",
+      "sourceGeneration": 3,
+      "bootGeneration": 7,
+      "custodyEpoch": 1,
+      "connectionGeneration": 4
+    },
+    "resolvedTarget": {
+      "appMeshId": "mesh-a",
+      "sourceMeshId": "mesh-b",
+      "nativeAudience": "aud-b",
+      "registrationId": "reg-1",
+      "tenantId": "tenant-1",
+      "workspaceId": "ws-1",
+      "bindingId": "binding-1",
+      "sourceId": "source-1",
+      "sourceSessionId": "session-h3",
+      "nativeSessionId": "cli-h3-1",
+      "sourceGeneration": 3,
+      "bootGeneration": 7,
+      "custodyEpoch": 1,
+      "controllerEpoch": 2,
+      "connectionId": "conn-h3",
+      "connectionGeneration": 4
+    }
+  },
+  "sourceGaps": [
+    "DEP-AUTH-A",
+    "DEP-AUTH-B",
+    "SG-R15",
+    "SG-NATIVE"
+  ]
+}
