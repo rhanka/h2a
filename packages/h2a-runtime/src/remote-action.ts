@@ -82,3 +82,16 @@ export {
   refusalHttpStatus,
   type ParsedRouteRecord,
 } from "./remote-action-api.js";
+
+export {
+  checkActionCorrelation,
+  consumeCheckedAction,
+  evaluateConsentDecision,
+  mapNativeRefusal,
+  type ActionCorrelationInput,
+  type ConsentDecision,
+  type ConsentDecisionInput,
+  type ConsentProjection,
+  type CorrelationDecision,
+  type NativeRefusalCause,
+} from "./remote-action-owner.js";
