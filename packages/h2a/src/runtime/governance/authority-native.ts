@@ -160,6 +160,17 @@ function isWireSignature(value: unknown): boolean {
 // Closed shape validators.
 // ---------------------------------------------------------------------------
 
+function isIdArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every(isId);
+}
+
+// P2-1 round 3: the only signing class attested by the r3 vectors is D0 —
+// the set is closed, anything else (e.g. D9) refuses.
+const SIGNING_CLASSES: readonly string[] = ["D0"];
+// P2-1 round 3: no r3 vector attests any memory-scope value — the set is
+// closed and empty, so any entry refuses fail-closed (deferred to B5+).
+const MEMORY_SCOPES: readonly string[] = [];
+
 function isRoleScopePolicy(value: unknown): boolean {
   if (!isRecord(value)) return false;
   // r3: 16 required + 3 optionals (effortCeiling, validUntil, supersedes).
@@ -180,19 +191,42 @@ function isRoleScopePolicy(value: unknown): boolean {
     return false;
   }
   if (value["format"] !== "h2a.role-scope-policy/v1") return false;
-  for (const k of ["governanceRoles", "allowedCliKinds", "allowedModels", "memoryScopes"]) {
-    if (!Array.isArray(value[k])) return false;
+  if (!SIGNING_CLASSES.includes(value["signingClass"] as string)) return false;
+  for (const k of ["governanceRoles", "allowedCliKinds", "allowedModels"]) {
+    if (!isIdArray(value[k])) return false;
+  }
+  // P2-1 round 3: memory scopes are a closed enum, not free strings.
+  if (!isIdArray(value["memoryScopes"])) return false;
+  if (!(value["memoryScopes"] as string[]).every((s) => MEMORY_SCOPES.includes(s))) {
+    return false;
   }
   const rights = value["mcpRights"];
   if (
     !isRecord(rights) ||
     !hasExactKeys(rights, ["connectorClasses", "tools"]) ||
-    !Array.isArray(rights["tools"]) ||
-    !Array.isArray(rights["connectorClasses"])
+    !isIdArray(rights["tools"]) ||
+    !isIdArray(rights["connectorClasses"])
   ) {
     return false;
   }
-  return isCounter(value["revision"]);
+  // P2-1 round 3: typed optionals — a Counter ceiling, Id validUntil /
+  // supersedes. Anything else refuses.
+  if (value["effortCeiling"] !== undefined && !isCounter(value["effortCeiling"])) {
+    return false;
+  }
+  if (value["validUntil"] !== undefined && !isId(value["validUntil"])) return false;
+  if (value["supersedes"] !== undefined && !isId(value["supersedes"])) return false;
+  return (
+    isId(value["policyId"]) &&
+    isId(value["actorLaunchName"]) &&
+    isId(value["scope"]) &&
+    isId(value["driveConsentClass"]) &&
+    isId(value["validFrom"]) &&
+    isId(value["signerInstance"]) &&
+    isId(value["signerKeyId"]) &&
+    isId(value["signature"]) &&
+    isCounter(value["revision"])
+  );
 }
 
 function isRegistryReader(value: unknown): boolean {
@@ -203,9 +237,9 @@ function isRegistryReader(value: unknown): boolean {
     case "currentRevision":
       return hasExactKeys(params, []);
     case "getInstance":
-      return hasExactKeys(params, ["agentUuidOrInstance"]) && isString(params["agentUuidOrInstance"]);
+      return hasExactKeys(params, ["agentUuidOrInstance"]) && isId(params["agentUuidOrInstance"]);
     case "listChangesSince":
-      return hasExactKeys(params, ["revision"]) && isString(params["revision"]);
+      return hasExactKeys(params, ["revision"]) && isId(params["revision"]);
     default:
       return false;
   }
@@ -226,13 +260,26 @@ function isRegistryInstanceView(value: unknown): boolean {
     return false;
   }
   if (value["format"] !== "h2a.registry-instance/v1") return false;
-  return (
-    isString(value["registryRevision"]) &&
-    isString(value["agentUuid"]) &&
-    Array.isArray(value["instances"]) &&
-    Array.isArray(value["keys"]) &&
-    Array.isArray(value["roleScopeBindings"])
-  );
+  // P2-1 round 3: launchName is an optional Id, offboardTombstone an
+  // optional record — never a bare string or number. Items are typed:
+  // instance/binding rows are records, key rows are entry refs.
+  if (value["launchName"] !== undefined && !isId(value["launchName"])) return false;
+  if (value["offboardTombstone"] !== undefined && !isRecord(value["offboardTombstone"])) {
+    return false;
+  }
+  const instances = value["instances"];
+  const bindings = value["roleScopeBindings"];
+  if (
+    !Array.isArray(instances) ||
+    !instances.every(isRecord) ||
+    !Array.isArray(bindings) ||
+    !bindings.every(isRecord)
+  ) {
+    return false;
+  }
+  const keyList = value["keys"];
+  if (!Array.isArray(keyList) || !keyList.every(isEntryRef)) return false;
+  return isId(value["registryRevision"]) && isId(value["agentUuid"]);
 }
 
 function isSessionAdmissionEvidence(value: unknown): boolean {
@@ -245,19 +292,44 @@ function isSessionAdmissionEvidence(value: unknown): boolean {
   if (value["format"] !== "h2a.session-admission/v1") return false;
   // r3: verdict is const "admitted".
   if (value["verdict"] !== "admitted") return false;
-  return keys.every((k) => k === "format" || k === "verdict" || isString(value[k]));
+  // P2-1 round 3: every other field is an Id, not a free string.
+  return keys.every((k) => k === "format" || k === "verdict" || isId(value[k]));
 }
 
 function isRoleAgentAttestation(value: unknown): boolean {
   if (!isRecord(value)) return false;
-  const keys = [
+  // P2-1 round 3: 12 required + admitted optional expiresAt (parallel to
+  // issuedAt — the r3 vectors carry both as strings, never numbers).
+  const required = [
     "actorLaunchName", "agentUuid", "attestingInstance", "format", "issuedAt",
     "keyIds", "keySetRevision", "launchName", "scope", "signature",
     "signerInstance", "signerKeyId",
   ];
-  if (!hasExactKeys(value, keys)) return false;
+  const optional = ["expiresAt"];
+  const actual = Object.keys(value);
+  if (
+    actual.length < required.length ||
+    actual.length > required.length + optional.length ||
+    !required.every((k) => Object.hasOwn(value, k)) ||
+    !actual.every((k) => required.includes(k) || optional.includes(k))
+  ) {
+    return false;
+  }
   if (value["format"] !== "h2a.role-agent-attestation/v1") return false;
-  return Array.isArray(value["keyIds"]);
+  if (value["expiresAt"] !== undefined && !isId(value["expiresAt"])) return false;
+  if (!isIdArray(value["keyIds"])) return false;
+  return (
+    isId(value["actorLaunchName"]) &&
+    isId(value["agentUuid"]) &&
+    isId(value["attestingInstance"]) &&
+    isId(value["issuedAt"]) &&
+    isId(value["keySetRevision"]) &&
+    isId(value["launchName"]) &&
+    isId(value["scope"]) &&
+    isId(value["signature"]) &&
+    isId(value["signerInstance"]) &&
+    isId(value["signerKeyId"])
+  );
 }
 
 function isDriveConsentBinding(value: unknown): boolean {
@@ -379,12 +451,9 @@ function isSourceAssociation(value: unknown): boolean {
   if (!isEntryRef(value["launchDecisionRef"]) || !isEntryRef(value["processBindingRef"])) {
     return false;
   }
-  return (
-    isString(value["originAgentSessionId"]) &&
-    (value["originAgentSessionId"] as string).length > 0 &&
-    isString(value["childEnvironmentAgentSessionId"]) &&
-    (value["childEnvironmentAgentSessionId"] as string).length > 0
-  );
+  // P2-1 round 3: agent session ids are Ids (printable ASCII 1..128) —
+  // a 500-char string or a number refuses.
+  return isId(value["originAgentSessionId"]) && isId(value["childEnvironmentAgentSessionId"]);
 }
 
 function isCaptureCapabilities(value: unknown): boolean {
@@ -402,23 +471,46 @@ function isCaptureCapabilities(value: unknown): boolean {
   for (const k of ["pluginIdentity", "pluginVersion", "pluginDigest", "convergenceManifestDigest"]) {
     if (value[k] !== null && !isString(value[k])) return false;
   }
-  // r3: bits = closed capability map (state enum + refs per entry);
-  // columns = array of {column,state} enum pairs with refs.
+  // P2-1 round 3: hostKind and matrixSource are closed — the only values
+  // attested by the r3 vectors. Anything else refuses.
+  if (value["hostKind"] !== "claude") return false;
+  if (value["matrixSource"] !== "H2A_HOST_HOOK_CAPABILITIES") return false;
+  // P2-1 round 3: digest slots hold hex64 digests, never free strings.
+  for (const k of ["cliExecutableDigest", "matrixDigest", "rc0CapabilitiesDigest", "providerTupleDigest"]) {
+    if (!isDigest(value[k])) return false;
+  }
+  if (!isId(value["cliVersion"]) || !isId(value["providerDialect"])) return false;
+  if (!isId(value["originAgentSessionId"])) return false;
+  // r3: bits = closed capability map of exactly the 5 known bits, each an
+  // exact 8-key entry (state enum + refs + the 4 digest slots, null when a
+  // slot does not apply).
   const BIT_STATES = ["unavailable", "contract-only", "installed-qualified"];
   const KNOWN_BITS = [
     "ptyBytes", "structuredDeltas", "completePermissionContext",
     "literalInput", "permissionResponse",
   ];
+  const BIT_KEYS = [
+    "state", "producerRef", "cliVersion", "dialect",
+    "executableDigest", "pluginDigest", "receiptDigest", "sourceGap",
+  ];
   const bits = value["bits"];
   if (!isRecord(bits)) return false;
-  for (const [name, entry] of Object.entries(bits)) {
+  const bitNames = Object.keys(bits);
+  if (bitNames.length !== KNOWN_BITS.length || !KNOWN_BITS.every((b) => Object.hasOwn(bits, b))) {
+    return false;
+  }
+  for (const entry of Object.values(bits)) {
     if (
-      !KNOWN_BITS.includes(name) ||
       !isRecord(entry) ||
+      !hasExactKeys(entry, BIT_KEYS) ||
       !BIT_STATES.includes(entry["state"] as string) ||
       !isId(entry["producerRef"]) ||
       !isId(entry["cliVersion"]) ||
-      !isId(entry["dialect"])
+      !isId(entry["dialect"]) ||
+      !isDigest(entry["executableDigest"]) ||
+      (entry["pluginDigest"] !== null && !isDigest(entry["pluginDigest"])) ||
+      (entry["receiptDigest"] !== null && !isDigest(entry["receiptDigest"])) ||
+      (entry["sourceGap"] !== null && !isId(entry["sourceGap"]))
     ) {
       return false;
     }
@@ -428,24 +520,37 @@ function isCaptureCapabilities(value: unknown): boolean {
     "permission-response", "literal-input", "pty-fallback", "sub-agent-call-attribution",
   ];
   const COLUMN_STATES = ["enforced", "rendered", "guided", "gap", "not-applicable"];
+  const COLUMN_KEYS = ["column", "state", "cliVersion", "dialect", "receiptDigest", "sourceGap"];
   const columns = value["columns"];
-  if (!Array.isArray(columns)) return false;
+  // P2-1 round 3: exactly the 8 known columns, each an exact 6-key entry.
+  if (!Array.isArray(columns) || columns.length !== COLUMNS.length) return false;
   for (const col of columns) {
     if (
       !isRecord(col) ||
+      !hasExactKeys(col, COLUMN_KEYS) ||
       !COLUMNS.includes(col["column"] as string) ||
       !COLUMN_STATES.includes(col["state"] as string) ||
       !isId(col["cliVersion"]) ||
-      !isId(col["dialect"])
+      !isId(col["dialect"]) ||
+      (col["receiptDigest"] !== null && !isDigest(col["receiptDigest"])) ||
+      (col["sourceGap"] !== null && !isId(col["sourceGap"]))
     ) {
       return false;
     }
   }
-  return (
-    isCounter(value["capabilityRevision"]) &&
-    Array.isArray(value["declaredLosses"]) &&
-    isSourceRef(value["sourceRef"])
-  );
+  // P2-1 round 3: declared losses are a closed, duplicate-free enum;
+  // pointOrdering is an array of Ids, never a bare string.
+  const LOSSES = ["no-structured-deltas", "incomplete-context", "no-literal-input", "no-permission-response"];
+  const losses = value["declaredLosses"];
+  if (
+    !Array.isArray(losses) ||
+    new Set(losses).size !== losses.length ||
+    !losses.every((l) => LOSSES.includes(l as string))
+  ) {
+    return false;
+  }
+  if (!isIdArray(value["pointOrdering"])) return false;
+  return isCounter(value["capabilityRevision"]) && isSourceRef(value["sourceRef"]);
 }
 
 /** Closed structural validation for one authority record. Shape only. */
@@ -764,6 +869,16 @@ export interface ProcessBindingInput {
   readonly originInstanceId?: string;
 }
 
+/**
+ * Host-observed process port. The liveness half of the bound tuple
+ * (pid + startedAt) is read here — never from the bearer bag, which any
+ * caller can self-mint. Live wiring to the real process table belongs to
+ * the B5+ composition; until then callers inject a stub or fail closed.
+ */
+export interface HostProcessPort {
+  observeProcess(): { readonly pid: number; readonly startedAt: string } | null;
+}
+
 export type SessionResolution =
   | { readonly ok: true; readonly sessionRef: SessionRefValue; readonly bindingDigest: string }
   | { readonly ok: false; readonly reason: "binding_refused" | "origin_unresolved" };
@@ -774,8 +889,14 @@ export type SessionResolution =
  * `{ instanceId, pid, startedAt }`; a ref whose digest differs refuses, a
  * foreign origin stays unresolved, and writer epoch/revision are never
  * supplied (mesh-owned).
+ *
+ * P2-2 round 3: the liveness half (pid + startedAt) is host-observed via
+ * the injected port — the bearer bag alone never resolves.
  */
-export function resolveSession(input: ProcessBindingInput): SessionResolution {
+export function resolveSession(
+  input: ProcessBindingInput,
+  host?: HostProcessPort | null,
+): SessionResolution {
   const ref = input?.processBindingRef;
   if (
     !input ||
@@ -803,10 +924,22 @@ export function resolveSession(input: ProcessBindingInput): SessionResolution {
   if (input.originInstanceId !== input.localInstanceId) {
     return { ok: false, reason: "origin_unresolved" };
   }
+  // P2-2 round 3: without a host port the origin stays unresolved —
+  // fail-closed until the B5+ host wiring exists.
+  if (!host) {
+    return { ok: false, reason: "origin_unresolved" };
+  }
+  const observed = host.observeProcess();
+  if (!observed || !Number.isSafeInteger(observed.pid) || !isString(observed.startedAt)) {
+    return { ok: false, reason: "origin_unresolved" };
+  }
+  // P2-2 round 3: the liveness expectation comes from the host-observed
+  // tuple, never from the bearer bag — a self-minted tuple with a
+  // hand-recomputed digest refuses.
   const expected = computeHash({
     instanceId: input.localInstanceId,
-    pid: input.pid,
-    startedAt: input.startedAt,
+    pid: observed.pid,
+    startedAt: observed.startedAt,
     sessionId: input.sessionId,
     incarnation: input.incarnation,
     refId: ref["id"],
