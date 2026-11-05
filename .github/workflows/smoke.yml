@@ -22,6 +22,7 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: node scripts/pack-candidate.mjs dist-tarballs
+      - run: node --test packages/h2a/test/registry-artifacts-packed.test.js
       - uses: actions/upload-artifact@v4
         with:
           name: smoke-candidate
