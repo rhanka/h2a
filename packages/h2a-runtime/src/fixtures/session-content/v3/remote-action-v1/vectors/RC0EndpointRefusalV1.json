@@ -1,0 +1,228 @@
+{
+  "record": "RC0EndpointRefusalV1",
+  "evidenceLevel": "synthetic schema and signature fixtures only; no installed authority",
+  "positive": [
+    {
+      "id": "RC0EndpointRefusalV1-shape-positive",
+      "expect": "ACCEPT_SHAPE",
+      "value": {
+        "httpStatus": 400,
+        "code": "invalid_request",
+        "responseBytesBase64": "Zml4dHVyZQ=="
+      },
+      "bytes": {
+        "json": {
+          "base64": "eyJjb2RlIjoiaW52YWxpZF9yZXF1ZXN0IiwiaHR0cFN0YXR1cyI6NDAwLCJyZXNwb25zZUJ5dGVzQmFzZTY0IjoiWm1sNGRIVnlaUT09In0=",
+          "byteLength": 80,
+          "sha256": "e3bb3ebde9e5f58b752ecfd006ba836026b15c681b06b1eb7ec476e8a94a28b5"
+        }
+      }
+    },
+    {
+      "id": "RC0EndpointRefusalV1-variant-0",
+      "expect": "ACCEPT_SHAPE",
+      "value": {
+        "httpStatus": 400,
+        "code": "invalid_request",
+        "responseBytesBase64": "Zml4dHVyZQ=="
+      },
+      "bytes": {
+        "json": {
+          "base64": "eyJjb2RlIjoiaW52YWxpZF9yZXF1ZXN0IiwiaHR0cFN0YXR1cyI6NDAwLCJyZXNwb25zZUJ5dGVzQmFzZTY0IjoiWm1sNGRIVnlaUT09In0=",
+          "byteLength": 80,
+          "sha256": "e3bb3ebde9e5f58b752ecfd006ba836026b15c681b06b1eb7ec476e8a94a28b5"
+        }
+      }
+    },
+    {
+      "id": "RC0EndpointRefusalV1-variant-1",
+      "expect": "ACCEPT_SHAPE",
+      "value": {
+        "httpStatus": 401,
+        "code": "authentication_required",
+        "responseBytesBase64": "Zml4dHVyZQ=="
+      },
+      "bytes": {
+        "json": {
+          "base64": "eyJjb2RlIjoiYXV0aGVudGljYXRpb25fcmVxdWlyZWQiLCJodHRwU3RhdHVzIjo0MDEsInJlc3BvbnNlQnl0ZXNCYXNlNjQiOiJabWw0ZEhWeVpRPT0ifQ==",
+          "byteLength": 88,
+          "sha256": "2aec8044dfdbaa381fb3aed52756dc7be046e4086b0b28113d85d543a7e528f6"
+        }
+      }
+    },
+    {
+      "id": "RC0EndpointRefusalV1-variant-2",
+      "expect": "ACCEPT_SHAPE",
+      "value": {
+        "httpStatus": 403,
+        "code": "origin_refused",
+        "responseBytesBase64": "Zml4dHVyZQ=="
+      },
+      "bytes": {
+        "json": {
+          "base64": "eyJjb2RlIjoib3JpZ2luX3JlZnVzZWQiLCJodHRwU3RhdHVzIjo0MDMsInJlc3BvbnNlQnl0ZXNCYXNlNjQiOiJabWw0ZEhWeVpRPT0ifQ==",
+          "byteLength": 79,
+          "sha256": "54fc7d88421a5e4d4515cd365be0a3b60df1c89e8c31cf8fbf5c4c3fb73231b7"
+        }
+      }
+    },
+    {
+      "id": "RC0EndpointRefusalV1-variant-3",
+      "expect": "ACCEPT_SHAPE",
+      "value": {
+        "httpStatus": 404,
+        "code": "absent",
+        "responseBytesBase64": "Zml4dHVyZQ=="
+      },
+      "bytes": {
+        "json": {
+          "base64": "eyJjb2RlIjoiYWJzZW50IiwiaHR0cFN0YXR1cyI6NDA0LCJyZXNwb25zZUJ5dGVzQmFzZTY0IjoiWm1sNGRIVnlaUT09In0=",
+          "byteLength": 71,
+          "sha256": "2f9c38e74d551d6d96d54542529e8106b3d3d43e14cf048a980639064f01d305"
+        }
+      }
+    },
+    {
+      "id": "RC0EndpointRefusalV1-variant-4",
+      "expect": "ACCEPT_SHAPE",
+      "value": {
+        "httpStatus": 409,
+        "code": "intent_conflict",
+        "responseBytesBase64": "Zml4dHVyZQ=="
+      },
+      "bytes": {
+        "json": {
+          "base64": "eyJjb2RlIjoiaW50ZW50X2NvbmZsaWN0IiwiaHR0cFN0YXR1cyI6NDA5LCJyZXNwb25zZUJ5dGVzQmFzZTY0IjoiWm1sNGRIVnlaUT09In0=",
+          "byteLength": 80,
+          "sha256": "97e17c5756939ddab97b090599db005f5b6dfb23aefcf587663bfadccb9fe411"
+        }
+      }
+    },
+    {
+      "id": "RC0EndpointRefusalV1-variant-5",
+      "expect": "ACCEPT_SHAPE",
+      "value": {
+        "httpStatus": 410,
+        "code": "expired",
+        "responseBytesBase64": "Zml4dHVyZQ=="
+      },
+      "bytes": {
+        "json": {
+          "base64": "eyJjb2RlIjoiZXhwaXJlZCIsImh0dHBTdGF0dXMiOjQxMCwicmVzcG9uc2VCeXRlc0Jhc2U2NCI6IlptbDRkSFZ5WlE9PSJ9",
+          "byteLength": 72,
+          "sha256": "ab896071479eef671893e48b275ca89cc43fc0ffb92cbeb5736285b8530b72bf"
+        }
+      }
+    },
+    {
+      "id": "RC0EndpointRefusalV1-variant-6",
+      "expect": "ACCEPT_SHAPE",
+      "value": {
+        "httpStatus": 413,
+        "code": "oversize",
+        "responseBytesBase64": "Zml4dHVyZQ=="
+      },
+      "bytes": {
+        "json": {
+          "base64": "eyJjb2RlIjoib3ZlcnNpemUiLCJodHRwU3RhdHVzIjo0MTMsInJlc3BvbnNlQnl0ZXNCYXNlNjQiOiJabWw0ZEhWeVpRPT0ifQ==",
+          "byteLength": 73,
+          "sha256": "4736c40a232398595df5bf1ed7f862f1c5929c0c9850988f12fe9428396fd1e7"
+        }
+      }
+    },
+    {
+      "id": "RC0EndpointRefusalV1-variant-7",
+      "expect": "ACCEPT_SHAPE",
+      "value": {
+        "httpStatus": 422,
+        "code": "session_proof_invalid",
+        "responseBytesBase64": "Zml4dHVyZQ=="
+      },
+      "bytes": {
+        "json": {
+          "base64": "eyJjb2RlIjoic2Vzc2lvbl9wcm9vZl9pbnZhbGlkIiwiaHR0cFN0YXR1cyI6NDIyLCJyZXNwb25zZUJ5dGVzQmFzZTY0IjoiWm1sNGRIVnlaUT09In0=",
+          "byteLength": 86,
+          "sha256": "85544231ada2f2c054515108414aef54baa3bd3bdaf7a17cf570f69b69728e8d"
+        }
+      }
+    },
+    {
+      "id": "RC0EndpointRefusalV1-variant-8",
+      "expect": "ACCEPT_SHAPE",
+      "value": {
+        "httpStatus": 426,
+        "code": "unsupported_version",
+        "responseBytesBase64": "Zml4dHVyZQ=="
+      },
+      "bytes": {
+        "json": {
+          "base64": "eyJjb2RlIjoidW5zdXBwb3J0ZWRfdmVyc2lvbiIsImh0dHBTdGF0dXMiOjQyNiwicmVzcG9uc2VCeXRlc0Jhc2U2NCI6IlptbDRkSFZ5WlE9PSJ9",
+          "byteLength": 84,
+          "sha256": "400008a4c29a216afa379055de8d7da9b92942c3ab9787867760c402ff040643"
+        }
+      }
+    },
+    {
+      "id": "RC0EndpointRefusalV1-variant-9",
+      "expect": "ACCEPT_SHAPE",
+      "value": {
+        "httpStatus": 429,
+        "code": "resource_busy",
+        "responseBytesBase64": "Zml4dHVyZQ=="
+      },
+      "bytes": {
+        "json": {
+          "base64": "eyJjb2RlIjoicmVzb3VyY2VfYnVzeSIsImh0dHBTdGF0dXMiOjQyOSwicmVzcG9uc2VCeXRlc0Jhc2U2NCI6IlptbDRkSFZ5WlE9PSJ9",
+          "byteLength": 78,
+          "sha256": "7ff3a80bca18c1c18f61ce38ef626247c8ec5b8d0a6766eaf5301c4e4554d195"
+        }
+      }
+    },
+    {
+      "id": "RC0EndpointRefusalV1-variant-10",
+      "expect": "ACCEPT_SHAPE",
+      "value": {
+        "httpStatus": 503,
+        "code": "source_unavailable",
+        "responseBytesBase64": "Zml4dHVyZQ=="
+      },
+      "bytes": {
+        "json": {
+          "base64": "eyJjb2RlIjoic291cmNlX3VuYXZhaWxhYmxlIiwiaHR0cFN0YXR1cyI6NTAzLCJyZXNwb25zZUJ5dGVzQmFzZTY0IjoiWm1sNGRIVnlaUT09In0=",
+          "byteLength": 83,
+          "sha256": "6e1cd84024b0788610bc9547cc9771f9faca9c81fc8873d9852ee441c066591c"
+        }
+      }
+    }
+  ],
+  "negative": [
+    {
+      "id": "RC0EndpointRefusalV1-unknown-field",
+      "expect": "REJECT_SCHEMA",
+      "value": {
+        "httpStatus": 400,
+        "code": "invalid_request",
+        "responseBytesBase64": "Zml4dHVyZQ==",
+        "__unknown": "forbidden"
+      }
+    },
+    {
+      "id": "wrong-status-for-already-handed-off",
+      "expect": "REJECT_SCHEMA",
+      "value": {
+        "httpStatus": 400,
+        "code": "already_handed_off",
+        "responseBytesBase64": "Zml4dHVyZQ=="
+      }
+    },
+    {
+      "id": "relay-code-is-not-RC0-endpoint-code",
+      "expect": "REJECT_SCHEMA",
+      "value": {
+        "httpStatus": 503,
+        "code": "relay_grant_expired",
+        "responseBytesBase64": "Zml4dHVyZQ=="
+      }
+    }
+  ]
+}

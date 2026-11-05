@@ -1,0 +1,1214 @@
+{
+  "routeId": "action-claim",
+  "method": "POST",
+  "path": "/api/v1/auth/session/content/:bindingId/source/sessions/:sourceSessionId/actions/:actionId/claim",
+  "evidenceLevel": "model route admission only; no handler/network executed; all authority values synthetic assumptions",
+  "positive": [
+    {
+      "id": "action-claim-positive",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "action-claim",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/actions/fixture-actionId/claim",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "actionId": "fixture-actionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "actions",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "allow",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "action-claim-matrix-bound-cli-actions",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "action-claim",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/actions/fixture-actionId/claim",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "actionId": "fixture-actionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "actions",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "allow",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "action-claim-http-media",
+      "evaluator": "routeHttp",
+      "input": {
+        "routeId": "action-claim",
+        "contentType": "application/json",
+        "bodyBytes": 2,
+        "contentEncoding": null
+      },
+      "expected": {
+        "decision": "allow",
+        "code": null
+      }
+    }
+  ],
+  "negative": [
+    {
+      "id": "action-claim-wrong-method",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "action-claim",
+        "method": "GET",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/actions/fixture-actionId/claim",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "actionId": "fixture-actionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "actions",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "action-claim-extra-path",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "action-claim",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/actions/fixture-actionId/claim/extra",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "actionId": "fixture-actionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "actions",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "action-claim-caller-invented-resolved-path",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "action-claim",
+        "method": "POST",
+        "path": "/arbitrary",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "actionId": "fixture-actionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "actions",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false,
+        "expectedResolvedPath": "/arbitrary"
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "action-claim-extra-parameter",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "action-claim",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/actions/fixture-actionId/claim",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "actionId": "fixture-actionId",
+          "arbitrary": "forbidden"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "actions",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "action-claim-foreign-session-scope",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "action-claim",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/actions/fixture-actionId/claim",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "actionId": "fixture-actionId"
+        },
+        "authenticated": true,
+        "scopeMatches": false,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "actions",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "action-claim-missing-authority",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "action-claim",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/actions/fixture-actionId/claim",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "actionId": "fixture-actionId"
+        },
+        "authenticated": false,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "actions",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_auth_required",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "action-claim-purpose-withdrawn",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "action-claim",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/actions/fixture-actionId/claim",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "actionId": "fixture-actionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "actions",
+        "purposeCurrent": false,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_consent_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "action-claim-wrong-lane",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "action-claim",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/actions/fixture-actionId/claim",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "actionId": "fixture-actionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "content",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_lane_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "action-claim-unbound",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "action-claim",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/actions/fixture-actionId/claim",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "actionId": "fixture-actionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": false,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "actions",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_auth_required",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "action-claim-escaped-path",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "action-claim",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/%252fbindingId/source/sessions/fixture-sourceSessionId/actions/fixture-actionId/claim",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "actionId": "fixture-actionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "actions",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "action-claim-matrix-listing-cli-lifecycle",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "action-claim",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/actions/fixture-actionId/claim",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "actionId": "fixture-actionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "action-claim-matrix-listing-cli-content",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "action-claim",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/actions/fixture-actionId/claim",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "actionId": "fixture-actionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "cli",
+        "lane": "content",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "action-claim-matrix-listing-cli-actions",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "action-claim",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/actions/fixture-actionId/claim",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "actionId": "fixture-actionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "cli",
+        "lane": "actions",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "action-claim-matrix-listing-cli-results",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "action-claim",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/actions/fixture-actionId/claim",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "actionId": "fixture-actionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "cli",
+        "lane": "results",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "action-claim-matrix-listing-app-chat-lifecycle",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "action-claim",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/actions/fixture-actionId/claim",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "actionId": "fixture-actionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "app-chat",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "action-claim-matrix-listing-app-chat-content",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "action-claim",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/actions/fixture-actionId/claim",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "actionId": "fixture-actionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "app-chat",
+        "lane": "content",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "action-claim-matrix-listing-app-chat-actions",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "action-claim",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/actions/fixture-actionId/claim",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "actionId": "fixture-actionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "app-chat",
+        "lane": "actions",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "action-claim-matrix-listing-app-chat-results",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "action-claim",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/actions/fixture-actionId/claim",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "actionId": "fixture-actionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "app-chat",
+        "lane": "results",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "action-claim-matrix-bootstrap-cli-lifecycle",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "action-claim",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/actions/fixture-actionId/claim",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "actionId": "fixture-actionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "action-claim-matrix-bootstrap-cli-content",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "action-claim",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/actions/fixture-actionId/claim",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "actionId": "fixture-actionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "cli",
+        "lane": "content",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "action-claim-matrix-bootstrap-cli-actions",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "action-claim",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/actions/fixture-actionId/claim",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "actionId": "fixture-actionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "cli",
+        "lane": "actions",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "action-claim-matrix-bootstrap-cli-results",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "action-claim",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/actions/fixture-actionId/claim",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "actionId": "fixture-actionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "cli",
+        "lane": "results",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "action-claim-matrix-bootstrap-app-chat-lifecycle",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "action-claim",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/actions/fixture-actionId/claim",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "actionId": "fixture-actionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "app-chat",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "action-claim-matrix-bootstrap-app-chat-content",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "action-claim",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/actions/fixture-actionId/claim",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "actionId": "fixture-actionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "app-chat",
+        "lane": "content",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "action-claim-matrix-bootstrap-app-chat-actions",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "action-claim",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/actions/fixture-actionId/claim",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "actionId": "fixture-actionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "app-chat",
+        "lane": "actions",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "action-claim-matrix-bootstrap-app-chat-results",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "action-claim",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/actions/fixture-actionId/claim",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "actionId": "fixture-actionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "app-chat",
+        "lane": "results",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "action-claim-matrix-bound-cli-lifecycle",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "action-claim",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/actions/fixture-actionId/claim",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "actionId": "fixture-actionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_lane_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "action-claim-matrix-bound-cli-content",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "action-claim",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/actions/fixture-actionId/claim",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "actionId": "fixture-actionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "content",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_lane_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "action-claim-matrix-bound-cli-results",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "action-claim",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/actions/fixture-actionId/claim",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "actionId": "fixture-actionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "results",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_lane_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "action-claim-matrix-bound-app-chat-lifecycle",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "action-claim",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/actions/fixture-actionId/claim",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "actionId": "fixture-actionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "app-chat",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "action-claim-matrix-bound-app-chat-content",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "action-claim",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/actions/fixture-actionId/claim",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "actionId": "fixture-actionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "app-chat",
+        "lane": "content",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "action-claim-matrix-bound-app-chat-actions",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "action-claim",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/actions/fixture-actionId/claim",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "actionId": "fixture-actionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "app-chat",
+        "lane": "actions",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "action-claim-matrix-bound-app-chat-results",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "action-claim",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/actions/fixture-actionId/claim",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "actionId": "fixture-actionId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "app-chat",
+        "lane": "results",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "action-claim-http-encoding",
+      "evaluator": "routeHttp",
+      "input": {
+        "routeId": "action-claim",
+        "contentType": "application/json",
+        "bodyBytes": 2,
+        "contentEncoding": "gzip"
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "invalid_request"
+      }
+    },
+    {
+      "id": "action-claim-http-body-or-media",
+      "evaluator": "routeHttp",
+      "input": {
+        "routeId": "action-claim",
+        "contentType": "text/plain",
+        "bodyBytes": 2,
+        "contentEncoding": null
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "invalid_request"
+      }
+    }
+  ],
+  "http": {
+    "requestContentType": "application/json",
+    "responseContentType": "application/json",
+    "body": "strict JSON if present; zero bytes otherwise",
+    "streamProfile": null
+  },
+  "successStatus": 200
+}

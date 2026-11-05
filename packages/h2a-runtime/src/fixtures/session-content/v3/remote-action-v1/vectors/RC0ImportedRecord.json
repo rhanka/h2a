@@ -1,0 +1,21 @@
+{
+  "record": "RC0ImportedRecord",
+  "evidenceLevel": "synthetic schema and signature fixtures only; no installed authority",
+  "positive": [
+    {
+      "id": "RC0ImportedRecord-positive-awaiting-producer",
+      "expect": "BLOCKED_EXTERNAL",
+      "requires": "SG-NATIVE/N1/N5",
+      "value": null
+    }
+  ],
+  "negative": [
+    {
+      "id": "RC0ImportedRecord-reject-local-surrogate",
+      "expect": "REJECT_SCHEMA",
+      "value": {
+        "fixture": "not-external-authority"
+      }
+    }
+  ]
+}

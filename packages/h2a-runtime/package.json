@@ -11,6 +11,10 @@
       "types": "./dist/status-projection.d.ts",
       "import": "./dist/status-projection.js"
     },
+    "./remote-action": {
+      "types": "./dist/remote-action.d.ts",
+      "import": "./dist/remote-action.js"
+    },
     "./package.json": "./package.json"
   },
   "dependencies": {

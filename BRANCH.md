@@ -2507,3 +2507,49 @@ CI du socle 04866486c suivie jusqu’au terminal : `gh pr checks 354 -R rhanka/h
 Correctif de témoins séparé avant L2 : `index.test.ts` reprend exactement main ; le témoin 0.98.0 conserve ses trois cas historiques, puis vérifie le contrat subprocess de main avec un pair HTTP privé et un faux writer (aucun h2a installé). L’ancienne garantie produit R6 « zéro écriture projet » ne s’applique plus au comportement main demandé. RED CI : quatre attentes runtime ; RED local index : **60 pass / 2 fail**. `node node_modules/vitest/vitest.mjs run packages/h2a-runtime/src/index.test.ts packages/h2a-runtime/src/central-mcp-0980.test.ts --maxWorkers=1` : **67/67**, zéro skip. Premier essai de fixture hors dépôt : dépendance Track absente, suite échouée ; dépendances du workspace liées explicitement dans le scratch, puis 67/67.
 
 Comparaison E3 repinnée après rebase sur les octets publiés .6 vérifiés (archives et fermeture publiée inchangées) : quatre des six entrées diffèrent maintenant, dont `native-terminal/process.js` de main. Le générateur respecte TMPDIR. `MH_L5_ARTIFACTS=<scratch>/freeze-fixtures node --test --test-reporter=spec packages/h2a/test/mh-l6-dist-freeze.test.js` : RED **2 pass / 1 fail**, GREEN **3/3**, zéro skip après régénération. Les autres échecs natifs globaux restent consignés ; aucune qualification native supplémentaire ni suppression de garde.
+
+# B1 — `feat/rc2-n1-verifier` (cell N1: verifier, schemas, trust)
+
+Accountable build: Muse Spark 1.3 xhigh. Review: vibe code leg + Wonder design
+leg. Depends on: B0 pin (RC2.contract r3, `MANIFEST.sha256`
+`6245d3ae51f601195926bc36600d1097cef30694f3feb01f79f1a7ec9fa17715`,
+verified `sha256sum -c` clean, 303 OK / 0 failed).
+
+## Lots
+
+1. Red — `remote-action-{contract,verifier,trust}.test.ts` (+ exports/type
+   harness test) and fixtures under
+   `src/fixtures/session-content/v3/remote-action-v1/`. Tests fail on missing
+   modules (4 files, import errors, 0 tests run).
+2. Green — `remote-action-{api,contract,verifier,trust,clock}.ts` frozen
+   `remote-action-v1` schemas/domains, EdDSA/Ed25519 verifier, pinned trust,
+   conservative clock.
+3. Export scaffolding + type harness — `remote-action.ts` barrel,
+   `package.json` `./remote-action` export only, exports/type test green.
+
+## Allowed
+
+- `packages/h2a-runtime/src/remote-action-*.ts` (impl + tests)
+- `packages/h2a-runtime/src/fixtures/session-content/v3/remote-action-v1/**`
+- This file (append own section only; never rewrite other lanes)
+
+## Conditional (exports only, no dependency or script changes)
+
+- `packages/h2a-runtime/package.json` — exactly one `exports` entry
+  (`./remote-action`); nothing else.
+
+## Forbidden
+
+- `packages/remote-protocol/**`, `packages/remote-k8s-orchestrator/**`
+  (no RC0/RC2 symbol there; no traffic routes through them).
+- `packages/h2a-runtime/src/native-terminal/protocol.ts` operation union.
+- Any `cluster-mesh` import (src or deep path); no `@sentropic/cluster-mesh`
+  dependency.
+- `packages/h2a/src/**` (authority-native land is B4).
+- `session-content-{v3-api,policy-proof,consent}.ts`, `session-content-fence.ts`
+  (B2/B5).
+- Local fill of any source-gap slot: `RC0ImportedRecord` stays reject-all;
+  no invented capsule bytes, headers, or trust roots.
+- RS256 / fresh-UV cadence (PR #361 ancestry only, must not survive).
+- Caller-selected trust roots or token-selected discovery in the verifier.
+- No Python anywhere; no `git stash`; no attribution trailers.
