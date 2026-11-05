@@ -2591,3 +2591,49 @@ Accountable build: Muse Spark 1.3 xhigh. Review: vibe code leg. Depends on: B1
 - `session-content-{v3-api,policy-proof,consent}.ts` (B5).
 - Local fill of any source-gap slot; invented capsule bytes/headers/trust roots.
 - No Python anywhere; no `git stash`; no attribution trailers.
+
+# B3 — `feat/rc2-n3-cli-proof` (cell N3: host-bound CLI proof producer)
+
+Accountable build: Muse Spark 1.3 xhigh. Review: vibe code leg. Depends on: B2
+(`origin/main` @ `fdc767d4a`); contract r3 pin re-verified (`MANIFEST.sha256`
+`6245d3ae51f601195926bc36600d1097cef30694f3feb01f79f1a7ec9fa17715`,
+manifest JSON `88823475eca151d908450e4abadcac7b2b60d4b5ea16bae0f590d419fa394565`).
+
+## Lots
+
+1. Red — `remote-action-cli-proof.test.ts`,
+   `native-terminal/remote-action-authority.test.ts` (missing modules, 2 files,
+   0 run).
+2. Green — `remote-action-cli-proof.ts` (mint + §7 binding verifier + guard +
+   media gate + approved-target resolver, all via the N1 verifier) +
+   `native-terminal/remote-action-authority.ts` (host-table adapter with
+   close/replace/mode-switch invalidation) + `NativeTerminalHost.createCliSessionProof`
+   in `host.ts` (one method + one owned authority field); barrel re-exports
+   the cli-proof surface only.
+3. Receiver fixture pack (H-3) — `vectors/cli-proof-h3.json` (signing digests,
+   8-entry mutation corpus, approved-registration mapping with the "42" host-string
+   trap, named source gaps) + the three N3 route vectors copied byte-identical
+   and executed (105 routeGuard + 9 routeHttp cases, zero handler effects);
+   `pin.json` extended with the four new shas.
+
+## Allowed
+
+- `packages/h2a-runtime/src/remote-action-cli-proof.ts` (new)
+- `packages/h2a-runtime/src/native-terminal/remote-action-authority.ts` (new)
+- `packages/h2a-runtime/src/native-terminal/host.ts` (method + field + import only)
+- `packages/h2a-runtime/src/remote-action.ts` (barrel: cli-proof exports appended)
+- `packages/h2a-runtime/src/remote-action-cli-proof.test.ts`,
+  `packages/h2a-runtime/src/native-terminal/remote-action-authority.test.ts`
+- `packages/h2a-runtime/src/fixtures/session-content/v3/remote-action-v1/vectors/*`
+  (3 route vectors + `cli-proof-h3.json`), `pin.json` (4 sha entries)
+- This file (append own section only; never rewrite other lanes)
+
+## Forbidden
+
+- `packages/remote-protocol/**`, `packages/remote-k8s-orchestrator/**`.
+- `packages/h2a-runtime/package.json` (no export change in B3; packaging stays N5).
+- `native-terminal/protocol.ts` operation union, tmux call sites.
+- Any `cluster-mesh` import; `packages/h2a/src/**` (B4 land).
+- `session-content-{v3-api,policy-proof,consent}.ts` (B5).
+- Local fill of any source-gap slot; invented capsule bytes/headers/trust roots.
+- No Python anywhere; no `git stash`; no attribution trailers.
