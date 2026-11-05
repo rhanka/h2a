@@ -34,6 +34,11 @@ const EVIDENCE_LEVEL =
   "local API data-shape contract only; handle authentication and package implementation not supplied";
 const RUNTIME_GATE = "BLOCKED_EXTERNAL_AND_PUBLIC_EXPORTS";
 
+// Envelope only: the vectors pin the eight required runtime cases, but this
+// lot executes just three of them (`incompatible-public-export` via the
+// incompatible-version probe, `no-source-internal-import` via the import-graph
+// test, `typed-refusal-not-throw` via dispatch). The other five stay envelope
+// under `BLOCKED_EXTERNAL_AND_PUBLIC_EXPORTS` and are not claimed as covered.
 const REQUIRED_RUNTIME_CASES = [
   "wrong-local-capability",
   "foreign-process-or-session",
@@ -201,16 +206,18 @@ describe("mesh origin-port fail-closed dispatch", () => {
     expect([...consumer.methods]).toEqual([...MESH_ORIGIN_METHODS]);
     expect(typeof consumer.installedVersion).toBe("string");
     expect(consumer.exportPresent).toBe(false);
-    expect(consumer.refusal.status).toBe("unavailable");
-    expect(consumer.refusal.error).toEqual({
+    expect(consumer.unavailability.status).toBe("unavailable");
+    expect(consumer.unavailability.error).toEqual({
       format: "cluster-mesh.session-relay/1",
       kind: "error",
       code: "relay_grant_unavailable",
       retryable: true,
     });
-    expect(consumer.refusal.reason).toBe("incompatible-version");
-    expect(isMeshOriginRefusal(consumer.refusal)).toBe(true);
+    expect(consumer.unavailability.reason).toBe("incompatible-version");
+    expect(consumer.unavailability.method).toBeNull();
+    expect(isMeshOriginRefusal(consumer.unavailability)).toBe(false);
     expect(isMeshOriginRefusal({ status: "local-committed" })).toBe(false);
+    expect(isMeshOriginRefusal({ status: "refused" })).toBe(false);
     expect(isMeshOriginRefusal(null)).toBe(false);
     expect(resolveCalls).toBe(0);
   });
@@ -232,9 +239,10 @@ describe("mesh origin-port fail-closed dispatch", () => {
       const first = await consumer[method](parameters);
       const second = await consumer[method](parameters);
       expect(isMeshOriginRefusal(first)).toBe(true);
+      expect(first.status).toBe("refused");
+      expect(Object.keys(first).sort()).toEqual(["error", "status"]);
       expect(first.error.code).toBe("relay_grant_unavailable");
       expect(first.error.retryable).toBe(true);
-      expect(first.method).toBe(method);
       expect(second).toEqual(first);
     }
     expect(resolveCalls).toBe(0);
@@ -259,6 +267,42 @@ describe("mesh origin-port fail-closed dispatch", () => {
     expect(resolveCalls).toBe(0);
   });
 
+  it("returns the closed r3 refused shape on the five methods", async () => {
+    const consumer = await createMeshOriginConsumer({
+      resolveSession: () => null,
+    });
+    for (const method of MESH_ORIGIN_METHODS) {
+      const vector = loadJson(`vectors/${vectorFileName(method)}`);
+      const refused = await consumer[method](vector.positive[0].value);
+      expect(refused.status).toBe("refused");
+      expect(Object.keys(refused).sort()).toEqual(["error", "status"]);
+      expect(Object.keys(refused.error).sort()).toEqual([
+        "code",
+        "format",
+        "kind",
+        "retryable",
+      ]);
+      expect(isMeshOriginRefusal(refused)).toBe(true);
+    }
+  });
+
+  it("an already-aborted signal precedes unavailability on the five methods", async () => {
+    const consumer = await createMeshOriginConsumer({
+      resolveSession: () => null,
+    });
+    for (const method of MESH_ORIGIN_METHODS) {
+      const vector = loadJson(`vectors/${vectorFileName(method)}`);
+      const refused = await consumer[method](vector.positive[0].value, {
+        signal: AbortSignal.abort(),
+      });
+      expect(refused.status).toBe("refused");
+      expect(Object.keys(refused).sort()).toEqual(["error", "status"]);
+      expect(refused.error.code).toBe("relay_unavailable");
+      expect(refused.error.retryable).toBe(false);
+      expect(isMeshOriginRefusal(refused)).toBe(true);
+    }
+  });
+
   it("never throws on dispatch; TypeError only for invalid JS use", async () => {
     const consumer = await createMeshOriginConsumer({
       resolveSession: () => null,
@@ -267,12 +311,12 @@ describe("mesh origin-port fail-closed dispatch", () => {
       const vector = loadJson(`vectors/${vectorFileName(method)}`);
       await expect(
         consumer[method](vector.positive[0].value),
-      ).resolves.toMatchObject({ status: "unavailable" });
+      ).resolves.toMatchObject({ status: "refused" });
       await expect(
         consumer[method](vector.positive[0].value, {
           signal: AbortSignal.timeout(1000),
         }),
-      ).resolves.toMatchObject({ status: "unavailable" });
+      ).resolves.toMatchObject({ status: "refused" });
       await expect(
         consumer[method](
           vector.positive[0].value,
@@ -361,6 +405,13 @@ describe("mesh origin-port import graph", () => {
     expect(source).toMatch(/import\(\s*["']@sentropic\/cluster-mesh["']\s*\)/);
     expect(source).not.toMatch(/remote-protocol/);
     expect(source).not.toMatch(/remote-k8s-orchestrator/);
+    // The fs climb escapes the specifier scans: bound every read to the
+    // version metadata file alone.
+    const fileReads = [...source.matchAll(/readFileSync\(([^)]*)\)/g)].map(
+      (entry) => entry[1],
+    );
+    expect(fileReads).toHaveLength(1);
+    expect(fileReads[0]).toContain('"package.json"');
     const staticImports = [...source.matchAll(/^import\s+[^;]+;/gm)].map(
       (entry) => entry[0],
     );

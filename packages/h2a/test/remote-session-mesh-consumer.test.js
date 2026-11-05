@@ -118,8 +118,15 @@ test("registry slice imports the published archive root only", () => {
 });
 
 test("installed archive provides no origin-registry factory (incompatible-version)", async () => {
-  const href = import.meta.resolve("@sentropic/cluster-mesh");
-  let dir = dirname(fileURLToPath(href));
+  let dir;
+  try {
+    dir = dirname(
+      fileURLToPath(import.meta.resolve("@sentropic/cluster-mesh")),
+    );
+  } catch {
+    dir = null;
+  }
+  assert.ok(typeof dir === "string" && dir.length > 0);
   let version = null;
   for (let depth = 0; depth < 6; depth += 1) {
     try {
@@ -168,12 +175,43 @@ test("built composition refuses with the typed code and zero effect", async () =
   });
   assert.equal(consumer.status, "unavailable");
   assert.equal(consumer.exportPresent, false);
-  assert.equal(consumer.refusal.error.code, "relay_grant_unavailable");
-  assert.equal(consumer.refusal.error.retryable, true);
-  assert.equal(consumer.refusal.reason, "incompatible-version");
+  assert.equal(consumer.unavailability.error.code, "relay_grant_unavailable");
+  assert.equal(consumer.unavailability.error.retryable, true);
+  assert.equal(consumer.unavailability.reason, "incompatible-version");
   const refused = await consumer.snapshot({ sessionRef: "fixture" });
-  assert.equal(refused.status, "unavailable");
+  assert.equal(refused.status, "refused");
+  assert.deepEqual(Object.keys(refused).sort(), ["error", "status"]);
   assert.equal(resolveCalls, 0);
+});
+
+test("dispatch returns the closed refused shape with abort precedence", async () => {
+  let mod;
+  try {
+    mod = await import(MODULE_DIST);
+  } catch (err) {
+    assert.fail(
+      `registry-slice dist missing (run tsc -b packages/h2a-runtime): ${err.message}`,
+    );
+  }
+  const consumer = await mod.createMeshOriginConsumer({
+    resolveSession: () => null,
+  });
+  const refused = await consumer.snapshot({ sessionRef: "fixture" });
+  assert.equal(refused.status, "refused");
+  assert.deepEqual(Object.keys(refused).sort(), ["error", "status"]);
+  assert.deepEqual(Object.keys(refused.error).sort(), [
+    "code",
+    "format",
+    "kind",
+    "retryable",
+  ]);
+  const aborted = await consumer.snapshot(
+    { sessionRef: "fixture" },
+    { signal: AbortSignal.abort() },
+  );
+  assert.equal(aborted.status, "refused");
+  assert.equal(aborted.error.code, "relay_unavailable");
+  assert.equal(aborted.error.retryable, false);
 });
 
 test("pinned registry vectors match the r3 bytes", () => {
