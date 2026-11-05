@@ -1,0 +1,1143 @@
+{
+  "routeId": "source-open",
+  "method": "POST",
+  "path": "/api/v1/auth/session/content/:bindingId/source/sessions",
+  "evidenceLevel": "model route admission only; no handler/network executed; all authority values synthetic assumptions",
+  "positive": [
+    {
+      "id": "source-open-positive",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "source-open",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "allow",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "source-open-matrix-bootstrap-cli-lifecycle",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "source-open",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "allow",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "source-open-matrix-bound-cli-lifecycle",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "source-open",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "allow",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "source-open-http-media",
+      "evaluator": "routeHttp",
+      "input": {
+        "routeId": "source-open",
+        "contentType": "application/json",
+        "bodyBytes": 2,
+        "contentEncoding": null
+      },
+      "expected": {
+        "decision": "allow",
+        "code": null
+      }
+    }
+  ],
+  "negative": [
+    {
+      "id": "source-open-wrong-method",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "source-open",
+        "method": "GET",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "source-open-extra-path",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "source-open",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/extra",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "source-open-caller-invented-resolved-path",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "source-open",
+        "method": "POST",
+        "path": "/arbitrary",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false,
+        "expectedResolvedPath": "/arbitrary"
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "source-open-extra-parameter",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "source-open",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "arbitrary": "forbidden"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "source-open-foreign-session-scope",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "source-open",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId"
+        },
+        "authenticated": true,
+        "scopeMatches": false,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "source-open-missing-authority",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "source-open",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId"
+        },
+        "authenticated": false,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_auth_required",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "source-open-purpose-withdrawn",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "source-open",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": false,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_consent_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "source-open-wrong-lane",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "source-open",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "cli",
+        "lane": "content",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_lane_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "source-open-unbound",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "source-open",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": false,
+        "stage": "bootstrap",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_auth_required",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "source-open-escaped-path",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "source-open",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/%252fbindingId/source/sessions",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "source-open-matrix-listing-cli-lifecycle",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "source-open",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "source-open-matrix-listing-cli-content",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "source-open",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "cli",
+        "lane": "content",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "source-open-matrix-listing-cli-actions",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "source-open",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "cli",
+        "lane": "actions",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "source-open-matrix-listing-cli-results",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "source-open",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "cli",
+        "lane": "results",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "source-open-matrix-listing-app-chat-lifecycle",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "source-open",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "app-chat",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "source-open-matrix-listing-app-chat-content",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "source-open",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "app-chat",
+        "lane": "content",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "source-open-matrix-listing-app-chat-actions",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "source-open",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "app-chat",
+        "lane": "actions",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "source-open-matrix-listing-app-chat-results",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "source-open",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "app-chat",
+        "lane": "results",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "source-open-matrix-bootstrap-cli-content",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "source-open",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "cli",
+        "lane": "content",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_lane_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "source-open-matrix-bootstrap-cli-actions",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "source-open",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "cli",
+        "lane": "actions",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_lane_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "source-open-matrix-bootstrap-cli-results",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "source-open",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "cli",
+        "lane": "results",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_lane_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "source-open-matrix-bootstrap-app-chat-lifecycle",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "source-open",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "app-chat",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "source-open-matrix-bootstrap-app-chat-content",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "source-open",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "app-chat",
+        "lane": "content",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "source-open-matrix-bootstrap-app-chat-actions",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "source-open",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "app-chat",
+        "lane": "actions",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "source-open-matrix-bootstrap-app-chat-results",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "source-open",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "app-chat",
+        "lane": "results",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "source-open-matrix-bound-cli-content",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "source-open",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "content",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_lane_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "source-open-matrix-bound-cli-actions",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "source-open",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "actions",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_lane_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "source-open-matrix-bound-cli-results",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "source-open",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "results",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_lane_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "source-open-matrix-bound-app-chat-lifecycle",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "source-open",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "app-chat",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "source-open-matrix-bound-app-chat-content",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "source-open",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "app-chat",
+        "lane": "content",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "source-open-matrix-bound-app-chat-actions",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "source-open",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "app-chat",
+        "lane": "actions",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "source-open-matrix-bound-app-chat-results",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "source-open",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "app-chat",
+        "lane": "results",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "source-open-http-encoding",
+      "evaluator": "routeHttp",
+      "input": {
+        "routeId": "source-open",
+        "contentType": "application/json",
+        "bodyBytes": 2,
+        "contentEncoding": "gzip"
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "invalid_request"
+      }
+    },
+    {
+      "id": "source-open-http-body-or-media",
+      "evaluator": "routeHttp",
+      "input": {
+        "routeId": "source-open",
+        "contentType": "text/plain",
+        "bodyBytes": 2,
+        "contentEncoding": null
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "invalid_request"
+      }
+    }
+  ],
+  "http": {
+    "requestContentType": "application/json",
+    "responseContentType": "application/json",
+    "body": "strict JSON if present; zero bytes otherwise",
+    "streamProfile": null
+  },
+  "successStatus": 200
+}
