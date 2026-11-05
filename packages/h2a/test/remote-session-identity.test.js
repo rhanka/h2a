@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import { createHash, generateKeyPairSync } from "node:crypto";
 import {
   appendFileSync,
+  chmodSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -692,6 +693,80 @@ test("CONSENT-PAIR: durable sourceConsentRevision fence", (t) => {
   assert.throws(() => openSourceConsentFence(dir), /fence_unavailable/);
 });
 
+// P1-1 round 3: the fence never serves a stale revision and never resets
+// silently — revisionOf re-reads durable state on every call; only an
+// absent file is (explicitly) created; anything else refuses.
+test("CONSENT-PAIR: fence never serves stale revisions or silent resets", (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "rc2-b4-fence-r3-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const pairId = consentPairId(A, B);
+  const D1 = `sha256:${"a".repeat(64)}`;
+  const D2 = `sha256:${"b".repeat(64)}`;
+  const file = join(dir, "source-consent-revisions.json");
+  const fenceA = openSourceConsentFence(dir);
+  assert.equal(fenceA.commitSnapshot(pairId, D1), 1);
+  // Second handle opened while durable state is rev 1.
+  const fenceB = openSourceConsentFence(dir);
+  assert.equal(fenceB.revisionOf(pairId), 1);
+  // A advances to rev 2: B must see rev 2, never its stale rev 1.
+  assert.equal(fenceA.commitSnapshot(pairId, D2), 2);
+  assert.equal(fenceB.revisionOf(pairId), 2);
+  assert.deepEqual(
+    checkBindingRevision(
+      { pairId, consentRevision: 1, sourceConsentRevision: 1 },
+      fenceB,
+    ),
+    { ok: false, reason: "revision_mismatch" },
+  );
+  assert.deepEqual(
+    checkBindingRevision(
+      { pairId, consentRevision: 1, sourceConsentRevision: 2 },
+      fenceB,
+    ),
+    { ok: true },
+  );
+  // Unreadable fence file: reopen and revisionOf refuse, durable bytes
+  // stay untouched (no empty-state rewrite).
+  const before = readFileSync(file, "utf8");
+  chmodSync(file, 0o000);
+  try {
+    assert.throws(() => openSourceConsentFence(dir), /fence_unavailable/);
+    assert.throws(() => fenceA.revisionOf(pairId), /fence_unavailable/);
+    assert.deepEqual(
+      checkBindingRevision(
+        { pairId, consentRevision: 1, sourceConsentRevision: 2 },
+        fenceA,
+      ),
+      { ok: false, reason: "revision_mismatch" },
+    );
+  } finally {
+    chmodSync(file, 0o644);
+  }
+  assert.equal(readFileSync(file, "utf8"), before);
+  assert.equal(fenceA.revisionOf(pairId), 2);
+  // Extra key in an entry: corrupt, never defaulted to a fresh state.
+  writeFileSync(
+    file,
+    JSON.stringify({
+      format: "h2a.source-consent-fence/1",
+      genesis: "test-genesis",
+      pairs: { [pairId]: { revision: 2, digest: D2, extra: true } },
+    }),
+  );
+  assert.throws(() => openSourceConsentFence(dir), /fence_unavailable/);
+  // Envelope without format/genesis, or with an empty genesis: refused.
+  writeFileSync(
+    file,
+    JSON.stringify({ pairs: { [pairId]: { revision: 2, digest: D2 } } }),
+  );
+  assert.throws(() => openSourceConsentFence(dir), /fence_unavailable/);
+  writeFileSync(
+    file,
+    JSON.stringify({ format: "h2a.source-consent-fence/1", genesis: "", pairs: {} }),
+  );
+  assert.throws(() => openSourceConsentFence(dir), /fence_unavailable/);
+});
+
 // ---------------------------------------------------------------------------
 // AUTHORITY-NATIVE: H-shapes, binding/ack trust, association, capabilities.
 // ---------------------------------------------------------------------------
@@ -786,6 +861,148 @@ test("AUTHORITY-NATIVE: H admission verdict const is enforced", () => {
   const refused = structuredClone(good);
   refused.verdict = "refused";
   assert.equal(verifyRecordShape("SessionAdmissionEvidenceV1", refused), "REJECT_SCHEMA");
+});
+
+// P2-1 round 3: every r3 $def constraint refuses one by one — types and
+// items, enums, consts, Id/Digest shapes, exact bit/column entry keys,
+// 5-bit / 8-column cardinalities, typed optionals, expiresAt admitted.
+test("AUTHORITY-NATIVE: capabilities $def constraints refuse one by one", () => {
+  const v = loadJson("vectors/SessionCaptureCapabilitiesV1.json");
+  const good = structuredClone(v.positive[0].value);
+  assert.equal(verifyRecordShape("SessionCaptureCapabilitiesV1", good), "ACCEPT_SHAPE");
+  const cases = [
+    ["hostKind free string", (x) => { x.hostKind = "evil"; }],
+    ["cliExecutableDigest non-hex", (x) => { x.cliExecutableDigest = "zzzz"; }],
+    ["matrixDigest non-hex", (x) => { x.matrixDigest = "abc"; }],
+    ["providerTupleDigest non-hex", (x) => { x.providerTupleDigest = "sha256:zzz"; }],
+    ["rc0CapabilitiesDigest non-hex", (x) => { x.rc0CapabilitiesDigest = 123; }],
+    ["matrixSource free string", (x) => { x.matrixSource = "evil"; }],
+    ["bits empty", (x) => { x.bits = {}; }],
+    ["bits extra key", (x) => { x.bits.evilBit = structuredClone(x.bits.ptyBytes); }],
+    ["bits missing a key", (x) => { delete x.bits.ptyBytes; }],
+    ["bit missing digests", (x) => {
+      delete x.bits.ptyBytes.executableDigest;
+      delete x.bits.ptyBytes.pluginDigest;
+      delete x.bits.ptyBytes.receiptDigest;
+    }],
+    ["bit extra key", (x) => { x.bits.ptyBytes.evil = 1; }],
+    ["bit state free string", (x) => { x.bits.ptyBytes.state = "evil"; }],
+    ["bit executableDigest non-hex", (x) => { x.bits.ptyBytes.executableDigest = "nope"; }],
+    ["columns empty", (x) => { x.columns = []; }],
+    ["columns wrong count", (x) => { x.columns = x.columns.slice(0, 7); }],
+    ["column missing receiptDigest/sourceGap", (x) => {
+      delete x.columns[0].receiptDigest;
+      delete x.columns[0].sourceGap;
+    }],
+    ["column extra key", (x) => { x.columns[0].evil = 1; }],
+    ["column state free string", (x) => { x.columns[0].state = "evil"; }],
+    ["column name free string", (x) => { x.columns[0].column = "evil"; }],
+    ["declaredLosses unknown enum", (x) => { x.declaredLosses = ["nope"]; }],
+    ["declaredLosses duplicated", (x) => { x.declaredLosses = [...x.declaredLosses, x.declaredLosses[0]]; }],
+    ["declaredLosses non-string item", (x) => { x.declaredLosses = [123]; }],
+    ["pointOrdering string", (x) => { x.pointOrdering = "ordered"; }],
+    ["originAgentSessionId number", (x) => { x.originAgentSessionId = 123; }],
+    ["capabilityRevision float", (x) => { x.capabilityRevision = 1.5; }],
+  ];
+  for (const [name, fn] of cases) {
+    const mut = structuredClone(good);
+    fn(mut);
+    assert.equal(verifyRecordShape("SessionCaptureCapabilitiesV1", mut), "REJECT_SCHEMA", name);
+  }
+});
+
+test("AUTHORITY-NATIVE: RoleScope $def constraints refuse one by one", () => {
+  const v = loadJson("vectors/RoleScopePolicyV1.json");
+  const good = structuredClone(v.positive.find((p) => p.expect === "ACCEPT_SHAPE").value);
+  assert.equal(verifyRecordShape("RoleScopePolicyV1", good), "ACCEPT_SHAPE");
+  const cases = [
+    ["signingClass outside enum", (x) => { x.signingClass = "D9"; }],
+    ["memoryScopes free string", (x) => { x.memoryScopes = ["evil"]; }],
+    ["governanceRoles non-string item", (x) => { x.governanceRoles = [123]; }],
+    ["allowedCliKinds non-string item", (x) => { x.allowedCliKinds = ["ok", 123]; }],
+    ["mcpRights tools non-string item", (x) => { x.mcpRights.tools = [123]; }],
+    ["policyId number", (x) => { x.policyId = 123; }],
+    ["revision float", (x) => { x.revision = 1.5; }],
+    ["effortCeiling wrong type", (x) => { x.effortCeiling = "high"; }],
+    ["validUntil wrong type", (x) => { x.validUntil = 123; }],
+    ["unknown optional", (x) => { x.evilOptional = 1; }],
+  ];
+  for (const [name, fn] of cases) {
+    const mut = structuredClone(good);
+    fn(mut);
+    assert.equal(verifyRecordShape("RoleScopePolicyV1", mut), "REJECT_SCHEMA", name);
+  }
+  // Typed optionals: a Counter ceiling, string validUntil/supersedes accept.
+  for (const extra of [{ effortCeiling: 123 }, { validUntil: "2030-01-01" }, { supersedes: "policy-9" }]) {
+    const mut = structuredClone(good);
+    Object.assign(mut, extra);
+    assert.equal(verifyRecordShape("RoleScopePolicyV1", mut), "ACCEPT_SHAPE", JSON.stringify(extra));
+  }
+});
+
+test("AUTHORITY-NATIVE: RegistryView $def constraints refuse one by one", () => {
+  const v = loadJson("vectors/RegistryInstanceViewV1.json");
+  const good = structuredClone(v.positive.find((p) => p.expect === "ACCEPT_SHAPE").value);
+  assert.equal(verifyRecordShape("RegistryInstanceViewV1", good), "ACCEPT_SHAPE");
+  const cases = [
+    ["instances non-record item", (x) => { x.instances = [123]; }],
+    ["keys malformed item", (x) => { x.keys = [{ bad: true }]; }],
+    ["launchName number", (x) => { x.launchName = 123; }],
+    ["offboardTombstone string", (x) => { x.offboardTombstone = "flat"; }],
+    ["unknown optional", (x) => { x.evilOptional = 1; }],
+  ];
+  for (const [name, fn] of cases) {
+    const mut = structuredClone(good);
+    fn(mut);
+    assert.equal(verifyRecordShape("RegistryInstanceViewV1", mut), "REJECT_SCHEMA", name);
+  }
+  // Typed optionals: string launchName and record tombstone accept.
+  const withLaunch = structuredClone(good);
+  withLaunch.launchName = "launch-1";
+  assert.equal(verifyRecordShape("RegistryInstanceViewV1", withLaunch), "ACCEPT_SHAPE");
+  const withTomb = structuredClone(good);
+  withTomb.offboardTombstone = { instance: "i", revokedKeys: 0, revokedSubagents: [], at: "t" };
+  assert.equal(verifyRecordShape("RegistryInstanceViewV1", withTomb), "ACCEPT_SHAPE");
+});
+
+test("AUTHORITY-NATIVE: Attestation $def constraints refuse one by one", () => {
+  const v = loadJson("vectors/RoleAgentAttestationV1.json");
+  const good = structuredClone(v.positive.find((p) => p.expect === "ACCEPT_SHAPE").value);
+  assert.equal(verifyRecordShape("RoleAgentAttestationV1", good), "ACCEPT_SHAPE");
+  const cases = [
+    ["agentUuid number", (x) => { x.agentUuid = 123; }],
+    ["issuedAt number", (x) => { x.issuedAt = 123; }],
+    ["keyIds non-string item", (x) => { x.keyIds = [123]; }],
+    ["expiresAt wrong type", (x) => { x.expiresAt = 123; }],
+    ["unknown field", (x) => { x.evil = 1; }],
+  ];
+  for (const [name, fn] of cases) {
+    const mut = structuredClone(good);
+    fn(mut);
+    assert.equal(verifyRecordShape("RoleAgentAttestationV1", mut), "REJECT_SCHEMA", name);
+  }
+  // expiresAt is an admitted optional (parallel to issuedAt): string accepts.
+  const withExpiry = structuredClone(good);
+  withExpiry.expiresAt = "2030-01-01T00:00:00.000Z";
+  assert.equal(verifyRecordShape("RoleAgentAttestationV1", withExpiry), "ACCEPT_SHAPE");
+  const withKeys = structuredClone(good);
+  withKeys.keyIds = ["key-1"];
+  assert.equal(verifyRecordShape("RoleAgentAttestationV1", withKeys), "ACCEPT_SHAPE");
+});
+
+test("AUTHORITY-NATIVE: association Id bounds refuse one by one", () => {
+  const v = loadJson("vectors/RemoteSourceAssociationV1.json");
+  const good = structuredClone(v.positive[0].value);
+  assert.equal(verifyRecordShape("RemoteSourceAssociationV1", good), "ACCEPT_SHAPE");
+  const long = structuredClone(good);
+  long.originAgentSessionId = "x".repeat(500);
+  assert.equal(verifyRecordShape("RemoteSourceAssociationV1", long), "REJECT_SCHEMA");
+  const numChild = structuredClone(good);
+  numChild.childEnvironmentAgentSessionId = 123;
+  assert.equal(verifyRecordShape("RemoteSourceAssociationV1", numChild), "REJECT_SCHEMA");
+  const nullOrigin = structuredClone(good);
+  nullOrigin.originAgentSessionId = null;
+  assert.equal(verifyRecordShape("RemoteSourceAssociationV1", nullOrigin), "REJECT_SCHEMA");
 });
 
 function testAuthority(issuer, kid) {
@@ -970,10 +1187,12 @@ test("AUTHORITY-NATIVE: capabilities facts gate (no capture before SG-R15)", () 
   );
 });
 
-test("AUTHORITY-NATIVE: resolveSession binds locally, never mints writer bytes", () => {
-  // P2-4: the bound digest covers session/incarnation/ref identity, and
-  // the origin is required — never defaulted to local.
-  const input = {
+test("AUTHORITY-NATIVE: resolveSession trusts the host-observed tuple, never the bearer", () => {
+  // P2-2 round 3: the liveness expectation (pid + startedAt) comes from a
+  // host-observed port, never from the bearer bag — a self-minted tuple
+  // with a hand-recomputed digest refuses. Without a port, the origin
+  // stays unresolved (fail-closed until host wiring, B5+).
+  const bearer = {
     processBindingRef: { id: "pb-1", revision: 1, digest: "" },
     localInstanceId: "pair:b",
     pid: 4242,
@@ -982,16 +1201,22 @@ test("AUTHORITY-NATIVE: resolveSession binds locally, never mints writer bytes",
     incarnation: "inc-1",
     originInstanceId: "pair:b",
   };
-  const digest = computeHash({
-    instanceId: input.localInstanceId,
-    pid: input.pid,
-    startedAt: input.startedAt,
-    sessionId: input.sessionId,
-    incarnation: input.incarnation,
-    refId: input.processBindingRef.id,
-    refRevision: input.processBindingRef.revision,
+  const digestFor = (pid, startedAt) => computeHash({
+    instanceId: bearer.localInstanceId,
+    pid,
+    startedAt,
+    sessionId: bearer.sessionId,
+    incarnation: bearer.incarnation,
+    refId: bearer.processBindingRef.id,
+    refRevision: bearer.processBindingRef.revision,
   });
-  const ok = resolveSession({ ...input, processBindingRef: { ...input.processBindingRef, digest } });
+  const hostPort = (pid, startedAt) => ({
+    observeProcess: () => ({ pid, startedAt }),
+  });
+  const digest = digestFor(4242, "2026-11-01T08:00:00.000Z");
+  const minted = { ...bearer, processBindingRef: { ...bearer.processBindingRef, digest } };
+  // Positive: the host observes the same live tuple the ref binds.
+  const ok = resolveSession(minted, hostPort(4242, "2026-11-01T08:00:00.000Z"));
   assert.equal(ok.ok, true);
   assert.deepEqual(ok.sessionRef, {
     originInstanceId: "pair:b",
@@ -1001,48 +1226,78 @@ test("AUTHORITY-NATIVE: resolveSession binds locally, never mints writer bytes",
   for (const key of ["writerEpoch", "originRevision", "projectionDigest"]) {
     assert.ok(!(key in ok), `no writer byte: ${key}`);
   }
+  // No port (or a dead one): origin stays unresolved, never local-defaulted.
+  assert.deepEqual(
+    resolveSession(minted),
+    { ok: false, reason: "origin_unresolved" },
+  );
+  assert.deepEqual(
+    resolveSession(minted, null),
+    { ok: false, reason: "origin_unresolved" },
+  );
+  assert.deepEqual(
+    resolveSession(minted, { observeProcess: () => null }),
+    { ok: false, reason: "origin_unresolved" },
+  );
+  // Self-minted bearer tuple is ignored: the host observes another process.
+  const selfMinted = {
+    ...minted,
+    processBindingRef: {
+      ...minted.processBindingRef,
+      digest: digestFor(999999, "whenever"),
+    },
+    pid: 999999,
+    startedAt: "whenever",
+  };
+  assert.deepEqual(
+    resolveSession(selfMinted, hostPort(4242, "2026-11-01T08:00:00.000Z")),
+    { ok: false, reason: "binding_refused" },
+  );
+  // The port is authoritative: bearer/observed agreement resolves, even
+  // for a tuple the bearer chose — the bearer alone can never mint one.
+  // (Live-process wiring of the port is the B5+ lot; here the port is stubbed.)
+  const agreed = resolveSession(selfMinted, hostPort(999999, "whenever"));
+  assert.equal(agreed.ok, true);
   assert.deepEqual(
     resolveSession({
-      ...input,
+      ...minted,
       processBindingRef: { id: "pb-1", revision: 1, digest: `sha256:${"f".repeat(64)}` },
-    }),
+    }, hostPort(4242, "2026-11-01T08:00:00.000Z")),
     { ok: false, reason: "binding_refused" },
   );
   assert.deepEqual(
-    resolveSession({
-      ...input,
-      processBindingRef: { ...input.processBindingRef, digest },
-      originInstanceId: "foreign-origin",
-    }),
+    resolveSession(
+      { ...minted, originInstanceId: "foreign-origin" },
+      hostPort(4242, "2026-11-01T08:00:00.000Z"),
+    ),
     { ok: false, reason: "origin_unresolved" },
   );
-  // P2-4: omitted origin never resolves to local; a ref minted for one
-  // session never resolves to another; non-integer revisions refuse.
-  const { originInstanceId, ...noOrigin } = input;
+  // Omitted origin never resolves to local; a ref minted for one session
+  // never resolves to another; non-integer revisions refuse.
+  const { originInstanceId, ...noOrigin } = minted;
   assert.deepEqual(
-    resolveSession({ ...noOrigin, processBindingRef: { ...input.processBindingRef, digest } }),
+    resolveSession(noOrigin, hostPort(4242, "2026-11-01T08:00:00.000Z")),
     { ok: false, reason: "origin_unresolved" },
   );
   assert.deepEqual(
-    resolveSession({
-      ...input,
-      processBindingRef: { ...input.processBindingRef, digest },
-      sessionId: "sess-evil",
-    }),
+    resolveSession(
+      { ...minted, sessionId: "sess-evil" },
+      hostPort(4242, "2026-11-01T08:00:00.000Z"),
+    ),
     { ok: false, reason: "binding_refused" },
   );
   assert.deepEqual(
-    resolveSession({
-      ...input,
-      processBindingRef: { id: "pb-1", revision: -1.5, digest },
-    }),
+    resolveSession(
+      { ...minted, processBindingRef: { id: "pb-1", revision: -1.5, digest } },
+      hostPort(4242, "2026-11-01T08:00:00.000Z"),
+    ),
     { ok: false, reason: "binding_refused" },
   );
   assert.deepEqual(
-    resolveSession({
-      ...input,
-      processBindingRef: { id: "pb-1", revision: 0, digest },
-    }),
+    resolveSession(
+      { ...minted, processBindingRef: { id: "pb-1", revision: 0, digest } },
+      hostPort(4242, "2026-11-01T08:00:00.000Z"),
+    ),
     { ok: false, reason: "binding_refused" },
   );
 });

@@ -2732,3 +2732,38 @@ Accountable build: Muse Spark 1.3 xhigh. Reviews: Wonder (`rv416w-last.md`,
   fingerprint→public-key binding, H shape-before-block precedence, factId
   identity inclusion, SG-R15/bits recursion, durable fact registry (P3-1..P3-4,
   mistral P3-2/P3-3).
+
+# B4-R3 — fix round 3 on `feat/rc2-authority-native` (rv416w CHANGES)
+
+Accountable build: Muse Spark 1.3 xhigh. Reviews: Wonder (`rv416w-last.md`,
+P1-1 stale-fence residual + P1-2 CI rerun + P2-1/P2-2/P2-3) and mistral
+(`rv416m-last.md`, FUSIONNABLE with P3-1/P3-2 notes). RED confirmed on this
+head (7 new tests fail, 42 pass), GREEN after.
+
+- P1-1 fence fail-closed, residual closed: `revisionOf` re-reads durable
+  state on every call and throws on any read error (never memory);
+  creation is explicit and only on ENOENT (EACCES/corrupt refuses,
+  bytes untouched); envelope pinned (format const + non-empty genesis,
+  pre-genesis files refuse); entries carry exactly {revision,digest};
+  one tmp file per writer (pid+seq). New tests: two-handle staleness,
+  chmod-000, extra-key entry, envelope without format/genesis.
+- P2-1 shapes fully closed to r3: RoleScope (signingClass closed {D0},
+  memoryScopes closed-empty, Id items, typed optionals
+  effortCeiling:Counter/validUntil:Id/supersedes:Id); RegistryView
+  (typed items, launchName:Id?, offboardTombstone:record?);
+  Attestation (all Ids, keyIds:Id[], expiresAt:Id? admitted);
+  Association (agent session ids are Ids); Capabilities (hostKind const,
+  matrixSource const, hex64 digests, bits exactly 5×8 keys, columns
+  exactly 8×6 keys, declaredLosses closed duplicate-free enum,
+  pointOrdering Id[]). 40+ per-constraint negatives in test.
+- P2-2 resolveSession de-self-referenced: liveness (pid+startedAt) comes
+  from an injected `HostProcessPort.observeProcess()`; without a port (or
+  a null observation) the origin stays `origin_unresolved` (fail-closed to
+  B5+ host wiring). Bearer-only tuples with hand-recomputed digests
+  refuse; port-observed agreement resolves (port is authoritative).
+- P2-3: PR body rewritten — neutralisations + deferrals named, 49/49.
+- P1-2: `npm-test-trust-root` rerun once at the new head (flake, see report).
+- Deferred (named in PR body): B5+ composition (pairId formula, TRUSTED,
+  signer ACK), contract-fence tuple key + computed digests, custody
+  fingerprint→public-key binding, H shape-before-block precedence, factId
+  identity inclusion, SG-R15/bits recursion, live host-process wiring.
