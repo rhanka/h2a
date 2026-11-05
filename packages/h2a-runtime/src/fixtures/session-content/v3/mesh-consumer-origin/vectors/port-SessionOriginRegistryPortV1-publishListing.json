@@ -1,0 +1,57 @@
+{
+  "port": "SessionOriginRegistryPortV1",
+  "method": "publishListing",
+  "parameterSchema": "schemas/SessionOriginPublishListingParametersV1.schema.json",
+  "resultSchema": "schemas/SessionOriginPublishResultV1.schema.json",
+  "evidenceLevel": "local API data-shape contract only; handle authentication and package implementation not supplied",
+  "positive": [
+    {
+      "id": "publishListing-parameters",
+      "expect": "ACCEPT_SHAPE",
+      "value": {
+        "sessionRef": {
+          "originInstanceId": "fixture-B",
+          "sessionId": "fixture-session",
+          "incarnation": "fixture-incarnation"
+        },
+        "grantRef": {
+          "id": "fixture-id-0",
+          "revision": 1,
+          "digest": "28c7b04017ccd8d951260f8f79fde389c102489e89eba05f0a4f037e6ae640e7"
+        }
+      }
+    }
+  ],
+  "negative": [
+    {
+      "id": "publishListing-unlisted-argument",
+      "expect": "REJECT_SCHEMA",
+      "value": {
+        "sessionRef": {
+          "originInstanceId": "fixture-B",
+          "sessionId": "fixture-session",
+          "incarnation": "fixture-incarnation"
+        },
+        "grantRef": {
+          "id": "fixture-id-0",
+          "revision": 1,
+          "digest": "28c7b04017ccd8d951260f8f79fde389c102489e89eba05f0a4f037e6ae640e7"
+        },
+        "arbitraryUrl": "https://forbidden.invalid/"
+      }
+    }
+  ],
+  "requiredRuntimeCases": [
+    "wrong-local-capability",
+    "foreign-process-or-session",
+    "incompatible-public-export",
+    "no-source-internal-import",
+    "duplicate-reuses-revision",
+    "matching-ACK-or-remote-unknown",
+    "sole-origin-writer-fence",
+    "typed-refusal-not-throw"
+  ],
+  "runtimeGate": "BLOCKED_EXTERNAL_AND_PUBLIC_EXPORTS",
+  "signature": "publishListing(parameters: SessionOriginPublishListingParametersV1, options?: { signal?: AbortSignal }): Promise<SessionOriginPublishResultV1>",
+  "revisionSemantics": "does not allocate originRevision"
+}
