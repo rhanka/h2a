@@ -33,6 +33,7 @@ import {
   buildCaptureFacts,
   buildSourceAssociation,
   evaluateRecordTrust,
+  isEnrolledCustody,
   openFactRegistry,
   registerCustody,
   resolveSession,
@@ -90,6 +91,26 @@ const MANIFEST_VECTOR_SHA256 = {
     "81c31e08c6a7505247ed66c5a53632544083915c05c28caeeefc5d7129cbb4d8",
   "RoleAgentAttestationV1.json":
     "0bdbda0284a4f00cc1524d8c57fdaadfd5fff1c0680369aa26bf4962a068a936",
+  "consent-native-canonical.json":
+    "436d59008001e58252000b040509d1dc551d9aa82370a57f6c514cdd8360d10a",
+  "port-SessionOriginRegistryPortV1-ingestCapabilities.json":
+    "6a323ecef9c4359aa75bc8467bc69967222cd1a4c7dbc32b0b363f48451f4e83",
+  "port-SessionOriginRegistryPortV1-ingestLifecycle.json":
+    "ea46feb8c640049ded42eeb1e083fa0b3ccb71c861c02ada9a13a87b07485e64",
+  "registry-revision-digests.json":
+    "31a375ea904d32f605c1560df3c6deee15d0c528f7059009e00d1cbf74568003",
+  "route-drive-binding-ack.json":
+    "2284c04fa886ed0fc135aa0be62675bce8d3ab728847a8b0339018366578fdc3",
+  "route-drive-binding-fetch.json":
+    "1785998e25a3a93eb9f2e2935b0756c86206974d14be939cb948f617875a8069",
+  "route-lifecycle-publish.json":
+    "078cc15260f9fa8291491f99178627e94ca93edf8320a252a55ec24db8a55cdf",
+  "route-listing-grant-ack.json":
+    "147690f35239c66d3a880d23996409690d52ee5edab09565e28a7748f1735b6b",
+  "route-listing-grant-fetch.json":
+    "0046d35b1bc8698203741279922653efff01f5a2cb334ce2c18c0d664f9605c2",
+  "route-listing-publish.json":
+    "98ac691268eb226e98ab7d4051be9b4e41cfd03341a54d02071390f5873870b1",
 };
 
 test("B4-PIN: r3 pin and every vendored vector byte", () => {
@@ -104,6 +125,8 @@ test("B4-PIN: r3 pin and every vendored vector byte", () => {
     assert.match(pin.vectors[name], /^[a-f0-9]{64}$/);
     assert.equal(sha256Hex(loadBytes(name)), pin.vectors[name]);
   }
+  // P2-5: all 19 vectors anchored to the manifest copy (not 9/19).
+  assert.equal(Object.keys(MANIFEST_VECTOR_SHA256).length, 19);
   for (const [name, sha] of Object.entries(MANIFEST_VECTOR_SHA256)) {
     assert.equal(sha256Hex(loadBytes(name)), sha);
     assert.equal(pin.vectors[name], sha);
@@ -524,16 +547,93 @@ test("CONSENT-PAIR: r3 vector digests execute (hash, linkage, pair, scope)", () 
   }
 });
 
+// P2-5: every r3 consent case replays through the real projectConsent and
+// its decision equals the vector `expected` — the oracle no longer reads
+// only hashes and linkage.
+test("CONSENT-PAIR: r3 vector cases project to expected", (t) => {
+  const v = loadJson("vectors/consent-native-canonical.json");
+  const FROM = "native-from-fixture";
+  const TO = "native-to-fixture";
+  for (const c of v.cases) {
+    const root = mkdtempSync(join(tmpdir(), "rc2-b4-vector-"));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const store = createLocalStore({ root });
+    const keyOf = {};
+    for (const reg of v.registrations) {
+      const k = keys();
+      keyOf[reg.id] = k;
+      store.registerInstance({
+        id: reg.id,
+        instance: reg.id,
+        agentUuid: reg.agentUuid,
+        roles: reg.id === c.registeredPrincipal ? ["PRINCIPAL"] : ["AGENTS"],
+        scopes: ["shared"],
+        capabilities: [],
+        endpoints: [],
+        publicKeys: [k.publicKeyPem],
+        // The driven side declares its principal (same wiring as the
+        // local pairFixture helper).
+        ...(reg.id === TO && c.registeredPrincipal ? { principal: c.registeredPrincipal } : {}),
+        acceptedPolicies: [],
+        createdAt: new Date(c.now).toISOString(),
+      });
+    }
+    for (const e of c.entries) {
+      const payload = e.body.payload;
+      const by = e.actor.instance;
+      const entry = {
+        id: `evt-${e.id}`,
+        type: e.type,
+        actor: { instance: by, role: "AGENTS", scope: "drive-consent" },
+        negotiationId: e.negotiationId,
+        createdAt: e.createdAt,
+        body: {
+          kind: payload.kind,
+          payload,
+          signature: signCanonical(payload, {
+            by,
+            privateKeyPem: keyOf[by].privateKeyPem,
+          }),
+        },
+      };
+      // Co-signatures are re-minted with the fixture principal key so the
+      // projection verifies them against the registered principal.
+      if (e.body.coSignature && c.registeredPrincipal) {
+        entry.body.coSignature = signCanonical(payload, {
+          by: c.registeredPrincipal,
+          privateKeyPem: keyOf[c.registeredPrincipal].privateKeyPem,
+        });
+      }
+      const file = negotiationJournalFile(store.paths, entry.negotiationId);
+      mkdirSync(join(file, ".."), { recursive: true });
+      const entries = store.readNegotiationJournal(entry.negotiationId);
+      const prev = entries.at(-1);
+      appendFileSync(
+        file,
+        JSON.stringify(prev ? appendJournalEntry(prev, entry) : createJournalEntry(entry)) +
+          "\n",
+      );
+    }
+    const entries = store
+      .readNegotiationJournal(consentPairId(FROM, TO))
+      .map((e) => e.entry ?? e);
+    const out = projectConsent(store, FROM, TO, entries, c.now);
+    assert.deepEqual(out.decision, c.expected, `case ${c.id}`);
+  }
+});
+
 test("CONSENT-PAIR: durable sourceConsentRevision fence", (t) => {
   const dir = mkdtempSync(join(tmpdir(), "rc2-b4-fence-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const pairId = consentPairId(A, B);
+  const D1 = `sha256:${"a".repeat(64)}`;
+  const D2 = `sha256:${"b".repeat(64)}`;
   const fence = openSourceConsentFence(dir);
   assert.equal(fence.revisionOf(pairId), 0);
-  assert.equal(fence.commitSnapshot(pairId, "sha256:aaa"), 1);
+  assert.equal(fence.commitSnapshot(pairId, D1), 1);
   assert.equal(fence.revisionOf(pairId), 1);
-  assert.equal(fence.commitSnapshot(pairId, "sha256:aaa"), 1);
-  assert.equal(fence.commitSnapshot(pairId, "sha256:bbb"), 2);
+  assert.equal(fence.commitSnapshot(pairId, D1), 1);
+  assert.equal(fence.commitSnapshot(pairId, D2), 2);
   const reopened = openSourceConsentFence(dir);
   assert.equal(reopened.revisionOf(pairId), 2);
   // A/B axes never merge: the other direction has its own counter.
@@ -552,10 +652,43 @@ test("CONSENT-PAIR: durable sourceConsentRevision fence", (t) => {
     ),
     { ok: false, reason: "revision_mismatch" },
   );
+  // P1-3: revision 0 never authorises — neither on the binding side nor
+  // on an uncommitted pair — and unknown pairs refuse.
+  assert.deepEqual(
+    checkBindingRevision(
+      { pairId, consentRevision: 1, sourceConsentRevision: 0 },
+      reopened,
+    ),
+    { ok: false, reason: "revision_mismatch" },
+  );
+  assert.deepEqual(
+    checkBindingRevision(
+      { pairId: consentPairId(B, A), consentRevision: 1, sourceConsentRevision: 0 },
+      reopened,
+    ),
+    { ok: false, reason: "revision_mismatch" },
+  );
+  assert.deepEqual(
+    checkBindingRevision(
+      { pairId: consentPairId(B, A), consentRevision: 1, sourceConsentRevision: 1 },
+      reopened,
+    ),
+    { ok: false, reason: "revision_mismatch" },
+  );
+  // P1-3: opaque non-digest strings never advance the fence.
+  assert.throws(() => reopened.commitSnapshot(pairId, "not-a-digest"), /fence_unavailable/);
+  assert.throws(() => reopened.commitSnapshot(pairId, "sha256:zzz"), /fence_unavailable/);
+  assert.equal(reopened.revisionOf(pairId), 2);
   const blocker = join(dir, "blocker");
   writeFileSync(blocker, "not a dir");
   assert.throws(() => openSourceConsentFence(join(blocker, "sub")), /fence_unavailable/);
   writeFileSync(join(dir, "source-consent-revisions.json"), "{corrupt");
+  assert.throws(() => openSourceConsentFence(dir), /fence_unavailable/);
+  // P1-3: a corrupt entry refuses instead of resetting to 0.
+  writeFileSync(
+    join(dir, "source-consent-revisions.json"),
+    JSON.stringify({ format: "h2a.source-consent-fence/1", pairs: { [pairId]: { revision: 0, digest: D1 } } }),
+  );
   assert.throws(() => openSourceConsentFence(dir), /fence_unavailable/);
 });
 
@@ -589,8 +722,70 @@ test("AUTHORITY-NATIVE: H-shape positives parse, signed bytes stay BLOCKED_EXTER
     for (const n of v.negative) {
       assert.equal(n.expect, "REJECT_SCHEMA");
       assert.equal(verifyRecordShape(record, n.value), "REJECT_SCHEMA");
+      // P2-5: H negatives also go through the trust path. H gates stay
+      // closed before shape (fail-closed precedence): malformed H bytes
+      // refuse BLOCKED_EXTERNAL, never TRUSTED.
+      assert.equal(
+        evaluateRecordTrust(record, n.value, null).verdict,
+        "BLOCKED_EXTERNAL",
+      );
     }
   }
+});
+
+test("AUTHORITY-NATIVE: binding/ack r3 constraints refuse one by one", () => {
+  const b = loadJson("vectors/RemoteDriveConsentBindingV1.json");
+  const good = structuredClone(b.positive[0].value);
+  assert.equal(verifyRecordShape("RemoteDriveConsentBindingV1", good), "ACCEPT_SHAPE");
+  const cases = [
+    ["pairId short prefix", (x) => { x.body.pairId = "drive-consent:x"; }],
+    ["principalDecision free string", (x) => { x.body.principalDecision = "whatever"; }],
+    ["actionScopes empty", (x) => { x.body.actionScopes = []; }],
+    ["actionScopes unknown enum", (x) => { x.body.actionScopes = ["remote.admin"]; }],
+    ["actionScopes duplicated", (x) => { x.body.actionScopes = ["remote.input", "remote.input"]; }],
+    ["actionScopes three items", (x) => { x.body.actionScopes = ["remote.input", "remote.permission.respond", "remote.input"]; }],
+    ["float counter", (x) => { x.body.consentRevision = 1.5; }],
+    ["negative timestamp", (x) => { x.body.issuedAt = -1; }],
+    ["short signature", (x) => { x.signature.value = "AAAA"; }],
+    ["entryRef sha256 digest", (x) => { x.body.requestEntryRef.digest = `sha256:${"a".repeat(64)}`; }],
+    ["entryRef float revision", (x) => { x.body.requestEntryRef.revision = 1.5; }],
+    ["principalRef Id accepted", null],
+  ];
+  for (const [name, fn] of cases) {
+    if (fn === null) continue;
+    const mut = structuredClone(good);
+    fn(mut);
+    assert.equal(verifyRecordShape("RemoteDriveConsentBindingV1", mut), "REJECT_SCHEMA", name);
+  }
+  // P2-1 inverted case: principalRef as Id is schema-valid (was rejected).
+  const withPrincipal = structuredClone(good);
+  withPrincipal.body.principalRef = "principal-1";
+  withPrincipal.body.principalDecision = "co-signed";
+  assert.equal(
+    verifyRecordShape("RemoteDriveConsentBindingV1", withPrincipal),
+    "ACCEPT_SHAPE",
+    "principalRef Id accepted",
+  );
+  const a = loadJson("vectors/RemoteDriveConsentAckV1.json");
+  const ackGood = structuredClone(a.positive[0].value);
+  assert.equal(verifyRecordShape("RemoteDriveConsentAckV1", ackGood), "ACCEPT_SHAPE");
+  const ackMut = structuredClone(ackGood);
+  ackMut.body.status = "refused";
+  assert.equal(verifyRecordShape("RemoteDriveConsentAckV1", ackMut), "REJECT_SCHEMA");
+  const ackMut2 = structuredClone(ackGood);
+  ackMut2.body.bindingDigest = "sha256:bad";
+  assert.equal(verifyRecordShape("RemoteDriveConsentAckV1", ackMut2), "REJECT_SCHEMA");
+});
+
+// P2-1: r3 $def constraints refuse one by one (the vector corpus only
+// covers the unknown-field case).
+test("AUTHORITY-NATIVE: H admission verdict const is enforced", () => {
+  const v = loadJson("vectors/SessionAdmissionEvidenceV1.json");
+  const good = structuredClone(v.positive.find((p) => p.expect === "ACCEPT_SHAPE").value);
+  assert.equal(verifyRecordShape("SessionAdmissionEvidenceV1", good), "ACCEPT_SHAPE");
+  const refused = structuredClone(good);
+  refused.verdict = "refused";
+  assert.equal(verifyRecordShape("SessionAdmissionEvidenceV1", refused), "REJECT_SCHEMA");
 });
 
 function testAuthority(issuer, kid) {
@@ -613,9 +808,14 @@ function testAuthority(issuer, kid) {
         return false;
       }
     },
+    // Wire encoding is Sig64 (base64url, unpadded): same signature bytes
+    // as signCanonical, in the r3 wire alphabet.
     sign: (body) => ({
       alg: "Ed25519",
-      value: signCanonical(body, { by: issuer, privateKeyPem }).value,
+      value: signCanonical(body, { by: issuer, privateKeyPem }).value
+        .replace(/\+/g, "-")
+        .replace(/\//g, "_")
+        .replace(/=+$/, ""),
     }),
   };
 }
@@ -647,11 +847,71 @@ for (const record of ["RemoteDriveConsentBindingV1", "RemoteDriveConsentAckV1"])
     const role = v.negative.find((n) => n.expect === "REJECT_ROLE");
     assert.equal(evaluateRecordTrust(record, bad.value, auth).verdict, "REJECT_SIGNATURE");
     assert.equal(evaluateRecordTrust(record, role.value, auth).verdict, "REJECT_ROLE");
-    // Re-signed by the enrolled test authority: trusted.
+    // P2-5: vector negatives also go through the trust path with an
+    // enrolled authority — schema negatives refuse before any signature
+    // check, never TRUSTED.
+    for (const n of v.negative) {
+      if (n.expect === "REJECT_SCHEMA") {
+        assert.equal(
+          evaluateRecordTrust(record, n.value, auth).verdict,
+          "REJECT_SCHEMA",
+        );
+      }
+    }
+    // P1-1 neutralisation: even well-formed, well-signed bytes never
+    // return TRUSTED until the B5+ composition compares every bound field.
     const body = v.positive[0].value.body;
     const resigned = { body, signature: auth.sign(body) };
     assert.equal(verifyRecordShape(record, resigned), "ACCEPT_SHAPE");
-    assert.deepEqual(evaluateRecordTrust(record, resigned, auth).verdict, "TRUSTED");
+    assert.equal(
+      evaluateRecordTrust(record, resigned, auth).verdict,
+      "BLOCKED_EXTERNAL",
+    );
+  });
+
+  // Generic guard (same as B3): for EVERY body field, a validly re-signed
+  // mutation must refuse — never TRUSTED. Shape-valid mutations refuse via
+  // the P1-1 neutralisation (BLOCKED_EXTERNAL); shape-breaking ones via
+  // REJECT_SCHEMA/REJECT_ROLE/REJECT_SIGNATURE.
+  test(`AUTHORITY-NATIVE: ${record} every re-signed field mutation refuses`, () => {
+    const v = loadJson(`vectors/${record}.json`);
+    const base = structuredClone(v.positive[0].value.body);
+    const auth = testAuthority("guard-issuer", "guard-kid");
+    base.issuer = "guard-issuer";
+    base.kid = "guard-kid";
+    const mutate = (value) => {
+      if (typeof value === "string") {
+        if (/^[a-f0-9]{64}$/.test(value)) return "0".repeat(64);
+        if (/^sha256:[a-f0-9]{64}$/.test(value)) return `sha256:${"1".repeat(64)}`;
+        if (value === "binding") return "binding";
+        if (value === "source-ack") return "source-ack";
+        if (value === "accepted") return "accepted";
+        if (value === "principal-absent") return "co-signed";
+        if (value === "co-signed") return "principal-absent";
+        if (value === "guard-issuer") return "guard-issuer-evil";
+        if (value === "guard-kid") return "guard-kid-evil";
+        return `${value}-evil`;
+      }
+      if (typeof value === "number") return value + 1;
+      if (Array.isArray(value)) return [];
+      if (value === null) return "evil";
+      if (typeof value === "object") return null;
+      return "evil";
+    };
+    let covered = 0;
+    for (const field of Object.keys(base)) {
+      const mut = structuredClone(base);
+      mut[field] = mutate(base[field]);
+      const resigned = { body: mut, signature: auth.sign(mut) };
+      const verdict = evaluateRecordTrust(record, resigned, auth).verdict;
+      assert.notEqual(
+        verdict,
+        "TRUSTED",
+        `${record}.${field} re-signed mutation must refuse (got TRUSTED)`,
+      );
+      covered += 1;
+    }
+    assert.ok(covered === Object.keys(base).length && covered > 10);
   });
 }
 
@@ -678,8 +938,9 @@ test("AUTHORITY-NATIVE: association shapes and producer (U-RC tuple)", () => {
     sessionRef,
     sourceRef,
     agentSessionId: "agent-session:abc123",
-    decisionDigest: `sha256:${"d".repeat(64)}`,
-    bindingDigest: `sha256:${"e".repeat(64)}`,
+    // r3 RevisionRef.digest is Digest (hex64, no sha256: prefix).
+    decisionDigest: "d".repeat(64),
+    bindingDigest: "e".repeat(64),
   });
   assert.equal(verifyRecordShape("RemoteSourceAssociationV1", cli), "ACCEPT_SHAPE");
   assert.equal(cli.originAgentSessionId, "agent-session:abc123");
@@ -710,15 +971,27 @@ test("AUTHORITY-NATIVE: capabilities facts gate (no capture before SG-R15)", () 
 });
 
 test("AUTHORITY-NATIVE: resolveSession binds locally, never mints writer bytes", () => {
-  const digest = computeHash({ instanceId: "pair:b", pid: 4242, startedAt: "2026-11-01T08:00:00.000Z" });
-  const ok = resolveSession({
-    processBindingRef: { id: "pb-1", revision: 1, digest },
+  // P2-4: the bound digest covers session/incarnation/ref identity, and
+  // the origin is required — never defaulted to local.
+  const input = {
+    processBindingRef: { id: "pb-1", revision: 1, digest: "" },
     localInstanceId: "pair:b",
     pid: 4242,
     startedAt: "2026-11-01T08:00:00.000Z",
     sessionId: "sess-1",
     incarnation: "inc-1",
+    originInstanceId: "pair:b",
+  };
+  const digest = computeHash({
+    instanceId: input.localInstanceId,
+    pid: input.pid,
+    startedAt: input.startedAt,
+    sessionId: input.sessionId,
+    incarnation: input.incarnation,
+    refId: input.processBindingRef.id,
+    refRevision: input.processBindingRef.revision,
   });
+  const ok = resolveSession({ ...input, processBindingRef: { ...input.processBindingRef, digest } });
   assert.equal(ok.ok, true);
   assert.deepEqual(ok.sessionRef, {
     originInstanceId: "pair:b",
@@ -730,26 +1003,47 @@ test("AUTHORITY-NATIVE: resolveSession binds locally, never mints writer bytes",
   }
   assert.deepEqual(
     resolveSession({
-      processBindingRef: { id: "pb-1", revision: 1, digest: "sha256:ffff" },
-      localInstanceId: "pair:b",
-      pid: 4242,
-      startedAt: "2026-11-01T08:00:00.000Z",
-      sessionId: "sess-1",
-      incarnation: "inc-1",
+      ...input,
+      processBindingRef: { id: "pb-1", revision: 1, digest: `sha256:${"f".repeat(64)}` },
     }),
     { ok: false, reason: "binding_refused" },
   );
   assert.deepEqual(
     resolveSession({
-      processBindingRef: { id: "pb-1", revision: 1, digest },
-      localInstanceId: "pair:b",
-      pid: 4242,
-      startedAt: "2026-11-01T08:00:00.000Z",
-      sessionId: "sess-1",
-      incarnation: "inc-1",
+      ...input,
+      processBindingRef: { ...input.processBindingRef, digest },
       originInstanceId: "foreign-origin",
     }),
     { ok: false, reason: "origin_unresolved" },
+  );
+  // P2-4: omitted origin never resolves to local; a ref minted for one
+  // session never resolves to another; non-integer revisions refuse.
+  const { originInstanceId, ...noOrigin } = input;
+  assert.deepEqual(
+    resolveSession({ ...noOrigin, processBindingRef: { ...input.processBindingRef, digest } }),
+    { ok: false, reason: "origin_unresolved" },
+  );
+  assert.deepEqual(
+    resolveSession({
+      ...input,
+      processBindingRef: { ...input.processBindingRef, digest },
+      sessionId: "sess-evil",
+    }),
+    { ok: false, reason: "binding_refused" },
+  );
+  assert.deepEqual(
+    resolveSession({
+      ...input,
+      processBindingRef: { id: "pb-1", revision: -1.5, digest },
+    }),
+    { ok: false, reason: "binding_refused" },
+  );
+  assert.deepEqual(
+    resolveSession({
+      ...input,
+      processBindingRef: { id: "pb-1", revision: 0, digest },
+    }),
+    { ok: false, reason: "binding_refused" },
   );
 });
 
@@ -769,7 +1063,26 @@ test("AUTHORITY-NATIVE: registry digests pin domains, native mints nothing", () 
   assert.equal(v.format, "rc2.registry-digest-vectors/1");
   const domains = new Set(v.positive.map((p) => p.domain));
   assert.ok(domains.has("cluster-mesh.session-listing/1/coarse-v1\0"));
+  // P2-5: positives are recomputed (sha256 over the decoded domain+JCS
+  // bytes), not re-read from labels.
+  for (const p of v.positive) {
+    const raw = Buffer.from(p.inputBase64, "base64");
+    assert.equal(createHash("sha256").update(raw).digest("hex"), p.projectionDigest);
+  }
   for (const n of v.negative) assert.equal(n.expected, "digest-mismatch");
+  // P2-5: mismatch detection is live — one flipped byte breaks the digest,
+  // and no negative value collides with a pinned positive.
+  const first = v.positive[0];
+  const tampered = Buffer.from(first.inputBase64, "base64");
+  tampered[tampered.length - 1] ^= 1;
+  assert.notEqual(
+    createHash("sha256").update(tampered).digest("hex"),
+    first.projectionDigest,
+  );
+  const pinned = new Set(v.positive.map((p) => JSON.stringify(p.value)));
+  for (const n of v.negative) {
+    assert.ok(!pinned.has(JSON.stringify(n.value)), `negative ${n.id} must not equal a pinned positive`);
+  }
   assert.ok(v.activatedSignedSnapshot.body.writerEpoch !== undefined);
   // Writer epoch/revision stay mesh-owned: resolveSession emits neither.
 });
@@ -825,6 +1138,71 @@ test("AUTHORITY-NATIVE: bilateral route interface pins (no handler implemented)"
     if (pin.body !== undefined) assert.equal(v.http.body, pin.body);
     assert.ok(v.positive.length > 0);
     assert.ok(v.negative.length > 0);
+    // P2-5: stage/lane asserted from the vector positive inputs (not from
+    // the pin declaration). Guard/matrix positives carry enum stage/lane;
+    // http-media positives carry the zero-entity-body contract instead.
+    // The pin's declared stage/lane must appear among the positives.
+    const STAGES = ["listing", "bootstrap", "bound"];
+    const LANES = ["content", "actions", "results", "lifecycle"];
+    let coversPin = false;
+    for (const p of v.positive) {
+      assert.equal(p.expected.decision, "allow");
+      if (p.input.stage === undefined) {
+        // HTTP-media contract from the pin: fetch routes carry zero entity
+        // bytes; ack routes carry the 2-byte `{}` JSON envelope.
+        if (pin.body !== undefined) {
+          assert.equal(p.input.bodyBytes, 0, `${pin.file} ${p.id} zero entity bytes`);
+        } else {
+          assert.equal(p.input.contentType, "application/json");
+          assert.equal(p.input.bodyBytes, 2, `${pin.file} ${p.id} ack envelope bytes`);
+        }
+        continue;
+      }
+      assert.ok(STAGES.includes(p.input.stage), `${pin.file} ${p.id} stage enum`);
+      assert.ok(LANES.includes(p.input.lane), `${pin.file} ${p.id} lane enum`);
+      if (p.input.stage === pin.stage && p.input.lane === pin.lane) coversPin = true;
+    }
+    assert.equal(coversPin, true, `${pin.file} must cover stage ${pin.stage}/lane ${pin.lane}`);
+    for (const n of v.negative) {
+      assert.notEqual(n.expected.decision, "allow", `${pin.file} ${n.id} must refuse`);
+    }
+  }
+  // P2-5: the remaining 4 vectors (2 origin ports, 2 publish routes) are
+  // loaded and pinned — still no handler implemented (B6).
+  for (const file of [
+    "port-SessionOriginRegistryPortV1-ingestCapabilities.json",
+    "port-SessionOriginRegistryPortV1-ingestLifecycle.json",
+    "route-lifecycle-publish.json",
+    "route-listing-publish.json",
+  ]) {
+    const v = loadJson(`vectors/${file}`);
+    assert.ok(v.positive.length > 0, `${file} positives`);
+    assert.ok(v.negative.length > 0, `${file} negatives`);
+  }
+  for (const port of [
+    "port-SessionOriginRegistryPortV1-ingestCapabilities.json",
+    "port-SessionOriginRegistryPortV1-ingestLifecycle.json",
+  ]) {
+    const v = loadJson(`vectors/${port}`);
+    assert.equal(v.port, "SessionOriginRegistryPortV1");
+    assert.equal(typeof v.method, "string");
+    // Port positives are shape cases: ACCEPT_SHAPE bytes must verify,
+    // including the embedded capabilities value against the tightened
+    // r3 validator.
+    for (const p of v.positive) {
+      const caps = p.value?.capabilities;
+      if (p.expect === "ACCEPT_SHAPE" && caps?.kind === "capabilities") {
+        assert.equal(
+          verifyRecordShape("SessionCaptureCapabilitiesV1", caps),
+          "ACCEPT_SHAPE",
+          `${port} ${p.id}`,
+        );
+      }
+    }
+    assert.ok(
+      v.positive.some((p) => p.expect === "ACCEPT_SHAPE"),
+      `${port} must carry an ACCEPT_SHAPE positive`,
+    );
   }
   const seam = await import("../dist/runtime/governance/agent-launch-seam.js");
   const native = await import("../dist/runtime/governance/authority-native.js");
@@ -862,16 +1240,35 @@ test("AUTHORITY-NATIVE: custody admits caller-held signers only", () => {
   });
   assert.equal(custody.role, "native-source");
   assert.match(custody.fingerprint, /^[a-f0-9]{16}$/);
+  assert.equal(isEnrolledCustody(custody), true);
+  // P2-2: closed spec + fail-closed material screen — exact names,
+  // synonyms, long forms and unknown fields all refuse.
   for (const bad of [
     { role: "native-source", keyFile: "/tmp/k.pem" },
     { role: "native-source", envVar: "NATIVE_KEY" },
     { role: "native-source", privateKeyPem },
+    { role: "native-source", issuer: "i", kid: "k", signer: () => ({}), privateKey: "SECRET" },
+    { role: "native-source", issuer: "i", kid: "k", signer: () => ({}), secretKey: "SECRET" },
+    { role: "native-source", issuer: "i", kid: "k", signer: () => ({}), keyMaterial: "SECRET" },
+    { role: "native-source", issuer: "i", kid: "k", signer: () => ({}), passphraseFile: "/tmp/p" },
+    { role: "native-source", issuer: "i", kid: "k", signer: () => ({}), token: "SECRET" },
+    { role: "native-source", issuer: "i", kid: "k", signer: () => ({}), seedPhrase: "word ".repeat(12) },
+    { role: "native-source", issuer: "i", kid: "k", signer: () => ({}), vaultKeyId: "v-1" },
+    { role: "native-source", issuer: "i", kid: "k", signer: () => ({}), key_path: "/tmp/k.pem" },
+    { role: "native-source", issuer: "i", kid: "k", signer: () => ({}), extra: "nope" },
   ]) {
     assert.throws(() => registerCustody(bad), /custody_unqualified/);
   }
+  // P2-2: a fabricated handle (never enrolled) is not branded.
+  assert.equal(
+    isEnrolledCustody({ role: "native-source", issuer: "x", kid: "y", fingerprint: "0123456789abcdef" }),
+    false,
+  );
 });
 
-test("AUTHORITY-NATIVE: drive-ACK signer path (enrolled native role only)", () => {
+// P1-2 neutralisation: no signature is emitted on the ACK path until the
+// B5+ composition exists — every call refuses, enrolled or not.
+test("AUTHORITY-NATIVE: drive-ACK signer path refuses fail-closed", () => {
   const v = loadJson("vectors/RemoteDriveConsentAckV1.json");
   const k = generateKeyPairSync("ed25519");
   const privateKeyPem = k.privateKey.export({ format: "pem", type: "pkcs8" }).toString();
@@ -884,9 +1281,7 @@ test("AUTHORITY-NATIVE: drive-ACK signer path (enrolled native role only)", () =
   const body = structuredClone(v.positive[0].value.body);
   body.issuer = "pair:b-native-source";
   body.kid = "pair:b-native-source-key";
-  const ack = signDriveConsentAck(custody, body);
-  assert.equal(verifyRecordShape("RemoteDriveConsentAckV1", ack), "ACCEPT_SHAPE");
-  assert.equal(ack.signature.alg, "Ed25519");
+  assert.throws(() => signDriveConsentAck(custody, body), /source_role_unavailable/);
   assert.throws(
     () =>
       signDriveConsentAck(
@@ -1012,5 +1407,63 @@ test("LAUNCH: malformed decision or request never spawns", async () => {
     throw new Error("port down");
   });
   assert.deepEqual(throwing, { ok: false, reason: "policy_unavailable" });
+  assert.equal(calls, 0);
+});
+
+// P2-3: an expired allow never authorises and never spawns.
+test("LAUNCH: expired allow refuses, spawn never runs", async () => {
+  let calls = 0;
+  const spawn = () => {
+    calls += 1;
+    return 0;
+  };
+  const expired = await authorizeAgentLaunch(launchRequest(), () => ({
+    allow: true,
+    agentSessionId: "agent-session:decided-1",
+    policyRevision: "pr-7",
+    expiresAt: "2000-01-01T00:00:00.000Z",
+  }));
+  assert.deepEqual(expired, { ok: false, reason: "invalid_decision" });
+  assert.deepEqual(spawnOnAuthorizedLaunch(expired, spawn, {}), {
+    ok: false,
+    reason: "invalid_decision",
+  });
+  assert.equal(calls, 0);
+});
+
+// P2-3: a fabricated wrapper never spawns — shape and expiry are
+// revalidated just before the spawn step.
+test("LAUNCH: fabricated wrapper never spawns", async () => {
+  let calls = 0;
+  const spawn = () => {
+    calls += 1;
+    return 0;
+  };
+  const forged = {
+    ok: true,
+    decision: {
+      allow: true,
+      agentSessionId: "not-a-session-id",
+      policyRevision: "pr-7",
+      expiresAt: new Date(Date.now() + 60000).toISOString(),
+    },
+  };
+  assert.deepEqual(spawnOnAuthorizedLaunch(forged, spawn, {}), {
+    ok: false,
+    reason: "invalid_decision",
+  });
+  const stale = {
+    ok: true,
+    decision: {
+      allow: true,
+      agentSessionId: "agent-session:decided-1",
+      policyRevision: "pr-7",
+      expiresAt: "2000-01-01T00:00:00.000Z",
+    },
+  };
+  assert.deepEqual(spawnOnAuthorizedLaunch(stale, spawn, {}), {
+    ok: false,
+    reason: "invalid_decision",
+  });
   assert.equal(calls, 0);
 });

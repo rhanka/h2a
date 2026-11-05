@@ -9,15 +9,17 @@
  * - `evaluateRecordTrust`: H1-H4 signed positives always refuse
  *   `BLOCKED_EXTERNAL` (DEP-AUTH-B/M0 stay closed — no origin key is ever
  *   enrolled here); drive binding/ack bytes need an enrolled A authority or
- *   refuse, then enforce role pin + signature.
+ *   refuse, then enforce role pin + signature — and even then never return
+ *   TRUSTED until the B5+ composition compares every bound field.
  * - `buildSourceAssociation` (U-RC tuple), `buildCaptureFacts` (SG-R15 gate:
  *   any activation/admission key refuses `capture_not_activated`).
  * - `registerCustody`: isolated signer custody — the signer is a caller-held
- *   callback. File/env/argv-borne key material is rejected
- *   (`custody_unqualified`); same-uid mode-0600 files alone never qualify.
- * - `signDriveConsentAck`: signs ONLY with an enrolled `native-source`
- *   custody whose issuer/kid match the ack body; anything else refuses
- *   `source_role_unavailable`.
+ *   callback. The spec is closed; any key suggesting key material (exact
+ *   names, synonyms, long forms) is rejected (`custody_unqualified`);
+ *   same-uid mode-0600 files alone never qualify. Handles are branded.
+ * - `signDriveConsentAck`: NEUTRALISED — always refuses
+ *   `source_role_unavailable` until the binding↔ack↔projection↔fence
+ *   composition exists (B5+). No signature is emitted on this path.
  * - `resolveSession`: verifies a `ProcessBindingRef` against the locally
  *   minted binding digest and returns a local `SessionRef`. Foreign origins
  *   refuse `origin_unresolved`; writer epoch/revision are never minted.
@@ -64,17 +66,52 @@ function isNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
-const SHA256_RE = /^sha256:[a-f0-9]{64}$/;
+// r3 $defs: Id (printable ASCII 1..128), Counter/Timestamp (integers
+// 0..2^53-1), Digest (hex64), NativeHash (sha256:hex64), Sig64 (86 chars).
+const ID_RE = /^[\x20-\x7e]+$/;
 const HEX64_RE = /^[a-f0-9]{64}$/;
+const SHA256_RE = /^sha256:[a-f0-9]{64}$/;
+const SIG64_RE = /^[A-Za-z0-9_-]{85}[AQgw]$/;
+const PAIR_ID_RE = /^drive-consent:sha256:[a-f0-9]{64}$/;
+const REQUEST_ID_RE = /^[a-f0-9-]{32,36}$/;
+
+function isId(value: unknown): value is string {
+  return (
+    isString(value) &&
+    value.length >= 1 &&
+    value.length <= 128 &&
+    ID_RE.test(value)
+  );
+}
+
+function isCounter(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value >= 0 &&
+    value <= 9007199254740991
+  );
+}
+
+function isTimestamp(value: unknown): value is number {
+  return isCounter(value);
+}
+
+function isDigest(value: unknown): value is string {
+  return isString(value) && HEX64_RE.test(value);
+}
+
+function isNativeHash(value: unknown): value is string {
+  return isString(value) && SHA256_RE.test(value);
+}
 
 function isEntryRef(value: unknown): boolean {
   return (
     isRecord(value) &&
     hasExactKeys(value, ["digest", "id", "revision"]) &&
-    isString(value["id"]) &&
-    isNumber(value["revision"]) &&
-    typeof value["digest"] === "string" &&
-    (SHA256_RE.test(value["digest"] as string) || HEX64_RE.test(value["digest"] as string))
+    isId(value["id"]) &&
+    isCounter(value["revision"]) &&
+    isDigest(value["digest"])
   );
 }
 
@@ -82,9 +119,9 @@ function isSourceRef(value: unknown): boolean {
   return (
     isRecord(value) &&
     hasExactKeys(value, ["sourceGeneration", "sourceSessionId", "streamIncarnation"]) &&
-    isString(value["sourceSessionId"]) &&
-    isNumber(value["sourceGeneration"]) &&
-    isString(value["streamIncarnation"])
+    isId(value["sourceSessionId"]) &&
+    isCounter(value["sourceGeneration"]) &&
+    isId(value["streamIncarnation"])
   );
 }
 
@@ -92,9 +129,9 @@ function isSessionRef(value: unknown): boolean {
   return (
     isRecord(value) &&
     hasExactKeys(value, ["incarnation", "originInstanceId", "sessionId"]) &&
-    isString(value["originInstanceId"]) &&
-    isString(value["sessionId"]) &&
-    isString(value["incarnation"])
+    isId(value["originInstanceId"]) &&
+    isId(value["sessionId"]) &&
+    isId(value["incarnation"])
   );
 }
 
@@ -102,8 +139,8 @@ function isParty(value: unknown): boolean {
   return (
     isRecord(value) &&
     hasExactKeys(value, ["agentUuid", "instanceId", "keyAttestationRef", "registrationRef"]) &&
-    isString(value["instanceId"]) &&
-    isString(value["agentUuid"]) &&
+    isId(value["instanceId"]) &&
+    isId(value["agentUuid"]) &&
     isEntryRef(value["registrationRef"]) &&
     isEntryRef(value["keyAttestationRef"])
   );
@@ -115,7 +152,7 @@ function isWireSignature(value: unknown): boolean {
     hasExactKeys(value, ["alg", "value"]) &&
     value["alg"] === "Ed25519" &&
     isString(value["value"]) &&
-    (value["value"] as string).length > 0
+    SIG64_RE.test(value["value"] as string)
   );
 }
 
@@ -125,13 +162,23 @@ function isWireSignature(value: unknown): boolean {
 
 function isRoleScopePolicy(value: unknown): boolean {
   if (!isRecord(value)) return false;
-  const keys = [
+  // r3: 16 required + 3 optionals (effortCeiling, validUntil, supersedes).
+  const required = [
     "actorLaunchName", "allowedCliKinds", "allowedModels", "driveConsentClass",
     "format", "governanceRoles", "mcpRights", "memoryScopes", "policyId",
     "revision", "scope", "signerInstance", "signerKeyId", "signature",
     "signingClass", "validFrom",
   ];
-  if (!hasExactKeys(value, keys)) return false;
+  const optional = ["effortCeiling", "validUntil", "supersedes"];
+  const actual = Object.keys(value);
+  if (
+    actual.length < required.length ||
+    actual.length > required.length + optional.length ||
+    !required.every((k) => Object.hasOwn(value, k)) ||
+    !actual.every((k) => required.includes(k) || optional.includes(k))
+  ) {
+    return false;
+  }
   if (value["format"] !== "h2a.role-scope-policy/v1") return false;
   for (const k of ["governanceRoles", "allowedCliKinds", "allowedModels", "memoryScopes"]) {
     if (!Array.isArray(value[k])) return false;
@@ -145,7 +192,7 @@ function isRoleScopePolicy(value: unknown): boolean {
   ) {
     return false;
   }
-  return isNumber(value["revision"]);
+  return isCounter(value["revision"]);
 }
 
 function isRegistryReader(value: unknown): boolean {
@@ -166,8 +213,18 @@ function isRegistryReader(value: unknown): boolean {
 
 function isRegistryInstanceView(value: unknown): boolean {
   if (!isRecord(value)) return false;
-  const keys = ["agentUuid", "format", "instances", "keys", "registryRevision", "roleScopeBindings"];
-  if (!hasExactKeys(value, keys)) return false;
+  // r3: 6 required + 2 optionals (launchName, offboardTombstone).
+  const required = ["agentUuid", "format", "instances", "keys", "registryRevision", "roleScopeBindings"];
+  const optional = ["launchName", "offboardTombstone"];
+  const actual = Object.keys(value);
+  if (
+    actual.length < required.length ||
+    actual.length > required.length + optional.length ||
+    !required.every((k) => Object.hasOwn(value, k)) ||
+    !actual.every((k) => required.includes(k) || optional.includes(k))
+  ) {
+    return false;
+  }
   if (value["format"] !== "h2a.registry-instance/v1") return false;
   return (
     isString(value["registryRevision"]) &&
@@ -186,7 +243,9 @@ function isSessionAdmissionEvidence(value: unknown): boolean {
   ];
   if (!hasExactKeys(value, keys)) return false;
   if (value["format"] !== "h2a.session-admission/v1") return false;
-  return keys.every((k) => k === "format" || isString(value[k]));
+  // r3: verdict is const "admitted".
+  if (value["verdict"] !== "admitted") return false;
+  return keys.every((k) => k === "format" || k === "verdict" || isString(value[k]));
 }
 
 function isRoleAgentAttestation(value: unknown): boolean {
@@ -217,36 +276,45 @@ function isDriveConsentBinding(value: unknown): boolean {
   if (!hasExactKeys(body, keys)) return false;
   if (body["format"] !== "h2a.remote-drive-consent-binding/1") return false;
   if (body["kind"] !== "binding") return false;
+  // r3: actionScopes = 1-2 unique enums; principalDecision = enum;
+  // principalRef = Id|null (not EntryRef); pairId = full 85-char pattern.
+  const scopes = body["actionScopes"];
+  if (
+    !Array.isArray(scopes) ||
+    scopes.length < 1 ||
+    scopes.length > 2 ||
+    new Set(scopes).size !== scopes.length ||
+    !scopes.every((s) => s === "remote.input" || s === "remote.permission.respond")
+  ) {
+    return false;
+  }
   return (
-    Array.isArray(body["actionScopes"]) &&
-    isString(body["agentSessionId"]) &&
-    isString(body["bindingId"]) &&
-    isNumber(body["consentRevision"]) &&
-    isNumber(body["sourceConsentRevision"]) &&
-    isNumber(body["expiresAt"]) &&
-    isNumber(body["issuedAt"]) &&
+    isId(body["agentSessionId"]) &&
+    isId(body["bindingId"]) &&
+    isCounter(body["consentRevision"]) &&
+    isCounter(body["sourceConsentRevision"]) &&
+    isTimestamp(body["expiresAt"]) &&
+    isTimestamp(body["issuedAt"]) &&
     isParty(body["executor"]) &&
     isParty(body["driven"]) &&
     isEntryRef(body["grantEntryRef"]) &&
     isEntryRef(body["requestEntryRef"]) &&
     isEntryRef(body["journalFenceRef"]) &&
-    isString(body["grantId"]) &&
-    SHA256_RE.test(body["grantId"] as string) &&
-    isString(body["requestHash"]) &&
-    SHA256_RE.test(body["requestHash"] as string) &&
-    isString(body["scopeDigest"]) &&
-    SHA256_RE.test(body["scopeDigest"] as string) &&
-    isString(body["targetDigest"]) &&
-    HEX64_RE.test(body["targetDigest"] as string) &&
+    isNativeHash(body["grantId"]) &&
+    isNativeHash(body["requestHash"]) &&
+    isNativeHash(body["scopeDigest"]) &&
+    isDigest(body["targetDigest"]) &&
     isString(body["requestId"]) &&
+    REQUEST_ID_RE.test(body["requestId"] as string) &&
     isString(body["pairId"]) &&
-    (body["pairId"] as string).startsWith("drive-consent:") &&
-    isString(body["issuer"]) &&
-    isString(body["kid"]) &&
-    isString(body["ownerIssuer"]) &&
-    isString(body["ownerSub"]) &&
-    isString(body["principalDecision"]) &&
-    (body["principalRef"] === null || isEntryRef(body["principalRef"])) &&
+    PAIR_ID_RE.test(body["pairId"] as string) &&
+    isId(body["issuer"]) &&
+    isId(body["kid"]) &&
+    isId(body["ownerIssuer"]) &&
+    isId(body["ownerSub"]) &&
+    (body["principalDecision"] === "principal-absent" ||
+      body["principalDecision"] === "co-signed") &&
+    (body["principalRef"] === null || isId(body["principalRef"])) &&
     (body["principalCoSignatureRef"] === null || isEntryRef(body["principalCoSignatureRef"])) &&
     isSourceRef(body["sourceRef"])
   );
@@ -268,21 +336,19 @@ function isDriveConsentAck(value: unknown): boolean {
   if (body["kind"] !== "source-ack") return false;
   if (body["status"] !== "accepted") return false;
   return (
-    isString(body["agentSessionId"]) &&
-    isString(body["bindingId"]) &&
-    isString(body["bindingDigest"]) &&
-    HEX64_RE.test(body["bindingDigest"] as string) &&
-    isNumber(body["consentRevision"]) &&
-    isNumber(body["sourceConsentRevision"]) &&
-    isNumber(body["sourceDenialFloor"]) &&
-    isNumber(body["expiresAt"]) &&
-    isNumber(body["issuedAt"]) &&
-    isString(body["executorInstanceId"]) &&
-    isString(body["drivenInstanceId"]) &&
-    isString(body["targetDigest"]) &&
-    HEX64_RE.test(body["targetDigest"] as string) &&
-    isString(body["issuer"]) &&
-    isString(body["kid"]) &&
+    isId(body["agentSessionId"]) &&
+    isId(body["bindingId"]) &&
+    isDigest(body["bindingDigest"]) &&
+    isCounter(body["consentRevision"]) &&
+    isCounter(body["sourceConsentRevision"]) &&
+    isCounter(body["sourceDenialFloor"]) &&
+    isTimestamp(body["expiresAt"]) &&
+    isTimestamp(body["issuedAt"]) &&
+    isId(body["executorInstanceId"]) &&
+    isId(body["drivenInstanceId"]) &&
+    isDigest(body["targetDigest"]) &&
+    isId(body["issuer"]) &&
+    isId(body["kid"]) &&
     isEntryRef(body["journalFenceRef"]) &&
     isSessionRef(body["sessionRef"])
   );
@@ -336,11 +402,48 @@ function isCaptureCapabilities(value: unknown): boolean {
   for (const k of ["pluginIdentity", "pluginVersion", "pluginDigest", "convergenceManifestDigest"]) {
     if (value[k] !== null && !isString(value[k])) return false;
   }
+  // r3: bits = closed capability map (state enum + refs per entry);
+  // columns = array of {column,state} enum pairs with refs.
+  const BIT_STATES = ["unavailable", "contract-only", "installed-qualified"];
+  const KNOWN_BITS = [
+    "ptyBytes", "structuredDeltas", "completePermissionContext",
+    "literalInput", "permissionResponse",
+  ];
+  const bits = value["bits"];
+  if (!isRecord(bits)) return false;
+  for (const [name, entry] of Object.entries(bits)) {
+    if (
+      !KNOWN_BITS.includes(name) ||
+      !isRecord(entry) ||
+      !BIT_STATES.includes(entry["state"] as string) ||
+      !isId(entry["producerRef"]) ||
+      !isId(entry["cliVersion"]) ||
+      !isId(entry["dialect"])
+    ) {
+      return false;
+    }
+  }
+  const COLUMNS = [
+    "typed-message", "typed-tool-call", "typed-tool-result", "permission-request",
+    "permission-response", "literal-input", "pty-fallback", "sub-agent-call-attribution",
+  ];
+  const COLUMN_STATES = ["enforced", "rendered", "guided", "gap", "not-applicable"];
+  const columns = value["columns"];
+  if (!Array.isArray(columns)) return false;
+  for (const col of columns) {
+    if (
+      !isRecord(col) ||
+      !COLUMNS.includes(col["column"] as string) ||
+      !COLUMN_STATES.includes(col["state"] as string) ||
+      !isId(col["cliVersion"]) ||
+      !isId(col["dialect"])
+    ) {
+      return false;
+    }
+  }
   return (
-    isNumber(value["capabilityRevision"]) &&
-    isRecord(value["bits"]) &&
+    isCounter(value["capabilityRevision"]) &&
     Array.isArray(value["declaredLosses"]) &&
-    Array.isArray(value["columns"]) &&
     isSourceRef(value["sourceRef"])
   );
 }
@@ -405,6 +508,12 @@ const H_RECORDS: ReadonlySet<string> = new Set([
  * H1-H4 signed positives always refuse BLOCKED_EXTERNAL: no origin key is
  * ever enrolled here (DEP-AUTH-B/M0). Drive binding/ack bytes need the
  * enrolled A authority, then enforce the pinned role before the signature.
+ *
+ * P1-1 neutralisation (rv416w, composition lot B5+) : even a well-formed,
+ * well-signed binding/ack never returns TRUSTED here — no bound field is
+ * compared against an independent expectation on this path. It refuses
+ * BLOCKED_EXTERNAL until the binding↔ACK↔projection↔fence composition
+ * exists and every bound field is compared.
  */
 export function evaluateRecordTrust(
   record: AuthorityRecord,
@@ -442,7 +551,10 @@ export function evaluateRecordTrust(
   if (!authority.verify(body, signature)) {
     return { verdict: "REJECT_SIGNATURE" };
   }
-  return { verdict: "TRUSTED" };
+  return {
+    verdict: BLOCKED_EXTERNAL,
+    requires: ["binding↔ack↔projection↔fence composition (B5+) — no TRUSTED until every bound field is compared"],
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -497,8 +609,10 @@ export function buildSourceAssociation(input: SourceAssociationInput): Record<st
           ) {
             throw new Error("association_refused: managed-cli needs a verified agent session id");
           }
-          if (!isString(input.decisionDigest) || !isString(input.bindingDigest)) {
-            throw new Error("association_refused: managed-cli needs decision and binding digests");
+          // r3 RevisionRef.digest is Digest (hex64): reject sha256:-prefixed
+          // or malformed digests at the producer, not just at the shape.
+          if (!isDigest(input.decisionDigest) || !isDigest(input.bindingDigest)) {
+            throw new Error("association_refused: managed-cli needs hex64 decision and binding digests");
           }
           return input.agentSessionId as string;
         })()
@@ -563,16 +677,28 @@ export interface CustodyHandle {
 
 /**
  * Isolated signer custody. The signer is a caller-held callback: keys live
- * outside CLI, hooks, browser, env and argv. Any file/env/argv-borne key
- * descriptor refuses `custody_unqualified` — same-uid mode-0600 files alone
- * never qualify. Only non-secret references (issuer/kid/fingerprint) leave
- * this adapter.
+ * outside CLI, hooks, browser, env and argv. The spec is closed
+ * (`role,issuer,kid,fingerprint?,signer` only): any other key — including
+ * synonyms or long forms carrying key material — refuses
+ * `custody_unqualified` fail-closed. Same-uid mode-0600 files alone never
+ * qualify. Only non-secret references (issuer/kid/fingerprint) leave
+ * this adapter. Enrolled handles are branded: only the exact object
+ * returned here is ever accepted downstream.
  */
+const ENROLLED_CUSTODY = new WeakSet<object>();
+
 export function registerCustody(spec: unknown): CustodyHandle {
   if (!isRecord(spec)) throw new Error("custody_unqualified: custody spec must be a record");
-  for (const key of ["keyFile", "keyPath", "privateKeyPem", "envVar", "argv"]) {
-    if (spec[key] !== undefined) {
+  // Fail-closed material screen first: any key whose name suggests key
+  // material refuses, even under a name the closed spec never listed.
+  for (const key of Object.keys(spec)) {
+    if (/key|private|secret|pem|token|passw|credential|seed|env|argv|path|file|vault|kms|hsm/i.test(key)) {
       throw new Error(`custody_unqualified: ${key} is not isolated custody`);
+    }
+  }
+  for (const key of Object.keys(spec)) {
+    if (!["role", "issuer", "kid", "fingerprint", "signer"].includes(key)) {
+      throw new Error(`custody_unqualified: unknown custody field ${key}`);
     }
   }
   const role = spec["role"];
@@ -587,42 +713,41 @@ export function registerCustody(spec: unknown): CustodyHandle {
   if (typeof signer !== "function") {
     throw new Error("custody_unqualified: caller-held signer required");
   }
-  const fingerprint = computeHash({ issuer, kid }).slice("sha256:".length, "sha256:".length + 16);
-  return { role, issuer, kid, fingerprint, signer: signer as CustodySigner };
+  if (spec["fingerprint"] !== undefined && !isString(spec["fingerprint"])) {
+    throw new Error("custody_unqualified: fingerprint must be a string");
+  }
+  const fingerprint =
+    isString(spec["fingerprint"]) && spec["fingerprint"].length > 0
+      ? (spec["fingerprint"] as string)
+      : computeHash({ issuer, kid }).slice("sha256:".length, "sha256:".length + 16);
+  const handle: CustodyHandle = { role, issuer, kid, fingerprint, signer: signer as CustodySigner };
+  ENROLLED_CUSTODY.add(handle);
+  return handle;
+}
+
+/** True only for the exact object returned by `registerCustody`. */
+export function isEnrolledCustody(custody: unknown): custody is CustodyHandle {
+  return !!custody && typeof custody === "object" && ENROLLED_CUSTODY.has(custody);
 }
 
 /**
- * B-side drive-ACK signer path: signs ONLY with an enrolled `native-source`
- * custody whose issuer/kid match the ack body. Without it (production until
- * DEP-AUTH-B) every ack refuses `source_role_unavailable` — the native key
- * alone never signs a projection.
+ * B-side drive-ACK signer path — NEUTRALISED fail-closed (rv416w P1-2,
+ * composition lot B5+). No signature is emitted on this path until the
+ * binding↔ACK↔projection↔fence composition exists: the ACK signer would
+ * otherwise sign without consent authority (no binding digest recomputed
+ * or compared, no projection consulted, no fence checked). Every call
+ * refuses `source_role_unavailable`, including enrolled native-source
+ * handles and well-formed bodies.
  */
 export function signDriveConsentAck(
   custody: CustodyHandle,
   body: Record<string, unknown>,
 ): { body: Record<string, unknown>; signature: { alg: string; value: string } } {
-  if (!custody || custody.role !== "native-source" || typeof custody.signer !== "function") {
-    throw new Error("source_role_unavailable: no enrolled native source role");
-  }
-  if (body["issuer"] !== custody.issuer || body["kid"] !== custody.kid) {
-    throw new Error("source_role_unavailable: ack issuer/kid must match the enrolled role");
-  }
-  const signature = custody.signer(body);
-  if (
-    !isRecord(signature) ||
-    (signature["alg"] !== "Ed25519" && signature["alg"] !== "ed25519") ||
-    !isString(signature["value"])
-  ) {
-    throw new Error("source_role_unavailable: signer must return an Ed25519 envelope");
-  }
-  const ack = {
-    body: { ...body },
-    signature: { alg: "Ed25519", value: signature["value"] as string },
-  };
-  if (verifyRecordShape("RemoteDriveConsentAckV1", ack) !== "ACCEPT_SHAPE") {
-    throw new Error("source_role_unavailable: signed ack fails the closed shape");
-  }
-  return ack;
+  void custody;
+  void body;
+  throw new Error(
+    "source_role_unavailable: ack signing suspended until the binding↔ack↔projection↔fence composition exists (B5+)",
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -655,26 +780,39 @@ export function resolveSession(input: ProcessBindingInput): SessionResolution {
   if (
     !input ||
     !isRecord(ref) ||
-    !isString(ref["id"]) ||
-    !isNumber(ref["revision"]) ||
-    !isString(ref["digest"]) ||
-    !isString(input.localInstanceId) ||
+    !isId(ref["id"]) ||
+    !isCounter(ref["revision"]) ||
+    (ref["revision"] as number) < 1 ||
+    // Binding digests are producer-minted (computeHash output): hex64 or
+    // sha256:hex64 both bind; anything else refuses.
+    (!isDigest(ref["digest"]) && !isNativeHash(ref["digest"])) ||
+    !isId(input.localInstanceId) ||
     !Number.isSafeInteger(input.pid) ||
     !isString(input.startedAt) ||
-    !isString(input.sessionId) ||
-    !isString(input.incarnation)
+    !isId(input.sessionId) ||
+    !isId(input.incarnation)
   ) {
     return { ok: false, reason: "binding_refused" };
+  }
+  // P2-4: origin is required (an omitted origin never defaults to local),
+  // and the bound digest covers the session/incarnation/ref identity —
+  // a ref minted for one session cannot resolve to another.
+  if (input.originInstanceId === undefined) {
+    return { ok: false, reason: "origin_unresolved" };
+  }
+  if (input.originInstanceId !== input.localInstanceId) {
+    return { ok: false, reason: "origin_unresolved" };
   }
   const expected = computeHash({
     instanceId: input.localInstanceId,
     pid: input.pid,
     startedAt: input.startedAt,
+    sessionId: input.sessionId,
+    incarnation: input.incarnation,
+    refId: ref["id"],
+    refRevision: ref["revision"],
   });
   if (ref["digest"] !== expected) return { ok: false, reason: "binding_refused" };
-  if (input.originInstanceId !== undefined && input.originInstanceId !== input.localInstanceId) {
-    return { ok: false, reason: "origin_unresolved" };
-  }
   return {
     ok: true,
     sessionRef: {

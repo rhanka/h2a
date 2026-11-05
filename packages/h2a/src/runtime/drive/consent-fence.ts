@@ -15,8 +15,11 @@
  * merged by max, timestamp, or direction.
  */
 
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { closeSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync, fsyncSync } from "node:fs";
 import { join } from "node:path";
+
+const HEX64_RE = /^[a-f0-9]{64}$/;
+const DIGEST_RE = /^(sha256:)?[a-f0-9]{64}$/;
 
 export type ConsentFenceRefusal =
   | "fence_unavailable"
@@ -99,13 +102,46 @@ function readState(dir: string): Record<string, { revision: number; digest: stri
   if (!pairs || typeof pairs !== "object" || Array.isArray(pairs)) {
     throw new Error("fence_unavailable: fence state has no pairs table");
   }
+  // P1-3: strict revalidation — a corrupt entry refuses instead of
+  // resetting to 0 (which checkBindingRevision would then mismatch or,
+  // worse, a revision-0 binding would match).
+  for (const [pairId, entry] of Object.entries(pairs as Record<string, unknown>)) {
+    if (
+      typeof pairId !== "string" ||
+      pairId.length === 0 ||
+      !entry ||
+      typeof entry !== "object" ||
+      Array.isArray(entry) ||
+      !Number.isSafeInteger((entry as Record<string, unknown>)["revision"]) ||
+      ((entry as Record<string, unknown>)["revision"] as number) < 1 ||
+      typeof (entry as Record<string, unknown>)["digest"] !== "string" ||
+      !DIGEST_RE.test((entry as Record<string, unknown>)["digest"] as string)
+    ) {
+      throw new Error("fence_unavailable: fence state entry is corrupt");
+    }
+  }
   return pairs as Record<string, { revision: number; digest: string }>;
 }
 
-function writeState(dir: string, pairs: Record<string, { revision: number; digest: string }>): void {
+function writeState(
+  dir: string,
+  pairs: Record<string, { revision: number; digest: string }>,
+  genesis: string,
+): void {
   const tmp = join(dir, `${FENCE_FILE}.tmp`);
   try {
-    writeFileSync(tmp, JSON.stringify({ format: "h2a.source-consent-fence/1", pairs }) + "\n");
+    writeFileSync(
+      tmp,
+      JSON.stringify({ format: "h2a.source-consent-fence/1", genesis, pairs }) + "\n",
+    );
+    // P1-3: fsync the temp file before rename so a crash cannot leave a
+    // committed-but-unreadable revision behind.
+    const fd = openSync(tmp, "r");
+    try {
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
     renameSync(tmp, join(dir, FENCE_FILE));
   } catch {
     throw new Error(`fence_unavailable: cannot commit fence state in ${dir}`);
@@ -120,12 +156,23 @@ export function openSourceConsentFence(dir: string): SourceConsentFence {
     throw new Error(`fence_unavailable: cannot create fence dir ${dir}`);
   }
   let pairs: Record<string, { revision: number; digest: string }>;
+  let genesis: string;
   try {
     pairs = readState(dir);
+    // Genesis marker: present on fences created after this fix; older
+    // fences keep their pairs untouched (restart never resets the domain).
+    try {
+      const raw = readFileSync(join(dir, FENCE_FILE), "utf8");
+      const marker = (JSON.parse(raw) as Record<string, unknown>)["genesis"];
+      genesis = typeof marker === "string" && marker.length > 0 ? marker : "pre-genesis";
+    } catch {
+      genesis = "pre-genesis";
+    }
   } catch (err) {
     if (/cannot read fence state/.test((err as Error).message)) {
       pairs = {};
-      writeState(dir, pairs);
+      genesis = new Date().toISOString();
+      writeState(dir, pairs, genesis);
     } else {
       throw err;
     }
@@ -139,14 +186,25 @@ export function openSourceConsentFence(dir: string): SourceConsentFence {
       if (typeof pairId !== "string" || pairId.length === 0) {
         throw new Error("fence_unavailable: pair id must be a non-empty string");
       }
-      if (typeof snapshotDigest !== "string" || snapshotDigest.length === 0) {
-        throw new Error("fence_unavailable: snapshot digest must be a non-empty string");
+      // P1-3: opaque digests are format-checked — arbitrary strings never
+      // advance the fence. (Computing the digest from the enumerated
+      // snapshot fields belongs to the contract-fence lot B5+.)
+      if (typeof snapshotDigest !== "string" || !DIGEST_RE.test(snapshotDigest)) {
+        throw new Error("fence_unavailable: snapshot digest must be hex64 or sha256:hex64");
       }
-      const current = pairs[pairId];
-      if (current && current.digest === snapshotDigest) return current.revision;
-      const next = current && Number.isSafeInteger(current.revision) ? current.revision + 1 : 1;
-      pairs = { ...pairs, [pairId]: { revision: next, digest: snapshotDigest } };
-      writeState(dir, pairs);
+      // P1-3: re-read the durable state before committing so concurrent
+      // instances cannot silently roll back each other's revisions, and
+      // mutate memory only after the write+fsync succeeded.
+      const fresh = readState(dir);
+      const current = fresh[pairId];
+      if (current && current.digest === snapshotDigest) {
+        pairs = fresh;
+        return current.revision;
+      }
+      const next = current ? current.revision + 1 : 1;
+      const updated = { ...fresh, [pairId]: { revision: next, digest: snapshotDigest } };
+      writeState(dir, updated, genesis);
+      pairs = updated;
       return next;
     },
   };
@@ -161,16 +219,30 @@ export function checkBindingRevision(
   binding: BindingRevision,
   fence: SourceConsentFence,
 ): RevisionCheck {
+  // P1-3: revision 0 is never valid in an accepted binding/ACK — an
+  // uncommitted pair (fence 0) and a revision-0 binding both refuse.
+  // Unknown pairs and rollbacks refuse via the equality below.
   if (
     !binding ||
     typeof binding.pairId !== "string" ||
+    binding.pairId.length === 0 ||
     !Number.isSafeInteger(binding.consentRevision) ||
     binding.consentRevision < 1 ||
-    !Number.isSafeInteger(binding.sourceConsentRevision)
+    !Number.isSafeInteger(binding.sourceConsentRevision) ||
+    binding.sourceConsentRevision < 1
   ) {
     return { ok: false, reason: "revision_mismatch" };
   }
-  if (fence.revisionOf(binding.pairId) !== binding.sourceConsentRevision) {
+  let current: number;
+  try {
+    current = fence.revisionOf(binding.pairId);
+  } catch {
+    return { ok: false, reason: "revision_mismatch" };
+  }
+  if (!Number.isSafeInteger(current) || current < 1) {
+    return { ok: false, reason: "revision_mismatch" };
+  }
+  if (current !== binding.sourceConsentRevision) {
     return { ok: false, reason: "revision_mismatch" };
   }
   return { ok: true };

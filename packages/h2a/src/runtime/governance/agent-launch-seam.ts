@@ -111,9 +111,20 @@ function isValidAllow(decision: unknown): decision is AgentLaunchAllow {
 }
 
 /**
+ * True when the allowing decision is well-formed AND unexpired at `now`.
+ * Expiry is compared on both entry paths: an expired allow never authorises.
+ */
+export function isLiveAllow(decision: unknown, now: number = Date.now()): decision is AgentLaunchAllow {
+  if (!isValidAllow(decision)) return false;
+  const expires = Date.parse((decision as AgentLaunchAllow).expiresAt);
+  return Number.isFinite(expires) && expires > now;
+}
+
+/**
  * Ask the decision authority whether the launch may proceed. Never spawns.
  * Refusals: `policy_unavailable` (no port / port failure),
- * `invalid_request` (malformed request), `invalid_decision` (malformed answer).
+ * `invalid_request` (malformed request), `invalid_decision` (malformed or
+ * expired answer — P2-3: `expiresAt <= now` never authorises).
  */
 export async function authorizeAgentLaunch(
   request: AgentLaunchRequest,
@@ -135,7 +146,9 @@ export async function authorizeAgentLaunch(
     return { ok: false, reason: "invalid_decision" };
   }
   if ((decision as AgentLaunchDecision).allow === true) {
-    if (!isValidAllow(decision)) return { ok: false, reason: "invalid_decision" };
+    // P2-3: an expired allow is not a decision — it refuses here, and
+    // spawnOnAuthorizedLaunch re-checks expiry just before spawning.
+    if (!isLiveAllow(decision)) return { ok: false, reason: "invalid_decision" };
     return { ok: true, decision: decision as AgentLaunchAllow };
   }
   if ((decision as AgentLaunchDecision).allow === false) {
@@ -169,8 +182,13 @@ export function spawnOnAuthorizedLaunch<T>(
       const reason = (authorized.decision as AgentLaunchDeny).reason;
       return { ok: false, reason: isNonEmptyString(reason) ? reason : "launch_refused" };
     }
+    // P2-3: never trust the wrapper — revalidate shape AND expiry just
+    // before spawning. A fabricated or stale wrapper never spawns.
+    if (!isLiveAllow(authorized.decision)) {
+      return { ok: false, reason: "invalid_decision" };
+    }
     const childEnv: Record<string, string> = { ...env };
-    childEnv[H2A_AGENT_SESSION_ID] = authorized.decision.agentSessionId;
+    childEnv[H2A_AGENT_SESSION_ID] = (authorized.decision as AgentLaunchAllow).agentSessionId;
     return { ok: true, value: spawn(childEnv) };
   }
   if ((authorized as AgentLaunchDeny).allow === false) {
