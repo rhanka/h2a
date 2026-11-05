@@ -32,8 +32,19 @@ export function readAuthenticationKey(markerPath, marker) {
 
 // Each operation owns its agent. Challenge and application use exactly the same
 // socket; a close/reconnect cannot silently move the body to a new listener.
+// A handshake that dies before the application is dispatched never reached
+// the server (the POST was never sent), so exactly one immediate retry with
+// a fresh challenge is safe: it cannot double-execute, replay a consumed
+// nonce, or move a body. Only connection-level deaths retry, and only while
+// nothing was dispatched; logical, authentication and abort errors never do.
+// Each attempt re-reads the marker, so a truly retired server still fails
+// fast instead of masking.
+const transientHandshakeDeath = error =>
+  error?.message === 'challenge_connection_lost' || error?.message === 'socket hang up' ||
+  (typeof error?.code === 'string' && ['ECONNRESET', 'ECONNREFUSED', 'EPIPE'].includes(error.code));
 /** @param {*} options */
 export async function authenticatedHttpRequest(markerPath, marker, url, options = {}) {
+  for (let attempt = 0; ; attempt++) {
   let key;
   try { key = readAuthenticationKey(markerPath, marker); }
   catch (error) { error.applicationDispatched = false; throw error; }
@@ -106,7 +117,13 @@ export async function authenticatedHttpRequest(markerPath, marker, url, options 
       headers: { get: name => status.headers[name.toLowerCase()] ?? null }, body: stream(),
       text: async () => { let result = ''; for await (const chunk of stream()) result += chunk; return result; },
       json: async () => { throw new Error('sse_not_json'); } };
-  } catch (error) { agent.destroy(); error.applicationDispatched = applicationDispatched; throw error; }
+  } catch (error) {
+    agent.destroy();
+    error.applicationDispatched = applicationDispatched;
+    if (attempt === 0 && applicationDispatched === false && transientHandshakeDeath(error)) continue;
+    throw error;
+  }
+  }
 }
 
 export function createAuthenticatedServer(auth, fetch) {
