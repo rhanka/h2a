@@ -204,7 +204,7 @@ function createCentralApp(
   generation: string,
   administration: () => ColdAdministration | undefined,
   participants: () => Participants | undefined,
-  options: { requestStop(): void; idleTimeoutMs: number; sessionLeaseMs: number; maxAttachments: number; precheck?: boolean; endpointPinned?: boolean; managedImage?: boolean; runExecutor?: H2aRunExecutor; registry?: Pick<ComposeDaemonOptions, "lock" | "memory">; env?: Readonly<Record<string, string | undefined>> }
+  options: { requestStop(): void; idleTimeoutMs: number; sessionLeaseMs: number; maxAttachments: number; precheck?: boolean; endpointPinned?: boolean; managedImage?: boolean; runExecutor?: H2aRunExecutor; registry?: Pick<ComposeDaemonOptions, "lock" | "memory">; env?: Readonly<Record<string, string | undefined>>; pendingHandshake?: () => boolean }
 ): { app: Hono; ready(tools?: ReturnType<McpServer["listTools"]>): void; inventory(): { revision: number; transports: unknown[] }; drain(): { revision: number; calls: number; children: number; briefs: number; callbacks: number; effects: number }; close(): Promise<void> } {
   const app = new Hono();
   const lag = monitorEventLoopDelay({ resolution: 20 });
@@ -230,6 +230,7 @@ function createCentralApp(
   // wall-clock: peer liveness is a wire fact, idleness is a loop fact.
   let starvedMs = 0;
   let lastTick = 0;
+  let everAttached = false;
   let ready = false;
   let closing = false;
   let activeCalls = 0;
@@ -278,8 +279,14 @@ function createCentralApp(
     }
     const transaction = administration()?.transaction()?.value;
     const pending = transaction && !["ABORTED", "READY"].includes(transaction.state);
+    // A connecting client holding a live challenge is not an orphan, even when
+    // no session exists yet: the handshake it started must be allowed to land.
+    // Once a session has lived and gone (or the challenge lapses), the wall
+    // idle bound applies again, so a used-then-abandoned server still retires.
+    const handshakeAlive = !everAttached && options.pendingHandshake?.() === true;
     if (!closing && activeCalls === 0 && launches === 0 && callbacks === 0 && unresolvedEffects === 0 && sessions.size === 0 &&
-      participants()?.drain().complete && administration()?.admissionsOpen() && !pending && now - lastBusy - starvedMs > options.idleTimeoutMs) options.requestStop();
+      participants()?.drain().complete && administration()?.admissionsOpen() && !pending && !handshakeAlive &&
+      now - lastBusy - starvedMs > options.idleTimeoutMs) options.requestStop();
   }, sweepPeriodMs);
   sweep.unref();
   app.use("*", async (context, next) => {
@@ -508,6 +515,7 @@ function createCentralApp(
       catch (error) { await participant.close(() => handle.close()); await transport.close(); throw error; }
       protocol = createCentralProtocolServer(handle.mcp, participant);
       attachment = created = { participant, transport, handle, touched: Date.now() };
+      everAttached = true;
       attachment.logical = transports.attach(logicalId, captured ?? { id: logicalId, workspace }, () => attachment!);
       try { await protocol.connect(transport); }
       catch (error) { await participant.close(() => handle.close()); await transport.close(); throw error; }
@@ -519,6 +527,9 @@ function createCentralApp(
       attachment.transport.detachNotifications();
       const pending = participants()?.ledger.operations().some((op: any) => op.attachmentId === attachment!.participant.token.attachmentId && op.state !== 'completed');
       if (!pending) await closeAttachment(requestedSessionId!, attachment);
+      // Serving teardown is activity too: the client is still reading this
+      // response, so retirement must wait a fresh idle bound after it.
+      lastBusy = Date.now();
       return context.body(null, 200);
     }
     lastBusy = Date.now();
@@ -706,6 +717,9 @@ export async function startCentralMcpServer(
         maxAttachments: plan.manifest?.maxAttachments ?? 256,
         ...(options.runExecutor ? { runExecutor: options.runExecutor } : {}),
         ...(registry ? { registry } : {}),
+        // Read lazily: authentication is created below, after the app, but the
+        // sweep only consults this once the server is ready to serve anyway.
+        pendingHandshake: () => authentication?.hasLiveChallenges() ?? false,
         requestStop() { setImmediate(() => void stopServer()); }
       });
       const auth = new ConnectionAuthentication(marker, authority.rootKey);
