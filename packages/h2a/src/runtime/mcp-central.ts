@@ -204,7 +204,7 @@ function createCentralApp(
   generation: string,
   administration: () => ColdAdministration | undefined,
   participants: () => Participants | undefined,
-  options: { requestStop(): void; idleTimeoutMs: number; sessionLeaseMs: number; maxAttachments: number; precheck?: boolean; endpointPinned?: boolean; managedImage?: boolean; runExecutor?: H2aRunExecutor; registry?: Pick<ComposeDaemonOptions, "lock" | "memory">; env?: Readonly<Record<string, string | undefined>> }
+  options: { requestStop(): void; idleTimeoutMs: number; sessionLeaseMs: number; maxAttachments: number; precheck?: boolean; endpointPinned?: boolean; managedImage?: boolean; runExecutor?: H2aRunExecutor; registry?: Pick<ComposeDaemonOptions, "lock" | "memory">; env?: Readonly<Record<string, string | undefined>>; pendingHandshake?: () => boolean }
 ): { app: Hono; ready(tools?: ReturnType<McpServer["listTools"]>): void; inventory(): { revision: number; transports: unknown[] }; drain(): { revision: number; calls: number; children: number; briefs: number; callbacks: number; effects: number }; close(): Promise<void> } {
   const app = new Hono();
   const lag = monitorEventLoopDelay({ resolution: 20 });
@@ -220,7 +220,15 @@ function createCentralApp(
     if (!a || context.req.header('x-h2a-auth-attachment-id') !== id) throw new Error('attachment_context_mismatch');
     return a;
   };
-  let lastBusy = Date.now();
+  // Idle retirement counts consecutive quiet sweep ticks, never wall-clock
+  // milliseconds. A loop slowed by shard scheduling (or frozen outright)
+  // still retires an orphan after the same number of ticks it served, so a
+  // connecting client delayed alongside the server is never outrun by the
+  // clock: relative order is preserved under any dilation. The session lease
+  // above stays on wall-clock: peer liveness is a wire fact, idleness is a
+  // loop fact.
+  let quietTicks = 0;
+  let everAttached = false;
   let ready = false;
   let closing = false;
   let activeCalls = 0;
@@ -237,10 +245,15 @@ function createCentralApp(
       inventoryRevision++;
       await attachment.participant.close(() => attachment.handle.close());
       await attachment.transport.close();
-      lastBusy = Date.now();
     })();
     return attachment.closing;
   };
+  const sweepPeriodMs = Math.max(25, Math.min(1000, options.idleTimeoutMs, options.sessionLeaseMs) / 2);
+  // A connecting client needs a few loop turns before its challenge lands
+  // (TCP handshake plus challenge roundtrip): never declare absence sooner,
+  // so lockstep dilation cannot outrun first contact. Production bounds are
+  // far above the floor and keep their wall-clock meaning.
+  const quietTicksForIdle = Math.max(5, Math.ceil(options.idleTimeoutMs / sweepPeriodMs));
   const sweep = setInterval(() => {
     if (!ready) return;
     const now = Date.now();
@@ -263,9 +276,21 @@ function createCentralApp(
     }
     const transaction = administration()?.transaction()?.value;
     const pending = transaction && !["ABORTED", "READY"].includes(transaction.state);
-    if (!closing && activeCalls === 0 && launches === 0 && callbacks === 0 && unresolvedEffects === 0 && sessions.size === 0 &&
-      participants()?.drain().complete && administration()?.admissionsOpen() && !pending && now - lastBusy > options.idleTimeoutMs) options.requestStop();
-  }, Math.max(25, Math.min(1000, options.idleTimeoutMs, options.sessionLeaseMs) / 2));
+    // A connecting client holding a live challenge is not an orphan, even when
+    // no session exists yet: the handshake it started must be allowed to land.
+    // A live handshake counts as activity (it resets the count); once a
+    // session has lived and gone, or the challenge lapses, consecutive quiet
+    // ticks retire the server again.
+    const handshakeAlive = !everAttached && options.pendingHandshake?.() === true;
+    const quiet = !closing && activeCalls === 0 && launches === 0 && callbacks === 0 && unresolvedEffects === 0 && sessions.size === 0 &&
+      participants()?.drain().complete && administration()?.admissionsOpen() && !pending && !handshakeAlive;
+    if (quiet) {
+      quietTicks += 1;
+      if (quietTicks >= quietTicksForIdle) options.requestStop();
+    } else {
+      quietTicks = 0;
+    }
+  }, sweepPeriodMs);
   sweep.unref();
   app.use("*", async (context, next) => {
     const host = context.req.header("host");
@@ -493,6 +518,7 @@ function createCentralApp(
       catch (error) { await participant.close(() => handle.close()); await transport.close(); throw error; }
       protocol = createCentralProtocolServer(handle.mcp, participant);
       attachment = created = { participant, transport, handle, touched: Date.now() };
+      everAttached = true;
       attachment.logical = transports.attach(logicalId, captured ?? { id: logicalId, workspace }, () => attachment!);
       try { await protocol.connect(transport); }
       catch (error) { await participant.close(() => handle.close()); await transport.close(); throw error; }
@@ -506,7 +532,6 @@ function createCentralApp(
       if (!pending) await closeAttachment(requestedSessionId!, attachment);
       return context.body(null, 200);
     }
-    lastBusy = Date.now();
     let response;
     try { response = await attachment.transport.handleRequest(context); }
     catch (error) {
@@ -534,7 +559,7 @@ function createCentralApp(
     return response ?? context.body(null, 202);
     } finally { activeCalls--; drainRevision++; }
   });
-  return { app, ready(tools) { if (tools) descriptor = describeCatalogue(tools); lastBusy = Date.now(); ready = true; }, inventory: () => ({ ...(participants()?.inventory() ?? { schemaVersion: 1, shims: [], transports: [], operations: [], quarantines: [], launches: [], writerRestrictions: ["precheck_admission_closed"] }),
+  return { app, ready(tools) { if (tools) descriptor = describeCatalogue(tools); quietTicks = 0; ready = true; }, inventory: () => ({ ...(participants()?.inventory() ?? { schemaVersion: 1, shims: [], transports: [], operations: [], quarantines: [], launches: [], writerRestrictions: ["precheck_admission_closed"] }),
     shims: [...transports.attachments.values()].flatMap(a => a.advertisement ? [a.advertisement] : []),
     transports: [...transports.attachments.values()].map(a => ({ attachmentId: a.id, transportEpoch: a.transportEpoch, state: a.state,
       ownershipEpoch: a.activation.participant.token.ownershipEpoch, ownerGeneration: generation,
@@ -691,6 +716,9 @@ export async function startCentralMcpServer(
         maxAttachments: plan.manifest?.maxAttachments ?? 256,
         ...(options.runExecutor ? { runExecutor: options.runExecutor } : {}),
         ...(registry ? { registry } : {}),
+        // Read lazily: authentication is created below, after the app, but the
+        // sweep only consults this once the server is ready to serve anyway.
+        pendingHandshake: () => authentication?.hasLiveChallenges() ?? false,
         requestStop() { setImmediate(() => void stopServer()); }
       });
       const auth = new ConnectionAuthentication(marker, authority.rootKey);

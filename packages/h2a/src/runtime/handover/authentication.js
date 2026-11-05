@@ -31,6 +31,11 @@ export class ConnectionAuthentication {
     for (const [key, expires] of this.controlNonces) if (expires <= now) this.controlNonces.delete(key);
   }
   forget(socket) { this.connections.delete(socket); }
+  hasLiveChallenges() {
+    const now = this.now();
+    for (const proof of this.connections.values()) if (proof.expiresAt > now) return true;
+    return false;
+  }
   challenge(socket, clientNonce, pool = 'data') {
     this.prune();
     if (typeof clientNonce !== 'string' || clientNonce.length < 1 || clientNonce.length > 256) throw new Error('challenge_invalid');

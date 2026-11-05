@@ -48,5 +48,23 @@
     "specifier": "vitest.llm-mesh-pin.mjs",
     "classification": "negative-assertion",
     "reason": "Scanner negative control; never loaded as a dependency."
+  },
+  {
+    "file": "packages/h2a/test/mh-l1-package-slots.test.js",
+    "specifier": "@sentropic/llm-mesh",
+    "classification": "negative-assertion",
+    "reason": "Single-mesh unit probe data; never loaded as a dependency."
+  },
+  {
+    "file": "packages/h2a/test/mh-l1-package-slots.test.js",
+    "specifier": "@sentropic/llm-gateway",
+    "classification": "negative-assertion",
+    "reason": "Single-mesh unit probe data; never loaded as a dependency."
+  },
+  {
+    "file": "packages/h2a/test/mh-l1-package-slots.test.js",
+    "specifier": "@sentropic/llm-gateway/node_modules/",
+    "classification": "negative-assertion",
+    "reason": "Single-mesh unit probe data; never loaded as a dependency."
   }
 ]
