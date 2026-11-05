@@ -1,0 +1,294 @@
+{
+  "record": "RC0TypedEventV1",
+  "evidenceLevel": "synthetic schema and signature fixtures only; no installed authority",
+  "positive": [
+    {
+      "id": "RC0TypedEventV1-shape-positive",
+      "expect": "ACCEPT_SHAPE",
+      "value": {
+        "eventId": "fixture-eventId-0",
+        "sequence": 1,
+        "messageId": "fixture-messageId-0",
+        "role": "user",
+        "eventKind": "message",
+        "emittedAt": 1,
+        "payload": {
+          "turnId": "fixture-turnId-0",
+          "partIndex": 1,
+          "final": false,
+          "content": {
+            "contentType": "fixture-contentType-0",
+            "bytesBase64": "Zml4dHVyZQ==",
+            "byteLength": 1,
+            "bytesDigest": "91ce7362887aa8b00e3a8f418fe4a06b52fa3d4712948dada0f9ee4cd39946fe"
+          }
+        }
+      },
+      "bytes": {
+        "json": {
+          "base64": "eyJlbWl0dGVkQXQiOjEsImV2ZW50SWQiOiJmaXh0dXJlLWV2ZW50SWQtMCIsImV2ZW50S2luZCI6Im1lc3NhZ2UiLCJtZXNzYWdlSWQiOiJmaXh0dXJlLW1lc3NhZ2VJZC0wIiwicGF5bG9hZCI6eyJjb250ZW50Ijp7ImJ5dGVMZW5ndGgiOjEsImJ5dGVzQmFzZTY0IjoiWm1sNGRIVnlaUT09IiwiYnl0ZXNEaWdlc3QiOiI5MWNlNzM2Mjg4N2FhOGIwMGUzYThmNDE4ZmU0YTA2YjUyZmEzZDQ3MTI5NDhkYWRhMGY5ZWU0Y2QzOTk0NmZlIiwiY29udGVudFR5cGUiOiJmaXh0dXJlLWNvbnRlbnRUeXBlLTAifSwiZmluYWwiOmZhbHNlLCJwYXJ0SW5kZXgiOjEsInR1cm5JZCI6ImZpeHR1cmUtdHVybklkLTAifSwicm9sZSI6InVzZXIiLCJzZXF1ZW5jZSI6MX0=",
+          "byteLength": 371,
+          "sha256": "883df3070a2b1d0ab3bc33cf747f018845e2fbb21f52fa2bb57fca3f12b3bd14"
+        }
+      }
+    },
+    {
+      "id": "RC0TypedEventV1-variant-0",
+      "expect": "ACCEPT_SHAPE",
+      "value": {
+        "eventId": "fixture-eventId-0",
+        "sequence": 1,
+        "messageId": "fixture-messageId-0",
+        "role": "user",
+        "eventKind": "message",
+        "emittedAt": 1,
+        "payload": {
+          "turnId": "fixture-turnId-0",
+          "partIndex": 1,
+          "final": false,
+          "content": {
+            "contentType": "fixture-contentType-0",
+            "bytesBase64": "Zml4dHVyZQ==",
+            "byteLength": 1,
+            "bytesDigest": "91ce7362887aa8b00e3a8f418fe4a06b52fa3d4712948dada0f9ee4cd39946fe"
+          }
+        }
+      },
+      "bytes": {
+        "json": {
+          "base64": "eyJlbWl0dGVkQXQiOjEsImV2ZW50SWQiOiJmaXh0dXJlLWV2ZW50SWQtMCIsImV2ZW50S2luZCI6Im1lc3NhZ2UiLCJtZXNzYWdlSWQiOiJmaXh0dXJlLW1lc3NhZ2VJZC0wIiwicGF5bG9hZCI6eyJjb250ZW50Ijp7ImJ5dGVMZW5ndGgiOjEsImJ5dGVzQmFzZTY0IjoiWm1sNGRIVnlaUT09IiwiYnl0ZXNEaWdlc3QiOiI5MWNlNzM2Mjg4N2FhOGIwMGUzYThmNDE4ZmU0YTA2YjUyZmEzZDQ3MTI5NDhkYWRhMGY5ZWU0Y2QzOTk0NmZlIiwiY29udGVudFR5cGUiOiJmaXh0dXJlLWNvbnRlbnRUeXBlLTAifSwiZmluYWwiOmZhbHNlLCJwYXJ0SW5kZXgiOjEsInR1cm5JZCI6ImZpeHR1cmUtdHVybklkLTAifSwicm9sZSI6InVzZXIiLCJzZXF1ZW5jZSI6MX0=",
+          "byteLength": 371,
+          "sha256": "883df3070a2b1d0ab3bc33cf747f018845e2fbb21f52fa2bb57fca3f12b3bd14"
+        }
+      }
+    },
+    {
+      "id": "RC0TypedEventV1-variant-1",
+      "expect": "ACCEPT_SHAPE",
+      "value": {
+        "eventId": "fixture-eventId-0",
+        "sequence": 1,
+        "messageId": "fixture-messageId-0",
+        "role": "user",
+        "eventKind": "tool-call",
+        "emittedAt": 1,
+        "toolCallId": "fixture-toolCallId-0",
+        "payload": {
+          "turnId": "fixture-turnId-0",
+          "tool": "fixture-tool-0",
+          "arguments": {
+            "encoding": "json-utf8",
+            "bytesBase64": "Zml4dHVyZQ==",
+            "byteLength": 1,
+            "bytesDigest": "193cbf97c4214fb93be25fc770654c08985c7dd39fb534bb1023a95a42f4e2bd",
+            "toolTarget": {
+              "cwd": "fixture-cwd-0",
+              "resource": "fixture-resource-0"
+            }
+          },
+          "complete": false
+        }
+      },
+      "bytes": {
+        "json": {
+          "base64": "eyJlbWl0dGVkQXQiOjEsImV2ZW50SWQiOiJmaXh0dXJlLWV2ZW50SWQtMCIsImV2ZW50S2luZCI6InRvb2wtY2FsbCIsIm1lc3NhZ2VJZCI6ImZpeHR1cmUtbWVzc2FnZUlkLTAiLCJwYXlsb2FkIjp7ImFyZ3VtZW50cyI6eyJieXRlTGVuZ3RoIjoxLCJieXRlc0Jhc2U2NCI6IlptbDRkSFZ5WlE9PSIsImJ5dGVzRGlnZXN0IjoiMTkzY2JmOTdjNDIxNGZiOTNiZTI1ZmM3NzA2NTRjMDg5ODVjN2RkMzlmYjUzNGJiMTAyM2E5NWE0MmY0ZTJiZCIsImVuY29kaW5nIjoianNvbi11dGY4IiwidG9vbFRhcmdldCI6eyJjd2QiOiJmaXh0dXJlLWN3ZC0wIiwicmVzb3VyY2UiOiJmaXh0dXJlLXJlc291cmNlLTAifX0sImNvbXBsZXRlIjpmYWxzZSwidG9vbCI6ImZpeHR1cmUtdG9vbC0wIiwidHVybklkIjoiZml4dHVyZS10dXJuSWQtMCJ9LCJyb2xlIjoidXNlciIsInNlcXVlbmNlIjoxLCJ0b29sQ2FsbElkIjoiZml4dHVyZS10b29sQ2FsbElkLTAifQ==",
+          "byteLength": 478,
+          "sha256": "94424b264c250dfe068018b70f13a3ea2d794e5a2b07fee420ac32311843003d"
+        }
+      }
+    },
+    {
+      "id": "RC0TypedEventV1-variant-2",
+      "expect": "ACCEPT_SHAPE",
+      "value": {
+        "eventId": "fixture-eventId-0",
+        "sequence": 1,
+        "messageId": "fixture-messageId-0",
+        "role": "user",
+        "eventKind": "tool-result",
+        "emittedAt": 1,
+        "toolCallId": "fixture-toolCallId-0",
+        "resultOf": "fixture-resultOf-0",
+        "payload": {
+          "turnId": "fixture-turnId-0",
+          "resultId": "fixture-resultId-0",
+          "state": "succeeded",
+          "complete": false,
+          "content": {
+            "contentType": "fixture-contentType-0",
+            "bytesBase64": "Zml4dHVyZQ==",
+            "byteLength": 1,
+            "bytesDigest": "91ce7362887aa8b00e3a8f418fe4a06b52fa3d4712948dada0f9ee4cd39946fe"
+          }
+        }
+      },
+      "bytes": {
+        "json": {
+          "base64": "eyJlbWl0dGVkQXQiOjEsImV2ZW50SWQiOiJmaXh0dXJlLWV2ZW50SWQtMCIsImV2ZW50S2luZCI6InRvb2wtcmVzdWx0IiwibWVzc2FnZUlkIjoiZml4dHVyZS1tZXNzYWdlSWQtMCIsInBheWxvYWQiOnsiY29tcGxldGUiOmZhbHNlLCJjb250ZW50Ijp7ImJ5dGVMZW5ndGgiOjEsImJ5dGVzQmFzZTY0IjoiWm1sNGRIVnlaUT09IiwiYnl0ZXNEaWdlc3QiOiI5MWNlNzM2Mjg4N2FhOGIwMGUzYThmNDE4ZmU0YTA2YjUyZmEzZDQ3MTI5NDhkYWRhMGY5ZWU0Y2QzOTk0NmZlIiwiY29udGVudFR5cGUiOiJmaXh0dXJlLWNvbnRlbnRUeXBlLTAifSwicmVzdWx0SWQiOiJmaXh0dXJlLXJlc3VsdElkLTAiLCJzdGF0ZSI6InN1Y2NlZWRlZCIsInR1cm5JZCI6ImZpeHR1cmUtdHVybklkLTAifSwicmVzdWx0T2YiOiJmaXh0dXJlLXJlc3VsdE9mLTAiLCJyb2xlIjoidXNlciIsInNlcXVlbmNlIjoxLCJ0b29sQ2FsbElkIjoiZml4dHVyZS10b29sQ2FsbElkLTAifQ==",
+          "byteLength": 484,
+          "sha256": "f29e598e64a994b4ba72ea03629db80e6ce9e3525e8622532c85f09f9aac4160"
+        }
+      }
+    },
+    {
+      "id": "RC0TypedEventV1-variant-3",
+      "expect": "ACCEPT_SHAPE",
+      "value": {
+        "eventId": "fixture-eventId-0",
+        "sequence": 1,
+        "messageId": "fixture-messageId-0",
+        "role": "user",
+        "eventKind": "permission-request",
+        "emittedAt": 1,
+        "payload": {
+          "request": {
+            "context": {
+              "permissionRequestId": "fixture-permissionRequestId-0",
+              "requestGeneration": 1,
+              "tool": "fixture-tool-0",
+              "target": {
+                "appMeshId": "fixture-appMeshId-0",
+                "sourceMeshId": "fixture-sourceMeshId-0",
+                "nativeAudience": "fixture-nativeAudience-0",
+                "registrationId": "fixture-registrationId-0",
+                "tenantId": "fixture-tenantId-0",
+                "workspaceId": "fixture-workspaceId-0",
+                "bindingId": "fixture-bindingId-0",
+                "sourceId": "fixture-sourceId-0",
+                "sourceSessionId": "fixture-sourceSessionId-0",
+                "nativeSessionId": "fixture-nativeSessionId-0",
+                "sourceGeneration": 1,
+                "bootGeneration": 1,
+                "custodyEpoch": 1,
+                "controllerEpoch": 1,
+                "connectionId": "fixture-connectionId-0",
+                "connectionGeneration": 1
+              },
+              "arguments": {
+                "encoding": "json-utf8",
+                "bytesBase64": "Zml4dHVyZQ==",
+                "byteLength": 1,
+                "bytesDigest": "1cd364c59151eef952c56479fc1f94cb0a95bcfc6c651a90598cf3c09fabeedd",
+                "toolTarget": {
+                  "cwd": "fixture-cwd-0",
+                  "resource": "fixture-resource-0"
+                }
+              }
+            },
+            "contextDigest": "e79f8a3dea8b608179e797ad6a16e4addc0260920609220de1abe8269b228668",
+            "sourceStatus": "complete"
+          }
+        }
+      },
+      "bytes": {
+        "json": {
+          "base64": "eyJlbWl0dGVkQXQiOjEsImV2ZW50SWQiOiJmaXh0dXJlLWV2ZW50SWQtMCIsImV2ZW50S2luZCI6InBlcm1pc3Npb24tcmVxdWVzdCIsIm1lc3NhZ2VJZCI6ImZpeHR1cmUtbWVzc2FnZUlkLTAiLCJwYXlsb2FkIjp7InJlcXVlc3QiOnsiY29udGV4dCI6eyJhcmd1bWVudHMiOnsiYnl0ZUxlbmd0aCI6MSwiYnl0ZXNCYXNlNjQiOiJabWw0ZEhWeVpRPT0iLCJieXRlc0RpZ2VzdCI6IjFjZDM2NGM1OTE1MWVlZjk1MmM1NjQ3OWZjMWY5NGNiMGE5NWJjZmM2YzY1MWE5MDU5OGNmM2MwOWZhYmVlZGQiLCJlbmNvZGluZyI6Impzb24tdXRmOCIsInRvb2xUYXJnZXQiOnsiY3dkIjoiZml4dHVyZS1jd2QtMCIsInJlc291cmNlIjoiZml4dHVyZS1yZXNvdXJjZS0wIn19LCJwZXJtaXNzaW9uUmVxdWVzdElkIjoiZml4dHVyZS1wZXJtaXNzaW9uUmVxdWVzdElkLTAiLCJyZXF1ZXN0R2VuZXJhdGlvbiI6MSwidGFyZ2V0Ijp7ImFwcE1lc2hJZCI6ImZpeHR1cmUtYXBwTWVzaElkLTAiLCJiaW5kaW5nSWQiOiJmaXh0dXJlLWJpbmRpbmdJZC0wIiwiYm9vdEdlbmVyYXRpb24iOjEsImNvbm5lY3Rpb25HZW5lcmF0aW9uIjoxLCJjb25uZWN0aW9uSWQiOiJmaXh0dXJlLWNvbm5lY3Rpb25JZC0wIiwiY29udHJvbGxlckVwb2NoIjoxLCJjdXN0b2R5RXBvY2giOjEsIm5hdGl2ZUF1ZGllbmNlIjoiZml4dHVyZS1uYXRpdmVBdWRpZW5jZS0wIiwibmF0aXZlU2Vzc2lvbklkIjoiZml4dHVyZS1uYXRpdmVTZXNzaW9uSWQtMCIsInJlZ2lzdHJhdGlvbklkIjoiZml4dHVyZS1yZWdpc3RyYXRpb25JZC0wIiwic291cmNlR2VuZXJhdGlvbiI6MSwic291cmNlSWQiOiJmaXh0dXJlLXNvdXJjZUlkLTAiLCJzb3VyY2VNZXNoSWQiOiJmaXh0dXJlLXNvdXJjZU1lc2hJZC0wIiwic291cmNlU2Vzc2lvbklkIjoiZml4dHVyZS1zb3VyY2VTZXNzaW9uSWQtMCIsInRlbmFudElkIjoiZml4dHVyZS10ZW5hbnRJZC0wIiwid29ya3NwYWNlSWQiOiJmaXh0dXJlLXdvcmtzcGFjZUlkLTAifSwidG9vbCI6ImZpeHR1cmUtdG9vbC0wIn0sImNvbnRleHREaWdlc3QiOiJlNzlmOGEzZGVhOGI2MDgxNzllNzk3YWQ2YTE2ZTRhZGRjMDI2MDkyMDYwOTIyMGRlMWFiZTgyNjliMjI4NjY4Iiwic291cmNlU3RhdHVzIjoiY29tcGxldGUifX0sInJvbGUiOiJ1c2VyIiwic2VxdWVuY2UiOjF9",
+          "byteLength": 1158,
+          "sha256": "bece396b0b1fa55584791d4a1d21aa074b6a0457b249507271819a6206479b79"
+        }
+      }
+    },
+    {
+      "id": "RC0TypedEventV1-variant-4",
+      "expect": "ACCEPT_SHAPE",
+      "value": {
+        "eventId": "fixture-eventId-0",
+        "sequence": 1,
+        "messageId": "fixture-messageId-0",
+        "role": "user",
+        "eventKind": "attention",
+        "emittedAt": 1,
+        "payload": {
+          "attentionId": "fixture-attentionId-0",
+          "attentionKind": "permission",
+          "referenceEventId": "fixture-referenceEventId-0",
+          "permissionRequestId": "fixture-permissionRequestId-0",
+          "destinationRef": "fixture-destinationRef-0"
+        }
+      },
+      "bytes": {
+        "json": {
+          "base64": "eyJlbWl0dGVkQXQiOjEsImV2ZW50SWQiOiJmaXh0dXJlLWV2ZW50SWQtMCIsImV2ZW50S2luZCI6ImF0dGVudGlvbiIsIm1lc3NhZ2VJZCI6ImZpeHR1cmUtbWVzc2FnZUlkLTAiLCJwYXlsb2FkIjp7ImF0dGVudGlvbklkIjoiZml4dHVyZS1hdHRlbnRpb25JZC0wIiwiYXR0ZW50aW9uS2luZCI6InBlcm1pc3Npb24iLCJkZXN0aW5hdGlvblJlZiI6ImZpeHR1cmUtZGVzdGluYXRpb25SZWYtMCIsInBlcm1pc3Npb25SZXF1ZXN0SWQiOiJmaXh0dXJlLXBlcm1pc3Npb25SZXF1ZXN0SWQtMCIsInJlZmVyZW5jZUV2ZW50SWQiOiJmaXh0dXJlLXJlZmVyZW5jZUV2ZW50SWQtMCJ9LCJyb2xlIjoidXNlciIsInNlcXVlbmNlIjoxfQ==",
+          "byteLength": 355,
+          "sha256": "9034e77eb945ee8fef1945c8d577d69818398b458975c3d0a3e34480eb1fd3ca"
+        }
+      }
+    },
+    {
+      "id": "RC0TypedEventV1-variant-5",
+      "expect": "ACCEPT_SHAPE",
+      "value": {
+        "eventId": "fixture-eventId-0",
+        "sequence": 1,
+        "messageId": "fixture-messageId-0",
+        "role": "user",
+        "eventKind": "completion",
+        "emittedAt": 1,
+        "payload": {
+          "completionId": "fixture-completionId-0",
+          "turnId": "fixture-turnId-0",
+          "outcome": "succeeded",
+          "referenceEventId": "fixture-referenceEventId-0",
+          "destinationRef": "fixture-destinationRef-0"
+        }
+      },
+      "bytes": {
+        "json": {
+          "base64": "eyJlbWl0dGVkQXQiOjEsImV2ZW50SWQiOiJmaXh0dXJlLWV2ZW50SWQtMCIsImV2ZW50S2luZCI6ImNvbXBsZXRpb24iLCJtZXNzYWdlSWQiOiJmaXh0dXJlLW1lc3NhZ2VJZC0wIiwicGF5bG9hZCI6eyJjb21wbGV0aW9uSWQiOiJmaXh0dXJlLWNvbXBsZXRpb25JZC0wIiwiZGVzdGluYXRpb25SZWYiOiJmaXh0dXJlLWRlc3RpbmF0aW9uUmVmLTAiLCJvdXRjb21lIjoic3VjY2VlZGVkIiwicmVmZXJlbmNlRXZlbnRJZCI6ImZpeHR1cmUtcmVmZXJlbmNlRXZlbnRJZC0wIiwidHVybklkIjoiZml4dHVyZS10dXJuSWQtMCJ9LCJyb2xlIjoidXNlciIsInNlcXVlbmNlIjoxfQ==",
+          "byteLength": 325,
+          "sha256": "fa2fc1d7b5c59182b21035eb27d6444a6d895cceba2fc8e20dc6b6dbd00860ab"
+        }
+      }
+    },
+    {
+      "id": "RC0TypedEventV1-variant-6",
+      "expect": "ACCEPT_SHAPE",
+      "value": {
+        "eventId": "fixture-eventId-0",
+        "sequence": 1,
+        "messageId": "fixture-messageId-0",
+        "role": "user",
+        "eventKind": "gap",
+        "emittedAt": 1,
+        "payload": {
+          "fromSequence": 1,
+          "toSequence": 1,
+          "reason": "excluded"
+        }
+      },
+      "bytes": {
+        "json": {
+          "base64": "eyJlbWl0dGVkQXQiOjEsImV2ZW50SWQiOiJmaXh0dXJlLWV2ZW50SWQtMCIsImV2ZW50S2luZCI6ImdhcCIsIm1lc3NhZ2VJZCI6ImZpeHR1cmUtbWVzc2FnZUlkLTAiLCJwYXlsb2FkIjp7ImZyb21TZXF1ZW5jZSI6MSwicmVhc29uIjoiZXhjbHVkZWQiLCJ0b1NlcXVlbmNlIjoxfSwicm9sZSI6InVzZXIiLCJzZXF1ZW5jZSI6MX0=",
+          "byteLength": 188,
+          "sha256": "f2a66e849d972ad945ea63cc0f23bbc47dc024d1ebb85b603de79042f9c7eaf2"
+        }
+      }
+    }
+  ],
+  "negative": [
+    {
+      "id": "RC0TypedEventV1-unknown-field",
+      "expect": "REJECT_SCHEMA",
+      "value": {
+        "eventId": "fixture-eventId-0",
+        "sequence": 1,
+        "messageId": "fixture-messageId-0",
+        "role": "user",
+        "eventKind": "message",
+        "emittedAt": 1,
+        "payload": {
+          "turnId": "fixture-turnId-0",
+          "partIndex": 1,
+          "final": false,
+          "content": {
+            "contentType": "fixture-contentType-0",
+            "bytesBase64": "Zml4dHVyZQ==",
+            "byteLength": 1,
+            "bytesDigest": "91ce7362887aa8b00e3a8f418fe4a06b52fa3d4712948dada0f9ee4cd39946fe"
+          }
+        },
+        "__unknown": "forbidden"
+      }
+    }
+  ]
+}
