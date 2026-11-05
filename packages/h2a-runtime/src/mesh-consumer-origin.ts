@@ -6,15 +6,18 @@
  * `@sentropic/cluster-mesh` archive root only: it probes the installed
  * archive for the `createSessionOriginRegistry` factory and exposes the five
  * `SessionOriginRegistryPortV1` methods with the exact contract call shape
- * (single parameter object plus optional `{ signal }`, typed refusal values,
- * never a throw for a refused call).
+ * (single parameter object plus optional `{ signal }`, closed refused
+ * results, never a throw for a refused call).
  *
  * The registry-bearing archive is unpublished, so every dispatch refuses
- * with the contract `relay_grant_unavailable` error while the probe reports
- * `incompatible-version`. Nothing is filled locally: the native side never
- * supplies writer epoch/revision or a signing key, allocates no revision,
- * matches no ACK and calls the host `resolveSession` binding zero times
- * while unavailable. The lane slice (connector, lane client, source
+ * with the closed r3 shape `{ status: "refused", error }` carrying the
+ * contract `relay_grant_unavailable` error, while the probe detail stays on
+ * the consumer `unavailability` diagnostic (`incompatible-version`). An
+ * already-aborted `signal` takes precedence over unavailability and refuses
+ * with `relay_unavailable` instead. Nothing is filled locally: the native
+ * side never supplies writer epoch/revision or a signing key, allocates no
+ * revision, matches no ACK and calls the host `resolveSession` binding zero
+ * times while unavailable. The lane slice (connector, lane client, source
  * credentials) is out of scope here and stays blocked by relay-1.
  *
  * No route, no transport. Gates §5 stay closed.
@@ -80,15 +83,30 @@ export interface MeshOriginConsumerInput {
 export interface MeshOriginRelayError {
   readonly format: "cluster-mesh.session-relay/1";
   readonly kind: "error";
-  readonly code: "relay_grant_unavailable";
-  readonly retryable: true;
+  readonly code: "relay_grant_unavailable" | "relay_unavailable";
+  readonly retryable: boolean;
+}
+
+/**
+ * Closed r3 refused result: exactly `{ status: "refused", error }`, the
+ * refused variant of `SessionOriginCommitResultV1` /
+ * `SessionOriginPublishResultV1`. The five methods return only this shape.
+ */
+export interface MeshOriginRefusedResult {
+  readonly status: "refused";
+  readonly error: MeshOriginRelayError;
 }
 
 export type MeshOriginRefusalReason =
   | "archive-not-installed"
   | "incompatible-version";
 
-export interface MeshOriginRefusal {
+/**
+ * Consumer-side unavailability diagnostic (not a method result): carries the
+ * probe detail (`method`/`reason`/`installedVersion`/`exportPresent`) that
+ * the closed refused shape must not contain.
+ */
+export interface MeshOriginUnavailability {
   readonly status: "unavailable";
   readonly method: MeshOriginPortMethod | null;
   readonly reason: MeshOriginRefusalReason;
@@ -107,36 +125,40 @@ export interface MeshOriginConsumer {
   readonly methods: readonly MeshOriginPortMethod[];
   readonly installedVersion: string | null;
   readonly exportPresent: boolean;
-  readonly refusal: MeshOriginRefusal;
+  readonly unavailability: MeshOriginUnavailability;
   ingestLifecycle(
     parameters: Record<string, unknown>,
     options?: MeshOriginCallOptions,
-  ): Promise<MeshOriginRefusal>;
+  ): Promise<MeshOriginRefusedResult>;
   ingestCapabilities(
     parameters: Record<string, unknown>,
     options?: MeshOriginCallOptions,
-  ): Promise<MeshOriginRefusal>;
+  ): Promise<MeshOriginRefusedResult>;
   publishListing(
     parameters: Record<string, unknown>,
     options?: MeshOriginCallOptions,
-  ): Promise<MeshOriginRefusal>;
+  ): Promise<MeshOriginRefusedResult>;
   renewFreshness(
     parameters: Record<string, unknown>,
     options?: MeshOriginCallOptions,
-  ): Promise<MeshOriginRefusal>;
+  ): Promise<MeshOriginRefusedResult>;
   snapshot(
     parameters: Record<string, unknown>,
     options?: MeshOriginCallOptions,
-  ): Promise<MeshOriginRefusal>;
+  ): Promise<MeshOriginRefusedResult>;
+  /** Internal lifecycle helper, outside the r3 contract: no-op. */
   dispose(): void;
 }
 
-export function isMeshOriginRefusal(value: unknown): value is MeshOriginRefusal {
+export function isMeshOriginRefusal(
+  value: unknown,
+): value is MeshOriginRefusedResult {
   if (typeof value !== "object" || value === null) {
     return false;
   }
   const candidate = value as Record<string, unknown>;
-  if (candidate["status"] !== "unavailable") {
+  const keys = Object.keys(candidate);
+  if (keys.length !== 2 || candidate["status"] !== "refused") {
     return false;
   }
   const error = candidate["error"];
@@ -144,11 +166,16 @@ export function isMeshOriginRefusal(value: unknown): value is MeshOriginRefusal 
     return false;
   }
   const fields = error as Record<string, unknown>;
+  const errorKeys = Object.keys(fields);
+  if (errorKeys.length !== 4) {
+    return false;
+  }
   return (
     fields["format"] === "cluster-mesh.session-relay/1" &&
     fields["kind"] === "error" &&
-    fields["code"] === "relay_grant_unavailable" &&
-    fields["retryable"] === true
+    (fields["code"] === "relay_grant_unavailable" ||
+      fields["code"] === "relay_unavailable") &&
+    typeof fields["retryable"] === "boolean"
   );
 }
 
@@ -194,13 +221,14 @@ interface MeshOriginProbe {
 }
 
 function readInstalledVersion(): string | null {
-  let href: string;
+  let dir: string;
   try {
-    href = import.meta.resolve("@sentropic/cluster-mesh");
+    dir = dirname(
+      fileURLToPath(import.meta.resolve("@sentropic/cluster-mesh")),
+    );
   } catch {
     return null;
   }
-  let dir = dirname(fileURLToPath(href));
   for (let depth = 0; depth < 6; depth += 1) {
     try {
       const meta = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as {
@@ -243,10 +271,10 @@ async function probeRegistryArchive(): Promise<MeshOriginProbe> {
   }
 }
 
-function refuse(
+function diagnose(
   method: MeshOriginPortMethod | null,
   probe: MeshOriginProbe,
-): MeshOriginRefusal {
+): MeshOriginUnavailability {
   return {
     status: "unavailable",
     method,
@@ -265,25 +293,57 @@ function refuse(
   };
 }
 
+function refuse(probe: MeshOriginProbe): MeshOriginRefusedResult {
+  void probe;
+  return {
+    status: "refused",
+    error: {
+      format: "cluster-mesh.session-relay/1",
+      kind: "error",
+      code: "relay_grant_unavailable",
+      retryable: true,
+    },
+  };
+}
+
+function refuseAborted(): MeshOriginRefusedResult {
+  return {
+    status: "refused",
+    error: {
+      format: "cluster-mesh.session-relay/1",
+      kind: "error",
+      code: "relay_unavailable",
+      retryable: false,
+    },
+  };
+}
+
 async function compose(
   input: MeshOriginConsumerInput,
   probe: MeshOriginProbe,
 ): Promise<MeshOriginConsumer> {
   void input;
-  const base = refuse(null, probe);
+  const base = diagnose(null, probe);
   const dispatch = async (
     method: MeshOriginPortMethod,
     parameters: unknown,
     options: unknown,
     extra: readonly unknown[],
-  ): Promise<MeshOriginRefusal> => {
+  ): Promise<MeshOriginRefusedResult> => {
+    void method;
     if (extra.length > 0) {
       throw new TypeError(
         "mesh origin-port call takes a single parameter object",
       );
     }
     checkCallShape(parameters, options);
-    return refuse(method, probe);
+    // Abort takes precedence over unavailability: an already-aborted signal
+    // refuses with `relay_unavailable`, never the unavailability code.
+    const signal = (options as MeshOriginCallOptions | undefined)?.signal;
+    if (signal !== undefined && signal.aborted) {
+      return refuseAborted();
+    }
+    return refuse(probe);
   };
   return {
     status: "unavailable",
@@ -291,7 +351,7 @@ async function compose(
     methods: [...MESH_ORIGIN_METHODS],
     installedVersion: probe.installedVersion,
     exportPresent: probe.exportPresent,
-    refusal: base,
+    unavailability: base,
     ingestLifecycle: (parameters, options, ...extra: readonly unknown[]) =>
       dispatch("ingestLifecycle", parameters, options, extra),
     ingestCapabilities: (parameters, options, ...extra: readonly unknown[]) =>
