@@ -38,6 +38,14 @@ import {
   NATIVE_TERMINAL_MAX_SESSIONS,
   type NativeTerminalStopSignal,
 } from "./protocol.js";
+// N3 CLI proof authority: host-local mint/verify bound to the session table.
+// Reads this host through the structural `CliProofHostReader` surface only
+// (`state`); adds no transport, route or effect.
+import {
+  NativeTerminalActionAuthority,
+  type CliProofSessionComposition,
+  type SignedCliSessionProof,
+} from "./remote-action-authority.js";
 
 /**
  * Emits the FORCE signal to a whole process group from the PARENT (the host
@@ -758,6 +766,8 @@ export class NativeTerminalHost {
   readonly #reaper: NativeTerminalProcessGroupReaper;
   readonly #log: (line: string) => void;
   readonly #forceKillTimeoutMs: number;
+  /** N3 CLI proof issuance/verification registry, bound to this host's table. */
+  readonly #cliProofAuthority = new NativeTerminalActionAuthority(this);
   readonly #forceKillPollIntervalMs: number;
   readonly #readLeaderStartTime: (pid: number) => number | undefined;
   readonly #findGroupMemberToken: (pgid: number, expectedToken: string) => boolean;
@@ -1119,6 +1129,21 @@ export class NativeTerminalHost {
 
   state(id: string): NativeTerminalSessionState {
     return this.#snapshot(this.#requireSession(id));
+  }
+
+  /**
+   * Mint the N3 host-bound CLI proof for a live session of this host's own
+   * table (cell N3, RC2.native publication later). Delegates to the
+   * `NativeTerminalActionAuthority` owned by this host so issuance and later
+   * verification share one lifecycle registry. Host-local: no route, no
+   * transport, no effect on the session.
+   */
+  createCliSessionProof(
+    sessionId: string,
+    composition: CliProofSessionComposition,
+    nowMs = Date.now(),
+  ): SignedCliSessionProof {
+    return this.#cliProofAuthority.issueSessionProof(sessionId, composition, nowMs);
   }
 
   readOutput(id: string, afterSeq: number): NativeTerminalReplay {
