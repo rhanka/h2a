@@ -249,7 +249,11 @@ function createCentralApp(
     return attachment.closing;
   };
   const sweepPeriodMs = Math.max(25, Math.min(1000, options.idleTimeoutMs, options.sessionLeaseMs) / 2);
-  const quietTicksForIdle = Math.max(1, Math.ceil(options.idleTimeoutMs / sweepPeriodMs));
+  // A connecting client needs a few loop turns before its challenge lands
+  // (TCP handshake plus challenge roundtrip): never declare absence sooner,
+  // so lockstep dilation cannot outrun first contact. Production bounds are
+  // far above the floor and keep their wall-clock meaning.
+  const quietTicksForIdle = Math.max(5, Math.ceil(options.idleTimeoutMs / sweepPeriodMs));
   const sweep = setInterval(() => {
     if (!ready) return;
     const now = Date.now();
