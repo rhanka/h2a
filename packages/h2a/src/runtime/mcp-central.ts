@@ -221,6 +221,15 @@ function createCentralApp(
     return a;
   };
   let lastBusy = Date.now();
+  // Event-loop time the server was starved (preempted) since durable
+  // readiness. Starved time is not idle time: a connecting client delayed by
+  // shard scheduling must not find a retired server. Measured from the
+  // sweep's own overdue arrival, so every stall shape counts (OS preemption,
+  // a frozen loop): a tick arriving more than one period late banks the
+  // excess as starved, never idle, time. The session lease above stays on
+  // wall-clock: peer liveness is a wire fact, idleness is a loop fact.
+  let starvedMs = 0;
+  let lastTick = 0;
   let ready = false;
   let closing = false;
   let activeCalls = 0;
@@ -241,9 +250,15 @@ function createCentralApp(
     })();
     return attachment.closing;
   };
+  const sweepPeriodMs = Math.max(25, Math.min(1000, options.idleTimeoutMs, options.sessionLeaseMs) / 2);
   const sweep = setInterval(() => {
     if (!ready) return;
     const now = Date.now();
+    // Bank this tick's scheduling lateness as starved time. A healthy tick
+    // arrives one period after the previous; anything beyond one period plus
+    // 10 ms of jitter tolerance is time the loop could serve nobody.
+    if (lastTick > 0) starvedMs += Math.max(0, now - lastTick - sweepPeriodMs - 10);
+    lastTick = now;
     const liveTransaction = administration()?.transaction()?.value;
     const pendingAttachments = new Set(participants()?.ledger.operations().filter((op: any) => op.state !== 'completed').map((op: any) => op.attachmentId));
     for (const [id, attachment] of sessions) {
@@ -264,8 +279,8 @@ function createCentralApp(
     const transaction = administration()?.transaction()?.value;
     const pending = transaction && !["ABORTED", "READY"].includes(transaction.state);
     if (!closing && activeCalls === 0 && launches === 0 && callbacks === 0 && unresolvedEffects === 0 && sessions.size === 0 &&
-      participants()?.drain().complete && administration()?.admissionsOpen() && !pending && now - lastBusy > options.idleTimeoutMs) options.requestStop();
-  }, Math.max(25, Math.min(1000, options.idleTimeoutMs, options.sessionLeaseMs) / 2));
+      participants()?.drain().complete && administration()?.admissionsOpen() && !pending && now - lastBusy - starvedMs > options.idleTimeoutMs) options.requestStop();
+  }, sweepPeriodMs);
   sweep.unref();
   app.use("*", async (context, next) => {
     const host = context.req.header("host");
@@ -534,7 +549,7 @@ function createCentralApp(
     return response ?? context.body(null, 202);
     } finally { activeCalls--; drainRevision++; }
   });
-  return { app, ready(tools) { if (tools) descriptor = describeCatalogue(tools); lastBusy = Date.now(); ready = true; }, inventory: () => ({ ...(participants()?.inventory() ?? { schemaVersion: 1, shims: [], transports: [], operations: [], quarantines: [], launches: [], writerRestrictions: ["precheck_admission_closed"] }),
+  return { app, ready(tools) { if (tools) descriptor = describeCatalogue(tools); lastBusy = Date.now(); starvedMs = 0; lastTick = Date.now(); ready = true; }, inventory: () => ({ ...(participants()?.inventory() ?? { schemaVersion: 1, shims: [], transports: [], operations: [], quarantines: [], launches: [], writerRestrictions: ["precheck_admission_closed"] }),
     shims: [...transports.attachments.values()].flatMap(a => a.advertisement ? [a.advertisement] : []),
     transports: [...transports.attachments.values()].map(a => ({ attachmentId: a.id, transportEpoch: a.transportEpoch, state: a.state,
       ownershipEpoch: a.activation.participant.token.ownershipEpoch, ownerGeneration: generation,
