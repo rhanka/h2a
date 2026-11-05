@@ -95,3 +95,28 @@ export {
   type CorrelationDecision,
   type NativeRefusalCause,
 } from "./remote-action-owner.js";
+
+export {
+  CLI_PROOF_KIND,
+  CLI_PROOF_PERMISSION_MODES,
+  evaluateCliProofRouteAdmission,
+  evaluateRouteHttpMedia,
+  isCliProofPermissionModeInput,
+  mintCliSessionProof,
+  resolveCliProofTarget,
+  verifyCliSessionProofBinding,
+  type CliProofBindingExpectation,
+  type CliProofEnrollment,
+  type CliProofMintInput,
+  type CliProofOwner,
+  type CliProofPermissionMode,
+  type CliProofProvider,
+  type CliProofRouteAdmissionInput,
+  type CliProofRouteDecision,
+  type CliProofRouteId,
+  type CliProofSessionFacts,
+  type CliProofSigner,
+  type CliProofSourceAdmission,
+  type RouteHttpMediaInput,
+  type SignedCliSessionProof,
+} from "./remote-action-cli-proof.js";
