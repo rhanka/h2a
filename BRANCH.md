@@ -2692,3 +2692,43 @@ manifest JSON `88823475eca151d908450e4abadcac7b2b60d4b5ea16bae0f590d419fa394565`
 - Local fill of any source-gap slot (`RC0ImportedRecord`, H1–H4/M0 canonical
   bytes, FED, R15, capsule, residence): typed refusals only.
 - No Python anywhere; no `git stash`; no attribution trailers.
+
+# B4-R2 — fix round 2 on `feat/rc2-authority-native` (rv416w + rv416m CHANGES)
+
+Accountable build: Muse Spark 1.3 xhigh. Reviews: Wonder (`rv416w-last.md`,
+3 P1 + 5 P2 proven at runtime) and mistral (`rv416m-last.md`, same class P2-1
++ 3 P3, compatible). RED confirmed on this head (8 probes open), GREEN after.
+
+- P1-1 NEUTRALISED fail-closed: `evaluateRecordTrust` never returns `TRUSTED`
+  for binding/ack until the B5+ binding↔ack↔projection↔fence composition
+  compares every bound field (returns `BLOCKED_EXTERNAL` after shape/role/
+  signature checks). Generic guard as B3: every body field (28 binding + 18
+  ack) mutated + validly re-signed refuses; 19/19 vectors anchored to the
+  manifest copy in the test.
+- P1-2 NEUTRALISED fail-closed: `signDriveConsentAck` emits no signature on
+  any path (`source_role_unavailable`) until the composition exists. Custody
+  hardened meanwhile: closed spec, fail-closed material screen (exact names,
+  synonyms, long forms), branded handles (`isEnrolledCustody`).
+- P1-3 fail-closed now: `checkBindingRevision` refuses revision 0/unknown;
+  `commitSnapshot` format-checks digests, re-reads durable state, writes +
+  fsyncs before mutating memory; corrupt entries refuse (no reset to 0);
+  genesis marker on creation. Full contract fence (tuple key, snapshot digest
+  computed from enumerated fields) belongs to B5/B6.
+- P2-1 shapes aligned to r3 $defs (Id/Counter/Timestamp/Sig64/Digest/
+  NativeHash, pairId 85-pattern, decision enum, principalRef Id|null,
+  actionScopes 1–2 unique enums, admission verdict const, H required∪optional
+  keys, capabilities bits/columns enums); per-constraint negatives in test.
+- P2-3: `expiresAt <= now` refuses (`invalid_decision`) in
+  `authorizeAgentLaunch`, revalidated just before spawn (fabricated/stale
+  wrappers never spawn).
+- P2-4: origin required (never defaults local); bound digest covers
+  session/incarnation/ref id/revision; integer revisions ≥ 1.
+- P2-5 oracles: 9/9 consent cases replayed through real `projectConsent`
+  vs `expected`; registry digests recomputed + tamper check; H/binding/ack
+  negatives through trust; route stage/lane/enums from vector inputs;
+  port/publish vectors loaded.
+- Deferred to later lots (named in PR body): full B5+ composition + pairId
+  binding formula, contract-fence tuple key + computed digests, custody
+  fingerprint→public-key binding, H shape-before-block precedence, factId
+  identity inclusion, SG-R15/bits recursion, durable fact registry (P3-1..P3-4,
+  mistral P3-2/P3-3).
