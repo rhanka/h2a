@@ -128,7 +128,10 @@ const packAndExtract = (): PackedLayout & { cleanup: () => void } => {
 };
 
 describe("packed tarball clean consumer (R4-AC10)", () => {
-  it("real tarball installs the registry closure with verified digests", () => {
+  // npm pack shells a real prepack build beneath it (1.4s idle, CI #415 blew
+  // the 5s vitest default under shard load): the explicit bound covers
+  // subprocess cost, not product latency.
+  it("real tarball installs the registry closure with verified digests", { timeout: 30_000 }, () => {
     const { files, extracted, cleanup } = packAndExtract();
     try {
       for (const expected of [
@@ -195,7 +198,8 @@ describe("packed tarball clean consumer (R4-AC10)", () => {
 });
 
 describe("second synthetic embedding host (R4-AC12)", () => {
-  it("public-exports-only host selects, configures and resolves Focus", async () => {
+  // Same real npm pack as above (1.2s idle): explicit bound, same rationale.
+  it("public-exports-only host selects, configures and resolves Focus", { timeout: 30_000 }, async () => {
     const { extracted, cleanup } = packAndExtract();
     try {
       interface PackedValidation {
@@ -314,7 +318,10 @@ describe("publish builds dist first (rev352-F6, rev352r2-F5)", () => {
     expect(scripts["build"]).toBe("tsc -p tsconfig.json");
   });
 
-  it("a tree without dist rebuilds it through the prepack chain", () => {
+  // cp -a plus a real tsc build (2.4s idle, CI #415/#416 blew the 5s vitest
+  // default twice under shard load): the explicit bound covers subprocess
+  // cost, not product latency.
+  it("a tree without dist rebuilds it through the prepack chain", { timeout: 30_000 }, () => {
     const root = mkdtempSync(join(tmpdir(), "focus-prepack-rebuild-"));
     try {
       const copy = spawnSync("cp", ["-a", `${pkgRoot}/.`, root], { encoding: "utf8" });

@@ -122,11 +122,11 @@ export function spawnShim(bin, args, env, cwd) {
     for (const pending of waiting.values()) pending.reject(new Error(`shim closed ${code}/${signal}: ${stderr}`));
     resolve({ code, signal });
   }));
-  const response = id => {
+  const response = (id, timeoutMs = 5000) => {
     const received = frames.find(frame => frame.id === id);
     if (received) return Promise.resolve(received);
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { waiting.delete(id); reject(new Error(`missing ${id}: ${stderr}`)); }, 5000);
+      const timer = setTimeout(() => { waiting.delete(id); reject(new Error(`missing ${id}: ${stderr}`)); }, timeoutMs);
       waiting.set(id, { resolve(frame) { clearTimeout(timer); waiting.delete(id); resolve(frame); },
         reject(error) { clearTimeout(timer); waiting.delete(id); reject(error); } });
     });

@@ -34,8 +34,12 @@ test('C01 should replay unknown initialize and its pipelined tail into the real 
     writeFileSync(join(config, 'config.json'), '{broken');
     shim = spawnShim(fileURLToPath(new URL('../dist/bin.js', import.meta.url)), ['mcp-serve', '--host', 'claude'], f.env, f.repo);
     shim.child.stdin.write(JSON.stringify(initialize) + '\n' + JSON.stringify({ jsonrpc: '2.0', id: 'list', method: 'tools/list' }) + '\n');
-    assert.ok((await shim.response('init')).result);
-    assert.ok((await shim.response('list')).result.tools.some(tool => tool.name === 'h2a_identity_status'));
+    // The unqualified path replays into a freshly spawned real stdio server
+    // (two Node boots). CI shard contention measured 5181–5188ms against the
+    // 5000ms helper default (main 2026-11-05, PR #414): the explicit bound
+    // covers boot under load, not product latency.
+    assert.ok((await shim.response('init', 15000)).result);
+    assert.ok((await shim.response('list', 15000)).result.tools.some(tool => tool.name === 'h2a_identity_status'));
     assert.match(shim.stderr, /claude_version_unqualified/);
     assert.equal(existsSync(join(f.runtimeBase, 'h2a-mcp-central')), false);
     assert.equal(readFileSync(project, 'utf8'), bytes);

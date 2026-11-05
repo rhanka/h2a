@@ -55,7 +55,16 @@ export async function runCampaign(count) {
       });
       workers.push({ child, closed, ready, errors: () => errors });
     }
-    await Promise.all(workers.map(w => w.ready));
+    // Fail fast with the writer's stderr when a backend dies before its
+    // readiness handshake: awaiting a bare 'ready' would hang until the
+    // 1350s producer backstop with no diagnostics (CI m17-22 stall shape).
+    for (const w of workers) {
+      const ready = await Promise.race([w.ready.then(() => true), w.closed.then(() => false)]);
+      if (!ready) {
+        const [code, signal] = await w.closed;
+        assert.fail(`backend writer exited before readiness (code ${code}, signal ${signal}): ${w.errors()}`);
+      }
+    }
     for (const w of workers) w.child.stdin.write('go\n');
     for (const w of workers) { const [code, signal] = await w.closed; assert.equal(code, 0, w.errors()); assert.equal(signal, null); }
     const acknowledged = roles.flatMap(role => fs.readFileSync(join(dir, `ack-${role}.jsonl`), 'utf8').trim().split('\n').map(JSON.parse));
