@@ -1,12 +1,18 @@
-import { createHash, generateKeyPairSync } from "node:crypto";
+import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-import { PROOF_TTL_MS, digestDomain } from "./remote-action-contract.js";
-import { createPinnedTrust } from "./remote-action-trust.js";
-import { verifyCliSessionProof } from "./remote-action-verifier.js";
 import {
+  PROOF_TTL_MS,
+  SIGNING_DOMAIN_PREFIX,
+  canonicalJson,
+  digestDomain,
+} from "./remote-action-contract.js";
+import { createPinnedTrust } from "./remote-action-trust.js";
+import { PROOF_FIELDS, verifyCliSessionProof } from "./remote-action-verifier.js";
+import {
+  CLI_PROOF_KIND,
   evaluateCliProofRouteAdmission,
   evaluateRouteHttpMedia,
   mintCliSessionProof,
@@ -125,17 +131,41 @@ function expected() {
     targetDigest: digestDomain("target", target),
     ownerIssuer: "test-idp",
     ownerSub: "user-1",
+    approvedRegistrationRef: "reg-1",
+    approvedRegistrationRevision: 1,
     providerId: "provider-1",
     providerVersion: "v1",
+    executableDigest: "e".repeat(64),
+    nativeSessionPublicKeyId: "native-key-1",
     capabilitiesDigest: "d".repeat(64),
     permissionMode: "interactive" as const,
     autoApprovePolicyDigest: null,
+    proofId: "proof-1",
+    issuedAt: NOW_MS - 1000,
+    expiresAt: NOW_MS + 59000,
+  };
+}
+
+/** Validly re-sign a mutated body with the test source key (guard helper). */
+function resignMutated(body: Record<string, unknown>) {
+  const bytes = Buffer.concat([
+    Buffer.from(`${SIGNING_DOMAIN_PREFIX}${CLI_PROOF_KIND}`, "utf8"),
+    Buffer.from([0]),
+    Buffer.from(canonicalJson(body), "utf8"),
+  ]);
+  const signature = sign(null, bytes, source.privateKey);
+  return {
+    body,
+    signature: {
+      alg: "Ed25519" as const,
+      value: signature.toString("base64url").replace(/=+$/, ""),
+    },
   };
 }
 
 describe("remote-action cli proof producer", () => {
   it("mints a proof the N1 verifier accepts", () => {
-    const record = mintCliSessionProof(mintInput());
+    const record = mintCliSessionProof(mintInput(), NOW_MS);
     const body = verifyCliSessionProof(record, opts());
     expect(body["proofId"]).toBe("proof-1");
     expect(digestDomain("target", body["target"])).toBe(expected().targetDigest);
@@ -184,14 +214,14 @@ describe("remote-action cli proof producer", () => {
 
 describe("remote-action cli proof binding verifier", () => {
   it("accepts the exact target, provider, mode and generations", () => {
-    const record = mintCliSessionProof(mintInput());
+    const record = mintCliSessionProof(mintInput(), NOW_MS);
     const body = verifyCliSessionProofBinding(record, opts(), expected());
     expect(body["providerId"]).toBe("provider-1");
     expect(body["permissionMode"]).toBe("interactive");
   });
 
   it("refuses tampered bytes without a new signature", () => {
-    const record = mintCliSessionProof(mintInput());
+    const record = mintCliSessionProof(mintInput(), NOW_MS);
     const tampered = {
       body: { ...(record.body as Record<string, unknown>), providerId: "provider-2" },
       signature: record.signature,
@@ -207,9 +237,15 @@ describe("remote-action cli proof binding verifier", () => {
     ["target.controllerEpoch", { controllerEpoch: 3 }],
     ["providerId", undefined],
     ["providerVersion", undefined],
+    ["executableDigest", undefined],
+    ["approvedRegistrationRef", undefined],
+    ["approvedRegistrationRevision", undefined],
+    ["nativeSessionPublicKeyId", undefined],
     ["permissionMode", undefined],
+    ["ownerIssuer", undefined],
     ["ownerSub", undefined],
     ["capabilitiesDigest", undefined],
+    ["autoApprovePolicyDigest", undefined],
   ];
   it.each(mutations)(
     "refuses a validly re-signed mutation of %s",
@@ -221,19 +257,111 @@ describe("remote-action cli proof binding verifier", () => {
         input.provider = { ...input.provider!, providerId: "provider-2" };
       } else if (field === "providerVersion") {
         input.provider = { ...input.provider!, providerVersion: "v2" };
+      } else if (field === "executableDigest") {
+        input.provider = { ...input.provider!, executableDigest: "f".repeat(64) };
+      } else if (field === "approvedRegistrationRef") {
+        input.enrollment = { ...input.enrollment!, approvedRegistrationRef: "reg-2" };
+      } else if (field === "approvedRegistrationRevision") {
+        input.enrollment = { ...input.enrollment!, approvedRegistrationRevision: 2 };
+      } else if (field === "nativeSessionPublicKeyId") {
+        input.nativeSessionPublicKeyId = "native-key-2";
       } else if (field === "permissionMode") {
         input.permissionMode = "auto-approve";
+      } else if (field === "ownerIssuer") {
+        input.owner = { issuer: "test-idp-2", sub: input.owner.sub };
       } else if (field === "ownerSub") {
         input.owner = { issuer: "test-idp", sub: "user-2" };
+      } else if (field === "autoApprovePolicyDigest") {
+        input.autoApprovePolicyDigest = "a".repeat(64);
       } else {
         input.capabilitiesDigest = "e".repeat(64);
       }
-      const record = mintCliSessionProof(input);
+      const record = mintCliSessionProof(input, NOW_MS);
       expect(() =>
         verifyCliSessionProofBinding(record, opts(), expected()),
       ).toThrowError(expect.objectContaining({ code: "binding_mismatch" }));
     },
   );
+
+  it("refuses a non-Ed25519 signer key with a typed request error", () => {
+    const ec = generateKeyPairSync("ec", { namedCurve: "P-256" });
+    const input = mintInput({
+      signer: {
+        kid: "test-source",
+        issuer: "test-source-issuer",
+        audience: "test-b-audience",
+        privateKey: ec.privateKey,
+      },
+    });
+    expect(() => mintCliSessionProof(input, NOW_MS)).toThrowError(
+      expect.objectContaining({ code: "invalid_request" }),
+    );
+  });
+
+  it("refuses a zero-duration lifetime", () => {
+    expect(() =>
+      mintCliSessionProof(mintInput({ issuedAtMs: NOW_MS, expiresAtMs: NOW_MS }), NOW_MS),
+    ).toThrowError(expect.objectContaining({ code: "invalid_request" }));
+  });
+
+  it("refuses a validly re-signed mutation of every closed body field", () => {
+    const base = mintCliSessionProof(mintInput(), NOW_MS);
+    const baseBody = base.body as Record<string, unknown>;
+    const mutate = (field: string): { value: unknown; code: string } => {
+      switch (field) {
+        case "version":
+          return { value: "remote-action-v9", code: "unsupported_version" };
+        case "kind":
+          return { value: "action-claim", code: "invalid_request" };
+        case "issuer":
+          return { value: "test-source-issuer-2", code: "authority_refused" };
+        case "kid":
+          return { value: "test-source-2", code: "unknown_kid" };
+        case "audience":
+          return { value: "test-b-audience-2", code: "authority_refused" };
+        case "target":
+          return { value: mintTarget({ nativeSessionId: "cli-2" }), code: "binding_mismatch" };
+        case "approvedRegistrationRef":
+          return { value: "reg-2", code: "binding_mismatch" };
+        case "approvedRegistrationRevision":
+          return { value: 2, code: "binding_mismatch" };
+        case "executableDigest":
+          return { value: "f".repeat(64), code: "binding_mismatch" };
+        case "nativeSessionPublicKeyId":
+          return { value: "native-key-2", code: "binding_mismatch" };
+        case "proofId":
+          return { value: "proof-2", code: "binding_mismatch" };
+        case "issuedAt":
+          return { value: NOW_MS - 500, code: "binding_mismatch" };
+        case "expiresAt":
+          return { value: NOW_MS + 30000, code: "binding_mismatch" };
+        case "ownerIssuer":
+          return { value: "test-idp-2", code: "binding_mismatch" };
+        case "ownerSub":
+          return { value: "user-2", code: "binding_mismatch" };
+        case "providerId":
+          return { value: "provider-2", code: "binding_mismatch" };
+        case "providerVersion":
+          return { value: "v2", code: "binding_mismatch" };
+        case "capabilitiesDigest":
+          return { value: "e".repeat(64), code: "binding_mismatch" };
+        case "permissionMode":
+          return { value: "auto-approve", code: "binding_mismatch" };
+        case "autoApprovePolicyDigest":
+          return { value: "a".repeat(64), code: "binding_mismatch" };
+        default:
+          throw new Error(`guard without mutator: ${field}`);
+      }
+    };
+    expect(PROOF_FIELDS).toHaveLength(20);
+    for (const field of PROOF_FIELDS) {
+      const { value, code } = mutate(field);
+      const record = resignMutated({ ...baseBody, [field]: value });
+      expect(() =>
+        verifyCliSessionProofBinding(record, opts(), expected()),
+      ).toThrowError(expect.objectContaining({ code }));
+    }
+  });
 });
 
 describe("remote-action cli proof approved-target mapping", () => {
@@ -322,7 +450,7 @@ describe("remote-action cli proof r3 route vectors", () => {
 
 describe("remote-action cli proof receiver pack (H-3)", () => {
   const H3_SHA =
-    "7de5de1af5af96e54449283225a41dcb8a9dfc7c2ac2feaf1e1e221a77cd18cc";
+    "f175afe0046f23a85cef9b029a49b63cf3d7ec2f7fff98fcef09547b428398bd";
 
   function loadPack() {
     const bytes = loadBytes("vectors/cli-proof-h3.json");
@@ -367,12 +495,30 @@ describe("remote-action cli proof receiver pack (H-3)", () => {
     };
     if (entry.scope === "target") {
       next.target = { ...(next.target as Record<string, unknown>), [entry.field]: entry.value };
-    } else if (entry.field === "providerId" || entry.field === "providerVersion") {
+    } else if (
+      entry.field === "providerId" ||
+      entry.field === "providerVersion" ||
+      entry.field === "executableDigest"
+    ) {
       next.provider = { ...(next.provider as NonNullable<CliProofMintInput["provider"]>), [entry.field]: entry.value };
+    } else if (
+      entry.field === "approvedRegistrationRef" ||
+      entry.field === "approvedRegistrationRevision"
+    ) {
+      next.enrollment = {
+        ...(next.enrollment as NonNullable<CliProofMintInput["enrollment"]>),
+        [entry.field]: entry.value,
+      };
+    } else if (entry.field === "ownerIssuer") {
+      next.owner = { ...next.owner, issuer: entry.value as string };
     } else if (entry.field === "ownerSub") {
       next.owner = { ...next.owner, sub: entry.value as string };
     } else if (entry.field === "capabilitiesDigest") {
       next.capabilitiesDigest = entry.value as string;
+    } else if (entry.field === "nativeSessionPublicKeyId") {
+      next.nativeSessionPublicKeyId = entry.value as string;
+    } else if (entry.field === "autoApprovePolicyDigest") {
+      next.autoApprovePolicyDigest = entry.value as string;
     } else if (entry.field === "permissionMode") {
       next.permissionMode = entry.value as CliProofMintInput["permissionMode"];
     } else {
@@ -399,9 +545,9 @@ describe("remote-action cli proof receiver pack (H-3)", () => {
 
   it("refuses every corpus mutation with its recorded code", () => {
     const pack = loadPack();
-    expect(pack.mutationCorpus.length).toBe(8);
+    expect(pack.mutationCorpus.length).toBe(14);
     for (const entry of pack.mutationCorpus) {
-      const record = mintCliSessionProof(applyMutation(mintInput(), entry));
+      const record = mintCliSessionProof(applyMutation(mintInput(), entry), NOW_MS);
       expect(() => verifyCliSessionProofBinding(record, opts(), expected())).toThrowError(
         expect.objectContaining({ code: entry.expectCode }),
       );
