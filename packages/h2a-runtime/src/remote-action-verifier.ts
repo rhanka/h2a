@@ -189,7 +189,7 @@ const CLAIM_FIELDS = [
   "envelopeDigest",
 ] as const;
 
-const PROOF_FIELDS = [
+export const PROOF_FIELDS = [
   "version",
   "kind",
   "issuer",
