@@ -2637,3 +2637,58 @@ manifest JSON `88823475eca151d908450e4abadcac7b2b60d4b5ea16bae0f590d419fa394565`
 - `session-content-{v3-api,policy-proof,consent}.ts` (B5).
 - Local fill of any source-gap slot; invented capsule bytes/headers/trust roots.
 - No Python anywhere; no `git stash`; no attribution trailers.
+
+# B4 — `feat/rc2-authority-native` (cell RC2.authority-native)
+
+Accountable build: Muse Spark 1.3 xhigh. Review: vibe code leg + Wonder
+design leg (consent mapping). Depends on: B1 types (reused `computeHash`
+bytes only); registry `0.26.0-dev.5` NOT consumed — installed
+`@sentropic/cluster-mesh` stays `0.22.4`, no mesh import at all (shapes only,
+fail-closed); M0 receipts gate-listed, shapes only. Contract r3 pin
+(`MANIFEST.sha256` `6245d3ae51f601195926bc36600d1097cef30694f3feb01f79f1a7ec9fa17715`,
+manifest JSON `88823475eca151d908450e4abadcac7b2b60d4b5ea16bae0f590d419fa394565`).
+
+## Lots
+
+1. Red — `packages/h2a/test/remote-session-identity.test.js`
+   (AUTHORITY-NATIVE / CONSENT-PAIR / LAUNCH): fails on the three missing
+   modules (`ERR_MODULE_NOT_FOUND`, 0 test executed).
+2. Green — three new modules + 19 vendored r3 vectors + `pin.json`:
+   36/36 pass, 3× stable, adjacent drive-consent/gov-launch 116/116.
+3. Association/capabilities facts + drive-ACK signer path: included in the
+   same test (producers, custody, `resolveSession`, fact idempotence).
+
+## Allowed
+
+- `packages/h2a/src/runtime/governance/agent-launch-seam.ts` (new: MH-SEAM-ENV
+  decision plumbing, never spawns; allow sets only `H2A_AGENT_SESSION_ID`).
+- `packages/h2a/src/runtime/governance/authority-native.ts` (new: closed H1–H4
+  + consent/association/capability shapes, trust, association/capability
+  producers, custody adapter, drive-ACK signer, `resolveSession`, fact registry).
+- `packages/h2a/src/runtime/drive/consent-fence.ts` (new: durable
+  `sourceConsentRevision`, pair equality; no journal payload change).
+- `packages/h2a/src/fixtures/session-content/v3/authority-native/**` (19 r3
+  vectors + `pin.json`, bytes pinned by sha256).
+- `packages/h2a/test/remote-session-identity.test.js` (new).
+- This file (append own section only; never rewrite other lanes).
+
+## Conditional (none used)
+
+- No `package.json` change (no new export, no dependency pin — B6 owns the
+  cluster-mesh pin). No `index.ts` barrel change. No production `h2a run`
+  splice: the seam is proven by witnesses with injected spawn/decision ports;
+  live wiring waits for the receiver R-2/L-1 receipts.
+
+## Forbidden
+
+- `packages/remote-protocol/**`, `packages/remote-k8s-orchestrator/**`.
+- Any `cluster-mesh` import (src, deep path, or published package) in B4 code;
+  any `h2a-runtime` session-content file (B2/B5 land).
+- Any route handler, transport, fetch, socket, or WebSocket in B4 code
+  (asserted by the test: no matching export, no matching source token).
+- Landing the `feat/ft-w2-seam-launch` daemon-port/L2 machinery: B4 proves the
+  seam contract with injected ports instead (smaller additive diff, zero
+  effect on any session).
+- Local fill of any source-gap slot (`RC0ImportedRecord`, H1–H4/M0 canonical
+  bytes, FED, R15, capsule, residence): typed refusals only.
+- No Python anywhere; no `git stash`; no attribution trailers.

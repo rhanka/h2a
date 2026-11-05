@@ -1,0 +1,1175 @@
+{
+  "routeId": "listing-grant-ack",
+  "method": "POST",
+  "path": "/mesh/v1/remote-sessions/:sessionId/listing-grants/:grantId/acks",
+  "evidenceLevel": "model route admission only; no handler/network executed; all authority values synthetic assumptions",
+  "positive": [
+    {
+      "id": "listing-grant-ack-positive",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "listing-grant-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/listing-grants/fixture-grantId/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "grantId": "fixture-grantId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "allow",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "listing-grant-ack-matrix-listing-cli-lifecycle",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "listing-grant-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/listing-grants/fixture-grantId/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "grantId": "fixture-grantId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "allow",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "listing-grant-ack-matrix-listing-app-chat-lifecycle",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "listing-grant-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/listing-grants/fixture-grantId/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "grantId": "fixture-grantId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "app-chat",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "allow",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "listing-grant-ack-matrix-bootstrap-cli-lifecycle",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "listing-grant-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/listing-grants/fixture-grantId/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "grantId": "fixture-grantId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "allow",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "listing-grant-ack-matrix-bound-cli-lifecycle",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "listing-grant-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/listing-grants/fixture-grantId/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "grantId": "fixture-grantId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "allow",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "listing-grant-ack-matrix-bound-app-chat-lifecycle",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "listing-grant-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/listing-grants/fixture-grantId/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "grantId": "fixture-grantId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "app-chat",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "allow",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "listing-grant-ack-http-media",
+      "evaluator": "routeHttp",
+      "input": {
+        "routeId": "listing-grant-ack",
+        "contentType": "application/json",
+        "bodyBytes": 2,
+        "contentEncoding": null
+      },
+      "expected": {
+        "decision": "allow",
+        "code": null
+      }
+    }
+  ],
+  "negative": [
+    {
+      "id": "listing-grant-ack-wrong-method",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "listing-grant-ack",
+        "method": "GET",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/listing-grants/fixture-grantId/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "grantId": "fixture-grantId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "listing-grant-ack-extra-path",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "listing-grant-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/listing-grants/fixture-grantId/acks/extra",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "grantId": "fixture-grantId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "listing-grant-ack-caller-invented-resolved-path",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "listing-grant-ack",
+        "method": "POST",
+        "path": "/arbitrary",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "grantId": "fixture-grantId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false,
+        "expectedResolvedPath": "/arbitrary"
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "listing-grant-ack-extra-parameter",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "listing-grant-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/listing-grants/fixture-grantId/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "grantId": "fixture-grantId",
+          "arbitrary": "forbidden"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "listing-grant-ack-foreign-session-scope",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "listing-grant-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/listing-grants/fixture-grantId/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "grantId": "fixture-grantId"
+        },
+        "authenticated": true,
+        "scopeMatches": false,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "listing-grant-ack-missing-authority",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "listing-grant-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/listing-grants/fixture-grantId/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "grantId": "fixture-grantId"
+        },
+        "authenticated": false,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_auth_required",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "listing-grant-ack-purpose-withdrawn",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "listing-grant-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/listing-grants/fixture-grantId/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "grantId": "fixture-grantId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": false,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_consent_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "listing-grant-ack-wrong-lane",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "listing-grant-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/listing-grants/fixture-grantId/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "grantId": "fixture-grantId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "cli",
+        "lane": "content",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_lane_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "listing-grant-ack-unbound",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "listing-grant-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/listing-grants/fixture-grantId/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "grantId": "fixture-grantId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": false,
+        "stage": "listing",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_auth_required",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "listing-grant-ack-escaped-path",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "listing-grant-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/%252fsessionId/listing-grants/fixture-grantId/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "grantId": "fixture-grantId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "listing-grant-ack-matrix-listing-cli-content",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "listing-grant-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/listing-grants/fixture-grantId/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "grantId": "fixture-grantId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "cli",
+        "lane": "content",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_lane_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "listing-grant-ack-matrix-listing-cli-actions",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "listing-grant-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/listing-grants/fixture-grantId/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "grantId": "fixture-grantId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "cli",
+        "lane": "actions",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_lane_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "listing-grant-ack-matrix-listing-cli-results",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "listing-grant-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/listing-grants/fixture-grantId/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "grantId": "fixture-grantId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "cli",
+        "lane": "results",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_lane_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "listing-grant-ack-matrix-listing-app-chat-content",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "listing-grant-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/listing-grants/fixture-grantId/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "grantId": "fixture-grantId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "app-chat",
+        "lane": "content",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_lane_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "listing-grant-ack-matrix-listing-app-chat-actions",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "listing-grant-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/listing-grants/fixture-grantId/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "grantId": "fixture-grantId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "app-chat",
+        "lane": "actions",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_lane_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "listing-grant-ack-matrix-listing-app-chat-results",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "listing-grant-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/listing-grants/fixture-grantId/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "grantId": "fixture-grantId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "app-chat",
+        "lane": "results",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_lane_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "listing-grant-ack-matrix-bootstrap-cli-content",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "listing-grant-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/listing-grants/fixture-grantId/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "grantId": "fixture-grantId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "cli",
+        "lane": "content",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_lane_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "listing-grant-ack-matrix-bootstrap-cli-actions",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "listing-grant-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/listing-grants/fixture-grantId/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "grantId": "fixture-grantId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "cli",
+        "lane": "actions",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_lane_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "listing-grant-ack-matrix-bootstrap-cli-results",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "listing-grant-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/listing-grants/fixture-grantId/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "grantId": "fixture-grantId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "cli",
+        "lane": "results",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_lane_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "listing-grant-ack-matrix-bootstrap-app-chat-lifecycle",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "listing-grant-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/listing-grants/fixture-grantId/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "grantId": "fixture-grantId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "app-chat",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "listing-grant-ack-matrix-bootstrap-app-chat-content",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "listing-grant-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/listing-grants/fixture-grantId/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "grantId": "fixture-grantId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "app-chat",
+        "lane": "content",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "listing-grant-ack-matrix-bootstrap-app-chat-actions",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "listing-grant-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/listing-grants/fixture-grantId/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "grantId": "fixture-grantId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "app-chat",
+        "lane": "actions",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "listing-grant-ack-matrix-bootstrap-app-chat-results",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "listing-grant-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/listing-grants/fixture-grantId/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "grantId": "fixture-grantId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "app-chat",
+        "lane": "results",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "listing-grant-ack-matrix-bound-cli-content",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "listing-grant-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/listing-grants/fixture-grantId/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "grantId": "fixture-grantId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "content",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_lane_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "listing-grant-ack-matrix-bound-cli-actions",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "listing-grant-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/listing-grants/fixture-grantId/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "grantId": "fixture-grantId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "actions",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_lane_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "listing-grant-ack-matrix-bound-cli-results",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "listing-grant-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/listing-grants/fixture-grantId/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "grantId": "fixture-grantId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "results",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_lane_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "listing-grant-ack-matrix-bound-app-chat-content",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "listing-grant-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/listing-grants/fixture-grantId/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "grantId": "fixture-grantId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "app-chat",
+        "lane": "content",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_lane_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "listing-grant-ack-matrix-bound-app-chat-actions",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "listing-grant-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/listing-grants/fixture-grantId/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "grantId": "fixture-grantId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "app-chat",
+        "lane": "actions",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_lane_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "listing-grant-ack-matrix-bound-app-chat-results",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "listing-grant-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/listing-grants/fixture-grantId/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "grantId": "fixture-grantId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "app-chat",
+        "lane": "results",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_lane_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "listing-grant-ack-http-encoding",
+      "evaluator": "routeHttp",
+      "input": {
+        "routeId": "listing-grant-ack",
+        "contentType": "application/json",
+        "bodyBytes": 2,
+        "contentEncoding": "gzip"
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_protocol_refused"
+      }
+    },
+    {
+      "id": "listing-grant-ack-http-body-or-media",
+      "evaluator": "routeHttp",
+      "input": {
+        "routeId": "listing-grant-ack",
+        "contentType": "text/plain",
+        "bodyBytes": 2,
+        "contentEncoding": null
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_protocol_refused"
+      }
+    }
+  ],
+  "http": {
+    "requestContentType": "application/json",
+    "responseContentType": "application/json",
+    "body": "strict JSON if present; zero bytes otherwise",
+    "streamProfile": null
+  },
+  "successStatus": 200
+}

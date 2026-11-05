@@ -1,0 +1,28 @@
+{
+ "format": "h2a.rc2-b4-pin/1",
+ "contract": "RC2.contract",
+ "revision": "r3",
+ "manifestSha256": "6245d3ae51f601195926bc36600d1097cef30694f3feb01f79f1a7ec9fa17715",
+ "manifestJsonSha256": "88823475eca151d908450e4abadcac7b2b60d4b5ea16bae0f590d419fa394565",
+ "vectors": {
+  "RegistryInstanceViewV1.json": "a07552879cdb4439d3904201ac3720751d5209cb5932a497f3e8a3b9993fc90d",
+  "RegistryReaderV1.json": "89d40ab3db167d63b88928150a73ac3d52bbd453fea8de667875308b9b6a24be",
+  "RemoteDriveConsentAckV1.json": "3b94705c6783fee33ab05df285d2a66526607cdccecf3902a5a0a60c354aa111",
+  "RemoteDriveConsentBindingV1.json": "943c3a09b59fd31e79f2de4d4d5e55f6e04cd697f23949f2630d80677df4d961",
+  "RemoteSourceAssociationV1.json": "fdf788ede22b72f067113f5b0d08cee701092122f7966eb9b1bf984a1651a2bb",
+  "RoleAgentAttestationV1.json": "0bdbda0284a4f00cc1524d8c57fdaadfd5fff1c0680369aa26bf4962a068a936",
+  "RoleScopePolicyV1.json": "c7464a2cc111dd0ee960178d745bdcccf8ce60feca44e0d3db8ebe783b31db95",
+  "SessionAdmissionEvidenceV1.json": "81c31e08c6a7505247ed66c5a53632544083915c05c28caeeefc5d7129cbb4d8",
+  "SessionCaptureCapabilitiesV1.json": "b2ea97551d1472044cb91a54eb70bde7f93d472620d1813fe6045aa1ef995d1e",
+  "consent-native-canonical.json": "436d59008001e58252000b040509d1dc551d9aa82370a57f6c514cdd8360d10a",
+  "port-SessionOriginRegistryPortV1-ingestCapabilities.json": "6a323ecef9c4359aa75bc8467bc69967222cd1a4c7dbc32b0b363f48451f4e83",
+  "port-SessionOriginRegistryPortV1-ingestLifecycle.json": "ea46feb8c640049ded42eeb1e083fa0b3ccb71c861c02ada9a13a87b07485e64",
+  "registry-revision-digests.json": "31a375ea904d32f605c1560df3c6deee15d0c528f7059009e00d1cbf74568003",
+  "route-drive-binding-ack.json": "2284c04fa886ed0fc135aa0be62675bce8d3ab728847a8b0339018366578fdc3",
+  "route-drive-binding-fetch.json": "1785998e25a3a93eb9f2e2935b0756c86206974d14be939cb948f617875a8069",
+  "route-lifecycle-publish.json": "078cc15260f9fa8291491f99178627e94ca93edf8320a252a55ec24db8a55cdf",
+  "route-listing-grant-ack.json": "147690f35239c66d3a880d23996409690d52ee5edab09565e28a7748f1735b6b",
+  "route-listing-grant-fetch.json": "0046d35b1bc8698203741279922653efff01f5a2cb334ce2c18c0d664f9605c2",
+  "route-listing-publish.json": "98ac691268eb226e98ab7d4051be9b4e41cfd03341a54d02071390f5873870b1"
+ }
+}

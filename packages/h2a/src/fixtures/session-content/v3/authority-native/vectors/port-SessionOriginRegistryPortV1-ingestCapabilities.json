@@ -1,0 +1,343 @@
+{
+  "port": "SessionOriginRegistryPortV1",
+  "method": "ingestCapabilities",
+  "parameterSchema": "schemas/SessionOriginIngestCapabilitiesParametersV1.schema.json",
+  "resultSchema": "schemas/SessionOriginCommitResultV1.schema.json",
+  "evidenceLevel": "local API data-shape contract only; handle authentication and package implementation not supplied",
+  "positive": [
+    {
+      "id": "ingestCapabilities-parameters",
+      "expect": "ACCEPT_SHAPE",
+      "value": {
+        "processBindingRef": {
+          "id": "fixture-id-0",
+          "revision": 1,
+          "digest": "0d65cebb5808ed544053d53ffe302dab72b71902bd5128ef87f7071d6910f5f0"
+        },
+        "capabilities": {
+          "format": "h2a.session-capture/1",
+          "kind": "capabilities",
+          "hostKind": "claude",
+          "pluginIdentity": null,
+          "pluginVersion": null,
+          "pluginDigest": null,
+          "convergenceManifestDigest": null,
+          "cliExecutableDigest": "c8154809b56849e358886d181ebccefec8555c1c6814a63247796bb08979c650",
+          "cliVersion": "fixture-cliVersion-0",
+          "providerDialect": "fixture-providerDialect-0",
+          "sourceRef": {
+            "sourceSessionId": "fixture-source-session",
+            "sourceGeneration": 1,
+            "streamIncarnation": "fixture-stream"
+          },
+          "originAgentSessionId": "fixture-originAgentSessionId-0",
+          "rc0CapabilitiesDigest": "afe81db75ee87f6f63f1ed445831f801392e1a351f43e92cae04b919ca9050e7",
+          "providerTupleDigest": "37cf110fd975f93d01215d2ce6d4695ba1fd372e81f26c02a7213970990d9455",
+          "capabilityRevision": 1,
+          "bits": {
+            "ptyBytes": {
+              "state": "installed-qualified",
+              "producerRef": "fixture-native-pty",
+              "cliVersion": "fixture-cliVersion-0",
+              "dialect": "fixture-dialect-0",
+              "executableDigest": "531803905622dd13abfa2829283b99291a862c65a1fc5f8bdeaa22085f04ce13",
+              "pluginDigest": null,
+              "receiptDigest": "07ddaa9e3afedddf5416a3b165d2e237dacd5e31d375d78fdb93838f6d26c0d6",
+              "sourceGap": null
+            },
+            "structuredDeltas": {
+              "state": "unavailable",
+              "producerRef": "fixture-unavailable-provider",
+              "cliVersion": "fixture-cliVersion-0",
+              "dialect": "fixture-dialect-0",
+              "executableDigest": "e60151e5a4680c45a60f4662ae26bfb11c94623da6e8f17cdc34cf522b9a0a1c",
+              "pluginDigest": null,
+              "receiptDigest": null,
+              "sourceGap": "plugin-absent"
+            },
+            "completePermissionContext": {
+              "state": "unavailable",
+              "producerRef": "fixture-unavailable-provider",
+              "cliVersion": "fixture-cliVersion-0",
+              "dialect": "fixture-dialect-0",
+              "executableDigest": "843f5d851db75349560621c0d4ab644f105c8bd0b57537fb5f8491e01b8a9e07",
+              "pluginDigest": null,
+              "receiptDigest": null,
+              "sourceGap": "plugin-absent"
+            },
+            "literalInput": {
+              "state": "unavailable",
+              "producerRef": "fixture-unavailable-provider",
+              "cliVersion": "fixture-cliVersion-0",
+              "dialect": "fixture-dialect-0",
+              "executableDigest": "a51385e5713de6e0b96d830ee25b87beea90a4a50fe6b7c3c29c35bbc35141a6",
+              "pluginDigest": null,
+              "receiptDigest": null,
+              "sourceGap": "plugin-absent"
+            },
+            "permissionResponse": {
+              "state": "unavailable",
+              "producerRef": "fixture-unavailable-provider",
+              "cliVersion": "fixture-cliVersion-0",
+              "dialect": "fixture-dialect-0",
+              "executableDigest": "906f934857f86773ceb6e0d2c7dc2c7333a88386d2b3f0a3e80463c70ddf5ee2",
+              "pluginDigest": null,
+              "receiptDigest": null,
+              "sourceGap": "plugin-absent"
+            }
+          },
+          "matrixSource": "H2A_HOST_HOOK_CAPABILITIES",
+          "matrixDigest": "41c00ab4dc16a4544903843ccc7f42d3c6a26d62ca1010ee79ef1ff176144cdf",
+          "columns": [
+            {
+              "column": "typed-message",
+              "state": "gap",
+              "cliVersion": "fixture-1",
+              "dialect": "fixture-pty",
+              "receiptDigest": null,
+              "sourceGap": "provider-not-qualified"
+            },
+            {
+              "column": "typed-tool-call",
+              "state": "gap",
+              "cliVersion": "fixture-1",
+              "dialect": "fixture-pty",
+              "receiptDigest": null,
+              "sourceGap": "provider-not-qualified"
+            },
+            {
+              "column": "typed-tool-result",
+              "state": "gap",
+              "cliVersion": "fixture-1",
+              "dialect": "fixture-pty",
+              "receiptDigest": null,
+              "sourceGap": "provider-not-qualified"
+            },
+            {
+              "column": "permission-request",
+              "state": "gap",
+              "cliVersion": "fixture-1",
+              "dialect": "fixture-pty",
+              "receiptDigest": null,
+              "sourceGap": "provider-not-qualified"
+            },
+            {
+              "column": "permission-response",
+              "state": "gap",
+              "cliVersion": "fixture-1",
+              "dialect": "fixture-pty",
+              "receiptDigest": null,
+              "sourceGap": "provider-not-qualified"
+            },
+            {
+              "column": "literal-input",
+              "state": "gap",
+              "cliVersion": "fixture-1",
+              "dialect": "fixture-pty",
+              "receiptDigest": null,
+              "sourceGap": "provider-not-qualified"
+            },
+            {
+              "column": "pty-fallback",
+              "state": "enforced",
+              "cliVersion": "fixture-1",
+              "dialect": "fixture-pty",
+              "receiptDigest": "07ddaa9e3afedddf5416a3b165d2e237dacd5e31d375d78fdb93838f6d26c0d6",
+              "sourceGap": null
+            },
+            {
+              "column": "sub-agent-call-attribution",
+              "state": "gap",
+              "cliVersion": "fixture-1",
+              "dialect": "fixture-pty",
+              "receiptDigest": null,
+              "sourceGap": "provider-not-qualified"
+            }
+          ],
+          "pointOrdering": [],
+          "declaredLosses": [
+            "no-structured-deltas",
+            "incomplete-context",
+            "no-literal-input",
+            "no-permission-response"
+          ]
+        }
+      }
+    }
+  ],
+  "negative": [
+    {
+      "id": "ingestCapabilities-unlisted-argument",
+      "expect": "REJECT_SCHEMA",
+      "value": {
+        "processBindingRef": {
+          "id": "fixture-id-0",
+          "revision": 1,
+          "digest": "0d65cebb5808ed544053d53ffe302dab72b71902bd5128ef87f7071d6910f5f0"
+        },
+        "capabilities": {
+          "format": "h2a.session-capture/1",
+          "kind": "capabilities",
+          "hostKind": "claude",
+          "pluginIdentity": null,
+          "pluginVersion": null,
+          "pluginDigest": null,
+          "convergenceManifestDigest": null,
+          "cliExecutableDigest": "c8154809b56849e358886d181ebccefec8555c1c6814a63247796bb08979c650",
+          "cliVersion": "fixture-cliVersion-0",
+          "providerDialect": "fixture-providerDialect-0",
+          "sourceRef": {
+            "sourceSessionId": "fixture-source-session",
+            "sourceGeneration": 1,
+            "streamIncarnation": "fixture-stream"
+          },
+          "originAgentSessionId": "fixture-originAgentSessionId-0",
+          "rc0CapabilitiesDigest": "afe81db75ee87f6f63f1ed445831f801392e1a351f43e92cae04b919ca9050e7",
+          "providerTupleDigest": "37cf110fd975f93d01215d2ce6d4695ba1fd372e81f26c02a7213970990d9455",
+          "capabilityRevision": 1,
+          "bits": {
+            "ptyBytes": {
+              "state": "installed-qualified",
+              "producerRef": "fixture-native-pty",
+              "cliVersion": "fixture-cliVersion-0",
+              "dialect": "fixture-dialect-0",
+              "executableDigest": "531803905622dd13abfa2829283b99291a862c65a1fc5f8bdeaa22085f04ce13",
+              "pluginDigest": null,
+              "receiptDigest": "07ddaa9e3afedddf5416a3b165d2e237dacd5e31d375d78fdb93838f6d26c0d6",
+              "sourceGap": null
+            },
+            "structuredDeltas": {
+              "state": "unavailable",
+              "producerRef": "fixture-unavailable-provider",
+              "cliVersion": "fixture-cliVersion-0",
+              "dialect": "fixture-dialect-0",
+              "executableDigest": "e60151e5a4680c45a60f4662ae26bfb11c94623da6e8f17cdc34cf522b9a0a1c",
+              "pluginDigest": null,
+              "receiptDigest": null,
+              "sourceGap": "plugin-absent"
+            },
+            "completePermissionContext": {
+              "state": "unavailable",
+              "producerRef": "fixture-unavailable-provider",
+              "cliVersion": "fixture-cliVersion-0",
+              "dialect": "fixture-dialect-0",
+              "executableDigest": "843f5d851db75349560621c0d4ab644f105c8bd0b57537fb5f8491e01b8a9e07",
+              "pluginDigest": null,
+              "receiptDigest": null,
+              "sourceGap": "plugin-absent"
+            },
+            "literalInput": {
+              "state": "unavailable",
+              "producerRef": "fixture-unavailable-provider",
+              "cliVersion": "fixture-cliVersion-0",
+              "dialect": "fixture-dialect-0",
+              "executableDigest": "a51385e5713de6e0b96d830ee25b87beea90a4a50fe6b7c3c29c35bbc35141a6",
+              "pluginDigest": null,
+              "receiptDigest": null,
+              "sourceGap": "plugin-absent"
+            },
+            "permissionResponse": {
+              "state": "unavailable",
+              "producerRef": "fixture-unavailable-provider",
+              "cliVersion": "fixture-cliVersion-0",
+              "dialect": "fixture-dialect-0",
+              "executableDigest": "906f934857f86773ceb6e0d2c7dc2c7333a88386d2b3f0a3e80463c70ddf5ee2",
+              "pluginDigest": null,
+              "receiptDigest": null,
+              "sourceGap": "plugin-absent"
+            }
+          },
+          "matrixSource": "H2A_HOST_HOOK_CAPABILITIES",
+          "matrixDigest": "41c00ab4dc16a4544903843ccc7f42d3c6a26d62ca1010ee79ef1ff176144cdf",
+          "columns": [
+            {
+              "column": "typed-message",
+              "state": "gap",
+              "cliVersion": "fixture-1",
+              "dialect": "fixture-pty",
+              "receiptDigest": null,
+              "sourceGap": "provider-not-qualified"
+            },
+            {
+              "column": "typed-tool-call",
+              "state": "gap",
+              "cliVersion": "fixture-1",
+              "dialect": "fixture-pty",
+              "receiptDigest": null,
+              "sourceGap": "provider-not-qualified"
+            },
+            {
+              "column": "typed-tool-result",
+              "state": "gap",
+              "cliVersion": "fixture-1",
+              "dialect": "fixture-pty",
+              "receiptDigest": null,
+              "sourceGap": "provider-not-qualified"
+            },
+            {
+              "column": "permission-request",
+              "state": "gap",
+              "cliVersion": "fixture-1",
+              "dialect": "fixture-pty",
+              "receiptDigest": null,
+              "sourceGap": "provider-not-qualified"
+            },
+            {
+              "column": "permission-response",
+              "state": "gap",
+              "cliVersion": "fixture-1",
+              "dialect": "fixture-pty",
+              "receiptDigest": null,
+              "sourceGap": "provider-not-qualified"
+            },
+            {
+              "column": "literal-input",
+              "state": "gap",
+              "cliVersion": "fixture-1",
+              "dialect": "fixture-pty",
+              "receiptDigest": null,
+              "sourceGap": "provider-not-qualified"
+            },
+            {
+              "column": "pty-fallback",
+              "state": "enforced",
+              "cliVersion": "fixture-1",
+              "dialect": "fixture-pty",
+              "receiptDigest": "07ddaa9e3afedddf5416a3b165d2e237dacd5e31d375d78fdb93838f6d26c0d6",
+              "sourceGap": null
+            },
+            {
+              "column": "sub-agent-call-attribution",
+              "state": "gap",
+              "cliVersion": "fixture-1",
+              "dialect": "fixture-pty",
+              "receiptDigest": null,
+              "sourceGap": "provider-not-qualified"
+            }
+          ],
+          "pointOrdering": [],
+          "declaredLosses": [
+            "no-structured-deltas",
+            "incomplete-context",
+            "no-literal-input",
+            "no-permission-response"
+          ]
+        },
+        "arbitraryUrl": "https://forbidden.invalid/"
+      }
+    }
+  ],
+  "requiredRuntimeCases": [
+    "wrong-local-capability",
+    "foreign-process-or-session",
+    "incompatible-public-export",
+    "no-source-internal-import",
+    "duplicate-reuses-revision",
+    "matching-ACK-or-remote-unknown",
+    "sole-origin-writer-fence",
+    "typed-refusal-not-throw"
+  ],
+  "runtimeGate": "BLOCKED_EXTERNAL_AND_PUBLIC_EXPORTS",
+  "signature": "ingestCapabilities(parameters: SessionOriginIngestCapabilitiesParametersV1, options?: { signal?: AbortSignal }): Promise<SessionOriginCommitResultV1>",
+  "revisionSemantics": "new authenticated changed fact allocates exactly +1; identical retry reuses commit"
+}
