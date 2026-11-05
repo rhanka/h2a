@@ -1,0 +1,19 @@
+{
+  "format": "h2a.rc2-b6-mesh-origin/1",
+  "revision": "r3",
+  "manifestSha256": "6245d3ae51f601195926bc36600d1097cef30694f3feb01f79f1a7ec9fa17715",
+  "contractManifestSha256": "88823475eca151d908450e4abadcac7b2b60d4b5ea16bae0f590d419fa394565",
+  "registryArchive": {
+    "name": "@sentropic/cluster-mesh",
+    "requiredExport": "createSessionOriginRegistry",
+    "status": "registry-bearing-unpublished"
+  },
+  "vectors": {
+    "port-SessionOriginRegistryPortV1-ingestCapabilities.json": "6a323ecef9c4359aa75bc8467bc69967222cd1a4c7dbc32b0b363f48451f4e83",
+    "port-SessionOriginRegistryPortV1-ingestLifecycle.json": "ea46feb8c640049ded42eeb1e083fa0b3ccb71c861c02ada9a13a87b07485e64",
+    "port-SessionOriginRegistryPortV1-publishListing.json": "3fc5b5c67a747d1a4453d4db964562e8553fc3864a4510b1f9c003df01f98470",
+    "port-SessionOriginRegistryPortV1-renewFreshness.json": "d64e7232ff538c0b8512a2f1f419fcb2e29aaa7fef6c1ffd71d148b841f1d1ec",
+    "port-SessionOriginRegistryPortV1-snapshot.json": "77c1dba148e19c717fb1e551c40116707b518568fa8c74bf983a6fb758bce002",
+    "registry-revision-digests.json": "31a375ea904d32f605c1560df3c6deee15d0c528f7059009e00d1cbf74568003"
+  }
+}
