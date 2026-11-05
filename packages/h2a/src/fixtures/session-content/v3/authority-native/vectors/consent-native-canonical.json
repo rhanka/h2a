@@ -1,0 +1,1361 @@
+{
+  "format": "rc2.native-consent-fixtures/1",
+  "status": "native-format-public-synthetic-fixtures",
+  "source": "origin/main packages/h2a/src/{canonical.ts,signature.ts,journal.ts,runtime/drive/consent.ts}",
+  "sourceRevision": "2e8f960db965ee9c1adfb84320e3a67a5b9dd335",
+  "signatureEncoding": "UTF8(JCS(payload)); no domain prefix; alg=ed25519; standard padded base64",
+  "pairId": "drive-consent:sha256:f203621518cbb8238f412992737fa93c3e34a4b0213ef582b5287f5c33ca8bcc",
+  "scopeDigest": "sha256:929bda9d6cd21183aa98823d3faafa8f4e066581a1db30ec7a93780de2050cfc",
+  "requestHash": "sha256:850b119a9089a4e73e9611bc8444b40162304587fd93c6fbadc95eb272c259ab",
+  "registrations": [
+    {
+      "id": "native-from-fixture",
+      "agentUuid": "11111111-1111-4111-8111-111111111111",
+      "keyRole": "native-from-fixture"
+    },
+    {
+      "id": "native-to-fixture",
+      "agentUuid": "22222222-2222-4222-8222-222222222222",
+      "keyRole": "native-to-fixture"
+    },
+    {
+      "id": "native-principal-fixture",
+      "agentUuid": "44444444-4444-4444-8444-444444444444",
+      "keyRole": "native-principal-fixture"
+    }
+  ],
+  "records": [
+    {
+      "value": {
+        "protocol": "sentropic.h2a",
+        "version": "0.1",
+        "sequence": 0,
+        "contentHash": "sha256:1cb98aad06e2995c269579f63d071a0da36708eace5f4cf6e3ceb093d10f7f1d",
+        "id": "fixture-journal-0",
+        "type": "propose",
+        "actor": {
+          "instance": "native-from-fixture",
+          "role": "AGENTS",
+          "scope": "drive-consent"
+        },
+        "body": {
+          "kind": "h2a.drive.consent.request",
+          "payload": {
+            "kind": "h2a.drive.consent.request",
+            "v": 1,
+            "requestId": "33333333-3333-4333-8333-333333333333",
+            "from": "native-from-fixture",
+            "to": "native-to-fixture",
+            "fromAgentUuid": "11111111-1111-4111-8111-111111111111",
+            "toAgentUuid": "22222222-2222-4222-8222-222222222222",
+            "scope": {
+              "action": "drive.instruction",
+              "direction": "from->to"
+            },
+            "createdAt": "2026-11-01T08:00:00.000Z",
+            "answerBy": "2026-11-01T08:15:00.000Z",
+            "requestedNotAfter": "2026-11-01T09:00:00.000Z",
+            "purpose": "public synthetic RC2 contract fixture"
+          },
+          "signature": {
+            "by": "native-from-fixture",
+            "alg": "ed25519",
+            "value": "VllM8lvX4e2Sj9HrdkBtbDbQDOZTyLOy+kLWo6JboKNFQ452XEokGZfMJrr7jndHWYmQ0C2fjo0zuva8b+zIDg=="
+          }
+        },
+        "createdAt": "2026-11-01T08:00:00.000Z",
+        "negotiationId": "drive-consent:sha256:f203621518cbb8238f412992737fa93c3e34a4b0213ef582b5287f5c33ca8bcc"
+      },
+      "payloadBytes": {
+        "base64": "eyJhbnN3ZXJCeSI6IjIwMjYtMTEtMDFUMDg6MTU6MDAuMDAwWiIsImNyZWF0ZWRBdCI6IjIwMjYtMTEtMDFUMDg6MDA6MDAuMDAwWiIsImZyb20iOiJuYXRpdmUtZnJvbS1maXh0dXJlIiwiZnJvbUFnZW50VXVpZCI6IjExMTExMTExLTExMTEtNDExMS04MTExLTExMTExMTExMTExMSIsImtpbmQiOiJoMmEuZHJpdmUuY29uc2VudC5yZXF1ZXN0IiwicHVycG9zZSI6InB1YmxpYyBzeW50aGV0aWMgUkMyIGNvbnRyYWN0IGZpeHR1cmUiLCJyZXF1ZXN0SWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJyZXF1ZXN0ZWROb3RBZnRlciI6IjIwMjYtMTEtMDFUMDk6MDA6MDAuMDAwWiIsInNjb3BlIjp7ImFjdGlvbiI6ImRyaXZlLmluc3RydWN0aW9uIiwiZGlyZWN0aW9uIjoiZnJvbS0+dG8ifSwidG8iOiJuYXRpdmUtdG8tZml4dHVyZSIsInRvQWdlbnRVdWlkIjoiMjIyMjIyMjItMjIyMi00MjIyLTgyMjItMjIyMjIyMjIyMjIyIiwidiI6MX0=",
+        "byteLength": 491,
+        "sha256": "850b119a9089a4e73e9611bc8444b40162304587fd93c6fbadc95eb272c259ab"
+      },
+      "journalBytes": {
+        "base64": "eyJhY3RvciI6eyJpbnN0YW5jZSI6Im5hdGl2ZS1mcm9tLWZpeHR1cmUiLCJyb2xlIjoiQUdFTlRTIiwic2NvcGUiOiJkcml2ZS1jb25zZW50In0sImJvZHkiOnsia2luZCI6ImgyYS5kcml2ZS5jb25zZW50LnJlcXVlc3QiLCJwYXlsb2FkIjp7ImFuc3dlckJ5IjoiMjAyNi0xMS0wMVQwODoxNTowMC4wMDBaIiwiY3JlYXRlZEF0IjoiMjAyNi0xMS0wMVQwODowMDowMC4wMDBaIiwiZnJvbSI6Im5hdGl2ZS1mcm9tLWZpeHR1cmUiLCJmcm9tQWdlbnRVdWlkIjoiMTExMTExMTEtMTExMS00MTExLTgxMTEtMTExMTExMTExMTExIiwia2luZCI6ImgyYS5kcml2ZS5jb25zZW50LnJlcXVlc3QiLCJwdXJwb3NlIjoicHVibGljIHN5bnRoZXRpYyBSQzIgY29udHJhY3QgZml4dHVyZSIsInJlcXVlc3RJZCI6IjMzMzMzMzMzLTMzMzMtNDMzMy04MzMzLTMzMzMzMzMzMzMzMyIsInJlcXVlc3RlZE5vdEFmdGVyIjoiMjAyNi0xMS0wMVQwOTowMDowMC4wMDBaIiwic2NvcGUiOnsiYWN0aW9uIjoiZHJpdmUuaW5zdHJ1Y3Rpb24iLCJkaXJlY3Rpb24iOiJmcm9tLT50byJ9LCJ0byI6Im5hdGl2ZS10by1maXh0dXJlIiwidG9BZ2VudFV1aWQiOiIyMjIyMjIyMi0yMjIyLTQyMjItODIyMi0yMjIyMjIyMjIyMjIiLCJ2IjoxfSwic2lnbmF0dXJlIjp7ImFsZyI6ImVkMjU1MTkiLCJieSI6Im5hdGl2ZS1mcm9tLWZpeHR1cmUiLCJ2YWx1ZSI6IlZsbE04bHZYNGUyU2o5SHJka0J0YkRiUURPWlR5TE95K2tMV282SmJvS05GUTQ1MlhFb2tHWmZNSnJyN2puZEhXWW1RMEMyZmpvMHp1dmE4Yit6SURnPT0ifX0sImNvbnRlbnRIYXNoIjoic2hhMjU2OjFjYjk4YWFkMDZlMjk5NWMyNjk1NzlmNjNkMDcxYTBkYTM2NzA4ZWFjZTVmNGNmNmUzY2ViMDkzZDEwZjdmMWQiLCJjcmVhdGVkQXQiOiIyMDI2LTExLTAxVDA4OjAwOjAwLjAwMFoiLCJpZCI6ImZpeHR1cmUtam91cm5hbC0wIiwibmVnb3RpYXRpb25JZCI6ImRyaXZlLWNvbnNlbnQ6c2hhMjU2OmYyMDM2MjE1MThjYmI4MjM4ZjQxMjk5MjczN2ZhOTNjM2UzNGE0YjAyMTNlZjU4MmI1Mjg3ZjVjMzNjYThiY2MiLCJwcm90b2NvbCI6InNlbnRyb3BpYy5oMmEiLCJzZXF1ZW5jZSI6MCwidHlwZSI6InByb3Bvc2UiLCJ2ZXJzaW9uIjoiMC4xIn0=",
+        "byteLength": 1115,
+        "sha256": "27776e5849e5e13ff9aebf34ae5fc81f66fea1c6d460ce4082e2b39794da97b5"
+      }
+    },
+    {
+      "value": {
+        "protocol": "sentropic.h2a",
+        "version": "0.1",
+        "sequence": 1,
+        "prevHash": "sha256:1cb98aad06e2995c269579f63d071a0da36708eace5f4cf6e3ceb093d10f7f1d",
+        "contentHash": "sha256:b39cf9f600d8dfa2dd3347e68d8ae5dc9e0432557deff91c1eb2b1293e8ddafd",
+        "id": "fixture-journal-1",
+        "type": "accept",
+        "actor": {
+          "instance": "native-to-fixture",
+          "role": "AGENTS",
+          "scope": "drive-consent"
+        },
+        "body": {
+          "kind": "h2a.drive.consent.grant",
+          "payload": {
+            "kind": "h2a.drive.consent.grant",
+            "v": 1,
+            "requestId": "33333333-3333-4333-8333-333333333333",
+            "requestHash": "sha256:850b119a9089a4e73e9611bc8444b40162304587fd93c6fbadc95eb272c259ab",
+            "from": "native-from-fixture",
+            "to": "native-to-fixture",
+            "fromAgentUuid": "11111111-1111-4111-8111-111111111111",
+            "toAgentUuid": "22222222-2222-4222-8222-222222222222",
+            "scope": {
+              "action": "drive.instruction",
+              "direction": "from->to"
+            },
+            "issuedAt": "2026-11-01T08:00:01.000Z",
+            "notBefore": "2026-11-01T08:00:01.000Z",
+            "notAfter": "2026-11-01T09:00:00.000Z"
+          },
+          "signature": {
+            "by": "native-to-fixture",
+            "alg": "ed25519",
+            "value": "jym1pWIh2mnzh+etpZqQg6CFaRnoHJQTVBVxRW68azECjxOecU+rv9WKnbss4z4eXB3zUA6jE7bkYZgeB6CQDw=="
+          }
+        },
+        "createdAt": "2026-11-01T08:00:01.000Z",
+        "negotiationId": "drive-consent:sha256:f203621518cbb8238f412992737fa93c3e34a4b0213ef582b5287f5c33ca8bcc"
+      },
+      "payloadBytes": {
+        "base64": "eyJmcm9tIjoibmF0aXZlLWZyb20tZml4dHVyZSIsImZyb21BZ2VudFV1aWQiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJpc3N1ZWRBdCI6IjIwMjYtMTEtMDFUMDg6MDA6MDEuMDAwWiIsImtpbmQiOiJoMmEuZHJpdmUuY29uc2VudC5ncmFudCIsIm5vdEFmdGVyIjoiMjAyNi0xMS0wMVQwOTowMDowMC4wMDBaIiwibm90QmVmb3JlIjoiMjAyNi0xMS0wMVQwODowMDowMS4wMDBaIiwicmVxdWVzdEhhc2giOiJzaGEyNTY6ODUwYjExOWE5MDg5YTRlNzNlOTYxMWJjODQ0NGI0MDE2MjMwNDU4N2ZkOTNjNmZiYWRjOTVlYjI3MmMyNTlhYiIsInJlcXVlc3RJZCI6IjMzMzMzMzMzLTMzMzMtNDMzMy04MzMzLTMzMzMzMzMzMzMzMyIsInNjb3BlIjp7ImFjdGlvbiI6ImRyaXZlLmluc3RydWN0aW9uIiwiZGlyZWN0aW9uIjoiZnJvbS0+dG8ifSwidG8iOiJuYXRpdmUtdG8tZml4dHVyZSIsInRvQWdlbnRVdWlkIjoiMjIyMjIyMjItMjIyMi00MjIyLTgyMjItMjIyMjIyMjIyMjIyIiwidiI6MX0=",
+        "byteLength": 518,
+        "sha256": "19a6817ce353b5b6ba478b28103ccf0bb04d93ba73b70f36aeca6505318bf856"
+      },
+      "journalBytes": {
+        "base64": "eyJhY3RvciI6eyJpbnN0YW5jZSI6Im5hdGl2ZS10by1maXh0dXJlIiwicm9sZSI6IkFHRU5UUyIsInNjb3BlIjoiZHJpdmUtY29uc2VudCJ9LCJib2R5Ijp7ImtpbmQiOiJoMmEuZHJpdmUuY29uc2VudC5ncmFudCIsInBheWxvYWQiOnsiZnJvbSI6Im5hdGl2ZS1mcm9tLWZpeHR1cmUiLCJmcm9tQWdlbnRVdWlkIjoiMTExMTExMTEtMTExMS00MTExLTgxMTEtMTExMTExMTExMTExIiwiaXNzdWVkQXQiOiIyMDI2LTExLTAxVDA4OjAwOjAxLjAwMFoiLCJraW5kIjoiaDJhLmRyaXZlLmNvbnNlbnQuZ3JhbnQiLCJub3RBZnRlciI6IjIwMjYtMTEtMDFUMDk6MDA6MDAuMDAwWiIsIm5vdEJlZm9yZSI6IjIwMjYtMTEtMDFUMDg6MDA6MDEuMDAwWiIsInJlcXVlc3RIYXNoIjoic2hhMjU2Ojg1MGIxMTlhOTA4OWE0ZTczZTk2MTFiYzg0NDRiNDAxNjIzMDQ1ODdmZDkzYzZmYmFkYzk1ZWIyNzJjMjU5YWIiLCJyZXF1ZXN0SWQiOiIzMzMzMzMzMy0zMzMzLTQzMzMtODMzMy0zMzMzMzMzMzMzMzMiLCJzY29wZSI6eyJhY3Rpb24iOiJkcml2ZS5pbnN0cnVjdGlvbiIsImRpcmVjdGlvbiI6ImZyb20tPnRvIn0sInRvIjoibmF0aXZlLXRvLWZpeHR1cmUiLCJ0b0FnZW50VXVpZCI6IjIyMjIyMjIyLTIyMjItNDIyMi04MjIyLTIyMjIyMjIyMjIyMiIsInYiOjF9LCJzaWduYXR1cmUiOnsiYWxnIjoiZWQyNTUxOSIsImJ5IjoibmF0aXZlLXRvLWZpeHR1cmUiLCJ2YWx1ZSI6Imp5bTFwV0loMm1uemgrZXRwWnFRZzZDRmFSbm9ISlFUVkJWeFJXNjhhekVDanhPZWNVK3J2OVdLbmJzczR6NGVYQjN6VUE2akU3YmtZWmdlQjZDUUR3PT0ifX0sImNvbnRlbnRIYXNoIjoic2hhMjU2OmIzOWNmOWY2MDBkOGRmYTJkZDMzNDdlNjhkOGFlNWRjOWUwNDMyNTU3ZGVmZjkxYzFlYjJiMTI5M2U4ZGRhZmQiLCJjcmVhdGVkQXQiOiIyMDI2LTExLTAxVDA4OjAwOjAxLjAwMFoiLCJpZCI6ImZpeHR1cmUtam91cm5hbC0xIiwibmVnb3RpYXRpb25JZCI6ImRyaXZlLWNvbnNlbnQ6c2hhMjU2OmYyMDM2MjE1MThjYmI4MjM4ZjQxMjk5MjczN2ZhOTNjM2UzNGE0YjAyMTNlZjU4MmI1Mjg3ZjVjMzNjYThiY2MiLCJwcmV2SGFzaCI6InNoYTI1NjoxY2I5OGFhZDA2ZTI5OTVjMjY5NTc5ZjYzZDA3MWEwZGEzNjcwOGVhY2U1ZjRjZjZlM2NlYjA5M2QxMGY3ZjFkIiwicHJvdG9jb2wiOiJzZW50cm9waWMuaDJhIiwic2VxdWVuY2UiOjEsInR5cGUiOiJhY2NlcHQiLCJ2ZXJzaW9uIjoiMC4xIn0=",
+        "byteLength": 1220,
+        "sha256": "3b4fbc0e1d54af713357ae67ec4484dce5b8188944f2984bae037b1493207e9e"
+      }
+    },
+    {
+      "value": {
+        "protocol": "sentropic.h2a",
+        "version": "0.1",
+        "sequence": 1,
+        "prevHash": "sha256:1cb98aad06e2995c269579f63d071a0da36708eace5f4cf6e3ceb093d10f7f1d",
+        "contentHash": "sha256:d9ab3f411e01495dcd5617ea7b565387743ea1e60f75ef7169f882a229e9eb28",
+        "id": "fixture-journal-1",
+        "type": "accept",
+        "actor": {
+          "instance": "native-to-fixture",
+          "role": "AGENTS",
+          "scope": "drive-consent"
+        },
+        "body": {
+          "kind": "h2a.drive.consent.grant",
+          "payload": {
+            "kind": "h2a.drive.consent.grant",
+            "v": 1,
+            "requestId": "33333333-3333-4333-8333-333333333333",
+            "requestHash": "sha256:850b119a9089a4e73e9611bc8444b40162304587fd93c6fbadc95eb272c259ab",
+            "from": "native-from-fixture",
+            "to": "native-to-fixture",
+            "fromAgentUuid": "11111111-1111-4111-8111-111111111111",
+            "toAgentUuid": "22222222-2222-4222-8222-222222222222",
+            "scope": {
+              "action": "drive.instruction",
+              "direction": "from->to"
+            },
+            "issuedAt": "2026-11-01T08:00:01.000Z",
+            "notBefore": "2026-11-01T08:00:01.000Z",
+            "notAfter": "2026-11-01T09:00:00.000Z",
+            "principal": "native-principal-fixture"
+          },
+          "signature": {
+            "by": "native-to-fixture",
+            "alg": "ed25519",
+            "value": "J813RqIHpzTsnYNO9kaXPOrIGjvOk7HQiBD22cVi745U2wvkcDvHgEHNYpIvu5H/Il+d6C9iebX/5YY7ooptAg=="
+          },
+          "coSignature": {
+            "by": "native-principal-fixture",
+            "alg": "ed25519",
+            "value": "iSqpBol90hxWfXIZurGdg2VYYY40c/Pjms7F2LqB86x/dART7/qr40PluQc2WVtIHE1IDoSqWgKY50kllAR5AQ=="
+          }
+        },
+        "createdAt": "2026-11-01T08:00:01.000Z",
+        "negotiationId": "drive-consent:sha256:f203621518cbb8238f412992737fa93c3e34a4b0213ef582b5287f5c33ca8bcc"
+      },
+      "payloadBytes": {
+        "base64": "eyJmcm9tIjoibmF0aXZlLWZyb20tZml4dHVyZSIsImZyb21BZ2VudFV1aWQiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJpc3N1ZWRBdCI6IjIwMjYtMTEtMDFUMDg6MDA6MDEuMDAwWiIsImtpbmQiOiJoMmEuZHJpdmUuY29uc2VudC5ncmFudCIsIm5vdEFmdGVyIjoiMjAyNi0xMS0wMVQwOTowMDowMC4wMDBaIiwibm90QmVmb3JlIjoiMjAyNi0xMS0wMVQwODowMDowMS4wMDBaIiwicHJpbmNpcGFsIjoibmF0aXZlLXByaW5jaXBhbC1maXh0dXJlIiwicmVxdWVzdEhhc2giOiJzaGEyNTY6ODUwYjExOWE5MDg5YTRlNzNlOTYxMWJjODQ0NGI0MDE2MjMwNDU4N2ZkOTNjNmZiYWRjOTVlYjI3MmMyNTlhYiIsInJlcXVlc3RJZCI6IjMzMzMzMzMzLTMzMzMtNDMzMy04MzMzLTMzMzMzMzMzMzMzMyIsInNjb3BlIjp7ImFjdGlvbiI6ImRyaXZlLmluc3RydWN0aW9uIiwiZGlyZWN0aW9uIjoiZnJvbS0+dG8ifSwidG8iOiJuYXRpdmUtdG8tZml4dHVyZSIsInRvQWdlbnRVdWlkIjoiMjIyMjIyMjItMjIyMi00MjIyLTgyMjItMjIyMjIyMjIyMjIyIiwidiI6MX0=",
+        "byteLength": 557,
+        "sha256": "7b0e36d4ccb6ccfff6965880573643f86703f8d4d7649fd89ed85cceb103234e"
+      },
+      "journalBytes": {
+        "base64": "eyJhY3RvciI6eyJpbnN0YW5jZSI6Im5hdGl2ZS10by1maXh0dXJlIiwicm9sZSI6IkFHRU5UUyIsInNjb3BlIjoiZHJpdmUtY29uc2VudCJ9LCJib2R5Ijp7ImNvU2lnbmF0dXJlIjp7ImFsZyI6ImVkMjU1MTkiLCJieSI6Im5hdGl2ZS1wcmluY2lwYWwtZml4dHVyZSIsInZhbHVlIjoiaVNxcEJvbDkwaHhXZlhJWnVyR2RnMlZZWVk0MGMvUGptczdGMkxxQjg2eC9kQVJUNy9xcjQwUGx1UWMyV1Z0SUhFMUlEb1NxV2dLWTUwa2xsQVI1QVE9PSJ9LCJraW5kIjoiaDJhLmRyaXZlLmNvbnNlbnQuZ3JhbnQiLCJwYXlsb2FkIjp7ImZyb20iOiJuYXRpdmUtZnJvbS1maXh0dXJlIiwiZnJvbUFnZW50VXVpZCI6IjExMTExMTExLTExMTEtNDExMS04MTExLTExMTExMTExMTExMSIsImlzc3VlZEF0IjoiMjAyNi0xMS0wMVQwODowMDowMS4wMDBaIiwia2luZCI6ImgyYS5kcml2ZS5jb25zZW50LmdyYW50Iiwibm90QWZ0ZXIiOiIyMDI2LTExLTAxVDA5OjAwOjAwLjAwMFoiLCJub3RCZWZvcmUiOiIyMDI2LTExLTAxVDA4OjAwOjAxLjAwMFoiLCJwcmluY2lwYWwiOiJuYXRpdmUtcHJpbmNpcGFsLWZpeHR1cmUiLCJyZXF1ZXN0SGFzaCI6InNoYTI1Njo4NTBiMTE5YTkwODlhNGU3M2U5NjExYmM4NDQ0YjQwMTYyMzA0NTg3ZmQ5M2M2ZmJhZGM5NWViMjcyYzI1OWFiIiwicmVxdWVzdElkIjoiMzMzMzMzMzMtMzMzMy00MzMzLTgzMzMtMzMzMzMzMzMzMzMzIiwic2NvcGUiOnsiYWN0aW9uIjoiZHJpdmUuaW5zdHJ1Y3Rpb24iLCJkaXJlY3Rpb24iOiJmcm9tLT50byJ9LCJ0byI6Im5hdGl2ZS10by1maXh0dXJlIiwidG9BZ2VudFV1aWQiOiIyMjIyMjIyMi0yMjIyLTQyMjItODIyMi0yMjIyMjIyMjIyMjIiLCJ2IjoxfSwic2lnbmF0dXJlIjp7ImFsZyI6ImVkMjU1MTkiLCJieSI6Im5hdGl2ZS10by1maXh0dXJlIiwidmFsdWUiOiJKODEzUnFJSHB6VHNuWU5POWthWFBPcklHanZPazdIUWlCRDIyY1ZpNzQ1VTJ3dmtjRHZIZ0VITllwSXZ1NUgvSWwrZDZDOWllYlgvNVlZN29vcHRBZz09In19LCJjb250ZW50SGFzaCI6InNoYTI1NjpkOWFiM2Y0MTFlMDE0OTVkY2Q1NjE3ZWE3YjU2NTM4Nzc0M2VhMWU2MGY3NWVmNzE2OWY4ODJhMjI5ZTllYjI4IiwiY3JlYXRlZEF0IjoiMjAyNi0xMS0wMVQwODowMDowMS4wMDBaIiwiaWQiOiJmaXh0dXJlLWpvdXJuYWwtMSIsIm5lZ290aWF0aW9uSWQiOiJkcml2ZS1jb25zZW50OnNoYTI1NjpmMjAzNjIxNTE4Y2JiODIzOGY0MTI5OTI3MzdmYTkzYzNlMzRhNGIwMjEzZWY1ODJiNTI4N2Y1YzMzY2E4YmNjIiwicHJldkhhc2giOiJzaGEyNTY6MWNiOThhYWQwNmUyOTk1YzI2OTU3OWY2M2QwNzFhMGRhMzY3MDhlYWNlNWY0Y2Y2ZTNjZWIwOTNkMTBmN2YxZCIsInByb3RvY29sIjoic2VudHJvcGljLmgyYSIsInNlcXVlbmNlIjoxLCJ0eXBlIjoiYWNjZXB0IiwidmVyc2lvbiI6IjAuMSJ9",
+        "byteLength": 1422,
+        "sha256": "744a3cffd222b7403fce450fff7a75149a88478d9f5378332c8196243937cd38"
+      }
+    },
+    {
+      "value": {
+        "protocol": "sentropic.h2a",
+        "version": "0.1",
+        "sequence": 2,
+        "prevHash": "sha256:b39cf9f600d8dfa2dd3347e68d8ae5dc9e0432557deff91c1eb2b1293e8ddafd",
+        "contentHash": "sha256:89e490403d922dd1981e5c06910b3d56ff0a9adeb86c71becec87f29e4767695",
+        "id": "fixture-journal-2",
+        "type": "withdraw",
+        "actor": {
+          "instance": "native-from-fixture",
+          "role": "AGENTS",
+          "scope": "drive-consent"
+        },
+        "body": {
+          "kind": "h2a.drive.consent.revocation",
+          "payload": {
+            "kind": "h2a.drive.consent.revocation",
+            "v": 1,
+            "from": "native-from-fixture",
+            "to": "native-to-fixture",
+            "fromAgentUuid": "11111111-1111-4111-8111-111111111111",
+            "toAgentUuid": "22222222-2222-4222-8222-222222222222",
+            "pair": true,
+            "at": "2026-11-01T08:00:02.000Z",
+            "notAfter": "2026-11-01T09:00:00.000Z"
+          },
+          "signature": {
+            "by": "native-from-fixture",
+            "alg": "ed25519",
+            "value": "Mev9Aj2634Wr75yg+mUI/N5d/yUraUo3bpBThLqmynfqGyKezWD8vp0OGBIHnocKEosJSWEkujOSnmr4+/fhAg=="
+          }
+        },
+        "createdAt": "2026-11-01T08:00:02.000Z",
+        "negotiationId": "drive-consent:sha256:f203621518cbb8238f412992737fa93c3e34a4b0213ef582b5287f5c33ca8bcc"
+      },
+      "payloadBytes": {
+        "base64": "eyJhdCI6IjIwMjYtMTEtMDFUMDg6MDA6MDIuMDAwWiIsImZyb20iOiJuYXRpdmUtZnJvbS1maXh0dXJlIiwiZnJvbUFnZW50VXVpZCI6IjExMTExMTExLTExMTEtNDExMS04MTExLTExMTExMTExMTExMSIsImtpbmQiOiJoMmEuZHJpdmUuY29uc2VudC5yZXZvY2F0aW9uIiwibm90QWZ0ZXIiOiIyMDI2LTExLTAxVDA5OjAwOjAwLjAwMFoiLCJwYWlyIjp0cnVlLCJ0byI6Im5hdGl2ZS10by1maXh0dXJlIiwidG9BZ2VudFV1aWQiOiIyMjIyMjIyMi0yMjIyLTQyMjItODIyMi0yMjIyMjIyMjIyMjIiLCJ2IjoxfQ==",
+        "byteLength": 289,
+        "sha256": "104e29e8068a7b1a40f559a54fd053f3909e969aa9ae142a3e0ec2d1a4f3c4da"
+      },
+      "journalBytes": {
+        "base64": "eyJhY3RvciI6eyJpbnN0YW5jZSI6Im5hdGl2ZS1mcm9tLWZpeHR1cmUiLCJyb2xlIjoiQUdFTlRTIiwic2NvcGUiOiJkcml2ZS1jb25zZW50In0sImJvZHkiOnsia2luZCI6ImgyYS5kcml2ZS5jb25zZW50LnJldm9jYXRpb24iLCJwYXlsb2FkIjp7ImF0IjoiMjAyNi0xMS0wMVQwODowMDowMi4wMDBaIiwiZnJvbSI6Im5hdGl2ZS1mcm9tLWZpeHR1cmUiLCJmcm9tQWdlbnRVdWlkIjoiMTExMTExMTEtMTExMS00MTExLTgxMTEtMTExMTExMTExMTExIiwia2luZCI6ImgyYS5kcml2ZS5jb25zZW50LnJldm9jYXRpb24iLCJub3RBZnRlciI6IjIwMjYtMTEtMDFUMDk6MDA6MDAuMDAwWiIsInBhaXIiOnRydWUsInRvIjoibmF0aXZlLXRvLWZpeHR1cmUiLCJ0b0FnZW50VXVpZCI6IjIyMjIyMjIyLTIyMjItNDIyMi04MjIyLTIyMjIyMjIyMjIyMiIsInYiOjF9LCJzaWduYXR1cmUiOnsiYWxnIjoiZWQyNTUxOSIsImJ5IjoibmF0aXZlLWZyb20tZml4dHVyZSIsInZhbHVlIjoiTWV2OUFqMjYzNFdyNzV5ZyttVUkvTjVkL3lVcmFVbzNicEJUaExxbXluZnFHeUtleldEOHZwME9HQklIbm9jS0Vvc0pTV0VrdWpPU25tcjQrL2ZoQWc9PSJ9fSwiY29udGVudEhhc2giOiJzaGEyNTY6ODllNDkwNDAzZDkyMmRkMTk4MWU1YzA2OTEwYjNkNTZmZjBhOWFkZWI4NmM3MWJlY2VjODdmMjllNDc2NzY5NSIsImNyZWF0ZWRBdCI6IjIwMjYtMTEtMDFUMDg6MDA6MDIuMDAwWiIsImlkIjoiZml4dHVyZS1qb3VybmFsLTIiLCJuZWdvdGlhdGlvbklkIjoiZHJpdmUtY29uc2VudDpzaGEyNTY6ZjIwMzYyMTUxOGNiYjgyMzhmNDEyOTkyNzM3ZmE5M2MzZTM0YTRiMDIxM2VmNTgyYjUyODdmNWMzM2NhOGJjYyIsInByZXZIYXNoIjoic2hhMjU2OmIzOWNmOWY2MDBkOGRmYTJkZDMzNDdlNjhkOGFlNWRjOWUwNDMyNTU3ZGVmZjkxYzFlYjJiMTI5M2U4ZGRhZmQiLCJwcm90b2NvbCI6InNlbnRyb3BpYy5oMmEiLCJzZXF1ZW5jZSI6MiwidHlwZSI6IndpdGhkcmF3IiwidmVyc2lvbiI6IjAuMSJ9",
+        "byteLength": 1002,
+        "sha256": "2bf9a0fa766dc91cf7d147bcdab6d91e58a056e880de36277d7928d69ad6e3bd"
+      }
+    },
+    {
+      "value": {
+        "protocol": "sentropic.h2a",
+        "version": "0.1",
+        "sequence": 1,
+        "prevHash": "sha256:1cb98aad06e2995c269579f63d071a0da36708eace5f4cf6e3ceb093d10f7f1d",
+        "contentHash": "sha256:6a639db5534adfca1bf71d66deec4ab61244f2db2d495c2f44e5d84fb12816a3",
+        "id": "fixture-journal-1",
+        "type": "reject",
+        "actor": {
+          "instance": "native-to-fixture",
+          "role": "AGENTS",
+          "scope": "drive-consent"
+        },
+        "body": {
+          "kind": "h2a.drive.consent.refusal",
+          "payload": {
+            "kind": "h2a.drive.consent.refusal",
+            "v": 1,
+            "requestId": "33333333-3333-4333-8333-333333333333",
+            "requestHash": "sha256:850b119a9089a4e73e9611bc8444b40162304587fd93c6fbadc95eb272c259ab",
+            "from": "native-from-fixture",
+            "to": "native-to-fixture",
+            "fromAgentUuid": "11111111-1111-4111-8111-111111111111",
+            "toAgentUuid": "22222222-2222-4222-8222-222222222222",
+            "at": "2026-11-01T08:00:02.000Z"
+          },
+          "signature": {
+            "by": "native-to-fixture",
+            "alg": "ed25519",
+            "value": "d1VNW6Chiix+rZPM2emGlwtSeA4lzAmdsGAblvSXndzB/N9n6thyWSFAK69jbhbKVJA6iRzhFCdbeMAaK1+sBA=="
+          }
+        },
+        "createdAt": "2026-11-01T08:00:02.000Z",
+        "negotiationId": "drive-consent:sha256:f203621518cbb8238f412992737fa93c3e34a4b0213ef582b5287f5c33ca8bcc"
+      },
+      "payloadBytes": {
+        "base64": "eyJhdCI6IjIwMjYtMTEtMDFUMDg6MDA6MDIuMDAwWiIsImZyb20iOiJuYXRpdmUtZnJvbS1maXh0dXJlIiwiZnJvbUFnZW50VXVpZCI6IjExMTExMTExLTExMTEtNDExMS04MTExLTExMTExMTExMTExMSIsImtpbmQiOiJoMmEuZHJpdmUuY29uc2VudC5yZWZ1c2FsIiwicmVxdWVzdEhhc2giOiJzaGEyNTY6ODUwYjExOWE5MDg5YTRlNzNlOTYxMWJjODQ0NGI0MDE2MjMwNDU4N2ZkOTNjNmZiYWRjOTVlYjI3MmMyNTlhYiIsInJlcXVlc3RJZCI6IjMzMzMzMzMzLTMzMzMtNDMzMy04MzMzLTMzMzMzMzMzMzMzMyIsInRvIjoibmF0aXZlLXRvLWZpeHR1cmUiLCJ0b0FnZW50VXVpZCI6IjIyMjIyMjIyLTIyMjItNDIyMi04MjIyLTIyMjIyMjIyMjIyMiIsInYiOjF9",
+        "byteLength": 375,
+        "sha256": "30b7d78639212100b9508be9d1b664c58444b8cb522c117d7e2bc906372ed3fe"
+      },
+      "journalBytes": {
+        "base64": "eyJhY3RvciI6eyJpbnN0YW5jZSI6Im5hdGl2ZS10by1maXh0dXJlIiwicm9sZSI6IkFHRU5UUyIsInNjb3BlIjoiZHJpdmUtY29uc2VudCJ9LCJib2R5Ijp7ImtpbmQiOiJoMmEuZHJpdmUuY29uc2VudC5yZWZ1c2FsIiwicGF5bG9hZCI6eyJhdCI6IjIwMjYtMTEtMDFUMDg6MDA6MDIuMDAwWiIsImZyb20iOiJuYXRpdmUtZnJvbS1maXh0dXJlIiwiZnJvbUFnZW50VXVpZCI6IjExMTExMTExLTExMTEtNDExMS04MTExLTExMTExMTExMTExMSIsImtpbmQiOiJoMmEuZHJpdmUuY29uc2VudC5yZWZ1c2FsIiwicmVxdWVzdEhhc2giOiJzaGEyNTY6ODUwYjExOWE5MDg5YTRlNzNlOTYxMWJjODQ0NGI0MDE2MjMwNDU4N2ZkOTNjNmZiYWRjOTVlYjI3MmMyNTlhYiIsInJlcXVlc3RJZCI6IjMzMzMzMzMzLTMzMzMtNDMzMy04MzMzLTMzMzMzMzMzMzMzMyIsInRvIjoibmF0aXZlLXRvLWZpeHR1cmUiLCJ0b0FnZW50VXVpZCI6IjIyMjIyMjIyLTIyMjItNDIyMi04MjIyLTIyMjIyMjIyMjIyMiIsInYiOjF9LCJzaWduYXR1cmUiOnsiYWxnIjoiZWQyNTUxOSIsImJ5IjoibmF0aXZlLXRvLWZpeHR1cmUiLCJ2YWx1ZSI6ImQxVk5XNkNoaWl4K3JaUE0yZW1HbHd0U2VBNGx6QW1kc0dBYmx2U1huZHpCL045bjZ0aHlXU0ZBSzY5amJoYktWSkE2aVJ6aEZDZGJlTUFhSzErc0JBPT0ifX0sImNvbnRlbnRIYXNoIjoic2hhMjU2OjZhNjM5ZGI1NTM0YWRmY2ExYmY3MWQ2NmRlZWM0YWI2MTI0NGYyZGIyZDQ5NWMyZjQ0ZTVkODRmYjEyODE2YTMiLCJjcmVhdGVkQXQiOiIyMDI2LTExLTAxVDA4OjAwOjAyLjAwMFoiLCJpZCI6ImZpeHR1cmUtam91cm5hbC0xIiwibmVnb3RpYXRpb25JZCI6ImRyaXZlLWNvbnNlbnQ6c2hhMjU2OmYyMDM2MjE1MThjYmI4MjM4ZjQxMjk5MjczN2ZhOTNjM2UzNGE0YjAyMTNlZjU4MmI1Mjg3ZjVjMzNjYThiY2MiLCJwcmV2SGFzaCI6InNoYTI1NjoxY2I5OGFhZDA2ZTI5OTVjMjY5NTc5ZjYzZDA3MWEwZGEzNjcwOGVhY2U1ZjRjZjZlM2NlYjA5M2QxMGY3ZjFkIiwicHJvdG9jb2wiOiJzZW50cm9waWMuaDJhIiwic2VxdWVuY2UiOjEsInR5cGUiOiJyZWplY3QiLCJ2ZXJzaW9uIjoiMC4xIn0=",
+        "byteLength": 1079,
+        "sha256": "371a1d6336bad5d4a14ec24c52914ed89081da2cdd083c91c2396334c76a8a09"
+      }
+    }
+  ],
+  "cases": [
+    {
+      "id": "principal-absent-positive",
+      "entries": [
+        {
+          "protocol": "sentropic.h2a",
+          "version": "0.1",
+          "sequence": 0,
+          "contentHash": "sha256:1cb98aad06e2995c269579f63d071a0da36708eace5f4cf6e3ceb093d10f7f1d",
+          "id": "fixture-journal-0",
+          "type": "propose",
+          "actor": {
+            "instance": "native-from-fixture",
+            "role": "AGENTS",
+            "scope": "drive-consent"
+          },
+          "body": {
+            "kind": "h2a.drive.consent.request",
+            "payload": {
+              "kind": "h2a.drive.consent.request",
+              "v": 1,
+              "requestId": "33333333-3333-4333-8333-333333333333",
+              "from": "native-from-fixture",
+              "to": "native-to-fixture",
+              "fromAgentUuid": "11111111-1111-4111-8111-111111111111",
+              "toAgentUuid": "22222222-2222-4222-8222-222222222222",
+              "scope": {
+                "action": "drive.instruction",
+                "direction": "from->to"
+              },
+              "createdAt": "2026-11-01T08:00:00.000Z",
+              "answerBy": "2026-11-01T08:15:00.000Z",
+              "requestedNotAfter": "2026-11-01T09:00:00.000Z",
+              "purpose": "public synthetic RC2 contract fixture"
+            },
+            "signature": {
+              "by": "native-from-fixture",
+              "alg": "ed25519",
+              "value": "VllM8lvX4e2Sj9HrdkBtbDbQDOZTyLOy+kLWo6JboKNFQ452XEokGZfMJrr7jndHWYmQ0C2fjo0zuva8b+zIDg=="
+            }
+          },
+          "createdAt": "2026-11-01T08:00:00.000Z",
+          "negotiationId": "drive-consent:sha256:f203621518cbb8238f412992737fa93c3e34a4b0213ef582b5287f5c33ca8bcc"
+        },
+        {
+          "protocol": "sentropic.h2a",
+          "version": "0.1",
+          "sequence": 1,
+          "prevHash": "sha256:1cb98aad06e2995c269579f63d071a0da36708eace5f4cf6e3ceb093d10f7f1d",
+          "contentHash": "sha256:b39cf9f600d8dfa2dd3347e68d8ae5dc9e0432557deff91c1eb2b1293e8ddafd",
+          "id": "fixture-journal-1",
+          "type": "accept",
+          "actor": {
+            "instance": "native-to-fixture",
+            "role": "AGENTS",
+            "scope": "drive-consent"
+          },
+          "body": {
+            "kind": "h2a.drive.consent.grant",
+            "payload": {
+              "kind": "h2a.drive.consent.grant",
+              "v": 1,
+              "requestId": "33333333-3333-4333-8333-333333333333",
+              "requestHash": "sha256:850b119a9089a4e73e9611bc8444b40162304587fd93c6fbadc95eb272c259ab",
+              "from": "native-from-fixture",
+              "to": "native-to-fixture",
+              "fromAgentUuid": "11111111-1111-4111-8111-111111111111",
+              "toAgentUuid": "22222222-2222-4222-8222-222222222222",
+              "scope": {
+                "action": "drive.instruction",
+                "direction": "from->to"
+              },
+              "issuedAt": "2026-11-01T08:00:01.000Z",
+              "notBefore": "2026-11-01T08:00:01.000Z",
+              "notAfter": "2026-11-01T09:00:00.000Z"
+            },
+            "signature": {
+              "by": "native-to-fixture",
+              "alg": "ed25519",
+              "value": "jym1pWIh2mnzh+etpZqQg6CFaRnoHJQTVBVxRW68azECjxOecU+rv9WKnbss4z4eXB3zUA6jE7bkYZgeB6CQDw=="
+            }
+          },
+          "createdAt": "2026-11-01T08:00:01.000Z",
+          "negotiationId": "drive-consent:sha256:f203621518cbb8238f412992737fa93c3e34a4b0213ef582b5287f5c33ca8bcc"
+        }
+      ],
+      "registeredPrincipal": null,
+      "now": 1793520003000,
+      "expected": {
+        "ok": true,
+        "via": "consent",
+        "grantId": "sha256:19a6817ce353b5b6ba478b28103ccf0bb04d93ba73b70f36aeca6505318bf856",
+        "requestId": "33333333-3333-4333-8333-333333333333",
+        "notAfter": "2026-11-01T09:00:00.000Z",
+        "principalDecision": "principal-absent"
+      }
+    },
+    {
+      "id": "principal-cosigned-positive",
+      "entries": [
+        {
+          "protocol": "sentropic.h2a",
+          "version": "0.1",
+          "sequence": 0,
+          "contentHash": "sha256:1cb98aad06e2995c269579f63d071a0da36708eace5f4cf6e3ceb093d10f7f1d",
+          "id": "fixture-journal-0",
+          "type": "propose",
+          "actor": {
+            "instance": "native-from-fixture",
+            "role": "AGENTS",
+            "scope": "drive-consent"
+          },
+          "body": {
+            "kind": "h2a.drive.consent.request",
+            "payload": {
+              "kind": "h2a.drive.consent.request",
+              "v": 1,
+              "requestId": "33333333-3333-4333-8333-333333333333",
+              "from": "native-from-fixture",
+              "to": "native-to-fixture",
+              "fromAgentUuid": "11111111-1111-4111-8111-111111111111",
+              "toAgentUuid": "22222222-2222-4222-8222-222222222222",
+              "scope": {
+                "action": "drive.instruction",
+                "direction": "from->to"
+              },
+              "createdAt": "2026-11-01T08:00:00.000Z",
+              "answerBy": "2026-11-01T08:15:00.000Z",
+              "requestedNotAfter": "2026-11-01T09:00:00.000Z",
+              "purpose": "public synthetic RC2 contract fixture"
+            },
+            "signature": {
+              "by": "native-from-fixture",
+              "alg": "ed25519",
+              "value": "VllM8lvX4e2Sj9HrdkBtbDbQDOZTyLOy+kLWo6JboKNFQ452XEokGZfMJrr7jndHWYmQ0C2fjo0zuva8b+zIDg=="
+            }
+          },
+          "createdAt": "2026-11-01T08:00:00.000Z",
+          "negotiationId": "drive-consent:sha256:f203621518cbb8238f412992737fa93c3e34a4b0213ef582b5287f5c33ca8bcc"
+        },
+        {
+          "protocol": "sentropic.h2a",
+          "version": "0.1",
+          "sequence": 1,
+          "prevHash": "sha256:1cb98aad06e2995c269579f63d071a0da36708eace5f4cf6e3ceb093d10f7f1d",
+          "contentHash": "sha256:d9ab3f411e01495dcd5617ea7b565387743ea1e60f75ef7169f882a229e9eb28",
+          "id": "fixture-journal-1",
+          "type": "accept",
+          "actor": {
+            "instance": "native-to-fixture",
+            "role": "AGENTS",
+            "scope": "drive-consent"
+          },
+          "body": {
+            "kind": "h2a.drive.consent.grant",
+            "payload": {
+              "kind": "h2a.drive.consent.grant",
+              "v": 1,
+              "requestId": "33333333-3333-4333-8333-333333333333",
+              "requestHash": "sha256:850b119a9089a4e73e9611bc8444b40162304587fd93c6fbadc95eb272c259ab",
+              "from": "native-from-fixture",
+              "to": "native-to-fixture",
+              "fromAgentUuid": "11111111-1111-4111-8111-111111111111",
+              "toAgentUuid": "22222222-2222-4222-8222-222222222222",
+              "scope": {
+                "action": "drive.instruction",
+                "direction": "from->to"
+              },
+              "issuedAt": "2026-11-01T08:00:01.000Z",
+              "notBefore": "2026-11-01T08:00:01.000Z",
+              "notAfter": "2026-11-01T09:00:00.000Z",
+              "principal": "native-principal-fixture"
+            },
+            "signature": {
+              "by": "native-to-fixture",
+              "alg": "ed25519",
+              "value": "J813RqIHpzTsnYNO9kaXPOrIGjvOk7HQiBD22cVi745U2wvkcDvHgEHNYpIvu5H/Il+d6C9iebX/5YY7ooptAg=="
+            },
+            "coSignature": {
+              "by": "native-principal-fixture",
+              "alg": "ed25519",
+              "value": "iSqpBol90hxWfXIZurGdg2VYYY40c/Pjms7F2LqB86x/dART7/qr40PluQc2WVtIHE1IDoSqWgKY50kllAR5AQ=="
+            }
+          },
+          "createdAt": "2026-11-01T08:00:01.000Z",
+          "negotiationId": "drive-consent:sha256:f203621518cbb8238f412992737fa93c3e34a4b0213ef582b5287f5c33ca8bcc"
+        }
+      ],
+      "registeredPrincipal": "native-principal-fixture",
+      "now": 1793520003000,
+      "expected": {
+        "ok": true,
+        "via": "consent",
+        "grantId": "sha256:7b0e36d4ccb6ccfff6965880573643f86703f8d4d7649fd89ed85cceb103234e",
+        "requestId": "33333333-3333-4333-8333-333333333333",
+        "notAfter": "2026-11-01T09:00:00.000Z",
+        "principalDecision": "co-signed"
+      }
+    },
+    {
+      "id": "pair-wide-withdrawal",
+      "entries": [
+        {
+          "protocol": "sentropic.h2a",
+          "version": "0.1",
+          "sequence": 0,
+          "contentHash": "sha256:1cb98aad06e2995c269579f63d071a0da36708eace5f4cf6e3ceb093d10f7f1d",
+          "id": "fixture-journal-0",
+          "type": "propose",
+          "actor": {
+            "instance": "native-from-fixture",
+            "role": "AGENTS",
+            "scope": "drive-consent"
+          },
+          "body": {
+            "kind": "h2a.drive.consent.request",
+            "payload": {
+              "kind": "h2a.drive.consent.request",
+              "v": 1,
+              "requestId": "33333333-3333-4333-8333-333333333333",
+              "from": "native-from-fixture",
+              "to": "native-to-fixture",
+              "fromAgentUuid": "11111111-1111-4111-8111-111111111111",
+              "toAgentUuid": "22222222-2222-4222-8222-222222222222",
+              "scope": {
+                "action": "drive.instruction",
+                "direction": "from->to"
+              },
+              "createdAt": "2026-11-01T08:00:00.000Z",
+              "answerBy": "2026-11-01T08:15:00.000Z",
+              "requestedNotAfter": "2026-11-01T09:00:00.000Z",
+              "purpose": "public synthetic RC2 contract fixture"
+            },
+            "signature": {
+              "by": "native-from-fixture",
+              "alg": "ed25519",
+              "value": "VllM8lvX4e2Sj9HrdkBtbDbQDOZTyLOy+kLWo6JboKNFQ452XEokGZfMJrr7jndHWYmQ0C2fjo0zuva8b+zIDg=="
+            }
+          },
+          "createdAt": "2026-11-01T08:00:00.000Z",
+          "negotiationId": "drive-consent:sha256:f203621518cbb8238f412992737fa93c3e34a4b0213ef582b5287f5c33ca8bcc"
+        },
+        {
+          "protocol": "sentropic.h2a",
+          "version": "0.1",
+          "sequence": 1,
+          "prevHash": "sha256:1cb98aad06e2995c269579f63d071a0da36708eace5f4cf6e3ceb093d10f7f1d",
+          "contentHash": "sha256:b39cf9f600d8dfa2dd3347e68d8ae5dc9e0432557deff91c1eb2b1293e8ddafd",
+          "id": "fixture-journal-1",
+          "type": "accept",
+          "actor": {
+            "instance": "native-to-fixture",
+            "role": "AGENTS",
+            "scope": "drive-consent"
+          },
+          "body": {
+            "kind": "h2a.drive.consent.grant",
+            "payload": {
+              "kind": "h2a.drive.consent.grant",
+              "v": 1,
+              "requestId": "33333333-3333-4333-8333-333333333333",
+              "requestHash": "sha256:850b119a9089a4e73e9611bc8444b40162304587fd93c6fbadc95eb272c259ab",
+              "from": "native-from-fixture",
+              "to": "native-to-fixture",
+              "fromAgentUuid": "11111111-1111-4111-8111-111111111111",
+              "toAgentUuid": "22222222-2222-4222-8222-222222222222",
+              "scope": {
+                "action": "drive.instruction",
+                "direction": "from->to"
+              },
+              "issuedAt": "2026-11-01T08:00:01.000Z",
+              "notBefore": "2026-11-01T08:00:01.000Z",
+              "notAfter": "2026-11-01T09:00:00.000Z"
+            },
+            "signature": {
+              "by": "native-to-fixture",
+              "alg": "ed25519",
+              "value": "jym1pWIh2mnzh+etpZqQg6CFaRnoHJQTVBVxRW68azECjxOecU+rv9WKnbss4z4eXB3zUA6jE7bkYZgeB6CQDw=="
+            }
+          },
+          "createdAt": "2026-11-01T08:00:01.000Z",
+          "negotiationId": "drive-consent:sha256:f203621518cbb8238f412992737fa93c3e34a4b0213ef582b5287f5c33ca8bcc"
+        },
+        {
+          "protocol": "sentropic.h2a",
+          "version": "0.1",
+          "sequence": 2,
+          "prevHash": "sha256:b39cf9f600d8dfa2dd3347e68d8ae5dc9e0432557deff91c1eb2b1293e8ddafd",
+          "contentHash": "sha256:89e490403d922dd1981e5c06910b3d56ff0a9adeb86c71becec87f29e4767695",
+          "id": "fixture-journal-2",
+          "type": "withdraw",
+          "actor": {
+            "instance": "native-from-fixture",
+            "role": "AGENTS",
+            "scope": "drive-consent"
+          },
+          "body": {
+            "kind": "h2a.drive.consent.revocation",
+            "payload": {
+              "kind": "h2a.drive.consent.revocation",
+              "v": 1,
+              "from": "native-from-fixture",
+              "to": "native-to-fixture",
+              "fromAgentUuid": "11111111-1111-4111-8111-111111111111",
+              "toAgentUuid": "22222222-2222-4222-8222-222222222222",
+              "pair": true,
+              "at": "2026-11-01T08:00:02.000Z",
+              "notAfter": "2026-11-01T09:00:00.000Z"
+            },
+            "signature": {
+              "by": "native-from-fixture",
+              "alg": "ed25519",
+              "value": "Mev9Aj2634Wr75yg+mUI/N5d/yUraUo3bpBThLqmynfqGyKezWD8vp0OGBIHnocKEosJSWEkujOSnmr4+/fhAg=="
+            }
+          },
+          "createdAt": "2026-11-01T08:00:02.000Z",
+          "negotiationId": "drive-consent:sha256:f203621518cbb8238f412992737fa93c3e34a4b0213ef582b5287f5c33ca8bcc"
+        }
+      ],
+      "registeredPrincipal": null,
+      "now": 1793520003000,
+      "expected": {
+        "ok": false,
+        "reason": "consent-revoked"
+      }
+    },
+    {
+      "id": "request-refusal",
+      "entries": [
+        {
+          "protocol": "sentropic.h2a",
+          "version": "0.1",
+          "sequence": 0,
+          "contentHash": "sha256:1cb98aad06e2995c269579f63d071a0da36708eace5f4cf6e3ceb093d10f7f1d",
+          "id": "fixture-journal-0",
+          "type": "propose",
+          "actor": {
+            "instance": "native-from-fixture",
+            "role": "AGENTS",
+            "scope": "drive-consent"
+          },
+          "body": {
+            "kind": "h2a.drive.consent.request",
+            "payload": {
+              "kind": "h2a.drive.consent.request",
+              "v": 1,
+              "requestId": "33333333-3333-4333-8333-333333333333",
+              "from": "native-from-fixture",
+              "to": "native-to-fixture",
+              "fromAgentUuid": "11111111-1111-4111-8111-111111111111",
+              "toAgentUuid": "22222222-2222-4222-8222-222222222222",
+              "scope": {
+                "action": "drive.instruction",
+                "direction": "from->to"
+              },
+              "createdAt": "2026-11-01T08:00:00.000Z",
+              "answerBy": "2026-11-01T08:15:00.000Z",
+              "requestedNotAfter": "2026-11-01T09:00:00.000Z",
+              "purpose": "public synthetic RC2 contract fixture"
+            },
+            "signature": {
+              "by": "native-from-fixture",
+              "alg": "ed25519",
+              "value": "VllM8lvX4e2Sj9HrdkBtbDbQDOZTyLOy+kLWo6JboKNFQ452XEokGZfMJrr7jndHWYmQ0C2fjo0zuva8b+zIDg=="
+            }
+          },
+          "createdAt": "2026-11-01T08:00:00.000Z",
+          "negotiationId": "drive-consent:sha256:f203621518cbb8238f412992737fa93c3e34a4b0213ef582b5287f5c33ca8bcc"
+        },
+        {
+          "protocol": "sentropic.h2a",
+          "version": "0.1",
+          "sequence": 1,
+          "prevHash": "sha256:1cb98aad06e2995c269579f63d071a0da36708eace5f4cf6e3ceb093d10f7f1d",
+          "contentHash": "sha256:6a639db5534adfca1bf71d66deec4ab61244f2db2d495c2f44e5d84fb12816a3",
+          "id": "fixture-journal-1",
+          "type": "reject",
+          "actor": {
+            "instance": "native-to-fixture",
+            "role": "AGENTS",
+            "scope": "drive-consent"
+          },
+          "body": {
+            "kind": "h2a.drive.consent.refusal",
+            "payload": {
+              "kind": "h2a.drive.consent.refusal",
+              "v": 1,
+              "requestId": "33333333-3333-4333-8333-333333333333",
+              "requestHash": "sha256:850b119a9089a4e73e9611bc8444b40162304587fd93c6fbadc95eb272c259ab",
+              "from": "native-from-fixture",
+              "to": "native-to-fixture",
+              "fromAgentUuid": "11111111-1111-4111-8111-111111111111",
+              "toAgentUuid": "22222222-2222-4222-8222-222222222222",
+              "at": "2026-11-01T08:00:02.000Z"
+            },
+            "signature": {
+              "by": "native-to-fixture",
+              "alg": "ed25519",
+              "value": "d1VNW6Chiix+rZPM2emGlwtSeA4lzAmdsGAblvSXndzB/N9n6thyWSFAK69jbhbKVJA6iRzhFCdbeMAaK1+sBA=="
+            }
+          },
+          "createdAt": "2026-11-01T08:00:02.000Z",
+          "negotiationId": "drive-consent:sha256:f203621518cbb8238f412992737fa93c3e34a4b0213ef582b5287f5c33ca8bcc"
+        }
+      ],
+      "registeredPrincipal": null,
+      "now": 1793520003000,
+      "expected": {
+        "ok": false,
+        "reason": "consent-refused"
+      }
+    },
+    {
+      "id": "expired",
+      "entries": [
+        {
+          "protocol": "sentropic.h2a",
+          "version": "0.1",
+          "sequence": 0,
+          "contentHash": "sha256:1cb98aad06e2995c269579f63d071a0da36708eace5f4cf6e3ceb093d10f7f1d",
+          "id": "fixture-journal-0",
+          "type": "propose",
+          "actor": {
+            "instance": "native-from-fixture",
+            "role": "AGENTS",
+            "scope": "drive-consent"
+          },
+          "body": {
+            "kind": "h2a.drive.consent.request",
+            "payload": {
+              "kind": "h2a.drive.consent.request",
+              "v": 1,
+              "requestId": "33333333-3333-4333-8333-333333333333",
+              "from": "native-from-fixture",
+              "to": "native-to-fixture",
+              "fromAgentUuid": "11111111-1111-4111-8111-111111111111",
+              "toAgentUuid": "22222222-2222-4222-8222-222222222222",
+              "scope": {
+                "action": "drive.instruction",
+                "direction": "from->to"
+              },
+              "createdAt": "2026-11-01T08:00:00.000Z",
+              "answerBy": "2026-11-01T08:15:00.000Z",
+              "requestedNotAfter": "2026-11-01T09:00:00.000Z",
+              "purpose": "public synthetic RC2 contract fixture"
+            },
+            "signature": {
+              "by": "native-from-fixture",
+              "alg": "ed25519",
+              "value": "VllM8lvX4e2Sj9HrdkBtbDbQDOZTyLOy+kLWo6JboKNFQ452XEokGZfMJrr7jndHWYmQ0C2fjo0zuva8b+zIDg=="
+            }
+          },
+          "createdAt": "2026-11-01T08:00:00.000Z",
+          "negotiationId": "drive-consent:sha256:f203621518cbb8238f412992737fa93c3e34a4b0213ef582b5287f5c33ca8bcc"
+        },
+        {
+          "protocol": "sentropic.h2a",
+          "version": "0.1",
+          "sequence": 1,
+          "prevHash": "sha256:1cb98aad06e2995c269579f63d071a0da36708eace5f4cf6e3ceb093d10f7f1d",
+          "contentHash": "sha256:b39cf9f600d8dfa2dd3347e68d8ae5dc9e0432557deff91c1eb2b1293e8ddafd",
+          "id": "fixture-journal-1",
+          "type": "accept",
+          "actor": {
+            "instance": "native-to-fixture",
+            "role": "AGENTS",
+            "scope": "drive-consent"
+          },
+          "body": {
+            "kind": "h2a.drive.consent.grant",
+            "payload": {
+              "kind": "h2a.drive.consent.grant",
+              "v": 1,
+              "requestId": "33333333-3333-4333-8333-333333333333",
+              "requestHash": "sha256:850b119a9089a4e73e9611bc8444b40162304587fd93c6fbadc95eb272c259ab",
+              "from": "native-from-fixture",
+              "to": "native-to-fixture",
+              "fromAgentUuid": "11111111-1111-4111-8111-111111111111",
+              "toAgentUuid": "22222222-2222-4222-8222-222222222222",
+              "scope": {
+                "action": "drive.instruction",
+                "direction": "from->to"
+              },
+              "issuedAt": "2026-11-01T08:00:01.000Z",
+              "notBefore": "2026-11-01T08:00:01.000Z",
+              "notAfter": "2026-11-01T09:00:00.000Z"
+            },
+            "signature": {
+              "by": "native-to-fixture",
+              "alg": "ed25519",
+              "value": "jym1pWIh2mnzh+etpZqQg6CFaRnoHJQTVBVxRW68azECjxOecU+rv9WKnbss4z4eXB3zUA6jE7bkYZgeB6CQDw=="
+            }
+          },
+          "createdAt": "2026-11-01T08:00:01.000Z",
+          "negotiationId": "drive-consent:sha256:f203621518cbb8238f412992737fa93c3e34a4b0213ef582b5287f5c33ca8bcc"
+        }
+      ],
+      "registeredPrincipal": null,
+      "now": 1793523600000,
+      "expected": {
+        "ok": false,
+        "reason": "consent-expired"
+      }
+    },
+    {
+      "id": "missing-principal-cosignature",
+      "entries": [
+        {
+          "protocol": "sentropic.h2a",
+          "version": "0.1",
+          "sequence": 0,
+          "contentHash": "sha256:1cb98aad06e2995c269579f63d071a0da36708eace5f4cf6e3ceb093d10f7f1d",
+          "id": "fixture-journal-0",
+          "type": "propose",
+          "actor": {
+            "instance": "native-from-fixture",
+            "role": "AGENTS",
+            "scope": "drive-consent"
+          },
+          "body": {
+            "kind": "h2a.drive.consent.request",
+            "payload": {
+              "kind": "h2a.drive.consent.request",
+              "v": 1,
+              "requestId": "33333333-3333-4333-8333-333333333333",
+              "from": "native-from-fixture",
+              "to": "native-to-fixture",
+              "fromAgentUuid": "11111111-1111-4111-8111-111111111111",
+              "toAgentUuid": "22222222-2222-4222-8222-222222222222",
+              "scope": {
+                "action": "drive.instruction",
+                "direction": "from->to"
+              },
+              "createdAt": "2026-11-01T08:00:00.000Z",
+              "answerBy": "2026-11-01T08:15:00.000Z",
+              "requestedNotAfter": "2026-11-01T09:00:00.000Z",
+              "purpose": "public synthetic RC2 contract fixture"
+            },
+            "signature": {
+              "by": "native-from-fixture",
+              "alg": "ed25519",
+              "value": "VllM8lvX4e2Sj9HrdkBtbDbQDOZTyLOy+kLWo6JboKNFQ452XEokGZfMJrr7jndHWYmQ0C2fjo0zuva8b+zIDg=="
+            }
+          },
+          "createdAt": "2026-11-01T08:00:00.000Z",
+          "negotiationId": "drive-consent:sha256:f203621518cbb8238f412992737fa93c3e34a4b0213ef582b5287f5c33ca8bcc"
+        },
+        {
+          "protocol": "sentropic.h2a",
+          "version": "0.1",
+          "sequence": 1,
+          "prevHash": "sha256:1cb98aad06e2995c269579f63d071a0da36708eace5f4cf6e3ceb093d10f7f1d",
+          "contentHash": "sha256:3ccb42496f3e8d5379915a70edffae616eea80d7199006239158108490ad9241",
+          "id": "fixture-journal-1",
+          "type": "accept",
+          "actor": {
+            "instance": "native-to-fixture",
+            "role": "AGENTS",
+            "scope": "drive-consent"
+          },
+          "body": {
+            "kind": "h2a.drive.consent.grant",
+            "payload": {
+              "kind": "h2a.drive.consent.grant",
+              "v": 1,
+              "requestId": "33333333-3333-4333-8333-333333333333",
+              "requestHash": "sha256:850b119a9089a4e73e9611bc8444b40162304587fd93c6fbadc95eb272c259ab",
+              "from": "native-from-fixture",
+              "to": "native-to-fixture",
+              "fromAgentUuid": "11111111-1111-4111-8111-111111111111",
+              "toAgentUuid": "22222222-2222-4222-8222-222222222222",
+              "scope": {
+                "action": "drive.instruction",
+                "direction": "from->to"
+              },
+              "issuedAt": "2026-11-01T08:00:01.000Z",
+              "notBefore": "2026-11-01T08:00:01.000Z",
+              "notAfter": "2026-11-01T09:00:00.000Z",
+              "principal": "native-principal-fixture"
+            },
+            "signature": {
+              "by": "native-to-fixture",
+              "alg": "ed25519",
+              "value": "J813RqIHpzTsnYNO9kaXPOrIGjvOk7HQiBD22cVi745U2wvkcDvHgEHNYpIvu5H/Il+d6C9iebX/5YY7ooptAg=="
+            }
+          },
+          "createdAt": "2026-11-01T08:00:01.000Z",
+          "negotiationId": "drive-consent:sha256:f203621518cbb8238f412992737fa93c3e34a4b0213ef582b5287f5c33ca8bcc"
+        }
+      ],
+      "registeredPrincipal": "native-principal-fixture",
+      "now": 1793520003000,
+      "expected": {
+        "ok": false,
+        "reason": "consent-principal-unavailable"
+      }
+    },
+    {
+      "id": "grant-commit-at-answerBy",
+      "entries": [
+        {
+          "protocol": "sentropic.h2a",
+          "version": "0.1",
+          "sequence": 0,
+          "contentHash": "sha256:1cb98aad06e2995c269579f63d071a0da36708eace5f4cf6e3ceb093d10f7f1d",
+          "id": "fixture-journal-0",
+          "type": "propose",
+          "actor": {
+            "instance": "native-from-fixture",
+            "role": "AGENTS",
+            "scope": "drive-consent"
+          },
+          "body": {
+            "kind": "h2a.drive.consent.request",
+            "payload": {
+              "kind": "h2a.drive.consent.request",
+              "v": 1,
+              "requestId": "33333333-3333-4333-8333-333333333333",
+              "from": "native-from-fixture",
+              "to": "native-to-fixture",
+              "fromAgentUuid": "11111111-1111-4111-8111-111111111111",
+              "toAgentUuid": "22222222-2222-4222-8222-222222222222",
+              "scope": {
+                "action": "drive.instruction",
+                "direction": "from->to"
+              },
+              "createdAt": "2026-11-01T08:00:00.000Z",
+              "answerBy": "2026-11-01T08:15:00.000Z",
+              "requestedNotAfter": "2026-11-01T09:00:00.000Z",
+              "purpose": "public synthetic RC2 contract fixture"
+            },
+            "signature": {
+              "by": "native-from-fixture",
+              "alg": "ed25519",
+              "value": "VllM8lvX4e2Sj9HrdkBtbDbQDOZTyLOy+kLWo6JboKNFQ452XEokGZfMJrr7jndHWYmQ0C2fjo0zuva8b+zIDg=="
+            }
+          },
+          "createdAt": "2026-11-01T08:00:00.000Z",
+          "negotiationId": "drive-consent:sha256:f203621518cbb8238f412992737fa93c3e34a4b0213ef582b5287f5c33ca8bcc"
+        },
+        {
+          "protocol": "sentropic.h2a",
+          "version": "0.1",
+          "sequence": 1,
+          "prevHash": "sha256:1cb98aad06e2995c269579f63d071a0da36708eace5f4cf6e3ceb093d10f7f1d",
+          "contentHash": "sha256:2c5757556d5310147b668769f57cb892543fc323c9d1fc83470b4cd092f48e81",
+          "id": "fixture-journal-1",
+          "type": "accept",
+          "actor": {
+            "instance": "native-to-fixture",
+            "role": "AGENTS",
+            "scope": "drive-consent"
+          },
+          "body": {
+            "kind": "h2a.drive.consent.grant",
+            "payload": {
+              "kind": "h2a.drive.consent.grant",
+              "v": 1,
+              "requestId": "33333333-3333-4333-8333-333333333333",
+              "requestHash": "sha256:850b119a9089a4e73e9611bc8444b40162304587fd93c6fbadc95eb272c259ab",
+              "from": "native-from-fixture",
+              "to": "native-to-fixture",
+              "fromAgentUuid": "11111111-1111-4111-8111-111111111111",
+              "toAgentUuid": "22222222-2222-4222-8222-222222222222",
+              "scope": {
+                "action": "drive.instruction",
+                "direction": "from->to"
+              },
+              "issuedAt": "2026-11-01T08:00:01.000Z",
+              "notBefore": "2026-11-01T08:00:01.000Z",
+              "notAfter": "2026-11-01T09:00:00.000Z"
+            },
+            "signature": {
+              "by": "native-to-fixture",
+              "alg": "ed25519",
+              "value": "jym1pWIh2mnzh+etpZqQg6CFaRnoHJQTVBVxRW68azECjxOecU+rv9WKnbss4z4eXB3zUA6jE7bkYZgeB6CQDw=="
+            }
+          },
+          "createdAt": "2026-11-01T08:15:00.000Z",
+          "negotiationId": "drive-consent:sha256:f203621518cbb8238f412992737fa93c3e34a4b0213ef582b5287f5c33ca8bcc"
+        }
+      ],
+      "registeredPrincipal": null,
+      "now": 1793520900000,
+      "expected": {
+        "ok": false,
+        "reason": "consent-expired"
+      },
+      "expectedJournalChain": "valid; timestamp boundary alone rejects grant"
+    },
+    {
+      "id": "other-positive-request-must-not-authorize-refused-binding",
+      "entries": [
+        {
+          "protocol": "sentropic.h2a",
+          "version": "0.1",
+          "sequence": 0,
+          "contentHash": "sha256:1cb98aad06e2995c269579f63d071a0da36708eace5f4cf6e3ceb093d10f7f1d",
+          "id": "fixture-journal-0",
+          "type": "propose",
+          "actor": {
+            "instance": "native-from-fixture",
+            "role": "AGENTS",
+            "scope": "drive-consent"
+          },
+          "body": {
+            "kind": "h2a.drive.consent.request",
+            "payload": {
+              "kind": "h2a.drive.consent.request",
+              "v": 1,
+              "requestId": "33333333-3333-4333-8333-333333333333",
+              "from": "native-from-fixture",
+              "to": "native-to-fixture",
+              "fromAgentUuid": "11111111-1111-4111-8111-111111111111",
+              "toAgentUuid": "22222222-2222-4222-8222-222222222222",
+              "scope": {
+                "action": "drive.instruction",
+                "direction": "from->to"
+              },
+              "createdAt": "2026-11-01T08:00:00.000Z",
+              "answerBy": "2026-11-01T08:15:00.000Z",
+              "requestedNotAfter": "2026-11-01T09:00:00.000Z",
+              "purpose": "public synthetic RC2 contract fixture"
+            },
+            "signature": {
+              "by": "native-from-fixture",
+              "alg": "ed25519",
+              "value": "VllM8lvX4e2Sj9HrdkBtbDbQDOZTyLOy+kLWo6JboKNFQ452XEokGZfMJrr7jndHWYmQ0C2fjo0zuva8b+zIDg=="
+            }
+          },
+          "createdAt": "2026-11-01T08:00:00.000Z",
+          "negotiationId": "drive-consent:sha256:f203621518cbb8238f412992737fa93c3e34a4b0213ef582b5287f5c33ca8bcc"
+        },
+        {
+          "protocol": "sentropic.h2a",
+          "version": "0.1",
+          "sequence": 1,
+          "prevHash": "sha256:1cb98aad06e2995c269579f63d071a0da36708eace5f4cf6e3ceb093d10f7f1d",
+          "contentHash": "sha256:6a639db5534adfca1bf71d66deec4ab61244f2db2d495c2f44e5d84fb12816a3",
+          "id": "fixture-journal-1",
+          "type": "reject",
+          "actor": {
+            "instance": "native-to-fixture",
+            "role": "AGENTS",
+            "scope": "drive-consent"
+          },
+          "body": {
+            "kind": "h2a.drive.consent.refusal",
+            "payload": {
+              "kind": "h2a.drive.consent.refusal",
+              "v": 1,
+              "requestId": "33333333-3333-4333-8333-333333333333",
+              "requestHash": "sha256:850b119a9089a4e73e9611bc8444b40162304587fd93c6fbadc95eb272c259ab",
+              "from": "native-from-fixture",
+              "to": "native-to-fixture",
+              "fromAgentUuid": "11111111-1111-4111-8111-111111111111",
+              "toAgentUuid": "22222222-2222-4222-8222-222222222222",
+              "at": "2026-11-01T08:00:02.000Z"
+            },
+            "signature": {
+              "by": "native-to-fixture",
+              "alg": "ed25519",
+              "value": "d1VNW6Chiix+rZPM2emGlwtSeA4lzAmdsGAblvSXndzB/N9n6thyWSFAK69jbhbKVJA6iRzhFCdbeMAaK1+sBA=="
+            }
+          },
+          "createdAt": "2026-11-01T08:00:02.000Z",
+          "negotiationId": "drive-consent:sha256:f203621518cbb8238f412992737fa93c3e34a4b0213ef582b5287f5c33ca8bcc"
+        },
+        {
+          "protocol": "sentropic.h2a",
+          "version": "0.1",
+          "sequence": 2,
+          "prevHash": "sha256:6a639db5534adfca1bf71d66deec4ab61244f2db2d495c2f44e5d84fb12816a3",
+          "contentHash": "sha256:b94a9dff0be598af126c7c6a31c6877485e0c9b81ac7673783b2f9e018246c8a",
+          "id": "fixture-journal-2",
+          "type": "propose",
+          "actor": {
+            "instance": "native-from-fixture",
+            "role": "AGENTS",
+            "scope": "drive-consent"
+          },
+          "body": {
+            "kind": "h2a.drive.consent.request",
+            "payload": {
+              "kind": "h2a.drive.consent.request",
+              "v": 1,
+              "requestId": "55555555-5555-4555-8555-555555555555",
+              "from": "native-from-fixture",
+              "to": "native-to-fixture",
+              "fromAgentUuid": "11111111-1111-4111-8111-111111111111",
+              "toAgentUuid": "22222222-2222-4222-8222-222222222222",
+              "scope": {
+                "action": "drive.instruction",
+                "direction": "from->to"
+              },
+              "createdAt": "2026-11-01T08:00:00.000Z",
+              "answerBy": "2026-11-01T08:15:00.000Z",
+              "requestedNotAfter": "2026-11-01T09:00:00.000Z",
+              "purpose": "public synthetic RC2 contract fixture"
+            },
+            "signature": {
+              "by": "native-from-fixture",
+              "alg": "ed25519",
+              "value": "U+zAQYiRrdcILRa3ZTn8faUwB4zddMW1lkhV1Hl3bXdeXSTQXvapj5FxMTkgPoteCCd+MjgULqF2EJZbLfRWAA=="
+            }
+          },
+          "createdAt": "2026-11-01T08:00:00.000Z",
+          "negotiationId": "drive-consent:sha256:f203621518cbb8238f412992737fa93c3e34a4b0213ef582b5287f5c33ca8bcc"
+        },
+        {
+          "protocol": "sentropic.h2a",
+          "version": "0.1",
+          "sequence": 3,
+          "prevHash": "sha256:b94a9dff0be598af126c7c6a31c6877485e0c9b81ac7673783b2f9e018246c8a",
+          "contentHash": "sha256:330e9cbe6eb4e6eef233c5e29b24395f540e9fbc65a1f0081dc5902b28db193b",
+          "id": "fixture-journal-3",
+          "type": "accept",
+          "actor": {
+            "instance": "native-to-fixture",
+            "role": "AGENTS",
+            "scope": "drive-consent"
+          },
+          "body": {
+            "kind": "h2a.drive.consent.grant",
+            "payload": {
+              "kind": "h2a.drive.consent.grant",
+              "v": 1,
+              "requestId": "55555555-5555-4555-8555-555555555555",
+              "requestHash": "sha256:f500199fd96c6a24d7554ba343781171a33ea0735e86b32881d9184a3073beb2",
+              "from": "native-from-fixture",
+              "to": "native-to-fixture",
+              "fromAgentUuid": "11111111-1111-4111-8111-111111111111",
+              "toAgentUuid": "22222222-2222-4222-8222-222222222222",
+              "scope": {
+                "action": "drive.instruction",
+                "direction": "from->to"
+              },
+              "issuedAt": "2026-11-01T08:00:01.000Z",
+              "notBefore": "2026-11-01T08:00:01.000Z",
+              "notAfter": "2026-11-01T09:00:00.000Z"
+            },
+            "signature": {
+              "by": "native-to-fixture",
+              "alg": "ed25519",
+              "value": "g20tj64BrLfCIRU+7hgac3NvIV6nZZOg+f4qxvFvGn7O1ymn3yLRhJZjfBxIv8z6jGeEXTeMhz3rS+eomiDtAg=="
+            }
+          },
+          "createdAt": "2026-11-01T08:00:01.000Z",
+          "negotiationId": "drive-consent:sha256:f203621518cbb8238f412992737fa93c3e34a4b0213ef582b5287f5c33ca8bcc"
+        }
+      ],
+      "registeredPrincipal": null,
+      "now": 1793520003000,
+      "expected": {
+        "ok": true,
+        "via": "consent",
+        "grantId": "sha256:793eea1e4aa3f755567a358fcbf8f99d1774cba647a94308320fc0c54b8c1642",
+        "requestId": "55555555-5555-4555-8555-555555555555",
+        "notAfter": "2026-11-01T09:00:00.000Z",
+        "principalDecision": "principal-absent"
+      },
+      "remoteBindingToFirstRequestExpected": "authority_refused despite projection.ok; exact requestId/grantId mismatch"
+    },
+    {
+      "id": "pair-revocation-overrides-other-positive-request",
+      "entries": [
+        {
+          "protocol": "sentropic.h2a",
+          "version": "0.1",
+          "sequence": 0,
+          "contentHash": "sha256:1cb98aad06e2995c269579f63d071a0da36708eace5f4cf6e3ceb093d10f7f1d",
+          "id": "fixture-journal-0",
+          "type": "propose",
+          "actor": {
+            "instance": "native-from-fixture",
+            "role": "AGENTS",
+            "scope": "drive-consent"
+          },
+          "body": {
+            "kind": "h2a.drive.consent.request",
+            "payload": {
+              "kind": "h2a.drive.consent.request",
+              "v": 1,
+              "requestId": "33333333-3333-4333-8333-333333333333",
+              "from": "native-from-fixture",
+              "to": "native-to-fixture",
+              "fromAgentUuid": "11111111-1111-4111-8111-111111111111",
+              "toAgentUuid": "22222222-2222-4222-8222-222222222222",
+              "scope": {
+                "action": "drive.instruction",
+                "direction": "from->to"
+              },
+              "createdAt": "2026-11-01T08:00:00.000Z",
+              "answerBy": "2026-11-01T08:15:00.000Z",
+              "requestedNotAfter": "2026-11-01T09:00:00.000Z",
+              "purpose": "public synthetic RC2 contract fixture"
+            },
+            "signature": {
+              "by": "native-from-fixture",
+              "alg": "ed25519",
+              "value": "VllM8lvX4e2Sj9HrdkBtbDbQDOZTyLOy+kLWo6JboKNFQ452XEokGZfMJrr7jndHWYmQ0C2fjo0zuva8b+zIDg=="
+            }
+          },
+          "createdAt": "2026-11-01T08:00:00.000Z",
+          "negotiationId": "drive-consent:sha256:f203621518cbb8238f412992737fa93c3e34a4b0213ef582b5287f5c33ca8bcc"
+        },
+        {
+          "protocol": "sentropic.h2a",
+          "version": "0.1",
+          "sequence": 1,
+          "prevHash": "sha256:1cb98aad06e2995c269579f63d071a0da36708eace5f4cf6e3ceb093d10f7f1d",
+          "contentHash": "sha256:6a639db5534adfca1bf71d66deec4ab61244f2db2d495c2f44e5d84fb12816a3",
+          "id": "fixture-journal-1",
+          "type": "reject",
+          "actor": {
+            "instance": "native-to-fixture",
+            "role": "AGENTS",
+            "scope": "drive-consent"
+          },
+          "body": {
+            "kind": "h2a.drive.consent.refusal",
+            "payload": {
+              "kind": "h2a.drive.consent.refusal",
+              "v": 1,
+              "requestId": "33333333-3333-4333-8333-333333333333",
+              "requestHash": "sha256:850b119a9089a4e73e9611bc8444b40162304587fd93c6fbadc95eb272c259ab",
+              "from": "native-from-fixture",
+              "to": "native-to-fixture",
+              "fromAgentUuid": "11111111-1111-4111-8111-111111111111",
+              "toAgentUuid": "22222222-2222-4222-8222-222222222222",
+              "at": "2026-11-01T08:00:02.000Z"
+            },
+            "signature": {
+              "by": "native-to-fixture",
+              "alg": "ed25519",
+              "value": "d1VNW6Chiix+rZPM2emGlwtSeA4lzAmdsGAblvSXndzB/N9n6thyWSFAK69jbhbKVJA6iRzhFCdbeMAaK1+sBA=="
+            }
+          },
+          "createdAt": "2026-11-01T08:00:02.000Z",
+          "negotiationId": "drive-consent:sha256:f203621518cbb8238f412992737fa93c3e34a4b0213ef582b5287f5c33ca8bcc"
+        },
+        {
+          "protocol": "sentropic.h2a",
+          "version": "0.1",
+          "sequence": 2,
+          "prevHash": "sha256:6a639db5534adfca1bf71d66deec4ab61244f2db2d495c2f44e5d84fb12816a3",
+          "contentHash": "sha256:b94a9dff0be598af126c7c6a31c6877485e0c9b81ac7673783b2f9e018246c8a",
+          "id": "fixture-journal-2",
+          "type": "propose",
+          "actor": {
+            "instance": "native-from-fixture",
+            "role": "AGENTS",
+            "scope": "drive-consent"
+          },
+          "body": {
+            "kind": "h2a.drive.consent.request",
+            "payload": {
+              "kind": "h2a.drive.consent.request",
+              "v": 1,
+              "requestId": "55555555-5555-4555-8555-555555555555",
+              "from": "native-from-fixture",
+              "to": "native-to-fixture",
+              "fromAgentUuid": "11111111-1111-4111-8111-111111111111",
+              "toAgentUuid": "22222222-2222-4222-8222-222222222222",
+              "scope": {
+                "action": "drive.instruction",
+                "direction": "from->to"
+              },
+              "createdAt": "2026-11-01T08:00:00.000Z",
+              "answerBy": "2026-11-01T08:15:00.000Z",
+              "requestedNotAfter": "2026-11-01T09:00:00.000Z",
+              "purpose": "public synthetic RC2 contract fixture"
+            },
+            "signature": {
+              "by": "native-from-fixture",
+              "alg": "ed25519",
+              "value": "U+zAQYiRrdcILRa3ZTn8faUwB4zddMW1lkhV1Hl3bXdeXSTQXvapj5FxMTkgPoteCCd+MjgULqF2EJZbLfRWAA=="
+            }
+          },
+          "createdAt": "2026-11-01T08:00:00.000Z",
+          "negotiationId": "drive-consent:sha256:f203621518cbb8238f412992737fa93c3e34a4b0213ef582b5287f5c33ca8bcc"
+        },
+        {
+          "protocol": "sentropic.h2a",
+          "version": "0.1",
+          "sequence": 3,
+          "prevHash": "sha256:b94a9dff0be598af126c7c6a31c6877485e0c9b81ac7673783b2f9e018246c8a",
+          "contentHash": "sha256:330e9cbe6eb4e6eef233c5e29b24395f540e9fbc65a1f0081dc5902b28db193b",
+          "id": "fixture-journal-3",
+          "type": "accept",
+          "actor": {
+            "instance": "native-to-fixture",
+            "role": "AGENTS",
+            "scope": "drive-consent"
+          },
+          "body": {
+            "kind": "h2a.drive.consent.grant",
+            "payload": {
+              "kind": "h2a.drive.consent.grant",
+              "v": 1,
+              "requestId": "55555555-5555-4555-8555-555555555555",
+              "requestHash": "sha256:f500199fd96c6a24d7554ba343781171a33ea0735e86b32881d9184a3073beb2",
+              "from": "native-from-fixture",
+              "to": "native-to-fixture",
+              "fromAgentUuid": "11111111-1111-4111-8111-111111111111",
+              "toAgentUuid": "22222222-2222-4222-8222-222222222222",
+              "scope": {
+                "action": "drive.instruction",
+                "direction": "from->to"
+              },
+              "issuedAt": "2026-11-01T08:00:01.000Z",
+              "notBefore": "2026-11-01T08:00:01.000Z",
+              "notAfter": "2026-11-01T09:00:00.000Z"
+            },
+            "signature": {
+              "by": "native-to-fixture",
+              "alg": "ed25519",
+              "value": "g20tj64BrLfCIRU+7hgac3NvIV6nZZOg+f4qxvFvGn7O1ymn3yLRhJZjfBxIv8z6jGeEXTeMhz3rS+eomiDtAg=="
+            }
+          },
+          "createdAt": "2026-11-01T08:00:01.000Z",
+          "negotiationId": "drive-consent:sha256:f203621518cbb8238f412992737fa93c3e34a4b0213ef582b5287f5c33ca8bcc"
+        },
+        {
+          "protocol": "sentropic.h2a",
+          "version": "0.1",
+          "sequence": 4,
+          "prevHash": "sha256:330e9cbe6eb4e6eef233c5e29b24395f540e9fbc65a1f0081dc5902b28db193b",
+          "contentHash": "sha256:345bc6c7e013ffc3da2942d45a12022272b7c7d8b0ea5ca4ac789eee9fcdf18d",
+          "id": "fixture-journal-4",
+          "type": "withdraw",
+          "actor": {
+            "instance": "native-from-fixture",
+            "role": "AGENTS",
+            "scope": "drive-consent"
+          },
+          "body": {
+            "kind": "h2a.drive.consent.revocation",
+            "payload": {
+              "kind": "h2a.drive.consent.revocation",
+              "v": 1,
+              "from": "native-from-fixture",
+              "to": "native-to-fixture",
+              "fromAgentUuid": "11111111-1111-4111-8111-111111111111",
+              "toAgentUuid": "22222222-2222-4222-8222-222222222222",
+              "pair": true,
+              "at": "2026-11-01T08:00:02.000Z",
+              "notAfter": "2026-11-01T09:00:00.000Z"
+            },
+            "signature": {
+              "by": "native-from-fixture",
+              "alg": "ed25519",
+              "value": "Mev9Aj2634Wr75yg+mUI/N5d/yUraUo3bpBThLqmynfqGyKezWD8vp0OGBIHnocKEosJSWEkujOSnmr4+/fhAg=="
+            }
+          },
+          "createdAt": "2026-11-01T08:00:02.000Z",
+          "negotiationId": "drive-consent:sha256:f203621518cbb8238f412992737fa93c3e34a4b0213ef582b5287f5c33ca8bcc"
+        }
+      ],
+      "registeredPrincipal": null,
+      "now": 1793520003000,
+      "expected": {
+        "ok": false,
+        "reason": "consent-revoked"
+      }
+    }
+  ],
+  "executionGate": "The dedicated verifier executes the pinned pure projectConsent and journal verifier with a readonly in-memory public fixture registry; its receipt records those observations. Real recordDriveConsentEnvelope transaction timestamp, durable store, findDriveConsent integration and native denial fence remain required in N1/N4/CONSENT-PAIR and are not qualified by this corpus.",
+  "mappingRules": [
+    "exact projected requestId AND grantId must match remote binding even if another request projects positive",
+    "pair-wide withdrawal fences all affected bindings",
+    "native sourceConsentRevision comes from durable native journal/fence, never an independent app counter",
+    "positive pair alone grants no remote action scope"
+  ]
+}
