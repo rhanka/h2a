@@ -18,7 +18,34 @@
   consensus claimed. Push a ready PR to main, follow CI, do not merge.
 - Private run directory: `/home/antoinefa/.cache-tmp/h2a-test/run-oVNjcF`;
   removal and terminal CI are recorded in `tmp/h-cond/identity-selfheal2-last.md`.
+# Cross-CLI bench R28 — 2026-11-05
 
+- Preserve the prior relaunch through d7f21c0f0, rebased on origin/main
+  f6314c18d. Keep the new cluster-mesh 0.25.0 / core mesh 0.26.0 /
+  gateway 0.20.0 tuple and the root bench mesh 0.33.0.
+- Source consumers now keep their fixtures outside the build's dependency
+  ancestry: deleting a synthetic Engram cannot expose the real producer.
+  The existing missing-producer regression passes, 40/40 in its file.
+- Upgrade qualification freshly compiles the checkout and uses it as the
+  closed-pack source, retaining Git identity, release assets and internal
+  dependency resolution. Its preparation regression is RED then GREEN;
+  the full installed-artifact qualification belongs to CI.
+- Polling RED: an empty barrier marker schedules 99 immediate inbox calls.
+  GREEN: wait for a valid positive timestamp, then execute the first tick.
+  Keep the 100-call cap and the wake assertions unchanged.
+- Avoid foreign PTY prebuild copies and reuse exactly matching system Node
+  headers. Both disk regressions are RED then GREEN. Source/runtime runners
+  accept an existing, validated private --campaign-root for bounded local runs.
+- Live final batch: codex:codex, offsets 0/6000/1000, session cap 8,
+  90000 ms per cell: three signed round trips, all measured-KO on the
+  unchanged 3000 ms wake bound. Submit-to-inbox-call: 5805/6028/6094 ms;
+  MCP completion: 2/2/3 ms. No quota refusal; cleanup witnessed for every cell.
+- Claude, Muse, Agy and Vibe retain seat-not-enrolled-in-llm-mesh:<cli>.
+  No enrollment or cross-seat support claim. Local campaign is non-gating.
+- Terminal CI, main comparison, commands and cleanup: conductor report
+  tmp/h-cond/xcli-r28-last.md. Formal harness review is selection-failed:
+  no installed h2a MCP launch tool is available and owner confinement forbids
+  the installed host. No independent consensus is claimed.
 # Node 22 CI suite split — conductor decision 2026-11-01
 
 - Scope: `scripts/run-tests.mjs`, the gate deadline comment, independent

@@ -215,7 +215,13 @@ if (pollMode) {
     const started = Date.now();
     return (async () => {
       for (;;) {
-        try { return Number(fs.readFileSync(barrierFile, 'utf8')); } catch { /* not published yet */ }
+        try {
+          // Another process may see the marker between open and write.
+          // Number('') is zero and would schedule billions of catch-up ticks.
+          const text = fs.readFileSync(barrierFile, 'utf8').trim();
+          const at = Number(text);
+          if (/^[0-9]+$/.test(text) && Number.isSafeInteger(at) && at > 0) return at;
+        } catch { /* not published yet */ }
         if (Date.now() - started > 300000) throw new Error('barrier-at never published');
         await new Promise(r => setTimeout(r, 50));
       }
