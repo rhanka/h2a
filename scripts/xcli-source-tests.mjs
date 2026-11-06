@@ -43,7 +43,8 @@ for (const name of ['skills', 'focus-app', 'hooks', 'scripts', '.claude-plugin',
 }
 fs.cpSync(join(repo, 'packages/track/skills'), join(built.path, 'packages/track/skills'), { recursive: true });
 for (const file of ['vitest.config.mjs', 'packages/h2a-runtime/vitest.config.mjs',
-  'packages/track/vitest.config.ts', 'scripts/run-tests.mjs']) {
+  'packages/track/vitest.config.ts', 'scripts/run-tests.mjs',
+  'scripts/run-node-tests.mjs']) {
   fs.mkdirSync(join(built.path, file, '..'), { recursive: true });
   fs.copyFileSync(join(repo, file), join(built.path, file));
 }
