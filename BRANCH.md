@@ -35,6 +35,10 @@
   shares that environment between compilation and closed packaging. A real
   npm resolution probe is RED (127) then GREEN in both paths; runner 2/2.
   This follow-up remains local to respect the owner's single-push limit.
+- The push receipt reporter also lacked installed dependencies after R27's
+  published onboarding import. Its clean-checkout workflow reproduction is
+  RED (missing llm-mesh) then GREEN after dependency installation with scripts
+  disabled. The merge receipt gate remains fail-closed on absent qualification.
 - Polling RED: an empty barrier marker schedules 99 immediate inbox calls.
   GREEN: wait for a valid positive timestamp, then execute the first tick.
   Keep the 100-call cap and the wake assertions unchanged.
