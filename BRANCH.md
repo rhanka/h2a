@@ -24,6 +24,22 @@
   with no typed verdict; GREEN: receipt-absent, exit 1, plus a successful
   exact-head artifact download and validation, with all 20 receipt controls
   passing. No qualification or merge gate is waived.
+- Post-push shards exposed a plain-npm runtime mesh split: the broad runtime
+  range allowed a newer mesh beside gateway's 0.26.1. Anchor the runtime to
+  main's exact 0.26.0 core pin, preserving root bench onboarding at 0.33.0.
+  Manifest regression RED then GREEN; planner/onboarding 34/34 and actual
+  ESM resolution proves cluster 0.25.0, gateway 0.20.0 and runtime share mesh.
+  Full RC install validation remains CI-only under the local disk budget.
+- Align the rebased qualification contracts with preserved product changes:
+  separate wake line/CR writes (34/34), dated bench-only mesh exceptions
+  with negative controls (5/5, zero unexpected or stale guard entries), the
+  actual local/shard Node timeout rather than Vitest's timeout, and the
+  single changed local native-op digest (published bytes stay frozen, 3/3).
+- Qualify the actual exact-SHA release receipt step in the closed execution
+  plan. Install dependencies first and set the artifact extraction directory
+  explicitly in both receipt workflows. Clean-tree receipt controls are
+  RED then GREEN, 22/22; release/workflow evidence controls pass 95/95.
+  These post-push corrections remain local under the single-push limit.
 - Polling RED: an empty barrier marker schedules 99 immediate inbox calls.
   GREEN: wait for a valid positive timestamp, then execute the first tick.
   Keep the 100-call cap and the wake assertions unchanged.
