@@ -33,7 +33,7 @@ import { materialiseSeatEnvelopes, parseCliSeatProfile,
 import { SEAT_BUNDLE_MAX_BYTES } from './xcli-seat-vendor/seat-bundle.js';
 import { MESH_SEAT_PROVIDERS, createMeshSeatFacade, requireMeshAccount,
   acquireVibeKey, meshOwnerScope } from './xcli-llm-mesh-seats.mjs';
-import { CAPTURE_SOURCES, captureSeatOnboarding, seatLaunchGate } from './xcli-seat-vendor/seat-onboarding.js';
+import { AGY_REQUIRED_COMPLETED_STEPS, CAPTURE_SOURCES, captureSeatOnboarding, seatLaunchGate } from './xcli-seat-vendor/seat-onboarding.js';
 import { cliPath } from './xcli-lab.mjs';
 
 const self = fileURLToPath(import.meta.url);
@@ -235,7 +235,10 @@ export async function buildSeatEnvelope({ seatId, slot, homeDir, ownerScope = 'o
     onboardingStatus, launchGate: seatLaunchGate(identity.cli, onboardingStatus),
     ...(gate.accountId ? { accountId: gate.accountId } : {}),
     ...(gate.cause ? { cause: gate.cause } : {}),
-    ...(onboardingRefused ? { onboardingRefused } : {}) };
+    ...(onboardingRefused ? { onboardingRefused } : {}),
+    ...(identity.cli === 'agy' && onboardingRefused && cliVersions.agy && !AGY_REQUIRED_COMPLETED_STEPS[cliVersions.agy]
+      ? { captureRefusal: { code: 'onboarding-version-unreviewed', nativeCliVersion: cliVersions.agy,
+        reviewedNativeCliVersions: Object.keys(AGY_REQUIRED_COMPLETED_STEPS) } } : {}) };
   return { envelope, serialized, files: Object.keys(files).sort(), source };
 }
 
@@ -383,8 +386,16 @@ export async function provisionSeats({ seatSet = DEFAULT_SEAT_SET,
       const secrets = Object.fromEntries(seats.map(seat =>
         [seat.names.projection, fs.readFileSync(seat.file, 'utf8')]));
       const materialised = await materialiseSeatEnvelopes({ seatSet: ids.join(','), slotManifest, secrets, baseDir: laneDir });
+      // Transport the names-only capture diagnosis beside the library's
+      // closed gate. Never manufacture a block for an unreviewed version.
+      for (const seat of materialised.manifest.seats) {
+        const refused = seats.find(entry => entry.seatId === seat.seatId)?.source.captureRefusal;
+        if (refused) seat.onboarding.captureRefusal = refused;
+      }
+      fs.writeFileSync(materialised.manifestFile, JSON.stringify(materialised.manifest, null, 2) + '\n', { mode: 0o600 });
+      const manifestDigest = createHash('sha256').update(fs.readFileSync(materialised.manifestFile)).digest('hex');
       return { mode, outDir, manifestFile: materialised.manifestFile,
-        manifestDigest: materialised.manifestDigest, seats: seats.map(seat => seat.receipt),
+        manifestDigest, seats: seats.map(seat => seat.receipt),
         sources: seats.map(seat => seat.source) };
     }
     const ghCalls = ensureEnvironment({ ghBin, dryRun: mode === 'dry-run' });

@@ -21,11 +21,18 @@ import { fileURLToPath } from 'node:url';
 import { compliantQualificationRoot } from './xcli-lab.mjs';
 import { DEFAULT_SEAT_SET, probeCliVersion, provisionSeats, shredFiles } from './xcli-seat-provision.mjs';
 import { scanEvidenceText } from './xcli-evidence-scan.mjs';
+import { campaignWakePolicy } from './xcli-wake-policy.mjs';
 
 const self = fileURLToPath(import.meta.url);
 const repoRoot = dirname(dirname(self));
 
 export const LOCAL_GATE = 'local-non-merge-gating';
+
+export function localCampaignTimeoutMs(wallClockMs, timeoutMs) {
+  assert.ok(Number.isSafeInteger(wallClockMs) && wallClockMs > 0);
+  assert.ok(Number.isSafeInteger(timeoutMs) && timeoutMs > 0);
+  return wallClockMs + timeoutMs * 2 + 45000;
+}
 
 // R22 (bench round 22, claude diagonal 01/11): a measured cell can fail its
 // wake proof with neither a blocker nor a failure (wakeFailure only), and
@@ -45,7 +52,7 @@ export async function runLocalCampaign({ seatSet = DEFAULT_SEAT_SET, pairs = nul
   homeDir = homedir(), ownerScope = 'owner', outBase = null,
   campaignRoot = null, reportFile = null, timeoutMs = 60000, sessionCap = null,
   mcpCallCap = 100, wallClockMs = 3600000, wakeOffsets = '0',
-  simulated = false, spawnTimeoutMs = 600000, meshFacade = null } = {}) {
+  simulated = false, spawnTimeoutMs = null, meshFacade = null } = {}) {
   let outDir = null;
   try {
     // L7: probe the installed CLI versions once for onboarding capture.
@@ -79,7 +86,7 @@ export async function runLocalCampaign({ seatSet = DEFAULT_SEAT_SET, pairs = nul
         '--wake-release-offsets-ms', wakeOffsets, '--session-cap', String(caps),
         '--mcp-call-cap', String(mcpCallCap), '--campaign-wall-clock-ms', String(wallClockMs),
         '--output', qualificationFile, ...(simulated ? ['--simulated'] : [])],
-      { cwd: repoRoot, env: process.env, encoding: 'utf8', timeout: spawnTimeoutMs,
+      { cwd: repoRoot, env: process.env, encoding: 'utf8', timeout: spawnTimeoutMs ?? localCampaignTimeoutMs(wallClockMs, timeoutMs),
         maxBuffer: 16 * 1024 * 1024 });
     const qualification = fs.existsSync(qualificationFile)
       ? JSON.parse(fs.readFileSync(qualificationFile, 'utf8')) : null;
@@ -89,6 +96,10 @@ export async function runLocalCampaign({ seatSet = DEFAULT_SEAT_SET, pairs = nul
       senderSeat: cell.seats?.sender ?? cell.senderSeat ?? null,
       receiverSeat: cell.seats?.receiver ?? cell.receiverSeat ?? null,
       status: cell.status, reason: classifyLocalCellReason(cell, okStatus),
+      wakePolicy: cell.wakePolicy ?? campaignWakePolicy(cell.receiver, { simulated }),
+      wakeDelayMs: Number.isSafeInteger(cell.wakeWindows?.firstReadAt) && Number.isSafeInteger(cell.wakeWindows?.wakeAt)
+        ? cell.wakeWindows.firstReadAt - cell.wakeWindows.wakeAt : null,
+      wakeBoundMs: cell.wakeWindows?.dMs ?? cell.wakePolicy?.boundMs ?? null,
       elapsedMs: cell.elapsedMs ?? cell.parentElapsedMs ?? null,
       parentSecretWipe: cell.parentSecretWipe ?? null }));
     // R23: the seat source of record per seat (mesh gate, names only) is
@@ -97,6 +108,7 @@ export async function runLocalCampaign({ seatSet = DEFAULT_SEAT_SET, pairs = nul
     const report = { version: 1, gate: LOCAL_GATE, seatSet,
       manifestDigest: provisioned.manifestDigest, sources: provisioned.sources,
       pairs: wanted, campaignRoot: root,
+      wakePolicies: seatIds.map(id => campaignWakePolicy(manifest.seats.find(s => s.seatId === id).family, { simulated })),
       qualifyStatus: probed.status, counts: {
         pass: cells.filter(cell => cell.status === okStatus).length,
         fail: cells.filter(cell => cell.status !== okStatus).length },

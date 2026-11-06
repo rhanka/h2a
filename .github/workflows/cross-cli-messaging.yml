@@ -48,6 +48,7 @@ jobs:
           scripts/xcli-wake-proof.test.mjs
           scripts/xcli-node-headers.test.mjs
           scripts/xcli-source-build.test.mjs scripts/xcli-polling-barrier.test.mjs
+          scripts/xcli-proof-paths.test.mjs
 
   simulated-messaging:
     runs-on: ubuntu-latest

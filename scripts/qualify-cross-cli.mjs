@@ -5,7 +5,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { join, dirname, resolve, relative } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { createHash, generateKeyPairSync } from 'node:crypto';
-import { CLIS, PROBE, REPLY, repo, environment, sourceBuild, copyLogin, copyLoginReport, PINNED_CLI_ARGS,
+import { CLIS, PROBE, REPLY, repo, environment, sourceBuild, copyLoginReport, PINNED_CLI_ARGS,
   cliPath, privateExecutable, pythonEntrypoint, classify, matrix, inside,
   rehydrateEventRecord, cellSecretPaths, wipeSecrets, loginCopyPath, vibeCellKey,
   recordExec, readExecJournal, classifyExecJournal, vendorRuntimeLabel,
@@ -20,6 +20,9 @@ import { verifyWakeBatch } from './xcli-ci-check.mjs';
 import { correlateWakeInput } from './xcli-wake-host.mjs';
 import { buildSupervisor, supervisedCommand, supervisorResult } from './xcli-process-supervisor.mjs';
 import { scanEvidenceText } from './xcli-evidence-scan.mjs';
+import { runMuseAuthPrecheck } from './xcli-auth-precheck.mjs';
+import { campaignWakePolicy } from './xcli-wake-policy.mjs';
+export { MUSE_NOAUTH_PATTERN, classifyMuseUsageProbe } from './xcli-auth-precheck.mjs';
 import { parseScenario, expectedScenarioBlocker, UNKNOWN_INSTANCE, validateScriptSteps,
   loopScripts, loopTwinScripts, negotiationScripts, negotiationTwinScripts,
   inventoryScripts, LARGE_TEXT, classifyScenarioRow } from './xcli-scenarios.mjs';
@@ -101,6 +104,7 @@ function startupFacts(screen) {
 
 }
 export function blockingScreen(screen) {
+  if (modelToolApproval(screen)) return 'tool-approval-required';
   // R22: the agy first-run Terms/Data-Use dialog (default opted-in) is a
   // human consent gate — the harness never presses it, so it blocks typed.
   if (/terms of service.{0,40}data use|improve .{0,40} by allowing|collect and use my .{0,20}data/i.test(screen)) return 'tos-consent-required';
@@ -188,24 +192,10 @@ export function classifyApprovalExhaustion({ cli, presses, limit, mcpLoaded }) {
   return undefined;
 }
 
-// R21 (bench round 21, muse diagonal): `muse config status` reports the
-// enterprise plane with exit 0 whether or not a login exists, so a
-// config-status contrast can never prove auth. The `usage` oracle shows the
-// subscription allowance with no model turn: exit 1 with `not logged in`
-// without (or with invalid) auth — measured on 1.4.14-R7309.1 — and a
-// zero-exit allowance report with valid auth. A non-zero exit, empty output,
-// or any measured login-negative marker reads non-authed, fail closed.
-export const MUSE_NOAUTH_PATTERN = /not.*(logged|signed).?in|no .*auth|unauthenticated|missing.*(login|credential)|no_allowance|server_sent_no_usage|no subscription allowance|subscription allowance unavailable/i;
-
-export function classifyMuseUsageProbe({ status, text }) {
-  const body = `${text ?? ''}`;
-  const authed = status === 0 && body.trim().length > 0 && !MUSE_NOAUTH_PATTERN.test(body);
-  return { authed };
-}
-
 // Only normal startup UI interactions in our empty temporary workspace.
 // No bypass flags, persisted trust edits, or inputs after the idle barrier.
 export function startupKey(screen, cli) {
+  if (modelToolApproval(screen)) return undefined;
   // Claude >=2.1.314 shows an MCP/tool-approval Allow screen after the trust
   // dialog (captured: Enter+confirm+trust+Allow vocabulary with a permission
   // signal). Without a key the cell idles to mcp-not-loaded-before-deadline.
@@ -237,6 +227,10 @@ export function startupKey(screen, cli) {
   if (/Yes, I trust this folder|Yes, I trust this project|Trust folder|Trust this folder/i.test(screen)) return 'trust-empty-workspace';
   if (/Press Enter to continue/i.test(screen) && /security|safety|welcome|terminal setup/i.test(screen)) return 'startup-continue';
   return undefined;
+}
+
+function modelToolApproval(screen) {
+  return /Permission for[^\n]{0,120}\bh2a_[a-z_]+\b/i.test(screen) && /Allow once|Always allow|Deny/i.test(screen);
 }
 
 async function worker() {
@@ -279,7 +273,7 @@ async function worker() {
     evidence: [], startedAt: new Date().toISOString(), credentialsCopied: {}, cell,
     seats: request.seats ?? { sender: null, receiver: null },
     sharedSeat: request.seats ? request.seats.sender === request.seats.receiver : null,
-    seatMode: request.seatMode ?? 'no-seats',
+    seatMode: request.seatMode ?? 'no-seats', wakePolicy: request.wakePolicy,
     noPostSendHarnessInput: true };
   let host, client;
   let withholdLease = null;
@@ -1305,37 +1299,19 @@ async function main() {
   const quotaSeats = new Set(ledger.quotaSeats ?? []);
   const preflighted = new Map();
   const runAuthPrecheck = async (seat, { executable }) => {
-    // Muse usage contrast: the control HOME (no logins) must not read
-    // authed while the seat HOME (seat files only) reads accepted.
-    // Closed-vocabulary match only; outputs discarded; both HOMEs deleted.
-    // No model turn is spent (`usage` shows the subscription allowance only).
     // XCLI_AUTH_PRECHECK_MODEL_CALLS is a test seam: it lets a campaign test
     // drive a model-reaching precheck (§6.4) without a real vendor call,
     // proving the cap accounting end to end. Any value outside a positive
     // integer stays 0 (fail closed).
     const raw = Number(process.env.XCLI_AUTH_PRECHECK_MODEL_CALLS ?? '0');
     const spent = Number.isSafeInteger(raw) && raw > 0 ? raw : 0;
-    const probe = async withFiles => {
-      const home = fs.mkdtempSync(join(root, 'pre-'));
-      try {
-        const env = environment(home);
-        if (withFiles) copyLogin(seat.family, seat.authSource, home, env);
-        const out = spawnSync(executable, ['usage'],
-          { env, cwd: home, encoding: 'utf8', timeout: 30000, maxBuffer: 256 * 1024 });
-        return { status: out.status, text: `${out.stdout ?? ''}\n${out.stderr ?? ''}` };
-      } finally { fs.rmSync(home, { recursive: true, force: true }); }
-    };
-    const control = classifyMuseUsageProbe(await probe(false));
-    if (control.authed) return { ok: false, reason: 'preflight-control-untrusted', modelCalls: spent };
-    const seated = classifyMuseUsageProbe(await probe(true));
-    if (seated.authed) return { ok: true, modelCalls: spent, detail: 'usage-accepted' };
-    return { ok: false, reason: 'preflight-auth-unproven', modelCalls: spent };
+    return runMuseAuthPrecheck({ seat, executable, root, modelCalls: spent });
   };
   const seatKey = (run, role) => run[role === 'sender' ? 'senderSeat' : 'receiverSeat'] ?? (role === 'sender' ? run.sender : run.receiver);
   const blockedRow = (run, releaseOffsetMs, blocker, evidence = []) => ({ sender: run.sender, receiver: run.receiver,
     scenario: scenarioSpec, seats: { sender: run.senderSeat, receiver: run.receiverSeat }, sharedSeat: run.sharedSeat, seatMode,
     status: 'blocked', blocker, evidence, elapsedMs: 0, cleanupFailed: false, parentSecretWipe: true,
-    releaseOffsetMs });
+    releaseOffsetMs, wakePolicy: campaignWakePolicy(run.receiver, { simulated }) });
   const cellBoundMs = timeoutMs * 2 + 45000;
   for (const run of runs) {
     const { sender, receiver, releaseOffsetMs } = run;
@@ -1359,7 +1335,7 @@ async function main() {
         seat: seatKey(run, role), code: block });
     }
     if (gateBlocks.length) {
-      cells.push(blockedRow(run, releaseOffsetMs, 'onboarding-required', gateBlocks));
+      cells.push(blockedRow(run, releaseOffsetMs, gateBlocks[0].code, gateBlocks));
       continue;
     }
     // V3 §6.4 pre-launch check: the composite caps are verified before every
@@ -1472,7 +1448,11 @@ async function main() {
       seats: { sender: run.senderSeat, receiver: run.receiverSeat }, seatMode,
       mcpCallCap: caps.mcpCallsPerSession,
       simulated, dropWake: process.argv.includes('--drop-simulated-wake'),
-      wake: wakeWindows, poll: pollEnvValue(poll), simPop: process.env.XCLI_SIM_POP === '1',
+      wakePolicy: campaignWakePolicy(receiver, { simulated }),
+      wake: { ...wakeWindows, dMs: option('--wake-windows') === undefined
+        ? campaignWakePolicy(receiver, { simulated }).boundMs
+        : Math.min(wakeWindows.dMs, campaignWakePolicy(receiver, { simulated }).boundMs) },
+      poll: pollEnvValue(poll), simPop: process.env.XCLI_SIM_POP === '1',
       withholdForever, replayWake, releaseOffsetMs }));
     await new Promise((r, reject) => { child.once('close', r); child.once('error', reject); });
     clearTimeout(watchdog);

@@ -131,7 +131,13 @@ export async function materialiseSeatEnvelopes({ seatSet, slotManifest, secrets,
 // before any copy, any spawn, any debit.
 export function onboardingLaunchBlock(manifestSeat) {
   if (!manifestSeat?.onboarding || manifestSeat.family === 'vibe') return undefined;
-  return manifestSeat.onboarding.gate?.eligible ? undefined : 'onboarding-required';
+  if (manifestSeat.onboarding.gate?.eligible) return undefined;
+  const refused = manifestSeat.onboarding.captureRefusal;
+  if (manifestSeat.family === 'agy' && refused?.code === 'onboarding-version-unreviewed' &&
+      /^\d+\.\d+\.\d+$/.test(refused.nativeCliVersion ?? '')) {
+    return `onboarding-version-unreviewed:agy:${refused.nativeCliVersion}`;
+  }
+  return 'onboarding-required';
 }
 
 // L7: the record-relative storage name for each composed or synthesized
