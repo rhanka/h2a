@@ -1,6 +1,6 @@
 import type { ChildProcess } from "node:child_process";
 import { once } from "node:events";
-import { mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
 import { lstat, rm, stat } from "node:fs/promises";
@@ -145,8 +145,14 @@ async function npmInstall(args: string[], prefix: string, cache: string): Promis
   expect(code, `npm install ${args.join(" ")} failed: ${output.stderr}`).toBe(0);
   // The owner forbids Python. npm's node-pty install script normally invokes
   // node-gyp: build that unchanged N-API source directly in this private prefix.
-  const require = createRequire(join(prefix, "package.json"));
+  const require = createRequire(join(prefix, "node_modules/@sentropic/h2a-runtime/package.json"));
   const ptyRoot = dirname(require.resolve("node-pty/package.json"));
+  // Closed candidates ship the qualified prebuild, without compiler inputs.
+  // Load those exact bytes; a broken shipped binary must fail, never rebuild.
+  if (existsSync(join(ptyRoot, "build/Release/pty.node"))) {
+    require("node-pty");
+    return;
+  }
   const addonRoot = dirname(require.resolve("node-addon-api/package.json", { paths: [ptyRoot] }));
   mkdirSync(join(ptyRoot, "build/Release"), { recursive: true });
   const compiled = spawnSync("/usr/bin/g++", ["-std=c++17", "-shared", "-fPIC", "-O2", "-pthread",

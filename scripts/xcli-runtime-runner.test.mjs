@@ -1,10 +1,61 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
+import { EventEmitter, once } from 'node:events';
+import { createRequire } from 'node:module';
 import test from 'node:test';
 import { repo, removeCampaignRoot, compliantQualificationRoot } from './xcli-lab.mjs';
+
+for (const layout of ['source', 'prebuilt', 'broken-prebuilt']) {
+test(`upgrade qualification uses the runtime-owned PTY (${layout})`, async () => {
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-upgrade-nested-'));
+  try {
+    const runtime = join(root, 'node_modules/@sentropic/h2a-runtime');
+    const pty = join(runtime, 'node_modules/node-pty');
+    const addon = join(pty, 'node_modules/node-addon-api');
+    for (const path of [root, runtime, pty, addon]) {
+      fs.mkdirSync(path, { recursive: true });
+      fs.writeFileSync(join(path, 'package.json'), '{}');
+    }
+    const binary = join(pty, 'build/Release/pty.node');
+    if (layout !== 'source') {
+      const unpacked = spawnSync('/usr/bin/tar', ['-xzf',
+        join(repo, 'scripts/release/artifacts/node-pty-linux-x64-gnu-napi8.tgz'), '-C', root]);
+      assert.equal(unpacked.status, 0, String(unpacked.stderr));
+      fs.rmSync(pty, { recursive: true });
+      fs.renameSync(join(root, 'payload/node_modules/node-pty'), pty);
+      if (layout === 'broken-prebuilt') fs.writeFileSync(binary, 'corrupt native binary');
+    }
+    const shippedBytes = layout !== 'source' ? fs.readFileSync(binary) : null;
+    const recipe = fs.readFileSync(join(repo, 'packages/h2a-runtime/src/native-terminal/upgrade.functional.test.ts'), 'utf8');
+    const ts = createRequire(import.meta.url)('typescript');
+    const code = ts.transpileModule(recipe.slice(recipe.indexOf('async function npmInstall('),
+      recipe.indexOf('\ntype LeaseSnapshot')), { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+    let compiled = false;
+    const install = new Function('spawn', 'npmCommand', 'npmArgs', 'buildToolPath', 'children',
+      'captureOutput', 'once', 'expect', 'createRequire', 'join', 'dirname', 'mkdirSync', 'spawnSync', 'existsSync',
+      `${code}\nreturn npmInstall;`)(
+      () => { const child = new EventEmitter(); process.nextTick(() => child.emit('exit', 0)); return child; },
+      'npm', args => args, process.env.PATH, new Set(), () => ({ stderr: '' }), once,
+      (actual, reason) => ({ toBe: expected => assert.equal(actual, expected, reason) }),
+      createRequire, join, dirname, fs.mkdirSync,
+      (command, args) => {
+        assert.equal(command, '/usr/bin/g++');
+        assert.ok(args.includes(join(pty, 'src/unix/pty.cc')));
+        assert.ok(args.includes(`-I${addon}`));
+        assert.ok(args.includes(join(pty, 'build/Release/pty.node')));
+        compiled = true;
+        return { status: 0, stderr: '' };
+      }, fs.existsSync);
+    if (layout === 'broken-prebuilt') await assert.rejects(install(['candidate.tgz'], root, join(root, 'cache')), /Failed to load native module: pty\.node/);
+    else await install(['candidate.tgz'], root, join(root, 'cache'));
+    assert.equal(compiled, layout === 'source', 'only the source dependency needs compilation');
+    if (shippedBytes) assert.deepEqual(fs.readFileSync(binary), shippedBytes, 'the shipped native binary stays unchanged');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+}
 
 test('runtime upgrade qualification builds the checkout candidate before running the installed-artifact test', () => {
   const root = fs.mkdtempSync(join(tmpdir(), 'xcli-upgrade-preparation-'));
