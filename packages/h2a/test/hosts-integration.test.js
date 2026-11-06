@@ -372,7 +372,7 @@ test("Muse setup refuses an unknown settings schema even with force", () => {
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test("h2a host setup --write replaces h2a aliases and disables standalone Track MCP entries", () => {
+test("h2a host setup --write edits h2a and preserves aliases and standalone Track entries", () => {
   const dir = mkdtempSync(join(tmpdir(), "h2a-host-setup-"));
   const target = join(dir, "mcp.json");
   try {
