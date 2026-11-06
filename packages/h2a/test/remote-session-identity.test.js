@@ -629,7 +629,7 @@ test("CONSENT-PAIR: durable sourceConsentRevision fence", (t) => {
   const pairId = consentPairId(A, B);
   const D1 = `sha256:${"a".repeat(64)}`;
   const D2 = `sha256:${"b".repeat(64)}`;
-  const fence = openSourceConsentFence(dir);
+  const fence = openSourceConsentFence(dir, { create: true });
   assert.equal(fence.revisionOf(pairId), 0);
   assert.equal(fence.commitSnapshot(pairId, D1), 1);
   assert.equal(fence.revisionOf(pairId), 1);
@@ -703,7 +703,7 @@ test("CONSENT-PAIR: fence never serves stale revisions or silent resets", (t) =>
   const D1 = `sha256:${"a".repeat(64)}`;
   const D2 = `sha256:${"b".repeat(64)}`;
   const file = join(dir, "source-consent-revisions.json");
-  const fenceA = openSourceConsentFence(dir);
+  const fenceA = openSourceConsentFence(dir, { create: true });
   assert.equal(fenceA.commitSnapshot(pairId, D1), 1);
   // Second handle opened while durable state is rev 1.
   const fenceB = openSourceConsentFence(dir);
@@ -731,6 +731,7 @@ test("CONSENT-PAIR: fence never serves stale revisions or silent resets", (t) =>
   chmodSync(file, 0o000);
   try {
     assert.throws(() => openSourceConsentFence(dir), /fence_unavailable/);
+    assert.throws(() => openSourceConsentFence(dir, { create: true }), /fence_unavailable/);
     assert.throws(() => fenceA.revisionOf(pairId), /fence_unavailable/);
     assert.deepEqual(
       checkBindingRevision(
@@ -744,6 +745,14 @@ test("CONSENT-PAIR: fence never serves stale revisions or silent resets", (t) =>
   }
   assert.equal(readFileSync(file, "utf8"), before);
   assert.equal(fenceA.revisionOf(pairId), 2);
+  // Absence is not permission to erase history; creation must be explicit.
+  rmSync(file);
+  assert.throws(() => openSourceConsentFence(dir), /fence_unavailable/);
+  assert.throws(() => fenceA.revisionOf(pairId), /fence_unavailable/);
+  assert.throws(() => fenceA.commitSnapshot(pairId, D1), /fence_unavailable/);
+  openSourceConsentFence(dir, { create: true });
+  assert.throws(() => fenceA.revisionOf(pairId), /fence_unavailable/);
+  assert.throws(() => fenceA.commitSnapshot(pairId, D1), /fence_unavailable/);
   // Extra key in an entry: corrupt, never defaulted to a fresh state.
   writeFileSync(
     file,
@@ -923,7 +932,7 @@ test("AUTHORITY-NATIVE: RoleScope $def constraints refuse one by one", () => {
     ["mcpRights tools non-string item", (x) => { x.mcpRights.tools = [123]; }],
     ["policyId number", (x) => { x.policyId = 123; }],
     ["revision float", (x) => { x.revision = 1.5; }],
-    ["effortCeiling wrong type", (x) => { x.effortCeiling = "high"; }],
+    ["effortCeiling wrong type", (x) => { x.effortCeiling = 123; }],
     ["validUntil wrong type", (x) => { x.validUntil = 123; }],
     ["unknown optional", (x) => { x.evilOptional = 1; }],
   ];
@@ -932,8 +941,7 @@ test("AUTHORITY-NATIVE: RoleScope $def constraints refuse one by one", () => {
     fn(mut);
     assert.equal(verifyRecordShape("RoleScopePolicyV1", mut), "REJECT_SCHEMA", name);
   }
-  // Typed optionals: a Counter ceiling, string validUntil/supersedes accept.
-  for (const extra of [{ effortCeiling: 123 }, { validUntil: "2030-01-01" }, { supersedes: "policy-9" }]) {
+  for (const extra of [{ effortCeiling: "high" }, { validUntil: "2030-01-01" }, { supersedes: "policy-9" }, { signingClass: "D1", memoryScopes: ["role", "repo"] }, { signingClass: "D2" }]) {
     const mut = structuredClone(good);
     Object.assign(mut, extra);
     assert.equal(verifyRecordShape("RoleScopePolicyV1", mut), "ACCEPT_SHAPE", JSON.stringify(extra));
@@ -956,13 +964,93 @@ test("AUTHORITY-NATIVE: RegistryView $def constraints refuse one by one", () => 
     fn(mut);
     assert.equal(verifyRecordShape("RegistryInstanceViewV1", mut), "REJECT_SCHEMA", name);
   }
-  // Typed optionals: string launchName and record tombstone accept.
+  // Optional records and populated rows use their actual r3 field shapes.
   const withLaunch = structuredClone(good);
   withLaunch.launchName = "launch-1";
   assert.equal(verifyRecordShape("RegistryInstanceViewV1", withLaunch), "ACCEPT_SHAPE");
   const withTomb = structuredClone(good);
-  withTomb.offboardTombstone = { instance: "i", revokedKeys: 0, revokedSubagents: [], at: "t" };
+  withTomb.offboardTombstone = { offboardedAt: "t", reason: "offboarded" };
   assert.equal(verifyRecordShape("RegistryInstanceViewV1", withTomb), "ACCEPT_SHAPE");
+  const populated = structuredClone(good);
+  populated.instances = ["instance-1"];
+  populated.keys = [{ keyId: "k", fingerprint: "f", state: "active", validFrom: "t", validUntil: "u", revokedAt: "v" }];
+  populated.roleScopeBindings = [{ actorLaunchName: "actor", scope: "repo", governanceRoles: ["builder"] }];
+  assert.equal(verifyRecordShape("RegistryInstanceViewV1", populated), "ACCEPT_SHAPE");
+  for (const field of ["keyId", "fingerprint", "validFrom", "validUntil", "revokedAt"]) {
+    const changed = structuredClone(populated);
+    changed.keys[0][field] = 123;
+    assert.equal(verifyRecordShape("RegistryInstanceViewV1", changed), "REJECT_SCHEMA", `keys.${field}`);
+  }
+  for (const state of ["active", "rotated", "revoked"]) {
+    const changed = structuredClone(populated);
+    changed.keys[0].state = state;
+    assert.equal(verifyRecordShape("RegistryInstanceViewV1", changed), "ACCEPT_SHAPE", state);
+  }
+  for (const mutate of [
+    (x) => { x.instances = [{}]; },
+    (x) => { x.keys[0].state = "evil"; },
+    (x) => { x.keys[0].extra = true; },
+    (x) => { delete x.keys[0].fingerprint; },
+    (x) => { x.keys[0].validUntil = 1; },
+    (x) => { x.roleScopeBindings[0].governanceRoles = [1]; },
+    (x) => { x.roleScopeBindings[0].extra = true; },
+    (x) => { x.offboardTombstone = {}; },
+    (x) => { x.offboardTombstone = { offboardedAt: "t", reason: 1 }; },
+  ]) {
+    const changed = structuredClone(populated);
+    mutate(changed);
+    assert.equal(verifyRecordShape("RegistryInstanceViewV1", changed), "REJECT_SCHEMA", JSON.stringify(changed));
+  }
+});
+
+test("AUTHORITY-NATIVE: capabilities optionals and ordering follow r3 schemas", () => {
+  const good = loadJson("vectors/SessionCaptureCapabilitiesV1.json").positive[0].value;
+  for (const hostKind of ["claude", "codex", "agy", "vibe", "muse", "gemini", "hermes", "opencode", "mistral", "other"]) {
+    assert.equal(verifyRecordShape("SessionCaptureCapabilitiesV1", { ...good, hostKind }), "ACCEPT_SHAPE", hostKind);
+  }
+  const ordered = { ...good, pluginIdentity: "plugin", pluginVersion: "v1", pluginDigest: "a".repeat(64), convergenceManifestDigest: "b".repeat(64), pointOrdering: [{ hookPoint: "PreToolUse", entries: ["workspace-scope-guard", "drive-receive"] }], declaredLosses: ["pty-unavailable", "post-turn-only", "no-central-admission", "unqualified-attach"] };
+  assert.equal(verifyRecordShape("SessionCaptureCapabilitiesV1", ordered), "ACCEPT_SHAPE");
+  for (const field of ["pluginIdentity", "pluginVersion", "cliVersion", "providerDialect", "originAgentSessionId"]) {
+    for (const invalid of [123, "", "x".repeat(129), "\n"]) {
+      assert.equal(verifyRecordShape("SessionCaptureCapabilitiesV1", { ...ordered, [field]: invalid }), "REJECT_SCHEMA", field);
+    }
+  }
+  for (const field of ["pluginDigest", "convergenceManifestDigest", "cliExecutableDigest", "matrixDigest", "rc0CapabilitiesDigest", "providerTupleDigest"]) {
+    for (const invalid of [123, "a".repeat(63), "A".repeat(64), `sha256:${"a".repeat(64)}`]) {
+      assert.equal(verifyRecordShape("SessionCaptureCapabilitiesV1", { ...ordered, [field]: invalid }), "REJECT_SCHEMA", field);
+    }
+  }
+  for (const [bit, entry] of Object.entries(good.bits)) {
+    for (const field of Object.keys(entry)) {
+      const changed = structuredClone(good);
+      changed.bits[bit][field] = 123;
+      assert.equal(verifyRecordShape("SessionCaptureCapabilitiesV1", changed), "REJECT_SCHEMA", `${bit}.${field}`);
+    }
+  }
+  for (const [index, column] of good.columns.entries()) {
+    for (const field of Object.keys(column)) {
+      const changed = structuredClone(good);
+      changed.columns[index][field] = 123;
+      assert.equal(verifyRecordShape("SessionCaptureCapabilitiesV1", changed), "REJECT_SCHEMA", `column ${index}.${field}`);
+    }
+  }
+  for (const mutate of [
+    (x) => { x.pluginDigest = "invalid"; },
+    (x) => { x.convergenceManifestDigest = "invalid"; },
+    (x) => { x.pluginIdentity = "x".repeat(129); },
+    (x) => { x.pluginVersion = ""; },
+    (x) => { x.pointOrdering = ["PreToolUse"]; },
+    (x) => { x.pointOrdering[0].hookPoint = "evil"; },
+    (x) => { x.pointOrdering[0].entries = []; },
+    (x) => { x.pointOrdering[0].entries = ["drive-receive", "drive-receive"]; },
+    (x) => { x.pointOrdering[0].entries = ["evil"]; },
+    (x) => { x.pointOrdering[0].extra = true; },
+    (x) => { x.pointOrdering = Array(33).fill(x.pointOrdering[0]); },
+  ]) {
+    const changed = structuredClone(ordered);
+    mutate(changed);
+    assert.equal(verifyRecordShape("SessionCaptureCapabilitiesV1", changed), "REJECT_SCHEMA", JSON.stringify(changed));
+  }
 });
 
 test("AUTHORITY-NATIVE: Attestation $def constraints refuse one by one", () => {
@@ -1003,6 +1091,20 @@ test("AUTHORITY-NATIVE: association Id bounds refuse one by one", () => {
   const nullOrigin = structuredClone(good);
   nullOrigin.originAgentSessionId = null;
   assert.equal(verifyRecordShape("RemoteSourceAssociationV1", nullOrigin), "REJECT_SCHEMA");
+});
+
+test("AUTHORITY-NATIVE: H string encodings remain M0-owned", () => {
+  for (const record of H_RECORDS) {
+    if (record === "RegistryReaderV1") continue;
+    const good = loadJson(`vectors/${record}.json`).positive.find((p) => p.expect === "ACCEPT_SHAPE").value;
+    for (const [key, value] of Object.entries(good)) {
+      if (typeof value !== "string" || ["format", "signingClass", "verdict"].includes(key)) continue;
+      for (const replacement of ["", "é".repeat(129)]) {
+        assert.equal(verifyRecordShape(record, { ...good, [key]: replacement }), "ACCEPT_SHAPE", `${record}.${key}: string encoding`);
+      }
+      assert.equal(verifyRecordShape(record, { ...good, [key]: 123 }), "REJECT_SCHEMA", `${record}.${key}: number`);
+    }
+  }
 });
 
 function testAuthority(issuer, kid) {
@@ -1213,8 +1315,11 @@ test("AUTHORITY-NATIVE: resolveSession trusts the host-observed tuple, never the
   const hostPort = (pid, startedAt) => ({
     observeProcess: () => ({ pid, startedAt }),
   });
-  const digest = digestFor(4242, "2026-11-01T08:00:00.000Z");
+  // Fixed witness, independently checked against the canonical producer.
+  const digest = "sha256:78abf5e47a99c2cabc357f54669b307b168aa3d30a2a6ab0aba408bea7d049e5";
   const minted = { ...bearer, processBindingRef: { ...bearer.processBindingRef, digest } };
+  assert.deepEqual(resolveSession({ ...minted, pid: 999999, startedAt: "whenever" }, hostPort(4242, "2026-11-01T08:00:00.000Z")), { ok: false, reason: "binding_refused" });
+  assert.deepEqual(resolveSession(minted, { observeProcess: () => { throw new Error("host unavailable"); } }), { ok: false, reason: "origin_unresolved" });
   // Positive: the host observes the same live tuple the ref binds.
   const ok = resolveSession(minted, hostPort(4242, "2026-11-01T08:00:00.000Z"));
   assert.equal(ok.ok, true);

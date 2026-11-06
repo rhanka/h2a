@@ -20,9 +20,9 @@
  * - `signDriveConsentAck`: NEUTRALISED — always refuses
  *   `source_role_unavailable` until the binding↔ack↔projection↔fence
  *   composition exists (B5+). No signature is emitted on this path.
- * - `resolveSession`: verifies a `ProcessBindingRef` against the locally
- *   minted binding digest and returns a local `SessionRef`. Foreign origins
- *   refuse `origin_unresolved`; writer epoch/revision are never minted.
+ * - `resolveSession`: checks a `ProcessBindingRef` against an injected
+ *   host observation; without that port it refuses `origin_unresolved`
+ *   until B5+ wiring. Writer epoch/revision are never minted.
  * - `openFactRegistry`: `factRef` idempotence — duplicate identity plus
  *   identical content allocates nothing.
  */
@@ -160,16 +160,13 @@ function isWireSignature(value: unknown): boolean {
 // Closed shape validators.
 // ---------------------------------------------------------------------------
 
-function isIdArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every(isId);
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every(isString);
 }
 
-// P2-1 round 3: the only signing class attested by the r3 vectors is D0 —
-// the set is closed, anything else (e.g. D9) refuses.
-const SIGNING_CLASSES: readonly string[] = ["D0"];
-// P2-1 round 3: no r3 vector attests any memory-scope value — the set is
-// closed and empty, so any entry refuses fail-closed (deferred to B5+).
-const MEMORY_SCOPES: readonly string[] = [];
+// H schemas constrain types only; string encodings remain M0-owned.
+const SIGNING_CLASSES: readonly string[] = ["D0", "D1", "D2"];
+const MEMORY_SCOPES: readonly string[] = ["role", "repo"];
 
 function isRoleScopePolicy(value: unknown): boolean {
   if (!isRecord(value)) return false;
@@ -193,10 +190,10 @@ function isRoleScopePolicy(value: unknown): boolean {
   if (value["format"] !== "h2a.role-scope-policy/v1") return false;
   if (!SIGNING_CLASSES.includes(value["signingClass"] as string)) return false;
   for (const k of ["governanceRoles", "allowedCliKinds", "allowedModels"]) {
-    if (!isIdArray(value[k])) return false;
+    if (!isStringArray(value[k])) return false;
   }
   // P2-1 round 3: memory scopes are a closed enum, not free strings.
-  if (!isIdArray(value["memoryScopes"])) return false;
+  if (!isStringArray(value["memoryScopes"])) return false;
   if (!(value["memoryScopes"] as string[]).every((s) => MEMORY_SCOPES.includes(s))) {
     return false;
   }
@@ -204,27 +201,23 @@ function isRoleScopePolicy(value: unknown): boolean {
   if (
     !isRecord(rights) ||
     !hasExactKeys(rights, ["connectorClasses", "tools"]) ||
-    !isIdArray(rights["tools"]) ||
-    !isIdArray(rights["connectorClasses"])
+    !isStringArray(rights["tools"]) ||
+    !isStringArray(rights["connectorClasses"])
   ) {
     return false;
   }
-  // P2-1 round 3: typed optionals — a Counter ceiling, Id validUntil /
-  // supersedes. Anything else refuses.
-  if (value["effortCeiling"] !== undefined && !isCounter(value["effortCeiling"])) {
-    return false;
+  for (const key of optional) {
+    if (Object.hasOwn(value, key) && !isString(value[key])) return false;
   }
-  if (value["validUntil"] !== undefined && !isId(value["validUntil"])) return false;
-  if (value["supersedes"] !== undefined && !isId(value["supersedes"])) return false;
   return (
-    isId(value["policyId"]) &&
-    isId(value["actorLaunchName"]) &&
-    isId(value["scope"]) &&
-    isId(value["driveConsentClass"]) &&
-    isId(value["validFrom"]) &&
-    isId(value["signerInstance"]) &&
-    isId(value["signerKeyId"]) &&
-    isId(value["signature"]) &&
+    isString(value["policyId"]) &&
+    isString(value["actorLaunchName"]) &&
+    isString(value["scope"]) &&
+    isString(value["driveConsentClass"]) &&
+    isString(value["validFrom"]) &&
+    isString(value["signerInstance"]) &&
+    isString(value["signerKeyId"]) &&
+    isString(value["signature"]) &&
     isCounter(value["revision"])
   );
 }
@@ -237,9 +230,9 @@ function isRegistryReader(value: unknown): boolean {
     case "currentRevision":
       return hasExactKeys(params, []);
     case "getInstance":
-      return hasExactKeys(params, ["agentUuidOrInstance"]) && isId(params["agentUuidOrInstance"]);
+      return hasExactKeys(params, ["agentUuidOrInstance"]) && isString(params["agentUuidOrInstance"]);
     case "listChangesSince":
-      return hasExactKeys(params, ["revision"]) && isId(params["revision"]);
+      return hasExactKeys(params, ["revision"]) && isString(params["revision"]);
     default:
       return false;
   }
@@ -260,26 +253,27 @@ function isRegistryInstanceView(value: unknown): boolean {
     return false;
   }
   if (value["format"] !== "h2a.registry-instance/v1") return false;
-  // P2-1 round 3: launchName is an optional Id, offboardTombstone an
-  // optional record — never a bare string or number. Items are typed:
-  // instance/binding rows are records, key rows are entry refs.
-  if (value["launchName"] !== undefined && !isId(value["launchName"])) return false;
-  if (value["offboardTombstone"] !== undefined && !isRecord(value["offboardTombstone"])) {
-    return false;
+  if (Object.hasOwn(value, "launchName") && !isString(value["launchName"])) return false;
+  if (Object.hasOwn(value, "offboardTombstone")) {
+    const tombstone = value["offboardTombstone"];
+    if (!isRecord(tombstone) || !hasExactKeys(tombstone, ["offboardedAt", "reason"]) ||
+        !isString(tombstone["offboardedAt"]) || !isString(tombstone["reason"])) return false;
   }
-  const instances = value["instances"];
+  if (!isStringArray(value["instances"])) return false;
   const bindings = value["roleScopeBindings"];
-  if (
-    !Array.isArray(instances) ||
-    !instances.every(isRecord) ||
-    !Array.isArray(bindings) ||
-    !bindings.every(isRecord)
-  ) {
-    return false;
-  }
+  if (!Array.isArray(bindings) || !bindings.every((binding) =>
+    isRecord(binding) && hasExactKeys(binding, ["actorLaunchName", "scope", "governanceRoles"]) &&
+    isString(binding["actorLaunchName"]) && isString(binding["scope"]) && isStringArray(binding["governanceRoles"]))) return false;
   const keyList = value["keys"];
-  if (!Array.isArray(keyList) || !keyList.every(isEntryRef)) return false;
-  return isId(value["registryRevision"]) && isId(value["agentUuid"]);
+  if (!Array.isArray(keyList) || !keyList.every((key) => {
+    if (!isRecord(key)) return false;
+    const required = ["keyId", "fingerprint", "state", "validFrom"];
+    const optional = ["validUntil", "revokedAt"];
+    return required.every((k) => Object.hasOwn(key, k)) &&
+      Object.keys(key).every((k) => required.includes(k) || optional.includes(k)) &&
+      Object.entries(key).every(([k, v]) => k === "state" ? ["active", "rotated", "revoked"].includes(v as string) : isString(v));
+  })) return false;
+  return isString(value["registryRevision"]) && isString(value["agentUuid"]);
 }
 
 function isSessionAdmissionEvidence(value: unknown): boolean {
@@ -292,14 +286,12 @@ function isSessionAdmissionEvidence(value: unknown): boolean {
   if (value["format"] !== "h2a.session-admission/v1") return false;
   // r3: verdict is const "admitted".
   if (value["verdict"] !== "admitted") return false;
-  // P2-1 round 3: every other field is an Id, not a free string.
-  return keys.every((k) => k === "format" || k === "verdict" || isId(value[k]));
+  return keys.every((k) => k === "format" || k === "verdict" || isString(value[k]));
 }
 
 function isRoleAgentAttestation(value: unknown): boolean {
   if (!isRecord(value)) return false;
-  // P2-1 round 3: 12 required + admitted optional expiresAt (parallel to
-  // issuedAt — the r3 vectors carry both as strings, never numbers).
+  // r3: 12 required fields and optional expiresAt, all strings except keyIds.
   const required = [
     "actorLaunchName", "agentUuid", "attestingInstance", "format", "issuedAt",
     "keyIds", "keySetRevision", "launchName", "scope", "signature",
@@ -316,19 +308,19 @@ function isRoleAgentAttestation(value: unknown): boolean {
     return false;
   }
   if (value["format"] !== "h2a.role-agent-attestation/v1") return false;
-  if (value["expiresAt"] !== undefined && !isId(value["expiresAt"])) return false;
-  if (!isIdArray(value["keyIds"])) return false;
+  if (Object.hasOwn(value, "expiresAt") && !isString(value["expiresAt"])) return false;
+  if (!isStringArray(value["keyIds"])) return false;
   return (
-    isId(value["actorLaunchName"]) &&
-    isId(value["agentUuid"]) &&
-    isId(value["attestingInstance"]) &&
-    isId(value["issuedAt"]) &&
-    isId(value["keySetRevision"]) &&
-    isId(value["launchName"]) &&
-    isId(value["scope"]) &&
-    isId(value["signature"]) &&
-    isId(value["signerInstance"]) &&
-    isId(value["signerKeyId"])
+    isString(value["actorLaunchName"]) &&
+    isString(value["agentUuid"]) &&
+    isString(value["attestingInstance"]) &&
+    isString(value["issuedAt"]) &&
+    isString(value["keySetRevision"]) &&
+    isString(value["launchName"]) &&
+    isString(value["scope"]) &&
+    isString(value["signature"]) &&
+    isString(value["signerInstance"]) &&
+    isString(value["signerKeyId"])
   );
 }
 
@@ -468,12 +460,13 @@ function isCaptureCapabilities(value: unknown): boolean {
   if (!hasExactKeys(value, keys)) return false;
   if (value["format"] !== "h2a.session-capture/1") return false;
   if (value["kind"] !== "capabilities") return false;
-  for (const k of ["pluginIdentity", "pluginVersion", "pluginDigest", "convergenceManifestDigest"]) {
-    if (value[k] !== null && !isString(value[k])) return false;
+  for (const k of ["pluginIdentity", "pluginVersion"]) {
+    if (value[k] !== null && !isId(value[k])) return false;
   }
-  // P2-1 round 3: hostKind and matrixSource are closed — the only values
-  // attested by the r3 vectors. Anything else refuses.
-  if (value["hostKind"] !== "claude") return false;
+  for (const k of ["pluginDigest", "convergenceManifestDigest"]) {
+    if (value[k] !== null && !isDigest(value[k])) return false;
+  }
+  if (!["claude", "codex", "agy", "vibe", "muse", "gemini", "hermes", "opencode", "mistral", "other"].includes(value["hostKind"] as string)) return false;
   if (value["matrixSource"] !== "H2A_HOST_HOOK_CAPABILITIES") return false;
   // P2-1 round 3: digest slots hold hex64 digests, never free strings.
   for (const k of ["cliExecutableDigest", "matrixDigest", "rc0CapabilitiesDigest", "providerTupleDigest"]) {
@@ -481,9 +474,7 @@ function isCaptureCapabilities(value: unknown): boolean {
   }
   if (!isId(value["cliVersion"]) || !isId(value["providerDialect"])) return false;
   if (!isId(value["originAgentSessionId"])) return false;
-  // r3: bits = closed capability map of exactly the 5 known bits, each an
-  // exact 8-key entry (state enum + refs + the 4 digest slots, null when a
-  // slot does not apply).
+  // r3: five bits, each with exactly eight typed fields.
   const BIT_STATES = ["unavailable", "contract-only", "installed-qualified"];
   const KNOWN_BITS = [
     "ptyBytes", "structuredDeltas", "completePermissionContext",
@@ -538,18 +529,27 @@ function isCaptureCapabilities(value: unknown): boolean {
       return false;
     }
   }
-  // P2-1 round 3: declared losses are a closed, duplicate-free enum;
-  // pointOrdering is an array of Ids, never a bare string.
-  const LOSSES = ["no-structured-deltas", "incomplete-context", "no-literal-input", "no-permission-response"];
+  // r3: declared losses are a closed, duplicate-free enum.
+  const LOSSES = ["no-structured-deltas", "incomplete-context", "no-literal-input", "no-permission-response", "pty-unavailable", "post-turn-only", "no-central-admission", "unqualified-attach"];
   const losses = value["declaredLosses"];
   if (
-    !Array.isArray(losses) ||
+    !Array.isArray(losses) || losses.length > 8 ||
     new Set(losses).size !== losses.length ||
     !losses.every((l) => LOSSES.includes(l as string))
   ) {
     return false;
   }
-  if (!isIdArray(value["pointOrdering"])) return false;
+  const ordering = value["pointOrdering"];
+  const hookPoints = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "SubagentStart", "SubagentStop", "PreCompact", "PostCompact", "pre_tool", "post_tool", "post_agent", "poll", "app-server", "launch", "other-qualified"];
+  const orderEntries = ["workspace-scope-guard", "deny-manual-h2a-cli", "shared-broker-enqueue", "native-stop-observer", "drumbeat-record", "drive-receive"];
+  if (!Array.isArray(ordering) || ordering.length > 32) return false;
+  for (const point of ordering) {
+    if (!isRecord(point) || !hasExactKeys(point, ["hookPoint", "entries"]) ||
+        !hookPoints.includes(point["hookPoint"] as string)) return false;
+    const entries = point["entries"];
+    if (!Array.isArray(entries) || entries.length < 1 || entries.length > 6 ||
+        new Set(entries).size !== entries.length || !entries.every((entry) => orderEntries.includes(entry))) return false;
+  }
   return isCounter(value["capabilityRevision"]) && isSourceRef(value["sourceRef"]);
 }
 
@@ -885,8 +885,8 @@ export type SessionResolution =
 
 /**
  * `RegistryInput.resolveSession` producer semantics. The native host mints
- * the binding digest over the canonical local tuple
- * `{ instanceId, pid, startedAt }`; a ref whose digest differs refuses, a
+ * the binding digest over the process, session and ref identity;
+ * a ref whose digest differs refuses, a
  * foreign origin stays unresolved, and writer epoch/revision are never
  * supplied (mesh-owned).
  *
@@ -908,8 +908,8 @@ export function resolveSession(
     // sha256:hex64 both bind; anything else refuses.
     (!isDigest(ref["digest"]) && !isNativeHash(ref["digest"])) ||
     !isId(input.localInstanceId) ||
-    !Number.isSafeInteger(input.pid) ||
-    !isString(input.startedAt) ||
+    !Number.isSafeInteger(input.pid) || input.pid < 1 ||
+    !isString(input.startedAt) || input.startedAt.length === 0 ||
     !isId(input.sessionId) ||
     !isId(input.incarnation)
   ) {
@@ -929,9 +929,18 @@ export function resolveSession(
   if (!host) {
     return { ok: false, reason: "origin_unresolved" };
   }
-  const observed = host.observeProcess();
-  if (!observed || !Number.isSafeInteger(observed.pid) || !isString(observed.startedAt)) {
+  let observed: ReturnType<HostProcessPort["observeProcess"]>;
+  try {
+    observed = host.observeProcess();
+  } catch {
     return { ok: false, reason: "origin_unresolved" };
+  }
+  if (!observed || !Number.isSafeInteger(observed.pid) || observed.pid < 1 ||
+      !isString(observed.startedAt) || observed.startedAt.length === 0) {
+    return { ok: false, reason: "origin_unresolved" };
+  }
+  if (input.pid !== observed.pid || input.startedAt !== observed.startedAt) {
+    return { ok: false, reason: "binding_refused" };
   }
   // P2-2 round 3: the liveness expectation comes from the host-observed
   // tuple, never from the bearer bag — a self-minted tuple with a

@@ -15,10 +15,10 @@
  * merged by max, timestamp, or direction.
  */
 
-import { closeSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync, fsyncSync } from "node:fs";
+import { closeSync, linkSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync, fsyncSync, rmSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 
-const HEX64_RE = /^[a-f0-9]{64}$/;
 const DIGEST_RE = /^(sha256:)?[a-f0-9]{64}$/;
 
 export type ConsentFenceRefusal =
@@ -89,10 +89,6 @@ const FENCE_FORMAT = "h2a.source-consent-fence/1";
 
 type FencePairs = Record<string, { revision: number; digest: string }>;
 
-// P1-1 round 3: one temp file per writer — a fixed tmp name lets two
-// concurrent committers overwrite each other between write and rename.
-let tmpSeq = 0;
-
 interface FenceState {
   readonly pairs: FencePairs;
   readonly genesis: string;
@@ -103,13 +99,7 @@ function readState(dir: string): FenceState {
   try {
     raw = readFileSync(join(dir, FENCE_FILE), "utf8");
   } catch (err) {
-    // P1-1 round 3: only an absent file is (explicitly) created by the
-    // opener. Any other read failure — permissions, directory clash —
-    // refuses, never resets to an empty state.
-    if ((err as NodeJS.ErrnoException)?.code === "ENOENT") {
-      throw new Error(`fence_absent: no fence state in ${dir}`);
-    }
-    throw new Error(`fence_unavailable: cannot read fence state in ${dir}`);
+    throw new Error(`fence_unavailable: cannot read fence state in ${dir}`, { cause: err });
   }
   let parsed: unknown;
   try {
@@ -159,11 +149,10 @@ function readState(dir: string): FenceState {
   return { pairs: pairs as FencePairs, genesis };
 }
 
-function writeState(dir: string, pairs: FencePairs, genesis: string): void {
-  tmpSeq += 1;
-  const tmp = join(dir, `${FENCE_FILE}.tmp.${process.pid}.${tmpSeq}`);
+function writeState(dir: string, pairs: FencePairs, genesis: string, create = false): void {
+  const tmp = join(dir, `${FENCE_FILE}.tmp.${randomUUID()}`);
   try {
-    writeFileSync(tmp, JSON.stringify({ format: FENCE_FORMAT, genesis, pairs }) + "\n");
+    writeFileSync(tmp, JSON.stringify({ format: FENCE_FORMAT, genesis, pairs }) + "\n", { flag: "wx" });
     // P1-3: fsync the temp file before rename so a crash cannot leave a
     // committed-but-unreadable revision behind.
     const fd = openSync(tmp, "r");
@@ -172,36 +161,49 @@ function writeState(dir: string, pairs: FencePairs, genesis: string): void {
     } finally {
       closeSync(fd);
     }
-    renameSync(tmp, join(dir, FENCE_FILE));
+    // Exclusive publication on creation cannot overwrite another creator.
+    if (create) linkSync(tmp, join(dir, FENCE_FILE));
+    else renameSync(tmp, join(dir, FENCE_FILE));
   } catch {
     throw new Error(`fence_unavailable: cannot commit fence state in ${dir}`);
+  } finally {
+    rmSync(tmp, { force: true });
   }
 }
 
-/** Open (or create) the durable fence rooted at `dir`. No journal payloads. */
-export function openSourceConsentFence(dir: string): SourceConsentFence {
-  try {
-    mkdirSync(dir, { recursive: true });
-  } catch {
-    throw new Error(`fence_unavailable: cannot create fence dir ${dir}`);
+/** Open the durable fence; initial creation requires `{ create: true }`. */
+export function openSourceConsentFence(dir: string, options: { readonly create?: boolean } = {}): SourceConsentFence {
+  if (options.create === true) {
+    try {
+      mkdirSync(dir, { recursive: true });
+    } catch {
+      throw new Error(`fence_unavailable: cannot create fence dir ${dir}`);
+    }
   }
+  let initial: FenceState;
   try {
-    readState(dir);
+    initial = readState(dir);
   } catch (err) {
-    // P1-1 round 3: creation is explicit and only on ENOENT — any other
-    // absence or error refuses with the state untouched.
-    if (/fence_absent/.test((err as Error).message)) {
-      writeState(dir, {}, new Date().toISOString());
+    if (options.create === true && ((err as Error).cause as NodeJS.ErrnoException)?.code === "ENOENT") {
+      writeState(dir, {}, randomUUID(), true);
+      initial = readState(dir);
     } else {
       throw err;
     }
   }
+  const freshState = (): FenceState => {
+    const fresh = readState(dir);
+    if (fresh.genesis !== initial.genesis) {
+      throw new Error("fence_unavailable: fence genesis changed");
+    }
+    return fresh;
+  };
   return {
     // P1-1 round 3: revisionOf re-reads durable state on every call and
     // refuses on any read error — a long-lived handle never serves the
     // revision it saw at open time after another writer advanced the file.
     revisionOf(pairId: string): number {
-      const fresh = readState(dir);
+      const fresh = freshState();
       const entry = fresh.pairs[pairId];
       return entry && Number.isSafeInteger(entry.revision) ? entry.revision : 0;
     },
@@ -219,7 +221,7 @@ export function openSourceConsentFence(dir: string): SourceConsentFence {
       // instances cannot silently roll back each other's revisions.
       // P1-1 round 3: the write carries the freshly-read genesis, so a
       // commit never resurrects a superseded envelope.
-      const fresh = readState(dir);
+      const fresh = freshState();
       const current = fresh.pairs[pairId];
       if (current && current.digest === snapshotDigest) {
         return current.revision;
