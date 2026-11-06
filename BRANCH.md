@@ -18,6 +18,23 @@
   consensus claimed. Push a ready PR to main, follow CI, do not merge.
 - Private run directory: `/home/antoinefa/.cache-tmp/h2a-test/run-oVNjcF`;
   removal and terminal CI are recorded in `tmp/h-cond/identity-selfheal2-last.md`.
+# Cross-CLI bench R29 — 2026-11-06
+
+- Publish the four R28 fixes at 66e1cfe88; main remains f6314c18d.
+- CI startup resume exposed an ESRCH race between a recorded process birth
+  check and SIGKILL. Ignore only ESRCH, retain convergence and other errors.
+  Deterministic RED then GREEN; fresh source crash-recovery suite 21/21.
+- CI closed upgrade installation bundles node-pty inside h2a-runtime.
+  Resolve its native build from that installed runtime's package, including
+  nested node-addon-api for source installs. Load a shipped closed prebuild
+  unchanged and refuse a corrupt one. Real module-resolution/prebuild
+  regressions RED then GREEN; runtime-runner controls 5/5. Full closed
+  installation remains CI-only. The exact resume CI scenario also passes.
+- PR receipt jobs correctly refuse receipt-absent for this exact SHA.
+  Preserve the receipt gate, 3000 ms wake bound and enrolled-seat set.
+- Commands, terminal CI and final Codex measurement: tmp/h-cond/xcli-r29-last.md.
+  Independent harness consensus unavailable: no h2a_run MCP tool in confinement.
+
 # Cross-CLI bench R28 — 2026-11-05
 
 - Preserve the prior relaunch through d7f21c0f0, rebased on origin/main
