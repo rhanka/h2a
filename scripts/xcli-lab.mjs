@@ -353,10 +353,36 @@ export function cellSecretPaths(cell, copies) {
 export function wipeSecrets(paths) {
   const surviving = [];
   for (const path of paths) {
-    try { fs.rmSync(path, { recursive: true, force: true }); } catch { /* the re-check below decides */ }
+    try { fs.rmSync(path, { recursive: true, force: true }); }
+    catch (error) {
+      // Vibe makes its plugin cache immutable (0500 directories). Recovery
+      // owns this private tree: restore directory write access, never file
+      // contents or symlink targets, then retry the actual removal.
+      if (error.code === 'EACCES') {
+        try {
+          writablePrivateDirectories(path);
+          fs.rmSync(path, { recursive: true, force: true });
+        } catch { /* absence below is still the only successful proof */ }
+      }
+    }
     if (fs.existsSync(path)) surviving.push(path);
   }
   return surviving;
+}
+
+function writablePrivateDirectories(path) {
+  let fd;
+  try { fd = fs.openSync(path, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW); }
+  catch (error) { if (['ENOENT', 'ENOTDIR', 'ELOOP'].includes(error.code)) return; throw error; }
+  try {
+    const stat = fs.fstatSync(fd);
+    assert.equal(stat.uid, process.getuid(), 'wipe may chmod only owned private directories');
+    fs.fchmodSync(fd, (stat.mode & 0o777) | 0o700);
+    // Descriptor-relative traversal pins each directory even if renamed;
+    // O_NOFOLLOW refuses links before any chmod can touch their target.
+    const pinned = `/proc/self/fd/${fd}`;
+    for (const name of fs.readdirSync(pinned)) writablePrivateDirectories(join(pinned, name));
+  } finally { fs.closeSync(fd); }
 }
 // Lot L7 (QO4, section 8.2): the vendor vibe product may run as installed,
 // vendor Python runtime included. Its entrypoint is recorded, never blocked.
