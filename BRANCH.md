@@ -39,6 +39,11 @@
   published onboarding import. Its clean-checkout workflow reproduction is
   RED (missing llm-mesh) then GREEN after dependency installation with scripts
   disabled. The merge receipt gate remains fail-closed on absent qualification.
+- The PR receipt lookup now uses the authenticated exact-SHA run list and
+  campaign path rather than a default-branch workflow-name lookup. RED: 404
+  with no typed verdict; GREEN: receipt-absent, exit 1, plus a successful
+  exact-head artifact download and validation, with all 20 receipt controls
+  passing. No qualification or merge gate is waived.
 - Polling RED: an empty barrier marker schedules 99 immediate inbox calls.
   GREEN: wait for a valid positive timestamp, then execute the first tick.
   Keep the 100-call cap and the wake assertions unchanged.
