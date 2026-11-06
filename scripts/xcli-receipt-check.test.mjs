@@ -12,9 +12,35 @@ import { spawnSync } from 'node:child_process';
 import { checkReceipt, computeHarnessDigests, loadMatrixManifest, STAGE_KEYS } from './xcli-receipt-check.mjs';
 import { buildCampaignReceipt } from './xcli-ci-check.mjs';
 import { environment, ORACLE_SOURCES } from './xcli-lab.mjs';
+import { parse } from 'yaml';
 
 const repo = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
 const SHA = 'a'.repeat(40);
+
+test('receipt workflow provisions dependencies before reporting qualification on a clean checkout', () => {
+  const root = fs.mkdtempSync(join(os.tmpdir(), 'xcli-receipt-clean-'));
+  try {
+    fs.cpSync(join(repo, 'scripts'), join(root, 'scripts'), { recursive: true });
+    fs.copyFileSync(join(repo, 'package.json'), join(root, 'package.json'));
+    const env = environment(join(root, 'env'));
+    // Simulate the dependency installation without network or a second copy
+    // of node_modules. The real receipt checker runs against the clean tree.
+    fs.writeFileSync(join(root, 'env/bin/npm'), `#!${process.execPath}\n
+      import fs from 'node:fs';
+      import assert from 'node:assert/strict';
+      assert.deepEqual(process.argv.slice(2), ['ci', '--ignore-scripts']);
+      fs.symlinkSync(${JSON.stringify(join(repo, 'node_modules'))}, ${JSON.stringify(join(root, 'node_modules'))}, 'dir');
+    `, { mode: 0o700 });
+    const workflow = parse(fs.readFileSync(join(repo, '.github/workflows/cross-cli-messaging.yml'), 'utf8'));
+    const commands = workflow.jobs['receipt-check'].steps.filter(step => step.run)
+      .map(step => step.run.replaceAll('${{ github.base_ref }}', 'feature')).join('\n');
+    const out = spawnSync('/bin/bash', ['-e', '-c', commands], {
+      cwd: root, env, encoding: 'utf8', timeout: 10000,
+    });
+    assert.equal(out.status, 0, out.stdout + out.stderr);
+    assert.match(out.stdout, /qualification: open/);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
 
 test('R18: the removed trusted-fetch paths refuse with a typed code', () => {
   const root = fs.mkdtempSync(join(os.tmpdir(), 'xcli-receipt-removed-'));
