@@ -345,6 +345,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
+      # The receipt reader imports the published seat-onboarding API.
+      - run: npm ci --ignore-scripts
+        env:
+          TMPDIR: ${{ runner.temp }}
       - name: Gate on the campaign-lane receipt, or report the open qualification
         env:
           GH_TOKEN: ${{ github.token }}
