@@ -776,6 +776,178 @@ test("CONSENT-PAIR: fence never serves stale revisions or silent resets", (t) =>
   assert.throws(() => openSourceConsentFence(dir), /fence_unavailable/);
 });
 
+// R4 probes run in isolated processes so fs interception cannot affect other
+// tests. Every writer uses the public fence API; only scheduling/I/O faults
+// are injected at the filesystem boundary.
+function fenceProbe(t, code) {
+  const root = mkdtempSync(join(tmpdir(), "rc2-b4-fence-r4-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const moduleUrl = new URL("../dist/runtime/drive/consent-fence.js", import.meta.url).href;
+  const probe = spawnSync(process.execPath, ["--input-type=module", "-e", `
+    import fs from "node:fs";
+    import { syncBuiltinESMExports } from "node:module";
+    import { join } from "node:path";
+    import { spawnSync } from "node:child_process";
+    const moduleUrl = ${JSON.stringify(moduleUrl)};
+    const { openSourceConsentFence, checkBindingRevision } = await import(moduleUrl);
+    const dir = ${JSON.stringify(root)};
+    const file = join(dir, "source-consent-revisions.json");
+    const pairId = "pair-r4";
+    const digest = (n) => n.repeat(64);
+    ${code}
+  `], {
+    env: { ...process.env, TMPDIR: root, XDG_RUNTIME_DIR: root },
+    encoding: "utf8",
+    timeout: 10_000,
+  });
+  assert.equal(probe.error, undefined, probe.error?.message);
+  assert.equal(probe.status, 0, probe.stderr);
+  return JSON.parse(probe.stdout);
+}
+
+test("CONSENT-PAIR R4: concurrent process cannot roll back the fence", (t) => {
+  const result = fenceProbe(t, `
+    const fence = openSourceConsentFence(dir, { create: true });
+    fence.commitSnapshot(pairId, digest("a"));
+    const read = fs.readFileSync;
+    let contender;
+    fs.readFileSync = function (path, ...args) {
+      const bytes = read(path, ...args);
+      if (path === file && !contender) {
+        // A has read r1. Before A can publish, B attempts r2 then r3.
+        const child = spawnSync(process.execPath, ["--input-type=module", "-e", \`
+          const { openSourceConsentFence } = await import(\${JSON.stringify(moduleUrl)});
+          const committed = [];
+          let refusal;
+          try {
+            const other = openSourceConsentFence(\${JSON.stringify(dir)});
+            committed.push(other.commitSnapshot("pair-r4", "b".repeat(64)));
+            committed.push(other.commitSnapshot("pair-r4", "c".repeat(64)));
+          } catch (err) { refusal = err.message; }
+          console.log(JSON.stringify({ committed, refusal }));
+        \`], { encoding: "utf8", timeout: 5_000 });
+        if (child.error || child.status !== 0) throw new Error(child.stderr, { cause: child.error });
+        contender = JSON.parse(child.stdout);
+        contender.revision = JSON.parse(read(file, "utf8")).pairs[pairId].revision;
+      }
+      return bytes;
+    };
+    syncBuiltinESMExports();
+    const committed = fence.commitSnapshot(pairId, digest("d"));
+    fs.readFileSync = read;
+    syncBuiltinESMExports();
+    const disk = JSON.parse(read(file, "utf8")).pairs[pairId].revision;
+    const checkR2 = checkBindingRevision({ pairId, consentRevision: 1, sourceConsentRevision: 2 }, fence);
+    console.log(JSON.stringify({ contender, committed, disk, checkR2 }));
+  `);
+  const evidence = JSON.stringify(result);
+  assert.ok(result.disk >= result.contender.revision, evidence);
+  assert.deepEqual(result.contender.committed, [], evidence);
+  assert.match(result.contender.refusal, /fence_unavailable/, evidence);
+  assert.equal(result.contender.revision, 1);
+  assert.equal(result.committed, 2);
+  assert.equal(result.disk, 2);
+  assert.deepEqual(result.checkR2, { ok: true }); // r2 is current, never a rollback
+});
+
+test("CONSENT-PAIR R4: crashed writer leaves existing handles fail-closed", (t) => {
+  const result = fenceProbe(t, `
+    const fence = openSourceConsentFence(dir, { create: true });
+    fence.commitSnapshot(pairId, digest("a"));
+    const before = fs.readFileSync(file, "utf8");
+    const child = spawnSync(process.execPath, ["--input-type=module", "-e", \`
+      import fs from "node:fs";
+      import { syncBuiltinESMExports } from "node:module";
+      const { openSourceConsentFence } = await import(\${JSON.stringify(moduleUrl)});
+      const fence = openSourceConsentFence(\${JSON.stringify(dir)});
+      const read = fs.readFileSync;
+      fs.readFileSync = function (...args) {
+        read(...args);
+        process.exit(0); // crash after acquiring the commit lock and reading r1
+      };
+      syncBuiltinESMExports();
+      fence.commitSnapshot("pair-r4", "b".repeat(64));
+      process.exit(1);
+    \`], { encoding: "utf8", timeout: 5_000 });
+    if (child.error || child.status !== 0) throw new Error(child.stderr, { cause: child.error });
+    const refusals = [];
+    for (const action of [
+      () => fence.revisionOf(pairId),
+      () => fence.commitSnapshot(pairId, digest("c")),
+      () => openSourceConsentFence(dir, { create: true }),
+    ]) {
+      try { action(); refusals.push("success"); }
+      catch (err) { refusals.push(err.message); }
+    }
+    const check = checkBindingRevision({ pairId, consentRevision: 1, sourceConsentRevision: 1 }, fence);
+    console.log(JSON.stringify({ refusals, check, unchanged: fs.readFileSync(file, "utf8") === before }));
+  `);
+  for (const refusal of result.refusals) assert.match(refusal, /fence_unavailable/);
+  assert.deepEqual(result.check, { ok: false, reason: "revision_mismatch" });
+  assert.equal(result.unchanged, true);
+});
+
+test("CONSENT-PAIR R4: file then publication then directory are synced", (t) => {
+  const result = fenceProbe(t, `
+    const events = [];
+    const sync = fs.fsyncSync;
+    fs.fsyncSync = function (fd) {
+      events.push(fs.fstatSync(fd).isDirectory() ? "directory" : "file");
+      return sync(fd);
+    };
+    for (const name of ["linkSync", "renameSync"]) {
+      const publish = fs[name];
+      fs[name] = function (...args) {
+        const result = publish(...args);
+        events.push(name);
+        return result;
+      };
+    }
+    syncBuiltinESMExports();
+    const fence = openSourceConsentFence(dir, { create: true });
+    const creation = events.splice(0);
+    fence.commitSnapshot(pairId, digest("a"));
+    const commit = events.splice(0);
+    console.log(JSON.stringify({ creation, commit }));
+  `);
+  assert.deepEqual(result.creation, ["file", "linkSync", "directory"]);
+  assert.deepEqual(result.commit, ["file", "renameSync", "directory"]);
+});
+
+test("CONSENT-PAIR R4: directory fsync failure refuses creation and commit", (t) => {
+  const result = fenceProbe(t, `
+    const sync = fs.fsyncSync;
+    let failDirectory = true;
+    fs.fsyncSync = function (fd) {
+      if (failDirectory && fs.fstatSync(fd).isDirectory()) {
+        throw Object.assign(new Error("injected directory EIO"), { code: "EIO" });
+      }
+      return sync(fd);
+    };
+    syncBuiltinESMExports();
+    let creation;
+    try { openSourceConsentFence(join(dir, "creation"), { create: true }); }
+    catch (err) { creation = err.message; }
+    failDirectory = false;
+    const fence = openSourceConsentFence(dir, { create: true });
+    fence.commitSnapshot(pairId, digest("a"));
+    failDirectory = true;
+    let commit;
+    try { fence.commitSnapshot(pairId, digest("b")); }
+    catch (err) { commit = err.message; }
+    let read;
+    let reopen;
+    try { fence.revisionOf(pairId); } catch (err) { read = err.message; }
+    try { openSourceConsentFence(dir); } catch (err) { reopen = err.message; }
+    const check = checkBindingRevision({ pairId, consentRevision: 1, sourceConsentRevision: 2 }, fence);
+    console.log(JSON.stringify({ creation, commit, read, reopen, check }));
+  `);
+  for (const operation of ["creation", "commit", "read", "reopen"]) {
+    assert.match(result[operation] ?? "success", /fence_unavailable/, operation);
+  }
+  assert.deepEqual(result.check, { ok: false, reason: "revision_mismatch" });
+});
+
 // ---------------------------------------------------------------------------
 // AUTHORITY-NATIVE: H-shapes, binding/ack trust, association, capabilities.
 // ---------------------------------------------------------------------------

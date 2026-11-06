@@ -2766,3 +2766,26 @@ The temporary workflow_dispatch addition and its revert have no net effect.
   pairId formula, contract-fence tuple key/computed digest, custody public-key
   fingerprint binding, H shape/BLOCKED precedence, durable fact registry and
   factId, SG-R15/bits recursion, live host observation wiring.
+
+# B4-R4 — concurrent fence rollback and publication durability
+
+**Allowed Paths (R4 correction scope)**
+  - `packages/h2a/src/runtime/drive/consent-fence.ts`
+  - `packages/h2a/test/remote-session-identity.test.js`
+  - `BRANCH.md`
+
+- P1-1 (Astra): an atomic directory lock now covers open, revision reads,
+  and the complete read/validate/publish commit. Contention refuses
+  `fence_unavailable` immediately. No stale-lock removal: a crashed writer
+  leaves existing/new handles fail-closed; recovery remains B5+.
+- P2-1 (Astra): fsync the directory after link/rename, before success.
+  A failed post-publication fsync refuses and retains the lock so neither
+  a reader nor a binding check can accept an unconfirmed revision.
+- RED on b699315bd: four regressions fail, zero skipped. The two-process
+  probe observes B committing [2,3], A publishing 2, disk=2, checker(r2)=ok.
+  GREEN after root `tsc -b --pretty false`: R4 4/4; complete B4 file 55/55,
+  zero skipped. Commands and terminal CI per job: `tmp/h-cond/rc2-b4-r4-last.md`.
+- Mistral round-3 reviewed: no new P1/P2; raw signer, verify exceptions,
+  and digest alias normalization remain B5/B6 follow-ups. No route activated.
+- Rebase onto origin/main f6314c18d: already up to date. No new independent
+  consensus claimed: this confinement exposes no h2a MCP launch operation.

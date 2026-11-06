@@ -4,8 +4,11 @@
  * Durable `sourceConsentRevision` without changing historical journal
  * payloads: this fence stores ONLY `{ revision, snapshotDigest }` per consent
  * pair id in its own file. First committed snapshot is revision 1; each
- * changed snapshot commits +1 atomically (temp file + rename). Identical
- * snapshots re-commit nothing.
+ * changed snapshot commits +1 atomically (temp file + rename, directory
+ * fsync). Identical snapshots re-commit nothing. An exclusive interprocess
+ * lock covers reads and commits; contention refuses without retry. A lock
+ * left by a crashed writer or uncertain publication also refuses: recovery
+ * belongs to B5+, never an automatic stale-lock removal.
  *
  * Pair equality (`assertConsentPair`) pins the binding/ACK drive-binding
  * position: the exact selected `requestId` AND `grantId` of the live
@@ -15,7 +18,7 @@
  * merged by max, timestamp, or direction.
  */
 
-import { closeSync, linkSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync, fsyncSync, rmSync } from "node:fs";
+import { closeSync, linkSync, mkdirSync, openSync, readFileSync, renameSync, rmdirSync, writeFileSync, fsyncSync, rmSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 
@@ -87,6 +90,34 @@ export interface SourceConsentFence {
 const FENCE_FILE = "source-consent-revisions.json";
 const FENCE_FORMAT = "h2a.source-consent-fence/1";
 
+// After publication, an I/O failure leaves durability unknown. Keep the lock
+// so no handle/process can accept those bytes as a confirmed revision.
+class FencePublicationUncertain extends Error {}
+
+function withFenceLock<T>(dir: string, action: () => T): T {
+  const lock = join(dir, `${FENCE_FILE}.lock`);
+  try {
+    mkdirSync(lock);
+  } catch (err) {
+    throw new Error("fence_unavailable: cannot acquire exclusive fence lock", { cause: err });
+  }
+  let release = true;
+  try {
+    return action();
+  } catch (err) {
+    if (err instanceof FencePublicationUncertain) release = false;
+    throw err;
+  } finally {
+    if (release) {
+      try {
+        rmdirSync(lock);
+      } catch (err) {
+        throw new Error("fence_unavailable: cannot release fence lock", { cause: err });
+      }
+    }
+  }
+}
+
 type FencePairs = Record<string, { revision: number; digest: string }>;
 
 interface FenceState {
@@ -151,6 +182,7 @@ function readState(dir: string): FenceState {
 
 function writeState(dir: string, pairs: FencePairs, genesis: string, create = false): void {
   const tmp = join(dir, `${FENCE_FILE}.tmp.${randomUUID()}`);
+  let published = false;
   try {
     writeFileSync(tmp, JSON.stringify({ format: FENCE_FORMAT, genesis, pairs }) + "\n", { flag: "wx" });
     // P1-3: fsync the temp file before rename so a crash cannot leave a
@@ -164,10 +196,20 @@ function writeState(dir: string, pairs: FencePairs, genesis: string, create = fa
     // Exclusive publication on creation cannot overwrite another creator.
     if (create) linkSync(tmp, join(dir, FENCE_FILE));
     else renameSync(tmp, join(dir, FENCE_FILE));
-  } catch {
-    throw new Error(`fence_unavailable: cannot commit fence state in ${dir}`);
-  } finally {
+    published = true;
     rmSync(tmp, { force: true });
+    const directory = openSync(dir, "r");
+    try {
+      fsyncSync(directory);
+    } finally {
+      closeSync(directory);
+    }
+  } catch (err) {
+    // Preserve the publication failure even if best-effort cleanup also
+    // fails; otherwise a raw cleanup error could release an uncertain lock.
+    try { rmSync(tmp, { force: true }); } catch { /* keep the original error */ }
+    const Failure = published ? FencePublicationUncertain : Error;
+    throw new Failure(`fence_unavailable: cannot commit fence state in ${dir}`, { cause: err });
   }
 }
 
@@ -180,17 +222,17 @@ export function openSourceConsentFence(dir: string, options: { readonly create?:
       throw new Error(`fence_unavailable: cannot create fence dir ${dir}`);
     }
   }
-  let initial: FenceState;
-  try {
-    initial = readState(dir);
-  } catch (err) {
-    if (options.create === true && ((err as Error).cause as NodeJS.ErrnoException)?.code === "ENOENT") {
-      writeState(dir, {}, randomUUID(), true);
-      initial = readState(dir);
-    } else {
+  const initial = withFenceLock(dir, () => {
+    try {
+      return readState(dir);
+    } catch (err) {
+      if (options.create === true && ((err as Error).cause as NodeJS.ErrnoException)?.code === "ENOENT") {
+        writeState(dir, {}, randomUUID(), true);
+        return readState(dir);
+      }
       throw err;
     }
-  }
+  });
   const freshState = (): FenceState => {
     const fresh = readState(dir);
     if (fresh.genesis !== initial.genesis) {
@@ -203,9 +245,11 @@ export function openSourceConsentFence(dir: string, options: { readonly create?:
     // refuses on any read error — a long-lived handle never serves the
     // revision it saw at open time after another writer advanced the file.
     revisionOf(pairId: string): number {
-      const fresh = freshState();
-      const entry = fresh.pairs[pairId];
-      return entry && Number.isSafeInteger(entry.revision) ? entry.revision : 0;
+      return withFenceLock(dir, () => {
+        const fresh = freshState();
+        const entry = fresh.pairs[pairId];
+        return entry && Number.isSafeInteger(entry.revision) ? entry.revision : 0;
+      });
     },
     commitSnapshot(pairId: string, snapshotDigest: string): number {
       if (typeof pairId !== "string" || pairId.length === 0) {
@@ -217,19 +261,20 @@ export function openSourceConsentFence(dir: string, options: { readonly create?:
       if (typeof snapshotDigest !== "string" || !DIGEST_RE.test(snapshotDigest)) {
         throw new Error("fence_unavailable: snapshot digest must be hex64 or sha256:hex64");
       }
-      // P1-3: re-read the durable state before committing so concurrent
-      // instances cannot silently roll back each other's revisions.
-      // P1-1 round 3: the write carries the freshly-read genesis, so a
-      // commit never resurrects a superseded envelope.
-      const fresh = freshState();
-      const current = fresh.pairs[pairId];
-      if (current && current.digest === snapshotDigest) {
-        return current.revision;
-      }
-      const next = current ? current.revision + 1 : 1;
-      const updated = { ...fresh.pairs, [pairId]: { revision: next, digest: snapshotDigest } };
-      writeState(dir, updated, fresh.genesis);
-      return next;
+      // R4: hold exclusion across read, validation and durable publication;
+      // a fresh read alone still permits another process to commit r2/r3
+      // before this process overwrites them with its stale r2.
+      return withFenceLock(dir, () => {
+        const fresh = freshState();
+        const current = fresh.pairs[pairId];
+        if (current && current.digest === snapshotDigest) {
+          return current.revision;
+        }
+        const next = current ? current.revision + 1 : 1;
+        const updated = { ...fresh.pairs, [pairId]: { revision: next, digest: snapshotDigest } };
+        writeState(dir, updated, fresh.genesis);
+        return next;
+      });
     },
   };
 }
