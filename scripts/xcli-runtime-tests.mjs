@@ -41,6 +41,15 @@ const env = { ...environment(join(root, 'runner')), H2A_TEST_QUALIFICATION_ROOT:
   npm_execpath: fs.realpathSync(npmLocation.stdout.trim()),
   ...(process.env.XCLI_PARENT_PID_NS ? { XCLI_PARENT_PID_NS: process.env.XCLI_PARENT_PID_NS } : {}),
   ...(process.env.XCLI_NODE_HEADERS ? { XCLI_NODE_HEADERS: process.env.XCLI_NODE_HEADERS } : {}) };
+// setup-node's npm is outside /usr/bin. Both recursive build scripts and
+// package-release's npm subprocess need the same selected private toolchain.
+const npmShim = join(root, 'runner/bin/npm');
+try { fs.symlinkSync(env.npm_execpath, npmShim); }
+catch (error) {
+  if (error.code !== 'EEXIST') throw error;
+  assert.ok(fs.lstatSync(npmShim).isSymbolicLink() && fs.readlinkSync(npmShim) === env.npm_execpath,
+    'unexpected private npm shim');
+}
 const selected = requested.length ? files.filter(file => requested.includes(file)) : files;
 assert.equal(selected.length, requested.length || files.length, 'unknown requested runtime test file');
 if (selected.includes('packages/h2a-runtime/src/native-terminal/upgrade.functional.test.ts')) {
@@ -50,7 +59,7 @@ if (selected.includes('packages/h2a-runtime/src/native-terminal/upgrade.function
   // Compile this checkout first; the upgrade test still installs its candidate
   // tarballs into private prefixes and never executes an installed owner CLI.
   const prepared = spawnSync(process.execPath, [fs.realpathSync(npmLocation.stdout.trim()), 'run', 'build'], {
-    cwd: repo, env: { ...environment(join(root, 'candidate-build')), npm_config_ignore_scripts: 'true' },
+    cwd: repo, env,
     encoding: 'utf8', timeout: 120000, maxBuffer: 4 * 1024 * 1024,
   });
   assert.equal(prepared.status, 0, `checkout candidate build failed: ${prepared.stdout ?? ''}${prepared.stderr ?? ''}`);
