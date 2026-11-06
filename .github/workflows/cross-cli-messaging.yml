@@ -356,8 +356,10 @@ jobs:
         run: |
           set -euo pipefail
           if [ "${{ github.base_ref }}" = "main" ]; then
-            run_id="$(gh run list --workflow cross-cli-campaign.yml --commit "$CANDIDATE_SHA" --limit 1 \
-              --json databaseId,conclusion --jq '.[0] | select(.conclusion == "success") | .databaseId')"
+            # A workflow present only on this branch has no name lookup on
+            # main yet. Authenticate the run through the exact SHA and path.
+            run_id="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${CANDIDATE_SHA}&status=success&per_page=100" \
+              --jq '.workflow_runs | map(select(.path == ".github/workflows/cross-cli-campaign.yml" and .conclusion == "success")) | .[0].id // empty')"
             test -n "$run_id" || { echo "receipt-check: REFUSED code=receipt-absent (no successful campaign run for the exact head)"; exit 1; }
             gh run download "$run_id" -n "xcli-campaign-${CANDIDATE_SHA}"
             node scripts/xcli-receipt-check.mjs --receipt "xcli-campaign-${CANDIDATE_SHA}/campaign-receipt.json" \
