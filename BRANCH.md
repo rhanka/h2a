@@ -2735,35 +2735,34 @@ Accountable build: Muse Spark 1.3 xhigh. Reviews: Wonder (`rv416w-last.md`,
 
 # B4-R3 — fix round 3 on `feat/rc2-authority-native` (rv416w CHANGES)
 
-Accountable build: Muse Spark 1.3 xhigh. Reviews: Wonder (`rv416w-last.md`,
-P1-1 stale-fence residual + P1-2 CI rerun + P2-1/P2-2/P2-3) and mistral
-(`rv416m-last.md`, FUSIONNABLE with P3-1/P3-2 notes). RED confirmed on this
-head (7 new tests fail, 42 pass), GREEN after.
+Muse Spark 1.3 xhigh changes reviewed and completed by Sol 6.1 xhigh.
+Rebased onto origin/main (f6314c18d); BRANCH.md preserves both B3 and B4.
+The temporary workflow_dispatch addition and its revert have no net effect.
 
-- P1-1 fence fail-closed, residual closed: `revisionOf` re-reads durable
-  state on every call and throws on any read error (never memory);
-  creation is explicit and only on ENOENT (EACCES/corrupt refuses,
-  bytes untouched); envelope pinned (format const + non-empty genesis,
-  pre-genesis files refuse); entries carry exactly {revision,digest};
-  one tmp file per writer (pid+seq). New tests: two-handle staleness,
-  chmod-000, extra-key entry, envelope without format/genesis.
-- P2-1 shapes fully closed to r3: RoleScope (signingClass closed {D0},
-  memoryScopes closed-empty, Id items, typed optionals
-  effortCeiling:Counter/validUntil:Id/supersedes:Id); RegistryView
-  (typed items, launchName:Id?, offboardTombstone:record?);
-  Attestation (all Ids, keyIds:Id[], expiresAt:Id? admitted);
-  Association (agent session ids are Ids); Capabilities (hostKind const,
-  matrixSource const, hex64 digests, bits exactly 5×8 keys, columns
-  exactly 8×6 keys, declaredLosses closed duplicate-free enum,
-  pointOrdering Id[]). 40+ per-constraint negatives in test.
-- P2-2 resolveSession de-self-referenced: liveness (pid+startedAt) comes
-  from an injected `HostProcessPort.observeProcess()`; without a port (or
-  a null observation) the origin stays `origin_unresolved` (fail-closed to
-  B5+ host wiring). Bearer-only tuples with hand-recomputed digests
-  refuse; port-observed agreement resolves (port is authoritative).
-- P2-3: PR body rewritten — neutralisations + deferrals named, 49/49.
-- P1-2: `npm-test-trust-root` rerun once at the new head (flake, see report).
-- Deferred (named in PR body): B5+ composition (pairId formula, TRUSTED,
-  signer ACK), contract-fence tuple key + computed digests, custody
-  fingerprint→public-key binding, H shape-before-block precedence, factId
-  identity inclusion, SG-R15/bits recursion, live host-process wiring.
+- P1-1: revisionOf re-reads durable state; missing/unreadable/corrupt files
+  refuse fence_unavailable. Creation requires {create:true} and ENOENT,
+  is exclusive, and never replaces an existing file. Handles pin genesis;
+  deletion/recreation invalidates old handles. Format/genesis and exact
+  {revision,digest} entries are checked; unique temporary files are removed.
+- P2-1: validators checked against the actual r3 schemas, not inferred from
+  positive examples. H strings remain M0-owned (no invented Id limits),
+  signingClass D0/D1/D2, memoryScopes role/repo, effortCeiling:string;
+  registry keys/bindings/tombstone match their closed nested shapes;
+  attestation expiresAt admitted. Capabilities validate all ten host kinds,
+  nullable Id/Digest slots, five exact eight-field bits, eight exact
+  six-field columns, all eight losses and pointOrdering objects/enums/bounds.
+- P2-2: independent HostProcessPort supplies live pid/startedAt; bearer
+  disagreement refuses. Missing/dead/throwing port => origin_unresolved.
+  Fixed canonical digest witness replaces the circular positive oracle.
+  Live host wiring remains B5+; no production path is activated.
+- P2-3: PR body names all neutralisations and deferred work; current tests
+  are 51/51, not the historical round-1 36/36 or round-2 43/43.
+- RED: final targeted file against 5605f4845 => 42 pass / 9 fail; against
+  Muse's implementation => 45 pass / 6 fail. GREEN: 51/51, zero skips;
+  adjacent budget/roundtrip/gov-launch-check 16/16. Root tsc -b passes.
+- P1-2: final-head CI and the one trust-root retry are recorded per job in
+  tmp/h-cond/rc2-b4-r3-last.md; no green claimed before terminal results.
+- Deferred (also named in PR body): TRUSTED/ACK signer composition B5+,
+  pairId formula, contract-fence tuple key/computed digest, custody public-key
+  fingerprint binding, H shape/BLOCKED precedence, durable fact registry and
+  factId, SG-R15/bits recursion, live host observation wiring.
