@@ -35,7 +35,10 @@ fs.cpSync(join(repo, 'packages/h2a/test'), join(built.path, 'packages/h2a/test')
 // configuration. Copy those fixtures unchanged; missing fixtures must fail.
 // The memory-skill fixture also stages the packaged scripts and plugin
 // descriptors from the same tree, so they ship here as well.
-for (const name of ['skills', 'focus-app', 'hooks', 'scripts', '.claude-plugin', '.codex-plugin', '.mcp.json']) {
+// NOTE: packages/h2a/.mcp.json is owner-local and untracked (never in a
+// clean checkout), so it is not a shippable fixture; consumers must not
+// require it here.
+for (const name of ['skills', 'focus-app', 'hooks', 'scripts', '.claude-plugin', '.codex-plugin']) {
   fs.cpSync(join(repo, 'packages/h2a', name), join(built.path, 'packages/h2a', name), { recursive: true });
 }
 fs.cpSync(join(repo, 'packages/track/skills'), join(built.path, 'packages/track/skills'), { recursive: true });
