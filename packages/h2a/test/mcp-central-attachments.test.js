@@ -297,10 +297,13 @@ for (const wake of ["auto", "native", "local-tmux"])
       while (!stderr.includes("inbox-wake: 1 new envelope(s) → drive ok") && Date.now() < deadline) await delay(25);
       assert.match(stderr, /inbox-wake: 1 new envelope\(s\) → drive ok/);
       assert.deepEqual(daemonHost.requests, [], "daemon socket must receive neither inventory nor wake writes");
-      assert.deepEqual(clientHost.requests.map(request => request.operation), ["ping", "list", "acquire-controller-if-no-recent-human", "write", "release-controller"]);
-      const write = clientHost.requests.find(request => request.operation === "write");
-      assert.equal(write.params.lease.id, session);
-      assert.match(write.params.data, /h2a-wake.*\r$/);
+      assert.deepEqual(clientHost.requests.map(request => request.operation), ["ping", "list", "acquire-controller-if-no-recent-human", "write", "write", "release-controller"]);
+      const [line, submit] = clientHost.requests.filter(request => request.operation === "write");
+      assert.equal(line.params.lease.id, session);
+      assert.deepEqual(submit.params.lease, line.params.lease, "the submit keeps the same fenced controller lease");
+      assert.match(line.params.data, /h2a-wake/);
+      assert.doesNotMatch(line.params.data, /[\r\n]/, "the signed line must not submit in its own burst");
+      assert.equal(submit.params.data, "\r", "exactly one separate submit burst follows the line");
     } finally {
       channel?.close();
       for (const child of children.reverse()) if (child.exitCode === null && child.signalCode === null) { child.kill("SIGTERM"); await once(child, "exit"); }

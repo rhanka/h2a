@@ -17,7 +17,7 @@ import { parse } from 'yaml';
 const repo = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
 const SHA = 'a'.repeat(40);
 
-function runReceiptWorkflow(baseRef, presentedReceipt = null) {
+function runReceiptWorkflow(baseRef, presentedReceipt = null, gate = 'merge') {
   const root = fs.mkdtempSync(join(os.tmpdir(), 'xcli-receipt-clean-'));
   try {
     fs.cpSync(join(repo, 'scripts'), join(root, 'scripts'), { recursive: true });
@@ -32,7 +32,7 @@ function runReceiptWorkflow(baseRef, presentedReceipt = null) {
     fs.writeFileSync(join(root, 'env/bin/npm'), `#!${process.execPath}\n
       import fs from 'node:fs';
       import assert from 'node:assert/strict';
-      assert.deepEqual(process.argv.slice(2), ['ci', '--ignore-scripts']);
+      assert.deepEqual(process.argv.slice(2), ${JSON.stringify(gate === 'release' ? ['ci'] : ['ci', '--ignore-scripts'])});
       fs.symlinkSync(${JSON.stringify(join(repo, 'node_modules'))}, ${JSON.stringify(join(root, 'node_modules'))}, 'dir');
     `, { mode: 0o700 });
     fs.writeFileSync(join(root, 'env/bin/gh'), `#!${process.execPath}\n
@@ -53,18 +53,24 @@ function runReceiptWorkflow(baseRef, presentedReceipt = null) {
         assert.equal(selected.status, 0, selected.stderr);
         process.stdout.write(selected.stdout);
       } else if (args[0] === 'run' && args[1] === 'download') {
-        assert.deepEqual(args, ['run', 'download', '123', '-n', 'xcli-campaign-${SHA}']);
-        const destination = 'xcli-campaign-${SHA}';
-        fs.mkdirSync(destination);
+        assert.deepEqual(args.slice(0, 5), ['run', 'download', '123', '-n', 'xcli-campaign-${SHA}']);
+        assert.ok(args.length === 5 || (args.length === 7 && args[5] === '-D'));
+        // gh extracts a single named artifact into cwd unless -D is explicit.
+        const destination = args.length === 7 ? args[6] : '.';
+        fs.mkdirSync(destination, { recursive: true });
         fs.copyFileSync(${JSON.stringify(receiptFile)}, destination + '/campaign-receipt.json');
       } else if (args[0] === 'run' && args[1] === 'list') {
         console.error('HTTP 404: workflow not found on the default branch');
         process.exitCode = 1;
       } else throw new Error('unexpected GitHub operation');
     `, { mode: 0o700 });
-    const workflow = parse(fs.readFileSync(join(repo, '.github/workflows/cross-cli-messaging.yml'), 'utf8'));
-    const commands = workflow.jobs['receipt-check'].steps.filter(step => step.run)
-      .map(step => step.run.replaceAll('${{ github.base_ref }}', baseRef)).join('\n');
+    const workflow = parse(fs.readFileSync(join(repo, gate === 'release'
+      ? '.github/workflows/release.yml' : '.github/workflows/cross-cli-messaging.yml'), 'utf8'));
+    const steps = gate === 'release' ? workflow.jobs.verify.steps.filter(step =>
+      /^npm ci(?:\s|$)/.test(step.run ?? '') || step.name === 'Require the campaign receipt for the exact release SHA')
+      : workflow.jobs['receipt-check'].steps.filter(step => step.run);
+    const commands = steps.map(step => step.run.replaceAll('${{ github.base_ref }}', baseRef)
+      .replaceAll('${{ needs.resolve-release-sha.outputs.release-sha }}', SHA)).join('\n');
     return spawnSync('/bin/bash', ['-e', '-c', commands], {
       cwd: root, env, encoding: 'utf8', timeout: 10000,
     });
@@ -88,6 +94,19 @@ test('receipt workflow selects the successful campaign and validates its downloa
   const out = runReceiptWorkflow('main', goodReceipt());
   assert.equal(out.status, 0, out.stdout + out.stderr);
   assert.match(out.stdout, new RegExp('receipt-check: pass gate=merge cells=16 sha=' + SHA));
+});
+
+test('release receipt workflow provisions dependencies and validates the exact-head artifact', () => {
+  const out = runReceiptWorkflow('main', goodReceipt(), 'release');
+  assert.equal(out.status, 0, out.stdout + out.stderr);
+  assert.match(out.stdout, new RegExp('receipt-check: pass gate=release cells=16 sha=' + SHA));
+});
+
+test('release receipt workflow refuses absent qualification with its typed cause', () => {
+  const out = runReceiptWorkflow('main', null, 'release');
+  assert.equal(out.status, 1, out.stdout + out.stderr);
+  assert.match(out.stdout, /code=receipt-absent/);
+  assert.doesNotMatch(out.stderr, /HTTP 404|ERR_MODULE_NOT_FOUND/);
 });
 
 test('R18: the removed trusted-fetch paths refuse with a typed code', () => {
