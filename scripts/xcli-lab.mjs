@@ -210,6 +210,19 @@ export function sourceBuild(root) {
     }
   }
   fs.cpSync(join(repo, 'packages/h2a/test/helpers'), join(dest, 'packages/h2a/test/helpers'), { recursive: true });
+  // Build-loaded helpers import h2a sources by a src-relative path
+  // (packages/h2a/test/helpers/* -> ../../src/...), which only resolves
+  // against a source tree. Ship the raw h2a src beside dist so those
+  // imports keep working in the scratch build; anything else stays
+  // repo-loaded and a future missing path fails closed here, never silently.
+  fs.cpSync(join(repo, 'packages/h2a/src'), join(dest, 'packages/h2a/src'), { recursive: true });
+  // Build-loaded helpers import this script by a repo-relative path
+  // (packages/h2a/test/helpers/native-isolation.js -> scripts/
+  // ci-owned-process.mjs). Ship it into the scratch build so the worker's
+  // build-relative import resolves; anything else stays repo-loaded and a
+  // future missing script fails closed here, never silently.
+  fs.mkdirSync(join(dest, 'scripts'), { recursive: true });
+  fs.copyFileSync(join(repo, 'scripts/ci-owned-process.mjs'), join(dest, 'scripts/ci-owned-process.mjs'));
   const modules = join(dest, 'node_modules');
   fs.mkdirSync(join(modules, '@sentropic'), { recursive: true });
   for (const entry of fs.readdirSync(join(repo, 'node_modules'))) {
