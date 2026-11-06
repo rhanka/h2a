@@ -12,17 +12,14 @@ import { assertPrivatePidNamespace } from '../packages/h2a/test/helpers/private-
 import { exportEvidence } from './xcli-export-evidence.mjs';
 
 const files = process.argv.slice(2);
+const rootIndex = files.indexOf('--campaign-root');
+const requestedRoot = rootIndex < 0 ? null : files.splice(rootIndex, 2)[1];
 assert.ok(files.length, 'explicit test files required');
 for (const file of files) assert.match(file, /^packages\/h2a\/test\/[a-z0-9-]+\.test\.js$/);
-// h2a_run deliberately rejects /tmp workspaces. Its historical integration
-// fixture needs a private mkdtemp in the ephemeral GitHub runner's temp area,
-// using the unchanged helper's default <build>/.q boundary instead.
-const durableParent = process.env.XCLI_SOURCE_TMP_PARENT;
-if (durableParent) {
-  assert.equal(durableParent, '/home/runner/work/_temp', 'only the hosted CI temporary parent is allowed');
-  assert.equal(fs.realpathSync(durableParent), durableParent, 'CI temporary parent must not be aliased');
-}
-const root = durableParent ? fs.mkdtempSync(join(durableParent, 'xcli-')) : compliantQualificationRoot();
+// Keep fixtures outside the build's node_modules ancestry. In particular,
+// removing a synthetic producer must not expose the build's real Engram.
+// The admitted owner-cache root also keeps durable workspaces outside /tmp.
+const root = compliantQualificationRoot(requestedRoot);
 const built = sourceBuild(root);
 // Some source-consumer suites verify the shipped documentation and literal
 // source citations. Preserve those fixtures in the same private build tree.
@@ -48,9 +45,7 @@ for (const file of ['vitest.config.mjs', 'packages/h2a-runtime/vitest.config.mjs
   fs.mkdirSync(join(built.path, file, '..'), { recursive: true });
   fs.copyFileSync(join(repo, file), join(built.path, file));
 }
-const qualificationRoot = durableParent ? join(built.path, '.q') : root;
-const env = { ...environment(join(qualificationRoot, 'runner')),
-  ...(!durableParent ? { H2A_TEST_QUALIFICATION_ROOT: root } : {}) };
+const env = { ...environment(join(root, 'runner')), H2A_TEST_QUALIFICATION_ROOT: root };
 if (files.includes('packages/h2a/test/native-inventory-absence.test.js')) {
   env.H2A_TEST_REQUIRE_LEGACY_HOST = '1';
   try {
