@@ -126,7 +126,7 @@ export function environment(root, bin = join(root, 'bin')) {
 // owner no-/tmp rule) or $HOME/.cache-tmp/h2a-test/run-*. A plain mkdtemp
 // root under TMPDIR is refused at import, so every such root goes through
 // here: a fresh 0700 run-* directory under the admitted base.
-export function compliantQualificationRoot() {
+export function compliantQualificationRoot(requested = null) {
   // homedir() follows an overridden HOME (test fixtures scrub it to a
   // private dir). The guard compares against the owner home, like
   // native-isolation.js does with os.userInfo().
@@ -134,6 +134,15 @@ export function compliantQualificationRoot() {
   try { ownerHome = userInfoHomedir(); } catch { ownerHome = null; }
   const base = join(ownerHome ?? homedir(), '.cache-tmp', 'h2a-test');
   fs.mkdirSync(base, { recursive: true });
+  if (requested !== null) {
+    assert.equal(dirname(requested), base, 'qualification root must use the admitted base');
+    assert.match(requested.slice(base.length + 1), /^run-[A-Za-z0-9]+$/);
+    const info = fs.lstatSync(requested);
+    assert.ok(info.isDirectory() && !info.isSymbolicLink() &&
+      info.uid === process.getuid() && (info.mode & 0o777) === 0o700,
+    'qualification root must be an existing private directory');
+    return requested;
+  }
   const root = fs.mkdtempSync(join(base, 'run-'));
   fs.chmodSync(root, 0o700);
   return root;
@@ -166,6 +175,14 @@ let cachedNodeHeaders = null;
 export function resolveNodeHeaders() {
   if (process.env.XCLI_NODE_HEADERS) return process.env.XCLI_NODE_HEADERS;
   if (cachedNodeHeaders) return cachedNodeHeaders;
+  // Scrubbed child environments may omit XCLI_NODE_HEADERS. Use an exact
+  // system match before downloading another ~75 MB header tree per child.
+  try {
+    const header = fs.readFileSync('/usr/include/node/node_version.h', 'utf8');
+    const version = ['MAJOR', 'MINOR', 'PATCH'].map(part =>
+      header.match(new RegExp(`^#define NODE_${part}_VERSION\\s+(\\d+)`, 'm'))?.[1]).join('.');
+    if (version === process.versions.node) return cachedNodeHeaders = '/usr/include/node';
+  } catch { /* provision headers for the selected toolchain below */ }
   const provisioned = spawnSync(process.execPath, [join(repo, 'scripts/xcli-node-headers.mjs')],
     { encoding: 'utf8', timeout: 120000 });
   const line = String(provisioned.stdout ?? '').split('\n').find((candidate) => candidate.startsWith('XCLI_NODE_HEADERS='));
@@ -251,7 +268,10 @@ export function sourceBuild(root) {
   // node-pty on Linux normally invokes node-gyp/Python. Compile its unchanged
   // N-API source directly in this disposable build; never run install scripts.
   const pty = join(modules, 'node-pty');
-  fs.cpSync(join(repo, 'node_modules/node-pty'), pty, { recursive: true });
+  // Only the local N-API build is used. Foreign prebuilds alone add ~58 MB
+  // per source build and can push a live two-seat cell over its disk cap.
+  fs.cpSync(join(repo, 'node_modules/node-pty'), pty, { recursive: true,
+    filter: path => path !== join(repo, 'node_modules/node-pty/prebuilds') });
   const native = join(pty, 'build/Release');
   fs.mkdirSync(native, { recursive: true });
   const command = ['/usr/bin/g++', '-std=c++17', '-shared', '-fPIC', '-O2', '-pthread',
