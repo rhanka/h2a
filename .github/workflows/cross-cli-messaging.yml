@@ -47,6 +47,7 @@ jobs:
           scripts/xcli-identity-pacing.test.mjs
           scripts/xcli-wake-proof.test.mjs
           scripts/xcli-node-headers.test.mjs
+          scripts/xcli-source-build.test.mjs scripts/xcli-polling-barrier.test.mjs
 
   simulated-messaging:
     runs-on: ubuntu-latest
@@ -172,8 +173,6 @@ jobs:
       - run: node scripts/xcli-node-headers.mjs
       - name: Run native source consumers in a private PID domain
         if: matrix.scope == 'native'
-        env:
-          XCLI_SOURCE_TMP_PARENT: ${{ runner.temp }}
         run: >-
           node scripts/xcli-in-pid-namespace.mjs scripts/xcli-source-tests.mjs
           packages/h2a/test/runtime-llm-mesh-account.test.js
@@ -192,8 +191,6 @@ jobs:
           packages/h2a/test/drive.test.js
       - name: Run host setup consumers in a private PID domain
         if: matrix.scope == 'hosts'
-        env:
-          XCLI_SOURCE_TMP_PARENT: ${{ runner.temp }}
         run: >-
           node scripts/xcli-in-pid-namespace.mjs scripts/xcli-source-tests.mjs
           packages/h2a/test/hosts-integration.test.js

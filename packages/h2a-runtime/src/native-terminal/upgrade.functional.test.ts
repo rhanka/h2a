@@ -22,6 +22,9 @@ const npmCli = process.env.npm_execpath;
 const npmCommand = npmCli ? process.execPath : "npm";
 const npmArgs = (args: string[]) => npmCli ? [npmCli, ...args] : args;
 const buildToolPath = process.env.PATH ?? "/usr/bin:/bin";
+// The source-consumer runner freshly builds this checkout before selecting
+// it for closed packaging. Capture the path before installing private state.
+const upgradeWorkspace = process.env.H2A_TEST_UPGRADE_WORKSPACE;
 setupNativeTestEnvironment(afterAll);
 
 import { readNativeTerminalPgid } from "../registry.js";
@@ -36,7 +39,7 @@ import { assertPrivatePidNamespace } from "../../../h2a/test/helpers/private-pid
 // own throwaway prefix inside the qualification boundary. Never the global
 // install, never the owner's real dist, never the installed `h2a` binary.
 const DIST_VERSION = "0.98.4";
-const workspacePackageDir = fileURLToPath(new URL("../../", import.meta.url));
+const workspacePackageDir = upgradeWorkspace ?? fileURLToPath(new URL("../../", import.meta.url));
 
 const children = new Set<ChildProcess>();
 const directories = new Set<string>();

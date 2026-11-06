@@ -6,7 +6,10 @@ import { spawnSync } from 'node:child_process';
 import { repo, sourceBuild, environment, compliantQualificationRoot } from './xcli-lab.mjs';
 import { exportEvidence } from './xcli-export-evidence.mjs';
 
-const root = compliantQualificationRoot();
+const requested = process.argv.slice(2);
+const rootIndex = requested.indexOf('--campaign-root');
+const requestedRoot = rootIndex < 0 ? null : requested.splice(rootIndex, 2)[1];
+const root = compliantQualificationRoot(requestedRoot);
 const built = sourceBuild(root);
 for (const pkg of ['h2a-runtime', 'h2a', 'track', 'remote-protocol']) {
   fs.cpSync(join(repo, 'packages', pkg, 'src'), join(built.path, 'packages', pkg, 'src'), { recursive: true });
@@ -38,9 +41,21 @@ const env = { ...environment(join(root, 'runner')), H2A_TEST_QUALIFICATION_ROOT:
   npm_execpath: fs.realpathSync(npmLocation.stdout.trim()),
   ...(process.env.XCLI_PARENT_PID_NS ? { XCLI_PARENT_PID_NS: process.env.XCLI_PARENT_PID_NS } : {}),
   ...(process.env.XCLI_NODE_HEADERS ? { XCLI_NODE_HEADERS: process.env.XCLI_NODE_HEADERS } : {}) };
-const requested = process.argv.slice(2);
 const selected = requested.length ? files.filter(file => requested.includes(file)) : files;
 assert.equal(selected.length, requested.length || files.length, 'unknown requested runtime test file');
+if (selected.includes('packages/h2a-runtime/src/native-terminal/upgrade.functional.test.ts')) {
+  // Closed release packaging requires the checkout's Git identity, shipped
+  // assets and internal dependency closure. The thin source build deliberately
+  // links external dependencies and cannot serve as a closed release source.
+  // Compile this checkout first; the upgrade test still installs its candidate
+  // tarballs into private prefixes and never executes an installed owner CLI.
+  const prepared = spawnSync(process.execPath, [fs.realpathSync(npmLocation.stdout.trim()), 'run', 'build'], {
+    cwd: repo, env: { ...environment(join(root, 'candidate-build')), npm_config_ignore_scripts: 'true' },
+    encoding: 'utf8', timeout: 120000, maxBuffer: 4 * 1024 * 1024,
+  });
+  assert.equal(prepared.status, 0, `checkout candidate build failed: ${prepared.stdout ?? ''}${prepared.stderr ?? ''}`);
+  env.H2A_TEST_UPGRADE_WORKSPACE = join(repo, 'packages/h2a-runtime');
+}
 const args = [join(repo, 'node_modules/vitest/vitest.mjs'), 'run', '--maxWorkers=1',
   '--no-file-parallelism', '--reporter=default', '--reporter=json', `--outputFile=${report}`, ...selected];
 const result = spawnSync(process.execPath, args, { cwd: built.path, env, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
