@@ -361,7 +361,7 @@ jobs:
             run_id="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${CANDIDATE_SHA}&status=success&per_page=100" \
               --jq '.workflow_runs | map(select(.path == ".github/workflows/cross-cli-campaign.yml" and .conclusion == "success")) | .[0].id // empty')"
             test -n "$run_id" || { echo "receipt-check: REFUSED code=receipt-absent (no successful campaign run for the exact head)"; exit 1; }
-            gh run download "$run_id" -n "xcli-campaign-${CANDIDATE_SHA}"
+            gh run download "$run_id" -n "xcli-campaign-${CANDIDATE_SHA}" -D "xcli-campaign-${CANDIDATE_SHA}"
             node scripts/xcli-receipt-check.mjs --receipt "xcli-campaign-${CANDIDATE_SHA}/campaign-receipt.json" \
               --sha "$CANDIDATE_SHA" --gate merge
           else
