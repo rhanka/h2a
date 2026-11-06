@@ -22,12 +22,20 @@ test('runtime upgrade qualification builds the checkout candidate before running
       cp.spawnSync = (command, args, options) => {
         if (args?.includes('build') && args.includes('run')) {
           assert.equal(options.cwd, ${JSON.stringify(repo)});
+          const nested = spawn('/usr/bin/env', ['npm', '--version'], {
+            ...options, env: { ...options.env, PATH: options.env.PATH.split(':')[0] },
+          });
+          assert.equal(nested.status, 0, 'the private build PATH must resolve the selected npm: ' + nested.stderr);
           built = true;
           return { status: 0, stdout: '', stderr: '' };
         }
         if (!args?.some(arg => arg.endsWith('/vitest/vitest.mjs'))) return spawn(command, args, options);
         assert.equal(built, true, 'the release candidate must be freshly compiled');
         assert.equal(options.env.H2A_TEST_UPGRADE_WORKSPACE, ${JSON.stringify(join(repo, 'packages/h2a-runtime'))});
+        const nested = spawn('/usr/bin/env', ['npm', '--version'], {
+          ...options, env: { ...options.env, PATH: options.env.PATH.split(':')[0] },
+        });
+        assert.equal(nested.status, 0, 'closed packaging must resolve the selected npm: ' + nested.stderr);
         const report = args.find(arg => arg.startsWith('--outputFile=')).slice('--outputFile='.length);
         fs.writeFileSync(report, JSON.stringify({ numTotalTests: 1, numPassedTests: 1,
           numFailedTests: 0, numPendingTests: 0, testResults: [] }));
