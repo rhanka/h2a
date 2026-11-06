@@ -18,6 +18,32 @@
   consensus claimed. Push a ready PR to main, follow CI, do not merge.
 - Private run directory: `/home/antoinefa/.cache-tmp/h2a-test/run-oVNjcF`;
   removal and terminal CI are recorded in `tmp/h-cond/identity-selfheal2-last.md`.
+# Cross-CLI bench R30 — 2026-11-06
+
+- Four enrolled seats: codex, muse, agy and vibe; Claude remains refused as
+  `seat-not-enrolled-in-llm-mesh:claude`. No enrollment by the builder.
+- Owner category decision: this campaign delivers signed terminal prompts
+  on all five hosts, then the model calls the inbox. That non-native mode
+  has a measured 10000 ms bound. Native session-message delivery retains
+  3000 ms; simulation controls retain their existing 3000 ms bound.
+- Muse's successful usage command can return no allowance data. Preserve
+  the negative control and require a bounded model response in that case;
+  debit the session and report the observed provider quota refusal.
+- Agy 1.5.2 exceeds the published onboarding adapter's reviewed 1.4.12
+  schema. Keep the gate closed and transport the exact version refusal
+  into the campaign instead of discarding it as onboarding-required.
+- Vibe's 0500 plugin directories prevented both wipes. Restore access only
+  on owned directory descriptors without following symlinks, remove, and
+  prove absence. Its subsequent model-tool consent dialog is a typed
+  tool-approval-required, never an automatic MCP-server approval.
+- Fund the local parent for the configured campaign budget; its old fixed
+  ten-minute watchdog would interrupt the full matrix. Existing per-cell,
+  session and MCP caps stay enforced.
+- Regression controls RED then GREEN; live full matrix uses all 16 ordered
+  pairs and three separated repetitions per pair. Evidence and terminal CI:
+  `tmp/h-cond/xcli-r30-last.md`. Independent h2a review is selection-failed:
+  no callable h2a_run MCP tool in this confinement; no consensus claimed.
+
 # Cross-CLI bench R29 — 2026-11-06
 
 - Publish the four R28 fixes at 66e1cfe88; main remains f6314c18d.
