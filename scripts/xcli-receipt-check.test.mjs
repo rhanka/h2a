@@ -17,12 +17,16 @@ import { parse } from 'yaml';
 const repo = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
 const SHA = 'a'.repeat(40);
 
-test('receipt workflow provisions dependencies before reporting qualification on a clean checkout', () => {
+function runReceiptWorkflow(baseRef, presentedReceipt = null) {
   const root = fs.mkdtempSync(join(os.tmpdir(), 'xcli-receipt-clean-'));
   try {
     fs.cpSync(join(repo, 'scripts'), join(root, 'scripts'), { recursive: true });
     fs.copyFileSync(join(repo, 'package.json'), join(root, 'package.json'));
-    const env = environment(join(root, 'env'));
+    fs.mkdirSync(join(root, 'docs'));
+    fs.copyFileSync(join(repo, 'docs/cross-cli-matrix.json'), join(root, 'docs/cross-cli-matrix.json'));
+    const receiptFile = join(root, 'presented.json');
+    fs.writeFileSync(receiptFile, JSON.stringify(presentedReceipt));
+    const env = { ...environment(join(root, 'env')), CANDIDATE_SHA: SHA, GITHUB_REPOSITORY: 'rhanka/h2a' };
     // Simulate the dependency installation without network or a second copy
     // of node_modules. The real receipt checker runs against the clean tree.
     fs.writeFileSync(join(root, 'env/bin/npm'), `#!${process.execPath}\n
@@ -31,15 +35,59 @@ test('receipt workflow provisions dependencies before reporting qualification on
       assert.deepEqual(process.argv.slice(2), ['ci', '--ignore-scripts']);
       fs.symlinkSync(${JSON.stringify(join(repo, 'node_modules'))}, ${JSON.stringify(join(root, 'node_modules'))}, 'dir');
     `, { mode: 0o700 });
+    fs.writeFileSync(join(root, 'env/bin/gh'), `#!${process.execPath}\n
+      import assert from 'node:assert/strict';
+      import fs from 'node:fs';
+      import { spawnSync } from 'node:child_process';
+      const args = process.argv.slice(2);
+      if (args[0] === 'api') {
+        assert.equal(args[1], 'repos/rhanka/h2a/actions/runs?head_sha=${SHA}&status=success&per_page=100');
+        const runs = ${presentedReceipt ? JSON.stringify([
+          { id: 99, path: '.github/workflows/ci.yml', conclusion: 'success' },
+          { id: 124, path: '.github/workflows/cross-cli-campaign.yml', conclusion: 'failure' },
+          { id: 123, path: '.github/workflows/cross-cli-campaign.yml', conclusion: 'success' },
+        ]) : '[]'};
+        const selected = spawnSync('/usr/bin/jq', ['-r', args[args.indexOf('--jq') + 1]], {
+          input: JSON.stringify({workflow_runs:runs}), encoding:'utf8',
+        });
+        assert.equal(selected.status, 0, selected.stderr);
+        process.stdout.write(selected.stdout);
+      } else if (args[0] === 'run' && args[1] === 'download') {
+        assert.deepEqual(args, ['run', 'download', '123', '-n', 'xcli-campaign-${SHA}']);
+        const destination = 'xcli-campaign-${SHA}';
+        fs.mkdirSync(destination);
+        fs.copyFileSync(${JSON.stringify(receiptFile)}, destination + '/campaign-receipt.json');
+      } else if (args[0] === 'run' && args[1] === 'list') {
+        console.error('HTTP 404: workflow not found on the default branch');
+        process.exitCode = 1;
+      } else throw new Error('unexpected GitHub operation');
+    `, { mode: 0o700 });
     const workflow = parse(fs.readFileSync(join(repo, '.github/workflows/cross-cli-messaging.yml'), 'utf8'));
     const commands = workflow.jobs['receipt-check'].steps.filter(step => step.run)
-      .map(step => step.run.replaceAll('${{ github.base_ref }}', 'feature')).join('\n');
-    const out = spawnSync('/bin/bash', ['-e', '-c', commands], {
+      .map(step => step.run.replaceAll('${{ github.base_ref }}', baseRef)).join('\n');
+    return spawnSync('/bin/bash', ['-e', '-c', commands], {
       cwd: root, env, encoding: 'utf8', timeout: 10000,
     });
-    assert.equal(out.status, 0, out.stdout + out.stderr);
-    assert.match(out.stdout, /qualification: open/);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
+}
+
+test('receipt workflow provisions dependencies before reporting qualification on a clean checkout', () => {
+  const out = runReceiptWorkflow('feature');
+  assert.equal(out.status, 0, out.stdout + out.stderr);
+  assert.match(out.stdout, /qualification: open/);
+});
+
+test('receipt workflow fails closed with a typed absent receipt for a branch-only campaign', () => {
+  const out = runReceiptWorkflow('main');
+  assert.equal(out.status, 1, out.stdout + out.stderr);
+  assert.match(out.stdout, /code=receipt-absent/);
+  assert.doesNotMatch(out.stderr, /HTTP 404/);
+});
+
+test('receipt workflow selects the successful campaign and validates its downloaded exact-head artifact', () => {
+  const out = runReceiptWorkflow('main', goodReceipt());
+  assert.equal(out.status, 0, out.stdout + out.stderr);
+  assert.match(out.stdout, new RegExp('receipt-check: pass gate=merge cells=16 sha=' + SHA));
 });
 
 test('R18: the removed trusted-fetch paths refuse with a typed code', () => {
