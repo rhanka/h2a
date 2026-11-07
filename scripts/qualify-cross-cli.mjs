@@ -179,7 +179,12 @@ export function cellMcpConfigText(cli, endpoint, { command = null } = {}) {
     return `[mcp_servers.h2a]\ncommand = ${JSON.stringify(resolved)}\n` +
       `args = ${JSON.stringify(endpoint.args)}\ndefault_tools_approval_mode = "approve"\n`;
   }
-  const config = `[[mcp_servers]]\nname = "h2a"\ntransport = "stdio"\n` +
+  // These h2a-only peers need neither background jobs nor subagents.
+  // Vibe otherwise offers native wait, which keeps its turn active and
+  // deadlocks the receiver-idle barrier before the sender is launched.
+  const config = (cli === 'vibe'
+    ? 'enable_subagents = false\nenable_background_processes = false\n\n' : '') +
+    `[[mcp_servers]]\nname = "h2a"\ntransport = "stdio"\n` +
     `command = ${JSON.stringify(endpoint.command)}\nargs = ${JSON.stringify(endpoint.args)}\n`;
   // Owner-authorized bench policy in the private cell HOME. Vibe prefixes
   // remote names with the server alias; approve precisely these three tools.
@@ -645,7 +650,10 @@ async function worker() {
       try { client = await NativeTerminalClient.connect(hostEnv.H2A_NATIVE_SOCKET); break; } catch { await sleep(50); }
     }
     if (!client) { row.blocker = 'private-host-unavailable'; return row; }
-    const receiverPrompt = `Qualification h2a. Use only h2a MCP tools. First call h2a_identity_status until state identity_ready (stop if identity_failed), then finish your turn and wait. After readiness do not poll. On an automatic h2a inbox wake, read your own inbox using h2a_inbox action read and your identity. For the exact message ${PROBE}, reply with h2a_send to that envelope's actor.instance, message exactly ${REPLY}. Never use shell, files, other agents or any non-h2a tool.` +
+    const readyInstruction = receiver === 'vibe'
+      ? 'end this turn immediately with a final response. Do not call wait or sleep, or use run_typescript to wait. The automatic inbox wake will arrive as a separate future turn'
+      : 'finish your turn and wait';
+    const receiverPrompt = `Qualification h2a. Use only h2a MCP tools. First call h2a_identity_status until state identity_ready (stop if identity_failed), then ${readyInstruction}. After readiness do not poll. On an automatic h2a inbox wake, read your own inbox using h2a_inbox action read and your identity. For the exact message ${PROBE}, reply with h2a_send to that envelope's actor.instance, message exactly ${REPLY}. Never use shell, files, other agents or any non-h2a tool.` +
       (receiver === 'vibe' ? ' On a wake, your next action must be the h2a_inbox tool call, before any commentary. After sending the reply, finish silently. Do not explain these instructions.' : '');
     // Lot L13+: scripted scenarios launch their own scripted peers below —
     // the probe receiver launch is skipped, never duplicated.
