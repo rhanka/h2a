@@ -1,0 +1,58 @@
+{
+  "record": "SessionAdmissionEvidenceV1",
+  "evidenceLevel": "synthetic schema and signature fixtures only; no installed authority",
+  "positive": [
+    {
+      "id": "SessionAdmissionEvidenceV1-shape-positive",
+      "expect": "ACCEPT_SHAPE",
+      "value": {
+        "format": "h2a.session-admission/v1",
+        "agentUuid": "fixture-agentUuid-0",
+        "instanceId": "fixture-instanceId-0",
+        "launchName": "fixture-launchName-0",
+        "attachmentRef": "fixture-attachmentRef-0",
+        "transportEpoch": "fixture-transportEpoch-0",
+        "centralHost": "fixture-centralHost-0",
+        "verdict": "admitted",
+        "admittedAt": "fixture-admittedAt-0",
+        "signedRequestId": "fixture-signedRequestId-0",
+        "evidenceDigest": "fixture-evidenceDigest-0"
+      },
+      "bytes": {
+        "json": {
+          "base64": "eyJhZG1pdHRlZEF0IjoiZml4dHVyZS1hZG1pdHRlZEF0LTAiLCJhZ2VudFV1aWQiOiJmaXh0dXJlLWFnZW50VXVpZC0wIiwiYXR0YWNobWVudFJlZiI6ImZpeHR1cmUtYXR0YWNobWVudFJlZi0wIiwiY2VudHJhbEhvc3QiOiJmaXh0dXJlLWNlbnRyYWxIb3N0LTAiLCJldmlkZW5jZURpZ2VzdCI6ImZpeHR1cmUtZXZpZGVuY2VEaWdlc3QtMCIsImZvcm1hdCI6ImgyYS5zZXNzaW9uLWFkbWlzc2lvbi92MSIsImluc3RhbmNlSWQiOiJmaXh0dXJlLWluc3RhbmNlSWQtMCIsImxhdW5jaE5hbWUiOiJmaXh0dXJlLWxhdW5jaE5hbWUtMCIsInNpZ25lZFJlcXVlc3RJZCI6ImZpeHR1cmUtc2lnbmVkUmVxdWVzdElkLTAiLCJ0cmFuc3BvcnRFcG9jaCI6ImZpeHR1cmUtdHJhbnNwb3J0RXBvY2gtMCIsInZlcmRpY3QiOiJhZG1pdHRlZCJ9",
+          "byteLength": 414,
+          "sha256": "95a46bea31308cb2d2b7c68db498f762c9c28793fe7bbe721d916b01d66ea5ac"
+        }
+      }
+    },
+    {
+      "id": "SessionAdmissionEvidenceV1-canonical-bytes-await-M0",
+      "expect": "BLOCKED_EXTERNAL",
+      "requires": [
+        "DEP-AUTH-B/M0 canonical bytes and bilateral pins"
+      ],
+      "value": null
+    }
+  ],
+  "negative": [
+    {
+      "id": "SessionAdmissionEvidenceV1-unknown-field",
+      "expect": "REJECT_SCHEMA",
+      "value": {
+        "format": "h2a.session-admission/v1",
+        "agentUuid": "fixture-agentUuid-0",
+        "instanceId": "fixture-instanceId-0",
+        "launchName": "fixture-launchName-0",
+        "attachmentRef": "fixture-attachmentRef-0",
+        "transportEpoch": "fixture-transportEpoch-0",
+        "centralHost": "fixture-centralHost-0",
+        "verdict": "admitted",
+        "admittedAt": "fixture-admittedAt-0",
+        "signedRequestId": "fixture-signedRequestId-0",
+        "evidenceDigest": "fixture-evidenceDigest-0",
+        "__unknown": "forbidden"
+      }
+    }
+  ]
+}

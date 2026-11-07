@@ -1,0 +1,74 @@
+{
+  "record": "RoleScopePolicyV1",
+  "evidenceLevel": "synthetic schema and signature fixtures only; no installed authority",
+  "positive": [
+    {
+      "id": "RoleScopePolicyV1-shape-positive",
+      "expect": "ACCEPT_SHAPE",
+      "value": {
+        "format": "h2a.role-scope-policy/v1",
+        "policyId": "fixture-policyId-0",
+        "actorLaunchName": "fixture-actorLaunchName-0",
+        "scope": "fixture-scope-0",
+        "governanceRoles": [],
+        "allowedCliKinds": [],
+        "allowedModels": [],
+        "mcpRights": {
+          "tools": [],
+          "connectorClasses": []
+        },
+        "memoryScopes": [],
+        "driveConsentClass": "fixture-driveConsentClass-0",
+        "signingClass": "D0",
+        "validFrom": "fixture-validFrom-0",
+        "revision": 1,
+        "signerInstance": "fixture-signerInstance-0",
+        "signerKeyId": "fixture-signerKeyId-0",
+        "signature": "fixture-signature-0"
+      },
+      "bytes": {
+        "json": {
+          "base64": "eyJhY3RvckxhdW5jaE5hbWUiOiJmaXh0dXJlLWFjdG9yTGF1bmNoTmFtZS0wIiwiYWxsb3dlZENsaUtpbmRzIjpbXSwiYWxsb3dlZE1vZGVscyI6W10sImRyaXZlQ29uc2VudENsYXNzIjoiZml4dHVyZS1kcml2ZUNvbnNlbnRDbGFzcy0wIiwiZm9ybWF0IjoiaDJhLnJvbGUtc2NvcGUtcG9saWN5L3YxIiwiZ292ZXJuYW5jZVJvbGVzIjpbXSwibWNwUmlnaHRzIjp7ImNvbm5lY3RvckNsYXNzZXMiOltdLCJ0b29scyI6W119LCJtZW1vcnlTY29wZXMiOltdLCJwb2xpY3lJZCI6ImZpeHR1cmUtcG9saWN5SWQtMCIsInJldmlzaW9uIjoxLCJzY29wZSI6ImZpeHR1cmUtc2NvcGUtMCIsInNpZ25hdHVyZSI6ImZpeHR1cmUtc2lnbmF0dXJlLTAiLCJzaWduZXJJbnN0YW5jZSI6ImZpeHR1cmUtc2lnbmVySW5zdGFuY2UtMCIsInNpZ25lcktleUlkIjoiZml4dHVyZS1zaWduZXJLZXlJZC0wIiwic2lnbmluZ0NsYXNzIjoiRDAiLCJ2YWxpZEZyb20iOiJmaXh0dXJlLXZhbGlkRnJvbS0wIn0=",
+          "byteLength": 500,
+          "sha256": "3a14438a99a63d7db3c2f459df8e26446a150123f1d1ee9b8adf0f4a764bb1bd"
+        }
+      }
+    },
+    {
+      "id": "RoleScopePolicyV1-canonical-bytes-await-M0",
+      "expect": "BLOCKED_EXTERNAL",
+      "requires": [
+        "DEP-AUTH-B/M0 canonical bytes and bilateral pins"
+      ],
+      "value": null
+    }
+  ],
+  "negative": [
+    {
+      "id": "RoleScopePolicyV1-unknown-field",
+      "expect": "REJECT_SCHEMA",
+      "value": {
+        "format": "h2a.role-scope-policy/v1",
+        "policyId": "fixture-policyId-0",
+        "actorLaunchName": "fixture-actorLaunchName-0",
+        "scope": "fixture-scope-0",
+        "governanceRoles": [],
+        "allowedCliKinds": [],
+        "allowedModels": [],
+        "mcpRights": {
+          "tools": [],
+          "connectorClasses": []
+        },
+        "memoryScopes": [],
+        "driveConsentClass": "fixture-driveConsentClass-0",
+        "signingClass": "D0",
+        "validFrom": "fixture-validFrom-0",
+        "revision": 1,
+        "signerInstance": "fixture-signerInstance-0",
+        "signerKeyId": "fixture-signerKeyId-0",
+        "signature": "fixture-signature-0",
+        "__unknown": "forbidden"
+      }
+    }
+  ]
+}
