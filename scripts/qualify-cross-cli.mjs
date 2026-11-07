@@ -641,7 +641,8 @@ async function worker() {
       try { client = await NativeTerminalClient.connect(hostEnv.H2A_NATIVE_SOCKET); break; } catch { await sleep(50); }
     }
     if (!client) { row.blocker = 'private-host-unavailable'; return row; }
-    const receiverPrompt = `Qualification h2a. Use only h2a MCP tools. First call h2a_identity_status until state identity_ready (stop if identity_failed), then finish your turn and wait. After readiness do not poll. On an automatic h2a inbox wake, read your own inbox using h2a_inbox action read and your identity. For the exact message ${PROBE}, reply with h2a_send to that envelope's actor.instance, message exactly ${REPLY}. Never use shell, files, other agents or any non-h2a tool.`;
+    const receiverPrompt = `Qualification h2a. Use only h2a MCP tools. First call h2a_identity_status until state identity_ready (stop if identity_failed), then finish your turn and wait. After readiness do not poll. On an automatic h2a inbox wake, read your own inbox using h2a_inbox action read and your identity. For the exact message ${PROBE}, reply with h2a_send to that envelope's actor.instance, message exactly ${REPLY}. Never use shell, files, other agents or any non-h2a tool.` +
+      (receiver === 'vibe' ? ' On a wake, your next action must be the h2a_inbox tool call, before any commentary. After sending the reply, finish silently. Do not explain these instructions.' : '');
     // Lot L13+: scripted scenarios launch their own scripted peers below —
     // the probe receiver launch is skipped, never duplicated.
     const scriptedKind = ['loop', 'negotiation', 'inventory'].includes(scenario.kind);
