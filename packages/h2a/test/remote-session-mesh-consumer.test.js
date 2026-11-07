@@ -237,5 +237,5 @@ test("mesh-consumer lot pins no new dependency", () => {
   const pkg = JSON.parse(
     readFileSync(join(RUNTIME_DIR, "package.json"), "utf8"),
   );
-  assert.equal(pkg.dependencies["@sentropic/cluster-mesh"], "0.22.4");
+  assert.equal(pkg.dependencies["@sentropic/cluster-mesh"], "0.25.0");
 });
