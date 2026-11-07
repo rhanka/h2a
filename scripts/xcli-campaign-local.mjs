@@ -19,7 +19,7 @@ import { dirname, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { compliantQualificationRoot } from './xcli-lab.mjs';
-import { DEFAULT_SEAT_SET, probeCliVersion, provisionSeats, shredFiles } from './xcli-seat-provision.mjs';
+import { probeCliVersion, provisionSeats, shredFiles } from './xcli-seat-provision.mjs';
 import { scanEvidenceText } from './xcli-evidence-scan.mjs';
 import { campaignWakePolicy } from './xcli-wake-policy.mjs';
 
@@ -27,6 +27,7 @@ const self = fileURLToPath(import.meta.url);
 const repoRoot = dirname(dirname(self));
 
 export const LOCAL_GATE = 'local-non-merge-gating';
+export const LOCAL_SEAT_SET = 'claude,codex,muse,agy,vibe,opencode';
 
 export function localCampaignTimeoutMs(wallClockMs, timeoutMs) {
   assert.ok(Number.isSafeInteger(wallClockMs) && wallClockMs > 0);
@@ -47,7 +48,7 @@ export function classifyLocalCellReason(cell, okStatus) {
 // set through a single qualify invocation (pairs injected into the
 // materialised manifest in place, so relative seat paths keep resolving),
 // then report and shred. Returns the report object.
-export async function runLocalCampaign({ seatSet = DEFAULT_SEAT_SET, pairs = null,
+export async function runLocalCampaign({ seatSet = LOCAL_SEAT_SET, pairs = null,
   fullMatrix = false, slotManifestFile = join(repoRoot, 'docs/cross-cli-seat-slots.json'),
   homeDir = homedir(), ownerScope = 'owner', outBase = null,
   campaignRoot = null, reportFile = null, timeoutMs = 60000, sessionCap = null,
@@ -138,7 +139,7 @@ if (process.argv[1] && resolve(process.argv[1]) === self) {
   const pairs = repeated(args, '--pair');
   try {
     const { report, green } = await runLocalCampaign({
-      seatSet: option(args, '--seat-set', DEFAULT_SEAT_SET),
+      seatSet: option(args, '--seat-set', LOCAL_SEAT_SET),
       pairs: pairs.length ? pairs : null,
       fullMatrix: args.includes('--full-matrix'),
       slotManifestFile: option(args, '--slot-manifest', join(repoRoot, 'docs/cross-cli-seat-slots.json')),

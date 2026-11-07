@@ -12,7 +12,7 @@ import fs from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { CLIS, pythonEntrypoint, vendorRuntimeLabel, LOGIN_ALLOWLIST, PINNED_CLI_ARGS, environment, copyLogin, privateExecutable } from './xcli-lab.mjs';
+import { CLIS, KNOWN_CLIS, pythonEntrypoint, vendorRuntimeLabel, LOGIN_ALLOWLIST, PINNED_CLI_ARGS, environment, copyLogin, privateExecutable } from './xcli-lab.mjs';
 import { agyOnboardingBinaryRefusal } from './xcli-seat-onboarding.mjs';
 
 const GEMINI_SHAPED = ['oauth_creds.json', 'google_accounts.json'];
@@ -30,7 +30,7 @@ export function loadSeatManifest(file, { simulated = false } = {}) {
     assert.ok(seat && typeof seat.seatId === 'string' && seat.seatId.length > 0, 'each seat needs a seatId');
     assert.ok(!seen.has(seat.seatId), `duplicate seatId: ${seat.seatId}`);
     seen.add(seat.seatId);
-    assert.ok(CLIS.includes(seat.family), `unknown family for seat ${seat.seatId}: ${seat.family}`);
+    assert.ok(KNOWN_CLIS.includes(seat.family), `unknown family for seat ${seat.seatId}: ${seat.family}`);
     assert.ok(typeof seat.authSource === 'string' && seat.authSource.length > 0, `seat ${seat.seatId} needs an authSource`);
   }
   // Tier S keeps seat identities and pair selection, never credential paths
