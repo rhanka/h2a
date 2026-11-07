@@ -1,5 +1,56 @@
 # SPEC EVOL — PTY restore, injection and supervision (h2a)
 
+## En bref — ce que tu verras de différent (français, pour l'owner)
+
+Cette spec répare ce que tu as remonté le 19/10 après l'upgrade vers
+`0.98.7-rc.4`. Quand elle sera livrée, concrètement :
+
+- **`h2a upgrade` et `h2a restore` te parlent.** Quelques lignes courtes
+  dans ta langue ; le JSON seulement si tu le demandes (`--json`).
+  Plus jamais de mur de manifestes échappés.
+- **`h2a restore` redémarre vraiment les CLIs.** Une session dont le CLI
+  est mort mais dont le terminal est encore ouvert est reprise dans ce
+  même terminal, une seule fois, et à la fin tu lis un bilan exact par
+  session (« déjà active / reprise / recréée / en attente : raison »)
+  au lieu du nombre d'onglets qu'on a essayé d'ouvrir.
+- **Tu peux superviser et écrire dans un PTY délégué** (revue de code,
+  etc.) pendant que sa fenêtre reste ouverte — comme le `send-keys`
+  tmux d'avant : inspection, capture, injection autorisée et auditée,
+  jamais par-dessus une frappe humaine ni un brouillon non envoyé.
+- **`h2a send` réveille à nouveau sa cible.** Dépôt du message,
+  réveil, réception et traitement deviennent des accusés séparés ; un
+  réveil bloqué par de la frappe humaine attend avec sa raison
+  affichée, et il ne bascule jamais en headless en cachette.
+- **Ton terminal reste propre.** Les réponses du terminal (les séries
+  `>|VTE…` que tu as vues) ne retombent plus dans la ligne de commande
+  quand le CLI quitte.
+- **Le bon indice au bon moment.** Quand le CLI quitte, le terminal
+  affiche la commande de reprise de ce CLI ; la commande `h2a run …` de
+  recréation n'apparaît qu'à la mort du PTY lui-même (le deuxième
+  Ctrl-D).
+- **`h2a restore` ne montre plus les secondaires** (revues déléguées,
+  etc.) : elles sont exclues par leur provenance ; tu ne les revois que
+  si tu les demandes explicitement (`--include-secondary`, en
+  proposition).
+- **Des groupes restore dédiés, configurables.** Tu pourras créer un
+  groupe pour Airbus (ou toute autre famille) par préfixe de chemin ou
+  par label dans ta config — rien dans le code — et le plan t'annonce
+  avant lancement qui va où, ce qui n'est groupé nulle part et ce qui
+  déborde.
+
+Où en est le dépôt aujourd'hui (07/11) : la spec est rebasée sur le
+`main` du jour et réconciliée avec ce qu'il contient, ligne par ligne
+(§11). Sur main : l'exclusion des déléguées à la lecture du registre
+est déjà là (PR #390) et la commande `upgrade` a été refondue en
+surface H4 — mais elle affiche toujours du JSON par défaut. Une voie de
+réalisation existe déjà : la PR #382 (`feat/pty-restore-injection`),
+ouverte, non fusionnée, avec des lots entamés dans son arbre et 3 jobs
+CI rouges à son dernier passage (21/10). La Phase B de PTY (PR #375)
+reste ouverte et bloque le lot L7. Le reste des lots reste à
+construire. Le résumé par lot est en §7, la réconciliation détaillée
+en §11 ; les 4 revues GO-CODE et les revues des tours précédents sont
+conservées dans `docs/reviews/pty-restore-injection/`.
+
 Status: build specification, not code. Written 2026-10-19. No version
 number is assigned by this specification; version and RC attribution are
 conductor/owner decisions.
@@ -32,6 +83,22 @@ against. Owner requests A–D (§0.1) remain unchanged verbatim, the
 existing capital is kept, and open owner questions (§6) stay open
 with their recommended defaults. Nothing else changes.
 
+**Revision v5 (2026-11-07, reconciliation)**: reviewed against the
+current `origin/main` at `427e7578b` (473 commits after this spec's
+original base `dc78dc5f7`; branch `docs/pty-restore-v4` rebases this
+spec's two commits onto it). Findings and new file:line evidence are
+in §11; the decisions D1–D18, the lots §4, the open questions §6 and
+the French summaries §7–§10 are unchanged. Two statuses change in
+kind, not in content: lot L5's registry read-path gate landed
+partially on main (PR #390), and the upgrade surface lot L6 renders
+was replaced on main by the H4 rework (PR #354 lane) — §11 states the
+narrowed first-RED set and re-anchored rendering target. The 4 GO-CODE
+review rounds and the earlier NO-GO/GO reviews are kept verbatim in
+`docs/reviews/pty-restore-injection/`; they were written against the
+original base and against the implementation lane PR #382, and stay
+historical documents — §11 is the only section describing the tree at
+`427e7578b`.
+
 Base for every file path and line reference: the git worktree
 `tmp/worktrees/spec-pty` at `origin/main` `dc78dc5f7`
 (`dc78dc5f79cb25bbb6012229905ebe9aaa6b58f3`, verified by `git rev-parse
@@ -40,6 +107,9 @@ The dirty main checkout `/home/antoinefa/src/h2a` was not used as evidence.
 No owner state was read or touched: no installed `h2a` binary was run, no
 real registry, socket, transcript, log, `.env`, auth or token file was
 opened, and no test was executed for this specification.
+**§1 line numbers stay anchored at `dc78dc5f7` as historical locators;**
+§11 alone cites the re-verified equivalents at `427e7578b` and the state
+of the two open PRs that carry this EVOL's capital (#375, #382).
 
 Track items: `01M5A9CAZ75BNCP73B0JCA9H4J`,
 `01M5A9CGQJV44H4XYK4XCT8TPV` (bugs A/B, WP5),
@@ -1911,3 +1981,125 @@ verbatim, capital existant conservé, aucune seconde implémentation
 d'upgrade, aucun gate B5 assoupli. Q1–Q5 (§6) restent OPEN avec leurs
 défauts recommandés ; les mécanismes ajoutés restent des propositions,
 jamais des décisions owner.
+
+## 11. Reconciliation against `origin/main` at `427e7578b` (2026-11-07, revision v5)
+
+Method and scope. The spec commits are rebased onto `origin/main`
+`427e7578b` (branch `docs/pty-restore-v4`; clean replay, these files do
+not exist on main: `docs/specs/pty-restore-injection/` and
+`docs/reviews/pty-restore-injection/` are new). Every §1 fact and every
+lot assumption was re-read in that tree; 34 PRs were merged since
+`dc78dc5f7` and **none implements a §2 decision** — §1's facts hold at
+`427e7578b` modulo line-number shifts, recorded below. Statuses are
+tri-state: **on main** (done), **on lane** (built but unmerged, in the
+open implementation PR, unqualified), **still to build** (nowhere).
+
+**The two capital PRs that this EVOL owns or depends on:**
+
+- **PR #382** — `fix(pty): restore resumes CLIs, attached-window
+  injection and wake, readable upgrade`, branch
+  `feat/pty-restore-injection`, tip `80f6cbb07` (2026-10-21), 39
+  commits, 119 files, +12786/−475, merge-base `40693473a` (older than
+  the #390/#354 changes below). Its tree carries real
+  implementations: `scripts/test-sandbox.mjs` (L0 launcher),
+  `test-state-isolation.test.ts` + `test-state-guard.ts` (L0),
+  `human-output.ts` + `human-output/catalog-{en,fr}.ts` +
+  `human-output-loader.ts` (L6a), `inject` in `native-terminal/protocol.ts`
+  and `automationSeq` frontier in `host.ts` (L2 core),
+  `restore-ledger.test.ts` with `already-active` outcomes (L1),
+  `RestoreFacet = "primary" | "secondary"` in `registry.ts` (L5),
+  `cwdPrefixes` group matchers in `config.ts` (LG),
+  `terminal-replies.ts` + `vte-harness.mjs` (L4), upgrade human
+  fixtures en/fr (L6). Its PR body says "Lot L0 … landed. Lots L2/L3 …
+  next", its last CI run (2026-10-21,
+  `github.com/rhanka/h2a/actions/runs/39558313742`) has 3 failing jobs
+  (`build-and-test` 22 and 24, `npm-test-trust-root`) and 13 passing,
+  and `managed-shell.ts` / `input-supervision.ts` are **absent** from
+  its tip — the D6(iii) managed-primary-shell adapter exists nowhere,
+  so L1b stays gated exactly as §4 says. The four GO-CODE code-review
+  rounds reviewed this lane. No completeness or green claim is made
+  here for #382; its rebase onto current main, the intersections with
+  #390/#354, its CI and its lots are its own lane's conductor work.
+- **PR #375** — `feat(pty): phase B — replaceable front, sessions
+  survive upgrade`, branch `feat/pty-b-handover`, still **OPEN**
+  (2026-10-19 state); `owner-protocol.ts`, `owner-process.ts`,
+  `frontend-process.ts` are absent from main. §1.9's measured analysis
+  of #375 was taken at its `d5d34e20b` and is not re-measured here; the
+  one new integration fact: #375 in that state patches the legacy
+  upgrade JSON, and main's upgrade surface is now the H4 rework —
+  rebalancing #375 must land against `cmdUpgradeH4`, and L7's seam
+  report states that explicitly.
+
+**Per-item status at `427e7578b`** (all paths repo-relative, `R/` =
+`packages/h2a-runtime/src`, `H/` = `packages/h2a/src`; line numbers read
+in the rebased tree):
+
+| Item | State and evidence |
+|---|---|
+| D1 facet | Still to build. `NativeTerminalSessionState` exposes status/pid/generation/incarnation/`controlled`/`lastHumanActivityAt`, no application facet (`R/native-terminal/host.ts:577-602`). `captureHostViewSnapshot` still keeps only running + `controlled` (`R/restore.ts:453-465`). |
+| D2 ledger | Still to build. `restore()` prints the window/tab plan and returns planned-tab totals (`R/restore.ts:1103-1134`); no per-session observed outcomes, no exit contract. The lot integrates with restore's existing single fail-closed registry read + one-probe-surface model with attach-hint note (`R/restore.ts:558-615`) and `restore --reattach` (`R/index.ts:10049`, attach-only, single-controller `R/launch-layout.ts:280-296`) — both present at the spec's base, unchanged since. |
+| D3 in-place resume | Still to build. Native restore decisions: controlled→skip, uncontrolled→one attach, unknown→fail closed (`R/launch-layout.ts:280-296`); `relaunchInSession` is still tmux-only (`R/tmux.ts:2433`). Lane #382 carries `restore-inplace.test.ts`. |
+| D4 guard/dedup | Still to build. `ownerFromEntry` treats only `local-tmux` as verifiable; a no-pid row is `suspect` and never refuses (`R/conv-guard.ts:59-85`); the run/hook join still exists only in restore (`R/restore.ts:365-411`). |
+| D5–D7 broker/audit | Still to build. Protocol v1 has no `inject` (`R/native-terminal/protocol.ts` unchanged since base); `drive` flattens every refusal to `deferred` (`R/native-terminal/op.ts:1018`, `:1037-1043`); the controller lease is exclusive (`R/native-terminal/host.ts:1196`, `:1238`); `withController` acquires without activity so the client default `"human"` stamps `lastHumanActivityAt` (`R/native-terminal/op.ts:295`, `client.ts:169-175`, `host.ts:1204`). Lane #382 carries `inject`/`automationSeq` (unqualified). |
+| D8 supervision | Still to build. Observer role still has no product verb; `op.js` remains internal. |
+| D9 wake | Still to build. `nativePtyBackchannelDriver` still spawns op drive on `H2A_NATIVE_TARGET_SESSION` (`H/cli.ts:4208`, env stamped `R/native-host.ts:872`) in the tmux-fallback chain (`H/cli.ts:2544`); deposit side unchanged. New adjacent capital, other lane: mesh-handover `WakeJournal` with durable wake intents and eligible-envelope dedup (`H/runtime/handover/wake.js:6-33`, consumed by `H/runtime/drive/inbox-wake.ts:14-28`) — a precedent L3 cites without claiming it is the native chain's durable wake state. |
+| D10 replies | Still to build. Host self-answers DSR while relaying (`R/native-terminal/host.ts:1049-1057`); attach repaint re-emits replay history (`R/native-terminal/op.ts:304-305`, `:489`); zero query→reply correlation anywhere. Lane #382 carries `terminal-replies.ts` + VTE harness (unqualified). |
+| D11 hint | Still to build. `LOCAL_WRAPPER` still prints the exit line + `[h2a] relaunch:` `h2a run …` hint at CLI exit, then `exec /bin/bash -l` (`R/tmux.ts:139-150`); tests still pin that timing (`R/tmux.test.ts:1874-1890`). A `STRUCTURED_LOCAL_WRAPPER` that never drops to a shell exists for delegated prompts (`R/tmux.ts:158-163`) — launch-side capital, not the D11 fix. |
+| D12 secondaries | **Partially done on main** (PR #390, commit `99cc14a3f`): `registrySessions` now skips every row with delegation provenance — "Recorded delegation wins over a legacy/stale human classification" (`R/restore.ts:581-583`). Still to build: the persisted `primary/secondary` facet and enrollment guard, the one-time legacy classification, the remote-path gate, the opt-in and the dry-run naming (D12b–d); the launch path still classifies a delegated attached review as `human` (`R/session-class.ts` unchanged). Lane #382 carries the facet (unmerged). |
+| D13/D14b groups (LG) | Still to build. All five §1.7 gaps verified at new lines: `LayoutGroup` is still `{title, projects?, remote?}` (`R/config.ts:36-43`), `DEFAULT_LAYOUT.groups` still `[]` (`R/config.ts:68`), `getLayoutConfig` still does no shape validation; explicit groups match exact `projects` only with `maxPerWindow` cut by `break` and not counted as `dropped` (`R/restore.ts:896-904`); shared windows still hardcode French `fenêtre partagée` (`R/restore.ts:930`); every `remote:true` group is still filled with the same `remoteTabs.slice(0, maxPerWindow)` (`R/restore.ts:1088-1096`); `restore [group]` help is still hardcoded French (`R/index.ts:10043-10050`). Lane #382 carries `cwdPrefixes` matchers + `docs/restore-layout-groups.md` (unmerged). |
+| L6a/D14 locale | Still to build. No locale helper exists on these paths (no `H2A_LANG`, no `Intl`, no catalog module in `H/cli.ts`, `R/restore.ts`, `R/index.ts`, `R/launch-layout.ts` at `427e7578b`). Lane #382 carries the catalog files (unmerged). |
+| D14a/L6 upgrade output | **Surface replaced on main** (PR #354 lane, commit `e11ae54e1`, the 0.98.8 H4 rework): `h2a upgrade` now routes to `cmdUpgradeH4` (`H/cli.ts:2243`; dispatch `:8198`) which writes a JSON envelope on every path via `h4WriteEnvelope` (`H/cli.ts:1960-1963`); the legacy `cmdUpgrade` — the A.1 screenshot's escaped-manifest wall, with `convergeAfterExplicitUpgrade` (`H/cli.ts:1973`, `:1988`) — is kept as an exported compat surface with "No CLI trigger reaches it since LOT-1" (`H/cli.ts:1970-1975`); `performAutoUpgrade` has no caller in the H4 pass; the boot entry is now `runBootUpgrade` (`H/runtime/upgrade/index.ts:463-468`, `:608`). Consequences: A.1's reachable shape is a structured envelope (no longer nested escaped stdout), but the default output is still machine JSON on a TTY, no locale, and the human-first flip, the catalog and the outcome split are all still to build. Lot L6's rendering target is re-anchored on `cmdUpgradeH4` + the `h4*` helpers + the boot worker's quiet set; its file list (§4) still names `H/src/cli.ts`, `hosts/upgrade-equipment.ts`, `runtime/upgrade/index.ts` — the anchors inside them change, not the files. |
+| D15/D17/L7 integration | Unchanged commitments; PR #375 still open (see above). No second upgrade implementation exists on main to duplicate; the H4 surfaces are what #375 must be integrated against now. |
+| D16/L0 isolation | Still to build. `R/vitest.native-isolation.mjs` is unchanged (spawn assertions only, no per-worker roots); `scripts/test-sandbox.mjs` is absent; both leak suites are byte-identical to the base (`R/attach-reconnect-livelock.test.ts`, `R/native-terminal/op.test.ts` first describe). `H/test/helpers/native-isolation.js` gained since the base only qualification-root allow-listing (`/home/<user>/.cache-tmp/h2a-test/run-*` accepted as a short qualification root — the owner's tmpdir rule is now recognized vocabulary, `native-isolation.js:19`, `:45` — and a denied D-Bus address, `:133`) plus CI-owned-process tracking; the L0 builder (roots on import, mutation-point guard, filesystem barrier launcher) is still absent. The §1.8 CI inventory moved: direct `node --test` steps at `ci.yml:53`, `:90`, `:178`, `:338`, `:457` (plus codex-drift, release, focus-dossier as before), and the runners/contracts themselves changed since the base (`scripts/run-test-gates.mjs`, `scripts/run-tests.mjs`, `packages/h2a/test/release-workflow.test.js`, `packages/h2a/test/run-test-gates.test.js`) — L0 re-reads its exact-command assertions at this base. Lane #382 carries the launcher and the workflow rewiring (last CI red; the bwrap-unavailable qualification-incomplete failures are already named by `code-review-r2-sol.md` finding 9). |
+
+**Impact on the lots (bounded, no decision changes):**
+
+- **L5**: the registry read-path half of D12's gate is on main — the
+  lot's first RED set is narrowed accordingly (keep the landed skip as
+  a retained regression; the persisted facet, legacy classification,
+  remote gate and opt-in remain REDs exactly as written). Its
+  base/LGB interplay: `registrySessions`' delegation skip is the
+  same read path the `cwdPrefixes` discovery (LG) feeds.
+- **L6**: rendering targets `cmdUpgradeH4`/`h4*` (above); the legacy
+  `cmdUpgrade`/`convergeAfterExplicitUpgrade` pair stays untouched
+  legacy — no lot edits it.
+- **L0**: re-inventory the moved workflow lines and the four changed
+  runner/contract files before pinning exact commands; the helper now
+  accepts `~/.cache-tmp/h2a-test/run-*` short roots, so the launcher's
+  vocabulary is closer to the ratified TMPDIR rule.
+- **L2**: D6(iii) `managed-shell.ts` and `input-supervision.ts` exist
+  nowhere (main, #375, #382) — L1b remains gated on L2's adapter
+  acceptance exactly as §4 preamble says.
+- **L7**: the integration seam now includes landing against the H4
+  upgrade surface; #375 stays the blocker, B5 stays its gate.
+- The lane PR #382 is the implementation vehicle for §4; its
+  reconciliation with this revision (it was written before the #390
+  and H4 changes) is conductor lane work — this spec's lots,
+  accepted-test names and file lists are unchanged by it.
+
+Verification of this revision: code read in the rebased worktree at
+`427e7578b` (symbol-level greps re-read per row above); PR states and
+last CI runs read via `gh` on 2026-11-07; lane tree inspected read-only
+at `80f6cbb07`. No test/build executed, no owner state read or touched;
+the two open PRs' green/red status is their own, not re-verified here
+beyond the cited runs. Decisions D1–D18, lots, questions Q1–Q5: no
+change.
+
+## 12. Changements v5 (français)
+
+Révision v5 = réconciliation sur `origin/main` `427e7578b` (rebase
+propre de la spec, voir en-tête et §11). Aucune décision D1-D18 ne
+change ; aucun lot ne change ; Q1-Q5 restent OPEN. Cette révision
+ajoute : le résumé owner en tête (section « En bref »), le paragraphe
+d'en-tête v5, la note de base dans l'en-tête, la section de
+réconciliation §11 (anglais normatif, témoins fichier:ligne à
+`427e7578b`), et ci-dessous l'essentiel en français.
+
+| Fait v5 | Sections |
+|---|---|
+| PR #382 (voie de réalisation) : 39 commits, `feat/pty-restore-injection`@`80f6cbb07`, CI du 21/10 à 3 jobs rouges (`build-and-test` ×2, `npm-test-trust-root`), `managed-shell.ts`/`input-supervision.ts` absents (L1b reste conditionné), lots entamés dans son arbre (L0, L6a, L2 noyau, L1 ledger, L5 facet, LG matchers, L4 réponses, L6 fixtures) | §11 (voies), §4 sans changement |
+| Partiellement fait sur main par #390 : le registre exclut désormais les lignes à provenance déléguée à la lecture (`restore.ts:581-583`) — le premier RED de L5 se réduit à une régression conservée + les moitiés restantes (facet persistée, classification legacy, remote, opt-in) | §11 D12 ; lot L5 |
+| Surface `upgrade` remplacée sur main par H4 (voie #354) : `cmdUpgradeH4` écrit une enveloppe JSON sur chaque chemin (`cli.ts:1960-1963`, `:2243`) ; l'ancien mur A.1 (`cmdUpgrade` legacy) n'est plus atteignable par le CLI (`cli.ts:1970-1975`) ; L6 re-ancre son rendu sur H4 | §11 D14a/D14f ; lot L6 |
+| PR #375 toujours OUVERTE : `owner-protocol.ts` etc. absents de main, base mesurée antérieure à H4 ; L7 inchangé, le raccord à la surface H4 est à re-rapporter par L7 | §11 D15/D17 ; lot L7 |
+| Tous les autres constats §1 tiennent à `427e7578b` avec de nouveaux numéros de ligne (facette absente, ledger planifié, bail exclusif, drive aplati, réponses sans corrélation, hint à la sortie CLI, groupes : 5 lacunes inchangées, isolement L0 à construire) | §11 (tableau) ; §1 inchangé |
+| Isolation L0 : le helper reconnaît désormais les racines `~/.cache-tmp/h2a-test/run-*` (`native-isolation.js:19`) ; commandes CI directes déplacées (`ci.yml:53/90/178/338/457`) ; 4 fichiers runner/contrats modifiés — L0 relit avant de figer | §11 D16 ; lot L0 |
