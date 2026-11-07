@@ -624,17 +624,45 @@ test("a lost mutation reply is outcome_unknown and is never replayed during reco
 test("SIGTERM of the real central leaves host stdio open and resumes the same binding", { timeout: 30_000 }, async () => {
   const f = fixture();
   const children = [];
+  const adopted = [];
   let channel;
-  let stderr = "";
+  const markerPath = join(f.runtimeBase, "h2a-mcp-central", "marker.json");
+  const readMarker = () => {
+    try {
+      const marker = JSON.parse(readFileSync(markerPath, "utf8"));
+      return Number.isSafeInteger(marker.pid) && marker.pid > 1 ? marker : undefined;
+    } catch { return undefined; }
+  };
+  const processAlive = (pid) => {
+    try { process.kill(pid, 0); return true; }
+    catch (error) { return error?.code !== "ESRCH"; }
+  };
   try {
     const url = await endpoint();
     const start = async () => {
       const child = spawn(process.execPath, [bin, "mcp-central-serve", "--root", f.root], { env: { ...f.env, H2A_MCP_CENTRAL_ENDPOINT: url }, cwd: f.env.HOME, stdio: ["ignore", "ignore", "pipe"] });
       children.push(child);
+      let stderr = "";
       child.stderr.on("data", data => { stderr += data; });
       for (let i = 0; i < 100; i++) {
-        const path = join(f.runtimeBase, "h2a-mcp-central", "marker.json");
-        if (existsSync(path) && JSON.parse(readFileSync(path, "utf8")).pid === child.pid) return child;
+        if (readMarker()?.pid === child.pid) return child;
+        if (child.exitCode !== null && /startup_reserved|candidate_liveness_unknown|owner_liveness_unknown/.test(stderr)) {
+          // Lost the startup race to the shim's auto-ensure: after SIGTERM
+          // the shim's recover() can reserve and boot a central before this
+          // explicit restart reserves (CI 2026-11-05, node-shard 24,1). The
+          // arbitration already picked exactly one winner, so adopting its
+          // live publication neither retries nor duplicates the server.
+          let live;
+          for (let j = 0; j < 100; j++) {
+            live = readMarker();
+            if (live && processAlive(live.pid)) break;
+            await delay(50);
+          }
+          live = readMarker();
+          assert.ok(live && processAlive(live.pid), `adopted central never published a live marker: ${stderr}`);
+          adopted.push(live.pid);
+          return child;
+        }
         if (child.exitCode !== null) throw new Error(stderr);
         await delay(50);
       }
@@ -643,7 +671,6 @@ test("SIGTERM of the real central leaves host stdio open and resumes the same bi
     const first = await start();
     const shim = spawn(process.execPath, [bin, "mcp-central-connect", "--endpoint", url, "--runtime-base", f.runtimeBase, "--root", f.root, "--host", "claude", "--auto-open"], { env: { ...f.env, CLAUDE_CODE_SESSION_ID: "real-stable-conversation" }, cwd: join(f.dir, "repo-a"), stdio: ["pipe", "pipe", "pipe"] });
     children.push(shim);
-    shim.stderr.on("data", data => { stderr += data; });
     channel = rpcChannel(shim.stdin, shim.stdout);
     await channel.call("initialize");
     const before = await ready(channel);
@@ -668,6 +695,10 @@ test("SIGTERM of the real central leaves host stdio open and resumes the same bi
   } finally {
     channel?.close();
     await Promise.all(children.map(async child => { if (child.exitCode === null && child.signalCode === null) { child.kill("SIGTERM"); await once(child, "exit"); } }));
+    for (const pid of adopted) {
+      try { process.kill(pid, "SIGTERM"); } catch {}
+      for (let i = 0; i < 100 && processAlive(pid); i++) await delay(50);
+    }
     f.cleanup();
   }
 });

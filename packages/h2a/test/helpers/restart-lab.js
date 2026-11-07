@@ -73,10 +73,19 @@ export function fixture(t, opts = {}) {
         return stat[19] !== start || ['Z', 'X'].includes(stat[0]);
       } catch (error) { if (['ENOENT', 'ESRCH'].includes(error.code)) return true; throw error; }
     };
+    const killRecorded = (pid, signal) => {
+      // TOCTOU: a recorded process can exit between dead() and kill() (its
+      // reaper, the kernel, or a concurrent dispose pass). An already-dead
+      // target is the goal state, so ESRCH/ENOENT converge instead of
+      // failing the fixture teardown (CI: kill ESRCH in startup-matrix and
+      // incident-20 dispose/sample paths).
+      try { process.kill(pid, signal); return true; }
+      catch (error) { if (['ESRCH', 'ENOENT'].includes(error?.code)) return false; throw error; }
+    };
     const stopRecorded = () => {
       let pending = 0;
       recorded();
-      for (const row of observed.values()) if (!dead(row)) { pending++; process.kill(row.pid, 'SIGKILL'); }
+      for (const row of observed.values()) if (!dead(row) && killRecorded(row.pid, 'SIGKILL')) pending++;
       return pending;
     };
     stopRecorded();
