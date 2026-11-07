@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 import { fixture, eventually, usable } from '../../packages/h2a/test/helpers/restart-lab.js';
@@ -37,7 +37,14 @@ test('oom-isolation: effective sibling cgroups survive launcher death and a boun
     assert.match(launcherGroup, /\/h2a-session-.*\.scope$/);
     assert.match(hostGroup, /\/h2a-native-.*\.scope$/);
     assert.notEqual(hostGroup, launcherGroup);
-    const manager = args => spawnSync('systemctl', ['--user', ...args], { env: f.env, encoding: 'utf8', timeout: 3000 });
+    // Since systemd 258 `systemctl --user` no longer honours
+    // DBUS_SESSION_BUS_ADDRESS: its local transport connects to
+    // $XDG_RUNTIME_DIR/systemd/private. The fixture points XDG_RUNTIME_DIR at
+    // the disposable tree, so these manager calls must carry the runtime dir
+    // that owns the bus (hence the scopes): the disposable VM user manager
+    // running under /run/user/<uid>.
+    const runtimeDir = dirname(bus.replace(/^unix:path=/, ''));
+    const manager = args => spawnSync('systemctl', ['--user', ...args], { env: { ...f.env, XDG_RUNTIME_DIR: runtimeDir }, encoding: 'utf8', timeout: 3000 });
     const killed = manager(['kill', '--signal=KILL', launcherGroup.split('/').at(-1)]);
     assert.equal(killed.status, 0, killed.stderr);
     await launch.done;
@@ -72,7 +79,20 @@ test('oom-isolation: effective sibling cgroups survive launcher death and a boun
     assert.equal(readFileSync(join(controller, 'memory.high'), 'utf8').trim(), 'max');
     const lease = await client.acquireController('h2a-lab-3', 'bounded-fault');
     await client.write(lease, 'memory-fault\n');
-    const events = await eventually(() => readFileSync(join(controller, 'memory.events'), 'utf8'), value => /oom_kill [1-9]/.test(value));
+    const events = await eventually(() => readFileSync(join(controller, 'memory.events'), 'utf8'), value => /oom_kill [1-9]/.test(value)).catch(e => {
+      const pids = children.join(',');
+      const snapshot = {
+        oomd: spawnSync('systemctl', ['is-active', 'systemd-oomd'], { encoding: 'utf8' }).stdout.trim(),
+        userManagedOOM: spawnSync('systemctl', ['show', `user@${process.getuid()}.service`, '-p', 'ManagedOOMMemoryPressure', '-p', 'ManagedOOMMemoryPressureLimit'], { encoding: 'utf8' }).stdout.trim(),
+        workerCgroup: (() => { try { return readFileSync(`/proc/${pids}/cgroup`, 'utf8').trim(); } catch (err) { return `gone: ${err.code}`; } })(),
+        workerAlive: (() => { try { process.kill(children[0], 0); return true; } catch (err) { return err.code; } })(),
+        memoryCurrent: (() => { try { return readFileSync(join(controller, 'memory.current'), 'utf8').trim(); } catch (err) { return err.code; } })(),
+        memoryPressure: (() => { try { return readFileSync(join(controller, 'memory.pressure'), 'utf8').trim(); } catch (err) { return err.code; } })(),
+        memoryStatAnon: (() => { try { return /anon (\d+)/.exec(readFileSync(join(controller, 'memory.stat'), 'utf8'))?.[1] ?? '?'; } catch (err) { return err.code; } })(),
+        kernel: readFileSync('/proc/sys/kernel/osrelease', 'utf8').trim(),
+      };
+      assert.fail(`DIAG ${e.message} | ${JSON.stringify(snapshot)}`);
+    });
     await client.releaseController(lease).catch(() => {});
     assert.equal((await client.ping()).hostPid, hostPid);
     await usable(f, 'h2a-human-1', 'after-worker-oom');
