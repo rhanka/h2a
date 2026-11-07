@@ -36,6 +36,7 @@ import { MESH_SEAT_PROVIDERS, createMeshSeatFacade, requireMeshAccount,
 import { AGY_REQUIRED_COMPLETED_STEPS, CAPTURE_SOURCES, seatLaunchGate,
   AGY_ONBOARDING_REVIEW, agyOnboardingBinaryRefusal } from './xcli-seat-onboarding.mjs';
 import { captureReviewedSeatOnboarding } from './xcli-agy-capture.mjs';
+import { captureAgyCliCache } from './xcli-agy-cli-cache.mjs';
 import { cliPath } from './xcli-lab.mjs';
 
 const self = fileURLToPath(import.meta.url);
@@ -429,6 +430,10 @@ export async function provisionSeats({ seatSet = DEFAULT_SEAT_SET,
       for (const seat of materialised.manifest.seats) {
         const refused = seats.find(entry => entry.seatId === seat.seatId)?.source.captureRefusal;
         if (refused) seat.onboarding.captureRefusal = refused;
+        if (seat.family === 'agy' && seat.onboarding.gate.eligible) {
+          seat.onboarding.cliCacheCaptured = captureAgyCliCache({ sourceHome: homeDir,
+            seatDir: join(laneDir, seat.authSource), nativeCliVersion: cliVersions.agy });
+        }
       }
       fs.writeFileSync(materialised.manifestFile, JSON.stringify(materialised.manifest, null, 2) + '\n', { mode: 0o600 });
       const manifestDigest = createHash('sha256').update(fs.readFileSync(materialised.manifestFile)).digest('hex');
