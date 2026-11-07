@@ -7,6 +7,8 @@ import {
   advanceJob,
   canTransitionJob,
   enroll,
+  coerceRegistryTool,
+  registryEntriesForNativeTarget,
   listJobs,
   listLive,
   loadRegistry,
@@ -83,6 +85,19 @@ function loadEntries(path: string): RegistryEntry[] {
 }
 
 describe("registry", () => {
+  it("should retain an OpenCode native session for exact signed-wake target resolution", () => {
+    const target = "opencode:workspace:synthetic";
+    enroll({ ...baseInput, id: "opencode-receiver", label: target,
+      tool: "opencode", kind: "local-native", tmuxSession: "h2a-receiver" }, regPath);
+    const loaded = loadRegistry(regPath);
+    expect(loaded.state).toBe("ok");
+    if (loaded.state !== "ok") throw new Error("OpenCode registry row refused");
+    expect(loaded.unreadable).toEqual([]);
+    expect(registryEntriesForNativeTarget(target, loaded.entries).map(row => row.tmuxSession)).toEqual(["h2a-receiver"]);
+    expect(registryEntriesForNativeTarget("opencode:workspace:another", loaded.entries)).toEqual([]);
+    expect(coerceRegistryTool("opencode")).toBe("opencode");
+  });
+
   it("enroll creates the file atomically and loadRegistry round-trips", () => {
     const entry = enroll(baseInput, regPath);
     expect(entry.enrolledAt).toBeTruthy();
