@@ -13,7 +13,7 @@ function assertGraph(workflow) {
   const { jobs } = YAML.parse(workflow);
   assert.ok(jobs['bulk-qualification'], 'the nine bulk suites must have an independently failing producer');
   const producer = jobs['bulk-qualification'];
-  assert.equal(producer['runs-on'], 'ubuntu-latest');
+  assert.equal(producer['runs-on'], 'ubuntu-24.04'); // pinned with the ci.yml runner pin — TODO(migrate-26.04), Track: 01M6VTPX93E083FX480N9MF5FY
   assert.equal(producer['timeout-minutes'], 25);
   assert.equal(producer.strategy['fail-fast'], false);
   assert.deepEqual(producer.strategy.matrix.node, ['22', '24']);

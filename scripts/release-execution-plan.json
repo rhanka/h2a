@@ -1,6 +1,6 @@
 {
   "resolve-release-sha": {
-    "runs-on": "ubuntu-latest",
+    "runs-on": "ubuntu-24.04",
     "outputs": {
       "release-sha": "${{ steps.resolve.outputs.sha }}"
     },
@@ -43,7 +43,7 @@
       "resolve-release-sha",
       "native-recovery"
     ],
-    "runs-on": "${{ matrix.os }}",
+    "runs-on": "${{ matrix.os == 'ubuntu-latest' && 'ubuntu-24.04' || matrix.os }}",
     "timeout-minutes": 30,
     "outputs": {
       "release-sha": "${{ needs.resolve-release-sha.outputs.release-sha }}"
@@ -196,7 +196,7 @@
   "publish": {
     "needs": "verify",
     "if": "${{ !cancelled() && !failure() && needs.verify.result == 'success' }}",
-    "runs-on": "ubuntu-latest",
+    "runs-on": "ubuntu-24.04",
     "steps": [
       {
         "uses": "actions/checkout@v4",

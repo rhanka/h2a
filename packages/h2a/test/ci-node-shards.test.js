@@ -69,7 +69,7 @@ function assertShardGraph(source) {
   const { jobs } = parseYaml(source)
   const producer = jobs['node-shard']
   assert.ok(producer, 'the Node suite must have an independently failing shard producer')
-  assert.equal(producer['runs-on'], 'ubuntu-latest')
+  assert.equal(producer['runs-on'], 'ubuntu-24.04') // pinned with the ci.yml runner pin — TODO(migrate-26.04), Track: 01M6VTPX93E083FX480N9MF5FY
   assert.equal(producer['timeout-minutes'], 20)
   assert.equal(producer.strategy['fail-fast'], false)
   assert.deepEqual(producer.strategy.matrix.node, ['22', '24'])
