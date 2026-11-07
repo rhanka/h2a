@@ -678,7 +678,8 @@ test('R22: the codex cell config names the h2a wrapper by absolute path', () => 
 // opt-out exists — the first-run Terms/Data-Use dialog keeps its human
 // gate (see the tos-consent-required blocker below).
 test('R22: agy launches without a fabricated settings bypass', () => {
-  assert.equal(typeof qualify.argsFor, 'undefined', 'no launch-args seam ships a settings bypass');
+  assert.deepEqual(qualify.argsFor('agy', 'qualification prompt'),
+    ['--prompt-interactive', 'qualification prompt'], 'Agy receives only its native prompt flag and the prompt');
 });
 
 // R23 (bench round 23, muse diagonal): muse 1.4.14 engages — identity gate

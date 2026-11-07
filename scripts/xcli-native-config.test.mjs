@@ -6,6 +6,24 @@ import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 import { sourceBuild, environment, cliPath, ORACLE_SOURCES } from './xcli-lab.mjs';
+import { argsFor } from './qualify-cross-cli.mjs';
+
+// The native-oracle job installs the pinned CLI. This assertion remains
+// mandatory here; model-free integrity jobs do not install vendor CLIs.
+test('R31: Codex bench cells disable unrelated plugin downloads and connected apps', () => {
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-codex-policy-'));
+  try {
+    const executable = cliPath('codex', process.env.PATH);
+    assert.ok(executable, 'the native config oracle is required');
+    const result = spawnSync(executable, [...argsFor('codex', 'unused').slice(0, -1), 'features', 'list'],
+      { env: environment(root), cwd: root, encoding: 'utf8', timeout: 15000 });
+    assert.equal(result.status, 0, result.stderr);
+    for (const feature of ['plugins', 'remote_plugin', 'apps']) {
+      assert.match(result.stdout, new RegExp(`^${feature}\\s+[^\\n]*\\sfalse$`, 'm'));
+    }
+    assert.equal(fs.existsSync(join(root, 'home/.codex/plugins/cache')), false);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
 
 // Lot L11: tier-C covers every family with an installable no-login parse
 // path. Pinned families must state their install source; the rest must state
