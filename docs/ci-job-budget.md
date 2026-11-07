@@ -110,10 +110,12 @@ Existing required jobs run with always() and explicitly fail if either producer
 fails or is cancelled, so a skipped dependency cannot manufacture a green check.
 The trust root still runs its direct wiring guard outside the production runner.
 
-Required check names remain **build-and-test (ubuntu-latest, 22)**,
-**build-and-test (ubuntu-latest, 24)**, and **npm-test-trust-root**. Two additional
+Required check names are **build-and-test (ubuntu-24.04, 22)**,
+**build-and-test (ubuntu-24.04, 24)**, and **npm-test-trust-root** since the
+2026-11-07 runner pin (TODO(migrate-26.04), Track: 01M6VTPX93E083FX480N9MF5FY);
+the branch-protection contexts were renamed to match. Two additional
 **m17-qualification (22/24)** jobs are mandatory through those fail-closed
-consumers; no branch-protection change is required. There are two actual M17
+consumers. There are two actual M17
 campaigns per PR: the Node 22 result is shared by two consumers. This proves
 the same test on the same code, but no longer measures M17 under contention
 from other suites or on the same machine as those suites. Run provenance is

@@ -54,7 +54,7 @@ test("R8.1: verify keeps the Node 22+24 matrix — both legs EFFECTIVE", () => {
   const verify = job("verify");
   const matrix = verify.strategy?.matrix;
   assert.deepEqual(matrix?.node, ["22", "24"], "the matrix is pinned by the spec; dropping a leg narrows what a green proves");
-  assert.deepEqual(matrix?.os, ["ubuntu-latest"]);
+  assert.deepEqual(matrix?.os, ["ubuntu-24.04"]); // pinned with the release.yml runner pin — TODO(migrate-26.04), Track: 01M6VTPX93E083FX480N9MF5FY
   // Round-5 review finding H02: adding `exclude: [{node: "22"}]` kept this
   // test green — matrix.node still listed both legs — while GitHub Actions
   // ran Node 24 ONLY. A pinned list is not a pinned matrix: what the runner
