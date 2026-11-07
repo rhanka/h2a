@@ -429,6 +429,7 @@ import {
   type LineageId,
 } from "./lineage-lease.js";
 import { checkReadiness } from "./readiness.js";
+import { registerSentropicCommand } from "./sentropic/cli.js";
 import { createInterface } from "node:readline";
 const H2A_RUN_API_VERSION = "h2a.run/v1";
 const STRUCTURED_LAUNCH_PHASE_PREFIX = "[h2a] h2a.run.phase/v1 ";
@@ -3512,6 +3513,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         }
       },
     );
+
+  // sentropic publish client (preprod): login / status / bind / unbind / logout / tools.
+  registerSentropicCommand(program);
 
   const authCommand = program
     .command("auth")

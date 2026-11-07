@@ -9,15 +9,22 @@
  * the @sentropic/h2a core (anti-cycle: core stays a leaf). It is 3 lines of node:crypto.
  */
 
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 
 import type { SentropicAuthToken } from "./auth-token.js";
 
-/** A fresh PKCE S256 pair. The verifier is held locally; the challenge goes on the wire. */
+/** RFC 7636 §4.2 S256: BASE64URL(SHA256(ASCII(code_verifier))), no padding. */
+export function pkceChallengeS256(verifier: string): string {
+  return createHash("sha256").update(verifier, "ascii").digest("base64url");
+}
+
+/**
+ * A fresh PKCE S256 pair. The verifier (32 random bytes → 43 base64url characters, inside the
+ * RFC 7636 43–128 unreserved-character range) is held locally; only the challenge goes on the wire.
+ */
 export function pkceS256(): { verifier: string; challenge: string } {
   const verifier = randomBytes(32).toString("base64url");
-  const challenge = createHash("sha256").update(verifier).digest("base64url");
-  return { verifier, challenge };
+  return { verifier, challenge: pkceChallengeS256(verifier) };
 }
 
 export function randomState(byteLength = 32): string {
@@ -29,6 +36,12 @@ export interface AuthorizeConfig {
   clientId: string;
   redirectUri: string;
   scope: string;
+  /** OIDC nonce, echoed in the id_token and checked there (replay binding). */
+  nonce?: string;
+  /** RFC 8707 resource indicator: the access token audience. */
+  resource?: string;
+  /** Further authorization parameters (e.g. a tenant selection); never secrets. */
+  extraParams?: Readonly<Record<string, string>>;
 }
 
 export interface AuthorizeRequest {
@@ -54,12 +67,18 @@ export function buildAuthorizeRequest(
   u.searchParams.set("state", state);
   u.searchParams.set("code_challenge", pkce.challenge);
   u.searchParams.set("code_challenge_method", "S256");
+  if (cfg.nonce !== undefined) u.searchParams.set("nonce", cfg.nonce);
+  if (cfg.resource !== undefined) u.searchParams.set("resource", cfg.resource);
+  for (const [name, value] of Object.entries(cfg.extraParams ?? {})) u.searchParams.set(name, value);
   return { url: u.toString(), verifier: pkce.verifier, state };
 }
 
-/** Verify the callback state matches the one we issued (CSRF/replay guard). */
+/** Verify the callback state matches the one we issued (CSRF/replay guard), in constant time. */
 export function verifyCallbackState(issued: string, returned: string): boolean {
-  return issued.length > 0 && issued === returned;
+  if (issued.length === 0) return false;
+  const a = Buffer.from(issued, "utf8");
+  const b = Buffer.from(returned, "utf8");
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 // ---- device-code fallback (headless) ---------------------------------------------------------
@@ -103,7 +122,3 @@ export type TokenExchange = (args: {
   deviceCode?: string;
 }) => Promise<SentropicAuthToken>;
 
-/** RED stub — see publish-client.test.ts. */
-export function pkceChallengeS256(_verifier: string): string {
-  throw new Error("not implemented");
-}

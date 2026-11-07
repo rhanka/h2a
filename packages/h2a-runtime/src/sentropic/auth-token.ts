@@ -371,16 +371,52 @@ export function assertServerBound(token: SentropicAuthToken, requestedServer: st
   }
 }
 
-/** RED stub — see auth-token.update.test.ts. */
+/**
+ * Atomic read-modify-write of ONE server's entry — the primitive behind logout (remove) and
+ * refresh-token rotation (compare-and-set). Same storage safety as writeAuth, through the same
+ * code path: under the writer lock, a damaged file is refused with a typed error and left
+ * untouched, and the merge is re-checked against the exact bytes it started from, so a write to
+ * any server's entry is never lost; a busy or lost lock refuses (AuthFileConcurrentWriteError).
+ *
+ * `mutate` receives the token bound to `server` (never a token whose own `server` differs, the
+ * same anti-exfil rule as readAuth) and returns the token to store, or undefined to remove the
+ * entry. It may run more than once when a writer ignoring the lock lands in the merge window:
+ * keep it pure. Returning `current` itself writes nothing. Returns what is now stored for
+ * `server`.
+ */
 export function updateAuth(
-  _server: string,
-  _mutate: (current: SentropicAuthToken | undefined) => SentropicAuthToken | undefined,
-  _dir?: string,
+  server: string,
+  mutate: (current: SentropicAuthToken | undefined) => SentropicAuthToken | undefined,
+  dir?: string,
 ): SentropicAuthToken | undefined {
-  throw new Error("not implemented");
+  const path = authFilePath(dir);
+  const key = serverKey(server);
+  return withWriterLock(path, (lock) => {
+    for (let attempt = 0; attempt < MAX_WRITE_MERGE_ATTEMPTS; attempt++) {
+      const raw = readRawAuthFile(path);
+      const file = parseAuthFile(raw, path);
+      const stored = file[key];
+      const current = stored !== undefined && serverKey(stored.server) === key ? stored : undefined;
+      const next = mutate(current);
+      if (next === current) return current;
+      if (next === undefined) {
+        delete file[key];
+      } else {
+        assertServerBound(next, server);
+        file[key] = next;
+      }
+      if (commitUnlessChanged(path, Buffer.from(JSON.stringify(file, null, 2) + "\n", "utf8"), raw, lock)) return next;
+    }
+    throw new AuthFileConcurrentWriteError(path, "kept-changing");
+  });
 }
 
-/** RED stub — see auth-token.update.test.ts. */
-export function removeAuth(_server: string, _dir?: string): boolean {
-  throw new Error("not implemented");
+/** Remove the token bound to `server` (logout). True when one was removed; other servers are kept. */
+export function removeAuth(server: string, dir?: string): boolean {
+  let removed = false;
+  updateAuth(server, (current) => {
+    removed = current !== undefined;
+    return undefined;
+  }, dir);
+  return removed;
 }
