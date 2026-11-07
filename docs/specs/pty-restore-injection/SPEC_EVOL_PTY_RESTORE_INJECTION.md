@@ -6,13 +6,17 @@ Cette spec répare ce que tu as remonté le 19/10 après l'upgrade vers
 `0.98.7-rc.4`. Quand elle sera livrée, concrètement :
 
 - **`h2a upgrade` et `h2a restore` te parlent.** Quelques lignes courtes
-  dans ta langue ; le JSON seulement si tu le demandes (`--json`).
-  Plus jamais de mur de manifestes échappés.
+  dans ta langue ; le JSON seulement si tu le demandes (`--json`) —
+  hors d'un vrai terminal, le JSON par défaut survit encore un cycle
+  de dépréciation (D14f). Plus jamais de mur de manifestes échappés.
 - **`h2a restore` redémarre vraiment les CLIs.** Une session dont le CLI
   est mort mais dont le terminal est encore ouvert est reprise dans ce
-  même terminal, une seule fois, et à la fin tu lis un bilan exact par
-  session (« déjà active / reprise / recréée / en attente : raison »)
-  au lieu du nombre d'onglets qu'on a essayé d'ouvrir.
+  même terminal, une seule fois — à condition que l'adaptateur de
+  shell géré (D6(iii)) soit livré et qualifié ; sans lui, elle est
+  listée « en attente : raison », jamais une fausse « reprise ». À la
+  fin tu lis un bilan exact par session (« déjà active / reprise /
+  recréée / en attente : raison ») au lieu du nombre d'onglets qu'on a
+  essayé d'ouvrir.
 - **Tu peux superviser et écrire dans un PTY délégué** (revue de code,
   etc.) pendant que sa fenêtre reste ouverte — comme le `send-keys`
   tmux d'avant : inspection, capture, injection autorisée et auditée,
@@ -20,7 +24,7 @@ Cette spec répare ce que tu as remonté le 19/10 après l'upgrade vers
 - **`h2a send` réveille à nouveau sa cible.** Dépôt du message,
   réveil, réception et traitement deviennent des accusés séparés ; un
   réveil bloqué par de la frappe humaine attend avec sa raison
-  affichée, et il ne bascule jamais en headless en cachette.
+  affichée, et il ne bascule jamais en headless.
 - **Ton terminal reste propre.** Les réponses du terminal (les séries
   `>|VTE…` que tu as vues) ne retombent plus dans la ligne de commande
   quand le CLI quitte.
@@ -32,6 +36,13 @@ Cette spec répare ce que tu as remonté le 19/10 après l'upgrade vers
   etc.) : elles sont exclues par leur provenance ; tu ne les revois que
   si tu les demandes explicitement (`--include-secondary`, en
   proposition).
+- **Une session physique, un onglet, un écrivain — partout.** (Ton
+  point A.5 : « duex instances i-cond sur la meme session ».) À la
+  restauration comme dans `ls` et les vues de présence, une même
+  session n'apparaît plus deux fois ; le propriétaire vivant d'une
+  conversation native est refusé comme second écrivain même sans pid
+  au registre ; un conflit s'affiche comme un conflit, jamais tué
+  automatiquement.
 - **Des groupes restore dédiés, configurables.** Tu pourras créer un
   groupe pour Consumer (ou toute autre famille) par préfixe de chemin ou
   par label dans ta config — rien dans le code — et le plan t'annonce
@@ -43,13 +54,20 @@ Où en est le dépôt aujourd'hui (07/11) : la spec est rebasée sur le
 (§11). Sur main : l'exclusion des déléguées à la lecture du registre
 est déjà là (PR #390) et la commande `upgrade` a été refondue en
 surface H4 — mais elle affiche toujours du JSON par défaut. Une voie de
-réalisation existe déjà : la PR #382 (`feat/pty-restore-injection`),
-ouverte, non fusionnée, avec des lots entamés dans son arbre et 3 jobs
-CI rouges à son dernier passage (21/10). La Phase B de PTY (PR #375)
+réalisation existe — la PR #382 (`feat/pty-restore-injection`),
+ouverte, non fusionnée, avec des lots entamés dans son arbre — mais
+elle est NON-FUSIONNABLE en l'état : ses deux tours de revue de code
+(les 4 fichiers `code-review-*.md`, R1 sur `91dfb72f8`, R2 sur
+`0e4a0e47e`) refusent la fusion sur des P1 (un réveil perdu ; un
+brouillon humain composé puis soumis après 4 s), et son dernier
+passage CI (21/10) a 3 jobs rouges. La Phase B de PTY (PR #375)
 reste ouverte et bloque le lot L7. Le reste des lots reste à
 construire. Le résumé par lot est en §7, la réconciliation détaillée
-en §11 ; les 4 revues GO-CODE et les revues des tours précédents sont
-conservées dans `docs/reviews/pty-restore-injection/`.
+en §11 ; sont conservées dans `docs/reviews/pty-restore-injection/` :
+les 4 revues de code de la PR #382 (NON-FUSIONNABLE — ce ne sont pas
+des GO-CODE), les revues des tours précédents de la spec, et les
+2 GO-CODE (`review-r3-wonder.md` pour v3, `review-r4-astra.md` pour
+v4).
 
 Status: build specification, not code. Written 2026-10-19. No version
 number is assigned by this specification; version and RC attribution are
@@ -92,12 +110,32 @@ the French summaries §7–§10 are unchanged. Two statuses change in
 kind, not in content: lot L5's registry read-path gate landed
 partially on main (PR #390), and the upgrade surface lot L6 renders
 was replaced on main by the H4 rework (PR #354 lane) — §11 states the
-narrowed first-RED set and re-anchored rendering target. The 4 GO-CODE
-review rounds and the earlier NO-GO/GO reviews are kept verbatim in
+narrowed first-RED set and re-anchored rendering target. The 2 GO-CODE
+reviews (`review-r3-wonder.md` for v3, `review-r4-astra.md` for v4),
+the earlier NO-GO/GO revision rounds and the lane's 4 code-review
+rounds (all **NON-FUSIONNABLE**, R1 `91dfb72f8`, R2 `0e4a0e47e` —
+reviews of PR #382, never GO-CODE) are kept verbatim in
 `docs/reviews/pty-restore-injection/`; they were written against the
 original base and against the implementation lane PR #382, and stay
 historical documents — §11 is the only section describing the tree at
 `427e7578b`.
+
+**Revision v5.1 (2026-11-07, review fidelity)**: the review labels
+are made truthful after the PR review rounds of this change. The 4
+`code-review-*.md` files are NON-FUSIONNABLE reviews of PR #382
+(R1 `91dfb72f8`, R2 `0e4a0e47e`), not GO-CODE; this spec's GO-CODE
+reviews are `review-r3-wonder.md` (v3) and `review-r4-astra.md` (v4).
+§11 gains a D18 row, per-row on-lane marks everywhere the lane
+carries code, a state for D15/D17, full paths for entries outside
+`src/` (`packages/h2a-runtime/vitest.native-isolation.mjs`,
+`packages/h2a/test/helpers/native-isolation.js`), the test helper's
+closed-build-receipt / closed-images guard, and the `ci.yml:457` →
+`:476` drift at `e626464e2`. The French owner summary is made faithful
+(D6(iii)-conditioned in-place resume, the never-headless promise
+restored to `never`, the non-TTY JSON deprecation cycle of D14f, and
+the point A.5 named), and the lot L3 purpose says `verifiable
+receipts`. Decisions D1–D18, lots and open questions Q1–Q5 are
+unchanged. §12 records the change list in French.
 
 Base for every file path and line reference: the git worktree
 `tmp/worktrees/spec-pty` at `origin/main` `dc78dc5f7`
@@ -1399,7 +1437,7 @@ capability refusal asserted against a stub host.
 ### Lot L3 — Wake/sendmessage works again; deposit vs processing distinguished (D9)
 
 Purpose: reconnect the existing signed deposit to a working wake on the
-L2 transport, with durable wake state and honest receipts end to end.
+L2 transport, with durable wake state and verifiable receipts end to end.
 
 RED tests first (`packages/h2a/test/pty-native-messaging.test.js`,
 `evo1-inbox-wake-handler.test.js`, `wake-defer.test.js` extensions;
@@ -1985,12 +2023,15 @@ jamais des décisions owner.
 ## 11. Reconciliation against `origin/main` at `427e7578b` (2026-11-07, revision v5)
 
 Method and scope. The spec commits are rebased onto `origin/main`
-`427e7578b` (branch `docs/pty-restore-v4`; clean replay, these files do
+(clean replay on `427e7578b` at v5, on `e626464e2` at v5.1; branch
+`docs/pty-restore-v4`; these files do
 not exist on main: `docs/specs/pty-restore-injection/` and
 `docs/reviews/pty-restore-injection/` are new). Every §1 fact and every
-lot assumption was re-read in that tree; 34 PRs were merged since
-`dc78dc5f7` and **none implements a §2 decision** — §1's facts hold at
-`427e7578b` modulo line-number shifts, recorded below. Statuses are
+lot assumption was re-read in that reconciliation tree (`427e7578b`);
+34 PRs were merged since `dc78dc5f7` and **none fully implements a §2
+decision** — §1's facts hold at `427e7578b` modulo line-number shifts,
+recorded below (the drift to `e626464e2` is noted where it exists).
+Statuses are
 tri-state: **on main** (done), **on lane** (built but unmerged, in the
 open implementation PR, unqualified), **still to build** (nowhere).
 
@@ -2016,8 +2057,13 @@ open implementation PR, unqualified), **still to build** (nowhere).
   (`build-and-test` 22 and 24, `npm-test-trust-root`) and 13 passing,
   and `managed-shell.ts` / `input-supervision.ts` are **absent** from
   its tip — the D6(iii) managed-primary-shell adapter exists nowhere,
-  so L1b stays gated exactly as §4 says. The four GO-CODE code-review
-  rounds reviewed this lane. No completeness or green claim is made
+  so L1b stays gated exactly as §4 says. The four code-review rounds
+  that reviewed this lane (R1 `91dfb72f8`: `code-review-astra.md` +
+  `code-review-sol.md`; R2 `0e4a0e47e`: `code-review-r2-astra.md` +
+  `code-review-r2-sol.md`) are all **NON-FUSIONNABLE** — reviews of
+  PR #382, never GO-CODE; this spec's GO-CODE reviews are
+  `review-r3-wonder.md` (v3) and `review-r4-astra.md` (v4). No
+  completeness or green claim is made
   here for #382; its rebase onto current main, the intersections with
   #390/#354, its CI and its lots are its own lane's conductor work.
 - **PR #375** — `feat(pty): phase B — replaceable front, sessions
@@ -2031,26 +2077,28 @@ open implementation PR, unqualified), **still to build** (nowhere).
   report states that explicitly.
 
 **Per-item status at `427e7578b`** (all paths repo-relative, `R/` =
-`packages/h2a-runtime/src`, `H/` = `packages/h2a/src`; line numbers read
+`packages/h2a-runtime/src`, `H/` = `packages/h2a/src`; paths outside
+`src/` are written in full; line numbers read
 in the rebased tree):
 
 | Item | State and evidence |
 |---|---|
 | D1 facet | Still to build. `NativeTerminalSessionState` exposes status/pid/generation/incarnation/`controlled`/`lastHumanActivityAt`, no application facet (`R/native-terminal/host.ts:577-602`). `captureHostViewSnapshot` still keeps only running + `controlled` (`R/restore.ts:453-465`). |
 | D2 ledger | Still to build. `restore()` prints the window/tab plan and returns planned-tab totals (`R/restore.ts:1103-1134`); no per-session observed outcomes, no exit contract. The lot integrates with restore's existing single fail-closed registry read + one-probe-surface model with attach-hint note (`R/restore.ts:558-615`) and `restore --reattach` (`R/index.ts:10049`, attach-only, single-controller `R/launch-layout.ts:280-296`) — both present at the spec's base, unchanged since. |
-| D3 in-place resume | Still to build. Native restore decisions: controlled→skip, uncontrolled→one attach, unknown→fail closed (`R/launch-layout.ts:280-296`); `relaunchInSession` is still tmux-only (`R/tmux.ts:2433`). Lane #382 carries `restore-inplace.test.ts`. |
+| D3 in-place resume | On lane, partial (unqualified); still to build on main. Native restore decisions: controlled→skip, uncontrolled→one attach, unknown→fail closed (`R/launch-layout.ts:280-296`); `relaunchInSession` is still tmux-only (`R/tmux.ts:2433`). Lane #382 carries `restore-inplace.test.ts` (unmerged, unqualified). |
 | D4 guard/dedup | Still to build. `ownerFromEntry` treats only `local-tmux` as verifiable; a no-pid row is `suspect` and never refuses (`R/conv-guard.ts:59-85`); the run/hook join still exists only in restore (`R/restore.ts:365-411`). |
-| D5–D7 broker/audit | Still to build. Protocol v1 has no `inject` (`R/native-terminal/protocol.ts` unchanged since base); `drive` flattens every refusal to `deferred` (`R/native-terminal/op.ts:1018`, `:1037-1043`); the controller lease is exclusive (`R/native-terminal/host.ts:1196`, `:1238`); `withController` acquires without activity so the client default `"human"` stamps `lastHumanActivityAt` (`R/native-terminal/op.ts:295`, `client.ts:169-175`, `host.ts:1204`). Lane #382 carries `inject`/`automationSeq` (unqualified). |
+| D5–D7 broker/audit | On lane, partial (unqualified); still to build on main. Protocol v1 has no `inject` (`R/native-terminal/protocol.ts` unchanged since base); `drive` flattens every refusal to `deferred` (`R/native-terminal/op.ts:1018`, `:1037-1043`); the controller lease is exclusive (`R/native-terminal/host.ts:1196`, `:1238`); `withController` acquires without activity so the client default `"human"` stamps `lastHumanActivityAt` (`R/native-terminal/op.ts:295`, `client.ts:169-175`, `host.ts:1204`). Lane #382 carries `inject`/`automationSeq` (unmerged, unqualified). |
 | D8 supervision | Still to build. Observer role still has no product verb; `op.js` remains internal. |
-| D9 wake | Still to build. `nativePtyBackchannelDriver` still spawns op drive on `H2A_NATIVE_TARGET_SESSION` (`H/cli.ts:4208`, env stamped `R/native-host.ts:872`) in the tmux-fallback chain (`H/cli.ts:2544`); deposit side unchanged. New adjacent capital, other lane: mesh-handover `WakeJournal` with durable wake intents and eligible-envelope dedup (`H/runtime/handover/wake.js:6-33`, consumed by `H/runtime/drive/inbox-wake.ts:14-28`) — a precedent L3 cites without claiming it is the native chain's durable wake state. |
-| D10 replies | Still to build. Host self-answers DSR while relaying (`R/native-terminal/host.ts:1049-1057`); attach repaint re-emits replay history (`R/native-terminal/op.ts:304-305`, `:489`); zero query→reply correlation anywhere. Lane #382 carries `terminal-replies.ts` + VTE harness (unqualified). |
-| D11 hint | Still to build. `LOCAL_WRAPPER` still prints the exit line + `[h2a] relaunch:` `h2a run …` hint at CLI exit, then `exec /bin/bash -l` (`R/tmux.ts:139-150`); tests still pin that timing (`R/tmux.test.ts:1874-1890`). A `STRUCTURED_LOCAL_WRAPPER` that never drops to a shell exists for delegated prompts (`R/tmux.ts:158-163`) — launch-side capital, not the D11 fix. |
-| D12 secondaries | **Partially done on main** (PR #390, commit `99cc14a3f`): `registrySessions` now skips every row with delegation provenance — "Recorded delegation wins over a legacy/stale human classification" (`R/restore.ts:581-583`). Still to build: the persisted `primary/secondary` facet and enrollment guard, the one-time legacy classification, the remote-path gate, the opt-in and the dry-run naming (D12b–d); the launch path still classifies a delegated attached review as `human` (`R/session-class.ts` unchanged). Lane #382 carries the facet (unmerged). |
-| D13/D14b groups (LG) | Still to build. All five §1.7 gaps verified at new lines: `LayoutGroup` is still `{title, projects?, remote?}` (`R/config.ts:36-43`), `DEFAULT_LAYOUT.groups` still `[]` (`R/config.ts:68`), `getLayoutConfig` still does no shape validation; explicit groups match exact `projects` only with `maxPerWindow` cut by `break` and not counted as `dropped` (`R/restore.ts:896-904`); shared windows still hardcode French `fenêtre partagée` (`R/restore.ts:930`); every `remote:true` group is still filled with the same `remoteTabs.slice(0, maxPerWindow)` (`R/restore.ts:1088-1096`); `restore [group]` help is still hardcoded French (`R/index.ts:10043-10050`). Lane #382 carries `cwdPrefixes` matchers + `docs/restore-layout-groups.md` (unmerged). |
-| L6a/D14 locale | Still to build. No locale helper exists on these paths (no `H2A_LANG`, no `Intl`, no catalog module in `H/cli.ts`, `R/restore.ts`, `R/index.ts`, `R/launch-layout.ts` at `427e7578b`). Lane #382 carries the catalog files (unmerged). |
+| D9 wake | On lane, partial (unqualified); still to build on main. `nativePtyBackchannelDriver` still spawns op drive on `H2A_NATIVE_TARGET_SESSION` (`H/cli.ts:4208`, env stamped `R/native-host.ts:872`) in the tmux-fallback chain (`H/cli.ts:2544`); deposit side unchanged. New adjacent capital, other lane: mesh-handover `WakeJournal` with durable wake intents and eligible-envelope dedup (`H/runtime/handover/wake.js:6-33`, consumed by `H/runtime/drive/inbox-wake.ts:14-28`) — a precedent L3 cites without claiming it is the native chain's durable wake state. Lane #382 carries durable pending-wake state and typed deferral (`b71093856`, unmerged, unqualified). |
+| D10 replies | On lane, partial (unqualified); still to build on main. Host self-answers DSR while relaying (`R/native-terminal/host.ts:1049-1057`); attach repaint re-emits replay history (`R/native-terminal/op.ts:304-305`, `:489`); zero query→reply correlation anywhere. Lane #382 carries `terminal-replies.ts` + VTE harness (unmerged, unqualified). |
+| D11 hint | On lane, partial (unqualified); still to build on main. `LOCAL_WRAPPER` still prints the exit line + `[h2a] relaunch:` `h2a run …` hint at CLI exit, then `exec /bin/bash -l` (`R/tmux.ts:139-150`); tests still pin that timing (`R/tmux.test.ts:1874-1890`). A `STRUCTURED_LOCAL_WRAPPER` that never drops to a shell exists for delegated prompts (`R/tmux.ts:158-163`) — launch-side capital, not the D11 fix. Lane #382 carries the in-PTY resume hint and the survivor `h2a run` line (`373625d88`, unmerged, unqualified). |
+| D12 secondaries | **Partially done on main** (PR #390, commit `99cc14a3f`): `registrySessions` now skips every row with delegation provenance — "Recorded delegation wins over a legacy/stale human classification" (`R/restore.ts:581-583`). Still to build: the persisted `primary/secondary` facet and enrollment guard, the one-time legacy classification, the remote-path gate, the opt-in and the dry-run naming (D12b–d); the launch path still classifies a delegated attached review as `human` (`R/session-class.ts` unchanged). Lane #382 carries the facet (on lane, unmerged, unqualified). |
+| D13 groups (LG) | On lane, partial (unqualified); still to build on main. All five §1.7 gaps verified at new lines: `LayoutGroup` is still `{title, projects?, remote?}` (`R/config.ts:36-43`), `DEFAULT_LAYOUT.groups` still `[]` (`R/config.ts:68`), `getLayoutConfig` still does no shape validation; explicit groups match exact `projects` only with `maxPerWindow` cut by `break` and not counted as `dropped` (`R/restore.ts:896-904`); shared windows still hardcode French `fenêtre partagée` (`R/restore.ts:930`); every `remote:true` group is still filled with the same `remoteTabs.slice(0, maxPerWindow)` (`R/restore.ts:1088-1096`); `restore [group]` help is still hardcoded French (`R/index.ts:10043-10050`). Lane #382 carries `cwdPrefixes` matchers + `docs/restore-layout-groups.md` (unmerged, unqualified). |
+| L6a/D14 locale | On lane, partial (unqualified); still to build on main. No locale helper exists on these paths (no `H2A_LANG`, no `Intl`, no catalog module in `H/cli.ts`, `R/restore.ts`, `R/index.ts`, `R/launch-layout.ts` at `427e7578b`). Lane #382 carries the catalog files (unmerged, unqualified). |
 | D14a/L6 upgrade output | **Surface replaced on main** (PR #354 lane, commit `e11ae54e1`, the 0.98.8 H4 rework): `h2a upgrade` now routes to `cmdUpgradeH4` (`H/cli.ts:2243`; dispatch `:8198`) which writes a JSON envelope on every path via `h4WriteEnvelope` (`H/cli.ts:1960-1963`); the legacy `cmdUpgrade` — the A.1 screenshot's escaped-manifest wall, with `convergeAfterExplicitUpgrade` (`H/cli.ts:1973`, `:1988`) — is kept as an exported compat surface with "No CLI trigger reaches it since LOT-1" (`H/cli.ts:1970-1975`); `performAutoUpgrade` has no caller in the H4 pass; the boot entry is now `runBootUpgrade` (`H/runtime/upgrade/index.ts:463-468`, `:608`). Consequences: A.1's reachable shape is a structured envelope (no longer nested escaped stdout), but the default output is still machine JSON on a TTY, no locale, and the human-first flip, the catalog and the outcome split are all still to build. Lot L6's rendering target is re-anchored on `cmdUpgradeH4` + the `h4*` helpers + the boot worker's quiet set; its file list (§4) still names `H/src/cli.ts`, `hosts/upgrade-equipment.ts`, `runtime/upgrade/index.ts` — the anchors inside them change, not the files. |
-| D15/D17/L7 integration | Unchanged commitments; PR #375 still open (see above). No second upgrade implementation exists on main to duplicate; the H4 surfaces are what #375 must be integrated against now. |
-| D16/L0 isolation | Still to build. `R/vitest.native-isolation.mjs` is unchanged (spawn assertions only, no per-worker roots); `scripts/test-sandbox.mjs` is absent; both leak suites are byte-identical to the base (`R/attach-reconnect-livelock.test.ts`, `R/native-terminal/op.test.ts` first describe). `H/test/helpers/native-isolation.js` gained since the base only qualification-root allow-listing (`/home/<user>/.cache-tmp/h2a-test/run-*` accepted as a short qualification root — the owner's tmpdir rule is now recognized vocabulary, `native-isolation.js:19`, `:45` — and a denied D-Bus address, `:133`) plus CI-owned-process tracking; the L0 builder (roots on import, mutation-point guard, filesystem barrier launcher) is still absent. The §1.8 CI inventory moved: direct `node --test` steps at `ci.yml:53`, `:90`, `:178`, `:338`, `:457` (plus codex-drift, release, focus-dossier as before), and the runners/contracts themselves changed since the base (`scripts/run-test-gates.mjs`, `scripts/run-tests.mjs`, `packages/h2a/test/release-workflow.test.js`, `packages/h2a/test/run-test-gates.test.js`) — L0 re-reads its exact-command assertions at this base. Lane #382 carries the launcher and the workflow rewiring (last CI red; the bwrap-unavailable qualification-incomplete failures are already named by `code-review-r2-sol.md` finding 9). |
+| D15/D17/L7 integration | Still to build (nowhere: no seam on main, none on any lane). Unchanged commitments; PR #375 still open (see above). No second upgrade implementation exists on main to duplicate; the H4 surfaces are what #375 must be integrated against now. |
+| D16/L0 isolation | On lane, partial (unqualified); still to build on main. `packages/h2a-runtime/vitest.native-isolation.mjs` is unchanged (spawn assertions only, no per-worker roots); `scripts/test-sandbox.mjs` is absent; both leak suites are byte-identical to the base (`R/attach-reconnect-livelock.test.ts`, `R/native-terminal/op.test.ts` first describe). `packages/h2a/test/helpers/native-isolation.js` gained since the base, besides qualification-root allow-listing (`/home/<user>/.cache-tmp/h2a-test/run-*` accepted as a short qualification root — the owner's tmpdir rule is now recognized vocabulary, `native-isolation.js:19`, `:45` — and a denied D-Bus address, `:133`) and CI-owned-process tracking, a closed-build-receipt / closed-images qualification guard (`native-isolation.js:193-206`, `:234-254`; commits `97059c42f`, `5e72ddc2c`, `53633c43a`, `ab34a8af1`) on the very preload L0 extends; the L0 builder (roots on import, mutation-point guard, filesystem barrier launcher) is still absent. The §1.8 CI inventory moved: direct `node --test` steps at `ci.yml:53`, `:90`, `:178`, `:338`, `:457` (`:457` is now `:476` on `e626464e2`, `4786c944f`; plus codex-drift, release, focus-dossier as before), and the runners/contracts themselves changed since the base (`scripts/run-test-gates.mjs`, `scripts/run-tests.mjs`, `packages/h2a/test/release-workflow.test.js`, `packages/h2a/test/run-test-gates.test.js`) — L0 re-reads its exact-command assertions at this base. Lane #382 carries the launcher and the workflow rewiring (unmerged, last CI red; the bwrap-unavailable qualification-incomplete failures are already named by `code-review-r2-sol.md` finding 9). |
+| D18 fail-closed legibility | Partially done on main (preservation half): the fenced refusals stand verbatim — restore's one-registry-read-or-refuse (`R/restore.ts:560-561`), the controlled/unknown launch decisions (`R/launch-layout.ts:280-296`). Still to build: naming each refusal once, per session, with its remedy, in the D2 ledger / D14 human output, plus the new facet/broker paths that give restore a safe positive action. |
 
 **Impact on the lots (bounded, no decision changes):**
 
@@ -2097,9 +2145,30 @@ réconciliation §11 (anglais normatif, témoins fichier:ligne à
 
 | Fait v5 | Sections |
 |---|---|
-| PR #382 (voie de réalisation) : 39 commits, `feat/pty-restore-injection`@`80f6cbb07`, CI du 21/10 à 3 jobs rouges (`build-and-test` ×2, `npm-test-trust-root`), `managed-shell.ts`/`input-supervision.ts` absents (L1b reste conditionné), lots entamés dans son arbre (L0, L6a, L2 noyau, L1 ledger, L5 facet, LG matchers, L4 réponses, L6 fixtures) | §11 (voies), §4 sans changement |
+| PR #382 (voie de réalisation, NON-FUSIONNABLE à ses 2 tours de revue de code — ce ne sont pas des GO-CODE) : 39 commits, `feat/pty-restore-injection`@`80f6cbb07`, CI du 21/10 à 3 jobs rouges (`build-and-test` ×2, `npm-test-trust-root`), `managed-shell.ts`/`input-supervision.ts` absents (L1b reste conditionné), lots entamés dans son arbre (L0, L6a, L2 noyau, L1 ledger, L5 facet, LG matchers, L4 réponses, L6 fixtures) | §11 (voies), §4 sans changement |
 | Partiellement fait sur main par #390 : le registre exclut désormais les lignes à provenance déléguée à la lecture (`restore.ts:581-583`) — le premier RED de L5 se réduit à une régression conservée + les moitiés restantes (facet persistée, classification legacy, remote, opt-in) | §11 D12 ; lot L5 |
 | Surface `upgrade` remplacée sur main par H4 (voie #354) : `cmdUpgradeH4` écrit une enveloppe JSON sur chaque chemin (`cli.ts:1960-1963`, `:2243`) ; l'ancien mur A.1 (`cmdUpgrade` legacy) n'est plus atteignable par le CLI (`cli.ts:1970-1975`) ; L6 re-ancre son rendu sur H4 | §11 D14a/D14f ; lot L6 |
 | PR #375 toujours OUVERTE : `owner-protocol.ts` etc. absents de main, base mesurée antérieure à H4 ; L7 inchangé, le raccord à la surface H4 est à re-rapporter par L7 | §11 D15/D17 ; lot L7 |
 | Tous les autres constats §1 tiennent à `427e7578b` avec de nouveaux numéros de ligne (facette absente, ledger planifié, bail exclusif, drive aplati, réponses sans corrélation, hint à la sortie CLI, groupes : 5 lacunes inchangées, isolement L0 à construire) | §11 (tableau) ; §1 inchangé |
-| Isolation L0 : le helper reconnaît désormais les racines `~/.cache-tmp/h2a-test/run-*` (`native-isolation.js:19`) ; commandes CI directes déplacées (`ci.yml:53/90/178/338/457`) ; 4 fichiers runner/contrats modifiés — L0 relit avant de figer | §11 D16 ; lot L0 |
+| Isolation L0 : le helper reconnaît désormais les racines `~/.cache-tmp/h2a-test/run-*` (`native-isolation.js:19`) ; commandes CI directes déplacées (`ci.yml:53/90/178/338/457` ; `:457` devenu `:476` sur `e626464e2`) ; 4 fichiers runner/contrats modifiés — L0 relit avant de figer | §11 D16 ; lot L0 |
+
+Révision v5.1 (2026-11-07, fidélité après revue de la PR #424) : les
+4 revues de code de la PR #382 sont nommées pour ce qu'elles sont —
+NON-FUSIONNABLE (R1 `91dfb72f8`, R2 `0e4a0e47e`), jamais « GO-CODE » —
+et les 2 GO-CODE sont citées (`review-r3-wonder.md`,
+`review-r4-astra.md`) ; le résumé owner dit que #382 est refusée à ses
+deux tours de revue de code (P1 : réveil perdu ; brouillon humain
+composé puis soumis après 4 s). §11 reçoit une ligne D18, des états
+« on lane, partiel, non qualifié » pour les lignes où #382 porte du
+code (D3, D5–D7, D9 `b71093856`, D10, D11 `373625d88`, D12, D13/LG,
+L6a, D16), un état pour D15/D17, la garde « reçus de build / images
+fermées » du précharge que L0 étend (`native-isolation.js:193-206`,
+`:234-254`) et la dérive `ci.yml` (`:457`→`:476` sur `e626464e2`).
+Le résumé owner conditionne la reprise en place à l'adaptateur
+D6(iii) (« en attente : raison » sinon), rend le « jamais en
+headless » de D9 absolu, garde le JSON par défaut hors d'un vrai
+terminal pendant un cycle (D14f) et nomme le point A.5 (deux
+instances i-cond) ; le but du lot L3 dit désormais « verifiable
+receipts » (adjectif dérivé du terme proscrit retiré) ; les chemins
+hors `src/` s'écrivent en entier (§11). Aucune décision, aucun lot ni
+aucune question ouverte ne change.
