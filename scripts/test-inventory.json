@@ -223,8 +223,42 @@
     "the writer lock never writes through another writer's temp file, even one sharing our pid"
   ],
   "packages/h2a-runtime/src/sentropic/auth-token.test.ts": [],
+  "packages/h2a-runtime/src/sentropic/auth-token.update.test.ts": [
+    "removeAuth removes one server's token and keeps every other server's token",
+    "removeAuth refuses to rewrite a damaged auth file and leaves its bytes untouched",
+    "updateAuth replaces the rotated pair atomically and never keeps the old refresh token",
+    "updateAuth keeps a pair another writer already rotated (compare-and-set on the refresh token)",
+    "updateAuth does not lose another server's write landing between its read and its commit",
+    "updateAuth under the writer lock refuses while another live writer holds the lock, writing nothing and leaving its lock"
+  ],
   "packages/h2a-runtime/src/sentropic/bind-decision.test.ts": [],
   "packages/h2a-runtime/src/sentropic/enroll-flow.test.ts": [],
+  "packages/h2a-runtime/src/sentropic/publish-client.test.ts": [
+    "PKCE S256 derives the RFC 7636 appendix B challenge from its verifier",
+    "PKCE S256 sends a fresh 43-character verifier whose S256 is the challenge, and a fresh state and nonce per login",
+    "h2a sentropic login signs in through the 127.0.0.1 loopback redirect and stores the token 0600 with its expiry",
+    "h2a sentropic login refuses a callback whose state does not match: nothing exchanged, nothing stored",
+    "h2a sentropic login serves only the registered redirect: another path or a forged Host is refused without consuming the login",
+    "h2a sentropic login times out with a clear message when the authorization server refuses the redirect URI",
+    "h2a sentropic login refuses an authorization response issued by another server (RFC 9207 iss mismatch)",
+    "h2a sentropic login refuses an id_token whose nonce does not match the one it sent, and stores nothing",
+    "h2a sentropic status shows account, tenant, binding and expiry — never the token",
+    "h2a sentropic status prompts a re-login once the token has expired",
+    "h2a sentropic bind / unbind records the explicit choice for this local workspace, persisted 0600, shown by status, removed by unbind",
+    "h2a sentropic tools --preprod (MCP tools/list) refuses without the explicit --preprod flag and calls nothing",
+    "h2a sentropic tools --preprod (MCP tools/list) lists the tools of the bound workspace with the stored bearer token",
+    "h2a sentropic tools --preprod (MCP tools/list) prompts a re-login for an expired token and never reaches the resource server",
+    "refresh-token rotation (when the server issues refresh tokens) rotates on every refresh: the stored pair is replaced and the old refresh token is never kept",
+    "refresh-token rotation (when the server issues refresh tokens) keeps the pair another process rotated while this refresh was in flight (compare-and-set)",
+    "refresh-token rotation (when the server issues refresh tokens) a refused refresh prompts a re-login, drops the dead token, and does not crash",
+    "h2a sentropic logout revokes on the server, then removes the token locally",
+    "no secret ever reaches the output or an error (sentinel) never prints the code, the code verifier, an access, refresh or id token, nor a server body"
+  ],
+  "packages/h2a-runtime/src/sentropic/workspace-binding.test.ts": [
+    "workspace binding store persists one binding per local workspace in a 0600 file inside a 0700 directory",
+    "workspace binding store reports a damaged binding file without parsing it into a binding or quoting its bytes",
+    "local workspace identity derives the same durable ws: id as track and h2a for a primary and a linked worktree"
+  ],
   "packages/h2a-runtime/src/session-lease-launch.test.ts": [],
   "packages/h2a-runtime/src/session-lease-wiring.test.ts": [],
   "packages/h2a-runtime/src/session-lease.test.ts": [
