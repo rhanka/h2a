@@ -139,6 +139,34 @@ function printableToolName(name: string): string {
   return /^[A-Za-z0-9_.:/-]{1,128}$/u.test(name) ? name : "<unprintable tool name>";
 }
 
+export interface McpConnectOptions {
+  readonly fetch: FetchLike;
+  readonly mcpUrl: string;
+  readonly token: SentropicAuthToken;
+  readonly clientVersion: string;
+}
+
+export interface McpToolCall {
+  readonly name: string;
+  readonly arguments: Record<string, unknown>;
+  readonly workspaceRef: string | undefined;
+}
+
+export interface McpToolResult {
+  readonly isError: boolean;
+  readonly payload: Record<string, unknown> | undefined;
+}
+
+export interface McpSession {
+  listTools(workspaceRef: string | undefined): Promise<string[]>;
+  callTool(call: McpToolCall): Promise<McpToolResult>;
+}
+
+/** STUB (tests first). */
+export async function openMcpSession(_opts: McpConnectOptions): Promise<McpSession> {
+  throw new Error("not implemented");
+}
+
 /** `tools/list` with the stored token; returns the tool names (printable form). */
 export async function mcpListTools(opts: McpCallOptions): Promise<string[]> {
   assertServerBound(opts.token, opts.mcpUrl);
