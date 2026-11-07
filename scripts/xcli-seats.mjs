@@ -276,7 +276,11 @@ export async function runSeatPreflight(seat, { executables = {}, runAuthPrecheck
   const root = fs.mkdtempSync(join(tmpdir(), 'h2a-preflight-'));
   try {
   const env = environment(root);
-  executable = privateExecutable(seat.family, executable, root).path;
+  try { executable = privateExecutable(seat.family, executable, root).path; }
+  catch (error) {
+    if (error.message === 'muse-program-source-writable') return fail('muse-program-source-writable');
+    throw error;
+  }
   const vendorLabel = vendorRuntimeLabel(seat.family, executable);
   if (!vendorLabel && pythonEntrypoint(executable)) {
     return fail(`python-entrypoint-forbidden:${seat.family}`);
