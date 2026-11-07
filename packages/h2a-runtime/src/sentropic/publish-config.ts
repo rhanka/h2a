@@ -142,6 +142,28 @@ export function resolvePublishConfig(env: Env, home: string = homedir()): Sentro
   };
 }
 
+/**
+ * The live MCP probe reaches the sentropic preprod resource server only (or a loopback test
+ * server). The environment label alone says nothing about where the call goes:
+ * H2A_SENTROPIC_MCP_URL accepts any https host.
+ */
+export function assertPreprodResourceServer(config: SentropicPublishConfig): void {
+  const preprod = SENTROPIC_ENVIRONMENTS.preprod.mcpUrl;
+  if (config.environment === "preprod" && config.mcpUrl === preprod) return;
+  let hostname = "";
+  try {
+    hostname = new URL(config.mcpUrl).hostname;
+  } catch {
+    // not a URL: refused below
+  }
+  if (config.environment === "preprod" && isLoopbackHostname(hostname)) return;
+  throw new SentropicPublishError(
+    "usage",
+    `the MCP probe is limited to the sentropic preprod resource server (${preprod}) or a loopback test server; ` +
+      `${SENTROPIC_ENV_VARS.mcpUrl} names another one`,
+  );
+}
+
 /** The configured client id, or a config error naming the variable to set. */
 export function requireClientId(config: SentropicPublishConfig): string {
   if (config.clientId === undefined) {

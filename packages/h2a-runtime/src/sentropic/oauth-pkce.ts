@@ -11,10 +11,12 @@
  *   advertised.
  * - the loopback receiver binds 127.0.0.1 only, on an ephemeral port unless one is configured,
  *   serves exactly ONE callback on `/callback` for the exact `Host: 127.0.0.1:<port>` (another
- *   path or a rebound Host is a 404 that consumes nothing), then closes. On that callback it
- *   checks the RFC 9207 `iss` (required when the server advertises it), then `state` in
- *   constant time, and only then reads `code` or `error` — an error is reported by its CODE,
- *   never by its description.
+ *   path, a rebound Host or an unparsable request target is a 404 that consumes nothing), then
+ *   closes. A request is the callback of THIS login only once its `state` matches in constant
+ *   time: a wrong state (a page guessing the port, a stale tab) is refused without consuming the
+ *   login. On the callback it checks the RFC 9207 `iss` (required when the server advertises
+ *   it), and only then reads `code` or `error` — an error is reported by its CODE, never by its
+ *   description.
  * - the code is exchanged at once (the sentropic code lives 60 s) with the same redirect_uri,
  *   the verifier, and the RFC 8707 resource (sealed at authorize time server-side).
  * - openid is NOT requested (the h2a-cli registration does not allow it, and publishing needs
@@ -226,6 +228,8 @@ export interface LoopbackOptions {
   readonly issuer: string;
   readonly requireIss: boolean;
   readonly timeoutMs: number;
+  /** A request on /callback with another state was refused; the login keeps waiting. */
+  readonly onForeignState?: () => void;
 }
 
 const PAGE_HEADERS = {
@@ -256,8 +260,21 @@ export async function startLoopbackReceiver(opts: LoopbackOptions): Promise<Loop
   const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     if (served) return page(res, 410, "h2a: this sign-in is already finished.");
     if (req.headers.host !== `127.0.0.1:${port}`) return page(res, 404, "Not found.");
-    const url = new URL(req.url ?? "/", `http://127.0.0.1:${port}`);
+    let url: URL;
+    try {
+      url = new URL(req.url ?? "/", `http://127.0.0.1:${port}`);
+    } catch {
+      return page(res, 404, "Not found."); // an unparsable request target, e.g. `GET http://[::1`
+    }
     if (req.method !== "GET" || url.pathname !== "/callback") return page(res, 404, "Not found.");
+    const params = url.searchParams;
+
+    // Only the state of THIS login makes a request its callback. Anything else (a page guessing
+    // the port, a stale tab) is refused and consumes nothing: the real callback can still come.
+    if (!verifyCallbackState(opts.state, params.get("state") ?? "")) {
+      opts.onForeignState?.();
+      return page(res, 400, "h2a: this response does not belong to the current sign-in; it was ignored.");
+    }
 
     // This IS the callback: it is served once, whatever its outcome.
     served = true;
@@ -266,16 +283,12 @@ export async function startLoopbackReceiver(opts: LoopbackOptions): Promise<Loop
       settle?.reject(new SentropicPublishError("callback", message));
       void stop();
     };
-    const params = url.searchParams;
     const iss = params.get("iss");
     if (iss !== null && iss !== opts.issuer) {
       return fail(`the authorization response comes from another issuer than ${opts.issuer} (RFC 9207 mix-up); nothing was exchanged`);
     }
     if (iss === null && opts.requireIss) {
       return fail("the authorization response carries no iss although the server advertises it (RFC 9207); nothing was exchanged");
-    }
-    if (!verifyCallbackState(opts.state, params.get("state") ?? "")) {
-      return fail("the authorization response state does not match this login (forged or stale); nothing was exchanged");
     }
     const error = params.get("error");
     if (error !== null) {
