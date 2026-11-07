@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { CLIS } from './xcli-lab.mjs';
+import { KNOWN_CLIS } from './xcli-lab.mjs';
 
 export function wakeBoundForDelivery(nativeMessageDelivery) {
   assert.equal(typeof nativeMessageDelivery, 'boolean', 'delivery category must be evidenced');
@@ -11,7 +11,7 @@ export function wakeBoundForDelivery(nativeMessageDelivery) {
 // A signed prompt starts a model turn, which then calls h2a_inbox. Successful
 // live rows additionally correlate the exact signed line and CR on that PTY.
 export function campaignWakePolicy(cli, { simulated = false } = {}) {
-  assert.ok(CLIS.includes(cli), 'known wake receiver');
+  assert.ok(KNOWN_CLIS.includes(cli), 'known wake receiver');
   return { cli, category: 'non-native', boundMs: simulated ? 3000 : wakeBoundForDelivery(false),
     transport: 'signed-terminal-prompt', nativeMessageDelivery: false,
     evidence: ['packages/h2a/src/runtime/drive/inbox-wake.ts', 'packages/h2a/src/cli.ts:nativePtyBackchannelDriver',
