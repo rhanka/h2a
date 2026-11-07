@@ -350,7 +350,7 @@ export async function provisionSeats({ seatSet = DEFAULT_SEAT_SET,
   homeDir = homedir(), ownerScope = 'owner',
   outBase = join(homedir(), '.cache-tmp', 'h2a-test'),
   ghBin = 'gh', mode = 'provision', meshFacade = null,
-  meshScope = meshOwnerScope(), cliVersions = {} } = {}) {
+  meshScope = meshOwnerScope(), cliVersions = {}, allowUnavailableSeats = false } = {}) {
   assert.ok(['provision', 'dry-run', 'local'].includes(mode), 'known provision mode');
   const slotManifest = JSON.parse(fs.readFileSync(slotManifestFile, 'utf8'));
   if (slotManifest.environment !== SEAT_ENVIRONMENT) throw new Error('environment-mismatch');
@@ -369,12 +369,23 @@ export async function provisionSeats({ seatSet = DEFAULT_SEAT_SET,
     catch { facade = null; }
   }
   const seats = [];
+  const unavailable = [];
   try {
     for (const seatId of ids) {
       const slot = byId[seatId];
       if (!slot) throw new Error(`seat-unknown:${seatId}`);
-      const built = await buildSeatEnvelope({ seatId, slot, homeDir, ownerScope,
-        meshFacade: facade, meshScope, cliVersions });
+      let built;
+      try {
+        built = await buildSeatEnvelope({ seatId, slot, homeDir, ownerScope,
+          meshFacade: facade, meshScope, cliVersions });
+      } catch (error) {
+        // Full local matrices retain the refused seat as a closed gate.
+        // No envelope, credential read or launch is manufactured for it.
+        if (mode !== 'local' || !allowUnavailableSeats ||
+            error.message !== `seat-not-enrolled-in-llm-mesh:${seatId}`) throw error;
+        unavailable.push({ seatId, cli: seatId, meshGate: 'not-enrolled', reason: error.message });
+        continue;
+      }
       const file = writeEnvelopeFile(outDir, seatId, built.serialized);
       assert.equal(fs.statSync(file).mode & 0o777, 0o600, 'envelope file is private');
       const receipt = validateEnvelopeViaFd({ seatId, slotManifestFile, envelopeFile: file });
@@ -385,7 +396,16 @@ export async function provisionSeats({ seatSet = DEFAULT_SEAT_SET,
       const laneDir = join(outDir, 'lane');
       const secrets = Object.fromEntries(seats.map(seat =>
         [seat.names.projection, fs.readFileSync(seat.file, 'utf8')]));
-      const materialised = await materialiseSeatEnvelopes({ seatSet: ids.join(','), slotManifest, secrets, baseDir: laneDir });
+      const materialised = seats.length
+        ? await materialiseSeatEnvelopes({ seatSet: seats.map(seat => seat.seatId).join(','), slotManifest, secrets, baseDir: laneDir })
+        : { manifest: { version: 1, seatMode: 'cyber-seat-custody', ownerScope, seats: [] },
+          manifestFile: join(laneDir, 'seats.json') };
+      fs.mkdirSync(laneDir, { recursive: true, mode: 0o700 });
+      for (const seat of unavailable) materialised.manifest.seats.push({
+        seatId: seat.seatId, family: seat.cli, authSource: `unavailable/${seat.seatId}`,
+        unavailableReason: seat.reason,
+        onboarding: { status: 'absent', gate: { eligible: false, code: seat.reason } },
+      });
       // Transport the names-only capture diagnosis beside the library's
       // closed gate. Never manufacture a block for an unreviewed version.
       for (const seat of materialised.manifest.seats) {
@@ -396,7 +416,7 @@ export async function provisionSeats({ seatSet = DEFAULT_SEAT_SET,
       const manifestDigest = createHash('sha256').update(fs.readFileSync(materialised.manifestFile)).digest('hex');
       return { mode, outDir, manifestFile: materialised.manifestFile,
         manifestDigest, seats: seats.map(seat => seat.receipt),
-        sources: seats.map(seat => seat.source) };
+        sources: [...seats.map(seat => seat.source), ...unavailable] };
     }
     const ghCalls = ensureEnvironment({ ghBin, dryRun: mode === 'dry-run' });
     const uploaded = [];

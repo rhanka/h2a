@@ -132,8 +132,14 @@ export function museEngagedComposer(screen) {
   return /[❯›]/.test(screen) && /·/.test(screen);
 }
 
-function argsFor(cli, prompt) {
-  return [...(PINNED_CLI_ARGS[cli] ?? []), prompt];
+export function argsFor(cli, prompt) {
+  // Codex enables remote plugins/apps by default and installs a large
+  // document-template catalogue into every fresh cell. The bench uses only
+  // its explicit h2a MCP endpoint; keep those unrelated downloads disabled
+  // on the launch argv, including homes composed by the published library.
+  const scoped = cli === 'codex' ? ['-c', 'features.plugins=false',
+    '-c', 'features.remote_plugin=false', '-c', 'features.apps=false'] : [];
+  return [...(PINNED_CLI_ARGS[cli] ?? []), ...scoped, prompt];
 }
 
 // R21 (bench round 21, codex diagonal) + R22 correction: the isolated codex
@@ -171,8 +177,13 @@ export function cellMcpConfigText(cli, endpoint, { command = null } = {}) {
     return `[mcp_servers.h2a]\ncommand = ${JSON.stringify(resolved)}\n` +
       `args = ${JSON.stringify(endpoint.args)}\ndefault_tools_approval_mode = "approve"\n`;
   }
-  return `[[mcp_servers]]\nname = "h2a"\ntransport = "stdio"\n` +
+  const config = `[[mcp_servers]]\nname = "h2a"\ntransport = "stdio"\n` +
     `command = ${JSON.stringify(endpoint.command)}\nargs = ${JSON.stringify(endpoint.args)}\n`;
+  // Owner-authorized bench policy in the private cell HOME. Vibe prefixes
+  // remote names with the server alias; approve precisely these three tools.
+  // Built-in tools and every other MCP server retain native permission policy.
+  return config + (cli === 'vibe' ? ['h2a_identity_status', 'h2a_inbox', 'h2a_send']
+    .map(name => `\n[tools.h2a_${name}]\npermission = "always"\n`).join('') : '');
 }
 
 // R18: deterministic MCP-approval exhaustion. Claude >=2.1.314 shows an
@@ -1516,7 +1527,10 @@ async function main() {
     // manifest so seat pairs sharing a family never overwrite each other.
     row.parentElapsedMs = Math.ceil(performance.now() - cellStarted);
     noteWallClock(ledger, row.parentElapsedMs, { reservedMs: cellBoundMs });
-    if (row.cleanupFailed) stopping = true;
+    // A worker failure remains red, but successful supervisor recovery and
+    // the parent's witnessed wipe restore isolation for the next cell.
+    // Never continue with live descendants or surviving private state.
+    if (row.cleanupFailed && (!row.parentProcessRecovery || !row.parentSecretWipe)) stopping = true;
     // Lot L8 (§6.4): the per-session MCP brake is campaign-wide. The first
     // breached cell keeps its measured mcp-call-cap-exceeded failure; the
     // persisted flag refuses every later launch, in this run and on resume.
