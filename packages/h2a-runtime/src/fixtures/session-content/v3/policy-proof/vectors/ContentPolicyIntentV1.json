@@ -1,0 +1,150 @@
+{
+  "record": "ContentPolicyIntentV1",
+  "evidenceLevel": "synthetic schema and signature fixtures only; no installed authority",
+  "positive": [
+    {
+      "id": "ContentPolicyIntentV1-shape-positive",
+      "expect": "ACCEPT_SHAPE",
+      "value": {
+        "format": "h2a.session-content-policy/1",
+        "kind": "policy-intent",
+        "policyOperationId": "at0Md6f18lSSVCTFW29P4w",
+        "purpose": "share",
+        "expectedPolicyRevision": 1,
+        "priorPolicyDigest": null,
+        "policy": {
+          "format": "h2a.session-content-policy/1",
+          "kind": "policy",
+          "policyId": "fixture-policyId-0",
+          "policyRevision": 1,
+          "bindingId": "fixture-bindingId-0",
+          "approvedRegistrationRef": {
+            "id": "fixture-id-0",
+            "revision": 1,
+            "digest": "c066b16c28eb2b5ebcc557de4696a31062b31b745831d4246b05166bad926349"
+          },
+          "projectId": "fixture-projectId-0",
+          "sourceBinding": {
+            "appMeshId": "fixture-appMeshId-0",
+            "sourceMeshId": "fixture-sourceMeshId-0",
+            "nativeAudience": "fixture-nativeAudience-0",
+            "registrationId": "fixture-registrationId-0",
+            "tenantId": "fixture-tenantId-0",
+            "workspaceId": "fixture-workspaceId-0",
+            "bindingId": "fixture-bindingId-0",
+            "sourceId": "fixture-sourceId-0",
+            "sourceSessionId": "fixture-sourceSessionId-0",
+            "nativeSessionId": "fixture-nativeSessionId-0",
+            "sourceGeneration": 1,
+            "bootGeneration": 1,
+            "custodyEpoch": 1,
+            "controllerEpoch": 1
+          },
+          "channels": {
+            "session.events": {
+              "enabled": true,
+              "retention": {
+                "kind": "none"
+              }
+            },
+            "terminal.live": {
+              "enabled": false
+            },
+            "terminal.cache": {
+              "enabled": false,
+              "retention": {
+                "kind": "none"
+              }
+            },
+            "native.mirror": {
+              "enabled": false,
+              "retention": {
+                "kind": "none"
+              },
+              "nativeFormat": null,
+              "permittedRangeRef": null
+            }
+          },
+          "createdAt": 1793520000000
+        }
+      },
+      "bytes": {
+        "json": {
+          "base64": "eyJleHBlY3RlZFBvbGljeVJldmlzaW9uIjoxLCJmb3JtYXQiOiJoMmEuc2Vzc2lvbi1jb250ZW50LXBvbGljeS8xIiwia2luZCI6InBvbGljeS1pbnRlbnQiLCJwb2xpY3kiOnsiYXBwcm92ZWRSZWdpc3RyYXRpb25SZWYiOnsiZGlnZXN0IjoiYzA2NmIxNmMyOGViMmI1ZWJjYzU1N2RlNDY5NmEzMTA2MmIzMWI3NDU4MzFkNDI0NmIwNTE2NmJhZDkyNjM0OSIsImlkIjoiZml4dHVyZS1pZC0wIiwicmV2aXNpb24iOjF9LCJiaW5kaW5nSWQiOiJmaXh0dXJlLWJpbmRpbmdJZC0wIiwiY2hhbm5lbHMiOnsibmF0aXZlLm1pcnJvciI6eyJlbmFibGVkIjpmYWxzZSwibmF0aXZlRm9ybWF0IjpudWxsLCJwZXJtaXR0ZWRSYW5nZVJlZiI6bnVsbCwicmV0ZW50aW9uIjp7ImtpbmQiOiJub25lIn19LCJzZXNzaW9uLmV2ZW50cyI6eyJlbmFibGVkIjp0cnVlLCJyZXRlbnRpb24iOnsia2luZCI6Im5vbmUifX0sInRlcm1pbmFsLmNhY2hlIjp7ImVuYWJsZWQiOmZhbHNlLCJyZXRlbnRpb24iOnsia2luZCI6Im5vbmUifX0sInRlcm1pbmFsLmxpdmUiOnsiZW5hYmxlZCI6ZmFsc2V9fSwiY3JlYXRlZEF0IjoxNzkzNTIwMDAwMDAwLCJmb3JtYXQiOiJoMmEuc2Vzc2lvbi1jb250ZW50LXBvbGljeS8xIiwia2luZCI6InBvbGljeSIsInBvbGljeUlkIjoiZml4dHVyZS1wb2xpY3lJZC0wIiwicG9saWN5UmV2aXNpb24iOjEsInByb2plY3RJZCI6ImZpeHR1cmUtcHJvamVjdElkLTAiLCJzb3VyY2VCaW5kaW5nIjp7ImFwcE1lc2hJZCI6ImZpeHR1cmUtYXBwTWVzaElkLTAiLCJiaW5kaW5nSWQiOiJmaXh0dXJlLWJpbmRpbmdJZC0wIiwiYm9vdEdlbmVyYXRpb24iOjEsImNvbnRyb2xsZXJFcG9jaCI6MSwiY3VzdG9keUVwb2NoIjoxLCJuYXRpdmVBdWRpZW5jZSI6ImZpeHR1cmUtbmF0aXZlQXVkaWVuY2UtMCIsIm5hdGl2ZVNlc3Npb25JZCI6ImZpeHR1cmUtbmF0aXZlU2Vzc2lvbklkLTAiLCJyZWdpc3RyYXRpb25JZCI6ImZpeHR1cmUtcmVnaXN0cmF0aW9uSWQtMCIsInNvdXJjZUdlbmVyYXRpb24iOjEsInNvdXJjZUlkIjoiZml4dHVyZS1zb3VyY2VJZC0wIiwic291cmNlTWVzaElkIjoiZml4dHVyZS1zb3VyY2VNZXNoSWQtMCIsInNvdXJjZVNlc3Npb25JZCI6ImZpeHR1cmUtc291cmNlU2Vzc2lvbklkLTAiLCJ0ZW5hbnRJZCI6ImZpeHR1cmUtdGVuYW50SWQtMCIsIndvcmtzcGFjZUlkIjoiZml4dHVyZS13b3Jrc3BhY2VJZC0wIn19LCJwb2xpY3lPcGVyYXRpb25JZCI6ImF0ME1kNmYxOGxTU1ZDVEZXMjlQNHciLCJwcmlvclBvbGljeURpZ2VzdCI6bnVsbCwicHVycG9zZSI6InNoYXJlIn0=",
+          "byteLength": 1292,
+          "sha256": "155f861f3af65a3496f6dad44fd9f085d9aa9db4c649fd85518f750f32c26422"
+        }
+      }
+    }
+  ],
+  "negative": [
+    {
+      "id": "ContentPolicyIntentV1-unknown-field",
+      "expect": "REJECT_SCHEMA",
+      "value": {
+        "format": "h2a.session-content-policy/1",
+        "kind": "policy-intent",
+        "policyOperationId": "at0Md6f18lSSVCTFW29P4w",
+        "purpose": "share",
+        "expectedPolicyRevision": 1,
+        "priorPolicyDigest": null,
+        "policy": {
+          "format": "h2a.session-content-policy/1",
+          "kind": "policy",
+          "policyId": "fixture-policyId-0",
+          "policyRevision": 1,
+          "bindingId": "fixture-bindingId-0",
+          "approvedRegistrationRef": {
+            "id": "fixture-id-0",
+            "revision": 1,
+            "digest": "c066b16c28eb2b5ebcc557de4696a31062b31b745831d4246b05166bad926349"
+          },
+          "projectId": "fixture-projectId-0",
+          "sourceBinding": {
+            "appMeshId": "fixture-appMeshId-0",
+            "sourceMeshId": "fixture-sourceMeshId-0",
+            "nativeAudience": "fixture-nativeAudience-0",
+            "registrationId": "fixture-registrationId-0",
+            "tenantId": "fixture-tenantId-0",
+            "workspaceId": "fixture-workspaceId-0",
+            "bindingId": "fixture-bindingId-0",
+            "sourceId": "fixture-sourceId-0",
+            "sourceSessionId": "fixture-sourceSessionId-0",
+            "nativeSessionId": "fixture-nativeSessionId-0",
+            "sourceGeneration": 1,
+            "bootGeneration": 1,
+            "custodyEpoch": 1,
+            "controllerEpoch": 1
+          },
+          "channels": {
+            "session.events": {
+              "enabled": true,
+              "retention": {
+                "kind": "none"
+              }
+            },
+            "terminal.live": {
+              "enabled": false
+            },
+            "terminal.cache": {
+              "enabled": false,
+              "retention": {
+                "kind": "none"
+              }
+            },
+            "native.mirror": {
+              "enabled": false,
+              "retention": {
+                "kind": "none"
+              },
+              "nativeFormat": null,
+              "permittedRangeRef": null
+            }
+          },
+          "createdAt": 1793520000000
+        },
+        "__unknown": "forbidden"
+      }
+    }
+  ]
+}
