@@ -85,7 +85,7 @@
     "@sentropic/mcp-platform": "0.4.1",
     "@sentropic/track": "0.98.8",
     "ajv": "^8.20.0",
-    "hono": "^4.13.13",
+    "hono": "^4.13.16",
     "toml-eslint-parser": "0.10.1"
   },
   "peerDependencies": {
