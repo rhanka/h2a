@@ -30,7 +30,8 @@ test('xyflow consumes diagram-core entities, links and nested containers without
     await page.locator('.svelte-flow__node').first().waitFor();
     assert.equal(await page.locator('.svelte-flow__node').count(), 4);
     for (const entity of Object.values(semantic.entities)) {
-      assert.equal(await page.locator('.svelte-flow__node').getByText(entity.attributes.name.value, { exact: true }).count(), 1);
+      assert.equal(await page.locator('.st-diagramCard-title, .st-diagramZone-title')
+        .getByText(entity.attributes.name.value, { exact: true }).count(), 1, `${entity.id} carries its DC-1 title`);
     }
     for (const [child, parent] of [['models', 'root'], ['gateway', 'models'], ['coordinator', 'root']]) {
       const childBox = await page.locator(`.svelte-flow__node[data-id="entity:${child}"]`).boundingBox();
