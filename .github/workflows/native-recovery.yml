@@ -28,9 +28,17 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+
+# Runner image pin (2026-11-07): GitHub flipped ubuntu-latest to ubuntu-26.04
+# (systemd >= 258) mid-release-window. These qualifications are
+# systemd-sensitive (the systemctl --user runtime-dir fix of PR #427 is
+# correct on both images, but a moving runner breaks reproducibility
+# across the cut). TODO(migrate-26.04): re-qualify on the 26.04 image and
+# move these runs-on back to ubuntu-latest while it is still offered.
+# Track: 01M6VTPX93E083FX480N9MF5FY.
 jobs:
   startup-matrix:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -83,7 +91,7 @@ jobs:
         shell: bash
         run: if [ -n "${TMPDIR:-}" ]; then rm -rf "$TMPDIR"; fi
   effective-cgroups:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
