@@ -2,10 +2,10 @@
   import { SvelteFlow, Controls, Background, MarkerType } from '@xyflow/svelte';
   import '@xyflow/svelte/dist/style.css';
   import EcosystemNode from './EcosystemNode.svelte';
-  import { interimNodes } from './interim-nodes.js';
-  let { document, dark = false, alt } = $props();
+  import { interimNodes } from './diagram-model.js';
+  let { document, views = {}, dark = false, alt } = $props();
   const nodeTypes = { ecosystem: EcosystemNode };
-  let nodes = $derived(interimNodes(document));
+  let nodes = $derived(interimNodes(document).map(node => ({ ...node, data: { ...node.data, svg: views[node.id]?.svg } })));
   let links = $derived(Object.values(document.relations).filter(r => r.type === 'link'));
   const endpoint = (relation, role) => relation.endpoints.find(e => e.role === role).target;
   let edges = $derived(links.map(r => ({ id: r.id, source: endpoint(r, 'source'), target: endpoint(r, 'target'),
