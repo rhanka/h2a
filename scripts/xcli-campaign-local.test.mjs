@@ -13,6 +13,27 @@ import { environment, removeCampaignRoot } from './xcli-lab.mjs';
 import { LOCAL_GATE, classifyLocalCellReason, runLocalCampaign } from './xcli-campaign-local.mjs';
 
 const CANARY = 'canary-fixture-zz9';
+
+test('R31: a full matrix records an unenrolled seat without cancelling enrolled pairs', async () => {
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-full-unenrolled-'));
+  let report;
+  try {
+    const result = await runLocalCampaign({ seatSet: 'claude,codex', fullMatrix: true,
+      homeDir: fixtureHome(root), outBase: join(root, 'provision'), simulated: true,
+      meshFacade: stubMesh({ accounts: [meshAccount('codex')] }).facade,
+      timeoutMs: 30000 });
+    report = result.report;
+    assert.equal(report.cells.length, 4);
+    assert.equal(report.cells.filter(c => c.reason === 'seat-not-enrolled-in-llm-mesh:claude').length, 3);
+    const codex = report.cells.find(c => c.sender === 'codex' && c.receiver === 'codex');
+    assert.notEqual(codex.reason, 'qualification-cancelled');
+    assert.ok(codex.elapsedMs > 0, 'the enrolled pair actually ran');
+    assert.deepEqual(fs.readdirSync(join(root, 'provision')), [], 'all transported credentials were wiped');
+  } finally {
+    if (report) removeCampaignRoot(report.campaignRoot);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
 const slotManifest = new URL('../docs/cross-cli-seat-slots.json', import.meta.url).pathname;
 
 // R23: synthetic mesh facade — enrolled accounts as public metadata only.

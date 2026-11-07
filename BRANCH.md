@@ -1,3 +1,23 @@
+# Cross-CLI bench R31 — 2026-11-06
+
+- Owner orders a full 25-pair campaign until 20 measured green pairs, or
+  proven external causes for every remaining pair. Three separated wake
+  repetitions and signed delivery/wipe proofs remain required.
+- Recover a failed worker through the process supervisor and parent wipe;
+  keep that cell red and continue later pairs after isolation is proven.
+  Unrecovered descendants, surviving private state and user cancellation
+  retain their stop behavior.
+- Configure native Vibe permissions for exactly h2a_identity_status,
+  h2a_inbox and h2a_send on the private h2a MCP server. Other tools retain
+  native approval policy. Disable Codex remote plugins/apps on the bench
+  launch argv to avoid automatic template downloads exceeding the disk cap.
+- Full local matrices retain unenrolled seats as closed, attributed gates,
+  so Claude's missing owner enrollment never cancels enrolled pairs.
+- Regression evidence: recovery/policy/provision 28/28; complete proof-path
+  file 9/9; full-roster regression 1/1, all zero skip. RED and GREEN logs,
+  live pass tables and final results: tmp/h-cond/xcli-r31-*.
+- Agy schema review and live matrix qualification remain in progress.
+
 # Cross-CLI bench R30 — 2026-11-06
 
 - Four enrolled seats: codex, muse, agy and vibe; Claude remains refused as
