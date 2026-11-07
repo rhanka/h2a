@@ -201,12 +201,26 @@
   "packages/h2a-runtime/src/run-ws-surface.test.ts": [],
   "packages/h2a-runtime/src/run.test.ts": [],
   "packages/h2a-runtime/src/sentropic/auth-token.lost-update.test.ts": [
-    "a write landing between read and commit is not lost"
+    "a write landing between read and commit is not lost",
+    "another writer anywhere in writeAuth's read-modify-write window that commits first keeps its token, on an existing file",
+    "another writer anywhere in writeAuth's read-modify-write window that commits first keeps its token, on an absent file",
+    "another writer anywhere in writeAuth's read-modify-write window that read inside it and commits after us cannot drop ours, on an existing file",
+    "another writer anywhere in writeAuth's read-modify-write window that read inside it and commits after us cannot drop ours, on an absent file",
+    "the writer lock refuses to commit once its lock was taken over, and leaves the new holder's lock alone",
+    "the writer lock refuses after bounded retries when a writer ignoring it rewrites the file inside every attempt"
   ],
   "packages/h2a-runtime/src/sentropic/auth-token.storage.test.ts": [
     "a damaged auth file must never cost the tokens it still holds refuses to write over a file it cannot parse, instead of silently replacing it",
     "a damaged auth file must never cost the tokens it still holds refuses a file that parses but is not the expected shape",
-    "expiry fails closed treats an unparseable expiresAt as expired, not as fresh"
+    "a damaged auth file must never cost the tokens it still holds refuses an auth file it cannot read (a directory in its place) and writes nothing",
+    "a damaged auth file must never cost the tokens it still holds never carries a byte of the damaged file into an error a caller may log",
+    "expiry fails closed treats an unparseable expiresAt as expired, not as fresh",
+    "expiry fails closed treats an empty expiresAt as expired, while a missing one stays fresh",
+    "expiry fails closed treats a date Date.parse only reads leniently as expired",
+    "expiry fails closed reads a strict RFC 3339 instant, in UTC or with an offset",
+    "the writer lock makes a writer refuse, writing nothing, while another live writer holds it",
+    "the writer lock breaks a lock left by a dead writer and leaves no lock behind",
+    "the writer lock never writes through another writer's temp file, even one sharing our pid"
   ],
   "packages/h2a-runtime/src/sentropic/auth-token.test.ts": [],
   "packages/h2a-runtime/src/sentropic/bind-decision.test.ts": [],
