@@ -28,6 +28,12 @@
   keep unmeasured OpenCode delegation excluded. Registry regression RED
   69/70 then GREEN 70/70; delegation controls pass with one existing named
   pending debt. Signed-wake proof must be repeated before real qualification.
+- The widened RegistryTool also reached the published five-seat resume set:
+  restore.ts compiled with an opencode/DiscoveredSession type error at the
+  unpushed head. Bench rows stay out of that frozen contract: the discovery
+  loop skips opencode rows as it already skips gemini. RED (opencode-seat
+  leaks into registrySessions) then GREEN; registry/delegate/restore file
+  203 tests, 202 passed, zero failed, one pre-existing named pending debt.
 - R31 CI import ratchet: compare the reviewed onboarding functions against
   the existing pure published re-export. RED 3/4, GREEN 30/30 including
   onboarding, with no expanded allowlist.
