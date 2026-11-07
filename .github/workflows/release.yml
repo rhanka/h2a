@@ -20,6 +20,13 @@ permissions:
   id-token: write
   packages: write
 
+# Runner image pin (2026-11-07): GitHub flipped ubuntu-latest to ubuntu-26.04
+# (systemd >= 258) mid-release-window (effective 2026-11-07 03:14Z). The
+# verify/publish legs and the native-recovery qualification they gate must
+# stay deterministic across the cut. TODO(migrate-26.04): re-qualify on the
+# 26.04 image and move these runs-on back to ubuntu-latest while it is
+# still offered. Track: 01M6VTPX93E083FX480N9MF5FY.
+
 jobs:
   # SPEC 0.98.5 R8.2: the release SHA is resolved ONCE, HERE, before any
   # matrix leg exists. The review reproduced the race this job removes: with
@@ -27,7 +34,7 @@ jobs:
   # gate two different commits while the artifacts came from only one of
   # them, and the shared output could describe the other leg's SHA.
   resolve-release-sha:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       release-sha: ${{ steps.resolve.outputs.sha }}
     steps:
@@ -92,7 +99,7 @@ jobs:
         # the macOS/Node-20 runner — are pre-existing on main and unrelated to any release.
         # What this gate no longer proves: that the released code works on macOS or Windows.
         # `smoke-install` on push-to-main still exercises the PUBLISHED package on all three.
-        os: [ubuntu-latest]
+        os: [ubuntu-24.04]
         node: ["22", "24"]
     steps:
       # SPEC 0.98.5 R8.2: verify NEVER resolves the SHA itself — the ONE
@@ -210,7 +217,7 @@ jobs:
     # dispatch publish with zero tests; a skipped verify is now a blocked
     # publication, by design.
     if: ${{ !cancelled() && !failure() && needs.verify.result == 'success' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       # SPEC 0.98.5 R8.2: publish consumes the SAME SHA verify gated. Never a
       # tag name: a tag is mutable, the SHA is not.
