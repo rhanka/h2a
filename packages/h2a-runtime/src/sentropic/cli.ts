@@ -3,7 +3,8 @@
  *
  *   h2a sentropic login [--no-browser] [--tenant <id>] [--timeout <s>] [--no-refresh]
  *   h2a sentropic status [--json]
- *   h2a sentropic bind <workspace-id> [--verify]
+ *   h2a sentropic workspaces [--json]
+ *   h2a sentropic bind <workspace-id>
  *   h2a sentropic unbind
  *   h2a sentropic logout [--local-only]
  *   h2a sentropic tools --preprod
@@ -17,14 +18,15 @@
  * and sets exit code 1; no stack, cause or lower-level message is ever printed.
  */
 
-import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import type { Command } from "commander";
 
+import { openInSystemBrowser } from "./browser-open.js";
 import {
   bindWorkspace,
   listPublishTools,
+  listWorkspaces,
   login,
   logout,
   readSession,
@@ -32,10 +34,12 @@ import {
   shortWorkspace,
   unbindWorkspace,
   type PublishRuntime,
+  type WorkspaceEntry,
 } from "./publish-client.js";
 import { PUBLISH_SCOPES } from "./oauth-pkce.js";
-import { SENTROPIC_ENV_VARS, resolvePublishConfig } from "./publish-config.js";
+import { SENTROPIC_ENV_VARS, assertPreprodResourceServer, resolvePublishConfig } from "./publish-config.js";
 import { SentropicPublishError, publicErrorMessage } from "./publish-errors.js";
+import { REFRESH_LOCK_WAIT_MS } from "./refresh-lock.js";
 import { resolveLocalWorkspaceId } from "./workspace-binding.js";
 
 export interface SentropicCliDeps {
@@ -55,6 +59,8 @@ export interface SentropicCliDeps {
   homeDir: () => string;
   /** The h2a version announced to the MCP server; empty = read from the runtime package. */
   clientVersion: string;
+  /** How long a refresh waits for another h2a process's refresh. */
+  refreshLockWaitMs: number;
 }
 
 const PREFIX = "[h2a] sentropic:";
@@ -68,30 +74,13 @@ function runtimeVersion(): string {
   }
 }
 
-/**
- * Open `url` in the system browser, detached. The URL is the authorization request (state,
- * nonce, PKCE challenge — no secret); it is printed as the fallback either way. A missing
- * opener reports asynchronously: the error listener keeps Node from printing spawnargs.
- */
-function openInSystemBrowser(url: string): boolean {
-  const command = process.platform === "darwin" ? "open" : process.platform === "win32" ? "cmd" : "xdg-open";
-  const args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
-  try {
-    const child = spawn(command, args, { detached: true, stdio: "ignore" });
-    child.on("error", () => {});
-    child.unref();
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 function defaultDeps(): SentropicCliDeps {
   return {
     env: process.env,
     fetch: globalThis.fetch,
     now: () => Date.now(),
-    openBrowser: openInSystemBrowser,
+    // No shell: rundll32 url.dll,FileProtocolHandler on Windows, the URL as one argument.
+    openBrowser: (url) => openInSystemBrowser(url),
     out: (text) => {
       process.stdout.write(text);
     },
@@ -106,6 +95,7 @@ function defaultDeps(): SentropicCliDeps {
     homeDir: () => homedir(),
     // Resolved on first use (guarded), not at registration: registration runs on every h2a start.
     clientVersion: "",
+    refreshLockWaitMs: REFRESH_LOCK_WAIT_MS,
   };
 }
 
@@ -118,6 +108,7 @@ async function guarded(deps: SentropicCliDeps, action: (rt: PublishRuntime) => P
       now: deps.now,
       log: (line) => deps.err(`${line}\n`),
       clientVersion: deps.clientVersion || runtimeVersion(),
+      refreshLockWaitMs: deps.refreshLockWaitMs,
     });
   } catch (error) {
     deps.err(`${PREFIX} ${publicErrorMessage(error)}\n`);
@@ -177,7 +168,9 @@ function statusLines(rt: PublishRuntime, deps: SentropicCliDeps): { lines: strin
   } else if (bindingProblem !== undefined) {
     lines.push(row("workspace", `${shortWorkspace(local)}: ${bindingProblem}`));
   } else if (binding === undefined) {
-    lines.push(row("workspace", `${shortWorkspace(local)} not bound — run \`h2a sentropic bind <workspace-id>\``));
+    lines.push(
+      row("workspace", `${shortWorkspace(local)} not bound — run \`h2a sentropic workspaces\`, then \`h2a sentropic bind <workspace-id>\``),
+    );
   } else {
     lines.push(
       row(
@@ -186,11 +179,17 @@ function statusLines(rt: PublishRuntime, deps: SentropicCliDeps): { lines: strin
           `${binding.tenantId ? ` (tenant ${binding.tenantId})` : ""}, ${binding.boundAt}`,
       ),
     );
-    if (session.loggedIn && binding.tenantId !== undefined && session.tenantId !== undefined && binding.tenantId !== session.tenantId) {
-      lines.push(row("warning", `the binding was made in tenant ${binding.tenantId}, the token is for tenant ${session.tenantId}`));
+    // The publish path refuses such a binding (listPublishTools); status only says so.
+    if (session.loggedIn && binding.tenantId !== session.tenantId) {
+      lines.push(
+        row(
+          "warning",
+          `the binding was made in tenant ${binding.tenantId ?? "none"}, the token is for tenant ${session.tenantId ?? "none"}: bind again`,
+        ),
+      );
     }
-    if (session.loggedIn && binding.subject !== undefined && session.subject !== undefined && binding.subject !== session.subject) {
-      lines.push(row("warning", "the binding was made by another account than the one logged in"));
+    if (session.loggedIn && binding.subject !== session.subject) {
+      lines.push(row("warning", "the binding was made by another account than the one logged in: bind again"));
     }
   }
 
@@ -211,6 +210,20 @@ function statusLines(rt: PublishRuntime, deps: SentropicCliDeps): { lines: strin
     bindingProblem: bindingProblem ?? null,
   };
   return { lines, json };
+}
+
+/** The listing as a table: `*` marks the workspace bound here; the server-chosen name comes last. */
+function workspaceTable(entries: readonly WorkspaceEntry[], bound: string | undefined): string {
+  if (entries.length === 0) return "";
+  const refWidth = Math.max("workspace".length, ...entries.map((entry) => entry.workspaceRef.length));
+  const lines = [`  ${"workspace".padEnd(refWidth)}  ${"role".padEnd(9)}  ${"publishable".padEnd(11)}  name`];
+  for (const entry of entries) {
+    lines.push(
+      `${entry.workspaceRef === bound ? "*" : " "} ${entry.workspaceRef.padEnd(refWidth)}  ${entry.role.padEnd(9)}  ` +
+        `${(entry.publishable ? "yes" : "no").padEnd(11)}  ${entry.name}`,
+    );
+  }
+  return `${lines.join("\n")}\n`;
 }
 
 /** Register `h2a sentropic` on `program`. `overrides` replace the process-bound defaults (tests). */
@@ -276,19 +289,49 @@ export function registerSentropicCommand(program: Command, overrides: Partial<Se
     );
 
   sentropic
-    .command("bind <workspace-id>")
-    .description("Bind this local workspace to one sentropic workspace (explicit id, recorded locally)")
-    .option("--verify", "first ask the preprod MCP resource server whether it accepts this workspace")
-    .action((workspaceId: string, opts: { verify?: boolean }) =>
+    .command("workspaces")
+    .description("List the sentropic workspaces this account can read: id, role, publishable, name (never the token)")
+    .option("--json", "machine-readable output")
+    .action((opts: { json?: boolean }) =>
       guarded(deps, async (rt) => {
-        const binding = await bindWorkspace(rt, {
-          localWorkspace: deps.resolveWorkspace(deps.cwd()),
-          workspaceId,
-          verify: opts.verify === true,
-        });
+        const listing = await listWorkspaces(rt, deps.resolveWorkspace(deps.cwd()));
+        const bound = listing.boundWorkspaceRef;
+        if (opts.json) {
+          const workspaces = listing.workspaces.map((entry) => ({ ...entry, boundHere: entry.workspaceRef === bound }));
+          deps.out(`${JSON.stringify({ workspaces, boundWorkspaceRef: bound ?? null, ignored: listing.ignored }, null, 2)}\n`);
+        } else {
+          deps.out(workspaceTable(listing.workspaces, bound));
+        }
+        const where = listing.tenantId !== undefined ? ` in tenant ${listing.tenantId}` : "";
+        rt.log(
+          listing.workspaces.length === 0
+            ? `${PREFIX} no workspace is readable by this account${where}`
+            : `${PREFIX} ${listing.workspaces.length} workspace${listing.workspaces.length === 1 ? "" : "s"} readable by this account${where}` +
+                `${bound !== undefined ? " (* = bound here)" : ""}; bind one with \`h2a sentropic bind <workspace-id>\`. ` +
+                "publishable is a hint: the server re-checks at each publish",
+        );
+        if (listing.ignored > 0) rt.log(`${PREFIX} warning: ${listing.ignored} malformed entr${listing.ignored === 1 ? "y was" : "ies were"} ignored`);
+        if (listing.foreignBinding) {
+          rt.log(`${PREFIX} warning: this workspace was bound by another account or in another tenant: bind it again`);
+        }
+      }),
+    );
+
+  sentropic
+    .command("bind <workspace-id>")
+    .description("Bind this local workspace to one sentropic workspace you can publish to (checked against workspaces_list)")
+    .action((workspaceId: string) =>
+      guarded(deps, async (rt) => {
+        const { binding, checked } = await bindWorkspace(rt, { localWorkspace: deps.resolveWorkspace(deps.cwd()), workspaceId });
+        if (checked === undefined) {
+          rt.log(
+            `${PREFIX} warning: the resource server does not offer workspaces_list yet: workspace ${binding.workspaceId} is bound ` +
+              "without validation; the server checks it at publish",
+          );
+        }
         rt.log(
           `${PREFIX} bound ${shortWorkspace(binding.localWorkspace)} to sentropic workspace ${binding.workspaceId}` +
-            (opts.verify === true ? " (accepted by the resource server)" : " (not verified: `--verify` asks the resource server)"),
+            (checked !== undefined ? ` (${checked.name}, ${checked.role}; publishable now, the server re-checks at each publish)` : ""),
         );
       }),
     );
@@ -331,9 +374,8 @@ export function registerSentropicCommand(program: Command, overrides: Partial<Se
             "this probe calls the live sentropic preprod MCP resource server; pass --preprod to confirm",
           );
         }
-        if (rt.config.environment !== "preprod") {
-          throw new SentropicPublishError("usage", "the MCP probe is limited to sentropic preprod");
-        }
+        // Where the call goes, not the environment label: the MCP URL can be overridden.
+        assertPreprodResourceServer(rt.config);
         const { tools, workspaceId } = await listPublishTools(rt, deps.resolveWorkspace(deps.cwd()));
         deps.out(tools.map((name) => `${name}\n`).join(""));
         rt.log(

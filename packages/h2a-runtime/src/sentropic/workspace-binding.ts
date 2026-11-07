@@ -5,7 +5,9 @@
  * track and h2a compute: root commits + linked-worktree name), never by a path or a name. The
  * sentropic workspace is the id the human names explicitly (`h2a sentropic bind <id>`): a
  * pre-existing workspace is never adopted by name. The binding is a LOCAL routing choice for
- * publishing; it grants nothing — the resource server re-checks membership on every call.
+ * publishing; it grants nothing — the resource server re-checks membership on every call. It
+ * records who bound it (subject, tenant) and nothing of the workspace listing (role,
+ * publishable, name): that listing is read live and never stored.
  *
  * Storage: one 0600 JSON file per (server, local workspace) in a 0700 directory, written to a
  * unique temp name opened exclusively and renamed into place. A bind replaces only its own
@@ -51,9 +53,14 @@ export function assertLocalWorkspaceId(id: string): string {
   return id;
 }
 
+/** True for a plain sentropic workspace identifier (no path, space or control characters). */
+export function isSentropicWorkspaceId(id: string): boolean {
+  return SENTROPIC_WORKSPACE.test(id);
+}
+
 /** A sentropic workspace id: a plain identifier (no path, space or control characters). */
 export function assertSentropicWorkspaceId(id: string): string {
-  if (!SENTROPIC_WORKSPACE.test(id)) {
+  if (!isSentropicWorkspaceId(id)) {
     throw bindingError(
       "the sentropic workspace id must be a plain identifier (letters, digits, . _ : -, at most 128 characters)",
     );
