@@ -43,7 +43,7 @@
       "resolve-release-sha",
       "native-recovery"
     ],
-    "runs-on": "${{ matrix.os }}",
+    "runs-on": "${{ matrix.os == 'ubuntu-latest' && 'ubuntu-24.04' || matrix.os }}",
     "timeout-minutes": 30,
     "outputs": {
       "release-sha": "${{ needs.resolve-release-sha.outputs.release-sha }}"
@@ -52,7 +52,7 @@
       "fail-fast": false,
       "matrix": {
         "os": [
-          "ubuntu-24.04"
+          "ubuntu-latest"
         ],
         "node": [
           "22",
