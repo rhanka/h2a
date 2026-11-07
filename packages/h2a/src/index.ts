@@ -1143,6 +1143,10 @@ export * from "./runtime/enrollment/index.js";
 
 export * from "./runtime/reporting/index.js";
 
+// model-eval: pick h2a launch targets from the Artificial Analysis index.
+// Pure selection logic + dated cache — no CLI verb, no MCP surface change.
+export * from "./model-eval/index.js";
+
 export const H2A_CLI_HOSTS = [
   H2A_CODEX_HOST,
   H2A_CLAUDE_HOST,
