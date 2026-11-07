@@ -30,7 +30,7 @@ import { LOGIN_ALLOWLIST, minimizeClaudeJson } from './xcli-lab.mjs';
 import { slotSecretNames, SEAT_ENVIRONMENT } from './xcli-seat-custody.mjs';
 import { materialiseSeatEnvelopes, parseCliSeatProfile,
   translateAgySeatToApplication } from './xcli-seat-import.mjs';
-import { SEAT_BUNDLE_MAX_BYTES } from './xcli-seat-vendor/seat-bundle.js';
+import { SEAT_BUNDLE_MAX_BYTES, SEAT_PACKAGE_PROVIDER_ID } from './xcli-seat-vendor/seat-bundle.js';
 import { MESH_SEAT_PROVIDERS, createMeshSeatFacade, requireMeshAccount,
   acquireVibeKey, meshOwnerScope } from './xcli-llm-mesh-seats.mjs';
 import { AGY_REQUIRED_COMPLETED_STEPS, CAPTURE_SOURCES, seatLaunchGate,
@@ -391,6 +391,18 @@ export async function provisionSeats({ seatSet = DEFAULT_SEAT_SET,
   const unavailable = [];
   try {
     for (const seatId of ids) {
+      // The local roster may expose a host before the upstream consumer
+      // contract can carry it. Retain its closed cell without inventing an
+      // enrollment provider, reading native credentials, or issuing a bundle
+      // under another CLI's identity. Protected provisioning stays unchanged.
+      if (seatId === 'opencode' && !Object.hasOwn(SEAT_PACKAGE_PROVIDER_ID, seatId)) {
+        const reason = 'llm-mesh-seat-contract-unavailable:opencode';
+        if (mode !== 'local' || !allowUnavailableSeats) throw new Error(reason);
+        unavailable.push({ seatId, cli: seatId, meshGate: 'contract-unavailable', reason,
+          contract: { supportedSeatClis: Object.keys(SEAT_PACKAGE_PROVIDER_ID).sort(),
+            enrollmentCommand: null } });
+        continue;
+      }
       const slot = byId[seatId];
       if (!slot) throw new Error(`seat-unknown:${seatId}`);
       let built;

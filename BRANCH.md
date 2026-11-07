@@ -1,3 +1,26 @@
+# Cross-CLI bench R32 — 2026-11-07
+
+- Owner adds OpenCode to the local roster: claude/codex/muse/agy/vibe/opencode,
+  36 ordered pairs, three measured repetitions and separation proofs each.
+  Target is 29 measured green pairs or a proven external cause per remaining
+  pair. Gemini and Hermes stay outside this round.
+- OpenCode 1.17.15 loads its native mcp.h2a configuration and a local plugin.
+  The plugin grants only the three fully qualified h2a tools and rejects
+  other h2a calls; unrelated tools retain their existing policy. Native
+  debug-config and MCP connection oracles pass without a model or login.
+- This plugin does not deliver session messages. The bench retains the
+  witnessed signed terminal prompt and the non-native 10000 ms bound;
+  native session-message delivery would require a separate 3000 ms proof.
+- The frozen published consumer contract has five seat CLI identities and
+  no OpenCode identity/auth projection. Keep OpenCode present with a typed
+  upstream-contract gate; never forge a provider, enroll, reuse another
+  CLI's bundle identity, or alter digest-pinned upstream validators.
+  Astra max is investigating a supported concrete continuation path.
+- R31 CI import ratchet: compare the reviewed onboarding functions against
+  the existing pure published re-export. RED 3/4, GREEN 30/30 including
+  onboarding, with no expanded allowlist.
+- R32 qualification and final evidence: tmp/h-cond/xcli-r32-*.
+
 # Cross-CLI bench R31 — 2026-11-06
 
 - Owner orders a full 25-pair campaign until 20 measured green pairs, or

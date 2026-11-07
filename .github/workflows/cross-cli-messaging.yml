@@ -49,6 +49,7 @@ jobs:
           scripts/xcli-node-headers.test.mjs
           scripts/xcli-source-build.test.mjs scripts/xcli-polling-barrier.test.mjs
           scripts/xcli-proof-paths.test.mjs
+          scripts/xcli-opencode.test.mjs
 
   simulated-messaging:
     runs-on: ubuntu-latest

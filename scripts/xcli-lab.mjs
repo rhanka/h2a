@@ -14,6 +14,9 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 
 export const CLIS = Object.freeze(['claude', 'codex', 'agy', 'gemini', 'muse', 'vibe']);
+// Keep the established simulation corpus stable; the local owner bench also
+// accepts OpenCode and chooses its six seats from the explicit manifest.
+export const KNOWN_CLIS = Object.freeze([...CLIS, 'opencode']);
 
 // R15 (class-c): the exact launch flags the harness passes each CLI before
 // the prompt, single-sourced. qualify-cross-cli.mjs launches from this map;
@@ -27,6 +30,7 @@ export const PINNED_CLI_ARGS = Object.freeze({
   gemini: Object.freeze(['--prompt-interactive']),
   muse: Object.freeze(['--no-session-log']),
   vibe: Object.freeze([]),
+  opencode: Object.freeze(['--prompt']),
 });
 
 // Lot L11 (SPEC v3 §7.1): single-sourced tier-C oracle table. Families with
@@ -479,7 +483,7 @@ function openLoginFile(authHome, name, write = false) {
 }
 
 export function cliPath(cli, path) {
-  assert.ok(CLIS.includes(cli));
+  assert.ok(KNOWN_CLIS.includes(cli));
   for (const dir of path.split(':')) {
     if (!dir) continue;
     const candidate = join(dir, cli);
