@@ -14,6 +14,7 @@ import {
   openSync,
   readFileSync,
   readSync,
+  renameSync,
   rmSync,
   statfsSync,
   statSync,
@@ -42,6 +43,7 @@ import {
   parseLegacyLockHolder,
   parseLockRec,
   procStartInfo,
+  procIdentityStartInfo,
   publishLockRecord,
   readBootId,
   readHostId,
@@ -780,6 +782,14 @@ function identityElectionIo(self: SelfIdent, lockPath?: string, ctx?: FenceLoopC
   return {
     ...(lockPath ? {beforeElection:(g:string):boolean=>{
       if(ctx && performance.now()>=ctx.deadline)return false;
+      // Quarantine moves successors before the lock. Until it moves the
+      // lock last, an ordinary acquirer must not elect itself through a
+      // temporarily shortened chain and replace the generation being moved.
+      const recovery = readIdentityLock(join(dirname(lockPath), ".lock.prevboot-recovery"));
+      if (recovery !== "absent") {
+        if (typeof recovery === "object" && recovery.kind === "io-error") return false;
+        if (identityVerdict(recovery, identitySelf()) !== "dead") return false;
+      }
       const read=readIdentityLock(lockPath);
       return typeof read==='object' && (read.kind==='v2'||read.kind==='adapter') && read.rec.token===g
         && recoveryAuthorized(read,dirname(lockPath)) && identityVerdict(read,identitySelf())==='dead';
@@ -847,6 +857,7 @@ function makeIdentityLease(lockPath: string, token: string, publication: RecordP
  * aside with a durable backup instead of being purged blindly.
  */
 export const PREVIOUS_BOOT_CHAIN_RECOVERY_KIND = "recovered-previous-boot-chain";
+const SAME_BOOT_CHAIN_RECOVERY_KIND = "recovered-dead-same-boot-chain";
 /** Depth at which the succession scan fails closed (mirrors the R4 scan bound). */
 const PREVIOUS_BOOT_CHAIN_DEPTH = 8;
 
@@ -884,6 +895,31 @@ function isPreviousBootRecord(
   return classifyLiveness(view, self, { protocol: "identity" }).verdict === "dead";
 }
 
+type SameBootDeathProof = { kind: "pid-absent" } | { kind: "start-mismatch"; recordedStart: string; observedStart: string };
+
+/** Narrower than ordinary succession: no missing start, stale boot or zombie proof. */
+function sameBootDeathProof(
+  read: { kind: "v2"; rec: IdentityLockRec } | { kind: "adapter"; rec: LockRec }, self: SelfIdent
+): SameBootDeathProof | undefined {
+  if (process.platform !== "linux" || read.kind === "v2" && (read.rec.platform !== "linux" || read.rec.publication !== "link")) return undefined;
+  const rec = previousBootView(read);
+  if (rec.hostKind !== "machine-id" || self.hostKind !== "machine-id" || rec.host !== self.host
+    || !MACHINE_ID_RE.test(rec.host) || /^0+$/.test(rec.host)
+    || !rec.boot || !BOOT_ID_RE.test(rec.boot) || rec.boot !== self.boot
+    || !rec.ns || !PID_NS_RE.test(rec.ns) || rec.ns !== self.ns
+    || !rec.start || !PROC_START_RE.test(rec.start)) return undefined;
+  let observed: ReturnType<typeof procIdentityStartInfo>;
+  const verdict = classifyLiveness(rec, self, { protocol: "identity", probe: pid => {
+    observed = procIdentityStartInfo(pid); return observed;
+  } });
+  if (verdict.verdict !== "dead") return undefined;
+  if (verdict.datable && observed) return { kind: "start-mismatch", recordedStart: rec.start, observedStart: observed.start };
+  // Same-boot rule 4 returns before the probe, only for ESRCH. A zombie
+  // reaches the probe and is deliberately excluded from chain quarantine.
+  if (!observed) return { kind: "pid-absent" };
+  return undefined;
+}
+
 /**
  * Quarantine a succession chain left by a PREVIOUS BOOT of this machine.
  * Succeeds only when the LOCK and every SUCC link (up to the depth limit)
@@ -896,15 +932,22 @@ export function recoverPreviousBootSuccessionChain(
   lockPath: string,
   self: SelfIdent = identitySelf()
 ): PreviousBootChainRecovery {
+  return recoverExhaustedSuccessionChain(lockPath, self, false);
+}
+
+function recoverExhaustedSuccessionChain(lockPath: string, self: SelfIdent, sameBoot: boolean): PreviousBootChainRecovery {
   const dir = dirname(lockPath);
+  const eligible = sameBoot ? (read: Parameters<typeof sameBootDeathProof>[0]) => Boolean(sameBootDeathProof(read, self))
+    : (read: Parameters<typeof isPreviousBootRecord>[0]) => isPreviousBootRecord(read, self);
+  const refused = sameBoot ? "chain-not-fully-dead-same-boot" : "chain-not-fully-previous-boot";
   if (!identityFsQualified(dir)) return { recovered: false, reason: "fs-not-qualified" };
   const first = readIdentityLock(lockPath);
   if (first === "absent") return { recovered: false, reason: "no-identity-lock" };
   if (first === "corrupt" || first === "unknown" || first.kind === "io-error"
     || first.kind === "legacy" || first.kind === "cull") {
-    return { recovered: false, reason: "chain-not-fully-previous-boot" };
+    return { recovered: false, reason: refused };
   }
-  if (!isPreviousBootRecord(first, self)) return { recovered: false, reason: "chain-not-fully-previous-boot" };
+  if (!eligible(first)) return { recovered: false, reason: refused };
   const generation = first.rec.token;
   const collected: Array<{ path: string; bytes: Buffer; dev: number; ino: number }> = [];
   try {
@@ -920,10 +963,10 @@ export function recoverPreviousBootSuccessionChain(
     if (link === "absent") return { recovered: false, reason: "chain-not-exhausted" };
     if (link === "corrupt" || link === "unknown" || link.kind === "io-error"
       || link.kind === "legacy" || link.kind === "cull") {
-      return { recovered: false, reason: "chain-not-fully-previous-boot" };
+      return { recovered: false, reason: refused };
     }
-    if (link.rec.target !== generation || !isPreviousBootRecord(link, self)) {
-      return { recovered: false, reason: "chain-not-fully-previous-boot" };
+    if (link.rec.target !== generation || !eligible(link)) {
+      return { recovered: false, reason: refused };
     }
     try {
       const st = statSync(path);
@@ -951,7 +994,7 @@ export function recoverPreviousBootSuccessionChain(
       if (tailRead.rec.target !== generation) {
         return { recovered: false, reason: "chain-not-fully-previous-boot" };
       }
-      if (isPreviousBootRecord(tailRead, self)) {
+      if (eligible(tailRead)) {
         // An extra previous-boot link beyond the depth bound (or a
         // pre-round-3 election residue, which lived on this path): refuse
         // without purging — the caller reports `succ-chain-exhausted`.
@@ -977,8 +1020,9 @@ export function recoverPreviousBootSuccessionChain(
   // sidecar file can only ever block a racing peer, never the chain walk.
   // Losers back off; only the holder may back up and unlink.
   const electionPath = join(dir, ".lock.prevboot-recovery");
-  const claimToken = newIdentityToken();
-  let claimPub = publishIdentityRecord(electionPath, makeIdentityRecord(self, claimToken), true);
+  let claimToken = newIdentityToken();
+  let electionLease: PrefixLockLease | undefined;
+  const claimPub = publishIdentityRecord(electionPath, makeIdentityRecord(self, claimToken), true);
   if (claimPub.status !== "ok") {
     // A peer recoverer may hold (or have crashed holding) the election:
     // steal it only when its holder is provably dead (identity rule 3/4 via
@@ -995,22 +1039,31 @@ export function recoverPreviousBootSuccessionChain(
     if (!holderDead) {
       return { recovered: false, reason: "chain-changed-during-recovery" };
     }
-    try {
-      unlinkSync(electionPath);
-    } catch {
+    // Recover the election through the same generation-fenced succession
+    // protocol. A check followed by a bare unlink could remove a peer's
+    // fresh claim when two recoverers observed the same dead sidecar.
+    const next = typeof existing === "object" && (existing.kind === "v2" || existing.kind === "adapter")
+      ? succeedDeadToken(dir, electionPath, existing.rec.token, self, identityElectionIo(self)) : "retry";
+    if (next === "retry" || !next.acquired) {
       return { recovered: false, reason: "chain-changed-during-recovery" };
     }
-    claimPub = publishIdentityRecord(electionPath, makeIdentityRecord(self, claimToken), true);
-    if (claimPub.status !== "ok") {
-      return { recovered: false, reason: "chain-changed-during-recovery" };
-    }
+    const claimed = readIdentityLock(electionPath);
+    if (typeof claimed !== "object" || claimed.kind !== "v2") { next.release(); return { recovered: false, reason: "chain-changed-during-recovery" }; }
+    claimToken = claimed.rec.token;
+    // The shared lease installs an exit listener; its release also checks
+    // this generation before unlinking the election file.
+    electionLease = next;
   }
   let electionHeld = true;
   const releaseElection = (): void => {
     if (!electionHeld) return;
     electionHeld = false;
     try {
-      unlinkSync(electionPath);
+      if (electionLease) electionLease.release();
+      else {
+        const current = readIdentityLock(electionPath);
+        if (typeof current === "object" && current.kind === "v2" && current.rec.token === claimToken) unlinkSync(electionPath);
+      }
     } catch {
       // best-effort
     }
@@ -1030,7 +1083,10 @@ export function recoverPreviousBootSuccessionChain(
   // Durable backup BEFORE removal: one directory holding byte copies. Only
   // the elected recoverer reaches this point, so concurrent recoveries
   // never leave duplicate backup directories.
-  const backupDir = join(dir, `.identity-prevboot-chain-backup-${randomBytes(8).toString("hex")}`);
+  const at = new Date().toISOString();
+  const backupDir = join(dir, sameBoot
+    ? `.stale-aside-${at.replace(/[-:.]/g, "")}-${randomBytes(8).toString("hex")}`
+    : `.identity-prevboot-chain-backup-${randomBytes(8).toString("hex")}`);
   try {
     mkdirSync(backupDir, { recursive: true, mode: 0o700 });
   } catch {
@@ -1048,6 +1104,20 @@ export function recoverPreviousBootSuccessionChain(
       } finally {
         closeSync(fd);
       }
+    }
+    if (sameBoot) {
+      const entries = collected.map(item => {
+        const read = readIdentityLock(item.path);
+        const proof = typeof read === "object" && (read.kind === "v2" || read.kind === "adapter") ? sameBootDeathProof(read, self) : undefined;
+        if (!proof) throw new Error("same-boot proof changed");
+        return { name: basename(item.path), record: JSON.parse(item.bytes.toString("utf8")), proof };
+      });
+      const receipt = Buffer.from(JSON.stringify({ at, actor: self, reason: SAME_BOOT_CHAIN_RECOVERY_KIND, entries }, null, 2) + "\n");
+      const fd = openSync(join(backupDir, "receipt.json"), "wx", 0o600);
+      try {
+        if (writeSync(fd, receipt) !== receipt.length) throw new Error("short receipt write");
+        fsyncSync(fd);
+      } finally { closeSync(fd); }
     }
     syncDirectory(backupDir);
   } catch {
@@ -1105,7 +1175,8 @@ export function recoverPreviousBootSuccessionChain(
       return { recovered: false, reason: "chain-changed-during-recovery" };
     }
     try {
-      unlinkSync(item.path);
+      if (sameBoot) renameSync(item.path, join(backupDir, basename(item.path)));
+      else unlinkSync(item.path);
     } catch (e) {
       if (errnoOf(e) !== "ENOENT") {
         try {
@@ -1135,7 +1206,8 @@ export function recoverPreviousBootSuccessionChain(
     return { recovered: false, reason: "chain-changed-during-recovery" };
   }
   try {
-    unlinkSync(lockItem.path);
+    if (sameBoot) renameSync(lockItem.path, join(backupDir, basename(lockItem.path)));
+    else unlinkSync(lockItem.path);
   } catch (e) {
     if (errnoOf(e) !== "ENOENT") {
       try {
@@ -1156,13 +1228,21 @@ export function recoverPreviousBootSuccessionChain(
   }
   // releaseElection() already fsyncs the directory (persisting both the
   // chain unlink and the election release): no second syncDirectory here.
+  if (sameBoot) syncDirectory(backupDir);
   releaseElection();
-  return { recovered: true, reason: PREVIOUS_BOOT_CHAIN_RECOVERY_KIND, backupDir, moved: collected.map((c) => c.path.slice(dir.length + 1)) };
+  return { recovered: true, reason: sameBoot ? SAME_BOOT_CHAIN_RECOVERY_KIND : PREVIOUS_BOOT_CHAIN_RECOVERY_KIND,
+    backupDir, moved: collected.map((c) => c.path.slice(dir.length + 1)) };
 }
 
-/** Doctor/repair entry point: the identity lock for a store root. */
+/** Doctor/repair entry point; legacy name retained for existing callers. */
 export function repairIdentityPreviousBootChainForRoot(root: string, self: SelfIdent = identitySelf()): PreviousBootChainRecovery {
-  return recoverPreviousBootSuccessionChain(join(root, "identity", ".lock"), self);
+  return recoverProvablyDeadSuccessionChain(join(root, "identity", ".lock"), self);
+}
+
+function recoverProvablyDeadSuccessionChain(lockPath: string, self: SelfIdent): PreviousBootChainRecovery {
+  const previous = recoverPreviousBootSuccessionChain(lockPath, self);
+  return previous.recovered || previous.reason !== "chain-not-fully-previous-boot" ? previous
+    : recoverExhaustedSuccessionChain(lockPath, self, true);
 }
 
 export function repairIdentityJournal(dir: string, held: () => boolean, slots:PreparedBindingSlots): void {
@@ -1371,13 +1451,13 @@ function acquireIdentityRound(lockPath: string, dir: string, self: SelfIdent, ct
     };
   }
   if (scan.exhausted) {
-    // A chain left by a PREVIOUS BOOT of this same machine owns no live
-    // holder: quarantine it with a durable backup and retry. Any other
-    // chain keeps the bounded wait (R4) — no blind purge.
-    const prevBoot = recoverPreviousBootSuccessionChain(lockPath, self);
-    if (prevBoot.recovered) {
+    // Retain previous-boot recovery; a same-boot chain additionally requires
+    // an absent PID or changed /proc start for EVERY record. Unsupported
+    // chains keep the bounded refusal, with no blind purge.
+    const recovery = recoverProvablyDeadSuccessionChain(lockPath, self);
+    if (recovery.recovered) {
       ctx.recovered = true;
-      ctx.recoveryKind = PREVIOUS_BOOT_CHAIN_RECOVERY_KIND;
+      ctx.recoveryKind = recovery.reason;
       return { retry: true };
     }
     // A peer already recovered or replaced the chain between the scan and
@@ -1387,9 +1467,9 @@ function acquireIdentityRound(lockPath: string, dir: string, self: SelfIdent, ct
     // replaced). When nothing changed, fall through to the chain-exhausted
     // blocker instead of spinning hot until the deadline reports
     // `no-observation`.
-    if (prevBoot.reason === "no-identity-lock"
-      || prevBoot.reason === "chain-not-exhausted"
-      || prevBoot.reason === "chain-changed-during-recovery") {
+    if (recovery.reason === "no-identity-lock"
+      || recovery.reason === "chain-not-exhausted"
+      || recovery.reason === "chain-changed-during-recovery") {
       try {
         const fresh = readIdentityLock(lockPath);
         const readToken = (read as { rec?: { token?: string } })?.rec?.token;

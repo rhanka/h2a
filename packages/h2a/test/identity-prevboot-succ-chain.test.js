@@ -518,7 +518,8 @@ test("doctor --repair recovers the previous-boot succession chain", async () => 
     assert.equal(await runCli(["init", "--root", x.root], streams(x.dir), {}), 0);
     writePreviousBootChain(x.lock, self, otherBoot());
     const io = streams(x.dir);
-    const exit = await runCli(["doctor", "--root", x.root, "--repair", "--skip-hosts"], io, {});
+    const exit = await runCli(["doctor", "--root", x.root, "--repair", "--skip-hosts"], io,
+      { doctorHostInstallations: () => ({ ok: true, hosts: [] }) });
     const report = JSON.parse(io.stdoutText);
     assert.equal(exit, 0);
     assert.equal(report.checks.identityPreviousBootChain.recovered, true);
@@ -544,7 +545,8 @@ test("doctor --repair --dry-run never mutates identity/", async () => {
     writePreviousBootChain(x.lock, identitySelf(), otherBoot());
     const before = chainFiles(x.identityDir).map((n) => readFileSync(join(x.identityDir, n), "utf8"));
     const io = streams(x.dir);
-    const exit = await runCli(["doctor", "--root", x.root, "--repair", "--dry-run", "--skip-hosts"], io, {});
+    const exit = await runCli(["doctor", "--root", x.root, "--repair", "--dry-run", "--skip-hosts"], io,
+      { doctorHostInstallations: () => ({ ok: true, hosts: [] }) });
     const report = JSON.parse(io.stdoutText);
     assert.equal(exit, 0);
     assert.equal(report.checks.identityPreviousBootChain.skipped, true);
