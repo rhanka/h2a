@@ -266,6 +266,12 @@ fences it in `md`.
 
 **DÉCISIONS carries only pending dossiers the owner can answer now. Nothing else.**
 
+For a pending owner gate, apply **Owner gates across sessions** in the h2a skill. This report never
+replaces the native question in the required session. A pending decision titled `OWNER GATE <id>` is
+session-bound. Show it in the `bloqué` cell of the row it gates as
+`answer in <session> · question <evidence level>`. Give it no `D` number and keep it out of the reply
+line. A choice recorded from a reply here would manufacture a GO.
+
 - **A `D` number is reserved for a dossier whose options AND recommendation are stored.** A report that
   prints alternatives absent from the log fails, however plausible they are.
 - **A settled dossier leaves the report.** It has nothing left to answer, it crowds out the dossiers that
@@ -284,7 +290,8 @@ fences it in `md`.
   inferred from the current directory.
 
 **RECOMMANDATION** — what starts with no answer at all, then what each answer unblocks, then a single
-reply line. The owner must be able to answer `vas y` or `D1 A · D2 B · D3 A`. If `decision ls` has zero
+reply line. The owner must be able to answer `vas y` or `D1 A · D2 B · D3 A`. `vas y` and `D1 A` never
+answer a session-bound gate. If `decision ls` has zero
 `structure: "structured"` pending rows, this section says exactly:
 `Aucun D# disponible : aucun dossier structuré sélectionnable dans le journal.` Do not invite `D1 A` in
 that case; name only recorded non-decision directives that can start now, and name each unstructured

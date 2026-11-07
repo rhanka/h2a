@@ -47,6 +47,27 @@ describe('present-decision readability contract', () => {
     expect(text).toMatch(/no (?:mandatory long appendix|choices or material risks hidden|choice or material risk)/)
   })
 
+  // The 850-word budget depends on this link: dropping it must fail, not hide the gate procedure.
+  it('links the owner-gate procedure and keeps its safety clauses', () => {
+    const skill = read('SKILL.md')
+    expect(skill).toContain('assets/owner-gates.md')
+    expect(skill).toMatch(/outcome only from the required session's answer/)
+    const gate = read('assets/owner-gates.md')
+    for (const clause of [
+      /blocks a session's work now/,
+      /A decision that blocks nothing now is not a gate/,
+      /native question tool/,
+      /records the gate in Track/,
+      /`missing`, `unavailable`, `peer-reported` and `trace-verified`/,
+      /sends nothing to the target while the gate question is open or its state is unknown/,
+      /A reminder is an owner alert, never input typed into the target/,
+      /OWNER GATE ALERT <id>/,
+      /Close only on the owner's attributable answer in the required session/,
+      /\*\*Owner gates across sessions\*\* in the h2a skill/,
+    ]) expect(gate).toMatch(clause)
+    expect(gate).not.toMatch(/remind about an open question|through h2a immediately/i)
+  })
+
   it('keeps instructions and audit within their reviewed reading budgets', () => {
     expect(read('SKILL.md').split(' ').length).toBeLessThanOrEqual(850)
     expect(read('assets/self-audit.md').split(' ').length).toBeLessThanOrEqual(300)

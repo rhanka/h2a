@@ -3031,3 +3031,39 @@ scope stays pre-SG-R15.
   (real cut point 3c4d9a538, db4857950 was an ancestor); the PR body now
   cites the committed projection test instead of the former uncommitted
   "mechanical projection audit".
+
+# Owner gates — native question and durable follow-up (2026-11-07)
+
+## Objective and scope
+
+- [x] Branch: feat/owner-gate-native-question, rebased onto origin/main 427e7578b.
+- [x] Designer: Astra (gpt-6-astra, max), explicitly assigned by the owner.
+- [x] Choose the authorized a+b delivery: rules/spec now, runtime marker and receiving hook in the next lot.
+- [x] Allowed: owner-gate EVOL/review docs; h2a/harness/present-decision skill text; this appended plan.
+- [x] Forbidden: product/runtime edits, owner state, installed h2a, dependency changes, full local suite, merge.
+
+## Lots
+
+- [x] L1: English EVOL defines the three rules, signed compatible marker, host evidence/fallback,
+  conductor verification, durable deadline/cadence/closure and RED/GREEN acceptance for runtime lot L2.
+- [x] L1: h2a send/receive/conductor/loop instructions, harness piloting/report instructions,
+  and canonical Track present-decision instructions instruct immediate questions and durable follow-up.
+- [x] L1 verification: build and targeted native-question/skill installation checks only;
+  documentation checks do not prove a native dialog or an implemented owner-gate protocol.
+- [x] Independent Claude Opus 5.5 max review; reconcile findings before READY PR.
+- [x] Review round 2 (Claude Opus 5.5 max, mistral-large-4): every P1 and P2 and the cheap P3s
+  reconciled in `docs/reviews/2026-11-07-owner-gate-validation.md`, with pinning tests
+  `packages/h2a/test/owner-gate-skill.test.js` and `present-decision-skill.test.ts`.
+- [ ] Rebase if needed, push branch, READY PR to main, follow terminal CI; do not merge.
+- [ ] French owner-gate-last.md report and remove the sole private run directory.
+
+## Next lot / feedback
+
+- [ ] L2 (h2a messaging/host maintainer): signed marker, validated receive path, native question
+  evidence, wake guard (no keystroke into an open dialog) and the due-check executor
+  `OwnerGateDueCheck` with its own budget. Exact acceptance is in the EVOL.
+- [ ] Track report renderer: no `D` number for a pending `OWNER GATE` decision (EVOL seams table).
+- [ ] Decision tool (Track 01M6V34N5GNMHZRM85WNTH1R2J) may take over the gate record. Its states
+  and two marker values are reserved in the EVOL.
+- [x] The existing loop decision-raised result proves a Track card only; native call evidence is separate.
+- [x] Runtime L2 is explicitly deferred under the owner's one-reviewable-PR clause, not declared shipped.

@@ -35,4 +35,9 @@ Read `using-harness/SKILL.md` first in a sentropic repository. Then read only th
 - `track-report/SKILL.md` for a track report, status, or advancement report — rendered in session, no AI subprocess.
 - `adopt/SKILL.md` when bringing the method to a new repository.
 
+For piloting, apply **Owner gates across sessions** in the h2a skill. A blocking owner decision gets
+a native question in the required session now. A status table never replaces it. Use
+`present-decision` (shipped by Track) for the short dossier. Use h2a only for the initial
+cross-session request. Reminders go to the owner in the conductor's session.
+
 Follow the selected workflow completely. Repository-local `AGENTS.md` and explicit user instructions take precedence.
