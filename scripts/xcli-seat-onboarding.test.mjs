@@ -75,7 +75,7 @@ const SYNTH_SCOPE = 'test-scope-l7';
 
 test('L7 R31: the reviewed Agy 1.5.2 schema preserves published validators and rejects incomplete steps', async () => {
   const reviewed = await import('./xcli-seat-onboarding.mjs');
-  const published = await import('@sentropic/llm-mesh/enrollment');
+  const published = await import('./xcli-seat-vendor/seat-onboarding.js');
   assert.equal(reviewed.validateSeatEnvelope, published.validateSeatEnvelope);
   assert.equal(reviewed.validateAgyJetskiContent, published.validateAgyJetskiContent);
   const steps = vendor.AGY_REQUIRED_COMPLETED_STEPS['1.4.12'];
