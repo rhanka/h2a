@@ -153,7 +153,7 @@ test("H1: one shared service carries isolated attachments from three native CLIs
     // The three worker attachments above hold admitted background runs, which
     // the server must drain before release; a fourth attachment with only
     // read-only calls detaches promptly.
-    const clean = connect(f, url, "Muse", join(f.dir, "repo-a"), "h1-gemini-clean");
+    const clean = connect(f, url, "muse", join(f.dir, "repo-a"), "h1-gemini-clean");
     channels.push(clean);
     assert.ok((await clean.call("initialize", { protocolVersion: "2025-06-18", capabilities: {},
       clientInfo: { name: "gemini-fixture", version: "1" } })).result, "Muse attaches");
