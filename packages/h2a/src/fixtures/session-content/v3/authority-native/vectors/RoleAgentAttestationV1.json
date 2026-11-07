@@ -1,0 +1,60 @@
+{
+  "record": "RoleAgentAttestationV1",
+  "evidenceLevel": "synthetic schema and signature fixtures only; no installed authority",
+  "positive": [
+    {
+      "id": "RoleAgentAttestationV1-shape-positive",
+      "expect": "ACCEPT_SHAPE",
+      "value": {
+        "format": "h2a.role-agent-attestation/v1",
+        "agentUuid": "fixture-agentUuid-0",
+        "launchName": "fixture-launchName-0",
+        "actorLaunchName": "fixture-actorLaunchName-0",
+        "scope": "fixture-scope-0",
+        "attestingInstance": "fixture-attestingInstance-0",
+        "keySetRevision": "fixture-keySetRevision-0",
+        "keyIds": [],
+        "issuedAt": "fixture-issuedAt-0",
+        "signerInstance": "fixture-signerInstance-0",
+        "signerKeyId": "fixture-signerKeyId-0",
+        "signature": "fixture-signature-0"
+      },
+      "bytes": {
+        "json": {
+          "base64": "eyJhY3RvckxhdW5jaE5hbWUiOiJmaXh0dXJlLWFjdG9yTGF1bmNoTmFtZS0wIiwiYWdlbnRVdWlkIjoiZml4dHVyZS1hZ2VudFV1aWQtMCIsImF0dGVzdGluZ0luc3RhbmNlIjoiZml4dHVyZS1hdHRlc3RpbmdJbnN0YW5jZS0wIiwiZm9ybWF0IjoiaDJhLnJvbGUtYWdlbnQtYXR0ZXN0YXRpb24vdjEiLCJpc3N1ZWRBdCI6ImZpeHR1cmUtaXNzdWVkQXQtMCIsImtleUlkcyI6W10sImtleVNldFJldmlzaW9uIjoiZml4dHVyZS1rZXlTZXRSZXZpc2lvbi0wIiwibGF1bmNoTmFtZSI6ImZpeHR1cmUtbGF1bmNoTmFtZS0wIiwic2NvcGUiOiJmaXh0dXJlLXNjb3BlLTAiLCJzaWduYXR1cmUiOiJmaXh0dXJlLXNpZ25hdHVyZS0wIiwic2lnbmVySW5zdGFuY2UiOiJmaXh0dXJlLXNpZ25lckluc3RhbmNlLTAiLCJzaWduZXJLZXlJZCI6ImZpeHR1cmUtc2lnbmVyS2V5SWQtMCJ9",
+          "byteLength": 438,
+          "sha256": "123c8866e675b97b6dba82da7f27450afaaa2c244ac6eafa9b05bc13e1de9073"
+        }
+      }
+    },
+    {
+      "id": "RoleAgentAttestationV1-canonical-bytes-await-M0",
+      "expect": "BLOCKED_EXTERNAL",
+      "requires": [
+        "DEP-AUTH-B/M0 canonical bytes and bilateral pins"
+      ],
+      "value": null
+    }
+  ],
+  "negative": [
+    {
+      "id": "RoleAgentAttestationV1-unknown-field",
+      "expect": "REJECT_SCHEMA",
+      "value": {
+        "format": "h2a.role-agent-attestation/v1",
+        "agentUuid": "fixture-agentUuid-0",
+        "launchName": "fixture-launchName-0",
+        "actorLaunchName": "fixture-actorLaunchName-0",
+        "scope": "fixture-scope-0",
+        "attestingInstance": "fixture-attestingInstance-0",
+        "keySetRevision": "fixture-keySetRevision-0",
+        "keyIds": [],
+        "issuedAt": "fixture-issuedAt-0",
+        "signerInstance": "fixture-signerInstance-0",
+        "signerKeyId": "fixture-signerKeyId-0",
+        "signature": "fixture-signature-0",
+        "__unknown": "forbidden"
+      }
+    }
+  ]
+}
