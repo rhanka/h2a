@@ -46,6 +46,12 @@
 - Preserve typed HTTP 429 and reset timestamps when the actual Muse provider
   response supplies them; raw provider output is never retained.
 - Live matrix qualification remains in progress.
+- Native Agy capture additionally requires standard optional message
+  colons to be normalized before the published subset parser. Read at most
+  the existing 1024-byte cap, refuse symlink sources, preserve strings and
+  comments, and stage only the published canonical four-step projection.
+  The real custodian goes from absent/closed to present/open; no owner file
+  is modified and no source identifier is transported.
 - Live Vibe diagnostic proves repeated PTY output with an identical rendered
   screen. Quiet readiness now follows rendered text changes, retaining the
   existing identity/MCP/wake-arm/composer gates and quiet intervals.
