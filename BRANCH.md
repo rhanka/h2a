@@ -31,6 +31,12 @@
   Muse now witnesses HTTP 429 with reset 2026-11-09T00:00:00Z.
   One Vibe diagonal read measured 10040 ms, beyond the unchanged 10000 ms
   bound; request the inbox tool as its next action before commentary.
+- A transient live preflight exposed a 415 MB Muse native executable copy,
+  exceeding the fixture budget. Large vendor programs now link only to a
+  read-only source; launcher/metadata, HOME and auth remain private. Keep
+  ELF checks and hashes, label the link honestly, and never chmod its target.
+  RED/GREEN budget/wipe controls pass 20/20. Native linked --version exits
+  0, allocates 40960 bytes privately, leaves the source unchanged and wipes.
 - Native Agy capture additionally requires standard optional message
   colons to be normalized before the published subset parser. Read at most
   the existing 1024-byte cap, refuse symlink sources, preserve strings and
