@@ -22,6 +22,7 @@ export type SentropicPublishErrorCode =
   | "id_token"
   | "login_required"
   | "binding"
+  | "workspace_access"
   | "mcp";
 
 export class SentropicPublishError extends Error {
@@ -36,6 +37,26 @@ export class SentropicLoginRequiredError extends SentropicPublishError {
   constructor(reason: string) {
     super("login_required", `${reason}; run \`h2a sentropic login\``);
     this.name = "SentropicLoginRequiredError";
+  }
+}
+
+/**
+ * The resource server will not let this account use the bound workspace NOW, whatever the bind
+ * recorded: the membership or the role changed since (the server re-checks at every call; the
+ * `publishable` flag of workspaces_list is only a hint, and no list is ever cached).
+ */
+export class SentropicWorkspaceAccessError extends SentropicPublishError {
+  constructor(readonly workspaceRef: string, reason: "access_denied" | "no_tools") {
+    const head =
+      reason === "access_denied"
+        ? `the resource server refused workspace ${workspaceRef} (access_denied)`
+        : `the resource server lists no publish tool for workspace ${workspaceRef}`;
+    super(
+      "workspace_access",
+      `${head}: this account cannot use it now (the server re-checks at every call, whatever the bind recorded); ` +
+        "run `h2a sentropic workspaces` to list the workspaces it can publish to, then `h2a sentropic bind <workspace-id>`",
+    );
+    this.name = "SentropicWorkspaceAccessError";
   }
 }
 
