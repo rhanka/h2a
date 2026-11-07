@@ -102,3 +102,8 @@ export type TokenExchange = (args: {
   code?: string;
   deviceCode?: string;
 }) => Promise<SentropicAuthToken>;
+
+/** RED stub — see publish-client.test.ts. */
+export function pkceChallengeS256(_verifier: string): string {
+  throw new Error("not implemented");
+}
