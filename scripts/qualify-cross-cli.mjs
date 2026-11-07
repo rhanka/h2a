@@ -14,6 +14,7 @@ import { loadSeatManifest, resolveCampaignPair, createCampaignLedger, loadCampai
   debitSession, fitsSessions, noteWallClock, wallClockFits, renderSeatLedger, persistLedger,
   runSeatPreflight, applyPreflightDebit } from './xcli-seats.mjs';
 import { materialiseSeatCell, onboardingLaunchBlock } from './xcli-seat-import.mjs';
+import { AGY_ONBOARDING_REVIEW } from './xcli-seat-onboarding.mjs';
 import { assertCyberManifest, assertNoAuthHome } from './xcli-seat-custody.mjs';
 import { startupTerminal } from './xcli-terminal.mjs';
 import { verifyWakeBatch } from './xcli-ci-check.mjs';
@@ -134,7 +135,18 @@ export function museEngagedComposer(screen) {
   return /[❯›]/.test(screen) && /·/.test(screen);
 }
 
-export function argsFor(cli, prompt) {
+// Agy's native `models` catalogue (1.5.2) advertises this real provider
+// model. The three-tool message probe needs low-latency tool selection.
+const AGY_BENCH_MODEL = 'gemini-3.8-flash-low';
+export function argsFor(cli, prompt, { nativeCliVersion } = {}) {
+  if (cli === 'agy' && nativeCliVersion === AGY_ONBOARDING_REVIEW.nativeCliVersion) {
+    // Native session-only settings; reviewed exact mcp(server/tool) rules.
+    // No wildcard, account preference, global file or blanket bypass.
+    const settings = { permissions: { allow: ['h2a_identity_status', 'h2a_inbox', 'h2a_send']
+      .map(tool => `mcp(h2a/${tool})`) } };
+    return ['--settings', JSON.stringify(settings), '--model', AGY_BENCH_MODEL,
+      ...(PINNED_CLI_ARGS[cli] ?? []), prompt];
+  }
   // Codex enables remote plugins/apps by default and installs a large
   // document-template catalogue into every fresh cell. The bench uses only
   // its explicit h2a MCP endpoint; keep those unrelated downloads disabled
@@ -454,8 +466,13 @@ async function worker() {
     const executable = simulated ? { path: executables[cli] } : privateExecutable(cli, executables[cli], dir);
     if (executable.version) row.evidence.push({ event: executable.linkedProgram ? 'private-program-link' : 'private-program-copy', role, cli,
       version: executable.version, hashes: executable.hashes });
+    if (cli === 'agy' && seatOb?.expectedNativeCliVersion === AGY_ONBOARDING_REVIEW.nativeCliVersion) {
+      row.evidence.push({ event: 'bench-model-policy', role, cli, model: AGY_BENCH_MODEL,
+        nativeCliVersion: seatOb.expectedNativeCliVersion, scope: 'private-cell-session' });
+    }
     const state = await client.create({ id: `h2a-${role}`, command: executable.path,
-      args: argsFor(cli, prompt), cwd: workspace, env: targetEnv, cols: 140, rows: 40 });
+      args: argsFor(cli, prompt, { nativeCliVersion: seatOb?.expectedNativeCliVersion }),
+      cwd: workspace, env: targetEnv, cols: 140, rows: 40 });
     isolation.pinPrivateNativeProcess(state.pid, env);
     enroll({ id: role, label: role, tool: cli, kind: 'local-native', cwd: workspace,
       tmuxSession: state.id, source: 'run', sessionClass: 'human' }, registry);
