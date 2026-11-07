@@ -4,7 +4,7 @@ review-author:
   host: codex
   model: gpt-6.1-sol
   effort: xhigh
-target-ref: 6161d6725 (R31 changes since 0b7bde128)
+target-ref: 7e9560ea6 (R31 product changes since 0b7bde128)
 observed-failure: No callable h2a_run MCP tool is exposed. Owner confinement forbids installed-host access. No two eligible independent host/model legs can be dispatched.
 ---
 
@@ -45,3 +45,22 @@ passes, private payload 40960 bytes, source metadata unchanged and wiped.
 The complete eight-file affected batch before cache replay passed 115/115.
 CI's model-free proof test now passes with vendor CLIs absent from PATH;
 the moved Codex oracle still executes in the installed-native-CLI job.
+
+Pass 4 completed all 75 repetitions: four qualified pairs, no cancellation,
+27 launched workers all parent-recovered and wiped. It exposed native Agy
+tool approval after successful signed delivery, a remaining active Vibe
+turn, and actual timing jitter that defeated nominal release offsets.
+The follow-up fixes retain the independent wake verifier and all bounds:
+plan later holds from actual earlier acceptance windows; remove Vibe's
+native wait capabilities; supply exact version-reviewed Agy session grants
+and select its advertised Gemini 3.8 Flash Low model. Details are in the
+Agy and Vibe review files. No result is upgraded retrospectively.
+
+Latest affected five-file batch: 56/56, zero skips. Native Vibe's synthetic
+provider oracle proves wait present/absent/present/present for the four
+feature controls, with supervision and wipe. Real Agy diagnostics read and
+reply with the scoped policy: default model 14010 ms (failed), Flash Low
+3245 ms (individual success, no batch credit). The next complete matrix
+must earn separation credit independently. The 11 proof/poller controls
+passed; their legacy helper temporarily minted sibling run roots and
+removed them. That helper is excluded from further concurrent checks.
