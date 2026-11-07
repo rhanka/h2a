@@ -120,8 +120,9 @@ test('R22: codex composer prose never reads as an MCP approval', () => {
 
 // R22 (bench round 22, agy + muse diagonals): two startup gates need their
 // own typed blocker instead of a generic one. The agy first-run Terms/Data-Use
-// dialog (default opted-in) is a human consent gate the harness must not
-// click through; the muse runtime host refuses a TMPDIR-derived tool-output
+// dialog is unresolved native completion. Existing evidence can be replayed
+// during custody; its account-setting checkbox is not a startup key.
+// The muse runtime host refuses a TMPDIR-derived tool-output
 // root inside a workspace or repository.
 test('R22: consent and tmpdir-guard screens block with typed reasons', () => {
   const consent = 'Terms of Service & Data Use\n' +
