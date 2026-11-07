@@ -1,0 +1,84 @@
+{
+  "record": "ContentPolicyChallengeRequestV1",
+  "evidenceLevel": "synthetic schema and signature fixtures only; no installed authority",
+  "positive": [
+    {
+      "id": "ContentPolicyChallengeRequestV1-shape-positive",
+      "expect": "ACCEPT_SHAPE",
+      "value": {
+        "format": "h2a.session-content-policy/1",
+        "kind": "challenge-request",
+        "proposalId": "ZihClKk9lvGYWD_k2kblsA",
+        "policyOperationId": "rsGYMV6VCWSrUkdCiFtccQ",
+        "purpose": "share",
+        "target": {
+          "appMeshId": "fixture-appMeshId-0",
+          "sourceMeshId": "fixture-sourceMeshId-0",
+          "nativeAudience": "fixture-nativeAudience-0",
+          "registrationId": "fixture-registrationId-0",
+          "tenantId": "fixture-tenantId-0",
+          "workspaceId": "fixture-workspaceId-0",
+          "bindingId": "fixture-bindingId-0",
+          "sourceId": "fixture-sourceId-0",
+          "sourceSessionId": "fixture-sourceSessionId-0",
+          "nativeSessionId": "fixture-nativeSessionId-0",
+          "sourceGeneration": 1,
+          "bootGeneration": 1,
+          "custodyEpoch": 1,
+          "controllerEpoch": 1,
+          "connectionId": "fixture-connectionId-0",
+          "connectionGeneration": 1
+        },
+        "policyDigest": "b930bbba58d3327fb99f0e2714c875e124c694caf4281f5c39f6975224a99098",
+        "priorPolicyDigest": null,
+        "expectedPolicyRevision": 1,
+        "issuedAt": 1793520000000,
+        "expiresAt": 1793520020000
+      },
+      "bytes": {
+        "json": {
+          "base64": "eyJleHBlY3RlZFBvbGljeVJldmlzaW9uIjoxLCJleHBpcmVzQXQiOjE3OTM1MjAwMjAwMDAsImZvcm1hdCI6ImgyYS5zZXNzaW9uLWNvbnRlbnQtcG9saWN5LzEiLCJpc3N1ZWRBdCI6MTc5MzUyMDAwMDAwMCwia2luZCI6ImNoYWxsZW5nZS1yZXF1ZXN0IiwicG9saWN5RGlnZXN0IjoiYjkzMGJiYmE1OGQzMzI3ZmI5OWYwZTI3MTRjODc1ZTEyNGM2OTRjYWY0MjgxZjVjMzlmNjk3NTIyNGE5OTA5OCIsInBvbGljeU9wZXJhdGlvbklkIjoicnNHWU1WNlZDV1NyVWtkQ2lGdGNjUSIsInByaW9yUG9saWN5RGlnZXN0IjpudWxsLCJwcm9wb3NhbElkIjoiWmloQ2xLazlsdkdZV0RfazJrYmxzQSIsInB1cnBvc2UiOiJzaGFyZSIsInRhcmdldCI6eyJhcHBNZXNoSWQiOiJmaXh0dXJlLWFwcE1lc2hJZC0wIiwiYmluZGluZ0lkIjoiZml4dHVyZS1iaW5kaW5nSWQtMCIsImJvb3RHZW5lcmF0aW9uIjoxLCJjb25uZWN0aW9uR2VuZXJhdGlvbiI6MSwiY29ubmVjdGlvbklkIjoiZml4dHVyZS1jb25uZWN0aW9uSWQtMCIsImNvbnRyb2xsZXJFcG9jaCI6MSwiY3VzdG9keUVwb2NoIjoxLCJuYXRpdmVBdWRpZW5jZSI6ImZpeHR1cmUtbmF0aXZlQXVkaWVuY2UtMCIsIm5hdGl2ZVNlc3Npb25JZCI6ImZpeHR1cmUtbmF0aXZlU2Vzc2lvbklkLTAiLCJyZWdpc3RyYXRpb25JZCI6ImZpeHR1cmUtcmVnaXN0cmF0aW9uSWQtMCIsInNvdXJjZUdlbmVyYXRpb24iOjEsInNvdXJjZUlkIjoiZml4dHVyZS1zb3VyY2VJZC0wIiwic291cmNlTWVzaElkIjoiZml4dHVyZS1zb3VyY2VNZXNoSWQtMCIsInNvdXJjZVNlc3Npb25JZCI6ImZpeHR1cmUtc291cmNlU2Vzc2lvbklkLTAiLCJ0ZW5hbnRJZCI6ImZpeHR1cmUtdGVuYW50SWQtMCIsIndvcmtzcGFjZUlkIjoiZml4dHVyZS13b3Jrc3BhY2VJZC0wIn19",
+          "byteLength": 897,
+          "sha256": "62998a045cc99a6cdd2c4301aa982909c5150703138d25d8833fe13670754891"
+        }
+      }
+    }
+  ],
+  "negative": [
+    {
+      "id": "ContentPolicyChallengeRequestV1-unknown-field",
+      "expect": "REJECT_SCHEMA",
+      "value": {
+        "format": "h2a.session-content-policy/1",
+        "kind": "challenge-request",
+        "proposalId": "ZihClKk9lvGYWD_k2kblsA",
+        "policyOperationId": "rsGYMV6VCWSrUkdCiFtccQ",
+        "purpose": "share",
+        "target": {
+          "appMeshId": "fixture-appMeshId-0",
+          "sourceMeshId": "fixture-sourceMeshId-0",
+          "nativeAudience": "fixture-nativeAudience-0",
+          "registrationId": "fixture-registrationId-0",
+          "tenantId": "fixture-tenantId-0",
+          "workspaceId": "fixture-workspaceId-0",
+          "bindingId": "fixture-bindingId-0",
+          "sourceId": "fixture-sourceId-0",
+          "sourceSessionId": "fixture-sourceSessionId-0",
+          "nativeSessionId": "fixture-nativeSessionId-0",
+          "sourceGeneration": 1,
+          "bootGeneration": 1,
+          "custodyEpoch": 1,
+          "controllerEpoch": 1,
+          "connectionId": "fixture-connectionId-0",
+          "connectionGeneration": 1
+        },
+        "policyDigest": "b930bbba58d3327fb99f0e2714c875e124c694caf4281f5c39f6975224a99098",
+        "priorPolicyDigest": null,
+        "expectedPolicyRevision": 1,
+        "issuedAt": 1793520000000,
+        "expiresAt": 1793520020000,
+        "__unknown": "forbidden"
+      }
+    }
+  ]
+}

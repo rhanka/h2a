@@ -1,0 +1,2116 @@
+{
+  "format": "rc2.revision-semantics/1",
+  "scope": "reference predicates, not production storage/runtime qualification",
+  "cases": [
+    {
+      "id": "digest-listing",
+      "evaluator": "projectionDigest",
+      "input": {
+        "visibility": "listing",
+        "value": {
+          "sessionRef": {
+            "originInstanceId": "fixture-B",
+            "sessionId": "fixture-session",
+            "incarnation": "fixture-incarnation"
+          },
+          "engineKind": "cli",
+          "providerClass": "claude",
+          "originRevision": 2,
+          "state": "running"
+        }
+      },
+      "expected": "226ad2fed8143a5c9f5549fb3ae2cbd5e42ae13af67ca6c1957bb9233233fe98"
+    },
+    {
+      "id": "digest-activated",
+      "evaluator": "projectionDigest",
+      "input": {
+        "visibility": "activated",
+        "value": {
+          "format": "cluster-mesh.session/1",
+          "kind": "snapshot",
+          "sessionRef": {
+            "originInstanceId": "fixture-B",
+            "sessionId": "fixture-session",
+            "incarnation": "fixture-incarnation"
+          },
+          "writerEpoch": 1,
+          "originRevision": 2,
+          "tombstoneFloor": 1,
+          "denialFloors": [],
+          "descriptor": {
+            "format": "cluster-mesh.session/1",
+            "kind": "descriptor",
+            "sessionRef": {
+              "originInstanceId": "fixture-B",
+              "sessionId": "fixture-session",
+              "incarnation": "fixture-incarnation"
+            },
+            "engineKind": "cli",
+            "ownerPrincipalBindingRef": {
+              "id": "fixture-id-0",
+              "revision": 1,
+              "digest": "ecceac03b4a95ea63ec896a332585cbc236749aa8da95ce13bb21179681df4df"
+            },
+            "tenantRef": "fixture-tenantRef-0",
+            "workspaceMappingRef": {
+              "id": "fixture-id-0",
+              "revision": 1,
+              "digest": "b8b5d17e4c84a228fac6d6bb2f4cda5fc0443bdbb6264be77d2eebb82767b57e"
+            },
+            "l1AgentRef": "fixture-L1",
+            "l2AgentSessionRef": "fixture-L2",
+            "nativeBinding": {
+              "sourceSessionId": "fixture-source-session",
+              "sourceGeneration": 1,
+              "streamIncarnation": "fixture-stream"
+            },
+            "conversationBindingRef": null,
+            "writerEpoch": 1,
+            "originRevision": 2,
+            "capabilitiesRef": {
+              "id": "fixture-id-0",
+              "revision": 1,
+              "digest": "3ad5d60ada3cb5d3891abfabfc4ca722135b460b50d1610108afed26f39144f8"
+            },
+            "logs": [],
+            "observationRefs": [],
+            "admissionRefs": [],
+            "routeRefs": [],
+            "state": "admitted",
+            "sessionTraceId": "11111111111111111111111111111111"
+          },
+          "capabilities": {
+            "format": "h2a.session-capture/1",
+            "kind": "capabilities",
+            "hostKind": "claude",
+            "pluginIdentity": null,
+            "pluginVersion": null,
+            "pluginDigest": null,
+            "convergenceManifestDigest": null,
+            "cliExecutableDigest": "c8154809b56849e358886d181ebccefec8555c1c6814a63247796bb08979c650",
+            "cliVersion": "fixture-cliVersion-0",
+            "providerDialect": "fixture-providerDialect-0",
+            "sourceRef": {
+              "sourceSessionId": "fixture-source-session",
+              "sourceGeneration": 1,
+              "streamIncarnation": "fixture-stream"
+            },
+            "originAgentSessionId": "fixture-originAgentSessionId-0",
+            "rc0CapabilitiesDigest": "afe81db75ee87f6f63f1ed445831f801392e1a351f43e92cae04b919ca9050e7",
+            "providerTupleDigest": "37cf110fd975f93d01215d2ce6d4695ba1fd372e81f26c02a7213970990d9455",
+            "capabilityRevision": 1,
+            "bits": {
+              "ptyBytes": {
+                "state": "installed-qualified",
+                "producerRef": "fixture-native-pty",
+                "cliVersion": "fixture-cliVersion-0",
+                "dialect": "fixture-dialect-0",
+                "executableDigest": "531803905622dd13abfa2829283b99291a862c65a1fc5f8bdeaa22085f04ce13",
+                "pluginDigest": null,
+                "receiptDigest": "07ddaa9e3afedddf5416a3b165d2e237dacd5e31d375d78fdb93838f6d26c0d6",
+                "sourceGap": null
+              },
+              "structuredDeltas": {
+                "state": "unavailable",
+                "producerRef": "fixture-unavailable-provider",
+                "cliVersion": "fixture-cliVersion-0",
+                "dialect": "fixture-dialect-0",
+                "executableDigest": "e60151e5a4680c45a60f4662ae26bfb11c94623da6e8f17cdc34cf522b9a0a1c",
+                "pluginDigest": null,
+                "receiptDigest": null,
+                "sourceGap": "plugin-absent"
+              },
+              "completePermissionContext": {
+                "state": "unavailable",
+                "producerRef": "fixture-unavailable-provider",
+                "cliVersion": "fixture-cliVersion-0",
+                "dialect": "fixture-dialect-0",
+                "executableDigest": "843f5d851db75349560621c0d4ab644f105c8bd0b57537fb5f8491e01b8a9e07",
+                "pluginDigest": null,
+                "receiptDigest": null,
+                "sourceGap": "plugin-absent"
+              },
+              "literalInput": {
+                "state": "unavailable",
+                "producerRef": "fixture-unavailable-provider",
+                "cliVersion": "fixture-cliVersion-0",
+                "dialect": "fixture-dialect-0",
+                "executableDigest": "a51385e5713de6e0b96d830ee25b87beea90a4a50fe6b7c3c29c35bbc35141a6",
+                "pluginDigest": null,
+                "receiptDigest": null,
+                "sourceGap": "plugin-absent"
+              },
+              "permissionResponse": {
+                "state": "unavailable",
+                "producerRef": "fixture-unavailable-provider",
+                "cliVersion": "fixture-cliVersion-0",
+                "dialect": "fixture-dialect-0",
+                "executableDigest": "906f934857f86773ceb6e0d2c7dc2c7333a88386d2b3f0a3e80463c70ddf5ee2",
+                "pluginDigest": null,
+                "receiptDigest": null,
+                "sourceGap": "plugin-absent"
+              }
+            },
+            "matrixSource": "H2A_HOST_HOOK_CAPABILITIES",
+            "matrixDigest": "41c00ab4dc16a4544903843ccc7f42d3c6a26d62ca1010ee79ef1ff176144cdf",
+            "columns": [
+              {
+                "column": "typed-message",
+                "state": "gap",
+                "cliVersion": "fixture-1",
+                "dialect": "fixture-pty",
+                "receiptDigest": null,
+                "sourceGap": "provider-not-qualified"
+              },
+              {
+                "column": "typed-tool-call",
+                "state": "gap",
+                "cliVersion": "fixture-1",
+                "dialect": "fixture-pty",
+                "receiptDigest": null,
+                "sourceGap": "provider-not-qualified"
+              },
+              {
+                "column": "typed-tool-result",
+                "state": "gap",
+                "cliVersion": "fixture-1",
+                "dialect": "fixture-pty",
+                "receiptDigest": null,
+                "sourceGap": "provider-not-qualified"
+              },
+              {
+                "column": "permission-request",
+                "state": "gap",
+                "cliVersion": "fixture-1",
+                "dialect": "fixture-pty",
+                "receiptDigest": null,
+                "sourceGap": "provider-not-qualified"
+              },
+              {
+                "column": "permission-response",
+                "state": "gap",
+                "cliVersion": "fixture-1",
+                "dialect": "fixture-pty",
+                "receiptDigest": null,
+                "sourceGap": "provider-not-qualified"
+              },
+              {
+                "column": "literal-input",
+                "state": "gap",
+                "cliVersion": "fixture-1",
+                "dialect": "fixture-pty",
+                "receiptDigest": null,
+                "sourceGap": "provider-not-qualified"
+              },
+              {
+                "column": "pty-fallback",
+                "state": "enforced",
+                "cliVersion": "fixture-1",
+                "dialect": "fixture-pty",
+                "receiptDigest": "07ddaa9e3afedddf5416a3b165d2e237dacd5e31d375d78fdb93838f6d26c0d6",
+                "sourceGap": null
+              },
+              {
+                "column": "sub-agent-call-attribution",
+                "state": "gap",
+                "cliVersion": "fixture-1",
+                "dialect": "fixture-pty",
+                "receiptDigest": null,
+                "sourceGap": "provider-not-qualified"
+              }
+            ],
+            "pointOrdering": [],
+            "declaredLosses": [
+              "no-structured-deltas",
+              "incomplete-context",
+              "no-literal-input",
+              "no-permission-response"
+            ]
+          },
+          "issuedAt": 1793520000000,
+          "expiresAt": 1793520020000,
+          "issuer": "fixture-origin-registry",
+          "kid": "fixture-origin-registry-key"
+        }
+      },
+      "expected": "0bc09c075c199399ceb207f2f320b24eb9be0545fe11f798e31b0dec8f2a3b8e"
+    },
+    {
+      "id": "origin-first-commit",
+      "evaluator": "originRevision",
+      "input": {
+        "lastRevision": 0,
+        "operation": "ingestLifecycle",
+        "changed": true,
+        "duplicate": false,
+        "knownFence": true
+      },
+      "expected": 1
+    },
+    {
+      "id": "origin-plus-one",
+      "evaluator": "originRevision",
+      "input": {
+        "lastRevision": 4,
+        "operation": "ingestLifecycle",
+        "changed": true,
+        "duplicate": false,
+        "knownFence": true
+      },
+      "expected": 5
+    },
+    {
+      "id": "origin-no-allocation-publishListing",
+      "evaluator": "originRevision",
+      "input": {
+        "lastRevision": 4,
+        "operation": "publishListing",
+        "changed": true,
+        "duplicate": false,
+        "knownFence": true
+      },
+      "expected": 4
+    },
+    {
+      "id": "origin-no-allocation-snapshot",
+      "evaluator": "originRevision",
+      "input": {
+        "lastRevision": 4,
+        "operation": "snapshot",
+        "changed": true,
+        "duplicate": false,
+        "knownFence": true
+      },
+      "expected": 4
+    },
+    {
+      "id": "origin-no-allocation-renewFreshness",
+      "evaluator": "originRevision",
+      "input": {
+        "lastRevision": 4,
+        "operation": "renewFreshness",
+        "changed": true,
+        "duplicate": false,
+        "knownFence": true
+      },
+      "expected": 4
+    },
+    {
+      "id": "origin-duplicate",
+      "evaluator": "originRevision",
+      "input": {
+        "lastRevision": 4,
+        "operation": "ingestLifecycle",
+        "changed": true,
+        "duplicate": true,
+        "knownFence": true
+      },
+      "expected": 4
+    },
+    {
+      "id": "origin-unknown-fence",
+      "evaluator": "originRevision",
+      "input": {
+        "lastRevision": 4,
+        "operation": "ingestLifecycle",
+        "changed": true,
+        "duplicate": false,
+        "knownFence": false
+      },
+      "expected": "relay_grant_unavailable"
+    },
+    {
+      "id": "origin-overflow",
+      "evaluator": "originRevision",
+      "input": {
+        "lastRevision": 9007199254740991,
+        "operation": "ingestLifecycle",
+        "changed": true,
+        "duplicate": false,
+        "knownFence": true
+      },
+      "expected": "relay_stale_generation"
+    },
+    {
+      "id": "batch-next-contiguous",
+      "evaluator": "lifecycleRevisions",
+      "input": {
+        "lastRevision": 4,
+        "writerEpoch": 1,
+        "sessionRef": {
+          "originInstanceId": "fixture-B",
+          "sessionId": "fixture-session",
+          "incarnation": "fixture-incarnation"
+        },
+        "batch": {
+          "sessionRef": {
+            "originInstanceId": "fixture-B",
+            "sessionId": "fixture-session",
+            "incarnation": "fixture-incarnation"
+          },
+          "writerEpoch": 1,
+          "firstRevision": 5,
+          "events": [
+            {
+              "sessionRef": {
+                "originInstanceId": "fixture-B",
+                "sessionId": "fixture-session",
+                "incarnation": "fixture-incarnation"
+              },
+              "writerEpoch": 1,
+              "originRevision": 5,
+              "eventId": "e5",
+              "payload": {
+                "state": "running"
+              }
+            },
+            {
+              "sessionRef": {
+                "originInstanceId": "fixture-B",
+                "sessionId": "fixture-session",
+                "incarnation": "fixture-incarnation"
+              },
+              "writerEpoch": 1,
+              "originRevision": 6,
+              "eventId": "e6",
+              "payload": {
+                "state": "ended"
+              }
+            }
+          ]
+        },
+        "known": []
+      },
+      "expected": "commit-through-6"
+    },
+    {
+      "id": "batch-first-mismatch",
+      "evaluator": "lifecycleRevisions",
+      "input": {
+        "lastRevision": 4,
+        "writerEpoch": 1,
+        "sessionRef": {
+          "originInstanceId": "fixture-B",
+          "sessionId": "fixture-session",
+          "incarnation": "fixture-incarnation"
+        },
+        "batch": {
+          "sessionRef": {
+            "originInstanceId": "fixture-B",
+            "sessionId": "fixture-session",
+            "incarnation": "fixture-incarnation"
+          },
+          "writerEpoch": 1,
+          "firstRevision": 4,
+          "events": [
+            {
+              "sessionRef": {
+                "originInstanceId": "fixture-B",
+                "sessionId": "fixture-session",
+                "incarnation": "fixture-incarnation"
+              },
+              "writerEpoch": 1,
+              "originRevision": 5,
+              "eventId": "e5",
+              "payload": {
+                "state": "running"
+              }
+            },
+            {
+              "sessionRef": {
+                "originInstanceId": "fixture-B",
+                "sessionId": "fixture-session",
+                "incarnation": "fixture-incarnation"
+              },
+              "writerEpoch": 1,
+              "originRevision": 6,
+              "eventId": "e6",
+              "payload": {
+                "state": "ended"
+              }
+            }
+          ]
+        },
+        "known": []
+      },
+      "expected": "relay_route_conflict"
+    },
+    {
+      "id": "batch-hole",
+      "evaluator": "lifecycleRevisions",
+      "input": {
+        "lastRevision": 3,
+        "writerEpoch": 1,
+        "sessionRef": {
+          "originInstanceId": "fixture-B",
+          "sessionId": "fixture-session",
+          "incarnation": "fixture-incarnation"
+        },
+        "batch": {
+          "sessionRef": {
+            "originInstanceId": "fixture-B",
+            "sessionId": "fixture-session",
+            "incarnation": "fixture-incarnation"
+          },
+          "writerEpoch": 1,
+          "firstRevision": 5,
+          "events": [
+            {
+              "sessionRef": {
+                "originInstanceId": "fixture-B",
+                "sessionId": "fixture-session",
+                "incarnation": "fixture-incarnation"
+              },
+              "writerEpoch": 1,
+              "originRevision": 5,
+              "eventId": "e5",
+              "payload": {
+                "state": "running"
+              }
+            },
+            {
+              "sessionRef": {
+                "originInstanceId": "fixture-B",
+                "sessionId": "fixture-session",
+                "incarnation": "fixture-incarnation"
+              },
+              "writerEpoch": 1,
+              "originRevision": 6,
+              "eventId": "e6",
+              "payload": {
+                "state": "ended"
+              }
+            }
+          ]
+        },
+        "known": []
+      },
+      "expected": "relay_route_conflict"
+    },
+    {
+      "id": "batch-inner-step",
+      "evaluator": "lifecycleRevisions",
+      "input": {
+        "lastRevision": 4,
+        "writerEpoch": 1,
+        "sessionRef": {
+          "originInstanceId": "fixture-B",
+          "sessionId": "fixture-session",
+          "incarnation": "fixture-incarnation"
+        },
+        "batch": {
+          "sessionRef": {
+            "originInstanceId": "fixture-B",
+            "sessionId": "fixture-session",
+            "incarnation": "fixture-incarnation"
+          },
+          "writerEpoch": 1,
+          "firstRevision": 5,
+          "events": [
+            {
+              "sessionRef": {
+                "originInstanceId": "fixture-B",
+                "sessionId": "fixture-session",
+                "incarnation": "fixture-incarnation"
+              },
+              "writerEpoch": 1,
+              "originRevision": 5,
+              "eventId": "e5",
+              "payload": {
+                "state": "running"
+              }
+            },
+            {
+              "sessionRef": {
+                "originInstanceId": "fixture-B",
+                "sessionId": "fixture-session",
+                "incarnation": "fixture-incarnation"
+              },
+              "writerEpoch": 1,
+              "originRevision": 7,
+              "eventId": "e6",
+              "payload": {
+                "state": "ended"
+              }
+            }
+          ]
+        },
+        "known": []
+      },
+      "expected": "relay_route_conflict"
+    },
+    {
+      "id": "batch-wrong-epoch",
+      "evaluator": "lifecycleRevisions",
+      "input": {
+        "lastRevision": 4,
+        "writerEpoch": 2,
+        "sessionRef": {
+          "originInstanceId": "fixture-B",
+          "sessionId": "fixture-session",
+          "incarnation": "fixture-incarnation"
+        },
+        "batch": {
+          "sessionRef": {
+            "originInstanceId": "fixture-B",
+            "sessionId": "fixture-session",
+            "incarnation": "fixture-incarnation"
+          },
+          "writerEpoch": 1,
+          "firstRevision": 5,
+          "events": [
+            {
+              "sessionRef": {
+                "originInstanceId": "fixture-B",
+                "sessionId": "fixture-session",
+                "incarnation": "fixture-incarnation"
+              },
+              "writerEpoch": 1,
+              "originRevision": 5,
+              "eventId": "e5",
+              "payload": {
+                "state": "running"
+              }
+            },
+            {
+              "sessionRef": {
+                "originInstanceId": "fixture-B",
+                "sessionId": "fixture-session",
+                "incarnation": "fixture-incarnation"
+              },
+              "writerEpoch": 1,
+              "originRevision": 6,
+              "eventId": "e6",
+              "payload": {
+                "state": "ended"
+              }
+            }
+          ]
+        },
+        "known": []
+      },
+      "expected": "relay_stale_generation"
+    },
+    {
+      "id": "batch-identical-retry",
+      "evaluator": "lifecycleRevisions",
+      "input": {
+        "lastRevision": 6,
+        "writerEpoch": 1,
+        "sessionRef": {
+          "originInstanceId": "fixture-B",
+          "sessionId": "fixture-session",
+          "incarnation": "fixture-incarnation"
+        },
+        "batch": {
+          "sessionRef": {
+            "originInstanceId": "fixture-B",
+            "sessionId": "fixture-session",
+            "incarnation": "fixture-incarnation"
+          },
+          "writerEpoch": 1,
+          "firstRevision": 5,
+          "events": [
+            {
+              "sessionRef": {
+                "originInstanceId": "fixture-B",
+                "sessionId": "fixture-session",
+                "incarnation": "fixture-incarnation"
+              },
+              "writerEpoch": 1,
+              "originRevision": 5,
+              "eventId": "e5",
+              "payload": {
+                "state": "running"
+              }
+            },
+            {
+              "sessionRef": {
+                "originInstanceId": "fixture-B",
+                "sessionId": "fixture-session",
+                "incarnation": "fixture-incarnation"
+              },
+              "writerEpoch": 1,
+              "originRevision": 6,
+              "eventId": "e6",
+              "payload": {
+                "state": "ended"
+              }
+            }
+          ]
+        },
+        "known": [
+          {
+            "revision": 5,
+            "digest": "7c253774ca57e17155976bcedb04842d640c2b700011d684d99bd749122a8ded"
+          },
+          {
+            "revision": 6,
+            "digest": "b43f88d017b38e65561176775680bad74caed0457a7b3089ff3d521733e0c1b9"
+          }
+        ]
+      },
+      "expected": "duplicate"
+    },
+    {
+      "id": "batch-partial-retry",
+      "evaluator": "lifecycleRevisions",
+      "input": {
+        "lastRevision": 5,
+        "writerEpoch": 1,
+        "sessionRef": {
+          "originInstanceId": "fixture-B",
+          "sessionId": "fixture-session",
+          "incarnation": "fixture-incarnation"
+        },
+        "batch": {
+          "sessionRef": {
+            "originInstanceId": "fixture-B",
+            "sessionId": "fixture-session",
+            "incarnation": "fixture-incarnation"
+          },
+          "writerEpoch": 1,
+          "firstRevision": 5,
+          "events": [
+            {
+              "sessionRef": {
+                "originInstanceId": "fixture-B",
+                "sessionId": "fixture-session",
+                "incarnation": "fixture-incarnation"
+              },
+              "writerEpoch": 1,
+              "originRevision": 5,
+              "eventId": "e5",
+              "payload": {
+                "state": "running"
+              }
+            },
+            {
+              "sessionRef": {
+                "originInstanceId": "fixture-B",
+                "sessionId": "fixture-session",
+                "incarnation": "fixture-incarnation"
+              },
+              "writerEpoch": 1,
+              "originRevision": 6,
+              "eventId": "e6",
+              "payload": {
+                "state": "ended"
+              }
+            }
+          ]
+        },
+        "known": [
+          {
+            "revision": 5,
+            "digest": "7c253774ca57e17155976bcedb04842d640c2b700011d684d99bd749122a8ded"
+          }
+        ]
+      },
+      "expected": "commit-through-6"
+    },
+    {
+      "id": "batch-conflicting-coordinate",
+      "evaluator": "lifecycleRevisions",
+      "input": {
+        "lastRevision": 6,
+        "writerEpoch": 1,
+        "sessionRef": {
+          "originInstanceId": "fixture-B",
+          "sessionId": "fixture-session",
+          "incarnation": "fixture-incarnation"
+        },
+        "batch": {
+          "sessionRef": {
+            "originInstanceId": "fixture-B",
+            "sessionId": "fixture-session",
+            "incarnation": "fixture-incarnation"
+          },
+          "writerEpoch": 1,
+          "firstRevision": 5,
+          "events": [
+            {
+              "sessionRef": {
+                "originInstanceId": "fixture-B",
+                "sessionId": "fixture-session",
+                "incarnation": "fixture-incarnation"
+              },
+              "writerEpoch": 1,
+              "originRevision": 5,
+              "eventId": "e5",
+              "payload": {
+                "state": "running"
+              }
+            },
+            {
+              "sessionRef": {
+                "originInstanceId": "fixture-B",
+                "sessionId": "fixture-session",
+                "incarnation": "fixture-incarnation"
+              },
+              "writerEpoch": 1,
+              "originRevision": 6,
+              "eventId": "e6",
+              "payload": {
+                "state": "ended"
+              }
+            }
+          ]
+        },
+        "known": [
+          {
+            "revision": 5,
+            "digest": "d3336a334a5e8a2e6266703c54eaa332034daa74461ad1271507bb5ec6188d35"
+          },
+          {
+            "revision": 6,
+            "digest": "b43f88d017b38e65561176775680bad74caed0457a7b3089ff3d521733e0c1b9"
+          }
+        ]
+      },
+      "expected": "quarantine"
+    },
+    {
+      "id": "listing-coordinates",
+      "evaluator": "listingRevisions",
+      "input": {
+        "body": {
+          "originRevision": 2,
+          "writerEpoch": 1,
+          "projection": {
+            "sessionRef": {
+              "originInstanceId": "fixture-B",
+              "sessionId": "fixture-session",
+              "incarnation": "fixture-incarnation"
+            },
+            "engineKind": "cli",
+            "providerClass": "claude",
+            "originRevision": 2,
+            "state": "running"
+          }
+        },
+        "sessionRef": {
+          "originInstanceId": "fixture-B",
+          "sessionId": "fixture-session",
+          "incarnation": "fixture-incarnation"
+        },
+        "lastRevision": 1,
+        "writerEpoch": 1
+      },
+      "expected": "allow"
+    },
+    {
+      "id": "listing-duplicate-counter-mismatch",
+      "evaluator": "listingRevisions",
+      "input": {
+        "body": {
+          "originRevision": 3,
+          "writerEpoch": 1,
+          "projection": {
+            "sessionRef": {
+              "originInstanceId": "fixture-B",
+              "sessionId": "fixture-session",
+              "incarnation": "fixture-incarnation"
+            },
+            "engineKind": "cli",
+            "providerClass": "claude",
+            "originRevision": 2,
+            "state": "running"
+          }
+        },
+        "sessionRef": {
+          "originInstanceId": "fixture-B",
+          "sessionId": "fixture-session",
+          "incarnation": "fixture-incarnation"
+        },
+        "lastRevision": 1,
+        "writerEpoch": 1
+      },
+      "expected": "relay_route_conflict"
+    },
+    {
+      "id": "listing-lower-counter",
+      "evaluator": "listingRevisions",
+      "input": {
+        "body": {
+          "originRevision": 2,
+          "writerEpoch": 1,
+          "projection": {
+            "sessionRef": {
+              "originInstanceId": "fixture-B",
+              "sessionId": "fixture-session",
+              "incarnation": "fixture-incarnation"
+            },
+            "engineKind": "cli",
+            "providerClass": "claude",
+            "originRevision": 2,
+            "state": "running"
+          }
+        },
+        "sessionRef": {
+          "originInstanceId": "fixture-B",
+          "sessionId": "fixture-session",
+          "incarnation": "fixture-incarnation"
+        },
+        "lastRevision": 3,
+        "writerEpoch": 1
+      },
+      "expected": "relay_stale_generation"
+    },
+    {
+      "id": "listing-jump-is-full-coarse",
+      "evaluator": "listingRevisions",
+      "input": {
+        "body": {
+          "originRevision": 8,
+          "writerEpoch": 1,
+          "projection": {
+            "sessionRef": {
+              "originInstanceId": "fixture-B",
+              "sessionId": "fixture-session",
+              "incarnation": "fixture-incarnation"
+            },
+            "engineKind": "cli",
+            "providerClass": "claude",
+            "originRevision": 8,
+            "state": "running"
+          }
+        },
+        "sessionRef": {
+          "originInstanceId": "fixture-B",
+          "sessionId": "fixture-session",
+          "incarnation": "fixture-incarnation"
+        },
+        "lastRevision": 1,
+        "writerEpoch": 1
+      },
+      "expected": "allow"
+    },
+    {
+      "id": "source-first-fence",
+      "evaluator": "sourceConsentRevision",
+      "input": {
+        "current": 0,
+        "known": true,
+        "changed": true
+      },
+      "expected": 1
+    },
+    {
+      "id": "source-change",
+      "evaluator": "sourceConsentRevision",
+      "input": {
+        "current": 8,
+        "known": true,
+        "changed": true
+      },
+      "expected": 9
+    },
+    {
+      "id": "source-duplicate",
+      "evaluator": "sourceConsentRevision",
+      "input": {
+        "current": 8,
+        "known": true,
+        "changed": false
+      },
+      "expected": 8
+    },
+    {
+      "id": "source-unknown",
+      "evaluator": "sourceConsentRevision",
+      "input": {
+        "current": 0,
+        "known": false,
+        "changed": true
+      },
+      "expected": "authority_unavailable"
+    },
+    {
+      "id": "source-exact-revision-pair",
+      "evaluator": "sourceConsentMatch",
+      "input": {
+        "currentSourceRevision": 8,
+        "bindingSourceRevision": 8,
+        "ackSourceRevision": 8,
+        "positionSourceRevision": 8,
+        "currentConsentRevision": 3,
+        "bindingConsentRevision": 3,
+        "ackConsentRevision": 3,
+        "positionConsentRevision": 3,
+        "bindingDigest": "same",
+        "ackDigest": "same",
+        "targetCurrent": true,
+        "journalCurrent": true
+      },
+      "expected": "allow"
+    },
+    {
+      "id": "source-stale-bindingSourceRevision",
+      "evaluator": "sourceConsentMatch",
+      "input": {
+        "currentSourceRevision": 8,
+        "bindingSourceRevision": 0,
+        "ackSourceRevision": 8,
+        "positionSourceRevision": 8,
+        "currentConsentRevision": 3,
+        "bindingConsentRevision": 3,
+        "ackConsentRevision": 3,
+        "positionConsentRevision": 3,
+        "bindingDigest": "same",
+        "ackDigest": "same",
+        "targetCurrent": true,
+        "journalCurrent": true
+      },
+      "expected": "authority_refused"
+    },
+    {
+      "id": "source-stale-ackSourceRevision",
+      "evaluator": "sourceConsentMatch",
+      "input": {
+        "currentSourceRevision": 8,
+        "bindingSourceRevision": 8,
+        "ackSourceRevision": 0,
+        "positionSourceRevision": 8,
+        "currentConsentRevision": 3,
+        "bindingConsentRevision": 3,
+        "ackConsentRevision": 3,
+        "positionConsentRevision": 3,
+        "bindingDigest": "same",
+        "ackDigest": "same",
+        "targetCurrent": true,
+        "journalCurrent": true
+      },
+      "expected": "authority_refused"
+    },
+    {
+      "id": "source-stale-positionSourceRevision",
+      "evaluator": "sourceConsentMatch",
+      "input": {
+        "currentSourceRevision": 8,
+        "bindingSourceRevision": 8,
+        "ackSourceRevision": 8,
+        "positionSourceRevision": 0,
+        "currentConsentRevision": 3,
+        "bindingConsentRevision": 3,
+        "ackConsentRevision": 3,
+        "positionConsentRevision": 3,
+        "bindingDigest": "same",
+        "ackDigest": "same",
+        "targetCurrent": true,
+        "journalCurrent": true
+      },
+      "expected": "authority_refused"
+    },
+    {
+      "id": "source-stale-bindingConsentRevision",
+      "evaluator": "sourceConsentMatch",
+      "input": {
+        "currentSourceRevision": 8,
+        "bindingSourceRevision": 8,
+        "ackSourceRevision": 8,
+        "positionSourceRevision": 8,
+        "currentConsentRevision": 3,
+        "bindingConsentRevision": 0,
+        "ackConsentRevision": 3,
+        "positionConsentRevision": 3,
+        "bindingDigest": "same",
+        "ackDigest": "same",
+        "targetCurrent": true,
+        "journalCurrent": true
+      },
+      "expected": "authority_refused"
+    },
+    {
+      "id": "source-stale-ackConsentRevision",
+      "evaluator": "sourceConsentMatch",
+      "input": {
+        "currentSourceRevision": 8,
+        "bindingSourceRevision": 8,
+        "ackSourceRevision": 8,
+        "positionSourceRevision": 8,
+        "currentConsentRevision": 3,
+        "bindingConsentRevision": 3,
+        "ackConsentRevision": 0,
+        "positionConsentRevision": 3,
+        "bindingDigest": "same",
+        "ackDigest": "same",
+        "targetCurrent": true,
+        "journalCurrent": true
+      },
+      "expected": "authority_refused"
+    },
+    {
+      "id": "source-stale-positionConsentRevision",
+      "evaluator": "sourceConsentMatch",
+      "input": {
+        "currentSourceRevision": 8,
+        "bindingSourceRevision": 8,
+        "ackSourceRevision": 8,
+        "positionSourceRevision": 8,
+        "currentConsentRevision": 3,
+        "bindingConsentRevision": 3,
+        "ackConsentRevision": 3,
+        "positionConsentRevision": 0,
+        "bindingDigest": "same",
+        "ackDigest": "same",
+        "targetCurrent": true,
+        "journalCurrent": true
+      },
+      "expected": "authority_refused"
+    },
+    {
+      "id": "source-refetch-targetCurrent",
+      "evaluator": "sourceConsentMatch",
+      "input": {
+        "currentSourceRevision": 8,
+        "bindingSourceRevision": 8,
+        "ackSourceRevision": 8,
+        "positionSourceRevision": 8,
+        "currentConsentRevision": 3,
+        "bindingConsentRevision": 3,
+        "ackConsentRevision": 3,
+        "positionConsentRevision": 3,
+        "bindingDigest": "same",
+        "ackDigest": "same",
+        "targetCurrent": false,
+        "journalCurrent": true
+      },
+      "expected": "authority_refused"
+    },
+    {
+      "id": "source-refetch-journalCurrent",
+      "evaluator": "sourceConsentMatch",
+      "input": {
+        "currentSourceRevision": 8,
+        "bindingSourceRevision": 8,
+        "ackSourceRevision": 8,
+        "positionSourceRevision": 8,
+        "currentConsentRevision": 3,
+        "bindingConsentRevision": 3,
+        "ackConsentRevision": 3,
+        "positionConsentRevision": 3,
+        "bindingDigest": "same",
+        "ackDigest": "same",
+        "targetCurrent": true,
+        "journalCurrent": false
+      },
+      "expected": "authority_refused"
+    },
+    {
+      "id": "retention-none",
+      "evaluator": "retentionDeadline",
+      "input": {
+        "kind": "none",
+        "firstAdmissionAt": 1793520000000
+      },
+      "expected": null
+    },
+    {
+      "id": "retention-finite",
+      "evaluator": "retentionDeadline",
+      "input": {
+        "kind": "finite",
+        "durationMs": 1000,
+        "firstAdmissionAt": 1793520000000
+      },
+      "expected": 1793520001000
+    },
+    {
+      "id": "retention-maximum",
+      "evaluator": "retentionDeadline",
+      "input": {
+        "kind": "finite",
+        "durationMs": 315576000000,
+        "firstAdmissionAt": 1793520000000
+      },
+      "expected": 2109096000000
+    },
+    {
+      "id": "retention-over-cap",
+      "evaluator": "retentionDeadline",
+      "input": {
+        "kind": "finite",
+        "durationMs": 315576000001,
+        "firstAdmissionAt": 1793520000000
+      },
+      "expected": "invalid_request"
+    },
+    {
+      "id": "retention-unsafe-sum",
+      "evaluator": "retentionDeadline",
+      "input": {
+        "kind": "finite",
+        "durationMs": 1,
+        "firstAdmissionAt": 9007199254740991
+      },
+      "expected": "invalid_request"
+    },
+    {
+      "id": "bind-post-checkpoint-buffered",
+      "evaluator": "bindObservation",
+      "input": {
+        "extraAtCheckpoint": 0,
+        "bytesDuringBoundFence": 24,
+        "clientListenersRemoved": true,
+        "bothWriteFences": true
+      },
+      "expected": "handoff-buffered"
+    },
+    {
+      "id": "bind-early-buffer",
+      "evaluator": "bindObservation",
+      "input": {
+        "extraAtCheckpoint": 1,
+        "bytesDuringBoundFence": 24,
+        "clientListenersRemoved": true,
+        "bothWriteFences": true
+      },
+      "expected": "close-before-handler"
+    },
+    {
+      "id": "bind-client-listener-left",
+      "evaluator": "bindObservation",
+      "input": {
+        "extraAtCheckpoint": 0,
+        "bytesDuringBoundFence": 24,
+        "clientListenersRemoved": false,
+        "bothWriteFences": true
+      },
+      "expected": "close-before-handler"
+    },
+    {
+      "id": "bind-write-pending",
+      "evaluator": "bindObservation",
+      "input": {
+        "extraAtCheckpoint": 0,
+        "bytesDuringBoundFence": 24,
+        "clientListenersRemoved": true,
+        "bothWriteFences": false
+      },
+      "expected": "close-before-handler"
+    },
+    {
+      "id": "credential-current",
+      "evaluator": "laneRuntime",
+      "input": {
+        "kind": "request",
+        "rc0": true,
+        "providerPresent": true,
+        "providerResult": "current",
+        "clientCurrent": true,
+        "aborted": false,
+        "closed": false
+      },
+      "expected": "deliver"
+    },
+    {
+      "id": "credential-missing-provider",
+      "evaluator": "laneRuntime",
+      "input": {
+        "kind": "request",
+        "rc0": true,
+        "providerPresent": false,
+        "providerResult": "current",
+        "clientCurrent": true,
+        "aborted": false,
+        "closed": false
+      },
+      "expected": "relay_auth_required"
+    },
+    {
+      "id": "credential-null-provider",
+      "evaluator": "laneRuntime",
+      "input": {
+        "kind": "request",
+        "rc0": true,
+        "providerPresent": true,
+        "providerResult": "null",
+        "clientCurrent": true,
+        "aborted": false,
+        "closed": false
+      },
+      "expected": "relay_auth_required"
+    },
+    {
+      "id": "credential-stale-target",
+      "evaluator": "laneRuntime",
+      "input": {
+        "kind": "request",
+        "rc0": true,
+        "providerPresent": true,
+        "providerResult": "stale",
+        "clientCurrent": true,
+        "aborted": false,
+        "closed": false
+      },
+      "expected": "relay_stale_generation"
+    },
+    {
+      "id": "credential-foreign-session",
+      "evaluator": "laneRuntime",
+      "input": {
+        "kind": "request",
+        "rc0": true,
+        "providerPresent": true,
+        "providerResult": "foreign",
+        "clientCurrent": true,
+        "aborted": false,
+        "closed": false
+      },
+      "expected": "relay_scope_refused"
+    },
+    {
+      "id": "credential-expired-lease",
+      "evaluator": "laneRuntime",
+      "input": {
+        "kind": "request",
+        "rc0": true,
+        "providerPresent": true,
+        "providerResult": "expired",
+        "clientCurrent": true,
+        "aborted": false,
+        "closed": false
+      },
+      "expected": "relay_grant_expired"
+    },
+    {
+      "id": "credential-provider-error",
+      "evaluator": "laneRuntime",
+      "input": {
+        "kind": "request",
+        "rc0": true,
+        "providerPresent": true,
+        "providerResult": "error",
+        "clientCurrent": true,
+        "aborted": false,
+        "closed": false
+      },
+      "expected": "relay_grant_unavailable"
+    },
+    {
+      "id": "credential-connection-replaced",
+      "evaluator": "laneRuntime",
+      "input": {
+        "kind": "request",
+        "rc0": true,
+        "providerPresent": true,
+        "providerResult": "current",
+        "clientCurrent": false,
+        "aborted": false,
+        "closed": false
+      },
+      "expected": "relay_stale_generation"
+    },
+    {
+      "id": "credential-abort",
+      "evaluator": "laneRuntime",
+      "input": {
+        "kind": "request",
+        "rc0": true,
+        "providerPresent": true,
+        "providerResult": "current",
+        "clientCurrent": true,
+        "aborted": true,
+        "closed": false
+      },
+      "expected": "relay_unavailable"
+    },
+    {
+      "id": "credential-close",
+      "evaluator": "laneRuntime",
+      "input": {
+        "kind": "request",
+        "rc0": true,
+        "providerPresent": true,
+        "providerResult": "current",
+        "clientCurrent": true,
+        "aborted": false,
+        "closed": true
+      },
+      "expected": "relay_unavailable"
+    },
+    {
+      "id": "credential-additive-no-provider",
+      "evaluator": "laneRuntime",
+      "input": {
+        "kind": "request",
+        "rc0": false,
+        "providerPresent": false,
+        "providerResult": "current",
+        "clientCurrent": true,
+        "aborted": false,
+        "closed": false
+      },
+      "expected": "deliver"
+    },
+    {
+      "id": "iterator-complete",
+      "evaluator": "streamOutcomes",
+      "input": {
+        "events": [
+          "complete",
+          "complete",
+          "eof"
+        ]
+      },
+      "expected": [
+        "response",
+        "response",
+        "done"
+      ]
+    },
+    {
+      "id": "iterator-mid-event",
+      "evaluator": "streamOutcomes",
+      "input": {
+        "events": [
+          "partial",
+          "eof"
+        ]
+      },
+      "expected": [
+        "relay_protocol_refused",
+        "done"
+      ]
+    },
+    {
+      "id": "iterator-abort",
+      "evaluator": "streamOutcomes",
+      "input": {
+        "events": [
+          "complete",
+          "abort",
+          "complete"
+        ]
+      },
+      "expected": [
+        "response",
+        "relay_unavailable",
+        "done"
+      ]
+    },
+    {
+      "id": "iterator-return",
+      "evaluator": "streamOutcomes",
+      "input": {
+        "events": [
+          "complete",
+          "return",
+          "complete"
+        ]
+      },
+      "expected": [
+        "response",
+        "done"
+      ]
+    },
+    {
+      "id": "iterator-overflow",
+      "evaluator": "streamOutcomes",
+      "input": {
+        "events": [
+          "overflow",
+          "complete"
+        ]
+      },
+      "expected": [
+        "relay_backpressure",
+        "done"
+      ]
+    },
+    {
+      "id": "chat-projection-reasoning_delta",
+      "evaluator": "projectChatPayload",
+      "input": {
+        "eventType": "reasoning_delta",
+        "data": {
+          "delta": "public reasoning fixture",
+          "signature": "excluded-fixture-signature"
+        },
+        "permitContent": true
+      },
+      "expected": {
+        "eventType": "reasoning_delta",
+        "delta": "public reasoning fixture",
+        "redacted": false
+      }
+    },
+    {
+      "id": "chat-wire-reasoning_delta",
+      "evaluator": "chatPayloadCheck",
+      "input": {
+        "event": {
+          "format": "cluster-mesh.chat-stream/1",
+          "kind": "event",
+          "eventId": "fixture-event-0",
+          "messageId": "fixture-message",
+          "streamId": "fixture-stream",
+          "sequence": 1,
+          "eventType": "reasoning_delta",
+          "createdAt": 1793520000000,
+          "data": {
+            "contentType": "application/json",
+            "bytesBase64": "eyJkZWx0YSI6InB1YmxpYyByZWFzb25pbmcgZml4dHVyZSIsImV2ZW50VHlwZSI6InJlYXNvbmluZ19kZWx0YSIsInJlZGFjdGVkIjpmYWxzZX0=",
+            "byteLength": 83,
+            "bytesDigest": "23bf44d97db24f9be099490b542d6c7d95aae3fb77f18e811ae344cc4704864c"
+          }
+        }
+      },
+      "expected": "allow"
+    },
+    {
+      "id": "chat-digest-reasoning_delta",
+      "evaluator": "chatPayloadCheck",
+      "input": {
+        "event": {
+          "format": "cluster-mesh.chat-stream/1",
+          "kind": "event",
+          "eventId": "fixture-event-0",
+          "messageId": "fixture-message",
+          "streamId": "fixture-stream",
+          "sequence": 1,
+          "eventType": "reasoning_delta",
+          "createdAt": 1793520000000,
+          "data": {
+            "contentType": "application/json",
+            "bytesBase64": "eyJkZWx0YSI6InB1YmxpYyByZWFzb25pbmcgZml4dHVyZSIsImV2ZW50VHlwZSI6InJlYXNvbmluZ19kZWx0YSIsInJlZGFjdGVkIjpmYWxzZX0=",
+            "byteLength": 83,
+            "bytesDigest": "2f05d4b689d270cafb02285f35f44866f7dc8a2d368a3f9d1124373eeab31fb1"
+          }
+        }
+      },
+      "expected": "invalid_request"
+    },
+    {
+      "id": "chat-projection-content_delta",
+      "evaluator": "projectChatPayload",
+      "input": {
+        "eventType": "content_delta",
+        "data": {
+          "delta": "Bonjour é\n",
+          "providerInternal": "excluded"
+        },
+        "permitContent": true
+      },
+      "expected": {
+        "eventType": "content_delta",
+        "delta": "Bonjour é\n",
+        "redacted": false
+      }
+    },
+    {
+      "id": "chat-wire-content_delta",
+      "evaluator": "chatPayloadCheck",
+      "input": {
+        "event": {
+          "format": "cluster-mesh.chat-stream/1",
+          "kind": "event",
+          "eventId": "fixture-event-1",
+          "messageId": "fixture-message",
+          "streamId": "fixture-stream",
+          "sequence": 2,
+          "eventType": "content_delta",
+          "createdAt": 1793520000000,
+          "data": {
+            "contentType": "application/json",
+            "bytesBase64": "eyJkZWx0YSI6IkJvbmpvdXIgw6lcbiIsImV2ZW50VHlwZSI6ImNvbnRlbnRfZGVsdGEiLCJyZWRhY3RlZCI6ZmFsc2V9",
+            "byteLength": 69,
+            "bytesDigest": "4edc147a966d63246756ab30bc1d2ee85bb84e057a8c11e8a6b8f0e280743e41"
+          }
+        }
+      },
+      "expected": "allow"
+    },
+    {
+      "id": "chat-digest-content_delta",
+      "evaluator": "chatPayloadCheck",
+      "input": {
+        "event": {
+          "format": "cluster-mesh.chat-stream/1",
+          "kind": "event",
+          "eventId": "fixture-event-1",
+          "messageId": "fixture-message",
+          "streamId": "fixture-stream",
+          "sequence": 2,
+          "eventType": "content_delta",
+          "createdAt": 1793520000000,
+          "data": {
+            "contentType": "application/json",
+            "bytesBase64": "eyJkZWx0YSI6IkJvbmpvdXIgw6lcbiIsImV2ZW50VHlwZSI6ImNvbnRlbnRfZGVsdGEiLCJyZWRhY3RlZCI6ZmFsc2V9",
+            "byteLength": 69,
+            "bytesDigest": "2f05d4b689d270cafb02285f35f44866f7dc8a2d368a3f9d1124373eeab31fb1"
+          }
+        }
+      },
+      "expected": "invalid_request"
+    },
+    {
+      "id": "chat-projection-tool_call_start",
+      "evaluator": "projectChatPayload",
+      "input": {
+        "eventType": "tool_call_start",
+        "data": {
+          "tool_call_id": "tool-1",
+          "name": "fixture_tool",
+          "args": "{\"x\":1}",
+          "authHeader": "excluded"
+        },
+        "permitContent": true
+      },
+      "expected": {
+        "eventType": "tool_call_start",
+        "tool_call_id": "tool-1",
+        "name": "fixture_tool",
+        "args": "{\"x\":1}",
+        "redacted": false
+      }
+    },
+    {
+      "id": "chat-wire-tool_call_start",
+      "evaluator": "chatPayloadCheck",
+      "input": {
+        "event": {
+          "format": "cluster-mesh.chat-stream/1",
+          "kind": "event",
+          "eventId": "fixture-event-2",
+          "messageId": "fixture-message",
+          "streamId": "fixture-stream",
+          "sequence": 3,
+          "eventType": "tool_call_start",
+          "createdAt": 1793520000000,
+          "data": {
+            "contentType": "application/json",
+            "bytesBase64": "eyJhcmdzIjoie1wieFwiOjF9IiwiZXZlbnRUeXBlIjoidG9vbF9jYWxsX3N0YXJ0IiwibmFtZSI6ImZpeHR1cmVfdG9vbCIsInJlZGFjdGVkIjpmYWxzZSwidG9vbF9jYWxsX2lkIjoidG9vbC0xIn0=",
+            "byteLength": 113,
+            "bytesDigest": "351191c1b8248d37f69e82b300b25554f15b2ce0740f615fe5cae749af0de300"
+          }
+        }
+      },
+      "expected": "allow"
+    },
+    {
+      "id": "chat-digest-tool_call_start",
+      "evaluator": "chatPayloadCheck",
+      "input": {
+        "event": {
+          "format": "cluster-mesh.chat-stream/1",
+          "kind": "event",
+          "eventId": "fixture-event-2",
+          "messageId": "fixture-message",
+          "streamId": "fixture-stream",
+          "sequence": 3,
+          "eventType": "tool_call_start",
+          "createdAt": 1793520000000,
+          "data": {
+            "contentType": "application/json",
+            "bytesBase64": "eyJhcmdzIjoie1wieFwiOjF9IiwiZXZlbnRUeXBlIjoidG9vbF9jYWxsX3N0YXJ0IiwibmFtZSI6ImZpeHR1cmVfdG9vbCIsInJlZGFjdGVkIjpmYWxzZSwidG9vbF9jYWxsX2lkIjoidG9vbC0xIn0=",
+            "byteLength": 113,
+            "bytesDigest": "2f05d4b689d270cafb02285f35f44866f7dc8a2d368a3f9d1124373eeab31fb1"
+          }
+        }
+      },
+      "expected": "invalid_request"
+    },
+    {
+      "id": "chat-projection-tool_call_delta",
+      "evaluator": "projectChatPayload",
+      "input": {
+        "eventType": "tool_call_delta",
+        "data": {
+          "tool_call_id": "tool-1",
+          "delta": "{\"y\":2}",
+          "workspacePath": "excluded"
+        },
+        "permitContent": true
+      },
+      "expected": {
+        "eventType": "tool_call_delta",
+        "tool_call_id": "tool-1",
+        "delta": "{\"y\":2}",
+        "redacted": false
+      }
+    },
+    {
+      "id": "chat-wire-tool_call_delta",
+      "evaluator": "chatPayloadCheck",
+      "input": {
+        "event": {
+          "format": "cluster-mesh.chat-stream/1",
+          "kind": "event",
+          "eventId": "fixture-event-3",
+          "messageId": "fixture-message",
+          "streamId": "fixture-stream",
+          "sequence": 4,
+          "eventType": "tool_call_delta",
+          "createdAt": 1793520000000,
+          "data": {
+            "contentType": "application/json",
+            "bytesBase64": "eyJkZWx0YSI6IntcInlcIjoyfSIsImV2ZW50VHlwZSI6InRvb2xfY2FsbF9kZWx0YSIsInJlZGFjdGVkIjpmYWxzZSwidG9vbF9jYWxsX2lkIjoidG9vbC0xIn0=",
+            "byteLength": 92,
+            "bytesDigest": "bb303d81ba5936c9d2acd5ec3a139a431a86eaf1365f7dcf8a750a04d284c435"
+          }
+        }
+      },
+      "expected": "allow"
+    },
+    {
+      "id": "chat-digest-tool_call_delta",
+      "evaluator": "chatPayloadCheck",
+      "input": {
+        "event": {
+          "format": "cluster-mesh.chat-stream/1",
+          "kind": "event",
+          "eventId": "fixture-event-3",
+          "messageId": "fixture-message",
+          "streamId": "fixture-stream",
+          "sequence": 4,
+          "eventType": "tool_call_delta",
+          "createdAt": 1793520000000,
+          "data": {
+            "contentType": "application/json",
+            "bytesBase64": "eyJkZWx0YSI6IntcInlcIjoyfSIsImV2ZW50VHlwZSI6InRvb2xfY2FsbF9kZWx0YSIsInJlZGFjdGVkIjpmYWxzZSwidG9vbF9jYWxsX2lkIjoidG9vbC0xIn0=",
+            "byteLength": 92,
+            "bytesDigest": "2f05d4b689d270cafb02285f35f44866f7dc8a2d368a3f9d1124373eeab31fb1"
+          }
+        }
+      },
+      "expected": "invalid_request"
+    },
+    {
+      "id": "chat-projection-tool_call_result",
+      "evaluator": "projectChatPayload",
+      "input": {
+        "eventType": "tool_call_result",
+        "data": {
+          "tool_call_id": "tool-1",
+          "result": {
+            "status": "completed",
+            "storageKey": "excluded",
+            "rawResult": "excluded"
+          }
+        },
+        "permitContent": true
+      },
+      "expected": {
+        "eventType": "tool_call_result",
+        "tool_call_id": "tool-1",
+        "result": {
+          "status": "completed"
+        }
+      }
+    },
+    {
+      "id": "chat-wire-tool_call_result",
+      "evaluator": "chatPayloadCheck",
+      "input": {
+        "event": {
+          "format": "cluster-mesh.chat-stream/1",
+          "kind": "event",
+          "eventId": "fixture-event-4",
+          "messageId": "fixture-message",
+          "streamId": "fixture-stream",
+          "sequence": 5,
+          "eventType": "tool_call_result",
+          "createdAt": 1793520000000,
+          "data": {
+            "contentType": "application/json",
+            "bytesBase64": "eyJldmVudFR5cGUiOiJ0b29sX2NhbGxfcmVzdWx0IiwicmVzdWx0Ijp7InN0YXR1cyI6ImNvbXBsZXRlZCJ9LCJ0b29sX2NhbGxfaWQiOiJ0b29sLTEifQ==",
+            "byteLength": 88,
+            "bytesDigest": "a2a12179786b7f009745a1dc5f48fead57fe4ca82f94a2115065c1ab79148716"
+          }
+        }
+      },
+      "expected": "allow"
+    },
+    {
+      "id": "chat-digest-tool_call_result",
+      "evaluator": "chatPayloadCheck",
+      "input": {
+        "event": {
+          "format": "cluster-mesh.chat-stream/1",
+          "kind": "event",
+          "eventId": "fixture-event-4",
+          "messageId": "fixture-message",
+          "streamId": "fixture-stream",
+          "sequence": 5,
+          "eventType": "tool_call_result",
+          "createdAt": 1793520000000,
+          "data": {
+            "contentType": "application/json",
+            "bytesBase64": "eyJldmVudFR5cGUiOiJ0b29sX2NhbGxfcmVzdWx0IiwicmVzdWx0Ijp7InN0YXR1cyI6ImNvbXBsZXRlZCJ9LCJ0b29sX2NhbGxfaWQiOiJ0b29sLTEifQ==",
+            "byteLength": 88,
+            "bytesDigest": "2f05d4b689d270cafb02285f35f44866f7dc8a2d368a3f9d1124373eeab31fb1"
+          }
+        }
+      },
+      "expected": "invalid_request"
+    },
+    {
+      "id": "chat-projection-status",
+      "evaluator": "projectChatPayload",
+      "input": {
+        "eventType": "status",
+        "data": {
+          "state": "running",
+          "actorId": "excluded",
+          "response_id": "excluded"
+        },
+        "permitContent": true
+      },
+      "expected": {
+        "eventType": "status",
+        "state": "running"
+      }
+    },
+    {
+      "id": "chat-wire-status",
+      "evaluator": "chatPayloadCheck",
+      "input": {
+        "event": {
+          "format": "cluster-mesh.chat-stream/1",
+          "kind": "event",
+          "eventId": "fixture-event-5",
+          "messageId": "fixture-message",
+          "streamId": "fixture-stream",
+          "sequence": 6,
+          "eventType": "status",
+          "createdAt": 1793520000000,
+          "data": {
+            "contentType": "application/json",
+            "bytesBase64": "eyJldmVudFR5cGUiOiJzdGF0dXMiLCJzdGF0ZSI6InJ1bm5pbmcifQ==",
+            "byteLength": 40,
+            "bytesDigest": "d080d92544e01e28620b667741679fbb11e6eff5ce4798c99ebdb050dfeb26c3"
+          }
+        }
+      },
+      "expected": "allow"
+    },
+    {
+      "id": "chat-digest-status",
+      "evaluator": "chatPayloadCheck",
+      "input": {
+        "event": {
+          "format": "cluster-mesh.chat-stream/1",
+          "kind": "event",
+          "eventId": "fixture-event-5",
+          "messageId": "fixture-message",
+          "streamId": "fixture-stream",
+          "sequence": 6,
+          "eventType": "status",
+          "createdAt": 1793520000000,
+          "data": {
+            "contentType": "application/json",
+            "bytesBase64": "eyJldmVudFR5cGUiOiJzdGF0dXMiLCJzdGF0ZSI6InJ1bm5pbmcifQ==",
+            "byteLength": 40,
+            "bytesDigest": "2f05d4b689d270cafb02285f35f44866f7dc8a2d368a3f9d1124373eeab31fb1"
+          }
+        }
+      },
+      "expected": "invalid_request"
+    },
+    {
+      "id": "chat-projection-error",
+      "evaluator": "projectChatPayload",
+      "input": {
+        "eventType": "error",
+        "data": {
+          "message": "excluded path and diagnostic",
+          "stack": "excluded"
+        },
+        "permitContent": true
+      },
+      "expected": {
+        "eventType": "error",
+        "code": "source_error"
+      }
+    },
+    {
+      "id": "chat-wire-error",
+      "evaluator": "chatPayloadCheck",
+      "input": {
+        "event": {
+          "format": "cluster-mesh.chat-stream/1",
+          "kind": "event",
+          "eventId": "fixture-event-6",
+          "messageId": "fixture-message",
+          "streamId": "fixture-stream",
+          "sequence": 7,
+          "eventType": "error",
+          "createdAt": 1793520000000,
+          "data": {
+            "contentType": "application/json",
+            "bytesBase64": "eyJjb2RlIjoic291cmNlX2Vycm9yIiwiZXZlbnRUeXBlIjoiZXJyb3IifQ==",
+            "byteLength": 43,
+            "bytesDigest": "891f2240f5da885388e296d7e126608850e539b505bd62f22a83af370e4dee86"
+          }
+        }
+      },
+      "expected": "allow"
+    },
+    {
+      "id": "chat-digest-error",
+      "evaluator": "chatPayloadCheck",
+      "input": {
+        "event": {
+          "format": "cluster-mesh.chat-stream/1",
+          "kind": "event",
+          "eventId": "fixture-event-6",
+          "messageId": "fixture-message",
+          "streamId": "fixture-stream",
+          "sequence": 7,
+          "eventType": "error",
+          "createdAt": 1793520000000,
+          "data": {
+            "contentType": "application/json",
+            "bytesBase64": "eyJjb2RlIjoic291cmNlX2Vycm9yIiwiZXZlbnRUeXBlIjoiZXJyb3IifQ==",
+            "byteLength": 43,
+            "bytesDigest": "2f05d4b689d270cafb02285f35f44866f7dc8a2d368a3f9d1124373eeab31fb1"
+          }
+        }
+      },
+      "expected": "invalid_request"
+    },
+    {
+      "id": "chat-projection-done",
+      "evaluator": "projectChatPayload",
+      "input": {
+        "eventType": "done",
+        "data": {
+          "storageBucket": "excluded",
+          "storageKey": "excluded",
+          "fileName": "excluded"
+        },
+        "permitContent": true
+      },
+      "expected": {
+        "eventType": "done",
+        "state": "done"
+      }
+    },
+    {
+      "id": "chat-wire-done",
+      "evaluator": "chatPayloadCheck",
+      "input": {
+        "event": {
+          "format": "cluster-mesh.chat-stream/1",
+          "kind": "event",
+          "eventId": "fixture-event-7",
+          "messageId": "fixture-message",
+          "streamId": "fixture-stream",
+          "sequence": 8,
+          "eventType": "done",
+          "createdAt": 1793520000000,
+          "data": {
+            "contentType": "application/json",
+            "bytesBase64": "eyJldmVudFR5cGUiOiJkb25lIiwic3RhdGUiOiJkb25lIn0=",
+            "byteLength": 35,
+            "bytesDigest": "7351490f4186a3d3682b114ff5e96f8933415258400557f44d71a1219d5fdaa7"
+          }
+        }
+      },
+      "expected": "allow"
+    },
+    {
+      "id": "chat-digest-done",
+      "evaluator": "chatPayloadCheck",
+      "input": {
+        "event": {
+          "format": "cluster-mesh.chat-stream/1",
+          "kind": "event",
+          "eventId": "fixture-event-7",
+          "messageId": "fixture-message",
+          "streamId": "fixture-stream",
+          "sequence": 8,
+          "eventType": "done",
+          "createdAt": 1793520000000,
+          "data": {
+            "contentType": "application/json",
+            "bytesBase64": "eyJldmVudFR5cGUiOiJkb25lIiwic3RhdGUiOiJkb25lIn0=",
+            "byteLength": 35,
+            "bytesDigest": "2f05d4b689d270cafb02285f35f44866f7dc8a2d368a3f9d1124373eeab31fb1"
+          }
+        }
+      },
+      "expected": "invalid_request"
+    },
+    {
+      "id": "chat-withheld-reasoning_delta",
+      "evaluator": "projectChatPayload",
+      "input": {
+        "eventType": "reasoning_delta",
+        "data": {
+          "delta": "public reasoning fixture",
+          "signature": "excluded-fixture-signature"
+        },
+        "permitContent": false
+      },
+      "expected": {
+        "eventType": "reasoning_delta",
+        "delta": "",
+        "redacted": true
+      }
+    },
+    {
+      "id": "chat-withheld-content_delta",
+      "evaluator": "projectChatPayload",
+      "input": {
+        "eventType": "content_delta",
+        "data": {
+          "delta": "Bonjour é\n",
+          "providerInternal": "excluded"
+        },
+        "permitContent": false
+      },
+      "expected": {
+        "eventType": "content_delta",
+        "delta": "",
+        "redacted": true
+      }
+    },
+    {
+      "id": "chat-withheld-tool_call_start",
+      "evaluator": "projectChatPayload",
+      "input": {
+        "eventType": "tool_call_start",
+        "data": {
+          "tool_call_id": "tool-1",
+          "name": "fixture_tool",
+          "args": "{\"x\":1}",
+          "authHeader": "excluded"
+        },
+        "permitContent": false
+      },
+      "expected": {
+        "eventType": "tool_call_start",
+        "tool_call_id": "tool-1",
+        "name": "",
+        "args": "",
+        "redacted": true
+      }
+    },
+    {
+      "id": "chat-withheld-tool_call_delta",
+      "evaluator": "projectChatPayload",
+      "input": {
+        "eventType": "tool_call_delta",
+        "data": {
+          "tool_call_id": "tool-1",
+          "delta": "{\"y\":2}",
+          "workspacePath": "excluded"
+        },
+        "permitContent": false
+      },
+      "expected": {
+        "eventType": "tool_call_delta",
+        "tool_call_id": "tool-1",
+        "delta": "",
+        "redacted": true
+      }
+    },
+    {
+      "id": "query-default",
+      "evaluator": "listQuery",
+      "input": {
+        "query": ""
+      },
+      "expected": {
+        "limit": 32,
+        "after": null
+      }
+    },
+    {
+      "id": "query-?limit=64",
+      "evaluator": "listQuery",
+      "input": {
+        "query": "?limit=64"
+      },
+      "expected": {
+        "limit": 64,
+        "after": null
+      }
+    },
+    {
+      "id": "query-?limit=01",
+      "evaluator": "listQuery",
+      "input": {
+        "query": "?limit=01"
+      },
+      "expected": "cursor_invalid"
+    },
+    {
+      "id": "query-?limit=0",
+      "evaluator": "listQuery",
+      "input": {
+        "query": "?limit=0"
+      },
+      "expected": "cursor_invalid"
+    },
+    {
+      "id": "query-?limit=65",
+      "evaluator": "listQuery",
+      "input": {
+        "query": "?limit=65"
+      },
+      "expected": "cursor_invalid"
+    },
+    {
+      "id": "query-?limit=1&limit=2",
+      "evaluator": "listQuery",
+      "input": {
+        "query": "?limit=1&limit=2"
+      },
+      "expected": "cursor_invalid"
+    },
+    {
+      "id": "query-?after=",
+      "evaluator": "listQuery",
+      "input": {
+        "query": "?after="
+      },
+      "expected": "cursor_invalid"
+    },
+    {
+      "id": "query-?token=x",
+      "evaluator": "listQuery",
+      "input": {
+        "query": "?token=x"
+      },
+      "expected": "cursor_invalid"
+    },
+    {
+      "id": "query-?after=%xx",
+      "evaluator": "listQuery",
+      "input": {
+        "query": "?after=%xx"
+      },
+      "expected": "cursor_invalid"
+    },
+    {
+      "id": "sse-exact-cursor-kind-data",
+      "evaluator": "encodeViewSse",
+      "input": {
+        "event": {
+          "format": "app.remote-session-view/1",
+          "kind": "gap",
+          "sessionRef": {
+            "originInstanceId": "fixture-B",
+            "sessionId": "fixture-session",
+            "incarnation": "fixture-incarnation"
+          },
+          "viewRevision": 2,
+          "cursor": "AAAAAAAAAAAAAAAAAAAAAA",
+          "payload": {
+            "channel": "chat",
+            "from": 1,
+            "through": null,
+            "reason": "authority-lost",
+            "close": true
+          }
+        }
+      },
+      "expected": "id: AAAAAAAAAAAAAAAAAAAAAA\nevent: gap\ndata: {\"cursor\":\"AAAAAAAAAAAAAAAAAAAAAA\",\"format\":\"app.remote-session-view/1\",\"kind\":\"gap\",\"payload\":{\"channel\":\"chat\",\"close\":true,\"from\":1,\"reason\":\"authority-lost\",\"through\":null},\"sessionRef\":{\"incarnation\":\"fixture-incarnation\",\"originInstanceId\":\"fixture-B\",\"sessionId\":\"fixture-session\"},\"viewRevision\":2}\n\n"
+    }
+  ]
+}

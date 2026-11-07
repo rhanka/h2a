@@ -1,0 +1,370 @@
+{
+  "routeId": "policy-intent",
+  "method": "POST",
+  "path": "/api/v1/auth/session/content/:bindingId/policy-proposals",
+  "evidenceLevel": "model route admission only; no handler/network executed; all authority values synthetic assumptions",
+  "positive": [
+    {
+      "id": "policy-intent-positive",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "policy-intent",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/policy-proposals",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "browser",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "allow",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "policy-intent-http-media",
+      "evaluator": "routeHttp",
+      "input": {
+        "routeId": "policy-intent",
+        "contentType": "application/json",
+        "bodyBytes": 2,
+        "contentEncoding": null
+      },
+      "expected": {
+        "decision": "allow",
+        "code": null
+      }
+    }
+  ],
+  "negative": [
+    {
+      "id": "policy-intent-wrong-method",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "policy-intent",
+        "method": "GET",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/policy-proposals",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "browser",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "view_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "policy-intent-extra-path",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "policy-intent",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/policy-proposals/extra",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "browser",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "view_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "policy-intent-caller-invented-resolved-path",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "policy-intent",
+        "method": "POST",
+        "path": "/arbitrary",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "browser",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false,
+        "expectedResolvedPath": "/arbitrary"
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "view_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "policy-intent-extra-parameter",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "policy-intent",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/policy-proposals",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "arbitrary": "forbidden"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "browser",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "view_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "policy-intent-foreign-session-scope",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "policy-intent",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/policy-proposals",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId"
+        },
+        "authenticated": true,
+        "scopeMatches": false,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "browser",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "view_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "policy-intent-missing-authority",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "policy-intent",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/policy-proposals",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId"
+        },
+        "authenticated": false,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "browser",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "authentication_required",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "policy-intent-purpose-withdrawn",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "policy-intent",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/policy-proposals",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "browser",
+        "purposeCurrent": false,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "view_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "policy-intent-source-not-human",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "policy-intent",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/policy-proposals",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "browser",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": true
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "authentication_required",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "policy-intent-unaccepted-policy-supplement",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "policy-intent",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/policy-proposals",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "browser",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": false,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "unsupported_version",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "policy-intent-http-encoding",
+      "evaluator": "routeHttp",
+      "input": {
+        "routeId": "policy-intent",
+        "contentType": "application/json",
+        "bodyBytes": 2,
+        "contentEncoding": "gzip"
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "invalid_request"
+      }
+    },
+    {
+      "id": "policy-intent-http-body-or-media",
+      "evaluator": "routeHttp",
+      "input": {
+        "routeId": "policy-intent",
+        "contentType": "text/plain",
+        "bodyBytes": 2,
+        "contentEncoding": null
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "invalid_request"
+      }
+    }
+  ],
+  "http": {
+    "requestContentType": "application/json",
+    "responseContentType": "application/json",
+    "body": "strict JSON if present; zero bytes otherwise",
+    "streamProfile": null
+  },
+  "successStatus": 200
+}
