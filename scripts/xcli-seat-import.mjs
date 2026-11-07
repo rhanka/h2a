@@ -19,6 +19,7 @@ import { materialiseSeatEnvelopes as materialiseSeatEnvelopesLib,
 import { LOGIN_ALLOWLIST, loginCopyPath } from './xcli-lab.mjs';
 import { loadSeatManifest } from './xcli-seats.mjs';
 import { CYBER_SEAT_MODE, SEAT_ENVIRONMENT, assertCyberManifest } from './xcli-seat-custody.mjs';
+import { replayAgyCliCache, AGY_CLI_CACHE_PATH } from './xcli-agy-cli-cache.mjs';
 
 export { validateSeatBundle, parseCliSeatProfile, parseTokenSeatEnvelope, translateAgySeatToApplication,
   MistralVibeEnrollmentProvider, MISTRAL_VIBE_SIGN_IN_URL, MISTRAL_VIBE_KEY_VALIDITY_MS };
@@ -174,6 +175,9 @@ export async function materialiseSeatCell({ cli, seatDir, cellHome, workspaceDir
     throw new Error(`seat-cell-refused:${staged?.code ?? 'unknown'}`);
   }
   const names = [...(authFiles ?? [])];
+  if (cli === 'agy' && replayAgyCliCache({ seatDir, cellHome, expectedNativeCliVersion })) {
+    names.push(AGY_CLI_CACHE_PATH);
+  }
   for (const key of destKeys ?? []) {
     const extra = ONBOARDING_EXTRA_NAME[key];
     if (extra && !names.includes(extra)) names.push(extra);

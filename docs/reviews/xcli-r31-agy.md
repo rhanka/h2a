@@ -55,3 +55,30 @@ model and cannot earn measured matrix credit.
 Codex plugin/app downloads are disabled only in bench launch arguments,
 using the documented feature flags and a native config oracle:
 https://developers.openai.com/codex/config-reference/ .
+
+Agy 1.5.2 also reads a distinct CLI completion cache at
+`.gemini/antigravity-cli/cache/onboarding.json`. The reviewed native
+`ReadOnboardingStatus` code is at ELF offset 162749248, 3040 bytes,
+SHA-256 `6acfe617e47097cfa455079b28e47c220fd7126b5ccb6df8ea9aabf70cdee8c4`.
+Its three boolean fields are `consumerOnboardingComplete`,
+`enterpriseOnboardingComplete` and `onboardingComplete`. Actual bounded,
+typed source inspection found exactly those three fields, all true.
+Transporting only jetski steps omitted this existing completion evidence
+and caused the native Terms of Service & Data Use dialog to reappear.
+
+Local provisioning now captures only this exact completed boolean object
+after the published stage 1 succeeds. A private bench sidecar binds it to
+the SHA-256 of the complete original seat record (account, scope, version,
+lineage and onboarding). After the unchanged published stage 2 succeeds,
+the consumer verifies that binding and writes the native cache into the
+fresh private HOME. It includes the path in copy/wipe evidence. Missing,
+false, malformed, extra-field, oversized or symlinked source evidence is
+never replaced by an invented acceptance. A corrupt present sidecar
+refuses before launch. No raw settings or identifiers are transported.
+
+The native dialog checkbox calls `SetUserInfo`, which changes account
+telemetry outside the private HOME. The bench therefore never presses it,
+never changes account telemetry, and never invents an interactive flag.
+The native `--disable-telemetry` flag traced by Astra belongs to ACP, not
+the interactive CLI under qualification. Regression controls cover native
+cache replay through both materialization stages and binding tampering.

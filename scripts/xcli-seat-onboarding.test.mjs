@@ -193,13 +193,52 @@ test('L7 R31: Agy 1.5.2 capture survives fresh-process validation and both mater
     assert.equal(receipt.onboardingStatus, 'present');
     staged = await stageOne('agy', 'agy', built.envelope);
     assert.equal(staged.result.manifest.seats[0].onboarding.status, 'present');
+    // The native CLI has a separate completion cache. Replay only source
+    // evidence, never a synthesized acceptance or account telemetry change.
+    const nativeCache = '.gemini/antigravity-cli/cache/onboarding.json';
+    const completed = { consumerOnboardingComplete: true,
+      enterpriseOnboardingComplete: true, onboardingComplete: true };
+    fs.mkdirSync(join(homeDir, '.gemini/antigravity-cli/cache'), { recursive: true });
+    fs.writeFileSync(join(homeDir, nativeCache), JSON.stringify(completed));
+    const { captureAgyCliCache, AGY_CLI_CACHE_SIDECAR } = await import('./xcli-agy-cli-cache.mjs');
+    const capturedCache = captureAgyCliCache({ sourceHome: homeDir, seatDir: staged.seatDir,
+      nativeCliVersion: '1.5.2' });
+    assert.equal(capturedCache, true);
+    const sourceFile = join(homeDir, nativeCache);
+    const sidecarFile = join(staged.seatDir, AGY_CLI_CACHE_SIDECAR);
+    const capturedBytes = fs.readFileSync(sidecarFile, 'utf8');
+    for (const invalid of [{ ...completed, onboardingComplete: false },
+      { ...completed, onboardingComplete: 'true' }, { onboardingComplete: true },
+      { ...completed, unrelatedSecret: 'must-not-transport' }]) {
+      fs.writeFileSync(sourceFile, JSON.stringify(invalid));
+      assert.equal(captureAgyCliCache({ sourceHome: homeDir, seatDir: staged.seatDir,
+        nativeCliVersion: '1.5.2' }), false);
+      assert.equal(fs.readFileSync(sidecarFile, 'utf8'), capturedBytes);
+      assert.equal(fs.readFileSync(sourceFile, 'utf8'), JSON.stringify(invalid), 'source is read-only');
+    }
+    fs.writeFileSync(sourceFile, ' '.repeat(1025));
+    assert.equal(captureAgyCliCache({ sourceHome: homeDir, seatDir: staged.seatDir,
+      nativeCliVersion: '1.5.2' }), false);
+    fs.unlinkSync(sourceFile);
+    fs.symlinkSync(sidecarFile, sourceFile);
+    assert.equal(captureAgyCliCache({ sourceHome: homeDir, seatDir: staged.seatDir,
+      nativeCliVersion: '1.5.2' }), false, 'symlink source is refused');
     const input = { cli: 'agy', seatDir: staged.seatDir, cellHome: layout.cellHome,
       workspaceDir: layout.workspace, configDirs: layout.configDirs,
       expectedNativeCliVersion: '1.5.2', ownerScope: SYNTH_SCOPE,
       authFiles: ['.gemini/antigravity-cli/antigravity-oauth-token'], destKeys: ['agy-jetski'] };
     const result = await materialiseSeatCell(input);
     assert.ok(result.copied.includes('.gemini/antigravity-cli/jetski_state.pbtxt'));
+    assert.ok(result.copied.includes(nativeCache), 'cache is included in private copy and wipe evidence');
+    assert.deepEqual(JSON.parse(fs.readFileSync(join(layout.cellHome, nativeCache), 'utf8')), completed);
     assert.equal(fs.readFileSync(join(layout.cellHome, '.gemini/antigravity-cli/jetski_state.pbtxt'), 'utf8'), bytes);
+    const sidecar = join(staged.seatDir, AGY_CLI_CACHE_SIDECAR);
+    const saved = fs.readFileSync(sidecar, 'utf8');
+    const corrupt = JSON.parse(saved); corrupt.seatRecordSha256 = '0'.repeat(64);
+    fs.writeFileSync(sidecar, JSON.stringify(corrupt));
+    await assert.rejects(materialiseSeatCell(input), /agy-cli-cache-binding-mismatch/);
+    assert.equal(fs.existsSync(join(layout.cellHome, nativeCache)), false);
+    fs.writeFileSync(sidecar, saved);
     await assert.rejects(materialiseSeatCell({ ...input, expectedNativeCliVersion: '1.4.12' }), /onboarding-version-mismatch/);
     assert.equal(fs.existsSync(layout.cellHome), false, 'a version mismatch leaves no cell home');
   } finally {
