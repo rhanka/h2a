@@ -7,19 +7,19 @@ import { wipeSecrets } from './xcli-lab.mjs';
 import { onboardingLaunchBlock } from './xcli-seat-import.mjs';
 import { blockingScreen, startupKey, cellMcpConfigText, argsFor } from './qualify-cross-cli.mjs';
 
-test('R31: reviewed Agy receives only exact h2a tool grants in session settings', () => {
+test('R32: reviewed Agy receives only exact h2a tool grants in session settings', () => {
   const prompt = 'qualification prompt';
-  const args = argsFor('agy', prompt, { nativeCliVersion: '1.5.2' });
+  const args = argsFor('agy', prompt, { nativeCliVersion: '1.5.3' });
   assert.equal(args[0], '--settings');
   assert.deepEqual(JSON.parse(args[1]), { permissions: { allow: [
     'mcp(h2a/h2a_identity_status)', 'mcp(h2a/h2a_inbox)', 'mcp(h2a/h2a_send)',
   ] } });
   assert.deepEqual(args.slice(2), ['--model', 'gemini-3.8-flash-low', '--prompt-interactive', prompt]);
-  for (const version of [undefined, '1.4.12', '1.5.3']) {
+  for (const version of [undefined, '1.4.12', '1.5.2']) {
     assert.deepEqual(argsFor('agy', prompt, { nativeCliVersion: version }),
-      ['--prompt-interactive', prompt], 'unknown or legacy schemas do not receive unreviewed policy');
+      ['--prompt-interactive', prompt], 'unknown, legacy or retired versions do not receive unreviewed policy');
   }
-  assert.deepEqual(argsFor('vibe', prompt, { nativeCliVersion: '1.5.2' }), [prompt]);
+  assert.deepEqual(argsFor('vibe', prompt, { nativeCliVersion: '1.5.3' }), [prompt]);
 });
 
 test('R31: Vibe approves only the three bench tools on its h2a server', async () => {
@@ -76,7 +76,7 @@ test('R30: an unreviewed Agy version remains blocked with its exact external cau
   assert.equal(onboardingLaunchBlock(undefined), undefined);
   const seat = { family: 'agy', onboarding: { status: 'absent', gate: { eligible: false },
     captureRefusal: { code: 'onboarding-version-unreviewed', nativeCliVersion: '9.9.9',
-      reviewedNativeCliVersions: ['1.4.12', '1.5.2'] } } };
+      reviewedNativeCliVersions: ['1.4.12', '1.5.3'] } } };
   assert.equal(onboardingLaunchBlock(seat), 'onboarding-version-unreviewed:agy:9.9.9');
   assert.equal(onboardingLaunchBlock({ family: 'agy', onboarding: { gate: { eligible: false } } }), 'onboarding-required');
 });
@@ -98,7 +98,7 @@ test('R30: provisioning carries the published Agy version refusal through the ma
     assert.equal(held.sources[0].onboardingRefused, 'onboarding-shape-unverified');
     assert.equal(manifest.seats[0].onboarding.status, 'absent');
     assert.equal(onboardingLaunchBlock(manifest.seats[0]), 'onboarding-version-unreviewed:agy:9.9.9');
-    assert.deepEqual(manifest.seats[0].onboarding.captureRefusal.reviewedNativeCliVersions, ['1.4.12', '1.5.2']);
+    assert.deepEqual(manifest.seats[0].onboarding.captureRefusal.reviewedNativeCliVersions, ['1.4.12', '1.5.3']);
   } finally {
     if (held) assert.deepEqual(shredFiles([held.outDir]), []);
     fs.rmSync(root, { recursive: true, force: true });
