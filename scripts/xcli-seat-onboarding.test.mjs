@@ -135,6 +135,11 @@ test('L7 R31: native Agy colon-message syntax projects consent without transport
     assert.equal(captured.ok, true);
     assert.equal(Buffer.from(captured.block.files[0].contentBase64, 'base64').toString('utf8'), canonical);
     assert.ok(!JSON.stringify(captured).includes('identifier-never-export'));
+    assert.equal((await captureReviewedSeatOnboarding(Object.assign([], input))).code, 'onboarding-schema-mismatch');
+    assert.equal((await captureReviewedSeatOnboarding({ ...input, accountBinding: {},
+      sourceHome: join(homeDir, 'absent') })).code, 'onboarding-binding-unverifiable');
+    assert.equal((await captureReviewedSeatOnboarding({ ...input,
+      selector: Object.assign([], input.selector) })).ok, false);
     for (const source of [
       canonical.replace('post_onboarding {', 'post_onboarding: {').replace(/  completed_steps:[^\n]*\n/, ''),
       canonical.replace('post_onboarding {', 'post_onboarding: {').repeat(2),
