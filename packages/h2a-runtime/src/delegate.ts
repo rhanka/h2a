@@ -33,7 +33,7 @@ import { humanAge } from "./migrate-candidates.js";
 import { AGY_DEFAULT_MODEL } from "./profiles.js";
 
 // Registry support for messaging does not imply measured delegation support.
-export type DelegateType = Exclude<RegistryTool, "gemini">;
+export type DelegateType = Exclude<RegistryTool, "gemini" | "opencode">;
 
 const DELEGATE_BIN: Readonly<Record<DelegateType, string>> = {
   claude: "claude",

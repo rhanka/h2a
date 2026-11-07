@@ -24,7 +24,7 @@ import { buildSupervisor, supervisedCommand, supervisorResult } from './xcli-pro
 import { scanEvidenceText } from './xcli-evidence-scan.mjs';
 import { runMuseAuthPrecheck } from './xcli-auth-precheck.mjs';
 import { campaignWakePolicy } from './xcli-wake-policy.mjs';
-import { openCodeCellConfig, openCodePluginSource } from './xcli-opencode.mjs';
+import { openCodeCellConfig, openCodePluginSource, openCodeEnvironment, OPENCODE_PLUGIN_READY } from './xcli-opencode.mjs';
 export { MUSE_NOAUTH_PATTERN, classifyMuseUsageProbe } from './xcli-auth-precheck.mjs';
 import { parseScenario, expectedScenarioBlocker, UNKNOWN_INSTANCE, validateScriptSteps,
   loopScripts, loopTwinScripts, negotiationScripts, negotiationTwinScripts,
@@ -116,13 +116,26 @@ export function blockingScreen(screen) {
   // inside a workspace or repository and exits before readiness.
   if (/process-lifetime tool-output root.{0,80}inside the configured workspace or repository/i.test(screen)) return 'tmpdir-guard-refusal';
   if (/sign in|log in|login required|not logged in|authentication required|please authenticate|API key.{0,30}(?:missing|required)|Select authentication|Select login method|How would you like to authenticate/i.test(screen)) return 'authentication-required';
-  if (/quota exceeded|usage limit|rate.?limit|credits exhausted|insufficient credits|limit reached/i.test(screen)) return 'provider-quota';
+  if (quotaRefusalKind(screen)) return 'provider-quota';
   if (/trust (?:this|the) (?:folder|workspace)|Do you trust|trust this project|security notes|choose.{0,20}theme|select.{0,20}theme|Welcome to Claude/i.test(screen)) return 'onboarding-or-trust';
   // R17 (P2-2): every approval form — tool, permission or shell command —
   // blocks, except the one MCP server approval that is a startup action.
   if (startupKey(screen) !== 'mcp-approval-allow' &&
     /permission.{0,20}(?:required|denied)|allow.{0,30}(?:this\s+shell\s+command|shell\s+command|tool|MCP)|approve.{0,25}(?:shell\s+command|tool|MCP)/i.test(screen)) return 'tool-approval-required';
   return undefined;
+}
+
+// Informational native banners mention "rate limits" without refusing a
+// request. Require actual exhaustion wording and retain a closed fact only.
+export function quotaRefusalKind(screen) {
+  const refusals = {
+    'quota-exceeded': /quota (?:exceeded|exhausted)/i,
+    'limit-reached': /(?:usage |credit )?limit (?:reached|exceeded)|you(?:'ve|’ve| have) (?:hit|reached) (?:your |the )?(?:usage |rate |credit )?limit/i,
+    'rate-limited': /rate[-_ ]limit(?:ed\b|[-_ ](?:exceeded|reached|error)\b)/i,
+    'credits-exhausted': /credits exhausted|insufficient credits|out of credits/i,
+    'too-many-requests': /too many requests/i,
+  };
+  return Object.entries(refusals).find(([, pattern]) => pattern.test(screen))?.[0];
 }
 
 // R23 (bench round 23, muse diagonal): muse 1.4.14 engages — identity gate
@@ -465,10 +478,16 @@ async function worker() {
           const pluginFile = join(dir, 'h2a-opencode-plugin.mjs');
           fs.writeFileSync(pluginFile, openCodePluginSource(), { mode: 0o600 });
           config = openCodeCellConfig({ ...config.mcpServers.h2a, command: join(dir, 'bin/h2a') }, pluginFile);
+          const managedDir = join(dir, 'opencode-managed');
+          fs.mkdirSync(managedDir, { mode: 0o700 });
+          Object.assign(targetEnv, openCodeEnvironment(targetEnv, path, managedDir));
           row.evidence.push({ event: 'opencode-plugin-configured', role, mechanism: 'opencode-plugin',
             scope: 'h2a-tools-only', nativeMessageDelivery: false });
         }
         fs.writeFileSync(path, JSON.stringify({ ...previous, ...config }));
+        // Native OpenCode otherwise tries installing its plugin SDK here.
+        // Everything is already staged; its installer skips unwritable dirs.
+        if (cli === 'opencode') fs.chmodSync(dirname(path), 0o500);
       }
     }
     const executable = simulated ? { path: executables[cli] } : privateExecutable(cli, executables[cli], dir);
@@ -497,6 +516,10 @@ async function worker() {
       target.seq = chunk.seq;
       target.screen = (target.screen + chunk.data).slice(-65536);
       await target.terminal.write(chunk.data);
+    }
+    if (target.cli === 'opencode' && !target.pluginLoaded && target.screen.includes(OPENCODE_PLUGIN_READY)) {
+      target.pluginLoaded = true;
+      row.evidence.push({ event: 'opencode-plugin-loaded', role: target.role, scope: 'h2a-tools-only' });
     }
     const screen = target.terminal.screen();
     // Vibe redraws its cursor continuously while its completed turn is
@@ -560,7 +583,8 @@ async function worker() {
   function events(target) { return readEvents(target.env.XCLI_EVENTS); }
   function observedBlocker(target, screen) {
     const blocker = blockingScreen(screen);
-    if (blocker === 'provider-quota') row.evidence.push({ event: 'provider-quota-observed', role: target.role });
+    if (blocker === 'provider-quota') row.evidence.push({ event: 'provider-quota-observed', role: target.role,
+      refusalKind: quotaRefusalKind(screen) });
     return blocker;
   }
   async function stopTarget(target) {
@@ -587,7 +611,8 @@ async function worker() {
   }
   function loaded(target) {
     const e = events(target);
-    return e.some(v => v.event === 'initialize' && v.ok) && e.some(v => v.event === 'tools' && v.ok && v.messaging);
+    return (target.cli !== 'opencode' || target.pluginLoaded === true) &&
+      e.some(v => v.event === 'initialize' && v.ok) && e.some(v => v.event === 'tools' && v.ok && v.messaging);
   }
   async function ready(target) {
     const deadline = Date.now() + timeoutMs;
@@ -1283,7 +1308,7 @@ async function main() {
   const executables = Object.fromEntries(KNOWN_CLIS.map(cli => [cli, cliPath(cli, sourcePath)]));
   if (simulated) {
     fs.mkdirSync(join(root, 'sim-bin'), { recursive: true });
-    for (const cli of CLIS) {
+    for (const cli of KNOWN_CLIS) {
       const path = join(root, 'sim-bin', cli);
       fs.writeFileSync(path, `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(join(repo, 'scripts/xcli-simulated-model.mjs'))} ${quote(cli)} "$@"\n`, { mode: 0o700 });
       executables[cli] = path;
@@ -1320,9 +1345,12 @@ async function main() {
         sharedSeat: resolved.sharedSeat, authHomes: resolved.authHomes });
     }
   }
+  if (selected && !manifest) assert.ok(selected.split(':').length === 2 &&
+    selected.split(':').every(cli => KNOWN_CLIS.includes(cli)), 'unknown --pair');
   const pairs = manifest
     ? seatRuns.map(({ sender, receiver }) => ({ sender, receiver }))
-    : CLIS.flatMap(sender => CLIS.map(receiver => ({ sender, receiver })))
+    : (selected ? [{ sender: selected.split(':')[0], receiver: selected.split(':')[1] }]
+      : CLIS.flatMap(sender => CLIS.map(receiver => ({ sender, receiver }))))
       .filter(p => (!selected || `${p.sender}:${p.receiver}` === selected) && (!selectedSender || p.sender === selectedSender));
   assert.ok(pairs.length, 'unknown --pair');
   const timeoutMs = Number(option('--timeout-ms', '60000'));

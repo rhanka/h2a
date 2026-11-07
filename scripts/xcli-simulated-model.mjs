@@ -24,7 +24,7 @@ const { createLocalStore, parseSignedDriveInstruction, verifySignedDriveInstruct
 const store = createLocalStore({ root: process.env.H2A_ROOT });
 const { waitForIdentity } = await import(pathToFileURL(join(build, 'packages/h2a/test/helpers/identity-readiness.js')));
 
-function endpoint() {
+async function endpoint() {
   // Deliberately use the native configuration locations, independently of
   // descriptor.path. This fixture emulates these layouts, not their full parsers.
   const paths = {
@@ -34,10 +34,17 @@ function endpoint() {
     gemini: join(process.env.HOME, '.gemini/settings.json'),
     muse: join(process.env.XDG_CONFIG_HOME, 'muse/settings.json'),
     vibe: join(process.env.VIBE_HOME, 'config.toml'),
+    opencode: join(process.env.XDG_CONFIG_HOME, 'opencode/opencode.json'),
   };
   const raw = fs.readFileSync(paths[profile], 'utf8');
   if (!['codex', 'vibe'].includes(profile)) {
     const settings = JSON.parse(raw);
+    if (profile === 'opencode') {
+      const hooks = await (await import(settings.plugin[0])).default({});
+      await hooks.config(settings);
+      const [command, ...args] = settings.mcp.h2a.command;
+      return { command, args };
+    }
     if (profile === 'muse') assert.equal(settings.schema_version, 1, 'native Muse requires settings schema_version 1');
     return settings.mcpServers.h2a;
   }
@@ -48,7 +55,7 @@ function endpoint() {
   return { command, args };
 }
 
-const config = endpoint();
+const config = await endpoint();
 // R22: the codex cell names its private wrapper by absolute path (the
 // spawner does not resolve the bare command), so the provenance check
 // accepts the cell's private wrapper — resolved from the role workspace the

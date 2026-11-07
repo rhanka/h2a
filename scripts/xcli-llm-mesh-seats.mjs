@@ -18,6 +18,12 @@
 // llm-mesh-store-unreachable:<cli> with the store cause.
 import { hostname } from 'node:os';
 
+// Neither the published enrollment command nor the consumer envelope contract
+// supports this CLI yet. Never synthesize an owner command or alias its identity.
+export const OPENCODE_SEAT_CONTRACT = Object.freeze({
+  reason: 'llm-mesh-seat-contract-unavailable:opencode', enrollmentCommand: null,
+});
+
 // Bench CLI -> mesh enrollment provider + the exact owner enroll command.
 // Provider ids follow the mesh accountTransportProviderIds contract
 // (codex, cloud-code, claude-code, muse, mistral-vibe).

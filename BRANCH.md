@@ -5,8 +5,8 @@
   Target is 29 measured green pairs or a proven external cause per remaining
   pair. Gemini and Hermes stay outside this round.
 - OpenCode 1.17.15 loads its native mcp.h2a configuration and a local plugin.
-  The plugin grants only the three fully qualified h2a tools and rejects
-  other h2a calls; unrelated tools retain their existing policy. Native
+  The private plugin grants only the three fully qualified h2a tools and
+  rejects every other tool. Native
   debug-config and MCP connection oracles pass without a model or login.
 - This plugin does not deliver session messages. The bench retains the
   witnessed signed terminal prompt and the non-native 10000 ms bound;
@@ -15,7 +15,19 @@
   no OpenCode identity/auth projection. Keep OpenCode present with a typed
   upstream-contract gate; never forge a provider, enroll, reuse another
   CLI's bundle identity, or alter digest-pinned upstream validators.
-  Astra max is investigating a supported concrete continuation path.
+  Astra max confirms that no supported h2a enrollment command exists; the
+  upstream maintainer must publish a native provider-bound custody adapter.
+- First complete pass: 4/36 green, 23 attributed external pairs and nine
+  internal pairs after Codex's quota classifier fired. Its bare rate-limit
+  match also rejects passive native account information. Negative controls
+  reproduce that false stop; require exhaustion wording and retain a closed
+  refusal kind, keeping genuine quota errors blocking. Rerun the full matrix.
+- Signed synthetic OpenCode probes expose unreadable native registry rows:
+  RegistryTool and its decoder omitted opencode, so wake target resolution
+  refused the delivered message. Add that exact tool identity and coercion;
+  keep unmeasured OpenCode delegation excluded. Registry regression RED
+  69/70 then GREEN 70/70; delegation controls pass with one existing named
+  pending debt. Signed-wake proof must be repeated before real qualification.
 - R31 CI import ratchet: compare the reviewed onboarding functions against
   the existing pure published re-export. RED 3/4, GREEN 30/30 including
   onboarding, with no expanded allowlist.
