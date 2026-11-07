@@ -143,6 +143,55 @@ test('L8: provider-quota on a seat stops further cells on that seat', () => {
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('R33: a codex seat quota stop also stops the opencode seat riding it', async () => {
+  const { OPENCODE_SEAT_MAPPING } = await import('./xcli-llm-mesh-seats.mjs');
+  const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-camp-oc-'));
+  try {
+    const manifest = writeManifest(dir, [
+      { seatId: 's1', family: 'codex', authSource: 'seat-1' },
+      { seatId: 'oc', family: 'opencode', authSource: 'seat-oc', mappedSeat: 's1',
+        onboarding: { status: 'absent', gate: { eligible: false, code: OPENCODE_SEAT_MAPPING.loginGateCode } } },
+    ], ['s1:s1', 'oc:oc']);
+    const run = runCampaign(['--simulated', '--seat-manifest', manifest,
+      '--timeout-ms', '10000'], stubRow('provider-quota'));
+    try {
+      assert.equal(run.invocations, 1, 'the mapped cell never spawns');
+      assert.equal(run.receipt.cells[0].blocker, 'provider-quota');
+      const mapped = run.receipt.cells[1];
+      assert.equal(mapped.blocker, 'provider-quota-seat-exhausted');
+      assert.ok(mapped.evidence.some(e => e.event === 'seat-quota-stop' && e.seats.join(',') === 's1,s1'),
+        'the stop names the mapped codex seat');
+      const login = mapped.evidence.find(e => e.event === 'opencode-owner-login-required');
+      assert.ok(login, 'the owner login action is recorded separately from the quota cause');
+      assert.equal(login.code, OPENCODE_SEAT_MAPPING.loginGateCode);
+      assert.equal(login.command, OPENCODE_SEAT_MAPPING.loginCommand);
+      assert.equal(login.staleSince, OPENCODE_SEAT_MAPPING.loginStaleSince);
+    } finally { removeCampaignRoot(run.root); fs.rmSync(run.dir, { recursive: true, force: true }); }
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('R33: the expired OpenCode login closes mapped seats beyond any quota stop', async () => {
+  const { OPENCODE_SEAT_MAPPING } = await import('./xcli-llm-mesh-seats.mjs');
+  const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-camp-oc-'));
+  try {
+    const manifest = writeManifest(dir, [
+      { seatId: 's1', family: 'codex', authSource: 'seat-1' },
+      { seatId: 'oc', family: 'opencode', authSource: 'seat-oc', mappedSeat: 's1' },
+    ], ['oc:oc']);
+    const run = runCampaign(['--simulated', '--seat-manifest', manifest,
+      '--timeout-ms', '10000'], stubRow('stub-no-model'));
+    try {
+      assert.equal(run.invocations, 0, 'the stale login gate never spawns the seat');
+      const row = run.receipt.cells[0];
+      assert.equal(row.blocker, OPENCODE_SEAT_MAPPING.loginGateCode);
+      assert.ok(row.evidence.some(e => e.event === 'onboarding-gate-closed' && e.seat === 'oc' &&
+        e.code === OPENCODE_SEAT_MAPPING.loginGateCode));
+      assert.ok(!row.evidence.some(e => e.event === 'seat-quota-stop'),
+        'the login classification stays separate from the quota cause');
+    } finally { removeCampaignRoot(run.root); fs.rmSync(run.dir, { recursive: true, force: true }); }
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 for (const namedSeats of [false, true]) {
   test(`L8 R4: quota stops survive resume (${namedSeats ? 'named seats' : 'family seats'})`, () => {
     const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-quota-resume-'));

@@ -482,12 +482,23 @@ function openLoginFile(authHome, name, write = false) {
   } finally { fs.closeSync(directory); }
 }
 
+// R33: OpenCode's installed binary is not on the owner PATH and the bench
+// never edits PATH. The reviewed absolute path below resolves it (the
+// XCLI_OPENCODE_BIN override lets tests substitute a stub without touching
+// the real installation); a missing absolute path degrades to undefined,
+// exactly like a missing PATH entry.
+export const OPENCODE_BINARY_PATH = '/home/antoinefa/.opencode/bin/opencode';
+
 export function cliPath(cli, path) {
   assert.ok(KNOWN_CLIS.includes(cli));
   for (const dir of path.split(':')) {
     if (!dir) continue;
     const candidate = join(dir, cli);
     try { fs.accessSync(candidate, fs.constants.X_OK); return candidate; } catch { /* next explicit PATH entry */ }
+  }
+  if (cli === 'opencode') {
+    const absolute = process.env.XCLI_OPENCODE_BIN ?? OPENCODE_BINARY_PATH;
+    try { fs.accessSync(absolute, fs.constants.X_OK); return absolute; } catch { /* absent: same as a PATH miss */ }
   }
   return undefined;
 }
