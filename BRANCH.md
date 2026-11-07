@@ -2855,6 +2855,17 @@ The lanes slice stays blocked by relay-1 (no L-1 export).
 - Pin `0.22.4` kept, tripwires kept. RED then GREEN: vitest 12/12,
   node:test 8/8, `tsc` zero errors, N1/N2 103/103.
 
+## Integration rebase (PR #415)
+
+- Preserve main's B3 section and this B6 section at the append conflict.
+- Main already pins `@sentropic/cluster-mesh` to `0.25.0`; align only the
+  no-new-dependency test's expected pin with that inherited version.
+  B6 changes neither the dependency manifests nor the lockfile. The reviewed
+  runtime, r3 vectors and refusal/abort behaviour stay byte-identical.
+- RED after rebase: node:test 7/8 (`0.25.0` versus stale `0.22.4` assertion).
+- GREEN on the published `0.25.0` archive: B6 vitest 12/12, node:test 8/8,
+  N1/N2 103/103; runtime build and no-emit typecheck pass, zero skips.
+
 ## Conditional
 
 - `packages/h2a-runtime/package.json` + lock (pin only): NOT exercised —
