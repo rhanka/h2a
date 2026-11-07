@@ -1,0 +1,89 @@
+{
+  "record": "RegistryReaderV1",
+  "evidenceLevel": "synthetic schema and signature fixtures only; no installed authority",
+  "positive": [
+    {
+      "id": "RegistryReaderV1-shape-positive",
+      "expect": "ACCEPT_SHAPE",
+      "value": {
+        "method": "currentRevision",
+        "parameters": {}
+      },
+      "bytes": {
+        "json": {
+          "base64": "eyJtZXRob2QiOiJjdXJyZW50UmV2aXNpb24iLCJwYXJhbWV0ZXJzIjp7fX0=",
+          "byteLength": 44,
+          "sha256": "e5c136d6817de48ff4312ef33a7287cdde9caa556d598c7d54707476a1a2e49b"
+        }
+      }
+    },
+    {
+      "id": "RegistryReaderV1-variant-0",
+      "expect": "ACCEPT_SHAPE",
+      "value": {
+        "method": "currentRevision",
+        "parameters": {}
+      },
+      "bytes": {
+        "json": {
+          "base64": "eyJtZXRob2QiOiJjdXJyZW50UmV2aXNpb24iLCJwYXJhbWV0ZXJzIjp7fX0=",
+          "byteLength": 44,
+          "sha256": "e5c136d6817de48ff4312ef33a7287cdde9caa556d598c7d54707476a1a2e49b"
+        }
+      }
+    },
+    {
+      "id": "RegistryReaderV1-variant-1",
+      "expect": "ACCEPT_SHAPE",
+      "value": {
+        "method": "getInstance",
+        "parameters": {
+          "agentUuidOrInstance": "fixture-agentUuidOrInstance-0"
+        }
+      },
+      "bytes": {
+        "json": {
+          "base64": "eyJtZXRob2QiOiJnZXRJbnN0YW5jZSIsInBhcmFtZXRlcnMiOnsiYWdlbnRVdWlkT3JJbnN0YW5jZSI6ImZpeHR1cmUtYWdlbnRVdWlkT3JJbnN0YW5jZS0wIn19",
+          "byteLength": 93,
+          "sha256": "3b082fd83ecb64205f2109f089d1930d1342b08429c84dec418f95d05f0fd49f"
+        }
+      }
+    },
+    {
+      "id": "RegistryReaderV1-variant-2",
+      "expect": "ACCEPT_SHAPE",
+      "value": {
+        "method": "listChangesSince",
+        "parameters": {
+          "revision": "fixture-revision-0"
+        }
+      },
+      "bytes": {
+        "json": {
+          "base64": "eyJtZXRob2QiOiJsaXN0Q2hhbmdlc1NpbmNlIiwicGFyYW1ldGVycyI6eyJyZXZpc2lvbiI6ImZpeHR1cmUtcmV2aXNpb24tMCJ9fQ==",
+          "byteLength": 76,
+          "sha256": "14fd1e591af64e8e6bab05c5cd86cce47897e6a29a153f23dbfe5a0b03a906d4"
+        }
+      }
+    },
+    {
+      "id": "RegistryReaderV1-canonical-bytes-await-M0",
+      "expect": "BLOCKED_EXTERNAL",
+      "requires": [
+        "DEP-AUTH-B/M0 canonical bytes and bilateral pins"
+      ],
+      "value": null
+    }
+  ],
+  "negative": [
+    {
+      "id": "RegistryReaderV1-unknown-field",
+      "expect": "REJECT_SCHEMA",
+      "value": {
+        "method": "currentRevision",
+        "parameters": {},
+        "__unknown": "forbidden"
+      }
+    }
+  ]
+}

@@ -1,0 +1,48 @@
+{
+  "record": "RegistryInstanceViewV1",
+  "evidenceLevel": "synthetic schema and signature fixtures only; no installed authority",
+  "positive": [
+    {
+      "id": "RegistryInstanceViewV1-shape-positive",
+      "expect": "ACCEPT_SHAPE",
+      "value": {
+        "format": "h2a.registry-instance/v1",
+        "registryRevision": "fixture-registryRevision-0",
+        "agentUuid": "fixture-agentUuid-0",
+        "instances": [],
+        "keys": [],
+        "roleScopeBindings": []
+      },
+      "bytes": {
+        "json": {
+          "base64": "eyJhZ2VudFV1aWQiOiJmaXh0dXJlLWFnZW50VXVpZC0wIiwiZm9ybWF0IjoiaDJhLnJlZ2lzdHJ5LWluc3RhbmNlL3YxIiwiaW5zdGFuY2VzIjpbXSwia2V5cyI6W10sInJlZ2lzdHJ5UmV2aXNpb24iOiJmaXh0dXJlLXJlZ2lzdHJ5UmV2aXNpb24tMCIsInJvbGVTY29wZUJpbmRpbmdzIjpbXX0=",
+          "byteLength": 167,
+          "sha256": "6fbed557b60018a52c6c8189a1f9db1530309e9273d2713370e6fdf927774546"
+        }
+      }
+    },
+    {
+      "id": "RegistryInstanceViewV1-canonical-bytes-await-M0",
+      "expect": "BLOCKED_EXTERNAL",
+      "requires": [
+        "DEP-AUTH-B/M0 canonical bytes and bilateral pins"
+      ],
+      "value": null
+    }
+  ],
+  "negative": [
+    {
+      "id": "RegistryInstanceViewV1-unknown-field",
+      "expect": "REJECT_SCHEMA",
+      "value": {
+        "format": "h2a.registry-instance/v1",
+        "registryRevision": "fixture-registryRevision-0",
+        "agentUuid": "fixture-agentUuid-0",
+        "instances": [],
+        "keys": [],
+        "roleScopeBindings": [],
+        "__unknown": "forbidden"
+      }
+    }
+  ]
+}

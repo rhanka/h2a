@@ -1,0 +1,686 @@
+{
+  "format": "rc2.registry-digest-vectors/1",
+  "positive": [
+    {
+      "visibility": "listing",
+      "value": {
+        "sessionRef": {
+          "originInstanceId": "fixture-B",
+          "sessionId": "fixture-session",
+          "incarnation": "fixture-incarnation"
+        },
+        "engineKind": "cli",
+        "providerClass": "claude",
+        "originRevision": 2,
+        "state": "running"
+      },
+      "domain": "cluster-mesh.session-listing/1/coarse-v1\u0000",
+      "inputBase64": "Y2x1c3Rlci1tZXNoLnNlc3Npb24tbGlzdGluZy8xL2NvYXJzZS12MQB7ImVuZ2luZUtpbmQiOiJjbGkiLCJvcmlnaW5SZXZpc2lvbiI6MiwicHJvdmlkZXJDbGFzcyI6ImNsYXVkZSIsInNlc3Npb25SZWYiOnsiaW5jYXJuYXRpb24iOiJmaXh0dXJlLWluY2FybmF0aW9uIiwib3JpZ2luSW5zdGFuY2VJZCI6ImZpeHR1cmUtQiIsInNlc3Npb25JZCI6ImZpeHR1cmUtc2Vzc2lvbiJ9LCJzdGF0ZSI6InJ1bm5pbmcifQ==",
+      "projectionDigest": "226ad2fed8143a5c9f5549fb3ae2cbd5e42ae13af67ca6c1957bb9233233fe98"
+    },
+    {
+      "visibility": "activated",
+      "value": {
+        "format": "cluster-mesh.session/1",
+        "kind": "snapshot",
+        "sessionRef": {
+          "originInstanceId": "fixture-B",
+          "sessionId": "fixture-session",
+          "incarnation": "fixture-incarnation"
+        },
+        "writerEpoch": 1,
+        "originRevision": 2,
+        "tombstoneFloor": 1,
+        "denialFloors": [],
+        "descriptor": {
+          "format": "cluster-mesh.session/1",
+          "kind": "descriptor",
+          "sessionRef": {
+            "originInstanceId": "fixture-B",
+            "sessionId": "fixture-session",
+            "incarnation": "fixture-incarnation"
+          },
+          "engineKind": "cli",
+          "ownerPrincipalBindingRef": {
+            "id": "fixture-id-0",
+            "revision": 1,
+            "digest": "ecceac03b4a95ea63ec896a332585cbc236749aa8da95ce13bb21179681df4df"
+          },
+          "tenantRef": "fixture-tenantRef-0",
+          "workspaceMappingRef": {
+            "id": "fixture-id-0",
+            "revision": 1,
+            "digest": "b8b5d17e4c84a228fac6d6bb2f4cda5fc0443bdbb6264be77d2eebb82767b57e"
+          },
+          "l1AgentRef": "fixture-L1",
+          "l2AgentSessionRef": "fixture-L2",
+          "nativeBinding": {
+            "sourceSessionId": "fixture-source-session",
+            "sourceGeneration": 1,
+            "streamIncarnation": "fixture-stream"
+          },
+          "conversationBindingRef": null,
+          "writerEpoch": 1,
+          "originRevision": 2,
+          "capabilitiesRef": {
+            "id": "fixture-id-0",
+            "revision": 1,
+            "digest": "3ad5d60ada3cb5d3891abfabfc4ca722135b460b50d1610108afed26f39144f8"
+          },
+          "logs": [],
+          "observationRefs": [],
+          "admissionRefs": [],
+          "routeRefs": [],
+          "state": "admitted",
+          "sessionTraceId": "11111111111111111111111111111111"
+        },
+        "capabilities": {
+          "format": "h2a.session-capture/1",
+          "kind": "capabilities",
+          "hostKind": "claude",
+          "pluginIdentity": null,
+          "pluginVersion": null,
+          "pluginDigest": null,
+          "convergenceManifestDigest": null,
+          "cliExecutableDigest": "c8154809b56849e358886d181ebccefec8555c1c6814a63247796bb08979c650",
+          "cliVersion": "fixture-cliVersion-0",
+          "providerDialect": "fixture-providerDialect-0",
+          "sourceRef": {
+            "sourceSessionId": "fixture-source-session",
+            "sourceGeneration": 1,
+            "streamIncarnation": "fixture-stream"
+          },
+          "originAgentSessionId": "fixture-originAgentSessionId-0",
+          "rc0CapabilitiesDigest": "afe81db75ee87f6f63f1ed445831f801392e1a351f43e92cae04b919ca9050e7",
+          "providerTupleDigest": "37cf110fd975f93d01215d2ce6d4695ba1fd372e81f26c02a7213970990d9455",
+          "capabilityRevision": 1,
+          "bits": {
+            "ptyBytes": {
+              "state": "installed-qualified",
+              "producerRef": "fixture-native-pty",
+              "cliVersion": "fixture-cliVersion-0",
+              "dialect": "fixture-dialect-0",
+              "executableDigest": "531803905622dd13abfa2829283b99291a862c65a1fc5f8bdeaa22085f04ce13",
+              "pluginDigest": null,
+              "receiptDigest": "07ddaa9e3afedddf5416a3b165d2e237dacd5e31d375d78fdb93838f6d26c0d6",
+              "sourceGap": null
+            },
+            "structuredDeltas": {
+              "state": "unavailable",
+              "producerRef": "fixture-unavailable-provider",
+              "cliVersion": "fixture-cliVersion-0",
+              "dialect": "fixture-dialect-0",
+              "executableDigest": "e60151e5a4680c45a60f4662ae26bfb11c94623da6e8f17cdc34cf522b9a0a1c",
+              "pluginDigest": null,
+              "receiptDigest": null,
+              "sourceGap": "plugin-absent"
+            },
+            "completePermissionContext": {
+              "state": "unavailable",
+              "producerRef": "fixture-unavailable-provider",
+              "cliVersion": "fixture-cliVersion-0",
+              "dialect": "fixture-dialect-0",
+              "executableDigest": "843f5d851db75349560621c0d4ab644f105c8bd0b57537fb5f8491e01b8a9e07",
+              "pluginDigest": null,
+              "receiptDigest": null,
+              "sourceGap": "plugin-absent"
+            },
+            "literalInput": {
+              "state": "unavailable",
+              "producerRef": "fixture-unavailable-provider",
+              "cliVersion": "fixture-cliVersion-0",
+              "dialect": "fixture-dialect-0",
+              "executableDigest": "a51385e5713de6e0b96d830ee25b87beea90a4a50fe6b7c3c29c35bbc35141a6",
+              "pluginDigest": null,
+              "receiptDigest": null,
+              "sourceGap": "plugin-absent"
+            },
+            "permissionResponse": {
+              "state": "unavailable",
+              "producerRef": "fixture-unavailable-provider",
+              "cliVersion": "fixture-cliVersion-0",
+              "dialect": "fixture-dialect-0",
+              "executableDigest": "906f934857f86773ceb6e0d2c7dc2c7333a88386d2b3f0a3e80463c70ddf5ee2",
+              "pluginDigest": null,
+              "receiptDigest": null,
+              "sourceGap": "plugin-absent"
+            }
+          },
+          "matrixSource": "H2A_HOST_HOOK_CAPABILITIES",
+          "matrixDigest": "41c00ab4dc16a4544903843ccc7f42d3c6a26d62ca1010ee79ef1ff176144cdf",
+          "columns": [
+            {
+              "column": "typed-message",
+              "state": "gap",
+              "cliVersion": "fixture-1",
+              "dialect": "fixture-pty",
+              "receiptDigest": null,
+              "sourceGap": "provider-not-qualified"
+            },
+            {
+              "column": "typed-tool-call",
+              "state": "gap",
+              "cliVersion": "fixture-1",
+              "dialect": "fixture-pty",
+              "receiptDigest": null,
+              "sourceGap": "provider-not-qualified"
+            },
+            {
+              "column": "typed-tool-result",
+              "state": "gap",
+              "cliVersion": "fixture-1",
+              "dialect": "fixture-pty",
+              "receiptDigest": null,
+              "sourceGap": "provider-not-qualified"
+            },
+            {
+              "column": "permission-request",
+              "state": "gap",
+              "cliVersion": "fixture-1",
+              "dialect": "fixture-pty",
+              "receiptDigest": null,
+              "sourceGap": "provider-not-qualified"
+            },
+            {
+              "column": "permission-response",
+              "state": "gap",
+              "cliVersion": "fixture-1",
+              "dialect": "fixture-pty",
+              "receiptDigest": null,
+              "sourceGap": "provider-not-qualified"
+            },
+            {
+              "column": "literal-input",
+              "state": "gap",
+              "cliVersion": "fixture-1",
+              "dialect": "fixture-pty",
+              "receiptDigest": null,
+              "sourceGap": "provider-not-qualified"
+            },
+            {
+              "column": "pty-fallback",
+              "state": "enforced",
+              "cliVersion": "fixture-1",
+              "dialect": "fixture-pty",
+              "receiptDigest": "07ddaa9e3afedddf5416a3b165d2e237dacd5e31d375d78fdb93838f6d26c0d6",
+              "sourceGap": null
+            },
+            {
+              "column": "sub-agent-call-attribution",
+              "state": "gap",
+              "cliVersion": "fixture-1",
+              "dialect": "fixture-pty",
+              "receiptDigest": null,
+              "sourceGap": "provider-not-qualified"
+            }
+          ],
+          "pointOrdering": [],
+          "declaredLosses": [
+            "no-structured-deltas",
+            "incomplete-context",
+            "no-literal-input",
+            "no-permission-response"
+          ]
+        },
+        "issuedAt": 1793520000000,
+        "expiresAt": 1793520020000,
+        "issuer": "fixture-origin-registry",
+        "kid": "fixture-origin-registry-key"
+      },
+      "domain": "cluster-mesh.session/1/snapshot\u0000",
+      "inputBase64": "Y2x1c3Rlci1tZXNoLnNlc3Npb24vMS9zbmFwc2hvdAB7ImNhcGFiaWxpdGllcyI6eyJiaXRzIjp7ImNvbXBsZXRlUGVybWlzc2lvbkNvbnRleHQiOnsiY2xpVmVyc2lvbiI6ImZpeHR1cmUtY2xpVmVyc2lvbi0wIiwiZGlhbGVjdCI6ImZpeHR1cmUtZGlhbGVjdC0wIiwiZXhlY3V0YWJsZURpZ2VzdCI6Ijg0M2Y1ZDg1MWRiNzUzNDk1NjA2MjFjMGQ0YWI2NDRmMTA1YzhiZDBiNTc1MzdmYjVmODQ5MWUwMWI4YTllMDciLCJwbHVnaW5EaWdlc3QiOm51bGwsInByb2R1Y2VyUmVmIjoiZml4dHVyZS11bmF2YWlsYWJsZS1wcm92aWRlciIsInJlY2VpcHREaWdlc3QiOm51bGwsInNvdXJjZUdhcCI6InBsdWdpbi1hYnNlbnQiLCJzdGF0ZSI6InVuYXZhaWxhYmxlIn0sImxpdGVyYWxJbnB1dCI6eyJjbGlWZXJzaW9uIjoiZml4dHVyZS1jbGlWZXJzaW9uLTAiLCJkaWFsZWN0IjoiZml4dHVyZS1kaWFsZWN0LTAiLCJleGVjdXRhYmxlRGlnZXN0IjoiYTUxMzg1ZTU3MTNkZTZlMGI5NmQ4MzBlZTI1Yjg3YmVlYTkwYTRhNTBmZTZiN2MzYzI5YzM1YmJjMzUxNDFhNiIsInBsdWdpbkRpZ2VzdCI6bnVsbCwicHJvZHVjZXJSZWYiOiJmaXh0dXJlLXVuYXZhaWxhYmxlLXByb3ZpZGVyIiwicmVjZWlwdERpZ2VzdCI6bnVsbCwic291cmNlR2FwIjoicGx1Z2luLWFic2VudCIsInN0YXRlIjoidW5hdmFpbGFibGUifSwicGVybWlzc2lvblJlc3BvbnNlIjp7ImNsaVZlcnNpb24iOiJmaXh0dXJlLWNsaVZlcnNpb24tMCIsImRpYWxlY3QiOiJmaXh0dXJlLWRpYWxlY3QtMCIsImV4ZWN1dGFibGVEaWdlc3QiOiI5MDZmOTM0ODU3Zjg2NzczY2ViNmUwZDJjN2RjMmM3MzMzYTg4Mzg2ZDJiM2YwYTNlODA0NjNjNzBkZGY1ZWUyIiwicGx1Z2luRGlnZXN0IjpudWxsLCJwcm9kdWNlclJlZiI6ImZpeHR1cmUtdW5hdmFpbGFibGUtcHJvdmlkZXIiLCJyZWNlaXB0RGlnZXN0IjpudWxsLCJzb3VyY2VHYXAiOiJwbHVnaW4tYWJzZW50Iiwic3RhdGUiOiJ1bmF2YWlsYWJsZSJ9LCJwdHlCeXRlcyI6eyJjbGlWZXJzaW9uIjoiZml4dHVyZS1jbGlWZXJzaW9uLTAiLCJkaWFsZWN0IjoiZml4dHVyZS1kaWFsZWN0LTAiLCJleGVjdXRhYmxlRGlnZXN0IjoiNTMxODAzOTA1NjIyZGQxM2FiZmEyODI5MjgzYjk5MjkxYTg2MmM2NWExZmM1ZjhiZGVhYTIyMDg1ZjA0Y2UxMyIsInBsdWdpbkRpZ2VzdCI6bnVsbCwicHJvZHVjZXJSZWYiOiJmaXh0dXJlLW5hdGl2ZS1wdHkiLCJyZWNlaXB0RGlnZXN0IjoiMDdkZGFhOWUzYWZlZGRkZjU0MTZhM2IxNjVkMmUyMzdkYWNkNWUzMWQzNzVkNzhmZGI5MzgzOGY2ZDI2YzBkNiIsInNvdXJjZUdhcCI6bnVsbCwic3RhdGUiOiJpbnN0YWxsZWQtcXVhbGlmaWVkIn0sInN0cnVjdHVyZWREZWx0YXMiOnsiY2xpVmVyc2lvbiI6ImZpeHR1cmUtY2xpVmVyc2lvbi0wIiwiZGlhbGVjdCI6ImZpeHR1cmUtZGlhbGVjdC0wIiwiZXhlY3V0YWJsZURpZ2VzdCI6ImU2MDE1MWU1YTQ2ODBjNDVhNjBmNDY2MmFlMjZiZmIxMWM5NDYyM2RhNmU4ZjE3Y2RjMzRjZjUyMmI5YTBhMWMiLCJwbHVnaW5EaWdlc3QiOm51bGwsInByb2R1Y2VyUmVmIjoiZml4dHVyZS11bmF2YWlsYWJsZS1wcm92aWRlciIsInJlY2VpcHREaWdlc3QiOm51bGwsInNvdXJjZUdhcCI6InBsdWdpbi1hYnNlbnQiLCJzdGF0ZSI6InVuYXZhaWxhYmxlIn19LCJjYXBhYmlsaXR5UmV2aXNpb24iOjEsImNsaUV4ZWN1dGFibGVEaWdlc3QiOiJjODE1NDgwOWI1Njg0OWUzNTg4ODZkMTgxZWJjY2VmZWM4NTU1YzFjNjgxNGE2MzI0Nzc5NmJiMDg5NzljNjUwIiwiY2xpVmVyc2lvbiI6ImZpeHR1cmUtY2xpVmVyc2lvbi0wIiwiY29sdW1ucyI6W3siY2xpVmVyc2lvbiI6ImZpeHR1cmUtMSIsImNvbHVtbiI6InR5cGVkLW1lc3NhZ2UiLCJkaWFsZWN0IjoiZml4dHVyZS1wdHkiLCJyZWNlaXB0RGlnZXN0IjpudWxsLCJzb3VyY2VHYXAiOiJwcm92aWRlci1ub3QtcXVhbGlmaWVkIiwic3RhdGUiOiJnYXAifSx7ImNsaVZlcnNpb24iOiJmaXh0dXJlLTEiLCJjb2x1bW4iOiJ0eXBlZC10b29sLWNhbGwiLCJkaWFsZWN0IjoiZml4dHVyZS1wdHkiLCJyZWNlaXB0RGlnZXN0IjpudWxsLCJzb3VyY2VHYXAiOiJwcm92aWRlci1ub3QtcXVhbGlmaWVkIiwic3RhdGUiOiJnYXAifSx7ImNsaVZlcnNpb24iOiJmaXh0dXJlLTEiLCJjb2x1bW4iOiJ0eXBlZC10b29sLXJlc3VsdCIsImRpYWxlY3QiOiJmaXh0dXJlLXB0eSIsInJlY2VpcHREaWdlc3QiOm51bGwsInNvdXJjZUdhcCI6InByb3ZpZGVyLW5vdC1xdWFsaWZpZWQiLCJzdGF0ZSI6ImdhcCJ9LHsiY2xpVmVyc2lvbiI6ImZpeHR1cmUtMSIsImNvbHVtbiI6InBlcm1pc3Npb24tcmVxdWVzdCIsImRpYWxlY3QiOiJmaXh0dXJlLXB0eSIsInJlY2VpcHREaWdlc3QiOm51bGwsInNvdXJjZUdhcCI6InByb3ZpZGVyLW5vdC1xdWFsaWZpZWQiLCJzdGF0ZSI6ImdhcCJ9LHsiY2xpVmVyc2lvbiI6ImZpeHR1cmUtMSIsImNvbHVtbiI6InBlcm1pc3Npb24tcmVzcG9uc2UiLCJkaWFsZWN0IjoiZml4dHVyZS1wdHkiLCJyZWNlaXB0RGlnZXN0IjpudWxsLCJzb3VyY2VHYXAiOiJwcm92aWRlci1ub3QtcXVhbGlmaWVkIiwic3RhdGUiOiJnYXAifSx7ImNsaVZlcnNpb24iOiJmaXh0dXJlLTEiLCJjb2x1bW4iOiJsaXRlcmFsLWlucHV0IiwiZGlhbGVjdCI6ImZpeHR1cmUtcHR5IiwicmVjZWlwdERpZ2VzdCI6bnVsbCwic291cmNlR2FwIjoicHJvdmlkZXItbm90LXF1YWxpZmllZCIsInN0YXRlIjoiZ2FwIn0seyJjbGlWZXJzaW9uIjoiZml4dHVyZS0xIiwiY29sdW1uIjoicHR5LWZhbGxiYWNrIiwiZGlhbGVjdCI6ImZpeHR1cmUtcHR5IiwicmVjZWlwdERpZ2VzdCI6IjA3ZGRhYTllM2FmZWRkZGY1NDE2YTNiMTY1ZDJlMjM3ZGFjZDVlMzFkMzc1ZDc4ZmRiOTM4MzhmNmQyNmMwZDYiLCJzb3VyY2VHYXAiOm51bGwsInN0YXRlIjoiZW5mb3JjZWQifSx7ImNsaVZlcnNpb24iOiJmaXh0dXJlLTEiLCJjb2x1bW4iOiJzdWItYWdlbnQtY2FsbC1hdHRyaWJ1dGlvbiIsImRpYWxlY3QiOiJmaXh0dXJlLXB0eSIsInJlY2VpcHREaWdlc3QiOm51bGwsInNvdXJjZUdhcCI6InByb3ZpZGVyLW5vdC1xdWFsaWZpZWQiLCJzdGF0ZSI6ImdhcCJ9XSwiY29udmVyZ2VuY2VNYW5pZmVzdERpZ2VzdCI6bnVsbCwiZGVjbGFyZWRMb3NzZXMiOlsibm8tc3RydWN0dXJlZC1kZWx0YXMiLCJpbmNvbXBsZXRlLWNvbnRleHQiLCJuby1saXRlcmFsLWlucHV0Iiwibm8tcGVybWlzc2lvbi1yZXNwb25zZSJdLCJmb3JtYXQiOiJoMmEuc2Vzc2lvbi1jYXB0dXJlLzEiLCJob3N0S2luZCI6ImNsYXVkZSIsImtpbmQiOiJjYXBhYmlsaXRpZXMiLCJtYXRyaXhEaWdlc3QiOiI0MWMwMGFiNGRjMTZhNDU0NDkwMzg0M2NjYzdmNDJkM2M2YTI2ZDYyY2ExMDEwZWU3OWVmMWZmMTc2MTQ0Y2RmIiwibWF0cml4U291cmNlIjoiSDJBX0hPU1RfSE9PS19DQVBBQklMSVRJRVMiLCJvcmlnaW5BZ2VudFNlc3Npb25JZCI6ImZpeHR1cmUtb3JpZ2luQWdlbnRTZXNzaW9uSWQtMCIsInBsdWdpbkRpZ2VzdCI6bnVsbCwicGx1Z2luSWRlbnRpdHkiOm51bGwsInBsdWdpblZlcnNpb24iOm51bGwsInBvaW50T3JkZXJpbmciOltdLCJwcm92aWRlckRpYWxlY3QiOiJmaXh0dXJlLXByb3ZpZGVyRGlhbGVjdC0wIiwicHJvdmlkZXJUdXBsZURpZ2VzdCI6IjM3Y2YxMTBmZDk3NWY5M2QwMTIxNWQyY2U2ZDQ2OTViYTFmZDM3MmU4MWYyNmMwMmE3MjEzOTcwOTkwZDk0NTUiLCJyYzBDYXBhYmlsaXRpZXNEaWdlc3QiOiJhZmU4MWRiNzVlZTg3ZjZmNjNmMWVkNDQ1ODMxZjgwMTM5MmUxYTM1MWY0M2U5MmNhZTA0YjkxOWNhOTA1MGU3Iiwic291cmNlUmVmIjp7InNvdXJjZUdlbmVyYXRpb24iOjEsInNvdXJjZVNlc3Npb25JZCI6ImZpeHR1cmUtc291cmNlLXNlc3Npb24iLCJzdHJlYW1JbmNhcm5hdGlvbiI6ImZpeHR1cmUtc3RyZWFtIn19LCJkZW5pYWxGbG9vcnMiOltdLCJkZXNjcmlwdG9yIjp7ImFkbWlzc2lvblJlZnMiOltdLCJjYXBhYmlsaXRpZXNSZWYiOnsiZGlnZXN0IjoiM2FkNWQ2MGFkYTNjYjVkMzg5MWFiZmFiZmM0Y2E3MjIxMzViNDYwYjUwZDE2MTAxMDhhZmVkMjZmMzkxNDRmOCIsImlkIjoiZml4dHVyZS1pZC0wIiwicmV2aXNpb24iOjF9LCJjb252ZXJzYXRpb25CaW5kaW5nUmVmIjpudWxsLCJlbmdpbmVLaW5kIjoiY2xpIiwiZm9ybWF0IjoiY2x1c3Rlci1tZXNoLnNlc3Npb24vMSIsImtpbmQiOiJkZXNjcmlwdG9yIiwibDFBZ2VudFJlZiI6ImZpeHR1cmUtTDEiLCJsMkFnZW50U2Vzc2lvblJlZiI6ImZpeHR1cmUtTDIiLCJsb2dzIjpbXSwibmF0aXZlQmluZGluZyI6eyJzb3VyY2VHZW5lcmF0aW9uIjoxLCJzb3VyY2VTZXNzaW9uSWQiOiJmaXh0dXJlLXNvdXJjZS1zZXNzaW9uIiwic3RyZWFtSW5jYXJuYXRpb24iOiJmaXh0dXJlLXN0cmVhbSJ9LCJvYnNlcnZhdGlvblJlZnMiOltdLCJvcmlnaW5SZXZpc2lvbiI6Miwib3duZXJQcmluY2lwYWxCaW5kaW5nUmVmIjp7ImRpZ2VzdCI6ImVjY2VhYzAzYjRhOTVlYTYzZWM4OTZhMzMyNTg1Y2JjMjM2NzQ5YWE4ZGE5NWNlMTNiYjIxMTc5NjgxZGY0ZGYiLCJpZCI6ImZpeHR1cmUtaWQtMCIsInJldmlzaW9uIjoxfSwicm91dGVSZWZzIjpbXSwic2Vzc2lvblJlZiI6eyJpbmNhcm5hdGlvbiI6ImZpeHR1cmUtaW5jYXJuYXRpb24iLCJvcmlnaW5JbnN0YW5jZUlkIjoiZml4dHVyZS1CIiwic2Vzc2lvbklkIjoiZml4dHVyZS1zZXNzaW9uIn0sInNlc3Npb25UcmFjZUlkIjoiMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTEiLCJzdGF0ZSI6ImFkbWl0dGVkIiwidGVuYW50UmVmIjoiZml4dHVyZS10ZW5hbnRSZWYtMCIsIndvcmtzcGFjZU1hcHBpbmdSZWYiOnsiZGlnZXN0IjoiYjhiNWQxN2U0Yzg0YTIyOGZhYzZkNmJiMmY0Y2RhNWZjMDQ0M2JkYmI2MjY0YmU3N2QyZWViYjgyNzY3YjU3ZSIsImlkIjoiZml4dHVyZS1pZC0wIiwicmV2aXNpb24iOjF9LCJ3cml0ZXJFcG9jaCI6MX0sImV4cGlyZXNBdCI6MTc5MzUyMDAyMDAwMCwiZm9ybWF0IjoiY2x1c3Rlci1tZXNoLnNlc3Npb24vMSIsImlzc3VlZEF0IjoxNzkzNTIwMDAwMDAwLCJpc3N1ZXIiOiJmaXh0dXJlLW9yaWdpbi1yZWdpc3RyeSIsImtpZCI6ImZpeHR1cmUtb3JpZ2luLXJlZ2lzdHJ5LWtleSIsImtpbmQiOiJzbmFwc2hvdCIsIm9yaWdpblJldmlzaW9uIjoyLCJzZXNzaW9uUmVmIjp7ImluY2FybmF0aW9uIjoiZml4dHVyZS1pbmNhcm5hdGlvbiIsIm9yaWdpbkluc3RhbmNlSWQiOiJmaXh0dXJlLUIiLCJzZXNzaW9uSWQiOiJmaXh0dXJlLXNlc3Npb24ifSwidG9tYnN0b25lRmxvb3IiOjEsIndyaXRlckVwb2NoIjoxfQ==",
+      "projectionDigest": "0bc09c075c199399ceb207f2f320b24eb9be0545fe11f798e31b0dec8f2a3b8e"
+    }
+  ],
+  "activatedSignedSnapshot": {
+    "body": {
+      "format": "cluster-mesh.session/1",
+      "kind": "snapshot",
+      "sessionRef": {
+        "originInstanceId": "fixture-B",
+        "sessionId": "fixture-session",
+        "incarnation": "fixture-incarnation"
+      },
+      "writerEpoch": 1,
+      "originRevision": 2,
+      "tombstoneFloor": 1,
+      "denialFloors": [],
+      "descriptor": {
+        "format": "cluster-mesh.session/1",
+        "kind": "descriptor",
+        "sessionRef": {
+          "originInstanceId": "fixture-B",
+          "sessionId": "fixture-session",
+          "incarnation": "fixture-incarnation"
+        },
+        "engineKind": "cli",
+        "ownerPrincipalBindingRef": {
+          "id": "fixture-id-0",
+          "revision": 1,
+          "digest": "ecceac03b4a95ea63ec896a332585cbc236749aa8da95ce13bb21179681df4df"
+        },
+        "tenantRef": "fixture-tenantRef-0",
+        "workspaceMappingRef": {
+          "id": "fixture-id-0",
+          "revision": 1,
+          "digest": "b8b5d17e4c84a228fac6d6bb2f4cda5fc0443bdbb6264be77d2eebb82767b57e"
+        },
+        "l1AgentRef": "fixture-L1",
+        "l2AgentSessionRef": "fixture-L2",
+        "nativeBinding": {
+          "sourceSessionId": "fixture-source-session",
+          "sourceGeneration": 1,
+          "streamIncarnation": "fixture-stream"
+        },
+        "conversationBindingRef": null,
+        "writerEpoch": 1,
+        "originRevision": 2,
+        "capabilitiesRef": {
+          "id": "fixture-id-0",
+          "revision": 1,
+          "digest": "3ad5d60ada3cb5d3891abfabfc4ca722135b460b50d1610108afed26f39144f8"
+        },
+        "logs": [],
+        "observationRefs": [],
+        "admissionRefs": [],
+        "routeRefs": [],
+        "state": "admitted",
+        "sessionTraceId": "11111111111111111111111111111111"
+      },
+      "capabilities": {
+        "format": "h2a.session-capture/1",
+        "kind": "capabilities",
+        "hostKind": "claude",
+        "pluginIdentity": null,
+        "pluginVersion": null,
+        "pluginDigest": null,
+        "convergenceManifestDigest": null,
+        "cliExecutableDigest": "c8154809b56849e358886d181ebccefec8555c1c6814a63247796bb08979c650",
+        "cliVersion": "fixture-cliVersion-0",
+        "providerDialect": "fixture-providerDialect-0",
+        "sourceRef": {
+          "sourceSessionId": "fixture-source-session",
+          "sourceGeneration": 1,
+          "streamIncarnation": "fixture-stream"
+        },
+        "originAgentSessionId": "fixture-originAgentSessionId-0",
+        "rc0CapabilitiesDigest": "afe81db75ee87f6f63f1ed445831f801392e1a351f43e92cae04b919ca9050e7",
+        "providerTupleDigest": "37cf110fd975f93d01215d2ce6d4695ba1fd372e81f26c02a7213970990d9455",
+        "capabilityRevision": 1,
+        "bits": {
+          "ptyBytes": {
+            "state": "installed-qualified",
+            "producerRef": "fixture-native-pty",
+            "cliVersion": "fixture-cliVersion-0",
+            "dialect": "fixture-dialect-0",
+            "executableDigest": "531803905622dd13abfa2829283b99291a862c65a1fc5f8bdeaa22085f04ce13",
+            "pluginDigest": null,
+            "receiptDigest": "07ddaa9e3afedddf5416a3b165d2e237dacd5e31d375d78fdb93838f6d26c0d6",
+            "sourceGap": null
+          },
+          "structuredDeltas": {
+            "state": "unavailable",
+            "producerRef": "fixture-unavailable-provider",
+            "cliVersion": "fixture-cliVersion-0",
+            "dialect": "fixture-dialect-0",
+            "executableDigest": "e60151e5a4680c45a60f4662ae26bfb11c94623da6e8f17cdc34cf522b9a0a1c",
+            "pluginDigest": null,
+            "receiptDigest": null,
+            "sourceGap": "plugin-absent"
+          },
+          "completePermissionContext": {
+            "state": "unavailable",
+            "producerRef": "fixture-unavailable-provider",
+            "cliVersion": "fixture-cliVersion-0",
+            "dialect": "fixture-dialect-0",
+            "executableDigest": "843f5d851db75349560621c0d4ab644f105c8bd0b57537fb5f8491e01b8a9e07",
+            "pluginDigest": null,
+            "receiptDigest": null,
+            "sourceGap": "plugin-absent"
+          },
+          "literalInput": {
+            "state": "unavailable",
+            "producerRef": "fixture-unavailable-provider",
+            "cliVersion": "fixture-cliVersion-0",
+            "dialect": "fixture-dialect-0",
+            "executableDigest": "a51385e5713de6e0b96d830ee25b87beea90a4a50fe6b7c3c29c35bbc35141a6",
+            "pluginDigest": null,
+            "receiptDigest": null,
+            "sourceGap": "plugin-absent"
+          },
+          "permissionResponse": {
+            "state": "unavailable",
+            "producerRef": "fixture-unavailable-provider",
+            "cliVersion": "fixture-cliVersion-0",
+            "dialect": "fixture-dialect-0",
+            "executableDigest": "906f934857f86773ceb6e0d2c7dc2c7333a88386d2b3f0a3e80463c70ddf5ee2",
+            "pluginDigest": null,
+            "receiptDigest": null,
+            "sourceGap": "plugin-absent"
+          }
+        },
+        "matrixSource": "H2A_HOST_HOOK_CAPABILITIES",
+        "matrixDigest": "41c00ab4dc16a4544903843ccc7f42d3c6a26d62ca1010ee79ef1ff176144cdf",
+        "columns": [
+          {
+            "column": "typed-message",
+            "state": "gap",
+            "cliVersion": "fixture-1",
+            "dialect": "fixture-pty",
+            "receiptDigest": null,
+            "sourceGap": "provider-not-qualified"
+          },
+          {
+            "column": "typed-tool-call",
+            "state": "gap",
+            "cliVersion": "fixture-1",
+            "dialect": "fixture-pty",
+            "receiptDigest": null,
+            "sourceGap": "provider-not-qualified"
+          },
+          {
+            "column": "typed-tool-result",
+            "state": "gap",
+            "cliVersion": "fixture-1",
+            "dialect": "fixture-pty",
+            "receiptDigest": null,
+            "sourceGap": "provider-not-qualified"
+          },
+          {
+            "column": "permission-request",
+            "state": "gap",
+            "cliVersion": "fixture-1",
+            "dialect": "fixture-pty",
+            "receiptDigest": null,
+            "sourceGap": "provider-not-qualified"
+          },
+          {
+            "column": "permission-response",
+            "state": "gap",
+            "cliVersion": "fixture-1",
+            "dialect": "fixture-pty",
+            "receiptDigest": null,
+            "sourceGap": "provider-not-qualified"
+          },
+          {
+            "column": "literal-input",
+            "state": "gap",
+            "cliVersion": "fixture-1",
+            "dialect": "fixture-pty",
+            "receiptDigest": null,
+            "sourceGap": "provider-not-qualified"
+          },
+          {
+            "column": "pty-fallback",
+            "state": "enforced",
+            "cliVersion": "fixture-1",
+            "dialect": "fixture-pty",
+            "receiptDigest": "07ddaa9e3afedddf5416a3b165d2e237dacd5e31d375d78fdb93838f6d26c0d6",
+            "sourceGap": null
+          },
+          {
+            "column": "sub-agent-call-attribution",
+            "state": "gap",
+            "cliVersion": "fixture-1",
+            "dialect": "fixture-pty",
+            "receiptDigest": null,
+            "sourceGap": "provider-not-qualified"
+          }
+        ],
+        "pointOrdering": [],
+        "declaredLosses": [
+          "no-structured-deltas",
+          "incomplete-context",
+          "no-literal-input",
+          "no-permission-response"
+        ]
+      },
+      "issuedAt": 1793520000000,
+      "expiresAt": 1793520020000,
+      "issuer": "fixture-origin-registry",
+      "kid": "fixture-origin-registry-key"
+    },
+    "signature": {
+      "alg": "Ed25519",
+      "value": "DwiSqiSryFiGVE7AeStUXQGTWjeLB8w8xfDGt4P_nZT6lrDT35EN1UmH_SrO-0XscAHwN4OZ8cIP85kLJvbXAw"
+    }
+  },
+  "negative": [
+    {
+      "id": "listing-envelope-instead-of-coarse",
+      "visibility": "listing",
+      "value": {
+        "projection": {
+          "sessionRef": {
+            "originInstanceId": "fixture-B",
+            "sessionId": "fixture-session",
+            "incarnation": "fixture-incarnation"
+          },
+          "engineKind": "cli",
+          "providerClass": "claude",
+          "originRevision": 2,
+          "state": "running"
+        }
+      },
+      "expected": "digest-mismatch"
+    },
+    {
+      "id": "activated-signature-included",
+      "visibility": "activated",
+      "value": {
+        "body": {
+          "format": "cluster-mesh.session/1",
+          "kind": "snapshot",
+          "sessionRef": {
+            "originInstanceId": "fixture-B",
+            "sessionId": "fixture-session",
+            "incarnation": "fixture-incarnation"
+          },
+          "writerEpoch": 1,
+          "originRevision": 2,
+          "tombstoneFloor": 1,
+          "denialFloors": [],
+          "descriptor": {
+            "format": "cluster-mesh.session/1",
+            "kind": "descriptor",
+            "sessionRef": {
+              "originInstanceId": "fixture-B",
+              "sessionId": "fixture-session",
+              "incarnation": "fixture-incarnation"
+            },
+            "engineKind": "cli",
+            "ownerPrincipalBindingRef": {
+              "id": "fixture-id-0",
+              "revision": 1,
+              "digest": "ecceac03b4a95ea63ec896a332585cbc236749aa8da95ce13bb21179681df4df"
+            },
+            "tenantRef": "fixture-tenantRef-0",
+            "workspaceMappingRef": {
+              "id": "fixture-id-0",
+              "revision": 1,
+              "digest": "b8b5d17e4c84a228fac6d6bb2f4cda5fc0443bdbb6264be77d2eebb82767b57e"
+            },
+            "l1AgentRef": "fixture-L1",
+            "l2AgentSessionRef": "fixture-L2",
+            "nativeBinding": {
+              "sourceSessionId": "fixture-source-session",
+              "sourceGeneration": 1,
+              "streamIncarnation": "fixture-stream"
+            },
+            "conversationBindingRef": null,
+            "writerEpoch": 1,
+            "originRevision": 2,
+            "capabilitiesRef": {
+              "id": "fixture-id-0",
+              "revision": 1,
+              "digest": "3ad5d60ada3cb5d3891abfabfc4ca722135b460b50d1610108afed26f39144f8"
+            },
+            "logs": [],
+            "observationRefs": [],
+            "admissionRefs": [],
+            "routeRefs": [],
+            "state": "admitted",
+            "sessionTraceId": "11111111111111111111111111111111"
+          },
+          "capabilities": {
+            "format": "h2a.session-capture/1",
+            "kind": "capabilities",
+            "hostKind": "claude",
+            "pluginIdentity": null,
+            "pluginVersion": null,
+            "pluginDigest": null,
+            "convergenceManifestDigest": null,
+            "cliExecutableDigest": "c8154809b56849e358886d181ebccefec8555c1c6814a63247796bb08979c650",
+            "cliVersion": "fixture-cliVersion-0",
+            "providerDialect": "fixture-providerDialect-0",
+            "sourceRef": {
+              "sourceSessionId": "fixture-source-session",
+              "sourceGeneration": 1,
+              "streamIncarnation": "fixture-stream"
+            },
+            "originAgentSessionId": "fixture-originAgentSessionId-0",
+            "rc0CapabilitiesDigest": "afe81db75ee87f6f63f1ed445831f801392e1a351f43e92cae04b919ca9050e7",
+            "providerTupleDigest": "37cf110fd975f93d01215d2ce6d4695ba1fd372e81f26c02a7213970990d9455",
+            "capabilityRevision": 1,
+            "bits": {
+              "ptyBytes": {
+                "state": "installed-qualified",
+                "producerRef": "fixture-native-pty",
+                "cliVersion": "fixture-cliVersion-0",
+                "dialect": "fixture-dialect-0",
+                "executableDigest": "531803905622dd13abfa2829283b99291a862c65a1fc5f8bdeaa22085f04ce13",
+                "pluginDigest": null,
+                "receiptDigest": "07ddaa9e3afedddf5416a3b165d2e237dacd5e31d375d78fdb93838f6d26c0d6",
+                "sourceGap": null
+              },
+              "structuredDeltas": {
+                "state": "unavailable",
+                "producerRef": "fixture-unavailable-provider",
+                "cliVersion": "fixture-cliVersion-0",
+                "dialect": "fixture-dialect-0",
+                "executableDigest": "e60151e5a4680c45a60f4662ae26bfb11c94623da6e8f17cdc34cf522b9a0a1c",
+                "pluginDigest": null,
+                "receiptDigest": null,
+                "sourceGap": "plugin-absent"
+              },
+              "completePermissionContext": {
+                "state": "unavailable",
+                "producerRef": "fixture-unavailable-provider",
+                "cliVersion": "fixture-cliVersion-0",
+                "dialect": "fixture-dialect-0",
+                "executableDigest": "843f5d851db75349560621c0d4ab644f105c8bd0b57537fb5f8491e01b8a9e07",
+                "pluginDigest": null,
+                "receiptDigest": null,
+                "sourceGap": "plugin-absent"
+              },
+              "literalInput": {
+                "state": "unavailable",
+                "producerRef": "fixture-unavailable-provider",
+                "cliVersion": "fixture-cliVersion-0",
+                "dialect": "fixture-dialect-0",
+                "executableDigest": "a51385e5713de6e0b96d830ee25b87beea90a4a50fe6b7c3c29c35bbc35141a6",
+                "pluginDigest": null,
+                "receiptDigest": null,
+                "sourceGap": "plugin-absent"
+              },
+              "permissionResponse": {
+                "state": "unavailable",
+                "producerRef": "fixture-unavailable-provider",
+                "cliVersion": "fixture-cliVersion-0",
+                "dialect": "fixture-dialect-0",
+                "executableDigest": "906f934857f86773ceb6e0d2c7dc2c7333a88386d2b3f0a3e80463c70ddf5ee2",
+                "pluginDigest": null,
+                "receiptDigest": null,
+                "sourceGap": "plugin-absent"
+              }
+            },
+            "matrixSource": "H2A_HOST_HOOK_CAPABILITIES",
+            "matrixDigest": "41c00ab4dc16a4544903843ccc7f42d3c6a26d62ca1010ee79ef1ff176144cdf",
+            "columns": [
+              {
+                "column": "typed-message",
+                "state": "gap",
+                "cliVersion": "fixture-1",
+                "dialect": "fixture-pty",
+                "receiptDigest": null,
+                "sourceGap": "provider-not-qualified"
+              },
+              {
+                "column": "typed-tool-call",
+                "state": "gap",
+                "cliVersion": "fixture-1",
+                "dialect": "fixture-pty",
+                "receiptDigest": null,
+                "sourceGap": "provider-not-qualified"
+              },
+              {
+                "column": "typed-tool-result",
+                "state": "gap",
+                "cliVersion": "fixture-1",
+                "dialect": "fixture-pty",
+                "receiptDigest": null,
+                "sourceGap": "provider-not-qualified"
+              },
+              {
+                "column": "permission-request",
+                "state": "gap",
+                "cliVersion": "fixture-1",
+                "dialect": "fixture-pty",
+                "receiptDigest": null,
+                "sourceGap": "provider-not-qualified"
+              },
+              {
+                "column": "permission-response",
+                "state": "gap",
+                "cliVersion": "fixture-1",
+                "dialect": "fixture-pty",
+                "receiptDigest": null,
+                "sourceGap": "provider-not-qualified"
+              },
+              {
+                "column": "literal-input",
+                "state": "gap",
+                "cliVersion": "fixture-1",
+                "dialect": "fixture-pty",
+                "receiptDigest": null,
+                "sourceGap": "provider-not-qualified"
+              },
+              {
+                "column": "pty-fallback",
+                "state": "enforced",
+                "cliVersion": "fixture-1",
+                "dialect": "fixture-pty",
+                "receiptDigest": "07ddaa9e3afedddf5416a3b165d2e237dacd5e31d375d78fdb93838f6d26c0d6",
+                "sourceGap": null
+              },
+              {
+                "column": "sub-agent-call-attribution",
+                "state": "gap",
+                "cliVersion": "fixture-1",
+                "dialect": "fixture-pty",
+                "receiptDigest": null,
+                "sourceGap": "provider-not-qualified"
+              }
+            ],
+            "pointOrdering": [],
+            "declaredLosses": [
+              "no-structured-deltas",
+              "incomplete-context",
+              "no-literal-input",
+              "no-permission-response"
+            ]
+          },
+          "issuedAt": 1793520000000,
+          "expiresAt": 1793520020000,
+          "issuer": "fixture-origin-registry",
+          "kid": "fixture-origin-registry-key"
+        },
+        "signature": {
+          "alg": "Ed25519",
+          "value": "DwiSqiSryFiGVE7AeStUXQGTWjeLB8w8xfDGt4P_nZT6lrDT35EN1UmH_SrO-0XscAHwN4OZ8cIP85kLJvbXAw"
+        }
+      },
+      "expected": "digest-mismatch"
+    }
+  ]
+}
