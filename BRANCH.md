@@ -1,3 +1,22 @@
+# Identity self-heal — current boot and stale MCP failures
+
+- Branch: `fix/identity-same-boot-dead-chain`, based on `origin/main` db4857950.
+- Scope: identity-fence/succession-lock, MCP identity-state/server, the doctor
+  identity repair call, identity regression tests, and this evidence note.
+- Recover an exhausted current-boot chain only after every entry proves the
+  same machine/boot/PID namespace, a recorded start, and PID absence or a
+  different coherent /proc start. Rename originals into a durable quarantine
+  with per-entry JSON proof; retain the previous-boot predicate separately.
+- Re-observe retryable MCP identity failures and expose a fresh attempt ID on
+  a changed/vanished blocker. Preserve existing registry deadline discovery.
+- RED then GREEN evidence and execution deviations:
+  `docs/reviews/identity-selfheal2.md`. Scoped checks: 230 distinct checks pass,
+  zero skips; default 36-way MCP burst, no timeout increases. Typecheck passes.
+- Review selection unavailable: no installed h2a MCP launch tool; no peer
+  consensus claimed. Push a ready PR to main, follow CI, do not merge.
+- Private run directory: `/home/antoinefa/.cache-tmp/h2a-test/run-oVNjcF`;
+  removal and terminal CI are recorded in `tmp/h-cond/identity-selfheal2-last.md`.
+
 # Node 22 CI suite split — conductor decision 2026-11-01
 
 - Scope: `scripts/run-tests.mjs`, the gate deadline comment, independent
