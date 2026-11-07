@@ -8,6 +8,33 @@ import { environment, sourceBuild, repo, compliantQualificationRoot } from './xc
 import { parseWakeWindows } from './qualify-cross-cli.mjs';
 import { verifyWakePhases } from './xcli-ci-check.mjs';
 
+test('R31: invisible cursor redraws do not prevent a ready model from receiving a signed wake', () => {
+  const root = compliantQualificationRoot();
+  try {
+    const built = sourceBuild(root);
+    const fixture = join(root, 'cursor-noise.mjs');
+    fs.writeFileSync(fixture, `import { pathToFileURL } from 'node:url';
+setInterval(() => process.stdout.write('\\x1b[?25l\\x1b[?25h'), 100);
+await import(pathToFileURL(${JSON.stringify(join(repo, 'scripts/xcli-simulated-model.mjs'))}));
+`);
+    const executable = join(root, 'noisy-cli');
+    fs.writeFileSync(executable, `#!/bin/sh\nexec '${process.execPath}' '${fixture}' 'claude' "$@"\n`, { mode: 0o700 });
+    const result = spawnSync(process.execPath, [join(repo, 'scripts/qualify-cross-cli.mjs'), '--worker'], {
+      cwd: root, env: { ...environment(join(root, 'worker')), H2A_TEST_QUALIFICATION_ROOT: root },
+      input: JSON.stringify({ sender: 'claude', receiver: 'claude', root, build: built.path,
+        executables: { claude: executable }, timeoutMs: 30000, simulated: true,
+        wake: parseWakeWindows('1000,1000,3000', true), releaseOffsetMs: 0 }),
+      encoding: 'utf8', timeout: 45000, maxBuffer: 1024 * 1024,
+    });
+    assert.equal(result.status, 0);
+    const row = JSON.parse(result.stdout);
+    assert.equal(row.status, 'simulated-OK', JSON.stringify(row));
+    assert.equal(row.replyDelivered, true);
+    assert.equal(row.noPostSendHarnessInput, true);
+    assert.notEqual(row.cleanupFailed, true);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 // A real startup dialog may render its choice before it starts accepting keys.
 // No login or provider is used; after consent this runs the signed product path.
 test('a partially rendered Cancel-focused trust dialog completes before the live round trip', () => {
