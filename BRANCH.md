@@ -26,6 +26,11 @@
 - Preserve typed HTTP 429 and reset timestamps when the actual Muse provider
   response supplies them; raw provider output is never retained.
 - Live matrix qualification remains in progress.
+- Full passes 1 and 2 are recorded: 2/25 then 3/25 qualified pairs;
+  75/75 repetitions recorded per pass and zero cancellation cascade.
+  Muse now witnesses HTTP 429 with reset 2026-11-09T00:00:00Z.
+  One Vibe diagonal read measured 10040 ms, beyond the unchanged 10000 ms
+  bound; request the inbox tool as its next action before commentary.
 - Native Agy capture additionally requires standard optional message
   colons to be normalized before the published subset parser. Read at most
   the existing 1024-byte cap, refuse symlink sources, preserve strings and
