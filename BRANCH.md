@@ -59,6 +59,31 @@
   onboarding, with no expanded allowlist.
 - R32 qualification and final evidence: tmp/h-cond/xcli-r32-*.
 
+# Cross-CLI bench R33 — 2026-11-07
+
+- Owner decision (07/11, « Rattacher au siège codex »): the OpenCode seat
+  rides the EXISTING codex seat — one ChatGPT account, one quota pool
+  (read-only study: a single openai/oauth entry whose account hash equals
+  the codex CLI's). No llm-mesh change; the frozen five-CLI consumer
+  contract stays published as is.
+- The bench seat model replaces `llm-mesh-seat-contract-unavailable:opencode`
+  with the codex seat state: an enrolled codex account maps the OpenCode
+  seat names only (no envelope minted in any mode, so the protected upload
+  lane still refuses names-only), and a missing codex account leaves the
+  OpenCode seat the codex refusal with the codex owner enroll command.
+- The codex per-seat quota stop also stops opencode-riding cells through the
+  mapped seat: same proof (native limit-reached observed on the codex seat),
+  same reset (2026-11-11T18:43Z). Custody, signatures and wipe proof are
+  unchanged; no extra credential byte is read or copied.
+- The OpenCode login is its own dimension: the stored access token expired
+  2026-09-14, a review-carried fact — never a runtime read of the owner
+  store. Beyond any codex stop those cells are closed by the typed owner
+  action gate; inside it, the owner login (absolute command
+  `/home/antoinefa/.opencode/bin/opencode auth login`) is recorded per cell
+  as a classification separate from the quota cause. The binary resolves
+  by its reviewed absolute path; the owner PATH is never edited.
+- R33 matrix and evidence: tmp/h-cond/xcli-r33-*.
+
 # Cross-CLI bench R31 — 2026-11-06
 
 - Owner orders a full 25-pair campaign until 20 measured green pairs, or
