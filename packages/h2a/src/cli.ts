@@ -6218,13 +6218,15 @@ function cmdDoctor(
   // 4. h2a binary reachable (self-check via existing API)
   checks.cliBinary = { ok: true };
 
-  // 4b. Identity previous-boot succession chain. A reboot can leave
+  // 4b. Identity provably-dead succession chain. A reboot can leave
   // `identity/.lock` plus a full SUCC chain owned by the previous boot;
   // the fence then fails closed (`succ-chain-exhausted`) forever. With
   // `--repair`, a chain whose every record is provably from another boot
-  // of this same machine is quarantined with a durable backup (typed
-  // diagnostic `recovered-previous-boot-chain`); any other chain is left
-  // untouched. Without `--repair` this probe never mutates.
+  // of this same machine is quarantined with a durable backup. An exhausted
+  // current-boot chain also qualifies when every entry has the same machine
+  // and PID namespace, a recorded start, and an absent PID or mismatching
+  // /proc start. That move-aside includes a per-entry JSON proof receipt.
+  // Any unproven entry keeps the refusal. Without `--repair` this never mutates.
   // `--repair --dry-run` reports without mutating, like every other doctor
   // repair surface.
   if (flags.repair === "true" && flags["dry-run"] !== "true") {
@@ -6250,13 +6252,13 @@ function cmdDoctor(
       ok: true,
       skipped: true,
       dryRun: true,
-      message: "dry-run: pass --repair without --dry-run to recover a previous-boot identity succession chain"
+      message: "dry-run: pass --repair without --dry-run to recover a proven-dead identity succession chain"
     };
   } else {
     checks.identityPreviousBootChain = {
       ok: true,
       skipped: true,
-      message: "pass --repair to recover a previous-boot identity succession chain"
+      message: "pass --repair to recover a proven-dead identity succession chain"
     };
   }
 
