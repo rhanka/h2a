@@ -41,7 +41,13 @@ export async function runMuseAuthPrecheck({ seat, executable, root, modelCalls =
   if (response.status === 0 && response.stdout.trim() === marker) {
     return { ok: true, modelCalls: spent, detail: 'model-response-accepted' };
   }
+  const quota = /quota exceeded|usage limit|rate.?limit|credits exhausted|insufficient credits|limit reached|\b429\b/i.test(response.text);
+  // Preserve only typed, non-secret provider facts. Never retain the raw
+  // provider output, which may be credential-adjacent.
+  const reset = response.text.match(/reset(?:s|ting)?(?:\s+(?:time|at|on))?\s*[:=]?\s*(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?Z)/i)?.[1];
   return { ok: false, modelCalls: spent,
-    reason: /quota exceeded|usage limit|rate.?limit|credits exhausted|insufficient credits|limit reached/i.test(response.text)
-      ? 'provider-quota' : 'preflight-auth-unproven' };
+    reason: quota ? 'provider-quota' : 'preflight-auth-unproven',
+    ...(quota ? { providerQuota: { observed: true,
+      ...(/\b429\b/.test(response.text) ? { httpStatus: 429 } : {}),
+      ...(reset && Number.isFinite(Date.parse(reset)) ? { resetAt: new Date(reset).toISOString() } : {}) } } : {}) };
 }

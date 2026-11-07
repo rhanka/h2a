@@ -72,6 +72,98 @@ test('L7: LOGIN_ALLOWLIST is the published table, not a bench copy', async () =>
 
 const SYNTH_SCOPE = 'test-scope-l7';
 
+test('L7 R31: the reviewed Agy 1.5.2 schema preserves published validators and rejects incomplete steps', async () => {
+  const reviewed = await import('./xcli-seat-onboarding.mjs');
+  const published = await import('@sentropic/llm-mesh/enrollment');
+  assert.equal(reviewed.validateSeatEnvelope, published.validateSeatEnvelope);
+  assert.equal(reviewed.validateAgyJetskiContent, published.validateAgyJetskiContent);
+  const steps = vendor.AGY_REQUIRED_COMPLETED_STEPS['1.4.12'];
+  const bytes = vendor.canonicalAgyJetskiBytes('1.4.12', steps);
+  assert.equal(reviewed.validateAgyJetskiContent(bytes, '1.5.2'), null);
+  assert.equal(reviewed.validateAgyJetskiContent(bytes, '1.5.3'), 'onboarding-shape-unverified');
+  for (const step of steps) {
+    const partial = bytes.split('\n').filter(line => !line.includes(step)).join('\n');
+    assert.equal(reviewed.validateAgyJetskiContent(partial, '1.5.2'), 'onboarding-incomplete');
+  }
+  for (const extra of ['POST_ONBOARDING_STEP_TYPE_UNSPECIFIED', 'POST_ONBOARDING_STEP_TYPE_UNKNOWN', steps[0]]) {
+    const invalid = bytes.replace('}', `  completed_steps: ${extra}\n}`);
+    assert.equal(reviewed.validateAgyJetskiContent(invalid, '1.5.2'), 'onboarding-shape-unverified');
+  }
+});
+
+test('L7 R31: capture and preflight reject a different Agy binary before credential access', async () => {
+  const { buildSeatEnvelope } = await provision();
+  const { runSeatPreflight } = await import('./xcli-seats.mjs');
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-agy-binary-'));
+  const previousPath = process.env.PATH;
+  let accountRead = false;
+  try {
+    const executable = join(root, 'agy');
+    fs.writeFileSync(executable, `#!${process.execPath}\nconsole.log('1.5.2');\n`, { mode: 0o700 });
+    process.env.PATH = root;
+    await assert.rejects(buildSeatEnvelope({ seatId: 'agy', slot: { slot: '00' },
+      homeDir: join(root, 'absent-home'), ownerScope: SYNTH_SCOPE,
+      cliVersions: { agy: '1.5.2' },
+      meshFacade: { listAccounts: async () => { accountRead = true; return []; } } }),
+    /onboarding-binary-unreviewed:agy:1\.5\.2/);
+    assert.equal(accountRead, false, 'refusal precedes mesh and credential reads');
+    const result = await runSeatPreflight({ seatId: 'agy', family: 'agy', authSource: join(root, 'absent-seat') },
+      { executables: { agy: executable } });
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, 'onboarding-binary-unreviewed:agy:1.5.2');
+    assert.equal(result.modelCalls, 0);
+  } finally {
+    process.env.PATH = previousPath;
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('L7 R31: Agy 1.5.2 capture survives fresh-process validation and both materialization stages', async () => {
+  const reviewed = await import('./xcli-seat-onboarding.mjs');
+  const { buildSeatEnvelope, validateEnvelopeViaFd } = await provision();
+  const { materialiseSeatCell } = await import('./xcli-seat-import.mjs');
+  const bytes = reviewed.canonicalAgyJetskiBytes('1.5.2', reviewed.AGY_REQUIRED_COMPLETED_STEPS['1.5.2']);
+  const homeDir = agyHome(bytes);
+  const layout = cellLayout();
+  let staged;
+  try {
+    // Build synthetic auth/profile material from the legacy fixture, then
+    // capture the new version independently through the published API.
+    const built = await buildSeatEnvelope({ seatId: 'agy', slot: { slot: '00' }, homeDir,
+      ownerScope: SYNTH_SCOPE, issuedAt: '2026-11-06T00:00:00.000Z', operationId: 'op-r31-agy',
+      meshFacade: stubAccounts(['cloud-code', 'acct-r31-agy']), meshScope: SYNTH_SCOPE,
+      cliVersions: { agy: '1.4.12' } });
+    const captured = await reviewed.captureSeatOnboarding({ cli: 'agy', seatRef: 'agy',
+      ownerScope: SYNTH_SCOPE, accountBinding: 'acct-r31-agy', nativeCliVersion: '1.5.2',
+      os: 'linux', capturedAt: '2026-11-06T00:00:00.000Z',
+      lineage: built.envelope.onboarding.lineage, cellSynthesis: [], sourceHome: homeDir,
+      selector: { sourceRelPath: reviewed.CAPTURE_SOURCES.agy } });
+    assert.equal(captured.ok, true);
+    built.envelope.onboarding = captured.block;
+    built.envelope.bundle.identity.nativeCliVersion = '1.5.2';
+    const envelopeFile = join(layout.root, 'synthetic-envelope.json');
+    fs.writeFileSync(envelopeFile, JSON.stringify(built.envelope), { mode: 0o600 });
+    const receipt = validateEnvelopeViaFd({ seatId: 'agy', envelopeFile,
+      slotManifestFile: new URL('../docs/cross-cli-seat-slots.json', import.meta.url).pathname });
+    assert.equal(receipt.onboardingStatus, 'present');
+    staged = await stageOne('agy', 'agy', built.envelope);
+    assert.equal(staged.result.manifest.seats[0].onboarding.status, 'present');
+    const input = { cli: 'agy', seatDir: staged.seatDir, cellHome: layout.cellHome,
+      workspaceDir: layout.workspace, configDirs: layout.configDirs,
+      expectedNativeCliVersion: '1.5.2', ownerScope: SYNTH_SCOPE,
+      authFiles: ['.gemini/antigravity-cli/antigravity-oauth-token'], destKeys: ['agy-jetski'] };
+    const result = await materialiseSeatCell(input);
+    assert.ok(result.copied.includes('.gemini/antigravity-cli/jetski_state.pbtxt'));
+    assert.equal(fs.readFileSync(join(layout.cellHome, '.gemini/antigravity-cli/jetski_state.pbtxt'), 'utf8'), bytes);
+    await assert.rejects(materialiseSeatCell({ ...input, expectedNativeCliVersion: '1.4.12' }), /onboarding-version-mismatch/);
+    assert.equal(fs.existsSync(layout.cellHome), false, 'a version mismatch leaves no cell home');
+  } finally {
+    if (staged) fs.rmSync(staged.dir, { recursive: true, force: true });
+    fs.rmSync(homeDir, { recursive: true, force: true });
+    fs.rmSync(layout.root, { recursive: true, force: true });
+  }
+});
+
 function syntheticHome(files) {
   const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-onboard-home-'));
   for (const [rel, content] of Object.entries(files)) {

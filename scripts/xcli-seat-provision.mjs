@@ -33,7 +33,8 @@ import { materialiseSeatEnvelopes, parseCliSeatProfile,
 import { SEAT_BUNDLE_MAX_BYTES } from './xcli-seat-vendor/seat-bundle.js';
 import { MESH_SEAT_PROVIDERS, createMeshSeatFacade, requireMeshAccount,
   acquireVibeKey, meshOwnerScope } from './xcli-llm-mesh-seats.mjs';
-import { AGY_REQUIRED_COMPLETED_STEPS, CAPTURE_SOURCES, captureSeatOnboarding, seatLaunchGate } from './xcli-seat-vendor/seat-onboarding.js';
+import { AGY_REQUIRED_COMPLETED_STEPS, CAPTURE_SOURCES, captureSeatOnboarding, seatLaunchGate,
+  AGY_ONBOARDING_REVIEW, agyOnboardingBinaryRefusal } from './xcli-seat-onboarding.mjs';
 import { cliPath } from './xcli-lab.mjs';
 
 const self = fileURLToPath(import.meta.url);
@@ -153,6 +154,22 @@ export async function buildSeatEnvelope({ seatId, slot, homeDir, ownerScope = 'o
   assert.ok(seatId && slot && homeDir, 'seat, slot and home required');
   const identity = SEAT_IDENTITIES[seatId];
   if (!identity) throw new Error(`seat-unknown:${seatId}`);
+  // Qualify the reviewed extension before any account or source-file read.
+  // Hash the resolved executable directly; never copy the binary.
+  if (identity.cli === 'agy' &&
+      cliVersions.agy === AGY_ONBOARDING_REVIEW.nativeCliVersion) {
+    let binaryDigest = null;
+    try {
+      const executable = cliPath('agy', process.env.PATH ?? '');
+      if (executable && fs.statSync(executable).isFile()) {
+        const hash = createHash('sha256');
+        for await (const chunk of fs.createReadStream(executable)) hash.update(chunk);
+        binaryDigest = hash.digest('hex');
+      }
+    } catch { /* names-only refusal below */ }
+    const refusal = agyOnboardingBinaryRefusal(cliVersions.agy, binaryDigest);
+    if (refusal) throw new Error(`${refusal}:agy:${cliVersions.agy}`);
+  }
   const allowlisted = LOGIN_ALLOWLIST[identity.cli] ?? null;
   if (allowlisted === null) throw new Error(`login-not-confined:${seatId}`);
   const raws = [];
