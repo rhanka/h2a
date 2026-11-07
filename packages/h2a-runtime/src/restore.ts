@@ -618,6 +618,8 @@ export function registrySessions(
     }
     // Live Gemini enrollment does not establish a measured resume contract.
     if (e.tool === "gemini") continue;
+    // OpenCode bench rows never enter the published five-seat resume set.
+    if (e.tool === "opencode") continue;
     const project = projectForCwd(src, e.cwd);
     if (!project) continue;
     const seen = Date.parse(e.lastSeenAt);
