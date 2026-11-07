@@ -17,6 +17,7 @@ import { materialiseSeatCell, onboardingLaunchBlock } from './xcli-seat-import.m
 import { assertCyberManifest, assertNoAuthHome } from './xcli-seat-custody.mjs';
 import { startupTerminal } from './xcli-terminal.mjs';
 import { verifyWakeBatch } from './xcli-ci-check.mjs';
+import { wakeSeparationTargets, planWakeRelease } from './xcli-wake-schedule.mjs';
 import { correlateWakeInput } from './xcli-wake-host.mjs';
 import { buildSupervisor, supervisedCommand, supervisorResult } from './xcli-process-supervisor.mjs';
 import { scanEvidenceText } from './xcli-evidence-scan.mjs';
@@ -902,7 +903,10 @@ async function worker() {
       if (!row.blocker) row.failure = row.sent ? 'live-receive-not-observed' : 'sender-send-not-observed';
     } else {
       row.wakeWindows.deliveryAt = deliveryAt;
-      let releaseAt = deliveryAt + w1Ms + releaseOffsetMs;
+      const planned = planWakeRelease({ barrierAt, deliveryAt, w1Ms, releaseOffsetMs,
+        targets: request.wakeSeparationTargets ?? [] });
+      let releaseAt = planned.releaseAt;
+      if (planned.target) row.wakeWindows.separationTarget = planned.target;
       if (claimsWake && releaseAt + notifyIntervalMs + 100 + dMs > deadline) {
         row.blocker = 'wake-window-unfunded'; return row;
       }
@@ -1468,6 +1472,13 @@ async function main() {
       seats: { sender: run.senderSeat, receiver: run.receiverSeat }, seatMode,
       mcpCallCap: caps.mcpCallsPerSession,
       simulated, dropWake: process.argv.includes('--drop-simulated-wake'),
+      // Real runs adapt to already witnessed startup jitter. Simulated
+      // polling/overlap controls retain their deliberately fixed schedule.
+      wakeSeparationTargets: simulated ? [] : wakeSeparationTargets(cells.filter(c =>
+        c.sender === sender && c.receiver === receiver &&
+        (c.seats?.sender ?? null) === (run.senderSeat ?? null) &&
+        (c.seats?.receiver ?? null) === (run.receiverSeat ?? null) &&
+        (c.scenario ?? 'probe') === scenarioSpec)),
       wakePolicy: campaignWakePolicy(receiver, { simulated }),
       wake: { ...wakeWindows, dMs: option('--wake-windows') === undefined
         ? campaignWakePolicy(receiver, { simulated }).boundMs
