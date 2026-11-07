@@ -94,14 +94,6 @@ export function interimLayout(document) {
   return { nodes, boxes, contentTops, refusals };
 }
 
-export function interimNodes(document) {
-  const layout = interimLayout(document);
-  if (layout.refusals.length) {
-    throw new Error(`Diagram placement refused: ${layout.refusals.map(d => `${d.code} ${d.slot} ${d.entityId}`).join('; ')}`);
-  }
-  return layout.nodes;
-}
-
 /** Every diagram entity as an embedded DC-1 view, or a typed refusal. Nodes and childless
  * containers are cards; containers with children are zones with their folded card face. */
 export function renderDiagramViews(document, options = {}) {

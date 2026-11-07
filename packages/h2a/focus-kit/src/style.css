@@ -22,6 +22,7 @@ blockquote { border-left: 1px solid var(--st-semantic-border-strong); padding-le
 figure { margin: 0; }
 figcaption { font-weight: 600; }
 .canvas { height: 480px; width: 100%; border: 1px solid var(--st-semantic-border-subtle); border-radius: .5rem; overflow: hidden; }
+.diagram-refusal { border: 1px solid var(--st-semantic-border-strong); border-radius: .5rem; padding: .75rem 1rem; }
 .ecosystem-svg svg { display: block; }
 .svelte-flow__edge-path { stroke-width: 1px !important; }
 .svelte-flow__controls-button { min-width: 40px; min-height: 40px; border-width: 0 0 1px; }

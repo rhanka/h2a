@@ -1133,13 +1133,6 @@ function interimLayout(document) {
   nodes.sort((a, b) => depth(a.id) - depth(b.id));
   return { nodes, boxes, contentTops, refusals };
 }
-function interimNodes(document) {
-  const layout = interimLayout(document);
-  if (layout.refusals.length) {
-    throw new Error(`Diagram placement refused: ${layout.refusals.map((d) => `${d.code} ${d.slot} ${d.entityId}`).join("; ")}`);
-  }
-  return layout.nodes;
-}
 function renderDiagramViews(document, options = {}) {
   const layout = interimLayout(document);
   if (layout.refusals.length) return { kind: "refused", diagnostics: layout.refusals };
@@ -1169,7 +1162,6 @@ function renderDiagramViews(document, options = {}) {
 export {
   containmentOf,
   interimLayout,
-  interimNodes,
   projectionOf,
   renderDiagramViews
 };
