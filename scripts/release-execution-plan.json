@@ -1,6 +1,6 @@
 {
   "resolve-release-sha": {
-    "runs-on": "ubuntu-latest",
+    "runs-on": "ubuntu-24.04",
     "outputs": {
       "release-sha": "${{ steps.resolve.outputs.sha }}"
     },
@@ -52,7 +52,7 @@
       "fail-fast": false,
       "matrix": {
         "os": [
-          "ubuntu-latest"
+          "ubuntu-24.04"
         ],
         "node": [
           "22",
@@ -196,7 +196,7 @@
   "publish": {
     "needs": "verify",
     "if": "${{ !cancelled() && !failure() && needs.verify.result == 'success' }}",
-    "runs-on": "ubuntu-latest",
+    "runs-on": "ubuntu-24.04",
     "steps": [
       {
         "uses": "actions/checkout@v4",
