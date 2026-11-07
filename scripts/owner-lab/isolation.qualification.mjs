@@ -79,7 +79,20 @@ test('oom-isolation: effective sibling cgroups survive launcher death and a boun
     assert.equal(readFileSync(join(controller, 'memory.high'), 'utf8').trim(), 'max');
     const lease = await client.acquireController('h2a-lab-3', 'bounded-fault');
     await client.write(lease, 'memory-fault\n');
-    const events = await eventually(() => readFileSync(join(controller, 'memory.events'), 'utf8'), value => /oom_kill [1-9]/.test(value));
+    const events = await eventually(() => readFileSync(join(controller, 'memory.events'), 'utf8'), value => /oom_kill [1-9]/.test(value)).catch(e => {
+      const pids = children.join(',');
+      const snapshot = {
+        oomd: spawnSync('systemctl', ['is-active', 'systemd-oomd'], { encoding: 'utf8' }).stdout.trim(),
+        userManagedOOM: spawnSync('systemctl', ['show', `user@${process.getuid()}.service`, '-p', 'ManagedOOMMemoryPressure', '-p', 'ManagedOOMMemoryPressureLimit'], { encoding: 'utf8' }).stdout.trim(),
+        workerCgroup: (() => { try { return readFileSync(`/proc/${pids}/cgroup`, 'utf8').trim(); } catch (err) { return `gone: ${err.code}`; } })(),
+        workerAlive: (() => { try { process.kill(children[0], 0); return true; } catch (err) { return err.code; } })(),
+        memoryCurrent: (() => { try { return readFileSync(join(controller, 'memory.current'), 'utf8').trim(); } catch (err) { return err.code; } })(),
+        memoryPressure: (() => { try { return readFileSync(join(controller, 'memory.pressure'), 'utf8').trim(); } catch (err) { return err.code; } })(),
+        memoryStatAnon: (() => { try { return /anon (\d+)/.exec(readFileSync(join(controller, 'memory.stat'), 'utf8'))?.[1] ?? '?'; } catch (err) { return err.code; } })(),
+        kernel: readFileSync('/proc/sys/kernel/osrelease', 'utf8').trim(),
+      };
+      assert.fail(`DIAG ${e.message} | ${JSON.stringify(snapshot)}`);
+    });
     await client.releaseController(lease).catch(() => {});
     assert.equal((await client.ping()).hostPid, hostPid);
     await usable(f, 'h2a-human-1', 'after-worker-oom');
