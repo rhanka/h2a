@@ -4,7 +4,7 @@ review-author:
   host: codex
   model: gpt-6.1-sol
   effort: xhigh
-target-ref: 236820476a7311ec26e73ebdc9eac97851833866
+target-ref: d46eddb7704e516c120c1a1a0fe81c049e876b63
 observed-failure: No installed h2a MCP launch tool is available in this confinement; no eligible independent review legs could be dispatched.
 ---
 
@@ -28,7 +28,9 @@ keeps its separate predicate and behavior.
 
 The shared recovery election and generation checks select one recoverer.
 A dead recovery-election owner is succeeded through the existing fence
-engine. Before moving anything, the winner makes durable byte copies and a
+engine. Ordinary succession also checks that election before publishing:
+it cannot enter through a temporarily shortened chain while quarantine is
+moving the old successors. Before moving anything, the winner makes durable byte copies and a
 0600 `receipt.json`, then rechecks every original's inode and contents. The
 current-boot originals are renamed into `.stale-aside-<UTC stamp>-<nonce>/`,
 with the lock moved last. The receipt records the actor, UTC time, every
@@ -70,6 +72,7 @@ The local run directory is
 | `historical-green --test-concurrency=1` with identity-lock-v6, identity-lock-incident, identity-lock-stdio-v6, identity-lock-legacy-v6 | 59 tests, 59 pass, 0 fail, 0 skipped |
 | `other-identity-green --test-concurrency=1` with identity-bindings, identity-migration, identity-readers, identity, identity-resolver, identity-schema, identity-live-wiring, identity-keypair-contention, identity-binding-contention, identity-lock-legacy-predicates, identity-worker-optional-sdk, identity-lock-mcp-v6, identity-operator-break | 90 tests, 90 pass, 0 fail, 0 skipped |
 | `mcp-final --test-concurrency=1` with mcp-identity-burst, mcp-identity-readiness, identity-stale-failure | 20 tests, 20 pass, 0 fail, 0 skipped |
+| `green-shortened-chain --test-concurrency=1` with identity-sameboot-succ-chain, identity-prevboot-succ-chain, identity-fence, identity-lock-recovery, identity-state, identity-stale-failure | 68 tests, 68 pass, 0 fail, 0 skipped |
 
 Each short filename above expands to `packages/h2a/test/<name>.test.js`.
 The two added files include both death proofs, refusal at the lock/middle/tail,
@@ -80,8 +83,11 @@ refresh, and repeated pending calls retaining exactly one worker.
 The burst/readiness batch initially found a registry deadline-discovery
 regression (9 pass, 1 fail); commit 236820476 fixes it without changing its
 assertion or time bound. Final MCP output: 20 tests, 20 pass, 0 fail, 0 skipped;
-the burst cohort retains its default 36 connections. The table covers 230
-distinct checks (the 10 stale-failure checks appear in two batches).
+the burst cohort retains its default 36 connections. A further deterministic
+quarantine/succession interleaving failed first (0 pass, 1 fail: an ordinary
+acquirer entered after the first successor moved), then passed with the
+shared-election guard. The table covers 231 distinct checks, with intentional
+overlap in the focused reruns.
 
 `npm run typecheck` and `git diff --check` passed. No independent peer
 consensus is claimed; the metadata above records the unavailable selection.
