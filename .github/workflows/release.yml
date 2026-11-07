@@ -80,7 +80,10 @@ jobs:
     # tag pushes AND backfill dispatches. The old `if: github.event_name == 'push'`
     # let a backfill publish with zero tests on the same workflow.
     needs: [resolve-release-sha, native-recovery]
-    runs-on: ${{ matrix.os }}
+    # Runner image pin: the matrix label stays ubuntu-latest (stable leg names
+    # and qualified plan); the 24.04 image is pinned by the mapping —
+    # TODO(migrate-26.04), Track: 01M6VTPX93E083FX480N9MF5FY.
+    runs-on: ${{ matrix.os == 'ubuntu-latest' && 'ubuntu-24.04' || matrix.os }}
     # SPEC 0.98.5 R8: verify now also runs the runtime TypeScript suites
     # (npm test) and the packaged-artifact smoke; 15 minutes no longer fits.
     timeout-minutes: 30
@@ -99,7 +102,9 @@ jobs:
         # the macOS/Node-20 runner — are pre-existing on main and unrelated to any release.
         # What this gate no longer proves: that the released code works on macOS or Windows.
         # `smoke-install` on push-to-main still exercises the PUBLISHED package on all three.
-        os: [ubuntu-24.04]
+        # The label stays ubuntu-latest (stable leg names/qualified plan); the
+        # 24.04 image is pinned by the mapped runs-on.
+        os: [ubuntu-latest]
         node: ["22", "24"]
     steps:
       # SPEC 0.98.5 R8.2: verify NEVER resolves the SHA itself — the ONE

@@ -572,7 +572,7 @@ test('CI exposes an independent, stable npm-test-trust-root job with a closed M1
 })
 test('CI companion negative controls reject skipped-green dependencies and stale or optional evidence', () => {
   for (const [before, after] of [
-    ['    if: ${{ always() }}\n    runs-on: ${{ matrix.os }}', '    if: ${{ success() }}\n    runs-on: ${{ matrix.os }}'],
+    ['    if: ${{ always() }}\n    runs-on: ${{ matrix.os == \'ubuntu-latest\' && \'ubuntu-24.04\' || matrix.os }}', '    if: ${{ success() }}\n    runs-on: ${{ matrix.os == \'ubuntu-latest\' && \'ubuntu-24.04\' || matrix.os }}'],
     ['needs: [m17-qualification, bulk-qualification, node-shard]', 'needs: [m17-qualification, bulk-qualification]'],
     ['run: test "$SHARDS_RESULT" = success', 'run: true'],
     ['needs: [m17-qualification, bulk-qualification]\n    if: ${{ always() }}', 'needs: []\n    if: ${{ always() }}'],
