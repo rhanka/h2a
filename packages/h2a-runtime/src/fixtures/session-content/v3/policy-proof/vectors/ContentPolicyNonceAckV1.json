@@ -1,0 +1,40 @@
+{
+  "record": "ContentPolicyNonceAckV1",
+  "evidenceLevel": "synthetic schema and signature fixtures only; no installed authority",
+  "positive": [
+    {
+      "id": "ContentPolicyNonceAckV1-shape-positive",
+      "expect": "ACCEPT_SHAPE",
+      "value": {
+        "format": "h2a.session-content-policy/1",
+        "kind": "nonce-ack",
+        "proposalId": "yiQizBr029OAfDmrrbGYYQ",
+        "policyOperationId": "f6WI-M7sJlqqvgZTCMmCfw",
+        "nonceDigest": "15c2e7b0f87e1e02d751ed7566aaf397485696693815c6e06b862ea9675f3c3e",
+        "status": "committed"
+      },
+      "bytes": {
+        "json": {
+          "base64": "eyJmb3JtYXQiOiJoMmEuc2Vzc2lvbi1jb250ZW50LXBvbGljeS8xIiwia2luZCI6Im5vbmNlLWFjayIsIm5vbmNlRGlnZXN0IjoiMTVjMmU3YjBmODdlMWUwMmQ3NTFlZDc1NjZhYWYzOTc0ODU2OTY2OTM4MTVjNmUwNmI4NjJlYTk2NzVmM2MzZSIsInBvbGljeU9wZXJhdGlvbklkIjoiZjZXSS1NN3NKbHFxdmdaVENNbUNmdyIsInByb3Bvc2FsSWQiOiJ5aVFpekJyMDI5T0FmRG1ycmJHWVlRIiwic3RhdHVzIjoiY29tbWl0dGVkIn0=",
+          "byteLength": 245,
+          "sha256": "9dc6fe1e6b1a4a4bb7345565bb0e32e6d119008c740f6f31ac2dd3a06a012556"
+        }
+      }
+    }
+  ],
+  "negative": [
+    {
+      "id": "ContentPolicyNonceAckV1-unknown-field",
+      "expect": "REJECT_SCHEMA",
+      "value": {
+        "format": "h2a.session-content-policy/1",
+        "kind": "nonce-ack",
+        "proposalId": "yiQizBr029OAfDmrrbGYYQ",
+        "policyOperationId": "f6WI-M7sJlqqvgZTCMmCfw",
+        "nonceDigest": "15c2e7b0f87e1e02d751ed7566aaf397485696693815c6e06b862ea9675f3c3e",
+        "status": "committed",
+        "__unknown": "forbidden"
+      }
+    }
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "record": "ContentPolicyEvidenceRequestV1",
+  "evidenceLevel": "synthetic schema and signature fixtures only; no installed authority",
+  "positive": [
+    {
+      "id": "ContentPolicyEvidenceRequestV1-shape-positive",
+      "expect": "ACCEPT_SHAPE",
+      "value": {
+        "format": "h2a.session-content-policy/1",
+        "kind": "evidence-request",
+        "policyOperationId": "rzwue833Klh2yhovHGctgQ",
+        "proposalId": "QGdNCXJZfTsOikvIEuvnPA",
+        "purpose": "share",
+        "targetDigest": "4cc1e58566104c2e7d143eded5aaef551fdfeb863c2d5e05412fde90c303a2c6",
+        "policyDigest": "65d9f0d8e20cd3ca4040d4c50b2382520e090f357f29bc2cd51c7a204bf7a346",
+        "priorPolicyDigest": null,
+        "expectedPolicyRevision": 1,
+        "nonceId": "1B6E1DbzNjHDoW0_E94h6A",
+        "sid": "fixture-sid-0",
+        "sessionVersion": 1,
+        "sessionCredential": "PUBLIC-SYNTHETIC-CREDENTIAL-NON-AUTHORITATIVE"
+      },
+      "bytes": {
+        "json": {
+          "base64": "eyJleHBlY3RlZFBvbGljeVJldmlzaW9uIjoxLCJmb3JtYXQiOiJoMmEuc2Vzc2lvbi1jb250ZW50LXBvbGljeS8xIiwia2luZCI6ImV2aWRlbmNlLXJlcXVlc3QiLCJub25jZUlkIjoiMUI2RTFEYnpOakhEb1cwX0U5NGg2QSIsInBvbGljeURpZ2VzdCI6IjY1ZDlmMGQ4ZTIwY2QzY2E0MDQwZDRjNTBiMjM4MjUyMGUwOTBmMzU3ZjI5YmMyY2Q1MWM3YTIwNGJmN2EzNDYiLCJwb2xpY3lPcGVyYXRpb25JZCI6InJ6d3VlODMzS2xoMnlob3ZIR2N0Z1EiLCJwcmlvclBvbGljeURpZ2VzdCI6bnVsbCwicHJvcG9zYWxJZCI6IlFHZE5DWEpaZlRzT2lrdklFdXZuUEEiLCJwdXJwb3NlIjoic2hhcmUiLCJzZXNzaW9uQ3JlZGVudGlhbCI6IlBVQkxJQy1TWU5USEVUSUMtQ1JFREVOVElBTC1OT04tQVVUSE9SSVRBVElWRSIsInNlc3Npb25WZXJzaW9uIjoxLCJzaWQiOiJmaXh0dXJlLXNpZC0wIiwidGFyZ2V0RGlnZXN0IjoiNGNjMWU1ODU2NjEwNGMyZTdkMTQzZWRlZDVhYWVmNTUxZmRmZWI4NjNjMmQ1ZTA1NDEyZmRlOTBjMzAzYTJjNiJ9",
+          "byteLength": 528,
+          "sha256": "bca428983dac59e05cd1db78f9363d76c1d893759ea12ead892c2bc819e68370"
+        }
+      }
+    }
+  ],
+  "negative": [
+    {
+      "id": "ContentPolicyEvidenceRequestV1-unknown-field",
+      "expect": "REJECT_SCHEMA",
+      "value": {
+        "format": "h2a.session-content-policy/1",
+        "kind": "evidence-request",
+        "policyOperationId": "rzwue833Klh2yhovHGctgQ",
+        "proposalId": "QGdNCXJZfTsOikvIEuvnPA",
+        "purpose": "share",
+        "targetDigest": "4cc1e58566104c2e7d143eded5aaef551fdfeb863c2d5e05412fde90c303a2c6",
+        "policyDigest": "65d9f0d8e20cd3ca4040d4c50b2382520e090f357f29bc2cd51c7a204bf7a346",
+        "priorPolicyDigest": null,
+        "expectedPolicyRevision": 1,
+        "nonceId": "1B6E1DbzNjHDoW0_E94h6A",
+        "sid": "fixture-sid-0",
+        "sessionVersion": 1,
+        "sessionCredential": "PUBLIC-SYNTHETIC-CREDENTIAL-NON-AUTHORITATIVE",
+        "__unknown": "forbidden"
+      }
+    }
+  ]
+}
