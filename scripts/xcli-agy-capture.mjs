@@ -8,8 +8,11 @@ import { AGY_ONBOARDING_REVIEW, CAPTURE_SOURCES, SEAT_ONBOARDING_FILE_CAPS,
   canonicaliseAgyJetski, captureSeatOnboarding } from './xcli-seat-onboarding.mjs';
 
 export async function captureReviewedSeatOnboarding(input) {
-  if (input?.cli !== 'agy' || input.nativeCliVersion !== AGY_ONBOARDING_REVIEW.nativeCliVersion ||
-      !input.accountBinding || typeof input.sourceHome !== 'string' || !input.sourceHome ||
+  if (!input || typeof input !== 'object' || Array.isArray(input) ||
+      input.cli !== 'agy' || input.nativeCliVersion !== AGY_ONBOARDING_REVIEW.nativeCliVersion ||
+      typeof input.accountBinding !== 'string' || !input.accountBinding ||
+      typeof input.sourceHome !== 'string' || !input.sourceHome ||
+      !input.selector || typeof input.selector !== 'object' || Array.isArray(input.selector) ||
       input.selector?.sourceRelPath !== CAPTURE_SOURCES.agy) return captureSeatOnboarding(input);
   let projectedHome, fd;
   try {
