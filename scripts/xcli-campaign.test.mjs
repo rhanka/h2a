@@ -675,8 +675,8 @@ test('R22: the codex cell config names the h2a wrapper by absolute path', () => 
 
 // R22 (bench round 22, agy diagonal): the --settings telemetry key is not
 // part of the agy settings schema ("unknown setting"), so no session-only
-// opt-out exists — the first-run Terms/Data-Use dialog keeps its human
-// gate (see the tos-consent-required blocker below).
+// opt-out exists. Existing native completion is replayed during custody;
+// an active Terms/Data-Use dialog remains unresolved (no checkbox press).
 test('R22: agy launches without a fabricated settings bypass', () => {
   assert.deepEqual(qualify.argsFor('agy', 'qualification prompt'),
     ['--prompt-interactive', 'qualification prompt'], 'Agy receives only its native prompt flag and the prompt');
