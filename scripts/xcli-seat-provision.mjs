@@ -32,7 +32,7 @@ import { materialiseSeatEnvelopes, parseCliSeatProfile,
   translateAgySeatToApplication } from './xcli-seat-import.mjs';
 import { SEAT_BUNDLE_MAX_BYTES, SEAT_PACKAGE_PROVIDER_ID } from './xcli-seat-vendor/seat-bundle.js';
 import { MESH_SEAT_PROVIDERS, createMeshSeatFacade, requireMeshAccount,
-  acquireVibeKey, meshOwnerScope } from './xcli-llm-mesh-seats.mjs';
+  acquireVibeKey, meshOwnerScope, OPENCODE_SEAT_CONTRACT } from './xcli-llm-mesh-seats.mjs';
 import { AGY_REQUIRED_COMPLETED_STEPS, CAPTURE_SOURCES, seatLaunchGate,
   AGY_ONBOARDING_REVIEW, agyOnboardingBinaryRefusal } from './xcli-seat-onboarding.mjs';
 import { captureReviewedSeatOnboarding } from './xcli-agy-capture.mjs';
@@ -396,11 +396,11 @@ export async function provisionSeats({ seatSet = DEFAULT_SEAT_SET,
       // enrollment provider, reading native credentials, or issuing a bundle
       // under another CLI's identity. Protected provisioning stays unchanged.
       if (seatId === 'opencode' && !Object.hasOwn(SEAT_PACKAGE_PROVIDER_ID, seatId)) {
-        const reason = 'llm-mesh-seat-contract-unavailable:opencode';
+        const { reason, enrollmentCommand } = OPENCODE_SEAT_CONTRACT;
         if (mode !== 'local' || !allowUnavailableSeats) throw new Error(reason);
         unavailable.push({ seatId, cli: seatId, meshGate: 'contract-unavailable', reason,
           contract: { supportedSeatClis: Object.keys(SEAT_PACKAGE_PROVIDER_ID).sort(),
-            enrollmentCommand: null } });
+            enrollmentCommand } });
         continue;
       }
       const slot = byId[seatId];

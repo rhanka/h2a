@@ -42,7 +42,7 @@ import type { SessionClass } from "./session-class.js";
 import { nativeSessionLiveness } from "./native-host.js";
 import { readBootTimeMs, type DurableProcFrame, readBootId, readMachineId, readPidNamespaceId } from "./proc-identity.js";
 
-export type RegistryTool = "claude" | "codex" | "agy" | "gemini" | "muse" | "vibe";
+export type RegistryTool = "claude" | "codex" | "agy" | "gemini" | "muse" | "vibe" | "opencode";
 export type RegistryKind = "local-tmux" | "local-native" | "local" | "remote";
 
 /** Managed local interactive session hosted by tmux OR the native PTY host. */
@@ -971,7 +971,7 @@ function isRegistryEntry(raw: unknown): raw is RegistryEntry {
   const e = raw as Record<string, unknown>;
   return (
     typeof e.id === "string" &&
-    (e.tool === "claude" || e.tool === "codex" || e.tool === "agy" || e.tool === "gemini" || e.tool === "muse" || e.tool === "vibe") &&
+    (e.tool === "claude" || e.tool === "codex" || e.tool === "agy" || e.tool === "gemini" || e.tool === "muse" || e.tool === "vibe" || e.tool === "opencode") &&
     (e.kind === "local-tmux" || e.kind === "local-native" || e.kind === "local" || e.kind === "remote") &&
     typeof e.cwd === "string" &&
     typeof e.enrolledAt === "string" &&
@@ -1655,7 +1655,7 @@ export function prune(maxAgeHours: number, opts: RegistryOpts = {}): number {
   });
 }
 
-/** Map a CLI profile name to a registry tool (undefined for shell/opencode/…). */
+/** Map a CLI profile name to a registry tool (undefined for shell/unknown). */
 export function coerceRegistryTool(profile: string): RegistryTool | undefined {
   switch (profile) {
     case "claude":
@@ -1675,6 +1675,8 @@ export function coerceRegistryTool(profile: string): RegistryTool | undefined {
     case "vibe":
     case "mistral-vibe":
       return "vibe";
+    case "opencode":
+      return "opencode";
     default:
       return undefined;
   }
@@ -1708,7 +1710,7 @@ export function enrollFromRun(args: {
   delegatorTmuxSession?: string;
 }): void {
   const tool = coerceRegistryTool(args.profile);
-  if (!tool) return; // shell/opencode/… sessions stay tmux-only
+  if (!tool) return; // shell/unknown sessions stay tmux-only
   // Runtime twin of the required-parameter type: an untyped caller that omits
   // the host gets NO row rather than a row on a guessed host. Never default.
   if (args.hostKind !== "local-tmux" && args.hostKind !== "local-native") {
