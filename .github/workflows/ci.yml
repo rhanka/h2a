@@ -410,6 +410,25 @@ jobs:
           packages/h2a-runtime/src/routing-preferences.test.ts
           packages/h2a-runtime/src/gateway-host/native-tools.test.ts
           packages/h2a-runtime/src/gateway-host/host.test.ts
+      # The control-plane GHSA suites are the only tests on this surface that
+      # pin the hono and @hono/node-server ranges (auth/cors wildcard router
+      # invariants plus the mount/backslash regression corpus), and until this
+      # step NO gate exercised them: `npm test` discovers packages/h2a/test and
+      # packages/focus-interactive/test only, the pinned h2a-runtime gate
+      # covers packages/h2a-runtime/src, and the node shards split that same
+      # node --test discovery. Without this step a range bump would ride a CI
+      # that exercises nothing that changed — the same false green the step
+      # above closes for the llm-mesh / llm-gateway ranges. The two workspace
+      # builds are part of the step because the root `tsc -b` references
+      # neither @sentropic/remote-protocol nor @sentropic/remote-k8s-orchestrator,
+      # while these suites import their compiled dist/ (verified RED without
+      # the build: import-time ERR_MODULE_NOT_FOUND).
+      - name: Exercise the control-plane vitest suites
+        run: >-
+          npm run build -w @sentropic/remote-protocol -w @sentropic/remote-k8s-orchestrator
+          && npx --no-install vitest run
+          apps/control-plane/src/backslash-path-ghsa.test.ts
+          apps/control-plane/src/router-wildcard-ghsa.test.ts
       # migration P2: le contrat public (surface MCP/CLI + anti-cycle core) ne doit pas dériver sans bump
       - run: bash scripts/check-public-contract.sh
         if: runner.os == 'Linux'
