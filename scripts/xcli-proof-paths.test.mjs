@@ -5,7 +5,22 @@ import { tmpdir } from 'node:os';
 import test from 'node:test';
 import { wipeSecrets } from './xcli-lab.mjs';
 import { onboardingLaunchBlock } from './xcli-seat-import.mjs';
-import { blockingScreen, startupKey, cellMcpConfigText } from './qualify-cross-cli.mjs';
+import { blockingScreen, startupKey, cellMcpConfigText, argsFor } from './qualify-cross-cli.mjs';
+
+test('R31: reviewed Agy receives only exact h2a tool grants in session settings', () => {
+  const prompt = 'qualification prompt';
+  const args = argsFor('agy', prompt, { nativeCliVersion: '1.5.2' });
+  assert.equal(args[0], '--settings');
+  assert.deepEqual(JSON.parse(args[1]), { permissions: { allow: [
+    'mcp(h2a/h2a_identity_status)', 'mcp(h2a/h2a_inbox)', 'mcp(h2a/h2a_send)',
+  ] } });
+  assert.deepEqual(args.slice(2), ['--model', 'gemini-3.8-flash-low', '--prompt-interactive', prompt]);
+  for (const version of [undefined, '1.4.12', '1.5.3']) {
+    assert.deepEqual(argsFor('agy', prompt, { nativeCliVersion: version }),
+      ['--prompt-interactive', prompt], 'unknown or legacy schemas do not receive unreviewed policy');
+  }
+  assert.deepEqual(argsFor('vibe', prompt, { nativeCliVersion: '1.5.2' }), [prompt]);
+});
 
 test('R31: Vibe approves only the three bench tools on its h2a server', async () => {
   const { parseForESLint, getStaticTOMLValue } = await import('toml-eslint-parser');
