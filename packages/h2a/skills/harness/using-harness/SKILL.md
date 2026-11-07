@@ -24,6 +24,41 @@ Offer clear choices and preserve native free-text input. Do not change modes or 
 
 For a decision with stakes, present a decision dossier with a diagram before the native question; never a bare text question or an unexplained option menu. If the native tool is unavailable, explain the limitation and leave the decision pending. Plain text is acceptable only for a low-stakes clarification when no native question tool is available.
 
+## Owner gates and conductor duty
+
+An owner gate is a pending GO, signature or decision that blocks an action. Reuse existing
+authorization; do not invent another gate. If the answer must be given in this session, immediately
+present a short stakes dossier (action, why this session, options and consequences, recommendation,
+small diagram), then invoke the available native question tool above. Do not wait for a status report
+or a polished HTML dossier. A status-table row or “type this in the other session” is not a question.
+
+Before a blocking question call, bind the gate to an h2a objective loop or an explicit Track pending
+item, with a stable gate id, human decision owner, responsible conductor, target instance and session,
+UTC escalation deadline, reminder cadence, next reminder and close condition. Use the existing
+workflow's deadline/cadence; absent one, remind every 15 minutes and escalate after 30 minutes.
+These are follow-up deadlines, never automatic approval or cancellation. Keep this same record across
+retries and handovers. A loop needs an enrolled responsible agent and an executing controller;
+`noop` ticks or a Track item without a named reminder executor do not supply reminders.
+If recording a genuine gate fails, still raise the native alert immediately with that limitation,
+escalate the tracking repair and keep the action blocked; never claim a binding that was not saved.
+
+The requesting conductor verifies host evidence that the native question was accepted/displayed
+in the target session: gate id, tool, session, timestamp and call/trace reference. An attempted or
+rejected tool call is not a raised question. Delivery, wake injection, a
+Track card, `decision-raised:<id>` or a peer's unsupported “asked” claim do not prove a question.
+If evidence is missing, request it immediately through h2a. On each due reminder, re-raise a missing
+question; if one remains open, remind through h2a without stacking duplicate dialogs. Escalate missing
+evidence, unavailable tooling or an unanswered deadline to the responsible conductor/owner surface.
+If a call blocks until the answer, inspect its available host trace; without evidence, retain
+`unverified`. Continue independent work and keep the blocked action pending.
+
+If no native tool is exposed in this mode, visibly present the dossier and limitation now, record
+`question-unavailable`, and relay through h2a to a capable owner-facing session. That relay raises
+attention; it does not transfer a GO restricted to the original session. Never switch modes or
+permissions to manufacture the tool. Close only on the owner's attributable answer in the required
+session (and a real signature when required), or explicit owner cancellation/supersession. Defer keeps
+the gate pending with a new reminder; silence, timeout, delivery and agent signatures never mean GO.
+
 `@sentropic/harness` is the native dev-discipline layer for sentropic repos. Its verbs and `harness/*`
 skills are the SINGLE front door for code-work and PR-workflow. This skill is the index — load it
 before any other so the replacement directive below is in effect.
