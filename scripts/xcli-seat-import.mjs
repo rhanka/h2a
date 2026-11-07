@@ -20,6 +20,7 @@ import { LOGIN_ALLOWLIST, loginCopyPath } from './xcli-lab.mjs';
 import { loadSeatManifest } from './xcli-seats.mjs';
 import { CYBER_SEAT_MODE, SEAT_ENVIRONMENT, assertCyberManifest } from './xcli-seat-custody.mjs';
 import { replayAgyCliCache, AGY_CLI_CACHE_PATH } from './xcli-agy-cli-cache.mjs';
+import { OPENCODE_SEAT_CONTRACT } from './xcli-llm-mesh-seats.mjs';
 
 export { validateSeatBundle, parseCliSeatProfile, parseTokenSeatEnvelope, translateAgySeatToApplication,
   MistralVibeEnrollmentProvider, MISTRAL_VIBE_SIGN_IN_URL, MISTRAL_VIBE_KEY_VALIDITY_MS };
@@ -131,9 +132,7 @@ export async function materialiseSeatEnvelopes({ seatSet, slotManifest, secrets,
 // keep the old cell path; every other closed gate is a typed refusal
 // before any copy, any spawn, any debit.
 export function onboardingLaunchBlock(manifestSeat) {
-  if (manifestSeat?.family === 'opencode' &&
-      manifestSeat.unavailableReason === 'llm-mesh-seat-contract-unavailable:opencode')
-    return manifestSeat.unavailableReason;
+  if (manifestSeat?.family === 'opencode') return OPENCODE_SEAT_CONTRACT.reason;
   if (manifestSeat && manifestSeat.unavailableReason === `seat-not-enrolled-in-llm-mesh:${manifestSeat.family}`)
     return manifestSeat.unavailableReason;
   if (!manifestSeat?.onboarding || manifestSeat.family === 'vibe') return undefined;

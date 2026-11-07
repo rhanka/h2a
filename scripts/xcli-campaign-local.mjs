@@ -27,7 +27,8 @@ const self = fileURLToPath(import.meta.url);
 const repoRoot = dirname(dirname(self));
 
 export const LOCAL_GATE = 'local-non-merge-gating';
-export const LOCAL_SEAT_SET = 'claude,codex,muse,agy,vibe,opencode';
+export const LOCAL_SEAT_SET = JSON.parse(fs.readFileSync(new URL('../docs/cross-cli-seat-slots.json', import.meta.url), 'utf8'))
+  .localBenchSeats.join(',');
 
 export function localCampaignTimeoutMs(wallClockMs, timeoutMs) {
   assert.ok(Number.isSafeInteger(wallClockMs) && wallClockMs > 0);
