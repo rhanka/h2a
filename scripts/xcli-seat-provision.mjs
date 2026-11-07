@@ -33,8 +33,9 @@ import { materialiseSeatEnvelopes, parseCliSeatProfile,
 import { SEAT_BUNDLE_MAX_BYTES } from './xcli-seat-vendor/seat-bundle.js';
 import { MESH_SEAT_PROVIDERS, createMeshSeatFacade, requireMeshAccount,
   acquireVibeKey, meshOwnerScope } from './xcli-llm-mesh-seats.mjs';
-import { AGY_REQUIRED_COMPLETED_STEPS, CAPTURE_SOURCES, captureSeatOnboarding, seatLaunchGate,
+import { AGY_REQUIRED_COMPLETED_STEPS, CAPTURE_SOURCES, seatLaunchGate,
   AGY_ONBOARDING_REVIEW, agyOnboardingBinaryRefusal } from './xcli-seat-onboarding.mjs';
+import { captureReviewedSeatOnboarding } from './xcli-agy-capture.mjs';
 import { cliPath } from './xcli-lab.mjs';
 
 const self = fileURLToPath(import.meta.url);
@@ -211,7 +212,7 @@ export async function buildSeatEnvelope({ seatId, slot, homeDir, ownerScope = 'o
       captureInput.sourceHome = homeDir;
       captureInput.selector = { sourceRelPath: CAPTURE_SOURCES[identity.cli] };
     }
-    const captured = await captureSeatOnboarding(captureInput);
+    const captured = await captureReviewedSeatOnboarding(captureInput);
     if (captured.ok) onboarding = captured.block;
     else onboardingRefused = captured.code;
   } else if (identity.cli !== 'vibe') {
