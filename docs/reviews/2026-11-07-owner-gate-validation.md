@@ -1,8 +1,8 @@
 # Owner gates — validation of the specification and skills
 
 Scope: documentation and skill instructions only. The signed marker, receiving hook,
-question receipt and per-gate runtime reminder handling are the next implementation lot
-in the EVOL. None is claimed implemented or exercised by this PR.
+question receipt and per-gate runtime due-check execution are the next implementation lot
+in the EVOL; no scheduler is planned in that lot. None is claimed implemented or exercised by this PR.
 
 ## Local verification
 
