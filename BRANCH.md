@@ -9,8 +9,10 @@
   with per-entry JSON proof; retain the previous-boot predicate separately.
 - Re-observe retryable MCP identity failures and expose a fresh attempt ID on
   a changed/vanished blocker. Preserve existing registry deadline discovery.
+- Ordinary successors honor the recovery election while the quarantine
+  temporarily shortens the chain; a deterministic interleaving is RED then GREEN.
 - RED then GREEN evidence and execution deviations:
-  `docs/reviews/identity-selfheal2.md`. Scoped checks: 230 distinct checks pass,
+  `docs/reviews/identity-selfheal2.md`. Scoped checks: 231 distinct checks pass,
   zero skips; default 36-way MCP burst, no timeout increases. Typecheck passes.
 - Review selection unavailable: no installed h2a MCP launch tool; no peer
   consensus claimed. Push a ready PR to main, follow CI, do not merge.
