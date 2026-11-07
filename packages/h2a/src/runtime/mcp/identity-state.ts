@@ -20,8 +20,8 @@
  */
 
 import { fork, type ChildProcess } from "node:child_process";
-import { randomBytes } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
+import { constants, openSync, fstatSync, readSync, closeSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { identityBlockerSnapshot } from './identity-blocker-snapshot.js';
 import { diagnosticMessage, type IdentityBlockerInfo, type IdentityLockDiagnostic } from '../local-files/identity-fence.js';
@@ -85,34 +85,50 @@ export type McpIdentityStatus =
       retryAfterMs?: number;
     };
 
-/**
- * Synchronous witness shared by the controller retry gate and the
- * `h2a_identity_status` addendum: the recorded identity-fence blocker is gone
- * when `identity/.lock` is absent or no longer carries the recorded
- * generation. Registry and other blockers stay on the controller's async
- * snapshot path (never forced from status). A diagnostic without a known
- * generation (fence-wait timeout with no observed blocker) never counts as
- * gone: the stale failure is kept.
- */
-export function identityBlockerGone(root: string, status: McpIdentityStatus): boolean {
+type FenceObservation = { key: string; tokens: string[]; absent: boolean };
+
+/** Change witness only: at most nine 64 KiB files, no process probes. */
+function observeIdentityFence(root: string): FenceObservation | undefined {
+  const lock = join(root, "identity", ".lock"), tokens: string[] = [];
+  const hash = createHash("sha256");
+  let path = lock;
+  for (let depth = 0; depth <= 8; depth++) {
+    let fd: number | undefined;
+    try {
+      fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+      const st = fstatSync(fd);
+      if (!st.isFile() || st.size > 65536) return undefined;
+      const bytes = Buffer.alloc(65537);
+      const n = readSync(fd, bytes, 0, bytes.length, 0);
+      if (n > 65536) return undefined;
+      hash.update(bytes.subarray(0, n)).update("\0");
+      const content = bytes.subarray(0, n);
+      let rec: { token?: unknown };
+      try { rec = JSON.parse(content.toString("utf8")) as typeof rec; }
+      catch { return { key: hash.digest("hex"), tokens, absent: false }; }
+      // Historical generations are the SHA-256 of the exact file bytes.
+      const token = typeof rec?.token === "string" && /^[A-Za-z0-9_-]{12,128}$/.test(rec.token)
+        ? rec.token : "legacy-" + createHash("sha256").update(content).digest("hex");
+      tokens.push(token);
+      path = lock + ".succ." + token;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException)?.code !== "ENOENT") return undefined;
+      hash.update("absent");
+      return { key: hash.digest("hex"), tokens, absent: depth === 0 };
+    } finally { if (fd !== undefined) closeSync(fd); }
+  }
+  return { key: hash.digest("hex"), tokens, absent: false };
+}
+
+/** Follow a SUCC's generation instead of comparing it with the LOCK token. */
+export function identityBlockerGone(root: string, status: McpIdentityStatus, observed = observeIdentityFence(root)): boolean {
   if (status.state !== "identity_failed") return false;
-  const diagnostic = (status as { diagnostic?: { lock?: unknown; generation?: unknown } }).diagnostic;
+  const diagnostic = status.diagnostic;
   if (!diagnostic || diagnostic.lock !== "identity/.lock") return false;
-  if (typeof diagnostic.generation !== "string" || diagnostic.generation === "unknown") return false;
-  let raw: Buffer;
-  try {
-    raw = readFileSync(join(root, "identity", ".lock"));
-  } catch (e) {
-    return (e as NodeJS.ErrnoException)?.code === "ENOENT";
-  }
-  try {
-    const rec = JSON.parse(raw.toString("utf8")) as { token?: unknown };
-    const token = typeof rec?.token === "string" ? rec.token : undefined;
-    if (token === undefined) return false;
-    return token !== diagnostic.generation;
-  } catch {
-    return false;
-  }
+  if (!observed) return false;
+  if (observed.absent) return true;
+  if (diagnostic.generation === "unknown") return false;
+  return !observed.tokens.includes(diagnostic.generation);
 }
 
 export interface McpIdentityController {
@@ -361,6 +377,7 @@ export function createIdentityController<P = unknown>(
   let lastObservedNs = 0n;
   let lastFailure: Extract<McpIdentityStatus, {state:'identity_failed'}> | undefined;
   let failedBlockerBytes: string | undefined;
+  let failedFenceKey: string | undefined;
   let changeCheckPending = false;
   let blockerChanged = false;
   let nextChangeCheckNs=0n;
@@ -422,6 +439,8 @@ export function createIdentityController<P = unknown>(
       ...(diagnostic ? {diagnostic} : {})
     };
     lastFailure=state;
+    const failedFence = diagnostic?.lock === "identity/.lock" ? observeIdentityFence(options.request.root) : undefined;
+    failedFenceKey = failedFence && !failedFence.absent ? failedFence.key : undefined;
     liveSigner = undefined;
     // L0 trace reuse: the identity lifecycle on the PARENT (the deep provider /
     // registry / lock spans now run in the child, off this event loop).
@@ -622,7 +641,9 @@ export function createIdentityController<P = unknown>(
       // A synchronously-gone identity blocker (lock absent or generation
       // replaced on disk) kicks a fresh attempt at once: neither the async
       // blocker-change snapshot nor the min-interval gate may hold it back.
-      const gone = identityBlockerGone(options.request.root, state);
+      const observed = state.diagnostic?.lock === "identity/.lock" ? observeIdentityFence(options.request.root) : undefined;
+      const gone = state.diagnostic?.lock === "identity/.lock" && (identityBlockerGone(options.request.root, state, observed)
+        || observed !== undefined && failedFenceKey !== undefined && observed.key !== failedFenceKey);
       if (state.retryCondition === 'blocker-change') {
         if (!blockerChanged && !gone) {
           if (!changeCheckPending && nowNs()>=nextChangeCheckNs) {
