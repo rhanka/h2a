@@ -33,6 +33,17 @@ Unknown versions, missing/extra/duplicate steps and version mismatches
 remain refused. Fresh-process FD validation and both materialization
 stages are covered by synthetic regression controls.
 
+The actual native source also exposed a textproto spelling difference:
+`post_onboarding: { ... }` (and colons before other message blocks). The
+published subset parser accepts `post_onboarding { ... }`. The capture
+adapter normalizes only optional message colons outside quoted strings
+and comments, in bounded memory. The published canonicalizer then checks
+the exact consent set and drops identifiers/migrations; only its canonical
+four-step result is staged privately for the original capture function.
+The original source is untouched. Size, symlink, duplicate-block, missing
+step and quoted/commented fake-consent controls remain closed. Actual
+custodian capture is RED (absent) then GREEN (present/open gate).
+
 Codex plugin/app downloads are disabled only in bench launch arguments,
 using the documented feature flags and a native config oracle:
 https://developers.openai.com/codex/config-reference/ .

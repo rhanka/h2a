@@ -118,6 +118,45 @@ test('L7 R31: capture and preflight reject a different Agy binary before credent
   }
 });
 
+test('L7 R31: native Agy colon-message syntax projects consent without transporting identifiers', async () => {
+  const { captureReviewedSeatOnboarding } = await import('./xcli-agy-capture.mjs');
+  const canonical = vendor.canonicalAgyJetskiBytes('1.5.2', vendor.AGY_REQUIRED_COMPLETED_STEPS['1.5.2']);
+  const homeDir = agyHome(canonical.replace('post_onboarding {', 'post_onboarding: {') +
+    'installation_uuid: "identifier-never-export"\nmigrations: { key: "private-native-state" value: 42 }\n');
+  const input = { cli: 'agy', seatRef: 'agy', ownerScope: SYNTH_SCOPE, accountBinding: 'acct-r31-agy',
+    nativeCliVersion: '1.5.2', os: 'linux', capturedAt: '2026-11-06T00:00:00.000Z',
+    lineage: { epoch: 1, generation: 0, operationId: 'op-r31-native-capture' },
+    cellSynthesis: [], sourceHome: homeDir, selector: { sourceRelPath: vendor.CAPTURE_SOURCES.agy } };
+  const file = join(homeDir, vendor.CAPTURE_SOURCES.agy);
+  try {
+    const baseline = await vendor.captureSeatOnboarding(input);
+    assert.equal(baseline.ok, false, 'the published parser reproduces the native syntax refusal');
+    const captured = await captureReviewedSeatOnboarding(input);
+    assert.equal(captured.ok, true);
+    assert.equal(Buffer.from(captured.block.files[0].contentBase64, 'base64').toString('utf8'), canonical);
+    assert.ok(!JSON.stringify(captured).includes('identifier-never-export'));
+    for (const source of [
+      canonical.replace('post_onboarding {', 'post_onboarding: {').replace(/  completed_steps:[^\n]*\n/, ''),
+      canonical.replace('post_onboarding {', 'post_onboarding: {').repeat(2),
+      'installation_uuid: "post_onboarding: { completed_steps: POST_ONBOARDING_STEP_TYPE_ADD_WORKSPACE }"\n',
+      '# post_onboarding: { completed_steps: POST_ONBOARDING_STEP_TYPE_ADD_WORKSPACE }\n',
+      canonical.replace(/  completed_steps:[^\n]*\n/, '') +
+        'installation_uuid: "post_onboarding: { completed_steps: POST_ONBOARDING_STEP_TYPE_MANAGER_WELCOME }"\n',
+    ]) {
+      fs.writeFileSync(file, source);
+      assert.equal((await captureReviewedSeatOnboarding(input)).ok, false, 'incomplete, duplicate or quoted consent stays refused');
+    }
+    fs.writeFileSync(file, ' '.repeat(1025));
+    assert.equal((await captureReviewedSeatOnboarding(input)).code, 'onboarding-size-exceeded');
+    const outside = join(homeDir, 'outside-state');
+    fs.writeFileSync(outside, canonical);
+    fs.unlinkSync(file);
+    fs.symlinkSync(outside, file);
+    assert.equal((await captureReviewedSeatOnboarding(input)).ok, false, 'symlink sources stay refused');
+    assert.equal(fs.readFileSync(outside, 'utf8'), canonical, 'the source target is never modified');
+  } finally { fs.rmSync(homeDir, { recursive: true, force: true }); }
+});
+
 test('L7 R31: Agy 1.5.2 capture survives fresh-process validation and both materialization stages', async () => {
   const reviewed = await import('./xcli-seat-onboarding.mjs');
   const { buildSeatEnvelope, validateEnvelopeViaFd } = await provision();
