@@ -5,7 +5,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { identitySelf, repairIdentityPreviousBootChainForRoot, runCli, withIdentityFence } from '../dist/index.js';
+import { identitySelf, repairIdentityPreviousBootChainForRoot, runCli, withIdentityFence, withIdentityFenceSync } from '../dist/index.js';
 import { callRpc, spawnMcp, stopChildren, waitForIdentity } from './helpers/mcp-fix-lab.js';
 
 const token = n => n.toString(16).padStart(32, '0');
@@ -126,6 +126,29 @@ test('same-boot chain: two processes racing recovery keep one aside and mutual e
   const rows = fs.readFileSync(marker, 'utf8').trim().split('\n');
   assert.equal(rows.length, 4);
   for (let i = 0; i < rows.length; i += 2) assert.equal(rows[i].replace('enter', 'exit'), rows[i + 1]);
+  assert.equal(aside(x).length, 1);
+});
+
+test('same-boot chain: ordinary succession waits while quarantine exposes a shortened chain', t => {
+  const x = fixture(t), rename = fs.renameSync;
+  let observed = false, entered = false;
+  fs.renameSync = (from, ...args) => {
+    const result = rename(from, ...args);
+    if (from === x.paths[1] && !observed) {
+      observed = true;
+      assert.throws(() => withIdentityFenceSync(x.lock, () => { entered = true; },
+        { timeoutMs: 30, pollMs: 5 }), { name: 'LockTimeoutError' });
+    }
+    return result;
+  };
+  syncBuiltinESMExports();
+  let result;
+  try { result = repairIdentityPreviousBootChainForRoot(x.root); }
+  finally { fs.renameSync = rename; syncBuiltinESMExports(); }
+  assert.equal(observed, true);
+  assert.equal(entered, false, 'quarantine election must exclude an ordinary acquirer');
+  assert.equal(result.recovered, true, 'ordinary acquisition cannot replace the lock during quarantine');
+  withIdentityFenceSync(x.lock, () => {}, { timeoutMs: 600, pollMs: 10 });
   assert.equal(aside(x).length, 1);
 });
 
