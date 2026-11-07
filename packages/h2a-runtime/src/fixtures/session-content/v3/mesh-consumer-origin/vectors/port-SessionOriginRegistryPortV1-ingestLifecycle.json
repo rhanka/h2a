@@ -1,0 +1,75 @@
+{
+  "port": "SessionOriginRegistryPortV1",
+  "method": "ingestLifecycle",
+  "parameterSchema": "schemas/SessionOriginIngestLifecycleParametersV1.schema.json",
+  "resultSchema": "schemas/SessionOriginCommitResultV1.schema.json",
+  "evidenceLevel": "local API data-shape contract only; handle authentication and package implementation not supplied",
+  "positive": [
+    {
+      "id": "ingestLifecycle-parameters",
+      "expect": "ACCEPT_SHAPE",
+      "value": {
+        "processBindingRef": {
+          "id": "fixture-id-0",
+          "revision": 1,
+          "digest": "88d07ed4d9d39badb5ce10cbaee51571d43280e4783565a152f23e532500f7e8"
+        },
+        "fact": {
+          "kind": "started",
+          "sourceRef": {
+            "sourceSessionId": "fixture-sourceSessionId-0",
+            "sourceGeneration": 1,
+            "streamIncarnation": "fixture-streamIncarnation-0"
+          },
+          "sourceAt": 1793520000000,
+          "factRef": {
+            "id": "fixture-id-0",
+            "revision": 1,
+            "digest": "9dc437aa45b4f2e1ae58805884c4429fb919162ee415b22556e4863f635150f6"
+          }
+        }
+      }
+    }
+  ],
+  "negative": [
+    {
+      "id": "ingestLifecycle-unlisted-argument",
+      "expect": "REJECT_SCHEMA",
+      "value": {
+        "processBindingRef": {
+          "id": "fixture-id-0",
+          "revision": 1,
+          "digest": "88d07ed4d9d39badb5ce10cbaee51571d43280e4783565a152f23e532500f7e8"
+        },
+        "fact": {
+          "kind": "started",
+          "sourceRef": {
+            "sourceSessionId": "fixture-sourceSessionId-0",
+            "sourceGeneration": 1,
+            "streamIncarnation": "fixture-streamIncarnation-0"
+          },
+          "sourceAt": 1793520000000,
+          "factRef": {
+            "id": "fixture-id-0",
+            "revision": 1,
+            "digest": "9dc437aa45b4f2e1ae58805884c4429fb919162ee415b22556e4863f635150f6"
+          }
+        },
+        "arbitraryUrl": "https://forbidden.invalid/"
+      }
+    }
+  ],
+  "requiredRuntimeCases": [
+    "wrong-local-capability",
+    "foreign-process-or-session",
+    "incompatible-public-export",
+    "no-source-internal-import",
+    "duplicate-reuses-revision",
+    "matching-ACK-or-remote-unknown",
+    "sole-origin-writer-fence",
+    "typed-refusal-not-throw"
+  ],
+  "runtimeGate": "BLOCKED_EXTERNAL_AND_PUBLIC_EXPORTS",
+  "signature": "ingestLifecycle(parameters: SessionOriginIngestLifecycleParametersV1, options?: { signal?: AbortSignal }): Promise<SessionOriginCommitResultV1>",
+  "revisionSemantics": "new authenticated changed fact allocates exactly +1; identical retry reuses commit"
+}
