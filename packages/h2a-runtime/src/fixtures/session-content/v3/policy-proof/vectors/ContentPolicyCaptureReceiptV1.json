@@ -1,0 +1,50 @@
+{
+  "record": "ContentPolicyCaptureReceiptV1",
+  "evidenceLevel": "synthetic schema and signature fixtures only; no installed authority",
+  "positive": [
+    {
+      "id": "ContentPolicyCaptureReceiptV1-shape-positive",
+      "expect": "ACCEPT_SHAPE",
+      "value": {
+        "format": "h2a.session-content-policy/1",
+        "kind": "capture-receipt",
+        "captureGrantId": "6NHDuiDlfbdOhSKbwHyv9w",
+        "captureGrantRevision": 1,
+        "captureGrantDigest": "cb1f3c91d3c9ff0706783579b134feafaaec528d6b7429f2ea504f0d88265af6",
+        "captureAckDigest": "db5f0a89edc5b7f60bb66cc75b8a1efc3b1584c348356541954c336db967d35c",
+        "policyDigest": "6a9a28b1cefa33497901479a1a7be016c4eedc3142cbca8e3e1b936fdd488af3",
+        "targetDigest": "92e108fb77153b71c8463af67679d291819391849a568074d284f8eef8a676eb",
+        "committedAt": 1793520000000,
+        "expiresAt": 1793520020000,
+        "status": "committed"
+      },
+      "bytes": {
+        "json": {
+          "base64": "eyJjYXB0dXJlQWNrRGlnZXN0IjoiZGI1ZjBhODllZGM1YjdmNjBiYjY2Y2M3NWI4YTFlZmMzYjE1ODRjMzQ4MzU2NTQxOTU0YzMzNmRiOTY3ZDM1YyIsImNhcHR1cmVHcmFudERpZ2VzdCI6ImNiMWYzYzkxZDNjOWZmMDcwNjc4MzU3OWIxMzRmZWFmYWFlYzUyOGQ2Yjc0MjlmMmVhNTA0ZjBkODgyNjVhZjYiLCJjYXB0dXJlR3JhbnRJZCI6IjZOSER1aURsZmJkT2hTS2J3SHl2OXciLCJjYXB0dXJlR3JhbnRSZXZpc2lvbiI6MSwiY29tbWl0dGVkQXQiOjE3OTM1MjAwMDAwMDAsImV4cGlyZXNBdCI6MTc5MzUyMDAyMDAwMCwiZm9ybWF0IjoiaDJhLnNlc3Npb24tY29udGVudC1wb2xpY3kvMSIsImtpbmQiOiJjYXB0dXJlLXJlY2VpcHQiLCJwb2xpY3lEaWdlc3QiOiI2YTlhMjhiMWNlZmEzMzQ5NzkwMTQ3OWExYTdiZTAxNmM0ZWVkYzMxNDJjYmNhOGUzZTFiOTM2ZmRkNDg4YWYzIiwic3RhdHVzIjoiY29tbWl0dGVkIiwidGFyZ2V0RGlnZXN0IjoiOTJlMTA4ZmI3NzE1M2I3MWM4NDYzYWY2NzY3OWQyOTE4MTkzOTE4NDlhNTY4MDc0ZDI4NGY4ZWVmOGE2NzZlYiJ9",
+          "byteLength": 546,
+          "sha256": "30e1c8100c080363c512abf40fce5f3195e3e01bda48c90958d3b95648e5a5cf"
+        }
+      }
+    }
+  ],
+  "negative": [
+    {
+      "id": "ContentPolicyCaptureReceiptV1-unknown-field",
+      "expect": "REJECT_SCHEMA",
+      "value": {
+        "format": "h2a.session-content-policy/1",
+        "kind": "capture-receipt",
+        "captureGrantId": "6NHDuiDlfbdOhSKbwHyv9w",
+        "captureGrantRevision": 1,
+        "captureGrantDigest": "cb1f3c91d3c9ff0706783579b134feafaaec528d6b7429f2ea504f0d88265af6",
+        "captureAckDigest": "db5f0a89edc5b7f60bb66cc75b8a1efc3b1584c348356541954c336db967d35c",
+        "policyDigest": "6a9a28b1cefa33497901479a1a7be016c4eedc3142cbca8e3e1b936fdd488af3",
+        "targetDigest": "92e108fb77153b71c8463af67679d291819391849a568074d284f8eef8a676eb",
+        "committedAt": 1793520000000,
+        "expiresAt": 1793520020000,
+        "status": "committed",
+        "__unknown": "forbidden"
+      }
+    }
+  ]
+}

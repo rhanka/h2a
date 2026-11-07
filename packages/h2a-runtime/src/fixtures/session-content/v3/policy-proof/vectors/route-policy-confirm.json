@@ -1,0 +1,380 @@
+{
+  "routeId": "policy-confirm",
+  "method": "POST",
+  "path": "/api/v1/auth/session/content/:bindingId/policy-proposals/:proposalId/confirm",
+  "evidenceLevel": "model route admission only; no handler/network executed; all authority values synthetic assumptions",
+  "positive": [
+    {
+      "id": "policy-confirm-positive",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "policy-confirm",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/policy-proposals/fixture-proposalId/confirm",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "proposalId": "fixture-proposalId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "browser",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "allow",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "policy-confirm-http-media",
+      "evaluator": "routeHttp",
+      "input": {
+        "routeId": "policy-confirm",
+        "contentType": null,
+        "bodyBytes": 0,
+        "contentEncoding": null
+      },
+      "expected": {
+        "decision": "allow",
+        "code": null
+      }
+    }
+  ],
+  "negative": [
+    {
+      "id": "policy-confirm-wrong-method",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "policy-confirm",
+        "method": "GET",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/policy-proposals/fixture-proposalId/confirm",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "proposalId": "fixture-proposalId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "browser",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "view_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "policy-confirm-extra-path",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "policy-confirm",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/policy-proposals/fixture-proposalId/confirm/extra",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "proposalId": "fixture-proposalId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "browser",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "view_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "policy-confirm-caller-invented-resolved-path",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "policy-confirm",
+        "method": "POST",
+        "path": "/arbitrary",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "proposalId": "fixture-proposalId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "browser",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false,
+        "expectedResolvedPath": "/arbitrary"
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "view_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "policy-confirm-extra-parameter",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "policy-confirm",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/policy-proposals/fixture-proposalId/confirm",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "proposalId": "fixture-proposalId",
+          "arbitrary": "forbidden"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "browser",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "view_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "policy-confirm-foreign-session-scope",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "policy-confirm",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/policy-proposals/fixture-proposalId/confirm",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "proposalId": "fixture-proposalId"
+        },
+        "authenticated": true,
+        "scopeMatches": false,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "browser",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "view_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "policy-confirm-missing-authority",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "policy-confirm",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/policy-proposals/fixture-proposalId/confirm",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "proposalId": "fixture-proposalId"
+        },
+        "authenticated": false,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "browser",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "authentication_required",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "policy-confirm-purpose-withdrawn",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "policy-confirm",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/policy-proposals/fixture-proposalId/confirm",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "proposalId": "fixture-proposalId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "browser",
+        "purposeCurrent": false,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "view_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "policy-confirm-source-not-human",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "policy-confirm",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/policy-proposals/fixture-proposalId/confirm",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "proposalId": "fixture-proposalId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "browser",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": true
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "authentication_required",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "policy-confirm-unaccepted-policy-supplement",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "policy-confirm",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/policy-proposals/fixture-proposalId/confirm",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "proposalId": "fixture-proposalId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "browser",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": false,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "unsupported_version",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "policy-confirm-http-encoding",
+      "evaluator": "routeHttp",
+      "input": {
+        "routeId": "policy-confirm",
+        "contentType": null,
+        "bodyBytes": 0,
+        "contentEncoding": "gzip"
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "invalid_request"
+      }
+    },
+    {
+      "id": "policy-confirm-http-body-or-media",
+      "evaluator": "routeHttp",
+      "input": {
+        "routeId": "policy-confirm",
+        "contentType": null,
+        "bodyBytes": 2,
+        "contentEncoding": null
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "invalid_request"
+      }
+    }
+  ],
+  "http": {
+    "requestContentType": null,
+    "responseContentType": "application/json",
+    "body": "zero entity bytes; any entity refuses",
+    "streamProfile": null
+  },
+  "successStatus": 200
+}
