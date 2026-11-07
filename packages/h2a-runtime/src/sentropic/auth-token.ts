@@ -370,3 +370,17 @@ export function assertServerBound(token: SentropicAuthToken, requestedServer: st
     );
   }
 }
+
+/** RED stub — see auth-token.update.test.ts. */
+export function updateAuth(
+  _server: string,
+  _mutate: (current: SentropicAuthToken | undefined) => SentropicAuthToken | undefined,
+  _dir?: string,
+): SentropicAuthToken | undefined {
+  throw new Error("not implemented");
+}
+
+/** RED stub — see auth-token.update.test.ts. */
+export function removeAuth(_server: string, _dir?: string): boolean {
+  throw new Error("not implemented");
+}
