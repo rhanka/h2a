@@ -1,0 +1,66 @@
+{
+  "record": "ContentPolicySubmissionV1",
+  "evidenceLevel": "synthetic schema and signature fixtures only; no installed authority",
+  "positive": [
+    {
+      "id": "ContentPolicySubmissionV1-shape-positive",
+      "expect": "ACCEPT_SHAPE",
+      "value": {
+        "format": "h2a.session-content-policy/1",
+        "kind": "submission",
+        "policyOperationId": "8In12rlGHypMIuP16q36kQ",
+        "proposalId": "zWEbB6kf9sY2s11aaUfGyw",
+        "policyDigest": "ff29d97edca0341cc822d802434071d8818f76c92efe2421d6074f43a4fc27c7",
+        "state": "pending-native",
+        "activationReceipt": {
+          "format": "h2a.session-content-policy/1",
+          "kind": "activation-receipt",
+          "policyOperationId": "NbenWVjwAECZSIgn5f6EIw",
+          "proposalId": "TuDIv7V8Xyvj5a9SG46k_w",
+          "policyDigest": "fe958e8dfa452b00a6d6e18d59bbacb0ba96f946b15b9622f2ba9538d834945a",
+          "policyRevision": 1,
+          "activationAckDigest": "42f706110dbd03d796047ee1ef2eee266b9149e560c2a5c1fad66a1747dca332",
+          "authorityRevision": 1,
+          "phase": "activation-committed",
+          "committedAt": 1793520000000,
+          "expiresAt": 1793520020000
+        }
+      },
+      "bytes": {
+        "json": {
+          "base64": "eyJhY3RpdmF0aW9uUmVjZWlwdCI6eyJhY3RpdmF0aW9uQWNrRGlnZXN0IjoiNDJmNzA2MTEwZGJkMDNkNzk2MDQ3ZWUxZWYyZWVlMjY2YjkxNDllNTYwYzJhNWMxZmFkNjZhMTc0N2RjYTMzMiIsImF1dGhvcml0eVJldmlzaW9uIjoxLCJjb21taXR0ZWRBdCI6MTc5MzUyMDAwMDAwMCwiZXhwaXJlc0F0IjoxNzkzNTIwMDIwMDAwLCJmb3JtYXQiOiJoMmEuc2Vzc2lvbi1jb250ZW50LXBvbGljeS8xIiwia2luZCI6ImFjdGl2YXRpb24tcmVjZWlwdCIsInBoYXNlIjoiYWN0aXZhdGlvbi1jb21taXR0ZWQiLCJwb2xpY3lEaWdlc3QiOiJmZTk1OGU4ZGZhNDUyYjAwYTZkNmUxOGQ1OWJiYWNiMGJhOTZmOTQ2YjE1Yjk2MjJmMmJhOTUzOGQ4MzQ5NDVhIiwicG9saWN5T3BlcmF0aW9uSWQiOiJOYmVuV1Zqd0FFQ1pTSWduNWY2RUl3IiwicG9saWN5UmV2aXNpb24iOjEsInByb3Bvc2FsSWQiOiJUdURJdjdWOFh5dmo1YTlTRzQ2a193In0sImZvcm1hdCI6ImgyYS5zZXNzaW9uLWNvbnRlbnQtcG9saWN5LzEiLCJraW5kIjoic3VibWlzc2lvbiIsInBvbGljeURpZ2VzdCI6ImZmMjlkOTdlZGNhMDM0MWNjODIyZDgwMjQzNDA3MWQ4ODE4Zjc2YzkyZWZlMjQyMWQ2MDc0ZjQzYTRmYzI3YzciLCJwb2xpY3lPcGVyYXRpb25JZCI6IjhJbjEycmxHSHlwTUl1UDE2cTM2a1EiLCJwcm9wb3NhbElkIjoieldFYkI2a2Y5c1kyczExYWFVZkd5dyIsInN0YXRlIjoicGVuZGluZy1uYXRpdmUifQ==",
+          "byteLength": 721,
+          "sha256": "3d30c5703f5fd5f0f8d00414a08b36a854c6af196d7247d93bff5200b49b89da"
+        }
+      }
+    }
+  ],
+  "negative": [
+    {
+      "id": "ContentPolicySubmissionV1-unknown-field",
+      "expect": "REJECT_SCHEMA",
+      "value": {
+        "format": "h2a.session-content-policy/1",
+        "kind": "submission",
+        "policyOperationId": "8In12rlGHypMIuP16q36kQ",
+        "proposalId": "zWEbB6kf9sY2s11aaUfGyw",
+        "policyDigest": "ff29d97edca0341cc822d802434071d8818f76c92efe2421d6074f43a4fc27c7",
+        "state": "pending-native",
+        "activationReceipt": {
+          "format": "h2a.session-content-policy/1",
+          "kind": "activation-receipt",
+          "policyOperationId": "NbenWVjwAECZSIgn5f6EIw",
+          "proposalId": "TuDIv7V8Xyvj5a9SG46k_w",
+          "policyDigest": "fe958e8dfa452b00a6d6e18d59bbacb0ba96f946b15b9622f2ba9538d834945a",
+          "policyRevision": 1,
+          "activationAckDigest": "42f706110dbd03d796047ee1ef2eee266b9149e560c2a5c1fad66a1747dca332",
+          "authorityRevision": 1,
+          "phase": "activation-committed",
+          "committedAt": 1793520000000,
+          "expiresAt": 1793520020000
+        },
+        "__unknown": "forbidden"
+      }
+    }
+  ]
+}
