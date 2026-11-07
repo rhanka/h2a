@@ -491,8 +491,10 @@ export function cliPath(cli, path) {
 // Muse's launcher resolves its cache beside itself, independently of HOME.
 // Even with updates disabled it consumes an installation-side notice on a TTY.
 // Copy only program files and release metadata; never copy that mutable state.
-export function privateExecutable(cli, executable, root) {
+export function privateExecutable(cli, executable, root, { maxProgramCopyBytes = 16 * 1024 * 1024 } = {}) {
   if (cli !== 'muse') return { path: executable };
+  assert.ok(Number.isSafeInteger(maxProgramCopyBytes) && maxProgramCopyBytes > 0 &&
+    maxProgramCopyBytes <= 16 * 1024 * 1024, 'invalid private program copy budget');
   const install = dirname(executable);
   const versionFile = join(install, '.muse-version');
   assert.ok(fs.lstatSync(versionFile).isFile() && !fs.lstatSync(versionFile).isSymbolicLink(), 'Muse version must be a regular program metadata file');
@@ -504,10 +506,23 @@ export function privateExecutable(cli, executable, root) {
   const dest = inside(root, join(root, 'muse-program'));
   fs.mkdirSync(dest, { mode: 0o700 });
   const hashes = {};
+  let linkedProgram = false;
   for (const [from, name] of [[executable, 'muse'], [sourceBinary, binaryName]]) {
     const to = inside(root, join(dest, name));
-    fs.copyFileSync(from, to);
-    fs.chmodSync(to, 0o700);
+    if (name === binaryName && fs.statSync(from).size > maxProgramCopyBytes) {
+      // Current Muse ships a 415 MB native program. Keep the launcher and
+      // metadata private, but execute that hashed, read-only vendor file
+      // through a link instead of exceeding the owner's fixture budget.
+      let writable = false;
+      try { fs.accessSync(from, fs.constants.W_OK); writable = true; }
+      catch (error) { if (!['EACCES', 'EROFS'].includes(error.code)) throw error; }
+      assert.ok(!writable, 'muse-program-source-writable');
+      fs.symlinkSync(sourceBinary, to);
+      linkedProgram = true;
+    } else {
+      fs.copyFileSync(from, to);
+      fs.chmodSync(to, 0o700);
+    }
     const bytes = fs.readFileSync(to);
     if (name === binaryName) assert.equal(bytes.subarray(0, 4).toString('hex'), '7f454c46', 'Muse runtime must be a native ELF, never a Python entrypoint');
     hashes[name] = createHash('sha256').update(bytes).digest('hex');
@@ -518,7 +533,7 @@ export function privateExecutable(cli, executable, root) {
     assert.ok(fs.lstatSync(release).isFile() && !fs.lstatSync(release).isSymbolicLink(), 'Muse release metadata must be a regular file');
     fs.copyFileSync(release, join(dest, '.muse-release-info.json'));
   } catch (error) { if (error.code !== 'ENOENT') throw error; }
-  return { path: join(dest, 'muse'), version, hashes };
+  return { path: join(dest, 'muse'), version, hashes, linkedProgram };
 }
 
 // Lot L6 (§8.3): entrypoint guard aimed at our launch chain. Reads file
