@@ -82,3 +82,38 @@ never changes account telemetry, and never invents an interactive flag.
 The native `--disable-telemetry` flag traced by Astra belongs to ACP, not
 the interactive CLI under qualification. Regression controls cover native
 cache replay through both materialization stages and binding tampering.
+
+The next live pass proved that signed wake delivery worked, but Agy then
+asked for authorization before `h2a_inbox`. The bench now supplies native
+session-only `--settings` before `--prompt-interactive`, only for the
+reviewed version. Its sole settings member is `permissions.allow`, with
+the exact rules `mcp(h2a/h2a_identity_status)`, `mcp(h2a/h2a_inbox)` and
+`mcp(h2a/h2a_send)`. It adds no wildcard, ask/deny override, blanket mode,
+telemetry preference or owner-file write. Other native versions receive
+their prior arguments.
+
+The authorized Astra co-solver verified the pinned ELF's
+`ParseCLIGrantString` at 0x7c54a40–0x7c54dc0 and `coversMCP` at
+0x7c569a0–0x7c56ac0. The matcher splits server/tool and compares the full
+names; only `*` broadens a rule. Native metadata confirms
+`CliSetting.GlobalPermissions` (`permissions`) and `Permissions.Allow`
+(`[]string`, `allow`). These agree with the
+[official schema](https://antigravity.google/schemas/v1/settings.json) and
+[MCP permission rules](https://antigravity.google/docs/permissions?tab=cli#cli-fine-grained-permissions).
+The argument regression proves the exact document, flag order and version
+gate. No executed negative native decision test is claimed.
+
+| Live diagnostic | Inbox read after signed wake | Reply | Credit |
+|---|---:|---|---|
+| Original permission policy | absent | absent | failed |
+| Exact session grants, default model | 14010 ms | delivered | failed 10000 ms bound |
+| Exact grants, Gemini 3.8 Flash Low | 3245 ms | delivered | individual cell passed; no batch credit |
+
+The real native `agy models` catalogue advertised
+`gemini-3.8-flash-low`. Reviewed 1.5.2 bench sessions now select it with
+`--model`, and emit `bench-model-policy` evidence. The message-only probe
+still uses the actual provider, signed drive, inbox, reply and unchanged
+10000 ms read bound. Both diagnostics had kernel-witnessed process
+recovery and private wipe. The next full matrix must independently earn
+three-repetition separation credit. A preceding diagnostic omitted its
+wake windows and was retained as invalid, with no qualification credit.
