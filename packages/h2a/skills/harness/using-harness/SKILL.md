@@ -26,48 +26,12 @@ For a decision with stakes, present a decision dossier with a diagram before the
 
 ## Owner gates and conductor duty
 
-An owner gate is a pending GO/signature/decision blocking the target's own authorized work. Reuse
-existing authorization. In the required session, immediately present a short stakes dossier (action,
-why this session, options/consequences, recommendation, small diagram), then invoke the permitted
-native question tool. Neither a status row nor an instruction to type elsewhere raises that question.
-
-The originating conductor is the single writer of one pending binding. Prefer an explicit Track
-pending item; an active loop may hold it only with durable discovery from full `h2a loop logs` and
-transfer to Track before done/stop, or immediately on unexpected terminal state. A loop's last-ten
-status tail is insufficient. Record gate id/revision, human owner, conductor, action boundary, exact
-instance and discovered h2a/native session identities, UTC escalation deadline, cadence/next reminder,
-executor and close condition. Use agreed timing, otherwise 15-minute reminders/30-minute escalation.
-These deadlines never approve or cancel. On restart query Track pending items and the full loop
-journal; restore each still-open gate. A receiver verifies the existing binding and its own task/session;
-it never creates a second binding or joins the conductor's ticking loop merely to report.
-
-A qualified reminder executor must demonstrably wake the conductor at `nextReminderAt`, expose
-liveness and have budget for continued due checks. Naming an agent or starting today's bounded loop
-controller is insufficient. Without this, record `reminders-unavailable`, report the follow-up rule
-unmet and immediately alert the owner in the conductor's session or a designated safe owner-facing
-session. Storage failure likewise triggers an immediate alert and repair, never a claim of saved state.
-
-**Never send h2a traffic or inject loop/drumbeat/drive wakes into an open or unknown native dialog.**
-Current wakes can type Enter. This also applies to the conductor/relay and sibling sessions sharing
-an inbox. Keep the questioning target out of a ticking loop. Due reminders go to the conductor's
-own native attention surface, or a known-safe owner-facing session, as `OWNER GATE ALERT <id>` with
-acknowledge-only choices and the required answer session. They never offer GO elsewhere. Re-raise
-at the target only after confirmed failed/closed/not-displayed state and safe delivery; uncertainty
-remains pending with an owner alert, not another target message. Reuse an open attention question.
-
-Record evidence as `missing`, `unavailable`, `peer-reported` or `trace-verified` (gate/revision, tool,
-session, time, call/trace reference). In this method lot, cross-session reports remain peer-reported
-unless independently inspectable host evidence exists. A signed report is not such evidence. Before
-a blocking call the target reports question-planned, then after the answer reports the tool result;
-use signed replies only to a safe recipient, otherwise retain the report locally until safe delivery.
-Planned, attempted/rejected calls, delivery, wake and `decision-raised:<id>` never prove display.
-
-Only the required session acts on its attributable owner answer and required signature. The conductor
-may close follow-up on a correlated peer-reported answer recorded with that evidence level; it grants
-no authority elsewhere. No report reply slot or `track decision select/outcome` may manufacture a
-session-bound GO. Deferral stays pending; cancellation or native-session rebinding requires explicit
-owner authorization. Without a permitted native tool, show the limitation, retain pending and alert
-through a safe owner-facing surface; never change modes/permissions. Continue independent work.
+An owner gate is a pending owner GO, signature or decision that blocks your work now. Ask it at once
+in the required session: a short stakes dossier, then the native question. A status row or an
+instruction to type elsewhere is not a question. A decision that blocks nothing now is not a gate.
+Record it for async review, with no native question and no reminders. For the record, follow-up,
+cross-session rules, evidence and closure, apply **Owner gates across sessions** in the h2a skill.
+Continue independent work while a gate is pending.
 
 `@sentropic/harness` is the native dev-discipline layer for sentropic repos. Its verbs and `harness/*`
 skills are the SINGLE front door for code-work and PR-workflow. This skill is the index — load it
