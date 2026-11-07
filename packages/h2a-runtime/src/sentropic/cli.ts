@@ -33,6 +33,7 @@ import {
   unbindWorkspace,
   type PublishRuntime,
 } from "./publish-client.js";
+import { PUBLISH_SCOPES } from "./oauth-pkce.js";
 import { SENTROPIC_ENV_VARS, resolvePublishConfig } from "./publish-config.js";
 import { SentropicPublishError, publicErrorMessage } from "./publish-errors.js";
 import { resolveLocalWorkspaceId } from "./workspace-binding.js";
@@ -250,9 +251,15 @@ export function registerSentropicCommand(program: Command, overrides: Partial<Se
               "an account in several organizations must pick one: `h2a sentropic login --tenant <id>`",
           );
         }
-        const granted = new Set((result.grantedScope ?? "").split(" ").filter(Boolean));
-        if (result.grantedScope !== undefined && !granted.has("immo:artifacts:write")) {
-          rt.log(`${PREFIX} warning: immo:artifacts:write was not granted: publishing will be refused`);
+        if (result.grantedScope !== undefined) {
+          const granted = new Set(result.grantedScope.split(" ").filter(Boolean));
+          const missing = PUBLISH_SCOPES.filter((scope) => !granted.has(scope));
+          if (missing.length > 0) {
+            rt.log(
+              `${PREFIX} warning: ${missing.join(" ")} ${missing.length === 1 ? "was" : "were"} not granted: ` +
+                "the resource server will refuse what needs it (the h2a-cli client must be allowed the MCP scopes)",
+            );
+          }
         }
       }),
     );
