@@ -63,7 +63,7 @@ export async function runLocalCampaign({ seatSet = DEFAULT_SEAT_SET, pairs = nul
     }
     const provisioned = await provisionSeats({ seatSet, slotManifestFile, homeDir,
       ownerScope, ...(outBase ? { outBase } : {}), mode: 'local', ...(meshFacade ? { meshFacade } : {}),
-      cliVersions });
+      cliVersions, allowUnavailableSeats: fullMatrix });
     outDir = provisioned.outDir;
     const manifest = JSON.parse(fs.readFileSync(provisioned.manifestFile, 'utf8'));
     const seatIds = manifest.seats.map(seat => seat.seatId);

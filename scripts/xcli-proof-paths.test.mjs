@@ -2,10 +2,41 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { spawnSync } from 'node:child_process';
 import test from 'node:test';
-import { wipeSecrets } from './xcli-lab.mjs';
+import { wipeSecrets, cliPath, environment } from './xcli-lab.mjs';
 import { onboardingLaunchBlock } from './xcli-seat-import.mjs';
-import { blockingScreen, startupKey } from './qualify-cross-cli.mjs';
+import { blockingScreen, startupKey, cellMcpConfigText, argsFor } from './qualify-cross-cli.mjs';
+
+test('R31: Vibe approves only the three bench tools on its h2a server', async () => {
+  const { parseForESLint, getStaticTOMLValue } = await import('toml-eslint-parser');
+  const config = getStaticTOMLValue(parseForESLint(cellMcpConfigText('vibe', { command: 'h2a', args: ['mcp-serve'] })).ast);
+  assert.deepEqual(config.tools, {
+    h2a_h2a_identity_status: { permission: 'always' },
+    h2a_h2a_inbox: { permission: 'always' },
+    h2a_h2a_send: { permission: 'always' },
+  });
+  assert.equal(config.bypass_tool_permissions, undefined);
+  assert.equal(config.tools.bash, undefined);
+  assert.equal(config.tools.other_h2a_send, undefined);
+  assert.equal(config.mcp_servers.length, 1);
+  assert.equal(config.mcp_servers[0].name, 'h2a');
+});
+
+test('R31: Codex bench cells disable unrelated plugin downloads and connected apps', () => {
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-codex-policy-'));
+  try {
+    const executable = cliPath('codex', process.env.PATH);
+    assert.ok(executable, 'the native config oracle is required');
+    const result = spawnSync(executable, [...argsFor('codex', 'unused').slice(0, -1), 'features', 'list'],
+      { env: environment(root), cwd: root, encoding: 'utf8', timeout: 15000 });
+    assert.equal(result.status, 0, result.stderr);
+    for (const feature of ['plugins', 'remote_plugin', 'apps']) {
+      assert.match(result.stdout, new RegExp(`^${feature}\\s+[^\\n]*\\sfalse$`, 'm'));
+    }
+    assert.equal(fs.existsSync(join(root, 'home/.codex/plugins/cache')), false);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
 
 test('R30: Vibe model tool approval is typed and never mistaken for MCP server approval', () => {
   const screen = 'Use only h2a MCP tools.\nWaiting for approval to run mcp.h2a_identity_status\n' +
@@ -38,6 +69,8 @@ test('R30: wipe removes Vibe immutable plugin directories without following syml
 });
 
 test('R30: an unreviewed Agy version remains blocked with its exact external cause', () => {
+  assert.equal(onboardingLaunchBlock(null), undefined);
+  assert.equal(onboardingLaunchBlock(undefined), undefined);
   const seat = { family: 'agy', onboarding: { status: 'absent', gate: { eligible: false },
     captureRefusal: { code: 'onboarding-version-unreviewed', nativeCliVersion: '1.5.2',
       reviewedNativeCliVersions: ['1.4.12'] } } };
