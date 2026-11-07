@@ -105,8 +105,9 @@ function startupFacts(screen) {
 }
 export function blockingScreen(screen) {
   if (modelToolApproval(screen)) return 'tool-approval-required';
-  // R22: the agy first-run Terms/Data-Use dialog (default opted-in) is a
-  // human consent gate — the harness never presses it, so it blocks typed.
+  // An active Agy Terms/Data-Use dialog is unresolved completion evidence.
+  // Replay existing native completion during custody; never press this
+  // checkbox, which propagates a telemetry preference to the account.
   if (/terms of service.{0,40}data use|improve .{0,40} by allowing|collect and use my .{0,20}data/i.test(screen)) return 'tos-consent-required';
   // R22: the muse runtime host refuses a TMPDIR-derived tool-output root
   // inside a workspace or repository and exits before readiness.
