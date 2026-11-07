@@ -36,7 +36,16 @@
 - Regression evidence: recovery/policy/provision 28/28; complete proof-path
   file 9/9; full-roster regression 1/1, all zero skip. RED and GREEN logs,
   live pass tables and final results: tmp/h-cond/xcli-r31-*.
-- Agy schema review and live matrix qualification remain in progress.
+- Agy 1.5.2 review: embedded protobuf descriptors match the transported
+  1.4.12 four-step projection. The bench facade registers the explicit new
+  version without replacing published functions or changing vendor bytes.
+  Capture and preflight independently enforce the reviewed executable hash.
+  Fresh-process FD validation, both materialization stages, missing/extra
+  steps, wrong binary and version mismatch pass; six-file core 90/90.
+  Evidence: docs/reviews/xcli-r31-agy.md and tmp/h-cond/xcli-r31-astra-fix.md.
+- Preserve typed HTTP 429 and reset timestamps when the actual Muse provider
+  response supplies them; raw provider output is never retained.
+- Live matrix qualification remains in progress.
 
 # Cross-CLI bench R30 — 2026-11-06
 
