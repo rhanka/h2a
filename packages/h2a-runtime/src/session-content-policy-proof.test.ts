@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { Ajv2020 } from "ajv/dist/2020.js";
 import { describe, expect, it } from "vitest";
 import { canonicalJson, RC2_R3_PIN } from "./remote-action-contract.js";
+import { policySchema } from "./fixtures/session-content/v3/policy-proof/schemas.js";
 import {
   CONTENT_POLICY_ACCEPTANCE,
   parseContentPolicyRecord,
@@ -116,6 +117,115 @@ describe("N4 pre-SG-R15 policy parsing and purpose separation", () => {
       }
     }
     expect(mutations).toBe(1880);
+  });
+
+  it("should keep the projection structurally identical to the sealed r3 schemas", () => {
+    expect(Object.keys(policySchema)).toEqual(["$schema", "$defs"]);
+    const defs = policySchema.$defs as Record<string, any>;
+    const head = (path: string) => Object.fromEntries(Object.entries(json(path))
+      .filter(([key]) => !["$schema", "$id", "title", "$defs"].includes(key)));
+    // Sealed documents keep neighbouring-file refs (X.schema.json) and
+    // file-local defs; the projection re-bundles both as #/$defs/X. Resolving
+    // every $ref on both sides leaves only comparable substance.
+    const sealedInline = (node: any, path: string): any => {
+      if (Array.isArray(node)) return node.map((entry) => sealedInline(entry, path));
+      if (!node || typeof node !== "object") return node;
+      if (typeof node.$ref === "string") {
+        if (node.$ref.startsWith("#/$defs/")) {
+          const def = json(path)?.$defs?.[node.$ref.slice("#/$defs/".length)];
+          if (!def) throw new Error(`dangling ${node.$ref} in ${path}`);
+          return sealedInline(def, path);
+        }
+        if (node.$ref.endsWith(".schema.json")) {
+          const target = path.replace(/[^/]+$/, (node as { $ref: string }).$ref);
+          return sealedInline(head(target), target);
+        }
+        throw new Error(`unresolvable ${node.$ref} in ${path}`);
+      }
+      return Object.fromEntries(Object.entries(node).map(([key, value]) => [key, sealedInline(value, path)]));
+    };
+    const projectionInline = (node: any): any => {
+      if (Array.isArray(node)) return node.map(projectionInline);
+      if (!node || typeof node !== "object") return node;
+      if (typeof node.$ref === "string") {
+        if (!node.$ref.startsWith("#/$defs/")) throw new Error(`unsealed ${node.$ref}`);
+        const def = defs[node.$ref.slice("#/$defs/".length)];
+        if (!def) throw new Error(`dangling projection def ${node.$ref}`);
+        return projectionInline(def);
+      }
+      return Object.fromEntries(Object.entries(node).map(([key, value]) => [key, projectionInline(value)]));
+    };
+    const reachable = new Set<string>(records.map((r: any) => r.name));
+    const markRefs = (node: any) => {
+      if (Array.isArray(node)) return node.forEach(markRefs);
+      if (!node || typeof node !== "object") return;
+      const name = typeof node.$ref === "string" && node.$ref.startsWith("#/$defs/")
+        ? node.$ref.slice("#/$defs/".length) : null;
+      if (name) {
+        if (!defs[name]) throw new Error(`dangling projection def ${name}`);
+        if (!reachable.has(name)) { reachable.add(name); markRefs(defs[name]); }
+        return;
+      }
+      for (const value of Object.values(node)) if (value && typeof value === "object") markRefs(value);
+    };
+    for (const r of records) {
+      expect(projectionInline(defs[r.name]), r.name)
+        .toEqual(sealedInline(head(r.schema), r.schema));
+      markRefs(defs[r.name]);
+    }
+    // 17 record defs plus every shared def they reach: nothing invented,
+    // nothing dangling, nothing unreachable.
+    expect([...reachable].sort()).toEqual(Object.keys(defs).sort());
+  });
+
+  it("should enforce every sealed per-record byte bound exactly", () => {
+    expect(records).toHaveLength(17);
+    for (const r of records) {
+      const positive = json(r.vectors).positive[0].value;
+      expect(parseContentPolicyRecord(r.name as ContentPolicyRecordName, structuredClone(positive)).status).toBe("parsed-untrusted");
+      // The unknown zz key is schema-invalid, so exactly at the sealed
+      // maxBytes the refusal is the schema gate, and one byte past it the
+      // byte bound: the two codes pin the manifest bound in both directions.
+      const sized = (bound: number) => {
+        const value = { ...positive, zz: "" };
+        value.zz = "x".repeat(bound - Buffer.byteLength(canonicalJson(value), "utf8"));
+        expect(Buffer.byteLength(canonicalJson(value), "utf8")).toBe(bound);
+        return value;
+      };
+      const parse = (bound: number) => () =>
+        parseContentPolicyRecord(r.name as ContentPolicyRecordName, sized(bound));
+      expect(parse(r.maxBytes), r.name + "/at-bound")
+        .toThrowError(expect.objectContaining({ code: "invalid_request" }));
+      expect(parse(r.maxBytes + 1), r.name + "/past-bound")
+        .toThrowError(expect.objectContaining({ code: "oversize" }));
+    }
+  });
+
+  it("should refuse every non-canonical scalar encoding inside a nested proof", () => {
+    const proof = corpus.positive[0].proof;
+    expect(parseContentPolicyRecord("ContentPolicyProofV1", structuredClone(proof)).status).toBe("parsed-untrusted");
+    const cases: [string, string[], (value: string) => string][] = [
+      ["Key32 pad bits", ["body", "nonce", "body", "nonce"], (value) => value.slice(0, -1) + "B"],
+      ["RandomId pad bits", ["body", "nonce", "body", "nonceId"], (value) => value.slice(0, -1) + "B"],
+      ["Sig64 pad bits", ["body", "nonce", "signature", "value"], (value) => value.slice(0, -1) + "B"],
+      ["padded base64url", ["body", "nonce", "body", "nonce"], (value) => value.slice(0, -1) + "="],
+      ["standard base64 +", ["body", "nonce", "body", "nonce"], (value) => "+" + value.slice(1)],
+      ["standard base64 /", ["body", "nonce", "body", "nonce"], (value) => "/" + value.slice(1)],
+      ["uppercase digest", ["body", "policyDigest"], (value) => value.toUpperCase()],
+      ["non-printable Id", ["body", "nonce", "body", "issuer"], (value) => "\u0001" + value.slice(1)],
+      ["compact JWS with 2 segments", ["body", "idpEvidence", "compactJws"], (value) => value.split(".").slice(0, 2).join(".")],
+    ];
+    for (const [label, path, mutate] of cases) {
+      const value = structuredClone(proof) as any;
+      const key = path[path.length - 1]!;
+      let node = value;
+      for (const part of path.slice(0, -1)) node = node[part];
+      const original = node[key];
+      expect(typeof original, label).toBe("string");
+      node[key] = mutate(original as string);
+      expect(() => parseContentPolicyRecord("ContentPolicyProofV1", value), label)
+        .toThrowError(expect.objectContaining({ code: "invalid_request" }));
+    }
   });
 
   for (const id of manifest.policySupplement.routes) {
