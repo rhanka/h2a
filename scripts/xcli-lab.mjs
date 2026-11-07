@@ -303,7 +303,7 @@ export function sourceBuild(root) {
 // - R23 vibe: harness-defined `.vibe/MISTRAL_API_KEY` custody projection
 //   (mesh-sourced key, never product config); exported as MISTRAL_API_KEY
 //   for vibe cells only.
-import { SEAT_ENVELOPE_AUTH_FILES as LOGIN_ALLOWLIST } from './xcli-seat-vendor/seat-onboarding.js';
+import { SEAT_ENVELOPE_AUTH_FILES as LOGIN_ALLOWLIST } from './xcli-seat-onboarding.mjs';
 export { LOGIN_ALLOWLIST };
 const LOGIN_ROLES = Object.freeze(Object.keys(LOGIN_ALLOWLIST));
 // Absolute destination of an allowlisted login copy inside a role env.

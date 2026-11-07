@@ -7,7 +7,7 @@
 import fs from 'node:fs';
 import { validateSeatBundle } from './xcli-seat-vendor/seat-bundle.js';
 import { translateAgySeatToApplication } from './xcli-seat-vendor/agy-cli-import.js';
-import { seatLaunchGate, validateSeatEnvelope } from './xcli-seat-vendor/seat-onboarding.js';
+import { seatLaunchGate, validateSeatEnvelope } from './xcli-seat-onboarding.mjs';
 import { LOGIN_ALLOWLIST } from './xcli-lab.mjs';
 import { SEAT_ENVIRONMENT } from './xcli-seat-custody.mjs';
 
