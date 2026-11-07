@@ -18,6 +18,10 @@ test('R31: Vibe approves only the three bench tools on its h2a server', async ()
   assert.equal(config.bypass_tool_permissions, undefined);
   assert.equal(config.tools.bash, undefined);
   assert.equal(config.tools.other_h2a_send, undefined);
+  assert.equal(config.enable_subagents, false);
+  assert.equal(config.enable_background_processes, false);
+  assert.equal(config.mcp_servers[0].enable_subagents, undefined);
+  assert.equal(config.mcp_servers[0].enable_background_processes, undefined);
   assert.equal(config.mcp_servers.length, 1);
   assert.equal(config.mcp_servers[0].name, 'h2a');
 });
