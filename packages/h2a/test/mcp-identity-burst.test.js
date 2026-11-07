@@ -260,29 +260,23 @@ maybe(
     try {
       // Every initialize must answer while the lock is HELD. RED on main: it
       // blocks in identity resolution and never returns (the server closes).
-      // DECOUPLING bound: a FRACTION of the identity deadline, not a tight
-      // wall-clock — a lock-blocked initialize would scale to ~20s (or die).
-      // Three fifths of the deadline discriminates that: the 36-spawn storm
-      // serializes process startup on slower 4-vCPU runners (measured max
-      // 10.7s against the 10s half), while a lock-blocked initialize still
-      // stands out at ~2x the deadline.
-      const { latencies, max } = await initAll(handles, 18_000);
-      // The 36-spawn storm serializes Node boot on 4-vCPU shard runners
-      // (CI 2026-11-05: max 12755ms against the 12000ms max bound while the
-      // cohort still answered): boot stragglers are a scheduling artifact,
-      // not contended-identity latency. The tight bound therefore applies to
-      // the high quantile — a lock-blocked cohort delays ALL 36 (~20s), so a
-      // coupled transport still trips p95 with max. The max stays under the
-      // per-call window as the backstop, and the no-bindings-while-held proof
-      // below is wall-clock independent.
+      // Owner bound (2026-11-07): p95 < 14s, above the measured 12.5s p95
+      // under the 36-spawn storm on 4-vCPU runners. A lock-blocked cohort
+      // delays ALL 36 (~20s), so the 0.7-deadline bound still rejects coupling.
+      // The catastrophic-only 30s ceiling leaves ~50% headroom over the
+      // slowest 20.185s whole-holder test (init max observed: 12.942s).
+      // Keep the RPC window aligned so it does not impose a tighter max.
+      const maxInitMs = 30_000;
+      const { latencies, max } = await initAll(handles, maxInitMs);
       const ordered = [...latencies].sort((a, b) => a - b);
       const p95 = ordered[Math.max(0, Math.ceil(ordered.length * 0.95) - 1)];
+      console.log(`T4 holder init: p95 ${p95}ms, max ${max}ms`);
       assert.ok(
-        p95 < IDENTITY_DEADLINE_MS * 0.6,
-        `initialize must answer well before the identity deadline while contended (p95 ${p95}ms, max ${max}ms, bound ${IDENTITY_DEADLINE_MS * 0.6}ms)`
+        p95 < IDENTITY_DEADLINE_MS * 0.7,
+        `initialize must answer well before the identity deadline while contended (p95 ${p95}ms, max ${max}ms, bound ${IDENTITY_DEADLINE_MS * 0.7}ms)`
       );
       assert.ok(
-        max < 18_000,
+        max < maxInitMs,
         `no contended initialize may reach the per-call window (max ${max}ms)`
       );
       // Jitter-IMMUNE proof: the registry lock has NOT been released yet, so no
