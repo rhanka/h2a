@@ -100,8 +100,14 @@ interface FakeOptions {
   revokeFailure?: boolean;
   /** the workspaces the account can read now (workspaces_list, registry tools); default DIRECTORY. */
   directory?: readonly DirectoryEntry[];
-  /** the RS advertises and serves the workspaces_list host tool (default true). */
+  /**
+   * the RS advertises and serves the workspaces_list host tool (default true). false = sentropic
+   * main before train 1b: no host tool, and tools/list for a workspace the account cannot bind
+   * (the default one included) answers the catch-all JSON-RPC -32603 Internal error.
+   */
   workspacesTool?: boolean;
+  /** the workspace the server falls back to without params.workspaceRef (default BOUND). */
+  defaultWorkspace?: string;
   /** workspaces_list finds the current credential unreadable: 403 -32003. */
   directoryDenied?: boolean;
   /** a workspace-bound tools/call is refused at authentication: 403 -32003 access_denied. */
@@ -383,11 +389,15 @@ class FakeSentropic {
     const toolResult = (payload: unknown, isError: boolean): void =>
       json(res, 200, { jsonrpc: "2.0", id, result: { content: [{ type: "text", text: JSON.stringify(payload) }], isError } });
     // Without params.workspaceRef the server falls back to a default workspace of its own choosing.
-    const workspace = typeof params.workspaceRef === "string" ? params.workspaceRef : BOUND;
+    const workspace = typeof params.workspaceRef === "string" ? params.workspaceRef : (this.opts.defaultWorkspace ?? BOUND);
     const readable = this.directory.find((entry) => entry.workspaceRef === workspace);
     if (body.method === "tools/list") {
       if (!at.scopes.includes("mcp:discover")) return scopeRefused("mcp:discover");
       if (!at.tid) return rpcError(403, -32003, "access_denied");
+      if (!readable && this.opts.workspacesTool === false) {
+        // sentropic main: discover binds the workspace, and the throw becomes the catch-all -32603.
+        return json(res, 200, { jsonrpc: "2.0", id, error: { code: -32603, message: "Internal error" } });
+      }
       return json(res, 200, { jsonrpc: "2.0", id, result: { tools: [
         // transport.discover: no bindable workspace hides the registry tools, the host tool stays.
         ...(readable ? REGISTRY_TOOLS : []),
@@ -951,13 +961,28 @@ describe("h2a sentropic bind / unbind", () => {
     const f = await fake({ workspacesTool: false });
     const dir = freshDir();
     await login(f, dir);
-    const run = await runCli(["bind", "ws-anything"], { env: f.env(dir) });
+    const run = await runCli(["bind", BOUND], { env: f.env(dir) });
     expect(run.code, run.err).toBe(0);
     expect(run.err).toMatch(/does not offer workspaces_list/);
     expect(run.err).toMatch(/without validation/);
-    expect(readBinding(serverKey(f.mcpUrl), LOCAL_WS, dir)?.workspaceId).toBe("ws-anything");
+    expect(readBinding(serverKey(f.mcpUrl), LOCAL_WS, dir)?.workspaceId).toBe(BOUND);
     expect(f.rsRequests.some((r) => r.body.method === "tools/list")).toBe(true);
     expect(f.toolCalls).toHaveLength(0);
+  });
+
+  it("before workspaces_list, reads a -32603 on tools/list as the tool absent: the bind is recorded unchecked, with both warnings", async () => {
+    const f = await fake({ workspacesTool: false });
+    const dir = freshDir();
+    await login(f, dir);
+    const run = await runCli(["bind", "ws-other-tenant"], { env: f.env(dir) });
+    expect(run.code, run.err).toBe(0);
+    expect(run.err).toMatch(/without validation/);
+    expect(run.err).toContain("-32603");
+    expect(readBinding(serverKey(f.mcpUrl), LOCAL_WS, dir)?.workspaceId).toBe("ws-other-tenant");
+    expect(f.toolCalls).toHaveLength(0);
+    // The listing was asked for that very workspace: params.workspaceRef is always sent.
+    const lists = f.rsRequests.filter((r) => r.body.method === "tools/list");
+    expect(lists.map((r) => (r.body.params as { workspaceRef?: string }).workspaceRef)).toEqual(["ws-other-tenant"]);
   });
 
   it("reads the list afresh at every bind and never stores it", async () => {
@@ -1016,6 +1041,18 @@ describe("h2a sentropic workspaces", () => {
     const dir = freshDir();
     await login(f, dir);
     const run = await runCli(["workspaces"], { env: f.env(dir) });
+    expect(run.code).toBe(1);
+    expect(run.err).toMatch(/does not offer workspaces_list/);
+    expect(run.err).toContain("h2a sentropic bind");
+    expect(f.toolCalls).toHaveLength(0);
+  });
+
+  it("before workspaces_list, reads a -32603 on tools/list as the tool not offered, and calls nothing", async () => {
+    // The server's default workspace cannot be bound (none, or the most recent one in another tenant).
+    const f = await fake({ workspacesTool: false, defaultWorkspace: "ws-in-another-tenant" });
+    const dir = freshDir();
+    await login(f, dir);
+    const run = await runCli(["workspaces"], { env: f.env(dir), resolveWorkspace: () => undefined });
     expect(run.code).toBe(1);
     expect(run.err).toMatch(/does not offer workspaces_list/);
     expect(run.err).toContain("h2a sentropic bind");
@@ -1125,6 +1162,23 @@ describe("h2a sentropic tools --preprod (MCP tools/list)", () => {
     expect(run.code).toBe(1);
     expect(run.err).toContain(BOUND);
     expect(run.err).toContain("h2a sentropic workspaces");
+  });
+
+  it("before workspaces_list, a -32603 for want of a default workspace is unblocked by binding: tools/list then carries the bound workspaceRef", async () => {
+    const f = await fake({ workspacesTool: false, defaultWorkspace: "ws-in-another-tenant" });
+    const dir = freshDir();
+    await login(f, dir);
+    const unbound = await runCli(["tools", "--preprod"], { env: f.env(dir), resolveWorkspace: () => undefined });
+    expect(unbound.code).toBe(1);
+    expect(unbound.err).toContain("-32603");
+    expect(unbound.err).toContain("h2a sentropic bind");
+    expect((await runCli(["bind", BOUND], { env: f.env(dir) })).code).toBe(0);
+    const bound = await runCli(["tools", "--preprod"], { env: f.env(dir) });
+    expect(bound.code, bound.err).toBe(0);
+    expect(bound.out).toContain("artifacts_publish");
+    const lists = f.rsRequests.filter((r) => r.body.method === "tools/list");
+    expect((lists.at(-1)!.body.params as { workspaceRef?: string }).workspaceRef).toBe(BOUND);
+    expect(f.toolCalls).toHaveLength(0);
   });
 
   it("prompts a re-login for an expired token and never reaches the resource server", async () => {
@@ -1414,6 +1468,12 @@ describe("no secret ever reaches the output or an error (sentinel)", () => {
       { opts: { workspacesTool: false }, steps: async (f, dir) => {
         await runCli(["workspaces"], { env: f.env(dir) });
         await runCli(["bind", "ws-anything"], { env: f.env(dir) });
+      } },
+      { opts: { workspacesTool: false, defaultWorkspace: "ws-in-another-tenant" }, steps: async (f, dir) => {
+        await runCli(["tools", "--preprod"], { env: f.env(dir), resolveWorkspace: () => undefined });
+        await runCli(["workspaces"], { env: f.env(dir), resolveWorkspace: () => undefined });
+        await runCli(["bind", BOUND], { env: f.env(dir) });
+        await runCli(["tools", "--preprod"], { env: f.env(dir) });
       } },
       { opts: {}, steps: async (f, dir) => {
         f.opts.rsFailure = "500";
