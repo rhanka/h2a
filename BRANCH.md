@@ -2789,3 +2789,96 @@ The temporary workflow_dispatch addition and its revert have no net effect.
   and digest alias normalization remain B5/B6 follow-ups. No route activated.
 - Rebase onto origin/main f6314c18d: already up to date. No new independent
   consensus claimed: this confinement exposes no h2a MCP launch operation.
+
+# B6 — `feat/rc2-mesh-consumer-registry` (cell RC2.mesh-consumer, REGISTRY SLICE ONLY)
+
+Accountable build: Muse Spark 1.3 xhigh. Review: Muse code leg (plan §4).
+Depends on: B0 (contract r3 pin re-verified: `MANIFEST.sha256`
+`6245d3ae51f601195926bc36600d1097cef30694f3feb01f79f1a7ec9fa17715`,
+`sha256sum -c` 303 OK / 0 failed) + merged registry (sentropic `5e8a08b96`).
+The lanes slice stays blocked by relay-1 (no L-1 export).
+
+## Scope (lot 1 only)
+
+- Pin state: the registry-bearing archive (`0.26.0-dev.5`) is unpublished
+  (npm 404) and the latest published archive (`0.25.0`) carries no
+  `SessionOrigin*`/`SessionRelay*` symbol (verified by scan). The pre-existing
+  `0.22.4` pin is therefore kept untouched — bumping it would churn the lock
+  with zero registry benefit. The composition probes the installed published
+  archive and refuses with the typed contract error while the factory is
+  absent. Nothing is filled locally (typed refusal).
+- `packages/h2a-runtime/src/mesh-consumer-origin.ts` (new): origin-port
+  composition (5 `SessionOriginRegistryPortV1` methods, exact contract call
+  shape, `resolveSession` held never called while unavailable,
+  `relay_grant_unavailable`/`incompatible-version` refusal, sync no-op
+  `dispose`).
+- `packages/h2a-runtime/src/mesh-consumer-origin.test.ts` (new, vitest):
+  r3 pin + envelope + fail-closed dispatch + digest parity + import graph.
+- `packages/h2a-runtime/src/fixtures/session-content/v3/mesh-consumer-origin/`
+  (new): the 6 r3 vectors copied byte-exact + `pin.json` (r3, sha256 per file).
+- `packages/h2a/test/remote-session-mesh-consumer.test.js` (new, node:test):
+  cell gates — no lane/relay surface, no route, no transport, published-root
+  import only, incompatible-version proof, vector pin, unchanged dependency.
+- This file (append own section only; never rewrite other lanes).
+
+## Lots
+
+1. Red — both test files fail (missing module: vitest 0 run, node:test 0/7).
+2. Green — composition + fixtures; vitest 10/10, node:test 7/7;
+   `tsc --noEmit -p packages/h2a-runtime` zero errors (no pre-existing error
+   left on this base); N1/N2 non-regression 103/103 on the 8 targeted files.
+3. Out of scope for this lot: lane slice (connector/lane client,
+   `sourceCredentials`), re-pin to a registry-bearing archive, any route or
+   transport, B4 `resolveSession` producer semantics, live ACK matching.
+
+## Allowed
+
+- The four new paths above.
+- This file (append own section only; never rewrite other lanes).
+
+## Round 2 (reviews `d8de4ebc3`: Wonder CHANGES P1 + 2×P2, mistral FUSIONNABLE)
+
+- P1: the five methods return the closed r3 shape `{status:"refused",error}`
+  (`MeshOriginRefusedResult`); probe detail moved to the consumer-side
+  `unavailability` diagnostic (`MeshOriginUnavailability`, ex-`refusal`);
+  `isMeshOriginRefusal` aligned (2 keys, 4-key error, both relay codes).
+- P2 abort: an already-aborted `signal` refuses `relay_unavailable` /
+  `retryable:false` after `checkCallShape` (precedence abort >
+  unavailability), covered on the five methods.
+- P2 ESM: `import.meta.resolve` + `fileURLToPath` in one `try…return null`;
+  node:test probe motif aligned.
+- P3 free in the same round: `dispose` documented as internal lifecycle
+  outside the r3 contract, fs reads bounded to `package.json` alone,
+  runtime-case coverage stated as envelope (3 executed of 8). Deferred
+  (named in the PR body): runtime-options hardening at factory time,
+  `scripts/test-inventory.json` titles.
+- Pin `0.22.4` kept, tripwires kept. RED then GREEN: vitest 12/12,
+  node:test 8/8, `tsc` zero errors, N1/N2 103/103.
+
+## Integration rebase (PR #415)
+
+- Preserve main's B3 section and this B6 section at the append conflict.
+- Main already pins `@sentropic/cluster-mesh` to `0.25.0`; align only the
+  no-new-dependency test's expected pin with that inherited version.
+  B6 changes neither the dependency manifests nor the lockfile. The reviewed
+  runtime, r3 vectors and refusal/abort behaviour stay byte-identical.
+- RED after rebase: node:test 7/8 (`0.25.0` versus stale `0.22.4` assertion).
+- GREEN on the published `0.25.0` archive: B6 vitest 12/12, node:test 8/8,
+  N1/N2 103/103; runtime build and no-emit typecheck pass, zero skips.
+
+## Conditional
+
+- `packages/h2a-runtime/package.json` + lock (pin only): NOT exercised —
+  no bump available that provides the registry (see scope).
+
+## Forbidden
+
+- Any `cluster-mesh/src` import, deep path beyond the `./package.json`
+  version metadata, or cross-repo source import.
+- Any lane/relay symbol or transport surface in the registry slice
+  (`SessionRelay*`, lane client, connector, credentials, `action-*` routes,
+  `fetch`/`WebSocket`/`node:net|tls|http`, listeners).
+- Writer epoch/revision, signing keys, local revision allocation, ACK
+  matching, digest recomputation, invented capsule bytes/headers/trust roots.
+- `packages/remote-protocol/**`, `packages/remote-k8s-orchestrator/**`.
+- No Python anywhere; no `git stash`; no attribution trailers.
