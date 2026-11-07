@@ -13,6 +13,7 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { CLIS, pythonEntrypoint, vendorRuntimeLabel, LOGIN_ALLOWLIST, PINNED_CLI_ARGS, environment, copyLogin, privateExecutable } from './xcli-lab.mjs';
+import { agyOnboardingBinaryRefusal } from './xcli-seat-onboarding.mjs';
 
 const GEMINI_SHAPED = ['oauth_creds.json', 'google_accounts.json'];
 
@@ -291,6 +292,10 @@ export async function runSeatPreflight(seat, { executables = {}, runAuthPrecheck
   try { digest = createHash('sha256').update(fs.readFileSync(executable)).digest('hex'); }
   catch { return fail('preflight-digest-unproven'); }
   const facts = { seatId: seat.seatId, family: seat.family, version, digest, modelCalls: 0 };
+  if (seat.family === 'agy') {
+    const refusal = agyOnboardingBinaryRefusal(version, digest);
+    if (refusal) return { ...fail(`${refusal}:agy:${version}`), ...facts };
+  }
   if (vendorLabel) {
     facts.vendorRuntime = vendorLabel;
   }
@@ -310,6 +315,7 @@ export async function runSeatPreflight(seat, { executables = {}, runAuthPrecheck
     assert.ok(typeof runAuthPrecheck === 'function', 'Muse auth precheck requires an injected runner');
     const checked = await runAuthPrecheck(seat, { executable, env, root });
     facts.modelCalls = checked.modelCalls ?? 1;
+    if (checked.providerQuota) facts.providerQuota = checked.providerQuota;
     if (!checked.ok) return { ...fail(checked.reason ?? 'preflight-auth-unproven'), ...facts };
     facts.authPrecheck = checked.detail ?? 'exec-preflight-accepted';
   } else {

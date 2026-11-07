@@ -72,9 +72,9 @@ test('R30: an unreviewed Agy version remains blocked with its exact external cau
   assert.equal(onboardingLaunchBlock(null), undefined);
   assert.equal(onboardingLaunchBlock(undefined), undefined);
   const seat = { family: 'agy', onboarding: { status: 'absent', gate: { eligible: false },
-    captureRefusal: { code: 'onboarding-version-unreviewed', nativeCliVersion: '1.5.2',
-      reviewedNativeCliVersions: ['1.4.12'] } } };
-  assert.equal(onboardingLaunchBlock(seat), 'onboarding-version-unreviewed:agy:1.5.2');
+    captureRefusal: { code: 'onboarding-version-unreviewed', nativeCliVersion: '9.9.9',
+      reviewedNativeCliVersions: ['1.4.12', '1.5.2'] } } };
+  assert.equal(onboardingLaunchBlock(seat), 'onboarding-version-unreviewed:agy:9.9.9');
   assert.equal(onboardingLaunchBlock({ family: 'agy', onboarding: { gate: { eligible: false } } }), 'onboarding-required');
 });
 
@@ -90,12 +90,12 @@ test('R30: provisioning carries the published Agy version refusal through the ma
   let held;
   try {
     held = await provisionSeats({ seatSet: 'agy', mode: 'local', homeDir: home, outBase: root,
-      cliVersions: { agy: '1.5.2' }, meshFacade: { listAccounts: async () => [{ providerId: 'cloud-code', accountId: 'synthetic-agy' }] } });
+      cliVersions: { agy: '9.9.9' }, meshFacade: { listAccounts: async () => [{ providerId: 'cloud-code', accountId: 'synthetic-agy' }] } });
     const manifest = JSON.parse(fs.readFileSync(held.manifestFile, 'utf8'));
     assert.equal(held.sources[0].onboardingRefused, 'onboarding-shape-unverified');
     assert.equal(manifest.seats[0].onboarding.status, 'absent');
-    assert.equal(onboardingLaunchBlock(manifest.seats[0]), 'onboarding-version-unreviewed:agy:1.5.2');
-    assert.deepEqual(manifest.seats[0].onboarding.captureRefusal.reviewedNativeCliVersions, ['1.4.12']);
+    assert.equal(onboardingLaunchBlock(manifest.seats[0]), 'onboarding-version-unreviewed:agy:9.9.9');
+    assert.deepEqual(manifest.seats[0].onboarding.captureRefusal.reviewedNativeCliVersions, ['1.4.12', '1.5.2']);
   } finally {
     if (held) assert.deepEqual(shredFiles([held.outDir]), []);
     fs.rmSync(root, { recursive: true, force: true });
@@ -139,7 +139,7 @@ if (process.argv[2] === 'usage') {
   console.log(JSON.stringify({allowance: null, reason: 'server_sent_no_usage', hint: 'no_allowance'}));
 } else if (process.argv[2] === 'exec') {
   fs.appendFileSync(${JSON.stringify(join(root, 'calls'))}, 'model\\n');
-  if (fs.existsSync(${JSON.stringify(join(root, 'quota'))})) { console.error('usage limit reached'); process.exit(1); }
+  if (fs.existsSync(${JSON.stringify(join(root, 'quota'))})) { console.error('HTTP 429: usage limit reached; resets at 2026-11-09T00:00:00Z'); process.exit(1); }
   console.log(process.argv.at(-1).match(/H2A_AUTH_PROOF_[a-f0-9]+/)[0]);
 } else process.exit(2);
 `, { mode: 0o700 });
@@ -152,6 +152,7 @@ if (process.argv[2] === 'usage') {
     assert.equal(refused.ok, false);
     assert.equal(refused.reason, 'provider-quota');
     assert.equal(refused.modelCalls, 1);
+    assert.deepEqual(refused.providerQuota, { observed: true, httpStatus: 429, resetAt: '2026-11-09T00:00:00.000Z' });
     assert.equal(fs.readFileSync(join(root, 'calls'), 'utf8'), 'model\nmodel\n');
     fs.writeFileSync(join(root, 'invalid-login'), 'synthetic');
     assert.deepEqual(await runMuseAuthPrecheck(input), { ok: false, reason: 'preflight-auth-unproven', modelCalls: 0 });
