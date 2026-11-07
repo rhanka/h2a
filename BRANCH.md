@@ -26,6 +26,11 @@
 - Preserve typed HTTP 429 and reset timestamps when the actual Muse provider
   response supplies them; raw provider output is never retained.
 - Live matrix qualification remains in progress.
+- Live Vibe diagnostic proves repeated PTY output with an identical rendered
+  screen. Quiet readiness now follows rendered text changes, retaining the
+  existing identity/MCP/wake-arm/composer gates and quiet intervals.
+  A continuously redrawing cursor reproduces the blocked readiness before
+  the fix and completes a signed simulated round trip after it.
 
 # Cross-CLI bench R30 — 2026-11-06
 
