@@ -44,6 +44,14 @@ The original source is untouched. Size, symlink, duplicate-block, missing
 step and quoted/commented fake-consent controls remain closed. Actual
 custodian capture is RED (absent) then GREEN (present/open gate).
 
+The live launch path also incorrectly treated every library cell as an
+MCP-composed cell. Stage 2 composes MCP for Claude/Codex; Agy/Muse receive
+only their separate consent/trust files. Their product MCP configuration
+is now rendered after onboarding. The launch regression independently
+observes the native Agy MCP path and reproduces missing config before the
+fix, with consent present in both cases. Its inspector exits before any
+model and cannot earn measured matrix credit.
+
 Codex plugin/app downloads are disabled only in bench launch arguments,
 using the documented feature flags and a native config oracle:
 https://developers.openai.com/codex/config-reference/ .
