@@ -76,7 +76,11 @@ export function fixture(t, opts = {}) {
     const stopRecorded = () => {
       let pending = 0;
       recorded();
-      for (const row of observed.values()) if (!dead(row)) { pending++; process.kill(row.pid, 'SIGKILL'); }
+      for (const row of observed.values()) if (!dead(row)) {
+        pending++;
+        try { process.kill(row.pid, 'SIGKILL'); }
+        catch (error) { if (error.code !== 'ESRCH') throw error; }
+      }
       return pending;
     };
     stopRecorded();

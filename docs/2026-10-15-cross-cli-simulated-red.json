@@ -1,0 +1,5947 @@
+{
+  "version": 1,
+  "mode": "simulated-model",
+  "sha": "575dd129deb50f6c668ea8b0242ca11aa564eb6a",
+  "node": "v22.22.1",
+  "command": "node scripts/qualify-cross-cli.mjs --simulated --timeout-ms 30000 --output docs/2026-10-15-cross-cli-simulated.json",
+  "root": "/tmp/h2a-qual-HqyO27",
+  "build": {
+    "path": "/tmp/h2a-qual-HqyO27/build",
+    "sourceDigest": "1ee60c997c8e21e764f60d434e304540bf0832101c507829acd318e6c2953a0f",
+    "nativeBuild": {
+      "command": [
+        "/usr/bin/g++",
+        "-std=c++17",
+        "-shared",
+        "-fPIC",
+        "-O2",
+        "-pthread",
+        "-DNAPI_CPP_EXCEPTIONS",
+        "-I/usr/include/node",
+        "-I/home/antoinefa/src/h2a/tmp/worktrees/xcli/node_modules/node-addon-api",
+        "/tmp/h2a-qual-HqyO27/build/node_modules/node-pty/src/unix/pty.cc",
+        "-o",
+        "/tmp/h2a-qual-HqyO27/build/node_modules/node-pty/build/Release/pty.node",
+        "-lutil"
+      ],
+      "exitCode": 0
+    }
+  },
+  "harnessDigests": {
+    "qualify-cross-cli.mjs": "82af57d831db7700c5e390d1e2b37a9d147310b5a91aa9e807da99ae79323f9e",
+    "xcli-lab.mjs": "55baeebc6773984c89fc9d3da8eb4718c74ca62db7d5263cbe886a100fc3576a",
+    "xcli-proxy.mjs": "eb75ca156b1ab1973465c07f3f2058dbd99378f7055d25ed0f1a829af56ec9e3",
+    "xcli-simulated-model.mjs": "3c56bd6aae926cf9f31674c9002a8d8ce88d4c9982f1b994c2acc625f9deb2c3"
+  },
+  "cells": [
+    {
+      "sender": "claude",
+      "receiver": "claude",
+      "status": "simulated-OK",
+      "senderMcp": true,
+      "receiverMcp": true,
+      "sent": true,
+      "delivered": true,
+      "received": true,
+      "woke": true,
+      "replied": true,
+      "replyDelivered": true,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 2
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 9369,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "receiver-idle-barrier",
+          "at": 1792122304641,
+          "instance": "claude:workspace:e2118fd5e210"
+        },
+        {
+          "event": "host-setup",
+          "role": "sender",
+          "exitCode": 2
+        },
+        {
+          "event": "session-created",
+          "role": "sender",
+          "pid": 9449,
+          "id": "h2a-sender"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122290830,
+          "event": "proxy-start",
+          "pid": 9387,
+          "childPid": 9401
+        },
+        {
+          "role": "receiver",
+          "at": 1792122291109,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122291112,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122291114,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122300571,
+          "event": "wake-armed"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122300581,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "claude:workspace:e2118fd5e210",
+          "state": "identity_ready"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122308466,
+          "event": "inbox",
+          "ok": true,
+          "instance": "claude:workspace:e2118fd5e210",
+          "envelopes": [
+            {
+              "id": "env:send:a19bf4f2-260b-4e06-bbdc-d8b041f9fe3c",
+              "from": "claude:workspace:1576511914fc",
+              "to": "claude:workspace:e2118fd5e210",
+              "kind": "probe"
+            }
+          ]
+        },
+        {
+          "role": "receiver",
+          "at": 1792122308469,
+          "event": "send",
+          "ok": true,
+          "kind": "reply",
+          "envelopeId": "env:send:2ecf838a-1a69-464f-95e6-7d46d915179a",
+          "from": "claude:workspace:e2118fd5e210",
+          "to": "claude:workspace:1576511914fc"
+        },
+        {
+          "role": "sender",
+          "at": 1792122305243,
+          "event": "proxy-start",
+          "pid": 9465,
+          "childPid": 9478
+        },
+        {
+          "role": "sender",
+          "at": 1792122305732,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122305736,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122305737,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "sender",
+          "at": 1792122308272,
+          "event": "wake-armed"
+        },
+        {
+          "role": "sender",
+          "at": 1792122308302,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "claude:workspace:1576511914fc",
+          "state": "identity_ready"
+        },
+        {
+          "role": "sender",
+          "at": 1792122308306,
+          "event": "send",
+          "ok": true,
+          "kind": "probe",
+          "envelopeId": "env:send:a19bf4f2-260b-4e06-bbdc-d8b041f9fe3c",
+          "from": "claude:workspace:1576511914fc",
+          "to": "claude:workspace:e2118fd5e210"
+        }
+      ],
+      "startedAt": "2026-10-16T03:44:46.114Z",
+      "credentialsCopied": {
+        "receiver": [],
+        "sender": []
+      },
+      "noPostSendHarnessInput": true,
+      "elapsedMs": 22627
+    },
+    {
+      "sender": "claude",
+      "receiver": "codex",
+      "status": "simulated-OK",
+      "senderMcp": true,
+      "receiverMcp": true,
+      "sent": true,
+      "delivered": true,
+      "received": true,
+      "woke": true,
+      "replied": true,
+      "replyDelivered": true,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 2
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 9569,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "receiver-idle-barrier",
+          "at": 1792122324236,
+          "instance": "codex:workspace:d4512aad6d48"
+        },
+        {
+          "event": "host-setup",
+          "role": "sender",
+          "exitCode": 2
+        },
+        {
+          "event": "session-created",
+          "role": "sender",
+          "pid": 9607,
+          "id": "h2a-sender"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122317311,
+          "event": "proxy-start",
+          "pid": 9578,
+          "childPid": 9585
+        },
+        {
+          "role": "receiver",
+          "at": 1792122317574,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122317578,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122317580,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122320062,
+          "event": "wake-armed"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122320097,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "codex:workspace:d4512aad6d48",
+          "state": "identity_ready"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122328235,
+          "event": "inbox",
+          "ok": true,
+          "instance": "codex:workspace:d4512aad6d48",
+          "envelopes": [
+            {
+              "id": "env:send:4637d633-b452-4f58-80ce-31de285a9af6",
+              "from": "claude:workspace:8fd574f0e535",
+              "to": "codex:workspace:d4512aad6d48",
+              "kind": "probe"
+            }
+          ]
+        },
+        {
+          "role": "receiver",
+          "at": 1792122328239,
+          "event": "send",
+          "ok": true,
+          "kind": "reply",
+          "envelopeId": "env:send:fef6e344-3473-4cc3-ba19-1df41a8aec20",
+          "from": "codex:workspace:d4512aad6d48",
+          "to": "claude:workspace:8fd574f0e535"
+        },
+        {
+          "role": "sender",
+          "at": 1792122325144,
+          "event": "proxy-start",
+          "pid": 9616,
+          "childPid": 9623
+        },
+        {
+          "role": "sender",
+          "at": 1792122325435,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122325438,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122325440,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "sender",
+          "at": 1792122328043,
+          "event": "wake-armed"
+        },
+        {
+          "role": "sender",
+          "at": 1792122328056,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "claude:workspace:8fd574f0e535",
+          "state": "identity_ready"
+        },
+        {
+          "role": "sender",
+          "at": 1792122328061,
+          "event": "send",
+          "ok": true,
+          "kind": "probe",
+          "envelopeId": "env:send:4637d633-b452-4f58-80ce-31de285a9af6",
+          "from": "claude:workspace:8fd574f0e535",
+          "to": "codex:workspace:d4512aad6d48"
+        }
+      ],
+      "startedAt": "2026-10-16T03:45:14.725Z",
+      "credentialsCopied": {
+        "receiver": [],
+        "sender": []
+      },
+      "noPostSendHarnessInput": true,
+      "elapsedMs": 13591
+    },
+    {
+      "sender": "claude",
+      "receiver": "agy",
+      "status": "simulated-OK",
+      "senderMcp": true,
+      "receiverMcp": true,
+      "sent": true,
+      "delivered": true,
+      "received": true,
+      "woke": true,
+      "replied": true,
+      "replyDelivered": true,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 9686,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "receiver-idle-barrier",
+          "at": 1792122338594,
+          "instance": "agy:workspace:e8339af83d60"
+        },
+        {
+          "event": "host-setup",
+          "role": "sender",
+          "exitCode": 2
+        },
+        {
+          "event": "session-created",
+          "role": "sender",
+          "pid": 9725,
+          "id": "h2a-sender"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122333470,
+          "event": "proxy-start",
+          "pid": 9695,
+          "childPid": 9702
+        },
+        {
+          "role": "receiver",
+          "at": 1792122333753,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122333756,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122333759,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122334483,
+          "event": "wake-armed"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122334484,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "agy:workspace:e8339af83d60",
+          "state": "identity_ready"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122340500,
+          "event": "inbox",
+          "ok": true,
+          "instance": "agy:workspace:e8339af83d60",
+          "envelopes": [
+            {
+              "id": "env:send:6fa21396-579a-4636-8c5d-fafde9c19eec",
+              "from": "claude:workspace:c7b7a0bb2344",
+              "to": "agy:workspace:e8339af83d60",
+              "kind": "probe"
+            }
+          ]
+        },
+        {
+          "role": "receiver",
+          "at": 1792122340503,
+          "event": "send",
+          "ok": true,
+          "kind": "reply",
+          "envelopeId": "env:send:49d8efbd-b5c7-4762-a415-db84e15b5f19",
+          "from": "agy:workspace:e8339af83d60",
+          "to": "claude:workspace:c7b7a0bb2344"
+        },
+        {
+          "role": "sender",
+          "at": 1792122339250,
+          "event": "proxy-start",
+          "pid": 9735,
+          "childPid": 9742
+        },
+        {
+          "role": "sender",
+          "at": 1792122339584,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122339588,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122339590,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "sender",
+          "at": 1792122340238,
+          "event": "wake-armed"
+        },
+        {
+          "role": "sender",
+          "at": 1792122340262,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "claude:workspace:c7b7a0bb2344",
+          "state": "identity_ready"
+        },
+        {
+          "role": "sender",
+          "at": 1792122340267,
+          "event": "send",
+          "ok": true,
+          "kind": "probe",
+          "envelopeId": "env:send:6fa21396-579a-4636-8c5d-fafde9c19eec",
+          "from": "claude:workspace:c7b7a0bb2344",
+          "to": "agy:workspace:e8339af83d60"
+        }
+      ],
+      "startedAt": "2026-10-16T03:45:31.618Z",
+      "credentialsCopied": {
+        "receiver": [],
+        "sender": []
+      },
+      "noPostSendHarnessInput": true,
+      "elapsedMs": 8927
+    },
+    {
+      "sender": "claude",
+      "receiver": "gemini",
+      "status": "simulated-KO",
+      "senderMcp": true,
+      "receiverMcp": true,
+      "sent": true,
+      "delivered": true,
+      "received": false,
+      "woke": false,
+      "replied": false,
+      "replyDelivered": false,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 9929,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "receiver-idle-barrier",
+          "at": 1792122350377,
+          "instance": "gemini:workspace:114f31cd4ea9"
+        },
+        {
+          "event": "host-setup",
+          "role": "sender",
+          "exitCode": 2
+        },
+        {
+          "event": "session-created",
+          "role": "sender",
+          "pid": 10113,
+          "id": "h2a-sender"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122345711,
+          "event": "proxy-start",
+          "pid": 9967,
+          "childPid": 9974
+        },
+        {
+          "role": "receiver",
+          "at": 1792122346042,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122346046,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122346049,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122346244,
+          "event": "wake-armed"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122346256,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "gemini:workspace:114f31cd4ea9",
+          "state": "identity_ready"
+        },
+        {
+          "role": "sender",
+          "at": 1792122351043,
+          "event": "proxy-start",
+          "pid": 10123,
+          "childPid": 10130
+        },
+        {
+          "role": "sender",
+          "at": 1792122351321,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122351324,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122351327,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "sender",
+          "at": 1792122351823,
+          "event": "wake-armed"
+        },
+        {
+          "role": "sender",
+          "at": 1792122351845,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "claude:workspace:a3a30cc5c2ed",
+          "state": "identity_ready"
+        },
+        {
+          "role": "sender",
+          "at": 1792122351852,
+          "event": "send",
+          "ok": true,
+          "kind": "probe",
+          "envelopeId": "env:send:de5f7850-6ee2-4c6d-b5f7-8977dc04dae8",
+          "from": "claude:workspace:a3a30cc5c2ed",
+          "to": "gemini:workspace:114f31cd4ea9"
+        }
+      ],
+      "startedAt": "2026-10-16T03:45:43.804Z",
+      "credentialsCopied": {
+        "receiver": [],
+        "sender": []
+      },
+      "noPostSendHarnessInput": true,
+      "failure": "live-receive-not-observed",
+      "elapsedMs": 36993
+    },
+    {
+      "sender": "claude",
+      "receiver": "muse",
+      "status": "simulated-OK",
+      "senderMcp": true,
+      "receiverMcp": true,
+      "sent": true,
+      "delivered": true,
+      "received": true,
+      "woke": true,
+      "replied": true,
+      "replyDelivered": true,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 11632,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "receiver-idle-barrier",
+          "at": 1792122390899,
+          "instance": "muse:workspace:887b1fba03c6"
+        },
+        {
+          "event": "host-setup",
+          "role": "sender",
+          "exitCode": 2
+        },
+        {
+          "event": "session-created",
+          "role": "sender",
+          "pid": 11680,
+          "id": "h2a-sender"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122386300,
+          "event": "proxy-start",
+          "pid": 11641,
+          "childPid": 11648
+        },
+        {
+          "role": "receiver",
+          "at": 1792122386610,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122386613,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122386617,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122386794,
+          "event": "wake-armed"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122386824,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "muse:workspace:887b1fba03c6",
+          "state": "identity_ready"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122392755,
+          "event": "inbox",
+          "ok": true,
+          "instance": "muse:workspace:887b1fba03c6",
+          "envelopes": [
+            {
+              "id": "env:send:b86e38b7-733c-4dfa-904a-fc714671443a",
+              "from": "claude:workspace:81cdc6be4cc1",
+              "to": "muse:workspace:887b1fba03c6",
+              "kind": "probe"
+            }
+          ]
+        },
+        {
+          "role": "receiver",
+          "at": 1792122392758,
+          "event": "send",
+          "ok": true,
+          "kind": "reply",
+          "envelopeId": "env:send:38731b82-87f2-4cfd-81ce-0ec28a3e2987",
+          "from": "muse:workspace:887b1fba03c6",
+          "to": "claude:workspace:81cdc6be4cc1"
+        },
+        {
+          "role": "sender",
+          "at": 1792122391585,
+          "event": "proxy-start",
+          "pid": 11689,
+          "childPid": 11696
+        },
+        {
+          "role": "sender",
+          "at": 1792122391862,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122391865,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122391869,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "sender",
+          "at": 1792122392578,
+          "event": "wake-armed"
+        },
+        {
+          "role": "sender",
+          "at": 1792122392592,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "claude:workspace:81cdc6be4cc1",
+          "state": "identity_ready"
+        },
+        {
+          "role": "sender",
+          "at": 1792122392597,
+          "event": "send",
+          "ok": true,
+          "kind": "probe",
+          "envelopeId": "env:send:b86e38b7-733c-4dfa-904a-fc714671443a",
+          "from": "claude:workspace:81cdc6be4cc1",
+          "to": "muse:workspace:887b1fba03c6"
+        }
+      ],
+      "startedAt": "2026-10-16T03:46:24.099Z",
+      "credentialsCopied": {
+        "receiver": [],
+        "sender": []
+      },
+      "noPostSendHarnessInput": true,
+      "elapsedMs": 8779
+    },
+    {
+      "sender": "claude",
+      "receiver": "vibe",
+      "status": "simulated-OK",
+      "senderMcp": true,
+      "receiverMcp": true,
+      "sent": true,
+      "delivered": true,
+      "received": true,
+      "woke": true,
+      "replied": true,
+      "replyDelivered": true,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 11775,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "receiver-idle-barrier",
+          "at": 1792122403944,
+          "instance": "vibe:workspace:580122f60e04"
+        },
+        {
+          "event": "host-setup",
+          "role": "sender",
+          "exitCode": 2
+        },
+        {
+          "event": "session-created",
+          "role": "sender",
+          "pid": 11813,
+          "id": "h2a-sender"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122399232,
+          "event": "proxy-start",
+          "pid": 11784,
+          "childPid": 11791
+        },
+        {
+          "role": "receiver",
+          "at": 1792122399515,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122399518,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122399520,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122399812,
+          "event": "wake-armed"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122399829,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "vibe:workspace:580122f60e04",
+          "state": "identity_ready"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122408528,
+          "event": "inbox",
+          "ok": true,
+          "instance": "vibe:workspace:580122f60e04",
+          "envelopes": [
+            {
+              "id": "env:send:227981a1-ec69-471d-8087-3d6becf9c030",
+              "from": "claude:workspace:05d83bb62919",
+              "to": "vibe:workspace:580122f60e04",
+              "kind": "probe"
+            }
+          ]
+        },
+        {
+          "role": "receiver",
+          "at": 1792122408532,
+          "event": "send",
+          "ok": true,
+          "kind": "reply",
+          "envelopeId": "env:send:db599501-bff8-42b6-af5b-5b80fffba977",
+          "from": "vibe:workspace:580122f60e04",
+          "to": "claude:workspace:05d83bb62919"
+        },
+        {
+          "role": "sender",
+          "at": 1792122404682,
+          "event": "proxy-start",
+          "pid": 11822,
+          "childPid": 11829
+        },
+        {
+          "role": "sender",
+          "at": 1792122404990,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122404992,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122404995,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "sender",
+          "at": 1792122408314,
+          "event": "wake-armed"
+        },
+        {
+          "role": "sender",
+          "at": 1792122408333,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "claude:workspace:05d83bb62919",
+          "state": "identity_ready"
+        },
+        {
+          "role": "sender",
+          "at": 1792122408339,
+          "event": "send",
+          "ok": true,
+          "kind": "probe",
+          "envelopeId": "env:send:227981a1-ec69-471d-8087-3d6becf9c030",
+          "from": "claude:workspace:05d83bb62919",
+          "to": "vibe:workspace:580122f60e04"
+        }
+      ],
+      "startedAt": "2026-10-16T03:46:36.146Z",
+      "credentialsCopied": {
+        "receiver": [],
+        "sender": []
+      },
+      "noPostSendHarnessInput": true,
+      "elapsedMs": 12507
+    },
+    {
+      "sender": "codex",
+      "receiver": "claude",
+      "status": "simulated-OK",
+      "senderMcp": true,
+      "receiverMcp": true,
+      "sent": true,
+      "delivered": true,
+      "received": true,
+      "woke": true,
+      "replied": true,
+      "replyDelivered": true,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 2
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 11898,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "receiver-idle-barrier",
+          "at": 1792122418467,
+          "instance": "claude:workspace:f2c3dc9f8b92"
+        },
+        {
+          "event": "host-setup",
+          "role": "sender",
+          "exitCode": 2
+        },
+        {
+          "event": "session-created",
+          "role": "sender",
+          "pid": 11937,
+          "id": "h2a-sender"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122413868,
+          "event": "proxy-start",
+          "pid": 11907,
+          "childPid": 11914
+        },
+        {
+          "role": "receiver",
+          "at": 1792122414158,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122414161,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122414163,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122414368,
+          "event": "wake-armed"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122414371,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "claude:workspace:f2c3dc9f8b92",
+          "state": "identity_ready"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122420598,
+          "event": "inbox",
+          "ok": true,
+          "instance": "claude:workspace:f2c3dc9f8b92",
+          "envelopes": [
+            {
+              "id": "env:send:08ff2abd-2ced-48bf-8b6a-de5034105bfb",
+              "from": "codex:workspace:9ee08707099d",
+              "to": "claude:workspace:f2c3dc9f8b92",
+              "kind": "probe"
+            }
+          ]
+        },
+        {
+          "role": "receiver",
+          "at": 1792122420602,
+          "event": "send",
+          "ok": true,
+          "kind": "reply",
+          "envelopeId": "env:send:4646733d-d64f-4065-95ed-fe86b0011945",
+          "from": "claude:workspace:f2c3dc9f8b92",
+          "to": "codex:workspace:9ee08707099d"
+        },
+        {
+          "role": "sender",
+          "at": 1792122419560,
+          "event": "proxy-start",
+          "pid": 11946,
+          "childPid": 11953
+        },
+        {
+          "role": "sender",
+          "at": 1792122419845,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122419848,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122419850,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "sender",
+          "at": 1792122420407,
+          "event": "wake-armed"
+        },
+        {
+          "role": "sender",
+          "at": 1792122420420,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "codex:workspace:9ee08707099d",
+          "state": "identity_ready"
+        },
+        {
+          "role": "sender",
+          "at": 1792122420426,
+          "event": "send",
+          "ok": true,
+          "kind": "probe",
+          "envelopeId": "env:send:08ff2abd-2ced-48bf-8b6a-de5034105bfb",
+          "from": "codex:workspace:9ee08707099d",
+          "to": "claude:workspace:f2c3dc9f8b92"
+        }
+      ],
+      "startedAt": "2026-10-16T03:46:51.917Z",
+      "credentialsCopied": {
+        "receiver": [],
+        "sender": []
+      },
+      "noPostSendHarnessInput": true,
+      "elapsedMs": 8656
+    },
+    {
+      "sender": "codex",
+      "receiver": "codex",
+      "status": "simulated-OK",
+      "senderMcp": true,
+      "receiverMcp": true,
+      "sent": true,
+      "delivered": true,
+      "received": true,
+      "woke": true,
+      "replied": true,
+      "replyDelivered": true,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 2
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 12016,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "receiver-idle-barrier",
+          "at": 1792122431676,
+          "instance": "codex:workspace:c492dcef5353"
+        },
+        {
+          "event": "host-setup",
+          "role": "sender",
+          "exitCode": 2
+        },
+        {
+          "event": "session-created",
+          "role": "sender",
+          "pid": 12094,
+          "id": "h2a-sender"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122426184,
+          "event": "proxy-start",
+          "pid": 12025,
+          "childPid": 12032
+        },
+        {
+          "role": "receiver",
+          "at": 1792122426472,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122426476,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122426479,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122427551,
+          "event": "wake-armed"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122427560,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "codex:workspace:c492dcef5353",
+          "state": "identity_ready"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122433009,
+          "event": "inbox",
+          "ok": true,
+          "instance": "codex:workspace:c492dcef5353",
+          "envelopes": [
+            {
+              "id": "env:send:8e42835c-4f6c-4e4f-8075-f831501480c3",
+              "from": "codex:workspace:5cde88e99c12",
+              "to": "codex:workspace:c492dcef5353",
+              "kind": "probe"
+            }
+          ]
+        },
+        {
+          "role": "receiver",
+          "at": 1792122433012,
+          "event": "send",
+          "ok": true,
+          "kind": "reply",
+          "envelopeId": "env:send:c71d8526-8e67-498f-8c8c-e4c8a0b368b9",
+          "from": "codex:workspace:c492dcef5353",
+          "to": "codex:workspace:5cde88e99c12"
+        },
+        {
+          "role": "sender",
+          "at": 1792122432340,
+          "event": "proxy-start",
+          "pid": 12103,
+          "childPid": 12110
+        },
+        {
+          "role": "sender",
+          "at": 1792122432658,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122432662,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122432666,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "sender",
+          "at": 1792122432823,
+          "event": "wake-armed"
+        },
+        {
+          "role": "sender",
+          "at": 1792122432824,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "codex:workspace:5cde88e99c12",
+          "state": "identity_ready"
+        },
+        {
+          "role": "sender",
+          "at": 1792122432830,
+          "event": "send",
+          "ok": true,
+          "kind": "probe",
+          "envelopeId": "env:send:8e42835c-4f6c-4e4f-8075-f831501480c3",
+          "from": "codex:workspace:5cde88e99c12",
+          "to": "codex:workspace:c492dcef5353"
+        }
+      ],
+      "startedAt": "2026-10-16T03:47:04.251Z",
+      "credentialsCopied": {
+        "receiver": [],
+        "sender": []
+      },
+      "noPostSendHarnessInput": true,
+      "elapsedMs": 8822
+    },
+    {
+      "sender": "codex",
+      "receiver": "agy",
+      "status": "simulated-OK",
+      "senderMcp": true,
+      "receiverMcp": true,
+      "sent": true,
+      "delivered": true,
+      "received": true,
+      "woke": true,
+      "replied": true,
+      "replyDelivered": true,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 12175,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "receiver-idle-barrier",
+          "at": 1792122443170,
+          "instance": "agy:workspace:ce126dcfd5a8"
+        },
+        {
+          "event": "host-setup",
+          "role": "sender",
+          "exitCode": 2
+        },
+        {
+          "event": "session-created",
+          "role": "sender",
+          "pid": 12213,
+          "id": "h2a-sender"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122438149,
+          "event": "proxy-start",
+          "pid": 12184,
+          "childPid": 12191
+        },
+        {
+          "role": "receiver",
+          "at": 1792122438419,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122438422,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122438424,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122439032,
+          "event": "wake-armed"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122439043,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "agy:workspace:ce126dcfd5a8",
+          "state": "identity_ready"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122444734,
+          "event": "inbox",
+          "ok": true,
+          "instance": "agy:workspace:ce126dcfd5a8",
+          "envelopes": [
+            {
+              "id": "env:send:aab1426b-de40-4495-a059-54cb2276f7e0",
+              "from": "codex:workspace:b961fdf89a80",
+              "to": "agy:workspace:ce126dcfd5a8",
+              "kind": "probe"
+            }
+          ]
+        },
+        {
+          "role": "receiver",
+          "at": 1792122444739,
+          "event": "send",
+          "ok": true,
+          "kind": "reply",
+          "envelopeId": "env:send:b426d5ca-dcd8-46e7-8076-baa1ae09501f",
+          "from": "agy:workspace:ce126dcfd5a8",
+          "to": "codex:workspace:b961fdf89a80"
+        },
+        {
+          "role": "sender",
+          "at": 1792122443790,
+          "event": "proxy-start",
+          "pid": 12225,
+          "childPid": 12232
+        },
+        {
+          "role": "sender",
+          "at": 1792122444056,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122444338,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122444339,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "sender",
+          "at": 1792122444546,
+          "event": "wake-armed"
+        },
+        {
+          "role": "sender",
+          "at": 1792122444546,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "codex:workspace:b961fdf89a80",
+          "state": "identity_ready"
+        },
+        {
+          "role": "sender",
+          "at": 1792122444552,
+          "event": "send",
+          "ok": true,
+          "kind": "probe",
+          "envelopeId": "env:send:aab1426b-de40-4495-a059-54cb2276f7e0",
+          "from": "codex:workspace:b961fdf89a80",
+          "to": "agy:workspace:ce126dcfd5a8"
+        }
+      ],
+      "startedAt": "2026-10-16T03:47:16.390Z",
+      "credentialsCopied": {
+        "receiver": [],
+        "sender": []
+      },
+      "noPostSendHarnessInput": true,
+      "elapsedMs": 8416
+    },
+    {
+      "sender": "codex",
+      "receiver": "gemini",
+      "status": "simulated-KO",
+      "senderMcp": true,
+      "receiverMcp": true,
+      "sent": true,
+      "delivered": true,
+      "received": false,
+      "woke": false,
+      "replied": false,
+      "replyDelivered": false,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 12342,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "receiver-idle-barrier",
+          "at": 1792122454974,
+          "instance": "gemini:workspace:cb7bcc570677"
+        },
+        {
+          "event": "host-setup",
+          "role": "sender",
+          "exitCode": 2
+        },
+        {
+          "event": "session-created",
+          "role": "sender",
+          "pid": 12380,
+          "id": "h2a-sender"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122449987,
+          "event": "proxy-start",
+          "pid": 12351,
+          "childPid": 12358
+        },
+        {
+          "role": "receiver",
+          "at": 1792122450300,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122450303,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122450307,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122450843,
+          "event": "wake-armed"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122450875,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "gemini:workspace:cb7bcc570677",
+          "state": "identity_ready"
+        },
+        {
+          "role": "sender",
+          "at": 1792122455601,
+          "event": "proxy-start",
+          "pid": 12389,
+          "childPid": 12396
+        },
+        {
+          "role": "sender",
+          "at": 1792122455858,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122455860,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122455862,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "sender",
+          "at": 1792122456277,
+          "event": "wake-armed"
+        },
+        {
+          "role": "sender",
+          "at": 1792122456279,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "codex:workspace:06078ca98975",
+          "state": "identity_ready"
+        },
+        {
+          "role": "sender",
+          "at": 1792122456284,
+          "event": "send",
+          "ok": true,
+          "kind": "probe",
+          "envelopeId": "env:send:8ec21dde-7262-40c6-b475-46b4dbf686cd",
+          "from": "codex:workspace:06078ca98975",
+          "to": "gemini:workspace:cb7bcc570677"
+        }
+      ],
+      "startedAt": "2026-10-16T03:47:28.062Z",
+      "credentialsCopied": {
+        "receiver": [],
+        "sender": []
+      },
+      "noPostSendHarnessInput": true,
+      "failure": "live-receive-not-observed",
+      "elapsedMs": 37330
+    },
+    {
+      "sender": "codex",
+      "receiver": "muse",
+      "status": "simulated-OK",
+      "senderMcp": true,
+      "receiverMcp": true,
+      "sent": true,
+      "delivered": true,
+      "received": true,
+      "woke": true,
+      "replied": true,
+      "replyDelivered": true,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 14086,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "receiver-idle-barrier",
+          "at": 1792122495992,
+          "instance": "muse:workspace:58a6d3fc5db5"
+        },
+        {
+          "event": "host-setup",
+          "role": "sender",
+          "exitCode": 2
+        },
+        {
+          "event": "session-created",
+          "role": "sender",
+          "pid": 14158,
+          "id": "h2a-sender"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122490502,
+          "event": "proxy-start",
+          "pid": 14095,
+          "childPid": 14102
+        },
+        {
+          "role": "receiver",
+          "at": 1792122490783,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122490934,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122490935,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122491817,
+          "event": "wake-armed"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122491864,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "muse:workspace:58a6d3fc5db5",
+          "state": "identity_ready"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122498192,
+          "event": "inbox",
+          "ok": true,
+          "instance": "muse:workspace:58a6d3fc5db5",
+          "envelopes": [
+            {
+              "id": "env:send:1bf9179e-63fe-47f9-ba16-c2aeb3fe5b30",
+              "from": "codex:workspace:69d1a0fcee13",
+              "to": "muse:workspace:58a6d3fc5db5",
+              "kind": "probe"
+            }
+          ]
+        },
+        {
+          "role": "receiver",
+          "at": 1792122498197,
+          "event": "send",
+          "ok": true,
+          "kind": "reply",
+          "envelopeId": "env:send:7dfb3cc2-8bd0-42ea-bb96-c0034fa232f7",
+          "from": "muse:workspace:58a6d3fc5db5",
+          "to": "codex:workspace:69d1a0fcee13"
+        },
+        {
+          "role": "sender",
+          "at": 1792122497359,
+          "event": "proxy-start",
+          "pid": 14167,
+          "childPid": 14174
+        },
+        {
+          "role": "sender",
+          "at": 1792122497627,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122497630,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122497632,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "sender",
+          "at": 1792122497857,
+          "event": "wake-armed"
+        },
+        {
+          "role": "sender",
+          "at": 1792122497893,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "codex:workspace:69d1a0fcee13",
+          "state": "identity_ready"
+        },
+        {
+          "role": "sender",
+          "at": 1792122497905,
+          "event": "send",
+          "ok": true,
+          "kind": "probe",
+          "envelopeId": "env:send:1bf9179e-63fe-47f9-ba16-c2aeb3fe5b30",
+          "from": "codex:workspace:69d1a0fcee13",
+          "to": "muse:workspace:58a6d3fc5db5"
+        }
+      ],
+      "startedAt": "2026-10-16T03:48:08.673Z",
+      "credentialsCopied": {
+        "receiver": [],
+        "sender": []
+      },
+      "noPostSendHarnessInput": true,
+      "elapsedMs": 9591
+    },
+    {
+      "sender": "codex",
+      "receiver": "vibe",
+      "status": "simulated-OK",
+      "senderMcp": true,
+      "receiverMcp": true,
+      "sent": true,
+      "delivered": true,
+      "received": true,
+      "woke": true,
+      "replied": true,
+      "replyDelivered": true,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 14238,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "receiver-idle-barrier",
+          "at": 1792122508308,
+          "instance": "vibe:workspace:44eb051efbfb"
+        },
+        {
+          "event": "host-setup",
+          "role": "sender",
+          "exitCode": 2
+        },
+        {
+          "event": "session-created",
+          "role": "sender",
+          "pid": 14276,
+          "id": "h2a-sender"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122503395,
+          "event": "proxy-start",
+          "pid": 14247,
+          "childPid": 14254
+        },
+        {
+          "role": "receiver",
+          "at": 1792122503668,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122503674,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122503675,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122504170,
+          "event": "wake-armed"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122504192,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "vibe:workspace:44eb051efbfb",
+          "state": "identity_ready"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122509605,
+          "event": "inbox",
+          "ok": true,
+          "instance": "vibe:workspace:44eb051efbfb",
+          "envelopes": [
+            {
+              "id": "env:send:04c47526-f1ca-4d2f-ab79-ca67770eb3be",
+              "from": "codex:workspace:c97849f7208b",
+              "to": "vibe:workspace:44eb051efbfb",
+              "kind": "probe"
+            }
+          ]
+        },
+        {
+          "role": "receiver",
+          "at": 1792122509609,
+          "event": "send",
+          "ok": true,
+          "kind": "reply",
+          "envelopeId": "env:send:868c0ee9-b38a-4dd0-82eb-cb34f7fab72f",
+          "from": "vibe:workspace:44eb051efbfb",
+          "to": "codex:workspace:c97849f7208b"
+        },
+        {
+          "role": "sender",
+          "at": 1792122508946,
+          "event": "proxy-start",
+          "pid": 14285,
+          "childPid": 14292
+        },
+        {
+          "role": "sender",
+          "at": 1792122509212,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122509215,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122509217,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "sender",
+          "at": 1792122509422,
+          "event": "wake-armed"
+        },
+        {
+          "role": "sender",
+          "at": 1792122509425,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "codex:workspace:c97849f7208b",
+          "state": "identity_ready"
+        },
+        {
+          "role": "sender",
+          "at": 1792122509431,
+          "event": "send",
+          "ok": true,
+          "kind": "probe",
+          "envelopeId": "env:send:04c47526-f1ca-4d2f-ab79-ca67770eb3be",
+          "from": "codex:workspace:c97849f7208b",
+          "to": "vibe:workspace:44eb051efbfb"
+        }
+      ],
+      "startedAt": "2026-10-16T03:48:21.570Z",
+      "credentialsCopied": {
+        "receiver": [],
+        "sender": []
+      },
+      "noPostSendHarnessInput": true,
+      "elapsedMs": 8172
+    },
+    {
+      "sender": "agy",
+      "receiver": "claude",
+      "status": "simulated-OK",
+      "senderMcp": true,
+      "receiverMcp": true,
+      "sent": true,
+      "delivered": true,
+      "received": true,
+      "woke": true,
+      "replied": true,
+      "replyDelivered": true,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 2
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 14357,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "receiver-idle-barrier",
+          "at": 1792122519434,
+          "instance": "claude:workspace:2cac7e6d4a49"
+        },
+        {
+          "event": "host-setup",
+          "role": "sender",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "sender",
+          "pid": 14395,
+          "id": "h2a-sender"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122514846,
+          "event": "proxy-start",
+          "pid": 14366,
+          "childPid": 14373
+        },
+        {
+          "role": "receiver",
+          "at": 1792122515131,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122515134,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122515136,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122515346,
+          "event": "wake-armed"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122515347,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "claude:workspace:2cac7e6d4a49",
+          "state": "identity_ready"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122520987,
+          "event": "inbox",
+          "ok": true,
+          "instance": "claude:workspace:2cac7e6d4a49",
+          "envelopes": [
+            {
+              "id": "env:send:8b4e4497-36ce-4a67-a527-77df766b21a2",
+              "from": "agy:workspace:ae9dc6d6db2a",
+              "to": "claude:workspace:2cac7e6d4a49",
+              "kind": "probe"
+            }
+          ]
+        },
+        {
+          "role": "receiver",
+          "at": 1792122520990,
+          "event": "send",
+          "ok": true,
+          "kind": "reply",
+          "envelopeId": "env:send:17ff871f-2554-406e-b4a3-72cffc3699ab",
+          "from": "claude:workspace:2cac7e6d4a49",
+          "to": "agy:workspace:ae9dc6d6db2a"
+        },
+        {
+          "role": "sender",
+          "at": 1792122520083,
+          "event": "proxy-start",
+          "pid": 14404,
+          "childPid": 14411
+        },
+        {
+          "role": "sender",
+          "at": 1792122520345,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122520349,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122520351,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "sender",
+          "at": 1792122520752,
+          "event": "wake-armed"
+        },
+        {
+          "role": "sender",
+          "at": 1792122520769,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "agy:workspace:ae9dc6d6db2a",
+          "state": "identity_ready"
+        },
+        {
+          "role": "sender",
+          "at": 1792122520775,
+          "event": "send",
+          "ok": true,
+          "kind": "probe",
+          "envelopeId": "env:send:8b4e4497-36ce-4a67-a527-77df766b21a2",
+          "from": "agy:workspace:ae9dc6d6db2a",
+          "to": "claude:workspace:2cac7e6d4a49"
+        }
+      ],
+      "startedAt": "2026-10-16T03:48:33.003Z",
+      "credentialsCopied": {
+        "receiver": [],
+        "sender": []
+      },
+      "noPostSendHarnessInput": true,
+      "elapsedMs": 8080
+    },
+    {
+      "sender": "agy",
+      "receiver": "codex",
+      "status": "simulated-OK",
+      "senderMcp": true,
+      "receiverMcp": true,
+      "sent": true,
+      "delivered": true,
+      "received": true,
+      "woke": true,
+      "replied": true,
+      "replyDelivered": true,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 2
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 14504,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "receiver-idle-barrier",
+          "at": 1792122531333,
+          "instance": "codex:workspace:e895f7fe4169"
+        },
+        {
+          "event": "host-setup",
+          "role": "sender",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "sender",
+          "pid": 14547,
+          "id": "h2a-sender"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122526266,
+          "event": "proxy-start",
+          "pid": 14513,
+          "childPid": 14520
+        },
+        {
+          "role": "receiver",
+          "at": 1792122526558,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122526561,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122526563,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122527233,
+          "event": "wake-armed"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122527234,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "codex:workspace:e895f7fe4169",
+          "state": "identity_ready"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122534605,
+          "event": "inbox",
+          "ok": true,
+          "instance": "codex:workspace:e895f7fe4169",
+          "envelopes": [
+            {
+              "id": "env:send:88bafecc-3e4f-457d-9214-f22f5cb38933",
+              "from": "agy:workspace:c605682c05c7",
+              "to": "codex:workspace:e895f7fe4169",
+              "kind": "probe"
+            }
+          ]
+        },
+        {
+          "role": "receiver",
+          "at": 1792122534609,
+          "event": "send",
+          "ok": true,
+          "kind": "reply",
+          "envelopeId": "env:send:cd6bd6d7-7e76-445f-9706-df4dc25891f6",
+          "from": "codex:workspace:e895f7fe4169",
+          "to": "agy:workspace:c605682c05c7"
+        },
+        {
+          "role": "sender",
+          "at": 1792122532071,
+          "event": "proxy-start",
+          "pid": 14556,
+          "childPid": 14563
+        },
+        {
+          "role": "sender",
+          "at": 1792122532399,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122532403,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122532405,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "sender",
+          "at": 1792122534380,
+          "event": "wake-armed"
+        },
+        {
+          "role": "sender",
+          "at": 1792122534413,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "agy:workspace:c605682c05c7",
+          "state": "identity_ready"
+        },
+        {
+          "role": "sender",
+          "at": 1792122534418,
+          "event": "send",
+          "ok": true,
+          "kind": "probe",
+          "envelopeId": "env:send:88bafecc-3e4f-457d-9214-f22f5cb38933",
+          "from": "agy:workspace:c605682c05c7",
+          "to": "codex:workspace:e895f7fe4169"
+        }
+      ],
+      "startedAt": "2026-10-16T03:48:44.351Z",
+      "credentialsCopied": {
+        "receiver": [],
+        "sender": []
+      },
+      "noPostSendHarnessInput": true,
+      "elapsedMs": 10366
+    },
+    {
+      "sender": "agy",
+      "receiver": "agy",
+      "status": "simulated-OK",
+      "senderMcp": true,
+      "receiverMcp": true,
+      "sent": true,
+      "delivered": true,
+      "received": true,
+      "woke": true,
+      "replied": true,
+      "replyDelivered": true,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 14626,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "receiver-idle-barrier",
+          "at": 1792122544491,
+          "instance": "agy:workspace:ede3accc3758"
+        },
+        {
+          "event": "host-setup",
+          "role": "sender",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "sender",
+          "pid": 14664,
+          "id": "h2a-sender"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122539909,
+          "event": "proxy-start",
+          "pid": 14635,
+          "childPid": 14642
+        },
+        {
+          "role": "receiver",
+          "at": 1792122540212,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122540216,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122540218,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122540402,
+          "event": "wake-armed"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122540425,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "agy:workspace:ede3accc3758",
+          "state": "identity_ready"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122548486,
+          "event": "inbox",
+          "ok": true,
+          "instance": "agy:workspace:ede3accc3758",
+          "envelopes": [
+            {
+              "id": "env:send:1e801ea2-8d3f-4206-a751-c71701015d73",
+              "from": "agy:workspace:0cf009bcd04a",
+              "to": "agy:workspace:ede3accc3758",
+              "kind": "probe"
+            }
+          ]
+        },
+        {
+          "role": "receiver",
+          "at": 1792122548491,
+          "event": "send",
+          "ok": true,
+          "kind": "reply",
+          "envelopeId": "env:send:f7946ebd-5d47-4f8a-a1f6-1953f176da90",
+          "from": "agy:workspace:ede3accc3758",
+          "to": "agy:workspace:0cf009bcd04a"
+        },
+        {
+          "role": "sender",
+          "at": 1792122545400,
+          "event": "proxy-start",
+          "pid": 14673,
+          "childPid": 14680
+        },
+        {
+          "role": "sender",
+          "at": 1792122545733,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122545736,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122545739,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "sender",
+          "at": 1792122548240,
+          "event": "wake-armed"
+        },
+        {
+          "role": "sender",
+          "at": 1792122548254,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "agy:workspace:0cf009bcd04a",
+          "state": "identity_ready"
+        },
+        {
+          "role": "sender",
+          "at": 1792122548261,
+          "event": "send",
+          "ok": true,
+          "kind": "probe",
+          "envelopeId": "env:send:1e801ea2-8d3f-4206-a751-c71701015d73",
+          "from": "agy:workspace:0cf009bcd04a",
+          "to": "agy:workspace:ede3accc3758"
+        }
+      ],
+      "startedAt": "2026-10-16T03:48:57.996Z",
+      "credentialsCopied": {
+        "receiver": [],
+        "sender": []
+      },
+      "noPostSendHarnessInput": true,
+      "elapsedMs": 10539
+    },
+    {
+      "sender": "agy",
+      "receiver": "gemini",
+      "status": "simulated-KO",
+      "senderMcp": true,
+      "receiverMcp": true,
+      "sent": true,
+      "delivered": true,
+      "received": false,
+      "woke": false,
+      "replied": false,
+      "replyDelivered": false,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 14745,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "receiver-idle-barrier",
+          "at": 1792122558457,
+          "instance": "gemini:workspace:9ac29d993704"
+        },
+        {
+          "event": "host-setup",
+          "role": "sender",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "sender",
+          "pid": 14795,
+          "id": "h2a-sender"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122553795,
+          "event": "proxy-start",
+          "pid": 14754,
+          "childPid": 14762
+        },
+        {
+          "role": "receiver",
+          "at": 1792122554089,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122554093,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122554095,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122554405,
+          "event": "wake-armed"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122554407,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "gemini:workspace:9ac29d993704",
+          "state": "identity_ready"
+        },
+        {
+          "role": "sender",
+          "at": 1792122559329,
+          "event": "proxy-start",
+          "pid": 14804,
+          "childPid": 14811
+        },
+        {
+          "role": "sender",
+          "at": 1792122559608,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122559611,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122559614,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "sender",
+          "at": 1792122559785,
+          "event": "wake-armed"
+        },
+        {
+          "role": "sender",
+          "at": 1792122559822,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "agy:workspace:50f601cd8c2f",
+          "state": "identity_ready"
+        },
+        {
+          "role": "sender",
+          "at": 1792122559827,
+          "event": "send",
+          "ok": true,
+          "kind": "probe",
+          "envelopeId": "env:send:e4ac72ab-bcc3-49cd-921c-65cab9f0475d",
+          "from": "agy:workspace:50f601cd8c2f",
+          "to": "gemini:workspace:9ac29d993704"
+        }
+      ],
+      "startedAt": "2026-10-16T03:49:11.881Z",
+      "credentialsCopied": {
+        "receiver": [],
+        "sender": []
+      },
+      "noPostSendHarnessInput": true,
+      "failure": "live-receive-not-observed",
+      "elapsedMs": 37474
+    },
+    {
+      "sender": "agy",
+      "receiver": "muse",
+      "status": "simulated-OK",
+      "senderMcp": true,
+      "receiverMcp": true,
+      "sent": true,
+      "delivered": true,
+      "received": true,
+      "woke": true,
+      "replied": true,
+      "replyDelivered": true,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 16384,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "receiver-idle-barrier",
+          "at": 1792122599742,
+          "instance": "muse:workspace:ce28f3b9febd"
+        },
+        {
+          "event": "host-setup",
+          "role": "sender",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "sender",
+          "pid": 16422,
+          "id": "h2a-sender"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122595166,
+          "event": "proxy-start",
+          "pid": 16393,
+          "childPid": 16400
+        },
+        {
+          "role": "receiver",
+          "at": 1792122595471,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122595475,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122595482,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122595676,
+          "event": "wake-armed"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122595689,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "muse:workspace:ce28f3b9febd",
+          "state": "identity_ready"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122602313,
+          "event": "inbox",
+          "ok": true,
+          "instance": "muse:workspace:ce28f3b9febd",
+          "envelopes": [
+            {
+              "id": "env:send:622750bc-6ca0-4814-a66a-6f3958a9c0ad",
+              "from": "agy:workspace:4dd159a2b95e",
+              "to": "muse:workspace:ce28f3b9febd",
+              "kind": "probe"
+            }
+          ]
+        },
+        {
+          "role": "receiver",
+          "at": 1792122602317,
+          "event": "send",
+          "ok": true,
+          "kind": "reply",
+          "envelopeId": "env:send:835efc35-0e50-4ed3-9ff8-580a792a52b7",
+          "from": "muse:workspace:ce28f3b9febd",
+          "to": "agy:workspace:4dd159a2b95e"
+        },
+        {
+          "role": "sender",
+          "at": 1792122600900,
+          "event": "proxy-start",
+          "pid": 16431,
+          "childPid": 16438
+        },
+        {
+          "role": "sender",
+          "at": 1792122601192,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122601196,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122601198,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "sender",
+          "at": 1792122602116,
+          "event": "wake-armed"
+        },
+        {
+          "role": "sender",
+          "at": 1792122602126,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "agy:workspace:4dd159a2b95e",
+          "state": "identity_ready"
+        },
+        {
+          "role": "sender",
+          "at": 1792122602131,
+          "event": "send",
+          "ok": true,
+          "kind": "probe",
+          "envelopeId": "env:send:622750bc-6ca0-4814-a66a-6f3958a9c0ad",
+          "from": "agy:workspace:4dd159a2b95e",
+          "to": "muse:workspace:ce28f3b9febd"
+        }
+      ],
+      "startedAt": "2026-10-16T03:49:53.248Z",
+      "credentialsCopied": {
+        "receiver": [],
+        "sender": []
+      },
+      "noPostSendHarnessInput": true,
+      "elapsedMs": 9183
+    },
+    {
+      "sender": "agy",
+      "receiver": "vibe",
+      "status": "simulated-OK",
+      "senderMcp": true,
+      "receiverMcp": true,
+      "sent": true,
+      "delivered": true,
+      "received": true,
+      "woke": true,
+      "replied": true,
+      "replyDelivered": true,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 16513,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "receiver-idle-barrier",
+          "at": 1792122612667,
+          "instance": "vibe:workspace:d3d4c4f9e547"
+        },
+        {
+          "event": "host-setup",
+          "role": "sender",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "sender",
+          "pid": 16582,
+          "id": "h2a-sender"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122608037,
+          "event": "proxy-start",
+          "pid": 16522,
+          "childPid": 16529
+        },
+        {
+          "role": "receiver",
+          "at": 1792122608324,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122608327,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122608329,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122608489,
+          "event": "wake-armed"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122608536,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "vibe:workspace:d3d4c4f9e547",
+          "state": "identity_ready"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122614723,
+          "event": "inbox",
+          "ok": true,
+          "instance": "vibe:workspace:d3d4c4f9e547",
+          "envelopes": [
+            {
+              "id": "env:send:8e07429f-5c3e-4d73-a2d5-7fa2beb07737",
+              "from": "agy:workspace:3e6a5a66cd22",
+              "to": "vibe:workspace:d3d4c4f9e547",
+              "kind": "probe"
+            }
+          ]
+        },
+        {
+          "role": "receiver",
+          "at": 1792122614729,
+          "event": "send",
+          "ok": true,
+          "kind": "reply",
+          "envelopeId": "env:send:c9d2a94d-5cc7-47af-b084-0a5b7f272cb5",
+          "from": "vibe:workspace:d3d4c4f9e547",
+          "to": "agy:workspace:3e6a5a66cd22"
+        },
+        {
+          "role": "sender",
+          "at": 1792122613746,
+          "event": "proxy-start",
+          "pid": 16593,
+          "childPid": 16600
+        },
+        {
+          "role": "sender",
+          "at": 1792122614109,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122614113,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122614116,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "sender",
+          "at": 1792122614400,
+          "event": "wake-armed"
+        },
+        {
+          "role": "sender",
+          "at": 1792122614430,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "agy:workspace:3e6a5a66cd22",
+          "state": "identity_ready"
+        },
+        {
+          "role": "sender",
+          "at": 1792122614436,
+          "event": "send",
+          "ok": true,
+          "kind": "probe",
+          "envelopeId": "env:send:8e07429f-5c3e-4d73-a2d5-7fa2beb07737",
+          "from": "agy:workspace:3e6a5a66cd22",
+          "to": "vibe:workspace:d3d4c4f9e547"
+        }
+      ],
+      "startedAt": "2026-10-16T03:50:05.700Z",
+      "credentialsCopied": {
+        "receiver": [],
+        "sender": []
+      },
+      "noPostSendHarnessInput": true,
+      "elapsedMs": 8742
+    },
+    {
+      "sender": "gemini",
+      "receiver": "claude",
+      "status": "simulated-OK",
+      "senderMcp": true,
+      "receiverMcp": true,
+      "sent": true,
+      "delivered": true,
+      "received": true,
+      "woke": true,
+      "replied": true,
+      "replyDelivered": true,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 2
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 16674,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "receiver-idle-barrier",
+          "at": 1792122625636,
+          "instance": "claude:workspace:b35fc80a6be2"
+        },
+        {
+          "event": "host-setup",
+          "role": "sender",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "sender",
+          "pid": 16726,
+          "id": "h2a-sender"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122620448,
+          "event": "proxy-start",
+          "pid": 16683,
+          "childPid": 16690
+        },
+        {
+          "role": "receiver",
+          "at": 1792122620752,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122620755,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122620759,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122621492,
+          "event": "wake-armed"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122621534,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "claude:workspace:b35fc80a6be2",
+          "state": "identity_ready"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122627803,
+          "event": "inbox",
+          "ok": true,
+          "instance": "claude:workspace:b35fc80a6be2",
+          "envelopes": [
+            {
+              "id": "env:send:5ff9db1f-189d-4119-b550-d51d71121329",
+              "from": "gemini:workspace:11b84208c6ae",
+              "to": "claude:workspace:b35fc80a6be2",
+              "kind": "probe"
+            }
+          ]
+        },
+        {
+          "role": "receiver",
+          "at": 1792122627807,
+          "event": "send",
+          "ok": true,
+          "kind": "reply",
+          "envelopeId": "env:send:5add1a82-0a0f-4f18-bdc2-e4ed7f607705",
+          "from": "claude:workspace:b35fc80a6be2",
+          "to": "gemini:workspace:11b84208c6ae"
+        },
+        {
+          "role": "sender",
+          "at": 1792122626746,
+          "event": "proxy-start",
+          "pid": 16735,
+          "childPid": 16742
+        },
+        {
+          "role": "sender",
+          "at": 1792122627051,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122627209,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122627211,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "sender",
+          "at": 1792122627607,
+          "event": "wake-armed"
+        },
+        {
+          "role": "sender",
+          "at": 1792122627625,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "gemini:workspace:11b84208c6ae",
+          "state": "identity_ready"
+        },
+        {
+          "role": "sender",
+          "at": 1792122627630,
+          "event": "send",
+          "ok": true,
+          "kind": "probe",
+          "envelopeId": "env:send:5ff9db1f-189d-4119-b550-d51d71121329",
+          "from": "gemini:workspace:11b84208c6ae",
+          "to": "claude:workspace:b35fc80a6be2"
+        }
+      ],
+      "startedAt": "2026-10-16T03:50:18.147Z",
+      "credentialsCopied": {
+        "receiver": [],
+        "sender": []
+      },
+      "noPostSendHarnessInput": true,
+      "elapsedMs": 9705
+    },
+    {
+      "sender": "gemini",
+      "receiver": "codex",
+      "status": "simulated-OK",
+      "senderMcp": true,
+      "receiverMcp": true,
+      "sent": true,
+      "delivered": true,
+      "received": true,
+      "woke": true,
+      "replied": true,
+      "replyDelivered": true,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 2
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 16816,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "receiver-idle-barrier",
+          "at": 1792122638311,
+          "instance": "codex:workspace:48d8e732f3c1"
+        },
+        {
+          "event": "host-setup",
+          "role": "sender",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "sender",
+          "pid": 16885,
+          "id": "h2a-sender"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122633325,
+          "event": "proxy-start",
+          "pid": 16842,
+          "childPid": 16849
+        },
+        {
+          "role": "receiver",
+          "at": 1792122633635,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122633639,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122633642,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122634194,
+          "event": "wake-armed"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122634209,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "codex:workspace:48d8e732f3c1",
+          "state": "identity_ready"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122639909,
+          "event": "inbox",
+          "ok": true,
+          "instance": "codex:workspace:48d8e732f3c1",
+          "envelopes": [
+            {
+              "id": "env:send:4b534144-89f0-4277-b6a6-d081c4c6cecc",
+              "from": "gemini:workspace:a61496035952",
+              "to": "codex:workspace:48d8e732f3c1",
+              "kind": "probe"
+            }
+          ]
+        },
+        {
+          "role": "receiver",
+          "at": 1792122639914,
+          "event": "send",
+          "ok": true,
+          "kind": "reply",
+          "envelopeId": "env:send:83d81345-e350-480f-afaa-b941c3afdabf",
+          "from": "codex:workspace:48d8e732f3c1",
+          "to": "gemini:workspace:a61496035952"
+        },
+        {
+          "role": "sender",
+          "at": 1792122639090,
+          "event": "proxy-start",
+          "pid": 16894,
+          "childPid": 16901
+        },
+        {
+          "role": "sender",
+          "at": 1792122639390,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122639393,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122639396,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "sender",
+          "at": 1792122639685,
+          "event": "wake-armed"
+        },
+        {
+          "role": "sender",
+          "at": 1792122639707,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "gemini:workspace:a61496035952",
+          "state": "identity_ready"
+        },
+        {
+          "role": "sender",
+          "at": 1792122639714,
+          "event": "send",
+          "ok": true,
+          "kind": "probe",
+          "envelopeId": "env:send:4b534144-89f0-4277-b6a6-d081c4c6cecc",
+          "from": "gemini:workspace:a61496035952",
+          "to": "codex:workspace:48d8e732f3c1"
+        }
+      ],
+      "startedAt": "2026-10-16T03:50:31.190Z",
+      "credentialsCopied": {
+        "receiver": [],
+        "sender": []
+      },
+      "noPostSendHarnessInput": true,
+      "elapsedMs": 8827
+    },
+    {
+      "sender": "gemini",
+      "receiver": "agy",
+      "status": "simulated-OK",
+      "senderMcp": true,
+      "receiverMcp": true,
+      "sent": true,
+      "delivered": true,
+      "received": true,
+      "woke": true,
+      "replied": true,
+      "replyDelivered": true,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 16971,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "receiver-idle-barrier",
+          "at": 1792122650171,
+          "instance": "agy:workspace:ab6328d92b77"
+        },
+        {
+          "event": "host-setup",
+          "role": "sender",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "sender",
+          "pid": 17009,
+          "id": "h2a-sender"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122645164,
+          "event": "proxy-start",
+          "pid": 16980,
+          "childPid": 16987
+        },
+        {
+          "role": "receiver",
+          "at": 1792122645466,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122645470,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122645472,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122646033,
+          "event": "wake-armed"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122646040,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "agy:workspace:ab6328d92b77",
+          "state": "identity_ready"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122652236,
+          "event": "inbox",
+          "ok": true,
+          "instance": "agy:workspace:ab6328d92b77",
+          "envelopes": [
+            {
+              "id": "env:send:a8112b0e-8ad7-4ba3-a11d-815865c8538d",
+              "from": "gemini:workspace:1f491e4b821b",
+              "to": "agy:workspace:ab6328d92b77",
+              "kind": "probe"
+            }
+          ]
+        },
+        {
+          "role": "receiver",
+          "at": 1792122652240,
+          "event": "send",
+          "ok": true,
+          "kind": "reply",
+          "envelopeId": "env:send:ab4bbfa3-04c1-4430-a191-7ade61195ddb",
+          "from": "agy:workspace:ab6328d92b77",
+          "to": "gemini:workspace:1f491e4b821b"
+        },
+        {
+          "role": "sender",
+          "at": 1792122651106,
+          "event": "proxy-start",
+          "pid": 17018,
+          "childPid": 17025
+        },
+        {
+          "role": "sender",
+          "at": 1792122651433,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122651896,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122651898,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "sender",
+          "at": 1792122652036,
+          "event": "wake-armed"
+        },
+        {
+          "role": "sender",
+          "at": 1792122652054,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "gemini:workspace:1f491e4b821b",
+          "state": "identity_ready"
+        },
+        {
+          "role": "sender",
+          "at": 1792122652060,
+          "event": "send",
+          "ok": true,
+          "kind": "probe",
+          "envelopeId": "env:send:a8112b0e-8ad7-4ba3-a11d-815865c8538d",
+          "from": "gemini:workspace:1f491e4b821b",
+          "to": "agy:workspace:ab6328d92b77"
+        }
+      ],
+      "startedAt": "2026-10-16T03:50:43.315Z",
+      "credentialsCopied": {
+        "receiver": [],
+        "sender": []
+      },
+      "noPostSendHarnessInput": true,
+      "elapsedMs": 9027
+    },
+    {
+      "sender": "gemini",
+      "receiver": "gemini",
+      "status": "simulated-KO",
+      "senderMcp": true,
+      "receiverMcp": true,
+      "sent": true,
+      "delivered": true,
+      "received": false,
+      "woke": false,
+      "replied": false,
+      "replyDelivered": false,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 17088,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "receiver-idle-barrier",
+          "at": 1792122662245,
+          "instance": "gemini:workspace:da3ddd6c500c"
+        },
+        {
+          "event": "host-setup",
+          "role": "sender",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "sender",
+          "pid": 17127,
+          "id": "h2a-sender"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122657656,
+          "event": "proxy-start",
+          "pid": 17097,
+          "childPid": 17104
+        },
+        {
+          "role": "receiver",
+          "at": 1792122657945,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122657950,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122657953,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122658143,
+          "event": "wake-armed"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122658160,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "gemini:workspace:da3ddd6c500c",
+          "state": "identity_ready"
+        },
+        {
+          "role": "sender",
+          "at": 1792122663878,
+          "event": "proxy-start",
+          "pid": 17136,
+          "childPid": 17143
+        },
+        {
+          "role": "sender",
+          "at": 1792122664170,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122664173,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122664176,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "sender",
+          "at": 1792122665013,
+          "event": "wake-armed"
+        },
+        {
+          "role": "sender",
+          "at": 1792122665051,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "gemini:workspace:5da29e923f29",
+          "state": "identity_ready"
+        },
+        {
+          "role": "sender",
+          "at": 1792122665058,
+          "event": "send",
+          "ok": true,
+          "kind": "probe",
+          "envelopeId": "env:send:c48b93fa-0b1a-4d70-981d-811b7bddba77",
+          "from": "gemini:workspace:5da29e923f29",
+          "to": "gemini:workspace:da3ddd6c500c"
+        }
+      ],
+      "startedAt": "2026-10-16T03:50:55.822Z",
+      "credentialsCopied": {
+        "receiver": [],
+        "sender": []
+      },
+      "noPostSendHarnessInput": true,
+      "failure": "live-receive-not-observed",
+      "elapsedMs": 37826
+    },
+    {
+      "sender": "gemini",
+      "receiver": "muse",
+      "status": "simulated-OK",
+      "senderMcp": true,
+      "receiverMcp": true,
+      "sent": true,
+      "delivered": true,
+      "received": true,
+      "woke": true,
+      "replied": true,
+      "replyDelivered": true,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 18772,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "receiver-idle-barrier",
+          "at": 1792122704445,
+          "instance": "muse:workspace:b3dfbbe10a88"
+        },
+        {
+          "event": "host-setup",
+          "role": "sender",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "sender",
+          "pid": 18810,
+          "id": "h2a-sender"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122699328,
+          "event": "proxy-start",
+          "pid": 18781,
+          "childPid": 18788
+        },
+        {
+          "role": "receiver",
+          "at": 1792122699599,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122699602,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122699604,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122700367,
+          "event": "wake-armed"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122700375,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "muse:workspace:b3dfbbe10a88",
+          "state": "identity_ready"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122706341,
+          "event": "inbox",
+          "ok": true,
+          "instance": "muse:workspace:b3dfbbe10a88",
+          "envelopes": [
+            {
+              "id": "env:send:43c15638-c028-4550-89cd-37d5ee105bb4",
+              "from": "gemini:workspace:5269f9f4756b",
+              "to": "muse:workspace:b3dfbbe10a88",
+              "kind": "probe"
+            }
+          ]
+        },
+        {
+          "role": "receiver",
+          "at": 1792122706344,
+          "event": "send",
+          "ok": true,
+          "kind": "reply",
+          "envelopeId": "env:send:28e7e909-d070-4289-8078-41c1cd7ca586",
+          "from": "muse:workspace:b3dfbbe10a88",
+          "to": "gemini:workspace:5269f9f4756b"
+        },
+        {
+          "role": "sender",
+          "at": 1792122705299,
+          "event": "proxy-start",
+          "pid": 18819,
+          "childPid": 18826
+        },
+        {
+          "role": "sender",
+          "at": 1792122705544,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122705547,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122705549,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "sender",
+          "at": 1792122706144,
+          "event": "wake-armed"
+        },
+        {
+          "role": "sender",
+          "at": 1792122706166,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "gemini:workspace:5269f9f4756b",
+          "state": "identity_ready"
+        },
+        {
+          "role": "sender",
+          "at": 1792122706171,
+          "event": "send",
+          "ok": true,
+          "kind": "probe",
+          "envelopeId": "env:send:43c15638-c028-4550-89cd-37d5ee105bb4",
+          "from": "gemini:workspace:5269f9f4756b",
+          "to": "muse:workspace:b3dfbbe10a88"
+        }
+      ],
+      "startedAt": "2026-10-16T03:51:36.912Z",
+      "credentialsCopied": {
+        "receiver": [],
+        "sender": []
+      },
+      "noPostSendHarnessInput": true,
+      "elapsedMs": 9493
+    },
+    {
+      "sender": "gemini",
+      "receiver": "vibe",
+      "status": "simulated-OK",
+      "senderMcp": true,
+      "receiverMcp": true,
+      "sent": true,
+      "delivered": true,
+      "received": true,
+      "woke": true,
+      "replied": true,
+      "replyDelivered": true,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 18889,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "receiver-idle-barrier",
+          "at": 1792122716917,
+          "instance": "vibe:workspace:64eda2322525"
+        },
+        {
+          "event": "host-setup",
+          "role": "sender",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "sender",
+          "pid": 18928,
+          "id": "h2a-sender"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122711516,
+          "event": "proxy-start",
+          "pid": 18898,
+          "childPid": 18906
+        },
+        {
+          "role": "receiver",
+          "at": 1792122711780,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122711783,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122711785,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122712846,
+          "event": "wake-armed"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122712866,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "vibe:workspace:64eda2322525",
+          "state": "identity_ready"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122719123,
+          "event": "inbox",
+          "ok": true,
+          "instance": "vibe:workspace:64eda2322525",
+          "envelopes": [
+            {
+              "id": "env:send:238b27f3-ba97-492a-be5e-f8941b5097f7",
+              "from": "gemini:workspace:d1c2592c11a6",
+              "to": "vibe:workspace:64eda2322525",
+              "kind": "probe"
+            }
+          ]
+        },
+        {
+          "role": "receiver",
+          "at": 1792122719126,
+          "event": "send",
+          "ok": true,
+          "kind": "reply",
+          "envelopeId": "env:send:06aa9092-ec63-4f06-bc96-7cf94dc9bd42",
+          "from": "vibe:workspace:64eda2322525",
+          "to": "gemini:workspace:d1c2592c11a6"
+        },
+        {
+          "role": "sender",
+          "at": 1792122717585,
+          "event": "proxy-start",
+          "pid": 18937,
+          "childPid": 18944
+        },
+        {
+          "role": "sender",
+          "at": 1792122717906,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122717909,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122717910,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "sender",
+          "at": 1792122718760,
+          "event": "wake-armed"
+        },
+        {
+          "role": "sender",
+          "at": 1792122718786,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "gemini:workspace:d1c2592c11a6",
+          "state": "identity_ready"
+        },
+        {
+          "role": "sender",
+          "at": 1792122718791,
+          "event": "send",
+          "ok": true,
+          "kind": "probe",
+          "envelopeId": "env:send:238b27f3-ba97-492a-be5e-f8941b5097f7",
+          "from": "gemini:workspace:d1c2592c11a6",
+          "to": "vibe:workspace:64eda2322525"
+        }
+      ],
+      "startedAt": "2026-10-16T03:51:49.700Z",
+      "credentialsCopied": {
+        "receiver": [],
+        "sender": []
+      },
+      "noPostSendHarnessInput": true,
+      "elapsedMs": 9548
+    },
+    {
+      "sender": "muse",
+      "receiver": "claude",
+      "status": "simulated-OK",
+      "senderMcp": true,
+      "receiverMcp": true,
+      "sent": true,
+      "delivered": true,
+      "received": true,
+      "woke": true,
+      "replied": true,
+      "replyDelivered": true,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 2
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 19029,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "receiver-idle-barrier",
+          "at": 1792122729688,
+          "instance": "claude:workspace:f86558ca1679"
+        },
+        {
+          "event": "host-setup",
+          "role": "sender",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "sender",
+          "pid": 19084,
+          "id": "h2a-sender"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122724588,
+          "event": "proxy-start",
+          "pid": 19038,
+          "childPid": 19045
+        },
+        {
+          "role": "receiver",
+          "at": 1792122724845,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122724849,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122724850,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122725548,
+          "event": "wake-armed"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122725571,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "claude:workspace:f86558ca1679",
+          "state": "identity_ready"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122732251,
+          "event": "inbox",
+          "ok": true,
+          "instance": "claude:workspace:f86558ca1679",
+          "envelopes": [
+            {
+              "id": "env:send:1457ca90-8e14-45f9-b23d-7d01500857df",
+              "from": "muse:workspace:5cbf8dc34dc5",
+              "to": "claude:workspace:f86558ca1679",
+              "kind": "probe"
+            }
+          ]
+        },
+        {
+          "role": "receiver",
+          "at": 1792122732256,
+          "event": "send",
+          "ok": true,
+          "kind": "reply",
+          "envelopeId": "env:send:4682cf44-213e-4964-93de-1560688ecc80",
+          "from": "claude:workspace:f86558ca1679",
+          "to": "muse:workspace:5cbf8dc34dc5"
+        },
+        {
+          "role": "sender",
+          "at": 1792122731070,
+          "event": "proxy-start",
+          "pid": 19108,
+          "childPid": 19115
+        },
+        {
+          "role": "sender",
+          "at": 1792122731392,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122731397,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122731399,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "sender",
+          "at": 1792122732070,
+          "event": "wake-armed"
+        },
+        {
+          "role": "sender",
+          "at": 1792122732070,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "muse:workspace:5cbf8dc34dc5",
+          "state": "identity_ready"
+        },
+        {
+          "role": "sender",
+          "at": 1792122732078,
+          "event": "send",
+          "ok": true,
+          "kind": "probe",
+          "envelopeId": "env:send:1457ca90-8e14-45f9-b23d-7d01500857df",
+          "from": "muse:workspace:5cbf8dc34dc5",
+          "to": "claude:workspace:f86558ca1679"
+        }
+      ],
+      "startedAt": "2026-10-16T03:52:02.508Z",
+      "credentialsCopied": {
+        "receiver": [],
+        "sender": []
+      },
+      "noPostSendHarnessInput": true,
+      "elapsedMs": 9839
+    },
+    {
+      "sender": "muse",
+      "receiver": "codex",
+      "status": "simulated-OK",
+      "senderMcp": true,
+      "receiverMcp": true,
+      "sent": true,
+      "delivered": true,
+      "received": true,
+      "woke": true,
+      "replied": true,
+      "replyDelivered": true,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 2
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 19207,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "receiver-idle-barrier",
+          "at": 1792122742841,
+          "instance": "codex:workspace:d282700dc5be"
+        },
+        {
+          "event": "host-setup",
+          "role": "sender",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "sender",
+          "pid": 19337,
+          "id": "h2a-sender"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122737546,
+          "event": "proxy-start",
+          "pid": 19217,
+          "childPid": 19230
+        },
+        {
+          "role": "receiver",
+          "at": 1792122737838,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122737841,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122737843,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122738718,
+          "event": "wake-armed"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122738722,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "codex:workspace:d282700dc5be",
+          "state": "identity_ready"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122744391,
+          "event": "inbox",
+          "ok": true,
+          "instance": "codex:workspace:d282700dc5be",
+          "envelopes": [
+            {
+              "id": "env:send:27f7fdca-a938-4ef6-97a3-71877638bc2c",
+              "from": "muse:workspace:42ff80da0053",
+              "to": "codex:workspace:d282700dc5be",
+              "kind": "probe"
+            }
+          ]
+        },
+        {
+          "role": "receiver",
+          "at": 1792122744396,
+          "event": "send",
+          "ok": true,
+          "kind": "reply",
+          "envelopeId": "env:send:00c4c9c7-8408-4d8e-bc57-fa0b6a62acdc",
+          "from": "codex:workspace:d282700dc5be",
+          "to": "muse:workspace:42ff80da0053"
+        },
+        {
+          "role": "sender",
+          "at": 1792122743495,
+          "event": "proxy-start",
+          "pid": 19346,
+          "childPid": 19353
+        },
+        {
+          "role": "sender",
+          "at": 1792122743775,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122743778,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122743781,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "sender",
+          "at": 1792122744116,
+          "event": "wake-armed"
+        },
+        {
+          "role": "sender",
+          "at": 1792122744144,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "muse:workspace:42ff80da0053",
+          "state": "identity_ready"
+        },
+        {
+          "role": "sender",
+          "at": 1792122744149,
+          "event": "send",
+          "ok": true,
+          "kind": "probe",
+          "envelopeId": "env:send:27f7fdca-a938-4ef6-97a3-71877638bc2c",
+          "from": "muse:workspace:42ff80da0053",
+          "to": "codex:workspace:d282700dc5be"
+        }
+      ],
+      "startedAt": "2026-10-16T03:52:15.639Z",
+      "credentialsCopied": {
+        "receiver": [],
+        "sender": []
+      },
+      "noPostSendHarnessInput": true,
+      "elapsedMs": 8857
+    },
+    {
+      "sender": "muse",
+      "receiver": "agy",
+      "status": "simulated-OK",
+      "senderMcp": true,
+      "receiverMcp": true,
+      "sent": true,
+      "delivered": true,
+      "received": true,
+      "woke": true,
+      "replied": true,
+      "replyDelivered": true,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 19479,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "receiver-idle-barrier",
+          "at": 1792122754515,
+          "instance": "agy:workspace:a8256fb6f70c"
+        },
+        {
+          "event": "host-setup",
+          "role": "sender",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "sender",
+          "pid": 19533,
+          "id": "h2a-sender"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122749623,
+          "event": "proxy-start",
+          "pid": 19495,
+          "childPid": 19502
+        },
+        {
+          "role": "receiver",
+          "at": 1792122749884,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122749886,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122749887,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122750444,
+          "event": "wake-armed"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122750456,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "agy:workspace:a8256fb6f70c",
+          "state": "identity_ready"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122756389,
+          "event": "inbox",
+          "ok": true,
+          "instance": "agy:workspace:a8256fb6f70c",
+          "envelopes": [
+            {
+              "id": "env:send:53e30c77-3c74-486a-af4e-e88d90c2a11f",
+              "from": "muse:workspace:18f7b3cd7568",
+              "to": "agy:workspace:a8256fb6f70c",
+              "kind": "probe"
+            }
+          ]
+        },
+        {
+          "role": "receiver",
+          "at": 1792122756392,
+          "event": "send",
+          "ok": true,
+          "kind": "reply",
+          "envelopeId": "env:send:7683c265-8469-423c-8149-2b4bbbafdb7d",
+          "from": "agy:workspace:a8256fb6f70c",
+          "to": "muse:workspace:18f7b3cd7568"
+        },
+        {
+          "role": "sender",
+          "at": 1792122755438,
+          "event": "proxy-start",
+          "pid": 19542,
+          "childPid": 19549
+        },
+        {
+          "role": "sender",
+          "at": 1792122755840,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122755844,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122755845,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "sender",
+          "at": 1792122756176,
+          "event": "wake-armed"
+        },
+        {
+          "role": "sender",
+          "at": 1792122756209,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "muse:workspace:18f7b3cd7568",
+          "state": "identity_ready"
+        },
+        {
+          "role": "sender",
+          "at": 1792122756216,
+          "event": "send",
+          "ok": true,
+          "kind": "probe",
+          "envelopeId": "env:send:53e30c77-3c74-486a-af4e-e88d90c2a11f",
+          "from": "muse:workspace:18f7b3cd7568",
+          "to": "agy:workspace:a8256fb6f70c"
+        }
+      ],
+      "startedAt": "2026-10-16T03:52:27.769Z",
+      "credentialsCopied": {
+        "receiver": [],
+        "sender": []
+      },
+      "noPostSendHarnessInput": true,
+      "elapsedMs": 8737
+    },
+    {
+      "sender": "muse",
+      "receiver": "gemini",
+      "status": "simulated-KO",
+      "senderMcp": true,
+      "receiverMcp": true,
+      "sent": true,
+      "delivered": true,
+      "received": false,
+      "woke": false,
+      "replied": false,
+      "replyDelivered": false,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 19619,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "receiver-idle-barrier",
+          "at": 1792122767150,
+          "instance": "gemini:workspace:807d6c57d4b7"
+        },
+        {
+          "event": "host-setup",
+          "role": "sender",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "sender",
+          "pid": 19657,
+          "id": "h2a-sender"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122761968,
+          "event": "proxy-start",
+          "pid": 19628,
+          "childPid": 19635
+        },
+        {
+          "role": "receiver",
+          "at": 1792122762233,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122762301,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122762303,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122762997,
+          "event": "wake-armed"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122763025,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "gemini:workspace:807d6c57d4b7",
+          "state": "identity_ready"
+        },
+        {
+          "role": "sender",
+          "at": 1792122767763,
+          "event": "proxy-start",
+          "pid": 19666,
+          "childPid": 19673
+        },
+        {
+          "role": "sender",
+          "at": 1792122768013,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122768016,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122768019,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "sender",
+          "at": 1792122768412,
+          "event": "wake-armed"
+        },
+        {
+          "role": "sender",
+          "at": 1792122768432,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "muse:workspace:460cdb0aa2ac",
+          "state": "identity_ready"
+        },
+        {
+          "role": "sender",
+          "at": 1792122768437,
+          "event": "send",
+          "ok": true,
+          "kind": "probe",
+          "envelopeId": "env:send:7f23fb5f-c933-4c10-ab5e-473c1ceb6df4",
+          "from": "muse:workspace:460cdb0aa2ac",
+          "to": "gemini:workspace:807d6c57d4b7"
+        }
+      ],
+      "startedAt": "2026-10-16T03:52:39.755Z",
+      "credentialsCopied": {
+        "receiver": [],
+        "sender": []
+      },
+      "noPostSendHarnessInput": true,
+      "failure": "live-receive-not-observed",
+      "elapsedMs": 37749
+    },
+    {
+      "sender": "muse",
+      "receiver": "muse",
+      "status": "simulated-OK",
+      "senderMcp": true,
+      "receiverMcp": true,
+      "sent": true,
+      "delivered": true,
+      "received": true,
+      "woke": true,
+      "replied": true,
+      "replyDelivered": true,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 21369,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "receiver-idle-barrier",
+          "at": 1792122808959,
+          "instance": "muse:workspace:144ff873a083"
+        },
+        {
+          "event": "host-setup",
+          "role": "sender",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "sender",
+          "pid": 21419,
+          "id": "h2a-sender"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122803252,
+          "event": "proxy-start",
+          "pid": 21380,
+          "childPid": 21387
+        },
+        {
+          "role": "receiver",
+          "at": 1792122803553,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122803557,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122803559,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122804878,
+          "event": "wake-armed"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122804896,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "muse:workspace:144ff873a083",
+          "state": "identity_ready"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122810498,
+          "event": "inbox",
+          "ok": true,
+          "instance": "muse:workspace:144ff873a083",
+          "envelopes": [
+            {
+              "id": "env:send:858bd495-1997-4d64-b60d-a884e6d95324",
+              "from": "muse:workspace:c8256b9828e9",
+              "to": "muse:workspace:144ff873a083",
+              "kind": "probe"
+            }
+          ]
+        },
+        {
+          "role": "receiver",
+          "at": 1792122810501,
+          "event": "send",
+          "ok": true,
+          "kind": "reply",
+          "envelopeId": "env:send:fd0ba37a-045f-4d88-86e5-de8f09a0d62c",
+          "from": "muse:workspace:144ff873a083",
+          "to": "muse:workspace:c8256b9828e9"
+        },
+        {
+          "role": "sender",
+          "at": 1792122809884,
+          "event": "proxy-start",
+          "pid": 21428,
+          "childPid": 21435
+        },
+        {
+          "role": "sender",
+          "at": 1792122810156,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122810158,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122810161,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "sender",
+          "at": 1792122810307,
+          "event": "wake-armed"
+        },
+        {
+          "role": "sender",
+          "at": 1792122810317,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "muse:workspace:c8256b9828e9",
+          "state": "identity_ready"
+        },
+        {
+          "role": "sender",
+          "at": 1792122810322,
+          "event": "send",
+          "ok": true,
+          "kind": "probe",
+          "envelopeId": "env:send:858bd495-1997-4d64-b60d-a884e6d95324",
+          "from": "muse:workspace:c8256b9828e9",
+          "to": "muse:workspace:144ff873a083"
+        }
+      ],
+      "startedAt": "2026-10-16T03:53:20.808Z",
+      "credentialsCopied": {
+        "receiver": [],
+        "sender": []
+      },
+      "noPostSendHarnessInput": true,
+      "elapsedMs": 9816
+    },
+    {
+      "sender": "muse",
+      "receiver": "vibe",
+      "status": "simulated-OK",
+      "senderMcp": true,
+      "receiverMcp": true,
+      "sent": true,
+      "delivered": true,
+      "received": true,
+      "woke": true,
+      "replied": true,
+      "replyDelivered": true,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 21498,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "receiver-idle-barrier",
+          "at": 1792122820397,
+          "instance": "vibe:workspace:8ec2401cc0de"
+        },
+        {
+          "event": "host-setup",
+          "role": "sender",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "sender",
+          "pid": 21536,
+          "id": "h2a-sender"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122815669,
+          "event": "proxy-start",
+          "pid": 21507,
+          "childPid": 21514
+        },
+        {
+          "role": "receiver",
+          "at": 1792122815936,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122815938,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122815943,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122816268,
+          "event": "wake-armed"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122816307,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "vibe:workspace:8ec2401cc0de",
+          "state": "identity_ready"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122822277,
+          "event": "inbox",
+          "ok": true,
+          "instance": "vibe:workspace:8ec2401cc0de",
+          "envelopes": [
+            {
+              "id": "env:send:cfea12fb-3e0c-4ede-9f5d-2b3a812ec91b",
+              "from": "muse:workspace:cc8a3eda226e",
+              "to": "vibe:workspace:8ec2401cc0de",
+              "kind": "probe"
+            }
+          ]
+        },
+        {
+          "role": "receiver",
+          "at": 1792122822280,
+          "event": "send",
+          "ok": true,
+          "kind": "reply",
+          "envelopeId": "env:send:fbe90325-9f96-4624-8541-d740b6118685",
+          "from": "vibe:workspace:8ec2401cc0de",
+          "to": "muse:workspace:cc8a3eda226e"
+        },
+        {
+          "role": "sender",
+          "at": 1792122821065,
+          "event": "proxy-start",
+          "pid": 21546,
+          "childPid": 21553
+        },
+        {
+          "role": "sender",
+          "at": 1792122821371,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122821444,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122821446,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "sender",
+          "at": 1792122822088,
+          "event": "wake-armed"
+        },
+        {
+          "role": "sender",
+          "at": 1792122822116,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "muse:workspace:cc8a3eda226e",
+          "state": "identity_ready"
+        },
+        {
+          "role": "sender",
+          "at": 1792122822122,
+          "event": "send",
+          "ok": true,
+          "kind": "probe",
+          "envelopeId": "env:send:cfea12fb-3e0c-4ede-9f5d-2b3a812ec91b",
+          "from": "muse:workspace:cc8a3eda226e",
+          "to": "vibe:workspace:8ec2401cc0de"
+        }
+      ],
+      "startedAt": "2026-10-16T03:53:33.889Z",
+      "credentialsCopied": {
+        "receiver": [],
+        "sender": []
+      },
+      "noPostSendHarnessInput": true,
+      "elapsedMs": 8500
+    },
+    {
+      "sender": "vibe",
+      "receiver": "claude",
+      "status": "simulated-OK",
+      "senderMcp": true,
+      "receiverMcp": true,
+      "sent": true,
+      "delivered": true,
+      "received": true,
+      "woke": true,
+      "replied": true,
+      "replyDelivered": true,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 2
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 21616,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "receiver-idle-barrier",
+          "at": 1792122832291,
+          "instance": "claude:workspace:501196bbcb31"
+        },
+        {
+          "event": "host-setup",
+          "role": "sender",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "sender",
+          "pid": 21654,
+          "id": "h2a-sender"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122827664,
+          "event": "proxy-start",
+          "pid": 21625,
+          "childPid": 21632
+        },
+        {
+          "role": "receiver",
+          "at": 1792122827917,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122827920,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122827924,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122828135,
+          "event": "wake-armed"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122828183,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "claude:workspace:501196bbcb31",
+          "state": "identity_ready"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122834049,
+          "event": "inbox",
+          "ok": true,
+          "instance": "claude:workspace:501196bbcb31",
+          "envelopes": [
+            {
+              "id": "env:send:0f7a87db-78e0-467e-b853-e6ba0b3a45c5",
+              "from": "vibe:workspace:17881e50c503",
+              "to": "claude:workspace:501196bbcb31",
+              "kind": "probe"
+            }
+          ]
+        },
+        {
+          "role": "receiver",
+          "at": 1792122834053,
+          "event": "send",
+          "ok": true,
+          "kind": "reply",
+          "envelopeId": "env:send:53379a80-5963-4939-99a7-360a53210062",
+          "from": "claude:workspace:501196bbcb31",
+          "to": "vibe:workspace:17881e50c503"
+        },
+        {
+          "role": "sender",
+          "at": 1792122832915,
+          "event": "proxy-start",
+          "pid": 21663,
+          "childPid": 21670
+        },
+        {
+          "role": "sender",
+          "at": 1792122833162,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122833165,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122833167,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "sender",
+          "at": 1792122833850,
+          "event": "wake-armed"
+        },
+        {
+          "role": "sender",
+          "at": 1792122833886,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "vibe:workspace:17881e50c503",
+          "state": "identity_ready"
+        },
+        {
+          "role": "sender",
+          "at": 1792122833891,
+          "event": "send",
+          "ok": true,
+          "kind": "probe",
+          "envelopeId": "env:send:0f7a87db-78e0-467e-b853-e6ba0b3a45c5",
+          "from": "vibe:workspace:17881e50c503",
+          "to": "claude:workspace:501196bbcb31"
+        }
+      ],
+      "startedAt": "2026-10-16T03:53:45.659Z",
+      "credentialsCopied": {
+        "receiver": [],
+        "sender": []
+      },
+      "noPostSendHarnessInput": true,
+      "elapsedMs": 8476
+    },
+    {
+      "sender": "vibe",
+      "receiver": "codex",
+      "status": "simulated-OK",
+      "senderMcp": true,
+      "receiverMcp": true,
+      "sent": true,
+      "delivered": true,
+      "received": true,
+      "woke": true,
+      "replied": true,
+      "replyDelivered": true,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 2
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 21741,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "receiver-idle-barrier",
+          "at": 1792122844051,
+          "instance": "codex:workspace:32cdabdd8958"
+        },
+        {
+          "event": "host-setup",
+          "role": "sender",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "sender",
+          "pid": 21779,
+          "id": "h2a-sender"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122839135,
+          "event": "proxy-start",
+          "pid": 21750,
+          "childPid": 21757
+        },
+        {
+          "role": "receiver",
+          "at": 1792122839401,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122839404,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122839405,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122839940,
+          "event": "wake-armed"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122839975,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "codex:workspace:32cdabdd8958",
+          "state": "identity_ready"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122845642,
+          "event": "inbox",
+          "ok": true,
+          "instance": "codex:workspace:32cdabdd8958",
+          "envelopes": [
+            {
+              "id": "env:send:cb3a4a2c-4192-4bda-a6f9-548d0251e3c0",
+              "from": "vibe:workspace:b3bfdbe6bdcb",
+              "to": "codex:workspace:32cdabdd8958",
+              "kind": "probe"
+            }
+          ]
+        },
+        {
+          "role": "receiver",
+          "at": 1792122845644,
+          "event": "send",
+          "ok": true,
+          "kind": "reply",
+          "envelopeId": "env:send:282f2ddd-eb6d-4011-b151-88d54fef4971",
+          "from": "codex:workspace:32cdabdd8958",
+          "to": "vibe:workspace:b3bfdbe6bdcb"
+        },
+        {
+          "role": "sender",
+          "at": 1792122844686,
+          "event": "proxy-start",
+          "pid": 21788,
+          "childPid": 21795
+        },
+        {
+          "role": "sender",
+          "at": 1792122844940,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122844943,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122844945,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "sender",
+          "at": 1792122845375,
+          "event": "wake-armed"
+        },
+        {
+          "role": "sender",
+          "at": 1792122845409,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "vibe:workspace:b3bfdbe6bdcb",
+          "state": "identity_ready"
+        },
+        {
+          "role": "sender",
+          "at": 1792122845414,
+          "event": "send",
+          "ok": true,
+          "kind": "probe",
+          "envelopeId": "env:send:cb3a4a2c-4192-4bda-a6f9-548d0251e3c0",
+          "from": "vibe:workspace:b3bfdbe6bdcb",
+          "to": "codex:workspace:32cdabdd8958"
+        }
+      ],
+      "startedAt": "2026-10-16T03:53:57.381Z",
+      "credentialsCopied": {
+        "receiver": [],
+        "sender": []
+      },
+      "noPostSendHarnessInput": true,
+      "elapsedMs": 8304
+    },
+    {
+      "sender": "vibe",
+      "receiver": "agy",
+      "status": "simulated-OK",
+      "senderMcp": true,
+      "receiverMcp": true,
+      "sent": true,
+      "delivered": true,
+      "received": true,
+      "woke": true,
+      "replied": true,
+      "replyDelivered": true,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 21859,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "receiver-idle-barrier",
+          "at": 1792122855667,
+          "instance": "agy:workspace:1ad105edff81"
+        },
+        {
+          "event": "host-setup",
+          "role": "sender",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "sender",
+          "pid": 21917,
+          "id": "h2a-sender"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122850847,
+          "event": "proxy-start",
+          "pid": 21868,
+          "childPid": 21875
+        },
+        {
+          "role": "receiver",
+          "at": 1792122851101,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122851323,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122851324,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122851577,
+          "event": "wake-armed"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122851584,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "agy:workspace:1ad105edff81",
+          "state": "identity_ready"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122859467,
+          "event": "inbox",
+          "ok": true,
+          "instance": "agy:workspace:1ad105edff81",
+          "envelopes": [
+            {
+              "id": "env:send:68e344e1-8246-4b26-bdad-8aef362a07b3",
+              "from": "vibe:workspace:5611e42e41fd",
+              "to": "agy:workspace:1ad105edff81",
+              "kind": "probe"
+            }
+          ]
+        },
+        {
+          "role": "receiver",
+          "at": 1792122859471,
+          "event": "send",
+          "ok": true,
+          "kind": "reply",
+          "envelopeId": "env:send:0f3766fc-620e-45d9-8d26-aedb42a1fdec",
+          "from": "agy:workspace:1ad105edff81",
+          "to": "vibe:workspace:5611e42e41fd"
+        },
+        {
+          "role": "sender",
+          "at": 1792122856292,
+          "event": "proxy-start",
+          "pid": 21928,
+          "childPid": 21935
+        },
+        {
+          "role": "sender",
+          "at": 1792122856561,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122856564,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122856566,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "sender",
+          "at": 1792122859285,
+          "event": "wake-armed"
+        },
+        {
+          "role": "sender",
+          "at": 1792122859292,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "vibe:workspace:5611e42e41fd",
+          "state": "identity_ready"
+        },
+        {
+          "role": "sender",
+          "at": 1792122859297,
+          "event": "send",
+          "ok": true,
+          "kind": "probe",
+          "envelopeId": "env:send:68e344e1-8246-4b26-bdad-8aef362a07b3",
+          "from": "vibe:workspace:5611e42e41fd",
+          "to": "agy:workspace:1ad105edff81"
+        }
+      ],
+      "startedAt": "2026-10-16T03:54:09.083Z",
+      "credentialsCopied": {
+        "receiver": [],
+        "sender": []
+      },
+      "noPostSendHarnessInput": true,
+      "elapsedMs": 10447
+    },
+    {
+      "sender": "vibe",
+      "receiver": "gemini",
+      "status": "simulated-KO",
+      "senderMcp": true,
+      "receiverMcp": true,
+      "sent": true,
+      "delivered": true,
+      "received": false,
+      "woke": false,
+      "replied": false,
+      "replyDelivered": false,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 22082,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "receiver-idle-barrier",
+          "at": 1792122869690,
+          "instance": "gemini:workspace:bef0ee4b6f0c"
+        },
+        {
+          "event": "host-setup",
+          "role": "sender",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "sender",
+          "pid": 22220,
+          "id": "h2a-sender"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122865206,
+          "event": "proxy-start",
+          "pid": 22102,
+          "childPid": 22113
+        },
+        {
+          "role": "receiver",
+          "at": 1792122865482,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122865485,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122865488,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122865631,
+          "event": "wake-armed"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122865644,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "gemini:workspace:bef0ee4b6f0c",
+          "state": "identity_ready"
+        },
+        {
+          "role": "sender",
+          "at": 1792122870277,
+          "event": "proxy-start",
+          "pid": 22237,
+          "childPid": 22244
+        },
+        {
+          "role": "sender",
+          "at": 1792122870535,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122870538,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122870540,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "sender",
+          "at": 1792122870770,
+          "event": "wake-armed"
+        },
+        {
+          "role": "sender",
+          "at": 1792122870799,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "vibe:workspace:6813c5d801eb",
+          "state": "identity_ready"
+        },
+        {
+          "role": "sender",
+          "at": 1792122870803,
+          "event": "send",
+          "ok": true,
+          "kind": "probe",
+          "envelopeId": "env:send:8af7ca7d-d6c4-4ba5-ad72-403deb56ca2c",
+          "from": "vibe:workspace:6813c5d801eb",
+          "to": "gemini:workspace:bef0ee4b6f0c"
+        }
+      ],
+      "startedAt": "2026-10-16T03:54:22.786Z",
+      "credentialsCopied": {
+        "receiver": [],
+        "sender": []
+      },
+      "noPostSendHarnessInput": true,
+      "failure": "live-receive-not-observed",
+      "elapsedMs": 37234
+    },
+    {
+      "sender": "vibe",
+      "receiver": "muse",
+      "status": "simulated-OK",
+      "senderMcp": true,
+      "receiverMcp": true,
+      "sent": true,
+      "delivered": true,
+      "received": true,
+      "woke": true,
+      "replied": true,
+      "replyDelivered": true,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 24790,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "receiver-idle-barrier",
+          "at": 1792122909956,
+          "instance": "muse:workspace:6032321e1b54"
+        },
+        {
+          "event": "host-setup",
+          "role": "sender",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "sender",
+          "pid": 24888,
+          "id": "h2a-sender"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122905132,
+          "event": "proxy-start",
+          "pid": 24799,
+          "childPid": 24806
+        },
+        {
+          "role": "receiver",
+          "at": 1792122905400,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122905403,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122905405,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122905843,
+          "event": "wake-armed"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122905869,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "muse:workspace:6032321e1b54",
+          "state": "identity_ready"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122911628,
+          "event": "inbox",
+          "ok": true,
+          "instance": "muse:workspace:6032321e1b54",
+          "envelopes": [
+            {
+              "id": "env:send:c718e557-9f60-4dab-8229-ca02e98b4c8c",
+              "from": "vibe:workspace:e4eb85653dfe",
+              "to": "muse:workspace:6032321e1b54",
+              "kind": "probe"
+            }
+          ]
+        },
+        {
+          "role": "receiver",
+          "at": 1792122911632,
+          "event": "send",
+          "ok": true,
+          "kind": "reply",
+          "envelopeId": "env:send:d2401e4b-cc43-4f69-b4e1-58828683982a",
+          "from": "muse:workspace:6032321e1b54",
+          "to": "vibe:workspace:e4eb85653dfe"
+        },
+        {
+          "role": "sender",
+          "at": 1792122910553,
+          "event": "proxy-start",
+          "pid": 24897,
+          "childPid": 24904
+        },
+        {
+          "role": "sender",
+          "at": 1792122910799,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122910803,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122910804,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "sender",
+          "at": 1792122911253,
+          "event": "wake-armed"
+        },
+        {
+          "role": "sender",
+          "at": 1792122911415,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "vibe:workspace:e4eb85653dfe",
+          "state": "identity_ready"
+        },
+        {
+          "role": "sender",
+          "at": 1792122911421,
+          "event": "send",
+          "ok": true,
+          "kind": "probe",
+          "envelopeId": "env:send:c718e557-9f60-4dab-8229-ca02e98b4c8c",
+          "from": "vibe:workspace:e4eb85653dfe",
+          "to": "muse:workspace:6032321e1b54"
+        }
+      ],
+      "startedAt": "2026-10-16T03:55:03.307Z",
+      "credentialsCopied": {
+        "receiver": [],
+        "sender": []
+      },
+      "noPostSendHarnessInput": true,
+      "elapsedMs": 8448
+    },
+    {
+      "sender": "vibe",
+      "receiver": "vibe",
+      "status": "simulated-OK",
+      "senderMcp": true,
+      "receiverMcp": true,
+      "sent": true,
+      "delivered": true,
+      "received": true,
+      "woke": true,
+      "replied": true,
+      "replyDelivered": true,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 25047,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "receiver-idle-barrier",
+          "at": 1792122921738,
+          "instance": "vibe:workspace:8309bd0307fd"
+        },
+        {
+          "event": "host-setup",
+          "role": "sender",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "sender",
+          "pid": 25138,
+          "id": "h2a-sender"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122917099,
+          "event": "proxy-start",
+          "pid": 25056,
+          "childPid": 25063
+        },
+        {
+          "role": "receiver",
+          "at": 1792122917428,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122917431,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792122917435,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122917685,
+          "event": "wake-armed"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122917694,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "vibe:workspace:8309bd0307fd",
+          "state": "identity_ready"
+        },
+        {
+          "role": "receiver",
+          "at": 1792122922963,
+          "event": "inbox",
+          "ok": true,
+          "instance": "vibe:workspace:8309bd0307fd",
+          "envelopes": [
+            {
+              "id": "env:send:6f99143c-f3b7-4636-87bb-eaee2abfe0a2",
+              "from": "vibe:workspace:dfcde9317ec7",
+              "to": "vibe:workspace:8309bd0307fd",
+              "kind": "probe"
+            }
+          ]
+        },
+        {
+          "role": "receiver",
+          "at": 1792122922967,
+          "event": "send",
+          "ok": true,
+          "kind": "reply",
+          "envelopeId": "env:send:5f0c6e56-7f57-4ec1-b17e-e8f6054f5d9f",
+          "from": "vibe:workspace:8309bd0307fd",
+          "to": "vibe:workspace:dfcde9317ec7"
+        },
+        {
+          "role": "sender",
+          "at": 1792122922350,
+          "event": "proxy-start",
+          "pid": 25147,
+          "childPid": 25154
+        },
+        {
+          "role": "sender",
+          "at": 1792122922617,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122922699,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "sender",
+          "at": 1792122922701,
+          "event": "identity",
+          "ok": true,
+          "ready": false,
+          "state": "identity_pending"
+        },
+        {
+          "role": "sender",
+          "at": 1792122922768,
+          "event": "wake-armed"
+        },
+        {
+          "role": "sender",
+          "at": 1792122922804,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "vibe:workspace:dfcde9317ec7",
+          "state": "identity_ready"
+        },
+        {
+          "role": "sender",
+          "at": 1792122922812,
+          "event": "send",
+          "ok": true,
+          "kind": "probe",
+          "envelopeId": "env:send:6f99143c-f3b7-4636-87bb-eaee2abfe0a2",
+          "from": "vibe:workspace:dfcde9317ec7",
+          "to": "vibe:workspace:8309bd0307fd"
+        }
+      ],
+      "startedAt": "2026-10-16T03:55:15.098Z",
+      "credentialsCopied": {
+        "receiver": [],
+        "sender": []
+      },
+      "noPostSendHarnessInput": true,
+      "elapsedMs": 7940
+    }
+  ],
+  "counts": {
+    "simulated-OK": 30,
+    "simulated-KO": 6,
+    "blocked": 0
+  }
+}

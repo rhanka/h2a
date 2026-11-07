@@ -337,6 +337,64 @@ describe("native terminal local transport", () => {
     );
   });
 
+  it("should inspect fragmented oversized frames in linear work and isolate the peer", async () => {
+    const { socketPath, client } = await service();
+    const faulty = createConnection(socketPath);
+    cleanup.push(async () => { faulty.destroy(); });
+    faulty.on("error", () => {});
+    faulty.resume();
+    await once(faulty, "connect");
+
+    // Count input inspected, rather than depending on machine speed to expose
+    // quadratic rescanning of the accumulated partial frame.
+    let inspectedBytes = 0;
+    const byteLength = Buffer.byteLength;
+    // A spy would retain every growing input string and exhaust the heap.
+    Buffer.byteLength = (value, encoding) => {
+      if (typeof value === "string" && value[0] === "x") inspectedBytes += value.length;
+      return byteLength(value, encoding);
+    };
+    const payload = "x".repeat(NATIVE_TERMINAL_MAX_FRAME_BYTES + 1);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const closed = new Promise<void>((resolve, reject) => {
+        timer = setTimeout(() => reject(new Error("faulty connection was not destroyed")), 5_000);
+        faulty.once("close", resolve);
+      });
+      faulty.write(payload);
+      await closed;
+    } finally {
+      clearTimeout(timer);
+      Buffer.byteLength = byteLength;
+    }
+    expect(inspectedBytes).toBeGreaterThanOrEqual(payload.length);
+    expect(inspectedBytes).toBeLessThanOrEqual(2 * payload.length);
+    expect(await client.ping()).toMatchObject({ generation: "unit-generation" });
+  });
+
+  it("should accept a UTF-8 frame at the byte limit followed by another frame", async () => {
+    const { socketPath } = await service();
+    const peer = createConnection(socketPath);
+    cleanup.push(async () => { peer.destroy(); });
+    peer.setEncoding("utf8");
+    await once(peer, "connect");
+    const request = JSON.stringify({ version: 1, id: "é", operation: "ping" });
+    const frame = request + " ".repeat(NATIVE_TERMINAL_MAX_FRAME_BYTES - Buffer.byteLength(request));
+    let received = "";
+    const replies = new Promise<void>((resolve, reject) => {
+      peer.once("error", reject);
+      peer.on("data", (chunk: string) => {
+        received += chunk;
+        if (received.split("\n").length === 3) resolve();
+      });
+    });
+    peer.write(`${frame}\n${request}\n`);
+    await replies;
+    const responses = received.trim().split("\n").map(line => JSON.parse(line));
+    expect(responses).toHaveLength(2);
+    for (const response of responses) expect(response).toMatchObject({ id: "é", ok: true });
+  });
+
   it("should contain a net.Server error surfacing after listen", async () => {
     const before = hostFaultCounters();
     const { socketPath, server, client } = await service();

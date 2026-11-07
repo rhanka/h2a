@@ -165,6 +165,16 @@ describe("registry-first discovery", () => {
     expect(registrySessions(home, entries)).toEqual([]);
   });
 
+  it("keeps OpenCode bench rows out of the published five-seat resume set", () => {
+    const entries = [
+      registryEntry("opencode-seat", { tool: "opencode", kind: "local-native" }),
+      registryEntry("claude-seat"),
+    ];
+    expect(registrySessions(home, entries).map((entry) => entry.project)).toEqual([
+      "claude-seat",
+    ]);
+  });
+
   it("excludes MCP background sessions from human restore discovery", () => {
     const entries = [
       registryEntry("worker", { sessionClass: "background" }),

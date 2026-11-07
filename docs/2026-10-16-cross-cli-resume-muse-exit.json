@@ -1,0 +1,113 @@
+{
+  "version": 1,
+  "mode": "real-cli",
+  "sha": "680cf7d8bef00d4837d135bdc0d60c335d52f478",
+  "node": "v22.22.1",
+  "command": "node scripts/qualify-cross-cli.mjs --pair muse:muse --timeout-ms 30000 --auth-home /home/antoinefa --output docs/2026-10-16-cross-cli-resume-muse-exit.json",
+  "root": "/tmp/h2a-qual-K27z1I",
+  "build": {
+    "path": "/tmp/h2a-qual-K27z1I/build",
+    "sourceDigest": "3269437cae6d64c8883fd34768d7b47c6bf5d9f62657d5b63f044b77ba836993",
+    "nativeBuild": {
+      "command": [
+        "/usr/bin/g++",
+        "-std=c++17",
+        "-shared",
+        "-fPIC",
+        "-O2",
+        "-pthread",
+        "-DNAPI_CPP_EXCEPTIONS",
+        "-I/usr/include/node",
+        "-I/home/antoinefa/src/h2a/tmp/worktrees/xcli/node_modules/node-addon-api",
+        "/tmp/h2a-qual-K27z1I/build/node_modules/node-pty/src/unix/pty.cc",
+        "-o",
+        "/tmp/h2a-qual-K27z1I/build/node_modules/node-pty/build/Release/pty.node",
+        "-lutil"
+      ],
+      "exitCode": 0
+    }
+  },
+  "harnessDigests": {
+    "qualify-cross-cli.mjs": "e4c3660c3c92fc5d586e370b96c8ed454617e7d816ad472569d3abb4cb05ec8d",
+    "xcli-lab.mjs": "6968c3def782921fbb33e402ee3897543598b48c05b5754d6d4856beaf76db3f",
+    "xcli-proxy.mjs": "28354e7d0621bdae045f531f39a78941248fdde9e9d6ceaea41cd096b0a013a4",
+    "xcli-simulated-model.mjs": "3c56bd6aae926cf9f31674c9002a8d8ce88d4c9982f1b994c2acc625f9deb2c3"
+  },
+  "cells": [
+    {
+      "sender": "muse",
+      "receiver": "muse",
+      "status": "blocked",
+      "senderMcp": null,
+      "receiverMcp": false,
+      "sent": null,
+      "delivered": null,
+      "received": null,
+      "woke": null,
+      "replied": null,
+      "replyDelivered": null,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 0
+        },
+        {
+          "event": "private-program-copy",
+          "role": "receiver",
+          "cli": "muse",
+          "version": "1.4.9-R6297.1",
+          "hashes": {
+            "muse": "c6db294799a190ca380da274beb3b9c0e160e0da9681a3d364ce8b0e5fa3a4bc",
+            "muse-bin-1.4.9-R6297.1": "a228010021276e112aa8422eb56ae82c0375405701950f6529bed4c9fe8abe05"
+          }
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 12511,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "cli-exit",
+          "role": "receiver",
+          "exit": {
+            "exitCode": 1,
+            "signal": 0
+          },
+          "facts": {
+            "matched": [],
+            "errorSignals": [],
+            "choices": [],
+            "qualificationDraft": false,
+            "wakeDraft": false,
+            "emptyComposer": false,
+            "interruptVisible": false,
+            "signedWakeVisible": false,
+            "inboxWakeVisible": false,
+            "toolApproval": false
+          }
+        },
+        {
+          "event": "cleanup-complete",
+          "ownedProcessesStopped": true,
+          "privateStateRemoved": true
+        }
+      ],
+      "startedAt": "2026-10-16T12:43:48.426Z",
+      "credentialsCopied": {
+        "receiver": [
+          ".config/muse/auth.json"
+        ]
+      },
+      "noPostSendHarnessInput": true,
+      "blocker": "cli-exited-before-ready",
+      "elapsedMs": 2406
+    }
+  ],
+  "counts": {
+    "measured-OK": 0,
+    "measured-KO": 0,
+    "blocked": 1
+  }
+}
