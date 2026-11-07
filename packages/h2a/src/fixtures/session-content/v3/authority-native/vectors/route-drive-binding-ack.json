@@ -1,0 +1,1214 @@
+{
+  "routeId": "drive-binding-ack",
+  "method": "POST",
+  "path": "/mesh/v1/remote-sessions/:sessionId/drive-bindings/:bindingId/:consentRevision/acks",
+  "evidenceLevel": "model route admission only; no handler/network executed; all authority values synthetic assumptions",
+  "positive": [
+    {
+      "id": "drive-binding-ack-positive",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "drive-binding-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/drive-bindings/fixture-bindingId/1/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "bindingId": "fixture-bindingId",
+          "consentRevision": 1
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "allow",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "drive-binding-ack-matrix-bound-cli-lifecycle",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "drive-binding-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/drive-bindings/fixture-bindingId/1/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "bindingId": "fixture-bindingId",
+          "consentRevision": 1
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "allow",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "drive-binding-ack-http-media",
+      "evaluator": "routeHttp",
+      "input": {
+        "routeId": "drive-binding-ack",
+        "contentType": "application/json",
+        "bodyBytes": 2,
+        "contentEncoding": null
+      },
+      "expected": {
+        "decision": "allow",
+        "code": null
+      }
+    }
+  ],
+  "negative": [
+    {
+      "id": "drive-binding-ack-wrong-method",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "drive-binding-ack",
+        "method": "GET",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/drive-bindings/fixture-bindingId/1/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "bindingId": "fixture-bindingId",
+          "consentRevision": 1
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "drive-binding-ack-extra-path",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "drive-binding-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/drive-bindings/fixture-bindingId/1/acks/extra",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "bindingId": "fixture-bindingId",
+          "consentRevision": 1
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "drive-binding-ack-caller-invented-resolved-path",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "drive-binding-ack",
+        "method": "POST",
+        "path": "/arbitrary",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "bindingId": "fixture-bindingId",
+          "consentRevision": 1
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false,
+        "expectedResolvedPath": "/arbitrary"
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "drive-binding-ack-extra-parameter",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "drive-binding-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/drive-bindings/fixture-bindingId/1/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "bindingId": "fixture-bindingId",
+          "consentRevision": 1,
+          "arbitrary": "forbidden"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "drive-binding-ack-foreign-session-scope",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "drive-binding-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/drive-bindings/fixture-bindingId/1/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "bindingId": "fixture-bindingId",
+          "consentRevision": 1
+        },
+        "authenticated": true,
+        "scopeMatches": false,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "drive-binding-ack-missing-authority",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "drive-binding-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/drive-bindings/fixture-bindingId/1/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "bindingId": "fixture-bindingId",
+          "consentRevision": 1
+        },
+        "authenticated": false,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_auth_required",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "drive-binding-ack-purpose-withdrawn",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "drive-binding-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/drive-bindings/fixture-bindingId/1/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "bindingId": "fixture-bindingId",
+          "consentRevision": 1
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": false,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_consent_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "drive-binding-ack-wrong-lane",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "drive-binding-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/drive-bindings/fixture-bindingId/1/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "bindingId": "fixture-bindingId",
+          "consentRevision": 1
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "content",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_lane_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "drive-binding-ack-unbound",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "drive-binding-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/drive-bindings/fixture-bindingId/1/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "bindingId": "fixture-bindingId",
+          "consentRevision": 1
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": false,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_auth_required",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "drive-binding-ack-escaped-path",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "drive-binding-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/%252fsessionId/drive-bindings/fixture-bindingId/1/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "bindingId": "fixture-bindingId",
+          "consentRevision": 1
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "drive-binding-ack-matrix-listing-cli-lifecycle",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "drive-binding-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/drive-bindings/fixture-bindingId/1/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "bindingId": "fixture-bindingId",
+          "consentRevision": 1
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "drive-binding-ack-matrix-listing-cli-content",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "drive-binding-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/drive-bindings/fixture-bindingId/1/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "bindingId": "fixture-bindingId",
+          "consentRevision": 1
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "cli",
+        "lane": "content",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "drive-binding-ack-matrix-listing-cli-actions",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "drive-binding-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/drive-bindings/fixture-bindingId/1/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "bindingId": "fixture-bindingId",
+          "consentRevision": 1
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "cli",
+        "lane": "actions",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "drive-binding-ack-matrix-listing-cli-results",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "drive-binding-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/drive-bindings/fixture-bindingId/1/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "bindingId": "fixture-bindingId",
+          "consentRevision": 1
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "cli",
+        "lane": "results",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "drive-binding-ack-matrix-listing-app-chat-lifecycle",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "drive-binding-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/drive-bindings/fixture-bindingId/1/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "bindingId": "fixture-bindingId",
+          "consentRevision": 1
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "app-chat",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "drive-binding-ack-matrix-listing-app-chat-content",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "drive-binding-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/drive-bindings/fixture-bindingId/1/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "bindingId": "fixture-bindingId",
+          "consentRevision": 1
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "app-chat",
+        "lane": "content",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "drive-binding-ack-matrix-listing-app-chat-actions",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "drive-binding-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/drive-bindings/fixture-bindingId/1/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "bindingId": "fixture-bindingId",
+          "consentRevision": 1
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "app-chat",
+        "lane": "actions",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "drive-binding-ack-matrix-listing-app-chat-results",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "drive-binding-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/drive-bindings/fixture-bindingId/1/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "bindingId": "fixture-bindingId",
+          "consentRevision": 1
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "app-chat",
+        "lane": "results",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "drive-binding-ack-matrix-bootstrap-cli-lifecycle",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "drive-binding-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/drive-bindings/fixture-bindingId/1/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "bindingId": "fixture-bindingId",
+          "consentRevision": 1
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "drive-binding-ack-matrix-bootstrap-cli-content",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "drive-binding-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/drive-bindings/fixture-bindingId/1/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "bindingId": "fixture-bindingId",
+          "consentRevision": 1
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "cli",
+        "lane": "content",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "drive-binding-ack-matrix-bootstrap-cli-actions",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "drive-binding-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/drive-bindings/fixture-bindingId/1/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "bindingId": "fixture-bindingId",
+          "consentRevision": 1
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "cli",
+        "lane": "actions",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "drive-binding-ack-matrix-bootstrap-cli-results",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "drive-binding-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/drive-bindings/fixture-bindingId/1/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "bindingId": "fixture-bindingId",
+          "consentRevision": 1
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "cli",
+        "lane": "results",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "drive-binding-ack-matrix-bootstrap-app-chat-lifecycle",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "drive-binding-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/drive-bindings/fixture-bindingId/1/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "bindingId": "fixture-bindingId",
+          "consentRevision": 1
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "app-chat",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "drive-binding-ack-matrix-bootstrap-app-chat-content",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "drive-binding-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/drive-bindings/fixture-bindingId/1/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "bindingId": "fixture-bindingId",
+          "consentRevision": 1
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "app-chat",
+        "lane": "content",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "drive-binding-ack-matrix-bootstrap-app-chat-actions",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "drive-binding-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/drive-bindings/fixture-bindingId/1/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "bindingId": "fixture-bindingId",
+          "consentRevision": 1
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "app-chat",
+        "lane": "actions",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "drive-binding-ack-matrix-bootstrap-app-chat-results",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "drive-binding-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/drive-bindings/fixture-bindingId/1/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "bindingId": "fixture-bindingId",
+          "consentRevision": 1
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "app-chat",
+        "lane": "results",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "drive-binding-ack-matrix-bound-cli-content",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "drive-binding-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/drive-bindings/fixture-bindingId/1/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "bindingId": "fixture-bindingId",
+          "consentRevision": 1
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "content",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_lane_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "drive-binding-ack-matrix-bound-cli-actions",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "drive-binding-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/drive-bindings/fixture-bindingId/1/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "bindingId": "fixture-bindingId",
+          "consentRevision": 1
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "actions",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_lane_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "drive-binding-ack-matrix-bound-cli-results",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "drive-binding-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/drive-bindings/fixture-bindingId/1/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "bindingId": "fixture-bindingId",
+          "consentRevision": 1
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "results",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_lane_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "drive-binding-ack-matrix-bound-app-chat-lifecycle",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "drive-binding-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/drive-bindings/fixture-bindingId/1/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "bindingId": "fixture-bindingId",
+          "consentRevision": 1
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "app-chat",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "drive-binding-ack-matrix-bound-app-chat-content",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "drive-binding-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/drive-bindings/fixture-bindingId/1/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "bindingId": "fixture-bindingId",
+          "consentRevision": 1
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "app-chat",
+        "lane": "content",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "drive-binding-ack-matrix-bound-app-chat-actions",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "drive-binding-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/drive-bindings/fixture-bindingId/1/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "bindingId": "fixture-bindingId",
+          "consentRevision": 1
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "app-chat",
+        "lane": "actions",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "drive-binding-ack-matrix-bound-app-chat-results",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "drive-binding-ack",
+        "method": "POST",
+        "path": "/mesh/v1/remote-sessions/fixture-sessionId/drive-bindings/fixture-bindingId/1/acks",
+        "pathParameters": {
+          "sessionId": "fixture-sessionId",
+          "bindingId": "fixture-bindingId",
+          "consentRevision": 1
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "app-chat",
+        "lane": "results",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "drive-binding-ack-http-encoding",
+      "evaluator": "routeHttp",
+      "input": {
+        "routeId": "drive-binding-ack",
+        "contentType": "application/json",
+        "bodyBytes": 2,
+        "contentEncoding": "gzip"
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_protocol_refused"
+      }
+    },
+    {
+      "id": "drive-binding-ack-http-body-or-media",
+      "evaluator": "routeHttp",
+      "input": {
+        "routeId": "drive-binding-ack",
+        "contentType": "text/plain",
+        "bodyBytes": 2,
+        "contentEncoding": null
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_protocol_refused"
+      }
+    }
+  ],
+  "http": {
+    "requestContentType": "application/json",
+    "responseContentType": "application/json",
+    "body": "strict JSON if present; zero bytes otherwise",
+    "streamProfile": null
+  },
+  "successStatus": 200
+}

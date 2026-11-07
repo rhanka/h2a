@@ -2637,3 +2637,155 @@ manifest JSON `88823475eca151d908450e4abadcac7b2b60d4b5ea16bae0f590d419fa394565`
 - `session-content-{v3-api,policy-proof,consent}.ts` (B5).
 - Local fill of any source-gap slot; invented capsule bytes/headers/trust roots.
 - No Python anywhere; no `git stash`; no attribution trailers.
+
+# B4 — `feat/rc2-authority-native` (cell RC2.authority-native)
+
+Accountable build: Muse Spark 1.3 xhigh. Review: vibe code leg + Wonder
+design leg (consent mapping). Depends on: B1 types (reused `computeHash`
+bytes only); registry `0.26.0-dev.5` NOT consumed — installed
+`@sentropic/cluster-mesh` stays `0.22.4`, no mesh import at all (shapes only,
+fail-closed); M0 receipts gate-listed, shapes only. Contract r3 pin
+(`MANIFEST.sha256` `6245d3ae51f601195926bc36600d1097cef30694f3feb01f79f1a7ec9fa17715`,
+manifest JSON `88823475eca151d908450e4abadcac7b2b60d4b5ea16bae0f590d419fa394565`).
+
+## Lots
+
+1. Red — `packages/h2a/test/remote-session-identity.test.js`
+   (AUTHORITY-NATIVE / CONSENT-PAIR / LAUNCH): fails on the three missing
+   modules (`ERR_MODULE_NOT_FOUND`, 0 test executed).
+2. Green — three new modules + 19 vendored r3 vectors + `pin.json`:
+   36/36 pass, 3× stable, adjacent drive-consent/gov-launch 116/116.
+3. Association/capabilities facts + drive-ACK signer path: included in the
+   same test (producers, custody, `resolveSession`, fact idempotence).
+
+## Allowed
+
+- `packages/h2a/src/runtime/governance/agent-launch-seam.ts` (new: MH-SEAM-ENV
+  decision plumbing, never spawns; allow sets only `H2A_AGENT_SESSION_ID`).
+- `packages/h2a/src/runtime/governance/authority-native.ts` (new: closed H1–H4
+  + consent/association/capability shapes, trust, association/capability
+  producers, custody adapter, drive-ACK signer, `resolveSession`, fact registry).
+- `packages/h2a/src/runtime/drive/consent-fence.ts` (new: durable
+  `sourceConsentRevision`, pair equality; no journal payload change).
+- `packages/h2a/src/fixtures/session-content/v3/authority-native/**` (19 r3
+  vectors + `pin.json`, bytes pinned by sha256).
+- `packages/h2a/test/remote-session-identity.test.js` (new).
+- This file (append own section only; never rewrite other lanes).
+
+## Conditional (none used)
+
+- No `package.json` change (no new export, no dependency pin — B6 owns the
+  cluster-mesh pin). No `index.ts` barrel change. No production `h2a run`
+  splice: the seam is proven by witnesses with injected spawn/decision ports;
+  live wiring waits for the receiver R-2/L-1 receipts.
+
+## Forbidden
+
+- `packages/remote-protocol/**`, `packages/remote-k8s-orchestrator/**`.
+- Any `cluster-mesh` import (src, deep path, or published package) in B4 code;
+  any `h2a-runtime` session-content file (B2/B5 land).
+- Any route handler, transport, fetch, socket, or WebSocket in B4 code
+  (asserted by the test: no matching export, no matching source token).
+- Landing the `feat/ft-w2-seam-launch` daemon-port/L2 machinery: B4 proves the
+  seam contract with injected ports instead (smaller additive diff, zero
+  effect on any session).
+- Local fill of any source-gap slot (`RC0ImportedRecord`, H1–H4/M0 canonical
+  bytes, FED, R15, capsule, residence): typed refusals only.
+- No Python anywhere; no `git stash`; no attribution trailers.
+
+# B4-R2 — fix round 2 on `feat/rc2-authority-native` (rv416w + rv416m CHANGES)
+
+Accountable build: Muse Spark 1.3 xhigh. Reviews: Wonder (`rv416w-last.md`,
+3 P1 + 5 P2 proven at runtime) and mistral (`rv416m-last.md`, same class P2-1
++ 3 P3, compatible). RED confirmed on this head (8 probes open), GREEN after.
+
+- P1-1 NEUTRALISED fail-closed: `evaluateRecordTrust` never returns `TRUSTED`
+  for binding/ack until the B5+ binding↔ack↔projection↔fence composition
+  compares every bound field (returns `BLOCKED_EXTERNAL` after shape/role/
+  signature checks). Generic guard as B3: every body field (28 binding + 18
+  ack) mutated + validly re-signed refuses; 19/19 vectors anchored to the
+  manifest copy in the test.
+- P1-2 NEUTRALISED fail-closed: `signDriveConsentAck` emits no signature on
+  any path (`source_role_unavailable`) until the composition exists. Custody
+  hardened meanwhile: closed spec, fail-closed material screen (exact names,
+  synonyms, long forms), branded handles (`isEnrolledCustody`).
+- P1-3 fail-closed now: `checkBindingRevision` refuses revision 0/unknown;
+  `commitSnapshot` format-checks digests, re-reads durable state, writes +
+  fsyncs before mutating memory; corrupt entries refuse (no reset to 0);
+  genesis marker on creation. Full contract fence (tuple key, snapshot digest
+  computed from enumerated fields) belongs to B5/B6.
+- P2-1 shapes aligned to r3 $defs (Id/Counter/Timestamp/Sig64/Digest/
+  NativeHash, pairId 85-pattern, decision enum, principalRef Id|null,
+  actionScopes 1–2 unique enums, admission verdict const, H required∪optional
+  keys, capabilities bits/columns enums); per-constraint negatives in test.
+- P2-3: `expiresAt <= now` refuses (`invalid_decision`) in
+  `authorizeAgentLaunch`, revalidated just before spawn (fabricated/stale
+  wrappers never spawn).
+- P2-4: origin required (never defaults local); bound digest covers
+  session/incarnation/ref id/revision; integer revisions ≥ 1.
+- P2-5 oracles: 9/9 consent cases replayed through real `projectConsent`
+  vs `expected`; registry digests recomputed + tamper check; H/binding/ack
+  negatives through trust; route stage/lane/enums from vector inputs;
+  port/publish vectors loaded.
+- Deferred to later lots (named in PR body): full B5+ composition + pairId
+  binding formula, contract-fence tuple key + computed digests, custody
+  fingerprint→public-key binding, H shape-before-block precedence, factId
+  identity inclusion, SG-R15/bits recursion, durable fact registry (P3-1..P3-4,
+  mistral P3-2/P3-3).
+
+# B4-R3 — fix round 3 on `feat/rc2-authority-native` (rv416w CHANGES)
+
+Muse Spark 1.3 xhigh changes reviewed and completed by Sol 6.1 xhigh.
+Rebased onto origin/main (f6314c18d); BRANCH.md preserves both B3 and B4.
+The temporary workflow_dispatch addition and its revert have no net effect.
+
+- P1-1: revisionOf re-reads durable state; missing/unreadable/corrupt files
+  refuse fence_unavailable. Creation requires {create:true} and ENOENT,
+  is exclusive, and never replaces an existing file. Handles pin genesis;
+  deletion/recreation invalidates old handles. Format/genesis and exact
+  {revision,digest} entries are checked; unique temporary files are removed.
+- P2-1: validators checked against the actual r3 schemas, not inferred from
+  positive examples. H strings remain M0-owned (no invented Id limits),
+  signingClass D0/D1/D2, memoryScopes role/repo, effortCeiling:string;
+  registry keys/bindings/tombstone match their closed nested shapes;
+  attestation expiresAt admitted. Capabilities validate all ten host kinds,
+  nullable Id/Digest slots, five exact eight-field bits, eight exact
+  six-field columns, all eight losses and pointOrdering objects/enums/bounds.
+- P2-2: independent HostProcessPort supplies live pid/startedAt; bearer
+  disagreement refuses. Missing/dead/throwing port => origin_unresolved.
+  Fixed canonical digest witness replaces the circular positive oracle.
+  Live host wiring remains B5+; no production path is activated.
+- P2-3: PR body names all neutralisations and deferred work; current tests
+  are 51/51, not the historical round-1 36/36 or round-2 43/43.
+- RED: final targeted file against 5605f4845 => 42 pass / 9 fail; against
+  Muse's implementation => 45 pass / 6 fail. GREEN: 51/51, zero skips;
+  adjacent budget/roundtrip/gov-launch-check 16/16. Root tsc -b passes.
+- P1-2: final-head CI and the one trust-root retry are recorded per job in
+  tmp/h-cond/rc2-b4-r3-last.md; no green claimed before terminal results.
+- Deferred (also named in PR body): TRUSTED/ACK signer composition B5+,
+  pairId formula, contract-fence tuple key/computed digest, custody public-key
+  fingerprint binding, H shape/BLOCKED precedence, durable fact registry and
+  factId, SG-R15/bits recursion, live host observation wiring.
+
+# B4-R4 — concurrent fence rollback and publication durability
+
+**Allowed Paths (R4 correction scope)**
+  - `packages/h2a/src/runtime/drive/consent-fence.ts`
+  - `packages/h2a/test/remote-session-identity.test.js`
+  - `BRANCH.md`
+
+- P1-1 (Astra): an atomic directory lock now covers open, revision reads,
+  and the complete read/validate/publish commit. Contention refuses
+  `fence_unavailable` immediately. No stale-lock removal: a crashed writer
+  leaves existing/new handles fail-closed; recovery remains B5+.
+- P2-1 (Astra): fsync the directory after link/rename, before success.
+  A failed post-publication fsync refuses and retains the lock so neither
+  a reader nor a binding check can accept an unconfirmed revision.
+- RED on b699315bd: four regressions fail, zero skipped. The two-process
+  probe observes B committing [2,3], A publishing 2, disk=2, checker(r2)=ok.
+  GREEN after root `tsc -b --pretty false`: R4 4/4; complete B4 file 55/55,
+  zero skipped. Commands and terminal CI per job: `tmp/h-cond/rc2-b4-r4-last.md`.
+- Mistral round-3 reviewed: no new P1/P2; raw signer, verify exceptions,
+  and digest alias normalization remain B5/B6 follow-ups. No route activated.
+- Rebase onto origin/main f6314c18d: already up to date. No new independent
+  consensus claimed: this confinement exposes no h2a MCP launch operation.
