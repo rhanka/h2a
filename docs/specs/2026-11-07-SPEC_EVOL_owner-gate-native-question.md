@@ -1,8 +1,8 @@
 # SPEC EVOL — Owner gates must reach the native question surface
 
 Date: 2026-11-07
-Status: method contract for this PR; machine-readable transport is a next implementation lot
-Scope: h2a send/receive, owner-facing host questions, conductor follow-up, and objective-loop/Track bindings
+Status: method contract for this PR. The signed marker, the wake guard and the due-check executor are the next implementation lot.
+Scope: h2a send and receive, owner-facing host questions, conductor follow-up and the Track gate record
 
 ## Delivery decision
 
@@ -12,9 +12,9 @@ and B below and specifies C. It must not advertise C as implemented.
 
 | Requirement | Current PR | Next implementation lot |
 | --- | --- | --- |
-| A. A decision/GO required in a target session immediately raises its native question after a short stakes dossier; the conductor verifies and follows up | Mandatory h2a/harness/present-decision procedure, including unavailable-tool handling | Validated receive obligation and correlated question evidence |
-| B. Every pending gate has a loop or explicit Track pending item, human owner, responsible conductor, deadline, reminder cadence/executor, and closure condition | Mandatory durable record and executing conductor procedure | Correlate marker/receipt evidence with the same durable record |
-| C. A signed, backward-compatible machine-readable envelope marker triggers that procedure on receive | This design, explicitly unshipped | Send schema, verification, inbox/push/wake integration, host capability/evidence adapters, and acceptance tests |
+| A. A decision/GO required in a target session immediately raises its native question after a short stakes dossier; the conductor verifies and follows up | Mandatory procedure in the h2a skill, linked from harness and present-decision. It covers unavailable tools and a target that never raises the question. | Validated receive obligation and correlated question evidence |
+| B. Every pending gate has one Track record with human owner, responsible conductor, deadline, reminder cadence, executor status and closure condition, and stays visible to the owner until closed | Durable record. Surfacing: unmet in this lot (`reminders-unavailable` and an immediate owner alert). | Due-check executor `OwnerGateDueCheck`, with a budget separate from `maxRelaunches` |
+| C. A signed, backward-compatible machine-readable envelope marker triggers that procedure on receive | This design, explicitly unshipped | Send schema, verification, inbox/push/wake integration, wake guard, host capability/evidence adapters, and acceptance tests |
 
 This split is based on the implementation boundary. A new field in the sender
 alone cannot provide C: local inbox reads currently return unverified data;
@@ -53,15 +53,19 @@ restart, and a missing native tool never authorizes a mode/permission change.
 ## Immediate question and conductor contract
 
 **D2 — A pending owner gate is an obligation to ask in the required session.**
-Reuse an existing owner answer/authorization when it already covers the action.
-Do not create another approval requirement from a preference or a routine
-implementation choice.
+Only a decision that blocks the session's work now is a gate. A decision that
+blocks nothing now goes to async review, with no native question and no
+reminders (see "Reserved for the decision tool"). Reuse an existing owner
+answer or authorization when it already covers the action. Do not create another
+approval requirement from a preference or a routine implementation choice.
 
 On discovering or receiving a genuine pending gate, the target agent must, in
 its next available turn:
 
-1. Verify the requester, required session, current decision boundary, and durable
-   pending binding. Persist that binding before a question tool that may block.
+1. Verify the requester, required session, decision boundary and the
+   conductor's record. A gate you discovered yourself: create the record before
+   a question tool that may block. A received gate: never create one. If you
+   cannot read its record, report `binding-unverified` and ask nothing.
 2. Show a short, self-contained dossier: action/decision, stakes, why this
    session is required, options and consequences, recommendation, and a small
    diagram. The essential context must be visible in the session; a link alone
@@ -69,116 +73,187 @@ its next available turn:
 3. Invoke the native question tool actually available and permitted in that
    host's current mode. The call must refer to the same gate, revision, options,
    and decision boundary. Respect the tool's real schema and preserve free text.
-4. Expose question evidence to the requesting conductor, or explicitly record
-   `question-unavailable` / `question-unverified` and escalate.
+4. Report to the conductor: `question-planned` before the blocking call, then
+   the tool result. Without a permitted tool, report `question-unavailable`. The
+   conductor records the evidence level: `missing`, `unavailable`,
+   `peer-reported` or `trace-verified`.
 
 “Immediately” means this receive-turn obligation, not preemption of an active
 tool call or bypass of an interactive typing guard. Dormant delivery remains
 pending and requires conductor follow-up; no latency guarantee is invented.
 
-The conductor verifies the **actual native invocation/display trace**: gate and
-revision, target instance and session, host/tool, timestamp, and call/trace
-reference. An issued tool call that the host rejects does not count as a raised
-question. When a question call blocks until answered, inspect the available
-host trace; do not wait for its return before checking that the question exists.
-If no trace is available, retain `question-unverified`.
+The conductor records the best available evidence. `trace-verified` needs the
+**actual native invocation/display trace**: gate and revision, target instance
+and session, host and tool, timestamp, and call or trace reference. Across
+sessions this lot has no adapter for that trace, so the level stays
+`peer-reported` at most. An issued tool call that the host rejects does not
+count as a raised question. When a question call blocks until answered, the
+target's `question-planned` report comes before the call.
 
 Transport acceptance, inbox pop, a wake's `driven` result, a Track card, a status
 table, `decision-raised:<id>`, or the peer's unsupported “asked” statement never
 provide this evidence. A peer-signed receipt proves who reported a fact; its
 signature does not independently prove the host displayed the question.
 
+**Cross-session sequence.** The conductor sends one initial request, only to a
+live target that has not reported this gate. `recipient_not_live` means an
+immediate owner alert, never a deposit for a dormant or replacement session.
+After the request, the conductor sends nothing to the target until it reports
+`question-planned`, an answer or a failure. On `question-planned`, the conductor
+raises one `OWNER GATE ALERT <id>` in its own session.
+
+**If the target never raises the question.** The conductor's due checks find no
+report, so the evidence stays `missing`. Each due check raises
+`OWNER GATE ALERT <id> — answer in <session> · question missing` in the
+conductor's session. The conductor does not message the target again. It
+re-raises at the target only after the target or the owner reports that the
+question failed, closed or is not displayed. A re-raise is one new request for
+the same gate and revision. At the deadline the gate becomes `overdue` and the
+conductor escalates through h2a (D3).
+
 ```mermaid
 flowchart LR
-  P[Durable pending gate] --> M[Signed request to required session]
-  M --> V[Validate and record receive attempt]
+  P[Track gate record] --> M[One signed request to the required session]
+  M --> V[Receiver checks]
   V --> D[Short stakes dossier]
-  D --> Q[Available native question]
-  D --> U[Unavailable: visible limitation and escalation]
-  Q --> E[Conductor checks host trace]
+  D --> Q[Native question]
+  D --> U[Unavailable: limitation and owner alert]
+  Q --> E[Conductor records the evidence level]
   E --> R[Owner answer and required signature]
-  E --> F[Pending: reminder or re-raise]
+  E --> F[Due check: owner alert in the conductor session]
   U --> F
-  F --> P
+  F -->|reported failed, closed or not displayed| M
+  F --> X[Deadline: overdue and h2a blockage]
   R --> C[Record decision and close follow-up]
 ```
 
 ## Durable pending record
 
-**D3 — Every gate has exactly one authoritative pending binding before the
-first potentially blocking question.** Use an existing objective loop or an
-explicit Track pending item; reuse the gate across retries and handovers.
+**D3 — Every gate has exactly one authoritative record before the first
+potentially blocking question.** The record is a Track decision titled
+`OWNER GATE <id> — <action>` in the conductor's repository. An objective loop
+may point to it but never replaces it: a `done`, `stopped` or `blocked` loop
+refuses new reports. Reuse the record across retries and handovers.
 
 | Required field | Meaning |
 | --- | --- |
 | Gate id and revision | Stable logical decision identity; revision changes when the decision/session contract changes, not for a retry |
-| Binding | Existing loop id and gate reference, or explicit Track repository/workspace/item id; a decision id may supplement the Track item |
+| Binding | Track repository, workspace and decision id of the `OWNER GATE <id>` decision, plus the blocked item. A loop id may point to it. |
 | Human decision owner | Named human who may answer; distinct from an agent signer or a reporting principal |
 | Responsible conductor | Named agent responsible for delivery, checking evidence, reminding, and handover |
 | Target instance and session | Exact h2a identity plus concrete owner-facing session; a channel alias is insufficient for session-bound GO |
 | Escalation deadline | Absolute UTC timestamp; not consent expiry, cancellation, or permission to proceed |
 | Reminder cadence and next reminder | Explicit interval and absolute UTC due time |
-| Reminder executor | A named running conductor/controller and an observable way to verify it remains active |
-| Question evidence | Missing, unavailable, peer-reported, or trace-verified; never a fabricated call id |
+| Reminder executor | A timer that wakes the conductor at `nextReminderAt`, with observable liveness and a budget covering the cadence. An agent name or the loop controller alone does not qualify. None qualifies in this lot: the record says `reminders-unavailable`. |
+| Question evidence | `missing`, `unavailable`, `peer-reported` or `trace-verified`; never a fabricated call id |
 | Close condition | Required owner answer in the required session, any required signature, and where the outcome is recorded |
 | Follow-up history | Delivery attempts, receipt/evidence checks, reminders, escalations, handovers, and closure source |
 
-Use agreed timing; otherwise record a **15-minute reminder cadence and an
-escalation deadline 30 minutes after gate creation**. Seek missing question
-evidence immediately. Escalate unavailable tooling/evidence immediately; the
-30-minute deadline is the additional escalation for an unanswered gate.
+Use agreed timing. Otherwise record a **15-minute reminder cadence and an
+escalation deadline 30 minutes after gate creation**. The first due check looks
+for the target's report. It sends nothing to the target. Escalate unavailable
+tooling at once. The deadline is the additional escalation for an unanswered
+gate.
 
-At each due check, the executor reads the authoritative record again. Re-raise
-a missing/failed question in the required session; remind about an already open
-question without stacking dialogs. Advance `nextReminderAt` only after recording
-the attempt and result. On restart, one overdue check runs, then cadence resumes;
-do not replay every missed interval in a burst. A deferred owner answer keeps
-the gate pending with an explicitly recorded next reminder.
+At each due check the executor reads the record again. It sends nothing to the
+target while the gate question is open or its state is unknown. It reminds the
+owner with `OWNER GATE ALERT <id>` (acknowledge-only) in the conductor's
+session. It re-raises at the target only after the target or the owner reports
+that the question failed, closed or is not displayed. Advance `nextReminderAt`
+only after recording the attempt and result. On restart, one overdue check runs,
+then cadence resumes. Do not replay every missed interval in a burst. A deferred
+owner answer keeps the gate pending with an explicitly recorded next reminder.
 
-The existing APIs suffice for the method lot: an enrolled conductor can persist
-the record and artifact references in `h2a_loop_report`'s `note`; an
-explicit Track item can carry the initial record in its body with responsible
-and accountable actors, plus links to subsequent durable evidence. Use the
-existing Track CLI and its single-writer discipline. There are no existing
-`--owner-gate`, `--deadline`, or per-gate reminder flags implied by this design.
-The current runtime does not interpret those notes as a scheduler.
+At the deadline the executor marks the gate `overdue` in its record. It raises
+`OWNER GATE ALERT <id> — overdue` in the conductor's session. It escalates
+through h2a with `h2a_blockage_raise` (reason `OWNER GATE <id> overdue`, needs
+`owner answer in <session>`). A blockage pushes `peer.blocked` to peers in
+scope and types nothing. One blockage per conductor lists all its overdue gates.
+The deadline never approves, cancels or closes the gate.
 
-An executing loop controller is necessary for loop continuity but its heartbeat
-does not itself ask/remind the owner. The assigned conductor must perform and
-record due checks. A stalled/stopped controller, exhausted relaunch budget, or
-lost session requires visible escalation and an accepted handover. Keep the
-gate pending while responsibility changes; never erase it by completing or
-stopping its loop. A binding that is unreachable or cannot be verified stays
-pending/degraded, never implicitly satisfied.
+The existing APIs suffice for the method lot. Create the record with
+`track decision new --kind commitment --title "OWNER GATE <id> — <action>" --workspace <ws> --targets <blocked-item> --context <record> --options-json <json> --recommendation <optionId> --rationale <r>`.
+On restart, run `track decision ls --outcome pending --format json` and resume
+every `OWNER GATE` decision. Append evidence with `track decision add-artifact`.
+Use the existing Track CLI and its single-writer discipline. There are no
+`--owner-gate`, `--deadline` or per-gate reminder flags implied by this design.
+The current runtime does not interpret the record as a scheduler.
+
+The objective loop controller is not a reminder timer. It wakes an agent only on
+idle evidence, sends a generic line and shares its `maxRelaunches` budget
+(default 3) with launches. It also types into the target terminal. The assigned
+conductor performs and records due checks. A stalled conductor, an exhausted
+budget or a lost session requires an owner alert and an accepted handover. Keep
+the gate pending while responsibility changes. Never erase it by completing or
+stopping a loop. A record that is unreachable or cannot be verified stays
+pending, never implicitly satisfied.
 
 Tracking failure must not silently postpone the owner alert. Immediately show
-the stakes and `tracking-unavailable` limitation in the required session, use
-its permitted native question surface for the alert when possible, and notify
-the conductor. Repair the binding or use the other authorized backend; preserve
-recovery evidence without claiming that a local note satisfies a loop/Track
-binding. The dependent action remains blocked and B remains unsatisfied until
-the durable binding is restored. A passed deadline never repairs this failure.
+the stakes and the `tracking-unavailable` limitation in the required session.
+The native question there still goes ahead. Alert the owner and notify the
+conductor. Repair the record. Preserve recovery evidence without claiming that a
+local note is the record. The dependent action remains blocked and B remains
+unsatisfied until the record is restored. A passed deadline never repairs this
+failure.
 
 Closure requires an attributable owner answer and the close condition. Record
-GO and NO-GO distinctly; preserve a required signature as a separate artifact.
-Explicit owner cancellation/supersession can close follow-up with that reason.
-An agent, relay principal, timeout, receipt, or completed implementation cannot
-grant owner authority. A new target session requires an explicit rebind in the
-record; an alert forwarded elsewhere cannot satisfy a session-bound GO.
+GO with `track decision select <decisionId> <optionId>`, NO-GO with
+`--outcome no-go`, and keep a required signature as a separate artifact. A
+deferral uses `track decision outcome <decisionId> deferred` and keeps the gate
+pending. Explicit owner cancellation or supersession can close follow-up with
+that reason. An agent, relay principal, timeout, receipt, or completed
+implementation cannot grant owner authority. A report reply, an alert
+acknowledgement or a `D1 A` line in another session never records a GO. A new
+target session requires an explicit owner answer and a recorded rebind.
+
+## Reserved for the decision tool
+
+The owner asked on 2026-11-07 (Track item `01M6V34N5GNMHZRM85WNTH1R2J`) for an h2a
+decision tool. Urgent and blocking decisions trigger the host's native question
+tools. Non-blocking pending decisions stack for async review. Decisions are
+modelled in engram. The proposed engram decision entity carries a blocking flag
+and the states below. This design keeps that space free and maps onto it:
+
+| Decision-tool state | Owner-gate meaning in this design |
+| --- | --- |
+| `pending-blocking` | An owner gate: native question now, record, due checks and deadline |
+| `pending-async` | The owner deferred the gate to async review, or the decision never blocked. No native question. Reminders stop until the date the owner chose. The blocked action stays blocked. |
+| `decided` | GO or NO-GO recorded from the attributable answer in the required session |
+| `withdrawn` | Explicit owner cancellation |
+| `superseded` | A new revision or a replacement decision |
+
+An agent or engram may propose `withdrawn` or `superseded`. Only an owner answer
+confirms it. The async stack is an engram query over pending non-blocking
+decisions. It raises no native question and sends no reminder. C adds no
+decision store. The planned decision tool may become the authoritative record,
+under a new binding kind. The v1 marker reserves two values for it: `blocking`
+(absent or `true` in v1) and `binding.kind: "decision"`. A v1 receiver classifies
+`blocking: false` or a `decision` binding as `unsupported`.
 
 ## Current transport convention
 
 **D4 — Until C ships, use only supported signed tools.** Resolve the exact
-target and send through `h2a_send {to, message}`. Begin the text with
-`OWNER GATE <gate-id>`, include the durable record/dossier, required session, and
-request to invoke the native question and return evidence. This is a readable
-method convention, not a parsed marker or a verified receipt.
+target and send through `h2a_send {to, message}`, once (D2 sequence). Begin the
+text with `OWNER GATE <gate-id>`, include the record reference, the short
+dossier and the required session, and request the native question and its
+evidence. This is a readable method convention, not a parsed marker or a
+verified receipt.
 
 Do not pass an unsupported `owner-gate` argument to the current strict tool.
-Do not downgrade to unsigned `h2a_inbox put`. The receiving skill applies D2;
-the sender still verifies evidence under D3. Pop only after durable pending
-state and question evidence or explicit escalation have been recorded. Pop
-removes mail, not the gate or its reminders.
+Do not downgrade to unsigned `h2a_inbox put`. The receiving skill applies D2.
+The sender still verifies evidence under D3. The target pops the request after
+sending `question-planned` or its failure report. Pop removes mail, not the gate
+or its reminders.
+
+In this lot every h2a message still wakes its recipient by typing a line and
+Enter. The method therefore limits traffic to one request to the target and two
+reports back. It never sends reminders to the target. On Claude, a conductor
+alert raised with `AskUserQuestion` blocks the conductor until the owner
+answers, so it runs no due check meanwhile, and a target report can still type
+into that open alert. Alerts only acknowledge, so that input never becomes a
+GO. Prefer a non-blocking surface where the host has one (Codex
+`request_user_input_async`). The wake guard in C removes the keystroke for
+every session.
 
 ## Planned machine-readable contract — implementation lot C
 
@@ -190,10 +265,14 @@ message body.** Keep the existing envelope protocol/version/type and
 `body.kind:"message"`, `body.topic:"MESSAGE"`, and `body.text`.
 
 ```ts
-type OwnerGateBinding =
-  | { kind: "loop"; loopId: string; gateRef: string }
-  | { kind: "track"; repoKey: string; workspace: string;
-      itemId: string; decisionId?: string };
+interface OwnerGateBinding {
+  kind: "track"; // v1 only; "decision" is reserved for the decision tool
+  repoKey: string;
+  workspace: string;
+  decisionId: string; // the `OWNER GATE <id>` Track decision
+  itemId?: string; // blocked work item
+  loopId?: string; // optional pointer, never the record
+}
 
 interface OwnerGateTargetSessionV1 {
   host: string;
@@ -207,6 +286,7 @@ interface OwnerGateRequestV1 {
   id: string;
   revision: number; // positive safe integer
   purpose: "decision" | "go" | "signature";
+  blocking?: true; // reserved: absent or true in v1, false is `unsupported`
   owner: string; // human reference, never inferred from the signer
   conductor: string; // must equal the request envelope actor
   targetSession: OwnerGateTargetSessionV1;
@@ -233,8 +313,11 @@ interface OwnerGateReceiptV1 {
   requestEnvelopeId: string;
   requestDigest: string; // canonical SHA-256 of request envelope without signatures
   targetSession: OwnerGateTargetSessionV1;
-  reported: "received" | "question-invoked" | "question-unavailable"
-          | "question-failed" | "answer-observed" | "escalated";
+  reported: "received" | "question-planned" | "question-invoked"
+          | "question-unavailable" | "question-failed" | "question-closed"
+          | "question-not-displayed" | "answer-observed" | "escalated"
+          | "wrong-session" | "session-unverified" | "boundary-mismatch"
+          | "binding-unverified";
   at: string;
   evidence?: { tool: string; callRef: string; traceRef: string };
   reason?: string;
@@ -250,10 +333,22 @@ interface H2ASendMessageBody {
 }
 ```
 
+One set of terms serves the skills and this marker:
+
+| Term | Where it appears |
+| --- | --- |
+| `question-planned`, `question-invoked`, `question-unavailable`, `question-failed`, `question-closed`, `question-not-displayed`, `answer-observed`, `escalated` | Target reports (`reported`) |
+| `wrong-session`, `session-unverified`, `boundary-mismatch`, `binding-unverified` | Receiver refusals (`reported`). The receiver asks, records and pops nothing. |
+| `missing`, `unavailable`, `peer-reported`, `trace-verified` | Evidence level in the conductor's record |
+| `reminders-unavailable`, `tracking-unavailable`, `overdue` | Conductor record status |
+| `OWNER GATE <id>`, `OWNER GATE ALERT <id>` | Readable request and acknowledge-only owner alert |
+
 Identifiers are opaque bounded strings, never file paths or shell fragments.
 Use a UUID gate id, bounded to 128 characters; bound other references to 512.
 Reject unknown fields within v1, non-integer revisions/intervals, invalid UTC
 timestamps, duplicate option ids, and recommendations absent from the options.
+Classify `blocking: false` and any `binding.kind` other than `"track"` as
+`unsupported`. Both are reserved for the decision tool.
 Allow 2–4 options; a host with a smaller menu limit must still expose all options
 in the dossier and preserve free-text selection, without silently dropping or
 changing an option. `everyMs` must be at least 60,000 and at most 86,400,000;
@@ -306,9 +401,11 @@ A sidecar reconnect requires a recorded connection rebind and proof of the same
 native session; it does not change where the owner must answer. A different
 native conversation requires an explicit target revision, never silent rerouting.
 
-There is **no new public lifecycle tool, decision database, or scheduler in C**.
-The existing loop/Track record owns pending state, attempts, due checks, and
-closure. The receive obligation is discharged by an actual host native call or
+C adds **no public lifecycle tool and no decision store**. Its only scheduler
+is the due-check executor `OwnerGateDueCheck` (seams table). The planned
+decision tool may become the authoritative record (see "Reserved for the
+decision tool"). The existing Track record owns pending state, attempts, due
+checks, and closure. The receive obligation is discharged by an actual host native call or
 recorded escalation, not by returning this instruction. h2a cannot fabricate
 that native call through MCP. Receipt fields are peer-reported facts; even a
 valid signature cannot make them verified evidence or an owner decision.
@@ -339,11 +436,13 @@ new agent, create a Track item in another repository, or change an owner's
 authorization. An inaccessible/missing/mismatched binding produces a pending
 escalation, not a native approval prompt with guessed context.
 
-For first admission, use the existing five-minute freshness and one-minute
-future-skew policy. An old unread request cannot activate automatically: report
-stale and ask the conductor to send a fresh signed request for the same gate
-revision. An already admitted, still-pending gate survives that window through
-its durable record; never age it into approval or cancellation.
+Admission is the first observation of an envelope by the receiving sidecar,
+recorded per envelope id. Later reads classify from that record plus the
+signature. At admission, use the existing five-minute freshness and one-minute
+future-skew policy. An old request that was never admitted cannot activate
+automatically: report stale and ask the conductor to send a fresh signed request
+for the same gate revision. An admitted, still-pending gate survives that window
+through its durable record. Never age it into approval or cancellation.
 
 Record request digest, received envelope ids, attempts, reports, and evidence
 in the existing binding before popping inbox mail. Reuse current transport
@@ -355,24 +454,28 @@ digests, both lowercase SHA-256 hex over the existing canonical JSON encoding:
 
 - `requestDigest` covers the exact request envelope except `signatures`; it
   correlates a receipt to one envelope and changes for a fresh id/timestamp.
-- `contractDigest` covers `{targetInstance, marker}` with only
-  `marker.reminder.nextAt` and `marker.targetSession.h2aSessionId` omitted.
-  All other marker fields, including native session, options, owner, binding,
-  cadence, and escalation deadline, are frozen within one revision.
+- `contractDigest` covers only what the owner sees and answers:
+  `{targetInstance, id, revision, purpose, blocking, owner,
+  targetSession.host, targetSession.nativeSessionId, binding (without loopId),
+  closeCondition, dossier}`. It omits `conductor`, `escalationAt`, `reminder`
+  and `targetSession.h2aSessionId`. Those are record updates: a handover, a new
+  executor or an owner deferral keeps the same contract and makes no new native
+  call.
 
-Changing an omitted operational field still requires a recorded due-check or
-connection rebind. It never grants permission to change the owner-facing
+Changing an omitted field still requires a recorded update: handover, deferral
+or connection rebind. It never grants permission to change the owner-facing
 decision or to silently retarget another conversation. Retry deduplication
 compares `contractDigest`, not `requestDigest`.
 
 The single responsible receiver/conductor records attempt started, tool
 invoked, host accepted/displayed, and answer observed distinctly. After a crash
 between invocation and evidence recording, inspect host evidence before
-re-raising. If inspection is unavailable, record `question-unverified` and
-escalate rather than blindly duplicating a dialog. The next lot must demonstrate
-this recovery; it must not claim exactly-once native UI execution from existing
-inbox deduplication alone. Follow the existing loop/Track single-writer rules;
-do not create another owner-gate state machine or edit `.track` files directly.
+re-raising. If inspection is unavailable, keep the evidence at `peer-reported`
+or `missing` and alert the owner rather than blindly duplicating a dialog. The
+next lot must demonstrate this recovery. It must not claim exactly-once native
+UI execution from existing inbox deduplication alone. Follow the existing Track
+single-writer rules. C adds no state machine of its own: the decision tool's
+states are reserved above. Never edit `.track` files directly.
 
 A new revision may update context/session only after the authoritative binding
 records the change. A responsible-conductor handover must also be recorded and
@@ -383,9 +486,9 @@ Native evidence verification belongs to an adapter with read-only access to
 the **current host's own** tool-call/display record. Match the exact session,
 call reference, tool, request content/revision, and invocation result. Opaque
 agent-supplied `traceRef` strings are not paths to open or proof to trust.
-Where no supported adapter or independently inspectable trace exists, retain
-`question-unverified` and escalate. No generic transcript scraper, process
-inspection, or new mode/permission is implied.
+Where no supported adapter or independently inspectable trace exists, the
+evidence stays `peer-reported` at most and the owner is alerted. No generic
+transcript scraper, process inspection, or new mode/permission is implied.
 
 ### Host behavior and fallback
 
@@ -395,7 +498,7 @@ claim for every installation.
 
 | Host | Native question | Required fallback when unavailable/rejected |
 | --- | --- | --- |
-| Claude | `AskUserQuestion` | Show dossier/limitation; record unavailable; alert a capable owner-facing session. Do not enable/disable `--bare` to obtain it. |
+| Claude | `AskUserQuestion` | Show dossier/limitation; record `unavailable`; alert the owner in the conductor's session. Do not enable/disable `--bare` to obtain it. The tool blocks the session until answered, so a conductor alert raised with it pauses due checks. |
 | Codex | `request_user_input` or exposed `request_user_input_async` | Obey mode and permission restrictions. If the available tool cannot ask for this GO, leave pending and escalate; do not switch to Plan mode or misuse an optional-input tool as approval. |
 | Muse | Exposed `request_user_input` | `--yolo`/disabled-tool absence remains unavailable; do not change launch posture. |
 | Gemini | Exposed `ask_user` | Non-interactive execution remains unavailable; do not fabricate an interactive response. |
@@ -403,10 +506,11 @@ claim for every installation.
 | Vibe | Exposed `ask_user_question` | Same pending/escalation contract. |
 | Other hosts | Only a tool actually exposed and qualified by that host | Never guess a name; present dossier/limitation and retain pending. |
 
-The relay alerts the owner; it does not move a session-bound signature/GO to
-another session. A readable text alert is the fallback, not an equivalent
-native question or an approval. Forward only necessary dossier context and
-evidence references through the authorized h2a channel.
+An owner alert names the required session and only acknowledges. It never moves
+a session-bound signature or GO to another session. A readable text alert is
+the fallback, not an equivalent native question or an approval. Forward only
+necessary dossier context and evidence references through the authorized h2a
+channel.
 
 ### Implementation seams and boundaries
 
@@ -420,9 +524,12 @@ evidence references through the authorized h2a channel.
 | `packages/h2a/src/wake.ts`, `runtime/drive/inbox-wake.ts` | Accept only prevalidated gate hints for special wake text; preserve ordinary boot-backlog behavior; pending-gate recovery follows the existing durable binding |
 | `packages/h2a/src/hosts/owner-gate-question.ts` (new), `hosts/native-questions.ts` | Qualified capability/evidence adapter interface and shared host mapping; guidance does not substitute for an adapter |
 | `packages/h2a-runtime/src/native-host.ts`, native/tmux drive adapters | Reuse guarded delivery to the owning main session; never treat PTY acceptance as native question evidence |
+| Wake guard: `packages/h2a/src/runtime/drive/inbox-wake.ts`, `runtime/drive/index.ts`, `runtime/loop/engine/adapters.ts`, `runtime/drumbeat/relaunchers.ts`, `packages/h2a-runtime/src/native-terminal/op.ts` | Before any typed wake, reuse the modal detection of `packages/h2a-runtime/src/prompt-delivery.ts`. While a dialog is open or its state is unknown, defer the wake with a recorded reason and type nothing. This applies to every session, target or conductor. |
+| Due-check executor `OwnerGateDueCheck`: `packages/h2a/src/runtime/owner-gate-due.ts` (new), wired in `runtime/mcp/stdio.ts` | Reads pending `OWNER GATE` records and wakes the conductor at `nextReminderAt` through the guarded wake. Runs one late check after a restart, never a burst. Marks `overdue` and raises the h2a blockage at the deadline. Stops once closure is recorded. Its budget is separate from `maxRelaunches`. The clock is injected. |
 | `packages/h2a/src/runtime/loop/engine/{adapters,decision,execute}.ts` | Recognize validated marker requests; preserve pending via the existing binding after inbox pop; separate Track routing from native-question evidence |
-| `packages/h2a/skills/h2a/SKILL.md`, `skills/harness/{SKILL.md,using-harness/SKILL.md,track-report/SKILL.md}` | Receive/conductor/loop procedure, status-table exclusion, and explicit current-versus-planned contract |
-| `packages/track/skills/present-decision/SKILL.md`, `assets/owner-gates.md` | Required short link and full owner-gate procedure; retain the main skill's readability budget |
+| Track report renderer, `packages/track/src/report/` | Render a pending `OWNER GATE` decision as `answer in <session> · question <evidence level>`, with no `D` number and no reply slot |
+| `packages/h2a/skills/h2a/SKILL.md`, `skills/harness/{SKILL.md,using-harness/SKILL.md,track-report/SKILL.md}` | Single full procedure in the h2a skill, short links elsewhere, status-table exclusion, and explicit current-versus-planned contract |
+| `packages/track/skills/present-decision/SKILL.md`, `assets/owner-gates.md` | Required short link and the presenting rules for a gate; retain the main skill's readability budget |
 
 No envelope-type enum or top-level version bump is needed. Old recipients
 ignore the optional field and read the canonical fallback; new senders must
@@ -437,8 +544,8 @@ Signature authentication does not grant decision authority, authorize tools,
 or authorize the blocked action. Keep the existing authentication model and
 human typing/idle guards. Do not add shell execution, external message channels,
 hidden daemons, automatic spawning, consent-by-timeout, or native-tool guessing.
-Reminders require the declared running executor; installing this marker alone
-does not create one.
+Reminders require the due-check executor `OwnerGateDueCheck`. Installing this
+marker alone does not create one.
 
 ## Acceptance and release evidence
 
@@ -450,8 +557,10 @@ checks pass. Review these behavioral cases against the instructions:
 1. A session-bound GO produces the short dossier and permitted native call now,
    without waiting for a report or asking the owner to type a magic sentence in
    another session.
-2. A blocking call has a durable binding and executing reminder responsibility
-   before invocation; its conductor checks a real call/display trace.
+2. A blocking call has a durable record before invocation. The conductor
+   records the best available evidence level (at most `peer-reported` across
+   sessions in this lot). Without a qualified timer the record says
+   `reminders-unavailable` and the owner is alerted at once.
 3. `decision-raised`, inbox delivery, wake success, unsupported “asked”, missing
    tooling, and missing trace all remain distinct from a raised question/GO.
 4. Defaults are 15-minute reminders/30-minute escalation, existing agreed
@@ -461,6 +570,15 @@ checks pass. Review these behavioral cases against the instructions:
 7. A tracking write/read failure produces the immediate visible/native alert
    and escalation, keeps the action blocked, and never claims a fulfilled
    binding or waits silently for storage to recover.
+8. No reminder, re-raise or escalation sends anything to the target while its
+   question is open or its state is unknown. Reminders are owner alerts.
+9. A target that never reports leads to one owner alert per due check and
+   `overdue` with an h2a blockage at the deadline, never to repeated target
+   messages.
+10. A decision that blocks nothing now raises no native question and no
+    reminder.
+11. A track report shows a session-bound gate without a `D` number, and
+    `vas y` or `D1 A` never answers it.
 
 Before C may ship, add targeted tests with injected clocks, fake host adapters,
 isolated roots, and controlled subprocess fixtures:
@@ -471,10 +589,13 @@ isolated roots, and controlled subprocess fixtures:
 | Send compatibility (`send.test.js`) | Unmarked legacy body unchanged; valid marker is signed with fallback; malformed marker and body over 64 KiB fail before write; CLI file/stdin and MCP agree; old descriptor fallback is explicit |
 | Local receive (`owner-gate-receive.test.js`) | Unsigned raw local put, tampered marker, wrong instance/session, stale first admission, and unknown version produce no native obligation; valid local/remote/mesh messages use the same classifier; inaccessible binding produces an immediate limitation/escalation, never silent waiting or invented tracked state |
 | Notification/wake (`evo1-inbox-wake-handler.test.js`, `owner-gate-receive.test.js`) | Read, push, native PTY and tmux wake converge on one receive attempt; human deferral does not consume/complete it; injected wake alone never marks question raised |
-| Recovery (`owner-gate-recovery.test.js`) | A new-envelope retry changes requestDigest but preserves contractDigest; modified options/native session conflict within a revision. Scripted receiver/conductor checks repeats, explicit connection rebind, sidecar restart, and crash between invocation/receipt against the existing binding; uncertain UI stays unverified/escalated; unread old requests request refresh, admitted pending gates survive |
+| Recovery (`owner-gate-recovery.test.js`) | A new-envelope retry changes requestDigest but preserves contractDigest; modified options/native session conflict within a revision. GREEN: a conductor handover and an owner deferral keep the same `contractDigest` and make no new native call. Scripted receiver/conductor checks repeats, explicit connection rebind, sidecar restart, and crash between invocation/receipt against the existing binding; uncertain UI stays `peer-reported` or `missing` with an owner alert. GREEN: a request admitted by the sidecar and read 30 minutes later still activates; an old request never admitted is stale and asks for a refresh |
+| Wake guard (`owner-gate-wake-guard.test.js`) | A fake host shows an open owner-gate question and a generic `› 1.` / `enter to select` dialog, then receives an inbox envelope and a loop wake. RED today: a line and Enter are injected. GREEN: the wake is deferred with a recorded reason, no keystroke is written and the dialog is unchanged. The same holds for drumbeat and drive wakes, and for a conductor with an open owner alert |
+| Due checks (`owner-gate-due.test.js`) | Injected clock, idle conductor. Due checks keep firing for more than `maxRelaunches` intervals. A restart after missed intervals runs one late check, not a burst. The deadline marks `overdue` and raises the h2a blockage. Checks stop once closure is recorded |
+| Decision-tool reservation (`owner-gate.test.js`) | Absent `blocking` means blocking. `blocking: false` and `binding.kind: "decision"` classify as `unsupported` and raise no native question |
 | Host capability/evidence (`owner-gate-hosts.test.js`) | Each mapped tool is selected only when exposed/permitted; negative modes follow D7; rejected calls stay failed; supplied trace ids cannot self-promote to verified; blocking-call evidence is observable before owner answer |
-| Follow-up (`owner-gate-follow-up.test.js`, loop tests) | Missing evidence checked immediately; due missing question re-raised, open dialog reminded once, overdue restart coalesced, unavailable/deadline escalation recorded, pop/loop stop leave pending, no executor is reported as a running reminder service |
-| Receipt/closure (`owner-gate-receive.test.js`) | Wrong signer/session/digest/revision receipts ignored; a valid peer receipt remains reported until trace verification; answer receipt/agent signature/timeout cannot authorize or close the gate; actual owner outcome is correlated with required session/signature |
+| Follow-up (`owner-gate-follow-up.test.js`, loop tests) | The first due check looks for the target's report and sends nothing to the target. No keystroke reaches an open or unknown dialog: one owner alert per due check. A re-raise happens only after a reported failure, closure or non-display. Overdue restart coalesced, unavailable and deadline escalation recorded, pop and loop stop leave pending, no executor is reported as a running reminder service |
+| Receipt/closure (`owner-gate-receive.test.js`) | Wrong signer/session/digest/revision receipts ignored; a valid peer receipt remains reported until trace verification; answer receipt/agent signature/timeout cannot authorize or close the gate; actual owner outcome is correlated with required session/signature. With two live sessions of one instance, only the required session classifies the envelope as a `request`. The sibling neither pops it nor records an attempt |
 | Supported-host smoke | A controlled owner-facing host session receives a signed gate, displays the dossier, invokes its real permitted native tool, and provides inspectable evidence; its unavailable mode proves fallback. A fixture or plain wake line alone cannot satisfy this smoke. |
 
 Run only relevant test files in the task's isolated test root. Preserve
