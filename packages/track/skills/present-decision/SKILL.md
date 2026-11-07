@@ -61,6 +61,8 @@ owner value; include a brief failure scenario, no mandatory long appendix.
 
 ## 4. Audit, present, record
 
+For owner GO/signature/decision gates, read `assets/owner-gates.md` before presenting.
+
 Run `assets/self-audit.md`, fix failures and re-check before presenting.
 If a necessary fact, criterion or review is missing, label **Incomplete** and ask for that input,
 not approval of the decision.

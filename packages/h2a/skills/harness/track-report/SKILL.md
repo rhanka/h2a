@@ -266,6 +266,14 @@ fences it in `md`.
 
 **DÉCISIONS carries only pending dossiers the owner can answer now. Nothing else.**
 
+For a pending GO/signature/decision, apply **Owner gates and conductor duty** from
+`harness/using-harness`: the target session raises its native question immediately and the
+requesting conductor verifies the tool/session/time/trace evidence. This report never substitutes
+for that question. In particular, do not hide a session-bound GO behind “type this in the other
+session”. Bind it to a loop or explicit Track pending item with an owner, deadline, reminder cadence
+and executor; keep reminders/escalation active until an attributable owner answer or explicit
+cancellation. Show missing question evidence or unavailable tooling as pending, never as owner GO.
+
 - **A `D` number is reserved for a dossier whose options AND recommendation are stored.** A report that
   prints alternatives absent from the log fails, however plausible they are.
 - **A settled dossier leaves the report.** It has nothing left to answer, it crowds out the dossiers that

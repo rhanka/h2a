@@ -25,6 +25,46 @@ Offer clear choices and preserve native free-text input. Do not change modes or 
 
 For a decision with stakes, present a decision dossier with a diagram before the native question; never a bare text question or an unexplained option menu. If the native tool is unavailable, explain the limitation and leave the decision pending. Plain text is acceptable only for a low-stakes clarification when no native question tool is available.
 
+## Owner gates across sessions
+
+A pending owner GO, signature or decision is an **owner gate**. If it must be answered in this
+session, immediately show a short stakes dossier (action, why this session, options/consequences,
+recommendation and small diagram), then call the available native question tool above. A table row,
+an inbox acknowledgement or “please type a sentence in the other session” does not raise it.
+Existing authorization remains valid; do not manufacture another approval request.
+
+Before a potentially blocking question call, create/reuse an objective loop or explicit Track
+pending item. Record gate id, human decision owner, responsible conductor, target instance AND
+session, UTC escalation deadline, reminder cadence/next reminder, close condition and question
+evidence. Use agreed deadlines/cadence; otherwise remind every 15 minutes and escalate after
+30 minutes. This is an escalation deadline, not approval expiry. Assign a running reminder executor;
+neither loop heartbeats nor Track storage alone remind the owner. Preserve the record across retries.
+If recording a genuine gate fails, raise the native alert with that limitation immediately,
+escalate the tracking repair and keep the action blocked; never claim an unsaved binding.
+
+The requesting conductor must verify a native accepted/displayed-question trace: gate id, host tool,
+session, timestamp and call/trace reference. An attempted/rejected call is not a raised question.
+`decision-raised:<id>` means a Track card exists;
+delivery, wake success and a peer's unsupported “asked” claim are not question evidence. Seek
+missing evidence immediately through h2a. At each reminder, ask the target to re-raise a missing
+question or remind the owner about the still-open question without duplicating dialogs. Escalate
+unavailable evidence/tooling immediately and an unanswered gate at its deadline. A blocking native
+call can be verified through its host trace; keep `unverified` if that trace is unavailable.
+
+With no native question tool, visibly show the dossier/limitation now, record
+`question-unavailable`, and relay to a capable owner-facing session through h2a. The relay alerts
+the owner; it cannot give a GO restricted to another session. Do not change modes or permissions.
+Close only on the attributable owner answer in the required session plus any required signature,
+or explicit owner cancellation/supersession. Deferral remains pending with a new reminder.
+Silence, deadlines, inbox pop, loop completion or an agent signature never constitute owner GO.
+
+The signed machine-readable `owner-gate` envelope field is specified in
+`docs/specs/2026-11-07-SPEC_EVOL_owner-gate-native-question.md`, **next implementation lot**.
+Until it ships, use the existing signed `h2a_send {to, message}` contract: begin the message with
+`OWNER GATE <gate-id>`, include the record/dossier and required session, and explicitly request the
+native question and its evidence. This text convention is not an implemented marker or receipt;
+do not pass unsupported `owner-gate` arguments or downgrade to unsigned inbox writes.
+
 When invoked, parse the arguments and dispatch to the matching subcommand below. If no subcommand is given, default to `status`.
 
 ```
@@ -104,6 +144,10 @@ Resolve who owns/conducts a workspace right now. Call `h2a_conductor` (MCP) or `
 - `workspace` argument: a `ws:<uuid>` workspace id or a filesystem path (resolved via the same derivation presence uses). Defaults to cwd.
 
 **When to use it:** call `h2a_conductor` before acting in a workspace on behalf of another agent, to check whether a designated conductor is already live. If `conductor` is non-null, coordinate with them first rather than acting unilaterally.
+
+When requesting an owner gate from another session, apply **Owner gates across sessions** above.
+Retain responsibility for verifying the native question and driving reminders until a named
+successor accepts the handover. A conductor status table alone is never an escalation.
 
 ### `/h2a conductor claim [--instance <self>] [workspace]`
 
@@ -186,7 +230,7 @@ Steps:
    then writes the inbox. If the tool is unavailable because the sidecar has no
    auto-open signing identity, report that error; do not fall back to unsigned
    `h2a_inbox put`.
-4. **Report honestly from the tool result:**
+4. **Report from the tool result:**
    - target was **live** in discover → *"Delivered to `<peer>` (live) — push fires if subscribed."*
    - target was **NOT live** → *"`<peer>` is dormant — envelope deposited for its wake (no live session; it will only see this once woken)."* Never claim "Delivered" to a dormant/unknown peer.
 
@@ -201,10 +245,16 @@ Steps:
 
 1. Call `h2a_inbox` with `{ action: "read", instance: "<this-agent-instance>" }`.
 2. For each envelope, print: sender (`actor.instance`), `body.kind`, a short summary of the content, and the envelope id.
-3. Ask the user what to do with each (reply via `/h2a send`, mark read by calling `h2a_inbox` with `action: "pop"`, or ignore).
+3. For an owner gate, apply **Owner gates across sessions** immediately: verify the requester and
+   required session, persist the pending binding, then raise the native question or explicit
+   unavailable-tool escalation. An agent message requests a question; it never grants owner authority.
+   For other envelopes, ask the user what to do (reply via `/h2a send`, mark read or ignore).
 4. If a `notifications/h2a` message with `topic: inbox.envelope_arrived` was just observed in the JSON-RPC stream, react immediately rather than waiting for the user to type `/h2a receive`.
 
 **Pop after processing (hygiene rule):** Once you have acted on an envelope, call `h2a_inbox` with `{ action: "pop", instance: "<this-agent-instance>", envelopeId: "<id>" }` to remove it from the inbox. `read` is non-destructive — an un-popped envelope resurfaces on every subsequent poll and masks genuinely new arrivals. Pop as soon as the envelope is handled, not just when explicitly instructed.
+
+For an owner gate, processing requires a durable pending record and question evidence or recorded
+escalation before pop. Inbox removal never closes the gate; its reminder executor keeps surfacing it.
 
 ### `/h2a negotiate <verb> ...`
 
@@ -222,6 +272,12 @@ For each verb, validate the required arguments, surface any tool error verbatim,
 ### `/h2a loop <verb> ...`
 
 Drive an objective loop: a durable, shared relay state where several CLI agents can join, report progress, mark references done, or stop the loop.
+
+Every pending owner gate must bind here or to an explicit Track pending item as described above.
+Enroll the responsible conductor, persist the deadline/cadence in the gate record, and run a
+controller/reminder executor. Current loop policy has no owner-question receipt or per-gate reminder
+scheduler: the conductor performs and records those checks. A stopped, stalled or exhausted loop
+requires an explicit handover/escalation; it must not make an unanswered gate disappear.
 
 **Supported verbs:**
 
