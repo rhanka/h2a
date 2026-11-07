@@ -782,6 +782,14 @@ function identityElectionIo(self: SelfIdent, lockPath?: string, ctx?: FenceLoopC
   return {
     ...(lockPath ? {beforeElection:(g:string):boolean=>{
       if(ctx && performance.now()>=ctx.deadline)return false;
+      // Quarantine moves successors before the lock. Until it moves the
+      // lock last, an ordinary acquirer must not elect itself through a
+      // temporarily shortened chain and replace the generation being moved.
+      const recovery = readIdentityLock(join(dirname(lockPath), ".lock.prevboot-recovery"));
+      if (recovery !== "absent") {
+        if (typeof recovery === "object" && recovery.kind === "io-error") return false;
+        if (identityVerdict(recovery, identitySelf()) !== "dead") return false;
+      }
       const read=readIdentityLock(lockPath);
       return typeof read==='object' && (read.kind==='v2'||read.kind==='adapter') && read.rec.token===g
         && recoveryAuthorized(read,dirname(lockPath)) && identityVerdict(read,identitySelf())==='dead';
