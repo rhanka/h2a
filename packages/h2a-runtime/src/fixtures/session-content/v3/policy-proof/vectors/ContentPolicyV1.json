@@ -1,0 +1,134 @@
+{
+  "record": "ContentPolicyV1",
+  "evidenceLevel": "synthetic schema and signature fixtures only; no installed authority",
+  "positive": [
+    {
+      "id": "ContentPolicyV1-shape-positive",
+      "expect": "ACCEPT_SHAPE",
+      "value": {
+        "format": "h2a.session-content-policy/1",
+        "kind": "policy",
+        "policyId": "fixture-policyId-0",
+        "policyRevision": 1,
+        "bindingId": "fixture-bindingId-0",
+        "approvedRegistrationRef": {
+          "id": "fixture-id-0",
+          "revision": 1,
+          "digest": "c066b16c28eb2b5ebcc557de4696a31062b31b745831d4246b05166bad926349"
+        },
+        "projectId": "fixture-projectId-0",
+        "sourceBinding": {
+          "appMeshId": "fixture-appMeshId-0",
+          "sourceMeshId": "fixture-sourceMeshId-0",
+          "nativeAudience": "fixture-nativeAudience-0",
+          "registrationId": "fixture-registrationId-0",
+          "tenantId": "fixture-tenantId-0",
+          "workspaceId": "fixture-workspaceId-0",
+          "bindingId": "fixture-bindingId-0",
+          "sourceId": "fixture-sourceId-0",
+          "sourceSessionId": "fixture-sourceSessionId-0",
+          "nativeSessionId": "fixture-nativeSessionId-0",
+          "sourceGeneration": 1,
+          "bootGeneration": 1,
+          "custodyEpoch": 1,
+          "controllerEpoch": 1
+        },
+        "channels": {
+          "session.events": {
+            "enabled": true,
+            "retention": {
+              "kind": "none"
+            }
+          },
+          "terminal.live": {
+            "enabled": false
+          },
+          "terminal.cache": {
+            "enabled": false,
+            "retention": {
+              "kind": "none"
+            }
+          },
+          "native.mirror": {
+            "enabled": false,
+            "retention": {
+              "kind": "none"
+            },
+            "nativeFormat": null,
+            "permittedRangeRef": null
+          }
+        },
+        "createdAt": 1793520000000
+      },
+      "bytes": {
+        "json": {
+          "base64": "eyJhcHByb3ZlZFJlZ2lzdHJhdGlvblJlZiI6eyJkaWdlc3QiOiJjMDY2YjE2YzI4ZWIyYjVlYmNjNTU3ZGU0Njk2YTMxMDYyYjMxYjc0NTgzMWQ0MjQ2YjA1MTY2YmFkOTI2MzQ5IiwiaWQiOiJmaXh0dXJlLWlkLTAiLCJyZXZpc2lvbiI6MX0sImJpbmRpbmdJZCI6ImZpeHR1cmUtYmluZGluZ0lkLTAiLCJjaGFubmVscyI6eyJuYXRpdmUubWlycm9yIjp7ImVuYWJsZWQiOmZhbHNlLCJuYXRpdmVGb3JtYXQiOm51bGwsInBlcm1pdHRlZFJhbmdlUmVmIjpudWxsLCJyZXRlbnRpb24iOnsia2luZCI6Im5vbmUifX0sInNlc3Npb24uZXZlbnRzIjp7ImVuYWJsZWQiOnRydWUsInJldGVudGlvbiI6eyJraW5kIjoibm9uZSJ9fSwidGVybWluYWwuY2FjaGUiOnsiZW5hYmxlZCI6ZmFsc2UsInJldGVudGlvbiI6eyJraW5kIjoibm9uZSJ9fSwidGVybWluYWwubGl2ZSI6eyJlbmFibGVkIjpmYWxzZX19LCJjcmVhdGVkQXQiOjE3OTM1MjAwMDAwMDAsImZvcm1hdCI6ImgyYS5zZXNzaW9uLWNvbnRlbnQtcG9saWN5LzEiLCJraW5kIjoicG9saWN5IiwicG9saWN5SWQiOiJmaXh0dXJlLXBvbGljeUlkLTAiLCJwb2xpY3lSZXZpc2lvbiI6MSwicHJvamVjdElkIjoiZml4dHVyZS1wcm9qZWN0SWQtMCIsInNvdXJjZUJpbmRpbmciOnsiYXBwTWVzaElkIjoiZml4dHVyZS1hcHBNZXNoSWQtMCIsImJpbmRpbmdJZCI6ImZpeHR1cmUtYmluZGluZ0lkLTAiLCJib290R2VuZXJhdGlvbiI6MSwiY29udHJvbGxlckVwb2NoIjoxLCJjdXN0b2R5RXBvY2giOjEsIm5hdGl2ZUF1ZGllbmNlIjoiZml4dHVyZS1uYXRpdmVBdWRpZW5jZS0wIiwibmF0aXZlU2Vzc2lvbklkIjoiZml4dHVyZS1uYXRpdmVTZXNzaW9uSWQtMCIsInJlZ2lzdHJhdGlvbklkIjoiZml4dHVyZS1yZWdpc3RyYXRpb25JZC0wIiwic291cmNlR2VuZXJhdGlvbiI6MSwic291cmNlSWQiOiJmaXh0dXJlLXNvdXJjZUlkLTAiLCJzb3VyY2VNZXNoSWQiOiJmaXh0dXJlLXNvdXJjZU1lc2hJZC0wIiwic291cmNlU2Vzc2lvbklkIjoiZml4dHVyZS1zb3VyY2VTZXNzaW9uSWQtMCIsInRlbmFudElkIjoiZml4dHVyZS10ZW5hbnRJZC0wIiwid29ya3NwYWNlSWQiOiJmaXh0dXJlLXdvcmtzcGFjZUlkLTAifX0=",
+          "byteLength": 1103,
+          "sha256": "02e1c042a235acd9244523ab6c92b9c01e3e415f6632457f0e8c489c1387486e"
+        }
+      }
+    }
+  ],
+  "negative": [
+    {
+      "id": "ContentPolicyV1-unknown-field",
+      "expect": "REJECT_SCHEMA",
+      "value": {
+        "format": "h2a.session-content-policy/1",
+        "kind": "policy",
+        "policyId": "fixture-policyId-0",
+        "policyRevision": 1,
+        "bindingId": "fixture-bindingId-0",
+        "approvedRegistrationRef": {
+          "id": "fixture-id-0",
+          "revision": 1,
+          "digest": "c066b16c28eb2b5ebcc557de4696a31062b31b745831d4246b05166bad926349"
+        },
+        "projectId": "fixture-projectId-0",
+        "sourceBinding": {
+          "appMeshId": "fixture-appMeshId-0",
+          "sourceMeshId": "fixture-sourceMeshId-0",
+          "nativeAudience": "fixture-nativeAudience-0",
+          "registrationId": "fixture-registrationId-0",
+          "tenantId": "fixture-tenantId-0",
+          "workspaceId": "fixture-workspaceId-0",
+          "bindingId": "fixture-bindingId-0",
+          "sourceId": "fixture-sourceId-0",
+          "sourceSessionId": "fixture-sourceSessionId-0",
+          "nativeSessionId": "fixture-nativeSessionId-0",
+          "sourceGeneration": 1,
+          "bootGeneration": 1,
+          "custodyEpoch": 1,
+          "controllerEpoch": 1
+        },
+        "channels": {
+          "session.events": {
+            "enabled": true,
+            "retention": {
+              "kind": "none"
+            }
+          },
+          "terminal.live": {
+            "enabled": false
+          },
+          "terminal.cache": {
+            "enabled": false,
+            "retention": {
+              "kind": "none"
+            }
+          },
+          "native.mirror": {
+            "enabled": false,
+            "retention": {
+              "kind": "none"
+            },
+            "nativeFormat": null,
+            "permittedRangeRef": null
+          }
+        },
+        "createdAt": 1793520000000,
+        "__unknown": "forbidden"
+      }
+    }
+  ]
+}

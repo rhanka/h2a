@@ -1,0 +1,322 @@
+{
+  "routeId": "policy-idp",
+  "method": "POST",
+  "path": "/api/v1/auth/session/content-policy-evidence",
+  "evidenceLevel": "model route admission only; no handler/network executed; all authority values synthetic assumptions",
+  "positive": [
+    {
+      "id": "policy-idp-positive",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "policy-idp",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content-policy-evidence",
+        "pathParameters": {},
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "internal",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "allow",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "policy-idp-http-media",
+      "evaluator": "routeHttp",
+      "input": {
+        "routeId": "policy-idp",
+        "contentType": "application/json",
+        "bodyBytes": 2,
+        "contentEncoding": null
+      },
+      "expected": {
+        "decision": "allow",
+        "code": null
+      }
+    }
+  ],
+  "negative": [
+    {
+      "id": "policy-idp-wrong-method",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "policy-idp",
+        "method": "GET",
+        "path": "/api/v1/auth/session/content-policy-evidence",
+        "pathParameters": {},
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "internal",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "policy-idp-extra-path",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "policy-idp",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content-policy-evidence/extra",
+        "pathParameters": {},
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "internal",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "policy-idp-caller-invented-resolved-path",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "policy-idp",
+        "method": "POST",
+        "path": "/arbitrary",
+        "pathParameters": {},
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "internal",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false,
+        "expectedResolvedPath": "/arbitrary"
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "policy-idp-extra-parameter",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "policy-idp",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content-policy-evidence",
+        "pathParameters": {
+          "arbitrary": "forbidden"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "internal",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "policy-idp-foreign-session-scope",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "policy-idp",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content-policy-evidence",
+        "pathParameters": {},
+        "authenticated": true,
+        "scopeMatches": false,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "internal",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "policy-idp-missing-authority",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "policy-idp",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content-policy-evidence",
+        "pathParameters": {},
+        "authenticated": false,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "internal",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_auth_required",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "policy-idp-purpose-withdrawn",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "policy-idp",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content-policy-evidence",
+        "pathParameters": {},
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "internal",
+        "purposeCurrent": false,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_consent_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "policy-idp-unaccepted-policy-supplement",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "policy-idp",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content-policy-evidence",
+        "pathParameters": {},
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "internal",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": false,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "unsupported_version",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "policy-idp-http-encoding",
+      "evaluator": "routeHttp",
+      "input": {
+        "routeId": "policy-idp",
+        "contentType": "application/json",
+        "bodyBytes": 2,
+        "contentEncoding": "gzip"
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "invalid_request"
+      }
+    },
+    {
+      "id": "policy-idp-http-body-or-media",
+      "evaluator": "routeHttp",
+      "input": {
+        "routeId": "policy-idp",
+        "contentType": "text/plain",
+        "bodyBytes": 2,
+        "contentEncoding": null
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "invalid_request"
+      }
+    }
+  ],
+  "http": {
+    "requestContentType": "application/json",
+    "responseContentType": "application/json",
+    "body": "strict JSON if present; zero bytes otherwise",
+    "streamProfile": null
+  },
+  "successStatus": 200
+}
