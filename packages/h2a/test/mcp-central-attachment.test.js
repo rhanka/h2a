@@ -212,6 +212,14 @@ test("H3: muse is a supported lowercase central host on the wire and at capture"
   assert.equal(captured.host, "muse");
 });
 
+test("H3: the capitalized Muse spelling is refused as a central host", () => {
+  assert.throws(() => context.buildSessionAdmissionEvidence({
+    attachmentRef: MATERIAL.attachmentId, transportEpoch: "epoch:20261030:0001", centralHost: "Muse",
+    agentUuid: IDENTITY.agentUuid, instanceId: "Muse:pilot-h3:0123456789ab", launchName: "pilot-h3",
+    admittedAt: MATERIAL.admittedAt, signedRequestId: MATERIAL.signedRequestId
+  }), /invalid session admission evidence: centralHost/);
+});
+
 test("H3: the record carries no tenant, workspace, scope, purpose, audit or lateral transport authority", () => {
   const evidence = build();
   assert.deepEqual(Object.keys(evidence).sort(), [...EVIDENCE_KEYS].sort());
