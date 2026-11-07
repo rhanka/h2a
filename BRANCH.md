@@ -2907,7 +2907,7 @@ The lanes slice stays blocked by relay-1 (no L-1 export).
 # B5 — feat/rc2-n4-policy (N4, pre-SG-R15 only)
 
 Owner GO 2026-11-07; builder codex / gpt-6.1-sol / xhigh (owner override).
-Base origin/main db4857950; contract r3, supplement accepted:false.
+Base origin/main 65b65d6bf (integration rebase; originally cut from 3c4d9a538); contract r3, supplement accepted:false.
 
 ## Allowed Paths
 
@@ -2988,7 +2988,46 @@ only; no dependency, version, script or lock change.
   typecheck all exit 0; built dist import refuses (accepted:false,
   unsupported_version, canCapture:false); `sha256sum -c` on the sealed r3
   contract source is clean (303 files) and the 47 pinned fixture files are
-  byte-equal through the identical sealed MANIFEST; a mechanical projection
-  audit found all 17 record defs and 13 shared defs identical to the sealed
-  schemas modulo external `$ref` bundling, with no dangling or invented defs.
+  byte-equal through the identical sealed MANIFEST; the committed test
+  "should keep the projection structurally identical to the sealed r3
+  schemas" (session-content-policy-proof.test.ts, review-fix round below)
+  locks all 17 record defs and 13 shared defs against the sealed schemas
+  with every `$ref` fully dereferenced on both sides, with no dangling,
+  invented or unreachable def.
 - Socle sans effet : aucune route, aucun transport, gates §5 fermées, capture désactivée tant que SG-R15 n'est pas accepté.
+
+## B5 review-fix round (rv420m FUSIONNABLE, rv420o CHANGES P2-1 + P3-4)
+
+Executor: vibe / GLM 5.3, 2026-11-07. Test file only, no behaviour change,
+scope stays pre-SG-R15.
+
+- P2-1 (blocking, test strength): three tests added to
+  `session-content-policy-proof.test.ts` —
+  (a) "should keep the projection structurally identical to the sealed r3
+  schemas": per record, both sides fully `$ref`-dereferenced (file-local
+  `#/$defs/X` and neighbouring sealed `X.schema.json` documents), `toEqual`,
+  plus reachability of every projection def (17 records + 13 shared, nothing
+  invented, dangling or unreachable);
+  (b) "should enforce every sealed per-record byte bound exactly": all 17
+  manifest `maxBytes` bounds locked behaviourally in both directions — an
+  unknown `zz` key at exactly the bound refuses `invalid_request` (schema
+  gate), one byte past it refuses `oversize` (byte gate);
+  (c) "should refuse every non-canonical scalar encoding inside a nested
+  proof": nine cases in nested corpus positions — Key32/RandomId/Sig64 pad
+  bits, `=`, `+`, `/`, uppercase Digest, non-printable Id, two-segment
+  compact JWS — all refuse `invalid_request`.
+- Mutant proof (apply, run, record red, revert; both mutants survived the
+  previous 110-test suite as red-before): M1 loosens the five sealed
+  patterns in `schemas.ts` (Key32/RandomId/Sig64 pad-bit tails, Digest case,
+  printable Id) — with the new tests, run exits 1 with tests (a) and (c)
+  failing; M2 multiplies the sixteen non-Proof byte bounds by eight in
+  `session-content-v3-api.ts` — run exits 1 with test (b) failing
+  (`ContentPolicyV1/past-bound` expected `oversize`, got the schema gate).
+  Both reverted; final GREEN 113 passed / 2 files, zero skipped; targeted
+  N1/N2 files 103 passed / 8 files; `tsc --noEmit -p packages/h2a-runtime`
+  and an explicit strict typecheck of the five B5 modules plus both test
+  files exit 0.
+- P3-4: base line corrected above and originally db4857950 proven wrong
+  (real cut point 3c4d9a538, db4857950 was an ancestor); the PR body now
+  cites the committed projection test instead of the former uncommitted
+  "mechanical projection audit".
