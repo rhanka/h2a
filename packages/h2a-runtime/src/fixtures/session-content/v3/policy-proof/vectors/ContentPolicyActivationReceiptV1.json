@@ -1,0 +1,50 @@
+{
+  "record": "ContentPolicyActivationReceiptV1",
+  "evidenceLevel": "synthetic schema and signature fixtures only; no installed authority",
+  "positive": [
+    {
+      "id": "ContentPolicyActivationReceiptV1-shape-positive",
+      "expect": "ACCEPT_SHAPE",
+      "value": {
+        "format": "h2a.session-content-policy/1",
+        "kind": "activation-receipt",
+        "policyOperationId": "NbenWVjwAECZSIgn5f6EIw",
+        "proposalId": "TuDIv7V8Xyvj5a9SG46k_w",
+        "policyDigest": "fe958e8dfa452b00a6d6e18d59bbacb0ba96f946b15b9622f2ba9538d834945a",
+        "policyRevision": 1,
+        "activationAckDigest": "42f706110dbd03d796047ee1ef2eee266b9149e560c2a5c1fad66a1747dca332",
+        "authorityRevision": 1,
+        "phase": "activation-committed",
+        "committedAt": 1793520000000,
+        "expiresAt": 1793520020000
+      },
+      "bytes": {
+        "json": {
+          "base64": "eyJhY3RpdmF0aW9uQWNrRGlnZXN0IjoiNDJmNzA2MTEwZGJkMDNkNzk2MDQ3ZWUxZWYyZWVlMjY2YjkxNDllNTYwYzJhNWMxZmFkNjZhMTc0N2RjYTMzMiIsImF1dGhvcml0eVJldmlzaW9uIjoxLCJjb21taXR0ZWRBdCI6MTc5MzUyMDAwMDAwMCwiZXhwaXJlc0F0IjoxNzkzNTIwMDIwMDAwLCJmb3JtYXQiOiJoMmEuc2Vzc2lvbi1jb250ZW50LXBvbGljeS8xIiwia2luZCI6ImFjdGl2YXRpb24tcmVjZWlwdCIsInBoYXNlIjoiYWN0aXZhdGlvbi1jb21taXR0ZWQiLCJwb2xpY3lEaWdlc3QiOiJmZTk1OGU4ZGZhNDUyYjAwYTZkNmUxOGQ1OWJiYWNiMGJhOTZmOTQ2YjE1Yjk2MjJmMmJhOTUzOGQ4MzQ5NDVhIiwicG9saWN5T3BlcmF0aW9uSWQiOiJOYmVuV1Zqd0FFQ1pTSWduNWY2RUl3IiwicG9saWN5UmV2aXNpb24iOjEsInByb3Bvc2FsSWQiOiJUdURJdjdWOFh5dmo1YTlTRzQ2a193In0=",
+          "byteLength": 449,
+          "sha256": "49cf669879546f2baecde0b9719a6e614405973ec9e9ccf5d5b59a3be4e0e882"
+        }
+      }
+    }
+  ],
+  "negative": [
+    {
+      "id": "ContentPolicyActivationReceiptV1-unknown-field",
+      "expect": "REJECT_SCHEMA",
+      "value": {
+        "format": "h2a.session-content-policy/1",
+        "kind": "activation-receipt",
+        "policyOperationId": "NbenWVjwAECZSIgn5f6EIw",
+        "proposalId": "TuDIv7V8Xyvj5a9SG46k_w",
+        "policyDigest": "fe958e8dfa452b00a6d6e18d59bbacb0ba96f946b15b9622f2ba9538d834945a",
+        "policyRevision": 1,
+        "activationAckDigest": "42f706110dbd03d796047ee1ef2eee266b9149e560c2a5c1fad66a1747dca332",
+        "authorityRevision": 1,
+        "phase": "activation-committed",
+        "committedAt": 1793520000000,
+        "expiresAt": 1793520020000,
+        "__unknown": "forbidden"
+      }
+    }
+  ]
+}

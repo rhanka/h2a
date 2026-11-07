@@ -1,0 +1,1248 @@
+{
+  "routeId": "grant-fetch",
+  "method": "GET",
+  "path": "/api/v1/auth/session/content/:bindingId/source/sessions/:sourceSessionId/grants/:proposalId",
+  "evidenceLevel": "model route admission only; no handler/network executed; all authority values synthetic assumptions",
+  "positive": [
+    {
+      "id": "grant-fetch-positive",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "grant-fetch",
+        "method": "GET",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/grants/fixture-proposalId",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "proposalId": "fixture-proposalId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "allow",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "grant-fetch-matrix-bound-cli-lifecycle",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "grant-fetch",
+        "method": "GET",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/grants/fixture-proposalId",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "proposalId": "fixture-proposalId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "allow",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "grant-fetch-http-media",
+      "evaluator": "routeHttp",
+      "input": {
+        "routeId": "grant-fetch",
+        "contentType": null,
+        "bodyBytes": 0,
+        "contentEncoding": null
+      },
+      "expected": {
+        "decision": "allow",
+        "code": null
+      }
+    }
+  ],
+  "negative": [
+    {
+      "id": "grant-fetch-wrong-method",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "grant-fetch",
+        "method": "POST",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/grants/fixture-proposalId",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "proposalId": "fixture-proposalId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "grant-fetch-extra-path",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "grant-fetch",
+        "method": "GET",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/grants/fixture-proposalId/extra",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "proposalId": "fixture-proposalId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "grant-fetch-caller-invented-resolved-path",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "grant-fetch",
+        "method": "GET",
+        "path": "/arbitrary",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "proposalId": "fixture-proposalId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false,
+        "expectedResolvedPath": "/arbitrary"
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "grant-fetch-extra-parameter",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "grant-fetch",
+        "method": "GET",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/grants/fixture-proposalId",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "proposalId": "fixture-proposalId",
+          "arbitrary": "forbidden"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "grant-fetch-foreign-session-scope",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "grant-fetch",
+        "method": "GET",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/grants/fixture-proposalId",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "proposalId": "fixture-proposalId"
+        },
+        "authenticated": true,
+        "scopeMatches": false,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "grant-fetch-missing-authority",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "grant-fetch",
+        "method": "GET",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/grants/fixture-proposalId",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "proposalId": "fixture-proposalId"
+        },
+        "authenticated": false,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_auth_required",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "grant-fetch-purpose-withdrawn",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "grant-fetch",
+        "method": "GET",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/grants/fixture-proposalId",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "proposalId": "fixture-proposalId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": false,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_consent_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "grant-fetch-wrong-lane",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "grant-fetch",
+        "method": "GET",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/grants/fixture-proposalId",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "proposalId": "fixture-proposalId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "content",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_lane_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "grant-fetch-unbound",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "grant-fetch",
+        "method": "GET",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/grants/fixture-proposalId",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "proposalId": "fixture-proposalId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": false,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_auth_required",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "grant-fetch-escaped-path",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "grant-fetch",
+        "method": "GET",
+        "path": "/api/v1/auth/session/content/%252fbindingId/source/sessions/fixture-sourceSessionId/grants/fixture-proposalId",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "proposalId": "fixture-proposalId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "grant-fetch-matrix-listing-cli-lifecycle",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "grant-fetch",
+        "method": "GET",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/grants/fixture-proposalId",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "proposalId": "fixture-proposalId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "grant-fetch-matrix-listing-cli-content",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "grant-fetch",
+        "method": "GET",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/grants/fixture-proposalId",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "proposalId": "fixture-proposalId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "cli",
+        "lane": "content",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "grant-fetch-matrix-listing-cli-actions",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "grant-fetch",
+        "method": "GET",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/grants/fixture-proposalId",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "proposalId": "fixture-proposalId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "cli",
+        "lane": "actions",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "grant-fetch-matrix-listing-cli-results",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "grant-fetch",
+        "method": "GET",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/grants/fixture-proposalId",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "proposalId": "fixture-proposalId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "cli",
+        "lane": "results",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "grant-fetch-matrix-listing-app-chat-lifecycle",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "grant-fetch",
+        "method": "GET",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/grants/fixture-proposalId",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "proposalId": "fixture-proposalId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "app-chat",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "grant-fetch-matrix-listing-app-chat-content",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "grant-fetch",
+        "method": "GET",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/grants/fixture-proposalId",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "proposalId": "fixture-proposalId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "app-chat",
+        "lane": "content",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "grant-fetch-matrix-listing-app-chat-actions",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "grant-fetch",
+        "method": "GET",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/grants/fixture-proposalId",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "proposalId": "fixture-proposalId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "app-chat",
+        "lane": "actions",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "grant-fetch-matrix-listing-app-chat-results",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "grant-fetch",
+        "method": "GET",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/grants/fixture-proposalId",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "proposalId": "fixture-proposalId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "listing",
+        "engineKind": "app-chat",
+        "lane": "results",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "grant-fetch-matrix-bootstrap-cli-lifecycle",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "grant-fetch",
+        "method": "GET",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/grants/fixture-proposalId",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "proposalId": "fixture-proposalId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "grant-fetch-matrix-bootstrap-cli-content",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "grant-fetch",
+        "method": "GET",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/grants/fixture-proposalId",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "proposalId": "fixture-proposalId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "cli",
+        "lane": "content",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "grant-fetch-matrix-bootstrap-cli-actions",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "grant-fetch",
+        "method": "GET",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/grants/fixture-proposalId",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "proposalId": "fixture-proposalId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "cli",
+        "lane": "actions",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "grant-fetch-matrix-bootstrap-cli-results",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "grant-fetch",
+        "method": "GET",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/grants/fixture-proposalId",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "proposalId": "fixture-proposalId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "cli",
+        "lane": "results",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "grant-fetch-matrix-bootstrap-app-chat-lifecycle",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "grant-fetch",
+        "method": "GET",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/grants/fixture-proposalId",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "proposalId": "fixture-proposalId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "app-chat",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "grant-fetch-matrix-bootstrap-app-chat-content",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "grant-fetch",
+        "method": "GET",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/grants/fixture-proposalId",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "proposalId": "fixture-proposalId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "app-chat",
+        "lane": "content",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "grant-fetch-matrix-bootstrap-app-chat-actions",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "grant-fetch",
+        "method": "GET",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/grants/fixture-proposalId",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "proposalId": "fixture-proposalId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "app-chat",
+        "lane": "actions",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "grant-fetch-matrix-bootstrap-app-chat-results",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "grant-fetch",
+        "method": "GET",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/grants/fixture-proposalId",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "proposalId": "fixture-proposalId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bootstrap",
+        "engineKind": "app-chat",
+        "lane": "results",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "grant-fetch-matrix-bound-cli-content",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "grant-fetch",
+        "method": "GET",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/grants/fixture-proposalId",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "proposalId": "fixture-proposalId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "content",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_lane_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "grant-fetch-matrix-bound-cli-actions",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "grant-fetch",
+        "method": "GET",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/grants/fixture-proposalId",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "proposalId": "fixture-proposalId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "actions",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_lane_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "grant-fetch-matrix-bound-cli-results",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "grant-fetch",
+        "method": "GET",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/grants/fixture-proposalId",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "proposalId": "fixture-proposalId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "results",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_lane_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "grant-fetch-matrix-bound-app-chat-lifecycle",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "grant-fetch",
+        "method": "GET",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/grants/fixture-proposalId",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "proposalId": "fixture-proposalId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "app-chat",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "grant-fetch-matrix-bound-app-chat-content",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "grant-fetch",
+        "method": "GET",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/grants/fixture-proposalId",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "proposalId": "fixture-proposalId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "app-chat",
+        "lane": "content",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "grant-fetch-matrix-bound-app-chat-actions",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "grant-fetch",
+        "method": "GET",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/grants/fixture-proposalId",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "proposalId": "fixture-proposalId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "app-chat",
+        "lane": "actions",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "grant-fetch-matrix-bound-app-chat-results",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "grant-fetch",
+        "method": "GET",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/grants/fixture-proposalId",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "proposalId": "fixture-proposalId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "app-chat",
+        "lane": "results",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": true,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "relay_scope_refused",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "grant-fetch-unaccepted-policy-body",
+      "evaluator": "routeGuard",
+      "input": {
+        "routeId": "grant-fetch",
+        "method": "GET",
+        "path": "/api/v1/auth/session/content/fixture-bindingId/source/sessions/fixture-sourceSessionId/grants/fixture-proposalId",
+        "pathParameters": {
+          "bindingId": "fixture-bindingId",
+          "sourceSessionId": "fixture-sourceSessionId",
+          "proposalId": "fixture-proposalId"
+        },
+        "authenticated": true,
+        "scopeMatches": true,
+        "bound": true,
+        "stage": "bound",
+        "engineKind": "cli",
+        "lane": "lifecycle",
+        "purposeCurrent": true,
+        "sourceAck": true,
+        "visibility": "listing",
+        "supplementAccepted": false,
+        "cookie": false,
+        "origin": false,
+        "sourceCredentialOnly": false,
+        "supplementFormat": "h2a.session-content-policy/1"
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "unsupported_version",
+        "modelBodyReads": 0,
+        "modelHandlerCalls": 0
+      }
+    },
+    {
+      "id": "grant-fetch-http-encoding",
+      "evaluator": "routeHttp",
+      "input": {
+        "routeId": "grant-fetch",
+        "contentType": null,
+        "bodyBytes": 0,
+        "contentEncoding": "gzip"
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "invalid_request"
+      }
+    },
+    {
+      "id": "grant-fetch-http-body-or-media",
+      "evaluator": "routeHttp",
+      "input": {
+        "routeId": "grant-fetch",
+        "contentType": null,
+        "bodyBytes": 1,
+        "contentEncoding": null
+      },
+      "expected": {
+        "decision": "deny",
+        "code": "invalid_request"
+      }
+    }
+  ],
+  "http": {
+    "requestContentType": null,
+    "responseContentType": "application/json",
+    "body": "zero entity bytes; any entity refuses",
+    "streamProfile": null
+  },
+  "successStatus": 200
+}
