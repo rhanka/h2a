@@ -482,7 +482,7 @@ export function procStartInfo(
 }
 
 /** Identity-only coherent probe; upgrade retains procStartInfo unchanged. */
-function procIdentityStartInfo(pid:number):{state:string;start:string;threads?:number}|undefined {
+export function procIdentityStartInfo(pid:number):{state:string;start:string;threads?:number}|undefined {
   if(!procMapsToSelf())return undefined;
   let statFd:number|undefined;let statusFd:number|undefined;
   const readAtZero=(fd:number):string=>{
