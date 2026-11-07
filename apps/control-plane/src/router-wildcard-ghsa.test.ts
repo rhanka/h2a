@@ -164,11 +164,15 @@ describe("mounted sub-app behind outer path-scoped middleware (GHSA-4m76-xfj5-79
 
   it("does not cut a dynamic mount prefix into a protected mounted route", async () => {
     const outer = buildMountedSubApp();
-    const response = await outer.request("/api/a/xxxxxxxxxx/admin/secret");
-    // On 4.13.13 the prefix was removed by the LENGTH of the route pattern,
-    // so /api/a/xxxxxxxxxx/admin/secret was forwarded as /admin/secret
-    // (200 "mounted secret", RED). 4.13.16+ removes the matched prefix
-    // segments; the sub-app sees /xxxxxxxxxx/admin/secret → not found.
+    const response = await outer.request("/api/a/xxxxx/admin/secret");
+    // On 4.13.13 the prefix was stripped by the LENGTH of the route pattern
+    // (the 12 characters of "/api/:tenant"), not by the matched segments,
+    // so /api/a/xxxxx/admin/secret was forwarded as /admin/secret and the
+    // protected route was served (200 "mounted secret", RED). The padding
+    // length is load-bearing: only 4 or 5 characters still leak on that
+    // version (10 or more stay behind the cut and see a 404 there).
+    // 4.13.16+ removes the matched prefix segments; the sub-app sees
+    // /xxxxx/admin/secret → not found.
     expect(response.status).toBe(404);
     expect(await response.text()).not.toContain("secret");
   });
