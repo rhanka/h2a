@@ -20,7 +20,7 @@ import { LOGIN_ALLOWLIST, loginCopyPath } from './xcli-lab.mjs';
 import { loadSeatManifest } from './xcli-seats.mjs';
 import { CYBER_SEAT_MODE, SEAT_ENVIRONMENT, assertCyberManifest } from './xcli-seat-custody.mjs';
 import { replayAgyCliCache, AGY_CLI_CACHE_PATH } from './xcli-agy-cli-cache.mjs';
-import { OPENCODE_SEAT_CONTRACT } from './xcli-llm-mesh-seats.mjs';
+import { OPENCODE_SEAT_MAPPING } from './xcli-llm-mesh-seats.mjs';
 
 export { validateSeatBundle, parseCliSeatProfile, parseTokenSeatEnvelope, translateAgySeatToApplication,
   MistralVibeEnrollmentProvider, MISTRAL_VIBE_SIGN_IN_URL, MISTRAL_VIBE_KEY_VALIDITY_MS };
@@ -132,7 +132,17 @@ export async function materialiseSeatEnvelopes({ seatSet, slotManifest, secrets,
 // keep the old cell path; every other closed gate is a typed refusal
 // before any copy, any spawn, any debit.
 export function onboardingLaunchBlock(manifestSeat) {
-  if (manifestSeat?.family === 'opencode') return OPENCODE_SEAT_CONTRACT.reason;
+  if (manifestSeat?.family === 'opencode') {
+    // R33: the OpenCode seat rides the codex seat (owner decision 07/11),
+    // so no llm-mesh contract gates it any more. Its state is the codex
+    // seat's state: a codex enrollment refusal is the typed block;
+    // otherwise the OpenCode login liveness gates every launch, carried by
+    // review only (never a runtime read of the OpenCode store), and no
+    // manifest claim can flip it open.
+    if (manifestSeat.unavailableReason === `seat-not-enrolled-in-llm-mesh:${OPENCODE_SEAT_MAPPING.seat}`)
+      return manifestSeat.unavailableReason;
+    return OPENCODE_SEAT_MAPPING.loginGateCode;
+  }
   if (manifestSeat && manifestSeat.unavailableReason === `seat-not-enrolled-in-llm-mesh:${manifestSeat.family}`)
     return manifestSeat.unavailableReason;
   if (!manifestSeat?.onboarding || manifestSeat.family === 'vibe') return undefined;

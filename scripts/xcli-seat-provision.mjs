@@ -32,7 +32,7 @@ import { materialiseSeatEnvelopes, parseCliSeatProfile,
   translateAgySeatToApplication } from './xcli-seat-import.mjs';
 import { SEAT_BUNDLE_MAX_BYTES, SEAT_PACKAGE_PROVIDER_ID } from './xcli-seat-vendor/seat-bundle.js';
 import { MESH_SEAT_PROVIDERS, createMeshSeatFacade, requireMeshAccount,
-  acquireVibeKey, meshOwnerScope, OPENCODE_SEAT_CONTRACT } from './xcli-llm-mesh-seats.mjs';
+  acquireVibeKey, meshOwnerScope, OPENCODE_SEAT_MAPPING } from './xcli-llm-mesh-seats.mjs';
 import { AGY_REQUIRED_COMPLETED_STEPS, CAPTURE_SOURCES, seatLaunchGate,
   AGY_ONBOARDING_REVIEW, agyOnboardingBinaryRefusal } from './xcli-seat-onboarding.mjs';
 import { captureReviewedSeatOnboarding } from './xcli-agy-capture.mjs';
@@ -389,18 +389,35 @@ export async function provisionSeats({ seatSet = DEFAULT_SEAT_SET,
   }
   const seats = [];
   const unavailable = [];
+  const mapped = [];
   try {
     for (const seatId of ids) {
-      // The local roster may expose a host before the upstream consumer
-      // contract can carry it. Retain its closed cell without inventing an
-      // enrollment provider, reading native credentials, or issuing a bundle
-      // under another CLI's identity. Protected provisioning stays unchanged.
+      // R33 (owner decision 07/11): the OpenCode seat rides the existing
+      // codex seat — same ChatGPT account, same quota pool — through an
+      // h2a-side mapping; the llm-mesh bundle contract is untouched. The
+      // provisioning path resolves the codex seat's mesh state (names
+      // only) and never reads the OpenCode login store: a missing codex
+      // account leaves the OpenCode seat with the codex seat's own refusal
+      // and the codex owner enroll command. No envelope is minted for it
+      // in any mode: the protected upload path stays closed and refuses
+      // names-only instead of fabricating a bundle identity.
       if (seatId === 'opencode' && !Object.hasOwn(SEAT_PACKAGE_PROVIDER_ID, seatId)) {
-        const { reason, enrollmentCommand } = OPENCODE_SEAT_CONTRACT;
-        if (mode !== 'local' || !allowUnavailableSeats) throw new Error(reason);
-        unavailable.push({ seatId, cli: seatId, meshGate: 'contract-unavailable', reason,
-          contract: { supportedSeatClis: Object.keys(SEAT_PACKAGE_PROVIDER_ID).sort(),
-            enrollmentCommand } });
+        if (mode !== 'local' || !allowUnavailableSeats) throw new Error('opencode-seat-mapping-local-only');
+        try {
+          const gate = await resolveMeshGate({ seatId, cli: OPENCODE_SEAT_MAPPING.seat,
+            meshFacade: facade, meshScope });
+          mapped.push({ seatId, cli: seatId, mappedSeat: OPENCODE_SEAT_MAPPING.seat,
+            meshGate: gate.meshGate, provider: gate.provider, files: [],
+            ...(gate.accountId ? { accountId: gate.accountId } : {}),
+            ...(gate.cause ? { cause: gate.cause } : {}),
+            ownerLogin: { code: OPENCODE_SEAT_MAPPING.loginGateCode,
+              staleSince: OPENCODE_SEAT_MAPPING.loginStaleSince, command: OPENCODE_SEAT_MAPPING.loginCommand } });
+        } catch (error) {
+          if (String(error.message ?? '').startsWith('seat-not-enrolled-in-llm-mesh:')) {
+            unavailable.push({ seatId, cli: seatId, mappedSeat: OPENCODE_SEAT_MAPPING.seat,
+              meshGate: 'not-enrolled', reason: error.message, enroll: error.enroll });
+          } else throw error;
+        }
         continue;
       }
       const slot = byId[seatId];
@@ -432,9 +449,19 @@ export async function provisionSeats({ seatSet = DEFAULT_SEAT_SET,
         : { manifest: { version: 1, seatMode: 'cyber-seat-custody', ownerScope, seats: [] },
           manifestFile: join(laneDir, 'seats.json') };
       fs.mkdirSync(laneDir, { recursive: true, mode: 0o700 });
+      // R33: seats that ride another CLI's seat (OpenCode -> codex) enter
+      // the manifest without an envelope: the mapped codex state plus their
+      // own review-carried login gate. No credential is read or staged.
+      for (const seat of mapped) materialised.manifest.seats.push({
+        seatId: seat.seatId, family: seat.cli, authSource: `unavailable/${seat.seatId}`,
+        mappedSeat: seat.mappedSeat,
+        onboarding: { status: 'absent', gate: { eligible: false, code: seat.ownerLogin.code } },
+        ownerLogin: seat.ownerLogin,
+      });
       for (const seat of unavailable) materialised.manifest.seats.push({
         seatId: seat.seatId, family: seat.cli, authSource: `unavailable/${seat.seatId}`,
         unavailableReason: seat.reason,
+        ...(seat.mappedSeat ? { mappedSeat: seat.mappedSeat } : {}),
         onboarding: { status: 'absent', gate: { eligible: false, code: seat.reason } },
       });
       // Transport the names-only capture diagnosis beside the library's
@@ -451,7 +478,7 @@ export async function provisionSeats({ seatSet = DEFAULT_SEAT_SET,
       const manifestDigest = createHash('sha256').update(fs.readFileSync(materialised.manifestFile)).digest('hex');
       return { mode, outDir, manifestFile: materialised.manifestFile,
         manifestDigest, seats: seats.map(seat => seat.receipt),
-        sources: [...seats.map(seat => seat.source), ...unavailable] };
+        sources: [...seats.map(seat => seat.source), ...mapped, ...unavailable] };
     }
     const ghCalls = ensureEnvironment({ ghBin, dryRun: mode === 'dry-run' });
     const uploaded = [];

@@ -25,6 +25,7 @@ import { scanEvidenceText } from './xcli-evidence-scan.mjs';
 import { runMuseAuthPrecheck } from './xcli-auth-precheck.mjs';
 import { campaignWakePolicy } from './xcli-wake-policy.mjs';
 import { openCodeCellConfig, openCodePluginSource, openCodeEnvironment, OPENCODE_PLUGIN_READY } from './xcli-opencode.mjs';
+import { OPENCODE_SEAT_MAPPING } from './xcli-llm-mesh-seats.mjs';
 export { MUSE_NOAUTH_PATTERN, classifyMuseUsageProbe } from './xcli-auth-precheck.mjs';
 import { parseScenario, expectedScenarioBlocker, UNKNOWN_INSTANCE, validateScriptSteps,
   loopScripts, loopTwinScripts, negotiationScripts, negotiationTwinScripts,
@@ -1404,9 +1405,26 @@ async function main() {
       cells.push(blockedRow(run, releaseOffsetMs, 'qualification-cancelled'));
       continue;
     }
-    if (quotaSeats.has(seatKey(run, 'sender')) || quotaSeats.has(seatKey(run, 'receiver'))) {
+    // R33 (owner decision 07/11): a riding seat resolves its per-seat quota
+    // stop through the seat it rides (OpenCode -> codex — one account, one
+    // quota pool): the mapped stop blocks the riding seat's cells with the
+    // same proof and the same reset as the ridden seat's own. The riding
+    // seat's login liveness is a separate classification, recorded as its
+    // own evidence alongside the quota stop rather than inside it.
+    const ridingSeatKey = key => {
+      const seat = (manifest?.seats ?? []).find(entry => entry.seatId === key);
+      return seat?.mappedSeat ? seat.mappedSeat : key;
+    };
+    const quotaKey = role => ridingSeatKey(seatKey(run, role));
+    const ridingLoginEvidence = () => run.sender === OPENCODE_SEAT_MAPPING.cli || run.receiver === OPENCODE_SEAT_MAPPING.cli
+      ? [{ event: 'opencode-owner-login-required', code: OPENCODE_SEAT_MAPPING.loginGateCode,
+          command: OPENCODE_SEAT_MAPPING.loginCommand, staleSince: OPENCODE_SEAT_MAPPING.loginStaleSince,
+          source: 'opencode-seat-study+owner-decision' }]
+      : [];
+    if (quotaSeats.has(quotaKey('sender')) || quotaSeats.has(quotaKey('receiver'))) {
       cells.push(blockedRow(run, releaseOffsetMs, 'provider-quota-seat-exhausted',
-        [{ event: 'seat-quota-stop', seats: [seatKey(run, 'sender'), seatKey(run, 'receiver')] }]));
+        [{ event: 'seat-quota-stop', seats: [quotaKey('sender'), quotaKey('receiver')] },
+          ...ridingLoginEvidence()]));
       continue;
     }
     // L7: onboarding cells never spawn on a closed gate — before preflight,

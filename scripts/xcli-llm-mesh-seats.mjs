@@ -18,10 +18,22 @@
 // llm-mesh-store-unreachable:<cli> with the store cause.
 import { hostname } from 'node:os';
 
-// Neither the published enrollment command nor the consumer envelope contract
-// supports this CLI yet. Never synthesize an owner command or alias its identity.
-export const OPENCODE_SEAT_CONTRACT = Object.freeze({
-  reason: 'llm-mesh-seat-contract-unavailable:opencode', enrollmentCommand: null,
+// R33 (owner decision 07/11, « Rattacher au siège codex »): the OpenCode
+// seat rides the EXISTING codex seat. The OpenCode 1.17.15 auth store holds
+// a single openai/oauth entry whose accountId hash equals the codex CLI's
+// — one ChatGPT account, one quota pool (read-only study:
+// sentropic/.tmp/rv/opencode-seat-study.md). No llm-mesh change: the frozen
+// five-CLI consumer contract stays published as is. OpenCode keeps its own
+// login store, so its login liveness stays its own dimension: the stored
+// access token expired 2026-09-14 and the bench never reads that store
+// (no credential byte, runtime or otherwise); until the owner runs the
+// login command below, no OpenCode seat can launch.
+export const OPENCODE_SEAT_MAPPING = Object.freeze({
+  cli: 'opencode',
+  seat: 'codex',
+  loginGateCode: 'owner-action:opencode-login',
+  loginStaleSince: '2026-09-14',
+  loginCommand: '/home/antoinefa/.opencode/bin/opencode auth login',
 });
 
 // Bench CLI -> mesh enrollment provider + the exact owner enroll command.
