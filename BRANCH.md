@@ -2882,3 +2882,92 @@ The lanes slice stays blocked by relay-1 (no L-1 export).
   matching, digest recomputation, invented capsule bytes/headers/trust roots.
 - `packages/remote-protocol/**`, `packages/remote-k8s-orchestrator/**`.
 - No Python anywhere; no `git stash`; no attribution trailers.
+
+# B5 — feat/rc2-n4-policy (N4, pre-SG-R15 only)
+
+Owner GO 2026-11-07; builder codex / gpt-6.1-sol / xhigh (owner override).
+Base origin/main db4857950; contract r3, supplement accepted:false.
+
+## Allowed Paths
+
+- packages/h2a-runtime/src/session-content-v3-api.ts
+- packages/h2a-runtime/src/session-content-policy-proof.ts
+- packages/h2a-runtime/src/session-content-consent.ts
+- packages/h2a-runtime/src/session-content-policy-proof.test.ts
+- packages/h2a-runtime/src/session-content-consent.test.ts
+- packages/h2a-runtime/src/fixtures/session-content/v3/policy-proof/**
+- BRANCH.md (append only)
+
+## Conditional Paths
+
+- packages/h2a-runtime/package.json: additive ./session-content/v3 export only.
+
+## Forbidden Paths and behaviour
+
+No other source, dependency, lock, route, transport, host, IPC or session change.
+No cross-repo source imports. No source-gap fill. All plan §5 gates CLOSED.
+Share/amend, PTY fallback capture, nonce/fence consumption, ACK signing,
+activation and reconnect refresh stay disabled until SG-R15 exact-byte ACKs.
+Historical v2 and N2 journals stay untouched. No packed/image suites locally.
+
+## Lots / acceptance
+
+1. RED targeted policy-proof and consent successor tests using pinned r3 vectors.
+2. GREEN types, pure untrusted parsers, unconditional typed refusal before
+   input acquisition or persistence. No acceptance flag supplied by a caller.
+3. H-4 actual store/verifier commit parity remains deferred: no receiving store
+   commit or SG-R15 authority is available; corpus bytes are fixture evidence only.
+Double review and final-head CI are required; no merge, owner GO required to merge.
+
+## B5 scope declaration for harness
+
+**Allowed Paths (B5 implementation)**
+  - `packages/h2a-runtime/src/session-content-v3-api.ts`
+  - `packages/h2a-runtime/src/session-content-policy-proof.ts`
+  - `packages/h2a-runtime/src/session-content-consent.ts`
+  - `packages/h2a-runtime/src/session-content-policy-proof.test.ts`
+  - `packages/h2a-runtime/src/session-content-consent.test.ts`
+  - `packages/h2a-runtime/src/fixtures/session-content/v3/policy-proof/**`
+  - `packages/h2a-runtime/package.json`
+  - `BRANCH.md`
+
+BR05-EX1: plan §4 B5 explicitly authorizes the additive v3 export. This
+grant supersedes the inherited B2/B3 package.json prohibition for that export
+only; no dependency, version, script or lock change.
+
+## B5 evidence and remaining gates
+
+- RED: targeted vitest command on the two new tests => 2 failed suites,
+  missing API/consent modules, zero tests. GREEN same command => 110 passed,
+  2 files, zero skipped. Exact command:
+  `node_modules/.bin/vitest run --config packages/h2a-runtime/vitest.config.ts packages/h2a-runtime/src/session-content-policy-proof.test.ts packages/h2a-runtime/src/session-content-consent.test.ts`.
+- Eight targeted N1/N2 files => 103 passed, zero skipped.
+- Runtime no-emit typecheck, compilation and explicit test typecheck => exit 0;
+  public workspace subpath import => accepted:false, unsupported_version,
+  canCapture:false.
+- r3 seal => 303 files, 0 mismatches. Fixture pin includes 47 byte-exact
+  files: 17 schema/vector pairs, eight carrier vectors, coherent corpus,
+  public synthetic trust and retention corpus, plus manifest/seal.
+- Executed 46 schema vectors, 1880 original-schema differential mutations,
+  coherent 4 positives + 22 proof / 8 activation / 8 reconnect negatives,
+  reconnect positive, 233 carrier gate vectors, five retention shape cases.
+  Carrier and semantic vectors assert pre-SG-R15 refusal only; post-acceptance
+  expected semantic codes and real store-commit equality are NOT claimed.
+- Harness consensus review: selection-failed. No h2a_run MCP operation is
+  exposed in this confinement; no eligible host-complementary review launch,
+  no peer verdict, no consensus. Double external review remains a merge gate.
+- Final verifier/trust/JWS/current-authority checks, N2 policy consumption,
+  native ACK signing, committed receipt reconciliation, immutable-deadline
+  enforcement, capture refresh and H-4 store commit parity remain after SG-R15.
+- Takeover re-verification (vibe / GLM 5.3, 2026-11-07): RED reproduced with
+  the three implementation modules held out (2 failed suites, zero tests);
+  GREEN reproduced 110 passed / 2 files, zero skipped; the eight targeted
+  N1/N2 files 103 passed; `tsc --noEmit -p packages/h2a-runtime`,
+  `tsc -b packages/h2a-runtime --force` and an explicit touched-file test
+  typecheck all exit 0; built dist import refuses (accepted:false,
+  unsupported_version, canCapture:false); `sha256sum -c` on the sealed r3
+  contract source is clean (303 files) and the 47 pinned fixture files are
+  byte-equal through the identical sealed MANIFEST; a mechanical projection
+  audit found all 17 record defs and 13 shared defs identical to the sealed
+  schemas modulo external `$ref` bundling, with no dangling or invented defs.
+- Socle sans effet : aucune route, aucun transport, gates §5 fermées, capture désactivée tant que SG-R15 n'est pas accepté.

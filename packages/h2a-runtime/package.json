@@ -15,6 +15,10 @@
       "types": "./dist/remote-action.d.ts",
       "import": "./dist/remote-action.js"
     },
+    "./session-content/v3": {
+      "types": "./dist/session-content-v3-api.d.ts",
+      "import": "./dist/session-content-v3-api.js"
+    },
     "./package.json": "./package.json"
   },
   "dependencies": {
