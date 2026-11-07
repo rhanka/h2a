@@ -130,6 +130,8 @@ export async function materialiseSeatEnvelopes({ seatSet, slotManifest, secrets,
 // keep the old cell path; every other closed gate is a typed refusal
 // before any copy, any spawn, any debit.
 export function onboardingLaunchBlock(manifestSeat) {
+  if (manifestSeat && manifestSeat.unavailableReason === `seat-not-enrolled-in-llm-mesh:${manifestSeat.family}`)
+    return manifestSeat.unavailableReason;
   if (!manifestSeat?.onboarding || manifestSeat.family === 'vibe') return undefined;
   if (manifestSeat.onboarding.gate?.eligible) return undefined;
   const refused = manifestSeat.onboarding.captureRefusal;

@@ -35,12 +35,13 @@ test('an already exited private CLI is blocked without falsely failing its verif
   fs.rmSync(root, { recursive: true, force: true });
 });
 
-// Lot L5 RED: a lost worker stops the campaign and its secrets are wiped
-// regardless. Each case drives the campaign parent with a worker stub (via
+// A lost worker remains red and its secrets are wiped regardless. Parent
+// recovery restores isolation so unrelated cells can run. Each case drives
+// the campaign parent with a worker stub (via
 // the XCLI_WORKER_STUB seam): the stub reads the worker request on stdin,
 // plants dummy login copies in the provided cell (or a fallback dir when the
 // parent provides none), then misbehaves per case. Every case asserts the
-// campaign stops after one worker run and the planted copies are absent.
+// later cells run only after verified recovery and the copies are absent.
 const stubHead = `import fs from 'node:fs';
 import { join } from 'node:path';
 const request = JSON.parse(fs.readFileSync(0, 'utf8'));
@@ -58,7 +59,7 @@ function runParentWithStub(stubBody, extraArgs = []) {
   fs.writeFileSync(stub, stubBody);
   const output = join(dir, 'receipt.json');
   const result = spawnSync(process.execPath, [join(repo, 'scripts/qualify-cross-cli.mjs'),
-    '--simulated', '--pair', 'codex:codex', '--wake-release-offsets-ms', '0,100',
+    '--simulated', ...(extraArgs.includes('--sender') ? [] : ['--pair', 'codex:codex']), '--wake-release-offsets-ms', '0,100',
     '--timeout-ms', '10000', '--output', output, ...extraArgs],
   { env: { ...process.env, XCLI_WORKER_STUB: stub }, encoding: 'utf8', timeout: 120000, maxBuffer: 4 * 1024 * 1024 });
   const root = (result.stdout.match(/Private qualification root: (\S+)/) ?? [])[1];
@@ -71,29 +72,46 @@ function runParentWithStub(stubBody, extraArgs = []) {
   return { dir, root, receipt, invocations, planted, result };
 }
 
-function assertL5StoppedAndWiped({ receipt, invocations, planted }, firstBlocker) {
+function assertRecoveredAndWiped({ receipt, invocations, planted }, firstBlocker) {
   assert.equal(receipt.cells.length, 2, 'both campaign runs are recorded');
   assert.equal(receipt.cells[0].blocker, firstBlocker);
   assert.equal(receipt.cells[0].cleanupFailed, true, 'both §6.6 obligations are unproven');
-  assert.equal(invocations, 1, 'no further cell runs after the lost worker');
-  assert.equal(receipt.cells[1].blocker, 'qualification-cancelled');
+  assert.equal(invocations, 2, 'parent recovery isolates the lost worker and the next cell runs');
+  assert.equal(receipt.cells[0].parentProcessRecovery, true);
+  assert.equal(receipt.cells[0].parentSecretWipe, true);
+  assert.equal(receipt.cells[1].blocker, firstBlocker);
   assert.ok(planted, 'the stub planted dummy login copies');
   assert.equal(fs.existsSync(planted), false, 'every recorded login copy is absent afterwards');
 }
 
-test('L5: a worker emitting invalid JSON stops the campaign with secrets wiped', () => {
+test('L5: a worker emitting invalid JSON is isolated with secrets wiped', () => {
   const run = runParentWithStub(`${stubHead}process.stdout.write('not-json{{{');\n`);
   try {
     assert.equal(run.result.status, 2);
-    assertL5StoppedAndWiped(run, 'qualification-worker-failed-cleanup-unproven');
+    assertRecoveredAndWiped(run, 'qualification-worker-failed-cleanup-unproven');
   } finally { removeCampaignRoot(run.root); fs.rmSync(run.dir, { recursive: true, force: true }); }
 });
 
-test('L5: a worker exiting without output stops the campaign with secrets wiped', () => {
+test('L5: a worker exiting without output is isolated with secrets wiped', () => {
   const run = runParentWithStub(stubHead);
   try {
     assert.equal(run.result.status, 2);
-    assertL5StoppedAndWiped(run, 'qualification-worker-failed-cleanup-unproven');
+    assertRecoveredAndWiped(run, 'qualification-worker-failed-cleanup-unproven');
+  } finally { removeCampaignRoot(run.root); fs.rmSync(run.dir, { recursive: true, force: true }); }
+});
+
+test('R31: a lost worker does not cancel unrelated pairs after parent recovery', () => {
+  const run = runParentWithStub(`${stubHead}
+const count = fs.readFileSync(join(request.root, 'stub-invocations.log'), 'utf8').trim().split('\\n').length;
+process.stdout.write(count === 1 ? 'invalid' : JSON.stringify({ sender: request.sender,
+  receiver: request.receiver, status: 'blocked', blocker: 'independent-cell-observed',
+  evidence: [], elapsedMs: 1, cell: request.cell }));\n`, ['--sender', 'codex']);
+  try {
+    assert.equal(run.invocations, 12, 'every pair and repetition ran independently');
+    assert.equal(run.receipt.cells[0].parentProcessRecovery, true);
+    assert.equal(run.receipt.cells[0].parentSecretWipe, true);
+    assert.ok(run.receipt.cells.slice(1).every(c => c.blocker === 'independent-cell-observed'));
+    assert.equal(fs.existsSync(run.planted), false);
   } finally { removeCampaignRoot(run.root); fs.rmSync(run.dir, { recursive: true, force: true }); }
 });
 
@@ -103,7 +121,7 @@ test('L5: a worker reporting cleanup failure without wiping is wiped by the pare
     credentialsCopied: { sender: ['.codex/auth.json'], receiver: [] }, cell, evidence: [], elapsedMs: 1 }));\n`);
   try {
     assert.equal(run.result.status, 2);
-    assert.equal(run.invocations, 1, 'no further cell runs after the failed cleanup');
+    assert.equal(run.invocations, 2, 'verified parent recovery keeps later cells independent');
     assert.equal(run.receipt.cells[0].blocker, 'owned-process-cleanup-failed');
     assert.ok(run.planted, 'the stub planted dummy login copies');
     assert.equal(fs.existsSync(run.planted), false, 'the parent wiped the recorded copies itself');
