@@ -2882,3 +2882,32 @@ The lanes slice stays blocked by relay-1 (no L-1 export).
   matching, digest recomputation, invented capsule bytes/headers/trust roots.
 - `packages/remote-protocol/**`, `packages/remote-k8s-orchestrator/**`.
 - No Python anywhere; no `git stash`; no attribution trailers.
+
+# Owner gates — native question and durable follow-up (2026-11-07)
+
+## Objective and scope
+
+- [x] Branch: feat/owner-gate-native-question, from origin/main db4857950.
+- [x] Designer: Astra (gpt-6-astra, max), explicitly assigned by the owner.
+- [x] Choose the authorized a+b delivery: rules/spec now, runtime marker and receiving hook in the next lot.
+- [x] Allowed: owner-gate EVOL/review docs; h2a/harness/present-decision skill text; this appended plan.
+- [x] Forbidden: product/runtime edits, owner state, installed h2a, dependency changes, full local suite, merge.
+
+## Lots
+
+- [x] L1: English EVOL defines the three rules, signed compatible marker, host evidence/fallback,
+  conductor verification, durable deadline/cadence/closure and RED/GREEN acceptance for runtime lot L2.
+- [x] L1: h2a send/receive/conductor/loop instructions, harness piloting/report instructions,
+  and canonical Track present-decision instructions enforce immediate questions and durable follow-up.
+- [x] L1 verification: build and targeted native-question/skill installation checks only;
+  documentation checks do not prove a native dialog or an implemented owner-gate protocol.
+- [ ] Independent Claude Opus 5.5 max review; reconcile findings before READY PR.
+- [ ] Rebase if needed, push branch, READY PR to main, follow terminal CI; do not merge.
+- [ ] French owner-gate-last.md report and remove the sole private run directory.
+
+## Next lot / feedback
+
+- [ ] L2 (h2a messaging/host maintainer): runtime marker, validated receiving hook,
+  native question evidence and durable reminders; exact acceptance is in the EVOL.
+- [x] The existing loop decision-raised result proves a Track card only; native call evidence is separate.
+- [x] Runtime L2 is explicitly deferred under the owner's one-reviewable-PR clause, not declared shipped.
