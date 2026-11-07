@@ -24,6 +24,15 @@ Offer clear choices and preserve native free-text input. Do not change modes or 
 
 For a decision with stakes, present a decision dossier with a diagram before the native question; never a bare text question or an unexplained option menu. If the native tool is unavailable, explain the limitation and leave the decision pending. Plain text is acceptable only for a low-stakes clarification when no native question tool is available.
 
+## Owner gates and conductor duty
+
+An owner gate is a pending owner GO, signature or decision that blocks your work now. Ask it at once
+in the required session: a short stakes dossier, then the native question. A status row or an
+instruction to type elsewhere is not a question. A decision that blocks nothing now is not a gate.
+Record it for async review, with no native question and no reminders. For the record, follow-up,
+cross-session rules, evidence and closure, apply **Owner gates across sessions** in the h2a skill.
+Continue independent work while a gate is pending.
+
 `@sentropic/harness` is the native dev-discipline layer for sentropic repos. Its verbs and `harness/*`
 skills are the SINGLE front door for code-work and PR-workflow. This skill is the index — load it
 before any other so the replacement directive below is in effect.
