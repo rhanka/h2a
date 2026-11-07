@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 import { fixture, eventually, usable } from '../../packages/h2a/test/helpers/restart-lab.js';
@@ -37,7 +37,14 @@ test('oom-isolation: effective sibling cgroups survive launcher death and a boun
     assert.match(launcherGroup, /\/h2a-session-.*\.scope$/);
     assert.match(hostGroup, /\/h2a-native-.*\.scope$/);
     assert.notEqual(hostGroup, launcherGroup);
-    const manager = args => spawnSync('systemctl', ['--user', ...args], { env: f.env, encoding: 'utf8', timeout: 3000 });
+    // Since systemd 258 `systemctl --user` no longer honours
+    // DBUS_SESSION_BUS_ADDRESS: its local transport connects to
+    // $XDG_RUNTIME_DIR/systemd/private. The fixture points XDG_RUNTIME_DIR at
+    // the disposable tree, so these manager calls must carry the runtime dir
+    // that owns the bus (hence the scopes): the disposable VM user manager
+    // running under /run/user/<uid>.
+    const runtimeDir = dirname(bus.replace(/^unix:path=/, ''));
+    const manager = args => spawnSync('systemctl', ['--user', ...args], { env: { ...f.env, XDG_RUNTIME_DIR: runtimeDir }, encoding: 'utf8', timeout: 3000 });
     const killed = manager(['kill', '--signal=KILL', launcherGroup.split('/').at(-1)]);
     assert.equal(killed.status, 0, killed.stderr);
     await launch.done;
