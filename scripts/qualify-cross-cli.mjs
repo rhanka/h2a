@@ -457,13 +457,18 @@ async function worker() {
   }
   async function capture(target) {
     await enforceMcpCallCaps();
+    const previousScreen = target.terminal.screen();
     const output = await client.readOutput(target.state.id, target.seq);
     for (const chunk of output.chunks) {
-      target.lastOutputAt = Date.now();
       target.seq = chunk.seq;
       target.screen = (target.screen + chunk.data).slice(-65536);
       await target.terminal.write(chunk.data);
     }
+    const screen = target.terminal.screen();
+    // Vibe redraws its cursor continuously while its completed turn is
+    // idle. Transport bytes alone must not reset the model-output quiet
+    // interval; actual text changes still do, within the same deadline.
+    if (screen !== previousScreen) target.lastOutputAt = Date.now();
     const replies = target.terminal.responses();
     if (replies.length) {
       const lease = await client.acquireController(target.state.id, 'xcli-terminal', 'automation');
@@ -471,7 +476,7 @@ async function worker() {
       finally { await client.releaseController(lease); }
       row.evidence.push({ event: 'startup-terminal-response', role: target.role, count: replies.length, at: Date.now() });
     }
-    return target.terminal.screen();
+    return screen;
   }
   // Repeatable startup actions (R15, class-c): an MCP-approval Allow screen
   // may recur (one dialog per server), and a trust dialog may ask for a
