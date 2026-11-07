@@ -388,10 +388,13 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
     // They must drive the same bounded recovery as signed calls. The
     // controller keeps pending/permanent failures and the retry gates inert.
     if (name === "h2a_identity_status") {
-      // Re-observe before responding: a newly started attempt must be visible
-      // in this response, including its fresh attemptId.
-      options.identity?.retry();
-      const status = identityStatus();
+      // A fresh identity-fence attempt is visible in this response, including
+      // its attemptId. Retain the registry timeout's first-failure response
+      // when an interval-only retry starts (existing deadline discovery).
+      const before = identityStatus();
+      const kicked = options.identity?.retry() ?? false;
+      const status = kicked && before.state === "identity_failed" && before.diagnostic?.lock === "identity/.lock"
+        ? identityStatus() : before;
       const notices = options.operatorNotices?.() ?? [];
       return { content: [{ type: "text", text: JSON.stringify({ ...status, root: store.paths.root,
         workspaceRoot: resolve(options.workspaceRoot ?? process.cwd()), ...(notices.length ? { operator_notices: notices } : {}) }) }] };
