@@ -19,8 +19,11 @@ concurrency:
 # green on 26.04, so this pin buys release determinism, not a fix.
 # TODO(migrate-26.04): re-budget the m17/bulk producers and re-qualify
 # owner-lab for the 26.04 image (systemd 258 user-bus transport, oomd
-# defaults), update the branch-protection contexts, then move these
-# runs-on back to ubuntu-latest while it is still offered.
+# defaults), then move these runs-on (and the build-and-test label→image
+# mapping) back to ubuntu-latest while it is still offered. The required
+# branch-protection contexts (build-and-test (ubuntu-latest, 22/24)) are
+# renamed BY THE OWNER when migrating, never unilaterally by a PR —
+# the matrix label IS the check name.
 # Track: 01M6VTPX93E083FX480N9MF5FY.
 
 # Exact Node pins for the proof-bound jobs (m17/bulk producers and their
@@ -287,8 +290,12 @@ jobs:
     needs: [m17-qualification, bulk-qualification, node-shard]
     # A skipped required check can satisfy branch protection. Run and FAIL when
     # a producer fails/cancels; dependency status is never itself a pass.
+    # Runner image pin: the matrix label stays ubuntu-latest because it IS the
+    # required check name « build-and-test (ubuntu-latest, 22|24) » of main's
+    # branch protection; the 24.04 image is pinned here by the mapping —
+    # TODO(migrate-26.04), Track: 01M6VTPX93E083FX480N9MF5FY.
     if: ${{ always() }}
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.os == 'ubuntu-latest' && 'ubuntu-24.04' || matrix.os }}
     # Measured 2026-10-17: 15m06s on main, including ~13m npm test.
     # 2026-10-18 lane growth (mh-l6/registry suites): 21-23m completions,
     # four 25m14s timeout kills in eight executions. 2026-11-03 the Node
@@ -320,7 +327,9 @@ jobs:
         #
         # What this stops proving: that the code works on macOS or Windows at all.
         # `smoke-install` still exercises the PUBLISHED package on all three after release.
-        os: [ubuntu-24.04]
+        # The label MUST stay ubuntu-latest: it is part of the branch-protection
+        # check name; the 24.04 image is pinned by the mapped runs-on.
+        os: [ubuntu-latest]
         # Owner decision 2026-10-12: minimum Node 22; qualify 22 and 24.
         node: ["22", "24"]
     steps:
