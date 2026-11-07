@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -9,7 +9,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 const kit = fileURLToPath(new URL('../focus-kit/', import.meta.url))
 const viewsModule = new URL('../focus-kit/diagram-views.mjs', import.meta.url)
 const bin = fileURLToPath(new URL('../dist/bin.js', import.meta.url))
-const airbus = '/home/antoinefa/src/airbus-activities/contracts/dossier-publish/fixtures'
+const airbus = process.env.H2A_TEST_AIRBUS_FIXTURES
+  ?? '/home/antoinefa/src/airbus-activities/contracts/dossier-publish/fixtures'
 const fixture = () => JSON.parse(readFileSync(join(kit, 'dossier.template.json'), 'utf8'))
 const isolated = (fn) => {
   const root = mkdtempSync(join(tmpdir(), 'focus-cards-'))
@@ -179,14 +180,29 @@ test('keeps the built dossier offline, CSP-safe and free of the local interim ca
   assert.ok(html.includes('st-diagramCard'), 'the DC-1 markup is inlined in the built page')
 }))
 
-test('builds the Airbus N3 valid-v1 fixture and keeps the diagram-less refusal for valid-no-diagram', () => isolated(root => {
-  const envelope = JSON.parse(readFileSync(join(airbus, 'valid-v1.json'), 'utf8'))
-  const { payload } = builtViews(root, envelope.payload.render.root.document)
-  const diagram = payload.document.sections.find(s => s.kind === 'diagram')
-  assert.ok(diagram, 'valid-v1 keeps its diagram section')
-  assert.ok(Object.keys(payload.views[diagram.id]).length > 0, 'the AirBus ecosystem renders DC-1 card views')
-  const noDiagram = JSON.parse(readFileSync(join(airbus, 'valid-no-diagram.json'), 'utf8'))
-  const refused = buildDoc(root, noDiagram.payload.render.root.document)
+test('refuses a diagram-less dossier with the ecosystem-diagram refusal', () => isolated(root => {
+  const doc = fixture()
+  doc.sections = doc.sections.filter(s => s.kind !== 'diagram')
+  const refused = buildDoc(root, doc)
   assert.equal(refused.result.status, 1)
-  assert.match(refused.result.stderr, /A Focus dossier needs an ecosystem diagram/, 'the diagram-less builder refusal stays (the AirBus pas-diagram lot is R5/R6)')
+  assert.match(refused.result.stderr, /A Focus dossier needs an ecosystem diagram/, 'the diagram-less builder refusal stays')
 }))
+
+test('builds the Airbus N3 fixtures when their local read-only checkout is present', (t) => {
+  if (!existsSync(join(airbus, 'valid-v1.json'))) {
+    t.skip(`Airbus N3 fixtures absent; set H2A_TEST_AIRBUS_FIXTURES to run (residency airbus-internal, egress none — the fixtures never enter this repo)`)
+    return
+  }
+  isolated(root => {
+    const envelope = JSON.parse(readFileSync(join(airbus, 'valid-v1.json'), 'utf8'))
+    const { payload } = builtViews(root, envelope.payload.render.root.document)
+    const diagram = payload.document.sections.find(s => s.kind === 'diagram')
+    assert.ok(diagram, 'valid-v1 keeps its diagram section')
+    assert.ok(Object.keys(payload.views[diagram.id]).length > 0, 'the AirBus ecosystem renders DC-1 card views')
+    const noDiagram = JSON.parse(readFileSync(join(airbus, 'valid-no-diagram.json'), 'utf8'))
+    const refused = buildDoc(root, noDiagram.payload.render.root.document)
+    assert.equal(refused.result.status, 1)
+    assert.match(refused.result.stderr, /A Focus dossier needs an ecosystem diagram/, 'the diagram-less builder refusal stays (the AirBus pas-diagram lot is R5/R6)')
+  })
+})
+
