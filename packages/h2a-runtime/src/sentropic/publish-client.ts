@@ -40,6 +40,7 @@ import {
   revokeToken,
   startLoopbackReceiver,
   TokenEndpointError,
+  validateAccessTokenClaims,
   validateIdToken,
   type FetchLike,
 } from "./oauth-pkce.js";
@@ -121,7 +122,7 @@ export async function login(rt: PublishRuntime, opts: LoginOptions): Promise<Log
   if (opts.tenant !== undefined && !TENANT.test(opts.tenant)) {
     throw new SentropicPublishError("usage", "--tenant must be a plain organization id");
   }
-  const meta = await discoverAuthorizationServer(rt.config.issuer, rt.fetch);
+  const meta = await discoverAuthorizationServer(rt.config.issuer, rt.fetch, clientId);
   const scopes = requestedScopes(meta, { refresh: opts.refresh });
   if (meta.scopesSupported.length > 0) {
     const missing = scopes.filter((scope) => !meta.scopesSupported.includes(scope));
@@ -177,16 +178,18 @@ export async function login(rt: PublishRuntime, opts: LoginOptions): Promise<Log
       verifier: request.verifier,
       resource: rt.config.mcpUrl,
     });
-    if (tokens.idToken === undefined) {
-      throw new SentropicPublishError(
-        "id_token",
-        "the token response carries no id_token, so the nonce of this login cannot be checked; nothing was stored",
-      );
-    }
-    const id = validateIdToken(tokens.idToken, { issuer: meta.issuer, clientId, nonce, now: rt.now() });
-    const access = decodeJwtPayload(tokens.accessToken);
-    if (access?.sub !== undefined && access.sub !== id.subject) {
-      throw new SentropicPublishError("id_token", "the access token and the id_token name different subjects; nothing was stored");
+    // openid is not requested: the account is the access token's subject, its claims checked
+    // for consistency (issuer, client, audience). An id_token sent anyway must be this login's.
+    const access = validateAccessTokenClaims(tokens.accessToken, { issuer: meta.issuer, clientId, resource: rt.config.mcpUrl });
+    let email: string | undefined;
+    let tenantId = access.tenantId;
+    if (tokens.idToken !== undefined) {
+      const id = validateIdToken(tokens.idToken, { issuer: meta.issuer, clientId, nonce, now: rt.now() });
+      if (id.subject !== access.subject) {
+        throw new SentropicPublishError("id_token", "the access token and the id_token name different subjects; nothing was stored");
+      }
+      email = id.email;
+      tenantId ??= id.tenantId;
     }
     const expiresAtMs = expiryOf(tokens, rt.now());
     if (expiresAtMs === undefined) {
@@ -198,14 +201,13 @@ export async function login(rt: PublishRuntime, opts: LoginOptions): Promise<Log
       accessToken: tokens.accessToken,
       ...(tokens.refreshToken !== undefined ? { refreshToken: tokens.refreshToken } : {}),
       expiresAt: iso(expiresAtMs),
-      subject: id.subject,
+      subject: access.subject,
     };
     // A new login replaces the whole pair for this server: an older refresh token is not kept.
     writeAuth(record, rt.config.stateDir);
-    const tenantId = id.tenantId ?? (typeof access?.tid === "string" && access.tid ? access.tid : undefined);
     return {
-      subject: id.subject,
-      email: id.email,
+      subject: access.subject,
+      email,
       tenantId,
       expiresAt: record.expiresAt!,
       refreshable: record.refreshToken !== undefined,
@@ -267,7 +269,7 @@ async function refreshStored(rt: PublishRuntime, token: SentropicAuthToken): Pro
   const used = token.refreshToken;
   if (used === undefined) throw new SentropicLoginRequiredError(`the sentropic login expired at ${token.expiresAt ?? "an unknown time"}`);
   const clientId = requireClientId(rt.config);
-  const meta = await discoverAuthorizationServer(token.issuer, rt.fetch);
+  const meta = await discoverAuthorizationServer(token.issuer, rt.fetch, clientId);
   let tokens;
   try {
     tokens = await refreshTokenGrant(rt.fetch, meta, { clientId, refreshToken: used, resource: rt.config.mcpUrl });
@@ -333,7 +335,7 @@ export async function logout(rt: PublishRuntime, opts: { localOnly: boolean }): 
     try {
       // The token goes back only to the authorization server that minted it.
       assertSafeEndpoint(token.issuer, "the issuer of the stored token");
-      const meta = await discoverAuthorizationServer(token.issuer, rt.fetch);
+      const meta = await discoverAuthorizationServer(token.issuer, rt.fetch, rt.config.clientId);
       if (meta.revocationEndpoint === undefined) {
         server = "no-endpoint";
         rt.log(`${PREFIX} the authorization server offers no revocation endpoint: the token stays valid there until ${token.expiresAt ?? "it expires"}`);

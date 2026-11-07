@@ -4,9 +4,11 @@
  * (rotation) and RFC 7009 revocation when the server offers them.
  *
  * What the client checks, and why:
- * - discovery (RFC 8414): the document must name the configured issuer exactly (mix-up), and
- *   every endpoint that receives a code, a verifier or a token must be https (plain http only
- *   on loopback) on the issuer's origin; S256 must be advertised.
+ * - discovery (RFC 8414): read for OUR client_id (the sentropic AS advertises offline_access and
+ *   the refresh_token grant per client, only to a refresh-eligible one); the document must name
+ *   the configured issuer exactly (mix-up), and every endpoint that receives a code, a verifier
+ *   or a token must be https (plain http only on loopback) on the issuer's origin; S256 must be
+ *   advertised.
  * - the loopback receiver binds 127.0.0.1 only, on an ephemeral port unless one is configured,
  *   serves exactly ONE callback on `/callback` for the exact `Host: 127.0.0.1:<port>` (another
  *   path or a rebound Host is a 404 that consumes nothing), then closes. On that callback it
@@ -15,9 +17,14 @@
  *   never by its description.
  * - the code is exchanged at once (the sentropic code lives 60 s) with the same redirect_uri,
  *   the verifier, and the RFC 8707 resource (sealed at authorize time server-side).
- * - the id_token is required (openid is always requested) and its iss, aud, exp, sub and the
- *   NONCE of this login are checked. Its signature is not verified: OIDC Core §3.1.3.7 lets a
- *   code-flow client rely on the TLS connection to the token endpoint instead.
+ * - openid is NOT requested (the h2a-cli registration does not allow it, and publishing needs
+ *   no identity claim), so no id_token is expected. The login rests on PKCE S256, `state` and
+ *   the RFC 9207 `iss` (RFC 9700 §2.1.1, §4.5.3); the access token's own claims are then checked
+ *   for consistency — iss, client_id, aud = the resource, a subject — never trusted for
+ *   authorization (the resource server verifies the token). An id_token the server sends anyway
+ *   must be this login's: iss, aud, azp, exp, sub and the NONCE are checked. No signature is
+ *   verified: OIDC Core §3.1.3.7 lets a code-flow client rely on the TLS connection to the token
+ *   endpoint instead.
  *
  * Nothing here ever logs or puts into an error a code, a verifier, a token, a response body or
  * an error_description (see publish-errors.ts).
@@ -32,12 +39,14 @@ import { SentropicPublishError, safeErrorCode, type SentropicPublishErrorCode } 
 
 export type FetchLike = typeof fetch;
 
-/** The scopes the publish client asks for. openid carries the nonce check (id_token). */
+/**
+ * The scopes the publish client asks for (plus offline_access when refresh is offered): the
+ * sentropic MCP resource server checks the mcp:* scopes only, and one token serves one audience
+ * (the RFC 8707 resource). An immo:artifacts:* scope means nothing to it; a future publish to
+ * the immo resource server needs a separate token minted for the immo audience. No openid, no
+ * email: publishing needs no identity claim beyond the access token's subject.
+ */
 export const PUBLISH_SCOPES: readonly string[] = Object.freeze([
-  "openid",
-  "email",
-  "immo:artifacts:read",
-  "immo:artifacts:write",
   "mcp:discover",
   "mcp:resources:read",
   "mcp:tools:invoke",
@@ -120,11 +129,16 @@ export async function sendRequest(
   }
 }
 
-/** RFC 8414 §3.1: the well-known segment goes between the host and the issuer's path. */
-export function discoveryUrl(issuer: string): string {
+/**
+ * RFC 8414 §3.1: the well-known segment goes between the host and the issuer's path. With a
+ * client id, the sentropic AS answers for THAT client: it advertises offline_access and the
+ * refresh_token grant only to a refresh-eligible client (the id is public, not a secret).
+ */
+export function discoveryUrl(issuer: string, clientId?: string): string {
   const u = new URL(issuer);
   const path = u.pathname === "/" ? "" : u.pathname.replace(/\/+$/u, "");
-  return `${u.origin}/.well-known/oauth-authorization-server${path}`;
+  const query = clientId === undefined ? "" : `?client_id=${encodeURIComponent(clientId)}`;
+  return `${u.origin}/.well-known/oauth-authorization-server${path}${query}`;
 }
 
 function endpointOnIssuerOrigin(value: unknown, issuerOrigin: string, name: string): string {
@@ -146,12 +160,13 @@ function endpointOnIssuerOrigin(value: unknown, issuerOrigin: string, name: stri
   return url.toString();
 }
 
-/** Fetch and validate the authorization server metadata of `issuer`. */
+/** Fetch and validate the authorization server metadata of `issuer`, as seen by `clientId`. */
 export async function discoverAuthorizationServer(
   issuer: string,
   fetchImpl: FetchLike,
+  clientId?: string,
 ): Promise<AuthorizationServerMetadata> {
-  const url = discoveryUrl(issuer);
+  const url = discoveryUrl(issuer, clientId);
   const res = await sendRequest(fetchImpl, url, { headers: { accept: "application/json" } }, "authorization server discovery", "discovery");
   const doc = res.ok ? await readJsonObject(res) : undefined;
   if (!res.ok || doc === undefined) {
@@ -473,6 +488,40 @@ export function validateIdToken(
     subject: claims.sub,
     tenantId: typeof claims.tid === "string" && claims.tid.length > 0 ? claims.tid : undefined,
     email: typeof claims.email === "string" && claims.email.length > 0 ? claims.email : undefined,
+  };
+}
+
+export interface AccessTokenClaims {
+  readonly subject: string;
+  readonly tenantId: string | undefined;
+}
+
+function accessTokenError(message: string): SentropicPublishError {
+  return new SentropicPublishError("token", `${message}; nothing was stored`);
+}
+
+/**
+ * The account behind a fresh access token, after a CONSISTENCY check of its claims: issued by
+ * this issuer, to this client, for this resource (RFC 8707 audience), naming a subject. Never an
+ * authorization decision — the resource server verifies the token itself; this keeps a token
+ * minted for another client or audience out of the store.
+ */
+export function validateAccessTokenClaims(
+  accessToken: string,
+  expected: { issuer: string; clientId: string; resource: string },
+): AccessTokenClaims {
+  const claims = decodeJwtPayload(accessToken);
+  if (claims === undefined) throw accessTokenError("the access token is not a readable JWT, so its account cannot be checked");
+  if (claims.iss !== expected.issuer) throw accessTokenError("the access token was issued by another issuer");
+  if (claims.client_id !== expected.clientId) throw accessTokenError("the access token was issued to another client");
+  const audiences = typeof claims.aud === "string" ? [claims.aud] : stringArray(claims.aud);
+  if (!audiences.includes(expected.resource)) {
+    throw accessTokenError("the access token is not for this resource server (audience)");
+  }
+  if (typeof claims.sub !== "string" || claims.sub.length === 0) throw accessTokenError("the access token carries no subject");
+  return {
+    subject: claims.sub,
+    tenantId: typeof claims.tid === "string" && claims.tid.length > 0 ? claims.tid : undefined,
   };
 }
 
