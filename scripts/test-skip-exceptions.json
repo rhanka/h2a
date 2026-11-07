@@ -1,1 +1,8 @@
-[]
+[
+  {
+    "file": "packages/h2a/test/focus-diagram-cards.test.js",
+    "fullName": "builds the Consumer N3 fixtures when their local read-only checkout is present",
+    "status": "skipped",
+    "reason": "Consumer N3 dossier fixtures are residency-classified (consumer-internal, egress none) and never enter this repo; the parity gate runs only where their read-only checkout exists (H2A_TEST_CONSUMER_FIXTURES overrides the expected path)."
+  }
+]
