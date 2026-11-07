@@ -377,7 +377,9 @@ async function worker() {
         codexMcpServers: codexEndpoint ? [{ name: 'h2a', command: join(dir, 'bin', 'h2a'),
           args: [...(codexEndpoint.args ?? [])], defaultToolsApprovalMode: 'approve' }] : [],
         authFiles: seatOb.authFiles ?? [], destKeys: seatOb.destKeys ?? [] });
-      cellMcpComposed = true;
+      // Only Claude/Codex compose MCP in the onboarding file. Agy and
+      // Muse still need the product's separate MCP settings file below.
+      cellMcpComposed = cli === 'claude' || cli === 'codex';
     } else {
       report = roleAuthHome ? copyLoginReport(cli, roleAuthHome, cell, env) : { copied: [], skipped: [] };
     }
@@ -411,7 +413,7 @@ async function worker() {
     // MCP file on top of the single writer.
     const workspace = join(dir, 'workspace');
     if (!cellMcpComposed) {
-      fs.mkdirSync(workspace);
+      if (!useLibraryCell) fs.mkdirSync(workspace);
       const rendered = spawnSync(process.execPath, [bin, 'host', 'setup', '--host', cli, '--print', '--root', env.H2A_ROOT],
         { env, cwd: workspace, encoding: 'utf8', timeout: 20000, maxBuffer: 1024 * 1024 });
       if (Number.isSafeInteger(rendered.pid)) recordExec(execJournal, { pid: rendered.pid, path: bin, tag: 'harness' });
