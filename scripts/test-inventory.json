@@ -200,6 +200,14 @@
   "packages/h2a-runtime/src/routing-preferences.test.ts": [],
   "packages/h2a-runtime/src/run-ws-surface.test.ts": [],
   "packages/h2a-runtime/src/run.test.ts": [],
+  "packages/h2a-runtime/src/sentropic/auth-token.lost-update.test.ts": [
+    "a write landing between read and commit is not lost"
+  ],
+  "packages/h2a-runtime/src/sentropic/auth-token.storage.test.ts": [
+    "a damaged auth file must never cost the tokens it still holds refuses to write over a file it cannot parse, instead of silently replacing it",
+    "a damaged auth file must never cost the tokens it still holds refuses a file that parses but is not the expected shape",
+    "expiry fails closed treats an unparseable expiresAt as expired, not as fresh"
+  ],
   "packages/h2a-runtime/src/sentropic/auth-token.test.ts": [],
   "packages/h2a-runtime/src/sentropic/bind-decision.test.ts": [],
   "packages/h2a-runtime/src/sentropic/enroll-flow.test.ts": [],
