@@ -1,12 +1,36 @@
 import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdtempSync, writeFileSync, rmSync, mkdirSync, chmodSync, lstatSync, statSync, readFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
 import { createHash } from 'node:crypto';
 import test from 'node:test';
 import { pathToFileURL } from 'node:url';
 import { CLIS, classify, matrix, environment, inside, pythonEntrypoint, privateExecutable, compliantQualificationRoot, repo } from './xcli-lab.mjs';
+
+test('large native Muse programs link only to read-only sources and wipes leave the source intact', () => {
+  const root = mkdtempSync(join(tmpdir(), 'xcli-muse-budget-'));
+  const install = join(root, 'install'), cell = join(root, 'cell');
+  mkdirSync(install); mkdirSync(cell);
+  const version = '1.2.3-R1';
+  const launcher = join(install, 'muse'), binary = join(install, `muse-bin-${version}`);
+  writeFileSync(join(install, '.muse-version'), version);
+  writeFileSync(launcher, '#!/bin/sh\nexit 0\n');
+  writeFileSync(binary, Buffer.from('7f454c4600000000', 'hex'));
+  try {
+    assert.throws(() => privateExecutable('muse', launcher, cell, { maxProgramCopyBytes: 1 }), /muse-program-source-writable/);
+    rmSync(join(cell, 'muse-program'), { recursive: true, force: true });
+    chmodSync(binary, 0o500);
+    const program = privateExecutable('muse', launcher, cell, { maxProgramCopyBytes: 1 });
+    const projected = join(dirname(program.path), `muse-bin-${version}`);
+    assert.equal(lstatSync(projected).isSymbolicLink(), true);
+    assert.equal(program.linkedProgram, true);
+    assert.equal(readFileSync(projected).toString('hex'), '7f454c4600000000');
+    rmSync(cell, { recursive: true, force: true });
+    assert.equal(readFileSync(binary).toString('hex'), '7f454c4600000000');
+    assert.equal(statSync(binary).mode & 0o777, 0o500);
+  } finally { chmodSync(binary, 0o700); rmSync(root, { recursive: true, force: true }); }
+});
 import { startupKey, blockingScreen } from './qualify-cross-cli.mjs';
 import { spawnSync } from 'node:child_process';
 
@@ -26,7 +50,10 @@ test('a private Muse program leaves installation-side notice and binary untouche
     fs.mkdirSync(install); fs.mkdirSync(cell);
     const version = '1.4.9-R1';
     const launcher = join(install, 'muse'), binary = join(install, `muse-bin-${version}`);
-    fs.copyFileSync(process.execPath, binary);
+    const source = join(root, 'program.cc');
+    writeFileSync(source, '#include <unistd.h>\n#include <cstdio>\nint main(){char p[4096];auto n=readlink("/proc/self/exe",p,sizeof(p));if(n<0)return 1;fwrite(p,1,n,stdout);puts("");}\n');
+    const compiled = spawnSync('/usr/bin/g++', [source, '-o', binary], { encoding: 'utf8' });
+    assert.equal(compiled.status, 0, compiled.stderr);
     writeFileSync(join(install, '.muse-version'), version + '\n');
     writeFileSync(join(install, '.muse-update-notice'), 'must remain in the installation');
     writeFileSync(launcher, `#!/bin/sh

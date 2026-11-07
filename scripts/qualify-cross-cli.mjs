@@ -443,7 +443,7 @@ async function worker() {
       }
     }
     const executable = simulated ? { path: executables[cli] } : privateExecutable(cli, executables[cli], dir);
-    if (executable.version) row.evidence.push({ event: 'private-program-copy', role, cli,
+    if (executable.version) row.evidence.push({ event: executable.linkedProgram ? 'private-program-link' : 'private-program-copy', role, cli,
       version: executable.version, hashes: executable.hashes });
     const state = await client.create({ id: `h2a-${role}`, command: executable.path,
       args: argsFor(cli, prompt), cwd: workspace, env: targetEnv, cols: 140, rows: 40 });
