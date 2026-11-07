@@ -5,7 +5,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { join, dirname, resolve, relative } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { createHash, generateKeyPairSync } from 'node:crypto';
-import { CLIS, PROBE, REPLY, repo, environment, sourceBuild, copyLoginReport, PINNED_CLI_ARGS,
+import { CLIS, KNOWN_CLIS, PROBE, REPLY, repo, environment, sourceBuild, copyLoginReport, PINNED_CLI_ARGS,
   cliPath, privateExecutable, pythonEntrypoint, classify, matrix, inside,
   rehydrateEventRecord, cellSecretPaths, wipeSecrets, loginCopyPath, vibeCellKey,
   recordExec, readExecJournal, classifyExecJournal, vendorRuntimeLabel,
@@ -24,6 +24,7 @@ import { buildSupervisor, supervisedCommand, supervisorResult } from './xcli-pro
 import { scanEvidenceText } from './xcli-evidence-scan.mjs';
 import { runMuseAuthPrecheck } from './xcli-auth-precheck.mjs';
 import { campaignWakePolicy } from './xcli-wake-policy.mjs';
+import { openCodeCellConfig, openCodePluginSource } from './xcli-opencode.mjs';
 export { MUSE_NOAUTH_PATTERN, classifyMuseUsageProbe } from './xcli-auth-precheck.mjs';
 import { parseScenario, expectedScenarioBlocker, UNKNOWN_INSTANCE, validateScriptSteps,
   loopScripts, loopTwinScripts, negotiationScripts, negotiationTwinScripts,
@@ -460,6 +461,13 @@ async function worker() {
       } else {
         let previous = {};
         if (fs.existsSync(path)) previous = JSON.parse(fs.readFileSync(path, 'utf8'));
+        if (cli === 'opencode') {
+          const pluginFile = join(dir, 'h2a-opencode-plugin.mjs');
+          fs.writeFileSync(pluginFile, openCodePluginSource(), { mode: 0o600 });
+          config = openCodeCellConfig({ ...config.mcpServers.h2a, command: join(dir, 'bin/h2a') }, pluginFile);
+          row.evidence.push({ event: 'opencode-plugin-configured', role, mechanism: 'opencode-plugin',
+            scope: 'h2a-tools-only', nativeMessageDelivery: false });
+        }
         fs.writeFileSync(path, JSON.stringify({ ...previous, ...config }));
       }
     }
@@ -1272,7 +1280,7 @@ async function main() {
   const supervisor = buildSupervisor(root);
   const sourcePath = process.env.PATH ?? '/usr/bin:/bin';
   const simulated = process.argv.includes('--simulated');
-  const executables = Object.fromEntries(CLIS.map(cli => [cli, cliPath(cli, sourcePath)]));
+  const executables = Object.fromEntries(KNOWN_CLIS.map(cli => [cli, cliPath(cli, sourcePath)]));
   if (simulated) {
     fs.mkdirSync(join(root, 'sim-bin'), { recursive: true });
     for (const cli of CLIS) {
