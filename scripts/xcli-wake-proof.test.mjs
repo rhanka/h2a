@@ -51,6 +51,36 @@ test('L3 accepts a funded, journal-correlated separated batch', () => {
   assert.equal(verifyWakeBatch(batch()).pass, true);
 });
 
+test('R31 release planning preserves separation after native sender-startup jitter', async () => {
+  const { wakeSeparationTargets, planWakeRelease } = await import('./xcli-wake-schedule.mjs');
+  // Actual R31 Vibe -> Codex timings relative to each idle barrier. All
+  // reads met D, but the nominal offsets did not produce separated windows.
+  const observations = [[37758, 52955, 55988, 60532, 0],
+    [26847, 59896, 60677, 65453, 18000], [26322, 50512, 51233, 56158, 9000]];
+  const cells = observations.map(([deliveryAt, releaseAt, wakeAt, firstReadAt, releaseOffsetMs]) => ({
+    ...batch()[0], budgetMs: 180000, sender: 'vibe', receiver: 'codex',
+    seats: { sender: 'vibe', receiver: 'codex' }, scenario: 'probe',
+    wakeWindows: { ...batch()[0].wakeWindows, w0Ms: 15000, w1Ms: 15000,
+      dMs: 10000, notifyIntervalMs: 5000, deliveryAt, releaseAt, wakeAt, firstReadAt,
+      releaseOffsetMs, inputJournal: { correlated: true, onlyWakeInput: true, writes: 2,
+        lineAt: wakeAt - 102, submitAt: wakeAt } },
+  }));
+  assert.equal(verifyWakeBatch(cells).pass, false, 'the old nominal schedule reproduces the real failure');
+  const targets = wakeSeparationTargets([cells[0]]);
+  const second = cells[1].wakeWindows;
+  const planned = planWakeRelease({ ...second, targets });
+  assert.ok(planned.releaseAt > second.releaseAt, 'hold for the actual prior acceptance window');
+  second.releaseAt = planned.releaseAt;
+  second.wakeAt = second.releaseAt + 800;
+  second.firstReadAt = second.wakeAt + 4700;
+  second.inputJournal.lineAt = second.wakeAt - 102;
+  second.inputJournal.submitAt = second.wakeAt;
+  assert.equal(verifyWakeBatch(cells).pass, true, 'the unchanged independent verifier accepts actual separated witnesses');
+  assert.deepEqual(wakeSeparationTargets([{ ...cells[0], woke: false }]), []);
+  const late = planWakeRelease({ ...second, deliveryAt: 70000, targets });
+  assert.equal(late.releaseAt, 103000, 'a target whose acceptance already began cannot be claimed');
+});
+
 test('L3 baseline covers every polling period named in the exclusion claim', () => {
   const cells = batch();
   cells[0].wakeWindows.w0Ms = 2000;
