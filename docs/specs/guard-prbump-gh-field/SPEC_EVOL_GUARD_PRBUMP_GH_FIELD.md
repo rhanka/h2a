@@ -168,10 +168,17 @@ npm test
 ## Post-implementation status (2026-11-07)
 
 - #384 = `02f8e3948` (implements §2, the REST `pulls/<n>` base/head SHA read)
-  + `04f0b7d08` (outside this spec: an explicit 404 reads as absence, a
-  publishable manifest added grants the release, and a deletion is allowed).
-- The code line numbers cited in this document are relative to base
-  `dc78dc5f7`.
+  + `04f0b7d08` (outside this spec: an explicit 404 reads as absence
+  (`workspace-scope-shell.mjs:510-517`), both manifests absent →
+  `UNVERIFIABLE` (`:534`), a deletion is allowed (`:537`), and an added
+  publishable manifest counts as a published bump (`VERSION_BUMP`, release
+  grant required): `prBump` returns `true` (`:538`), the guard calls
+  `authorize('VERSION_BUMP', request)` (`workspace-scope-guard.mjs:270`)
+  and refuses the request without a `release` grant (`:240-242`; tests
+  `workspace-scope-guard.test.js:310`, `:319`, `:329`).
+- The code line numbers cited in the restored text above are relative to base
+  `dc78dc5f7`; the code line numbers cited in this section are as of the
+  #384 merge (`9d4611ca5`).
 - The `typeof`/array P3 review findings were applied in code; the other P3
   findings were not carried into this text.
 - This section neutralizes line 3 ("ready to implement" — implemented and
