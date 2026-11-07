@@ -10,6 +10,7 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
+import { sourceBuild, environment, compliantQualificationRoot } from './xcli-lab.mjs';
 
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 
@@ -205,6 +206,53 @@ test('L7 R31: Agy 1.5.2 capture survives fresh-process validation and both mater
     if (staged) fs.rmSync(staged.dir, { recursive: true, force: true });
     fs.rmSync(homeDir, { recursive: true, force: true });
     fs.rmSync(layout.root, { recursive: true, force: true });
+  }
+});
+
+test('L7 R31: Agy onboarding still receives its separate product MCP configuration', async () => {
+  const reuseRoot = /^\/home\/[^/]+\/\.cache-tmp\/h2a-test\/run-[A-Za-z0-9]+$/.test(tmpdir());
+  const qualificationRoot = reuseRoot ? tmpdir() : compliantQualificationRoot();
+  const dir = fs.mkdtempSync(join(qualificationRoot, 'xcli-agy-mcp-'));
+  const canonical = vendor.canonicalAgyJetskiBytes('1.4.12', vendor.AGY_REQUIRED_COMPLETED_STEPS['1.4.12']);
+  const homeDir = agyHome(canonical);
+  let staged;
+  try {
+    const { buildSeatEnvelope } = await provision();
+    const built = await buildSeatEnvelope({ seatId: 'agy', slot: { slot: '00' }, homeDir,
+      ownerScope: SYNTH_SCOPE, meshFacade: stubAccounts(['cloud-code', 'acct-r31-mcp']),
+      meshScope: SYNTH_SCOPE, cliVersions: { agy: '1.4.12' } });
+    staged = await stageOne('agy', 'agy', built.envelope);
+    const build = sourceBuild(dir);
+    const marker = join(dir, 'observed.json'), fixture = join(dir, 'inspect.mjs');
+    fs.writeFileSync(fixture, `import fs from 'node:fs';
+import { join } from 'node:path';
+let configured = false;
+try { const config = JSON.parse(fs.readFileSync(join(process.env.HOME, '.gemini/config/mcp_config.json'), 'utf8'));
+  configured = !!config.mcpServers?.h2a?.command && config.mcpServers.h2a.args.includes('mcp-serve');
+} catch {}
+fs.writeFileSync(${JSON.stringify(marker)}, JSON.stringify({ configured,
+  consent: fs.existsSync(join(process.env.HOME, '.gemini/antigravity-cli/jetski_state.pbtxt')) }), { mode: 0o600 });
+setTimeout(() => process.exit(0), 500);
+`);
+    const executable = join(dir, 'agy');
+    fs.writeFileSync(executable, `#!/bin/sh\nexec '${process.execPath}' '${fixture}' "$@"\n`, { mode: 0o700 });
+    const cell = join(dir, 'cell'); fs.mkdirSync(cell, { mode: 0o700 });
+    const worker = spawnSync(process.execPath, [new URL('./qualify-cross-cli.mjs', import.meta.url).pathname, '--worker'], {
+      cwd: dir, env: { ...environment(join(dir, 'worker')), H2A_TEST_QUALIFICATION_ROOT: qualificationRoot },
+      input: JSON.stringify({ sender: 'agy', receiver: 'agy', root: qualificationRoot, cell, build: build.path,
+        executables: { agy: executable }, timeoutMs: 3000, simulated: false,
+        authHomes: { receiver: staged.seatDir }, seatOnboarding: { receiver: {
+          ...staged.result.manifest.seats[0].onboarding, expectedNativeCliVersion: '1.4.12', ownerScope: SYNTH_SCOPE } } }),
+      encoding: 'utf8', timeout: 20000, maxBuffer: 1024 * 1024,
+    });
+    assert.equal(worker.status, 0, worker.stderr);
+    assert.deepEqual(JSON.parse(fs.readFileSync(marker, 'utf8')), { configured: true, consent: true });
+    assert.equal(JSON.parse(worker.stdout).status, 'blocked', 'the inspector exits before any model; no measured success is claimed');
+  } finally {
+    if (staged) fs.rmSync(staged.dir, { recursive: true, force: true });
+    fs.rmSync(homeDir, { recursive: true, force: true });
+    fs.rmSync(dir, { recursive: true, force: true });
+    if (!reuseRoot) fs.rmSync(qualificationRoot, { recursive: true, force: true });
   }
 });
 

@@ -63,6 +63,11 @@
   comments, and stage only the published canonical four-step projection.
   The real custodian goes from absent/closed to present/open; no owner file
   is modified and no source identifier is transported.
+- The onboarding library composes MCP only for Claude/Codex. Its Agy/Muse
+  outputs are consent/trust files, so the bench must still render their
+  separate product MCP config. A production-launch inspector reproduces
+  consent=true/configured=false, then both=true after the two-line fix.
+  This inspector exits before a model and claims no measured success.
 - Live Vibe diagnostic proves repeated PTY output with an identical rendered
   screen. Quiet readiness now follows rendered text changes, retaining the
   existing identity/MCP/wake-arm/composer gates and quiet intervals.
