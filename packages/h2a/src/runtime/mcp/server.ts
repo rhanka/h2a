@@ -77,7 +77,7 @@ import { createPayloadStore, type PayloadStore } from "./payload-store.js";
 import { resolveFrameBudget, type FrameBudget } from "./frame-budget.js";
 import { PAYLOAD_MAX_READ_BYTES } from "./payload-store.js";
 import { H2A_CLI_MCP_TOOL_NAMES } from "../../mcp.js";
-import { identityBlockerGone, MCP_IDENTITY_RETRY_MIN_MS } from "./identity-state.js";
+import { MCP_IDENTITY_RETRY_MIN_MS } from "./identity-state.js";
 import type { McpIdentityController, McpIdentityStatus } from "./identity-state.js";
 import {
   UnknownResourceError,
@@ -240,7 +240,7 @@ const IDENTITY_INDEPENDENT_TOOLS = new Set<string>([
 ]);
 
 /** A bounded typed error emitted for a guarded tool while identity is pending. */
-function identityPendingError(lastFailure?: unknown): McpTransportResult {
+function identityPendingError(lastFailure?: unknown, attemptId?: string): McpTransportResult {
   return {
     content: [
       {
@@ -251,6 +251,7 @@ function identityPendingError(lastFailure?: unknown): McpTransportResult {
           message: "identity is not ready",
           retryable: true,
           retryAfterMs: 250,
+          ...(attemptId ? { attemptId } : {}),
           ...(lastFailure ? {lastFailure} : {})
         })
       }
@@ -339,15 +340,6 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
   }
 
   /**
-   * Status addendum witness: shared with the controller retry gate
-   * (`identity-state.ts`). A diagnostic without a known generation never
-   * counts as gone: the stale failure is kept.
-   */
-  function identityBlockerGoneHere(status: McpIdentityStatus): boolean {
-    return identityBlockerGone(store.paths.root, status);
-  }
-
-  /**
    * L2 guard: while identity is pending/failed, refuse a KNOWN tool that is not
    * identity-independent (and refuse `h2a_inbox` unless it is a read) with a
    * bounded typed error. Returns undefined to let the call proceed. An UNKNOWN
@@ -364,14 +356,17 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
     if (TRACK_READ_TOOL_NAMES.has(name)) return undefined;
     if (IDENTITY_INDEPENDENT_TOOLS.has(name)) return undefined;
     if (name === "h2a_inbox" && (args?.action === "read")) return undefined;
-    if (st.state === "identity_pending") return identityPendingError(st.lastFailure);
+    if (st.state === "identity_pending") return identityPendingError(st.lastFailure, st.attemptId);
     // identity_failed. A TRANSIENT failure (identity_timeout — a dead/contended/expired
     // lock) becomes self-healing: THIS tool call triggers a bounded on-demand re-attempt.
     // If a fresh attempt kicked, report pending (retryable). Otherwise we are within the
     // retry min-interval, so return the memoized transient failure (still retryable, with a
     // hint). A PERMANENT failure stays terminal (retryable:false) and never re-attempts.
     if (st.retryable) {
-      if (options.identity.retry()) return identityPendingError(st);
+      if (options.identity.retry()) {
+        const fresh = options.identity.status();
+        return identityPendingError(st, fresh.state === "identity_pending" ? fresh.attemptId : undefined);
+      }
       return identityFailedError(st.cause, true, st.retryCondition==='blocker-change' ? undefined : st.retryAfterMs ?? MCP_IDENTITY_RETRY_MIN_MS,st);
     }
     return identityFailedError(st.cause, false,undefined,st);
@@ -393,14 +388,13 @@ export function createMcpServer(options: CreateMcpServerOptions): McpServer {
     // They must drive the same bounded recovery as signed calls. The
     // controller keeps pending/permanent failures and the retry gates inert.
     if (name === "h2a_identity_status") {
-      // Drive the same bounded recovery as signed calls. When a zero-delay
-      // retry starts, preserve the just-observed failure for this response —
-      // EXCEPT when the recorded identity blocker no longer exists on disk:
-      // then report the fresh attempt instead of the stale failure (other
-      // sessions kept the stale failure until another h2a tool was called).
+      // A fresh identity-fence attempt is visible in this response, including
+      // its attemptId. Retain the registry timeout's first-failure response
+      // when an interval-only retry starts (existing deadline discovery).
       const before = identityStatus();
       const kicked = options.identity?.retry() ?? false;
-      const status = kicked && identityBlockerGoneHere(before) ? identityStatus() : before;
+      const status = kicked && before.state === "identity_failed" && before.diagnostic?.lock === "identity/.lock"
+        ? identityStatus() : before;
       const notices = options.operatorNotices?.() ?? [];
       return { content: [{ type: "text", text: JSON.stringify({ ...status, root: store.paths.root,
         workspaceRoot: resolve(options.workspaceRoot ?? process.cwd()), ...(notices.length ? { operator_notices: notices } : {}) }) }] };
