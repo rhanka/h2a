@@ -17,6 +17,7 @@
 # rotated-out, and an offboard tombstone empties the set — and an edited or
 # unsigned copy of this file creates no rights. Unratified here means
 # unprovisioned, by code, not by habit.
+# Limit: the gate proves possession of an ACTIVE PRINCIPAL key, not the owner's intent — keys are same-uid mode-0600 files any lane can read (DRIVE_CONSENT_LIMIT, packages/h2a/src/runtime/drive/consent.ts; Track 01M38WH19VE7VGW8QY0P9NHHVX).
 #
 # The TypeError the same leg measured on the real shared registry (`r.roles is
 # not iterable` on legacy scalar rows) is also fixed: the effective-registry
