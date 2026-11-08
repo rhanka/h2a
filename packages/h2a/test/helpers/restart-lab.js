@@ -76,7 +76,20 @@ export function fixture(t, opts = {}) {
     const stopRecorded = () => {
       let pending = 0;
       recorded();
-      for (const row of observed.values()) if (!dead(row)) { pending++; process.kill(row.pid, 'SIGKILL'); }
+      for (const row of observed.values()) if (!dead(row)) {
+        pending++;
+        try { process.kill(row.pid, 'SIGKILL'); }
+        catch (error) {
+          // A wave can kill a recorded host first; its parent-death cascade
+          // (setpriv --pdeathsig guardian, then that guardian's worker) exits
+          // by design and their scope's user manager can complete the reap
+          // before the same wave reaches their rows: live at the dead() read,
+          // fully gone by the time this signal lands. ESRCH verified gone by
+          // dead() — birth-checked, so a wrong pid never parses as gone — is
+          // that intended terminal state; anything else stays an error.
+          if (error.code !== 'ESRCH' || !dead(row)) throw error;
+        }
+      }
       return pending;
     };
     stopRecorded();
