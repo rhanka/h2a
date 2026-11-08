@@ -1,8 +1,9 @@
 import ts from 'typescript';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { posix } from 'node:path';
+import { posix, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { ensureHistoricalGitRef } from './historical-test-ref.mjs';
 
 const native = 'packages/h2a-runtime/src/';
 export const heritageRoots = ['native-terminal/supervisor.ts', 'native-terminal/process.ts',
@@ -13,6 +14,10 @@ const packageEntries = { '@sentropic/h2a-runtime': `${native}index.ts`,
   '@sentropic/h2a': 'packages/h2a/src/index.ts', '@sentropic/h2a-runtime/status': `${native}status-projection.ts` };
 
 export function auditHeritage(reference) {
+  // The audited heritage snapshot predates the history purge: a depth-1
+  // release checkout does not carry it. Provide it on demand, like the
+  // other historical-ref consumers.
+  ensureHistoricalGitRef(resolve(import.meta.dirname, '..'), reference);
   const ref = execFileSync('git', ['rev-parse', '--verify', `${reference}^{commit}`], { encoding: 'utf8' }).trim();
   const paths = new Set(execFileSync('git', ['ls-tree', '-r', '--name-only', ref], { encoding: 'utf8' }).trim().split('\n'));
   const source = (path) => execFileSync('git', ['show', `${ref}:${path}`], { encoding: 'utf8', maxBuffer: 2 ** 24 });
