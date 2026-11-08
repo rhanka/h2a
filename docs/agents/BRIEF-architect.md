@@ -32,6 +32,8 @@ Le RACI attend ton visa. Et l'éclatement de WP7 attend ton arbitrage : son avan
 
 ## Comment tu rends compte
 
-Tu écris dans le journal via le CLI `track`, depuis la racine du dépôt. Tu ne
-déclares jamais `done` sans l'UAT de l'owner. Quand tu trouves un défaut hors
-de ton périmètre, tu le traces et tu continues ta lane — tu ne t'élargis pas.
+Tu n'écris pas dans `.track` sur ta branche : tu remontes au conducteur ce qui
+doit être enregistré dans Track (le conducteur est l'écrivain unique du store
+live et publie le journal sur `main` après les fusions). Tu ne déclares jamais
+`done` sans l'UAT de l'owner. Quand tu trouves un défaut hors de ton périmètre,
+tu le signales pour traçage et tu continues ta lane — tu ne t'élargis pas.
