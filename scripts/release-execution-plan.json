@@ -1,6 +1,6 @@
 {
   "resolve-release-sha": {
-    "runs-on": "ubuntu-latest",
+    "runs-on": "ubuntu-24.04",
     "outputs": {
       "release-sha": "${{ steps.resolve.outputs.sha }}"
     },
@@ -38,12 +38,20 @@
       "ref": "${{ needs.resolve-release-sha.outputs.release-sha }}"
     }
   },
+  "node-qualification": {
+    "needs": "resolve-release-sha",
+    "uses": "./.github/workflows/node-qualification.yml",
+    "with": {
+      "release-sha": "${{ needs.resolve-release-sha.outputs.release-sha }}"
+    }
+  },
   "verify": {
     "needs": [
       "resolve-release-sha",
-      "native-recovery"
+      "native-recovery",
+      "node-qualification"
     ],
-    "runs-on": "${{ matrix.os }}",
+    "runs-on": "${{ matrix.os == 'ubuntu-latest' && 'ubuntu-24.04' || matrix.os }}",
     "timeout-minutes": 30,
     "outputs": {
       "release-sha": "${{ needs.resolve-release-sha.outputs.release-sha }}"
@@ -140,10 +148,58 @@
         ]
       },
       {
+        "uses": "actions/download-artifact@v4",
+        "with": {
+          "name": "m17-${{ github.run_id }}-node${{ matrix.node }}",
+          "path": "tmp/m17-import"
+        }
+      },
+      {
+        "uses": "actions/download-artifact@v4",
+        "with": {
+          "name": "bulk-${{ github.run_id }}-node${{ matrix.node }}",
+          "path": "tmp/bulk-import"
+        }
+      },
+      {
+        "uses": "actions/download-artifact@v4",
+        "with": {
+          "name": "node-shard-${{ github.run_id }}-node${{ matrix.node }}-shard0",
+          "path": "tmp/node-shards"
+        }
+      },
+      {
+        "uses": "actions/download-artifact@v4",
+        "with": {
+          "name": "node-shard-${{ github.run_id }}-node${{ matrix.node }}-shard1",
+          "path": "tmp/node-shards"
+        }
+      },
+      {
+        "uses": "actions/download-artifact@v4",
+        "with": {
+          "name": "node-shard-${{ github.run_id }}-node${{ matrix.node }}-shard2",
+          "path": "tmp/node-shards"
+        }
+      },
+      {
+        "uses": "actions/download-artifact@v4",
+        "with": {
+          "name": "node-shard-${{ github.run_id }}-node${{ matrix.node }}-shard3",
+          "path": "tmp/node-shards"
+        }
+      },
+      {
         "shell": "bash",
         "run": [
           "npm test"
-        ]
+        ],
+        "env": {
+          "H2A_TEST_CI_M17_REPORT": "${{ github.workspace }}/tmp/m17-import/proof.json",
+          "H2A_TEST_CI_BULK_REPORT": "${{ github.workspace }}/tmp/bulk-import/proof.json",
+          "H2A_TEST_NODE_SHARD_DIR": "${{ github.workspace }}/tmp/node-shards",
+          "H2A_TEST_EXPECTED_SHA": "${{ needs.resolve-release-sha.outputs.release-sha }}"
+        }
       },
       {
         "shell": "bash",
@@ -196,7 +252,7 @@
   "publish": {
     "needs": "verify",
     "if": "${{ !cancelled() && !failure() && needs.verify.result == 'success' }}",
-    "runs-on": "ubuntu-latest",
+    "runs-on": "ubuntu-24.04",
     "steps": [
       {
         "uses": "actions/checkout@v4",
