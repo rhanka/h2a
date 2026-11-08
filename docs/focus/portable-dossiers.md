@@ -76,8 +76,10 @@ Do not quietly substitute an image for the requested interactive canvas.
 ### diagram-core contract (design-system addendum 2)
 
 `DiagramNode.scene` is an optional plain JSON object containing the DS diagram-core
-`SemanticDocument`, profile `generic@1`. This is the only structured graph in the HTML payload:
-`document.sections[].scene`; there is no parallel Focus node/edge model. A supplied `scene` is
+`SemanticDocument`, profile `generic@1`. The HTML payload is `{document, views, build}`:
+`document.sections[].scene` is its only graph, with no parallel Focus node/edge model, and
+`views[<diagram section id>][<entity id>]` holds the DC-1 SVG views the build renders from that
+scene, a derived presentation rather than a second model. A supplied `scene` is
 authoritative for rendering and is preserved unchanged on rebuild. `syntax`, `source` and `alt`
 remain required for backward-compatible text fallbacks. Catalog references and supported custom
 flowcharts generate `scene` automatically.
@@ -93,9 +95,18 @@ uses `attributes:{}`. Nesting uses `type:"contains"`, roles `parent` and `child`
 parent and at most one parent per child, without cycles. The PR description freezes a complete example.
 
 No view, geometry, position, direction or layout hint belongs in `scene`. Layout rules L-R1..L-R11
-belong to the DS engine. The disposable xyflow adapter computes a simple grid and nested container
-bounds in memory; it does not implement those rules or serialize a view. The canonical Focus validator
-checks only that `scene` is an object and preserves it. The builder bounds its interim consumer to
+belong to the DS engine. The build renders every entity with the DS DC-1 renderers (`renderCardSvg`
+and `renderZoneSvg` from `@sentropic/design-system-svelte/diagram-render`) and serializes the SVG
+views into `views`. Nodes and childless containers are 460×200 cards with a 2 px frame, an 8 px
+accent bar, the element kind as kicker and its name as title. Containers with children are zones
+with an expanded form and a folded 460×200 card form. A view that cannot carry its text refuses the
+build with a typed diagnostic (code, slot, entity, needed and allocated px, text), and the previous
+output stays untouched. The disposable xyflow adapter places the views on a simple in-memory grid
+(2 columns, 60 px gutter, 50 px row gap, zone content below the DS zone header); it does not
+implement the L-R rules and serializes no geometry. A payload without `views` (a store that keeps
+only the built document) is drawn by the renderer with the same bundled DS renderers; a refusal then
+shows its typed diagnostics in the figure (`role="alert"`), never an empty node. The canonical Focus
+validator checks only that `scene` is an object and preserves it. The builder bounds its interim consumer to
 1–80 entities, at most 240 relations, node/container entities, binary links and a containment tree;
 nonempty type definitions, ports, resources and extensions are outside that renderer's profile.
 No dependency on the private diagram-core package is added. Pin its authoritative JSON Schema when
@@ -109,12 +120,16 @@ Focus owns the schema/readability validator. The design-system lane owns the fut
 `src/focus-build.ts` is the adapter seam where that renderer can replace this small Svelte consumer.
 No source file in the read-only reference kit is modified.
 
-The renderer uses `@sentropic/design-system-svelte` 0.34.69, themes 0.11.0 and xyflow 1.6.5.
+The renderer uses `@sentropic/design-system-svelte` 0.37.0, themes 0.12.0 and xyflow 1.6.5.
 Entropic supplies the light theme; the consumer derives a dark semantic palette through the DS theme
-API. Cards, badges, buttons, container and theme provider are DS components. Borders and diagram strokes
-are 1 px. The title remains an identical short document/visible title in a thin band.
+API. Cards, badges, buttons, container and theme provider are DS components; diagram entities are DS
+DC-1 card and zone views. Page borders and diagram edges are 1 px; DC-1 cards draw their own 2 px
+frame and zones a 1 px header rule. The title remains an identical short document/visible title in a thin band.
 
-The shipped `renderer.html` contains the bundled Svelte/DS/xyflow code, CSS and third-party notices. Building a dossier needs
+The shipped `renderer.html` contains the bundled Svelte/DS/xyflow code, CSS and third-party notices.
+`diagram-views.mjs` bundles only the pure DS DC-1 renderers (no Svelte or editor code; the build
+refuses any other module) with the DS licence in its banner. The renderer bundles the same kit pin,
+so the build and the view draw identical cards. Building a dossier needs
 no frontend installation, Docker, network or Python. A restrictive content policy blocks connections.
 Only renderer maintainers need the repo's Node 22+ toolchain:
 
@@ -131,7 +146,8 @@ node --test packages/h2a/focus-kit/test/browser.test.mjs
 ```
 
 The source/hash manifest checks the committed asset at prepack; CI builds and checks the fixture plus
-desktop/phone offline browser behavior. Browser profiles, dossiers and state live in temporary dirs.
+desktop/phone offline browser behavior. A rebuild stamps `rendererVersion` with the
+`packages/h2a/package.json` version; `--check` verifies the hashes, not that stamp. Browser profiles, dossiers and state live in temporary dirs.
 
 ## H1 embedded evidence (dossier diagrams v3)
 

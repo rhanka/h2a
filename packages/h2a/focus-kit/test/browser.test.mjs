@@ -30,7 +30,8 @@ test('xyflow consumes diagram-core entities, links and nested containers without
     await page.locator('.svelte-flow__node').first().waitFor();
     assert.equal(await page.locator('.svelte-flow__node').count(), 4);
     for (const entity of Object.values(semantic.entities)) {
-      assert.equal(await page.locator('.svelte-flow__node').getByText(entity.attributes.name.value, { exact: true }).count(), 1);
+      assert.equal(await page.locator('.st-diagramCard-title, .st-diagramZone-title')
+        .getByText(entity.attributes.name.value, { exact: true }).count(), 1, `${entity.id} carries its DC-1 title`);
     }
     for (const [child, parent] of [['models', 'root'], ['gateway', 'models'], ['coordinator', 'root']]) {
       const childBox = await page.locator(`.svelte-flow__node[data-id="entity:${child}"]`).boundingBox();
@@ -162,5 +163,67 @@ test('presents all option sets with their question and resolves labels across se
     });
     assert.deepEqual(errors, []);
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  } finally { await browser?.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test('a payload without views draws the DC-1 cards from its scene, and a refused scene shows typed diagnostics', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'focus-no-views-browser-'));
+  let browser;
+  try {
+    const doc = JSON.parse(readFileSync(new URL('../dossier.template.json', import.meta.url), 'utf8'));
+    const semantic = JSON.parse(readFileSync(new URL('../../../focus/tests/diagram-core-generic.fixture.json', import.meta.url), 'utf8'));
+    doc.sections.find(s => s.kind === 'diagram').scene = semantic;
+    const input = join(root, 'dossier.json'), output = join(root, 'decision.html');
+    writeFileSync(input, JSON.stringify(doc));
+    const result = spawnSync(process.execPath, [fileURLToPath(new URL('../../dist/bin.js', import.meta.url)), 'focus', 'build', input, '-o', output], {
+      encoding: 'utf8', cwd: root, env: { ...process.env, HOME: root, XDG_RUNTIME_DIR: root,
+        XDG_CONFIG_HOME: root, XDG_STATE_HOME: root, H2A_ROOT: join(root, 'h2a') },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    const html = readFileSync(output, 'utf8');
+    const block = /<script type="application\/json" data-focus-document>([\s\S]*?)<\/script>/.exec(html);
+    const built = JSON.parse(block[1]);
+    const diagramId = built.document.sections.find(s => s.kind === 'diagram').id;
+    // A store that keeps only the built document and its build stamp injects no views.
+    const inject = (name, payload) => {
+      const file = join(root, name);
+      writeFileSync(file, html.replace(block[0], () => `<script type="application/json" data-focus-document>${JSON.stringify(payload).replace(/</g, '\\u003c')}</script>`));
+      return pathToFileURL(file).href;
+    };
+    const withoutViews = inject('no-views.html', { document: built.document, build: built.build });
+    const refusedDocument = structuredClone(built.document);
+    const refusedNode = refusedDocument.sections.find(s => s.kind === 'diagram').scene.entities['entity:coordinator'];
+    refusedNode.attributes.name.value = 'Coordinationinterorganisationnelledurablepermanente';
+    const refused = inject('refused.html', { document: refusedDocument, build: built.build });
+    browser = await chromium.launch({ headless: true, env: { ...process.env, XDG_RUNTIME_DIR: root } });
+    const context = await browser.newContext({ offline: true, viewport: { width: 1366, height: 1000 } });
+    const page = await context.newPage(), errors = [], network = [];
+    page.on('pageerror', e => errors.push(e.message));
+    page.on('request', req => { if (/^https?:/.test(req.url())) network.push(req.url()); });
+    await page.goto(withoutViews);
+    await page.locator('.svelte-flow__node').first().waitFor();
+    assert.equal(await page.locator('.svelte-flow__node').count(), Object.keys(semantic.entities).length);
+    for (const [entityId, view] of Object.entries(built.views[diagramId])) {
+      const node = page.locator(`.svelte-flow__node[data-id="${entityId}"]`);
+      const box = await node.boundingBox();
+      assert.ok(box && box.width > 0 && box.height > 0, `${entityId} is not an empty 0x0 node`);
+      // The renderer bundles the same DS renderers as the build: it draws the exact build view.
+      assert.equal(await node.locator('.ecosystem-svg').evaluate((el, svg) => {
+        const reference = document.createElement('div');
+        reference.innerHTML = svg;
+        return el.querySelector('svg')?.outerHTML === reference.querySelector('svg').outerHTML;
+      }, view.svg), true, `${entityId} draws the build's DC-1 view`);
+    }
+    assert.equal(await page.locator('[role="alert"]').count(), 0);
+    await page.goto(refused);
+    const alert = page.locator('figure [role="alert"]');
+    await alert.waitFor({ timeout: 10000 });
+    const text = await alert.innerText();
+    for (const part of [/card-overflow/, /\btitle\b/, /entity:coordinator/, /Coordinationinterorganisationnelledurablepermanente/, /\d+(?:\.\d+)? px > \d+(?:\.\d+)? px/]) {
+      assert.match(text, part, 'the refusal names its typed diagnostic');
+    }
+    assert.equal(await page.locator('.svelte-flow__node').count(), 0, 'a refused diagram draws no empty node');
+    assert.deepEqual(errors, [], 'no browser runtime errors');
+    assert.deepEqual(network, [], 'no network requests');
   } finally { await browser?.close(); rmSync(root, { recursive: true, force: true }); }
 });
