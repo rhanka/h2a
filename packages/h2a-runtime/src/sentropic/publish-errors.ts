@@ -56,7 +56,8 @@ export class SentropicWorkspaceAccessError extends SentropicPublishError {
     super(
       "workspace_access",
       `${head}: this account cannot use it now (the server re-checks at every call, whatever the bind recorded); ` +
-        "run `h2a sentropic workspaces` to list the workspaces it can publish to, then `h2a sentropic bind <workspace-id>`",
+        "run `h2a sentropic workspaces` to list the workspaces it can publish to, then `h2a sentropic bind <workspace-id>`, " +
+        "or `h2a sentropic unbind`",
     );
     this.name = "SentropicWorkspaceAccessError";
   }
