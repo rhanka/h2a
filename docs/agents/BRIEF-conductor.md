@@ -32,6 +32,9 @@ su, et que tu n'as pas à redécouvrir.
 
 ## Comment tu rends compte
 
-Tu écris dans le journal via le CLI `track`, depuis la racine du dépôt. Tu ne
-déclares jamais `done` sans l'UAT de l'owner. Quand tu trouves un défaut hors
-de ton périmètre, tu le traces et tu continues ta lane — tu ne t'élargis pas.
+Tu es l'écrivain unique du store live `.track` via le CLI `track` depuis la
+racine du dépôt, et tu publies le journal sur `main` après les fusions (les
+branches de PR n'écrivent pas `.track` ; les agents délégués te remontent ce
+qui doit être enregistré). Tu ne déclares jamais `done` sans l'UAT de l'owner.
+Quand tu trouves un défaut hors de ton périmètre, tu le traces et tu continues
+ta lane — tu ne t'élargis pas.
