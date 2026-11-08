@@ -161,9 +161,12 @@ function rpcErrorCode(message: Record<string, unknown> | undefined): string | un
 
 /**
  * A refused answer as a typed error. `workspaceRef` is the workspace the request was about:
- * an access_denied then means this account cannot use THAT workspace now.
+ * an access_denied then means this account cannot use THAT workspace now. Without one, a
+ * tools/list binds the account's default workspace (train 1b: its most recent membership), so
+ * an access_denied there means the account has none — a new login changes nothing; for the
+ * host tool (workspaces_list) it means the credential itself is refused.
  */
-function refusal(answer: RpcAnswer, workspaceRef: string | undefined, step: string): Error {
+function refusal(answer: RpcAnswer, workspaceRef: string | undefined, step: string, method: "initialize" | "tools/list" | "tools/call"): Error {
   if (answer.status === 401) {
     return new SentropicLoginRequiredError(
       `the sentropic resource server rejected the token (${answer.challenge ?? rpcErrorCode(answer.message) ?? "invalid_token"})`,
@@ -177,6 +180,13 @@ function refusal(answer: RpcAnswer, workspaceRef: string | undefined, step: stri
       );
     }
     if (code === "access_denied" && workspaceRef !== undefined) return new SentropicWorkspaceAccessError(workspaceRef, "access_denied");
+    if (code === "access_denied" && method === "tools/list") {
+      return new SentropicPublishError(
+        "workspace_access",
+        "the resource server finds no workspace for this account (access_denied without a workspaceRef): " +
+          "join one, or `h2a sentropic bind <workspace-id>`",
+      );
+    }
     if (code === "access_denied") {
       return new SentropicLoginRequiredError(
         "the resource server refused this sentropic credential (access_denied): it may be revoked, or carry no tenant " +
@@ -225,13 +235,13 @@ export async function openMcpSession(opts: McpConnectOptions): Promise<McpSessio
     method: "initialize",
     params: { protocolVersion: MCP_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: "h2a", version: opts.clientVersion } },
   }, session);
-  if (init.status === 401 || init.status === 403) throw refusal(init, undefined, "initialize");
+  if (init.status === 401 || init.status === 403) throw refusal(init, undefined, "initialize", "initialize");
   const result = init.message?.result;
   if (init.status >= 200 && init.status < 300 && isRecord(result)) {
     if (init.sessionId) session.id = init.sessionId;
     if (typeof result.protocolVersion === "string") session.protocolVersion = result.protocolVersion;
     const ack = await rpc(opts, { jsonrpc: "2.0", method: "notifications/initialized" }, session);
-    if (ack.status === 401 || ack.status === 403) throw refusal(ack, undefined, "initialize");
+    if (ack.status === 401 || ack.status === 403) throw refusal(ack, undefined, "initialize", "initialize");
   }
 
   return {
@@ -244,7 +254,7 @@ export async function openMcpSession(opts: McpConnectOptions): Promise<McpSessio
         if (cursor !== undefined) params.cursor = cursor;
         const answer = await rpc(opts, { jsonrpc: "2.0", id: nextId++, method: "tools/list", params }, session);
         if (answer.status < 200 || answer.status >= 300 || answer.message?.error !== undefined) {
-          throw refusal(answer, workspaceRef, "tools/list");
+          throw refusal(answer, workspaceRef, "tools/list", "tools/list");
         }
         const listed = answer.message?.result;
         if (!isRecord(listed) || !Array.isArray(listed.tools)) {
@@ -274,7 +284,7 @@ export async function openMcpSession(opts: McpConnectOptions): Promise<McpSessio
       const step = printableToolName(call.name);
       const answer = await rpc(opts, { jsonrpc: "2.0", id: nextId++, method: "tools/call", params }, session);
       if (answer.status < 200 || answer.status >= 300 || answer.message?.error !== undefined) {
-        throw refusal(answer, host ? undefined : call.workspaceRef, step);
+        throw refusal(answer, host ? undefined : call.workspaceRef, step, "tools/call");
       }
       const result = answer.message?.result;
       if (!isRecord(result)) throw new SentropicPublishError("mcp", `${step} returned no result`);
