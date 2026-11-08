@@ -680,6 +680,19 @@ test("no publication path bypasses verify: publish needs verify and nothing else
       assert.ok(needsJob(job("verify"), id), "verify must wait for the incident qualification");
       continue; // Qualification precedes verify; it cannot publish.
     }
+    if (id === "node-qualification") {
+      // Same fail-closed contract as native-recovery: the Node
+      // qualification producers (M17 campaign, bulk lane, node shards) run
+      // against the resolved release SHA BEFORE verify, and verify imports
+      // their same-run proofs instead of re-executing campaigns that cannot
+      // fit the tests budget. The reusable workflow never publishes.
+      assert.equal(job_.uses, "./.github/workflows/node-qualification.yml");
+      assert.equal(job_.needs, "resolve-release-sha");
+      assert.equal(job_.with["release-sha"], "${{ needs.resolve-release-sha.outputs.release-sha }}");
+      assert.equal(job_.if, undefined);
+      assert.ok(needsJob(job("verify"), id), "verify must wait for the node qualification producers");
+      continue; // Qualification precedes verify; it cannot publish.
+    }
     assert.ok(
       needsVerify(job_),
       `the ${id} job must depend on verify`,

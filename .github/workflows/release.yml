@@ -75,11 +75,25 @@ jobs:
     with:
       ref: ${{ needs.resolve-release-sha.outputs.release-sha }}
 
+  # The Node qualification producers ci.yml runs on every PR (M17 campaign,
+  # bulk lane, duration-balanced node shards) at the gated release SHA. A
+  # release verify cannot re-execute those campaigns inline any more than
+  # ci's aggregate job can (the M17 case alone grazes its own 1350s backstop
+  # while the verify `tests` budget is 21 minutes), so it consumes their
+  # same-run sealed proofs exactly like ci's build-and-test job does. Same
+  # fail-closed contract as native-recovery: producers precede verify and
+  # never publish anything.
+  node-qualification:
+    needs: resolve-release-sha
+    uses: ./.github/workflows/node-qualification.yml
+    with:
+      release-sha: ${{ needs.resolve-release-sha.outputs.release-sha }}
+
   verify:
     # SPEC 0.98.5 R8.4 (gel total): verify runs for EVERY publication path —
     # tag pushes AND backfill dispatches. The old `if: github.event_name == 'push'`
     # let a backfill publish with zero tests on the same workflow.
-    needs: [resolve-release-sha, native-recovery]
+    needs: [resolve-release-sha, native-recovery, node-qualification]
     # Runner image pin: the matrix label stays ubuntu-latest (stable leg names
     # and qualified plan); the 24.04 image is pinned by the mapping —
     # TODO(migrate-26.04), Track: 01M6VTPX93E083FX480N9MF5FY.
@@ -163,9 +177,54 @@ jobs:
       - name: Test npm test gate runner directly (trust root)
         shell: bash
         run: node --test packages/h2a/test/run-test-gates.test.js
+      # Same contract as ci's build-and-test: this leg consumes the SAME-RUN
+      # M17 and bulk producer proofs and the four shard envelopes the
+      # node-qualification producers sealed at THIS release SHA, instead of
+      # re-executing campaigns that cannot fit the tests budget. The import
+      # is not an optional skip: each missing artifact fails the download
+      # step below, and the imported proofs only verify against this exact
+      # run, checkout and node leg.
+      - name: Download the M17 qualification proof (this leg)
+        uses: actions/download-artifact@v4
+        with:
+          name: m17-${{ github.run_id }}-node${{ matrix.node }}
+          path: tmp/m17-import
+      - name: Download the bulk qualification proof (this leg)
+        uses: actions/download-artifact@v4
+        with:
+          name: bulk-${{ github.run_id }}-node${{ matrix.node }}
+          path: tmp/bulk-import
+      - name: Download the node shard evidence (this leg)
+        uses: actions/download-artifact@v4
+        with:
+          name: node-shard-${{ github.run_id }}-node${{ matrix.node }}-shard0
+          path: tmp/node-shards
+      - name: Download the node shard evidence (this leg, shard 1)
+        uses: actions/download-artifact@v4
+        with:
+          name: node-shard-${{ github.run_id }}-node${{ matrix.node }}-shard1
+          path: tmp/node-shards
+      - name: Download the node shard evidence (this leg, shard 2)
+        uses: actions/download-artifact@v4
+        with:
+          name: node-shard-${{ github.run_id }}-node${{ matrix.node }}-shard2
+          path: tmp/node-shards
+      - name: Download the node shard evidence (this leg, shard 3)
+        uses: actions/download-artifact@v4
+        with:
+          name: node-shard-${{ github.run_id }}-node${{ matrix.node }}-shard3
+          path: tmp/node-shards
       - name: Run npm test with a disposable TMPDIR
         shell: bash
         run: npm test
+        env:
+          H2A_TEST_CI_M17_REPORT: ${{ github.workspace }}/tmp/m17-import/proof.json
+          H2A_TEST_CI_BULK_REPORT: ${{ github.workspace }}/tmp/bulk-import/proof.json
+          H2A_TEST_NODE_SHARD_DIR: ${{ github.workspace }}/tmp/node-shards
+          # GITHUB_SHA of a backfill dispatch is the default-branch head;
+          # the gated checkout here is the release SHA, so pin it for every
+          # imported-proof context check inside npm test.
+          H2A_TEST_EXPECTED_SHA: ${{ needs.resolve-release-sha.outputs.release-sha }}
       # Keep stable manifests in Git; stamp only this disposable checkout.
       # Both matrix legs smoke the same RC versions and exact internal pins.
       - name: Prepare tag version and RC pins
