@@ -7,7 +7,8 @@ export function recordCiOwnedProcess(pid, env = process.env) {
   if (ledger === undefined) return;
   assert.equal(env.GITHUB_ACTIONS, 'true', 'CI owned ledger is GitHub-only');
   assert.equal(env.GITHUB_REPOSITORY, 'rhanka/h2a');
-  assert.equal(env.GITHUB_WORKFLOW, 'ci');
+  assert.ok(['ci', 'release'].includes(env.GITHUB_WORKFLOW),
+    'owned-process ledger records are sealed and consumed inside the ci and release workflows only');
   assert.ok(Number.isSafeInteger(pid) && pid > 0);
   const directory = dirname(ledger), info = fs.lstatSync(directory), file = fs.lstatSync(ledger);
   assert.ok(/^bulk-ci-run-[A-Za-z0-9]+$/.test(basename(directory)) && fs.realpathSync(directory) === resolve(directory));

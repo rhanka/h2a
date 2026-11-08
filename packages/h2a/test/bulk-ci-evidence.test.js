@@ -127,6 +127,12 @@ test('owned observation requires GitHub context and an owned regular ledger, the
     assert.equal(row.pid,process.pid);
     const stat=fs.readFileSync('/proc/self/stat','utf8');
     assert.equal(row.birth,stat.slice(stat.lastIndexOf(') ')+2).split(' ')[19]);
+    // The producer that sets this ledger runs in ci.yml and in the release
+    // workflow's node-qualification twin, so observation admits exactly
+    // those two workflow names and refuses every other name.
+    recordCiOwnedProcess(process.pid,{...env,GITHUB_WORKFLOW:'release'});
+    assert.throws(()=>recordCiOwnedProcess(process.pid,{...env,GITHUB_WORKFLOW:'smoke'}),
+      /ci and release workflows only/);
     fs.symlinkSync(ledger,join(directory,'alias.jsonl'));
     assert.throws(()=>recordCiOwnedProcess(process.pid,{...env,H2A_TEST_CI_OWNED_LEDGER:join(directory,'alias.jsonl')}));
   } finally {fs.rmSync(directory,{recursive:true,force:true});}
