@@ -28,6 +28,12 @@ An expired session (no refresh token, or a refused refresh) prints
 - The client calls it only when `tools/list` names it. While it is absent (servers before
   sentropic train 1b), `bind <id>` is recorded **without validation**, with a warning: the server
   stays the authority at publish. `workspaces` then says the tool is not offered.
+- On those servers `tools/list` answers the catch-all JSON-RPC `-32603` when it cannot bind the
+  workspace it lists for: the default one (no workspace, or the most recent one in another tenant
+  than the token's) or an explicit one the account cannot read. The client counts that answer as
+  `workspaces_list` absent (bind recorded with the warnings, `workspaces` says not offered); once
+  bound, every call carries the bound `workspaceRef`, and a readable workspace of the right tenant
+  lists normally. `tools --preprod` without a binding points to `bind` on such a `-32603`.
 - `publishable` is a hint for choosing. The listing is read live for each `workspaces` and each
   `bind`, and never stored: the binding file keeps the routing choice only (local `ws:` identity,
   server, workspace id, subject, tenant, time).

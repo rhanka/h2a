@@ -322,11 +322,18 @@ export function registerSentropicCommand(program: Command, overrides: Partial<Se
     .description("Bind this local workspace to one sentropic workspace you can publish to (checked against workspaces_list)")
     .action((workspaceId: string) =>
       guarded(deps, async (rt) => {
-        const { binding, checked } = await bindWorkspace(rt, { localWorkspace: deps.resolveWorkspace(deps.cwd()), workspaceId });
+        const { binding, checked, listFailed } = await bindWorkspace(rt, { localWorkspace: deps.resolveWorkspace(deps.cwd()), workspaceId });
         if (checked === undefined) {
           rt.log(
             `${PREFIX} warning: the resource server does not offer workspaces_list yet: workspace ${binding.workspaceId} is bound ` +
               "without validation; the server checks it at publish",
+          );
+        }
+        if (listFailed) {
+          rt.log(
+            `${PREFIX} warning: tools/list for workspace ${binding.workspaceId} answered JSON-RPC -32603: this account may not ` +
+              `read it${binding.tenantId !== undefined ? ` in tenant ${binding.tenantId}` : ""}; every call carries its workspaceRef, ` +
+              "and `h2a sentropic tools --preprod` probes it",
           );
         }
         rt.log(
