@@ -8,7 +8,8 @@
  * redirect_uri echo, RFC 8707 resource, RFC 9207 iss on the response; requested scopes checked
  * against the CLIENT's allowed scopes (not scopes_supported); offline_access and the
  * refresh_token grant advertised only by a discovery that names a refresh-eligible client_id;
- * rotating refresh tokens with reuse detection (the whole family is revoked); an id_token only
+ * rotating refresh tokens with reuse detection (the whole family is revoked), a refresh whose
+ * resource is not the one the grant was sealed with refused (refresh-handler); an id_token only
  * when openid is requested.
  *
  * The fake RS behaves like the sentropic MCP dispatch with the workspaces_list host tool
@@ -16,6 +17,10 @@
  * feat/mcp-workspaces-list): bearer, tid and per-method scope checks; registry tools listed only
  * for a workspace the account can read; workspaces_list with closed arguments, sorted by name
  * then ref; a tool-level access_denied for a workspace the account cannot read or publish to.
+ * Like train 1b (sentropic c968b8d16, api/src/routes/namespaces/mcp.ts authenticate), it checks
+ * membership at authentication: the workspace a request binds (its workspaceRef, else the default
+ * one, the most recent membership) must be one the account is a member of, else 403 -32003
+ * access_denied — so a removed member is refused on the stale workspaceRef itself.
  *
  * Every secret the fake mints (authorization code, access token, refresh token, id_token
  * signature) carries SENTINEL, every failure body it can return carries SENTINEL too, and the
@@ -101,12 +106,22 @@ interface FakeOptions {
   /** the workspaces the account can read now (workspaces_list, registry tools); default DIRECTORY. */
   directory?: readonly DirectoryEntry[];
   /**
+   * the workspaces the account is a member of (train 1b: resolveMemberWorkspace at
+   * authentication); default the directory's, in order. The workspace a request binds — its
+   * params.workspaceRef, or else the default one (the first member) — outside them is refused:
+   * 403 -32003 access_denied on tools/list and on every tools/call. The host tool ignores a
+   * workspaceRef and binds the default one, so it is refused only for an account with no member
+   * workspace at all.
+   */
+  members?: readonly string[];
+  /**
    * the RS advertises and serves the workspaces_list host tool (default true). false = sentropic
-   * main before train 1b: no host tool, and tools/list for a workspace the account cannot bind
-   * (the default one included) answers the catch-all JSON-RPC -32603 Internal error.
+   * main before train 1b: no host tool, no membership check at authentication, and tools/list
+   * for a workspace the account cannot bind (the default one included) answers the catch-all
+   * JSON-RPC -32603 Internal error.
    */
   workspacesTool?: boolean;
-  /** the workspace the server falls back to without params.workspaceRef (default BOUND). */
+  /** the workspace the server falls back to without params.workspaceRef (default: the first member; BOUND before train 1b). */
   defaultWorkspace?: string;
   /** workspaces_list finds the current credential unreadable: 403 -32003. */
   directoryDenied?: boolean;
@@ -150,7 +165,7 @@ class FakeSentropic {
   readonly revokeRequests: URLSearchParams[] = [];
   readonly rsRequests: Array<{ authorization: string | undefined; body: Record<string, unknown> }> = [];
   readonly accessTokens = new Map<string, { exp: number; active: boolean; scopes: string[]; tid: string | undefined }>();
-  readonly refreshTokens = new Map<string, { active: boolean; scope: string }>();
+  readonly refreshTokens = new Map<string, { active: boolean; scope: string; resource: string }>();
   private readonly codes = new Map<string, CodeGrant>();
   private as: Server | undefined;
   private rs: Server | undefined;
@@ -161,6 +176,10 @@ class FakeSentropic {
 
   get directory(): readonly DirectoryEntry[] {
     return this.opts.directory ?? DIRECTORY;
+  }
+
+  get members(): readonly string[] {
+    return this.opts.members ?? this.directory.map((entry) => entry.workspaceRef);
   }
 
   /** The params of every tools/call the RS received, in order. */
@@ -278,15 +297,16 @@ class FakeSentropic {
 
   /** A valid pair minted outside any request: what ANOTHER h2a process would hold after its own refresh. */
   mintPair(scope: string): { accessToken: string; refreshToken: string } {
-    const body = this.mint(scope, null);
+    const body = this.mint(scope, null, this.mcpUrl);
     return { accessToken: body.access_token as string, refreshToken: body.refresh_token as string };
   }
 
-  private issue(scope: string, nonce: string | null, res: ServerResponse): void {
-    json(res, 200, this.mint(scope, nonce), { "cache-control": "no-store" });
+  private issue(scope: string, nonce: string | null, resource: string, res: ServerResponse): void {
+    json(res, 200, this.mint(scope, nonce, resource), { "cache-control": "no-store" });
   }
 
-  private mint(scope: string, nonce: string | null): Record<string, unknown> {
+  /** `resource` is the one the grant was sealed with at the authorize step. */
+  private mint(scope: string, nonce: string | null, resource: string): Record<string, unknown> {
     const ttl = this.opts.accessTtlSeconds ?? 3600;
     const now = Math.floor(Date.now() / 1000);
     const tid = this.opts.tid === undefined ? TENANT : this.opts.tid;
@@ -307,7 +327,7 @@ class FakeSentropic {
     }
     if (this.opts.refresh && scope.split(" ").includes("offline_access")) {
       const refreshToken = mint("rt");
-      this.refreshTokens.set(refreshToken, { active: true, scope });
+      this.refreshTokens.set(refreshToken, { active: true, scope, resource });
       body.refresh_token = refreshToken;
     }
     return body;
@@ -336,7 +356,7 @@ class FakeSentropic {
       if (createHash("sha256").update(verifier).digest("base64url") !== grant.challenge) return invalid("PKCE failed");
       const resource = form.get("resource");
       if (resource !== null && resource !== grant.resource) return invalid("resource mismatch");
-      return this.issue(grant.scope, grant.nonce, res);
+      return this.issue(grant.scope, grant.nonce, grant.resource ?? this.mcpUrl, res);
     }
     if (form.get("grant_type") === "refresh_token" && this.opts.refresh) {
       const presented = form.get("refresh_token") ?? "";
@@ -347,8 +367,13 @@ class FakeSentropic {
         for (const other of this.refreshTokens.values()) other.active = false; // reuse detected: revoke the family
         return invalid("refresh token reuse detected");
       }
+      // refresh-handler: one resource at most, and the one the grant was sealed with (before the
+      // token is consumed).
+      const resources = form.getAll("resource");
+      if (resources.length > 1) return json(res, 400, { error: "invalid_target", error_description: `one resource ${SENTINEL}` });
+      if (resources.length === 1 && resources[0] !== rt.resource) return invalid("resource does not match the original grant");
       rt.active = false; // rotation: a refresh token is good for one refresh
-      return this.issue(rt.scope, null, res);
+      return this.issue(rt.scope, null, rt.resource, res);
     }
     return json(res, 400, { error: "unsupported_grant_type" });
   }
@@ -388,27 +413,36 @@ class FakeSentropic {
       rpcError(403, -32003, "insufficient_scope", { "www-authenticate": `Bearer error="insufficient_scope", scope="${scope}"` });
     const toolResult = (payload: unknown, isError: boolean): void =>
       json(res, 200, { jsonrpc: "2.0", id, result: { content: [{ type: "text", text: JSON.stringify(payload) }], isError } });
-    // Without params.workspaceRef the server falls back to a default workspace of its own choosing.
-    const workspace = typeof params.workspaceRef === "string" ? params.workspaceRef : (this.opts.defaultWorkspace ?? BOUND);
+    const train1b = this.opts.workspacesTool !== false;
+    const hostTool = body.method === "tools/call" && params.name === "workspaces_list" && train1b;
+    // The workspace a request binds: params.workspaceRef (ignored by the host tool, which binds
+    // none), else a default. Train 1b (mcp.ts authenticate → resolveMemberWorkspace) honours it
+    // for a member only, its default being the most recent membership; sentropic main before it
+    // falls back to a default of its own choosing, with no membership check.
+    const requested = typeof params.workspaceRef === "string" && !hostTool ? params.workspaceRef : undefined;
+    const workspace = requested ?? this.opts.defaultWorkspace ?? (train1b ? this.members[0] : BOUND);
+    const member = workspace !== undefined && this.members.includes(workspace);
     const readable = this.directory.find((entry) => entry.workspaceRef === workspace);
     if (body.method === "tools/list") {
       if (!at.scopes.includes("mcp:discover")) return scopeRefused("mcp:discover");
       if (!at.tid) return rpcError(403, -32003, "access_denied");
-      if (!readable && this.opts.workspacesTool === false) {
+      // Train 1b: a non-member workspace (or no default one) is refused at authentication.
+      if (train1b && !member) return rpcError(403, -32003, "access_denied");
+      if (!readable && !train1b) {
         // sentropic main: discover binds the workspace, and the throw becomes the catch-all -32603.
         return json(res, 200, { jsonrpc: "2.0", id, error: { code: -32603, message: "Internal error" } });
       }
       return json(res, 200, { jsonrpc: "2.0", id, result: { tools: [
         // transport.discover: no bindable workspace hides the registry tools, the host tool stays.
         ...(readable ? REGISTRY_TOOLS : []),
-        ...(this.opts.workspacesTool === false ? [] : [WORKSPACES_LIST]),
+        ...(train1b ? [WORKSPACES_LIST] : []),
       ] } });
     }
     if (body.method === "tools/call" && typeof params.name === "string") {
-      const hostTool = params.name === "workspaces_list" && this.opts.workspacesTool !== false;
       if (hostTool && !noArguments(params.arguments)) return rpcError(400, -32600, "invalid_request");
       if (!at.scopes.includes("mcp:tools:invoke")) return scopeRefused("mcp:tools:invoke");
       if (!at.tid) return rpcError(403, -32003, "access_denied");
+      if (train1b && !member) return rpcError(403, -32003, "access_denied");
       if (hostTool) {
         if (this.opts.directoryDenied) return rpcError(403, -32003, "access_denied");
         const order = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
@@ -949,9 +983,11 @@ describe("h2a sentropic bind / unbind", () => {
     expect(accepted.code, accepted.err).toBe(0);
     expect(accepted.err).toContain("Sentropic one");
     expect(readBinding(serverKey(f.mcpUrl), LOCAL_WS, dir)?.workspaceId).toBe(BOUND);
-    // The closed, argument-free call; the workspace in question travels as params.workspaceRef.
+    // The workspace in question travels as params.workspaceRef: train 1b refuses a non-member one
+    // at tools/list already (403 access_denied); the others get the closed, argument-free call.
+    const lists = f.rsRequests.filter((r) => r.body.method === "tools/list");
+    expect(lists.map((r) => (r.body.params as { workspaceRef?: string }).workspaceRef)).toEqual(["ws-unknown", "ws-viewer", BOUND]);
     expect(f.toolCalls).toEqual([
-      { name: "workspaces_list", arguments: {}, workspaceRef: "ws-unknown" },
       { name: "workspaces_list", arguments: {}, workspaceRef: "ws-viewer" },
       { name: "workspaces_list", arguments: {}, workspaceRef: BOUND },
     ]);
@@ -1067,6 +1103,62 @@ describe("h2a sentropic workspaces", () => {
     expect(run.code).toBe(1);
     expect(run.err).toContain("access_denied");
     expect(run.err).toContain("h2a sentropic login");
+  });
+
+  it("after the account is removed from the bound workspace, lists the others without the stale workspaceRef and says the binding is stale", async () => {
+    const f = await fake();
+    const dir = freshDir();
+    await login(f, dir);
+    expect((await runCli(["bind", BOUND], { env: f.env(dir) })).code).toBe(0);
+    // The membership row is deleted: train 1b refuses BOUND at authentication, and workspaces_list no longer lists it.
+    f.opts.members = ["ws-viewer"];
+    f.opts.directory = DIRECTORY.filter((entry) => entry.workspaceRef !== BOUND);
+    const tools = await runCli(["tools", "--preprod"], { env: f.env(dir) });
+    expect(tools.code).toBe(1);
+    expect(tools.err).toContain(`refused workspace ${BOUND} (access_denied)`);
+    expect(tools.err).toContain("h2a sentropic workspaces");
+    expect(tools.err).toContain("h2a sentropic unbind");
+    const before = f.rsRequests.length;
+    const listed = await runCli(["workspaces"], { env: f.env(dir) });
+    expect(listed.code, listed.err).toBe(0);
+    expect(listed.out).toMatch(/ws-viewer\s+viewer\s+no\s+Read only/);
+    expect(listed.out).not.toContain(BOUND);
+    expect(listed.err).toContain(
+      `the workspace bound here (${BOUND}) is no longer accessible to this account: bind another one, or \`h2a sentropic unbind\``,
+    );
+    expect(listed.err).not.toContain("* = bound here");
+    // One refusal of the stale workspaceRef, then the listing read without it.
+    const calls = f.rsRequests
+      .slice(before)
+      .filter((r) => r.body.method === "tools/list" || r.body.method === "tools/call")
+      .map((r) => [r.body.method, (r.body.params as { workspaceRef?: string }).workspaceRef]);
+    expect(calls).toEqual([["tools/list", BOUND], ["tools/list", undefined], ["tools/call", undefined]]);
+    const parsed = JSON.parse((await runCli(["workspaces", "--json"], { env: f.env(dir) })).out) as Record<string, unknown>;
+    expect(parsed).toMatchObject({ boundWorkspaceRef: BOUND, staleBinding: true });
+    // `unbind`, the way out the warning names, ends it.
+    expect((await runCli(["unbind"], { env: f.env(dir) })).code).toBe(0);
+    const after = await runCli(["workspaces"], { env: f.env(dir) });
+    expect(after.code, after.err).toBe(0);
+    expect(after.err).not.toContain("no longer accessible");
+    expect(JSON.parse((await runCli(["workspaces", "--json"], { env: f.env(dir) })).out)).toMatchObject({ staleBinding: false });
+  });
+
+  it("tells an account the resource server finds no workspace for to join one or bind, not to log in again", async () => {
+    // Train 1b: tools/list without a workspaceRef binds the account's default member workspace; with none it is refused.
+    const f = await fake({ directory: [] });
+    const dir = freshDir();
+    await login(f, dir);
+    for (const args of [["workspaces"], ["tools", "--preprod"]]) {
+      const run = await runCli(args, { env: f.env(dir), resolveWorkspace: () => undefined });
+      expect(run.code, args.join(" ")).toBe(1);
+      expect(run.err).toContain("the resource server finds no workspace for this account (access_denied without a workspaceRef)");
+      expect(run.err).toContain("join one, or `h2a sentropic bind <workspace-id>`");
+      expect(run.err).not.toContain("h2a sentropic login");
+    }
+    const lists = f.rsRequests.filter((r) => r.body.method === "tools/list");
+    expect(lists).toHaveLength(2);
+    for (const list of lists) expect((list.body.params as { workspaceRef?: string }).workspaceRef).toBeUndefined();
+    expect(f.toolCalls).toHaveLength(0);
   });
 
   it("prints a server-chosen name without control or bidirectional formatting characters", async () => {
@@ -1267,6 +1359,8 @@ describe("refresh-token rotation (when the server issues refresh tokens)", () =>
     const refresh = refreshGrants(f)[0]!;
     expect(refresh.get("refresh_token")).toBe(first.refreshToken);
     expect(refresh.get("client_id")).toBe(CLIENT_ID);
+    // RFC 8707 on the refresh too: the one resource the grant was sealed with (the AS compares it as is).
+    expect(refresh.getAll("resource")).toEqual([f.mcpUrl]);
     const second = storedToken(f, dir)!;
     expect(second.refreshToken).toBeDefined();
     expect(second.refreshToken).not.toBe(first.refreshToken);
@@ -1277,6 +1371,7 @@ describe("refresh-token rotation (when the server issues refresh tokens)", () =>
     const again = await runCli(["tools", "--preprod"], { env: f.env(dir), now: () => later + 2 * HOUR });
     expect(again.code, again.err).toBe(0);
     expect(refreshGrants(f)[1]!.get("refresh_token")).toBe(second.refreshToken);
+    expect(refreshGrants(f)[1]!.getAll("resource")).toEqual([f.mcpUrl]);
   });
 
   it("keeps the pair another process rotated while this refresh was in flight (compare-and-set)", async () => {
@@ -1461,9 +1556,15 @@ describe("no secret ever reaches the output or an error (sentinel)", () => {
         await runCli(["bind", BOUND], { env: f.env(dir) });
         f.opts.directory = DIRECTORY.filter((entry) => entry.workspaceRef !== BOUND);
         await runCli(["tools", "--preprod"], { env: f.env(dir) });
+        await runCli(["workspaces"], { env: f.env(dir) });
+        await runCli(["workspaces", "--json"], { env: f.env(dir) });
         f.opts.directoryDenied = true;
         await runCli(["workspaces"], { env: f.env(dir) });
         await runCli(["bind", BOUND], { env: f.env(dir) });
+      } },
+      { opts: { directory: [] }, steps: async (f, dir) => {
+        await runCli(["workspaces"], { env: f.env(dir), resolveWorkspace: () => undefined });
+        await runCli(["tools", "--preprod"], { env: f.env(dir), resolveWorkspace: () => undefined });
       } },
       { opts: { workspacesTool: false }, steps: async (f, dir) => {
         await runCli(["workspaces"], { env: f.env(dir) });

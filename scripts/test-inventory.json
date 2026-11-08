@@ -265,6 +265,8 @@
     "h2a sentropic workspaces marks the workspace bound here and carries its workspaceRef on the call",
     "h2a sentropic workspaces says when the resource server does not offer workspaces_list yet, and calls nothing",
     "h2a sentropic workspaces before workspaces_list, reads a -32603 on tools/list as the tool not offered, and calls nothing",
+    "h2a sentropic workspaces after the account is removed from the bound workspace, lists the others without the stale workspaceRef and says the binding is stale",
+    "h2a sentropic workspaces tells an account the resource server finds no workspace for to join one or bind, not to log in again",
     "h2a sentropic workspaces prints a server-chosen name without control or bidirectional formatting characters",
     "h2a sentropic tools --preprod (MCP tools/list) refuses without the explicit --preprod flag and calls nothing",
     "h2a sentropic tools --preprod (MCP tools/list) lists the tools of the bound workspace with the stored bearer token",
@@ -284,6 +286,11 @@
     "refresh-token rotation (when the server issues refresh tokens) a refused refresh prompts a re-login, drops the dead token, and does not crash",
     "h2a sentropic logout revokes on the server, then removes the token locally",
     "no secret ever reaches the output or an error (sentinel) never prints the code, the code verifier, an access, refresh or id token, nor a server body"
+  ],
+  "packages/h2a-runtime/src/sentropic/refresh-lock.test.ts": [
+    "refresh lock: breaking a stale lock checks the lock again under the break lock: a stale lock another waiter broke and took meanwhile is left to it",
+    "refresh lock: breaking a stale lock leaves a stale lock to the waiter already breaking it: a live break lock is not touched",
+    "refresh lock: breaking a stale lock breaks a break lock left by a dead breaker, then the stale lock, and leaves neither behind"
   ],
   "packages/h2a-runtime/src/sentropic/workspace-binding.test.ts": [
     "workspace binding store persists one binding per local workspace in a 0600 file inside a 0700 directory",
