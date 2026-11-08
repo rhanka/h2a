@@ -8,6 +8,14 @@ import type { DecisionDossierDocument } from '@sentropic/focus';
 const { assertDecisionDossierForPresentation, assertDecisionDossierDocument } =
   await import(new URL('../focus-kit/validator.mjs', import.meta.url).href) as typeof import('@sentropic/focus/validate');
 
+// Generated from the shared focus-kit module; the build and the renderer place DC-1 cards the same way.
+interface DiagramView { readonly kind: 'card' | 'zone'; readonly svg: string; readonly foldedSvg?: string }
+interface DiagramViewRefusal { readonly code: string; readonly slot: string; readonly entityId: string; readonly neededPx: number; readonly allocatedPx: number; readonly text?: string }
+const { renderDiagramViews } = await import(new URL('../focus-kit/diagram-views.mjs', import.meta.url).href) as {
+  renderDiagramViews: (scene: Record<string, unknown>, options?: { align?: string }) =>
+    { kind: 'rendered'; views: Record<string, DiagramView> } | { kind: 'refused'; diagnostics: readonly DiagramViewRefusal[] };
+};
+
 const kit = new URL('../focus-kit/', import.meta.url);
 const readAsset = (name: string): string => readFileSync(new URL(name, kit), 'utf8');
 const digest = (text: string): string => createHash('sha256').update(text).digest('hex');
@@ -123,6 +131,15 @@ export function buildFocusDossier(input: unknown): string {
   });
   const validated: DecisionDossierDocument = assertDecisionDossierForPresentation({ ...inputDocument, sections });
   if (!diagramCount) throw new Error('A Focus dossier needs an ecosystem diagram; add a diagram section with source ecosystem:overview');
+  // DC-1 views are rendered here and embedded: no network fetch and no card fallback at view time.
+  const views: Record<string, Record<string, DiagramView>> = {};
+  for (const section of validated.sections) {
+    if (section.kind !== 'diagram' || section.scene === undefined) continue;
+    const outcome = renderDiagramViews(section.scene as Record<string, unknown>);
+    if (outcome.kind !== 'rendered') throw new Error(`Diagram view refused (${section.id}): ${outcome.diagnostics.map(d =>
+      `${d.code} ${d.slot} ${d.entityId} needed ${d.neededPx}px > ${d.allocatedPx}px${d.text === undefined ? '' : ` « ${d.text} »`}`).join('; ')}`);
+    views[section.id] = outcome.views;
+  }
   const renderer = readAsset('renderer.html');
   if (!renderer.includes('<!--FOCUS_PAYLOAD-->') || !renderer.includes('<!--FOCUS_TITLE-->')) throw new Error('Invalid Focus renderer asset; rebuild the kit');
   const manifest = JSON.parse(readAsset('renderer-manifest.json'));
@@ -130,7 +147,7 @@ export function buildFocusDossier(input: unknown): string {
     rendererVersion: manifest.rendererVersion, validatorVersion: manifest.validatorVersion,
     envelopeSha256: digest(JSON.stringify(validated)), rendererSha256: digest(renderer), validatorSha256: digest(readAsset('validator.mjs')) };
   return renderer.replace('<!--FOCUS_TITLE-->', () => escapeHtml(validated.title))
-    .replace('<!--FOCUS_PAYLOAD-->', () => `<script type="application/json" data-focus-document>${jsonForHtml({ document: validated, build })}</script>`);
+    .replace('<!--FOCUS_PAYLOAD-->', () => `<script type="application/json" data-focus-document>${jsonForHtml({ document: validated, views, build })}</script>`);
 }
 
 /** Same-directory rename is the only publication point; failures preserve the old artifact. */
