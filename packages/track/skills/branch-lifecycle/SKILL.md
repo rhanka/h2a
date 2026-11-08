@@ -5,9 +5,7 @@ description: "Use at a branch merge or branch-close to protect track's event log
 
 # Branch Lifecycle (merge / branch-close)
 
-Run this at a `.track`-bearing publication/recovery merge or branch-close (feature PR branches do not
-write `.track`; delegated agents report what to record, and the conductor is the single writer of the
-live Track store and publishes the journal to `main` after merges). It is **record-only and detect-and-GUIDE**: it
+Run this at a `.track`-bearing merge or branch-close. It is **record-only and detect-and-GUIDE**: it
 diagnoses and reports, it **never repairs in autonomy**. It orchestrates the existing `track` CLI
 (`events-contains`, `reseal`, `validate`, `query`, `report`, `consolidate`, `audit`, `restructure
 apply`) and reimplements nothing. All git is done **in the shell** — track's core stays git-free.
@@ -16,13 +14,13 @@ apply`) and reimplements nothing. All git is done **in the shell** — track's c
 
 Track's system of record is one append-only NDJSON stream (`.track/events.jsonl`). A merge can silently
 **drop committed events** — the graphify incident: a squash-merge threw away 18 committed reparent
-events. Two protections now work together for `.track` publication/recovery merges: (1) the repo pins
-`.track/events.jsonl merge=union` in `.gitattributes`, so disjoint appends auto-reconcile — union keeps
-EVERY line from both parents, so the merged log is always fold-recoverable; (2) a union-merged log carries
-a broken positional hash-chain (and possibly duplicate `seq`, plus one side's stale `head.json`), so the
-**merge preparation step** runs `npx track reseal && npx track validate` right after the merge (see
-"Merge preparation" below) before any further `track` append — the store fail-closes on an invalid log.
-This skill's **CONTAINMENT GATE** remains the safety net over whatever the merge driver did: it proves the
+events. Two protections now work together: (1) the repo pins `.track/events.jsonl merge=union` in
+`.gitattributes`, so disjoint appends auto-reconcile — union keeps EVERY line from both parents, so the
+merged log is always fold-recoverable; (2) a union-merged log carries a broken positional hash-chain
+(and possibly duplicate `seq`, plus one side's stale `head.json`), so the **merge preparation step**
+runs `npx track reseal && npx track validate` right after the merge (see "Merge preparation" below)
+before any further `track` append — the store fail-closes on an invalid log. This skill's
+**CONTAINMENT GATE** remains the safety net over whatever the merge driver did: it proves the
 post-merge log contains every branch event id.
 
 The gate is **event-id CONTAINMENT, not "squash vs merge-commit"**. Squash-vs-merge is the wrong
@@ -105,20 +103,19 @@ track report --commit "$MERGE" --require-accepted          # RE-READ — list do
 Report any such items as **"NOT consolidated — to treat"**. Do not mark them done-and-accepted on their
 behalf.
 
-## Recommendation for `.track` publication branches
+## Recommendation for `.track` branches
 
-Feature PR branches do not write `.track` (the conductor is the single writer of the live Track store and
-publishes the journal to `main` after merges). Because the gate is **containment**, a **merge commit**
-(two real parents) lets the containment check operate on the actual merge; a squash collapses history and
-can drop a divergent residual. So **recommend a merge commit** for conductor publication/recovery PRs that
-touch `.track` — but **gate on containment, never on "is it a merge commit"** (that proxy both misses real
-losses and blocks harmless squashes). The containment check fails closed on any candidate it cannot
-evaluate, so a lossy or conflicting merge is blocked regardless of the merge driver.
+Because the gate is **containment**, a **merge commit** (two real parents) lets the containment check
+operate on the actual merge; a squash collapses history and can drop a divergent residual. So **recommend
+a merge commit** for PRs that touch `.track` — but **gate on containment, never on "is it a merge
+commit"** (that proxy both misses real losses and blocks harmless squashes). The containment check fails
+closed on any candidate it cannot evaluate, so a lossy or conflicting merge is blocked regardless of the
+merge driver.
 
 ## Merge preparation (union + reseal)
 
-Union keeps every line, so completing a `.track` publication/recovery merge means re-chaining the journal.
-When you merge — the publication branch into the base, or the base into the publication branch — run:
+Union keeps every line, so completing the merge means re-chaining the journal. When you merge — the
+branch into the base, or the base into the branch — run:
 
 ```bash
 git merge origin/main && npx track reseal && npx track validate
