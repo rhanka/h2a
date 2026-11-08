@@ -1,0 +1,200 @@
+name: Node qualification (release)
+
+# Release-side twin of the ci.yml Node qualification producers
+# (m17-qualification, bulk-qualification, node-shard). The single-job npm test
+# that release.yml's verify ran until v0.98.8 could absorb the whole Node
+# suite; since the MH L0-L6 partition landed on main (#354), the suite's
+# complete M17 campaign and the bulk lane each cost more wall than the verify
+# `tests` budget alone, and a 21-minute sequential npm test can never re-pass
+# the release gate. ci.yml's answer was to run those campaigns as separate
+# PRODUCERS and import their same-run proofs behind npm test; the release
+# verify must import them too, or a release tag gates a suite subset that
+# already proved impossible to finish. This file is that producer graph
+# against the ONE resolved release SHA instead of the branch head.
+
+# The release checkout here is the gated release SHA, resolved once by
+# resolve-release-sha before any leg exists. Producers and the verify
+# consumer bind the same SHA through H2A_TEST_EXPECTED_SHA — GITHUB_SHA of a
+# backfill dispatch is the default-branch head, NOT the release tree.
+
+# Runner image pin (2026-11-07): GitHub flipped ubuntu-latest to ubuntu-26.04
+# (systemd >= 258) mid-release-window. The m17/bulk producers are wall-clock
+# budgeted and their margin grazed the 1350s backstop
+# (scripts/ci-m17-proof.mjs) on both images, so they stay pinned to 24.04
+# across the cut. TODO(migrate-26.04): re-qualify together with ci.yml's
+# producers, then move these runs-on back to ubuntu-latest while it is still
+# offered. Track: 01M6VTPX93E083FX480N9MF5FY.
+
+# Node versions float on purpose, matching the verify legs that import these
+# proofs: SPEC 0.98.5 R8.1 pins verify's setup-node to the matrix link, and
+# the imported-proof context binds process.version, so a patch-level drift
+# between a producer leg and its consumer leg fails the context check and
+# blocks the release (fails closed). ci.yml pins exact versions because both
+# its sides are free to pin together; the release side cannot pin producers
+# without re-pinning verify against the R8.1 spec test — that remains an
+# owner decision, follow-up TODO(release-node-pins).
+
+on:
+  workflow_call:
+    inputs:
+      release-sha:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  # Same source and full M17 case, at the gated release SHA. An artifact is
+  # published only after reconciliation, owned-process exit and real volume
+  # cleanup. Mirrors ci.yml's m17-qualification job.
+  m17-qualification:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["22", "24"]
+    env:
+      H2A_TEST_CI_M17_OUTPUT: ${{ github.workspace }}/tmp/m17-export
+      H2A_TEST_EXPECTED_SHA: ${{ inputs.release-sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release-sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Prepare the private M17 data volume
+        run: node scripts/ci-m17-temp.mjs setup
+      - name: Execute the complete M17 backend qualification
+        run: node scripts/ci-m17-proof.mjs run
+      - name: Remove the private M17 data volume
+        if: ${{ always() && env.H2A_TEST_M17_TMPDIR != '' }}
+        run: node scripts/ci-m17-temp.mjs cleanup
+      - name: Seal the same-run proof after cleanup
+        run: node scripts/ci-m17-proof.mjs finalize
+      - uses: actions/upload-artifact@v4
+        with:
+          # Stable across attempts: rerun-failed jobs run under a new
+          # run_attempt and must find the producers' proofs; a full re-run
+          # overwrites them instead of colliding.
+          name: m17-${{ github.run_id }}-node${{ matrix.node }}
+          path: tmp/m17-export/proof.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+
+  # Mirrors ci.yml's bulk-qualification job at the gated release SHA.
+  bulk-qualification:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["22", "24"]
+    env:
+      H2A_TEST_EXPECTED_SHA: ${{ inputs.release-sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release-sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Verify bulk acceptance independently of the aggregate runner
+        run: node --test packages/h2a/test/bulk-ci-evidence.test.js
+      - name: Execute every bulk packaging and corpus case
+        run: node scripts/ci-bulk-proof.mjs
+        env:
+          H2A_TEST_CI_BULK_OUTPUT: ${{ github.workspace }}/tmp/bulk-export
+      - uses: actions/upload-artifact@v4
+        with:
+          # Stable across attempts, same rerun contract as the M17 proof.
+          name: bulk-${{ github.run_id }}-node${{ matrix.node }}
+          path: tmp/bulk-export/proof.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+
+  # Mirrors ci.yml's node-shard job: duration-balanced quarter-lanes of the
+  # Node suite at the gated release SHA, sealed as same-run evidence for the
+  # verify aggregate. Same fail-closed contract as the other producers.
+  node-shard:
+    needs: [m17-qualification, bulk-qualification]
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["22", "24"]
+        shard: [0, 1, 2, 3]
+    env:
+      H2A_TEST_EXPECTED_SHA: ${{ inputs.release-sha }}
+    steps:
+      - name: Require both complete M17 qualifications
+        env:
+          M17_RESULT: ${{ needs.m17-qualification.result }}
+        run: test "$M17_RESULT" = success
+      - name: Require both complete bulk qualifications
+        env:
+          BULK_RESULT: ${{ needs.bulk-qualification.result }}
+        run: test "$BULK_RESULT" = success
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release-sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Install the mandatory configuration oracles
+        run: npm install --global @openai/codex@0.145.0 @anthropic-ai/claude-code@2.1.296
+      - uses: actions/download-artifact@v4
+        with:
+          name: m17-${{ github.run_id }}-node${{ matrix.node }}
+          path: tmp/m17-import
+      - uses: actions/download-artifact@v4
+        with:
+          name: bulk-${{ github.run_id }}-node${{ matrix.node }}
+          path: tmp/bulk-import
+      - name: Create a disposable TMPDIR admitted by both confinement guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p -m 0700 "$HOME/.cache-tmp/h2a-test"
+          DIR="$(mktemp -d "$HOME/.cache-tmp/h2a-test/run-XXXXXX")"
+          echo "TMPDIR=$DIR" >> "$GITHUB_ENV"
+          echo "TMP=$DIR" >> "$GITHUB_ENV"
+          echo "TEMP=$DIR" >> "$GITHUB_ENV"
+          echo "H2A_TEST_QUALIFICATION_ROOT=$DIR" >> "$GITHUB_ENV"
+      - name: Execute one duration-balanced Node shard
+        run: node scripts/run-node-shard.mjs --shard=${{ matrix.shard }}
+        env:
+          H2A_TEST_CI_M17_REPORT: ${{ github.workspace }}/tmp/m17-import/proof.json
+          H2A_TEST_CI_BULK_REPORT: ${{ github.workspace }}/tmp/bulk-import/proof.json
+      - uses: actions/upload-artifact@v4
+        with:
+          # Stable across attempts: rerun-failed jobs run under a new
+          # run_attempt and must find the producers' proofs; a full re-run
+          # overwrites them instead of colliding.
+          name: node-shard-${{ github.run_id }}-node${{ matrix.node }}-shard${{ matrix.shard }}
+          path: tmp/node-shard/node-shard-${{ matrix.shard }}.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+      - name: Clean the disposable TMPDIR
+        if: always()
+        shell: bash
+        run: if [ -n "${TMPDIR:-}" ]; then rm -rf "$TMPDIR"; fi
