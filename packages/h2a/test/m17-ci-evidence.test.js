@@ -165,6 +165,10 @@ test('M17 producer seals only a successful same-run report after owned-process a
       H2A_TEST_CI_M17_OUTPUT: output, H2A_TEST_M17_TMPDIR: volume };
     delete env.H2A_TEST_CI_M17_REPORT;
     delete env.NODE_TEST_CONTEXT;
+    // The fixture must seal against its own HEAD: a qualification runner
+    // sets H2A_TEST_EXPECTED_SHA at job env and it wins over this controlled
+    // GITHUB_SHA above (m17-ci-evidence.mjs), binding an outer SHA here.
+    delete env.H2A_TEST_EXPECTED_SHA;
     const result = run(process.execPath, ['scripts/ci-m17-proof.mjs', 'run'], env);
     assert.equal(result.status, 0, result.stdout + result.stderr);
     assert.equal(fs.existsSync(join(output, 'proof.json')), false, 'successful test alone cannot publish acceptance');
