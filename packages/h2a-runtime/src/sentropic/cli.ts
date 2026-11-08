@@ -298,19 +298,28 @@ export function registerSentropicCommand(program: Command, overrides: Partial<Se
         const bound = listing.boundWorkspaceRef;
         if (opts.json) {
           const workspaces = listing.workspaces.map((entry) => ({ ...entry, boundHere: entry.workspaceRef === bound }));
-          deps.out(`${JSON.stringify({ workspaces, boundWorkspaceRef: bound ?? null, ignored: listing.ignored }, null, 2)}\n`);
+          deps.out(
+            `${JSON.stringify({ workspaces, boundWorkspaceRef: bound ?? null, staleBinding: listing.staleBinding, ignored: listing.ignored }, null, 2)}\n`,
+          );
         } else {
           deps.out(workspaceTable(listing.workspaces, bound));
         }
         const where = listing.tenantId !== undefined ? ` in tenant ${listing.tenantId}` : "";
+        const marked = listing.workspaces.some((entry) => entry.workspaceRef === bound);
         rt.log(
           listing.workspaces.length === 0
             ? `${PREFIX} no workspace is readable by this account${where}`
             : `${PREFIX} ${listing.workspaces.length} workspace${listing.workspaces.length === 1 ? "" : "s"} readable by this account${where}` +
-                `${bound !== undefined ? " (* = bound here)" : ""}; bind one with \`h2a sentropic bind <workspace-id>\`. ` +
+                `${marked ? " (* = bound here)" : ""}; bind one with \`h2a sentropic bind <workspace-id>\`. ` +
                 "publishable is a hint: the server re-checks at each publish",
         );
         if (listing.ignored > 0) rt.log(`${PREFIX} warning: ${listing.ignored} malformed entr${listing.ignored === 1 ? "y was" : "ies were"} ignored`);
+        if (listing.staleBinding && bound !== undefined) {
+          rt.log(
+            `${PREFIX} warning: the workspace bound here (${bound}) is no longer accessible to this account: ` +
+              "bind another one, or `h2a sentropic unbind`",
+          );
+        }
         if (listing.foreignBinding) {
           rt.log(`${PREFIX} warning: this workspace was bound by another account or in another tenant: bind it again`);
         }

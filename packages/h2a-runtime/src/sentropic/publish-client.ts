@@ -535,13 +535,23 @@ export interface WorkspacesListing {
   readonly ignored: number;
   /** The workspace bound here, when that binding belongs to the logged-in account and tenant. */
   readonly boundWorkspaceRef: string | undefined;
+  /** The resource server refused the workspace bound here (the account lost it since the bind). */
+  readonly staleBinding: boolean;
   /** A binding exists here but was made by another account or in another tenant. */
   readonly foreignBinding: boolean;
   readonly subject: string | undefined;
   readonly tenantId: string | undefined;
 }
 
-/** The workspaces this account can read now (workspaces_list), read live, never stored. */
+/**
+ * The workspaces this account can read now (workspaces_list), read live, never stored.
+ *
+ * The listing is asked for with the workspaceRef bound here. When the resource server refuses
+ * that workspace (train 1b checks membership at authentication: a removed member gets a 403
+ * access_denied on its own workspaceRef), it is read again without it — workspaces_list binds no
+ * workspace and the server ignores a workspaceRef there — and the binding is reported stale, so
+ * the way back (`workspaces`, then `bind` or `unbind`) never ends on the same refusal.
+ */
 export async function listWorkspaces(rt: PublishRuntime, localWorkspace: string | undefined): Promise<WorkspacesListing> {
   const token = await ensureFreshToken(rt);
   let binding: WorkspaceBinding | undefined;
@@ -551,7 +561,16 @@ export async function listWorkspaces(rt: PublishRuntime, localWorkspace: string 
     binding = undefined; // a damaged binding is reported by `status`; the listing does not need it
   }
   const own = binding !== undefined && bindingBelongsTo(binding, token) ? binding : undefined;
-  const directory = await readDirectory(await sessionFor(rt, token), own?.workspaceId);
+  const session = await sessionFor(rt, token);
+  let staleBinding = false;
+  let directory: Directory;
+  try {
+    directory = await readDirectory(session, own?.workspaceId);
+  } catch (error) {
+    if (!(error instanceof SentropicWorkspaceAccessError) || own === undefined) throw error;
+    staleBinding = true;
+    directory = await readDirectory(session, undefined);
+  }
   if (directory.entries === undefined) {
     throw new SentropicPublishError(
       "mcp",
@@ -564,6 +583,7 @@ export async function listWorkspaces(rt: PublishRuntime, localWorkspace: string 
     workspaces: directory.entries,
     ignored: directory.ignored,
     boundWorkspaceRef: own?.workspaceId,
+    staleBinding,
     foreignBinding: binding !== undefined && own === undefined,
     subject: token.subject,
     tenantId: accessClaims(token).tenantId,
@@ -645,8 +665,9 @@ export function readWorkspaceBinding(rt: PublishRuntime, localWorkspace: string 
 
 /**
  * `tools/list` for the workspace bound here (printable names). A binding made by another account
- * or tenant is refused before any call; a bound workspace for which the server lists no publish
- * tool (the account lost it since the bind) is reported with the way back (`workspaces`).
+ * or tenant is refused before any call; a bound workspace the server refuses, or lists no publish
+ * tool for (the account lost it since the bind), is reported with the way back (`workspaces`,
+ * then `bind` or `unbind`).
  */
 export async function listPublishTools(
   rt: PublishRuntime,
