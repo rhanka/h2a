@@ -36,6 +36,17 @@ export const WORKSPACES_LIST_TOOL = "workspaces_list";
 /** Tools that bind no workspace; every other tool acts on the workspace of `workspaceRef`. */
 export const HOST_TOOLS: ReadonlySet<string> = new Set([WORKSPACES_LIST_TOOL]);
 
+/** JSON-RPC 2.0 Internal error. */
+export const JSONRPC_INTERNAL_ERROR = -32603;
+
+/** A failed MCP request that is not a refusal of the credential: its HTTP status and JSON-RPC code. */
+export class McpRequestError extends SentropicPublishError {
+  constructor(message: string, readonly httpStatus: number, readonly rpcCode: number | undefined) {
+    super("mcp", message);
+    this.name = "McpRequestError";
+  }
+}
+
 export interface McpConnectOptions {
   readonly fetch: FetchLike;
   readonly mcpUrl: string;
@@ -172,9 +183,14 @@ function refusal(answer: RpcAnswer, workspaceRef: string | undefined, step: stri
           "(an account in several organizations signs in with `--tenant <id>`)",
       );
     }
-    return new SentropicPublishError("mcp", `the resource server refused ${step} (${code})`);
+    return new McpRequestError(`the resource server refused ${step} (${code})`, answer.status, rpcCodeOf(answer.message));
   }
-  return new SentropicPublishError("mcp", `${step} failed on the resource server (${code})`);
+  return new McpRequestError(`${step} failed on the resource server (${code})`, answer.status, rpcCodeOf(answer.message));
+}
+
+function rpcCodeOf(message: Record<string, unknown> | undefined): number | undefined {
+  const error = message?.error;
+  return isRecord(error) && typeof error.code === "number" ? error.code : undefined;
 }
 
 /** A tool name fit for a terminal: no control or escape characters. */

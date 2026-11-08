@@ -35,7 +35,15 @@ import {
   type SentropicAuthToken,
 } from "./auth-token.js";
 import { buildAuthorizeRequest, pkceS256, randomState } from "./enroll-flow.js";
-import { HOST_TOOLS, openMcpSession, printableToolName, WORKSPACES_LIST_TOOL, type McpSession } from "./mcp-client.js";
+import {
+  HOST_TOOLS,
+  JSONRPC_INTERNAL_ERROR,
+  McpRequestError,
+  openMcpSession,
+  printableToolName,
+  WORKSPACES_LIST_TOOL,
+  type McpSession,
+} from "./mcp-client.js";
 import {
   decodeJwtPayload,
   discoverAuthorizationServer,
@@ -430,6 +438,13 @@ interface Directory {
   readonly entries: readonly WorkspaceEntry[] | undefined;
   /** Entries dropped as malformed. */
   readonly ignored: number;
+  /** tools/list itself answered -32603 (sentropic main before workspaces_list): counted as absent. */
+  readonly listFailed: boolean;
+}
+
+/** tools/list answered the JSON-RPC -32603 catch-all of a server that could not bind the workspace. */
+function isListInternalError(error: unknown): boolean {
+  return error instanceof McpRequestError && error.rpcCode === JSONRPC_INTERNAL_ERROR;
 }
 
 const MAX_NAME_CHARS = 128;
@@ -474,16 +489,28 @@ function parseDirectory(payload: Record<string, unknown> | undefined): { entries
 
 /**
  * One LIVE read of the listing. workspaces_list is called only when tools/list names it — its
- * absence is never inferred from the shape of an error. Nothing of the answer is kept.
+ * absence is never inferred from a tools/call error. Nothing of the answer is kept.
+ *
+ * Sentropic main before train 1b has no workspaces_list, and its tools/list answers the
+ * catch-all -32603 when it cannot bind the workspace it lists for: the default one (none, or
+ * the most recent one in another tenant than the token's) or an explicit one the account cannot
+ * read. That answer counts as the tool absent; a call carrying the workspaceRef of a readable
+ * workspace of the right tenant lists normally.
  */
 async function readDirectory(session: McpSession, workspaceRef: string | undefined): Promise<Directory> {
-  const tools = await session.listTools(workspaceRef);
-  if (!tools.includes(WORKSPACES_LIST_TOOL)) return { entries: undefined, ignored: 0 };
+  let tools: string[];
+  try {
+    tools = await session.listTools(workspaceRef);
+  } catch (error) {
+    if (isListInternalError(error)) return { entries: undefined, ignored: 0, listFailed: true };
+    throw error;
+  }
+  if (!tools.includes(WORKSPACES_LIST_TOOL)) return { entries: undefined, ignored: 0, listFailed: false };
   const result = await session.callTool({ name: WORKSPACES_LIST_TOOL, arguments: {}, workspaceRef });
   if (result.isError) {
     throw new SentropicPublishError("mcp", `workspaces_list failed on the resource server (${safeErrorCode(result.payload?.error)})`);
   }
-  return parseDirectory(result.payload);
+  return { ...parseDirectory(result.payload), listFailed: false };
 }
 
 function sessionFor(rt: PublishRuntime, token: SentropicAuthToken): Promise<McpSession> {
@@ -528,8 +555,9 @@ export async function listWorkspaces(rt: PublishRuntime, localWorkspace: string 
   if (directory.entries === undefined) {
     throw new SentropicPublishError(
       "mcp",
-      "the resource server does not offer workspaces_list yet: bind with the explicit sentropic workspace id " +
-        "(`h2a sentropic bind <workspace-id>`); the server checks it at publish",
+      "the resource server does not offer workspaces_list yet" +
+        (directory.listFailed ? " (its tools/list answered JSON-RPC -32603)" : "") +
+        ": bind with the explicit sentropic workspace id (`h2a sentropic bind <workspace-id>`); the server checks it at publish",
     );
   }
   return {
@@ -548,6 +576,8 @@ export interface BindResult {
   readonly binding: WorkspaceBinding;
   /** The listing entry the bind was checked against; undefined when workspaces_list is not offered. */
   readonly checked: WorkspaceEntry | undefined;
+  /** tools/list for this workspace answered -32603 (counted as workspaces_list absent). */
+  readonly listFailed: boolean;
 }
 
 /**
@@ -597,7 +627,7 @@ export async function bindWorkspace(
     boundAt: iso(rt.now()),
   };
   writeBinding(binding, rt.config.stateDir);
-  return { binding, checked };
+  return { binding, checked, listFailed: directory.listFailed };
 }
 
 export function unbindWorkspace(rt: PublishRuntime, localWorkspace: string | undefined): boolean {
@@ -625,7 +655,20 @@ export async function listPublishTools(
   const token = await ensureFreshToken(rt);
   const binding = readWorkspaceBinding(rt, localWorkspace);
   if (binding !== undefined && !bindingBelongsTo(binding, token)) throw boundByAnotherAccount();
-  const tools = await (await sessionFor(rt, token)).listTools(binding?.workspaceId);
+  const session = await sessionFor(rt, token);
+  let tools: string[];
+  try {
+    tools = await session.listTools(binding?.workspaceId);
+  } catch (error) {
+    if (!isListInternalError(error)) throw error;
+    // Sentropic main: the server could not bind the workspace it lists for.
+    if (binding !== undefined) throw new SentropicWorkspaceAccessError(binding.workspaceId, "list_failed");
+    throw new SentropicPublishError(
+      "mcp",
+      "tools/list failed on the resource server (JSON-RPC -32603): without a bound workspace it lists for a default one " +
+        "and could not bind it (no workspace, or one in another tenant than the token's); bind one: `h2a sentropic bind <workspace-id>`",
+    );
+  }
   if (binding !== undefined && tools.every((name) => HOST_TOOLS.has(name))) {
     throw new SentropicWorkspaceAccessError(binding.workspaceId, "no_tools");
   }

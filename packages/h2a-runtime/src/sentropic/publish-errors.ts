@@ -46,11 +46,13 @@ export class SentropicLoginRequiredError extends SentropicPublishError {
  * `publishable` flag of workspaces_list is only a hint, and no list is ever cached).
  */
 export class SentropicWorkspaceAccessError extends SentropicPublishError {
-  constructor(readonly workspaceRef: string, reason: "access_denied" | "no_tools") {
+  constructor(readonly workspaceRef: string, reason: "access_denied" | "no_tools" | "list_failed") {
     const head =
       reason === "access_denied"
         ? `the resource server refused workspace ${workspaceRef} (access_denied)`
-        : `the resource server lists no publish tool for workspace ${workspaceRef}`;
+        : reason === "no_tools"
+          ? `the resource server lists no publish tool for workspace ${workspaceRef}`
+          : `the resource server could not list the tools of workspace ${workspaceRef} (JSON-RPC -32603)`;
     super(
       "workspace_access",
       `${head}: this account cannot use it now (the server re-checks at every call, whatever the bind recorded); ` +
