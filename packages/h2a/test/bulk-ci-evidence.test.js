@@ -127,6 +127,12 @@ test('owned observation requires GitHub context and an owned regular ledger, the
     assert.equal(row.pid,process.pid);
     const stat=fs.readFileSync('/proc/self/stat','utf8');
     assert.equal(row.birth,stat.slice(stat.lastIndexOf(') ')+2).split(' ')[19]);
+    // The producer that sets this ledger runs in ci.yml and in the release
+    // workflow's node-qualification twin, so observation admits exactly
+    // those two workflow names and refuses every other name.
+    recordCiOwnedProcess(process.pid,{...env,GITHUB_WORKFLOW:'release'});
+    assert.throws(()=>recordCiOwnedProcess(process.pid,{...env,GITHUB_WORKFLOW:'smoke'}),
+      /ci and release workflows only/);
     fs.symlinkSync(ledger,join(directory,'alias.jsonl'));
     assert.throws(()=>recordCiOwnedProcess(process.pid,{...env,H2A_TEST_CI_OWNED_LEDGER:join(directory,'alias.jsonl')}));
   } finally {fs.rmSync(directory,{recursive:true,force:true});}
@@ -155,7 +161,10 @@ test('bulk producer runs every case and seals only after successful execution an
     git('init','--quiet');git('config','user.name','Bulk contract fixture');git('config','user.email','bulk-fixture@example.invalid');git('add','.');
     git('-c','core.hooksPath=/dev/null','commit','--quiet','-m','test: private bulk controller fixture');
     const output=join(root,'tmp/export'),env={...process.env,GITHUB_ACTIONS:'true',GITHUB_REPOSITORY:'rhanka/h2a',GITHUB_WORKFLOW:'ci',GITHUB_RUN_ID:'123',GITHUB_RUN_ATTEMPT:'1',GITHUB_SHA:git('rev-parse','HEAD'),H2A_TEST_CI_BULK_OUTPUT:output};
-    delete env.NODE_TEST_CONTEXT;delete env.MH_L6_CASE;
+    // The fixture must seal against its own HEAD: a qualification runner sets
+    // H2A_TEST_EXPECTED_SHA at job env and it wins over this controlled
+    // GITHUB_SHA below (m17-ci-evidence.mjs), binding the release SHA here.
+    delete env.NODE_TEST_CONTEXT;delete env.MH_L6_CASE;delete env.H2A_TEST_EXPECTED_SHA;
     const partial=run(process.execPath,['scripts/ci-bulk-proof.mjs'],{...env,MH_L6_CASE:'one'});
     assert.notEqual(partial.status,0);assert.equal(fs.existsSync(output),false);
     const result=run(process.execPath,['scripts/ci-bulk-proof.mjs'],env);
