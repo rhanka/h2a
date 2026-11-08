@@ -5,11 +5,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
-import { ensureHistoricalGitRef, IDENTITY_BASE_REF, LEGACY_HOST_REF } from "../../../scripts/historical-test-ref.mjs";
+import { ensureHistoricalGitRef, IDENTITY_BASE_REF, LEGACY_HOST_REF, L0_HERITAGE_REF } from "../../../scripts/historical-test-ref.mjs";
 
 test("should pin historical fixture commits with remotely fetchable full object IDs", () => {
   assert.match(LEGACY_HOST_REF, /^[a-f0-9]{40}\^$/);
   assert.match(IDENTITY_BASE_REF, /^[a-f0-9]{40}$/);
+  assert.match(L0_HERITAGE_REF, /^[a-f0-9]{40}$/);
 });
 
 test("should provide a historical parent in a depth-one checkout with a bounded fetch", () => {
