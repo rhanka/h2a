@@ -39,8 +39,10 @@ affirmation plus large que ses preuves.
 - Pas de trailer `Co-Authored-By` ni d'attribution IA dans les commits.
 - Pas de backticks ni de `$(...)` dans un message `git`/`gh` en `-m` : utilise
   `-F fichier`.
-- `.track/` est append-only et à écrivain unique. Écris depuis la racine du
-  dépôt, jamais depuis un worktree concurrent.
+- `.track/` est append-only et à écrivain unique (le conducteur). Les branches
+  de PR et les agents délégués n'écrivent jamais dans `.track/` : ils remontent
+  ce qui doit être enregistré au conducteur, qui écrit le store live depuis la
+  racine et publie le journal sur `main` après les fusions.
 - Chat en français ; code et documentation en anglais.
 - Ne lance pas la CLI `h2a` depuis Bash — utilise les outils MCP.
 - Périmètre strict : ne t'élargis pas en cours de route. Si tu trouves autre
