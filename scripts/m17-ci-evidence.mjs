@@ -18,12 +18,18 @@ export function m17Context(root, env = process.env) {
   assert.equal(env.GITHUB_ACTIONS, 'true', 'M17 imported proof is GitHub-only');
   assert.equal(process.platform, 'linux');
   assert.equal(env.GITHUB_REPOSITORY, 'rhanka/h2a');
-  assert.equal(env.GITHUB_WORKFLOW, 'ci');
+  assert.ok(['ci', 'release'].includes(env.GITHUB_WORKFLOW),
+    'imported companion proofs are sealed and consumed inside the ci and release workflows only');
   assert.match(env.GITHUB_RUN_ID ?? '', /^[1-9]\d*$/);
   assert.match(env.GITHUB_RUN_ATTEMPT ?? '', /^[1-9]\d*$/);
-  assert.match(env.GITHUB_SHA ?? '', /^[a-f0-9]{40}$/);
+  // ci checks out the PR merge commit, so GITHUB_SHA == HEAD. The release
+  // workflow checks out the gated release SHA while GitHub keeps GITHUB_SHA
+  // at the default-branch head on a backfill dispatch, so verify passes the
+  // one resolved SHA through H2A_TEST_EXPECTED_SHA.
+  const expected = env.H2A_TEST_EXPECTED_SHA ?? env.GITHUB_SHA;
+  assert.match(expected ?? '', /^[a-f0-9]{40}$/, 'the expected checkout SHA must be a full object ID');
   const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
-  assert.equal(head, env.GITHUB_SHA, 'proof binds the actual PR merge checkout, not only the branch head');
+  assert.equal(head, expected, 'proof binds the actual gated checkout HEAD, not only a mutable workflow context');
   execFileSync('git', ['diff', '--quiet', 'HEAD', '--'], { cwd: root });
   assert.ok([22, 24].includes(Number(process.versions.node.split('.')[0])));
   return { repository: env.GITHUB_REPOSITORY, workflow: env.GITHUB_WORKFLOW,
