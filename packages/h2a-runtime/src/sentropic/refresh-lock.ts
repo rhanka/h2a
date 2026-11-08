@@ -12,7 +12,8 @@
  * network). A waiter polls for a bounded time; the caller then re-reads the store, so a pair the
  * holder rotated meanwhile is used without any request. A lock older than any refresh can last
  * (discovery + token request, each bounded by the 30 s HTTP timeout) was left by a dead process
- * and is broken; release removes the lock only while it is still ours.
+ * and is broken, one breaker at a time (`<lock>.break`, under which the lock is checked again);
+ * release removes the lock only while it is still ours.
  */
 
 import { randomUUID } from "node:crypto";
@@ -52,14 +53,43 @@ function tryCreate(path: string, owner: string): boolean {
   return true;
 }
 
-/** True when a stale lock was removed (the caller tries again at once). */
-function breakStale(path: string): boolean {
+/** `path` exists and is older than any refresh can last. */
+function isStale(path: string): boolean {
   try {
-    if (Date.now() - statSync(path).mtimeMs <= REFRESH_LOCK_STALE_MS) return false;
+    return Date.now() - statSync(path).mtimeMs > REFRESH_LOCK_STALE_MS;
+  } catch {
+    return false; // gone meanwhile: the next attempt decides
+  }
+}
+
+/**
+ * True when a stale lock was removed (the caller tries again at once).
+ *
+ * Breaking is serialized by `<lock>.break`, created O_EXCL: two waiters that both saw the same
+ * stale lock would otherwise each remove it — the second removing the fresh lock the first had
+ * just taken — and both hold it. Under `.break` the lock is checked again before it is removed,
+ * so a lock broken and taken meanwhile is left to its new holder. A `.break` that is itself
+ * older than the stale age was left by a breaker that died, and is removed.
+ */
+function breakStale(path: string, owner: string): boolean {
+  if (!isStale(path)) return false;
+  const breaker = `${path}.break`;
+  if (!tryCreate(breaker, owner)) {
+    try {
+      if (isStale(breaker)) rmSync(breaker, { force: true });
+    } catch {
+      // removed meanwhile, or not removable: the next attempt decides
+    }
+    return false; // another waiter is breaking it: the next attempt decides
+  }
+  try {
+    if (!isStale(path)) return false; // released, or broken and taken again, meanwhile
     rmSync(path);
     return true;
   } catch {
-    return false; // released or broken meanwhile: the next attempt decides
+    return false;
+  } finally {
+    release(breaker, owner);
   }
 }
 
@@ -82,7 +112,7 @@ export async function withRefreshLock<T>(authPath: string, waitMs: number, fn: (
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   const deadline = performance.now() + waitMs;
   while (!tryCreate(path, owner)) {
-    if (breakStale(path)) continue;
+    if (breakStale(path, owner)) continue;
     if (performance.now() >= deadline) return REFRESH_LOCK_BUSY;
     await new Promise((resolve) => setTimeout(resolve, POLL_MS));
   }
