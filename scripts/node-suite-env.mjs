@@ -12,7 +12,7 @@ import { createRequire } from "node:module";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { ensureHistoricalGitRef, LEGACY_HOST_REF } from "./historical-test-ref.mjs";
+import { ensureHistoricalGitRef, LEGACY_HOST_REF, L0_HERITAGE_REF, IDENTITY_BASE_REF } from "./historical-test-ref.mjs";
 import { SHARD_DIR_ENV } from "./ci-node-shards.mjs";
 
 const LEGACY_HOST_ENTRY = join("packages", "h2a-runtime", "dist", "native-terminal", "process.js");
@@ -161,6 +161,14 @@ export async function setupNodeSuiteEnv(root) {
   // Transpile-only, no typecheck, no install: the same trick as the identity
   // lane's compile(), with the worktree's node_modules symlinked so the
   // legacy host loads the current native bindings (node-pty).
+  // Historical L0 snapshots (heritage audit, published v1 marker reader,
+  // proc classifier) predate the history purge, so a depth-1 release
+  // checkout does not carry them. The per-file helpers also ensure, but the
+  // suite runs files concurrently and git refuses parallel shallow fetches
+  // (shallow.lock contention). Provide them here, once, before any worker
+  // exists — exactly like the legacy host ref below.
+  ensureHistoricalGitRef(root, L0_HERITAGE_REF);
+  ensureHistoricalGitRef(root, IDENTITY_BASE_REF);
   const legacyHost = provisionLegacyHostDir(root);
 
   // Resolve npm's configured cache before HOME isolation, while its prepared

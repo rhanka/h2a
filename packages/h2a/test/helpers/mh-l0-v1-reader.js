@@ -1,11 +1,15 @@
 import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { ensureHistoricalGitRef, IDENTITY_BASE_REF } from '../../../../scripts/historical-test-ref.mjs';
 
 export async function v1Reader(temp) {
-  const source = execFileSync('git', ['show', 'e3fc1a52eb8bc8e5794ced5e17e201e1bcfa99d2:packages/h2a/src/runtime/mcp-central.ts'],
+  // The published marker format reads from the identity base commit: a
+  // depth-1 release checkout does not carry it, so provide it on demand.
+  ensureHistoricalGitRef(resolve(import.meta.dirname, '../../../..'), IDENTITY_BASE_REF);
+  const source = execFileSync('git', ['show', `${IDENTITY_BASE_REF}:packages/h2a/src/runtime/mcp-central.ts`],
     { encoding: 'utf8' });
   const pieces = [
     ['function uid()', '/** Only explicit'],
