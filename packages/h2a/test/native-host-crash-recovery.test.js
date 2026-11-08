@@ -51,6 +51,48 @@ test('incident lab waits for its recorded descendants to exit before deleting th
   assert.equal(existsSync(f.root), false);
 });
 
+test('incident lab tolerates a recorded descendant reaped between its liveness check and its kill', { timeout: 20000 }, async t => {
+  const f = fixture(t);
+  const descendant = join(f.root, 'descendant.mjs'), launcher = join(f.root, 'launcher.mjs');
+  writeFileSync(descendant, 'setInterval(() => {}, 1000);');
+  writeFileSync(launcher, `import {spawn} from 'node:child_process';spawn(process.execPath,[${JSON.stringify(descendant)}],{detached:true,stdio:'ignore'}).unref();`);
+  assert.equal((await f.start([], launcher).done).code, 0);
+  const record = await eventually(() => f.recorded().find(row => row.args[1] === descendant), Boolean);
+  const gone = () => {
+    try { const state = readFileSync(`/proc/${record.pid}/stat`, 'utf8').split(') ')[1].split(' ')[0];
+      return ['Z', 'X'].includes(state);
+    } catch (error) { if (error.code === 'ENOENT') return true; throw error; }
+  };
+  // The parked wait blocks only this thread, so the victim's exit -- and its
+  // reap, which never depends on this event loop: the launcher already
+  // exited and handed the victim to init -- can finish while dispose's
+  // synchronous kill wave sits inside the intercepted process.kill call.
+  const park = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  const real = process.kill.bind(process);
+  let thrown = false;
+  const mock = t.mock.method(process, 'kill', (pid, signal) => {
+    if (pid !== record.pid || signal !== 'SIGKILL') return real(pid, signal);
+    // The row was live at the dead() read; finish the raced reap before the
+    // wave's own signal can land, then surface what kill(2) reports for a
+    // process whose reap has already completed: ESRCH.
+    real(pid, 'SIGKILL');
+    const deadline = performance.now() + 5000;
+    while (!gone() && performance.now() < deadline) park(5);
+    const error = new Error('kill ESRCH');
+    error.code = 'ESRCH';
+    thrown = true;
+    throw error;
+  });
+  try {
+    await f.dispose();
+  } finally {
+    mock.mock.restore();
+  }
+  assert.equal(thrown, true, 'the raced reap must have been exercised');
+  assert.equal(gone(), true, 'the recorded descendant must not outlive its fixture');
+  assert.equal(existsSync(f.root), false);
+});
+
 test('crash-recovery: contended registry creation keeps the host responsive without spawning an unrecorded PTY', { timeout: 10000 }, async t => {
   const f = fixture(t); f.save([]);
   f.start(['--socket', f.env.H2A_NATIVE_SOCKET, '--registry-path', f.registry], hostEntry);

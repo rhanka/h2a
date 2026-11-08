@@ -10,6 +10,22 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# Runner image pin (2026-11-07): GitHub flipped ubuntu-latest to ubuntu-26.04
+# (systemd >= 258, image 20261101.186) between 2026-11-05 19:52Z and
+# 2026-11-07 03:14Z. The m17/bulk producers are wall-clock budgeted and their
+# margin grazed the 1350s backstop (scripts/ci-m17-proof.mjs) all week on
+# BOTH images (m17 job walls 1307-1394s on main; it fired once on this
+# branch, check run 42402699112, cascading 12 red gates). main itself stayed
+# green on 26.04, so this pin buys release determinism, not a fix.
+# TODO(migrate-26.04): re-budget the m17/bulk producers and re-qualify
+# owner-lab for the 26.04 image (systemd 258 user-bus transport, oomd
+# defaults), then move these runs-on (and the build-and-test label→image
+# mapping) back to ubuntu-latest while it is still offered. The required
+# branch-protection contexts (build-and-test (ubuntu-latest, 22/24)) are
+# renamed BY THE OWNER when migrating, never unilaterally by a PR —
+# the matrix label IS the check name.
+# Track: 01M6VTPX93E083FX480N9MF5FY.
+
 # Exact Node pins for the proof-bound jobs (m17/bulk producers and their
 # consumers): the M17/bulk companion proofs bind the exact node version, and
 # floating "22"/"24" tags resolve per-runner from preinstall caches
@@ -24,7 +40,7 @@ jobs:
   security-debt:
     # The owner parked cross-platform CI coverage separately (01KYJ3Q3V5AW9YR0QMXSGW93RE).
     # This dependency-tree audit gate is deliberately Linux-only.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
@@ -41,7 +57,7 @@ jobs:
     # tracked *.py file or python/pip invocation outside the explicit
     # owner-approved allowlist (scripts/no-python-allowlist.txt — currently
     # only the Dockerfile node-pty toolchain line, pending owner decision).
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
@@ -68,7 +84,7 @@ jobs:
     # manufactures assurance: this job exercises CODEX only, on throwaway roots, on
     # Linux. It does not exercise Claude, it does not exercise any real installation,
     # and it is not a substitute for the owner's UAT.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -119,7 +135,7 @@ jobs:
   # Same source and full M17 case, on its own runner. An artifact is published
   # only after reconciliation, owned-process exit and real volume cleanup.
   m17-qualification:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     strategy:
       fail-fast: false
@@ -158,7 +174,7 @@ jobs:
           retention-days: 7
 
   bulk-qualification:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     strategy:
       fail-fast: false
@@ -202,7 +218,7 @@ jobs:
     # Same fail-closed contract as the other producers: run and FAIL when a
     # producer fails/cancels; dependency status is never itself a pass.
     if: ${{ always() }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Expected wall: ~1-2 min setup (checkout, npm ci, build) plus the slowest
     # shard (~2-4 min of suite time). Generous headroom for slow runners, still
     # well under the 21-minute sequential test step this sharding replaces.
@@ -274,8 +290,12 @@ jobs:
     needs: [m17-qualification, bulk-qualification, node-shard]
     # A skipped required check can satisfy branch protection. Run and FAIL when
     # a producer fails/cancels; dependency status is never itself a pass.
+    # Runner image pin: the matrix label stays ubuntu-latest because it IS the
+    # required check name « build-and-test (ubuntu-latest, 22|24) » of main's
+    # branch protection; the 24.04 image is pinned here by the mapping —
+    # TODO(migrate-26.04), Track: 01M6VTPX93E083FX480N9MF5FY.
     if: ${{ always() }}
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.os == 'ubuntu-latest' && 'ubuntu-24.04' || matrix.os }}
     # Measured 2026-10-17: 15m06s on main, including ~13m npm test.
     # 2026-10-18 lane growth (mh-l6/registry suites): 21-23m completions,
     # four 25m14s timeout kills in eight executions. 2026-11-03 the Node
@@ -307,6 +327,8 @@ jobs:
         #
         # What this stops proving: that the code works on macOS or Windows at all.
         # `smoke-install` still exercises the PUBLISHED package on all three after release.
+        # The label MUST stay ubuntu-latest: it is part of the branch-protection
+        # check name; the 24.04 image is pinned by the mapped runs-on.
         os: [ubuntu-latest]
         # Owner decision 2026-10-12: minimum Node 22; qualify 22 and 24.
         node: ["22", "24"]
@@ -447,7 +469,7 @@ jobs:
     name: npm-test-trust-root
     needs: [m17-qualification, bulk-qualification]
     if: ${{ always() }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Same complete entrypoint; 13m39s observed on main, 22m54s on the
     # 0.98.8 lane. See docs/ci-job-budget.md.
     timeout-minutes: 35
