@@ -111,9 +111,15 @@ fails or is cancelled, so a skipped dependency cannot manufacture a green check.
 The trust root still runs its direct wiring guard outside the production runner.
 
 Required check names remain **build-and-test (ubuntu-latest, 22)**,
-**build-and-test (ubuntu-latest, 24)**, and **npm-test-trust-root**. Two additional
+**build-and-test (ubuntu-latest, 24)**, and **npm-test-trust-root**. The
+2026-11-07 runner pin keeps the ci matrix label ubuntu-latest — the label is
+the check name branch protection requires — and pins the image by mapping
+runs-on ubuntu-latest to the ubuntu-24.04 runner (TODO(migrate-26.04), Track:
+01M6VTPX93E083FX480N9MF5FY); no branch-protection change is required. The
+branch-protection contexts must be renamed by the owner when migrating to
+the 26.04 image. Two additional
 **m17-qualification (22/24)** jobs are mandatory through those fail-closed
-consumers; no branch-protection change is required. There are two actual M17
+consumers. There are two actual M17
 campaigns per PR: the Node 22 result is shared by two consumers. This proves
 the same test on the same code, but no longer measures M17 under contention
 from other suites or on the same machine as those suites. Run provenance is

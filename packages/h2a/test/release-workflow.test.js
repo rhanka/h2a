@@ -54,7 +54,7 @@ test("R8.1: verify keeps the Node 22+24 matrix — both legs EFFECTIVE", () => {
   const verify = job("verify");
   const matrix = verify.strategy?.matrix;
   assert.deepEqual(matrix?.node, ["22", "24"], "the matrix is pinned by the spec; dropping a leg narrows what a green proves");
-  assert.deepEqual(matrix?.os, ["ubuntu-latest"]);
+  assert.deepEqual(matrix?.os, ["ubuntu-latest"]); // the label stays ubuntu-latest (stable leg/check names and plan); the runner image is pinned by the mapped runs-on — TODO(migrate-26.04), Track: 01M6VTPX93E083FX480N9MF5FY
   // Round-5 review finding H02: adding `exclude: [{node: "22"}]` kept this
   // test green — matrix.node still listed both legs — while GitHub Actions
   // ran Node 24 ONLY. A pinned list is not a pinned matrix: what the runner
@@ -678,6 +678,19 @@ test("no publication path bypasses verify: publish needs verify and nothing else
       assert.equal(job_.with.ref, "${{ needs.resolve-release-sha.outputs.release-sha }}");
       assert.equal(job_.if, undefined);
       assert.ok(needsJob(job("verify"), id), "verify must wait for the incident qualification");
+      continue; // Qualification precedes verify; it cannot publish.
+    }
+    if (id === "node-qualification") {
+      // Same fail-closed contract as native-recovery: the Node
+      // qualification producers (M17 campaign, bulk lane, node shards) run
+      // against the resolved release SHA BEFORE verify, and verify imports
+      // their same-run proofs instead of re-executing campaigns that cannot
+      // fit the tests budget. The reusable workflow never publishes.
+      assert.equal(job_.uses, "./.github/workflows/node-qualification.yml");
+      assert.equal(job_.needs, "resolve-release-sha");
+      assert.equal(job_.with["release-sha"], "${{ needs.resolve-release-sha.outputs.release-sha }}");
+      assert.equal(job_.if, undefined);
+      assert.ok(needsJob(job("verify"), id), "verify must wait for the node qualification producers");
       continue; // Qualification precedes verify; it cannot publish.
     }
     assert.ok(
