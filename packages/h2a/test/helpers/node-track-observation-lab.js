@@ -49,6 +49,11 @@ const fault = ${JSON.stringify(nodeBucketFault ?? null)};
 const observed=[], reports=new Set();
 cp.spawnSync=(command,args,options)=>{
   if (args.join(' ') === 'config get cache') return {status:0, stdout:resolve(root,'prepared-cache')+'\\n'};
+  // The entry's setup probes historical fixture refs with plain git
+  // cat-file (node-suite-env pre-ensure) before any suite is launched;
+  // the lab models a checkout that already carries those refs, so these
+  // probes pass through without a verdict, like the npm cache probe above.
+  if (command === 'git' && args[0] === 'cat-file') return {status:0};
   ${preparedNpmCache ? `if(options.env.npm_config_cache!==resolve(root,'prepared-cache')) throw Error('Prepared npm cache lost during HOME isolation: '+options.env.npm_config_cache);
   if(!options.env.HOME.startsWith(resolve(root,'tmp/test-runtime'))) throw Error('Test HOME must remain isolated');` : ''}
   if (typeof args[0] === 'string' && args[0].endsWith('prepare-mh-test-fixtures.mjs')) {
