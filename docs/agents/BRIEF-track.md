@@ -25,7 +25,7 @@ su, et que tu n'as pas à redécouvrir.
 - Sept constats d'UAT ont été fermés en deux passes. Le dernier, le plus dur : FAIT s'écrit PAR LA FINALITÉ — la capacité atteinte, ce qu'elle ferme — et non par l'énumération des livrables. Les chiffres illustrent, ils ne structurent pas.
 - `done` et `cancelled` sont TERMINAUX. L'owner a tranché le 2026-07-29 qu'un item clos sans validation humaine doit pouvoir être rouvert. Décision enregistrée, non implémentée. C'est ton chantier le plus structurant : sans elle le journal ne peut pas dire qu'une capacité livrée est cassée.
 - La numérotation des WP compte les conteneurs annulés, et un code assigné n'est jamais libéré. Item ouvert.
-- Le journal a forké DEUX FOIS sur l'arbre de l'owner, au même point, parce qu'une réconciliation avait réparé main sans resynchroniser le local. Après tout merge de `.track`, resynchronise l'arbre de l'owner.
+- Le journal a forké DEUX FOIS sur l'arbre de l'owner, au même point, parce qu'une réconciliation avait réparé main sans resynchroniser le local. Les branches de PR n'écrivent plus `.track` : le conducteur est l'écrivain unique du store live à la racine et publie le journal sur `main` après les fusions.
 
 ## Ta première action
 
@@ -33,6 +33,8 @@ La réouverture d'un item clos sans validation : la décision est prise, elle at
 
 ## Comment tu rends compte
 
-Tu écris dans le journal via le CLI `track`, depuis la racine du dépôt. Tu ne
-déclares jamais `done` sans l'UAT de l'owner. Quand tu trouves un défaut hors
-de ton périmètre, tu le traces et tu continues ta lane — tu ne t'élargis pas.
+Tu n'écris pas dans `.track` sur ta branche : tu remontes au conducteur ce qui
+doit être enregistré dans Track (le conducteur est l'écrivain unique du store
+live et publie le journal sur `main` après les fusions). Tu ne déclares jamais
+`done` sans l'UAT de l'owner. Quand tu trouves un défaut hors de ton périmètre,
+tu le signales pour traçage et tu continues ta lane — tu ne t'élargis pas.

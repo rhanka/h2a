@@ -149,8 +149,9 @@ Then, verbatim:
 >   its local `main` has diverged from `origin/main`.
 > - `--workspace` only bites on `item new`, `decision new`, `ingest`. On verbs taking an
 >   `itemId` it is accepted, exits 0, and is ignored. Never call `track workspace-id` here.
-> - `.track/` is append-only and single-writer: write from the repo root, never from a
->   concurrent worktree.
+> - `.track/` is append-only and single-writer (the conductor): PR branches and delegated
+>   agents never write or commit `.track/`. Report what to record; the conductor writes the
+>   live store at the repo root and publishes the journal to `main` after merges.
 > - Never invoke the `h2a` CLI from a shell; a PreToolUse hook blocks it. Use the MCP tools.
 > - **Do not widen the scope.** If you find another defect, report it and continue; do not
 >   fix it.
