@@ -43,8 +43,18 @@ An expired session (no refresh token, or a refused refresh) prints
   workspace; the bound id travels with it anyway when there is one.
 - The server re-checks at every call. When the account lost the bound workspace since the bind
   (revoked membership, lower role), the call is refused (`access_denied`, or no publish tool
-  listed for it) and the client says so, inviting to run `h2a sentropic workspaces` and bind
-  again.
+  listed for it) and the client says so, inviting to run `h2a sentropic workspaces`, then to bind
+  another workspace or `h2a sentropic unbind`.
+- Train 1b checks membership at authentication: a removed member gets a 403 `access_denied` on
+  the bound `workspaceRef` itself, `tools/list` included. `workspaces` then reads the listing
+  again without that `workspaceRef` (`workspaces_list` binds no workspace) and warns that the
+  workspace bound here is no longer accessible (`staleBinding: true` in `--json`): bind another
+  one, or `h2a sentropic unbind`.
+- Without a `workspaceRef`, `tools/list` binds the account's default workspace (its most recent
+  membership). An account with none gets a 403 `access_denied` there: the client says the
+  resource server finds no workspace for this account (join one, or bind one), not to log in
+  again. A 403 `access_denied` on `workspaces_list` still means the credential is refused, and
+  asks for a new login.
 - A binding made by another account or in another tenant than the logged-in token is refused on
   the publish path (`tools`), with a request to bind again; `status` and `workspaces` show it as
   a warning.
@@ -80,7 +90,10 @@ configured: the client is public (`token_endpoint_auth_method=none`).
   across the refresh HTTP calls so two h2a processes never present the same refresh token (the AS
   treats a second presentation as reuse and revokes the whole family). A waiter waits up to 45 s,
   then re-reads the store: the pair the holder rotated is used as is; otherwise it refuses without
-  presenting anything. A lock older than 120 s was left by a dead process and is broken.
+  presenting anything. A lock older than 120 s was left by a dead process and is broken, one
+  breaker at a time: the breaker holds `h2a-auth.json.refresh.lock.break` (O_EXCL) and checks the
+  lock again under it before removing it, so two waiters that saw the same stale lock never both
+  end up holding it. A `.break` older than 120 s was left by a breaker that died and is removed.
 - **Bindings**: `~/.sentropic/h2a-bindings/<sha256(server, ws)>.json`, one 0600 file per
   (server, local workspace) in a 0700 directory. The local workspace is its durable git identity
   `ws:<sha256>` (same rule as track). The binding is a local routing choice; the resource server
@@ -110,8 +123,9 @@ configured: the client is public (`token_endpoint_auth_method=none`).
   anyway is checked: `iss`, `aud`, `azp`, `exp`, `sub` and the login's `nonce` (signature not
   verified: OIDC Core §3.1.3.7, TLS to the token endpoint). PKCE S256, `state` and `iss` are the
   defenses of the code flow (RFC 9700 §2.1.1, §4.5.3).
-- Refresh rotates the pair under the refresh lock; a refused refresh (`invalid_grant`: revoked,
-  expired, reuse detected) drops the dead pair and asks for a login.
+- Refresh rotates the pair under the refresh lock and sends the `resource` again (the AS refuses
+  one that is not the resource the grant was sealed with); a refused refresh (`invalid_grant`:
+  revoked, expired, reuse detected) drops the dead pair and asks for a login.
 - The browser is opened without a shell: `rundll32.exe url.dll,FileProtocolHandler <url>` on
   Windows (from `%SystemRoot%\System32`), `open` on macOS, `xdg-open` elsewhere, the URL as one
   argument; only an https URL (http on loopback) is handed to an opener. `cmd /c start` is never
