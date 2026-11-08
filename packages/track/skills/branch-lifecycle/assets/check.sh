@@ -7,12 +7,10 @@
 #
 # The predicate is CONTAINMENT, never "squash vs merge-commit":
 #     events(post-merge real) ⊇ events(branch)
-# Recommendation: feature PR branches do not write `.track` (the conductor is the single writer and
-# publishes `.track` to `main` after merges); merge `.track` publication/recovery PRs with a MERGE COMMIT
-# (two real parents) so this check operates on the actual merge — but the gate is containment, NOT "is it
-# a merge commit" (that proxy both misses real losses and blocks harmless squashes). The check fails closed
-# on any candidate it cannot evaluate, so a lossy or conflicting merge is blocked regardless of the merge
-# driver.
+# Recommendation: merge PRs that touch `.track` with a MERGE COMMIT (two real parents) so this check
+# operates on the actual merge — but the gate is containment, NOT "is it a merge commit" (that proxy both
+# misses real losses and blocks harmless squashes). The check fails closed on any candidate it cannot
+# evaluate, so a lossy or conflicting merge is blocked regardless of the merge driver.
 #
 # Env (all optional):
 #   BASE_REF   integration target            (default: origin/main)
