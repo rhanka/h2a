@@ -276,3 +276,12 @@ Après lecture, l'owner tranche :
 3. Pendant ce passage, as-tu rencontré un comportement que la recette ne t'avait pas annoncé ?
 
 Sans cette réponse owner, aucun vert du script ou de la CI ne vaut `done`.
+
+## Convergence automatique après upgrade (`autoRepairHostInstallations`)
+
+Après une mise à jour globale (`npm i -g @sentropic/h2a@<version>`), l'owner n'a plus besoin de lancer `h2a doctor --repair` à la main :
+
+- **Déclencheur runtime (plutôt que `postinstall` npm)** : `npm i -g` s'exécute fréquemment sous `--ignore-scripts`, avec un `HOME` root/isolé ou sans les CLIs hôtes (`claude`, `codex`) dans le `PATH`. La vérification est donc exécutée au démarrage MCP (`h2a mcp-serve` et le shim `h2a registry-bridge serve` / `runCentralShim`) sous le vrai `HOME` et `PATH` de l'opérateur.
+- **Idempotence, verrou et borne de temps** : `detectHostVersionDrift` vérifie par lecture synchrone si une installation hôte existante (`claude`, `codex`, `vibe`, `muse`, `agy`) diffère de la version CLI courante. En cas d'écart, `autoRepairHostInstallations` acquiert `<root>/.host-auto-repair.lock`, exécute une seule fois la routine de `doctor --repair` avec un budget borné (`15 000 ms` par défaut), et journalise le résultat dans `<root>/host-auto-repair.json` et `<root>/host-auto-repair.jsonl`.
+- **Non-bloquant** : un échec ou timeout de réparation ne bloque jamais le démarrage du serveur MCP ; l'échec est remonté dans `warnings[]` (`check: "hostAutoRepair"`) par `h2a doctor`.
+- **Exception PreToolUse** : le hook `packages/h2a/hooks/deny-manual-h2a-cli.mjs` autorise uniquement `h2a doctor` (avec ses flags, redirections et pipes de filtrage sûrs) depuis Bash et continue de bloquer toute autre sous-commande `h2a`.

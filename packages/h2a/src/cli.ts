@@ -95,6 +95,11 @@ import { assertNativePath, atomicNativeWrite, digest as nativeDigest, snapshot a
 import { clearVibeDirectRemoved, editVibeMcpServers, setVibeDirectRemoved, VIBE_MCP_NAME, type VibeMcpEntry } from "./hosts/vibe-mcp.js";
 import { convergeAfterExplicitUpgrade } from "./hosts/upgrade-equipment.js";
 import { captureHostOperatorNotices } from "./hosts/operator-notices.js";
+import {
+  applyHostAutoRepairDoctorStatus,
+  autoRepairHostInstallations,
+  type AutoRepairHostInstallationsOptions
+} from "./hosts/auto-repair.js";
 
 import {
   H2A_ATTESTER_COMPREHENSION_RIGHT,
@@ -2371,6 +2376,7 @@ export async function runMcpServe(
     expectedInstance?: string;
     centralAttachment?: boolean;
     runExecutor?: H2aRunExecutor;
+    autoRepair?: AutoRepairHostInstallationsOptions | false;
   } = {
     stdin: process.stdin,
     stdout: process.stdout,
@@ -2414,6 +2420,20 @@ export async function runMcpServe(
       return 1;
     }
     readiness = { file: readyFile, nonce: readyNonce };
+  }
+
+  if (io.autoRepair !== false && !io.centralAttachment) {
+    try {
+      await autoRepairHostInstallations(
+        io.autoRepair ?? {
+          root,
+          cwd: cwd(),
+          env: readinessEnv
+        }
+      );
+    } catch {
+      // best-effort: post-upgrade host convergence must never block MCP startup.
+    }
   }
 
   // DEC-107/108 (EVO-8 levels 2/3): version handling at boot. **Opt-in** — no
@@ -6617,6 +6637,8 @@ function cmdDoctor(
     report.pruned = pruned;
   }
 
+  applyHostAutoRepairDoctorStatus(root, flags, report, warnings);
+
   streams.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   return report.ok ? 0 : 2;
 }
@@ -7492,7 +7514,7 @@ function collectInstallableSkills(): SkillCollection {
   return { skills, sources };
 }
 
-function nativeHostReport(host: string, flags: Record<string, string>, repair: boolean, explicitInstall = false, root?: string, cwd?: string) {
+export function nativeHostReport(host: string, flags: Record<string, string>, repair: boolean, explicitInstall = false, root?: string, cwd?: string) {
   const collection = collectInstallableSkills();
   if (collection.error) throw new Error(collection.error.message);
   return convergeNativeHost({ host, root, cwd, version: currentCliVersion(), skills: collection.skills, renderGemini: renderSkillAsGeminiToml,
