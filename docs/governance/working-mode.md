@@ -17,6 +17,7 @@ haute-coordination — celui-ci est pour le travail multi-gros-repo fortement co
 - **Branches en vol : jusqu'à 12 (voire 24) par repo** — beaucoup de travail parallèle, peu de PR mûres à la fois. (≤ 12 builders codex simultanés/repo ; ≤ 24 sur les 3 repos.)
 - À chaque merge de PR : **rebase la branche sur origin/main puis `git merge`** (merge-commit). Jamais `--rebase`/`--squash` sur une release (réécrit les SHA).
 - `.track` committé depuis la RACINE sur une branche dédiée (jamais depuis une feature).
+- **PR branches do not write `.track`; the conductor is the single writer and publishes the journal to `main` after merges** (owner, 2026-11-07).
 
 ## Contrôle des conteneurs / environnements
 - **≤ 3 environnements docker/compose UP par repo simultanément** (unité de compte : un *projet compose* unique par repo). Avant d'en lancer un 4ᵉ, le conducteur STOPPE le plus ancien / le plus idle du repo.
