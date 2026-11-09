@@ -6668,9 +6668,23 @@ function cmdDoctor(
   }
 
   // (b) splitBrain: a repo-local .h2a exists alongside a DIFFERENT active root
+  function isRepoLocalBus(dir: string): boolean {
+    if (!existsSync(dir)) return false;
+    if (existsSync(join(dir, ".h2a-schema.json"))) return true;
+    try {
+      const entries = readdirSync(dir);
+      // A directory containing only git-tracked evaluation logs (`runs/`)
+      // without `.h2a-schema.json` or any store subdir is not an h2a bus.
+      if (entries.length === 1 && entries[0] === "runs") return false;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   const cwdLocal = join(cwd(), ".h2a");
   try {
-    if (existsSync(cwdLocal)) {
+    if (isRepoLocalBus(cwdLocal)) {
       const resolvedLocal = realpathSync(cwdLocal);
       const resolvedRoot = (() => {
         try { return realpathSync(root); } catch { return root; }
