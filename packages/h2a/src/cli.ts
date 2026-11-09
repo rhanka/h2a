@@ -45,17 +45,19 @@ import {
   chmodSync,
   copyFileSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   readdirSync,
   realpathSync,
   readFileSync,
+  renameSync,
   rmSync,
   statSync,
   unlinkSync,
   writeFileSync
 } from "node:fs";
-import { homedir, hostname } from "node:os";
-import { dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
+import { homedir, hostname, tmpdir } from "node:os";
+import { basename, dirname, isAbsolute, join, relative, resolve as resolvePath } from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
@@ -413,6 +415,7 @@ export interface H2ACliOptions {
   readonly doctorHostInstallations?: (
     options: HostInstallationDoctorOptions
   ) => HostInstallationDoctorReport;
+  readonly home?: string;
 }
 
 const CLI_HOSTS = [
@@ -520,7 +523,7 @@ export function renderCliHelp(): string {
     "  h2a conductor [--workspace <id|path>] [--root <path>]   (who is the live conductor/owner of a workspace — derived from presence; conductor=role CONDUCTOR if set, else null; candidates=in-workspace live agents)",
     "  h2a conductor-launch-check [--workspace <id|path>] [--root <path>] [--idle-ms <ms>]   (DRY-RUN: polls track workspace-activity; recommends launching a conductor if work is stalled and none is live — h2a does NOT spawn; launch parked pending spawn policy + remote)",
     "  h2a conductor-launch --workspace <id|path> [--root <path>] [--idle-ms <ms>] [--confirm] [--remote <instance>] [--instance <self>]   (D3 EMIT: if stalled+no conductor, emits a launch-REQUEST envelope to a live remote agent — gated by --confirm + 1/30min/workspace cap; h2a NEVER spawns; remote does the actual spawn)",
-    "  h2a doctor [--root <path>] [--scan <dir>] [--prune] [--repair] [--dry-run] [--host <name>] [--skip-hosts] [--guard on|off] [--lifecycle on|off] [--workspace-scope on|off]   (--repair converges detected host components; --repair --dry-run reports host findings/actions without changing them; --prune deletes host-less/phantom/orphan inbox dirs + stray buses; dry-run by default)",
+    "  h2a doctor [--root <path>] [--scan <dir>] [--prune] [--repair] [--dry-run] [--host <name>] [--skip-hosts] [--guard on|off] [--lifecycle on|off] [--workspace-scope on|off]   (--repair converges detected host components and moves legacy ~/.sentropic account files, inactive repo-local .h2a split-brain buses, and empty/stale host-less inbox dirs into <root>/.quarantine/doctor-<ts>/ (0700 + manifest.json); --repair --dry-run reports host findings/actions without changing them; --prune deletes host-less/phantom/orphan inbox dirs + stray buses; dry-run by default)",
     "  h2a keepalive [--root <path>] [--interval <ms>] [--once]   (external keepalive prober — refreshes presence for agents whose tmux pane is still alive)",
     "  h2a rename --instance <id> --name <name> [--root <path>]   (set a live session's display name so peers can find it via discover --name)",
     "  h2a status [--root <path>] [--scope <s>] [--instance <i>]",
@@ -6262,16 +6265,183 @@ function cmdDoctor(
     };
   }
 
+  const isRepair = flags.repair === "true" && flags["dry-run"] !== "true";
+  const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
+  const nowMs = Date.now();
+  const effectiveHome =
+    options.home ??
+    (options.doctorHostInstallations &&
+    process.env.HOME &&
+    !process.env.HOME.startsWith(tmpdir())
+      ? cwd()
+      : process.env.HOME ?? homedir());
+
+  interface QuarantineManifestItem {
+    path: string;
+    sourcePath: string;
+    quarantinePath: string;
+    size: number;
+    mtime: string;
+    mtimeMs: number;
+  }
+
+  let quarantineRunDir: string | undefined;
+  const quarantineItems: QuarantineManifestItem[] = [];
+
+  function ensureQuarantineDir(): string {
+    if (quarantineRunDir) return quarantineRunDir;
+    const ts = new Date(nowMs).toISOString().replace(/[:.]/g, "-");
+    const baseDir = join(root, ".quarantine");
+    mkdirSync(baseDir, { recursive: true, mode: 0o700 });
+    try {
+      chmodSync(baseDir, 0o700);
+    } catch {
+      // ignore if filesystem does not support chmod
+    }
+    let candidate = join(baseDir, `doctor-${ts}`);
+    let suffix = 1;
+    while (existsSync(candidate)) {
+      candidate = join(baseDir, `doctor-${ts}-${suffix++}`);
+    }
+    mkdirSync(candidate, { recursive: true, mode: 0o700 });
+    try {
+      chmodSync(candidate, 0o700);
+    } catch {
+      // ignore if filesystem does not support chmod
+    }
+    quarantineRunDir = candidate;
+    return candidate;
+  }
+
+  function collectMetadataRecursive(
+    srcPath: string,
+    dstPath: string
+  ): QuarantineManifestItem[] {
+    const items: QuarantineManifestItem[] = [];
+    const st = lstatSync(srcPath);
+    if (st.isDirectory()) {
+      let entries: string[] = [];
+      try {
+        entries = readdirSync(srcPath);
+      } catch {
+        entries = [];
+      }
+      if (entries.length === 0) {
+        items.push({
+          path: srcPath,
+          sourcePath: srcPath,
+          quarantinePath: dstPath,
+          size: st.size,
+          mtime: st.mtime.toISOString(),
+          mtimeMs: st.mtimeMs
+        });
+      } else {
+        for (const entry of entries) {
+          items.push(...collectMetadataRecursive(join(srcPath, entry), join(dstPath, entry)));
+        }
+      }
+    } else {
+      items.push({
+        path: srcPath,
+        sourcePath: srcPath,
+        quarantinePath: dstPath,
+        size: st.size,
+        mtime: st.mtime.toISOString(),
+        mtimeMs: st.mtimeMs
+      });
+    }
+    return items;
+  }
+
+  function flushQuarantineManifest(): string | undefined {
+    if (!quarantineRunDir) return undefined;
+    const manifestPath = join(quarantineRunDir, "manifest.json");
+    const payload = {
+      schemaVersion: 1,
+      createdAt: new Date(nowMs).toISOString(),
+      root,
+      quarantineDir: quarantineRunDir,
+      items: quarantineItems
+    };
+    writeFileSync(manifestPath, `${JSON.stringify(payload, null, 2)}\n`, {
+      encoding: "utf8",
+      mode: 0o600
+    });
+    return manifestPath;
+  }
+
+  function movePathToQuarantine(srcPath: string, relTarget: string): string {
+    const qDir = ensureQuarantineDir();
+    const dstPath = join(qDir, relTarget);
+    const parentDir = dirname(dstPath);
+    mkdirSync(parentDir, { recursive: true, mode: 0o700 });
+    const meta = collectMetadataRecursive(srcPath, dstPath);
+    renameSync(srcPath, dstPath);
+    quarantineItems.push(...meta);
+    flushQuarantineManifest();
+    return dstPath;
+  }
+
   // Legacy account-pool files can contain credentials. They are no longer read
-  // by H2A and doctor deliberately performs existence checks only.
-  const legacyAccountArtifacts = inspectLegacyAccountArtifacts();
+  // by H2A and doctor deliberately performs existence checks only (stat + move
+  // under --repair, NEVER opening, reading, printing or copying file contents).
+  const legacyAccountArtifacts = inspectLegacyAccountArtifacts(effectiveHome);
   checks.legacyAccountArtifacts = legacyAccountArtifacts;
   if (legacyAccountArtifacts.found.length > 0) {
-    warnings.push({
-      check: "legacyAccountArtifacts",
-      message: legacyAccountArtifacts.message,
-      paths: legacyAccountArtifacts.found,
-    });
+    if (isRepair) {
+      const moved: Array<{ from: string; to: string }> = [];
+      let quarantineSubdir: string | undefined;
+      let moveError: string | undefined;
+      for (const srcFile of legacyAccountArtifacts.found) {
+        try {
+          const dstFile = movePathToQuarantine(srcFile, join("legacy-accounts", basename(srcFile)));
+          quarantineSubdir = dirname(dstFile);
+          moved.push({ from: srcFile, to: dstFile });
+        } catch (error) {
+          moveError = (error as Error).message;
+          break;
+        }
+      }
+      if (moveError) {
+        report.ok = false;
+        warnings.push({
+          check: "legacyAccountArtifacts",
+          status: "skipped",
+          skipped: true,
+          reason: `cannot quarantine legacy account files: ${moveError}`,
+          message: legacyAccountArtifacts.message,
+          paths: legacyAccountArtifacts.found
+        });
+      } else {
+        const manifestPath = flushQuarantineManifest();
+        checks.legacyAccountArtifacts = {
+          ...legacyAccountArtifacts,
+          found: [],
+          repaired: true,
+          quarantinePath: quarantineSubdir,
+          ...(manifestPath ? { manifestPath } : {}),
+          moved
+        };
+        warnings.push({
+          check: "legacyAccountArtifacts",
+          status: "repaired",
+          repaired: true,
+          quarantinePath: quarantineSubdir,
+          ...(manifestPath ? { manifestPath } : {}),
+          paths: legacyAccountArtifacts.found,
+          moved,
+          message:
+            `Moved ${moved.length} legacy account file(s) to quarantine (${quarantineSubdir}).`
+        });
+      }
+    } else {
+      warnings.push({
+        check: "legacyAccountArtifacts",
+        repairable: true,
+        message: legacyAccountArtifacts.message,
+        paths: legacyAccountArtifacts.found
+      });
+    }
   }
 
   // 5. `doctor` remains the non-mutating bus-health probe used by automation.
@@ -6348,7 +6518,138 @@ function cmdDoctor(
     if (!hosts.every(host => host.ok)) report.ok = false;
   }
 
-  // ── Warning checks (do NOT flip report.ok) ──────────────────────────────
+  // ── Warning checks (do NOT flip report.ok unless --repair skips/refuses a repairable warning) ──
+
+  function checkSplitBrainActivity(busDir: string): { active: boolean; reason?: string } {
+    function findLockFile(dir: string): string | undefined {
+      let entries: string[] = [];
+      try {
+        entries = readdirSync(dir);
+      } catch {
+        return undefined;
+      }
+      for (const name of entries) {
+        if (name === ".quarantine") continue;
+        const full = join(dir, name);
+        let st;
+        try {
+          st = lstatSync(full);
+        } catch {
+          continue;
+        }
+        if (
+          name === ".lock" ||
+          name.endsWith(".lock") ||
+          name.startsWith(".lock.succ-")
+        ) {
+          return full;
+        }
+        if (st.isDirectory()) {
+          const nested = findLockFile(full);
+          if (nested) return nested;
+        }
+      }
+      return undefined;
+    }
+
+    const lockHeld = findLockFile(busDir);
+    if (lockHeld) {
+      return {
+        active: true,
+        reason: `refused: lock held in repo-local bus (${relative(busDir, lockHeld) || basename(lockHeld)})`
+      };
+    }
+
+    try {
+      const localLive = listPresence(busDir, { sweep: false });
+      if (localLive.length > 0) {
+        return {
+          active: true,
+          reason: `refused: ${localLive.length} live presence session(s) in repo-local bus (${localLive.map((s) => s.instance).join(", ")})`
+        };
+      }
+    } catch {
+      return {
+        active: true,
+        reason: "refused: cannot verify presence in repo-local bus"
+      };
+    }
+
+    try {
+      const resolvedBus = realpathSync(busDir);
+      const resolvedRepo = dirname(resolvedBus);
+      const activeLive = listPresence(root, { sweep: false });
+      const pointing = activeLive.filter((s) => {
+        const lcCwd = s.launchContext?.cwd;
+        if (lcCwd) {
+          try {
+            const realLc = realpathSync(lcCwd);
+            if (realLc === resolvedBus || realLc.startsWith(`${resolvedBus}/`)) return true;
+            void resolvedRepo;
+          } catch {
+            // ignore
+          }
+        }
+        return false;
+      });
+      if (pointing.length > 0) {
+        return {
+          active: true,
+          reason: `refused: live presence pointing to repo-local bus (${pointing.map((s) => s.instance).join(", ")})`
+        };
+      }
+    } catch {
+      // ignore
+    }
+
+    let newestMtimeMs = 0;
+    let newestPath = busDir;
+    let fileCount = 0;
+    function scanMtimes(dir: string): void {
+      let entries: string[] = [];
+      try {
+        entries = readdirSync(dir);
+      } catch {
+        return;
+      }
+      for (const name of entries) {
+        if (name === ".quarantine") continue;
+        const full = join(dir, name);
+        let st;
+        try {
+          st = lstatSync(full);
+        } catch {
+          continue;
+        }
+        if (st.isDirectory()) {
+          scanMtimes(full);
+        } else {
+          fileCount++;
+          if (st.mtimeMs > newestMtimeMs) {
+            newestMtimeMs = st.mtimeMs;
+            newestPath = full;
+          }
+        }
+      }
+    }
+    scanMtimes(busDir);
+    if (fileCount === 0) {
+      try {
+        const st = lstatSync(busDir);
+        newestMtimeMs = st.mtimeMs;
+      } catch {
+        // ignore
+      }
+    }
+    if (newestMtimeMs > 0 && nowMs - newestMtimeMs <= TWENTY_FOUR_HOURS_MS) {
+      return {
+        active: true,
+        reason: `refused: file modified within the last 24h (${relative(busDir, newestPath) || basename(newestPath)})`
+      };
+    }
+
+    return { active: false };
+  }
 
   // (a) rootSource: record where the root came from
   const rootInfo = resolveRootInfo(flags, cwd);
@@ -6356,6 +6657,9 @@ function cmdDoctor(
   if (rootInfo.source === "default") {
     warnings.push({
       check: "rootSource",
+      status: "info",
+      info: true,
+      repairable: false,
       message:
         `The bus root is the global shared default (${root}). ` +
         `Set H2A_ROOT or pass --root <path> to use a different bus. ` +
@@ -6372,12 +6676,59 @@ function cmdDoctor(
         try { return realpathSync(root); } catch { return root; }
       })();
       if (resolvedLocal !== resolvedRoot) {
-        warnings.push({
-          check: "splitBrain",
-          message:
-            `A repo-local .h2a (${cwdLocal}) exists alongside a DIFFERENT active root (${root}). ` +
-            `Messages written to the repo-local bus are invisible to peers on ${root} — split-brain.`
-        });
+        if (isRepair) {
+          const activity = checkSplitBrainActivity(cwdLocal);
+          if (activity.active) {
+            report.ok = false;
+            warnings.push({
+              check: "splitBrain",
+              status: "skipped",
+              skipped: true,
+              path: cwdLocal,
+              reason: activity.reason,
+              message:
+                `A repo-local .h2a (${cwdLocal}) exists alongside a DIFFERENT active root (${root}). ` +
+                `Skipped repair: ${activity.reason}.`
+            });
+          } else {
+            try {
+              const quarantinePath = movePathToQuarantine(cwdLocal, join("split-brain", ".h2a"));
+              const manifestPath = flushQuarantineManifest();
+              warnings.push({
+                check: "splitBrain",
+                status: "repaired",
+                repaired: true,
+                path: cwdLocal,
+                quarantinePath,
+                ...(manifestPath ? { manifestPath } : {}),
+                message:
+                  `Moved inactive repo-local split-brain .h2a (${cwdLocal}) to quarantine (${quarantinePath}).`
+              });
+            } catch (error) {
+              report.ok = false;
+              warnings.push({
+                check: "splitBrain",
+                status: "skipped",
+                skipped: true,
+                path: cwdLocal,
+                reason: `cannot quarantine repo-local .h2a: ${(error as Error).message}`,
+                message:
+                  `A repo-local .h2a (${cwdLocal}) exists alongside a DIFFERENT active root (${root}). ` +
+                  `Skipped repair: ${(error as Error).message}.`
+              });
+            }
+          }
+        } else {
+          warnings.push({
+            check: "splitBrain",
+            repairable: true,
+            path: cwdLocal,
+            message:
+              `A repo-local .h2a (${cwdLocal}) exists alongside a DIFFERENT active root (${root}). ` +
+              `Messages written to the repo-local bus are invisible to peers on ${root} — split-brain. ` +
+              `Repairable with \`h2a doctor --repair\`.`
+          });
+        }
       }
     }
   } catch {
@@ -6429,6 +6780,10 @@ function cmdDoctor(
         warnings.push({
           check: "inboxHygiene",
           kind: "caseDuplicates",
+          status: "skipped",
+          skipped: true,
+          repairable: false,
+          reason: "case/slug duplicate inbox directories require manual resolution",
           count: dupGroups.length,
           examples,
           message:
@@ -6438,23 +6793,113 @@ function cmdDoctor(
         });
       }
 
+      const VALID_TAIL_RE = /^[0-9a-f]{12}$/i;
+      let liveRootSessions: ReturnType<typeof listPresence> = [];
+      try {
+        liveRootSessions = listPresence(root, { sweep: false });
+      } catch {
+        liveRootSessions = [];
+      }
+
+      function isReferencedByLivePresence(dirName: string): string | undefined {
+        const addr = dirToAddress(dirName);
+        const segs = dirName.split("__");
+        const tailSeg = segs.length >= 2 ? segs[segs.length - 1].toLowerCase() : "";
+        const hasHexTail = VALID_TAIL_RE.test(tailSeg);
+
+        for (const s of liveRootSessions) {
+          const inst = s.instance;
+          if (
+            safePathSegment(inst) === dirName ||
+            inst === addr ||
+            safePathSegment(s.sessionId) === dirName
+          ) {
+            return inst;
+          }
+          try {
+            if (safePathSegment(canonicalAddress(inst)) === dirName) return inst;
+          } catch {
+            // ignore
+          }
+          if (hasHexTail) {
+            const instParts = inst.split(":");
+            const instTail = instParts[instParts.length - 1]?.toLowerCase();
+            if (instTail === tailSeg) return inst;
+          }
+          if (segs.length === 2 && inst.startsWith(`:${segs[1]}:`)) {
+            return inst;
+          }
+        }
+        return undefined;
+      }
+
+      function checkInboxDirRepairable(dirPath: string, dirName: string): { ok: boolean; reason?: string } {
+        const liveRef = isReferencedByLivePresence(dirName);
+        if (liveRef) {
+          return {
+            ok: false,
+            reason: `referenced by live presence (${liveRef})`
+          };
+        }
+        let entries: string[] = [];
+        try {
+          entries = readdirSync(dirPath);
+        } catch (error) {
+          return {
+            ok: false,
+            reason: `cannot read inbox dir: ${(error as Error).message}`
+          };
+        }
+        if (entries.length === 0) {
+          return { ok: true };
+        }
+        let newestFileMtimeMs = 0;
+        function scanInboxFiles(cur: string): void {
+          for (const e of readdirSync(cur)) {
+            const full = join(cur, e);
+            const st = lstatSync(full);
+            if (st.isDirectory()) {
+              scanInboxFiles(full);
+            } else if (st.mtimeMs > newestFileMtimeMs) {
+              newestFileMtimeMs = st.mtimeMs;
+            }
+          }
+        }
+        try {
+          scanInboxFiles(dirPath);
+        } catch (error) {
+          return {
+            ok: false,
+            reason: `cannot stat inbox dir contents: ${(error as Error).message}`
+          };
+        }
+        if (newestFileMtimeMs > 0 && nowMs - newestFileMtimeMs <= TWENTY_FOUR_HOURS_MS) {
+          return {
+            ok: false,
+            reason: `non-empty inbox dir modified within the last 24h (${dirName})`
+          };
+        }
+        return { ok: true };
+      }
+
       // Host-less dirs: first segment (before first __) is not a known host
       const hostless = inboxEntries.filter((entry) => {
         const firstSeg = entry.split("__")[0];
         return !KNOWN_HOSTS.has(firstSeg);
       });
+      const movedInboxDirs = new Set<string>();
       if (hostless.length > 0) {
         const examples = hostless.slice(0, 5);
-        warnings.push({
-          check: "inboxHygiene",
-          kind: "hostlessDirs",
-          count: hostless.length,
-          examples,
-          message:
-            `${hostless.length} host-less inbox dir(s) (first segment is not ${[...KNOWN_HOSTS].join("/")}). ` +
-            `Examples: ${examples.join(", ")}`
-        });
         if (flags.prune !== undefined) {
+          warnings.push({
+            check: "inboxHygiene",
+            kind: "hostlessDirs",
+            count: hostless.length,
+            examples,
+            message:
+              `${hostless.length} host-less inbox dir(s) (first segment is not ${[...KNOWN_HOSTS].join("/")}). ` +
+              `Examples: ${examples.join(", ")}`
+          });
           for (const name of hostless) {
             const dir = join(inboxDir, name);
             try {
@@ -6464,28 +6909,94 @@ function cmdDoctor(
               streams.stderr.write(`h2a doctor --prune: cannot remove ${dir}: ${(error as Error).message}\n`);
             }
           }
+        } else if (isRepair) {
+          const repairedDirs: Array<{ name: string; quarantinePath: string }> = [];
+          const skippedDirs: Array<{ name: string; reason: string }> = [];
+          let quarantineInboxBase: string | undefined;
+          for (const name of hostless) {
+            const dir = join(inboxDir, name);
+            const check = checkInboxDirRepairable(dir, name);
+            if (!check.ok) {
+              skippedDirs.push({ name, reason: check.reason! });
+              continue;
+            }
+            try {
+              const qPath = movePathToQuarantine(dir, join("inbox", name));
+              quarantineInboxBase = dirname(qPath);
+              repairedDirs.push({ name, quarantinePath: qPath });
+              movedInboxDirs.add(name);
+            } catch (error) {
+              skippedDirs.push({ name, reason: (error as Error).message });
+            }
+          }
+          const manifestPath = flushQuarantineManifest();
+          if (skippedDirs.length === 0) {
+            warnings.push({
+              check: "inboxHygiene",
+              kind: "hostlessDirs",
+              status: "repaired",
+              repaired: true,
+              count: hostless.length,
+              examples,
+              quarantinePath: quarantineInboxBase,
+              ...(manifestPath ? { manifestPath } : {}),
+              repairedDirs,
+              message:
+                `Moved ${repairedDirs.length} host-less inbox dir(s) to quarantine (${quarantineInboxBase}).`
+            });
+          } else {
+            report.ok = false;
+            const reasons = skippedDirs.map((s) => `${s.name}: ${s.reason}`).join("; ");
+            warnings.push({
+              check: "inboxHygiene",
+              kind: "hostlessDirs",
+              status: "skipped",
+              skipped: true,
+              count: hostless.length,
+              examples,
+              reason: reasons,
+              ...(quarantineInboxBase ? { quarantinePath: quarantineInboxBase } : {}),
+              ...(manifestPath ? { manifestPath } : {}),
+              repairedDirs,
+              skippedDirs,
+              message:
+                `Skipped ${skippedDirs.length} host-less inbox dir(s) (${reasons})` +
+                (repairedDirs.length > 0 ? `; moved ${repairedDirs.length} to ${quarantineInboxBase}.` : ".")
+            });
+          }
+        } else {
+          warnings.push({
+            check: "inboxHygiene",
+            kind: "hostlessDirs",
+            repairable: true,
+            count: hostless.length,
+            examples,
+            message:
+              `${hostless.length} host-less inbox dir(s) (first segment is not ${[...KNOWN_HOSTS].join("/")}). ` +
+              `Examples: ${examples.join(", ")}. Repairable with \`h2a doctor --repair\`.`
+          });
         }
       }
 
       // Phantom 3-segment dirs: exactly 3 __ segments but 3rd is not a 12-char hex session id
-      const VALID_TAIL_RE = /^[0-9a-f]{12}$/i;
       const phantom = inboxEntries.filter((entry) => {
+        if (movedInboxDirs.has(entry)) return false;
         const segs = entry.split("__");
         if (segs.length !== 3) return false;
         return !VALID_TAIL_RE.test(segs[2]);
       });
       if (phantom.length > 0) {
         const examples = phantom.slice(0, 5);
-        warnings.push({
-          check: "inboxHygiene",
-          kind: "phantomThreeSegment",
-          count: phantom.length,
-          examples,
-          message:
-            `${phantom.length} phantom 3-segment inbox dir(s) where the tail is not a 12-char hex session id. ` +
-            `Examples: ${examples.join(", ")}`
-        });
         if (flags.prune !== undefined) {
+          warnings.push({
+            check: "inboxHygiene",
+            kind: "phantomThreeSegment",
+            count: phantom.length,
+            examples,
+            message:
+              `${phantom.length} phantom 3-segment inbox dir(s) where the tail is not a 12-char hex session id. ` +
+              `Examples: ${examples.join(", ")}`
+          });
           for (const name of phantom) {
             const dir = join(inboxDir, name);
             try {
@@ -6495,6 +7006,72 @@ function cmdDoctor(
               streams.stderr.write(`h2a doctor --prune: cannot remove ${dir}: ${(error as Error).message}\n`);
             }
           }
+        } else if (isRepair) {
+          const repairedDirs: Array<{ name: string; quarantinePath: string }> = [];
+          const skippedDirs: Array<{ name: string; reason: string }> = [];
+          let quarantineInboxBase: string | undefined;
+          for (const name of phantom) {
+            const dir = join(inboxDir, name);
+            const check = checkInboxDirRepairable(dir, name);
+            if (!check.ok) {
+              skippedDirs.push({ name, reason: check.reason! });
+              continue;
+            }
+            try {
+              const qPath = movePathToQuarantine(dir, join("inbox", name));
+              quarantineInboxBase = dirname(qPath);
+              repairedDirs.push({ name, quarantinePath: qPath });
+              movedInboxDirs.add(name);
+            } catch (error) {
+              skippedDirs.push({ name, reason: (error as Error).message });
+            }
+          }
+          const manifestPath = flushQuarantineManifest();
+          if (skippedDirs.length === 0) {
+            warnings.push({
+              check: "inboxHygiene",
+              kind: "phantomThreeSegment",
+              status: "repaired",
+              repaired: true,
+              count: phantom.length,
+              examples,
+              quarantinePath: quarantineInboxBase,
+              ...(manifestPath ? { manifestPath } : {}),
+              repairedDirs,
+              message:
+                `Moved ${repairedDirs.length} phantom 3-segment inbox dir(s) to quarantine (${quarantineInboxBase}).`
+            });
+          } else {
+            report.ok = false;
+            const reasons = skippedDirs.map((s) => `${s.name}: ${s.reason}`).join("; ");
+            warnings.push({
+              check: "inboxHygiene",
+              kind: "phantomThreeSegment",
+              status: "skipped",
+              skipped: true,
+              count: phantom.length,
+              examples,
+              reason: reasons,
+              ...(quarantineInboxBase ? { quarantinePath: quarantineInboxBase } : {}),
+              ...(manifestPath ? { manifestPath } : {}),
+              repairedDirs,
+              skippedDirs,
+              message:
+                `Skipped ${skippedDirs.length} phantom 3-segment inbox dir(s) (${reasons})` +
+                (repairedDirs.length > 0 ? `; moved ${repairedDirs.length} to ${quarantineInboxBase}.` : ".")
+            });
+          }
+        } else {
+          warnings.push({
+            check: "inboxHygiene",
+            kind: "phantomThreeSegment",
+            repairable: true,
+            count: phantom.length,
+            examples,
+            message:
+              `${phantom.length} phantom 3-segment inbox dir(s) where the tail is not a 12-char hex session id. ` +
+              `Examples: ${examples.join(", ")}. Repairable with \`h2a doctor --repair\`.`
+          });
         }
       }
 
