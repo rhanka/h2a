@@ -59,20 +59,18 @@ selection is persisted with `track decision select <decisionId> <optionId>`.
   data; it must not append to `.track/`.
 - Do not treat missing MCP write/import tools as a blocker. Writes and imports use the `track` CLI from the
   target repository root.
-- Run CLI writes from the target repository root, never from a PR branch or concurrent worktree.
-  `.track/events.jsonl` is append-only and single-writer (the conductor): PR branches do not write
-  `.track/`; delegated agents report what to record, and the conductor writes the live Track store at the
-  repository root and publishes the journal to `main` after merges.
+- Run CLI writes from the target repository root, never from another checkout. `.track/events.jsonl` is
+  append-only and single-writer; do not write or commit it from a concurrent worktree unless the user
+  designated that writer.
 - Never configure `track-mcp` / `h2a track-mcp` as a second host endpoint. Use the host-selected read-only
   endpoint for `track_*` tools and the CLI for local commands.
 
 ## Before a write
 
-1. Confirm the target repository root and `.track/` ownership (conductor single-writer).
+1. Confirm the target repository root and `.track/` ownership.
 2. Confirm that the write represents the named owner-approved fact.
-3. In a PR branch or concurrent worktree, never write or commit `.track/`: report what to record to the
-   conductor (or update the mergeable source artifact), and leave Track writes and publication to `main`
-   to the conductor.
+3. In a concurrent worktree, update the mergeable source artifact instead; leave `.track/` import to its
+   designated writer unless explicitly told otherwise.
 
 ## Direct writes
 
