@@ -49,4 +49,64 @@ describe('versioned evidence contract', () => {
     if (!result.ok) expect(result.issues.some(i => i.code === code && i.path.startsWith('$')),
       JSON.stringify(result.issues)).toBe(true);
   });
+
+  it('A4 & A13: preserves sourceRef, renderComponent and citationRefs on a v2 reference diagram and inputs/completionCriterion on prose/question', () => {
+    const doc = evidenceFixture();
+    const citeId = doc.citations[0].id;
+    doc.sections[0].inputs = [{ ref: 'spec-s0', kind: 'artifact', label: 'Cadrage validé' }];
+    doc.sections[0].completionCriterion = 'Décision tranchée et signée';
+    doc.sections.push({
+      kind: 'diagram',
+      id: 'diag-ref-v2',
+      targetRef: 'diag-ref-v2',
+      alt: 'Architecture des lots',
+      sourceRef: 'engram:diag-lot-map',
+      renderComponent: 'GanttChart',
+      citationRefs: [citeId],
+    });
+    const result = validate(doc);
+    expect(result.ok, JSON.stringify(result)).toBe(true);
+    if (result.ok) {
+      const diag = result.value.sections.find((s: any) => s.id === 'diag-ref-v2') as any;
+      expect(diag.sourceRef).toBe('engram:diag-lot-map');
+      expect(diag.renderComponent).toBe('GanttChart');
+      expect(diag.citationRefs).toEqual([citeId]);
+      expect((result.value.sections[0] as any).inputs).toEqual([{ ref: 'spec-s0', kind: 'artifact', label: 'Cadrage validé' }]);
+      expect((result.value.sections[0] as any).completionCriterion).toBe('Décision tranchée et signée');
+    }
+  });
+
+  it('A3 (v2): refuses inputs or completionCriterion on non-prose/question sections in v2 with unknown_field', () => {
+    for (const kind of ['optionSet', 'outcome', 'diagram'] as const) {
+      const doc = evidenceFixture();
+      if (kind === 'diagram') {
+        doc.sections.push({
+          kind: 'diagram',
+          id: 'diag-bad',
+          targetRef: 'diag-bad',
+          alt: 'Alt',
+          sourceRef: 'engram:diag-lot-map',
+          renderComponent: 'GanttChart',
+          inputs: [{ ref: 'r1', kind: 'artifact', label: 'Bad' }],
+        });
+      } else if (kind === 'outcome') {
+        doc.sections.push({
+          kind: 'outcome',
+          id: 'out-bad',
+          targetRef: 'out-bad',
+          modality: 'decision',
+          statement: 'Decision.',
+          completionCriterion: 'Not allowed here',
+        });
+      } else {
+        const section = doc.sections.find((s: any) => s.kind === kind);
+        section.completionCriterion = 'Not allowed here';
+      }
+      const result = validate(doc);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.issues.some(i => i.code === 'unknown_field')).toBe(true);
+      }
+    }
+  });
 });
