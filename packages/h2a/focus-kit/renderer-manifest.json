@@ -28,7 +28,7 @@
     "../../../scripts/build-focus-dossier.mjs": "9a5d2c712e9e65ce01c48d24b64d4ab4a6d012a81704850ab89fe0f75a65e4f8",
     "../../focus/schemas/decision-dossier-document.v1.schema.json": "f4b5247f025e99081c20fd9a8b0ed98b32a061c4a98597010be0264e5e564c6c",
     "../../focus/src/validation/index.ts": "498f4497b6ace52a461c61fabd4db082d733b6f803307aafb52b27c639b65b3b",
-    "../../focus/src/validation/readability.ts": "b12ccbcbd6c44abde55bac96cbb77f48ea4dd24643aadbbf4f3201b8ca1289be",
+    "../../focus/src/validation/readability.ts": "9ab7aaef574b27c9bfa130859bb56fb4108843497f2a68d2da682d4f54263ebb",
     "../../focus/src/model.ts": "e65c89d719785356478852a51d578a54e723ce0b1ef4cd73effe3678dd592280",
     "../../focus/src/render/presentation.ts": "dddcfef2ba184a4b386a59e2bb8ff300a76a729cf529fee251ceeb8ff3227372",
     "../../focus/LICENSE": "cbed2af93b9617fadad7651b98326b96a789a6059126966459230d89742f6c0d",
@@ -44,6 +44,6 @@
     "src/themes.js": "d11b2016ea27678bfa2a35986389c189147cc86a1bb99de41d3f454e79d50caf"
   },
   "html": "b370a58863e11ce248382a7eaa30c328be0c7fd71835989bb28281c943324785",
-  "validator": "632a01823a937d986cae2319ce1c9bf79a78ee96c0cbe8d93b3f4206094a6509",
+  "validator": "6e21d21cf4db7883e5e0f4cfc97d4171390ffcd8a14467fc18db03088505c602",
   "diagramViews": "7fa19d02e614ecfd86786af0d379917c2386123bcf4930c0b1d6175093123108"
 }
