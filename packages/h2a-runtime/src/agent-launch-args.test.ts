@@ -398,6 +398,45 @@ describe("AGY Claude 5.5 models (opus/sonnet via agy)", () => {
     ).toThrow(/gemini-4-carbon.*low\|medium\|high.*max/i);
   });
 
+  it("preserves embedded effort in gemini-4-carbon-{high,low} and gemini-4-argon-high argv when effort is omitted", () => {
+    expect(
+      buildAgentLaunchArgs({
+        profile: "agy",
+        prompt: "challenge the plan",
+        model: "gemini-4-carbon-high",
+      }),
+    ).toEqual(["--model", "gemini-4-carbon", "--effort", "high"]);
+    expect(
+      buildAgentLaunchArgs({
+        profile: "agy",
+        prompt: "challenge the plan",
+        model: "gemini-4-carbon-low",
+      }),
+    ).toEqual(["--model", "gemini-4-carbon", "--effort", "low"]);
+    expect(
+      buildAgentLaunchArgs({
+        profile: "agy",
+        prompt: "challenge the plan",
+        model: "gemini-4-argon-high",
+      }),
+    ).toEqual(["--model", "gemini-4-argon", "--effort", "high"]);
+    expect(
+      buildAgentLaunchArgs({
+        profile: "agy",
+        prompt: "challenge the plan",
+        model: "argon-high",
+      }),
+    ).toEqual(["--model", "gemini-4-argon", "--effort", "high"]);
+    expect(
+      buildAgentLaunchArgs({
+        profile: "agy",
+        prompt: "challenge the plan",
+        model: "gemini-4-carbon-high",
+        effort: "low",
+      }),
+    ).toEqual(["--model", "gemini-4-carbon", "--effort", "low"]);
+  });
+
   it("resolves claude-fable-5-2 and its alias on claude launches", () => {
     expect(
       buildAgentLaunchArgs({
