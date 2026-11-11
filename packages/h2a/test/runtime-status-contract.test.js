@@ -9,6 +9,7 @@ import {
 } from "../../h2a-runtime/dist/tmux.js";
 import {
   projectDelegatedExecutions,
+  renderNativeStatusBarLine,
   uniqueManagedWork
 } from "../../h2a-runtime/dist/status-projection.js";
 import {
@@ -488,4 +489,63 @@ test("journalled rename correlation survives rename but refuses server identity 
     ),
     undefined
   );
+});
+
+test("native status bar projection counts local-native delegated workers and formats left/right segments", () => {
+  const nativeWorker = {
+    id: "native-worker-1",
+    tool: "codex",
+    kind: "local-native",
+    cwd: "/workspace",
+    enrolledAt: "2026-11-11T12:00:00.000Z",
+    lastSeenAt: "2026-11-11T12:00:00.000Z",
+    source: "run",
+    role: "job",
+    jobState: "running",
+    sessionClass: "background",
+    tmuxSession: "h2a-native-worker-1",
+    pid: 5151,
+    delegationOrigin: "cli:h2a-delegate",
+    delegatorInstance: "claude:conductor:01",
+    delegatorTmuxSession: "h2a-alpha"
+  };
+
+  const projected = projectDelegatedExecutions(
+    [nativeWorker],
+    true,
+    [],
+    "h2a-alpha",
+    "claude:conductor:01",
+    [],
+    true,
+    () => undefined,
+    (sessionName) => (sessionName === "h2a-native-worker-1" ? 5151 : undefined)
+  );
+  assert.equal(projected.degraded, false);
+  assert.deepEqual(projected.executions.map((item) => item.id), ["native-worker-1"]);
+
+  const line = renderNativeStatusBarLine(
+    {
+      cli: "claude",
+      sessionName: "h2a-alpha",
+      linkState: "attached",
+      role: "conductor",
+      workload: {
+        j: { open: 1, attention: 0, degraded: false },
+        i: { waiting: 2, degraded: false },
+        l: { active: 1, attention: 1, degraded: false }
+      },
+      delegatedSessions: 1,
+      gateway: {
+        state: "active",
+        clientSessionId: "h2a-alpha",
+        requestedModel: "claude-opus-4-6",
+        upstreamModel: "claude-sonnet-4-6"
+      }
+    },
+    120
+  );
+  assert.equal(line.length, 120);
+  assert.match(line, /^ claude · h2a-alpha · attached/);
+  assert.match(line, /J1 I2 L1!1 · role conductor · gw active · claude-opus-4-6→claude-sonnet-4-6 · deleg 1 $/);
 });
