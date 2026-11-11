@@ -21,19 +21,36 @@ const GEMINI_4_CARBON_RE = /^(?:gemini-(?:4-)?)?carbon(?:-(.*))?$/i;
 const LAUNCH_MODEL_ALIASES: Readonly<Record<string, string>> = {
   "gemini-4-argon": "gemini-4-argon",
   "gemini-4-argon-high": "gemini-4-argon",
+  "gemini-4-argon-medium": "gemini-4-argon",
+  "gemini-4-argon-low": "gemini-4-argon",
   "gemini-argon": "gemini-4-argon",
+  "gemini-argon-high": "gemini-4-argon",
+  "gemini-argon-medium": "gemini-4-argon",
+  "gemini-argon-low": "gemini-4-argon",
   argon: "gemini-4-argon",
   "argon-high": "gemini-4-argon",
+  "argon-medium": "gemini-4-argon",
+  "argon-low": "gemini-4-argon",
   "gemini-4-carbon": GEMINI_4_CARBON_MODEL,
   "gemini-4-carbon-high": GEMINI_4_CARBON_MODEL,
   "gemini-4-carbon-medium": GEMINI_4_CARBON_MODEL,
   "gemini-4-carbon-low": GEMINI_4_CARBON_MODEL,
   "gemini-carbon": GEMINI_4_CARBON_MODEL,
   "gemini-carbon-high": GEMINI_4_CARBON_MODEL,
+  "gemini-carbon-medium": GEMINI_4_CARBON_MODEL,
+  "gemini-carbon-low": GEMINI_4_CARBON_MODEL,
   carbon: GEMINI_4_CARBON_MODEL,
   "carbon-high": GEMINI_4_CARBON_MODEL,
   "carbon-medium": GEMINI_4_CARBON_MODEL,
   "carbon-low": GEMINI_4_CARBON_MODEL,
+  "gemini-3.8-flash": "gemini-3.8-flash",
+  "gemini-3.8-flash-high": "gemini-3.8-flash",
+  "gemini-3.8-flash-medium": "gemini-3.8-flash",
+  "gemini-3.8-flash-low": "gemini-3.8-flash",
+  flash: "gemini-3.8-flash",
+  "flash-high": "gemini-3.8-flash",
+  "flash-medium": "gemini-3.8-flash",
+  "flash-low": "gemini-3.8-flash",
   "claude-fable-5-1": "claude-fable-5-1",
   "claude-fable-5.1": "claude-fable-5-1",
   "fable-5-1": "claude-fable-5-1",
@@ -66,6 +83,14 @@ export function resolveLaunchModelAlias(model: string | undefined): string | und
 export function isGemini4CarbonModel(model: string | undefined): boolean {
   return model !== undefined && GEMINI_4_CARBON_RE.test(model.trim());
 }
+export function extractEmbeddedGeminiEffort(model?: string): string | undefined {
+  if (model === undefined) return undefined;
+  const trimmed = model.trim();
+  const match =
+    /^(?:gemini-(?:4-)?)?(?:carbon|argon)-(.+)$/i.exec(trimmed) ??
+    /^(?:gemini-3\.8-)?flash-(.+)$/i.exec(trimmed);
+  return match?.[1]?.toLowerCase();
+}
 function normalizeCarbonEffort(effort: string | undefined): AgyEffort | undefined {
   if (effort === undefined) return undefined;
   if (effort === "low" || effort === "medium" || effort === "high") return effort;
@@ -74,8 +99,19 @@ function normalizeCarbonEffort(effort: string | undefined): AgyEffort | undefine
   );
 }
 export function normalizeAgyEffort(effort: string | undefined, model?: string): AgyEffort | undefined {
-  if (isGemini4CarbonModel(model)) return normalizeCarbonEffort(effort);
-  if (effort === undefined) return undefined;
+  const embedded = extractEmbeddedGeminiEffort(model);
+  if (isGemini4CarbonModel(model)) {
+    const embeddedEffort = normalizeCarbonEffort(embedded);
+    return effort === undefined ? embeddedEffort : normalizeCarbonEffort(effort);
+  }
+  let embeddedEffort: AgyEffort | undefined;
+  if (embedded !== undefined) {
+    if (embedded !== "low" && embedded !== "medium" && embedded !== "high") {
+      throw new AgyEffortError(`invalid AGY effort ${embedded}; AGY effort must be low|medium|high (max maps to high)`);
+    }
+    embeddedEffort = embedded;
+  }
+  if (effort === undefined) return embeddedEffort;
   if (effort === "max") return "high";
   if (effort === "low" || effort === "medium" || effort === "high") return effort;
   throw new AgyEffortError(`invalid AGY effort ${effort}; AGY effort must be low|medium|high (max maps to high)`);

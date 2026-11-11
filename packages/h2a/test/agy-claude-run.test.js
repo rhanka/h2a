@@ -189,10 +189,15 @@ test("AGY doctor exposes only last observed quota, otherwise unknown", async () 
 });
 
 test("AGY CLI refuses xhigh and unapproved builds before consulting a terminal host", () => workspace(dir => {
-  for (const [extra,code] of [[["--effort","xhigh"],"agy-effort-unsupported"],[["--role","build"],"agy-claude-build-requires-opt-in"]]) {
+  for (const [extra,code] of [
+    [["--effort","xhigh"],"agy-effort-unsupported"],
+    [["--model","gemini-4-carbon","--effort","max"],"agy-effort-unsupported"],
+    [["--role","build"],"agy-claude-build-requires-opt-in"],
+  ]) {
+    const baseModel = extra.includes("--model") ? [] : ["--model","claude-opus-5-5-high"];
     const result=spawnSync(process.execPath,["--input-type=module","-e",
       'import {main} from "./packages/h2a-runtime/dist/index.js"; process.exitCode=await main([process.execPath,"h2a",...process.argv.slice(1)]);',
-      "run","agy",dir,"--background","--no-attach","--json","--model","claude-opus-5-5-high",...extra],{
+      "run","agy",dir,"--background","--no-attach","--json",...baseModel,...extra],{
       cwd:process.cwd(),env:{...process.env,HOME:dir,XDG_RUNTIME_DIR:dir,XDG_CONFIG_HOME:dir,XDG_STATE_HOME:dir},encoding:"utf8",timeout:10_000});
     assert.equal(result.status,2,result.stderr);
     assert.equal(JSON.parse(result.stdout).code,code);
@@ -200,7 +205,7 @@ test("AGY CLI refuses xhigh and unapproved builds before consulting a terminal h
   }
 }));
 
-test("h2a_run accepts gemini-4-carbon on agy, refuses effort max for it, and resolves claude-fable-5-2 and its alias", () => workspace(dir => {
+test("h2a_run accepts gemini-4-carbon on agy, preserves embedded Gemini effort, refuses effort max for it, and resolves claude-fable-5-2 and its alias", () => workspace(dir => {
   for (const effort of ["low", "medium", "high"]) {
     const req = validateH2aRunRequest({ ...request(dir), model: "gemini-4-carbon", effort }, dir);
     assert.equal(req.model, "gemini-4-carbon");
@@ -209,6 +214,23 @@ test("h2a_run accepts gemini-4-carbon on agy, refuses effort max for it, and res
   const aliasReq = validateH2aRunRequest({ ...request(dir), model: "carbon", effort: "high" }, dir);
   assert.equal(aliasReq.model, "gemini-4-carbon");
   assert.equal(aliasReq.effort, "high");
+
+  for (const [embeddedModel, expectedModel, expectedEffort] of [
+    ["gemini-4-carbon-high", "gemini-4-carbon", "high"],
+    ["gemini-4-carbon-low", "gemini-4-carbon", "low"],
+    ["carbon-high", "gemini-4-carbon", "high"],
+    ["gemini-4-argon-high", "gemini-4-argon", "high"],
+    ["argon-high", "gemini-4-argon", "high"],
+  ]) {
+    const embeddedReq = validateH2aRunRequest({ ...request(dir), model: embeddedModel }, dir);
+    assert.equal(embeddedReq.model, expectedModel);
+    assert.equal(embeddedReq.effort, expectedEffort);
+    const inv = buildH2aRunInvocation(embeddedReq, "/opt/h2a/bin.js");
+    const modelIdx = inv.args.indexOf("--model");
+    const effortIdx = inv.args.indexOf("--effort");
+    assert.ok(modelIdx >= 0 && inv.args[modelIdx + 1] === expectedModel);
+    assert.ok(effortIdx >= 0 && inv.args[effortIdx + 1] === expectedEffort);
+  }
 
   assert.throws(
     () => validateH2aRunRequest({ ...request(dir), model: "gemini-4-carbon", effort: "max" }, dir),
