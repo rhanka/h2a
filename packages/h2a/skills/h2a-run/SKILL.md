@@ -40,7 +40,7 @@ None of these require knowing a provider model id up front:
 
 1. **Profile** — `claude`, `codex`, `agy`, `muse`, or `vibe` (which CLI to launch). Default to whichever CLI the user is already in if unstated; ask if genuinely ambiguous.
 2. **Model flavor** — a nickname like *terra*, *sol* (aka *fable*, *fable-5.2*, *fable-5.1*), *luna*, *carbon* (`gemini-4-carbon`), *argon* (`gemini-4-argon`), or unstated (→ the CLI's own default model). Resolves to a `--model` / `model` value (Step 2).
-3. **Effort** — `low | medium | high | xhigh`. For Claude/Codex/Muse, "max" means `xhigh`; AGY accepts only `low | medium | high` and rejects `xhigh` (`gemini-4-carbon` refuses `max`; `claude-opus-5-5` and `claude-sonnet-5-5` map `max` to `high`). Vibe resolves thinking level from its own config (`/thinking`), so effort is not a launch argument for it.
+3. **Effort** — `low | medium | high | xhigh`. For Claude/Codex/Muse, translate a user's "max" intent to `xhigh` (`--effort max` is rejected outside `agy`); AGY accepts only `low | medium | high` and rejects `xhigh` (`gemini-4-carbon` refuses `max`; `claude-opus-5-5` and `claude-sonnet-5-5` map `max` to `high`). Vibe resolves thinking level from its own config (`/thinking`), so effort is not a launch argument for it.
 
 ## Step 2 — resolve the model flavor (source-of-truth caveat)
 
@@ -56,8 +56,8 @@ The owner-ratified xhigh aliases are intentionally narrow: Opus 5 and Opus 4.8 r
 | `carbon`, `gemini-carbon`, `gemini-4-carbon`, `carbon-high` | `gemini-4-carbon` | `agy` | `low \| medium \| high` only (`max` is refused) |
 | `argon`, `gemini-argon`, `gemini-4-argon`, `argon-high` | `gemini-4-argon` | `agy` | `low \| medium \| high` |
 | `flash`, `gemini-3.8-flash`, `flash-high` | `gemini-3.8-flash` | `agy` | `low \| medium \| high` |
-| `fable`, `fable-5.2`, `fable-5-2`, `claude-fable-5-2` | `claude-fable-5-2` | `claude` | `low \| medium \| high \| xhigh \| max` (gateway routes base/`-high`/`-xhigh` → `gemini-4-carbon`) |
-| `fable-5.1`, `fable-5-1`, `claude-fable-5-1` | `claude-fable-5-1` | `claude` | `low \| medium \| high \| xhigh \| max` (gateway routes to `muse-wonder-1.0` / `gemini-4-argon`) |
+| `fable`, `fable-5.2`, `fable-5-2`, `claude-fable-5-2` | `claude-fable-5-2` | `claude` | `low \| medium \| high \| xhigh` (gateway routes base/`-high`/`-xhigh` → `gemini-4-carbon`) |
+| `fable-5.1`, `fable-5-1`, `claude-fable-5-1` | `claude-fable-5-1` | `claude` | `low \| medium \| high \| xhigh` (gateway routes to `muse-wonder-1.0` / `gemini-4-argon`) |
 | `wonder`, `muse-wonder`, `muse-wonder-1.0` | `muse-wonder-1.0` | `muse` / `claude --gw` | `low \| medium \| high \| xhigh` |
 | `wonder-full`, `muse-wonder-full`, `muse-wonder-full-1.0` | `muse-wonder-full-1.0` | `muse` / `claude --gw` | `low \| medium \| high \| xhigh` |
 | `spark`, `muse-spark`, `muse-spark-1.3` | `muse-spark-1.3` | `muse` / `claude --gw` | `low \| medium \| high \| xhigh` |

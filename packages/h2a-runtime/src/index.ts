@@ -17,7 +17,7 @@ import { pathToFileURL } from "node:url";
 
 import { Command, Help } from "commander";
 import { resolveSeatEnrollmentProvider } from "./cli-seat-codecs.js";
-import { agyClaudeQuotaError, assertAgyClaudeBuildAllowed, detectAgyClaudeQuotaExhaustion, isAgyClaudeModel, normalizeAgyEffort, readAgyClaudeQuotaStatus, resolveAgyModel, writeAgyClaudeQuotaStatus } from "./agy-claude.js";
+import { agyClaudeQuotaError, assertAgyClaudeBuildAllowed, detectAgyClaudeQuotaExhaustion, isAgyClaudeModel, normalizeAgyEffort, readAgyClaudeQuotaStatus, resolveAgyModel, resolveLaunchModelAlias, writeAgyClaudeQuotaStatus } from "./agy-claude.js";
 
 import {
   applyRuntimeHelpGroups,
@@ -6225,9 +6225,13 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
         }
         try {
           if (profile === "agy") {
-            const effort = normalizeAgyEffort(opts.effort);
+            const rawEffort = opts.effort;
+            const effort = normalizeAgyEffort(rawEffort, opts.model);
+            const model = resolveAgyModel(opts.model, rawEffort ?? effort);
             if (effort !== undefined) opts.effort = effort;
-            const model = resolveAgyModel(opts.model, effort);
+            if (model !== undefined) opts.model = model;
+          } else {
+            const model = resolveLaunchModelAlias(opts.model);
             if (model !== undefined) opts.model = model;
           }
           assertAgyClaudeBuildAllowed({ profile, model: opts.model, role: opts.role, allowClaudeBuild: opts.allowClaudeBuild });
