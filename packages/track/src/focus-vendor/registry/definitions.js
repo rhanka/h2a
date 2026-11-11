@@ -38,11 +38,32 @@ const FOCUS_LOCALES = ["en", "fr"];
 const FOCUS_PARAMETER_KEYS = ["mode", "preferredPresentation", "locale"];
 const FOCUS_PARAMETERS_SCHEMA_ID = "urn:sentropic:registry:parameters:sentropic.focus:1.0.0";
 const FOCUS_PARAMETERS_SCHEMA_DRAFT = "https://json-schema.org/draft/2020-12/schema";
-/** Capability and schema references pinned by entry 1.0.0. */
+/** Capability and schema references pinned by entry 2.0.0. */
 const FOCUS_CAPABILITY_ID = "sentropic.focus.decision-dossier";
-const FOCUS_DOSSIER_SCHEMA_ID = "urn:sentropic:focus:DecisionDossierDocument:1.0.0";
-const FOCUS_DOSSIER_SCHEMA_VERSION = "1.0.0";
-/** Authority, liaison and asset bindings pinned by entry 1.0.0 (closed). */
+const FOCUS_EVIDENCE_ID = "urn:sentropic:focus:DecisionDossierDocument:2.0.0";
+const FOCUS_DOCUMENT_SCHEMAS = [
+    {
+        version: "1.0.0",
+        schemaId: "urn:sentropic:focus:DecisionDossierDocument:1.0.0",
+        assetPath: "schemas/decision-dossier-document.v1.0.schema.json",
+    },
+    {
+        version: "1.1.0",
+        schemaId: "urn:sentropic:focus:DecisionDossierDocument:1.1.0",
+        assetPath: "schemas/decision-dossier-document.v1.schema.json",
+    },
+    {
+        version: "2.0.0",
+        schemaId: "urn:sentropic:focus:DecisionDossierDocument:2.0.0",
+        assetPath: "schemas/decision-dossier-document.v2.0.schema.json",
+    },
+    {
+        version: "2.1.0",
+        schemaId: "urn:sentropic:focus:DecisionDossierDocument:2.1.0",
+        assetPath: "schemas/decision-dossier-document.v2.schema.json",
+    },
+];
+/** Authority, liaison and asset bindings pinned by entry 2.0.0 (closed). */
 const FOCUS_PERMISSIONS = ["track.dossier.read"];
 const FOCUS_CONTEXT_FILTERS = ["decision-dossier"];
 const FOCUS_CATEGORY = "decision";
@@ -52,9 +73,6 @@ const FOCUS_OPTIONAL_HOST_FEATURES = ["terminal", "markdown", "html-sanitization
 const FOCUS_TRACK_PEER_NAME = "@sentropic/track";
 const FOCUS_TRACK_PEER_RANGE = "^0.98.6";
 const FOCUS_INSTRUCTIONS_ASSET = "skills/focus/SKILL.md";
-const FOCUS_SCHEMA_ASSET = "schemas/decision-dossier-document.v1.schema.json";
-const FOCUS_EVIDENCE_ASSET = 'schemas/decision-dossier-document.v2.schema.json';
-const FOCUS_EVIDENCE_ID = 'urn:sentropic:focus:DecisionDossierDocument:2.0.0';
 const FOCUS_INSTRUCTIONS_ROLE = "skill-instructions";
 const FOCUS_SCHEMA_ROLE = "document-schema";
 const FOCUS_INSTRUCTIONS_MEDIA = "text/markdown";
@@ -217,14 +235,17 @@ export const validateFocusEntryDescriptor = (value) => {
         fail(at("bindings"), "invalid_entry", "instruction-only entries carry no bindings");
     }
     const assets = value["assets"];
-    if (!Array.isArray(assets) || assets.length !== 3) {
-        fail(at("assets"), "invalid_entry", "expected exactly the instructions and two versioned schema assets");
+    if (!Array.isArray(assets) || assets.length !== 1 + FOCUS_DOCUMENT_SCHEMAS.length) {
+        fail(at("assets"), "invalid_entry", "expected the instructions and four versioned schema assets");
     }
     else {
         const expectedAssets = [
             { role: FOCUS_INSTRUCTIONS_ROLE, path: FOCUS_INSTRUCTIONS_ASSET, mediaType: FOCUS_INSTRUCTIONS_MEDIA },
-            { role: FOCUS_SCHEMA_ROLE, path: FOCUS_SCHEMA_ASSET, mediaType: FOCUS_SCHEMA_MEDIA },
-            { role: FOCUS_SCHEMA_ROLE, path: FOCUS_EVIDENCE_ASSET, mediaType: FOCUS_SCHEMA_MEDIA },
+            ...FOCUS_DOCUMENT_SCHEMAS.map((entry) => ({
+                role: FOCUS_SCHEMA_ROLE,
+                path: entry.assetPath,
+                mediaType: FOCUS_SCHEMA_MEDIA,
+            })),
         ];
         assets.forEach((asset, index) => {
             const path = `$.assets[${index}]`;
@@ -327,14 +348,15 @@ export const validateFocusEntryDescriptor = (value) => {
             fail("$.skill.tools", "invalid_entry", "instruction-only entries carry no tools");
         }
         const schemas = skill["documentSchemas"];
-        if (!Array.isArray(schemas) || schemas.length !== 2) {
-            fail("$.skill.documentSchemas", "invalid_entry", "expected both digest-bound dossier schema versions");
+        if (!Array.isArray(schemas) || schemas.length !== FOCUS_DOCUMENT_SCHEMAS.length) {
+            fail("$.skill.documentSchemas", "invalid_entry", "expected all four digest-bound dossier schema versions");
         }
         else {
             schemas.forEach((schema, index) => {
-                const schemaId = index === 0 ? FOCUS_DOSSIER_SCHEMA_ID : FOCUS_EVIDENCE_ID;
-                const version = index === 0 ? FOCUS_DOSSIER_SCHEMA_VERSION : '2.0.0';
-                const assetPath = index === 0 ? FOCUS_SCHEMA_ASSET : FOCUS_EVIDENCE_ASSET;
+                const expectedSchema = FOCUS_DOCUMENT_SCHEMAS[index];
+                const schemaId = expectedSchema.schemaId;
+                const version = expectedSchema.version;
+                const assetPath = expectedSchema.assetPath;
                 const schemaPath = `$.skill.documentSchemas[${index}]`;
                 if (!isRecord(schema) ||
                     schema["name"] !== "DecisionDossierDocument" ||

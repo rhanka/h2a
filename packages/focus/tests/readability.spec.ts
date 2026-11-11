@@ -255,14 +255,14 @@ describe("readability checks resist understated effort and hidden choices", () =
 
   it("accepts explanatory comparisons linked to an explicit question", () => {
     const doc = mutate((d) => {
-      d.sections[0].markdown = "Choose the side wall rather than the terrace if the view matters most.";
+      d.sections[0].markdown = "En bref : choose the side wall rather than the terrace if the view matters most.";
       d.sections[0].questionId = "q-spot";
     });
     expect(refusalCodes(doc)).toEqual([]);
     expect(validateDecisionDossierDocument(doc).ok).toBe(true);
   });
   it("requires the same comparison to identify its question", () => {
-    const doc = mutate((d) => { d.sections[0].markdown = "Either the side wall or the terrace changes the view."; });
+    const doc = mutate((d) => { d.sections[0].markdown = "En bref : either the side wall or the terrace changes the view."; });
     expect(refusalCodes(doc)).toContain("hidden_decision");
   });
   it("accepts expanded acronyms and preserves the document without mutation", () => {
@@ -289,10 +289,10 @@ describe("published schema keeps additions optional", () => {
     expect(schema.properties.readability).toEqual({ $ref: "#/$defs/readability" });
     expect(schema.required).not.toContain("readability");
     for (const [name, fields] of [
-      ["questionNode", ["context", "readingTimeMinutes", "recommendedOptionId"]],
+      ["questionNode", ["context", "readingTimeMinutes", "recommendedOptionId", "inputs", "completionCriterion"]],
       ["optionNode", ["consequence"]],
       ["optionSetNode", ["questionId"]],
-      ["proseNode", ["questionId"]],
+      ["proseNode", ["questionId", "inputs", "completionCriterion"]],
       ["outcomeNode", ["questionId"]],
     ] as const) {
       for (const field of fields) {
@@ -362,4 +362,153 @@ it('should check supporting explanations while keeping raw source volume outside
   expect(validateDecisionDossierReadability(doc)).toEqual([]);
   doc.annexes[0].blocks[0].text = 'Undefined L06b';
   expect(validateDecisionDossierReadability(doc).some(i => i.code === 'undefined_code')).toBe(true);
+});
+
+describe("1.1.0 / 2.1.0 readability extensions & 11/11 anti-wall-of-text rules (A8, A16–A20)", () => {
+  it("A8 & A16: reference diagram (source undefined), inputs[].label and completionCriterion do not crash, scan for undefined_code, and count in shared and per-question reading budgets", () => {
+    const doc = mutate((d) => {
+      d.sections[0].inputs = [{ ref: "spec-s0", kind: "artifact", label: "Validated garden sketch" }];
+      d.sections[0].completionCriterion = "Spot approved and staked on site.";
+      d.sections[1].inputs = [{ ref: "quote-q1", kind: "artifact", label: "Builder quote ready" }];
+      d.sections[1].completionCriterion = "Spot confirmed with the builder.";
+      d.sections.push({
+        kind: "diagram",
+        id: "diag-ref",
+        targetRef: "diag-ref",
+        alt: "Garden layout diagram.",
+        sourceRef: "engram:diag-lot-map",
+        renderComponent: "GanttChart",
+      });
+    });
+    expect(refusalCodes(doc)).toEqual([]);
+
+    // Opaque code in inputs[0].label or completionCriterion -> undefined_code
+    const withCodeInInput = mutate((d) => {
+      d.sections[0].inputs = [{ ref: "spec-s0", kind: "artifact", label: "Apply L06b sketch" }];
+    });
+    expect(refusalCodes(withCodeInInput)).toContain("undefined_code");
+
+    const withCodeInCriterion = mutate((d) => {
+      d.sections[1].completionCriterion = "Validated under MH-L3.";
+    });
+    expect(refusalCodes(withCodeInCriterion)).toContain("undefined_code");
+
+    // Per-question readingTimeMinutes accounts for question inputs[].label and completionCriterion
+    const understatedQuestion = mutate((d) => {
+      d.sections[1].readingTimeMinutes = 0.25;
+      d.sections[1].inputs = [
+        { ref: "i-a", kind: "artifact", label: "First long prerequisite document for the garden shed spot" },
+        { ref: "i-b", kind: "artifact", label: "Second long prerequisite document for the garden shed spot" },
+      ];
+      d.sections[1].completionCriterion =
+        "The chosen garden shed location is staked on the ground and confirmed with the neighbour before work begins.";
+    });
+    expect(refusalCodes(understatedQuestion)).toContain("reading_time_underestimated");
+  });
+
+  it("A17: prose/question cell or block exceeding 60 words, input label >12 words, or completionCriterion >1 sentence/>22 words refuses", () => {
+    const longParagraph =
+      "En bref : we need a clear spot in the garden today. " +
+      "The shed should stay close to the back door for daily tools. ".repeat(5);
+    const doc = mutate((d) => {
+      d.sections[0].markdown = longParagraph;
+    });
+    const codes = refusalCodes(doc);
+    expect(
+      codes.includes("block_combined_max_60_words") || codes.includes("cell_max_60_words"),
+    ).toBe(true);
+
+    const longInputLabel = mutate((d) => {
+      d.sections[0].inputs = [
+        {
+          ref: "spec-s0",
+          kind: "artifact",
+          label: "One two three four five six seven eight nine ten eleven twelve thirteen words",
+        },
+      ];
+    });
+    expect(refusalCodes(longInputLabel)).toContain("input_label_too_long");
+
+    const twoSentenceCriterion = mutate((d) => {
+      d.sections[0].completionCriterion = "First sentence is short. Second sentence is forbidden.";
+    });
+    expect(refusalCodes(twoSentenceCriterion)).toContain("completion_criterion_too_long");
+  });
+
+  it("A18a: sentence of 25 words refuses with sentence_max_22_words", () => {
+    const doc = mutate((d) => {
+      d.sections[0].markdown =
+        "En bref : this single sentence deliberately contains twenty five plain words so that the readability validator refuses it for exceeding the twenty two word sentence limit.";
+    });
+    expect(refusalCodes(doc)).toContain("sentence_max_22_words");
+  });
+
+  it("A18b: sentence with semicolon, parentheses, two colons, or inline enumeration refuses with one_idea_per_sentence_* / no_enumeration_in_prose_sentence", () => {
+    const semiDoc = mutate((d) => {
+      d.sections[0].markdown = "En bref : the side wall is close; the back corner is far.";
+    });
+    expect(refusalCodes(semiDoc)).toContain("one_idea_per_sentence_no_semicolon");
+
+    const parenDoc = mutate((d) => {
+      d.sections[0].markdown = "En bref : the side wall stays convenient (near the gate) all year.";
+    });
+    expect(refusalCodes(parenDoc)).toContain("one_idea_per_sentence_no_parentheses");
+
+    const colonDoc = mutate((d) => {
+      d.sections[0].markdown = "En bref : spot choice: side wall: best compromise.";
+    });
+    expect(refusalCodes(colonDoc)).toContain("one_idea_per_sentence_max_one_colon");
+
+    const enumDoc = mutate((d) => {
+      d.sections[0].markdown = "En bref : verify the roof, the door, the floor, the paint.";
+    });
+    expect(refusalCodes(enumDoc)).toContain("no_enumeration_in_prose_sentence");
+  });
+
+  it("A19: prose containing a ULID, SHA hash, internal lot/AC ID, or raw digit count refuses even when listed in glossary, while ownerRequestQuote and structured refs stay exempt", () => {
+    const ulidDoc = mutate((d) => {
+      d.sections[0].markdown = "En bref : tracked under 01KM92J996B2938P895G3N3K3R in the backlog.";
+    });
+    expect(refusalCodes(ulidDoc)).toContain("no_ulid_in_prose");
+
+    const shaDoc = mutate((d) => {
+      d.sections[0].markdown = "En bref : commit a3f9c02d changed the shed roof plan.";
+    });
+    expect(refusalCodes(shaDoc)).toContain("no_hash_or_sha_in_prose");
+
+    const lotDoc = mutate((d) => {
+      d.readability.glossary.push({ term: "WP1", definition: "The first work package." });
+      d.sections[0].markdown = "En bref : this work belongs to WP1 in the plan.";
+    });
+    expect(refusalCodes(lotDoc)).toContain("no_internal_id_or_lot_code_in_prose");
+
+    const countDoc = mutate((d) => {
+      d.sections[0].markdown = "En bref : we compared 12 fichiers before choosing the wall.";
+    });
+    expect(refusalCodes(countDoc)).toContain("no_raw_count_or_number_in_prose");
+
+    // ownerRequestQuote and structured refs (inputs[].ref, targetRef, sourceRef) are exempt
+    const quoteExemptDoc = mutate((d) => {
+      d.readability.ownerRequestQuote =
+        "Please fix WP1 (12 fichiers; commit a3f9c02d / 01KM92J996B2938P895G3N3K3R).";
+      d.sections[0].inputs = [{ ref: "engram:01KM92J996B2938P895G3N3K3R", kind: "engram", label: "Owner note" }];
+      d.sections.push({
+        kind: "diagram",
+        id: "diag-ref",
+        targetRef: "WP1-a3f9c02d",
+        alt: "Garden plan.",
+        sourceRef: "engram:01KM92J996B2938P895G3N3K3R",
+        renderComponent: "GanttChart",
+      });
+    });
+    expect(refusalCodes(quoteExemptDoc)).toEqual([]);
+  });
+
+  it("A20: multi-sentence block lacking an 'En bref :' / 'In short:' takeaway first refuses with missing_en_bref_takeaway", () => {
+    const noTakeaway = mutate((d) => {
+      d.sections[0].markdown =
+        "The new shed needs a dry level base before winter. Both garden corners stay dry all year.";
+    });
+    expect(refusalCodes(noTakeaway)).toContain("missing_en_bref_takeaway");
+  });
 });

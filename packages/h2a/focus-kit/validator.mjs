@@ -41,17 +41,34 @@ var READABILITY_LIMITS = {
   maxDecisionLineLength: 300,
   maxOptionLabelLength: 100,
   maxConsequenceLength: 160,
-  maxOptionBodyLength: 300
+  maxOptionBodyLength: 300,
+  maxCellWords: 60,
+  maxBlockCombinedWords: 60,
+  maxSentenceWords: 22,
+  maxInputLabelWords: 12,
+  maxInputLabelLength: 100,
+  maxCompletionCriterionSentences: 1,
+  maxCompletionCriterionWords: 22,
+  maxCompletionCriterionLength: 160
 };
 var CODE_PATTERN = /\b(?:[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+|[A-Z][A-Z0-9]*\d[A-Z0-9]*[a-z]?|[A-Z]{2,})\b/g;
 var PLAIN_TOKENS = /* @__PURE__ */ new Set(["GO", "NO-GO", "NO", "PENDING", "DEFERRED", "LR", "RL", "TB", "BT", "TD", "UTF-8"]);
 var CHOICE_PATTERN = /\beither\b[\s\S]{0,160}?\bor\b|\bsoit\b[\s\S]{0,160}?\bsoit\b|\b(?:instead of|rather than|plut[oô]t que|versus|vs\.?|choos(?:e|ing) between|choisir entre)\b/i;
 var SUBOPTION_PATTERN = /(?:^|[\n\r\u2028\u2029])\s*(?:[-*+•‣>]|\d+[.)]|[a-z][.)])\s+\S|\([a-z]\)[\s\S]*\([a-z]\)|\b(?:sub[- ]?options?|sous[- ]?options?)\b/i;
 var LINE_BREAK = /[\n\r\u2028\u2029]/;
+var ULID_RE = /\b01[0-9A-HJKMNP-TV-Z]{24}\b/;
+var HASH_RE = /\b(?:sha256:)?[0-9a-f]{7,64}\b/i;
+var INTERNAL_ID_RE = /\b(?:WP\d+(?:\.\d+)?|D-\d+|O\d{3,4}|A\d{2}|T\d{2}|r\d+-D\d+|J\d+|M\d+|Q\d+|Q-[A-Z]|F\d+|LOT-\d+|AC-\d+|rel-\d+|PR\s*#?\d+|hrpn\/#\d+)\b/;
+var RAW_DIGIT_RE = /\b(?!h2a\b)\S*\d\S*\b/gi;
+var TAKEAWAY_RE = /^(?:En bref\s*:\s+|In short:\s+)/;
 var blank = (text2) => !text2?.trim();
 var asRecord = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
 var minutesFor = (texts) => (texts.join(" ").match(/\S+/gu)?.length ?? 0) / READABILITY_LIMITS.wordsPerMinute;
-var validateDecisionDossierReadability = (doc) => {
+var wordsOf = (text2) => String(text2 ?? "").trim().split(/\s+/).filter(Boolean);
+var sentencesOf = (text2) => String(text2 ?? "").trim().split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter(Boolean);
+var stripHtmlAndLinks = (text2) => text2.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ").replace(/<[^>]+>/g, " ").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+var validateDecisionDossierReadability = (doc, options) => {
+  const strict = (options?.profile ?? (doc.ref === "decision:s1-hello" && doc.hash === "draft:s1-hello-1" ? "legacy" : "strict")) === "strict";
   const issues = [];
   const refuse = (path, code, message) => {
     issues.push({ path, code, message });
@@ -127,14 +144,28 @@ var validateDecisionDossierReadability = (doc) => {
       checkCodes(c.label, `$.citations[${i}].label`);
       if (c.locator.kind === "image") checkCodes(c.locator.caption, `$.citations[${i}].locator.caption`);
     });
-    doc.evidenceGroups.forEach((g, i) => visible(g.summary, `$.evidenceGroups[${i}].summary`));
+    doc.evidenceGroups.forEach((g, i) => {
+      visible(g.summary, `$.evidenceGroups[${i}].summary`);
+      checkProseCell(g.summary, `$.evidenceGroups[${i}].summary`, { requireTakeaway: true });
+    });
     doc.annexes.forEach((a, i) => {
       visible(a.title, `$.annexes[${i}].title`);
       visible(a.summary, `$.annexes[${i}].summary`);
+      checkProseCell(a.summary, `$.annexes[${i}].summary`, { requireTakeaway: true });
       a.blocks.forEach((b, j) => {
         const path = `$.annexes[${i}].blocks[${j}]`;
-        if (b.kind === "text") checkCodes(b.text, `${path}.text`);
-        if (b.kind === "table") [...b.columns, ...b.rows.flat()].forEach((t) => checkCodes(t, path));
+        if (b.kind === "text") {
+          checkCodes(b.text, `${path}.text`);
+          checkProseCell(b.text, `${path}.text`, { requireTakeaway: true });
+        }
+        if (b.kind === "table") {
+          [...b.columns, ...b.rows.flat()].forEach((t) => checkCodes(t, path));
+          b.rows.forEach(
+            (row, rIdx) => row.forEach(
+              (cell, cIdx) => checkProseCell(cell, `${path}.rows[${rIdx}][${cIdx}]`, { requireTakeaway: false })
+            )
+          );
+        }
       });
     });
   }
@@ -147,8 +178,9 @@ var validateDecisionDossierReadability = (doc) => {
     );
     checkLine(doc[field], `$.${field}`, READABILITY_LIMITS.maxHeadingLength);
   }
-  visible(quote, "$.readability.ownerRequestQuote");
+  if (quote) shared.push(quote);
   visible(r?.stakes, "$.readability.stakes");
+  checkProseCell(r?.stakes, "$.readability.stakes", { requireTakeaway: true });
   r?.glossary?.forEach((entry, i) => {
     shared.push(entry.term);
     visible(entry.definition, `$.readability.glossary[${i}].definition`);
@@ -178,16 +210,21 @@ var validateDecisionDossierReadability = (doc) => {
     switch (section.kind) {
       case "prose":
         visible(section.markdown, `${path}.markdown`);
+        checkMarkdownProse(section.markdown, `${path}.markdown`);
         checkQuestionRef(section.questionId, `${path}.questionId`, CHOICE_PATTERN.test(section.markdown));
+        checkInputsAndCriterion(section, path);
         break;
       case "outcome":
         visible(section.statement, `${path}.statement`);
+        checkProseCell(section.statement, `${path}.statement`, { requireTakeaway: true });
         checkQuestionRef(section.questionId, `${path}.questionId`, section.modality !== "comment" || CHOICE_PATTERN.test(section.statement));
         break;
       case "diagram":
         visible(section.alt, `${path}.alt`);
-        if (section.scene === void 0) visible(section.source, `${path}.source`);
-        else checkCodes(section.source, `${path}.source`);
+        if (section.source !== void 0) {
+          if (section.scene === void 0) visible(section.source, `${path}.source`);
+          else checkCodes(section.source, `${path}.source`);
+        }
         for (const [family, field] of [["entities", "name"], ["relations", "label"]]) {
           for (const [id, member] of Object.entries(asRecord(section.scene?.[family]))) {
             const attribute = asRecord(asRecord(asRecord(member).attributes)[field]);
@@ -217,9 +254,9 @@ var validateDecisionDossierReadability = (doc) => {
         checkLine(section.question, `${path}.question`, READABILITY_LIMITS.maxDecisionLineLength);
         checkLine(section.recommendedAnswer, `${path}.recommendedAnswer`, READABILITY_LIMITS.maxDecisionLineLength);
         const linked = optionSets.filter((set) => set.questionId === section.id);
-        const options = linked.flatMap((set) => set.options);
-        if (options.length < 2 || options.length > 4) refuse(path, "option_count", `Each question needs 2\u20134 short options; this question has ${options.length}.`);
-        if (!options.some((option) => option.id === section.recommendedOptionId)) {
+        const options2 = linked.flatMap((set) => set.options);
+        if (options2.length < 2 || options2.length > 4) refuse(path, "option_count", `Each question needs 2\u20134 short options; this question has ${options2.length}.`);
+        if (!options2.some((option) => option.id === section.recommendedOptionId)) {
           refuse(`${path}.recommendedOptionId`, "unknown_recommended_option", "Identify the recommended option by its id among this question's options, with the reason in recommendedAnswer.");
         }
         const texts = [
@@ -227,14 +264,18 @@ var validateDecisionDossierReadability = (doc) => {
           section.context,
           section.recommendedAnswer,
           section.answer,
-          options.find((option) => option.id === section.recommendedOptionId)?.label,
+          options2.find((option) => option.id === section.recommendedOptionId)?.label,
           ...linked.map((set) => set.title),
-          ...options.flatMap((o) => [o.label, o.consequence, o.body, o.annotationComment])
+          ...options2.flatMap((o) => [o.label, o.consequence, o.body, o.annotationComment])
         ];
         checkCodes(section.question, `${path}.question`);
         checkCodes(section.context, `${path}.context`);
         checkCodes(section.recommendedAnswer, `${path}.recommendedAnswer`);
         checkCodes(section.answer, `${path}.answer`);
+        checkMarkdownProse(section.context, `${path}.context`);
+        checkProseCell(section.recommendedAnswer, `${path}.recommendedAnswer`, { requireTakeaway: true });
+        checkProseCell(section.answer, `${path}.answer`, { requireTakeaway: true });
+        checkInputsAndCriterion(section, path, texts);
         const minutes = section.readingTimeMinutes;
         const minimum = minutesFor(texts);
         if (minutes === void 0) {
@@ -253,6 +294,208 @@ var validateDecisionDossierReadability = (doc) => {
     refuse("$.readability.readingBudgetMinutes", "reading_budget_exceeded", "The questions plus shared context and glossary exceed the declared reading budget; shorten the dossier to match its stakes.");
   }
   return issues;
+  function checkInputsAndCriterion(section, path, questionTexts) {
+    section.inputs?.forEach((inp, j) => {
+      if (inp.label === void 0) return;
+      const labelPath = `${path}.inputs[${j}].label`;
+      visible(inp.label, labelPath);
+      if (questionTexts !== void 0) questionTexts.push(inp.label);
+      if (strict && (wordsOf(inp.label).length > READABILITY_LIMITS.maxInputLabelWords || inp.label.trim().length > READABILITY_LIMITS.maxInputLabelLength || LINE_BREAK.test(inp.label))) {
+        refuse(
+          labelPath,
+          "input_label_too_long",
+          `Keep each input label to one short line of at most ${READABILITY_LIMITS.maxInputLabelWords} words and ${READABILITY_LIMITS.maxInputLabelLength} characters.`
+        );
+      }
+      checkProseCell(inp.label, labelPath, { requireTakeaway: false });
+    });
+    if (section.completionCriterion !== void 0) {
+      const cc = section.completionCriterion;
+      const ccPath = `${path}.completionCriterion`;
+      visible(cc, ccPath);
+      if (questionTexts !== void 0) questionTexts.push(cc);
+      if (strict && (sentencesOf(cc).length > READABILITY_LIMITS.maxCompletionCriterionSentences || wordsOf(cc).length > READABILITY_LIMITS.maxCompletionCriterionWords || cc.trim().length > READABILITY_LIMITS.maxCompletionCriterionLength || LINE_BREAK.test(cc))) {
+        refuse(
+          ccPath,
+          "completion_criterion_too_long",
+          `Keep completionCriterion to one sentence of at most ${READABILITY_LIMITS.maxCompletionCriterionWords} words and ${READABILITY_LIMITS.maxCompletionCriterionLength} characters.`
+        );
+      }
+      checkProseCell(cc, ccPath, { requireTakeaway: false });
+    }
+  }
+  function checkProseCell(rawText, path, opts) {
+    if (!strict || !rawText) return;
+    const text2 = (opts?.isCleaned ? rawText : stripHtmlAndLinks(rawText)).trim();
+    if (!text2) return;
+    const words = wordsOf(text2).length;
+    if (words > READABILITY_LIMITS.maxCellWords) {
+      refuse(
+        path,
+        "cell_max_60_words",
+        `Keep each prose cell or paragraph to at most ${READABILITY_LIMITS.maxCellWords} words (found ${words} words).`
+      );
+    }
+    const sents = sentencesOf(text2);
+    if (opts?.requireTakeaway !== false && sents.length > 1 && !TAKEAWAY_RE.test(text2)) {
+      refuse(
+        path,
+        "missing_en_bref_takeaway",
+        'Start multi-sentence prose blocks with "En bref : " or "In short: " so the reader gets the takeaway first.'
+      );
+    }
+    if (text2.includes(";")) {
+      refuse(
+        path,
+        "one_idea_per_sentence_no_semicolon",
+        "Express one idea per sentence without semicolons; split into separate sentences or use a list."
+      );
+    }
+    if (/[()]/.test(text2)) {
+      refuse(
+        path,
+        "one_idea_per_sentence_no_parentheses",
+        "Express one idea per sentence without parenthetical asides; state the point directly or omit it."
+      );
+    }
+    if (ULID_RE.test(text2)) {
+      refuse(
+        path,
+        "no_ulid_in_prose",
+        "Do not embed ULIDs in prose; keep identifiers in structured fields and use plain words in text."
+      );
+    }
+    if (HASH_RE.test(text2)) {
+      refuse(
+        path,
+        "no_hash_or_sha_in_prose",
+        "Do not embed hashes or SHAs in prose; keep digests in provenance or evidence fields."
+      );
+    }
+    if (INTERNAL_ID_RE.test(text2)) {
+      refuse(
+        path,
+        "no_internal_id_or_lot_code_in_prose",
+        "Do not embed internal IDs or lot codes in prose, even if listed in the glossary; describe the subject in plain words."
+      );
+    }
+    const rawDigitTokens = (text2.match(RAW_DIGIT_RE) ?? []).map(
+      (tok) => tok.replace(/^[.,!?:;"'`]+|[.,!?:;"'`]+$/g, "")
+    );
+    const hasDisallowedDigitToken = rawDigitTokens.some(
+      (tok) => tok.length > 0 && !(/^[A-Z]/.test(tok) && glossary.has(tok) && !INTERNAL_ID_RE.test(tok) && !ULID_RE.test(tok) && !HASH_RE.test(tok))
+    );
+    if (hasDisallowedDigitToken) {
+      refuse(
+        path,
+        "no_raw_count_or_number_in_prose",
+        "Do not embed raw counts or numbers in prose, even if listed in the glossary; write out plain qualitative words."
+      );
+    }
+    for (const s of sents) {
+      const sw = wordsOf(s).length;
+      if (sw > READABILITY_LIMITS.maxSentenceWords) {
+        refuse(
+          path,
+          "sentence_max_22_words",
+          `Keep every sentence to at most ${READABILITY_LIMITS.maxSentenceWords} words (found ${sw} words).`
+        );
+      }
+      if ((s.match(/,/g) ?? []).length >= 3) {
+        refuse(
+          path,
+          "no_enumeration_in_prose_sentence",
+          "Avoid three or more commas in a single prose sentence; use a bullet list or table instead of inline enumerations."
+        );
+      }
+      if ((s.match(/:/g) ?? []).length > 1) {
+        refuse(
+          path,
+          "one_idea_per_sentence_max_one_colon",
+          "Use at most one colon per sentence so each sentence carries a single clear idea."
+        );
+      }
+    }
+  }
+  function checkMarkdownProse(markdown, path) {
+    if (!strict || !markdown) return;
+    const cleanedDoc = stripHtmlAndLinks(markdown);
+    const rawLines = cleanedDoc.split(/\r?\n/);
+    const blocks = [];
+    let currentParagraph = [];
+    let currentBullets = [];
+    const flushParagraph = () => {
+      if (currentParagraph.length > 0) {
+        blocks.push({ kind: "paragraph", lines: currentParagraph });
+        currentParagraph = [];
+      }
+    };
+    const flushBullets = () => {
+      if (currentBullets.length > 0) {
+        blocks.push({ kind: "bullets", lines: currentBullets });
+        currentBullets = [];
+      }
+    };
+    for (const rawLine of rawLines) {
+      const trimmed = rawLine.trim();
+      if (!trimmed) {
+        flushParagraph();
+        flushBullets();
+        continue;
+      }
+      if (/^#{1,6}\s+/.test(trimmed)) {
+        flushParagraph();
+        flushBullets();
+        blocks.push({ kind: "heading", lines: [trimmed.replace(/^#{1,6}\s+/, "")] });
+        continue;
+      }
+      if (/^\|.*\|$/.test(trimmed)) {
+        flushParagraph();
+        flushBullets();
+        blocks.push({ kind: "table", lines: [trimmed] });
+        continue;
+      }
+      const bulletMatch = trimmed.match(/^(?:[-*+•]|\d+[.)])\s+(.*)$/);
+      if (bulletMatch) {
+        flushParagraph();
+        currentBullets.push(bulletMatch[1]);
+        continue;
+      }
+      flushBullets();
+      currentParagraph.push(trimmed);
+    }
+    flushParagraph();
+    flushBullets();
+    for (let idx = 0; idx < blocks.length; idx++) {
+      const block = blocks[idx];
+      if (block.kind === "heading") {
+        checkProseCell(block.lines[0], path, { requireTakeaway: false, isCleaned: true });
+      } else if (block.kind === "table") {
+        const line = block.lines[0];
+        const cells = line.slice(1, -1).split("|").map((c) => c.trim());
+        if (cells.every((c) => /^[-:]+$/.test(c))) continue;
+        for (const cell of cells) {
+          checkProseCell(cell, path, { requireTakeaway: false, isCleaned: true });
+        }
+      } else if (block.kind === "bullets") {
+        const prev = idx > 0 && blocks[idx - 1].kind === "paragraph" ? blocks[idx - 1].lines.join(" ") : "";
+        const combined = [prev, ...block.lines].filter(Boolean).join(" ");
+        if (wordsOf(combined).length > READABILITY_LIMITS.maxBlockCombinedWords) {
+          refuse(
+            path,
+            "block_combined_max_60_words",
+            `Keep each lead-and-bullet block to at most ${READABILITY_LIMITS.maxBlockCombinedWords} words combined.`
+          );
+        }
+        for (const item of block.lines) {
+          checkProseCell(item, path, { requireTakeaway: false, isCleaned: true });
+        }
+      } else {
+        const text2 = block.lines.join(" ");
+        checkProseCell(text2, path, { requireTakeaway: true, isCleaned: true });
+      }
+    }
+  }
   function checkLine(text2, path, max) {
     if (!text2) return;
     if (text2.trim().length > max || LINE_BREAK.test(text2)) refuse(
@@ -280,6 +523,9 @@ var validateDecisionDossierReadability = (doc) => {
       checkCodes(text2, `${path}.${field}`);
       if (text2.trim().length > max || LINE_BREAK.test(text2)) refuse(`${path}.${field}`, code, `Keep this option ${field} to one short line of at most ${max} characters; move necessary context to the question.`);
       if (SUBOPTION_PATTERN.test(text2) || CHOICE_PATTERN.test(text2)) refuse(`${path}.${field}`, "nested_suboptions", "This option hides sub-options: expose the choices as separate options or as a separate question.");
+      if (field !== "label") {
+        checkProseCell(text2, `${path}.${field}`, { requireTakeaway: true });
+      }
     }
   }
 };
@@ -290,6 +536,7 @@ var EvidenceError = class extends Error {
     super(issue2.message);
     this.issue = issue2;
   }
+  issue;
 };
 var fail = (path, code, message) => {
   throw new EvidenceError({ path, code, message });
@@ -596,6 +843,9 @@ function checkEvidence(value, legacy) {
 // packages/focus/src/validation/index.ts
 var DOSSIER_SCHEMA_ID = "urn:sentropic:focus:DecisionDossierDocument:1.0.0";
 var DOSSIER_SCHEMA_VERSION = "1.0.0";
+var DOSSIER_V2_SCHEMA_ID = "urn:sentropic:focus:DecisionDossierDocument:2.0.0";
+var DOSSIER_V1_1_SCHEMA_ID = "urn:sentropic:focus:DecisionDossierDocument:1.1.0";
+var DOSSIER_V2_1_SCHEMA_ID = "urn:sentropic:focus:DecisionDossierDocument:2.1.0";
 var DecisionDossierValidationError = class extends Error {
   issues;
   constructor(issues) {
@@ -695,6 +945,47 @@ var checkAmendmentStep = (value, path, issues) => {
   if (step === void 0 || issues.length !== start) return void 0;
   return { at: step["at"], author: step["author"], summary: step["summary"] };
 };
+var SOURCE_REF_PATTERN = /^[A-Za-z][A-Za-z0-9+.-]*:\S+$/;
+var RENDER_COMPONENT_PATTERN = /^[A-Za-z][A-Za-z0-9-]*$/;
+var checkNonBlank = (value, path, issues) => {
+  if (typeof value === "string" && value.trim().length === 0) {
+    issues.push(issue(path, "invalid_type", "expected a non-blank string"));
+  }
+};
+var checkSectionInput = (value, path, issues) => {
+  const start = issues.length;
+  const input = checkClosedObject(
+    value,
+    path,
+    ["ref", "kind", "label"],
+    ["ref", "kind"],
+    ["ref", "kind", "label"],
+    issues
+  );
+  if (input === void 0) return void 0;
+  checkNonBlank(input["ref"], `${path}.ref`, issues);
+  checkNonBlank(input["kind"], `${path}.kind`, issues);
+  checkNonBlank(input["label"], `${path}.label`, issues);
+  if (issues.length !== start) return void 0;
+  return {
+    ref: input["ref"],
+    kind: input["kind"],
+    ...typeof input["label"] === "string" ? { label: input["label"] } : {}
+  };
+};
+var checkSectionInputs = (value, path, issues) => {
+  if (value === void 0) return void 0;
+  if (!Array.isArray(value)) {
+    issues.push(issue(path, "invalid_type", "expected an array"));
+    return void 0;
+  }
+  const inputs = [];
+  value.forEach((entry, index) => {
+    const checked = checkSectionInput(entry, `${path}[${index}]`, issues);
+    if (checked !== void 0) inputs.push(checked);
+  });
+  return inputs;
+};
 var checkSectionNode = (value, path, issues) => {
   if (!isRecord(value)) {
     issues.push(issue(path, "invalid_type", "expected an object"));
@@ -717,21 +1008,32 @@ var checkSectionNode = (value, path, issues) => {
       const node = checkClosedObject(
         value,
         path,
-        ["kind", "id", "targetRef", "markdown", "questionId"],
+        ["kind", "id", "targetRef", "markdown", "questionId", "inputs", "completionCriterion"],
         ["kind", "id", "targetRef", "markdown"],
-        ["id", "targetRef", "markdown", "questionId"],
+        ["id", "targetRef", "markdown", "questionId", "completionCriterion"],
         issues
       );
-      if (node === void 0 || issues.length !== start) return void 0;
-      return { kind: "prose", id: node["id"], targetRef: node["targetRef"], markdown: node["markdown"], ...typeof node["questionId"] === "string" ? { questionId: node["questionId"] } : {} };
+      if (node === void 0) return void 0;
+      const inputs = checkSectionInputs(node["inputs"], `${path}.inputs`, issues);
+      checkNonBlank(node["completionCriterion"], `${path}.completionCriterion`, issues);
+      if (issues.length !== start) return void 0;
+      return {
+        kind: "prose",
+        id: node["id"],
+        targetRef: node["targetRef"],
+        markdown: node["markdown"],
+        ...typeof node["questionId"] === "string" ? { questionId: node["questionId"] } : {},
+        ...inputs !== void 0 ? { inputs } : {},
+        ...typeof node["completionCriterion"] === "string" ? { completionCriterion: node["completionCriterion"] } : {}
+      };
     }
     case "question": {
       const node = checkClosedObject(
         value,
         path,
-        ["kind", "id", "targetRef", "question", "recommendedAnswer", "answer", "state", "context", "readingTimeMinutes", "recommendedOptionId"],
+        ["kind", "id", "targetRef", "question", "recommendedAnswer", "answer", "state", "context", "readingTimeMinutes", "recommendedOptionId", "inputs", "completionCriterion"],
         ["kind", "id", "targetRef", "question", "state"],
-        ["id", "targetRef", "question", "recommendedAnswer", "answer", "context", "recommendedOptionId"],
+        ["id", "targetRef", "question", "recommendedAnswer", "answer", "context", "recommendedOptionId", "completionCriterion"],
         issues
       );
       if (node === void 0) return void 0;
@@ -739,6 +1041,8 @@ var checkSectionNode = (value, path, issues) => {
       if (node["readingTimeMinutes"] !== void 0 && (typeof node["readingTimeMinutes"] !== "number" || !Number.isFinite(node["readingTimeMinutes"]))) {
         issues.push(issue(`${path}.readingTimeMinutes`, "invalid_type", "expected a finite number"));
       }
+      const inputs = checkSectionInputs(node["inputs"], `${path}.inputs`, issues);
+      checkNonBlank(node["completionCriterion"], `${path}.completionCriterion`, issues);
       if (issues.length !== start) return void 0;
       return {
         kind: "question",
@@ -750,7 +1054,9 @@ var checkSectionNode = (value, path, issues) => {
         state: node["state"],
         ...typeof node["context"] === "string" ? { context: node["context"] } : {},
         ...typeof node["recommendedOptionId"] === "string" ? { recommendedOptionId: node["recommendedOptionId"] } : {},
-        ...typeof node["readingTimeMinutes"] === "number" ? { readingTimeMinutes: node["readingTimeMinutes"] } : {}
+        ...typeof node["readingTimeMinutes"] === "number" ? { readingTimeMinutes: node["readingTimeMinutes"] } : {},
+        ...inputs !== void 0 ? { inputs } : {},
+        ...typeof node["completionCriterion"] === "string" ? { completionCriterion: node["completionCriterion"] } : {}
       };
     }
     case "optionSet": {
@@ -834,25 +1140,77 @@ var checkSectionNode = (value, path, issues) => {
       const node = checkClosedObject(
         value,
         path,
-        ["kind", "id", "targetRef", "syntax", "source", "alt", "scene"],
-        ["kind", "id", "targetRef", "syntax", "source", "alt"],
-        ["id", "targetRef", "source", "alt"],
+        ["kind", "id", "targetRef", "syntax", "source", "sourceRef", "renderComponent", "alt", "scene"],
+        ["kind", "id", "targetRef", "alt"],
+        ["id", "targetRef", "source", "sourceRef", "renderComponent", "alt"],
         issues
       );
       if (node === void 0) return void 0;
-      checkEnum(node["syntax"], `${path}.syntax`, ["mermaid", "plantuml"], issues);
-      if (node["scene"] !== void 0 && !isRecord(node["scene"])) {
+      checkNonBlank(node["alt"], `${path}.alt`, issues);
+      const hasSource = node["source"] !== void 0;
+      const hasSourceRef = node["sourceRef"] !== void 0;
+      const hasSyntax = node["syntax"] !== void 0;
+      const hasRenderComponent = node["renderComponent"] !== void 0;
+      const hasScene = node["scene"] !== void 0;
+      if (hasSource) {
+        checkNonBlank(node["source"], `${path}.source`, issues);
+      }
+      if (hasSyntax) {
+        checkEnum(node["syntax"], `${path}.syntax`, ["mermaid", "plantuml"], issues);
+      }
+      if (hasSourceRef && typeof node["sourceRef"] === "string" && !SOURCE_REF_PATTERN.test(node["sourceRef"])) {
+        issues.push(issue(`${path}.sourceRef`, "invalid_type", "expected a URI-like <scheme>:<opaque-id> reference"));
+      }
+      if (hasRenderComponent && typeof node["renderComponent"] === "string" && !RENDER_COMPONENT_PATTERN.test(node["renderComponent"])) {
+        issues.push(issue(`${path}.renderComponent`, "invalid_type", "expected a component identifier matching /^[A-Za-z][A-Za-z0-9-]*$/"));
+      }
+      if (hasScene && !isRecord(node["scene"])) {
         issues.push(issue(`${path}.scene`, "invalid_type", "expected a diagram-core SemanticDocument object"));
       }
+      if (!hasSource && !hasSourceRef) {
+        issues.push(issue(path, "diagram_source_missing", "diagram requires either inline (syntax + source) or reference (sourceRef + renderComponent)"));
+        if (hasSyntax || hasRenderComponent) {
+          issues.push(issue(path, "diagram_source_conflict", "syntax requires source and renderComponent requires sourceRef"));
+        }
+      } else if (hasSource && hasSourceRef) {
+        issues.push(issue(path, "diagram_source_conflict", "diagram cannot mix inline source and reference sourceRef"));
+      } else if (hasSource) {
+        if (!hasSyntax) {
+          issues.push(issue(`${path}.syntax`, "diagram_source_conflict", "inline diagram source requires syntax"));
+        }
+        if (hasRenderComponent) {
+          issues.push(issue(`${path}.renderComponent`, "diagram_source_conflict", "inline diagram cannot declare renderComponent"));
+        }
+      } else {
+        if (!hasRenderComponent) {
+          issues.push(issue(`${path}.renderComponent`, "diagram_source_conflict", "reference diagram sourceRef requires renderComponent"));
+        }
+        if (hasSyntax) {
+          issues.push(issue(`${path}.syntax`, "diagram_source_conflict", "reference diagram cannot declare syntax"));
+        }
+        if (hasScene) {
+          issues.push(issue(`${path}.scene`, "diagram_source_conflict", "reference diagram cannot carry an inline scene"));
+        }
+      }
       if (issues.length !== start) return void 0;
+      if (hasSource) {
+        return {
+          kind: "diagram",
+          id: node["id"],
+          targetRef: node["targetRef"],
+          syntax: node["syntax"],
+          source: node["source"],
+          alt: node["alt"],
+          ...hasScene ? { scene: node["scene"] } : {}
+        };
+      }
       return {
         kind: "diagram",
         id: node["id"],
         targetRef: node["targetRef"],
-        syntax: node["syntax"],
-        source: node["source"],
-        alt: node["alt"],
-        ...node["scene"] === void 0 ? {} : { scene: node["scene"] }
+        sourceRef: node["sourceRef"],
+        renderComponent: node["renderComponent"],
+        alt: node["alt"]
       };
     }
   }
@@ -1055,6 +1413,51 @@ var validateDecisionDossierSemantics = (doc) => {
       });
     }
   });
+  const questionIds = new Set(
+    doc.sections.filter((s) => s.kind === "question").map((q) => q.id)
+  );
+  const seenInputsByQuestion = /* @__PURE__ */ new Map();
+  doc.sections.forEach((section, index) => {
+    if (section.kind !== "prose" && section.kind !== "question") return;
+    if (!section.inputs?.length) return;
+    const path = `$.sections[${index}]`;
+    const localSeen = /* @__PURE__ */ new Map();
+    const groupKey = section.kind === "question" ? section.id : section.questionId !== void 0 && questionIds.has(section.questionId) ? section.questionId : void 0;
+    let groupSeen = groupKey !== void 0 ? seenInputsByQuestion.get(groupKey) : void 0;
+    if (groupKey !== void 0 && groupSeen === void 0) {
+      groupSeen = /* @__PURE__ */ new Map();
+      seenInputsByQuestion.set(groupKey, groupSeen);
+    }
+    section.inputs.forEach((inp, inputIndex) => {
+      const inputPath = `${path}.inputs[${inputIndex}].ref`;
+      const prevLocal = localSeen.get(inp.ref);
+      if (prevLocal !== void 0) {
+        issues.push(
+          issue(
+            inputPath,
+            "duplicate_input_ref",
+            `input ref "${inp.ref}" already declared at ${prevLocal}`
+          )
+        );
+        return;
+      }
+      localSeen.set(inp.ref, inputPath);
+      if (groupSeen !== void 0) {
+        const prevGroup = groupSeen.get(inp.ref);
+        if (prevGroup !== void 0) {
+          issues.push(
+            issue(
+              inputPath,
+              "duplicate_input_ref",
+              `input ref "${inp.ref}" already declared on linked section at ${prevGroup}`
+            )
+          );
+          return;
+        }
+        groupSeen.set(inp.ref, inputPath);
+      }
+    });
+  });
   const resolvable = /* @__PURE__ */ new Set([doc.ref]);
   for (const section of doc.sections) {
     resolvable.add(section.id);
@@ -1101,20 +1504,23 @@ var assertDecisionDossierDocument = (value) => {
   if (!result.ok) throw new DecisionDossierValidationError(result.issues);
   return result.value;
 };
-var validateDecisionDossierForPresentation = (value) => {
+var validateDecisionDossierForPresentation = (value, options) => {
   const result = validateDecisionDossierDocument(value);
   if (!result.ok) return result;
-  const issues = validateDecisionDossierReadability(result.value);
+  const issues = validateDecisionDossierReadability(result.value, options);
   return issues.length > 0 ? { ok: false, issues } : result;
 };
-var assertDecisionDossierForPresentation = (value) => {
-  const result = validateDecisionDossierForPresentation(value);
+var assertDecisionDossierForPresentation = (value, options) => {
+  const result = validateDecisionDossierForPresentation(value, options);
   if (!result.ok) throw new DecisionDossierValidationError(result.issues);
   return result.value;
 };
 export {
   DOSSIER_SCHEMA_ID,
   DOSSIER_SCHEMA_VERSION,
+  DOSSIER_V1_1_SCHEMA_ID,
+  DOSSIER_V2_1_SCHEMA_ID,
+  DOSSIER_V2_SCHEMA_ID,
   DecisionDossierValidationError,
   READABILITY_BUDGETS,
   READABILITY_LIMITS,

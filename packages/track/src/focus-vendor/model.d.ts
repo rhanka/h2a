@@ -35,12 +35,22 @@ interface FocusNodeBase {
     /** v2 only; the legacy closed validator refuses this field. */
     readonly citationRefs?: readonly string[];
 }
+/** One explicit input reference attached to a prose or question section. */
+export interface SectionInput {
+    readonly ref: string;
+    readonly kind: string;
+    readonly label?: string;
+}
 /** Markdown prose body. The renderer injects the markdown→string conversion (host hook). */
 export interface ProseNode extends FocusNodeBase {
     readonly kind: "prose";
     readonly markdown: string;
     /** Explicit question covered by any choice discussed in this prose. */
     readonly questionId?: string;
+    /** Optional typed input references consumed by this section. */
+    readonly inputs?: readonly SectionInput[];
+    /** Optional single-sentence completion criterion for this section. */
+    readonly completionCriterion?: string;
 }
 /** A question with a recommended answer (préco) and a validation state. */
 export interface QuestionNode extends FocusNodeBase {
@@ -64,6 +74,10 @@ export interface QuestionNode extends FocusNodeBase {
      * Optional at schema level; the readability gate requires it.
      */
     readonly readingTimeMinutes?: number;
+    /** Optional typed input references consumed by this question. */
+    readonly inputs?: readonly SectionInput[];
+    /** Optional single-sentence completion criterion for this question. */
+    readonly completionCriterion?: string;
 }
 /** A single option/proposal/alternative with a Claude-style annotation state. */
 export interface OptionNode extends FocusNodeBase {
@@ -110,8 +124,8 @@ export interface AmendmentTraceNode extends FocusNodeBase {
     readonly kind: "amendmentTrace";
     readonly steps: readonly AmendmentStep[];
 }
-/** A diagram. At L1 this renders as a fenced fallback only (no diagram adapter). */
-export interface DiagramNode extends FocusNodeBase {
+/** Inline diagram: carries syntax + source (+ optional diagram-core scene). */
+export interface InlineDiagramNode extends FocusNodeBase {
     readonly kind: "diagram";
     readonly syntax: DiagramSyntax;
     readonly source: string;
@@ -119,7 +133,21 @@ export interface DiagramNode extends FocusNodeBase {
     /** diagram-core SemanticDocument, generic@1, without views/geometry/layout hints.
      * Kept as plain JSON until the private DS package publishes its schema. */
     readonly scene?: Readonly<Record<string, unknown>>;
+    readonly sourceRef?: undefined;
+    readonly renderComponent?: undefined;
 }
+/** Reference diagram: carries sourceRef + renderComponent, resolved by the host. */
+export interface ReferenceDiagramNode extends FocusNodeBase {
+    readonly kind: "diagram";
+    readonly sourceRef: string;
+    readonly renderComponent: string;
+    readonly alt: string;
+    readonly syntax?: undefined;
+    readonly source?: undefined;
+    readonly scene?: undefined;
+}
+/** A diagram: inline (syntax + source) or by reference (sourceRef + renderComponent). */
+export type DiagramNode = InlineDiagramNode | ReferenceDiagramNode;
 /** The node families needed to render a decision-dossier. */
 export type FocusNode = ProseNode | QuestionNode | OptionSetNode | OutcomeNode | AmendmentTraceNode | DiagramNode;
 /**

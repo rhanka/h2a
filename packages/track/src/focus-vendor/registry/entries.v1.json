@@ -11,7 +11,7 @@
       "entryVersion": "2.0.0",
       "publisher": {
         "packageName": "@sentropic/focus",
-        "packageVersion": "0.5.0"
+        "packageVersion": "0.6.0"
       },
       "compatibility": {
         "entryContract": "1.1.4",
@@ -76,19 +76,31 @@
           "role": "skill-instructions",
           "path": "skills/focus/SKILL.md",
           "mediaType": "text/markdown",
-          "sha256": "4845682823695a3d6646cbf447f260c00bad3cea5a1c852088f256ecdc3e603d"
+          "sha256": "bbd13cb57da8ddb6f7f919714130d570e217ebf50c7f86a2c63b43855a186439"
         },
         {
           "role": "document-schema",
-          "path": "schemas/decision-dossier-document.v1.schema.json",
+          "path": "schemas/decision-dossier-document.v1.0.schema.json",
           "mediaType": "application/schema+json",
           "sha256": "725bc07e7c6b6ad51a1f720cc9fb02649d8f31bc54e71c61c350fd20058c8852"
         },
         {
           "role": "document-schema",
-          "path": "schemas/decision-dossier-document.v2.schema.json",
+          "path": "schemas/decision-dossier-document.v1.schema.json",
+          "mediaType": "application/schema+json",
+          "sha256": "f4b5247f025e99081c20fd9a8b0ed98b32a061c4a98597010be0264e5e564c6c"
+        },
+        {
+          "role": "document-schema",
+          "path": "schemas/decision-dossier-document.v2.0.schema.json",
           "mediaType": "application/schema+json",
           "sha256": "1a8059e5264785cd15c74b7fcfc04cbe42c575203b4232af43819e094846f5a9"
+        },
+        {
+          "role": "document-schema",
+          "path": "schemas/decision-dossier-document.v2.schema.json",
+          "mediaType": "application/schema+json",
+          "sha256": "058894550812b4a06eec57b9350e054e775ed657a05e8d451b16effcd3ba3702"
         }
       ],
       "skill": {
@@ -122,15 +134,29 @@
             "name": "DecisionDossierDocument",
             "schemaId": "urn:sentropic:focus:DecisionDossierDocument:1.0.0",
             "version": "1.0.0",
-            "assetPath": "schemas/decision-dossier-document.v1.schema.json",
+            "assetPath": "schemas/decision-dossier-document.v1.0.schema.json",
             "sha256": "725bc07e7c6b6ad51a1f720cc9fb02649d8f31bc54e71c61c350fd20058c8852"
+          },
+          {
+            "name": "DecisionDossierDocument",
+            "schemaId": "urn:sentropic:focus:DecisionDossierDocument:1.1.0",
+            "version": "1.1.0",
+            "assetPath": "schemas/decision-dossier-document.v1.schema.json",
+            "sha256": "f4b5247f025e99081c20fd9a8b0ed98b32a061c4a98597010be0264e5e564c6c"
           },
           {
             "name": "DecisionDossierDocument",
             "schemaId": "urn:sentropic:focus:DecisionDossierDocument:2.0.0",
             "version": "2.0.0",
-            "assetPath": "schemas/decision-dossier-document.v2.schema.json",
+            "assetPath": "schemas/decision-dossier-document.v2.0.schema.json",
             "sha256": "1a8059e5264785cd15c74b7fcfc04cbe42c575203b4232af43819e094846f5a9"
+          },
+          {
+            "name": "DecisionDossierDocument",
+            "schemaId": "urn:sentropic:focus:DecisionDossierDocument:2.1.0",
+            "version": "2.1.0",
+            "assetPath": "schemas/decision-dossier-document.v2.schema.json",
+            "sha256": "058894550812b4a06eec57b9350e054e775ed657a05e8d451b16effcd3ba3702"
           }
         ],
         "dependencies": []

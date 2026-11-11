@@ -19,6 +19,9 @@ import type { DecisionDossierDocument } from "../src/model.js";
 import {
   DOSSIER_SCHEMA_ID,
   DOSSIER_SCHEMA_VERSION,
+  DOSSIER_V1_1_SCHEMA_ID,
+  DOSSIER_V2_1_SCHEMA_ID,
+  DOSSIER_V2_SCHEMA_ID,
   validateDecisionDossierDocument,
 } from "../src/validation/index.js";
 import { decisionDossierFixture } from "./fixture.data.js";
@@ -62,14 +65,18 @@ describe('evidence schema version boundary', () => {
       expect(validateSchema(doc), `Text with image metadata: ${field}`).toBe(false);
     }
   });
-  it('should ship a separate closed v2 schema while preserving the original v1 bytes', () => {
+  it('should ship a separate closed v2 schema while preserving the original v1.0 and v2.0 bytes', () => {
     const v2 = require('../schemas/decision-dossier-document.v2.schema.json');
-    expect(v2.$id).toBe('urn:sentropic:focus:DecisionDossierDocument:2.0.0');
+    expect(v2.$id).toBe('urn:sentropic:focus:DecisionDossierDocument:2.1.0');
     expect(v2.properties.schemaVersion.const).toBe(2);
     expect(v2.additionalProperties).toBe(false);
     expect(v2.required).toEqual(expect.arrayContaining(['sources','citations','annexes','evidenceGroups','schemaVersion']));
-    expect(createHash('sha256').update(readFileSync(new URL('../schemas/decision-dossier-document.v1.schema.json', import.meta.url))).digest('hex'))
+    expect(createHash('sha256').update(readFileSync(new URL('../schemas/decision-dossier-document.v1.0.schema.json', import.meta.url))).digest('hex'))
       .toBe('725bc07e7c6b6ad51a1f720cc9fb02649d8f31bc54e71c61c350fd20058c8852');
+    expect(createHash('sha256').update(readFileSync(new URL('../schemas/decision-dossier-document.v2.0.schema.json', import.meta.url))).digest('hex'))
+      .toBe('1a8059e5264785cd15c74b7fcfc04cbe42c575203b4232af43819e094846f5a9');
+    expect(createHash('sha256').update(readFileSync(new URL('../schemas/decision-dossier-document.v1.schema.json', import.meta.url))).digest('hex'))
+      .toBe('f4b5247f025e99081c20fd9a8b0ed98b32a061c4a98597010be0264e5e564c6c');
   });
   it('should reject new evidence through the frozen old validator rather than dropping it', async () => {
     const old = await import('./fixtures/validator.v1.mjs');
@@ -78,15 +85,24 @@ describe('evidence schema version boundary', () => {
 });
 
 describe("DecisionDossierDocument schema asset identity", () => {
-  it("publishes the stable schema ID under draft 2020-12", () => {
+  it("publishes the stable schema IDs under draft 2020-12", () => {
     expect(DOSSIER_SCHEMA_ID).toBe(
       "urn:sentropic:focus:DecisionDossierDocument:1.0.0",
     );
     expect(DOSSIER_SCHEMA_VERSION).toBe("1.0.0");
+    expect(DOSSIER_V2_SCHEMA_ID).toBe(
+      "urn:sentropic:focus:DecisionDossierDocument:2.0.0",
+    );
+    expect(DOSSIER_V1_1_SCHEMA_ID).toBe(
+      "urn:sentropic:focus:DecisionDossierDocument:1.1.0",
+    );
+    expect(DOSSIER_V2_1_SCHEMA_ID).toBe(
+      "urn:sentropic:focus:DecisionDossierDocument:2.1.0",
+    );
     expect(schemaDoc.$schema).toBe(
       "https://json-schema.org/draft/2020-12/schema",
     );
-    expect(schemaDoc.$id).toBe(DOSSIER_SCHEMA_ID);
+    expect(schemaDoc.$id).toBe(DOSSIER_V1_1_SCHEMA_ID);
   });
 });
 
@@ -381,7 +397,7 @@ describe("published JSON Schema parity with the TS validator (rev352-F3)", () =>
       "sections", "interactions", "provenance", "amendmentTrace",
     ]);
     expect(Object.keys(defsOf(doc)).sort()).toEqual(
-      ["amendmentStep", "amendmentTraceNode", "comprehensionEvidence", "diagramNode", "glossaryEntry", "interaction", "optionNode", "optionSetNode", "outcomeNode", "proseNode", "provenance", "questionNode", "readability", "section"],
+      ["amendmentStep", "amendmentTraceNode", "comprehensionEvidence", "diagramNode", "glossaryEntry", "interaction", "optionNode", "optionSetNode", "outcomeNode", "proseNode", "provenance", "questionNode", "readability", "section", "sectionInput"],
     );
     expect(defsOf(doc)["section"]!["oneOf"]).toEqual([
       { $ref: "#/$defs/proseNode" },
@@ -403,17 +419,26 @@ describe("published JSON Schema parity with the TS validator (rev352-F3)", () =>
     expect(rootProps["provenance"]).toEqual({ $ref: "#/$defs/provenance" });
     expect(rootProps["amendmentTrace"]).toEqual({ type: "array", items: { $ref: "#/$defs/amendmentStep" } });
 
-    checkClosedObjectDef(doc, "proseNode", ["kind", "id", "targetRef", "markdown"], ["kind", "id", "targetRef", "markdown", "questionId"]);
+    checkClosedObjectDef(doc, "sectionInput", ["ref", "kind"], ["ref", "kind", "label"]);
+    expect(propsOf(doc, "sectionInput")["ref"]).toEqual({ type: "string", pattern: "^[\\s\\S]*\\S[\\s\\S]*$" });
+    expect(propsOf(doc, "sectionInput")["kind"]).toEqual({ type: "string", pattern: "^[\\s\\S]*\\S[\\s\\S]*$" });
+    expect(propsOf(doc, "sectionInput")["label"]).toEqual({ type: "string", pattern: "^[\\s\\S]*\\S[\\s\\S]*$" });
+
+    checkClosedObjectDef(doc, "proseNode", ["kind", "id", "targetRef", "markdown"], ["kind", "id", "targetRef", "markdown", "questionId", "inputs", "completionCriterion"]);
     expect(propsOf(doc, "proseNode")["kind"]).toEqual({ const: "prose" });
     expect(propsOf(doc, "proseNode")["id"]).toEqual({ type: "string" });
     expect(propsOf(doc, "proseNode")["targetRef"]).toEqual({ type: "string" });
     expect(propsOf(doc, "proseNode")["markdown"]).toEqual({ type: "string" });
+    expect(propsOf(doc, "proseNode")["inputs"]).toEqual({ type: "array", items: { $ref: "#/$defs/sectionInput" } });
+    expect(propsOf(doc, "proseNode")["completionCriterion"]).toEqual({ type: "string", pattern: "^[\\s\\S]*\\S[\\s\\S]*$" });
     expect(propsOf(doc, "questionNode")["kind"]).toEqual({ const: "question" });
     expect(propsOf(doc, "questionNode")["id"]).toEqual({ type: "string" });
     expect(propsOf(doc, "questionNode")["targetRef"]).toEqual({ type: "string" });
     expect(propsOf(doc, "questionNode")["question"]).toEqual({ type: "string" });
     expect(propsOf(doc, "questionNode")["recommendedAnswer"]).toEqual({ type: "string" });
     expect(propsOf(doc, "questionNode")["answer"]).toEqual({ type: "string" });
+    expect(propsOf(doc, "questionNode")["inputs"]).toEqual({ type: "array", items: { $ref: "#/$defs/sectionInput" } });
+    expect(propsOf(doc, "questionNode")["completionCriterion"]).toEqual({ type: "string", pattern: "^[\\s\\S]*\\S[\\s\\S]*$" });
     expect(propsOf(doc, "optionNode")["kind"]).toEqual({ const: "option" });
     expect(propsOf(doc, "optionNode")["id"]).toEqual({ type: "string" });
     expect(propsOf(doc, "optionNode")["targetRef"]).toEqual({ type: "string" });
@@ -438,9 +463,12 @@ describe("published JSON Schema parity with the TS validator (rev352-F3)", () =>
     expect(propsOf(doc, "diagramNode")["kind"]).toEqual({ const: "diagram" });
     expect(propsOf(doc, "diagramNode")["id"]).toEqual({ type: "string" });
     expect(propsOf(doc, "diagramNode")["targetRef"]).toEqual({ type: "string" });
-    expect(propsOf(doc, "diagramNode")["source"]).toEqual({ type: "string" });
-    expect(propsOf(doc, "diagramNode")["alt"]).toEqual({ type: "string" });
+    expect(propsOf(doc, "diagramNode")["source"]).toEqual({ type: "string", pattern: "^[\\s\\S]*\\S[\\s\\S]*$" });
+    expect(propsOf(doc, "diagramNode")["alt"]).toEqual({ type: "string", pattern: "^[\\s\\S]*\\S[\\s\\S]*$" });
     expect(propsOf(doc, "diagramNode")["scene"]).toMatchObject({ type: "object" });
+    expect(propsOf(doc, "diagramNode")["sourceRef"]).toEqual({ type: "string", pattern: "^[A-Za-z][A-Za-z0-9+.-]*:\\S+$" });
+    expect(propsOf(doc, "diagramNode")["renderComponent"]).toEqual({ type: "string", pattern: "^[A-Za-z][A-Za-z0-9-]*$" });
+    expect(defsOf(doc)["diagramNode"]!["allOf"]).toHaveLength(6);
     expect(propsOf(doc, "interaction")["name"]).toEqual({ type: "string" });
     expect(propsOf(doc, "interaction")["targetRef"]).toEqual({ type: "string" });
     expect(propsOf(doc, "interaction")["label"]).toEqual({ type: "string" });
@@ -452,7 +480,7 @@ describe("published JSON Schema parity with the TS validator (rev352-F3)", () =>
     expect(propsOf(doc, "amendmentStep")["at"]).toEqual({ type: "string" });
     expect(propsOf(doc, "amendmentStep")["author"]).toEqual({ type: "string" });
     expect(propsOf(doc, "amendmentStep")["summary"]).toEqual({ type: "string" });
-    checkClosedObjectDef(doc, "questionNode", ["kind", "id", "targetRef", "question", "state"], ["kind", "id", "targetRef", "question", "recommendedAnswer", "answer", "state", "context", "readingTimeMinutes", "recommendedOptionId"]);
+    checkClosedObjectDef(doc, "questionNode", ["kind", "id", "targetRef", "question", "state"], ["kind", "id", "targetRef", "question", "recommendedAnswer", "answer", "state", "context", "readingTimeMinutes", "recommendedOptionId", "inputs", "completionCriterion"]);
     checkClosedObjectDef(doc, "optionNode", ["kind", "id", "targetRef", "label", "annotation"], ["kind", "id", "targetRef", "label", "body", "annotation", "annotationComment", "consequence"]);
     checkClosedObjectDef(doc, "optionSetNode", ["kind", "id", "targetRef", "options"], ["kind", "id", "targetRef", "title", "options", "questionId"]);
     expect(propsOf(doc, "optionSetNode")["options"]).toEqual({
@@ -461,7 +489,7 @@ describe("published JSON Schema parity with the TS validator (rev352-F3)", () =>
     });
     checkClosedObjectDef(doc, "outcomeNode", ["kind", "id", "targetRef", "modality", "statement"], ["kind", "id", "targetRef", "modality", "statement", "questionId"]);
     checkClosedObjectDef(doc, "amendmentTraceNode", ["kind", "id", "targetRef", "steps"], ["kind", "id", "targetRef", "steps"]);
-    checkClosedObjectDef(doc, "diagramNode", ["kind", "id", "targetRef", "syntax", "source", "alt"], ["kind", "id", "targetRef", "syntax", "source", "alt", "scene"]);
+    checkClosedObjectDef(doc, "diagramNode", ["kind", "id", "targetRef", "alt"], ["kind", "id", "targetRef", "syntax", "source", "alt", "scene", "sourceRef", "renderComponent"]);
     checkClosedObjectDef(doc, "interaction", ["name", "targetRef", "label", "enabled"], ["name", "targetRef", "label", "enabled"]);
     expect(propsOf(doc, "interaction")["enabled"]).toEqual({ const: false });
     checkClosedObjectDef(doc, "comprehensionEvidence", ["subject", "dossierHash"], ["subject", "dossierHash", "signature"]);
@@ -664,9 +692,274 @@ describe("semantic validation (R4-AC05, R4-AC06, continued)", () => {
     expect(forgedResult.ok).toBe(false);
     if (forgedResult.ok) return;
     expect(
-      forgedResult.issues.some(
+       forgedResult.issues.some(
         (issue) => issue.code === "evidence_mismatch",
       ),
     ).toBe(true);
+  });
+});
+
+describe("1.1.0 / 2.1.0 diagram reference mode, inputs[] and completionCriterion (A1–A3, A6–A7, A10–A15)", () => {
+  const Ajv2020 = require("ajv/dist/2020.js");
+  const ajvV1 = new Ajv2020({ strict: false }).compile(schemaDoc);
+  const ajvV2 = new Ajv2020({ strict: false }).compile(
+    require("../schemas/decision-dossier-document.v2.schema.json"),
+  );
+
+  it("A1: inline diagram (syntax + source) remains valid on v1.1 and v2.1", () => {
+    const v1Doc = clone(allFamiliesFixture());
+    expect(ajvV1(v1Doc)).toBe(true);
+    expect(validateDecisionDossierDocument(v1Doc).ok).toBe(true);
+    const v2Doc = evidenceFixture();
+    expect(ajvV2(v2Doc)).toBe(true);
+    expect(validateDecisionDossierDocument(v2Doc).ok).toBe(true);
+  });
+
+  it("A2: reference diagram (sourceRef + renderComponent, without syntax/source/scene) validates on v1.1", () => {
+    for (const sourceRef of ["engram:roadmap-layout-engine-gantt", "ENGRAM:x", "Engram:x"]) {
+      const doc = clone(allFamiliesFixture()) as { sections: Array<Record<string, unknown>> };
+      const idx = doc.sections.findIndex((s) => s.kind === "diagram");
+      doc.sections[idx] = {
+        kind: "diagram",
+        id: "s-diagram",
+        targetRef: "s-diagram",
+        alt: "Architecture des lots.",
+        sourceRef,
+        renderComponent: "GanttChart",
+      };
+      expect(ajvV1(doc), JSON.stringify(ajvV1.errors)).toBe(true);
+      const res = validateDecisionDossierDocument(doc);
+      expect(res.ok).toBe(true);
+      if (res.ok) expect(res.value).toEqual(doc);
+    }
+  });
+
+  it("A3: reference diagram (sourceRef + renderComponent) validates on v2.1", () => {
+    const doc = evidenceFixture();
+    doc.sections.push({
+      kind: "diagram",
+      id: "s-diagram-ref",
+      targetRef: "s-diagram-ref",
+      alt: "Architecture des lots.",
+      sourceRef: "engram:roadmap-layout-engine-gantt",
+      renderComponent: "GanttChart",
+    });
+    expect(ajvV2(doc), JSON.stringify(ajvV2.errors)).toBe(true);
+    const res = validateDecisionDossierDocument(doc);
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.value).toEqual(doc);
+  });
+
+  it("A6 & A7: prose and question accept inputs[] and completionCriterion on v1.1 and v2.1", () => {
+    const doc = clone(allFamiliesFixture()) as { sections: Array<Record<string, unknown>> };
+    doc.sections[0]!["inputs"] = [
+      { ref: "spec-s0", kind: "artifact", label: "Cadrage validé" },
+      { ref: "engram:audit-n3", kind: "engram" },
+    ];
+    doc.sections[0]!["completionCriterion"] = "Décision tranchée et signée";
+    doc.sections[1]!["inputs"] = [
+      { ref: "bench-q1", kind: "benchmark", label: "Mesures latence" },
+    ];
+    doc.sections[1]!["completionCriterion"] = "Option retenue par le propriétaire";
+    expect(ajvV1(doc), JSON.stringify(ajvV1.errors)).toBe(true);
+    const res = validateDecisionDossierDocument(doc);
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.value).toEqual(doc);
+
+    const v2 = evidenceFixture();
+    v2.sections[0].inputs = [{ ref: "spec-s0", kind: "artifact", label: "Cadrage validé" }];
+    v2.sections[0].completionCriterion = "Décision tranchée et signée";
+    const q = v2.sections.find((s: { kind: string }) => s.kind === "question");
+    q.inputs = [{ ref: "bench-q1", kind: "benchmark", label: "Mesures latence" }];
+    q.completionCriterion = "Option retenue par le propriétaire";
+    expect(ajvV2(v2), JSON.stringify(ajvV2.errors)).toBe(true);
+    const resV2 = validateDecisionDossierDocument(v2);
+    expect(resV2.ok).toBe(true);
+  });
+
+  it("A10: diagram with neither source nor sourceRef refuses with diagram_source_missing and fails JSON Schema", () => {
+    const doc = clone(allFamiliesFixture()) as { sections: Array<Record<string, unknown>> };
+    const idx = doc.sections.findIndex((s) => s.kind === "diagram");
+    doc.sections[idx] = {
+      kind: "diagram",
+      id: "s-diagram",
+      targetRef: "s-diagram",
+      alt: "Orphan diagram.",
+    };
+    expect(ajvV1(doc)).toBe(false);
+    const res = validateDecisionDossierDocument(doc);
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.issues.some((i) => i.code === "diagram_source_missing")).toBe(true);
+    }
+  });
+
+  it("A11: diagram mixing inline and reference fields or missing renderComponent refuses in both runtime and JSON Schema", () => {
+    const makeWithDiagram = (diagram: Record<string, unknown>) => {
+      const doc = clone(allFamiliesFixture()) as { sections: Array<Record<string, unknown>> };
+      const idx = doc.sections.findIndex((s) => s.kind === "diagram");
+      doc.sections[idx] = { kind: "diagram", id: "s-diagram", targetRef: "s-diagram", alt: "Alt.", ...diagram };
+      return doc;
+    };
+
+    // Both source and sourceRef -> diagram_source_conflict
+    const both = makeWithDiagram({
+      syntax: "mermaid",
+      source: "flowchart LR\nA-->B",
+      sourceRef: "engram:diag-lot-map",
+      renderComponent: "GanttChart",
+    });
+    expect(ajvV1(both)).toBe(false);
+    const resBoth = validateDecisionDossierDocument(both);
+    expect(resBoth.ok).toBe(false);
+    if (!resBoth.ok) expect(resBoth.issues.some((i) => i.code === "diagram_source_conflict")).toBe(true);
+
+    // sourceRef without renderComponent -> diagram_source_conflict
+    const missingComp = makeWithDiagram({ sourceRef: "engram:diag-lot-map" });
+    expect(ajvV1(missingComp)).toBe(false);
+    const resMissingComp = validateDecisionDossierDocument(missingComp);
+    expect(resMissingComp.ok).toBe(false);
+    if (!resMissingComp.ok) expect(resMissingComp.issues.some((i) => i.code === "diagram_source_conflict" && i.path.endsWith(".renderComponent"))).toBe(true);
+
+    // renderComponent without sourceRef (on inline diagram) -> diagram_source_conflict
+    const extraComp = makeWithDiagram({
+      syntax: "mermaid",
+      source: "flowchart LR\nA-->B",
+      renderComponent: "GanttChart",
+    });
+    expect(ajvV1(extraComp)).toBe(false);
+    const resExtraComp = validateDecisionDossierDocument(extraComp);
+    expect(resExtraComp.ok).toBe(false);
+    if (!resExtraComp.ok) expect(resExtraComp.issues.some((i) => i.code === "diagram_source_conflict" && i.path.endsWith(".renderComponent"))).toBe(true);
+
+    // sourceRef with syntax or scene -> diagram_source_conflict
+    for (const conflict of [
+      { sourceRef: "engram:diag-lot-map", renderComponent: "GanttChart", syntax: "mermaid" },
+      { sourceRef: "engram:diag-lot-map", renderComponent: "GanttChart", scene: { documentId: "doc:1" } },
+    ]) {
+      const doc = makeWithDiagram(conflict);
+      expect(ajvV1(doc)).toBe(false);
+      const res = validateDecisionDossierDocument(doc);
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.issues.some((i) => i.code === "diagram_source_conflict")).toBe(true);
+    }
+  });
+
+  it("A12: optionSet, outcome, amendmentTrace and diagram refuse inputs and completionCriterion with unknown_field", () => {
+    for (const kind of ["optionSet", "outcome", "amendmentTrace", "diagram"] as const) {
+      for (const [field, value] of [
+        ["inputs", [{ ref: "r1", kind: "artifact", label: "Label" }]],
+        ["completionCriterion", "Done"],
+      ] as const) {
+        const doc = clone(allFamiliesFixture()) as { sections: Array<Record<string, unknown>> };
+        const target = doc.sections.find((s) => s.kind === kind)!;
+        target[field] = value;
+        expect(ajvV1(doc)).toBe(false);
+        const res = validateDecisionDossierDocument(doc);
+        expect(res.ok).toBe(false);
+        if (!res.ok) expect(res.issues.some((i) => i.code === "unknown_field")).toBe(true);
+      }
+    }
+  });
+
+  it("A13 & A14: inputs[].ref/kind required, non-blank ref/kind/label, and duplicate_input_ref within node or across linked prose<->question (not shared targetRef)", () => {
+    // missing kind -> missing_field
+    const missingKind = clone(allFamiliesFixture()) as { sections: Array<Record<string, unknown>> };
+    missingKind.sections[0]!["inputs"] = [{ ref: "r1", label: "Label" }];
+    expect(ajvV1(missingKind)).toBe(false);
+    const resKind = validateDecisionDossierDocument(missingKind);
+    expect(resKind.ok).toBe(false);
+    if (!resKind.ok) expect(resKind.issues.some((i) => i.code === "missing_field" && i.path.endsWith(".kind"))).toBe(true);
+
+    // blank ref, kind, or label -> invalid_type
+    for (const badInput of [
+      { ref: "", kind: "artifact", label: "Valid" },
+      { ref: "   ", kind: "artifact", label: "Valid" },
+      { ref: "r1", kind: "", label: "Valid" },
+      { ref: "r1", kind: "   ", label: "Valid" },
+      { ref: "r1", kind: "artifact", label: "" },
+      { ref: "r1", kind: "artifact", label: "  \t " },
+    ]) {
+      const doc = clone(allFamiliesFixture()) as { sections: Array<Record<string, unknown>> };
+      doc.sections[0]!["inputs"] = [badInput];
+      expect(ajvV1(doc)).toBe(false);
+      const res = validateDecisionDossierDocument(doc);
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.issues.some((i) => i.code === "invalid_type")).toBe(true);
+    }
+
+    // duplicate ref in same node -> duplicate_input_ref
+    const sameNodeDup = clone(allFamiliesFixture()) as { sections: Array<Record<string, unknown>> };
+    sameNodeDup.sections[0]!["inputs"] = [
+      { ref: "dup-ref", kind: "artifact", label: "First" },
+      { ref: "dup-ref", kind: "artifact", label: "Second" },
+    ];
+    const resSame = validateDecisionDossierDocument(sameNodeDup);
+    expect(resSame.ok).toBe(false);
+    if (!resSame.ok) expect(resSame.issues.some((i) => i.code === "duplicate_input_ref")).toBe(true);
+
+    // duplicate ref across prose and question linked by prose.questionId === question.id -> duplicate_input_ref
+    const crossNodeDup = clone(allFamiliesFixture()) as { sections: Array<Record<string, unknown>> };
+    crossNodeDup.sections[0]!["questionId"] = "s-question";
+    crossNodeDup.sections[0]!["inputs"] = [{ ref: "shared-ref", kind: "artifact", label: "In prose" }];
+    crossNodeDup.sections[1]!["inputs"] = [{ ref: "shared-ref", kind: "artifact", label: "In question" }];
+    const resCross = validateDecisionDossierDocument(crossNodeDup);
+    expect(resCross.ok).toBe(false);
+    if (!resCross.ok) expect(resCross.issues.some((i) => i.code === "duplicate_input_ref")).toBe(true);
+
+    // A14: prose and question sharing only targetRef (without prose.questionId === question.id) do NOT trigger duplicate_input_ref
+    const unlinkedSharedTarget = clone(allFamiliesFixture()) as { sections: Array<Record<string, unknown>> };
+    unlinkedSharedTarget.sections[0]!["targetRef"] = "shared-target";
+    unlinkedSharedTarget.sections[0]!["inputs"] = [{ ref: "shared-ref", kind: "artifact", label: "In prose" }];
+    unlinkedSharedTarget.sections[1]!["targetRef"] = "shared-target";
+    unlinkedSharedTarget.sections[1]!["inputs"] = [{ ref: "shared-ref", kind: "artifact", label: "In question" }];
+    expect(validateDecisionDossierDocument(unlinkedSharedTarget).ok).toBe(true);
+  });
+
+  it("A14b: blank completionCriterion refuses with invalid_type", () => {
+    for (const blank of ["", "   ", "\n\t"]) {
+      const doc = clone(allFamiliesFixture()) as { sections: Array<Record<string, unknown>> };
+      doc.sections[0]!["completionCriterion"] = blank;
+      expect(ajvV1(doc)).toBe(false);
+      const res = validateDecisionDossierDocument(doc);
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.issues.some((i) => i.code === "invalid_type" && i.path.endsWith(".completionCriterion"))).toBe(true);
+    }
+  });
+
+  it("A15: invalid renderComponent or sourceRef pattern refuses with invalid_type in both runtime and JSON Schema", () => {
+    for (const badComp of ["123Bad", "Diagram_Flow", "", "   ", "-LeadingDash"]) {
+      const doc = clone(allFamiliesFixture()) as { sections: Array<Record<string, unknown>> };
+      const idx = doc.sections.findIndex((s) => s.kind === "diagram");
+      doc.sections[idx] = {
+        kind: "diagram",
+        id: "s-diagram",
+        targetRef: "s-diagram",
+        alt: "Alt",
+        sourceRef: "engram:diag-lot-map",
+        renderComponent: badComp,
+      };
+      expect(ajvV1(doc)).toBe(false);
+      const res = validateDecisionDossierDocument(doc);
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.issues.some((i) => i.code === "invalid_type" && i.path.endsWith(".renderComponent"))).toBe(true);
+    }
+
+    for (const badRef of ["diag-lot-map", "engram:has spaces", "", "   ", "1bad:ref", "engram:"]) {
+      const doc = clone(allFamiliesFixture()) as { sections: Array<Record<string, unknown>> };
+      const idx = doc.sections.findIndex((s) => s.kind === "diagram");
+      doc.sections[idx] = {
+        kind: "diagram",
+        id: "s-diagram",
+        targetRef: "s-diagram",
+        alt: "Alt",
+        sourceRef: badRef,
+        renderComponent: "GanttChart",
+      };
+      expect(ajvV1(doc)).toBe(false);
+      const res = validateDecisionDossierDocument(doc);
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.issues.some((i) => i.code === "invalid_type" && i.path.endsWith(".sourceRef"))).toBe(true);
+    }
   });
 });

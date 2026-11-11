@@ -41,6 +41,10 @@ const doc = {
     ],
   },
   sections: decisionDossierFixture.sections.map((section) => {
+    if (section.kind === "prose") return {
+      ...section,
+      markdown: "## Context\n\nIn short: The decision-dossier is the **first** focus type. This stage is fixture-driven with no track dependency.",
+    };
     if (section.kind === "question") return {
       ...section, context: "A private package lets us try the interface before making a public support commitment.",
       readingTimeMinutes: 2, recommendedOptionId: "opt-private",
@@ -50,7 +54,7 @@ const doc = {
         ...option, consequence: ["Try the interface without a public support commitment.", "Commit to supporting a public interface now.", "Keep one copy inside the application, making reuse harder."][index],
       })),
     };
-    if (section.kind === "outcome") return { ...section, questionId: "q-publish", statement: section.statement.replace("PRIVATE", "private") };
+    if (section.kind === "outcome") return { ...section, questionId: "q-publish", statement: section.statement.replace("PRIVATE", "private").replace(";", ":") };
     return section;
   }),
 };
@@ -175,5 +179,66 @@ describe("renderHtml", () => {
 
   it("escapes renderer-emitted text content", () => {
     expect(out).toContain("ref: <code>decision:focus-render-core</code>");
+  });
+});
+
+describe("1.1.0 / 2.1.0 reference diagram, inputs[], completionCriterion & escaping (A5, A9, A21)", () => {
+  const refDoc = {
+    ...doc,
+    sections: doc.sections.map((section) => {
+      if (section.kind === "prose") {
+        return {
+          ...section,
+          inputs: [
+            { ref: "spec-s0", kind: "artifact", label: "Validated framing" },
+            { ref: "engram:raw-id", kind: "engram" },
+          ],
+          completionCriterion: "Framing reviewed with the owner.",
+        };
+      }
+      if (section.kind === "question") {
+        return {
+          ...section,
+          inputs: [{ ref: "bench-q1", kind: "benchmark", label: "Latency report" }],
+          completionCriterion: "Choice recorded by the owner.",
+        };
+      }
+      if (section.kind === "diagram") {
+        return {
+          kind: "diagram" as const,
+          id: section.id,
+          targetRef: section.targetRef,
+          alt: "Architecture\nmap across stages.",
+          sourceRef: "engram:roadmap-```-gantt",
+          renderComponent: "GanttChart",
+        };
+      }
+      return section;
+    }),
+  };
+
+  it("A5 & A9 & A21: renderMd, renderHtml and renderTerminal emit §4.6 fallback, inputs/criterion lines, lengthened fences and collapsed newlines", () => {
+    const md = renderMd(refDoc);
+    expect(md).toContain("- Input: Validated framing (`spec-s0`)");
+    expect(md).toContain("- Input: engram:raw-id (`engram:raw-id`)");
+    expect(md).toContain("**Completion criterion:** Framing reviewed with the owner.");
+    expect(md).toContain("- Input: Latency report (`bench-q1`)");
+    expect(md).toContain("**Completion criterion:** Choice recorded by the owner.");
+    expect(md).toContain("_Architecture map across stages._\n\n````\nGanttChart: engram:roadmap-```-gantt\n````");
+
+    const html = renderHtml(refDoc, hooks);
+    expect(html).toContain('<ul class="focus-inputs"><li><span class="focus-input-label">Validated framing</span> <code>spec-s0</code></li><li><span class="focus-input-label">engram:raw-id</span> <code>engram:raw-id</code></li></ul>');
+    expect(html).toContain('<p class="focus-completion-criterion">Framing reviewed with the owner.</p>');
+    expect(html).toContain('<ul class="focus-inputs"><li><span class="focus-input-label">Latency report</span> <code>bench-q1</code></li></ul>');
+    expect(html).toContain('<p class="focus-completion-criterion">Choice recorded by the owner.</p>');
+    expect(html).toContain('<figure class="focus-diagram" data-render-component="GanttChart" data-source-ref="engram:roadmap-```-gantt"><figcaption>Architecture\nmap across stages.</figcaption><pre><code>GanttChart: engram:roadmap-```-gantt</code></pre></figure>');
+
+    const term = renderTerminal(refDoc);
+    expect(term).toContain("  Input: Validated framing (spec-s0)");
+    expect(term).toContain("  Input: engram:raw-id (engram:raw-id)");
+    expect(term).toContain("  Completion: Framing reviewed with the owner.");
+    expect(term).toContain("  Input: Latency report (bench-q1)");
+    expect(term).toContain("  Completion: Choice recorded by the owner.");
+    expect(term).toContain("Diagram (GanttChart) — Architecture map across stages. [engram:roadmap-```-gantt]");
   });
 });

@@ -17,12 +17,20 @@
  * Pure and dependency-free: no I/O, no clock, no mutation of the input.
  * Every recorded issue is a refusal — the schema is closed.
  */
+import type { ReadabilityOptions } from "./readability.js";
 export { READABILITY_LIMITS, READABILITY_BUDGETS, validateDecisionDossierReadability } from "./readability.js";
+export type { ReadabilityOptions, ReadabilityProfile } from "./readability.js";
 import type { DecisionDossierDocument } from "../model.js";
 /** Stable schema ID of the published DecisionDossierDocument asset. */
 export declare const DOSSIER_SCHEMA_ID = "urn:sentropic:focus:DecisionDossierDocument:1.0.0";
 /** Version of the dossier schema, independent of the package version. */
 export declare const DOSSIER_SCHEMA_VERSION = "1.0.0";
+/** Stable v2.0.0 schema ID preserved for compatibility. */
+export declare const DOSSIER_V2_SCHEMA_ID = "urn:sentropic:focus:DecisionDossierDocument:2.0.0";
+/** Additive v1.1.0 schema ID (diagram by reference, section inputs, completion criterion). */
+export declare const DOSSIER_V1_1_SCHEMA_ID = "urn:sentropic:focus:DecisionDossierDocument:1.1.0";
+/** Additive v2.1.0 schema ID (v2 embedded evidence + 1.1.0 section/diagram extensions). */
+export declare const DOSSIER_V2_1_SCHEMA_ID = "urn:sentropic:focus:DecisionDossierDocument:2.1.0";
 /** One machine-checkable validation failure. */
 export interface ValidationIssue {
     /** JSON-path-style location, e.g. `$.sections[2].options[0].annotation`. */
@@ -53,6 +61,6 @@ export declare const validateDecisionDossierDocument: (value: unknown) => Valida
 /** Parse or throw {@link DecisionDossierValidationError}. */
 export declare const assertDecisionDossierDocument: (value: unknown) => DecisionDossierDocument;
 /** Presentation requires the backward-compatible structure AND the readability gate. */
-export declare const validateDecisionDossierForPresentation: (value: unknown) => ValidationResult<DecisionDossierDocument>;
+export declare const validateDecisionDossierForPresentation: (value: unknown, options?: ReadabilityOptions) => ValidationResult<DecisionDossierDocument>;
 /** Refuse before any presentation or host rendering hook runs. */
-export declare const assertDecisionDossierForPresentation: (value: unknown) => DecisionDossierDocument;
+export declare const assertDecisionDossierForPresentation: (value: unknown, options?: ReadabilityOptions) => DecisionDossierDocument;

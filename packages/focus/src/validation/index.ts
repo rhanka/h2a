@@ -19,8 +19,10 @@
  */
 
 import { validateDecisionDossierReadability } from "./readability.js";
+import type { ReadabilityOptions } from "./readability.js";
 import { checkEvidence } from './evidence.js';
 export { READABILITY_LIMITS, READABILITY_BUDGETS, validateDecisionDossierReadability } from "./readability.js";
+export type { ReadabilityOptions, ReadabilityProfile } from "./readability.js";
 
 import type {
   Affordance,
@@ -37,6 +39,7 @@ import type {
   OptionNode,
   OutcomeModality,
   QuestionValidationState,
+  SectionInput,
 } from "../model.js";
 
 /** Stable schema ID of the published DecisionDossierDocument asset. */
@@ -45,6 +48,18 @@ export const DOSSIER_SCHEMA_ID =
 
 /** Version of the dossier schema, independent of the package version. */
 export const DOSSIER_SCHEMA_VERSION = "1.0.0";
+
+/** Stable v2.0.0 schema ID preserved for compatibility. */
+export const DOSSIER_V2_SCHEMA_ID =
+  "urn:sentropic:focus:DecisionDossierDocument:2.0.0";
+
+/** Additive v1.1.0 schema ID (diagram by reference, section inputs, completion criterion). */
+export const DOSSIER_V1_1_SCHEMA_ID =
+  "urn:sentropic:focus:DecisionDossierDocument:1.1.0";
+
+/** Additive v2.1.0 schema ID (v2 embedded evidence + 1.1.0 section/diagram extensions). */
+export const DOSSIER_V2_1_SCHEMA_ID =
+  "urn:sentropic:focus:DecisionDossierDocument:2.1.0";
 
 /** One machine-checkable validation failure. */
 export interface ValidationIssue {
@@ -196,6 +211,63 @@ const checkAmendmentStep = (
   return { at: step["at"] as string, author: step["author"] as string, summary: step["summary"] as string };
 };
 
+const SOURCE_REF_PATTERN = /^[A-Za-z][A-Za-z0-9+.-]*:\S+$/;
+const RENDER_COMPONENT_PATTERN = /^[A-Za-z][A-Za-z0-9-]*$/;
+
+const checkNonBlank = (
+  value: unknown,
+  path: string,
+  issues: ValidationIssue[],
+): void => {
+  if (typeof value === "string" && value.trim().length === 0) {
+    issues.push(issue(path, "invalid_type", "expected a non-blank string"));
+  }
+};
+
+const checkSectionInput = (
+  value: unknown,
+  path: string,
+  issues: ValidationIssue[],
+): SectionInput | undefined => {
+  const start = issues.length;
+  const input = checkClosedObject(
+    value,
+    path,
+    ["ref", "kind", "label"],
+    ["ref", "kind"],
+    ["ref", "kind", "label"],
+    issues,
+  );
+  if (input === undefined) return undefined;
+  checkNonBlank(input["ref"], `${path}.ref`, issues);
+  checkNonBlank(input["kind"], `${path}.kind`, issues);
+  checkNonBlank(input["label"], `${path}.label`, issues);
+  if (issues.length !== start) return undefined;
+  return {
+    ref: input["ref"] as string,
+    kind: input["kind"] as string,
+    ...(typeof input["label"] === "string" ? { label: input["label"] } : {}),
+  };
+};
+
+const checkSectionInputs = (
+  value: unknown,
+  path: string,
+  issues: ValidationIssue[],
+): SectionInput[] | undefined => {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) {
+    issues.push(issue(path, "invalid_type", "expected an array"));
+    return undefined;
+  }
+  const inputs: SectionInput[] = [];
+  value.forEach((entry: unknown, index: number) => {
+    const checked = checkSectionInput(entry, `${path}[${index}]`, issues);
+    if (checked !== undefined) inputs.push(checked);
+  });
+  return inputs;
+};
+
 const checkSectionNode = (
   value: unknown,
   path: string,
@@ -221,18 +293,31 @@ const checkSectionNode = (
     case "prose": {
       const node = checkClosedObject(
         value, path,
-        ["kind", "id", "targetRef", "markdown", "questionId"], ["kind", "id", "targetRef", "markdown"], ["id", "targetRef", "markdown", "questionId"],
+        ["kind", "id", "targetRef", "markdown", "questionId", "inputs", "completionCriterion"],
+        ["kind", "id", "targetRef", "markdown"],
+        ["id", "targetRef", "markdown", "questionId", "completionCriterion"],
         issues,
       );
-      if (node === undefined || issues.length !== start) return undefined;
-      return { kind: "prose", id: node["id"] as string, targetRef: node["targetRef"] as string, markdown: node["markdown"] as string, ...(typeof node["questionId"] === "string" ? { questionId: node["questionId"] } : {}) };
+      if (node === undefined) return undefined;
+      const inputs = checkSectionInputs(node["inputs"], `${path}.inputs`, issues);
+      checkNonBlank(node["completionCriterion"], `${path}.completionCriterion`, issues);
+      if (issues.length !== start) return undefined;
+      return {
+        kind: "prose",
+        id: node["id"] as string,
+        targetRef: node["targetRef"] as string,
+        markdown: node["markdown"] as string,
+        ...(typeof node["questionId"] === "string" ? { questionId: node["questionId"] } : {}),
+        ...(inputs !== undefined ? { inputs } : {}),
+        ...(typeof node["completionCriterion"] === "string" ? { completionCriterion: node["completionCriterion"] } : {}),
+      };
     }
     case "question": {
       const node = checkClosedObject(
         value, path,
-        ["kind", "id", "targetRef", "question", "recommendedAnswer", "answer", "state", "context", "readingTimeMinutes", "recommendedOptionId"],
+        ["kind", "id", "targetRef", "question", "recommendedAnswer", "answer", "state", "context", "readingTimeMinutes", "recommendedOptionId", "inputs", "completionCriterion"],
         ["kind", "id", "targetRef", "question", "state"],
-        ["id", "targetRef", "question", "recommendedAnswer", "answer", "context", "recommendedOptionId"],
+        ["id", "targetRef", "question", "recommendedAnswer", "answer", "context", "recommendedOptionId", "completionCriterion"],
         issues,
       );
       if (node === undefined) return undefined;
@@ -240,6 +325,8 @@ const checkSectionNode = (
       if (node["readingTimeMinutes"] !== undefined && (typeof node["readingTimeMinutes"] !== "number" || !Number.isFinite(node["readingTimeMinutes"]))) {
         issues.push(issue(`${path}.readingTimeMinutes`, "invalid_type", "expected a finite number"));
       }
+      const inputs = checkSectionInputs(node["inputs"], `${path}.inputs`, issues);
+      checkNonBlank(node["completionCriterion"], `${path}.completionCriterion`, issues);
       if (issues.length !== start) return undefined;
       return {
         kind: "question",
@@ -252,6 +339,8 @@ const checkSectionNode = (
         ...(typeof node["context"] === "string" ? { context: node["context"] } : {}),
         ...(typeof node["recommendedOptionId"] === "string" ? { recommendedOptionId: node["recommendedOptionId"] } : {}),
         ...(typeof node["readingTimeMinutes"] === "number" ? { readingTimeMinutes: node["readingTimeMinutes"] } : {}),
+        ...(inputs !== undefined ? { inputs } : {}),
+        ...(typeof node["completionCriterion"] === "string" ? { completionCriterion: node["completionCriterion"] } : {}),
       };
     }
     case "optionSet": {
@@ -331,26 +420,78 @@ const checkSectionNode = (
     case "diagram": {
       const node = checkClosedObject(
         value, path,
-        ["kind", "id", "targetRef", "syntax", "source", "alt", "scene"],
-        ["kind", "id", "targetRef", "syntax", "source", "alt"],
-        ["id", "targetRef", "source", "alt"],
+        ["kind", "id", "targetRef", "syntax", "source", "sourceRef", "renderComponent", "alt", "scene"],
+        ["kind", "id", "targetRef", "alt"],
+        ["id", "targetRef", "source", "sourceRef", "renderComponent", "alt"],
         issues,
       );
       if (node === undefined) return undefined;
-      checkEnum(node["syntax"], `${path}.syntax`, ["mermaid", "plantuml"], issues);
+      checkNonBlank(node["alt"], `${path}.alt`, issues);
+      const hasSource = node["source"] !== undefined;
+      const hasSourceRef = node["sourceRef"] !== undefined;
+      const hasSyntax = node["syntax"] !== undefined;
+      const hasRenderComponent = node["renderComponent"] !== undefined;
+      const hasScene = node["scene"] !== undefined;
+      if (hasSource) {
+        checkNonBlank(node["source"], `${path}.source`, issues);
+      }
+      if (hasSyntax) {
+        checkEnum(node["syntax"], `${path}.syntax`, ["mermaid", "plantuml"], issues);
+      }
+      if (hasSourceRef && typeof node["sourceRef"] === "string" && !SOURCE_REF_PATTERN.test(node["sourceRef"])) {
+        issues.push(issue(`${path}.sourceRef`, "invalid_type", "expected a URI-like <scheme>:<opaque-id> reference"));
+      }
+      if (hasRenderComponent && typeof node["renderComponent"] === "string" && !RENDER_COMPONENT_PATTERN.test(node["renderComponent"])) {
+        issues.push(issue(`${path}.renderComponent`, "invalid_type", "expected a component identifier matching /^[A-Za-z][A-Za-z0-9-]*$/"));
+      }
       // Opaque diagram-core JSON; its authoritative schema will be pinned when published.
-      if (node["scene"] !== undefined && !isRecord(node["scene"])) {
+      if (hasScene && !isRecord(node["scene"])) {
         issues.push(issue(`${path}.scene`, "invalid_type", "expected a diagram-core SemanticDocument object"));
       }
+      if (!hasSource && !hasSourceRef) {
+        issues.push(issue(path, "diagram_source_missing", "diagram requires either inline (syntax + source) or reference (sourceRef + renderComponent)"));
+        if (hasSyntax || hasRenderComponent) {
+          issues.push(issue(path, "diagram_source_conflict", "syntax requires source and renderComponent requires sourceRef"));
+        }
+      } else if (hasSource && hasSourceRef) {
+        issues.push(issue(path, "diagram_source_conflict", "diagram cannot mix inline source and reference sourceRef"));
+      } else if (hasSource) {
+        if (!hasSyntax) {
+          issues.push(issue(`${path}.syntax`, "diagram_source_conflict", "inline diagram source requires syntax"));
+        }
+        if (hasRenderComponent) {
+          issues.push(issue(`${path}.renderComponent`, "diagram_source_conflict", "inline diagram cannot declare renderComponent"));
+        }
+      } else {
+        if (!hasRenderComponent) {
+          issues.push(issue(`${path}.renderComponent`, "diagram_source_conflict", "reference diagram sourceRef requires renderComponent"));
+        }
+        if (hasSyntax) {
+          issues.push(issue(`${path}.syntax`, "diagram_source_conflict", "reference diagram cannot declare syntax"));
+        }
+        if (hasScene) {
+          issues.push(issue(`${path}.scene`, "diagram_source_conflict", "reference diagram cannot carry an inline scene"));
+        }
+      }
       if (issues.length !== start) return undefined;
+      if (hasSource) {
+        return {
+          kind: "diagram",
+          id: node["id"] as string,
+          targetRef: node["targetRef"] as string,
+          syntax: node["syntax"] as DiagramSyntax,
+          source: node["source"] as string,
+          alt: node["alt"] as string,
+          ...(hasScene ? { scene: node["scene"] as Record<string, unknown> } : {}),
+        };
+      }
       return {
         kind: "diagram",
         id: node["id"] as string,
         targetRef: node["targetRef"] as string,
-        syntax: node["syntax"] as DiagramSyntax,
-        source: node["source"] as string,
+        sourceRef: node["sourceRef"] as string,
+        renderComponent: node["renderComponent"] as string,
         alt: node["alt"] as string,
-        ...(node["scene"] === undefined ? {} : { scene: node["scene"] as Record<string, unknown> }),
       };
     }
   }
@@ -583,6 +724,60 @@ export const validateDecisionDossierSemantics = (
     }
   });
 
+  // Duplicate input refs: within a single prose/question node, or across a
+  // prose <-> question pair linked strictly by prose.questionId === question.id
+  // (never by shared targetRef).
+  const questionIds = new Set(
+    doc.sections.filter((s) => s.kind === "question").map((q) => q.id),
+  );
+  const seenInputsByQuestion = new Map<string, Map<string, string>>();
+  doc.sections.forEach((section, index) => {
+    if (section.kind !== "prose" && section.kind !== "question") return;
+    if (!section.inputs?.length) return;
+    const path = `$.sections[${index}]`;
+    const localSeen = new Map<string, string>();
+    const groupKey =
+      section.kind === "question"
+        ? section.id
+        : section.questionId !== undefined && questionIds.has(section.questionId)
+          ? section.questionId
+          : undefined;
+    let groupSeen = groupKey !== undefined ? seenInputsByQuestion.get(groupKey) : undefined;
+    if (groupKey !== undefined && groupSeen === undefined) {
+      groupSeen = new Map<string, string>();
+      seenInputsByQuestion.set(groupKey, groupSeen);
+    }
+    section.inputs.forEach((inp, inputIndex) => {
+      const inputPath = `${path}.inputs[${inputIndex}].ref`;
+      const prevLocal = localSeen.get(inp.ref);
+      if (prevLocal !== undefined) {
+        issues.push(
+          issue(
+            inputPath,
+            "duplicate_input_ref",
+            `input ref "${inp.ref}" already declared at ${prevLocal}`,
+          ),
+        );
+        return;
+      }
+      localSeen.set(inp.ref, inputPath);
+      if (groupSeen !== undefined) {
+        const prevGroup = groupSeen.get(inp.ref);
+        if (prevGroup !== undefined) {
+          issues.push(
+            issue(
+              inputPath,
+              "duplicate_input_ref",
+              `input ref "${inp.ref}" already declared on linked section at ${prevGroup}`,
+            ),
+          );
+          return;
+        }
+        groupSeen.set(inp.ref, inputPath);
+      }
+    });
+  });
+
   // Every interaction target must resolve: the dossier ref, a section
   // id/targetRef, or a nested option id/targetRef.
   const resolvable = new Set<string>([doc.ref]);
@@ -647,16 +842,22 @@ export const assertDecisionDossierDocument = (
 };
 
 /** Presentation requires the backward-compatible structure AND the readability gate. */
-export const validateDecisionDossierForPresentation = (value: unknown): ValidationResult<DecisionDossierDocument> => {
+export const validateDecisionDossierForPresentation = (
+  value: unknown,
+  options?: ReadabilityOptions,
+): ValidationResult<DecisionDossierDocument> => {
   const result = validateDecisionDossierDocument(value);
   if (!result.ok) return result;
-  const issues = validateDecisionDossierReadability(result.value);
+  const issues = validateDecisionDossierReadability(result.value, options);
   return issues.length > 0 ? { ok: false, issues } : result;
 };
 
 /** Refuse before any presentation or host rendering hook runs. */
-export const assertDecisionDossierForPresentation = (value: unknown): DecisionDossierDocument => {
-  const result = validateDecisionDossierForPresentation(value);
+export const assertDecisionDossierForPresentation = (
+  value: unknown,
+  options?: ReadabilityOptions,
+): DecisionDossierDocument => {
+  const result = validateDecisionDossierForPresentation(value, options);
   if (!result.ok) throw new DecisionDossierValidationError(result.issues);
   return result.value;
 };
