@@ -124,7 +124,18 @@ function observeIdentityFence(root: string): FenceObservation | undefined {
 export function identityBlockerGone(root: string, status: McpIdentityStatus, observed = observeIdentityFence(root)): boolean {
   if (status.state !== "identity_failed") return false;
   const diagnostic = status.diagnostic;
-  if (!diagnostic || diagnostic.lock !== "identity/.lock") return false;
+  if (!diagnostic) return false;
+  if (typeof diagnostic.lock === "string" && diagnostic.lock.startsWith("identity/commits/")) {
+    const slotPath = join(root, diagnostic.lock);
+    try {
+      const raw = readFileSync(slotPath, "utf8");
+      const parsed = JSON.parse(raw) as { fenceEpoch?: unknown };
+      return typeof parsed?.fenceEpoch === "string" && parsed.fenceEpoch !== diagnostic.generation;
+    } catch (e) {
+      return (e as NodeJS.ErrnoException)?.code === "ENOENT";
+    }
+  }
+  if (diagnostic.lock !== "identity/.lock") return false;
   if (!observed) return false;
   if (observed.absent) return true;
   if (diagnostic.generation === "unknown") return false;
@@ -218,7 +229,7 @@ export interface IdentityWorkerHandle {
   onPhase?(cb: (phase: IdentityPhase) => void): void;
   onObservation?(cb: (observation: IdentityContentionObservation) => void): void;
   onResolved(cb: (identity: ResolvedIdentityMessage) => void): void;
-  onError(cb: (cause: IdentityFailureCode, message: string, diagnostic?: IdentityLockDiagnostic) => void): void;
+  onError(cb: (cause: IdentityFailureCode, message: string, diagnostic?: IdentityLockDiagnostic, retryable?: boolean) => void): void;
   /** Fires when the child exits WITHOUT having produced a result. */
   onExitWithoutResult(cb: () => void): void;
   cancel(reason: string): void;
@@ -247,7 +258,7 @@ export function forkIdentityWorker(
   const capturedEnv: NodeJS.ProcessEnv = { ...process.env, ...(request.providerEnv ?? {}) };
   let child: ChildProcess | undefined;
   let resolvedCb: ((identity: ResolvedIdentityMessage) => void) | undefined;
-  let errorCb: ((cause: IdentityFailureCode, message: string, diagnostic?: IdentityLockDiagnostic) => void) | undefined;
+  let errorCb: ((cause: IdentityFailureCode, message: string, diagnostic?: IdentityLockDiagnostic, retryable?: boolean) => void) | undefined;
   let observationCb: ((observation: IdentityContentionObservation) => void) | undefined;
   let phaseCb: ((phase: IdentityPhase) => void) | undefined;
   let exitCb: (() => void) | undefined;
@@ -299,8 +310,8 @@ export function forkIdentityWorker(
         observationCb?.(m as unknown as IdentityContentionObservation);
       } else if (m.kind === "identity_error") {
         sawResult = true;
-        const e = m as { cause?: IdentityFailureCode; message?: string; diagnostic?: IdentityLockDiagnostic };
-        errorCb?.(e.cause ?? "identity_worker_failed", e.message ?? "identity worker error", e.diagnostic);
+        const e = m as { cause?: IdentityFailureCode; message?: string; diagnostic?: IdentityLockDiagnostic; retryable?: boolean };
+        errorCb?.(e.cause ?? "identity_worker_failed", e.message ?? "identity worker error", e.diagnostic, e.retryable);
       }
       // A `cancel_ack` needs no parent action beyond letting the child exit.
     });
@@ -404,7 +415,7 @@ export function createIdentityController<P = unknown>(
     }
   };
 
-  const fail = (cause: IdentityFailureCode, message: string, reported?: IdentityLockDiagnostic): void => {
+  const fail = (cause: IdentityFailureCode, message: string, reported?: IdentityLockDiagnostic, reportedRetryable?: boolean): void => {
     if (terminal || cancelled) return;
     terminal = true;
     preparation.abort();
@@ -426,16 +437,17 @@ export function createIdentityController<P = unknown>(
         machineClass: 'unknown', bootClass: 'unknown', ns: 'unknown', start: 'unknown', generation: 'unknown', target: 'unknown'
       };
     }
-    if (diagnostic) message=diagnosticMessage(diagnostic);
+    if (cause === 'identity_timeout' && diagnostic) message=diagnosticMessage(diagnostic);
+    const isRetryable = reportedRetryable ?? TRANSIENT_FAILURE_CAUSES.has(cause);
     state = {
       state: "identity_failed",
       attemptId,
       cause,
       message,
-      // Transient (identity_timeout) ⇒ a later tool call re-attempts; permanent ⇒ terminal.
-      retryable: TRANSIENT_FAILURE_CAUSES.has(cause),
+      // Transient (identity_timeout or retryable storage blocker) ⇒ a later tool call re-attempts; permanent ⇒ terminal.
+      retryable: isRetryable,
       elapsedMs: elapsedMs()
-      ,...(cause==='identity_timeout' ? {retryCondition:diagnostic?.retryCondition ?? 'interval'} : {}),
+      ,...(cause==='identity_timeout' || (isRetryable && diagnostic?.retryCondition) ? {retryCondition:diagnostic?.retryCondition ?? 'interval'} : {}),
       ...(diagnostic ? {diagnostic} : {})
     };
     lastFailure=state;
@@ -605,8 +617,8 @@ export function createIdentityController<P = unknown>(
           .finally(()=>{changeCheckPending=false;});
       }
     });
-    worker.onError((cause, message, diagnostic) => {
-      if (attemptId === thisAttempt) fail(cause, message, diagnostic);
+    worker.onError((cause, message, diagnostic, retryable) => {
+      if (attemptId === thisAttempt) fail(cause, message, diagnostic, retryable);
     });
     worker.onExitWithoutResult(() => {
       if (attemptId === thisAttempt) {
@@ -637,12 +649,12 @@ export function createIdentityController<P = unknown>(
       // Only a TRANSIENT failure re-attempts; permanent stays terminal, pending/ready/disabled
       // never re-attempt here.
       if (state.state !== "identity_failed") return false;
-      if (!TRANSIENT_FAILURE_CAUSES.has(state.cause)) return false;
+      if (!state.retryable && !TRANSIENT_FAILURE_CAUSES.has(state.cause)) return false;
       // A synchronously-gone identity blocker (lock absent or generation
       // replaced on disk) kicks a fresh attempt at once: neither the async
       // blocker-change snapshot nor the min-interval gate may hold it back.
       const observed = state.diagnostic?.lock === "identity/.lock" ? observeIdentityFence(options.request.root) : undefined;
-      const gone = state.diagnostic?.lock === "identity/.lock" && (identityBlockerGone(options.request.root, state, observed)
+      const gone = (state.diagnostic?.lock === "identity/.lock" || state.diagnostic?.lock?.startsWith("identity/commits/")) && (identityBlockerGone(options.request.root, state, observed)
         || observed !== undefined && failedFenceKey !== undefined && observed.key !== failedFenceKey);
       if (state.retryCondition === 'blocker-change') {
         if (!blockerChanged && !gone) {
