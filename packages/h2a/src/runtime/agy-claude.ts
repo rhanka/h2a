@@ -3,11 +3,70 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 export const AGY_CLAUDE_QUOTA_CODE = "agy-claude-quota-exhausted";
+export const GEMINI_4_CARBON_MODEL = "gemini-4-carbon";
+export const CLAUDE_FABLE_5_2_MODEL = "claude-fable-5-2";
 export type AgyEffort = "low" | "medium" | "high";
 export class AgyEffortError extends Error {
   readonly code = "agy-effort-unsupported";
 }
-export function normalizeAgyEffort(effort: string | undefined): AgyEffort | undefined {
+const GEMINI_4_CARBON_RE = /^(?:gemini-(?:4-)?)?carbon(?:-(.*))?$/i;
+const LAUNCH_MODEL_ALIASES: Readonly<Record<string, string>> = {
+  "gemini-4-argon": "gemini-4-argon",
+  "gemini-4-argon-high": "gemini-4-argon",
+  "gemini-argon": "gemini-4-argon",
+  argon: "gemini-4-argon",
+  "argon-high": "gemini-4-argon",
+  "gemini-4-carbon": GEMINI_4_CARBON_MODEL,
+  "gemini-4-carbon-high": GEMINI_4_CARBON_MODEL,
+  "gemini-4-carbon-medium": GEMINI_4_CARBON_MODEL,
+  "gemini-4-carbon-low": GEMINI_4_CARBON_MODEL,
+  "gemini-carbon": GEMINI_4_CARBON_MODEL,
+  "gemini-carbon-high": GEMINI_4_CARBON_MODEL,
+  carbon: GEMINI_4_CARBON_MODEL,
+  "carbon-high": GEMINI_4_CARBON_MODEL,
+  "carbon-medium": GEMINI_4_CARBON_MODEL,
+  "carbon-low": GEMINI_4_CARBON_MODEL,
+  "claude-fable-5-1": "claude-fable-5-1",
+  "claude-fable-5.1": "claude-fable-5-1",
+  "fable-5-1": "claude-fable-5-1",
+  "fable-5.1": "claude-fable-5-1",
+  "fable5.1": "claude-fable-5-1",
+  fable51: "claude-fable-5-1",
+  "claude-fable-5-2": CLAUDE_FABLE_5_2_MODEL,
+  "claude-fable-5.2": CLAUDE_FABLE_5_2_MODEL,
+  "fable-5-2": CLAUDE_FABLE_5_2_MODEL,
+  "fable-5.2": CLAUDE_FABLE_5_2_MODEL,
+  "fable5.2": CLAUDE_FABLE_5_2_MODEL,
+  fable52: CLAUDE_FABLE_5_2_MODEL,
+  fable: CLAUDE_FABLE_5_2_MODEL,
+  "fable-5.2-high": "claude-fable-5-2-high",
+  "fable-5-2-high": "claude-fable-5-2-high",
+  "fable-5.2-xhigh": "claude-fable-5-2-xhigh",
+  "fable-5-2-xhigh": "claude-fable-5-2-xhigh",
+  "fable-5.2-max": "claude-fable-5-2-max",
+  "fable-5-2-max": "claude-fable-5-2-max",
+  "fable-5.2-medium": "claude-fable-5-2-medium",
+  "fable-5-2-medium": "claude-fable-5-2-medium",
+  "fable-5.2-low": "claude-fable-5-2-low",
+  "fable-5-2-low": "claude-fable-5-2-low",
+};
+export function resolveLaunchModelAlias(model: string | undefined): string | undefined {
+  if (model === undefined) return undefined;
+  const key = model.trim().toLowerCase();
+  return Object.hasOwn(LAUNCH_MODEL_ALIASES, key) ? LAUNCH_MODEL_ALIASES[key] : model;
+}
+export function isGemini4CarbonModel(model: string | undefined): boolean {
+  return model !== undefined && GEMINI_4_CARBON_RE.test(model.trim());
+}
+function normalizeCarbonEffort(effort: string | undefined): AgyEffort | undefined {
+  if (effort === undefined) return undefined;
+  if (effort === "low" || effort === "medium" || effort === "high") return effort;
+  throw new AgyEffortError(
+    `invalid AGY effort ${effort} for gemini-4-carbon; gemini-4-carbon accepts effort low|medium|high only (agy refuses max)`
+  );
+}
+export function normalizeAgyEffort(effort: string | undefined, model?: string): AgyEffort | undefined {
+  if (isGemini4CarbonModel(model)) return normalizeCarbonEffort(effort);
   if (effort === undefined) return undefined;
   if (effort === "max") return "high";
   if (effort === "low" || effort === "medium" || effort === "high") return effort;
@@ -17,7 +76,13 @@ export function isAgyClaudeModel(model: string | undefined): boolean {
   return model?.startsWith("claude-") ?? false;
 }
 export function resolveAgyModel(model: string | undefined, effort?: string): string | undefined {
-  const level = normalizeAgyEffort(effort);
+  const carbon = model && GEMINI_4_CARBON_RE.exec(model.trim());
+  if (carbon) {
+    normalizeCarbonEffort(carbon[1]?.toLowerCase());
+    normalizeCarbonEffort(effort);
+    return GEMINI_4_CARBON_MODEL;
+  }
+  const level = normalizeAgyEffort(effort, model);
   const claude = model && /^(claude-(?:opus|sonnet)-5-5)(?:-(.*))?$/.exec(model);
   if (claude) {
     // Validate a supplied suffix even when a separate effort overrides it.
@@ -25,7 +90,7 @@ export function resolveAgyModel(model: string | undefined, effort?: string): str
     const resolved = level ?? suffix;
     return resolved ? `${claude[1]}-${resolved}` : model;
   }
-  return model;
+  return resolveLaunchModelAlias(model);
 }
 export class AgyClaudeBuildOptInError extends Error {
   readonly code = "agy-claude-build-requires-opt-in";

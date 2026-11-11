@@ -378,4 +378,42 @@ describe("AGY Claude 5.5 models (opus/sonnet via agy)", () => {
       "agy-effort-unsupported",
     );
   });
+
+  it("accepts gemini-4-carbon on agy with low|medium|high and refuses effort max", () => {
+    expect(
+      buildAgentLaunchArgs({
+        profile: "agy",
+        prompt: "challenge the plan",
+        model: "gemini-4-carbon",
+        effort: "high",
+      }),
+    ).toEqual(["--model", "gemini-4-carbon", "--effort", "high"]);
+    expect(() =>
+      buildAgentLaunchArgs({
+        profile: "agy",
+        prompt: "challenge the plan",
+        model: "gemini-4-carbon",
+        effort: "max" as never,
+      }),
+    ).toThrow(/gemini-4-carbon.*low\|medium\|high.*max/i);
+  });
+
+  it("resolves claude-fable-5-2 and its alias on claude launches", () => {
+    expect(
+      buildAgentLaunchArgs({
+        profile: "claude",
+        prompt: "review",
+        model: "claude-fable-5-2",
+        effort: "high",
+      }),
+    ).toEqual(["--model", "claude-fable-5-2", "--effort", "high"]);
+    expect(
+      buildAgentLaunchArgs({
+        profile: "claude",
+        prompt: "review",
+        model: "fable-5.2",
+        effort: "high",
+      }),
+    ).toEqual(["--model", "claude-fable-5-2", "--effort", "high"]);
+  });
 });
