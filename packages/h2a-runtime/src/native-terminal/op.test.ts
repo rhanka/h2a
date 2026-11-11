@@ -83,6 +83,25 @@ function replay(seq: number, data: string): NativeTerminalReplay {
 }
 
 describe("native terminal attach recovery", () => {
+  let root = "";
+  let previousStateHome: string | undefined;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "h2a-attach-recovery-"));
+    previousStateHome = process.env["XDG_STATE_HOME"];
+    process.env["XDG_STATE_HOME"] = join(root, "state");
+  });
+
+  afterEach(() => {
+    if (previousStateHome === undefined) delete process.env["XDG_STATE_HOME"];
+    else process.env["XDG_STATE_HOME"] = previousStateHome;
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  function attachRows() {
+    return readCrashLog("attach", resolveCrashLogPath("attach", { XDG_STATE_HOME: join(root, "state") }));
+  }
+
   it("should consume wrapper reset requests even when attached to an older verbatim host", async () => {
     const stdout = new FakeOutput();
     let now = 0;
@@ -290,22 +309,269 @@ describe("native terminal attach recovery", () => {
       expect(writes).toContainEqual({ connection: 2, data: "continued-input" });
       expect(stdout.chunks.join("")).toContain("first-output");
       expect(stdout.chunks.join("")).toContain("second-output");
-      expect(stdout.chunks.join("")).toMatch(/reconnecting/i);
-      expect(stdout.chunks.join("")).toMatch(/reconnected/i);
-      expect(stdout.chunks.join("")).toMatch(/input delivery became uncertain/i);
       const reset = "\x1b[<1u\x1b[?1004l";
       const output = stdout.chunks.join("");
-      expect(output.split(reset)).toHaveLength(3); // transport loss + final exit
-      expect(output).toContain("reconnected\r\n\x1b[>1u\x1b[?1004h");
+      expect(output).not.toMatch(/\[h2a\]|reconnecting|reconnected|input delivery became uncertain/i);
+      expect(output).toBe(`\x1b[?1004h\x1b[>1ufirst-outputsecond-output${reset}`);
+      expect(output.split(reset)).toHaveLength(2); // final exit only; no mode reset/resume on fast reconnect
       expect(output.endsWith(reset)).toBe(true);
       const terminal = new TerminalModeTracker();
       terminal.feed(output);
       expect(terminal.resetSequence()).toBe("");
+      const rows = attachRows();
+      expect(rows).toContainEqual(
+        expect.objectContaining({
+          event: "reconnect",
+          sessionId: "h2a-alpha",
+          durationMs: expect.any(Number),
+          detail: expect.stringMatching(/\d+ms/),
+        }),
+      );
+      expect(rows).toContainEqual(
+        expect.objectContaining({
+          event: "refusal",
+          sessionId: "h2a-alpha",
+          reason: "input-delivery-uncertain",
+        }),
+      );
       // At idle, the adaptive delay keeps this scenario to a handful of RPCs,
       // rather than the old read+state every 40ms (~50 RPC/s).
       expect(reads.filter((read) => read.connection === 2).length).toBeLessThan(8);
     },
   );
+
+  it("keeps the socket alive and stdout clean when the host stalls 6s on state while readOutput is healthy", async () => {
+    const stdin = new FakeInput();
+    const stdout = new FakeOutput();
+    let now = 0;
+    let connections = 0;
+    let closeCalls = 0;
+    let readCount = 0;
+    let stateCalls = 0;
+    const lease: NativeTerminalControllerLease = {
+      role: "controller",
+      id: "h2a-alpha",
+      generation: "generation-1",
+      incarnation: 1 as unknown as string,
+      controllerId: "stall-controller",
+      epoch: 1,
+    };
+
+    const client: AttachClient = {
+      async acquireController() {
+        return lease;
+      },
+      async releaseController() {
+        return { id: "h2a-alpha", generation: "generation-1", incarnation: 1 as unknown as string, controllerEpoch: 1 };
+      },
+      async readOutput() {
+        readCount += 1;
+        if (readCount === 1) {
+          // Simulate output before the stall; advance past the 1s state poll window.
+          now += 900;
+          return replay(1, "\x1b[?1004hbefore-stall");
+        }
+        if (readCount === 2) {
+          return replay(2, "-after-6s-stall");
+        }
+        now += 2_000;
+        return {
+          ...replay(2, ""),
+          chunks: [],
+        };
+      },
+      async state() {
+        stateCalls += 1;
+        if (stateCalls === 1) {
+          return running(true);
+        }
+        if (stateCalls === 2) {
+          // Single-threaded host stalls 6s (> 5s RPC timeout) during state probe.
+          now += 6_000;
+          throw new NativeTerminalRequestTimeoutError("state", 5_000);
+        }
+        if (stateCalls === 3) {
+          return running(true);
+        }
+        return exited();
+      },
+      async write() {},
+      async resize() {},
+      close() {
+        closeCalls += 1;
+      },
+    };
+
+    const runtime: NativeTerminalAttachRuntime = {
+      connect: async () => {
+        connections += 1;
+        return client;
+      },
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      now: () => now,
+      delay: async (ms) => {
+        now += ms;
+      },
+      onResize: () => {},
+      offResize: () => {},
+    };
+
+    await expect(runAttach("h2a-alpha", runtime)).resolves.toBe(0);
+
+    expect(connections).toBe(1);
+    expect(closeCalls).toBe(1); // closed only in finally on session exit
+    expect(stdout.chunks.join("")).toBe("\x1b[?1004hbefore-stall-after-6s-stall\x1b[?1004l");
+    expect(stdout.chunks.join("")).not.toMatch(/\[h2a\]|interrupted|reconnected/i);
+    expect(attachRows().filter((row) => row.event === "reconnect")).toHaveLength(0);
+  });
+
+  it("uses state merged into readOutput and survives a 6s host stall without polling state separately", async () => {
+    const stdin = new FakeInput();
+    const stdout = new FakeOutput();
+    let now = 0;
+    let connections = 0;
+    let stateCalls = 0;
+    let readCount = 0;
+    const lease: NativeTerminalControllerLease = {
+      role: "controller",
+      id: "h2a-alpha",
+      generation: "generation-1",
+      incarnation: 1 as unknown as string,
+      controllerId: "merged-state-controller",
+      epoch: 1,
+    };
+
+    const client: AttachClient = {
+      async acquireController() {
+        return lease;
+      },
+      async releaseController() {
+        return { id: "h2a-alpha", generation: "generation-1", incarnation: "incarnation-1", controllerEpoch: 1 };
+      },
+      async readOutput() {
+        readCount += 1;
+        if (readCount === 1) {
+          // Host stalls 6s (< 30s interactive read timeout) while serving readOutput.
+          now += 6_000;
+          return {
+            ...replay(1, "\x1b[?1004hlive-across-6s-stall"),
+            state: running(true),
+          };
+        }
+        return {
+          ...replay(1, ""),
+          chunks: [],
+          state: exited(),
+        };
+      },
+      async state() {
+        stateCalls += 1;
+        if (stateCalls === 2) {
+          throw new NativeTerminalRequestTimeoutError("state", 5_000);
+        }
+        return stateCalls >= 3 ? exited() : running(false);
+      },
+      async write() {},
+      async resize() {},
+      close() {},
+    };
+
+    const runtime: NativeTerminalAttachRuntime = {
+      connect: async () => {
+        connections += 1;
+        return client;
+      },
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      now: () => now,
+      delay: async (ms) => {
+        now += ms;
+      },
+      onResize: () => {},
+      offResize: () => {},
+    };
+
+    await expect(runAttach("h2a-alpha", runtime)).resolves.toBe(0);
+
+    expect(connections).toBe(1);
+    expect(stateCalls).toBe(1); // initial connectAndAcquire only
+    expect(stdout.chunks.join("")).toBe("\x1b[?1004hlive-across-6s-stall\x1b[?1004l");
+  });
+
+  it("reconnects and fails as today on a truly dead host, silently on stdout and logged in attach.log", async () => {
+    const stdin = new FakeInput();
+    const stdout = new FakeOutput();
+    let now = 0;
+    let connections = 0;
+    const lease: NativeTerminalControllerLease = {
+      role: "controller",
+      id: "h2a-alpha",
+      generation: "generation-1",
+      incarnation: "incarnation-1",
+      controllerId: "dead-host-controller",
+      epoch: 1,
+    };
+
+    const runtime: NativeTerminalAttachRuntime = {
+      connect: async () => {
+        connections += 1;
+        if (connections === 2) {
+          now += 150;
+          throw new Error("socket not ready yet");
+        }
+        if (connections >= 3) {
+          throw Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" });
+        }
+        let readCount = 0;
+        return {
+          async acquireController() {
+            return lease;
+          },
+          async releaseController() {
+            return { id: "h2a-alpha", generation: "generation-1", incarnation: "incarnation-1", controllerEpoch: 1 };
+          },
+          async readOutput() {
+            readCount += 1;
+            if (readCount === 1) {
+              return replay(1, "\x1b[?1004houtput-before-crash");
+            }
+            throw new Error("terminal host connection closed");
+          },
+          async state() {
+            return running(true);
+          },
+          async write() {},
+          async resize() {},
+          close() {},
+        };
+      },
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      now: () => now,
+      delay: async (ms) => {
+        now += ms;
+      },
+      onResize: () => {},
+      offResize: () => {},
+    };
+
+    await expect(runAttach("h2a-alpha", runtime)).resolves.toBe(1);
+
+    expect(connections).toBe(3);
+    expect(stdout.chunks.join("")).toBe("\x1b[?1004houtput-before-crash\x1b[?1004l");
+    expect(stdout.chunks.join("")).not.toMatch(/\[h2a\]|interrupted|reconnected|no longer available/i);
+    const rows = attachRows();
+    expect(rows).toContainEqual(
+      expect.objectContaining({
+        event: "sessionExit",
+        sessionId: "h2a-alpha",
+        reason: "definitive-absence",
+        durationMs: 250,
+        detail: expect.stringMatching(/250ms/),
+      }),
+    );
+  });
 });
 
 describe("session exit crash records (revcrashlog constat 2)", () => {
