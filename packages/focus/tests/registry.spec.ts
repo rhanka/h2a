@@ -597,3 +597,83 @@ describe("selection gates instruction access (R4-AC11)", () => {
     expect(params.value).toEqual(frozen);
   });
 });
+
+describe("multi-version schema registry & targeted sync (A23)", () => {
+  it("A23: entries.v1.json pins ['1.0.0', '1.1.0', '2.0.0', '2.1.0'] with frozen 1.0.0/2.0.0 digests and syncRegistryManifest updates only its target entry", async () => {
+    const manifest = JSON.parse(
+      readFileSync(join(pkgRoot, "registry/entries.v1.json"), "utf8"),
+    ) as {
+      entries: Array<{
+        id: string;
+        publisher: { packageVersion: string };
+        assets: Array<{ path: string; sha256: string }>;
+        skill: {
+          capabilities: Array<{ inputSchemaRef: string; outputSchemaRef: string }>;
+          documentSchemas: Array<{ version: string; schemaId: string; assetPath: string; sha256: string }>;
+        };
+      }>;
+    };
+    const focusEntry = manifest.entries[0]!;
+    expect(focusEntry.publisher.packageVersion).toBe("0.6.0");
+    expect(focusEntry.skill.documentSchemas.map((s) => s.version)).toEqual([
+      "1.0.0",
+      "1.1.0",
+      "2.0.0",
+      "2.1.0",
+    ]);
+    expect(focusEntry.skill.documentSchemas[0]!.sha256).toBe(
+      "725bc07e7c6b6ad51a1f720cc9fb02649d8f31bc54e71c61c350fd20058c8852",
+    );
+    expect(focusEntry.skill.documentSchemas[2]!.sha256).toBe(
+      "1a8059e5264785cd15c74b7fcfc04cbe42c575203b4232af43819e094846f5a9",
+    );
+    expect(focusEntry.skill.capabilities[0]!.inputSchemaRef).toBe(
+      "urn:sentropic:focus:DecisionDossierDocument:2.0.0",
+    );
+    expect(focusEntry.skill.capabilities[0]!.outputSchemaRef).toBe(
+      "urn:sentropic:focus:DecisionDossierDocument:2.0.0",
+    );
+
+    const { syncRegistryManifest } = (await import(
+      "../scripts/sync-registry-entry.mjs"
+    )) as {
+      syncRegistryManifest: (
+        m: unknown,
+        computeSha: (relPath: string) => string,
+        targetId?: string,
+      ) => number;
+    };
+    const siblingEntry = {
+      id: "sentropic.other",
+      assets: [{ role: "skill-instructions", path: "skills/other/SKILL.md", mediaType: "text/markdown", sha256: "f".repeat(64) }],
+      skill: {
+        documentSchemas: [
+          {
+            name: "OtherDoc",
+            schemaId: "urn:sentropic:other:1.0.0",
+            version: "1.0.0",
+            assetPath: "schemas/other.json",
+            sha256: "e".repeat(64),
+          },
+        ],
+      },
+    };
+    const multiManifest = {
+      format: "sentropic.registry-package/v1",
+      entries: [
+        JSON.parse(JSON.stringify(focusEntry)),
+        JSON.parse(JSON.stringify(siblingEntry)),
+      ],
+    };
+    const updatedCount = syncRegistryManifest(
+      multiManifest,
+      (relPath: string) => {
+        if (relPath.includes("other")) throw new Error("Must not touch non-target entry assets");
+        return sha256File(relPath);
+      },
+      "sentropic.focus",
+    );
+    expect(updatedCount).toBe(1);
+    expect(multiManifest.entries[1]).toEqual(siblingEntry);
+  });
+});

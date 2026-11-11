@@ -107,7 +107,7 @@ test('refuses unknown document fields and invalid recommendations', () => isolat
 
 test('escapes hostile dossier text without executing markup', () => isolated((root) => {
   const doc = fixture()
-  doc.sections.find(s => s.kind === 'prose').markdown = '</script><img src=x onerror=alert(1)> & é'
+  doc.sections.find(s => s.kind === 'prose').markdown = 'En bref : </script><img src=x onerror=alert()> & é.'
   const input = join(root, 'dossier.json'), output = join(root, 'decision.html')
   writeFileSync(input, JSON.stringify(doc))
   const result = run(root, 'build', input, '-o', output)
@@ -267,6 +267,46 @@ test('budgets two ecosystem diagrams by their displayed labels instead of Mermai
   const result = run(root, 'build', input, '-o', output)
   assert.equal(result.status, 0, result.stderr)
 }))
+
+test('A21: dossier.template.json and dossier.evidence.template.json pass validateDecisionDossierForPresentation with 0 issues', () => {
+  const v1Template = JSON.parse(readFileSync(join(kit, 'dossier.template.json'), 'utf8'))
+  const v2Template = JSON.parse(readFileSync(join(kit, 'dossier.evidence.template.json'), 'utf8'))
+  const res1 = validateDecisionDossierForPresentation(v1Template)
+  const res2 = validateDecisionDossierForPresentation(v2Template)
+  assert.equal(res1.ok, true, JSON.stringify(res1))
+  assert.equal(res2.ok, true, JSON.stringify(res2))
+})
+
+test('A22: buildFocusDossier refuses a reference diagram (sourceRef) with a clear error naming diagramResolver and preserves previous output', () => isolated((root) => {
+  const doc = fixture()
+  const idx = doc.sections.findIndex(s => s.kind === 'diagram')
+  doc.sections[idx] = {
+    kind: 'diagram',
+    id: 'architecture',
+    targetRef: 'decision:focus-presentation',
+    alt: 'Architecture par référence.',
+    sourceRef: 'engram:diag-lot-map',
+    renderComponent: 'GanttChart',
+  }
+  const input = join(root, 'ref-diagram.json'), output = join(root, 'decision.html')
+  writeFileSync(input, JSON.stringify(doc))
+  writeFileSync(output, 'previous portable bundle')
+  const result = run(root, 'build', input, '-o', output)
+  assert.equal(result.status, 1)
+  assert.match(result.stderr, /Reference diagram "architecture" \(GanttChart -> engram:diag-lot-map\) requires a host diagramResolver; offline portable bundles support inline diagrams only/)
+  assert.equal(readFileSync(output, 'utf8'), 'previous portable bundle')
+}))
+
+test('A24: focus-kit schema copies match packages/focus/schemas and renderer.html sha256 stays unchanged', () => {
+  const v1Kit = readFileSync(join(kit, 'dossier.schema.json'))
+  const v1Focus = readFileSync(join(kit, '../../focus/schemas/decision-dossier-document.v1.schema.json'))
+  const v2Kit = readFileSync(join(kit, 'dossier.v2.schema.json'))
+  const v2Focus = readFileSync(join(kit, '../../focus/schemas/decision-dossier-document.v2.schema.json'))
+  assert.equal(Buffer.compare(v1Kit, v1Focus), 0)
+  assert.equal(Buffer.compare(v2Kit, v2Focus), 0)
+  const check = spawnSync(process.execPath, [fileURLToPath(new URL('../../../scripts/build-focus-dossier.mjs', import.meta.url)), '--check'], { encoding: 'utf8' })
+  assert.equal(check.status, 0, check.stderr)
+})
 
 test('checks diagram-core visible text through the readability gate before replacing output', () => isolated((root) => {
   const scene = JSON.parse(readFileSync(join(kit, '../../focus/tests/diagram-core-generic.fixture.json'), 'utf8'))

@@ -95,12 +95,12 @@ const outcomeStatement = (outcome: Outcome): string => {
 const optionBody = (option: Option): string | undefined => {
   const parts: string[] = [];
   if (option.pros !== undefined && option.pros.length > 0) {
-    parts.push(`pros: ${option.pros.join("; ")}`);
+    parts.push(`pros — ${option.pros.join(", ")}`);
   }
   if (option.cons !== undefined && option.cons.length > 0) {
-    parts.push(`cons: ${option.cons.join("; ")}`);
+    parts.push(`cons — ${option.cons.join(", ")}`);
   }
-  return parts.length > 0 ? parts.join("; ") : undefined;
+  return parts.length > 0 ? parts.join(", ") : undefined;
 };
 
 /**
