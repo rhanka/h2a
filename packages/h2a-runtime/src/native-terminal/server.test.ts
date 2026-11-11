@@ -242,9 +242,11 @@ describe("native terminal local transport", () => {
     ]);
     expect(await client.readOutput("alpha", 0)).toMatchObject({
       chunks: [{ seq: 1, data: "alpha-output" }],
+      state: expect.objectContaining({ id: "alpha", status: "running" }),
     });
     expect(await client.readOutput("beta", 0)).toMatchObject({
       chunks: [{ seq: 1, data: "beta-output" }],
+      state: expect.objectContaining({ id: "beta", status: "running" }),
     });
   });
 

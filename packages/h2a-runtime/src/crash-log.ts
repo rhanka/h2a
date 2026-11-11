@@ -64,6 +64,7 @@ export type CrashLogEvent =
   | "signal"
   | "stop"
   | "exit"
+  | "reconnect"
   | "dropped";
 
 export interface CrashLogEntry {
@@ -76,6 +77,8 @@ export interface CrashLogEntry {
   readonly reason?: string | undefined;
   /** Human detail; redacted before write. */
   readonly detail?: string | undefined;
+  /** Observed interruption/outage duration in milliseconds when applicable. */
+  readonly durationMs?: number | undefined;
   /** Child/session exit code when known. */
   readonly exitCode?: number | undefined;
   /**
@@ -95,6 +98,7 @@ export interface CrashLogRow {
   readonly instanceId?: string | undefined;
   readonly reason?: string | undefined;
   readonly detail?: string | undefined;
+  readonly durationMs?: number | undefined;
   readonly exitCode?: number | undefined;
   readonly signal?: string | undefined;
 }
@@ -264,6 +268,7 @@ function sanitizeEvent(event: CrashLogEvent): CrashLogEvent {
     "signal",
     "stop",
     "exit",
+    "reconnect",
     "dropped",
   ];
   return known.includes(event) ? event : "exit";
@@ -295,6 +300,9 @@ export function toCrashLogRow(
     ...(instanceId ? { instanceId } : {}),
     ...(reason ? { reason } : {}),
     ...(detail ? { detail } : {}),
+    ...(typeof entry.durationMs === "number" && Number.isSafeInteger(entry.durationMs) && entry.durationMs >= 0
+      ? { durationMs: entry.durationMs }
+      : {}),
     ...(Number.isSafeInteger(entry.exitCode) ? { exitCode: entry.exitCode } : {}),
     ...(signal ? { signal } : {}),
   };
@@ -571,7 +579,7 @@ export function formatCrashLogHumanRow(record: Record<string, unknown>): string 
     String(record["component"] ?? "?"),
     String(record["event"] ?? "?"),
   ];
-  for (const key of ["sessionId", "instanceId", "reason", "exitCode", "signal", "cause", "code", "kind", "errno", "generation", "version", "pid"]) {
+  for (const key of ["sessionId", "instanceId", "reason", "durationMs", "exitCode", "signal", "cause", "code", "kind", "errno", "generation", "version", "pid"]) {
     if (record[key] !== undefined) parts.push(`${key}=${String(record[key])}`);
   }
   if (typeof record["detail"] === "string" && record["detail"].length > 0) {
