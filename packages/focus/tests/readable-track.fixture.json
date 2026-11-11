@@ -1,6 +1,6 @@
 {
   "subject": "Garden shed location",
-  "context": "The permit covers both spots. <script>alert(\"shed\")</script> & comfort matters.",
+  "context": "In short: The permit covers both spots. <script>alert(\"shed\")</script> & comfort matters.",
   "questionId": "q-spot",
   "readability": {
     "ownerRequestQuote": "Keep the shed handy without spoiling the terrace view.",
@@ -36,7 +36,7 @@
     {
       "id": "q-spot",
       "question": "Where should the shed go?",
-      "context": "The permit covers both spots; only comfort and the view differ.",
+      "context": "The permit covers both spots: only comfort and the view differ.",
       "readingTimeMinutes": 1,
       "recommendedOptionId": "a",
       "recommendedAnswer": "Along the side wall, because it meets both parts of your request."

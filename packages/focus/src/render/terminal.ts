@@ -17,12 +17,32 @@ import type {
   AmendmentStep,
   DecisionDossierDocument,
   FocusNode,
+  SectionInput,
 } from "../model.js";
 
 export interface TerminalRenderOptions {
   /** Column width hint for rule lines. Default 72. */
   readonly width?: number;
 }
+
+const collapseLines = (value: string): string =>
+  value.replace(/[\r\n\u2028\u2029]+/g, " ");
+
+const renderInputsAndCriterion = (
+  inputs: readonly SectionInput[] | undefined,
+  completionCriterion: string | undefined,
+): string[] => {
+  const lines: string[] = [];
+  if (inputs?.length) {
+    for (const inp of inputs) {
+      lines.push(`  Input: ${inp.label ?? inp.ref} (${inp.ref})`);
+    }
+  }
+  if (completionCriterion !== undefined) {
+    lines.push(`  Completion: ${completionCriterion}`);
+  }
+  return lines;
+};
 
 const rule = (width: number): string => "=".repeat(Math.max(8, width));
 
@@ -38,6 +58,7 @@ const renderQuestion = (
   if (q.answer !== undefined) {
     lines.push(`   answer: ${q.answer}`);
   }
+  lines.push(...renderInputsAndCriterion(q.inputs, q.completionCriterion));
   return lines.join("\n");
 };
 
@@ -68,15 +89,19 @@ const renderAmendmentTrace = (
 const renderDiagram = (
   d: Extract<FocusNode, { kind: "diagram" }>,
 ): string =>
-  [
-    `Diagram (${d.syntax}) — ${d.alt}`,
-    ...d.source.split("\n").map((l) => `  | ${l}`),
-  ].join("\n");
+  d.source !== undefined
+    ? [
+        `Diagram (${d.syntax}) — ${collapseLines(d.alt)}`,
+        ...d.source.split("\n").map((l) => `  | ${l}`),
+      ].join("\n")
+    : `Diagram (${collapseLines(d.renderComponent)}) — ${collapseLines(d.alt)} [${collapseLines(d.sourceRef)}]`;
 
 const renderNode = (node: FocusNode): string => {
   switch (node.kind) {
-    case "prose":
-      return node.markdown;
+    case "prose": {
+      const meta = renderInputsAndCriterion(node.inputs, node.completionCriterion);
+      return meta.length > 0 ? [node.markdown, ...meta].join("\n") : node.markdown;
+    }
     case "question":
       return renderQuestion(node);
     case "optionSet":

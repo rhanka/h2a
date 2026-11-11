@@ -190,7 +190,7 @@ describe("readable Track projection", () => {
     const dossier = JSON.parse(readFileSync(new URL("./readable-track.fixture.json", import.meta.url), "utf8"));
     dossier.qa.push({
       id: "q-visit", question: "When should we visit the possible spots?",
-      context: "Both days are free; choose the day that suits your schedule.",
+      context: "Both days are free: choose the day that suits your schedule.",
       readingTimeMinutes: 1, recommendedOptionId: "visit-now",
       recommendedAnswer: "Visit this week, so the work can start sooner.",
     });
