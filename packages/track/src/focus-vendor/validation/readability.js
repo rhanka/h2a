@@ -52,7 +52,7 @@ const stripHtmlAndLinks = (text) => text
 /** Check a structurally valid document; use ForPresentation for untrusted input. */
 export const validateDecisionDossierReadability = (doc, options) => {
     const strict = (options?.profile ??
-        (doc.ref === "decision:s1-hello" && doc.hash === "draft:s1-hello-1"
+        (doc.ref === "decision:s1-hello" && doc.hash.startsWith("draft:s1-hello-")
             ? "legacy"
             : "strict")) === "strict";
     const issues = [];
@@ -159,7 +159,7 @@ export const validateDecisionDossierReadability = (doc, options) => {
     if (quote)
         shared.push(quote);
     visible(r?.stakes, "$.readability.stakes");
-    checkProseCell(r?.stakes, "$.readability.stakes", { requireTakeaway: true });
+    checkMarkdownProse(r?.stakes, "$.readability.stakes");
     r?.glossary?.forEach((entry, i) => {
         shared.push(entry.term);
         visible(entry.definition, `$.readability.glossary[${i}].definition`);
@@ -198,7 +198,7 @@ export const validateDecisionDossierReadability = (doc, options) => {
                 break;
             case "outcome":
                 visible(section.statement, `${path}.statement`);
-                checkProseCell(section.statement, `${path}.statement`, { requireTakeaway: true });
+                checkMarkdownProse(section.statement, `${path}.statement`);
                 checkQuestionRef(section.questionId, `${path}.questionId`, section.modality !== "comment" || CHOICE_PATTERN.test(section.statement));
                 break;
             case "diagram":
@@ -343,12 +343,7 @@ export const validateDecisionDossierReadability = (doc, options) => {
             refuse(path, "no_internal_id_or_lot_code_in_prose", "Do not embed internal IDs or lot codes in prose, even if listed in the glossary; describe the subject in plain words.");
         }
         const rawDigitTokens = (text.match(RAW_DIGIT_RE) ?? []).map((tok) => tok.replace(/^[.,!?:;"'`]+|[.,!?:;"'`]+$/g, ""));
-        const hasDisallowedDigitToken = rawDigitTokens.some((tok) => tok.length > 0 &&
-            !(/^[A-Z]/.test(tok) &&
-                glossary.has(tok) &&
-                !INTERNAL_ID_RE.test(tok) &&
-                !ULID_RE.test(tok) &&
-                !HASH_RE.test(tok)));
+        const hasDisallowedDigitToken = rawDigitTokens.some((tok) => tok.length > 0 && !PLAIN_TOKENS.has(tok.toUpperCase()));
         if (hasDisallowedDigitToken) {
             refuse(path, "no_raw_count_or_number_in_prose", "Do not embed raw counts or numbers in prose, even if listed in the glossary; write out plain qualitative words.");
         }

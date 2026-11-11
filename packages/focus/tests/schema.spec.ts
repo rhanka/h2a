@@ -794,10 +794,16 @@ describe("1.1.0 / 2.1.0 diagram reference mode, inputs[] and completionCriterion
     }
   });
 
-  it("A11: diagram mixing inline and reference fields or missing renderComponent refuses in both runtime and JSON Schema", () => {
+  it("A11: diagram mixing inline and reference fields, missing syntax/source/alt, or missing renderComponent refuses in both runtime and JSON Schema", () => {
     const makeWithDiagram = (diagram: Record<string, unknown>) => {
       const doc = clone(allFamiliesFixture()) as { sections: Array<Record<string, unknown>> };
       const idx = doc.sections.findIndex((s) => s.kind === "diagram");
+      doc.sections[idx] = { kind: "diagram", id: "s-diagram", targetRef: "s-diagram", alt: "Alt.", ...diagram };
+      return doc;
+    };
+    const makeV2WithDiagram = (diagram: Record<string, unknown>) => {
+      const doc = evidenceFixture();
+      const idx = doc.sections.findIndex((s: { kind: string }) => s.kind === "diagram");
       doc.sections[idx] = { kind: "diagram", id: "s-diagram", targetRef: "s-diagram", alt: "Alt.", ...diagram };
       return doc;
     };
@@ -810,13 +816,65 @@ describe("1.1.0 / 2.1.0 diagram reference mode, inputs[] and completionCriterion
       renderComponent: "GanttChart",
     });
     expect(ajvV1(both)).toBe(false);
+    expect(ajvV2(makeV2WithDiagram({
+      syntax: "mermaid",
+      source: "flowchart LR\nA-->B",
+      sourceRef: "engram:diag-lot-map",
+      renderComponent: "GanttChart",
+    }))).toBe(false);
     const resBoth = validateDecisionDossierDocument(both);
     expect(resBoth.ok).toBe(false);
     if (!resBoth.ok) expect(resBoth.issues.some((i) => i.code === "diagram_source_conflict")).toBe(true);
 
+    // source without syntax -> diagram_source_conflict on .syntax (A2)
+    const missingSyntax = makeWithDiagram({ source: "flowchart LR\nA-->B" });
+    expect(ajvV1(missingSyntax)).toBe(false);
+    expect(ajvV2(makeV2WithDiagram({ source: "flowchart LR\nA-->B" }))).toBe(false);
+    const resMissingSyntax = validateDecisionDossierDocument(missingSyntax);
+    expect(resMissingSyntax.ok).toBe(false);
+    if (!resMissingSyntax.ok) {
+      expect(
+        resMissingSyntax.issues.some(
+          (i) => i.code === "diagram_source_conflict" && i.path.endsWith(".syntax"),
+        ),
+      ).toBe(true);
+    }
+
+    // syntax without source (and without sourceRef) -> diagram_source_missing + diagram_source_conflict (A2)
+    const syntaxWithoutSource = makeWithDiagram({ syntax: "mermaid" });
+    expect(ajvV1(syntaxWithoutSource)).toBe(false);
+    expect(ajvV2(makeV2WithDiagram({ syntax: "mermaid" }))).toBe(false);
+    const resSyntaxWithoutSource = validateDecisionDossierDocument(syntaxWithoutSource);
+    expect(resSyntaxWithoutSource.ok).toBe(false);
+    if (!resSyntaxWithoutSource.ok) {
+      expect(resSyntaxWithoutSource.issues.some((i) => i.code === "diagram_source_missing")).toBe(true);
+      expect(resSyntaxWithoutSource.issues.some((i) => i.code === "diagram_source_conflict")).toBe(true);
+    }
+
+    // missing alt on inline or reference diagram -> missing_field on .alt (A2)
+    for (const noAltDiagram of [
+      { kind: "diagram", id: "s-diagram", targetRef: "s-diagram", syntax: "mermaid", source: "flowchart LR\nA-->B" },
+      { kind: "diagram", id: "s-diagram", targetRef: "s-diagram", sourceRef: "engram:diag-lot-map", renderComponent: "GanttChart" },
+    ]) {
+      const v1NoAlt = clone(allFamiliesFixture()) as { sections: Array<Record<string, unknown>> };
+      const idx1 = v1NoAlt.sections.findIndex((s) => s.kind === "diagram");
+      v1NoAlt.sections[idx1] = noAltDiagram;
+      expect(ajvV1(v1NoAlt)).toBe(false);
+      const v2NoAlt = evidenceFixture();
+      const idx2 = v2NoAlt.sections.findIndex((s: { kind: string }) => s.kind === "diagram");
+      v2NoAlt.sections[idx2] = noAltDiagram;
+      expect(ajvV2(v2NoAlt)).toBe(false);
+      const resNoAlt = validateDecisionDossierDocument(v1NoAlt);
+      expect(resNoAlt.ok).toBe(false);
+      if (!resNoAlt.ok) {
+        expect(resNoAlt.issues.some((i) => i.code === "missing_field" && i.path.endsWith(".alt"))).toBe(true);
+      }
+    }
+
     // sourceRef without renderComponent -> diagram_source_conflict
     const missingComp = makeWithDiagram({ sourceRef: "engram:diag-lot-map" });
     expect(ajvV1(missingComp)).toBe(false);
+    expect(ajvV2(makeV2WithDiagram({ sourceRef: "engram:diag-lot-map" }))).toBe(false);
     const resMissingComp = validateDecisionDossierDocument(missingComp);
     expect(resMissingComp.ok).toBe(false);
     if (!resMissingComp.ok) expect(resMissingComp.issues.some((i) => i.code === "diagram_source_conflict" && i.path.endsWith(".renderComponent"))).toBe(true);
@@ -828,6 +886,11 @@ describe("1.1.0 / 2.1.0 diagram reference mode, inputs[] and completionCriterion
       renderComponent: "GanttChart",
     });
     expect(ajvV1(extraComp)).toBe(false);
+    expect(ajvV2(makeV2WithDiagram({
+      syntax: "mermaid",
+      source: "flowchart LR\nA-->B",
+      renderComponent: "GanttChart",
+    }))).toBe(false);
     const resExtraComp = validateDecisionDossierDocument(extraComp);
     expect(resExtraComp.ok).toBe(false);
     if (!resExtraComp.ok) expect(resExtraComp.issues.some((i) => i.code === "diagram_source_conflict" && i.path.endsWith(".renderComponent"))).toBe(true);
@@ -839,6 +902,7 @@ describe("1.1.0 / 2.1.0 diagram reference mode, inputs[] and completionCriterion
     ]) {
       const doc = makeWithDiagram(conflict);
       expect(ajvV1(doc)).toBe(false);
+      expect(ajvV2(makeV2WithDiagram(conflict))).toBe(false);
       const res = validateDecisionDossierDocument(doc);
       expect(res.ok).toBe(false);
       if (!res.ok) expect(res.issues.some((i) => i.code === "diagram_source_conflict")).toBe(true);
@@ -916,14 +980,66 @@ describe("1.1.0 / 2.1.0 diagram reference mode, inputs[] and completionCriterion
     expect(validateDecisionDossierDocument(unlinkedSharedTarget).ok).toBe(true);
   });
 
-  it("A14b: blank completionCriterion refuses with invalid_type", () => {
+  it("A14b: blank completionCriterion, diagram.alt, or diagram.source refuses with invalid_type in both runtime and JSON Schema (A6, A12)", () => {
     for (const blank of ["", "   ", "\n\t"]) {
       const doc = clone(allFamiliesFixture()) as { sections: Array<Record<string, unknown>> };
       doc.sections[0]!["completionCriterion"] = blank;
       expect(ajvV1(doc)).toBe(false);
+      const v2 = evidenceFixture();
+      v2.sections[0].completionCriterion = blank;
+      expect(ajvV2(v2)).toBe(false);
       const res = validateDecisionDossierDocument(doc);
       expect(res.ok).toBe(false);
       if (!res.ok) expect(res.issues.some((i) => i.code === "invalid_type" && i.path.endsWith(".completionCriterion"))).toBe(true);
+
+      // blank diagram.alt on inline and reference diagrams
+      for (const baseDiagram of [
+        { kind: "diagram", id: "s-diagram", targetRef: "s-diagram", syntax: "mermaid", source: "flowchart LR\nA-->B", alt: blank },
+        { kind: "diagram", id: "s-diagram", targetRef: "s-diagram", sourceRef: "engram:diag-lot-map", renderComponent: "GanttChart", alt: blank },
+      ]) {
+        const v1Alt = clone(allFamiliesFixture()) as { sections: Array<Record<string, unknown>> };
+        const idx1 = v1Alt.sections.findIndex((s) => s.kind === "diagram");
+        v1Alt.sections[idx1] = baseDiagram;
+        expect(ajvV1(v1Alt)).toBe(false);
+        const v2Alt = evidenceFixture();
+        const idx2 = v2Alt.sections.findIndex((s: { kind: string }) => s.kind === "diagram");
+        v2Alt.sections[idx2] = baseDiagram;
+        expect(ajvV2(v2Alt)).toBe(false);
+        const resAlt = validateDecisionDossierDocument(v1Alt);
+        expect(resAlt.ok).toBe(false);
+        if (!resAlt.ok) {
+          expect(resAlt.issues.some((i) => i.code === "invalid_type" && i.path.endsWith(".alt"))).toBe(true);
+        }
+      }
+
+      // blank diagram.source on inline diagram
+      const v1Source = clone(allFamiliesFixture()) as { sections: Array<Record<string, unknown>> };
+      const idxSrc1 = v1Source.sections.findIndex((s) => s.kind === "diagram");
+      v1Source.sections[idxSrc1] = {
+        kind: "diagram",
+        id: "s-diagram",
+        targetRef: "s-diagram",
+        syntax: "mermaid",
+        source: blank,
+        alt: "Valid alt.",
+      };
+      expect(ajvV1(v1Source)).toBe(false);
+      const v2Source = evidenceFixture();
+      const idxSrc2 = v2Source.sections.findIndex((s: { kind: string }) => s.kind === "diagram");
+      v2Source.sections[idxSrc2] = {
+        kind: "diagram",
+        id: "s-diagram",
+        targetRef: "s-diagram",
+        syntax: "mermaid",
+        source: blank,
+        alt: "Valid alt.",
+      };
+      expect(ajvV2(v2Source)).toBe(false);
+      const resSource = validateDecisionDossierDocument(v1Source);
+      expect(resSource.ok).toBe(false);
+      if (!resSource.ok) {
+        expect(resSource.issues.some((i) => i.code === "invalid_type" && i.path.endsWith(".source"))).toBe(true);
+      }
     }
   });
 

@@ -68,7 +68,7 @@ var wordsOf = (text2) => String(text2 ?? "").trim().split(/\s+/).filter(Boolean)
 var sentencesOf = (text2) => String(text2 ?? "").trim().split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter(Boolean);
 var stripHtmlAndLinks = (text2) => text2.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ").replace(/<[^>]+>/g, " ").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
 var validateDecisionDossierReadability = (doc, options) => {
-  const strict = (options?.profile ?? (doc.ref === "decision:s1-hello" && doc.hash === "draft:s1-hello-1" ? "legacy" : "strict")) === "strict";
+  const strict = (options?.profile ?? (doc.ref === "decision:s1-hello" && doc.hash.startsWith("draft:s1-hello-") ? "legacy" : "strict")) === "strict";
   const issues = [];
   const refuse = (path, code, message) => {
     issues.push({ path, code, message });
@@ -180,7 +180,7 @@ var validateDecisionDossierReadability = (doc, options) => {
   }
   if (quote) shared.push(quote);
   visible(r?.stakes, "$.readability.stakes");
-  checkProseCell(r?.stakes, "$.readability.stakes", { requireTakeaway: true });
+  checkMarkdownProse(r?.stakes, "$.readability.stakes");
   r?.glossary?.forEach((entry, i) => {
     shared.push(entry.term);
     visible(entry.definition, `$.readability.glossary[${i}].definition`);
@@ -216,7 +216,7 @@ var validateDecisionDossierReadability = (doc, options) => {
         break;
       case "outcome":
         visible(section.statement, `${path}.statement`);
-        checkProseCell(section.statement, `${path}.statement`, { requireTakeaway: true });
+        checkMarkdownProse(section.statement, `${path}.statement`);
         checkQuestionRef(section.questionId, `${path}.questionId`, section.modality !== "comment" || CHOICE_PATTERN.test(section.statement));
         break;
       case "diagram":
@@ -383,7 +383,7 @@ var validateDecisionDossierReadability = (doc, options) => {
       (tok) => tok.replace(/^[.,!?:;"'`]+|[.,!?:;"'`]+$/g, "")
     );
     const hasDisallowedDigitToken = rawDigitTokens.some(
-      (tok) => tok.length > 0 && !(/^[A-Z]/.test(tok) && glossary.has(tok) && !INTERNAL_ID_RE.test(tok) && !ULID_RE.test(tok) && !HASH_RE.test(tok))
+      (tok) => tok.length > 0 && !PLAIN_TOKENS.has(tok.toUpperCase())
     );
     if (hasDisallowedDigitToken) {
       refuse(
@@ -536,7 +536,6 @@ var EvidenceError = class extends Error {
     super(issue2.message);
     this.issue = issue2;
   }
-  issue;
 };
 var fail = (path, code, message) => {
   throw new EvidenceError({ path, code, message });

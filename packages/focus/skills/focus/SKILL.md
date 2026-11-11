@@ -80,17 +80,18 @@ questions. It is not a reason to produce a longer dossier.
   `readability.glossary` with a meaning the owner understands. The renderers show
   this glossary. Each definition must stand alone in plain words, with no
   self-reference or other code, even one defined elsewhere in the glossary.
-- Enforce the 11/11 anti-wall-of-text rules: start the opening section with an
-  `En bref :` takeaway sentence; keep each prose block (`heading + body`),
-  question (`question + context + recommendedAnswer`) and option
-  (`label + consequence + body + comment`) to at most 60 words; keep each
-  sentence to at most 22 words and one idea (no `;`, no `(...)`, at most one
-  `:`, and no inline enumeration); never place ULIDs, SHA hashes, internal lot/AC
-  codes or raw digit counts in prose (`ownerRequestQuote` is exempt as verbatim).
-- On `prose` and `question` sections, optional `inputs[]` (`{ ref, label, status }`)
-  declare prerequisite artefacts with unique `ref` values (including across a
-  linked `prose` and `question` sharing `prose.questionId === question.id`), and
-  optional `completionCriterion` states a short verifiable exit condition (≤ 25 words).
+- Enforce the 11/11 anti-wall-of-text rules: start every multi-sentence prose
+  block with an `En bref : ` (or `In short: `) takeaway sentence; keep each prose
+  cell or lead-and-bullet block, question block and option block to at most 60
+  words; keep each sentence to at most 22 words and one idea (no `;`, no `(...)`,
+  at most one `:`, and no inline enumeration); never place ULIDs, SHA hashes,
+  internal lot/AC codes or raw digit counts in prose, even if listed in
+  `glossary` (`ownerRequestQuote` is exempt as verbatim).
+- On `prose` and `question` sections, optional `inputs[]` (`{ ref, kind, label? }`,
+  non-blank strings, `label` ≤ 12 words and ≤ 100 characters) declare prerequisite
+  artefacts with unique `ref` values (including across a linked `prose` and
+  `question` sharing `prose.questionId === question.id`), and optional
+  `completionCriterion` states a short verifiable exit condition (1 sentence, ≤ 22 words, ≤ 160 characters).
 - A `diagram` section supports either inline mode (`syntax` + `source`, optional
   `scene`) or reference mode (`sourceRef` + `renderComponent`, mutually exclusive
   with `source`, `syntax` and `scene`). Reference diagrams are resolved by the
