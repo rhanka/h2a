@@ -33,7 +33,7 @@ import { existsSync, readFileSync, readlinkSync, writeSync } from "node:fs";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { NativeTerminalClient } from "./client.js";
+import { NativeTerminalClient, NativeTerminalRequestTimeoutError } from "./client.js";
 import { loadRegistry, registryEntriesForNativeTarget } from "../registry.js";
 import {
   NATIVE_TERMINAL_INTERACTIVE_READ_TIMEOUT_MS,
@@ -385,6 +385,7 @@ export type NativeTerminalAttachRuntime = {
 };
 
 const ATTACH_STATE_POLL_MS = 1_000;
+const ATTACH_STATE_POLL_MAX_MS = 16_000;
 const ATTACH_ACTIVE_POLL_MS = 100;
 const ATTACH_IDLE_POLL_MIN_MS = 100;
 const ATTACH_IDLE_POLL_MAX_MS = 500;
@@ -437,6 +438,13 @@ function isDefinitiveNativeTerminalAbsence(error: unknown): boolean {
   return code === "ENOENT" || code === "ECONNREFUSED";
 }
 
+function isStateRequestTimeout(error: unknown): boolean {
+  return (
+    error instanceof NativeTerminalRequestTimeoutError ||
+    (error instanceof Error && error.name === "NativeTerminalRequestTimeoutError")
+  );
+}
+
 type ActiveAttachConnection = {
   client: NativeTerminalAttachClient;
   lease: NativeTerminalControllerLease;
@@ -482,12 +490,6 @@ export async function runAttach(
     else stdout.write(reset);
     saveReset();
   };
-  const resumeModes = (): void => {
-    if (!modesSuspended) return;
-    modesSuspended = false;
-    saveReset();
-    stdout.write(modes.restoreSequence() + modes.replayPrefix());
-  };
   const isRawCapable = stdin.isTTY === true;
   const wasRaw = stdin.isRaw === true;
   let detached = false;
@@ -495,7 +497,7 @@ export async function runAttach(
   let exitCode = 0;
   let active: ActiveAttachConnection | undefined;
   let transportFailure: unknown;
-  let recoveryAnnounced = false;
+  let interruptedAt: number | undefined;
   let pendingInputBytes = 0;
   const pendingInput: Buffer[] = [];
   let inputPump: Promise<void> | undefined;
@@ -540,10 +542,14 @@ export async function runAttach(
     inputDeliveryUncertain = false,
   ): void => {
     if (inputDeliveryUncertain && !detached) {
-      stdout.write(
-        "\r\n[h2a] terminal input delivery became uncertain during reconnect; " +
-          "the in-flight chunk was not replayed to avoid duplicate input\r\n",
-      );
+      appendCrashLog("attach", {
+        event: "refusal",
+        sessionId: id,
+        reason: "input-delivery-uncertain",
+        detail:
+          "terminal input delivery became uncertain during reconnect; " +
+          "the in-flight chunk was not replayed to avoid duplicate input",
+      });
     }
     // A request from the previous socket may settle after recovery. Fence that
     // stale failure so it can never tear down the newly-acquired controller.
@@ -555,7 +561,10 @@ export async function runAttach(
       closeActive();
       return;
     }
-    if (transportFailure === undefined) transportFailure = error;
+    if (transportFailure === undefined) {
+      transportFailure = error;
+      interruptedAt = runtime.now();
+    }
     closeActive();
   };
 
@@ -673,50 +682,82 @@ export async function runAttach(
       return initial.exit?.exitCode ?? 0;
     }
     let idlePollMs = ATTACH_IDLE_POLL_MIN_MS;
-    let nextStatePollAt = runtime.now() + ATTACH_STATE_POLL_MS;
+    let statePollMs = ATTACH_STATE_POLL_MS;
+    let nextStatePollAt = runtime.now() + statePollMs;
 
     for (;;) {
       if (detached || terminalEnded) break;
 
       if (active === undefined || transportFailure !== undefined) {
+        const disconnectStartedAt = interruptedAt ?? runtime.now();
+        const failureCause =
+          transportFailure instanceof Error
+            ? transportFailure.message
+            : transportFailure !== undefined
+              ? String(transportFailure)
+              : "connection interrupted";
+        const failureReason =
+          transportFailure instanceof NativeTerminalRequestTimeoutError
+            ? `timeout:${transportFailure.operation}`
+            : "transport-interrupted";
         closeActive();
-        if (!recoveryAnnounced) {
-          stdout.write(
-            "\r\n[h2a] native terminal connection interrupted; reconnecting " +
-              "without restarting the session\r\n",
-          );
-          recoveryAnnounced = true;
-        }
-        resetModes();
         let reconnectDelayMs = ATTACH_RECONNECT_MIN_MS;
         for (;;) {
           if (detached) break;
           try {
             const state = await connectAndAcquire();
+            const durationMs = Math.max(0, runtime.now() - disconnectStartedAt);
+            interruptedAt = undefined;
             if (state.status === "exited") {
               exitCode = state.exit?.exitCode ?? 0;
-              appendCrashLog("attach", sessionExitCrashEntry(state, { sessionId: id, detail: "session exited during reconnect" }));
+              appendCrashLog("attach", {
+                ...sessionExitCrashEntry(state, {
+                  sessionId: id,
+                  detail: `session exited during reconnect after ${durationMs}ms (${failureCause})`,
+                }),
+                durationMs,
+              });
               terminalEnded = true;
               break;
             }
-            stdout.write("\r\n[h2a] native terminal reconnected\r\n");
-            resumeModes();
-            recoveryAnnounced = false;
+            appendCrashLog("attach", {
+              event: "reconnect",
+              sessionId: id,
+              instanceId: state.generation,
+              reason: failureReason,
+              durationMs,
+              detail: `reconnected after ${durationMs}ms (${failureCause})`,
+            });
             idlePollMs = ATTACH_IDLE_POLL_MIN_MS;
-            nextStatePollAt = runtime.now() + ATTACH_STATE_POLL_MS;
+            statePollMs = ATTACH_STATE_POLL_MS;
+            nextStatePollAt = runtime.now() + statePollMs;
             break;
           } catch (error) {
+            const durationMs = Math.max(0, runtime.now() - disconnectStartedAt);
             if (error instanceof NativeTerminalRemoteError && error.message.includes("already has a controller")) {
               stdout.write(`\r\n[h2a] ${error.message}; attach detached\r\n`);
-              appendCrashLog("attach", { event: "refusal", sessionId: id, reason: "already-has-controller", detail: error.message });
+              appendCrashLog("attach", {
+                event: "refusal",
+                sessionId: id,
+                reason: "already-has-controller",
+                durationMs,
+                detail: error.message,
+              });
               terminalEnded = true;
               break;
             }
             if (isDefinitiveNativeTerminalAbsence(error)) {
-              appendCrashLog("attach", sessionExitCrashEntry(
-                { exit: null, stopSignal: null },
-                { sessionId: id, reason: "definitive-absence", detail: "session proven absent during reconnect; exit code unknown" },
-              ));
+              appendCrashLog("attach", {
+                ...sessionExitCrashEntry(
+                  { exit: null, stopSignal: null },
+                  {
+                    sessionId: id,
+                    reason: "definitive-absence",
+                    detail: `session proven absent during reconnect after ${durationMs}ms (${failureCause}); exit code unknown`,
+                  },
+                ),
+                durationMs,
+              });
               exitCode = 1;
               terminalEnded = true;
               break;
@@ -764,22 +805,40 @@ export async function runAttach(
           // tight local RPC spin under sustained model output.
           await runtime.delay(ATTACH_ACTIVE_POLL_MS);
         }
-        if (runtime.now() >= nextStatePollAt) {
-          const state = await current.client.state(id);
-          nextStatePollAt = runtime.now() + ATTACH_STATE_POLL_MS;
-          if (controllerChanged(state, current.lease)) break;
-          if (state.status === "exited") {
-            exitCode = state.exit?.exitCode ?? 0;
-            appendCrashLog("attach", sessionExitCrashEntry(state, { sessionId: id, detail: "session exited during attach" }));
+        if (replay.state !== undefined) {
+          statePollMs = ATTACH_STATE_POLL_MS;
+          nextStatePollAt = runtime.now() + statePollMs;
+          if (controllerChanged(replay.state, current.lease)) break;
+          if (replay.state.status === "exited") {
+            exitCode = replay.state.exit?.exitCode ?? 0;
+            appendCrashLog("attach", sessionExitCrashEntry(replay.state, { sessionId: id, detail: "session exited during attach" }));
             break;
+          }
+        } else if (runtime.now() >= nextStatePollAt) {
+          let state: NativeTerminalSessionState | undefined;
+          try {
+            state = await current.client.state(id);
+            statePollMs = ATTACH_STATE_POLL_MS;
+            nextStatePollAt = runtime.now() + statePollMs;
+          } catch (stateError) {
+            // A slow state probe must not kill a live attachment while readOutput
+            // is healthy; tolerate state timeouts with bounded backoff.
+            if (!isStateRequestTimeout(stateError)) throw stateError;
+            statePollMs = Math.min(ATTACH_STATE_POLL_MAX_MS, statePollMs * 2);
+            nextStatePollAt = runtime.now() + statePollMs;
+          }
+          if (state !== undefined) {
+            if (controllerChanged(state, current.lease)) break;
+            if (state.status === "exited") {
+              exitCode = state.exit?.exitCode ?? 0;
+              appendCrashLog("attach", sessionExitCrashEntry(state, { sessionId: id, detail: "session exited during attach" }));
+              break;
+            }
           }
         }
       } catch (error) {
         if (detached) break;
         if (isDefinitiveNativeTerminalAbsence(error)) {
-          stdout.write(
-            "\r\n[h2a] native session is no longer available; attach stopped\r\n",
-          );
           appendCrashLog("attach", sessionExitCrashEntry(
             { exit: null, stopSignal: null },
             { sessionId: id, reason: "definitive-absence", detail: "session proven absent during attach; exit code unknown" },
