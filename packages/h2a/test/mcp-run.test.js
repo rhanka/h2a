@@ -121,6 +121,10 @@ test("h2a_run descriptor is exact, background-only, and shared by the local MCP"
       descriptor.inputSchema.properties.agent.pattern,
       "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$"
     );
+    assert.match(
+      descriptor.inputSchema.properties.effort.description,
+      /gemini-4-carbon.*refuses max/i
+    );
   });
 });
 
@@ -711,6 +715,27 @@ test("h2a_run accepts --model gemini-4-carbon on agy, refuses effort max for it,
     assert.equal(carbonReq.effort, "high");
     const carbonInv = buildH2aRunInvocation(carbonReq, "/opt/h2a/bin.js");
     assert.ok(carbonInv.args.includes("gemini-4-carbon"));
+
+    for (const [embeddedModel, expectedModel, expectedEffort] of [
+      ["gemini-4-carbon-high", "gemini-4-carbon", "high"],
+      ["gemini-4-carbon-low", "gemini-4-carbon", "low"],
+      ["gemini-4-argon-high", "gemini-4-argon", "high"],
+    ]) {
+      const embeddedReq = validateH2aRunRequest(
+        request(workspace, {
+          profile: "agy",
+          name: "embedded-worker",
+          model: embeddedModel,
+          effort: undefined,
+        }),
+        workspaceRoot,
+      );
+      assert.equal(embeddedReq.model, expectedModel);
+      assert.equal(embeddedReq.effort, expectedEffort);
+      const embeddedInv = buildH2aRunInvocation(embeddedReq, "/opt/h2a/bin.js");
+      assert.ok(embeddedInv.args.includes(expectedModel));
+      assert.ok(embeddedInv.args.includes(expectedEffort));
+    }
 
     assert.throws(
       () =>

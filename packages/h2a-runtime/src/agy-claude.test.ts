@@ -12,6 +12,7 @@ import {
   agyClaudeQuotaError,
   assertAgyClaudeBuildAllowed,
   detectAgyClaudeQuotaExhaustion,
+  extractEmbeddedGeminiEffort,
   isAgyClaudeModel,
   normalizeAgyEffort,
   resolveAgyModel,
@@ -67,6 +68,28 @@ describe("normalizeAgyEffort (low|medium|high, max→high, xhigh refused)", () =
     expect(() => resolveAgyModel("gemini-4-carbon-max")).toThrow(AgyEffortError);
     expect(() => resolveAgyModel("gemini-4-carbon", "xhigh")).toThrow(AgyEffortError);
     expect(() => normalizeAgyEffort("max", "gemini-4-carbon")).toThrow(AgyEffortError);
+  });
+  it("preserves embedded Gemini effort suffixes when effort is omitted and lets explicit effort override", () => {
+    expect(extractEmbeddedGeminiEffort("gemini-4-carbon-high")).toBe("high");
+    expect(extractEmbeddedGeminiEffort("gemini-4-carbon-low")).toBe("low");
+    expect(extractEmbeddedGeminiEffort("carbon-high")).toBe("high");
+    expect(extractEmbeddedGeminiEffort("gemini-4-argon-high")).toBe("high");
+    expect(extractEmbeddedGeminiEffort("argon-high")).toBe("high");
+    expect(extractEmbeddedGeminiEffort("gemini-3.8-flash-high")).toBe("high");
+    expect(extractEmbeddedGeminiEffort("flash-high")).toBe("high");
+    expect(extractEmbeddedGeminiEffort("gemini-4-carbon")).toBeUndefined();
+    expect(extractEmbeddedGeminiEffort("gemini-4-argon")).toBeUndefined();
+
+    expect(normalizeAgyEffort(undefined, "gemini-4-carbon-high")).toBe("high");
+    expect(normalizeAgyEffort(undefined, "gemini-4-carbon-low")).toBe("low");
+    expect(normalizeAgyEffort(undefined, "carbon-high")).toBe("high");
+    expect(normalizeAgyEffort(undefined, "gemini-4-argon-high")).toBe("high");
+    expect(normalizeAgyEffort(undefined, "argon-high")).toBe("high");
+    expect(normalizeAgyEffort(undefined, "gemini-3.8-flash-high")).toBe("high");
+    expect(normalizeAgyEffort("low", "gemini-4-carbon-high")).toBe("low");
+    expect(normalizeAgyEffort("low", "gemini-4-argon-high")).toBe("low");
+    expect(() => normalizeAgyEffort(undefined, "gemini-4-carbon-max")).toThrow(AgyEffortError);
+    expect(() => normalizeAgyEffort(undefined, "gemini-4-argon-xhigh")).toThrow(AgyEffortError);
   });
   it("prefers a later reset observation over a preliminary quota error", () => {
     const now = Date.parse("2026-10-17T14:55:00Z");
