@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:sentropic:focus:DecisionDossierDocument:1.0.0",
+  "$id": "urn:sentropic:focus:DecisionDossierDocument:1.1.0",
   "title": "DecisionDossierDocument",
   "description": "Read-only decision-dossier snapshot published by @sentropic/focus. Closed: unknown fields refuse. Snapshot interactions are disabled metadata (enabled:false); live decisions, signatures and amendments require separately qualified runtime capabilities.",
   "type": "object",
@@ -50,6 +50,16 @@
         { "$ref": "#/$defs/diagramNode" }
       ]
     },
+    "sectionInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "kind"],
+      "properties": {
+        "ref": { "type": "string", "pattern": "^[\\s\\S]*\\S[\\s\\S]*$" },
+        "kind": { "type": "string", "pattern": "^[\\s\\S]*\\S[\\s\\S]*$" },
+        "label": { "type": "string", "pattern": "^[\\s\\S]*\\S[\\s\\S]*$" }
+      }
+    },
     "proseNode": {
       "type": "object",
       "additionalProperties": false,
@@ -59,7 +69,9 @@
         "id": { "type": "string" },
         "targetRef": { "type": "string" },
         "markdown": { "type": "string" },
-        "questionId": { "type": "string" }
+        "questionId": { "type": "string" },
+        "inputs": { "type": "array", "items": { "$ref": "#/$defs/sectionInput" } },
+        "completionCriterion": { "type": "string", "pattern": "^[\\s\\S]*\\S[\\s\\S]*$" }
       }
     },
     "questionNode": {
@@ -76,7 +88,9 @@
         "state": { "enum": ["open", "answered", "validated"] },
         "context": { "type": "string" },
         "readingTimeMinutes": { "type": "number" },
-        "recommendedOptionId": { "type": "string" }
+        "recommendedOptionId": { "type": "string" },
+        "inputs": { "type": "array", "items": { "$ref": "#/$defs/sectionInput" } },
+        "completionCriterion": { "type": "string", "pattern": "^[\\s\\S]*\\S[\\s\\S]*$" }
       }
     },
     "optionNode": {
@@ -134,19 +148,29 @@
     "diagramNode": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "id", "targetRef", "syntax", "source", "alt"],
+      "required": ["kind", "id", "targetRef", "alt"],
       "properties": {
         "kind": { "const": "diagram" },
         "id": { "type": "string" },
         "targetRef": { "type": "string" },
         "syntax": { "enum": ["mermaid", "plantuml"] },
-        "source": { "type": "string" },
-        "alt": { "type": "string" },
+        "source": { "type": "string", "pattern": "^[\\s\\S]*\\S[\\s\\S]*$" },
+        "sourceRef": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9+.-]*:\\S+$" },
+        "renderComponent": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9-]*$" },
+        "alt": { "type": "string", "pattern": "^[\\s\\S]*\\S[\\s\\S]*$" },
         "scene": {
           "type": "object",
           "description": "diagram-core SemanticDocument, profile generic@1, without views, geometry or layout hints. Opaque JSON until the design-system publishes its authoritative schema; no Focus-specific scene model."
         }
-      }
+      },
+      "allOf": [
+        { "oneOf": [{ "required": ["source"] }, { "required": ["sourceRef"] }] },
+        { "not": { "allOf": [{ "required": ["source"] }, { "not": { "required": ["syntax"] } }] } },
+        { "not": { "allOf": [{ "required": ["source"] }, { "required": ["renderComponent"] }] } },
+        { "not": { "allOf": [{ "required": ["sourceRef"] }, { "not": { "required": ["renderComponent"] } }] } },
+        { "not": { "allOf": [{ "required": ["sourceRef"] }, { "required": ["syntax"] }] } },
+        { "not": { "allOf": [{ "required": ["sourceRef"] }, { "required": ["scene"] }] } }
+      ]
     },
     "interaction": {
       "type": "object",

@@ -61,12 +61,12 @@ const outcomeStatement = (outcome) => {
 const optionBody = (option) => {
     const parts = [];
     if (option.pros !== undefined && option.pros.length > 0) {
-        parts.push(`pros: ${option.pros.join("; ")}`);
+        parts.push(`pros — ${option.pros.join(", ")}`);
     }
     if (option.cons !== undefined && option.cons.length > 0) {
-        parts.push(`cons: ${option.cons.join("; ")}`);
+        parts.push(`cons — ${option.cons.join(", ")}`);
     }
-    return parts.length > 0 ? parts.join("; ") : undefined;
+    return parts.length > 0 ? parts.join(", ") : undefined;
 };
 /**
  * Extract the comprehension evidence carried VERBATIM on the dossier's

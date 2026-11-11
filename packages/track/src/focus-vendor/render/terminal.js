@@ -10,6 +10,19 @@
  */
 import { preparePresentation } from "./presentation.js";
 import { evidenceIndex } from './evidence.js';
+const collapseLines = (value) => value.replace(/[\r\n\u2028\u2029]+/g, " ");
+const renderInputsAndCriterion = (inputs, completionCriterion) => {
+    const lines = [];
+    if (inputs?.length) {
+        for (const inp of inputs) {
+            lines.push(`  Input: ${inp.label ?? inp.ref} (${inp.ref})`);
+        }
+    }
+    if (completionCriterion !== undefined) {
+        lines.push(`  Completion: ${completionCriterion}`);
+    }
+    return lines;
+};
 const rule = (width) => "=".repeat(Math.max(8, width));
 const renderQuestion = (q) => {
     const lines = [`Q: ${q.question}  [${q.state}]`];
@@ -23,6 +36,7 @@ const renderQuestion = (q) => {
     if (q.answer !== undefined) {
         lines.push(`   answer: ${q.answer}`);
     }
+    lines.push(...renderInputsAndCriterion(q.inputs, q.completionCriterion));
     return lines.join("\n");
 };
 const renderOptionSet = (s) => {
@@ -41,14 +55,18 @@ const renderAmendmentTrace = (steps) => {
     const lines = steps.map((st, i) => `  ${i + 1}. [${st.at}] ${st.author}: ${st.summary}`);
     return ["Amendment trace:", ...lines].join("\n");
 };
-const renderDiagram = (d) => [
-    `Diagram (${d.syntax}) — ${d.alt}`,
-    ...d.source.split("\n").map((l) => `  | ${l}`),
-].join("\n");
+const renderDiagram = (d) => d.source !== undefined
+    ? [
+        `Diagram (${d.syntax}) — ${collapseLines(d.alt)}`,
+        ...d.source.split("\n").map((l) => `  | ${l}`),
+    ].join("\n")
+    : `Diagram (${collapseLines(d.renderComponent)}) — ${collapseLines(d.alt)} [${collapseLines(d.sourceRef)}]`;
 const renderNode = (node) => {
     switch (node.kind) {
-        case "prose":
-            return node.markdown;
+        case "prose": {
+            const meta = renderInputsAndCriterion(node.inputs, node.completionCriterion);
+            return meta.length > 0 ? [node.markdown, ...meta].join("\n") : node.markdown;
+        }
         case "question":
             return renderQuestion(node);
         case "optionSet":

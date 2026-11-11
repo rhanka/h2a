@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:sentropic:focus:DecisionDossierDocument:2.0.0",
+  "$id": "urn:sentropic:focus:DecisionDossierDocument:2.1.0",
   "title": "DecisionDossierDocument v2 — embedded evidence",
   "description": "Breaking evidence envelope. Original bytes, digests, line ranges and reference integrity are additionally checked by the exported runtime validator. Absence of schemaVersion selects unchanged legacy v1.",
   "type": "object",
@@ -159,6 +159,28 @@
         }
       ]
     },
+    "sectionInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ref",
+        "kind"
+      ],
+      "properties": {
+        "ref": {
+          "type": "string",
+          "pattern": "^[\\s\\S]*\\S[\\s\\S]*$"
+        },
+        "kind": {
+          "type": "string",
+          "pattern": "^[\\s\\S]*\\S[\\s\\S]*$"
+        },
+        "label": {
+          "type": "string",
+          "pattern": "^[\\s\\S]*\\S[\\s\\S]*$"
+        }
+      }
+    },
     "proseNode": {
       "type": "object",
       "additionalProperties": false,
@@ -183,6 +205,16 @@
         },
         "questionId": {
           "type": "string"
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/sectionInput"
+          }
+        },
+        "completionCriterion": {
+          "type": "string",
+          "pattern": "^[\\s\\S]*\\S[\\s\\S]*$"
         },
         "citationRefs": {
           "type": "array",
@@ -237,6 +269,16 @@
         },
         "recommendedOptionId": {
           "type": "string"
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/sectionInput"
+          }
+        },
+        "completionCriterion": {
+          "type": "string",
+          "pattern": "^[\\s\\S]*\\S[\\s\\S]*$"
         },
         "citationRefs": {
           "type": "array",
@@ -420,8 +462,6 @@
         "kind",
         "id",
         "targetRef",
-        "syntax",
-        "source",
         "alt"
       ],
       "properties": {
@@ -441,10 +481,20 @@
           ]
         },
         "source": {
-          "type": "string"
+          "type": "string",
+          "pattern": "^[\\s\\S]*\\S[\\s\\S]*$"
+        },
+        "sourceRef": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9+.-]*:\\S+$"
+        },
+        "renderComponent": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9-]*$"
         },
         "alt": {
-          "type": "string"
+          "type": "string",
+          "pattern": "^[\\s\\S]*\\S[\\s\\S]*$"
         },
         "scene": {
           "type": "object",
@@ -457,7 +507,107 @@
             "minLength": 1
           }
         }
-      }
+      },
+      "allOf": [
+        {
+          "oneOf": [
+            {
+              "required": [
+                "source"
+              ]
+            },
+            {
+              "required": [
+                "sourceRef"
+              ]
+            }
+          ]
+        },
+        {
+          "not": {
+            "allOf": [
+              {
+                "required": [
+                  "source"
+                ]
+              },
+              {
+                "not": {
+                  "required": [
+                    "syntax"
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "not": {
+            "allOf": [
+              {
+                "required": [
+                  "source"
+                ]
+              },
+              {
+                "required": [
+                  "renderComponent"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "not": {
+            "allOf": [
+              {
+                "required": [
+                  "sourceRef"
+                ]
+              },
+              {
+                "not": {
+                  "required": [
+                    "renderComponent"
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "not": {
+            "allOf": [
+              {
+                "required": [
+                  "sourceRef"
+                ]
+              },
+              {
+                "required": [
+                  "syntax"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "not": {
+            "allOf": [
+              {
+                "required": [
+                  "sourceRef"
+                ]
+              },
+              {
+                "required": [
+                  "scene"
+                ]
+              }
+            ]
+          }
+        }
+      ]
     },
     "interaction": {
       "type": "object",

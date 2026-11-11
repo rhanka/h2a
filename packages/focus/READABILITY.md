@@ -29,10 +29,24 @@ stakes and plain language; string validation cannot establish those properties.
 
 Opaque codes and acronyms in reader-facing content need definitions in the visible
 glossary. Transport IDs and provenance bindings are not interpreted as prose.
-The three renderers show the request, stakes, context, times, consequences and
-glossary. They group options under their question, independent of source order,
-and name the recommended option alongside its reason. Snapshot actions remain disabled; clickable choices are outside this
-validator-and-skill change.
+The readability gate also enforces the 11/11 anti-wall-of-text rules: every
+multi-sentence prose block begins with an `En bref : ` (or `In short: `) takeaway;
+each prose cell or lead-and-bullet block, question block and option block stays
+within 60 words; each sentence stays within 22 words and expresses a single idea
+(no semicolons, no parentheses, at most one colon, no inline enumerations); and
+prose excludes ULIDs, SHA hashes, internal lot/AC IDs and raw digit counts, even
+when listed in `glossary` (`ownerRequestQuote` is exempt as a literal quotation).
+Optional `inputs[]` (`{ ref, kind, label? }`) labels and `completionCriterion` on
+`prose` and `question` sections are scanned for undefined codes, capped at 12 words
+(≤ 100 characters) and 22 words (1 sentence, ≤ 160 characters) respectively, and
+counted toward both shared and per-question reading time. Diagram sections may use
+inline `source` or reference `sourceRef` + `renderComponent` (where no inline
+`source` exists to scan).
+The three renderers show the request, stakes, context, times, consequences,
+inputs, completion criteria, reference diagram pointers and glossary. They group
+options under their question, independent of source order, and name the
+recommended option alongside its reason. Snapshot actions remain disabled;
+clickable choices are outside this validator-and-skill change.
 
 Independent design reviews (correctness and owner readability) agreed on public
 gate enforcement, visible metadata, optional schema additions, proportional

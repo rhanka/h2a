@@ -22,6 +22,8 @@ export type {
   EvidenceAnnex,
   AnnexBlock,
   DiagramNode,
+  InlineDiagramNode,
+  ReferenceDiagramNode,
   DiagramSyntax,
   DossierReadability,
   FocusNode,
@@ -36,6 +38,7 @@ export type {
   ProseNode,
   QuestionNode,
   QuestionValidationState,
+  SectionInput,
   TargetRef,
 } from "./model.js";
 export { isEvidenceDossier } from './model.js';
