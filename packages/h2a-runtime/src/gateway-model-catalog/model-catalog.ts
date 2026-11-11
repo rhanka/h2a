@@ -10,7 +10,10 @@
  */
 
 export const GEMINI_4_ARGON = "gemini-4-argon";
+export const GEMINI_4_CARBON = "gemini-4-carbon";
 export const GEMINI_3_8_FLASH = "gemini-3.8-flash";
+export const CLAUDE_FABLE_5_1 = "claude-fable-5-1";
+export const CLAUDE_FABLE_5_2 = "claude-fable-5-2";
 export const MUSE_SPARK_1_3 = "muse-spark-1.3";
 export const MUSE_SPARK_1_3_CONTRIBUTOR = "muse-spark-1.3-contributor";
 export const MUSE_WONDER_1_0 = "muse-wonder-1.0";
@@ -18,7 +21,10 @@ export const MUSE_WONDER_FULL_1_0 = "muse-wonder-full-1.0";
 
 export const GATEWAY_MODEL_IDS = [
   GEMINI_4_ARGON,
+  GEMINI_4_CARBON,
   GEMINI_3_8_FLASH,
+  CLAUDE_FABLE_5_1,
+  CLAUDE_FABLE_5_2,
   MUSE_SPARK_1_3,
   MUSE_SPARK_1_3_CONTRIBUTOR,
   MUSE_WONDER_1_0,
@@ -35,10 +41,33 @@ export const GATEWAY_MODEL_ALIASES: Readonly<Record<string, GatewayModelId>> =
     "gemini-argon": GEMINI_4_ARGON,
     argon: GEMINI_4_ARGON,
     "argon-high": GEMINI_4_ARGON,
+    "gemini-4-carbon": GEMINI_4_CARBON,
+    "gemini-4-carbon-high": GEMINI_4_CARBON,
+    "gemini-4-carbon-medium": GEMINI_4_CARBON,
+    "gemini-4-carbon-low": GEMINI_4_CARBON,
+    "gemini-carbon": GEMINI_4_CARBON,
+    "gemini-carbon-high": GEMINI_4_CARBON,
+    carbon: GEMINI_4_CARBON,
+    "carbon-high": GEMINI_4_CARBON,
+    "carbon-medium": GEMINI_4_CARBON,
+    "carbon-low": GEMINI_4_CARBON,
     "gemini-3.8-flash": GEMINI_3_8_FLASH,
     "gemini-3.8-flash-high": GEMINI_3_8_FLASH,
     flash: GEMINI_3_8_FLASH,
     "flash-high": GEMINI_3_8_FLASH,
+    "claude-fable-5-1": CLAUDE_FABLE_5_1,
+    "claude-fable-5.1": CLAUDE_FABLE_5_1,
+    "fable-5-1": CLAUDE_FABLE_5_1,
+    "fable-5.1": CLAUDE_FABLE_5_1,
+    "fable5.1": CLAUDE_FABLE_5_1,
+    fable51: CLAUDE_FABLE_5_1,
+    "claude-fable-5-2": CLAUDE_FABLE_5_2,
+    "claude-fable-5.2": CLAUDE_FABLE_5_2,
+    "fable-5-2": CLAUDE_FABLE_5_2,
+    "fable-5.2": CLAUDE_FABLE_5_2,
+    "fable5.2": CLAUDE_FABLE_5_2,
+    fable52: CLAUDE_FABLE_5_2,
+    fable: CLAUDE_FABLE_5_2,
     "muse-spark-1.3": MUSE_SPARK_1_3,
     "muse-spark-1.3-contributor": MUSE_SPARK_1_3_CONTRIBUTOR,
     "muse-spark": MUSE_SPARK_1_3,
@@ -183,12 +212,66 @@ export const CLAUDE_GATEWAY_MODEL_MAP: Readonly<
     muse: MUSE_WONDER_1_0,
     museEffort: "medium",
   },
+  "fable-5.2/base": {
+    cloud: GEMINI_4_CARBON,
+    cloudEffort: "high",
+    muse: GEMINI_4_CARBON,
+    museEffort: "max",
+  },
+  "fable-5.2/medium": {
+    cloud: GEMINI_4_CARBON,
+    cloudEffort: "high",
+    muse: MUSE_SPARK_1_3_CONTRIBUTOR,
+    museEffort: "high",
+  },
+  "fable-5.2/high": {
+    cloud: GEMINI_4_CARBON,
+    cloudEffort: "high",
+    muse: GEMINI_4_CARBON,
+    museEffort: "max",
+  },
+  "fable-5.2/xhigh": {
+    cloud: GEMINI_4_CARBON,
+    cloudEffort: "high",
+    muse: GEMINI_4_CARBON,
+    museEffort: "max",
+  },
+  "fable-5.2/max": {
+    cloud: GEMINI_4_CARBON,
+    cloudEffort: "high",
+    muse: MUSE_SPARK_1_3_CONTRIBUTOR,
+    museEffort: "max",
+  },
+  "fable-5.2/low": {
+    cloud: GEMINI_4_CARBON,
+    cloudEffort: "high",
+    muse: MUSE_SPARK_1_3_CONTRIBUTOR,
+    museEffort: "medium",
+  },
+};
+
+const CLAUDE_LAUNCH_ALIAS_TO_FAMILY: Readonly<Record<string, string>> = {
+  "claude-fable-5-1": "fable-5.1/base",
+  "claude-fable-5-1-medium": "fable-5.1/medium",
+  "claude-fable-5-1-high": "fable-5.1/high",
+  "claude-fable-5-1-xhigh": "fable-5.1/xhigh",
+  "claude-fable-5-1-max": "fable-5.1/max",
+  "claude-fable-5-1-low": "fable-5.1/low",
+  "claude-fable-5-2": "fable-5.2/base",
+  "claude-fable-5-2-medium": "fable-5.2/medium",
+  "claude-fable-5-2-high": "fable-5.2/high",
+  "claude-fable-5-2-xhigh": "fable-5.2/xhigh",
+  "claude-fable-5-2-max": "fable-5.2/max",
+  "claude-fable-5-2-low": "fable-5.2/low",
 };
 
 export function claudeGatewaySlot(
   family: string,
 ): ClaudeGatewaySlot | undefined {
-  const key = family.trim().toLowerCase();
+  const rawKey = family.trim().toLowerCase();
+  const key = Object.hasOwn(CLAUDE_LAUNCH_ALIAS_TO_FAMILY, rawKey)
+    ? CLAUDE_LAUNCH_ALIAS_TO_FAMILY[rawKey]!
+    : rawKey;
   return Object.hasOwn(CLAUDE_GATEWAY_MODEL_MAP, key)
     ? CLAUDE_GATEWAY_MODEL_MAP[key]
     : undefined;

@@ -6145,13 +6145,13 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
       "read the initial Claude/Codex/AGY prompt from stdin (keeps it out of process argv)",
     )
     .option("--agent <agent>", "AGY agent override (for example: stp)")
-    .option("--model <model>", "Claude/Codex/AGY model override")
+    .option("--model <model>", "Claude/Codex/AGY model override (e.g. claude-fable-5-2, gemini-4-carbon, gemini-4-argon, gpt-5.6-terra)")
     .option("--role <role>", "launch purpose: review|challenge|build; AGY Claude builds require explicit opt-in")
     .option("--allow-claude-build", "explicitly spend the reserved AGY Claude pool on a build")
     .option("--output-file <path>", "expected AGY Claude headless artifact; report missing or unchanged output at exit")
     .option(
       "--effort <level>",
-      "reasoning effort: low|medium|high|xhigh (AGY: low|medium|high, max maps to high)",
+      "reasoning effort: low|medium|high|xhigh (AGY: low|medium|high; gemini-4-carbon refuses max, claude-*-5-5 maps max to high)",
     )
     .option(
       "--headless",
@@ -6637,9 +6637,10 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           const enrollmentBare = pinnedLaunch && bareChoiceFromOptions(opts) === undefined
             ? pinnedLaunch.bare
             : useBare;
-          // H0 (#662): normalize readable gateway aliases (argon-high, wonder,
-          // wonder-full, spark) to their exact canonical model id. Unknown
-          // names pass through unchanged for exact-model validation downstream.
+          // H0 (#662): normalize readable gateway aliases (argon-high, carbon,
+          // fable-5.2, wonder, wonder-full, spark) to their exact canonical
+          // model id. Unknown names pass through unchanged for exact-model
+          // validation downstream.
           const runModel =
             opts.model !== undefined
               ? (resolveGatewayModelAlias(opts.model) ?? opts.model)
@@ -7192,7 +7193,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     )
     .option(
       "--model <model>",
-      "model override for the spawned agent (claude: --model; codex: -m). E.g. claude-sonnet-4-6, claude-opus-4-8, o3.",
+      "model override for the spawned agent (claude: --model; codex: -m; agy: --model). E.g. claude-fable-5-2, claude-sonnet-4-6, claude-opus-4-8, gemini-4-carbon, o3.",
     )
     .option(
       "--effort <level>",
