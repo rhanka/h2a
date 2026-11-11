@@ -607,6 +607,7 @@ export type NativeTerminalReplay = Readonly<{
   gap: TerminalReplayGap | null;
   latestSeq: number;
   terminalModePrefix?: string;
+  state?: NativeTerminalSessionState;
 }>;
 
 export type NativeTerminalObserverAttachment = Readonly<{
