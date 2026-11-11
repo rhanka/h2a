@@ -10,15 +10,17 @@ tools: []
 
 Method capability: `sentropic.focus.decision-dossier`. Prepare a
 `DecisionDossierDocument` using schema
-`urn:sentropic:focus:DecisionDossierDocument:1.0.0`
-(`schemas/decision-dossier-document.v1.schema.json`). This instruction-only
-skill grants no tools or write authority.
+`urn:sentropic:focus:DecisionDossierDocument:1.1.0`
+(`schemas/decision-dossier-document.v1.schema.json`; historical `1.0.0` remains
+pinned at `schemas/decision-dossier-document.v1.0.schema.json`). This
+instruction-only skill grants no tools or write authority.
 
 For supporting evidence, select the explicit v2 template with the freshly built
 checkout CLI: `node packages/h2a/dist/bin.js focus template --evidence -o dossier.json`,
 then `node packages/h2a/dist/bin.js focus build dossier.json -o dossier.html`.
 It declares `schemaVersion: 2` and uses the separate schema
-`urn:sentropic:focus:DecisionDossierDocument:2.0.0`. Omitting the discriminant
+`urn:sentropic:focus:DecisionDossierDocument:2.1.0` (historical `2.0.0` remains
+pinned at `schemas/decision-dossier-document.v2.0.schema.json`). Omitting the discriminant
 selects unchanged v1. Old consumers refuse v2; never strip evidence to bypass that.
 Store original bytes once in `sources` (canonical base64, original SHA-256 and byte
 size). Origins are frozen provenance data, never URLs/paths fetched by the reader.
@@ -78,6 +80,22 @@ questions. It is not a reason to produce a longer dossier.
   `readability.glossary` with a meaning the owner understands. The renderers show
   this glossary. Each definition must stand alone in plain words, with no
   self-reference or other code, even one defined elsewhere in the glossary.
+- Enforce the 11/11 anti-wall-of-text rules: start every multi-sentence prose
+  block with an `En bref : ` (or `In short: `) takeaway sentence; keep each prose
+  cell or lead-and-bullet block, question block and option block to at most 60
+  words; keep each sentence to at most 22 words and one idea (no `;`, no `(...)`,
+  at most one `:`, and no inline enumeration); never place ULIDs, SHA hashes,
+  internal lot/AC codes or raw digit counts in prose, even if listed in
+  `glossary` (`ownerRequestQuote` is exempt as verbatim).
+- On `prose` and `question` sections, optional `inputs[]` (`{ ref, kind, label? }`,
+  non-blank strings, `label` ≤ 12 words and ≤ 100 characters) declare prerequisite
+  artefacts with unique `ref` values (including across a linked `prose` and
+  `question` sharing `prose.questionId === question.id`), and optional
+  `completionCriterion` states a short verifiable exit condition (1 sentence, ≤ 22 words, ≤ 160 characters).
+- A `diagram` section supports either inline mode (`syntax` + `source`, optional
+  `scene`) or reference mode (`sourceRef` + `renderComponent`, mutually exclusive
+  with `source`, `syntax` and `scene`). Reference diagrams are resolved by the
+  host `diagramResolver`; offline `h2a focus build` bundles inline diagrams only.
 
 Bad: “Ratify L06b under MH-L3? A: migrate, with a/b variants. B: defer.”
 The request, stakes, consequences and recommendation are missing; several

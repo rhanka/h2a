@@ -115,6 +115,9 @@ export function buildFocusDossier(input: unknown): string {
   const sections = inputDocument.sections.map(section => {
     if (section.kind !== 'diagram') return section;
     diagramCount++;
+    if (section.sourceRef !== undefined) {
+      throw new Error(`Reference diagram "${section.id}" (${section.renderComponent} -> ${section.sourceRef}) requires a host diagramResolver; offline portable bundles support inline diagrams only`);
+    }
     // Supplied semantics are authoritative; source remains a backward-compatible text fallback.
     if (section.scene !== undefined) {
       return { ...section, syntax: 'mermaid' as const, source: semanticSource(section.scene) };
