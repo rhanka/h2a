@@ -16,6 +16,7 @@ import type {
   AmendmentStep,
   DecisionDossierDocument,
   FocusNode,
+  SectionInput,
 } from "../model.js";
 import type { HtmlRenderHooks } from "./hooks.js";
 
@@ -27,6 +28,28 @@ const escapeHtml = (value: string): string =>
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+
+const renderInputsAndCriterion = (
+  inputs: readonly SectionInput[] | undefined,
+  completionCriterion: string | undefined,
+): string => {
+  const parts: string[] = [];
+  if (inputs?.length) {
+    const items = inputs
+      .map(
+        (inp) =>
+          `<li><span class="focus-input-label">${escapeHtml(inp.label ?? inp.ref)}</span> <code>${escapeHtml(inp.ref)}</code></li>`,
+      )
+      .join("");
+    parts.push(`<ul class="focus-inputs">${items}</ul>`);
+  }
+  if (completionCriterion !== undefined) {
+    parts.push(
+      `<p class="focus-completion-criterion">${escapeHtml(completionCriterion)}</p>`,
+    );
+  }
+  return parts.join("");
+};
 
 const renderQuestion = (
   q: Extract<FocusNode, { kind: "question" }>,
@@ -44,6 +67,8 @@ const renderQuestion = (
   if (q.answer !== undefined) {
     parts.push(`<p class="focus-answer">answer: ${escapeHtml(q.answer)}</p>`);
   }
+  const extra = renderInputsAndCriterion(q.inputs, q.completionCriterion);
+  if (extra !== "") parts.push(extra);
   return `<section class="focus-question">${parts.join("")}</section>`;
 };
 
@@ -82,12 +107,14 @@ const renderAmendmentTrace = (steps: readonly AmendmentStep[]): string => {
 const renderDiagram = (
   d: Extract<FocusNode, { kind: "diagram" }>,
 ): string =>
-  `<figure class="focus-diagram" data-syntax="${escapeHtml(d.syntax)}"><figcaption>${escapeHtml(d.alt)}</figcaption><pre><code class="language-${escapeHtml(d.syntax)}">${escapeHtml(d.source)}</code></pre></figure>`;
+  d.source !== undefined
+    ? `<figure class="focus-diagram" data-syntax="${escapeHtml(d.syntax)}"><figcaption>${escapeHtml(d.alt)}</figcaption><pre><code class="language-${escapeHtml(d.syntax)}">${escapeHtml(d.source)}</code></pre></figure>`
+    : `<figure class="focus-diagram" data-render-component="${escapeHtml(d.renderComponent)}" data-source-ref="${escapeHtml(d.sourceRef)}"><figcaption>${escapeHtml(d.alt)}</figcaption><pre><code>${escapeHtml(d.renderComponent)}: ${escapeHtml(d.sourceRef)}</code></pre></figure>`;
 
 const renderNode = (node: FocusNode, hooks: HtmlRenderHooks): string => {
   switch (node.kind) {
     case "prose":
-      return `<section class="focus-prose">${hooks.renderMarkdown(node.markdown)}</section>`;
+      return `<section class="focus-prose">${hooks.renderMarkdown(node.markdown)}${renderInputsAndCriterion(node.inputs, node.completionCriterion)}</section>`;
     case "question":
       return renderQuestion(node);
     case "optionSet":

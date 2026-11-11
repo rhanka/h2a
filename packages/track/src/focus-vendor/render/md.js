@@ -8,6 +8,20 @@
  */
 import { preparePresentation } from "./presentation.js";
 import { evidenceIndex } from './evidence.js';
+const collapseLines = (value) => value.replace(/[\r\n\u2028\u2029]+/g, " ");
+const fenceFor = (value) => "`".repeat(Math.max(3, ...Array.from(value.matchAll(/`+/g), (match) => match[0].length + 1)));
+const renderInputsAndCriterion = (inputs, completionCriterion) => {
+    const lines = [];
+    if (inputs?.length) {
+        for (const inp of inputs) {
+            lines.push(`- Input: ${inp.label ?? inp.ref} (\`${inp.ref}\`)`);
+        }
+    }
+    if (completionCriterion !== undefined) {
+        lines.push(`**Completion criterion:** ${completionCriterion}`);
+    }
+    return lines;
+};
 const renderQuestion = (q) => {
     const lines = [`**Q:** ${q.question} _(${q.state})_`];
     if (q.context !== undefined)
@@ -20,6 +34,7 @@ const renderQuestion = (q) => {
     if (q.answer !== undefined) {
         lines.push(`- answer: ${q.answer}`);
     }
+    lines.push(...renderInputsAndCriterion(q.inputs, q.completionCriterion));
     return lines.join("\n");
 };
 const renderOptionSet = (s) => {
@@ -38,13 +53,25 @@ const renderAmendmentTrace = (steps) => {
     const lines = steps.map((st, i) => `${i + 1}. \`${st.at}\` **${st.author}** — ${st.summary}`);
     return ["### Amendment trace", "", ...lines].join("\n");
 };
-const renderDiagram = (d) => [`_${d.alt}_`, "", "```" + d.syntax, d.source, "```"].join("\n");
+const renderDiagram = (d) => {
+    const caption = `_${collapseLines(d.alt)}_`;
+    if (d.source !== undefined) {
+        const fence = fenceFor(d.source);
+        return [caption, "", fence + d.syntax, d.source, fence].join("\n");
+    }
+    const body = `${collapseLines(d.renderComponent)}: ${collapseLines(d.sourceRef)}`;
+    const fence = fenceFor(body);
+    return [caption, "", fence, body, fence].join("\n");
+};
 const renderNode = (node, hooks) => {
     switch (node.kind) {
-        case "prose":
-            return hooks.renderMarkdown !== undefined
+        case "prose": {
+            const body = hooks.renderMarkdown !== undefined
                 ? hooks.renderMarkdown(node.markdown)
                 : node.markdown;
+            const meta = renderInputsAndCriterion(node.inputs, node.completionCriterion);
+            return meta.length > 0 ? [body, ...meta].join("\n") : body;
+        }
         case "question":
             return renderQuestion(node);
         case "optionSet":

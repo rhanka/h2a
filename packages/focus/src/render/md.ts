@@ -15,8 +15,36 @@ import type {
   AmendmentStep,
   DecisionDossierDocument,
   FocusNode,
+  SectionInput,
 } from "../model.js";
 import type { MdRenderHooks } from "./hooks.js";
+
+const collapseLines = (value: string): string =>
+  value.replace(/[\r\n\u2028\u2029]+/g, " ");
+
+const fenceFor = (value: string): string =>
+  "`".repeat(
+    Math.max(
+      3,
+      ...Array.from(value.matchAll(/`+/g), (match) => match[0].length + 1),
+    ),
+  );
+
+const renderInputsAndCriterion = (
+  inputs: readonly SectionInput[] | undefined,
+  completionCriterion: string | undefined,
+): string[] => {
+  const lines: string[] = [];
+  if (inputs?.length) {
+    for (const inp of inputs) {
+      lines.push(`- Input: ${inp.label ?? inp.ref} (\`${inp.ref}\`)`);
+    }
+  }
+  if (completionCriterion !== undefined) {
+    lines.push(`**Completion criterion:** ${completionCriterion}`);
+  }
+  return lines;
+};
 
 const renderQuestion = (
   q: Extract<FocusNode, { kind: "question" }>,
@@ -30,6 +58,7 @@ const renderQuestion = (
   if (q.answer !== undefined) {
     lines.push(`- answer: ${q.answer}`);
   }
+  lines.push(...renderInputsAndCriterion(q.inputs, q.completionCriterion));
   return lines.join("\n");
 };
 
@@ -57,15 +86,27 @@ const renderAmendmentTrace = (steps: readonly AmendmentStep[]): string => {
 
 const renderDiagram = (
   d: Extract<FocusNode, { kind: "diagram" }>,
-): string =>
-  [`_${d.alt}_`, "", "```" + d.syntax, d.source, "```"].join("\n");
+): string => {
+  const caption = `_${collapseLines(d.alt)}_`;
+  if (d.source !== undefined) {
+    const fence = fenceFor(d.source);
+    return [caption, "", fence + d.syntax, d.source, fence].join("\n");
+  }
+  const body = `${collapseLines(d.renderComponent)}: ${collapseLines(d.sourceRef)}`;
+  const fence = fenceFor(body);
+  return [caption, "", fence, body, fence].join("\n");
+};
 
 const renderNode = (node: FocusNode, hooks: MdRenderHooks): string => {
   switch (node.kind) {
-    case "prose":
-      return hooks.renderMarkdown !== undefined
-        ? hooks.renderMarkdown(node.markdown)
-        : node.markdown;
+    case "prose": {
+      const body =
+        hooks.renderMarkdown !== undefined
+          ? hooks.renderMarkdown(node.markdown)
+          : node.markdown;
+      const meta = renderInputsAndCriterion(node.inputs, node.completionCriterion);
+      return meta.length > 0 ? [body, ...meta].join("\n") : body;
+    }
     case "question":
       return renderQuestion(node);
     case "optionSet":

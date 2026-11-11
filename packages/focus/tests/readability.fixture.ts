@@ -125,12 +125,12 @@ export const accessibleDossierFixture: DecisionDossierDocument = {
     ownerRequestQuote:
       "Tell me where to put the shed: I want it handy for the mower but I do not want to see it from the terrace.",
     stakes:
-      "A wrong spot means carrying the mower across the garden every week and looking at a metal box from the terrace for years.",
+      "A wrong spot means carrying the mower across the garden weekly and looking at a metal box from the terrace for years.",
     stakesLevel: "medium",
     readingBudgetMinutes: 4,
     glossary: [
       {
-        term: "CI-4821",
+        term: "PLU",
         definition: "The city permit file number for this garden work.",
       },
     ],
@@ -141,7 +141,7 @@ export const accessibleDossierFixture: DecisionDossierDocument = {
       id: "ctx",
       targetRef: "ctx",
       markdown:
-        "You asked where to put the shed. The terrace view matters to you, and the mower must stay easy to reach. Permit file CI-4821 already covers all three spots below.",
+        "In short: You asked where to put the shed. The terrace view matters to you, and the mower must stay easy to reach. Permit file PLU already covers all three spots below.",
     },
     {
       kind: "question",
@@ -149,7 +149,7 @@ export const accessibleDossierFixture: DecisionDossierDocument = {
       targetRef: "q-spot",
       question: "Which spot should we approve for the shed?",
       context:
-        "Three spots are possible: each one trades walking distance against what you see from the terrace. The permit covers all three, so only your comfort decides.",
+        "In short: Three spots are possible, and each one trades walking distance against what you see from the terrace. The permit covers all three, so only your comfort decides.",
       recommendedAnswer: "The side wall: short walk, hidden from the terrace.",
       recommendedOptionId: "opt-side",
       state: "open",
@@ -194,7 +194,7 @@ export const accessibleDossierFixture: DecisionDossierDocument = {
       id: "decision:garden-shed:outcome",
       targetRef: "decision:garden-shed:outcome",
       modality: "decision",
-      statement: "Approve one shed spot; the side wall is recommended.",
+      statement: "Approve one shed spot: the side wall is recommended.",
       questionId: "q-spot",
     },
   ],

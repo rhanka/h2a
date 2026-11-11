@@ -3,6 +3,10 @@
  */
 import type { DecisionDossierDocument } from "../model.js";
 import type { ValidationIssue } from "./index.js";
+export type ReadabilityProfile = "strict" | "legacy";
+export interface ReadabilityOptions {
+    readonly profile?: ReadabilityProfile;
+}
 export declare const READABILITY_BUDGETS: {
     readonly low: 2;
     readonly medium: 8;
@@ -22,6 +26,14 @@ export declare const READABILITY_LIMITS: {
     readonly maxOptionLabelLength: 100;
     readonly maxConsequenceLength: 160;
     readonly maxOptionBodyLength: 300;
+    readonly maxCellWords: 60;
+    readonly maxBlockCombinedWords: 60;
+    readonly maxSentenceWords: 22;
+    readonly maxInputLabelWords: 12;
+    readonly maxInputLabelLength: 100;
+    readonly maxCompletionCriterionSentences: 1;
+    readonly maxCompletionCriterionWords: 22;
+    readonly maxCompletionCriterionLength: 160;
 };
 /** Check a structurally valid document; use ForPresentation for untrusted input. */
-export declare const validateDecisionDossierReadability: (doc: DecisionDossierDocument) => ValidationIssue[];
+export declare const validateDecisionDossierReadability: (doc: DecisionDossierDocument, options?: ReadabilityOptions) => ValidationIssue[];
