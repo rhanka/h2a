@@ -695,3 +695,50 @@ test("a verified provider-blocked failure should retain delivery and cleanup evi
   assert.throws(()=>executeH2aRunWithSpawn(req,()=>({status:1,stdout:JSON.stringify({...failure,launchId:"other-worker"}),stderr:"quota"})),/exit 1.*quota/);
  });
 });
+
+test("h2a_run accepts --model gemini-4-carbon on agy, refuses effort max for it, and resolves claude-fable-5-2 and its alias", () => {
+  withWorkspace(({ workspaceRoot, workspace }) => {
+    const carbonReq = validateH2aRunRequest(
+      request(workspace, {
+        profile: "agy",
+        name: "carbon-worker",
+        model: "gemini-4-carbon",
+        effort: "high",
+      }),
+      workspaceRoot,
+    );
+    assert.equal(carbonReq.model, "gemini-4-carbon");
+    assert.equal(carbonReq.effort, "high");
+    const carbonInv = buildH2aRunInvocation(carbonReq, "/opt/h2a/bin.js");
+    assert.ok(carbonInv.args.includes("gemini-4-carbon"));
+
+    assert.throws(
+      () =>
+        validateH2aRunRequest(
+          request(workspace, {
+            profile: "agy",
+            name: "carbon-max-worker",
+            model: "gemini-4-carbon",
+            effort: "max",
+          }),
+          workspaceRoot,
+        ),
+      /gemini-4-carbon.*low\|medium\|high.*max/i,
+    );
+
+    for (const model of ["claude-fable-5-2", "fable-5.2", "fable-5-2", "fable"]) {
+      const fableReq = validateH2aRunRequest(
+        request(workspace, {
+          profile: "claude",
+          name: "fable-worker",
+          model,
+          effort: "high",
+        }),
+        workspaceRoot,
+      );
+      assert.equal(fableReq.model, "claude-fable-5-2");
+      const fableInv = buildH2aRunInvocation(fableReq, "/opt/h2a/bin.js");
+      assert.ok(fableInv.args.includes("claude-fable-5-2"));
+    }
+  });
+});

@@ -15,8 +15,11 @@ import {
 // llm-mesh 0.26.0 / llm-gateway 0.20.0 model surface (Gemini 4 Argon high,
 // Muse Spark, Muse Wonder + Wonder Full) with readable aliases.
 describe("gateway model catalog (H0 #662)", () => {
-  it("exposes the #662 model ids (argon, spark, wonder, wonder-full)", () => {
+  it("exposes the #662 and PR #997 model ids (argon, carbon, fable-5.1, fable-5.2, spark, wonder, wonder-full)", () => {
     expect(GATEWAY_MODEL_IDS).toContain("gemini-4-argon");
+    expect(GATEWAY_MODEL_IDS).toContain("gemini-4-carbon");
+    expect(GATEWAY_MODEL_IDS).toContain("claude-fable-5-1");
+    expect(GATEWAY_MODEL_IDS).toContain("claude-fable-5-2");
     expect(GATEWAY_MODEL_IDS).toContain("muse-spark-1.3");
     expect(GATEWAY_MODEL_IDS).toContain("muse-wonder-1.0");
     expect(GATEWAY_MODEL_IDS).toContain("muse-wonder-full-1.0");
@@ -25,6 +28,17 @@ describe("gateway model catalog (H0 #662)", () => {
   it("resolves readable aliases to canonical ids", () => {
     expect(resolveGatewayModelAlias("gemini-4-argon")).toBe("gemini-4-argon");
     expect(resolveGatewayModelAlias("argon-high")).toBe("gemini-4-argon");
+    expect(resolveGatewayModelAlias("gemini-4-carbon")).toBe("gemini-4-carbon");
+    expect(resolveGatewayModelAlias("carbon")).toBe("gemini-4-carbon");
+    expect(resolveGatewayModelAlias("carbon-high")).toBe("gemini-4-carbon");
+    expect(resolveGatewayModelAlias("gemini-carbon")).toBe("gemini-4-carbon");
+    expect(resolveGatewayModelAlias("claude-fable-5-1")).toBe("claude-fable-5-1");
+    expect(resolveGatewayModelAlias("fable-5.1")).toBe("claude-fable-5-1");
+    expect(resolveGatewayModelAlias("fable-5-1")).toBe("claude-fable-5-1");
+    expect(resolveGatewayModelAlias("claude-fable-5-2")).toBe("claude-fable-5-2");
+    expect(resolveGatewayModelAlias("fable-5.2")).toBe("claude-fable-5-2");
+    expect(resolveGatewayModelAlias("fable-5-2")).toBe("claude-fable-5-2");
+    expect(resolveGatewayModelAlias("fable")).toBe("claude-fable-5-2");
     expect(resolveGatewayModelAlias("muse-spark")).toBe("muse-spark-1.3");
     expect(resolveGatewayModelAlias("spark")).toBe("muse-spark-1.3");
     expect(resolveGatewayModelAlias("muse-wonder")).toBe("muse-wonder-1.0");
@@ -107,12 +121,37 @@ describe("gateway model catalog parity with llm-mesh 0.26.0", () => {
       ["fable-5.1/xhigh", "claude-fable-5-1-xhigh"],
       ["fable-5.1/max", "claude-fable-5-1-max"],
       ["fable-5.1/low", "claude-fable-5-1-low"],
+      ["fable-5.2/medium", "claude-fable-5-2-medium"],
+      ["fable-5.2/max", "claude-fable-5-2-max"],
+      ["fable-5.2/low", "claude-fable-5-2-low"],
     ];
     for (const [family, meshKey] of pairs) {
       const museLeg = routes[meshKey]?.find((t) => t.providerId === "muse");
       expect(museLeg).toBeDefined();
       expect(claudeGatewaySlot(family)?.muse).toBe(museLeg?.model);
       expect(claudeGatewaySlot(family)?.museEffort).toBe(museLeg?.effort);
+    }
+  });
+
+  it("routes claude-fable-5-2 (+ -high/-xhigh) to gemini-4-carbon on the gateway cloud slot", () => {
+    const carbonPairs: Array<[family: string, meshKey: string]> = [
+      ["fable-5.2/base", "claude-fable-5-2"],
+      ["fable-5.2/high", "claude-fable-5-2-high"],
+      ["fable-5.2/xhigh", "claude-fable-5-2-xhigh"],
+    ];
+    for (const [family, meshKey] of carbonPairs) {
+      const slot = claudeGatewaySlot(family);
+      expect(slot?.cloud).toBe("gemini-4-carbon");
+      expect(slot?.cloudEffort).toBe("high");
+      expect(slot?.muse).toBe("gemini-4-carbon");
+      expect(claudeGatewaySlot(meshKey)).toEqual(slot);
+      const cloudLeg = routes[meshKey]?.find((t) => t.providerId === "gemini");
+      expect(cloudLeg).toMatchObject({
+        providerId: "gemini",
+        model: "gemini-4-carbon",
+        effort: "high",
+      });
+      expect(routes[meshKey]?.find((t) => t.providerId === "muse")).toBeUndefined();
     }
   });
 });
