@@ -55,6 +55,11 @@ import { TerminalModeTracker } from "./terminal-modes.js";
 import { publishAttachReset } from "./attach-recovery.js";
 import { TerminalResetRelay } from "./reset-relay.js";
 import { appendCrashLog, crashSignalName, installCrashHandlers, type CrashLogEntry } from "../crash-log.js";
+import type {
+  NativeStatusBarLinkState,
+  NativeStatusBarSnapshot,
+  ReadNativeStatusBarOptions,
+} from "../status-projection.js";
 
 const DETACH_BYTE = 0x1c; // Ctrl-\
 
@@ -450,6 +455,610 @@ type ActiveAttachConnection = {
   lease: NativeTerminalControllerLease;
 };
 
+export type NativeAttachStatusBarOptions = Omit<
+  ReadNativeStatusBarOptions,
+  "sessionName" | "linkState" | "nowMs"
+> & {
+  readonly enabled?: boolean;
+  readonly env?: NodeJS.ProcessEnv;
+};
+
+const STATUS_BAR_MIN_ROWS = 10;
+const STATUS_BAR_REFRESH_MIN_MS = 1_000;
+// Amber/orange background (#7C2D12) with warm light foreground (#FEF3C7), plus 256-color fallback.
+const AMBER_BAR_SGR =
+  "\x1b[48;5;166;38;5;231;48;2;124;45;18;38;2;254;243;199m";
+
+class NativeStatusBarController {
+  readonly #id: string;
+  readonly #stdout: NodeJS.WriteStream;
+  readonly #now: () => number;
+  readonly #opts: NativeAttachStatusBarOptions;
+  readonly #optionEnabled: boolean;
+  readonly #isTty: boolean;
+  #featureEnabled = false;
+  #initialized = false;
+  #readSnapshot:
+    | ((opts: ReadNativeStatusBarOptions) => Promise<NativeStatusBarSnapshot>)
+    | undefined;
+  #renderLine:
+    | ((snapshot: NativeStatusBarSnapshot, cols: number) => string)
+    | undefined;
+  #displayColumns: ((value: string) => number) | undefined;
+
+  #linkState: NativeStatusBarLinkState = "attached";
+  #snapshot: NativeStatusBarSnapshot;
+  #lastProbeAt: number | undefined;
+  #wasActive = false;
+  #activeRows = 0;
+  #activeCols = 0;
+  #lastRenderedLine = "";
+  #needsRepaint = true;
+  #restored = false;
+
+  #row = 1;
+  #col = 1;
+  #pendingWrap = false;
+  #scrollTop = 1;
+  #scrollBottom = 23;
+  #savedCursor = { row: 1, col: 1 };
+  #altSavedCursor = { row: 1, col: 1 };
+  #inAltScreen = false;
+  #activeSgr = "";
+
+  constructor(
+    id: string,
+    stdout: NodeJS.WriteStream,
+    now: () => number,
+    option?: boolean | NativeAttachStatusBarOptions,
+  ) {
+    this.#id = id;
+    this.#stdout = stdout;
+    this.#now = now;
+    this.#opts = typeof option === "object" && option !== null ? option : {};
+    this.#optionEnabled = option !== false && this.#opts.enabled !== false;
+    this.#isTty = (stdout as { isTTY?: boolean }).isTTY === true;
+    this.#snapshot = {
+      cli: "unknown",
+      sessionName: id,
+      linkState: "attached",
+      role: "unknown",
+      workload: {
+        j: { open: 0, attention: 0, degraded: true },
+        i: { waiting: 0, degraded: true },
+        l: { active: 0, attention: 0, degraded: true },
+      },
+      delegatedSessions: "unknown",
+      gateway: { state: "unknown", clientSessionId: id },
+    };
+  }
+
+  isActive(): boolean {
+    const rows = this.#stdout.rows ?? 0;
+    const cols = this.#stdout.columns ?? 0;
+    return (
+      this.#featureEnabled &&
+      this.#isTty &&
+      rows >= STATUS_BAR_MIN_ROWS &&
+      cols > 0
+    );
+  }
+
+  childRows(): number | undefined {
+    const rows = this.#stdout.rows;
+    if (!rows) return undefined;
+    return this.isActive() ? rows - 1 : rows;
+  }
+
+  async probe(
+    force = false,
+    linkState?: NativeStatusBarLinkState,
+  ): Promise<void> {
+    const linkChanged =
+      linkState !== undefined && linkState !== this.#linkState;
+    if (linkState !== undefined) {
+      this.#linkState = linkState;
+      this.#snapshot = { ...this.#snapshot, linkState };
+    }
+    if (!this.#optionEnabled || !this.#isTty) return;
+    if (!this.#initialized) {
+      this.#initialized = true;
+      const [{ isStatusBarEnabled }, statusProjection] = await Promise.all([
+        import("../config.js"),
+        import("../status-projection.js"),
+      ]);
+      this.#readSnapshot = statusProjection.readNativeStatusBarSnapshot;
+      this.#renderLine = statusProjection.renderNativeStatusBarLine;
+      this.#displayColumns = statusProjection.terminalDisplayColumns;
+      this.#featureEnabled = isStatusBarEnabled(this.#opts.env ?? process.env);
+    }
+    if (!this.#featureEnabled || !this.#readSnapshot) return;
+    const nowMs = this.#now();
+    const due =
+      force ||
+      this.#lastProbeAt === undefined ||
+      nowMs - this.#lastProbeAt >= STATUS_BAR_REFRESH_MIN_MS;
+    if (due) {
+      this.#lastProbeAt = nowMs;
+      try {
+        this.#snapshot = await this.#readSnapshot({
+          ...this.#opts,
+          sessionName: this.#id,
+          linkState: this.#linkState,
+          nowMs,
+        });
+      } catch {
+        this.#snapshot = { ...this.#snapshot, linkState: this.#linkState };
+      }
+    }
+    if (linkChanged || due) {
+      this.paint(linkChanged);
+    }
+  }
+
+  onResize(): void {
+    this.paint(true);
+  }
+
+  flushAfterOutputBatch(): void {
+    if (this.#needsRepaint) {
+      this.paint(false);
+    }
+  }
+
+  resumeAfterReset(): void {
+    this.#restored = false;
+    this.#needsRepaint = true;
+  }
+
+  restoreSequence(): string {
+    if (!this.#wasActive || this.#restored) return "";
+    this.#restored = true;
+    const rows = this.#activeRows || (this.#stdout.rows ?? 24);
+    const cols = this.#activeCols || (this.#stdout.columns ?? 80);
+    const row = Math.min(rows, Math.max(1, this.#row));
+    const col = Math.min(cols, Math.max(1, this.#col));
+    return `\x1b[r\x1b[${rows};1H\x1b[2K\x1b[${row};${col}H`;
+  }
+
+  paint(force = false): void {
+    if (this.#restored) return;
+    if (!this.isActive()) {
+      if (this.#wasActive && this.#activeRows >= STATUS_BAR_MIN_ROWS) {
+        const targetRow = Math.min(
+          Math.max(1, this.#stdout.rows ?? 1),
+          Math.max(1, this.#row),
+        );
+        const targetCol = Math.min(
+          Math.max(1, this.#stdout.columns ?? 1),
+          Math.max(1, this.#col),
+        );
+        this.#stdout.write(
+          `\x1b[r\x1b[${this.#activeRows};1H\x1b[2K\x1b[${targetRow};${targetCol}H${this.#activeSgr}`,
+        );
+        this.#wasActive = false;
+        this.#lastRenderedLine = "";
+        this.#needsRepaint = true;
+      }
+      return;
+    }
+
+    const rows = this.#stdout.rows!;
+    const cols = this.#stdout.columns!;
+    const childRows = rows - 1;
+    const geometryChanged =
+      !this.#wasActive || rows !== this.#activeRows || cols !== this.#activeCols;
+    let clearPreviousRow = "";
+    if (geometryChanged) {
+      if (
+        this.#wasActive &&
+        this.#activeRows !== rows &&
+        this.#activeRows > 0 &&
+        this.#activeRows < rows
+      ) {
+        clearPreviousRow = `\x1b[${this.#activeRows};1H\x1b[2K`;
+      }
+      this.#row = Math.min(childRows, Math.max(1, this.#row));
+      this.#col = Math.min(cols, Math.max(1, this.#col));
+      this.#scrollTop = 1;
+      this.#scrollBottom = childRows;
+      this.#wasActive = true;
+      this.#activeRows = rows;
+      this.#activeCols = cols;
+      this.#needsRepaint = true;
+    }
+
+    if (!this.#renderLine) return;
+    const line = this.#renderLine(this.#snapshot, cols);
+    if (
+      !force &&
+      !this.#needsRepaint &&
+      !geometryChanged &&
+      line === this.#lastRenderedLine
+    ) {
+      return;
+    }
+
+    this.#lastRenderedLine = line;
+    this.#needsRepaint = false;
+    const top = Math.min(childRows - 1, Math.max(1, this.#scrollTop));
+    const bottom = Math.min(
+      childRows,
+      Math.max(top + 1, this.#scrollBottom),
+    );
+    const row = Math.min(childRows, Math.max(1, this.#row));
+    const col = Math.min(cols, Math.max(1, this.#col));
+    this.#stdout.write(
+      `${clearPreviousRow}\x1b[${top};${bottom}r\x1b[${rows};1H${AMBER_BAR_SGR}${line}\x1b[0m\x1b[${row};${col}H${this.#activeSgr}`,
+    );
+  }
+
+  transformChildOutput(data: string): string {
+    if (!this.isActive() || data.length === 0) return data;
+    const rows = this.#stdout.rows!;
+    const cols = this.#stdout.columns!;
+    const childRows = rows - 1;
+    let out = "";
+    let i = 0;
+    while (i < data.length) {
+      const ch = data[i]!;
+      if (ch === "\x1b") {
+        const next = data[i + 1];
+        if (next === "[") {
+          let j = i + 2;
+          while (
+            j < data.length &&
+            data.charCodeAt(j) >= 0x30 &&
+            data.charCodeAt(j) <= 0x3f
+          ) {
+            j += 1;
+          }
+          const params = data.slice(i + 2, j);
+          const intStart = j;
+          while (
+            j < data.length &&
+            data.charCodeAt(j) >= 0x20 &&
+            data.charCodeAt(j) <= 0x2f
+          ) {
+            j += 1;
+          }
+          const intermediates = data.slice(intStart, j);
+          if (
+            j < data.length &&
+            data.charCodeAt(j) >= 0x40 &&
+            data.charCodeAt(j) <= 0x7e
+          ) {
+            const final = data[j]!;
+            const rawSeq = data.slice(i, j + 1);
+            out += this.#handleCsi(
+              params,
+              intermediates,
+              final,
+              rawSeq,
+              childRows,
+              cols,
+            );
+            i = j + 1;
+            continue;
+          }
+        } else if (
+          next === "]" ||
+          next === "P" ||
+          next === "X" ||
+          next === "^" ||
+          next === "_"
+        ) {
+          let j = i + 2;
+          while (j < data.length) {
+            const c = data[j]!;
+            if (next === "]" && c === "\x07") {
+              j += 1;
+              break;
+            }
+            if (c === "\x9c") {
+              j += 1;
+              break;
+            }
+            if (c === "\x1b" && data[j + 1] === "\\") {
+              j += 2;
+              break;
+            }
+            j += 1;
+          }
+          out += data.slice(i, j);
+          i = j;
+          continue;
+        } else if (next !== undefined) {
+          const rawSeq = data.slice(i, i + 2);
+          this.#handleEsc(next, childRows, cols);
+          out += rawSeq;
+          i += 2;
+          continue;
+        }
+      }
+      const cp = data.codePointAt(i)!;
+      const step = cp > 0xffff ? 2 : 1;
+      this.#handleChar(cp, childRows, cols);
+      out += data.slice(i, i + step);
+      i += step;
+    }
+    return out;
+  }
+
+  #handleEsc(next: string, childRows: number, cols: number): void {
+    if (next === "7") {
+      this.#savedCursor = { row: this.#row, col: this.#col };
+    } else if (next === "8") {
+      this.#row = Math.min(childRows, Math.max(1, this.#savedCursor.row));
+      this.#col = Math.min(cols, Math.max(1, this.#savedCursor.col));
+      this.#pendingWrap = false;
+    } else if (next === "D") {
+      this.#pendingWrap = false;
+      if (this.#row < this.#scrollBottom) this.#row += 1;
+      else if (this.#row > this.#scrollBottom && this.#row < childRows) {
+        this.#row += 1;
+      }
+    } else if (next === "E") {
+      this.#col = 1;
+      this.#pendingWrap = false;
+      if (this.#row < this.#scrollBottom) this.#row += 1;
+      else if (this.#row > this.#scrollBottom && this.#row < childRows) {
+        this.#row += 1;
+      }
+    } else if (next === "M") {
+      this.#pendingWrap = false;
+      if (this.#row > this.#scrollTop) this.#row -= 1;
+    } else if (next === "c") {
+      this.#inAltScreen = false;
+      this.#row = 1;
+      this.#col = 1;
+      this.#pendingWrap = false;
+      this.#scrollTop = 1;
+      this.#scrollBottom = childRows;
+      this.#activeSgr = "";
+      this.#needsRepaint = true;
+    }
+  }
+
+  #handleCsi(
+    params: string,
+    intermediates: string,
+    final: string,
+    rawSeq: string,
+    childRows: number,
+    cols: number,
+  ): string {
+    if (intermediates !== "") return rawSeq;
+    if (
+      final === "r" &&
+      !params.startsWith("?") &&
+      !params.startsWith(">")
+    ) {
+      const parts = params.length === 0 ? [] : params.split(";");
+      const rawTop = parts[0] ? Number.parseInt(parts[0], 10) : 1;
+      const rawBottom = parts[1] ? Number.parseInt(parts[1], 10) : childRows;
+      const top =
+        Number.isFinite(rawTop) && rawTop >= 1
+          ? Math.min(childRows - 1, rawTop)
+          : 1;
+      const bottom =
+        Number.isFinite(rawBottom) && rawBottom > top
+          ? Math.min(childRows, rawBottom)
+          : childRows;
+      this.#scrollTop = top;
+      this.#scrollBottom = bottom;
+      this.#row = 1;
+      this.#col = 1;
+      this.#pendingWrap = false;
+      this.#needsRepaint = true;
+      return `\x1b[${top};${bottom}r`;
+    }
+    if ((final === "H" || final === "f") && !params.startsWith("?")) {
+      const parts = params.length === 0 ? [] : params.split(";");
+      const rawRow = parts[0] ? Number.parseInt(parts[0], 10) : 1;
+      const rawCol = parts[1] ? Number.parseInt(parts[1], 10) : 1;
+      const targetRow =
+        Number.isFinite(rawRow) && rawRow >= 1
+          ? Math.min(childRows, rawRow)
+          : 1;
+      const targetCol =
+        Number.isFinite(rawCol) && rawCol >= 1 ? Math.min(cols, rawCol) : 1;
+      this.#row = targetRow;
+      this.#col = targetCol;
+      this.#pendingWrap = false;
+      if (Number.isFinite(rawRow) && rawRow > childRows) {
+        return `\x1b[${targetRow};${targetCol}${final}`;
+      }
+      return rawSeq;
+    }
+    if (final === "d" && !params.startsWith("?")) {
+      const rawRow = params ? Number.parseInt(params, 10) : 1;
+      const targetRow =
+        Number.isFinite(rawRow) && rawRow >= 1
+          ? Math.min(childRows, rawRow)
+          : 1;
+      this.#row = targetRow;
+      this.#pendingWrap = false;
+      if (Number.isFinite(rawRow) && rawRow > childRows) {
+        return `\x1b[${targetRow}d`;
+      }
+      return rawSeq;
+    }
+    if (final === "A" && !params.startsWith("?")) {
+      const n = Math.max(1, Number.parseInt(params || "1", 10) || 1);
+      this.#row = Math.max(1, this.#row - n);
+      this.#pendingWrap = false;
+      return rawSeq;
+    }
+    if ((final === "B" || final === "e") && !params.startsWith("?")) {
+      const n = Math.max(1, Number.parseInt(params || "1", 10) || 1);
+      const maxDown = Math.max(0, childRows - this.#row);
+      this.#row = Math.min(childRows, this.#row + n);
+      this.#pendingWrap = false;
+      if (n > maxDown) {
+        return maxDown > 0 ? `\x1b[${maxDown}${final}` : "";
+      }
+      return rawSeq;
+    }
+    if ((final === "C" || final === "a") && !params.startsWith("?")) {
+      const n = Math.max(1, Number.parseInt(params || "1", 10) || 1);
+      this.#col = Math.min(cols, this.#col + n);
+      this.#pendingWrap = false;
+      return rawSeq;
+    }
+    if (final === "D" && !params.startsWith("?")) {
+      const n = Math.max(1, Number.parseInt(params || "1", 10) || 1);
+      this.#col = Math.max(1, this.#col - n);
+      this.#pendingWrap = false;
+      return rawSeq;
+    }
+    if (final === "E" && !params.startsWith("?")) {
+      const n = Math.max(1, Number.parseInt(params || "1", 10) || 1);
+      const maxDown = Math.max(0, childRows - this.#row);
+      this.#row = Math.min(childRows, this.#row + n);
+      this.#col = 1;
+      this.#pendingWrap = false;
+      if (n > maxDown) {
+        return maxDown > 0 ? `\x1b[${maxDown}E` : "\r";
+      }
+      return rawSeq;
+    }
+    if (final === "F" && !params.startsWith("?")) {
+      const n = Math.max(1, Number.parseInt(params || "1", 10) || 1);
+      this.#row = Math.max(1, this.#row - n);
+      this.#col = 1;
+      this.#pendingWrap = false;
+      return rawSeq;
+    }
+    if ((final === "G" || final === "`") && !params.startsWith("?")) {
+      const n = Math.max(1, Number.parseInt(params || "1", 10) || 1);
+      this.#col = Math.min(cols, n);
+      this.#pendingWrap = false;
+      return rawSeq;
+    }
+    if (final === "s" && params === "") {
+      this.#savedCursor = { row: this.#row, col: this.#col };
+      return rawSeq;
+    }
+    if (final === "u" && params === "") {
+      this.#row = Math.min(childRows, Math.max(1, this.#savedCursor.row));
+      this.#col = Math.min(cols, Math.max(1, this.#savedCursor.col));
+      this.#pendingWrap = false;
+      return rawSeq;
+    }
+    if (final === "J" && !params.startsWith("?")) {
+      const mode = params || "0";
+      if (mode === "0" || mode === "2" || mode === "3") {
+        this.#needsRepaint = true;
+      }
+      return rawSeq;
+    }
+    if (
+      (final === "h" || final === "l") &&
+      /^\?\d+(;\d+)*$/.test(params)
+    ) {
+      for (const mode of params.slice(1).split(";").map(Number)) {
+        if (mode === 47 || mode === 1047 || mode === 1049) {
+          if (final === "h") {
+            if (mode === 1049 && !this.#inAltScreen) {
+              this.#altSavedCursor = { row: this.#row, col: this.#col };
+            }
+            this.#inAltScreen = true;
+            this.#row = 1;
+            this.#col = 1;
+            this.#pendingWrap = false;
+            this.#scrollTop = 1;
+            this.#scrollBottom = childRows;
+            this.#needsRepaint = true;
+          } else {
+            this.#inAltScreen = false;
+            this.#pendingWrap = false;
+            this.#scrollTop = 1;
+            this.#scrollBottom = childRows;
+            if (mode === 1049) {
+              this.#row = Math.min(
+                childRows,
+                Math.max(1, this.#altSavedCursor.row),
+              );
+              this.#col = Math.min(
+                cols,
+                Math.max(1, this.#altSavedCursor.col),
+              );
+            }
+            this.#needsRepaint = true;
+          }
+        }
+      }
+      return rawSeq;
+    }
+    if (final === "m" && /^[0-9;:]*$/.test(params)) {
+      if (params === "" || params === "0") {
+        this.#activeSgr = "";
+      } else {
+        const codes = params.split(";");
+        const lastZero = codes.lastIndexOf("0");
+        if (lastZero >= 0) {
+          const rest = codes.slice(lastZero + 1).filter(Boolean).join(";");
+          this.#activeSgr = rest ? `\x1b[${rest}m` : "";
+        } else {
+          const next = `${this.#activeSgr}${rawSeq}`;
+          this.#activeSgr = next.length <= 64 ? next : rawSeq;
+        }
+      }
+      return rawSeq;
+    }
+    return rawSeq;
+  }
+
+  #handleChar(cp: number, childRows: number, cols: number): void {
+    if (cp === 0x0d) {
+      this.#col = 1;
+      this.#pendingWrap = false;
+      return;
+    }
+    if (cp === 0x0a || cp === 0x0b || cp === 0x0c) {
+      this.#pendingWrap = false;
+      if (this.#row < this.#scrollBottom) this.#row += 1;
+      else if (this.#row > this.#scrollBottom && this.#row < childRows) {
+        this.#row += 1;
+      }
+      return;
+    }
+    if (cp === 0x08) {
+      this.#pendingWrap = false;
+      this.#col = Math.max(1, this.#col - 1);
+      return;
+    }
+    if (cp === 0x09) {
+      this.#pendingWrap = false;
+      this.#col = Math.min(
+        cols,
+        (Math.floor((this.#col - 1) / 8) + 1) * 8 + 1,
+      );
+      return;
+    }
+    if (cp < 0x20 || (cp >= 0x7f && cp <= 0x9f)) return;
+    const width = this.#displayColumns
+      ? this.#displayColumns(String.fromCodePoint(cp))
+      : 1;
+    if (width <= 0) return;
+    if (this.#pendingWrap) {
+      this.#col = 1;
+      this.#pendingWrap = false;
+      if (this.#row < this.#scrollBottom) this.#row += 1;
+      else if (this.#row > this.#scrollBottom && this.#row < childRows) {
+        this.#row += 1;
+      }
+    }
+    if (this.#col + width - 1 >= cols) {
+      this.#col = cols;
+      this.#pendingWrap = true;
+    } else {
+      this.#col += width;
+    }
+  }
+}
+
 /**
  * Follow one native PTY without owning its lifetime. A transport failure closes
  * only this observer/controller connection; the host-owned PTY is never stopped
@@ -458,10 +1067,19 @@ type ActiveAttachConnection = {
 export async function runAttach(
   id: string,
   runtime: NativeTerminalAttachRuntime = defaultAttachRuntime(socketPathFromEnv()),
-  options: { takeover?: boolean } = {},
+  options: {
+    takeover?: boolean;
+    statusBar?: boolean | NativeAttachStatusBarOptions;
+  } = {},
 ): Promise<number> {
   const stdin = runtime.stdin;
   const stdout = runtime.stdout;
+  const statusBar = new NativeStatusBarController(
+    id,
+    stdout,
+    () => runtime.now(),
+    options.statusBar,
+  );
   let modes = new TerminalModeTracker();
   let modesSuspended = false;
   let savedReset = "";
@@ -474,7 +1092,7 @@ export async function runAttach(
   const relayOutput = (data: string): void => {
     modes.feed(data);
     saveReset();
-    stdout.write(data);
+    stdout.write(statusBar.transformChildOutput(data));
   };
   // Older protocol-v1 hosts relay the wrapper marker verbatim. New hosts
   // consume it themselves so detached sessions also return to a clean shell.
@@ -482,12 +1100,14 @@ export async function runAttach(
   const resetModes = (): void => {
     if (modesSuspended) return;
     modesSuspended = true;
+    const barRestore = statusBar.restoreSequence();
     const reset = modes.resetSequence();
-    if (!reset) { saveReset(); return; }
+    const sequence = `${barRestore}${reset}`;
+    if (!sequence) { saveReset(); return; }
     // Signals and fatal exits cannot wait for an asynchronous pipe flush.
     const fd = (stdout as NodeJS.WriteStream & { fd?: number }).fd;
-    if (typeof fd === "number") writeSync(fd, reset);
-    else stdout.write(reset);
+    if (typeof fd === "number") writeSync(fd, sequence);
+    else stdout.write(sequence);
     saveReset();
   };
   const isRawCapable = stdin.isTTY === true;
@@ -624,11 +1244,13 @@ export async function runAttach(
   stdin.on("end", onEnd);
   const resize = (): void => {
     const current = active;
-    if (current && stdout.columns && stdout.rows) {
+    const rows = statusBar.childRows();
+    if (current && stdout.columns && rows) {
       void current.client
-        .resize(current.lease, stdout.columns, stdout.rows)
+        .resize(current.lease, stdout.columns, rows)
         .catch((error) => markTransportFailure(current, error));
     }
+    statusBar.onResize();
   };
   runtime.onResize(resize);
 
@@ -650,6 +1272,7 @@ export async function runAttach(
       takeoverPending = false;
       active = { client, lease };
       transportFailure = undefined;
+      await statusBar.probe(true, "attached");
       resize();
       pumpInput();
       return state;
@@ -701,6 +1324,7 @@ export async function runAttach(
             ? `timeout:${transportFailure.operation}`
             : "transport-interrupted";
         closeActive();
+        await statusBar.probe(false, "reconnecting");
         let reconnectDelayMs = ATTACH_RECONNECT_MIN_MS;
         for (;;) {
           if (detached) break;
@@ -786,6 +1410,7 @@ export async function runAttach(
           modes = new TerminalModeTracker();
           resetRelay = new TerminalResetRelay(relayOutput, () => modes.resetSequence());
           modesSuspended = false;
+          statusBar.resumeAfterReset();
           if (replay.terminalModePrefix) {
             resetRelay.feed(replay.terminalModePrefix);
           }
@@ -794,6 +1419,8 @@ export async function runAttach(
           resetRelay.feed(chunk.data);
           seq = chunk.seq;
         }
+        statusBar.flushAfterOutputBatch();
+        await statusBar.probe(false);
         seq = replay.latestSeq;
         if (replay.chunks.length === 0) {
           await runtime.delay(idlePollMs);
