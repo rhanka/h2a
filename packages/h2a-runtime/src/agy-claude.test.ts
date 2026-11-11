@@ -54,6 +54,20 @@ describe("normalizeAgyEffort (low|medium|high, max→high, xhigh refused)", () =
     expect(resolveAgyModel(base)).toBe(base);
     expect(resolveAgyModel("gemini-3.7-flash-high", "max")).toBe("gemini-3.7-flash-high");
   });
+  it("accepts gemini-4-carbon with low|medium|high and refuses max or xhigh", () => {
+    expect(resolveAgyModel("gemini-4-carbon")).toBe("gemini-4-carbon");
+    expect(resolveAgyModel("gemini-4-carbon", "low")).toBe("gemini-4-carbon");
+    expect(resolveAgyModel("gemini-4-carbon", "medium")).toBe("gemini-4-carbon");
+    expect(resolveAgyModel("gemini-4-carbon", "high")).toBe("gemini-4-carbon");
+    expect(resolveAgyModel("carbon")).toBe("gemini-4-carbon");
+    expect(resolveAgyModel("carbon-high")).toBe("gemini-4-carbon");
+    expect(resolveAgyModel("gemini-4-carbon-high")).toBe("gemini-4-carbon");
+    expect(() => resolveAgyModel("gemini-4-carbon", "max")).toThrow(AgyEffortError);
+    expect(() => resolveAgyModel("gemini-4-carbon", "max")).toThrow(/gemini-4-carbon.*low\|medium\|high.*max/i);
+    expect(() => resolveAgyModel("gemini-4-carbon-max")).toThrow(AgyEffortError);
+    expect(() => resolveAgyModel("gemini-4-carbon", "xhigh")).toThrow(AgyEffortError);
+    expect(() => normalizeAgyEffort("max", "gemini-4-carbon")).toThrow(AgyEffortError);
+  });
   it("prefers a later reset observation over a preliminary quota error", () => {
     const now = Date.parse("2026-10-17T14:55:00Z");
     const diagnostic = 'Error: 429 quota exceeded\nAGY_ERROR {"short_error":"RESOURCE_EXHAUSTED (code 429): Individual quota reached. Resets in 2h."}';

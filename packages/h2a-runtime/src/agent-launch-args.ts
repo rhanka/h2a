@@ -1,4 +1,4 @@
-import { normalizeAgyEffort, resolveAgyModel } from "./agy-claude.js";
+import { normalizeAgyEffort, resolveAgyModel, resolveLaunchModelAlias } from "./agy-claude.js";
 
 export const AGENT_LAUNCH_PROFILES = ["claude", "codex", "agy", "muse", "vibe"] as const;
 export type AgentLaunchProfile = (typeof AGENT_LAUNCH_PROFILES)[number];
@@ -98,9 +98,10 @@ export function buildAgentLaunchArgs(options: AgentLaunchArgsOptions): string[] 
   }
 
   if (options.profile === "claude") {
+    const model = resolveLaunchModelAlias(options.model);
     return [
       ...(options.bare ? ["--bare"] : []),
-      ...(options.model ? ["--model", options.model] : []),
+      ...(model ? ["--model", model] : []),
       ...(options.effort ? ["--effort", options.effort] : []),
       ...(options.headless ? ["-p", "--input-format", "text"] : []),
       ...(options.resumeId ? ["--resume", options.resumeId] : []),
@@ -108,8 +109,8 @@ export function buildAgentLaunchArgs(options: AgentLaunchArgsOptions): string[] 
   }
 
   if (options.profile === "agy") {
-    const effort = normalizeAgyEffort(options.effort);
-    const model = resolveAgyModel(options.model, effort);
+    const effort = normalizeAgyEffort(options.effort, options.model);
+    const model = resolveAgyModel(options.model, options.effort ?? effort);
     return [
       ...(options.agent ? ["--agent", options.agent] : []),
       ...(model ? ["--model", model] : []),

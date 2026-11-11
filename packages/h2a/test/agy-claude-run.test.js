@@ -199,3 +199,32 @@ test("AGY CLI refuses xhigh and unapproved builds before consulting a terminal h
     assert.doesNotMatch(result.stderr,/native PTY host|tmux is not installed/);
   }
 }));
+
+test("h2a_run accepts gemini-4-carbon on agy, refuses effort max for it, and resolves claude-fable-5-2 and its alias", () => workspace(dir => {
+  for (const effort of ["low", "medium", "high"]) {
+    const req = validateH2aRunRequest({ ...request(dir), model: "gemini-4-carbon", effort }, dir);
+    assert.equal(req.model, "gemini-4-carbon");
+    assert.equal(req.effort, effort);
+  }
+  const aliasReq = validateH2aRunRequest({ ...request(dir), model: "carbon", effort: "high" }, dir);
+  assert.equal(aliasReq.model, "gemini-4-carbon");
+  assert.equal(aliasReq.effort, "high");
+
+  assert.throws(
+    () => validateH2aRunRequest({ ...request(dir), model: "gemini-4-carbon", effort: "max" }, dir),
+    (err) => err?.code === "agy-effort-unsupported" && /gemini-4-carbon.*low\|medium\|high.*max/i.test(err.message),
+  );
+  assert.throws(
+    () => validateH2aRunRequest({ ...request(dir), model: "gemini-4-carbon-max", effort: "high" }, dir),
+    (err) => err?.code === "agy-effort-unsupported" && /gemini-4-carbon.*low\|medium\|high.*max/i.test(err.message),
+  );
+
+  for (const fableInput of ["claude-fable-5-2", "fable-5.2", "fable-5-2", "fable"]) {
+    const fableReq = validateH2aRunRequest(
+      { ...request(dir), profile: "claude", model: fableInput, effort: "high" },
+      dir,
+    );
+    assert.equal(fableReq.model, "claude-fable-5-2");
+    assert.equal(fableReq.effort, "high");
+  }
+}));
