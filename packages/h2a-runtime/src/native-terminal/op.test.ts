@@ -684,3 +684,704 @@ describe("session exit crash records (revcrashlog constat 2)", () => {
     expect("exitCode" in rows[0]!).toBe(false);
   });
 });
+
+describe("native attach status bar (cran 2)", () => {
+  let root = "";
+  let previousStateHome: string | undefined;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "h2a-statusbar-"));
+    previousStateHome = process.env["XDG_STATE_HOME"];
+    process.env["XDG_STATE_HOME"] = join(root, "state");
+  });
+
+  afterEach(() => {
+    if (previousStateHome === undefined) delete process.env["XDG_STATE_HOME"];
+    else process.env["XDG_STATE_HOME"] = previousStateHome;
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  class FakeTtyOutput extends FakeOutput {
+    isTTY = true;
+  }
+
+  async function inspectScreen(raw: string, cols: number, rows: number) {
+    const { default: xterm } = await import("@xterm/headless");
+    const terminal = new xterm.Terminal({ cols, rows, scrollback: 0, allowProposedApi: true });
+    try {
+      await new Promise<void>((resolve) => terminal.write(raw, resolve));
+      const buffer = terminal.buffer.active;
+      const lines: string[] = [];
+      for (let r = 0; r < rows; r++) {
+        lines.push(buffer.getLine(buffer.viewportY + r)?.translateToString(false) ?? "");
+      }
+      const lastLine = buffer.getLine(buffer.viewportY + rows - 1);
+      const cell0 = lastLine?.getCell(0);
+      const bgRgb = cell0?.isBgRGB() ? cell0.getBgColor() : undefined;
+      const bgPalette = cell0?.isBgPalette() ? cell0.getBgColor() : undefined;
+      return {
+        lines,
+        cursorRow: buffer.cursorY + 1,
+        cursorCol: buffer.cursorX + 1,
+        bgRgb,
+        bgPalette,
+      };
+    } finally {
+      terminal.dispose();
+    }
+  }
+
+  it("sets DECSTBM 1..N-1, resizes child PTY to N-1 rows, draws amber bar on row N, and restores full screen on exit", async () => {
+    const { mkdirSync, writeFileSync } = await import("node:fs");
+    const stdin = new FakeInput();
+    const stdout = new FakeTtyOutput();
+    stdout.columns = 120;
+    stdout.rows = 40;
+    let now = 0;
+    let readCount = 0;
+    const resizes: Array<{ cols: number; rows: number }> = [];
+    const childWrites: string[] = [];
+    const lease: NativeTerminalControllerLease = {
+      role: "controller",
+      id: "h2a-alpha",
+      generation: "g-1",
+      incarnation: 1,
+      controllerId: "ctrl-1",
+      epoch: 1,
+    };
+
+    const registryPath = join(root, "registry.json");
+    writeFileSync(
+      registryPath,
+      JSON.stringify({
+        version: 1,
+        entries: [
+          {
+            id: "alpha",
+            label: "alpha",
+            tmuxSession: "h2a-alpha",
+            tool: "claude",
+            kind: "local-native",
+            cwd: root,
+            source: "run",
+            sessionClass: "human",
+            gatewayMode: "direct",
+            gatewayProvenance: "explicit",
+            enrolledAt: "2026-11-11T10:00:00.000Z",
+            lastSeenAt: "2026-11-11T10:00:00.000Z",
+          },
+        ],
+      }),
+    );
+    const h2aRoot = join(root, ".h2a");
+    mkdirSync(join(h2aRoot, "presence"), { recursive: true });
+
+    let streamBeforeExit = "";
+    const client: AttachClient = {
+      async acquireController() { return lease; },
+      async releaseController() { return { controlled: false, controllerEpoch: 1 }; },
+      async readOutput() {
+        readCount += 1;
+        if (readCount === 1) return replay(1, "hello from child\r\n");
+        if (readCount === 2) {
+          streamBeforeExit = stdout.chunks.join("");
+          stdin.emit("data", Buffer.from([0x1c])); // detach
+        }
+        return replay(1, "");
+      },
+      async state() { return running(true); },
+      async write(_l, data) { childWrites.push(data); },
+      async resize(_l, cols, rows) { resizes.push({ cols, rows }); },
+      close() {},
+    };
+
+    const code = await runAttach(
+      "h2a-alpha",
+      {
+        connect: async () => client,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+        now: () => now,
+        delay: async (ms) => { now += ms; },
+        onResize: () => {},
+        offResize: () => {},
+      },
+      {
+        statusBar: {
+          registryPath,
+          h2aRoot,
+        },
+      },
+    );
+
+    expect(code).toBe(0);
+    expect(resizes[0]).toEqual({ cols: 120, rows: 39 });
+    expect(childWrites).toEqual([]);
+    expect(streamBeforeExit).toContain("\x1b[1;39r");
+    expect(streamBeforeExit).toContain("\x1b[40;1H");
+
+    const activeScreen = await inspectScreen(streamBeforeExit, 120, 40);
+    expect(activeScreen.lines[0]?.trimEnd()).toBe("hello from child");
+    expect(activeScreen.lines[39]).toContain("claude · h2a-alpha · attached");
+    expect(activeScreen.lines[39]).toContain("gw off");
+    expect(activeScreen.bgRgb).toBe(0x7c2d12);
+
+    const fullOutput = stdout.chunks.join("");
+    // On detach/exit, scroll region is reset (\x1b[r) and row 40 is cleared (\x1b[40;1H\x1b[2K).
+    expect(fullOutput).toContain("\x1b[r\x1b[40;1H\x1b[2K");
+  });
+
+  it("handles SIGWINCH resize (recomputes DECSTBM, resizes child PTY to N-1, auto-offs under 10 rows)", async () => {
+    const stdin = new FakeInput();
+    const stdout = new FakeTtyOutput();
+    stdout.columns = 100;
+    stdout.rows = 30;
+    let now = 0;
+    let readCount = 0;
+    let resizeHandler: (() => void) | undefined;
+    const resizes: Array<{ cols: number; rows: number }> = [];
+    const lease: NativeTerminalControllerLease = {
+      role: "controller",
+      id: "h2a-alpha",
+      generation: "g-1",
+      incarnation: 1,
+      controllerId: "ctrl-1",
+      epoch: 1,
+    };
+
+    const client: AttachClient = {
+      async acquireController() { return lease; },
+      async releaseController() { return { controlled: false, controllerEpoch: 1 }; },
+      async readOutput() {
+        readCount += 1;
+        if (readCount === 1) {
+          stdout.columns = 90;
+          stdout.rows = 20;
+          resizeHandler?.();
+          return replay(1, "step-1\r\n");
+        }
+        if (readCount === 2) {
+          // Shrink below 10 rows -> status bar auto-offs and gives all 8 rows to child PTY
+          stdout.columns = 90;
+          stdout.rows = 8;
+          resizeHandler?.();
+          return replay(2, "step-2\r\n");
+        }
+        if (readCount === 3) {
+          // Grow back to 15 rows -> status bar re-activates and gives 14 rows to child PTY
+          stdout.columns = 90;
+          stdout.rows = 15;
+          resizeHandler?.();
+          stdin.emit("data", Buffer.from([0x1c]));
+        }
+        return replay(2, "");
+      },
+      async state() { return running(true); },
+      async write() {},
+      async resize(_l, cols, rows) { resizes.push({ cols, rows }); },
+      close() {},
+    };
+
+    await runAttach("h2a-alpha", {
+      connect: async () => client,
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      now: () => now,
+      delay: async (ms) => { now += ms; },
+      onResize: (fn) => { resizeHandler = fn; },
+      offResize: () => { resizeHandler = undefined; },
+    });
+
+    expect(resizes).toEqual([
+      { cols: 100, rows: 29 },
+      { cols: 90, rows: 19 },
+      { cols: 90, rows: 8 },
+      { cols: 90, rows: 14 },
+    ]);
+    const out = stdout.chunks.join("");
+    expect(out).toContain("\x1b[1;29r");
+    expect(out).toContain("\x1b[1;19r");
+    expect(out).toContain("\x1b[1;14r");
+  });
+
+  it("respects disable flags (env, config, <10 rows, and non-TTY)", async () => {
+    const { mkdirSync, writeFileSync } = await import("node:fs");
+    const lease: NativeTerminalControllerLease = {
+      role: "controller",
+      id: "h2a-alpha",
+      generation: "g-1",
+      incarnation: 1,
+      controllerId: "ctrl-1",
+      epoch: 1,
+    };
+
+    const runScenario = async (opts: {
+      env?: Record<string, string>;
+      configDisabled?: boolean;
+      rows?: number;
+      tty?: boolean;
+    }) => {
+      const stdin = new FakeInput();
+      const stdout = opts.tty === false ? new FakeOutput() : new FakeTtyOutput();
+      stdout.columns = 100;
+      stdout.rows = opts.rows ?? 30;
+      const resizes: Array<{ cols: number; rows: number }> = [];
+      let reads = 0;
+      const configHome = join(root, `cfg-${Math.random().toString(36).slice(2)}`);
+      if (opts.configDisabled) {
+        mkdirSync(join(configHome, ".config", "sentropic", "h2a"), { recursive: true });
+        writeFileSync(
+          join(configHome, ".config", "sentropic", "h2a", "config.json"),
+          JSON.stringify({ statusBar: { enabled: false } }),
+        );
+      }
+      const prevConfigHome = process.env["REMOTE_CLI_CONFIG_HOME"];
+      process.env["REMOTE_CLI_CONFIG_HOME"] = configHome;
+      try {
+        const client: AttachClient = {
+          async acquireController() { return lease; },
+          async releaseController() { return { controlled: false, controllerEpoch: 1 }; },
+          async readOutput() {
+            reads += 1;
+            if (reads === 1) stdin.emit("data", Buffer.from([0x1c]));
+            return replay(1, "plain-output");
+          },
+          async state() { return running(true); },
+          async write() {},
+          async resize(_l, cols, rows) { resizes.push({ cols, rows }); },
+          close() {},
+        };
+        await runAttach(
+          "h2a-alpha",
+          {
+            connect: async () => client,
+            stdin: stdin as unknown as NodeJS.ReadStream,
+            stdout: stdout as unknown as NodeJS.WriteStream,
+            now: () => 0,
+            delay: async () => {},
+            onResize: () => {},
+            offResize: () => {},
+          },
+          {
+            statusBar: {
+              ...(opts.env ? { env: opts.env } : {}),
+            },
+          },
+        );
+        return { resizes, output: stdout.chunks.join("") };
+      } finally {
+        if (prevConfigHome === undefined) delete process.env["REMOTE_CLI_CONFIG_HOME"];
+        else process.env["REMOTE_CLI_CONFIG_HOME"] = prevConfigHome;
+      }
+    };
+
+    const enabledDefault = await runScenario({});
+    expect(enabledDefault.resizes[0]).toEqual({ cols: 100, rows: 29 });
+    expect(enabledDefault.output).toContain("\x1b[1;29r");
+
+    const byEnv = await runScenario({ env: { H2A_STATUS_BAR: "0" } });
+    expect(byEnv.resizes[0]).toEqual({ cols: 100, rows: 30 });
+    expect(byEnv.output).not.toContain("\x1b[1;29r");
+
+    const byConfig = await runScenario({ configDisabled: true });
+    expect(byConfig.resizes[0]).toEqual({ cols: 100, rows: 30 });
+    expect(byConfig.output).not.toContain("\x1b[1;29r");
+
+    const byShortRows = await runScenario({ rows: 9 });
+    expect(byShortRows.resizes[0]).toEqual({ cols: 100, rows: 9 });
+    expect(byShortRows.output).not.toContain("\x1b[1;8r");
+
+    const byNonTty = await runScenario({ tty: false });
+    expect(byNonTty.resizes[0]).toEqual({ cols: 100, rows: 30 });
+    expect(byNonTty.output).not.toContain("\x1b[1;29r");
+  });
+
+  it("populates fields from real fixtures (registry, presence/inbox/loops, gateway receipt) and shows link state on reconnect without inventing missing values", async () => {
+    const { mkdirSync, writeFileSync } = await import("node:fs");
+    const stdin = new FakeInput();
+    const stdout = new FakeTtyOutput();
+    stdout.columns = 120;
+    stdout.rows = 24;
+    let now = 1_760_000_000_000;
+
+    // 1) First check that with no fixtures, no field is invented (all unknown -> '?')
+    const emptyRegistryPath = join(root, "missing-registry.json");
+    const emptyH2aRoot = join(root, "missing-h2a");
+    let unknownScreenLine = "";
+    {
+      let reads = 0;
+      const lease: NativeTerminalControllerLease = {
+        role: "controller", id: "h2a-bare", generation: "g", incarnation: 1, controllerId: "c", epoch: 1,
+      };
+      const client: AttachClient = {
+        async acquireController() { return lease; },
+        async releaseController() { return { controlled: false, controllerEpoch: 1 }; },
+        async readOutput() {
+          reads += 1;
+          if (reads === 1) {
+            const screen = await inspectScreen(stdout.chunks.join(""), 120, 24);
+            unknownScreenLine = screen.lines[23] ?? "";
+            stdin.emit("data", Buffer.from([0x1c]));
+          }
+          return replay(1, "");
+        },
+        async state() { return running(true); },
+        async write() {}, async resize() {}, close() {},
+      };
+      await runAttach(
+        "h2a-bare",
+        {
+          connect: async () => client,
+          stdin: stdin as unknown as NodeJS.ReadStream,
+          stdout: stdout as unknown as NodeJS.WriteStream,
+          now: () => now,
+          delay: async (ms) => { now += ms; },
+          onResize: () => {},
+          offResize: () => {},
+        },
+        {
+          statusBar: {
+            registryPath: emptyRegistryPath,
+            h2aRoot: emptyH2aRoot,
+          },
+        },
+      );
+    }
+    expect(unknownScreenLine).toContain("? · h2a-bare · attached");
+    expect(unknownScreenLine).toContain("J? I? L?");
+    expect(unknownScreenLine).toContain("role ?");
+    expect(unknownScreenLine).toContain("gw ?");
+    expect(unknownScreenLine).toContain("deleg ?");
+
+    // 2) Now populate real fixtures: registry + .h2a (presence, instances, subagents, inbox, loops) + gateway receipt
+    const registryPath = join(root, "registry.json");
+    const h2aRoot = join(root, ".h2a");
+    mkdirSync(join(h2aRoot, "presence"), { recursive: true });
+    mkdirSync(join(h2aRoot, "registry"), { recursive: true });
+    mkdirSync(join(h2aRoot, "inbox", "claude__conductor__01"), { recursive: true });
+    mkdirSync(join(h2aRoot, "loops", "loop-alpha"), { recursive: true });
+
+    writeFileSync(
+      registryPath,
+      JSON.stringify({
+        version: 1,
+        entries: [
+          {
+            id: "alpha",
+            label: "alpha",
+            tmuxSession: "h2a-alpha",
+            tool: "claude",
+            kind: "local-native",
+            cwd: root,
+            source: "run",
+            sessionClass: "human",
+            gatewayMode: "gateway",
+            gatewayProvenance: "explicit",
+            enrolledAt: new Date(now - 60_000).toISOString(),
+            lastSeenAt: new Date(now).toISOString(),
+          },
+          {
+            id: "worker-1",
+            label: "worker-1",
+            tmuxSession: "h2a-worker-1",
+            tool: "codex",
+            kind: "local-native",
+            cwd: root,
+            source: "run",
+            role: "job",
+            jobState: "throttled",
+            sessionClass: "background",
+            pid: process.pid,
+            delegationOrigin: "cli:h2a-delegate",
+            delegatorInstance: "claude:conductor:01",
+            delegatorTmuxSession: "h2a-alpha",
+            enrolledAt: new Date(now - 30_000).toISOString(),
+            lastSeenAt: new Date(now).toISOString(),
+          },
+        ],
+      }),
+    );
+
+    writeFileSync(
+      join(h2aRoot, "presence", "sess-alpha.json"),
+      JSON.stringify({
+        sessionId: "sess-alpha",
+        instance: "claude:conductor:01",
+        host: "claude-code",
+        name: "alpha",
+        cwd: root,
+        status: "active",
+        openedAt: new Date(now - 60_000).toISOString(),
+        lastHeartbeatAt: new Date(now).toISOString(),
+        expiresAt: new Date(now + 300_000).toISOString(),
+        launchContext: {
+          cwd: root,
+          command: "h2a mcp-serve",
+          nativePty: { session: "h2a-alpha" },
+        },
+      }),
+    );
+    writeFileSync(
+      join(h2aRoot, "registry", "instances.jsonl"),
+      `${JSON.stringify({ instance: "claude:conductor:01", roles: ["CONDUCTOR"], registeredAt: new Date(now - 60_000).toISOString() })}\n`,
+    );
+    writeFileSync(join(h2aRoot, "registry", "subagents.jsonl"), "");
+    writeFileSync(join(h2aRoot, "registry", "subagent-audit.jsonl"), "");
+    for (const id of ["env:1", "env:2"]) {
+      writeFileSync(
+        join(h2aRoot, "inbox", "claude__conductor__01", `${id.replace(":", "-")}.json`),
+        JSON.stringify({
+          protocol: "sentropic.h2a",
+          version: "0.1",
+          id,
+          type: "event",
+          actor: { instance: "codex:worker:01", role: "AGENTS", scope: "scope:default" },
+          body: { topic: "task.done" },
+          createdAt: new Date(now - 5_000).toISOString(),
+        }),
+      );
+    }
+    writeFileSync(
+      join(h2aRoot, "loops", "loop-alpha", "state.json"),
+      JSON.stringify({
+        id: "loop-alpha",
+        ownerSystem: "h2a",
+        name: "Cran 2 status bar",
+        goal: "ship status bar",
+        status: "waiting-human",
+        repos: [],
+        refs: [],
+        agents: [],
+        policy: {},
+        createdAt: new Date(now - 60_000).toISOString(),
+        updatedAt: new Date(now - 1_000).toISOString(),
+      }),
+    );
+
+    const fetchLedger: typeof fetch = async (input) => {
+      const url = String(input);
+      expect(url).toContain("/v1/status/client/h2a-alpha");
+      return new Response(
+        JSON.stringify({
+          gatewaySessionId: "gw-sess-1",
+          clientSessionId: "h2a-alpha",
+          state: "active",
+          requestedModel: "claude-opus-4-6",
+          upstreamModel: "claude-sonnet-4-6",
+          transport: "messages",
+          account: { id: "seat-1", provider: "anthropic", label: "work-seat" },
+          updatedAt: new Date(now).toISOString(),
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    };
+
+    const stdout2 = new FakeTtyOutput();
+    stdout2.columns = 120;
+    stdout2.rows = 24;
+    const stdin2 = new FakeInput();
+    let connections = 0;
+    let reconnectingBarLine = "";
+    let recoveredBarLine = "";
+
+    const connect = async (): Promise<AttachClient> => {
+      connections += 1;
+      const conn = connections;
+      if (conn === 2) {
+        // While reconnecting, inspect the bar on row 24 before connection 2 succeeds
+        const screen = await inspectScreen(stdout2.chunks.join(""), 120, 24);
+        reconnectingBarLine = screen.lines[23] ?? "";
+      }
+      let reads = 0;
+      const lease: NativeTerminalControllerLease = {
+        role: "controller",
+        id: "h2a-alpha",
+        generation: "g-1",
+        incarnation: 1,
+        controllerId: `ctrl-${conn}`,
+        epoch: conn,
+      };
+      return {
+        async acquireController() { return lease; },
+        async releaseController() { return { controlled: false, controllerEpoch: conn }; },
+        async readOutput() {
+          reads += 1;
+          if (conn === 1 && reads === 1) return replay(1, "agent output\r\n");
+          if (conn === 1 && reads === 2) throw new Error("socket closed");
+          if (conn === 2 && reads === 1) {
+            const screen = await inspectScreen(stdout2.chunks.join(""), 120, 24);
+            recoveredBarLine = screen.lines[23] ?? "";
+            stdin2.emit("data", Buffer.from([0x1c]));
+          }
+          return replay(1, "");
+        },
+        async state() { return running(true); },
+        async write() {},
+        async resize() {},
+        close() {},
+      };
+    };
+
+    await runAttach(
+      "h2a-alpha",
+      {
+        connect,
+        stdin: stdin2 as unknown as NodeJS.ReadStream,
+        stdout: stdout2 as unknown as NodeJS.WriteStream,
+        now: () => now,
+        delay: async (ms) => { now += ms; },
+        onResize: () => {},
+        offResize: () => {},
+      },
+      {
+        statusBar: {
+          registryPath,
+          h2aRoot,
+          gatewayBaseUrl: "http://127.0.0.1:43199",
+          fetchImpl: fetchLedger,
+          nativeWorkerPidForSession: (s) => (s === "h2a-worker-1" ? process.pid : undefined),
+        },
+      },
+    );
+
+    expect(reconnectingBarLine).toContain("claude · h2a-alpha · reconnecting");
+    expect(recoveredBarLine).toContain("claude · h2a-alpha · attached");
+    expect(recoveredBarLine).toContain("J1!1 I2 L1!1");
+    expect(recoveredBarLine).toContain("role conductor");
+    expect(recoveredBarLine).toContain("gw active · claude-opus-4-6→claude-sonnet-4-6");
+    expect(recoveredBarLine).toContain("deleg 1");
+  });
+
+  it("rate-limits status refreshes to at most 1 update/s and never corrupts a relative-redraw or alternate-screen child TUI", async () => {
+    const { writeFileSync } = await import("node:fs");
+    const stdin = new FakeInput();
+    const stdout = new FakeTtyOutput();
+    stdout.columns = 100;
+    stdout.rows = 20;
+    let now = 1_760_000_000_000;
+    let fetchCalls = 0;
+
+    const registryPath = join(root, "registry.json");
+    writeFileSync(
+      registryPath,
+      JSON.stringify({
+        version: 1,
+        entries: [
+          {
+            id: "alpha",
+            label: "alpha",
+            tmuxSession: "h2a-alpha",
+            tool: "claude",
+            kind: "local-native",
+            cwd: root,
+            source: "run",
+            sessionClass: "human",
+            gatewayMode: "gateway",
+            gatewayProvenance: "explicit",
+            enrolledAt: new Date(now - 60_000).toISOString(),
+            lastSeenAt: new Date(now).toISOString(),
+          },
+        ],
+      }),
+    );
+
+    const fetchLedger: typeof fetch = async () => {
+      fetchCalls += 1;
+      return new Response(
+        JSON.stringify({
+          gatewaySessionId: "gw-1",
+          clientSessionId: "h2a-alpha",
+          state: "active",
+          requestedModel: "claude-opus-4-6",
+          upstreamModel: `claude-opus-4-6-v${fetchCalls}`,
+          transport: "messages",
+          account: { id: "seat-1", provider: "anthropic", label: "seat-1" },
+          updatedAt: new Date(now).toISOString(),
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    };
+
+    const chunks = [
+      // Relative redraw child (like Claude Code / Ink):
+      "Header line\r\nThinking...\r\nPrompt > ",
+      "\r\x1b[1A\x1b[2KStep 1 complete\r\nPrompt > ",
+      "\r\x1b[1A\x1b[2KStep 2 complete\r\nPrompt > ",
+      // Alternate screen child (like vim / htop) that emits CSI r, CSI 2J, and 999;1H:
+      "\x1b[?1049h\x1b[r\x1b[2J\x1b[1;1HALT-TOP\x1b[999;1HALT-BOTTOM",
+      // Exit alternate screen and do one more relative redraw on normal screen:
+      "\x1b[?1049l\r\x1b[1A\x1b[2KFinal normal line\r\nPrompt > ",
+    ];
+
+    let seq = 0;
+    let altScreenSnapshot: { lines: string[] } | undefined;
+    let finalNormalSnapshot: { lines: string[]; cursorRow: number; cursorCol: number } | undefined;
+    const lease: NativeTerminalControllerLease = {
+      role: "controller", id: "h2a-alpha", generation: "generation-1", incarnation: 1, controllerId: "c-1", epoch: 1,
+    };
+
+    const client: AttachClient = {
+      async acquireController() { return lease; },
+      async releaseController() { return { controlled: false, controllerEpoch: 1 }; },
+      async readOutput() {
+        seq += 1;
+        if (seq === 5) {
+          // Capture alt-screen state right after chunk 4 was written
+          altScreenSnapshot = await inspectScreen(stdout.chunks.join(""), 100, 20);
+        }
+        if (seq === 6) {
+          // Advance clock by 1000ms so exactly one more status refresh is permitted
+          now += 1_000;
+          return replay(seq, "done");
+        }
+        if (seq === 7) {
+          finalNormalSnapshot = await inspectScreen(stdout.chunks.join(""), 100, 20);
+          stdin.emit("data", Buffer.from([0x1c]));
+          return replay(seq, "");
+        }
+        const data = chunks[seq - 1] ?? "";
+        return replay(seq, data);
+      },
+      async state() { return running(true); },
+      async write() {},
+      async resize() {},
+      close() {},
+    };
+
+    await runAttach(
+      "h2a-alpha",
+      {
+        connect: async () => client,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+        now: () => now,
+        delay: async (ms) => { now += ms; },
+        onResize: () => {},
+        offResize: () => {},
+      },
+      {
+        statusBar: {
+          registryPath,
+          h2aRoot: join(root, "missing-h2a"),
+          gatewayBaseUrl: "http://127.0.0.1:43199",
+          fetchImpl: fetchLedger,
+        },
+      },
+    );
+
+    // 5 chunks arrived within <500ms, then 1 chunk after +1000ms -> at most 2 status fetches total!
+    expect(fetchCalls).toBeLessThanOrEqual(2);
+    expect(fetchCalls).toBeGreaterThanOrEqual(1);
+
+    // In alternate screen: ALT-TOP is on row 1, ALT-BOTTOM is clamped to row 19 (N-1), row 20 (N) is status bar!
+    expect(altScreenSnapshot?.lines[0]?.trimEnd()).toBe("ALT-TOP");
+    expect(altScreenSnapshot?.lines[18]?.trimEnd()).toBe("ALT-BOTTOM");
+    expect(altScreenSnapshot?.lines[19]).toContain("claude · h2a-alpha · attached");
+
+    // Back on normal screen: relative redraws succeeded cleanly on rows 1..3 and row 20 holds the status bar!
+    expect(finalNormalSnapshot?.lines[0]?.trimEnd()).toBe("Header line");
+    expect(finalNormalSnapshot?.lines[1]?.trimEnd()).toBe("Final normal line");
+    expect(finalNormalSnapshot?.lines[2]?.trimEnd()).toBe("Prompt > done");
+    expect(finalNormalSnapshot?.lines[19]).toContain("claude · h2a-alpha · attached");
+  });
+});
