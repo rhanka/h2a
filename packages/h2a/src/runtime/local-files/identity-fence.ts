@@ -26,7 +26,8 @@ import {
 import { basename, dirname, join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { sweepOrphanFiles } from "./orphan-gc.js";
-import { repairBindingSlots, prepareBindingSlots, type PreparedBindingSlots } from "../identity/binding-commit.js";
+import { repairBindingSlots, prepareBindingSlots, type PreparedBindingSlots, type RepairBindingSlotsContext } from "../identity/binding-commit.js";
+import { BindingCommitIntegrityError } from "../identity/possession.js";
 import { ensureDurableDirectory, syncDirectory, redactIdentityStorageError } from "../identity/durable.js";
 import { captureLegacyLock, collectLegacyEvidence, legacyCaptureHeld, legacyCapacityExceeded, type LegacyCapture, type LegacyEvidenceResult } from './legacy-identity-evidence.js';
 
@@ -812,7 +813,14 @@ function identityElectionIo(self: SelfIdent, lockPath?: string, ctx?: FenceLoopC
         if(electedPath && electedToken && target)abandonOwnSuccessor(lockPath,electedPath,electedToken,target);
         return false;
       }
-      repairIdentityJournal(dirname(lockPath), held,ctx!.slotReceipts!);
+      try {
+        repairIdentityJournal(dirname(lockPath), held, ctx!.slotReceipts!, { activeEpoch: electedToken });
+      } catch (e) {
+        if (e instanceof BindingCommitIntegrityError && e.retryable && electedPath && electedToken && target) {
+          abandonOwnSuccessor(lockPath, electedPath, electedToken, target);
+        }
+        throw e;
+      }
       return held();
     }, afterRetire: dir=>{syncDirectory(dir);if(ctx)ctx.recovered=true;} } : {}),
     lease: (_prefix, path, token) => makeIdentityLease(path, token, 'link', true)
@@ -1245,12 +1253,12 @@ function recoverProvablyDeadSuccessionChain(lockPath: string, self: SelfIdent): 
     : recoverExhaustedSuccessionChain(lockPath, self, true);
 }
 
-export function repairIdentityJournal(dir: string, held: () => boolean, slots:PreparedBindingSlots): void {
+export function repairIdentityJournal(dir: string, held: () => boolean, slots:PreparedBindingSlots, context: RepairBindingSlotsContext = {}): void {
   if (!held()) throw new Error('identity repair election lost');
   neutralizeBindingsTail(join(dir, 'bindings.jsonl'), held);
   attestBindingsTailDurable(join(dir, 'bindings.jsonl'));
   if (!held()) throw new Error('identity repair election lost');
-  repairBindingSlots(dir, held,slots);
+  repairBindingSlots(dir, held, slots, context);
 }
 
 /** Identity operator uses the same election and repair barrier; upgrade stays separate. */
@@ -1680,7 +1688,14 @@ function withIdentityFenceSyncInternal<T>(
   const acquiredAt = performance.now();
   try {
     lease.beginMutation();
-    repairIdentityJournal(ctx.dir, lease.stillHeld,ctx.slotReceipts!);
+    try {
+      repairIdentityJournal(ctx.dir, lease.stillHeld, ctx.slotReceipts!, { activeEpoch: lease.token });
+    } catch (e) {
+      if (e instanceof BindingCommitIntegrityError && e.retryable) {
+        lease.endMutation();
+      }
+      throw e;
+    }
     lease.endMutation();
     fenceTimedOut(ctx);
     const result=fn(lease);
@@ -1754,7 +1769,14 @@ async function withIdentityFenceInternal<T>(
   const acquiredAt = performance.now();
   try {
     lease.beginMutation();
-    repairIdentityJournal(ctx.dir, lease.stillHeld,ctx.slotReceipts!);
+    try {
+      repairIdentityJournal(ctx.dir, lease.stillHeld, ctx.slotReceipts!, { activeEpoch: lease.token });
+    } catch (e) {
+      if (e instanceof BindingCommitIntegrityError && e.retryable) {
+        lease.endMutation();
+      }
+      throw e;
+    }
     lease.endMutation();
     fenceTimedOut(ctx);
     const result=await fn(lease);

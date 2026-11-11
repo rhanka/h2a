@@ -76,6 +76,7 @@ import { runCli as runTrackCli, type CliIO } from "@sentropic/track";
 // skill copies committed here; SOURCE UNIQUE = the installed npm package).
 import { runHarnessCli, HARNESS_SKILLS } from "./vendor/harness/index.js";
 import { buildLaunchIndex } from "./runtime/local-files/launch-index.js";
+import { inspectIdentityBindingSlotsForRoot, repairIdentityBindingSlotsForRoot } from "./runtime/identity/binding-commit.js";
 import { renderCommandMap } from "./cli-command-map.js";
 import { HostConfigConflict, writeHostMcpEntry } from "./hosts/config-writer.js";
 import { cmdHostedLock, cmdRegistry, cmdRegistryBridge, type BridgeServeDeps } from "./registry/cli-registry.js";
@@ -6260,6 +6261,63 @@ function cmdDoctor(
       skipped: true,
       message: "pass --repair to recover a proven-dead identity succession chain"
     };
+  }
+
+  // 4c. Identity binding commit slots (`identity/commits/*.json`). An
+  // abandoned slot whose possession proof is missing blocks every fence
+  // acquisition across the shared root. Plain `doctor` inspects without
+  // mutating and marks `ok: false` if any abandoned or unprovable slot stands;
+  // `--repair` quarantines proven-abandoned slots into `identity/.stale-slot-aside-*`
+  // with a durable `receipt.json` (never deleting).
+  if (flags.repair === "true" && flags["dry-run"] !== "true") {
+    try {
+      const slotRepair = repairIdentityBindingSlotsForRoot(root);
+      checks.identityBindingSlots = slotRepair;
+      if (!slotRepair.ok) report.ok = false;
+    } catch (error) {
+      report.ok = false;
+      checks.identityBindingSlots = {
+        ok: false,
+        recovered: false,
+        reason: "repair-unavailable",
+        message: (error as Error).message
+      };
+    }
+  } else if (flags.repair === "true" && flags["dry-run"] === "true") {
+    try {
+      const inspected = inspectIdentityBindingSlotsForRoot(root);
+      checks.identityBindingSlots = {
+        ...inspected,
+        skipped: true,
+        dryRun: true,
+        message: "dry-run: pass --repair without --dry-run to quarantine abandoned identity binding slots"
+      };
+      if (!inspected.ok) report.ok = false;
+    } catch (error) {
+      checks.identityBindingSlots = {
+        ok: true,
+        skipped: true,
+        dryRun: true,
+        message: (error as Error).message
+      };
+    }
+  } else {
+    try {
+      const inspected = inspectIdentityBindingSlotsForRoot(root);
+      checks.identityBindingSlots = {
+        ...inspected,
+        ...(inspected.ok
+          ? {}
+          : { message: "abandoned or unprovable identity binding slot(s) found; pass --repair to quarantine proven-abandoned slots" })
+      };
+      if (!inspected.ok) report.ok = false;
+    } catch (error) {
+      report.ok = false;
+      checks.identityBindingSlots = {
+        ok: false,
+        message: (error as Error).message
+      };
+    }
   }
 
   // Legacy account-pool files can contain credentials. They are no longer read
