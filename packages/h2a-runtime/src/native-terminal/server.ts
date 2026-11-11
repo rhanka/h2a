@@ -229,10 +229,11 @@ function dispatch(host: NativeTerminalHost, context: ConnectionContext, request:
       if (!Number.isSafeInteger(afterSeq) || (afterSeq as number) < 0) {
         throw new TypeError("afterSeq must be a non-negative safe integer");
       }
-      return host.readOutput(
-        requiredIdentifier(record.id, "session id"),
-        afterSeq as number,
-      );
+      const id = requiredIdentifier(record.id, "session id");
+      return {
+        ...host.readOutput(id, afterSeq as number),
+        state: host.state(id),
+      };
     }
     case "attach-observer":
       return host.attachObserver(sessionId(params));
