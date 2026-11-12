@@ -51,7 +51,6 @@ import { defaultNativeTerminalSocketPath, knownNativeTerminalSocketPaths,
   inspectPrivateNativeTerminalSocket, sameNativeTerminalSocket } from "./socket-path.js";
 import { collectNativeInventory, publicationContenderObserved, readNativeTerminalSuccessor, resolveNativeOwner, type NativeInventory } from "./fleet.js";
 import { renderTerminalScreen } from "./screen.js";
-import xtermHeadless from "@xterm/headless";
 import { TerminalModeTracker } from "./terminal-modes.js";
 import { publishAttachReset } from "./attach-recovery.js";
 import { TerminalResetRelay } from "./reset-relay.js";
@@ -553,10 +552,6 @@ type HeadlessTerminalConstructor = new (options: {
   allowProposedApi: boolean;
 }) => HeadlessTerminal;
 
-const { Terminal: HeadlessTerminalCtor } = xtermHeadless as unknown as {
-  Terminal: HeadlessTerminalConstructor;
-};
-
 function sgrSequenceFromAttr(attr: HeadlessAttrData): string {
   if (attr.isAttributeDefault()) return "";
   const codes: string[] = [];
@@ -621,6 +616,7 @@ class NativeStatusBarController {
   #renderLine:
     | ((snapshot: NativeStatusBarSnapshot, cols: number) => string)
     | undefined;
+  #xtermCtor: HeadlessTerminalConstructor | undefined;
   #headless: HeadlessTerminal | undefined;
 
   #linkState: NativeStatusBarLinkState = "attached";
@@ -679,9 +675,10 @@ class NativeStatusBarController {
     return this.isActive() ? rows - 1 : rows;
   }
 
-  #ensureHeadless(cols: number, childRows: number): HeadlessTerminal {
+  #ensureHeadless(cols: number, childRows: number): HeadlessTerminal | undefined {
+    if (!this.#xtermCtor) return undefined;
     if (!this.#headless) {
-      this.#headless = new HeadlessTerminalCtor({
+      this.#headless = new this.#xtermCtor({
         cols,
         rows: childRows,
         scrollback: 0,
@@ -709,12 +706,18 @@ class NativeStatusBarController {
     if (!this.#optionEnabled || !this.#isTty) return;
     if (!this.#initialized) {
       this.#initialized = true;
-      const [{ isStatusBarEnabled }, statusProjection] = await Promise.all([
-        import("../config.js"),
-        import("../status-projection.js"),
-      ]);
+      const [{ isStatusBarEnabled }, statusProjection, xtermMod] =
+        await Promise.all([
+          import("../config.js"),
+          import("../status-projection.js"),
+          import("@xterm/headless"),
+        ]);
+      const xterm = (xtermMod.default ?? xtermMod) as unknown as {
+        Terminal: HeadlessTerminalConstructor;
+      };
       this.#readSnapshot = statusProjection.readNativeStatusBarSnapshot;
       this.#renderLine = statusProjection.renderNativeStatusBarLine;
+      this.#xtermCtor = xterm.Terminal;
       this.#featureEnabled = isStatusBarEnabled(this.#opts.env ?? process.env);
     }
     if (!this.#featureEnabled || !this.#readSnapshot) return;
