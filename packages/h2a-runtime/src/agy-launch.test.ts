@@ -138,4 +138,52 @@ describe.each(["native","tmux"])("AGY launch on a fake %s host", host => {
     expect(process.exitCode).toBe(1);
     expect(fake.stop).not.toHaveBeenCalled();
   });
+  it("preserves embedded effort in gemini-4-carbon-{high,low} and gemini-4-argon-high CLI launches", async () => {
+    fake.delivery.mockReturnValue({state:"working",waitedMs:1,cpuDeltaMs:50});
+    for (const [inputModel, expectedModel, expectedEffort] of [
+      ["gemini-4-carbon-high", "gemini-4-carbon", "high"],
+      ["gemini-4-carbon-low", "gemini-4-carbon", "low"],
+      ["gemini-4-argon-high", "gemini-4-argon", "high"],
+      ["argon-high", "gemini-4-argon", "high"],
+    ] as const) {
+      fake.start.mockClear();
+      stdout.mockClear();
+      const result = await launch(host, false, inputModel);
+      expect(result.ok).toBe(true);
+      expect(result.session.model).toBe(expectedModel);
+      expect(fake.start).toHaveBeenCalledTimes(1);
+      expect(fake.start.mock.calls[0]?.[3]).toEqual(["--model", expectedModel, "--effort", expectedEffort]);
+    }
+  });
+  it("refuses h2a run agy --model gemini-4-carbon --effort max on the CLI", async () => {
+    vi.stubEnv("H2A_SESSION_HOST", host);
+    await main([
+      process.execPath, "h2a", "run", "agy", dir,
+      "--name", "agy-review", "--model", "gemini-4-carbon", "--effort", "max",
+      "--prompt-stdin", "--background", "--no-attach", "--no-h2a", "--no-gw", "--json",
+    ]);
+    expect(process.exitCode).toBe(2);
+    expect(fake.start).not.toHaveBeenCalled();
+    const out = JSON.parse(stdout.mock.calls.map(call => String(call[0])).join(""));
+    expect(out.code).toBe("agy-effort-unsupported");
+    expect(out.error).toMatch(/gemini-4-carbon.*low\|medium\|high.*max/i);
+  });
+  it("normalizes session.model in the CLI JSON receipt for claude fable aliases", async () => {
+    vi.stubEnv("H2A_SESSION_HOST", host);
+    fake.delivery.mockReturnValue({state:"working",waitedMs:1,cpuDeltaMs:50});
+    for (const alias of ["fable-5.2", "fable52"]) {
+      fake.start.mockClear();
+      stdout.mockClear();
+      await main([
+        process.execPath, "h2a", "run", "claude", dir,
+        "--name", "fable-review", "--model", alias, "--effort", "high",
+        "--prompt-stdin", "--background", "--no-attach", "--no-h2a", "--no-gw", "--json",
+      ]);
+      const out = JSON.parse(stdout.mock.calls.map(call => String(call[0])).join(""));
+      expect(out.ok).toBe(true);
+      expect(out.session.model).toBe("claude-fable-5-2");
+      expect(fake.start).toHaveBeenCalledTimes(1);
+      expect(fake.start.mock.calls[0]?.[3]).toEqual(["--model", "claude-fable-5-2", "--effort", "high"]);
+    }
+  });
 });

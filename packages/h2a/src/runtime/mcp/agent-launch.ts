@@ -8,7 +8,7 @@ import { isAbsolute, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { isOsTemporaryPath } from "../path-safety.js";
-import { assertAgyClaudeBuildAllowed, isAgyClaudeModel, normalizeAgyEffort, resolveAgyModel } from "../agy-claude.js";
+import { assertAgyClaudeBuildAllowed, isAgyClaudeModel, normalizeAgyEffort, resolveAgyModel, resolveLaunchModelAlias } from "../agy-claude.js";
 
 export const H2A_RUN_PROFILES = ["claude", "codex", "agy", "muse", "vibe"] as const;
 export type H2aRunProfile = (typeof H2A_RUN_PROFILES)[number];
@@ -257,8 +257,11 @@ export function validateH2aRunRequest(
   let effort = args.effort;
   if (profile === "agy") {
     if (effort !== undefined && typeof effort !== "string") throw new Error("h2a_run: invalid AGY effort");
-    effort = normalizeAgyEffort(effort as string | undefined);
-    model = resolveAgyModel(model as string | undefined, effort as string | undefined);
+    const rawEffort = effort as string | undefined;
+    effort = normalizeAgyEffort(rawEffort, model);
+    model = resolveAgyModel(model, rawEffort ?? (effort as string | undefined));
+  } else {
+    model = resolveLaunchModelAlias(model);
   }
   if (
     effort !== undefined &&

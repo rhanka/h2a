@@ -83,7 +83,7 @@
           "role": "manifest",
           "path": "registry/manifest.h2a.json",
           "mediaType": "application/json",
-          "sha256": "5db22198b065d368819cb52acf242385a6e29a9d8813f1ff0ea5dff9643ccd84"
+          "sha256": "c317594fe30762c99a961cc6419726e4d43f1822b8a01630991d69f6bd516cf8"
         }
       ],
       "mcp": {
