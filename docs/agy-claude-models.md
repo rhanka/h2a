@@ -1,14 +1,19 @@
 # Claude 5.5 through AGY
 
 The `agy` profile accepts `claude-opus-5-5-{low,medium,high}` and
-`claude-sonnet-5-5-{low,medium,high}`. Always select the model explicitly:
+`claude-sonnet-5-5-{low,medium,high}`, as well as Gemini models such as
+`gemini-4-argon` and `gemini-4-carbon`. Always select the model explicitly:
 AGY's default is Gemini 4 Argon. Interactive and headless launches apply
 `--model` before starting the agent. Effort accepts low, medium and high;
-max maps to high, while xhigh returns `agy-effort-unsupported`. An explicit
+for `claude-{opus,sonnet}-5-5`, max maps to high, whereas for `gemini-4-carbon`
+max is refused (`agy-effort-unsupported`), and xhigh returns
+`agy-effort-unsupported` on all AGY models. An explicit
 effort replaces the model's effort suffix (low + max launches high).
 Bare `claude-{opus,sonnet}-5-5` tokens acquire the explicit effort suffix;
 an embedded `-max` maps to `-high`. Unsupported embedded efforts, including
-`-xhigh`, are rejected even when a separate effort is supplied.
+`-xhigh`, are rejected even when a separate effort is supplied. Under the
+gateway, `claude-fable-5-2` (and `-high` / `-xhigh`) routes to
+`gemini-4-carbon` at `high` effort on the cloud slot.
 
 Reserve this precious Claude credit pool for reviews and adversarial challenges
 first. Never use it for bulk builds without explicit owner/caller opt-in.
