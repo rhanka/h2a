@@ -1440,6 +1440,7 @@ describe("native attach status bar (cran 2)", () => {
     const byteChunks = Array.from(rawStream);
 
     let idx = 0;
+    let rawBeforeDetach = "";
     let midSnap: { lines: string[]; cursorRow: number; cursorCol: number } | undefined;
     const lease: NativeTerminalControllerLease = {
       role: "controller",
@@ -1465,7 +1466,8 @@ describe("native attach status bar (cran 2)", () => {
         if (idx === byteChunks.length) {
           idx += 1;
           now += 1_000;
-          midSnap = await inspectScreen(stdout.chunks.join(""), 80, 20);
+          rawBeforeDetach = stdout.chunks.join("");
+          midSnap = await inspectScreen(rawBeforeDetach, 80, 20);
           stdin.emit("data", Buffer.from([0x1c]));
         }
         return replay(idx, "");
@@ -1489,6 +1491,12 @@ describe("native attach status bar (cran 2)", () => {
     expect(midSnap?.lines[0]?.trimEnd()).toBe("TOP-LINE");
     expect(midSnap?.lines[18]?.trimEnd()).toBe("CLAMPED-BOTTOM");
     expect(midSnap?.lines[19]).toContain("h2a-alpha · attached");
+    await assertHostMatchesChildReference(
+      rawBeforeDetach,
+      rawStream,
+      80,
+      20,
+    );
   });
 
   it("B2: detaching or exiting from alternate screen cleans both buffers, exits alt screen, and keeps detach notice visible", async () => {
@@ -1628,6 +1636,7 @@ describe("native attach status bar (cran 2)", () => {
     stdout.rows = 12;
     let now = 1_760_000_000_000;
     let reads = 0;
+    let rawBeforeDetach = "";
     let snap: { lines: string[]; cursorRow: number; cursorCol: number } | undefined;
 
     const lease: NativeTerminalControllerLease = {
@@ -1670,7 +1679,8 @@ describe("native attach status bar (cran 2)", () => {
           return replay(5, "\x1b[9;1HX\x1b[3b\x1b[1IY");
         }
         if (reads === 6) {
-          snap = await inspectScreen(stdout.chunks.join(""), 20, 12);
+          rawBeforeDetach = stdout.chunks.join("");
+          snap = await inspectScreen(rawBeforeDetach, 20, 12);
           stdin.emit("data", Buffer.from([0x1c]));
         }
         return replay(6, "");
@@ -1698,9 +1708,22 @@ describe("native attach status bar (cran 2)", () => {
     expect(snap?.lines[8]?.trimEnd()).toBe("XXXX    Y");
     // Row 12 (index 11) still has the status bar after RIS, DECSTR, DECSED, DECOM, and pendingWrap!
     expect(snap?.lines[11]).toContain("h2a-alpha");
+    await assertHostMatchesChildReference(
+      rawBeforeDetach,
+      [
+        "\x1bc\x1b[!p\x1b[?2J\x1b[3;10r\x1b[?6h\x1b[1;1HDECOM-ROW3",
+        "\x1b[?6l\x1b[r\x1b[5;2H\x1b7\x1b[1;1HIGNORE\x1b8SAVED",
+        "\x1b[7;1H12345678901234567890",
+        "WRAP",
+        "\x1b[9;1HX\x1b[3b\x1b[1IY",
+      ].join(""),
+      20,
+      12,
+    );
   });
 
   it("B6: resizing from 20 rows down to 8 rows disables the status bar without erasing line 8 of the child TUI", async () => {
+    const { default: xterm } = await import("@xterm/headless");
     const stdin = new FakeInput();
     const stdout = new FakeTtyOutput();
     stdout.columns = 60;
@@ -1709,6 +1732,13 @@ describe("native attach status bar (cran 2)", () => {
     let reads = 0;
     let resizeHandler: (() => void) | undefined;
     let shrunkOutput = "";
+    const hostTerm = new xterm.Terminal({ cols: 60, rows: 20, scrollback: 0, allowProposedApi: true });
+    let flushedIdx = 0;
+    const syncHostWrites = async () => {
+      while (flushedIdx < stdout.chunks.length) {
+        await new Promise<void>((r) => hostTerm.write(stdout.chunks[flushedIdx++]!, r));
+      }
+    };
 
     const lease: NativeTerminalControllerLease = {
       role: "controller",
@@ -1731,8 +1761,11 @@ describe("native attach status bar (cran 2)", () => {
           );
         }
         if (reads === 2) {
+          await syncHostWrites();
           stdout.rows = 8;
+          hostTerm.resize(60, 8);
           resizeHandler?.();
+          await syncHostWrites();
           return replay(2, "");
         }
         if (reads === 3) {
@@ -1747,19 +1780,352 @@ describe("native attach status bar (cran 2)", () => {
       close() {},
     };
 
+    try {
+      await runAttach("h2a-alpha", {
+        connect: async () => client,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+        now: () => now,
+        delay: async (ms) => { now += ms; },
+        onResize: (fn) => { resizeHandler = fn; },
+        offResize: () => { resizeHandler = undefined; },
+      });
+
+      // When shrinking from 20 rows to 8 rows, the status bar must NOT emit \x1b[20;1H\x1b[2K (which xterm clamps to row 8 and erases LINE-8-KEEP)
+      const afterResizeSlice = shrunkOutput.slice(shrunkOutput.indexOf("LINE-8-KEEP") + "LINE-8-KEEP".length);
+      expect(afterResizeSlice).not.toContain("\x1b[20;1H\x1b[2K");
+      expect(afterResizeSlice).not.toContain("\x1b[8;1H\x1b[2K");
+      expect(hostTerm.buffer.active.getLine(7)?.translateToString(true)).toBe("LINE-8-KEEP");
+    } finally {
+      hostTerm.dispose();
+    }
+  });
+
+  async function assertHostMatchesChildReference(
+    hostRaw: string,
+    childRaw: string,
+    cols: number,
+    rows: number,
+    expectedBarText = "h2a-alpha",
+  ) {
+    const childRows = rows - 1;
+    const hostScreen = await inspectScreen(hostRaw, cols, rows);
+    const refScreen = await inspectScreen(childRaw, cols, childRows);
+    expect(hostScreen.lines.slice(0, childRows)).toEqual(refScreen.lines);
+    expect(hostScreen.cursorRow).toBe(refScreen.cursorRow);
+    expect(hostScreen.cursorCol).toBe(refScreen.cursorCol);
+    expect(hostScreen.lines[childRows]).toContain(expectedBarText);
+    expect(hostScreen.bgRgb).toBe(0x7c2d12);
+  }
+
+  it("r2-B1: re-applies DECSTBM immediately after alt-screen exit (?1049l/?1047l/?47l) and after replay.gap before subsequent output", async () => {
+    const stdin = new FakeInput();
+    const stdout = new FakeTtyOutput();
+    stdout.columns = 40;
+    stdout.rows = 12;
+    let now = 1_760_000_000_000;
+    let reads = 0;
+    let gapStartIdx = 0;
+    let afterAltExitRaw = "";
+    let afterGapRaw = "";
+
+    const initialLines = Array.from({ length: 11 }, (_, i) => `Line-${i + 1}`).join("\r\n");
+    const altExitChunk = "\x1b[?1049h\x1b[1;1HALT-VIEW\x1b[?1049l\r\nPrompt > ";
+    const postGapChunk = `${initialLines}\r\nAfterGap > `;
+
+    const lease: NativeTerminalControllerLease = {
+      role: "controller",
+      id: "h2a-alpha",
+      generation: "generation-1",
+      incarnation: 1,
+      controllerId: "c-1",
+      epoch: 1,
+    };
+
+    const client: AttachClient = {
+      async acquireController() { return lease; },
+      async releaseController() { return { controlled: false, controllerEpoch: 1 }; },
+      async readOutput() {
+        reads += 1;
+        if (reads === 1) {
+          return replay(1, initialLines);
+        }
+        if (reads === 2) {
+          return replay(2, altExitChunk);
+        }
+        if (reads === 3) {
+          afterAltExitRaw = stdout.chunks.join("");
+          gapStartIdx = stdout.chunks.length;
+          return {
+            chunks: [{ seq: 10, timestamp: "2026-04-12T00:00:00.000Z", data: postGapChunk }],
+            earliestSeq: 10,
+            latestSeq: 10,
+            gap: true,
+          };
+        }
+        if (reads === 4) {
+          afterGapRaw = stdout.chunks.slice(gapStartIdx).join("");
+          stdin.emit("data", Buffer.from([0x1c]));
+        }
+        return replay(10, "");
+      },
+      async state() { return running(true); },
+      async write() {},
+      async resize() {},
+      close() {},
+    };
+
     await runAttach("h2a-alpha", {
       connect: async () => client,
       stdin: stdin as unknown as NodeJS.ReadStream,
       stdout: stdout as unknown as NodeJS.WriteStream,
       now: () => now,
       delay: async (ms) => { now += ms; },
-      onResize: (fn) => { resizeHandler = fn; },
-      offResize: () => { resizeHandler = undefined; },
+      onResize: () => {},
+      offResize: () => {},
     });
 
-    // When shrinking from 20 rows to 8 rows, the status bar must NOT emit \x1b[20;1H\x1b[2K (which xterm clamps to row 8 and erases LINE-8-KEEP)
-    const afterResizeSlice = shrunkOutput.slice(shrunkOutput.indexOf("LINE-8-KEEP") + "LINE-8-KEEP".length);
-    expect(afterResizeSlice).not.toContain("\x1b[20;1H\x1b[2K");
-    expect(afterResizeSlice).not.toContain("\x1b[8;1H\x1b[2K");
+    await assertHostMatchesChildReference(
+      afterAltExitRaw,
+      `${initialLines}${altExitChunk}`,
+      40,
+      12,
+    );
+
+    const gapScreen = await inspectScreen(afterGapRaw, 40, 12);
+    const gapRef = await inspectScreen(postGapChunk, 40, 11);
+    expect(gapScreen.lines.slice(0, 11)).toEqual(gapRef.lines);
+    expect(gapScreen.cursorRow).toBe(gapRef.cursorRow);
+    expect(gapScreen.cursorCol).toBe(gapRef.cursorCol);
+    expect(gapScreen.lines[11]).toContain("h2a-alpha");
+    expect(gapScreen.bgRgb).toBe(0x7c2d12);
+  });
+
+  it("r2-B2: clamps CUD/VPR/CNL/LF/IND/NEL and auto-wrap at childRows when cursor is below a sub-region DECSTBM", async () => {
+    const stdin = new FakeInput();
+    const stdout = new FakeTtyOutput();
+    stdout.columns = 20;
+    stdout.rows = 12;
+    let now = 1_760_000_000_000;
+    let reads = 0;
+    let hostRaw = "";
+
+    // Sub-region 1..8 on 11 child rows (bar on row 12). Move to row 9 (below scrollBottom=8)
+    // and test CUD (\x1b[10B), CNL (\x1b[10E), VPR (\x1b[10e), LF (\n), IND (\x1bD), NEL (\x1bE), and auto-wrap on row 11.
+    const childStream = [
+      "\x1b[1;8r\x1b[9;1HROW9",
+      "\x1b[10B\rCUD-CLAMP",
+      "\x1b[10;5H\x1b[10ECNL-CLAMP",
+      "\x1b[10;1H\x1b[10e\rVPR-CLAMP",
+      "\x1b[11;1H\n\x1bD\x1bELF-IND-NEL",
+      "\x1b[11;1H12345678901234567890WRAP-STAY",
+    ].join("");
+
+    const lease: NativeTerminalControllerLease = {
+      role: "controller",
+      id: "h2a-alpha",
+      generation: "generation-1",
+      incarnation: 1,
+      controllerId: "c-1",
+      epoch: 1,
+    };
+
+    const client: AttachClient = {
+      async acquireController() { return lease; },
+      async releaseController() { return { controlled: false, controllerEpoch: 1 }; },
+      async readOutput() {
+        reads += 1;
+        if (reads === 1) return replay(1, childStream);
+        if (reads === 2) {
+          hostRaw = stdout.chunks.join("");
+          stdin.emit("data", Buffer.from([0x1c]));
+        }
+        return replay(1, "");
+      },
+      async state() { return running(true); },
+      async write() {},
+      async resize() {},
+      close() {},
+    };
+
+    await runAttach("h2a-alpha", {
+      connect: async () => client,
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      now: () => now,
+      delay: async (ms) => { now += ms; },
+      onResize: () => {},
+      offResize: () => {},
+    });
+
+    await assertHostMatchesChildReference(hostRaw, childStream, 20, 12);
+  });
+
+  it("r2-B3: clamps DECRC (ESC 8), SCORC (CSI u) and ?1048l to childRows after terminal height reduction", async () => {
+    const { default: xterm } = await import("@xterm/headless");
+    const stdin = new FakeInput();
+    const stdout = new FakeTtyOutput();
+    stdout.columns = 30;
+    stdout.rows = 16;
+    let now = 1_760_000_000_000;
+    let reads = 0;
+    let resizeHandler: (() => void) | undefined;
+
+    const hostTerm = new xterm.Terminal({ cols: 30, rows: 16, scrollback: 0, allowProposedApi: true });
+    const refTerm = new xterm.Terminal({ cols: 30, rows: 15, scrollback: 0, allowProposedApi: true });
+
+    const chunk1 = "\x1b[14;4H\x1b7\x1b[s\x1b[?1048h\x1b[1;1HTOP";
+    const chunk2 = "\x1b8DECRC-\x1b[uSCORC-\x1b[?1048l1048L";
+
+    const lease: NativeTerminalControllerLease = {
+      role: "controller",
+      id: "h2a-alpha",
+      generation: "generation-1",
+      incarnation: 1,
+      controllerId: "c-1",
+      epoch: 1,
+    };
+
+    let flushedIdx = 0;
+    const syncHostWrites = async () => {
+      while (flushedIdx < stdout.chunks.length) {
+        const c = stdout.chunks[flushedIdx++]!;
+        await new Promise<void>((r) => hostTerm.write(c, r));
+      }
+    };
+
+    const client: AttachClient = {
+      async acquireController() { return lease; },
+      async releaseController() { return { controlled: false, controllerEpoch: 1 }; },
+      async readOutput() {
+        reads += 1;
+        if (reads === 1) {
+          await new Promise<void>((r) => refTerm.write(chunk1, r));
+          return replay(1, chunk1);
+        }
+        if (reads === 2) {
+          await syncHostWrites();
+          stdout.rows = 12;
+          hostTerm.resize(30, 12);
+          refTerm.resize(30, 11);
+          resizeHandler?.();
+          await syncHostWrites();
+          await new Promise<void>((r) => refTerm.write(chunk2, r));
+          return replay(2, chunk2);
+        }
+        if (reads === 3) {
+          await syncHostWrites();
+          stdin.emit("data", Buffer.from([0x1c]));
+        }
+        return replay(2, "");
+      },
+      async state() { return running(true); },
+      async write() {},
+      async resize() {},
+      close() {},
+    };
+
+    try {
+      await runAttach("h2a-alpha", {
+        connect: async () => client,
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+        now: () => now,
+        delay: async (ms) => { now += ms; },
+        onResize: (fn) => { resizeHandler = fn; },
+        offResize: () => { resizeHandler = undefined; },
+      });
+
+      const hostLines: string[] = [];
+      for (let r = 0; r < 11; r++) {
+        hostLines.push(hostTerm.buffer.active.getLine(r)?.translateToString(false) ?? "");
+      }
+      const refLines: string[] = [];
+      for (let r = 0; r < 11; r++) {
+        refLines.push(refTerm.buffer.active.getLine(r)?.translateToString(false) ?? "");
+      }
+      expect(hostLines).toEqual(refLines);
+      expect(hostTerm.buffer.active.cursorY).toBe(refTerm.buffer.active.cursorY);
+      expect(hostTerm.buffer.active.cursorX).toBe(refTerm.buffer.active.cursorX);
+      const barLine = hostTerm.buffer.active.getLine(11)?.translateToString(false) ?? "";
+      expect(barLine).toContain("h2a-alpha");
+    } finally {
+      hostTerm.dispose();
+      refTerm.dispose();
+    }
+  });
+
+  it("r2-B4: tracks IL (CSI L) / DL (CSI M) column reset and never rewrites a ghost lastColChar after ED/SU/SD", async () => {
+    const stdin = new FakeInput();
+    const stdout = new FakeTtyOutput();
+    stdout.columns = 20;
+    stdout.rows = 12;
+    let now = 1_760_000_000_000;
+    let reads = 0;
+    let afterEdRaw = "";
+    let finalRaw = "";
+
+    const chunk1 = "\x1b[1;1H1234567890123456789X\x1b[2J";
+    const chunk2 = "\x1b[3;8HMID\x1b[L";
+    const chunk3 = "AFTER-IL\x1b[4;9HEND\x1b[M";
+    const chunk4 = "AFTER-DL";
+
+    const lease: NativeTerminalControllerLease = {
+      role: "controller",
+      id: "h2a-alpha",
+      generation: "generation-1",
+      incarnation: 1,
+      controllerId: "c-1",
+      epoch: 1,
+    };
+
+    const client: AttachClient = {
+      async acquireController() { return lease; },
+      async releaseController() { return { controlled: false, controllerEpoch: 1 }; },
+      async readOutput() {
+        reads += 1;
+        if (reads === 1) return replay(1, chunk1);
+        if (reads === 2) {
+          afterEdRaw = stdout.chunks.join("");
+          now += 1_000;
+          return replay(2, chunk2);
+        }
+        if (reads === 3) {
+          now += 1_000;
+          return replay(3, chunk3);
+        }
+        if (reads === 4) {
+          now += 1_000;
+          return replay(4, chunk4);
+        }
+        if (reads === 5) {
+          finalRaw = stdout.chunks.join("");
+          stdin.emit("data", Buffer.from([0x1c]));
+        }
+        return replay(4, "");
+      },
+      async state() { return running(true); },
+      async write() {},
+      async resize() {},
+      close() {},
+    };
+
+    await runAttach("h2a-alpha", {
+      connect: async () => client,
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      now: () => now,
+      delay: async (ms) => { now += ms; },
+      onResize: () => {},
+      offResize: () => {},
+    });
+
+    await assertHostMatchesChildReference(afterEdRaw, chunk1, 20, 12);
+    await assertHostMatchesChildReference(
+      finalRaw,
+      `${chunk1}${chunk2}${chunk3}${chunk4}`,
+      20,
+      12,
+    );
   });
 });
