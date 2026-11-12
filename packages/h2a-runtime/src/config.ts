@@ -139,6 +139,8 @@ export type H2aConfig = {
   enabled?: boolean;
   /** Command line run in the dedicated "h2a" window (default: DEFAULT_H2A_COMMAND). */
   command?: string;
+  /** Render the reserved bottom status bar in native PTY attach (default true). */
+  statusBar?: boolean;
   /**
    * Opt-in one-per-user central MCP service for sessions launched by `h2a run`
    * and `h2a restore`. The endpoint is persisted once so host MCP config never
@@ -189,6 +191,8 @@ export type RemoteCliConfig = {
   llmMesh?: LlmMeshRuntimeConfig;
   /** Remote-managed tmux config profile for local tmux sessions. */
   tmux?: TmuxProfileConfig;
+  /** Native terminal status bar configuration (default enabled). */
+  statusBar?: boolean | { enabled?: boolean };
   /** P4 — default concurrency cap for delegated jobs (local AND remote). */
   maxConcurrent?: number;
 };
@@ -223,6 +227,7 @@ function parseH2a(raw: unknown): H2aConfig | undefined {
   const h2a: H2aConfig = {};
   if (typeof h.enabled === "boolean") h2a.enabled = h.enabled;
   if (typeof h.command === "string") h2a.command = h.command;
+  if (typeof h.statusBar === "boolean") h2a.statusBar = h.statusBar;
   if (h.central && typeof h.central === "object") {
     const centralRaw = h.central as Record<string, unknown>;
     const central: NonNullable<H2aConfig["central"]> = {};
@@ -444,6 +449,17 @@ export function readRemoteConfig(): RemoteCliConfig {
       if (llmMesh) config.llmMesh = llmMesh;
       const tmux = parseTmuxProfile(parsed.tmux);
       if (tmux) config.tmux = tmux;
+      if (typeof parsed.statusBar === "boolean") {
+        config.statusBar = parsed.statusBar;
+      } else if (
+        parsed.statusBar &&
+        typeof parsed.statusBar === "object" &&
+        typeof (parsed.statusBar as Record<string, unknown>).enabled === "boolean"
+      ) {
+        config.statusBar = {
+          enabled: (parsed.statusBar as Record<string, unknown>).enabled as boolean,
+        };
+      }
       if (
         typeof parsed.maxConcurrent === "number" &&
         Number.isFinite(parsed.maxConcurrent) &&
@@ -460,6 +476,38 @@ export function readRemoteConfig(): RemoteCliConfig {
       `failed to read remote config: ${(error as Error).message}`,
     );
   }
+}
+
+export function isStatusBarEnabled(
+  env: NodeJS.ProcessEnv = process.env,
+  config?: RemoteCliConfig,
+): boolean {
+  const rawFlag = env.H2A_STATUS_BAR?.trim().toLowerCase();
+  if (rawFlag && ["0", "false", "off", "no", "disabled"].includes(rawFlag)) {
+    return false;
+  }
+  const rawDisable = env.H2A_NO_STATUS_BAR?.trim().toLowerCase();
+  if (rawDisable && ["1", "true", "on", "yes"].includes(rawDisable)) {
+    return false;
+  }
+  if (rawFlag && ["1", "true", "on", "yes", "enabled"].includes(rawFlag)) {
+    return true;
+  }
+  try {
+    const resolved = config ?? readRemoteConfig();
+    if (resolved.statusBar === false) return false;
+    if (
+      resolved.statusBar &&
+      typeof resolved.statusBar === "object" &&
+      resolved.statusBar.enabled === false
+    ) {
+      return false;
+    }
+    if (resolved.h2a?.statusBar === false) return false;
+  } catch {
+    // Unreadable config must not crash attach; default to enabled.
+  }
+  return true;
 }
 
 export function writeRemoteConfig(config: RemoteCliConfig): void {
@@ -511,12 +559,14 @@ export function setPlugins(plugins: PluginEntry[]): void {
 }
 
 /** h2a config merged with defaults (sidecar and central MCP are opt-in). */
-export function getH2aConfig(): Required<H2aConfig> {
+export function getH2aConfig(): Required<Omit<H2aConfig, "statusBar">> &
+  Pick<H2aConfig, "statusBar"> {
   const raw = readRemoteConfig().h2a ?? {};
   return {
     enabled: raw.enabled ?? false,
     command: raw.command ?? DEFAULT_H2A_COMMAND,
     central: raw.central ?? { enabled: false },
+    ...(typeof raw.statusBar === "boolean" ? { statusBar: raw.statusBar } : {}),
   };
 }
 

@@ -55,6 +55,11 @@ import { TerminalModeTracker } from "./terminal-modes.js";
 import { publishAttachReset } from "./attach-recovery.js";
 import { TerminalResetRelay } from "./reset-relay.js";
 import { appendCrashLog, crashSignalName, installCrashHandlers, type CrashLogEntry } from "../crash-log.js";
+import type {
+  NativeStatusBarLinkState,
+  NativeStatusBarSnapshot,
+  ReadNativeStatusBarOptions,
+} from "../status-projection.js";
 
 const DETACH_BYTE = 0x1c; // Ctrl-\
 
@@ -450,6 +455,868 @@ type ActiveAttachConnection = {
   lease: NativeTerminalControllerLease;
 };
 
+export type NativeAttachStatusBarOptions = Omit<
+  ReadNativeStatusBarOptions,
+  "sessionName" | "linkState" | "nowMs"
+> & {
+  readonly enabled?: boolean;
+  readonly env?: NodeJS.ProcessEnv;
+};
+
+const STATUS_BAR_MIN_ROWS = 10;
+const STATUS_BAR_REFRESH_MIN_MS = 1_000;
+const MAX_PENDING_SEQ_LEN = 4_096;
+// Amber/orange background (#7C2D12) with warm light foreground (#FEF3C7), plus 256-color fallback.
+const AMBER_BAR_SGR =
+  "\x1b[48;5;166;38;5;231;48;2;124;45;18;38;2;254;243;199m";
+
+interface HeadlessAttrData {
+  isAttributeDefault(): boolean;
+  isBold(): number | boolean;
+  isDim(): number | boolean;
+  isItalic(): number | boolean;
+  isUnderline(): number | boolean;
+  isBlink(): number | boolean;
+  isInverse(): number | boolean;
+  isInvisible(): number | boolean;
+  isStrikethrough(): number | boolean;
+  isOverline(): number | boolean;
+  isFgRGB(): boolean;
+  isFgPalette(): boolean;
+  getFgColorMode(): number;
+  getFgColor(): number;
+  isBgRGB(): boolean;
+  isBgPalette(): boolean;
+  getBgColorMode(): number;
+  getBgColor(): number;
+  hasExtendedAttrs(): number | boolean;
+  getUnderlineStyle(): number;
+  isUnderlineColorDefault(): boolean;
+  isUnderlineColorRGB(): boolean;
+  isUnderlineColorPalette(): boolean;
+  getUnderlineColor(): number;
+}
+
+interface HeadlessCellData extends HeadlessAttrData {
+  getChars(): string;
+  getWidth(): number;
+}
+
+interface HeadlessBufferLine {
+  getCell(x: number): HeadlessCellData | undefined;
+}
+
+interface HeadlessInternalBuffer {
+  x: number;
+  y: number;
+  ybase: number;
+  scrollTop: number;
+  scrollBottom: number;
+}
+
+interface HeadlessTerminal {
+  readonly cols: number;
+  readonly rows: number;
+  readonly buffer: {
+    readonly active: {
+      readonly type: "normal" | "alternate";
+      getLine(y: number): HeadlessBufferLine | undefined;
+    };
+  };
+  readonly _core: {
+    readonly _bufferService: {
+      readonly buffer: HeadlessInternalBuffer;
+      readonly buffers: {
+        readonly normal: HeadlessInternalBuffer;
+        readonly alt: HeadlessInternalBuffer;
+      };
+    };
+    readonly coreService: {
+      readonly modes: { readonly insertMode: boolean };
+      readonly decPrivateModes: { readonly origin: boolean };
+    };
+    readonly _inputHandler: {
+      readonly _curAttrData: HeadlessAttrData;
+      parse(data: string): void;
+    };
+  };
+  resize(cols: number, rows: number): void;
+  reset(): void;
+  dispose(): void;
+}
+
+type HeadlessTerminalConstructor = new (options: {
+  cols: number;
+  rows: number;
+  scrollback: number;
+  allowProposedApi: boolean;
+}) => HeadlessTerminal;
+
+function sgrSequenceFromAttr(attr: HeadlessAttrData): string {
+  if (attr.isAttributeDefault()) return "";
+  const codes: string[] = [];
+  if (attr.isBold()) codes.push("1");
+  if (attr.isDim()) codes.push("2");
+  if (attr.isItalic()) codes.push("3");
+  if (attr.isUnderline()) {
+    const style = attr.hasExtendedAttrs() ? attr.getUnderlineStyle() : 1;
+    codes.push(style > 1 ? `4:${style}` : "4");
+  }
+  if (attr.isBlink()) codes.push("5");
+  if (attr.isInverse()) codes.push("7");
+  if (attr.isInvisible()) codes.push("8");
+  if (attr.isStrikethrough()) codes.push("9");
+  if (attr.isOverline()) codes.push("53");
+  if (attr.isFgRGB()) {
+    const c = attr.getFgColor();
+    codes.push(`38;2;${(c >>> 16) & 0xff};${(c >>> 8) & 0xff};${c & 0xff}`);
+  } else if (attr.isFgPalette()) {
+    const c = attr.getFgColor();
+    if (attr.getFgColorMode() === 0x1000000 && c >= 0 && c < 16) {
+      codes.push(String(c < 8 ? 30 + c : 90 + (c - 8)));
+    } else {
+      codes.push(`38;5;${c}`);
+    }
+  }
+  if (attr.isBgRGB()) {
+    const c = attr.getBgColor();
+    codes.push(`48;2;${(c >>> 16) & 0xff};${(c >>> 8) & 0xff};${c & 0xff}`);
+  } else if (attr.isBgPalette()) {
+    const c = attr.getBgColor();
+    if (attr.getBgColorMode() === 0x1000000 && c >= 0 && c < 16) {
+      codes.push(String(c < 8 ? 40 + c : 100 + (c - 8)));
+    } else {
+      codes.push(`48;5;${c}`);
+    }
+  }
+  if (attr.hasExtendedAttrs() && !attr.isUnderlineColorDefault()) {
+    const c = attr.getUnderlineColor();
+    if (attr.isUnderlineColorRGB()) {
+      codes.push(`58;2;${(c >>> 16) & 0xff};${(c >>> 8) & 0xff};${c & 0xff}`);
+    } else if (attr.isUnderlineColorPalette()) {
+      codes.push(`58;5;${c}`);
+    }
+  }
+  return codes.length > 0 ? `\x1b[${codes.join(";")}m` : "";
+}
+
+class NativeStatusBarController {
+  readonly #id: string;
+  readonly #stdout: NodeJS.WriteStream;
+  readonly #now: () => number;
+  readonly #opts: NativeAttachStatusBarOptions;
+  readonly #optionEnabled: boolean;
+  readonly #isTty: boolean;
+  #featureEnabled = false;
+  #initialized = false;
+  #probeInFlight: Promise<void> | undefined;
+  #readSnapshot:
+    | ((opts: ReadNativeStatusBarOptions) => Promise<NativeStatusBarSnapshot>)
+    | undefined;
+  #renderLine:
+    | ((snapshot: NativeStatusBarSnapshot, cols: number) => string)
+    | undefined;
+  #xtermCtor: HeadlessTerminalConstructor | undefined;
+  #headless: HeadlessTerminal | undefined;
+
+  #linkState: NativeStatusBarLinkState = "attached";
+  #snapshot: NativeStatusBarSnapshot;
+  #lastProbeAt: number | undefined;
+  #wasActive = false;
+  #activeRows = 0;
+  #activeCols = 0;
+  #lastRenderedLine = "";
+  #needsRepaint = true;
+  #pendingRegionReapply = false;
+  #restored = false;
+  #pendingSeq = "";
+
+  constructor(
+    id: string,
+    stdout: NodeJS.WriteStream,
+    now: () => number,
+    option?: boolean | NativeAttachStatusBarOptions,
+  ) {
+    this.#id = id;
+    this.#stdout = stdout;
+    this.#now = now;
+    this.#opts = typeof option === "object" && option !== null ? option : {};
+    this.#optionEnabled = option !== false && this.#opts.enabled !== false;
+    this.#isTty = (stdout as { isTTY?: boolean }).isTTY === true;
+    this.#snapshot = {
+      cli: "unknown",
+      sessionName: id,
+      linkState: "attached",
+      role: "unknown",
+      workload: {
+        j: { open: 0, attention: 0, degraded: true },
+        i: { waiting: 0, degraded: true },
+        l: { active: 0, attention: 0, degraded: true },
+      },
+      delegatedSessions: "unknown",
+      gateway: { state: "unknown", clientSessionId: id },
+    };
+  }
+
+  isActive(): boolean {
+    const rows = this.#stdout.rows ?? 0;
+    const cols = this.#stdout.columns ?? 0;
+    return (
+      this.#featureEnabled &&
+      this.#isTty &&
+      rows >= STATUS_BAR_MIN_ROWS &&
+      cols > 0
+    );
+  }
+
+  childRows(): number | undefined {
+    const rows = this.#stdout.rows;
+    if (!rows) return undefined;
+    return this.isActive() ? rows - 1 : rows;
+  }
+
+  #ensureHeadless(cols: number, childRows: number): HeadlessTerminal | undefined {
+    if (!this.#xtermCtor) return undefined;
+    if (!this.#headless) {
+      this.#headless = new this.#xtermCtor({
+        cols,
+        rows: childRows,
+        scrollback: 0,
+        allowProposedApi: true,
+      });
+    } else if (
+      this.#headless.cols !== cols ||
+      this.#headless.rows !== childRows
+    ) {
+      this.#headless.resize(cols, childRows);
+    }
+    return this.#headless;
+  }
+
+  async probe(
+    force = false,
+    linkState?: NativeStatusBarLinkState,
+  ): Promise<void> {
+    const linkChanged =
+      linkState !== undefined && linkState !== this.#linkState;
+    if (linkState !== undefined) {
+      this.#linkState = linkState;
+      this.#snapshot = { ...this.#snapshot, linkState };
+    }
+    if (!this.#optionEnabled || !this.#isTty) return;
+    if (!this.#initialized) {
+      this.#initialized = true;
+      const [{ isStatusBarEnabled }, statusProjection, xtermMod] =
+        await Promise.all([
+          import("../config.js"),
+          import("../status-projection.js"),
+          import("@xterm/headless"),
+        ]);
+      const xterm = (xtermMod.default ?? xtermMod) as unknown as {
+        Terminal: HeadlessTerminalConstructor;
+      };
+      this.#readSnapshot = statusProjection.readNativeStatusBarSnapshot;
+      this.#renderLine = statusProjection.renderNativeStatusBarLine;
+      this.#xtermCtor = xterm.Terminal;
+      this.#featureEnabled = isStatusBarEnabled(this.#opts.env ?? process.env);
+    }
+    if (!this.#featureEnabled || !this.#readSnapshot) return;
+    if (!this.isActive()) {
+      this.paint(linkChanged);
+      return;
+    }
+    const nowMs = this.#now();
+    const due =
+      force ||
+      this.#lastProbeAt === undefined ||
+      nowMs - this.#lastProbeAt >= STATUS_BAR_REFRESH_MIN_MS;
+    if (due) {
+      this.#lastProbeAt = nowMs;
+      const runRead = async (): Promise<void> => {
+        try {
+          this.#snapshot = await this.#readSnapshot!({
+            ...this.#opts,
+            sessionName: this.#id,
+            linkState: this.#linkState,
+            nowMs,
+          });
+        } catch {
+          this.#snapshot = { ...this.#snapshot, linkState: this.#linkState };
+        }
+      };
+      if (force) {
+        await runRead();
+      } else if (!this.#probeInFlight) {
+        this.#probeInFlight = runRead().finally(() => {
+          this.#probeInFlight = undefined;
+          this.paint(false);
+        });
+        await this.#probeInFlight;
+        return;
+      }
+    }
+    if (linkChanged || due) {
+      this.paint(linkChanged);
+    }
+  }
+
+  onResize(): void {
+    this.paint(true);
+  }
+
+  flushAfterOutputBatch(): void {
+    if (this.#needsRepaint && this.#pendingSeq.length === 0) {
+      this.paint(false);
+    }
+  }
+
+  flushPendingSequence(): string {
+    if (this.#pendingSeq.length === 0) return "";
+    const pending = this.#pendingSeq;
+    this.#pendingSeq = "";
+    return pending;
+  }
+
+  resumeAfterReset(): void {
+    this.#restored = false;
+    this.#pendingSeq = "";
+    this.#lastRenderedLine = "";
+    this.#needsRepaint = true;
+    this.#pendingRegionReapply = false;
+    this.#headless?.reset();
+    this.paint(true);
+  }
+
+  dispose(): void {
+    this.#headless?.dispose();
+    this.#headless = undefined;
+  }
+
+  peekRestoreSequence(): string {
+    if (!this.#wasActive || this.#restored) return "";
+    const rows = this.#activeRows || (this.#stdout.rows ?? 24);
+    const cols = this.#activeCols || (this.#stdout.columns ?? 80);
+    const headless = this.#headless;
+    const inAltScreen =
+      headless !== undefined && headless.buffer.active.type === "alternate";
+    if (inAltScreen && headless) {
+      const normalBuf = headless._core._bufferService.buffers.normal;
+      const mainRow = Math.min(rows, Math.max(1, normalBuf.y + 1));
+      const mainCol = Math.min(cols, Math.max(1, normalBuf.x + 1));
+      return `\x1b[?6l\x1b[r\x1b[${rows};1H\x1b[2K\x1b[?1049l\x1b[?1047l\x1b[?47l\x1b[?6l\x1b[r\x1b[${rows};1H\x1b[2K\x1b[${mainRow};${mainCol}H\x1b[0m`;
+    }
+    const activeBuf = headless?._core._bufferService.buffer;
+    const row = Math.min(rows, Math.max(1, (activeBuf?.y ?? 0) + 1));
+    const col = Math.min(cols, Math.max(1, (activeBuf?.x ?? 0) + 1));
+    return `\x1b[?6l\x1b[r\x1b[${rows};1H\x1b[2K\x1b[${row};${col}H\x1b[0m`;
+  }
+
+  restoreSequence(): string {
+    const seq = this.peekRestoreSequence();
+    if (!seq) return "";
+    this.#restored = true;
+    this.#pendingRegionReapply = false;
+    return seq;
+  }
+
+  #restoreStateFromHeadless(cols: number, childRows: number): string {
+    const headless = this.#headless;
+    if (!headless) return "\x1b[1;1H\x1b[0m";
+    const core = headless._core;
+    const buf = core._bufferService.buffer;
+    const originMode = core.coreService.decPrivateModes.origin === true;
+    const insertMode = core.coreService.modes.insertMode === true;
+    const activeSgr = sgrSequenceFromAttr(core._inputHandler._curAttrData);
+    const top = Math.min(childRows - 1, Math.max(1, buf.scrollTop + 1));
+    const row = Math.min(childRows, Math.max(1, buf.y + 1));
+    const col = Math.min(cols, Math.max(1, buf.x + 1));
+    const targetRow = originMode ? Math.max(1, row - top + 1) : row;
+    const originPrefix = originMode ? "\x1b[?6h" : "";
+
+    if (buf.x >= cols && !insertMode) {
+      const line = headless.buffer.active.getLine(buf.ybase + buf.y);
+      if (line) {
+        let startCol = cols;
+        let cell = line.getCell(cols - 1);
+        if (cell && cell.getWidth() === 0 && cols >= 2) {
+          startCol = cols - 1;
+          cell = line.getCell(cols - 2);
+        }
+        if (cell) {
+          const chars = cell.getChars();
+          const glyph = chars.length > 0 ? chars : " ";
+          const cellSgr = sgrSequenceFromAttr(cell);
+          return `${originPrefix}\x1b[${targetRow};${startCol}H\x1b[0m${cellSgr}${glyph}\x1b[0m${activeSgr}`;
+        }
+      }
+    }
+    return `${originPrefix}\x1b[${targetRow};${col}H\x1b[0m${activeSgr}`;
+  }
+
+  #reapplyScrollRegionAndState(cols: number, childRows: number): string {
+    const buf = this.#headless?._core._bufferService.buffer;
+    const top = Math.min(childRows - 1, Math.max(1, (buf?.scrollTop ?? 0) + 1));
+    const bottom = Math.min(
+      childRows,
+      Math.max(top + 1, (buf?.scrollBottom ?? childRows - 1) + 1),
+    );
+    return `\x1b[?6l\x1b[${top};${bottom}r${this.#restoreStateFromHeadless(cols, childRows)}`;
+  }
+
+  #flushPendingRegionReapply(cols: number, childRows: number): string {
+    if (!this.#pendingRegionReapply) return "";
+    this.#pendingRegionReapply = false;
+    return this.#reapplyScrollRegionAndState(cols, childRows);
+  }
+
+  paint(force = false): void {
+    if (this.#restored) return;
+    if (this.#pendingSeq.length > 0) {
+      this.#needsRepaint = true;
+      return;
+    }
+    if (!this.isActive()) {
+      this.#pendingRegionReapply = false;
+      if (this.#wasActive && this.#activeRows >= STATUS_BAR_MIN_ROWS) {
+        const currentRows = this.#stdout.rows ?? 1;
+        const currentCols = this.#stdout.columns ?? 1;
+        const buf = this.#headless?._core._bufferService.buffer;
+        const activeSgr = this.#headless
+          ? sgrSequenceFromAttr(this.#headless._core._inputHandler._curAttrData)
+          : "";
+        const targetRow = Math.min(
+          Math.max(1, currentRows),
+          Math.max(1, (buf?.y ?? 0) + 1),
+        );
+        const targetCol = Math.min(
+          Math.max(1, currentCols),
+          Math.max(1, (buf?.x ?? 0) + 1),
+        );
+        // Only clear the previous status row if the terminal did not shrink past it;
+        // otherwise \x1b[activeRows;1H\x1b[2K clamps to the new bottom row and erases the child's last line.
+        const clearOldBar =
+          this.#activeRows <= currentRows
+            ? `\x1b[${this.#activeRows};1H\x1b[2K`
+            : "";
+        this.#stdout.write(
+          `\x1b[?6l\x1b[r${clearOldBar}\x1b[${targetRow};${targetCol}H\x1b[0m${activeSgr}`,
+        );
+        this.#wasActive = false;
+        this.#lastRenderedLine = "";
+        this.#needsRepaint = true;
+      }
+      return;
+    }
+
+    const rows = this.#stdout.rows!;
+    const cols = this.#stdout.columns!;
+    const childRows = rows - 1;
+    const headless = this.#ensureHeadless(cols, childRows);
+    const rowsChanged = !this.#wasActive || rows !== this.#activeRows;
+    const geometryChanged = rowsChanged || cols !== this.#activeCols;
+    let clearPreviousRow = "";
+    if (geometryChanged) {
+      if (
+        this.#wasActive &&
+        this.#activeRows !== rows &&
+        this.#activeRows > 0 &&
+        this.#activeRows < rows
+      ) {
+        clearPreviousRow = `\x1b[${this.#activeRows};1H\x1b[2K`;
+      }
+      this.#wasActive = true;
+      this.#activeRows = rows;
+      this.#activeCols = cols;
+      this.#needsRepaint = true;
+    }
+
+    if (!this.#renderLine) return;
+    const line = this.#renderLine(this.#snapshot, cols);
+    if (
+      !force &&
+      !this.#needsRepaint &&
+      !geometryChanged &&
+      line === this.#lastRenderedLine
+    ) {
+      return;
+    }
+
+    this.#lastRenderedLine = line;
+    this.#needsRepaint = false;
+    this.#pendingRegionReapply = false;
+    const buf = headless?._core._bufferService.buffer;
+    const top = Math.min(childRows - 1, Math.max(1, (buf?.scrollTop ?? 0) + 1));
+    const bottom = Math.min(
+      childRows,
+      Math.max(top + 1, (buf?.scrollBottom ?? childRows - 1) + 1),
+    );
+    const restoreSeq = this.#restoreStateFromHeadless(cols, childRows);
+    this.#stdout.write(
+      `${clearPreviousRow}\x1b[?6l\x1b[${top};${bottom}r\x1b[${rows};1H${AMBER_BAR_SGR}${line}\x1b[0m${restoreSeq}`,
+    );
+  }
+
+  transformChildOutput(data: string): string {
+    if (!this.isActive()) {
+      if (this.#pendingSeq.length > 0) {
+        const flushed = this.#pendingSeq + data;
+        this.#pendingSeq = "";
+        return flushed;
+      }
+      return data;
+    }
+    if (data.length === 0) return data;
+    const input = this.#pendingSeq.length > 0 ? this.#pendingSeq + data : data;
+    this.#pendingSeq = "";
+    const rows = this.#stdout.rows!;
+    const cols = this.#stdout.columns!;
+    const childRows = rows - 1;
+    const headless = this.#ensureHeadless(cols, childRows);
+    if (!headless) return input;
+    const ih = headless._core._inputHandler;
+    let out = "";
+    let i = 0;
+    while (i < input.length) {
+      const ch = input[i]!;
+      if (ch === "\x1b") {
+        if (i + 1 >= input.length) {
+          this.#pendingSeq = input.slice(i);
+          break;
+        }
+        const next = input[i + 1]!;
+        if (next === "[") {
+          let j = i + 2;
+          while (
+            j < input.length &&
+            input.charCodeAt(j) >= 0x30 &&
+            input.charCodeAt(j) <= 0x3f
+          ) {
+            j += 1;
+          }
+          const params = input.slice(i + 2, j);
+          const intStart = j;
+          while (
+            j < input.length &&
+            input.charCodeAt(j) >= 0x20 &&
+            input.charCodeAt(j) <= 0x2f
+          ) {
+            j += 1;
+          }
+          const intermediates = input.slice(intStart, j);
+          if (j >= input.length) {
+            if (input.length - i <= MAX_PENDING_SEQ_LEN) {
+              this.#pendingSeq = input.slice(i);
+              break;
+            }
+            ih.parse(input.slice(i));
+            out += input.slice(i);
+            break;
+          }
+          if (
+            input.charCodeAt(j) >= 0x40 &&
+            input.charCodeAt(j) <= 0x7e
+          ) {
+            const final = input[j]!;
+            const rawSeq = input.slice(i, j + 1);
+            out += this.#processCsi(
+              headless,
+              params,
+              intermediates,
+              final,
+              rawSeq,
+              childRows,
+              cols,
+            );
+            i = j + 1;
+            continue;
+          }
+          ih.parse("\x1b[");
+          out += "\x1b[";
+          i += 2;
+          continue;
+        } else if (
+          next === "]" ||
+          next === "P" ||
+          next === "X" ||
+          next === "^" ||
+          next === "_"
+        ) {
+          let j = i + 2;
+          let closed = false;
+          while (j < input.length) {
+            const c = input[j]!;
+            if (next === "]" && c === "\x07") {
+              j += 1;
+              closed = true;
+              break;
+            }
+            if (c === "\x9c") {
+              j += 1;
+              closed = true;
+              break;
+            }
+            if (c === "\x1b") {
+              if (j + 1 >= input.length) {
+                break;
+              }
+              if (input[j + 1] === "\\") {
+                j += 2;
+                closed = true;
+                break;
+              }
+            }
+            j += 1;
+          }
+          if (!closed && input.length - i <= MAX_PENDING_SEQ_LEN) {
+            this.#pendingSeq = input.slice(i);
+            break;
+          }
+          const rawSeq = input.slice(i, j);
+          ih.parse(rawSeq);
+          out += rawSeq;
+          i = j;
+          continue;
+        } else if (next.charCodeAt(0) >= 0x20 && next.charCodeAt(0) <= 0x2f) {
+          let j = i + 2;
+          while (
+            j < input.length &&
+            input.charCodeAt(j) >= 0x20 &&
+            input.charCodeAt(j) <= 0x2f
+          ) {
+            j += 1;
+          }
+          if (j >= input.length) {
+            if (input.length - i <= MAX_PENDING_SEQ_LEN) {
+              this.#pendingSeq = input.slice(i);
+              break;
+            }
+            ih.parse(input.slice(i));
+            out += input.slice(i);
+            break;
+          }
+          const rawSeq = input.slice(i, j + 1);
+          ih.parse(rawSeq);
+          out += rawSeq;
+          i = j + 1;
+          continue;
+        } else {
+          const rawSeq = input.slice(i, i + 2);
+          out += this.#processEsc(headless, next, rawSeq, childRows, cols);
+          i += 2;
+          continue;
+        }
+      }
+
+      const codeUnit = input.charCodeAt(i);
+      if (codeUnit >= 0xd800 && codeUnit <= 0xdbff && i + 1 >= input.length) {
+        this.#pendingSeq = input.slice(i);
+        break;
+      }
+      const cp = input.codePointAt(i)!;
+      const step = cp > 0xffff ? 2 : 1;
+      const glyph = input.slice(i, i + step);
+      if (cp !== 0x0d) {
+        out += this.#flushPendingRegionReapply(cols, childRows);
+      }
+      const buf = headless._core._bufferService.buffer;
+      const prevY = buf.y;
+      const prevX = buf.x;
+      const prevScrollBottom = buf.scrollBottom;
+      ih.parse(glyph);
+      if (prevY === childRows - 1 && prevScrollBottom < childRows - 1) {
+        if (cp === 0x0a || cp === 0x0b || cp === 0x0c || cp === 0x84) {
+          out +=
+            prevX >= cols
+              ? this.#restoreStateFromHeadless(cols, childRows)
+              : "";
+          i += step;
+          continue;
+        }
+        if (cp === 0x85) {
+          out += "\r";
+          i += step;
+          continue;
+        }
+        if (
+          cp >= 0x20 &&
+          !(cp >= 0x7f && cp <= 0x9f) &&
+          prevX >= cols &&
+          buf.x <= prevX
+        ) {
+          out += `\r${glyph}`;
+          i += step;
+          continue;
+        }
+      }
+      out += glyph;
+      i += step;
+    }
+    return out;
+  }
+
+  #processEsc(
+    headless: HeadlessTerminal,
+    next: string,
+    rawSeq: string,
+    childRows: number,
+    cols: number,
+  ): string {
+    const prefix = this.#flushPendingRegionReapply(cols, childRows);
+    const core = headless._core;
+    const buf = core._bufferService.buffer;
+    const prevY = buf.y;
+    const prevX = buf.x;
+    const prevScrollBottom = buf.scrollBottom;
+    core._inputHandler.parse(rawSeq);
+    if (next === "c") {
+      this.#needsRepaint = true;
+      this.#pendingRegionReapply = true;
+      return `${prefix}${rawSeq}`;
+    }
+    if (next === "8") {
+      return `${prefix}${rawSeq}${this.#restoreStateFromHeadless(cols, childRows)}`;
+    }
+    if (prevY === childRows - 1 && prevScrollBottom < childRows - 1) {
+      if (next === "D") {
+        return `${prefix}${
+          prevX >= cols
+            ? this.#restoreStateFromHeadless(cols, childRows)
+            : ""
+        }`;
+      }
+      if (next === "E") {
+        return `${prefix}\r`;
+      }
+    }
+    return `${prefix}${rawSeq}`;
+  }
+
+  #processCsi(
+    headless: HeadlessTerminal,
+    params: string,
+    intermediates: string,
+    final: string,
+    rawSeq: string,
+    childRows: number,
+    cols: number,
+  ): string {
+    const isPassthroughModeCsi =
+      intermediates === "" &&
+      ((final === "u" && /^[<>]\d*$/.test(params)) ||
+        ((final === "h" || final === "l") &&
+          /^\?\d+(;\d+)*$/.test(params) &&
+          !params
+            .slice(1)
+            .split(";")
+            .some((m) => Number(m) === 6 || Number(m) === 1048)));
+    const prefix = isPassthroughModeCsi
+      ? ""
+      : this.#flushPendingRegionReapply(cols, childRows);
+
+    const core = headless._core;
+    const prevBuf = core._bufferService.buffer;
+    const prevY = prevBuf.y;
+    const prevScrollBottom = prevBuf.scrollBottom;
+    const prevOrigin = core.coreService.decPrivateModes.origin === true;
+
+    core._inputHandler.parse(rawSeq);
+    const buf = core._bufferService.buffer;
+
+    if (intermediates === "!" && final === "p" && params === "") {
+      this.#needsRepaint = true;
+      this.#pendingRegionReapply = true;
+      return `${prefix}${rawSeq}`;
+    }
+    if (intermediates !== "") return `${prefix}${rawSeq}`;
+
+    const isStandardParams = !/^[<=>?]/.test(params);
+    if (final === "r" && isStandardParams) {
+      const parts = params.length === 0 ? [] : params.split(";");
+      const rawTop = parts[0] ? Number.parseInt(parts[0], 10) : 1;
+      const rawBottom =
+        parts.length < 2 || !parts[1]
+          ? childRows
+          : Number.parseInt(parts[1], 10);
+      const top = rawTop || 1;
+      const bottom =
+        !rawBottom || rawBottom > childRows ? childRows : rawBottom;
+      if (bottom <= top) {
+        return prefix;
+      }
+      this.#needsRepaint = true;
+      this.#pendingRegionReapply = false;
+      return `${prefix}\x1b[${buf.scrollTop + 1};${buf.scrollBottom + 1}r`;
+    }
+
+    if ((final === "H" || final === "f") && isStandardParams) {
+      if (!prevOrigin) {
+        const rawRow = Number.parseInt(params.split(";")[0] || "1", 10) || 1;
+        if (rawRow > childRows) {
+          return `${prefix}\x1b[${buf.y + 1};${buf.x + 1}${final}`;
+        }
+      }
+      return `${prefix}${rawSeq}`;
+    }
+
+    if (final === "d" && isStandardParams) {
+      if (!prevOrigin) {
+        const rawRow = Number.parseInt(params || "1", 10) || 1;
+        if (rawRow > childRows) {
+          return `${prefix}\x1b[${buf.y + 1}d`;
+        }
+      }
+      return `${prefix}${rawSeq}`;
+    }
+
+    if (
+      (final === "B" || final === "e" || final === "E") &&
+      isStandardParams
+    ) {
+      const n = Math.max(1, Number.parseInt(params || "1", 10) || 1);
+      if ((prevY > prevScrollBottom || final === "e") && prevY + n >= childRows) {
+        const maxDown = Math.max(0, buf.y - prevY);
+        if (final === "E") {
+          return `${prefix}${maxDown > 0 ? `\x1b[${maxDown}E` : "\r"}`;
+        }
+        return `${prefix}${maxDown > 0 ? `\x1b[${maxDown}${final}` : ""}`;
+      }
+      return `${prefix}${rawSeq}`;
+    }
+
+    if (final === "u" && params === "") {
+      return `${prefix}${rawSeq}${this.#restoreStateFromHeadless(cols, childRows)}`;
+    }
+
+    if (final === "J" && (params === "" || /^\??\d+$/.test(params))) {
+      const mode = Number.parseInt(params.replace(/^\?/, "") || "0", 10);
+      if (mode === 0 || mode === 2 || mode === 3) {
+        this.#needsRepaint = true;
+        this.#pendingRegionReapply = true;
+        return `${prefix}${rawSeq}`;
+      }
+      return `${prefix}${rawSeq}`;
+    }
+
+    if (
+      (final === "h" || final === "l") &&
+      /^\?\d+(;\d+)*$/.test(params)
+    ) {
+      const modes = params.slice(1).split(";").map(Number);
+      if (modes.some((m) => m === 47 || m === 1047 || m === 1049)) {
+        this.#needsRepaint = true;
+        this.#pendingRegionReapply = true;
+        return `${prefix}${rawSeq}`;
+      }
+      if (final === "l" && modes.includes(1048)) {
+        return `${prefix}${rawSeq}${this.#restoreStateFromHeadless(cols, childRows)}`;
+      }
+      return `${prefix}${rawSeq}`;
+    }
+
+    return `${prefix}${rawSeq}`;
+  }
+}
+
 /**
  * Follow one native PTY without owning its lifetime. A transport failure closes
  * only this observer/controller connection; the host-owned PTY is never stopped
@@ -458,23 +1325,40 @@ type ActiveAttachConnection = {
 export async function runAttach(
   id: string,
   runtime: NativeTerminalAttachRuntime = defaultAttachRuntime(socketPathFromEnv()),
-  options: { takeover?: boolean } = {},
+  options: {
+    takeover?: boolean;
+    statusBar?: boolean | NativeAttachStatusBarOptions;
+  } = {},
 ): Promise<number> {
   const stdin = runtime.stdin;
   const stdout = runtime.stdout;
+  const statusBar = new NativeStatusBarController(
+    id,
+    stdout,
+    () => runtime.now(),
+    options.statusBar,
+  );
   let modes = new TerminalModeTracker();
   let modesSuspended = false;
   let savedReset = "";
   const saveReset = (): void => {
-    const reset = modesSuspended ? "" : modes.resetSequence();
+    const reset = modesSuspended
+      ? ""
+      : `${statusBar.peekRestoreSequence()}${modes.resetSequence()}`;
     if (reset === savedReset) return;
     runtime.saveTerminalReset?.(reset);
     savedReset = reset;
   };
+  const restoreBarForNotice = (): void => {
+    const pending = statusBar.flushPendingSequence();
+    const barRestore = statusBar.restoreSequence();
+    const seq = `${pending}${barRestore}`;
+    if (seq) stdout.write(seq);
+  };
   const relayOutput = (data: string): void => {
     modes.feed(data);
+    stdout.write(statusBar.transformChildOutput(data));
     saveReset();
-    stdout.write(data);
   };
   // Older protocol-v1 hosts relay the wrapper marker verbatim. New hosts
   // consume it themselves so detached sessions also return to a clean shell.
@@ -482,12 +1366,15 @@ export async function runAttach(
   const resetModes = (): void => {
     if (modesSuspended) return;
     modesSuspended = true;
+    const pending = statusBar.flushPendingSequence();
+    const barRestore = statusBar.restoreSequence();
     const reset = modes.resetSequence();
-    if (!reset) { saveReset(); return; }
+    const sequence = `${pending}${barRestore}${reset}`;
+    if (!sequence) { saveReset(); return; }
     // Signals and fatal exits cannot wait for an asynchronous pipe flush.
     const fd = (stdout as NodeJS.WriteStream & { fd?: number }).fd;
-    if (typeof fd === "number") writeSync(fd, reset);
-    else stdout.write(reset);
+    if (typeof fd === "number") writeSync(fd, sequence);
+    else stdout.write(sequence);
     saveReset();
   };
   const isRawCapable = stdin.isTTY === true;
@@ -513,6 +1400,7 @@ export async function runAttach(
       : state.status === "exited" ? "session exited"
       : state.controller ? `controller taken over by pid=${state.controller.pid ?? "unknown"} tty=${state.controller.tty} since=${state.controller.since}`
       : "controller released or session replaced";
+    restoreBarForNotice();
     stdout.write(`\r\n[h2a] ${reason}; attach detached\r\n`);
     exitCode = state.status === "exited" && !state.stopSignal ? state.exit?.exitCode ?? 0 : 0;
     if (state.status === "exited") appendCrashLog("attach", sessionExitCrashEntry(state, { sessionId: id, detail: reason }));
@@ -555,6 +1443,7 @@ export async function runAttach(
     // stale failure so it can never tear down the newly-acquired controller.
     if (active !== connection) return;
     if (error instanceof NativeTerminalRemoteError && error.message === "stale terminal controller lease") {
+      restoreBarForNotice();
       stdout.write("\r\n[h2a] controller revoked by takeover or stop; attach detached\r\n");
       appendCrashLog("attach", { event: "refusal", sessionId: id, reason: "stale-controller-lease" });
       terminalEnded = true;
@@ -606,6 +1495,7 @@ export async function runAttach(
       return;
     }
     if (pendingInputBytes + chunk.length > ATTACH_PENDING_INPUT_MAX_BYTES) {
+      restoreBarForNotice();
       stdout.write(
         "\r\n[h2a] native attach input buffer full during reconnect; detaching " +
           "without stopping the session\r\n",
@@ -622,13 +1512,19 @@ export async function runAttach(
   stdin.on("data", onInput);
   const onEnd = (): void => { detached = true; closeActive(); };
   stdin.on("end", onEnd);
-  const resize = (): void => {
+  const sendChildResize = (): void => {
     const current = active;
-    if (current && stdout.columns && stdout.rows) {
+    const rows = statusBar.childRows();
+    if (current && stdout.columns && rows) {
       void current.client
-        .resize(current.lease, stdout.columns, stdout.rows)
+        .resize(current.lease, stdout.columns, rows)
         .catch((error) => markTransportFailure(current, error));
     }
+  };
+  const resize = (): void => {
+    sendChildResize();
+    statusBar.onResize();
+    saveReset();
   };
   runtime.onResize(resize);
 
@@ -650,7 +1546,9 @@ export async function runAttach(
       takeoverPending = false;
       active = { client, lease };
       transportFailure = undefined;
-      resize();
+      await statusBar.probe(true, "attached");
+      sendChildResize();
+      saveReset();
       pumpInput();
       return state;
     } catch (error) {
@@ -701,6 +1599,7 @@ export async function runAttach(
             ? `timeout:${transportFailure.operation}`
             : "transport-interrupted";
         closeActive();
+        await statusBar.probe(false, "reconnecting");
         let reconnectDelayMs = ATTACH_RECONNECT_MIN_MS;
         for (;;) {
           if (detached) break;
@@ -735,6 +1634,7 @@ export async function runAttach(
           } catch (error) {
             const durationMs = Math.max(0, runtime.now() - disconnectStartedAt);
             if (error instanceof NativeTerminalRemoteError && error.message.includes("already has a controller")) {
+              restoreBarForNotice();
               stdout.write(`\r\n[h2a] ${error.message}; attach detached\r\n`);
               appendCrashLog("attach", {
                 event: "refusal",
@@ -786,6 +1686,7 @@ export async function runAttach(
           modes = new TerminalModeTracker();
           resetRelay = new TerminalResetRelay(relayOutput, () => modes.resetSequence());
           modesSuspended = false;
+          statusBar.resumeAfterReset();
           if (replay.terminalModePrefix) {
             resetRelay.feed(replay.terminalModePrefix);
           }
@@ -794,6 +1695,8 @@ export async function runAttach(
           resetRelay.feed(chunk.data);
           seq = chunk.seq;
         }
+        statusBar.flushAfterOutputBatch();
+        await statusBar.probe(false);
         seq = replay.latestSeq;
         if (replay.chunks.length === 0) {
           await runtime.delay(idlePollMs);
@@ -852,7 +1755,10 @@ export async function runAttach(
   } finally {
     try {
       resetRelay.flush();
-      if (detached) stdout.write("\r\n[h2a] detached from native session (session keeps running)\r\n");
+      if (detached) {
+        restoreBarForNotice();
+        stdout.write("\r\n[h2a] detached from native session (session keeps running)\r\n");
+      }
       resetModes();
     } finally {
       runtime.offTerminate?.(terminate);
@@ -868,6 +1774,7 @@ export async function runAttach(
         await current.client.releaseController(current.lease).catch(() => {});
         current.client.close();
       }
+      statusBar.dispose();
     }
   }
   return exitCode;
