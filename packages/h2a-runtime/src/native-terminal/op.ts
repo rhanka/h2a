@@ -51,6 +51,7 @@ import { defaultNativeTerminalSocketPath, knownNativeTerminalSocketPaths,
   inspectPrivateNativeTerminalSocket, sameNativeTerminalSocket } from "./socket-path.js";
 import { collectNativeInventory, publicationContenderObserved, readNativeTerminalSuccessor, resolveNativeOwner, type NativeInventory } from "./fleet.js";
 import { renderTerminalScreen } from "./screen.js";
+import xtermHeadless from "@xterm/headless";
 import { TerminalModeTracker } from "./terminal-modes.js";
 import { publishAttachReset } from "./attach-recovery.js";
 import { TerminalResetRelay } from "./reset-relay.js";
@@ -552,6 +553,10 @@ type HeadlessTerminalConstructor = new (options: {
   allowProposedApi: boolean;
 }) => HeadlessTerminal;
 
+const { Terminal: HeadlessTerminalCtor } = xtermHeadless as unknown as {
+  Terminal: HeadlessTerminalConstructor;
+};
+
 function sgrSequenceFromAttr(attr: HeadlessAttrData): string {
   if (attr.isAttributeDefault()) return "";
   const codes: string[] = [];
@@ -616,7 +621,6 @@ class NativeStatusBarController {
   #renderLine:
     | ((snapshot: NativeStatusBarSnapshot, cols: number) => string)
     | undefined;
-  #xtermCtor: HeadlessTerminalConstructor | undefined;
   #headless: HeadlessTerminal | undefined;
 
   #linkState: NativeStatusBarLinkState = "attached";
@@ -627,6 +631,7 @@ class NativeStatusBarController {
   #activeCols = 0;
   #lastRenderedLine = "";
   #needsRepaint = true;
+  #pendingRegionReapply = false;
   #restored = false;
   #pendingSeq = "";
 
@@ -674,10 +679,9 @@ class NativeStatusBarController {
     return this.isActive() ? rows - 1 : rows;
   }
 
-  #ensureHeadless(cols: number, childRows: number): HeadlessTerminal | undefined {
-    if (!this.#xtermCtor) return undefined;
+  #ensureHeadless(cols: number, childRows: number): HeadlessTerminal {
     if (!this.#headless) {
-      this.#headless = new this.#xtermCtor({
+      this.#headless = new HeadlessTerminalCtor({
         cols,
         rows: childRows,
         scrollback: 0,
@@ -705,16 +709,12 @@ class NativeStatusBarController {
     if (!this.#optionEnabled || !this.#isTty) return;
     if (!this.#initialized) {
       this.#initialized = true;
-      const [{ isStatusBarEnabled }, statusProjection, { default: xterm }] =
-        await Promise.all([
-          import("../config.js"),
-          import("../status-projection.js"),
-          import("@xterm/headless"),
-        ]);
+      const [{ isStatusBarEnabled }, statusProjection] = await Promise.all([
+        import("../config.js"),
+        import("../status-projection.js"),
+      ]);
       this.#readSnapshot = statusProjection.readNativeStatusBarSnapshot;
       this.#renderLine = statusProjection.renderNativeStatusBarLine;
-      this.#xtermCtor =
-        xterm.Terminal as unknown as HeadlessTerminalConstructor;
       this.#featureEnabled = isStatusBarEnabled(this.#opts.env ?? process.env);
     }
     if (!this.#featureEnabled || !this.#readSnapshot) return;
@@ -779,6 +779,7 @@ class NativeStatusBarController {
     this.#pendingSeq = "";
     this.#lastRenderedLine = "";
     this.#needsRepaint = true;
+    this.#pendingRegionReapply = false;
     this.#headless?.reset();
     this.paint(true);
   }
@@ -811,6 +812,7 @@ class NativeStatusBarController {
     const seq = this.peekRestoreSequence();
     if (!seq) return "";
     this.#restored = true;
+    this.#pendingRegionReapply = false;
     return seq;
   }
 
@@ -858,6 +860,12 @@ class NativeStatusBarController {
     return `\x1b[?6l\x1b[${top};${bottom}r${this.#restoreStateFromHeadless(cols, childRows)}`;
   }
 
+  #flushPendingRegionReapply(cols: number, childRows: number): string {
+    if (!this.#pendingRegionReapply) return "";
+    this.#pendingRegionReapply = false;
+    return this.#reapplyScrollRegionAndState(cols, childRows);
+  }
+
   paint(force = false): void {
     if (this.#restored) return;
     if (this.#pendingSeq.length > 0) {
@@ -865,6 +873,7 @@ class NativeStatusBarController {
       return;
     }
     if (!this.isActive()) {
+      this.#pendingRegionReapply = false;
       if (this.#wasActive && this.#activeRows >= STATUS_BAR_MIN_ROWS) {
         const currentRows = this.#stdout.rows ?? 1;
         const currentCols = this.#stdout.columns ?? 1;
@@ -931,6 +940,7 @@ class NativeStatusBarController {
 
     this.#lastRenderedLine = line;
     this.#needsRepaint = false;
+    this.#pendingRegionReapply = false;
     const buf = headless?._core._bufferService.buffer;
     const top = Math.min(childRows - 1, Math.max(1, (buf?.scrollTop ?? 0) + 1));
     const bottom = Math.min(
@@ -1102,6 +1112,9 @@ class NativeStatusBarController {
       const cp = input.codePointAt(i)!;
       const step = cp > 0xffff ? 2 : 1;
       const glyph = input.slice(i, i + step);
+      if (cp !== 0x0d) {
+        out += this.#flushPendingRegionReapply(cols, childRows);
+      }
       const buf = headless._core._bufferService.buffer;
       const prevY = buf.y;
       const prevX = buf.x;
@@ -1145,6 +1158,7 @@ class NativeStatusBarController {
     childRows: number,
     cols: number,
   ): string {
+    const prefix = this.#flushPendingRegionReapply(cols, childRows);
     const core = headless._core;
     const buf = core._bufferService.buffer;
     const prevY = buf.y;
@@ -1153,22 +1167,25 @@ class NativeStatusBarController {
     core._inputHandler.parse(rawSeq);
     if (next === "c") {
       this.#needsRepaint = true;
-      return `${rawSeq}${this.#reapplyScrollRegionAndState(cols, childRows)}`;
+      this.#pendingRegionReapply = true;
+      return `${prefix}${rawSeq}`;
     }
     if (next === "8") {
-      return `${rawSeq}${this.#restoreStateFromHeadless(cols, childRows)}`;
+      return `${prefix}${rawSeq}${this.#restoreStateFromHeadless(cols, childRows)}`;
     }
     if (prevY === childRows - 1 && prevScrollBottom < childRows - 1) {
       if (next === "D") {
-        return prevX >= cols
-          ? this.#restoreStateFromHeadless(cols, childRows)
-          : "";
+        return `${prefix}${
+          prevX >= cols
+            ? this.#restoreStateFromHeadless(cols, childRows)
+            : ""
+        }`;
       }
       if (next === "E") {
-        return "\r";
+        return `${prefix}\r`;
       }
     }
-    return rawSeq;
+    return `${prefix}${rawSeq}`;
   }
 
   #processCsi(
@@ -1180,6 +1197,19 @@ class NativeStatusBarController {
     childRows: number,
     cols: number,
   ): string {
+    const isPassthroughModeCsi =
+      intermediates === "" &&
+      ((final === "u" && /^[<>]\d*$/.test(params)) ||
+        ((final === "h" || final === "l") &&
+          /^\?\d+(;\d+)*$/.test(params) &&
+          !params
+            .slice(1)
+            .split(";")
+            .some((m) => Number(m) === 6 || Number(m) === 1048)));
+    const prefix = isPassthroughModeCsi
+      ? ""
+      : this.#flushPendingRegionReapply(cols, childRows);
+
     const core = headless._core;
     const prevBuf = core._bufferService.buffer;
     const prevY = prevBuf.y;
@@ -1191,9 +1221,10 @@ class NativeStatusBarController {
 
     if (intermediates === "!" && final === "p" && params === "") {
       this.#needsRepaint = true;
-      return `${rawSeq}${this.#reapplyScrollRegionAndState(cols, childRows)}`;
+      this.#pendingRegionReapply = true;
+      return `${prefix}${rawSeq}`;
     }
-    if (intermediates !== "") return rawSeq;
+    if (intermediates !== "") return `${prefix}${rawSeq}`;
 
     const isStandardParams = !/^[<=>?]/.test(params);
     if (final === "r" && isStandardParams) {
@@ -1207,30 +1238,31 @@ class NativeStatusBarController {
       const bottom =
         !rawBottom || rawBottom > childRows ? childRows : rawBottom;
       if (bottom <= top) {
-        return "";
+        return prefix;
       }
       this.#needsRepaint = true;
-      return `\x1b[${buf.scrollTop + 1};${buf.scrollBottom + 1}r`;
+      this.#pendingRegionReapply = false;
+      return `${prefix}\x1b[${buf.scrollTop + 1};${buf.scrollBottom + 1}r`;
     }
 
     if ((final === "H" || final === "f") && isStandardParams) {
       if (!prevOrigin) {
         const rawRow = Number.parseInt(params.split(";")[0] || "1", 10) || 1;
         if (rawRow > childRows) {
-          return `\x1b[${buf.y + 1};${buf.x + 1}${final}`;
+          return `${prefix}\x1b[${buf.y + 1};${buf.x + 1}${final}`;
         }
       }
-      return rawSeq;
+      return `${prefix}${rawSeq}`;
     }
 
     if (final === "d" && isStandardParams) {
       if (!prevOrigin) {
         const rawRow = Number.parseInt(params || "1", 10) || 1;
         if (rawRow > childRows) {
-          return `\x1b[${buf.y + 1}d`;
+          return `${prefix}\x1b[${buf.y + 1}d`;
         }
       }
-      return rawSeq;
+      return `${prefix}${rawSeq}`;
     }
 
     if (
@@ -1241,24 +1273,25 @@ class NativeStatusBarController {
       if ((prevY > prevScrollBottom || final === "e") && prevY + n >= childRows) {
         const maxDown = Math.max(0, buf.y - prevY);
         if (final === "E") {
-          return maxDown > 0 ? `\x1b[${maxDown}E` : "\r";
+          return `${prefix}${maxDown > 0 ? `\x1b[${maxDown}E` : "\r"}`;
         }
-        return maxDown > 0 ? `\x1b[${maxDown}${final}` : "";
+        return `${prefix}${maxDown > 0 ? `\x1b[${maxDown}${final}` : ""}`;
       }
-      return rawSeq;
+      return `${prefix}${rawSeq}`;
     }
 
     if (final === "u" && params === "") {
-      return `${rawSeq}${this.#restoreStateFromHeadless(cols, childRows)}`;
+      return `${prefix}${rawSeq}${this.#restoreStateFromHeadless(cols, childRows)}`;
     }
 
     if (final === "J" && (params === "" || /^\??\d+$/.test(params))) {
       const mode = Number.parseInt(params.replace(/^\?/, "") || "0", 10);
       if (mode === 0 || mode === 2 || mode === 3) {
         this.#needsRepaint = true;
-        return `${rawSeq}${this.#reapplyScrollRegionAndState(cols, childRows)}`;
+        this.#pendingRegionReapply = true;
+        return `${prefix}${rawSeq}`;
       }
-      return rawSeq;
+      return `${prefix}${rawSeq}`;
     }
 
     if (
@@ -1268,15 +1301,16 @@ class NativeStatusBarController {
       const modes = params.slice(1).split(";").map(Number);
       if (modes.some((m) => m === 47 || m === 1047 || m === 1049)) {
         this.#needsRepaint = true;
-        return `${rawSeq}${this.#reapplyScrollRegionAndState(cols, childRows)}`;
+        this.#pendingRegionReapply = true;
+        return `${prefix}${rawSeq}`;
       }
       if (final === "l" && modes.includes(1048)) {
-        return `${rawSeq}${this.#restoreStateFromHeadless(cols, childRows)}`;
+        return `${prefix}${rawSeq}${this.#restoreStateFromHeadless(cols, childRows)}`;
       }
-      return rawSeq;
+      return `${prefix}${rawSeq}`;
     }
 
-    return rawSeq;
+    return `${prefix}${rawSeq}`;
   }
 }
 
