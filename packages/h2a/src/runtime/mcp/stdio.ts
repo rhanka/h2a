@@ -220,9 +220,19 @@ function serverVersion(): string {
   return cachedServerVersion;
 }
 
-function currentTmuxSessionForSidecar(env: NodeJS.ProcessEnv): string | undefined {
+export function currentTmuxSessionForSidecar(env: NodeJS.ProcessEnv): string | undefined {
+  const nativeSession = (env.H2A_NATIVE_PTY_SESSION ?? "").trim();
+  if (
+    nativeSession &&
+    nativeSession.length <= 128 &&
+    !/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/u.test(nativeSession)
+  ) {
+    return nativeSession;
+  }
   const pane = env.TMUX_PANE;
-  if (!pane || !/^%\d+$/.test(pane)) return undefined;
+  if (!pane || !/^%\d+$/.test(pane)) {
+    return undefined;
+  }
   try {
     const result = spawnSync(
       "tmux",
@@ -648,7 +658,9 @@ export function runMcpStdio(options: RunMcpStdioOptions): Promise<void> {
         delegatorInstance: cfg.instance,
         delegatorTmuxSession
       };
-      recordTmuxOwner(delegatorTmuxSession, cfg.instance);
+      if (!sessionEnv.H2A_NATIVE_PTY_SESSION?.trim() && sessionEnv.TMUX_PANE) {
+        recordTmuxOwner(delegatorTmuxSession, cfg.instance);
+      }
     }
     if (options.participant) {
       options.participant.delegationReferences = delegation ? [delegation] : [];
