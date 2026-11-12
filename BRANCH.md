@@ -3112,5 +3112,7 @@ scope stays pre-SG-R15.
   - [x] After the Muse-only max admission fix: strict npm ci in an isolated container, MCP run tests 18/18 and native launch tests 31/31 passed.
   - [x] MCP descriptor regenerated from the source tool definitions.
   - [x] Full npm run build, descriptor freshness check, MCP 18/18 and native launch 31/31 passed after preserving the CLI's string profile type in the effort guard.
+  - [x] CI 43306471975: 27/28 checks passed; Node 22 Focus packaging prepack exceeded 5000 ms (5325 ms). Node 24 and the production test entrypoint passed on the same head.
+  - [x] Exact-head isolated Node 22.23.4 reproduction: Focus packaging 10/10 passed; prepack case 970 ms. Evidence establishes a transient duration failure; fresh pull_request CI requested by this diagnostic commit, without changing test thresholds or assertions.
   - [ ] Muse independent code review dispatched; Argon unavailable (account disabled).
 - [ ] Lot 3: open PR and resolve CI to green on exact head.
