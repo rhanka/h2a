@@ -1294,9 +1294,6 @@ class NativeStatusBarController {
             this.#needsRepaint = true;
             suffix = `\x1b[1;${childRows}r\x1b[1;1H`;
           } else {
-            if (this.#inAltScreen) {
-              prefix = `\x1b[?6l\x1b[r\x1b[${rows};1H\x1b[2K`;
-            }
             this.#inAltScreen = false;
             this.#originMode = false;
             this.#pendingWrap = false;
@@ -1306,7 +1303,6 @@ class NativeStatusBarController {
               this.#restoreCursorState(this.#altSavedCursor, childRows, cols);
             }
             this.#needsRepaint = true;
-            suffix = `\x1b[1;${childRows}r\x1b[${this.#row};${this.#col}H${this.#activeSgr}`;
           }
         }
       }
