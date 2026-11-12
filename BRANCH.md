@@ -3067,3 +3067,37 @@ scope stays pre-SG-R15.
   and two marker values are reserved in the EVOL.
 - [x] The existing loop decision-raised result proves a Track card only; native call evidence is separate.
 - [x] Runtime L2 is explicitly deferred under the owner's one-reviewable-PR clause, not declared shipped.
+# Feature: Muse Ember launch integration
+
+## Objective
+- [x] Add canonical muse-ember-1.0 and readable muse-ember alias without changing routing defaults.
+
+## Branch Scope Boundaries (MANDATORY)
+- **Allowed Paths (implementation scope)**:
+  - `packages/h2a-runtime/src/gateway-model-catalog/**`
+  - `packages/h2a-runtime/src/agent-launch-args.test.ts`
+  - `BRANCH.md`
+- **Forbidden Paths (must not change in this branch)**:
+  - `.github/**`
+  - `package-lock.json`
+- **Conditional Paths (allowed only with explicit exception when not already listed in Allowed Paths)**:
+  - `packages/h2a-runtime/src/agent-launch-args.ts`
+
+## Scope / Guardrails
+- [x] Worktree tmp/worktrees/muse-ember; branch feat/muse-ember.
+- [x] No AGENTS.md, MASTER.md or Makefile exists in this repository at origin/main 44934e05c.
+- [x] Version stays on the repository's synchronized release version; no standalone package release.
+- [x] Tests use Docker through the lane make helper, ENV=test-h2a-ember last.
+- [x] No services or ports needed; reserved API 9701, UI 5901, Maildev 1801.
+
+## Feedback Loop
+- [x] Local Muse catalog confirms muse-ember-1.0.
+- [x] Existing launcher already preserves model and native xhigh/max flags.
+- [x] Ember parity is pre-provisioned while the repository pins mesh 0.26.0, matching the existing Carbon pattern.
+- [x] Track import belongs to the designated conductor.
+
+## Plan / Todo (lot-based)
+- [x] Lot 0: inspect rules, baseline and branch gate.
+- [x] Lot 1: canonical ID and alias; catalog and agent-launch-args tests.
+- [ ] Lot 2: targeted catalog/launch tests and independent code review.
+- [ ] Lot 3: open PR and resolve CI to green on exact head.

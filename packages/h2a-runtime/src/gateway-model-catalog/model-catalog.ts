@@ -17,6 +17,7 @@ export const CLAUDE_FABLE_5_2 = "claude-fable-5-2";
 export const MUSE_SPARK_1_3 = "muse-spark-1.3";
 export const MUSE_SPARK_1_3_CONTRIBUTOR = "muse-spark-1.3-contributor";
 export const MUSE_WONDER_1_0 = "muse-wonder-1.0";
+export const MUSE_EMBER_1_0 = "muse-ember-1.0";
 export const MUSE_WONDER_FULL_1_0 = "muse-wonder-full-1.0";
 
 export const GATEWAY_MODEL_IDS = [
@@ -28,6 +29,7 @@ export const GATEWAY_MODEL_IDS = [
   MUSE_SPARK_1_3,
   MUSE_SPARK_1_3_CONTRIBUTOR,
   MUSE_WONDER_1_0,
+  MUSE_EMBER_1_0,
   MUSE_WONDER_FULL_1_0,
 ] as const;
 
@@ -74,6 +76,8 @@ export const GATEWAY_MODEL_ALIASES: Readonly<Record<string, GatewayModelId>> =
     spark: MUSE_SPARK_1_3,
     "muse-wonder-1.0": MUSE_WONDER_1_0,
     "muse-wonder": MUSE_WONDER_1_0,
+    "muse-ember-1.0": MUSE_EMBER_1_0,
+    "muse-ember": MUSE_EMBER_1_0,
     wonder: MUSE_WONDER_1_0,
     "muse-wonder-full-1.0": MUSE_WONDER_FULL_1_0,
     "muse-wonder-full": MUSE_WONDER_FULL_1_0,
