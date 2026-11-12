@@ -10,7 +10,7 @@ export function isAgentLaunchProfile(value: string): value is AgentLaunchProfile
   return (AGENT_LAUNCH_PROFILES as readonly string[]).includes(value);
 }
 
-export function isAgentLaunchEffort(value: string, profile?: AgentLaunchProfile): value is AgentLaunchEffort {
+export function isAgentLaunchEffort(value: string, profile?: string): value is AgentLaunchEffort {
   return (AGENT_LAUNCH_EFFORTS as readonly string[]).includes(value) || (profile === "muse" && value === "max");
 }
 
