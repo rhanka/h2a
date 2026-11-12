@@ -421,13 +421,13 @@
     },
     {
       "name": "native-host.js",
-      "local": "dafdc3122d3334ec",
+      "local": "1c6ad09303badab3",
       "published": "91ea3d984755a64e",
       "outcome": "differing"
     },
     {
       "name": "native-terminal/op.js",
-      "local": "94323fb7e84ff43e",
+      "local": "87717b20b8cbce51",
       "published": "e0f4efc4318ef16d",
       "outcome": "differing"
     },
