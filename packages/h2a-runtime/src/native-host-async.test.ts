@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -25,9 +25,19 @@ const launch = (onCreateAttempt = vi.fn()) => startNativeSessionSingleShot("code
   { terminateOnAgentExit: true, onCreateAttempt });
 
 it("should return the direct operation's session identity without a launch helper", async () => {
-  native.operation.mockImplementation(async (_argv, emit) => { emit({ pid: 123, generation: "g", socketPath: join(root, "h") }); return 0; });
+  let capturedEnv: Record<string, string> = {};
+  native.operation.mockImplementation(async (argv: string[], emit) => {
+    const envIdx = argv.indexOf("--env-file");
+    if (envIdx >= 0 && argv[envIdx + 1]) {
+      capturedEnv = JSON.parse(readFileSync(argv[envIdx + 1]!, "utf8")) as Record<string, string>;
+    }
+    emit({ pid: 123, generation: "g", socketPath: join(root, "h") });
+    return 0;
+  });
   const onCreateAttempt = vi.fn();
   expect(await launch(onCreateAttempt)).toMatchObject({ name: "h2a-async-target", pid: 123, generation: "g" });
+  expect(capturedEnv["H2A_NATIVE_TERMINAL"]).toBe("1");
+  expect(capturedEnv["H2A_NATIVE_PTY_SESSION"]).toBe("h2a-async-target");
   expect(onCreateAttempt).toHaveBeenCalledOnce();
   expect(procReaderDeps).toHaveBeenCalledExactlyOnceWith(123);
   expect(native.close).toHaveBeenCalled();
