@@ -39,8 +39,8 @@ This plugin's PreToolUse hook (`packages/h2a/hooks/deny-manual-h2a-cli.mjs`) blo
 None of these require knowing a provider model id up front:
 
 1. **Profile** — `claude`, `codex`, `agy`, `muse`, or `vibe` (which CLI to launch). Default to whichever CLI the user is already in if unstated; ask if genuinely ambiguous.
-2. **Model flavor** — a nickname like *terra*, *sol* (aka *fable*), *luna*, or unstated (→ the CLI's own default model). Resolves to a `--model` / `model` value (Step 2).
-3. **Effort** — `low | medium | high | xhigh`. For Claude/Codex/Muse, "max" means `xhigh`; AGY accepts only `low | medium | high` and rejects both `xhigh` and "max". Vibe resolves thinking level from its own config (`/thinking`), so effort is not a launch argument for it.
+2. **Model flavor** — a nickname like *terra*, *sol* (aka *fable*, *fable-5.2*, *fable-5.1*), *luna*, *carbon* (`gemini-4-carbon`), *argon* (`gemini-4-argon`), or unstated (→ the CLI's own default model). Resolves to a `--model` / `model` value (Step 2).
+3. **Effort** — `low | medium | high | xhigh`. For Claude/Codex/Muse, translate a user's "max" intent to `xhigh` (`--effort max` is rejected outside `agy`); AGY accepts only `low | medium | high` and rejects `xhigh` (`gemini-4-carbon` refuses `max`; `claude-opus-5-5` and `claude-sonnet-5-5` map `max` to `high`). Vibe resolves thinking level from its own config (`/thinking`), so effort is not a launch argument for it.
 
 ## Step 2 — resolve the model flavor (source-of-truth caveat)
 
@@ -49,7 +49,18 @@ None of these require knowing a provider model id up front:
 - if a gateway is already running for this session, query `GET <ANTHROPIC_BASE_URL>/v1/models` (the mesh's own live catalog) and match the flavor there;
 - otherwise, ask the caller for an exact model id; never start the gateway for a mere model lookup and never inspect or recreate a h2a-local table.
 
-The owner-ratified xhigh aliases are intentionally narrow: Opus 5 and Opus 4.8 resolve to Terra xhigh, Fable 5 to Sol xhigh, and Sonnet 5 to Luna xhigh. Any additional effort variant must come from the live Sentropic council. Bare vendor ids remain provider-faithful. Always prefer the exact live catalog id returned by the gateway; if the requested nickname is absent, do not invent one.
+The owner-ratified xhigh aliases are intentionally narrow: Opus 5 and Opus 4.8 resolve to Terra xhigh, Fable 5 to Sol xhigh, Fable 5.1 (`claude-fable-5-1`) to Wonder / Argon, Fable 5.2 (`claude-fable-5-2`, `-high`, `-xhigh`) to Gemini 4 Carbon (`gemini-4-carbon`), and Sonnet 5 to Luna xhigh. Any additional effort variant must come from the live Sentropic council. Bare vendor ids remain provider-faithful. Always prefer the exact live catalog id returned by the gateway; if the requested nickname is absent, do not invent one.
+
+| Nickname / alias | Canonical `--model` / `model` id | Profile | Effort notes |
+| --- | --- | --- | --- |
+| `carbon`, `gemini-carbon`, `gemini-4-carbon`, `carbon-high` | `gemini-4-carbon` | `agy` | `low \| medium \| high` only (`max` is refused) |
+| `argon`, `gemini-argon`, `gemini-4-argon`, `argon-high` | `gemini-4-argon` | `agy` | `low \| medium \| high` |
+| `flash`, `gemini-3.8-flash`, `flash-high` | `gemini-3.8-flash` | `agy` | `low \| medium \| high` |
+| `fable`, `fable-5.2`, `fable-5-2`, `claude-fable-5-2` | `claude-fable-5-2` | `claude` | `low \| medium \| high \| xhigh` (gateway routes base/`-high`/`-xhigh` → `gemini-4-carbon`) |
+| `fable-5.1`, `fable-5-1`, `claude-fable-5-1` | `claude-fable-5-1` | `claude` | `low \| medium \| high \| xhigh` (gateway routes to `muse-wonder-1.0` / `gemini-4-argon`) |
+| `wonder`, `muse-wonder`, `muse-wonder-1.0` | `muse-wonder-1.0` | `muse` / `claude --gw` | `low \| medium \| high \| xhigh` |
+| `wonder-full`, `muse-wonder-full`, `muse-wonder-full-1.0` | `muse-wonder-full-1.0` | `muse` / `claude --gw` | `low \| medium \| high \| xhigh` |
+| `spark`, `muse-spark`, `muse-spark-1.3` | `muse-spark-1.3` | `muse` / `claude --gw` | `low \| medium \| high \| xhigh` |
 
 ## Step 3 — gateway on/off
 
