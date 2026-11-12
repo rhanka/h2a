@@ -3076,6 +3076,12 @@ scope stays pre-SG-R15.
 - **Allowed Paths (implementation scope)**:
   - `packages/h2a-runtime/src/gateway-model-catalog/**`
   - `packages/h2a-runtime/src/agent-launch-args.test.ts`
+  - `packages/h2a-runtime/src/agent-launch-args.ts`
+  - `packages/h2a-runtime/src/index.ts`
+  - `packages/h2a/src/runtime/mcp/agent-launch.ts`
+  - `packages/h2a/src/runtime/mcp/tools.ts`
+  - `packages/h2a/src/runtime/mcp-central-descriptor.js`
+  - `packages/h2a/test/mcp-run.test.js`
   - `BRANCH.md`
 - **Forbidden Paths (must not change in this branch)**:
   - `.github/**`
@@ -3092,7 +3098,8 @@ scope stays pre-SG-R15.
 
 ## Feedback Loop
 - [x] Local Muse catalog confirms muse-ember-1.0.
-- [x] Existing launcher already preserves model and native xhigh/max flags.
+- [x] Native argv builder preserves model and xhigh/max flags, but CLI/MCP admission rejected Muse max before invocation.
+- [x] BREMH-EX1: extend only Muse max admission in CLI/MCP and regenerate its tool descriptor. Required by the explicit h2a run/h2a_run max acceptance; other profiles retain their existing effort restrictions. Rollback restores validators, descriptor and matching tests together.
 - [x] Ember parity is pre-provisioned while the repository pins mesh 0.26.0, matching the existing Carbon pattern.
 - [x] Track import belongs to the designated conductor.
 
@@ -3102,5 +3109,7 @@ scope stays pre-SG-R15.
 - [ ] Lot 2: targeted catalog/launch tests and independent code review.
   - [x] Docker targeted Vitest run: 41 tests passed (catalog 10; launch arguments 31).
   - [x] Mechanical harness scope check: PASS C2.
+  - [x] After the Muse-only max admission fix: strict npm ci in an isolated container, MCP run tests 18/18 and native launch tests 31/31 passed.
+  - [x] MCP descriptor regenerated from the source tool definitions.
   - [ ] Muse independent code review dispatched; Argon unavailable (account disabled).
 - [ ] Lot 3: open PR and resolve CI to green on exact head.
