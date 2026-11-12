@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type {
@@ -12,6 +12,7 @@ import {
 } from "./gateway-host/daemon.js";
 import { readLlmMeshConfig } from "./gateway-host/config-file.js";
 import { projectRemoteAgents, type RemoteAgentProjection } from "./agents-projection.js";
+import { resolveResumedGatewayMode } from "./protocol-local.js";
 import {
   loadRegistryWithDiagnostics,
   listJobs,
@@ -362,7 +363,19 @@ export function projectDelegatedExecutions(
   attestationsKnown = true,
   workerPidForTmuxSession: (session: string) => number | undefined =
     localSessionAgentPanePid,
-  nativeWorkerPidForSession?: (session: string) => number | undefined,
+  nativeWorkerPidForSession: (session: string) => number | undefined = (
+    workerSession,
+  ) => {
+    const workerRow = entries.find(
+      (e) =>
+        e.kind === "local-native" &&
+        e.endedAt === undefined &&
+        e.tmuxSession === workerSession &&
+        e.pid !== undefined &&
+        isPidAlive(e.pid),
+    );
+    return workerRow?.pid;
+  },
 ): { executions: H2ADelegatedExecutionV1[]; degraded: boolean } {
   if (!registryKnown || !attestationsKnown || !delegatorTmuxSession || !delegatorInstance) {
     return { executions: [], degraded: true };
@@ -383,6 +396,13 @@ export function projectDelegatedExecutions(
   for (const entry of entries) {
     if (entry.sessionClass !== "background" && entry.role !== "job") continue;
     if (entry.jobState === "done") continue;
+    if (
+      entry.sessionClass === "background" &&
+      entry.endedAt !== undefined &&
+      entry.jobState !== "failed"
+    ) {
+      continue;
+    }
     const attestation = entry.tmuxSession && !ambiguousWorkers.has(entry.tmuxSession)
       ? attestationByWorker.get(entry.tmuxSession)
       : undefined;
@@ -709,13 +729,26 @@ export interface ReadNativeStatusBarOptions {
 }
 
 const INSTANCE_TOKEN_RE = /^[A-Za-z0-9][A-Za-z0-9._:~-]{0,255}$/;
-const TERMINAL_LOOP_STATUSES = new Set([
-  "completed",
-  "cancelled",
-  "canceled",
-  "superseded",
-  "closed",
+const H2A_LOOP_STATUS_VALUES = new Set([
+  "created",
+  "running",
+  "Incrementing",
+  "waiting-ci",
+  "waiting-review",
+  "waiting-human",
+  "paused",
+  "stopped",
+  "blocked",
   "done",
+  "failed",
+  "cancelled",
+]);
+const TERMINAL_LOOP_STATUSES = new Set([
+  "done",
+  "failed",
+  "cancelled",
+  "stopped",
+  "blocked",
 ]);
 const ATTENTION_LOOP_STATUSES = new Set([
   "waiting-human",
@@ -725,6 +758,54 @@ const ATTENTION_LOOP_STATUSES = new Set([
   "failed",
   "paused",
 ]);
+const H2A_ENVELOPE_TYPES = new Set([
+  "register",
+  "propose",
+  "accept",
+  "reject",
+  "counter",
+  "withdraw",
+  "event",
+  "escalate",
+]);
+const H2A_SESSION_STATES = new Set([
+  "opening",
+  "live",
+  "draining",
+  "closed",
+  "expired",
+]);
+const DEFAULT_SESSION_EXPIRY_MS = 90_000;
+const DEFAULT_LOOP_STALE_MULTIPLIER = 3;
+const DEFAULT_LOOP_TICK_INTERVAL_SEC = 60;
+
+function readBoundedUtf8(
+  filePath: string,
+  maxBytes: number,
+): { ok: true; text: string } | { ok: false } {
+  let fd: number;
+  try {
+    fd = openSync(filePath, "r");
+  } catch {
+    return { ok: false };
+  }
+  try {
+    const buf = Buffer.allocUnsafe(maxBytes + 1);
+    const bytesRead = readSync(fd, buf, 0, maxBytes + 1, 0);
+    if (bytesRead > maxBytes) {
+      return { ok: false };
+    }
+    return { ok: true, text: buf.subarray(0, bytesRead).toString("utf8") };
+  } catch {
+    return { ok: false };
+  } finally {
+    try {
+      closeSync(fd);
+    } catch {
+      // best effort
+    }
+  }
+}
 
 function isPidAlive(pid: number): boolean {
   try {
@@ -779,8 +860,11 @@ function resolveLocalGatewayBaseUrl(stateDir?: string): string | undefined {
 interface PresenceFileRecord {
   readonly sessionId: string;
   readonly instance: string;
-  readonly status?: string;
-  readonly expiresAt: string;
+  readonly pid?: number;
+  readonly mirroredAt?: string;
+  readonly startedAt: string;
+  readonly heartbeatAt: string;
+  readonly state: "opening" | "live" | "draining" | "closed" | "expired";
   readonly launchContext?: {
     readonly nativePty?: { readonly session?: string };
     readonly tmux?: { readonly session?: string };
@@ -798,6 +882,11 @@ function readLivePresenceForRoot(
   if (!existsSync(presenceDir)) {
     return { records: [], degraded: false };
   }
+  const envExpiry = Number.parseInt(process.env.H2A_SESSION_EXPIRY_MS ?? "", 10);
+  const expiryMs =
+    Number.isFinite(envExpiry) && envExpiry > 0
+      ? envExpiry
+      : DEFAULT_SESSION_EXPIRY_MS;
   try {
     const files = readdirSync(presenceDir);
     const records: PresenceFileRecord[] = [];
@@ -805,24 +894,39 @@ function readLivePresenceForRoot(
     for (const file of files) {
       if (!file.endsWith(".json")) continue;
       try {
-        const raw = JSON.parse(
-          readFileSync(join(presenceDir, file), "utf8"),
-        ) as Partial<PresenceFileRecord>;
+        const bounded = readBoundedUtf8(join(presenceDir, file), 64 * 1024);
+        if (!bounded.ok) {
+          degraded = true;
+          continue;
+        }
+        const raw = JSON.parse(bounded.text) as Partial<PresenceFileRecord>;
         if (
           typeof raw.sessionId !== "string" ||
           typeof raw.instance !== "string" ||
           !INSTANCE_TOKEN_RE.test(raw.instance) ||
-          typeof raw.expiresAt !== "string"
+          typeof raw.startedAt !== "string" ||
+          typeof raw.heartbeatAt !== "string" ||
+          typeof raw.state !== "string" ||
+          !H2A_SESSION_STATES.has(raw.state)
         ) {
           degraded = true;
           continue;
         }
-        const expiresMs = Date.parse(raw.expiresAt);
-        if (!Number.isFinite(expiresMs)) {
+        const startedMs = Date.parse(raw.startedAt);
+        const heartbeatMs = Date.parse(raw.heartbeatAt);
+        if (!Number.isFinite(startedMs) || !Number.isFinite(heartbeatMs)) {
           degraded = true;
           continue;
         }
-        if (raw.status === "closed" || expiresMs <= nowMs) continue;
+        if (raw.state === "closed" || raw.state === "expired") continue;
+        if (nowMs - heartbeatMs > expiryMs) continue;
+        if (
+          !raw.mirroredAt &&
+          typeof raw.pid === "number" &&
+          (!Number.isInteger(raw.pid) || raw.pid <= 0 || !isPidAlive(raw.pid))
+        ) {
+          continue;
+        }
         records.push(raw as PresenceFileRecord);
       } catch {
         degraded = true;
@@ -858,9 +962,9 @@ function resolveInstanceRoleFromStore(
   const instancesPath = join(h2aRoot, "registry", "instances.jsonl");
   if (!existsSync(instancesPath)) return undefined;
   try {
-    const st = statSync(instancesPath);
-    if (st.size > 64 * 1024) return undefined;
-    const lines = readFileSync(instancesPath, "utf8").split("\n");
+    const bounded = readBoundedUtf8(instancesPath, 64 * 1024);
+    if (!bounded.ok) return undefined;
+    const lines = bounded.text.split("\n");
     let matchedRole: string | undefined;
     for (const line of lines) {
       if (!line.trim()) continue;
@@ -894,9 +998,9 @@ function readMcpAttestationsFromStore(
     return { values: [], known: true };
   }
   try {
-    const st = statSync(filePath);
-    if (st.size > 32 * 1024) return { values: [], known: false };
-    const text = readFileSync(filePath, "utf8");
+    const bounded = readBoundedUtf8(filePath, 32 * 1024);
+    if (!bounded.ok) return { values: [], known: false };
+    const text = bounded.text;
     const values: H2AMcpDelegationAttestationV1[] = [];
     for (const line of text.split("\n")) {
       if (!line.trim()) continue;
@@ -933,12 +1037,19 @@ function readMcpAttestationsFromStore(
 }
 
 function canonicalRecipientAddress(address: string): string {
-  return address.trim().toLowerCase();
+  const trimmed = address.trim();
+  const tilde = trimmed.indexOf("~");
+  if (tilde === -1) return trimmed.toLowerCase();
+  return `${trimmed.slice(0, tilde).toLowerCase()}~${trimmed.slice(tilde + 1)}`;
+}
+
+function safePathSegment(id: string): string {
+  return id.replace(/[:/\\<>"|?*]+/g, "__");
 }
 
 function inboxDirectoryName(recipient: string, lower = true): string {
   const normalized = lower ? canonicalRecipientAddress(recipient) : recipient.trim();
-  return normalized.replace(/[^A-Za-z0-9._-]/g, "__");
+  return safePathSegment(normalized);
 }
 
 function readInboxWaitingCount(
@@ -955,8 +1066,10 @@ function readInboxWaitingCount(
     return { waiting: 0, degraded: true };
   }
   try {
+    const subagentsRaw = readBoundedUtf8(subagentsFile, 64 * 1024);
+    if (!subagentsRaw.ok) return { waiting: 0, degraded: true };
     const subagentIds = new Set<string>();
-    for (const line of readFileSync(subagentsFile, "utf8").split("\n")) {
+    for (const line of subagentsRaw.text.split("\n")) {
       if (!line.trim()) continue;
       const row = JSON.parse(line) as {
         id?: unknown;
@@ -982,8 +1095,10 @@ function readInboxWaitingCount(
         subagentIds.add(row.id);
       }
     }
+    const auditRaw = readBoundedUtf8(auditFile, 64 * 1024);
+    if (!auditRaw.ok) return { waiting: 0, degraded: true };
     const revoked = new Set<string>();
-    for (const line of readFileSync(auditFile, "utf8").split("\n")) {
+    for (const line of auditRaw.text.split("\n")) {
       if (!line.trim()) continue;
       const row = JSON.parse(line) as {
         subagent?: unknown;
@@ -1022,19 +1137,37 @@ function readInboxWaitingCount(
       if (!existsSync(dirPath)) continue;
       for (const file of readdirSync(dirPath)) {
         if (!file.endsWith(".json")) continue;
-        const env = JSON.parse(readFileSync(join(dirPath, file), "utf8")) as {
+        const envRaw = readBoundedUtf8(join(dirPath, file), 64 * 1024);
+        if (!envRaw.ok) return { waiting: 0, degraded: true };
+        const env = JSON.parse(envRaw.text) as {
           protocol?: unknown;
+          version?: unknown;
           id?: unknown;
           type?: unknown;
-          actor?: { instance?: unknown };
+          actor?: { instance?: unknown; role?: unknown; scope?: unknown };
+          body?: unknown;
           createdAt?: unknown;
         };
         if (
           env.protocol !== "sentropic.h2a" ||
+          typeof env.version !== "string" ||
+          env.version.length === 0 ||
           typeof env.id !== "string" ||
+          env.id.length === 0 ||
           typeof env.type !== "string" ||
-          typeof env.actor?.instance !== "string" ||
-          typeof env.createdAt !== "string"
+          !H2A_ENVELOPE_TYPES.has(env.type) ||
+          !env.actor ||
+          typeof env.actor.instance !== "string" ||
+          env.actor.instance.length === 0 ||
+          typeof env.actor.role !== "string" ||
+          env.actor.role.length === 0 ||
+          typeof env.actor.scope !== "string" ||
+          env.actor.scope.length === 0 ||
+          !env.body ||
+          typeof env.body !== "object" ||
+          Array.isArray(env.body) ||
+          typeof env.createdAt !== "string" ||
+          !Number.isFinite(Date.parse(env.createdAt))
         ) {
           return { waiting: 0, degraded: true };
         }
@@ -1051,6 +1184,7 @@ function readLoopsStatusCount(
   h2aRoot: string | undefined,
   livePresenceInstances: ReadonlySet<string>,
   presenceDegraded: boolean,
+  nowMs: number,
 ): { active: number; attention: number; degraded: boolean } {
   if (!h2aRoot || !existsSync(h2aRoot)) {
     return { active: 0, attention: 0, degraded: true };
@@ -1065,50 +1199,108 @@ function readLoopsStatusCount(
     const attentionIds = new Set<string>();
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
+      if (entry.name.startsWith(".")) continue;
       const stateFile = join(loopsRoot, entry.name, "state.json");
-      if (!existsSync(stateFile)) continue;
-      const raw = JSON.parse(readFileSync(stateFile, "utf8")) as {
+      if (!existsSync(stateFile)) {
+        return { active: 0, attention: 0, degraded: true };
+      }
+      const bounded = readBoundedUtf8(stateFile, 64 * 1024);
+      if (!bounded.ok) {
+        return { active: 0, attention: 0, degraded: true };
+      }
+      const raw = JSON.parse(bounded.text) as {
         id?: unknown;
+        ownerSystem?: unknown;
         name?: unknown;
         goal?: unknown;
         status?: unknown;
+        repos?: unknown;
+        refs?: unknown;
         agents?: unknown;
+        policy?: {
+          autoTick?: unknown;
+          tickIntervalSec?: unknown;
+        } | null;
+        executor?: {
+          pid?: unknown;
+          heartbeat?: unknown;
+        } | null;
         createdAt?: unknown;
         updatedAt?: unknown;
       };
       if (
         typeof raw.id !== "string" ||
+        raw.id !== entry.name ||
+        raw.ownerSystem !== "h2a" ||
         typeof raw.name !== "string" ||
         typeof raw.goal !== "string" ||
         typeof raw.status !== "string" ||
+        !H2A_LOOP_STATUS_VALUES.has(raw.status) ||
+        !Array.isArray(raw.repos) ||
+        !Array.isArray(raw.refs) ||
         !Array.isArray(raw.agents) ||
+        !raw.policy ||
+        typeof raw.policy !== "object" ||
+        Array.isArray(raw.policy) ||
         typeof raw.createdAt !== "string" ||
-        typeof raw.updatedAt !== "string"
+        !Number.isFinite(Date.parse(raw.createdAt)) ||
+        typeof raw.updatedAt !== "string" ||
+        !Number.isFinite(Date.parse(raw.updatedAt))
       ) {
         return { active: 0, attention: 0, degraded: true };
       }
-      const statusLower = raw.status.toLowerCase();
-      const isTerminal = TERMINAL_LOOP_STATUSES.has(statusLower);
+      const isTerminal = TERMINAL_LOOP_STATUSES.has(raw.status);
       if (!isTerminal) {
         active += 1;
+        if (ATTENTION_LOOP_STATUSES.has(raw.status)) {
+          attentionIds.add(raw.id);
+        }
+        if (raw.policy.autoTick === true) {
+          const tickSec =
+            typeof raw.policy.tickIntervalSec === "number" &&
+            Number.isFinite(raw.policy.tickIntervalSec) &&
+            raw.policy.tickIntervalSec > 0
+              ? raw.policy.tickIntervalSec
+              : DEFAULT_LOOP_TICK_INTERVAL_SEC;
+          const hbMs =
+            typeof raw.executor?.heartbeat === "string"
+              ? Date.parse(raw.executor.heartbeat)
+              : Number.NaN;
+          const pidAlive =
+            typeof raw.executor?.pid === "number" &&
+            Number.isInteger(raw.executor.pid) &&
+            raw.executor.pid > 0 &&
+            isPidAlive(raw.executor.pid);
+          if (
+            !Number.isFinite(hbMs) ||
+            nowMs - hbMs > tickSec * 1000 * DEFAULT_LOOP_STALE_MULTIPLIER ||
+            !pidAlive
+          ) {
+            attentionIds.add(raw.id);
+          }
+        }
         if (raw.agents.length > 0) {
           if (presenceDegraded) {
             return { active: 0, attention: 0, degraded: true };
           }
-          const anyPresent = raw.agents.some((a) => {
-            const inst =
-              typeof a === "string"
-                ? a
-                : a && typeof a === "object" && typeof (a as { instance?: unknown }).instance === "string"
-                  ? ((a as { instance: string }).instance)
-                  : undefined;
-            return inst !== undefined && livePresenceInstances.has(inst);
-          });
-          if (!anyPresent) attentionIds.add(raw.id);
+          const configuredInstances = raw.agents
+            .map((a) => {
+              if (typeof a === "string") return a;
+              if (a && typeof a === "object") {
+                const rec = a as { h2aInstance?: unknown; instance?: unknown };
+                if (typeof rec.h2aInstance === "string") return rec.h2aInstance;
+                if (typeof rec.instance === "string") return rec.instance;
+              }
+              return undefined;
+            })
+            .filter((inst): inst is string => inst !== undefined && inst.length > 0);
+          if (
+            configuredInstances.length > 0 &&
+            !configuredInstances.some((inst) => livePresenceInstances.has(inst))
+          ) {
+            attentionIds.add(raw.id);
+          }
         }
-      }
-      if (ATTENTION_LOOP_STATUSES.has(statusLower)) {
-        attentionIds.add(raw.id);
       }
     }
     return { active, attention: attentionIds.size, degraded: false };
@@ -1154,9 +1346,7 @@ export async function readNativeStatusBarSnapshot(
       : storeRole ??
         (entry?.role
           ? cleanDisplay(entry.role, 24)
-          : entry?.sessionClass
-            ? cleanDisplay(entry.sessionClass, 24)
-            : "unknown");
+          : "unknown");
 
   const mcpAttestations = readMcpAttestationsFromStore(h2aRoot);
   const defaultNativeWorkerPid = (workerSession: string): number | undefined => {
@@ -1164,16 +1354,28 @@ export async function readNativeStatusBarSnapshot(
       (e) =>
         e.kind === "local-native" &&
         e.endedAt === undefined &&
-        e.tmuxSession === workerSession,
+        e.tmuxSession === workerSession &&
+        e.pid !== undefined &&
+        isPidAlive(e.pid),
     );
-    return workerRow?.pid !== undefined && isPidAlive(workerRow.pid)
-      ? workerRow.pid
-      : undefined;
+    return workerRow?.pid;
   };
+  const needsTmuxInventory = registry.entries.some(
+    (e) =>
+      e.kind === "local-tmux" &&
+      e.endedAt === undefined &&
+      (e.sessionClass === "background" || e.role === "job") &&
+      e.jobState !== "done" &&
+      e.jobState !== "failed" &&
+      e.jobState !== "pending",
+  );
+  const tmuxSessions = needsTmuxInventory
+    ? listLocalSessionsWithDiagnostics().sessions
+    : [];
   const delegations = projectDelegatedExecutions(
     registry.entries,
     registry.known,
-    [],
+    tmuxSessions,
     sessionName,
     ownerInstance,
     mcpAttestations.values,
@@ -1191,9 +1393,18 @@ export async function readNativeStatusBarSnapshot(
 
   const inbox = readInboxWaitingCount(h2aRoot, ownerInstance);
   const livePresenceInstances = new Set(presence.records.map((r) => r.instance));
-  const loops = readLoopsStatusCount(h2aRoot, livePresenceInstances, presence.degraded);
+  const loops = readLoopsStatusCount(h2aRoot, livePresenceInstances, presence.degraded, nowMs);
 
-  const gatewayMode = options.gatewayMode ?? entry?.gatewayMode;
+  const gatewayMode =
+    options.gatewayMode ??
+    (entry
+      ? resolveResumedGatewayMode(
+          entry.tool,
+          "auto",
+          entry.gatewayMode,
+          entry.gatewayProvenance,
+        )
+      : undefined);
   let gateway: H2AGatewayStatusV1;
   if (gatewayMode === "direct") {
     gateway = { state: "off", clientSessionId: sessionName };

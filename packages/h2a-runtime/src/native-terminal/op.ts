@@ -465,9 +465,35 @@ export type NativeAttachStatusBarOptions = Omit<
 
 const STATUS_BAR_MIN_ROWS = 10;
 const STATUS_BAR_REFRESH_MIN_MS = 1_000;
+const MAX_PENDING_SEQ_LEN = 4_096;
+const MAX_ACTIVE_SGR_LEN = 256;
 // Amber/orange background (#7C2D12) with warm light foreground (#FEF3C7), plus 256-color fallback.
 const AMBER_BAR_SGR =
   "\x1b[48;5;166;38;5;231;48;2;124;45;18;38;2;254;243;199m";
+
+interface SavedCursorState {
+  row: number;
+  col: number;
+  activeSgr: string;
+  pendingWrap: boolean;
+  originMode: boolean;
+  lastColChar: string;
+  lastColWidth: number;
+  lastColSgr: string;
+}
+
+function defaultSavedCursorState(): SavedCursorState {
+  return {
+    row: 1,
+    col: 1,
+    activeSgr: "",
+    pendingWrap: false,
+    originMode: false,
+    lastColChar: "",
+    lastColWidth: 1,
+    lastColSgr: "",
+  };
+}
 
 class NativeStatusBarController {
   readonly #id: string;
@@ -478,6 +504,7 @@ class NativeStatusBarController {
   readonly #isTty: boolean;
   #featureEnabled = false;
   #initialized = false;
+  #probeInFlight: Promise<void> | undefined;
   #readSnapshot:
     | ((opts: ReadNativeStatusBarOptions) => Promise<NativeStatusBarSnapshot>)
     | undefined;
@@ -496,15 +523,23 @@ class NativeStatusBarController {
   #needsRepaint = true;
   #restored = false;
 
+  #pendingSeq = "";
   #row = 1;
   #col = 1;
   #pendingWrap = false;
+  #originMode = false;
   #scrollTop = 1;
   #scrollBottom = 23;
-  #savedCursor = { row: 1, col: 1 };
-  #altSavedCursor = { row: 1, col: 1 };
+  #savedCursor: SavedCursorState = defaultSavedCursorState();
+  #altScreenSavedCursor: SavedCursorState = defaultSavedCursorState();
+  #altSavedCursor: SavedCursorState = defaultSavedCursorState();
   #inAltScreen = false;
   #activeSgr = "";
+  #lastPrintableChar = " ";
+  #lastPrintableWidth = 1;
+  #lastColChar = "";
+  #lastColWidth = 1;
+  #lastColSgr = "";
 
   constructor(
     id: string,
@@ -573,6 +608,10 @@ class NativeStatusBarController {
       this.#featureEnabled = isStatusBarEnabled(this.#opts.env ?? process.env);
     }
     if (!this.#featureEnabled || !this.#readSnapshot) return;
+    if (!this.isActive()) {
+      this.paint(linkChanged);
+      return;
+    }
     const nowMs = this.#now();
     const due =
       force ||
@@ -580,15 +619,27 @@ class NativeStatusBarController {
       nowMs - this.#lastProbeAt >= STATUS_BAR_REFRESH_MIN_MS;
     if (due) {
       this.#lastProbeAt = nowMs;
-      try {
-        this.#snapshot = await this.#readSnapshot({
-          ...this.#opts,
-          sessionName: this.#id,
-          linkState: this.#linkState,
-          nowMs,
+      const runRead = async (): Promise<void> => {
+        try {
+          this.#snapshot = await this.#readSnapshot!({
+            ...this.#opts,
+            sessionName: this.#id,
+            linkState: this.#linkState,
+            nowMs,
+          });
+        } catch {
+          this.#snapshot = { ...this.#snapshot, linkState: this.#linkState };
+        }
+      };
+      if (force) {
+        await runRead();
+      } else if (!this.#probeInFlight) {
+        this.#probeInFlight = runRead().finally(() => {
+          this.#probeInFlight = undefined;
+          this.paint(false);
         });
-      } catch {
-        this.#snapshot = { ...this.#snapshot, linkState: this.#linkState };
+        await this.#probeInFlight;
+        return;
       }
     }
     if (linkChanged || due) {
@@ -601,40 +652,73 @@ class NativeStatusBarController {
   }
 
   flushAfterOutputBatch(): void {
-    if (this.#needsRepaint) {
+    if (this.#needsRepaint && this.#pendingSeq.length === 0) {
       this.paint(false);
     }
   }
 
+  flushPendingSequence(): string {
+    if (this.#pendingSeq.length === 0) return "";
+    const pending = this.#pendingSeq;
+    this.#pendingSeq = "";
+    return pending;
+  }
+
   resumeAfterReset(): void {
     this.#restored = false;
+    this.#pendingSeq = "";
     this.#needsRepaint = true;
   }
 
-  restoreSequence(): string {
+  peekRestoreSequence(): string {
     if (!this.#wasActive || this.#restored) return "";
-    this.#restored = true;
     const rows = this.#activeRows || (this.#stdout.rows ?? 24);
     const cols = this.#activeCols || (this.#stdout.columns ?? 80);
+    if (this.#inAltScreen) {
+      const mainRow = Math.min(rows, Math.max(1, this.#altSavedCursor.row));
+      const mainCol = Math.min(cols, Math.max(1, this.#altSavedCursor.col));
+      return `\x1b[?6l\x1b[r\x1b[${rows};1H\x1b[2K\x1b[?1049l\x1b[?1047l\x1b[?47l\x1b[?6l\x1b[r\x1b[${rows};1H\x1b[2K\x1b[${mainRow};${mainCol}H\x1b[0m`;
+    }
     const row = Math.min(rows, Math.max(1, this.#row));
     const col = Math.min(cols, Math.max(1, this.#col));
-    return `\x1b[r\x1b[${rows};1H\x1b[2K\x1b[${row};${col}H`;
+    return `\x1b[?6l\x1b[r\x1b[${rows};1H\x1b[2K\x1b[${row};${col}H\x1b[0m`;
+  }
+
+  restoreSequence(): string {
+    const seq = this.peekRestoreSequence();
+    if (!seq) return "";
+    this.#restored = true;
+    this.#inAltScreen = false;
+    this.#originMode = false;
+    return seq;
   }
 
   paint(force = false): void {
     if (this.#restored) return;
+    if (this.#pendingSeq.length > 0) {
+      this.#needsRepaint = true;
+      return;
+    }
     if (!this.isActive()) {
       if (this.#wasActive && this.#activeRows >= STATUS_BAR_MIN_ROWS) {
+        const currentRows = this.#stdout.rows ?? 1;
+        const currentCols = this.#stdout.columns ?? 1;
         const targetRow = Math.min(
-          Math.max(1, this.#stdout.rows ?? 1),
+          Math.max(1, currentRows),
           Math.max(1, this.#row),
         );
         const targetCol = Math.min(
-          Math.max(1, this.#stdout.columns ?? 1),
+          Math.max(1, currentCols),
           Math.max(1, this.#col),
         );
+        // Only clear the previous status row if the terminal did not shrink past it;
+        // otherwise \x1b[activeRows;1H\x1b[2K clamps to the new bottom row and erases the child's last line.
+        const clearOldBar =
+          this.#activeRows <= currentRows
+            ? `\x1b[${this.#activeRows};1H\x1b[2K`
+            : "";
         this.#stdout.write(
-          `\x1b[r\x1b[${this.#activeRows};1H\x1b[2K\x1b[${targetRow};${targetCol}H${this.#activeSgr}`,
+          `\x1b[?6l\x1b[r${clearOldBar}\x1b[${targetRow};${targetCol}H${this.#activeSgr}`,
         );
         this.#wasActive = false;
         this.#lastRenderedLine = "";
@@ -646,8 +730,8 @@ class NativeStatusBarController {
     const rows = this.#stdout.rows!;
     const cols = this.#stdout.columns!;
     const childRows = rows - 1;
-    const geometryChanged =
-      !this.#wasActive || rows !== this.#activeRows || cols !== this.#activeCols;
+    const rowsChanged = !this.#wasActive || rows !== this.#activeRows;
+    const geometryChanged = rowsChanged || cols !== this.#activeCols;
     let clearPreviousRow = "";
     if (geometryChanged) {
       if (
@@ -660,8 +744,16 @@ class NativeStatusBarController {
       }
       this.#row = Math.min(childRows, Math.max(1, this.#row));
       this.#col = Math.min(cols, Math.max(1, this.#col));
-      this.#scrollTop = 1;
-      this.#scrollBottom = childRows;
+      if (rowsChanged) {
+        this.#scrollTop = 1;
+        this.#scrollBottom = childRows;
+      } else {
+        this.#scrollTop = Math.min(childRows - 1, Math.max(1, this.#scrollTop));
+        this.#scrollBottom = Math.min(
+          childRows,
+          Math.max(this.#scrollTop + 1, this.#scrollBottom),
+        );
+      }
       this.#wasActive = true;
       this.#activeRows = rows;
       this.#activeCols = cols;
@@ -688,59 +780,105 @@ class NativeStatusBarController {
     );
     const row = Math.min(childRows, Math.max(1, this.#row));
     const col = Math.min(cols, Math.max(1, this.#col));
+    let restoreCursorSeq: string;
+    if (
+      this.#pendingWrap &&
+      this.#lastColChar.length > 0 &&
+      col === cols &&
+      cols >= this.#lastColWidth
+    ) {
+      const startCol = Math.max(1, cols - this.#lastColWidth + 1);
+      if (this.#originMode) {
+        const relRow = Math.max(1, row - top + 1);
+        restoreCursorSeq = `\x1b[?6h\x1b[${relRow};${startCol}H${this.#lastColSgr}${this.#lastColChar}${this.#activeSgr}`;
+      } else {
+        restoreCursorSeq = `\x1b[${row};${startCol}H${this.#lastColSgr}${this.#lastColChar}${this.#activeSgr}`;
+      }
+    } else if (this.#originMode) {
+      const relRow = Math.max(1, row - top + 1);
+      restoreCursorSeq = `\x1b[?6h\x1b[${relRow};${col}H${this.#activeSgr}`;
+    } else {
+      restoreCursorSeq = `\x1b[${row};${col}H${this.#activeSgr}`;
+    }
     this.#stdout.write(
-      `${clearPreviousRow}\x1b[${top};${bottom}r\x1b[${rows};1H${AMBER_BAR_SGR}${line}\x1b[0m\x1b[${row};${col}H${this.#activeSgr}`,
+      `${clearPreviousRow}\x1b[?6l\x1b[${top};${bottom}r\x1b[${rows};1H${AMBER_BAR_SGR}${line}\x1b[0m${restoreCursorSeq}`,
     );
   }
 
   transformChildOutput(data: string): string {
-    if (!this.isActive() || data.length === 0) return data;
+    if (!this.isActive()) {
+      if (this.#pendingSeq.length > 0) {
+        const flushed = this.#pendingSeq + data;
+        this.#pendingSeq = "";
+        return flushed;
+      }
+      return data;
+    }
+    if (data.length === 0) return data;
+    const input = this.#pendingSeq.length > 0 ? this.#pendingSeq + data : data;
+    this.#pendingSeq = "";
     const rows = this.#stdout.rows!;
     const cols = this.#stdout.columns!;
     const childRows = rows - 1;
     let out = "";
     let i = 0;
-    while (i < data.length) {
-      const ch = data[i]!;
+    while (i < input.length) {
+      const ch = input[i]!;
       if (ch === "\x1b") {
-        const next = data[i + 1];
+        if (i + 1 >= input.length) {
+          this.#pendingSeq = input.slice(i);
+          break;
+        }
+        const next = input[i + 1]!;
         if (next === "[") {
           let j = i + 2;
           while (
-            j < data.length &&
-            data.charCodeAt(j) >= 0x30 &&
-            data.charCodeAt(j) <= 0x3f
+            j < input.length &&
+            input.charCodeAt(j) >= 0x30 &&
+            input.charCodeAt(j) <= 0x3f
           ) {
             j += 1;
           }
-          const params = data.slice(i + 2, j);
+          const params = input.slice(i + 2, j);
           const intStart = j;
           while (
-            j < data.length &&
-            data.charCodeAt(j) >= 0x20 &&
-            data.charCodeAt(j) <= 0x2f
+            j < input.length &&
+            input.charCodeAt(j) >= 0x20 &&
+            input.charCodeAt(j) <= 0x2f
           ) {
             j += 1;
           }
-          const intermediates = data.slice(intStart, j);
+          const intermediates = input.slice(intStart, j);
+          if (j >= input.length) {
+            if (input.length - i <= MAX_PENDING_SEQ_LEN) {
+              this.#pendingSeq = input.slice(i);
+              break;
+            }
+            out += input.slice(i);
+            break;
+          }
           if (
-            j < data.length &&
-            data.charCodeAt(j) >= 0x40 &&
-            data.charCodeAt(j) <= 0x7e
+            input.charCodeAt(j) >= 0x40 &&
+            input.charCodeAt(j) <= 0x7e
           ) {
-            const final = data[j]!;
-            const rawSeq = data.slice(i, j + 1);
+            const final = input[j]!;
+            const rawSeq = input.slice(i, j + 1);
             out += this.#handleCsi(
               params,
               intermediates,
               final,
               rawSeq,
+              rows,
               childRows,
               cols,
             );
             i = j + 1;
             continue;
           }
+          // Malformed CSI byte: emit ESC [ and continue from i + 2
+          out += "\x1b[";
+          i += 2;
+          continue;
         } else if (
           next === "]" ||
           next === "P" ||
@@ -749,75 +887,179 @@ class NativeStatusBarController {
           next === "_"
         ) {
           let j = i + 2;
-          while (j < data.length) {
-            const c = data[j]!;
+          let closed = false;
+          while (j < input.length) {
+            const c = input[j]!;
             if (next === "]" && c === "\x07") {
               j += 1;
+              closed = true;
               break;
             }
             if (c === "\x9c") {
               j += 1;
+              closed = true;
               break;
             }
-            if (c === "\x1b" && data[j + 1] === "\\") {
-              j += 2;
-              break;
+            if (c === "\x1b") {
+              if (j + 1 >= input.length) {
+                break;
+              }
+              if (input[j + 1] === "\\") {
+                j += 2;
+                closed = true;
+                break;
+              }
             }
             j += 1;
           }
-          out += data.slice(i, j);
+          if (!closed) {
+            if (input.length - i <= MAX_PENDING_SEQ_LEN) {
+              this.#pendingSeq = input.slice(i);
+              break;
+            }
+          }
+          out += input.slice(i, j);
           i = j;
           continue;
-        } else if (next !== undefined) {
-          const rawSeq = data.slice(i, i + 2);
-          this.#handleEsc(next, childRows, cols);
-          out += rawSeq;
+        } else if (next.charCodeAt(0) >= 0x20 && next.charCodeAt(0) <= 0x2f) {
+          let j = i + 2;
+          while (
+            j < input.length &&
+            input.charCodeAt(j) >= 0x20 &&
+            input.charCodeAt(j) <= 0x2f
+          ) {
+            j += 1;
+          }
+          if (j >= input.length) {
+            if (input.length - i <= MAX_PENDING_SEQ_LEN) {
+              this.#pendingSeq = input.slice(i);
+              break;
+            }
+            out += input.slice(i);
+            break;
+          }
+          out += input.slice(i, j + 1);
+          i = j + 1;
+          continue;
+        } else {
+          const rawSeq = input.slice(i, i + 2);
+          out += this.#handleEsc(next, rawSeq, childRows, cols);
           i += 2;
           continue;
         }
       }
-      const cp = data.codePointAt(i)!;
+      const codeUnit = input.charCodeAt(i);
+      if (codeUnit >= 0xd800 && codeUnit <= 0xdbff && i + 1 >= input.length) {
+        this.#pendingSeq = input.slice(i);
+        break;
+      }
+      const cp = input.codePointAt(i)!;
       const step = cp > 0xffff ? 2 : 1;
-      this.#handleChar(cp, childRows, cols);
-      out += data.slice(i, i + step);
+      const glyph = input.slice(i, i + step);
+      this.#handleChar(cp, glyph, childRows, cols);
+      out += glyph;
       i += step;
     }
     return out;
   }
 
-  #handleEsc(next: string, childRows: number, cols: number): void {
+  #captureCursorState(): SavedCursorState {
+    return {
+      row: this.#row,
+      col: this.#col,
+      activeSgr: this.#activeSgr,
+      pendingWrap: this.#pendingWrap,
+      originMode: this.#originMode,
+      lastColChar: this.#lastColChar,
+      lastColWidth: this.#lastColWidth,
+      lastColSgr: this.#lastColSgr,
+    };
+  }
+
+  #restoreCursorState(
+    saved: SavedCursorState,
+    childRows: number,
+    cols: number,
+  ): void {
+    this.#originMode = saved.originMode;
+    const minRow = this.#originMode ? this.#scrollTop : 1;
+    const maxRow = this.#originMode ? this.#scrollBottom : childRows;
+    this.#row = Math.min(maxRow, Math.max(minRow, saved.row));
+    this.#col = Math.min(cols, Math.max(1, saved.col));
+    this.#activeSgr = saved.activeSgr;
+    this.#pendingWrap = saved.pendingWrap && this.#col === cols;
+    this.#lastColChar = saved.lastColChar;
+    this.#lastColWidth = saved.lastColWidth;
+    this.#lastColSgr = saved.lastColSgr;
+  }
+
+  #activeSavedSlot(): SavedCursorState {
+    return this.#inAltScreen ? this.#altScreenSavedCursor : this.#savedCursor;
+  }
+
+  #setActiveSavedSlot(state: SavedCursorState): void {
+    if (this.#inAltScreen) {
+      this.#altScreenSavedCursor = state;
+    } else {
+      this.#savedCursor = state;
+    }
+  }
+
+  #handleEsc(
+    next: string,
+    rawSeq: string,
+    childRows: number,
+    cols: number,
+  ): string {
     if (next === "7") {
-      this.#savedCursor = { row: this.#row, col: this.#col };
-    } else if (next === "8") {
-      this.#row = Math.min(childRows, Math.max(1, this.#savedCursor.row));
-      this.#col = Math.min(cols, Math.max(1, this.#savedCursor.col));
-      this.#pendingWrap = false;
-    } else if (next === "D") {
+      this.#setActiveSavedSlot(this.#captureCursorState());
+      return rawSeq;
+    }
+    if (next === "8") {
+      this.#restoreCursorState(this.#activeSavedSlot(), childRows, cols);
+      return rawSeq;
+    }
+    if (next === "D") {
       this.#pendingWrap = false;
       if (this.#row < this.#scrollBottom) this.#row += 1;
       else if (this.#row > this.#scrollBottom && this.#row < childRows) {
         this.#row += 1;
       }
-    } else if (next === "E") {
+      return rawSeq;
+    }
+    if (next === "E") {
       this.#col = 1;
       this.#pendingWrap = false;
       if (this.#row < this.#scrollBottom) this.#row += 1;
       else if (this.#row > this.#scrollBottom && this.#row < childRows) {
         this.#row += 1;
       }
-    } else if (next === "M") {
+      return rawSeq;
+    }
+    if (next === "M") {
       this.#pendingWrap = false;
-      if (this.#row > this.#scrollTop) this.#row -= 1;
-    } else if (next === "c") {
+      if (this.#row !== this.#scrollTop && this.#row > 1) {
+        this.#row -= 1;
+      }
+      return rawSeq;
+    }
+    if (next === "c") {
       this.#inAltScreen = false;
+      this.#originMode = false;
       this.#row = 1;
       this.#col = 1;
       this.#pendingWrap = false;
       this.#scrollTop = 1;
       this.#scrollBottom = childRows;
       this.#activeSgr = "";
+      this.#savedCursor = defaultSavedCursorState();
+      this.#altScreenSavedCursor = defaultSavedCursorState();
+      this.#altSavedCursor = defaultSavedCursorState();
+      this.#lastColChar = "";
       this.#needsRepaint = true;
+      return `${rawSeq}\x1b[1;${childRows}r`;
     }
+    return rawSeq;
   }
 
   #handleCsi(
@@ -825,15 +1067,26 @@ class NativeStatusBarController {
     intermediates: string,
     final: string,
     rawSeq: string,
+    rows: number,
     childRows: number,
     cols: number,
   ): string {
+    if (intermediates === "!" && final === "p" && params === "") {
+      // DECSTR (Soft Terminal Reset)
+      this.#originMode = false;
+      this.#pendingWrap = false;
+      this.#scrollTop = 1;
+      this.#scrollBottom = childRows;
+      this.#activeSgr = "";
+      this.#savedCursor = defaultSavedCursorState();
+      this.#altScreenSavedCursor = defaultSavedCursorState();
+      this.#lastColChar = "";
+      this.#needsRepaint = true;
+      return `${rawSeq}\x1b[1;${childRows}r\x1b[${this.#row};${this.#col}H`;
+    }
     if (intermediates !== "") return rawSeq;
-    if (
-      final === "r" &&
-      !params.startsWith("?") &&
-      !params.startsWith(">")
-    ) {
+    const isStandardParams = !/^[<=>?]/.test(params);
+    if (final === "r" && isStandardParams) {
       const parts = params.length === 0 ? [] : params.split(";");
       const rawTop = parts[0] ? Number.parseInt(parts[0], 10) : 1;
       const rawBottom = parts[1] ? Number.parseInt(parts[1], 10) : childRows;
@@ -847,108 +1100,153 @@ class NativeStatusBarController {
           : childRows;
       this.#scrollTop = top;
       this.#scrollBottom = bottom;
-      this.#row = 1;
+      this.#row = this.#originMode ? top : 1;
       this.#col = 1;
       this.#pendingWrap = false;
       this.#needsRepaint = true;
       return `\x1b[${top};${bottom}r`;
     }
-    if ((final === "H" || final === "f") && !params.startsWith("?")) {
+    if ((final === "H" || final === "f") && isStandardParams) {
       const parts = params.length === 0 ? [] : params.split(";");
       const rawRow = parts[0] ? Number.parseInt(parts[0], 10) : 1;
       const rawCol = parts[1] ? Number.parseInt(parts[1], 10) : 1;
-      const targetRow =
-        Number.isFinite(rawRow) && rawRow >= 1
-          ? Math.min(childRows, rawRow)
-          : 1;
+      const cleanRow = Number.isFinite(rawRow) && rawRow >= 1 ? rawRow : 1;
       const targetCol =
         Number.isFinite(rawCol) && rawCol >= 1 ? Math.min(cols, rawCol) : 1;
-      this.#row = targetRow;
-      this.#col = targetCol;
       this.#pendingWrap = false;
-      if (Number.isFinite(rawRow) && rawRow > childRows) {
+      this.#col = targetCol;
+      if (this.#originMode) {
+        const absRow = Math.min(
+          this.#scrollBottom,
+          Math.max(this.#scrollTop, this.#scrollTop + cleanRow - 1),
+        );
+        this.#row = absRow;
+        return rawSeq;
+      }
+      const targetRow = Math.min(childRows, cleanRow);
+      this.#row = targetRow;
+      if (cleanRow > childRows) {
         return `\x1b[${targetRow};${targetCol}${final}`;
       }
       return rawSeq;
     }
-    if (final === "d" && !params.startsWith("?")) {
+    if (final === "d" && isStandardParams) {
       const rawRow = params ? Number.parseInt(params, 10) : 1;
-      const targetRow =
-        Number.isFinite(rawRow) && rawRow >= 1
-          ? Math.min(childRows, rawRow)
-          : 1;
-      this.#row = targetRow;
+      const cleanRow = Number.isFinite(rawRow) && rawRow >= 1 ? rawRow : 1;
       this.#pendingWrap = false;
-      if (Number.isFinite(rawRow) && rawRow > childRows) {
+      if (this.#originMode) {
+        this.#row = Math.min(
+          this.#scrollBottom,
+          Math.max(this.#scrollTop, this.#scrollTop + cleanRow - 1),
+        );
+        return rawSeq;
+      }
+      const targetRow = Math.min(childRows, cleanRow);
+      this.#row = targetRow;
+      if (cleanRow > childRows) {
         return `\x1b[${targetRow}d`;
       }
       return rawSeq;
     }
-    if (final === "A" && !params.startsWith("?")) {
+    if (final === "A" && isStandardParams) {
       const n = Math.max(1, Number.parseInt(params || "1", 10) || 1);
-      this.#row = Math.max(1, this.#row - n);
+      const minRow = this.#row >= this.#scrollTop ? this.#scrollTop : 1;
+      this.#row = Math.max(minRow, this.#row - n);
       this.#pendingWrap = false;
       return rawSeq;
     }
-    if ((final === "B" || final === "e") && !params.startsWith("?")) {
+    if ((final === "B" || final === "e") && isStandardParams) {
       const n = Math.max(1, Number.parseInt(params || "1", 10) || 1);
-      const maxDown = Math.max(0, childRows - this.#row);
-      this.#row = Math.min(childRows, this.#row + n);
+      const maxRow =
+        this.#row <= this.#scrollBottom ? this.#scrollBottom : childRows;
+      this.#row = Math.min(maxRow, this.#row + n);
       this.#pendingWrap = false;
-      if (n > maxDown) {
-        return maxDown > 0 ? `\x1b[${maxDown}${final}` : "";
-      }
       return rawSeq;
     }
-    if ((final === "C" || final === "a") && !params.startsWith("?")) {
+    if ((final === "C" || final === "a") && isStandardParams) {
       const n = Math.max(1, Number.parseInt(params || "1", 10) || 1);
       this.#col = Math.min(cols, this.#col + n);
       this.#pendingWrap = false;
       return rawSeq;
     }
-    if (final === "D" && !params.startsWith("?")) {
+    if (final === "D" && isStandardParams) {
       const n = Math.max(1, Number.parseInt(params || "1", 10) || 1);
       this.#col = Math.max(1, this.#col - n);
       this.#pendingWrap = false;
       return rawSeq;
     }
-    if (final === "E" && !params.startsWith("?")) {
+    if (final === "E" && isStandardParams) {
       const n = Math.max(1, Number.parseInt(params || "1", 10) || 1);
-      const maxDown = Math.max(0, childRows - this.#row);
-      this.#row = Math.min(childRows, this.#row + n);
-      this.#col = 1;
-      this.#pendingWrap = false;
-      if (n > maxDown) {
-        return maxDown > 0 ? `\x1b[${maxDown}E` : "\r";
-      }
-      return rawSeq;
-    }
-    if (final === "F" && !params.startsWith("?")) {
-      const n = Math.max(1, Number.parseInt(params || "1", 10) || 1);
-      this.#row = Math.max(1, this.#row - n);
+      const maxRow =
+        this.#row <= this.#scrollBottom ? this.#scrollBottom : childRows;
+      this.#row = Math.min(maxRow, this.#row + n);
       this.#col = 1;
       this.#pendingWrap = false;
       return rawSeq;
     }
-    if ((final === "G" || final === "`") && !params.startsWith("?")) {
+    if (final === "F" && isStandardParams) {
+      const n = Math.max(1, Number.parseInt(params || "1", 10) || 1);
+      const minRow = this.#row >= this.#scrollTop ? this.#scrollTop : 1;
+      this.#row = Math.max(minRow, this.#row - n);
+      this.#col = 1;
+      this.#pendingWrap = false;
+      return rawSeq;
+    }
+    if ((final === "G" || final === "`") && isStandardParams) {
       const n = Math.max(1, Number.parseInt(params || "1", 10) || 1);
       this.#col = Math.min(cols, n);
       this.#pendingWrap = false;
       return rawSeq;
     }
-    if (final === "s" && params === "") {
-      this.#savedCursor = { row: this.#row, col: this.#col };
+    if (final === "I" && isStandardParams) {
+      // CHT: Cursor Horizontal Forward Tabulation
+      const n = Math.max(1, Number.parseInt(params || "1", 10) || 1);
+      this.#pendingWrap = false;
+      for (let t = 0; t < n; t++) {
+        this.#col = Math.min(
+          cols,
+          (Math.floor((this.#col - 1) / 8) + 1) * 8 + 1,
+        );
+      }
       return rawSeq;
     }
-    if (final === "u" && params === "") {
-      this.#row = Math.min(childRows, Math.max(1, this.#savedCursor.row));
-      this.#col = Math.min(cols, Math.max(1, this.#savedCursor.col));
+    if (final === "Z" && isStandardParams) {
+      // CBT: Cursor Backward Tabulation
+      const n = Math.max(1, Number.parseInt(params || "1", 10) || 1);
+      this.#pendingWrap = false;
+      for (let t = 0; t < n; t++) {
+        const prevStop = Math.floor((this.#col - 2) / 8) * 8 + 1;
+        this.#col = Math.max(1, prevStop);
+      }
+      return rawSeq;
+    }
+    if (final === "b" && isStandardParams) {
+      // REP: Repeat preceding graphic character n times
+      const n = Math.max(1, Number.parseInt(params || "1", 10) || 1);
+      const cp = this.#lastPrintableChar.codePointAt(0) ?? 0x20;
+      for (let k = 0; k < n; k++) {
+        this.#handleChar(cp, this.#lastPrintableChar, childRows, cols);
+      }
+      return rawSeq;
+    }
+    if (
+      (final === "K" || final === "@" || final === "P" || final === "X") &&
+      isStandardParams
+    ) {
       this.#pendingWrap = false;
       return rawSeq;
     }
-    if (final === "J" && !params.startsWith("?")) {
-      const mode = params || "0";
-      if (mode === "0" || mode === "2" || mode === "3") {
+    if (final === "s" && params === "") {
+      this.#setActiveSavedSlot(this.#captureCursorState());
+      return rawSeq;
+    }
+    if (final === "u" && params === "") {
+      this.#restoreCursorState(this.#activeSavedSlot(), childRows, cols);
+      return rawSeq;
+    }
+    if (final === "J" && (params === "" || /^\??\d+$/.test(params))) {
+      const mode = Number.parseInt(params.replace(/^\?/, "") || "0", 10);
+      if (mode === 0 || mode === 2 || mode === 3) {
         this.#needsRepaint = true;
       }
       return rawSeq;
@@ -957,60 +1255,118 @@ class NativeStatusBarController {
       (final === "h" || final === "l") &&
       /^\?\d+(;\d+)*$/.test(params)
     ) {
+      let prefix = "";
+      let suffix = "";
       for (const mode of params.slice(1).split(";").map(Number)) {
-        if (mode === 47 || mode === 1047 || mode === 1049) {
+        if (mode === 6) {
           if (final === "h") {
-            if (mode === 1049 && !this.#inAltScreen) {
-              this.#altSavedCursor = { row: this.#row, col: this.#col };
+            this.#originMode = true;
+            this.#row = this.#scrollTop;
+            this.#col = 1;
+            this.#pendingWrap = false;
+          } else {
+            this.#originMode = false;
+            this.#row = 1;
+            this.#col = 1;
+            this.#pendingWrap = false;
+          }
+        } else if (mode === 1048) {
+          if (final === "h") {
+            this.#setActiveSavedSlot(this.#captureCursorState());
+          } else {
+            this.#restoreCursorState(this.#activeSavedSlot(), childRows, cols);
+          }
+        } else if (mode === 47 || mode === 1047 || mode === 1049) {
+          if (final === "h") {
+            if (!this.#inAltScreen) {
+              this.#altSavedCursor = this.#captureCursorState();
+              const mainRow = Math.min(childRows, Math.max(1, this.#row));
+              const mainCol = Math.min(cols, Math.max(1, this.#col));
+              prefix = `\x1b[?6l\x1b[r\x1b[${rows};1H\x1b[2K\x1b[${mainRow};${mainCol}H${this.#activeSgr}`;
             }
             this.#inAltScreen = true;
+            this.#originMode = false;
             this.#row = 1;
             this.#col = 1;
             this.#pendingWrap = false;
             this.#scrollTop = 1;
             this.#scrollBottom = childRows;
             this.#needsRepaint = true;
+            suffix = `\x1b[1;${childRows}r\x1b[1;1H`;
           } else {
+            if (this.#inAltScreen) {
+              prefix = `\x1b[?6l\x1b[r\x1b[${rows};1H\x1b[2K`;
+            }
             this.#inAltScreen = false;
+            this.#originMode = false;
             this.#pendingWrap = false;
             this.#scrollTop = 1;
             this.#scrollBottom = childRows;
             if (mode === 1049) {
-              this.#row = Math.min(
-                childRows,
-                Math.max(1, this.#altSavedCursor.row),
-              );
-              this.#col = Math.min(
-                cols,
-                Math.max(1, this.#altSavedCursor.col),
-              );
+              this.#restoreCursorState(this.#altSavedCursor, childRows, cols);
             }
             this.#needsRepaint = true;
+            suffix = `\x1b[1;${childRows}r\x1b[${this.#row};${this.#col}H${this.#activeSgr}`;
           }
         }
       }
-      return rawSeq;
+      return `${prefix}${rawSeq}${suffix}`;
     }
     if (final === "m" && /^[0-9;:]*$/.test(params)) {
-      if (params === "" || params === "0") {
-        this.#activeSgr = "";
-      } else {
-        const codes = params.split(";");
-        const lastZero = codes.lastIndexOf("0");
-        if (lastZero >= 0) {
-          const rest = codes.slice(lastZero + 1).filter(Boolean).join(";");
-          this.#activeSgr = rest ? `\x1b[${rest}m` : "";
-        } else {
-          const next = `${this.#activeSgr}${rawSeq}`;
-          this.#activeSgr = next.length <= 64 ? next : rawSeq;
-        }
-      }
+      this.#updateActiveSgr(params);
       return rawSeq;
     }
     return rawSeq;
   }
 
-  #handleChar(cp: number, childRows: number, cols: number): void {
+  #updateActiveSgr(params: string): void {
+    if (params === "" || params === "0") {
+      this.#activeSgr = "";
+      return;
+    }
+    const tokens = params.split(";");
+    const kept: string[] = [];
+    let resetSeen = false;
+    for (let k = 0; k < tokens.length; ) {
+      const tok = tokens[k]!;
+      if (tok === "" || (!tok.includes(":") && Number.parseInt(tok, 10) === 0)) {
+        kept.length = 0;
+        resetSeen = true;
+        k += 1;
+        continue;
+      }
+      if (tok === "38" || tok === "48" || tok === "58") {
+        const sub = tokens[k + 1];
+        if (sub === "5" && k + 2 < tokens.length) {
+          kept.push(tokens.slice(k, k + 3).join(";"));
+          k += 3;
+          continue;
+        }
+        if (sub === "2" && k + 4 < tokens.length) {
+          kept.push(tokens.slice(k, k + 5).join(";"));
+          k += 5;
+          continue;
+        }
+      }
+      kept.push(tok);
+      k += 1;
+    }
+    const suffix = kept.length > 0 ? `\x1b[${kept.join(";")}m` : "";
+    if (resetSeen) {
+      this.#activeSgr = suffix;
+    } else if (suffix) {
+      const combined = `${this.#activeSgr}${suffix}`;
+      this.#activeSgr =
+        combined.length <= MAX_ACTIVE_SGR_LEN ? combined : suffix;
+    }
+  }
+
+  #handleChar(
+    cp: number,
+    glyph: string,
+    childRows: number,
+    cols: number,
+  ): void {
     if (cp === 0x0d) {
       this.#col = 1;
       this.#pendingWrap = false;
@@ -1038,10 +1394,10 @@ class NativeStatusBarController {
       return;
     }
     if (cp < 0x20 || (cp >= 0x7f && cp <= 0x9f)) return;
-    const width = this.#displayColumns
-      ? this.#displayColumns(String.fromCodePoint(cp))
-      : 1;
+    const width = this.#displayColumns ? this.#displayColumns(glyph) : 1;
     if (width <= 0) return;
+    this.#lastPrintableChar = glyph;
+    this.#lastPrintableWidth = width;
     if (this.#pendingWrap) {
       this.#col = 1;
       this.#pendingWrap = false;
@@ -1053,6 +1409,9 @@ class NativeStatusBarController {
     if (this.#col + width - 1 >= cols) {
       this.#col = cols;
       this.#pendingWrap = true;
+      this.#lastColChar = glyph;
+      this.#lastColWidth = width;
+      this.#lastColSgr = this.#activeSgr;
     } else {
       this.#col += width;
     }
@@ -1084,15 +1443,23 @@ export async function runAttach(
   let modesSuspended = false;
   let savedReset = "";
   const saveReset = (): void => {
-    const reset = modesSuspended ? "" : modes.resetSequence();
+    const reset = modesSuspended
+      ? ""
+      : `${statusBar.peekRestoreSequence()}${modes.resetSequence()}`;
     if (reset === savedReset) return;
     runtime.saveTerminalReset?.(reset);
     savedReset = reset;
   };
+  const restoreBarForNotice = (): void => {
+    const pending = statusBar.flushPendingSequence();
+    const barRestore = statusBar.restoreSequence();
+    const seq = `${pending}${barRestore}`;
+    if (seq) stdout.write(seq);
+  };
   const relayOutput = (data: string): void => {
     modes.feed(data);
-    saveReset();
     stdout.write(statusBar.transformChildOutput(data));
+    saveReset();
   };
   // Older protocol-v1 hosts relay the wrapper marker verbatim. New hosts
   // consume it themselves so detached sessions also return to a clean shell.
@@ -1100,9 +1467,10 @@ export async function runAttach(
   const resetModes = (): void => {
     if (modesSuspended) return;
     modesSuspended = true;
+    const pending = statusBar.flushPendingSequence();
     const barRestore = statusBar.restoreSequence();
     const reset = modes.resetSequence();
-    const sequence = `${barRestore}${reset}`;
+    const sequence = `${pending}${barRestore}${reset}`;
     if (!sequence) { saveReset(); return; }
     // Signals and fatal exits cannot wait for an asynchronous pipe flush.
     const fd = (stdout as NodeJS.WriteStream & { fd?: number }).fd;
@@ -1133,6 +1501,7 @@ export async function runAttach(
       : state.status === "exited" ? "session exited"
       : state.controller ? `controller taken over by pid=${state.controller.pid ?? "unknown"} tty=${state.controller.tty} since=${state.controller.since}`
       : "controller released or session replaced";
+    restoreBarForNotice();
     stdout.write(`\r\n[h2a] ${reason}; attach detached\r\n`);
     exitCode = state.status === "exited" && !state.stopSignal ? state.exit?.exitCode ?? 0 : 0;
     if (state.status === "exited") appendCrashLog("attach", sessionExitCrashEntry(state, { sessionId: id, detail: reason }));
@@ -1175,6 +1544,7 @@ export async function runAttach(
     // stale failure so it can never tear down the newly-acquired controller.
     if (active !== connection) return;
     if (error instanceof NativeTerminalRemoteError && error.message === "stale terminal controller lease") {
+      restoreBarForNotice();
       stdout.write("\r\n[h2a] controller revoked by takeover or stop; attach detached\r\n");
       appendCrashLog("attach", { event: "refusal", sessionId: id, reason: "stale-controller-lease" });
       terminalEnded = true;
@@ -1226,6 +1596,7 @@ export async function runAttach(
       return;
     }
     if (pendingInputBytes + chunk.length > ATTACH_PENDING_INPUT_MAX_BYTES) {
+      restoreBarForNotice();
       stdout.write(
         "\r\n[h2a] native attach input buffer full during reconnect; detaching " +
           "without stopping the session\r\n",
@@ -1242,7 +1613,7 @@ export async function runAttach(
   stdin.on("data", onInput);
   const onEnd = (): void => { detached = true; closeActive(); };
   stdin.on("end", onEnd);
-  const resize = (): void => {
+  const sendChildResize = (): void => {
     const current = active;
     const rows = statusBar.childRows();
     if (current && stdout.columns && rows) {
@@ -1250,7 +1621,11 @@ export async function runAttach(
         .resize(current.lease, stdout.columns, rows)
         .catch((error) => markTransportFailure(current, error));
     }
+  };
+  const resize = (): void => {
+    sendChildResize();
     statusBar.onResize();
+    saveReset();
   };
   runtime.onResize(resize);
 
@@ -1273,7 +1648,8 @@ export async function runAttach(
       active = { client, lease };
       transportFailure = undefined;
       await statusBar.probe(true, "attached");
-      resize();
+      sendChildResize();
+      saveReset();
       pumpInput();
       return state;
     } catch (error) {
@@ -1359,6 +1735,7 @@ export async function runAttach(
           } catch (error) {
             const durationMs = Math.max(0, runtime.now() - disconnectStartedAt);
             if (error instanceof NativeTerminalRemoteError && error.message.includes("already has a controller")) {
+              restoreBarForNotice();
               stdout.write(`\r\n[h2a] ${error.message}; attach detached\r\n`);
               appendCrashLog("attach", {
                 event: "refusal",
@@ -1479,7 +1856,10 @@ export async function runAttach(
   } finally {
     try {
       resetRelay.flush();
-      if (detached) stdout.write("\r\n[h2a] detached from native session (session keeps running)\r\n");
+      if (detached) {
+        restoreBarForNotice();
+        stdout.write("\r\n[h2a] detached from native session (session keeps running)\r\n");
+      }
       resetModes();
     } finally {
       runtime.offTerminate?.(terminate);

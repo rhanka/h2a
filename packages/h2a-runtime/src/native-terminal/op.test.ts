@@ -1107,13 +1107,14 @@ describe("native attach status bar (cran 2)", () => {
       JSON.stringify({
         sessionId: "sess-alpha",
         instance: "claude:conductor:01",
-        host: "claude-code",
+        host: "claude",
+        pid: process.pid,
         name: "alpha",
-        cwd: root,
-        status: "active",
-        openedAt: new Date(now - 60_000).toISOString(),
-        lastHeartbeatAt: new Date(now).toISOString(),
-        expiresAt: new Date(now + 300_000).toISOString(),
+        startedAt: new Date(now - 60_000).toISOString(),
+        heartbeatAt: new Date(now).toISOString(),
+        state: "live",
+        interests: { scopes: [], negotiations: [] },
+        subscribedTopics: [],
         launchContext: {
           cwd: root,
           command: "h2a mcp-serve",
@@ -1125,9 +1126,13 @@ describe("native attach status bar (cran 2)", () => {
       join(h2aRoot, "registry", "instances.jsonl"),
       `${JSON.stringify({ instance: "claude:conductor:01", roles: ["CONDUCTOR"], registeredAt: new Date(now - 60_000).toISOString() })}\n`,
     );
-    writeFileSync(join(h2aRoot, "registry", "subagents.jsonl"), "");
+    writeFileSync(
+      join(h2aRoot, "registry", "subagents.jsonl"),
+      `${JSON.stringify({ id: "claude:conductor:01~Researcher", parentInstance: "claude:conductor:01", name: "Researcher", createdAt: new Date(now - 30_000).toISOString() })}\n`,
+    );
     writeFileSync(join(h2aRoot, "registry", "subagent-audit.jsonl"), "");
-    for (const id of ["env:1", "env:2"]) {
+    mkdirSync(join(h2aRoot, "inbox", "claude__conductor__01~Researcher"), { recursive: true });
+    for (const id of ["env:1"]) {
       writeFileSync(
         join(h2aRoot, "inbox", "claude__conductor__01", `${id.replace(":", "-")}.json`),
         JSON.stringify({
@@ -1142,6 +1147,18 @@ describe("native attach status bar (cran 2)", () => {
       );
     }
     writeFileSync(
+      join(h2aRoot, "inbox", "claude__conductor__01~Researcher", "env-2.json"),
+      JSON.stringify({
+        protocol: "sentropic.h2a",
+        version: "0.1",
+        id: "env:2",
+        type: "event",
+        actor: { instance: "codex:worker:01", role: "AGENTS", scope: "scope:default" },
+        body: { topic: "subagent.done" },
+        createdAt: new Date(now - 4_000).toISOString(),
+      }),
+    );
+    writeFileSync(
       join(h2aRoot, "loops", "loop-alpha", "state.json"),
       JSON.stringify({
         id: "loop-alpha",
@@ -1149,6 +1166,31 @@ describe("native attach status bar (cran 2)", () => {
         name: "Cran 2 status bar",
         goal: "ship status bar",
         status: "waiting-human",
+        repos: [],
+        refs: [],
+        agents: [
+          {
+            role: "conductor",
+            tool: "claude",
+            placement: "local",
+            status: "running",
+            h2aInstance: "claude:conductor:01",
+          },
+        ],
+        policy: {},
+        createdAt: new Date(now - 60_000).toISOString(),
+        updatedAt: new Date(now - 1_000).toISOString(),
+      }),
+    );
+    mkdirSync(join(h2aRoot, "loops", "loop-stopped"), { recursive: true });
+    writeFileSync(
+      join(h2aRoot, "loops", "loop-stopped", "state.json"),
+      JSON.stringify({
+        id: "loop-stopped",
+        ownerSystem: "h2a",
+        name: "Stopped loop",
+        goal: "already stopped",
+        status: "stopped",
         repos: [],
         refs: [],
         agents: [],
@@ -1383,5 +1425,341 @@ describe("native attach status bar (cran 2)", () => {
     expect(finalNormalSnapshot?.lines[1]?.trimEnd()).toBe("Final normal line");
     expect(finalNormalSnapshot?.lines[2]?.trimEnd()).toBe("Prompt > done");
     expect(finalNormalSnapshot?.lines[19]).toContain("claude · h2a-alpha · attached");
+  });
+
+  it("B1: parses escape sequences split byte-by-byte across chunks and defers mid-sequence status repaints", async () => {
+    const stdin = new FakeInput();
+    const stdout = new FakeTtyOutput();
+    stdout.columns = 80;
+    stdout.rows = 20;
+    let now = 1_760_000_000_000;
+
+    // Split CSI r, CSI 2J, CSI 20;1H, OSC 0;title BEL, OSC 0;title ST, DCS ST across single-byte chunks
+    const rawStream =
+      "\x1b[r\x1b[2J\x1b]0;my-title\x07\x1b]0;st-title\x1b\\\x1bP1$r0m\x1b\\\x1b[1;1HTOP-LINE\x1b[20;1HCLAMPED-BOTTOM";
+    const byteChunks = Array.from(rawStream);
+
+    let idx = 0;
+    let midSnap: { lines: string[]; cursorRow: number; cursorCol: number } | undefined;
+    const lease: NativeTerminalControllerLease = {
+      role: "controller",
+      id: "h2a-alpha",
+      generation: "generation-1",
+      incarnation: 1,
+      controllerId: "c-1",
+      epoch: 1,
+    };
+
+    const client: AttachClient = {
+      async acquireController() { return lease; },
+      async releaseController() { return { controlled: false, controllerEpoch: 1 }; },
+      async readOutput() {
+        if (idx < byteChunks.length) {
+          const ch = byteChunks[idx++]!;
+          // Advance clock by 1000ms right in the middle of an escape sequence to trigger a status refresh
+          if (idx === 10 || idx === 30) {
+            now += 1_000;
+          }
+          return replay(idx, ch);
+        }
+        if (idx === byteChunks.length) {
+          idx += 1;
+          now += 1_000;
+          midSnap = await inspectScreen(stdout.chunks.join(""), 80, 20);
+          stdin.emit("data", Buffer.from([0x1c]));
+        }
+        return replay(idx, "");
+      },
+      async state() { return running(true); },
+      async write() {},
+      async resize() {},
+      close() {},
+    };
+
+    await runAttach("h2a-alpha", {
+      connect: async () => client,
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      now: () => now,
+      delay: async (ms) => { now += ms; },
+      onResize: () => {},
+      offResize: () => {},
+    });
+
+    expect(midSnap?.lines[0]?.trimEnd()).toBe("TOP-LINE");
+    expect(midSnap?.lines[18]?.trimEnd()).toBe("CLAMPED-BOTTOM");
+    expect(midSnap?.lines[19]).toContain("h2a-alpha · attached");
+  });
+
+  it("B2: detaching or exiting from alternate screen cleans both buffers, exits alt screen, and keeps detach notice visible", async () => {
+    const stdin = new FakeInput();
+    const stdout = new FakeTtyOutput();
+    stdout.columns = 80;
+    stdout.rows = 20;
+    let now = 1_760_000_000_000;
+    let reads = 0;
+    let receiptDuringAlt = "";
+
+    const lease: NativeTerminalControllerLease = {
+      role: "controller",
+      id: "h2a-alpha",
+      generation: "generation-1",
+      incarnation: 1,
+      controllerId: "c-1",
+      epoch: 1,
+    };
+
+    const client: AttachClient = {
+      async acquireController() { return lease; },
+      async releaseController() { return { controlled: false, controllerEpoch: 1 }; },
+      async readOutput() {
+        reads += 1;
+        if (reads === 1) {
+          return replay(1, "Normal line 1\r\nNormal line 2\x1b[?1049h\x1b[1;1HAlt screen content");
+        }
+        if (reads === 2) {
+          stdin.emit("data", Buffer.from([0x1c]));
+        }
+        return replay(2, "");
+      },
+      async state() { return running(true); },
+      async write() {},
+      async resize() {},
+      close() {},
+    };
+
+    await runAttach("h2a-alpha", {
+      connect: async () => client,
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      now: () => now,
+      delay: async (ms) => { now += ms; },
+      onResize: () => {},
+      offResize: () => {},
+      saveTerminalReset: (seq) => {
+        if (seq) receiptDuringAlt = seq;
+      },
+    });
+
+    // Crash recovery receipt while attached must include the status-bar restore sequence (\x1b[r and row 20 clear)
+    expect(receiptDuringAlt).toContain("\x1b[r\x1b[20;1H\x1b[2K");
+
+    const afterDetach = await inspectScreen(stdout.chunks.join(""), 80, 20);
+    // Normal screen is active again, Normal line 1 is intact, detach notice is visible, and row 20 is NOT the amber status bar
+    expect(afterDetach.lines[0]?.trimEnd()).toBe("Normal line 1");
+    expect(afterDetach.lines.some((line) => line.includes("[h2a] detached from native session"))).toBe(true);
+    expect(afterDetach.lines[19]).not.toContain("h2a-alpha · attached");
+  });
+
+  it("B3: preserves 256-color and 24-bit RGB SGR with zero channels across status bar repaints", async () => {
+    const { default: xterm } = await import("@xterm/headless");
+    const stdin = new FakeInput();
+    const stdout = new FakeTtyOutput();
+    stdout.columns = 80;
+    stdout.rows = 20;
+    let now = 1_760_000_000_000;
+    let reads = 0;
+    let rawBeforeDetach = "";
+
+    const lease: NativeTerminalControllerLease = {
+      role: "controller",
+      id: "h2a-alpha",
+      generation: "generation-1",
+      incarnation: 1,
+      controllerId: "c-1",
+      epoch: 1,
+    };
+
+    const client: AttachClient = {
+      async acquireController() { return lease; },
+      async releaseController() { return { controlled: false, controllerEpoch: 1 }; },
+      async readOutput() {
+        reads += 1;
+        if (reads === 1) {
+          // Set 256-color fg 0 (palette 0) and RGB bg (0, 128, 0) — both contain '0' sub-operands!
+          return replay(1, "\x1b[1;1H\x1b[38;5;0;48;2;0;128;0mA");
+        }
+        if (reads === 2) {
+          // Trigger a status bar repaint by advancing clock >= 1000ms, then write 'B' relying on preserved SGR
+          now += 1_000;
+          return replay(2, "B");
+        }
+        if (reads === 3) {
+          rawBeforeDetach = stdout.chunks.join("");
+          stdin.emit("data", Buffer.from([0x1c]));
+        }
+        return replay(3, "");
+      },
+      async state() { return running(true); },
+      async write() {},
+      async resize() {},
+      close() {},
+    };
+
+    await runAttach("h2a-alpha", {
+      connect: async () => client,
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      now: () => now,
+      delay: async (ms) => { now += ms; },
+      onResize: () => {},
+      offResize: () => {},
+    });
+
+    const terminal = new xterm.Terminal({ cols: 80, rows: 20, scrollback: 0, allowProposedApi: true });
+    try {
+      await new Promise<void>((resolve) => terminal.write(rawBeforeDetach, resolve));
+      const row0 = terminal.buffer.active.getLine(0);
+      const cellB = row0?.getCell(1);
+      expect(row0?.translateToString(true).slice(0, 2)).toBe("AB");
+      expect(cellB?.isFgPalette()).toBe(true);
+      expect(cellB?.getFgColor()).toBe(0);
+      expect(cellB?.isBgRGB()).toBe(true);
+      expect(cellB?.getBgColor()).toBe(0x008000);
+    } finally {
+      terminal.dispose();
+    }
+  });
+
+  it("B4 & B5: handles DECOM (?6h), DECSTR (!p), RIS (ESC c), DECSED (?2J), pendingWrap at right margin, CHT/CBT/REP, and DECSC/DECRC", async () => {
+    const stdin = new FakeInput();
+    const stdout = new FakeTtyOutput();
+    stdout.columns = 20;
+    stdout.rows = 12;
+    let now = 1_760_000_000_000;
+    let reads = 0;
+    let snap: { lines: string[]; cursorRow: number; cursorCol: number } | undefined;
+
+    const lease: NativeTerminalControllerLease = {
+      role: "controller",
+      id: "h2a-alpha",
+      generation: "generation-1",
+      incarnation: 1,
+      controllerId: "c-1",
+      epoch: 1,
+    };
+
+    const client: AttachClient = {
+      async acquireController() { return lease; },
+      async releaseController() { return { controlled: false, controllerEpoch: 1 }; },
+      async readOutput() {
+        reads += 1;
+        if (reads === 1) {
+          // 1) RIS (\x1bc), then DECSTR (\x1b[!p), then DECSED (\x1b[?2J)
+          // 2) Set scroll region 3..10, enable DECOM (\x1b[?6h), CUP 1;1 (which means row 3 col 1!) and write "DECOM-ROW3"
+          return replay(1, "\x1bc\x1b[!p\x1b[?2J\x1b[3;10r\x1b[?6h\x1b[1;1HDECOM-ROW3");
+        }
+        if (reads === 2) {
+          now += 1_000;
+          // Disable DECOM, reset scroll region, save cursor at row 5 col 2, move elsewhere, restore cursor and write "SAVED"
+          return replay(2, "\x1b[?6l\x1b[r\x1b[5;2H\x1b7\x1b[1;1HIGNORE\x1b8SAVED");
+        }
+        if (reads === 3) {
+          now += 1_000;
+          // Fill row 7 right up to column 20 (triggers pendingWrap at col 20)
+          return replay(3, "\x1b[7;1H12345678901234567890");
+        }
+        if (reads === 4) {
+          // Trigger repaint while pendingWrap is true on row 7 col 20, then emit "WRAP" -> must wrap to row 8 col 1!
+          now += 1_000;
+          return replay(4, "WRAP");
+        }
+        if (reads === 5) {
+          now += 1_000;
+          // Use REP (\x1b[3b) and CHT (\x1b[1I) on row 9
+          return replay(5, "\x1b[9;1HX\x1b[3b\x1b[1IY");
+        }
+        if (reads === 6) {
+          snap = await inspectScreen(stdout.chunks.join(""), 20, 12);
+          stdin.emit("data", Buffer.from([0x1c]));
+        }
+        return replay(6, "");
+      },
+      async state() { return running(true); },
+      async write() {},
+      async resize() {},
+      close() {},
+    };
+
+    await runAttach("h2a-alpha", {
+      connect: async () => client,
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      now: () => now,
+      delay: async (ms) => { now += ms; },
+      onResize: () => {},
+      offResize: () => {},
+    });
+
+    expect(snap?.lines[2]?.trimEnd()).toBe("DECOM-ROW3");
+    expect(snap?.lines[4]?.trimEnd()).toBe(" SAVED");
+    expect(snap?.lines[6]?.trimEnd()).toBe("12345678901234567890");
+    expect(snap?.lines[7]?.trimEnd()).toBe("WRAP");
+    expect(snap?.lines[8]?.trimEnd()).toBe("XXXX    Y");
+    // Row 12 (index 11) still has the status bar after RIS, DECSTR, DECSED, DECOM, and pendingWrap!
+    expect(snap?.lines[11]).toContain("h2a-alpha");
+  });
+
+  it("B6: resizing from 20 rows down to 8 rows disables the status bar without erasing line 8 of the child TUI", async () => {
+    const stdin = new FakeInput();
+    const stdout = new FakeTtyOutput();
+    stdout.columns = 60;
+    stdout.rows = 20;
+    let now = 1_760_000_000_000;
+    let reads = 0;
+    let resizeHandler: (() => void) | undefined;
+    let shrunkOutput = "";
+
+    const lease: NativeTerminalControllerLease = {
+      role: "controller",
+      id: "h2a-alpha",
+      generation: "generation-1",
+      incarnation: 1,
+      controllerId: "c-1",
+      epoch: 1,
+    };
+
+    const client: AttachClient = {
+      async acquireController() { return lease; },
+      async releaseController() { return { controlled: false, controllerEpoch: 1 }; },
+      async readOutput() {
+        reads += 1;
+        if (reads === 1) {
+          return replay(
+            1,
+            "\x1b[1;1HL1\r\nL2\r\nL3\r\nL4\r\nL5\r\nL6\r\nL7\r\nLINE-8-KEEP",
+          );
+        }
+        if (reads === 2) {
+          stdout.rows = 8;
+          resizeHandler?.();
+          return replay(2, "");
+        }
+        if (reads === 3) {
+          shrunkOutput = stdout.chunks.join("");
+          stdin.emit("data", Buffer.from([0x1c]));
+        }
+        return replay(3, "");
+      },
+      async state() { return running(true); },
+      async write() {},
+      async resize() {},
+      close() {},
+    };
+
+    await runAttach("h2a-alpha", {
+      connect: async () => client,
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      now: () => now,
+      delay: async (ms) => { now += ms; },
+      onResize: (fn) => { resizeHandler = fn; },
+      offResize: () => { resizeHandler = undefined; },
+    });
+
+    // When shrinking from 20 rows to 8 rows, the status bar must NOT emit \x1b[20;1H\x1b[2K (which xterm clamps to row 8 and erases LINE-8-KEEP)
+    const afterResizeSlice = shrunkOutput.slice(shrunkOutput.indexOf("LINE-8-KEEP") + "LINE-8-KEEP".length);
+    expect(afterResizeSlice).not.toContain("\x1b[20;1H\x1b[2K");
+    expect(afterResizeSlice).not.toContain("\x1b[8;1H\x1b[2K");
   });
 });
