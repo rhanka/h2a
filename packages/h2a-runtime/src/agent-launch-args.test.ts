@@ -303,6 +303,9 @@ describe("agent launch allowlists", () => {
     expect(isAgentLaunchProfile("bash")).toBe(false);
     expect(isAgentLaunchEffort("xhigh")).toBe(true);
     expect(isAgentLaunchEffort("max")).toBe(false);
+    expect(isAgentLaunchEffort("max", "muse")).toBe(true);
+    expect(isAgentLaunchEffort("max", "codex")).toBe(false);
+    expect(isAgentLaunchEffort("max", "claude")).toBe(false);
   });
 
   it("rejects unsafe model tokens and unbounded prompts", () => {

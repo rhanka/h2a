@@ -13,7 +13,7 @@ import { assertAgyClaudeBuildAllowed, isAgyClaudeModel, normalizeAgyEffort, reso
 export const H2A_RUN_PROFILES = ["claude", "codex", "agy", "muse", "vibe"] as const;
 export type H2aRunProfile = (typeof H2A_RUN_PROFILES)[number];
 export const H2A_RUN_EFFORTS = ["low", "medium", "high", "xhigh"] as const;
-export type H2aRunEffort = (typeof H2A_RUN_EFFORTS)[number];
+export type H2aRunEffort = (typeof H2A_RUN_EFFORTS)[number] | "max";
 export const H2A_RUN_GATEWAYS = ["auto", "required", "off"] as const;
 export type H2aRunGateway = (typeof H2A_RUN_GATEWAYS)[number];
 export const H2A_RUN_API_VERSION = "h2a.run/v1";
@@ -266,9 +266,9 @@ export function validateH2aRunRequest(
   if (
     effort !== undefined &&
     (typeof effort !== "string" ||
-      !(H2A_RUN_EFFORTS as readonly string[]).includes(effort))
+      (!(H2A_RUN_EFFORTS as readonly string[]).includes(effort) && !(profile === "muse" && effort === "max")))
   ) {
-    throw new Error("h2a_run: 'effort' must be low|medium|high|xhigh");
+    throw new Error("h2a_run: 'effort' must be low|medium|high|xhigh (Muse also accepts max)");
   }
   const { role, allowClaudeBuild, outputFile } = args;
   if (allowClaudeBuild !== undefined && typeof allowClaudeBuild !== "boolean") throw new Error("h2a_run: 'allowClaudeBuild' must be boolean");
