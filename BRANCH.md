@@ -3111,5 +3111,6 @@ scope stays pre-SG-R15.
   - [x] Mechanical harness scope check: PASS C2.
   - [x] After the Muse-only max admission fix: strict npm ci in an isolated container, MCP run tests 18/18 and native launch tests 31/31 passed.
   - [x] MCP descriptor regenerated from the source tool definitions.
+  - [x] Full npm run build, descriptor freshness check, MCP 18/18 and native launch 31/31 passed after preserving the CLI's string profile type in the effort guard.
   - [ ] Muse independent code review dispatched; Argon unavailable (account disabled).
 - [ ] Lot 3: open PR and resolve CI to green on exact head.
