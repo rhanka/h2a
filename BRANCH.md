@@ -3100,4 +3100,7 @@ scope stays pre-SG-R15.
 - [x] Lot 0: inspect rules, baseline and branch gate.
 - [x] Lot 1: canonical ID and alias; catalog and agent-launch-args tests.
 - [ ] Lot 2: targeted catalog/launch tests and independent code review.
+  - [x] Docker targeted Vitest run: 41 tests passed (catalog 10; launch arguments 31).
+  - [x] Mechanical harness scope check: PASS C2.
+  - [ ] Muse independent code review dispatched; Argon unavailable (account disabled).
 - [ ] Lot 3: open PR and resolve CI to green on exact head.
