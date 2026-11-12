@@ -26,6 +26,11 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+// These suites spawn npm pack / npm install / tsc. They exceed vitest's 5 s default on
+// loaded runners (release verify, local hosts with a cold npm cache), so they carry an
+// explicit budget instead of failing on time.
+const SUBPROCESS_SUITE = { timeout: 180_000 };
+
 import { EXPECTED_TRACK_READ_MAJOR } from "../src/track/index.js";
 import { validateDecisionDossierDocument } from "../src/validation/index.js";
 import {
@@ -127,7 +132,7 @@ const packAndExtract = (): PackedLayout & { cleanup: () => void } => {
   return { tarball, extracted: join(root, "package"), files, cleanup };
 };
 
-describe("packed tarball clean consumer (R4-AC10)", () => {
+describe("packed tarball clean consumer (R4-AC10)", SUBPROCESS_SUITE, () => {
   it("real tarball installs the registry closure with verified digests", () => {
     const { files, extracted, cleanup } = packAndExtract();
     try {
@@ -197,7 +202,7 @@ describe("packed tarball clean consumer (R4-AC10)", () => {
   });
 });
 
-describe("second synthetic embedding host (R4-AC12)", () => {
+describe("second synthetic embedding host (R4-AC12)", SUBPROCESS_SUITE, () => {
   it("public-exports-only host selects, configures and resolves Focus", async () => {
     const { extracted, cleanup } = packAndExtract();
     try {
@@ -310,7 +315,7 @@ describe("archive round-trips every node family (R4-AC13)", () => {
   });
 });
 
-describe("publish builds dist first (rev352-F6, rev352r2-F5)", () => {
+describe("publish builds dist first (rev352-F6, rev352r2-F5)", SUBPROCESS_SUITE, () => {
   it("prepack rebuilds dist so a manual publish never ships a dist-less tarball", () => {
     const scripts = (packageJson as { scripts?: Record<string, string> }).scripts ?? {};
     expect(scripts["prepack"]).toBe("npm run build");
