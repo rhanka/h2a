@@ -447,6 +447,7 @@ export function startNativeSession(
   env["TERM"] = "xterm-256color";
   // The launch runtime may still be connected to an older protocol-v1 host.
   env["H2A_NATIVE_TERMINAL"] = "1";
+  env["H2A_NATIVE_PTY_SESSION"] = name;
   // Direct launches carry the wrapper scrub sentinel so a login/init script
   // cannot reintroduce routing vars before the CLI exec (tmux twin:
   // tmuxEnvironmentArgs stamps the same sentinel via -e).
@@ -538,6 +539,7 @@ export async function startNativeSessionSingleShot(
   }
   env["TERM"] = "xterm-256color";
   env["H2A_NATIVE_TERMINAL"] = "1";
+  env["H2A_NATIVE_PTY_SESSION"] = name;
   // Same last-point scrub sentinel as the interactive native path.
   stampDirectRoutingScrub(env);
   if (metadata.sessionClass !== undefined) {

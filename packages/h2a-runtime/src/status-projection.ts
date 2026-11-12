@@ -1,9 +1,18 @@
+import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type {
   GatewaySessionState,
   PublicAccountDescriptor,
   SessionLedgerEntry,
 } from "./gateway-host/ledger.js";
+import {
+  llmMeshPidPath,
+  llmMeshTokenPath,
+} from "./gateway-host/daemon.js";
+import { readLlmMeshConfig } from "./gateway-host/config-file.js";
 import { projectRemoteAgents, type RemoteAgentProjection } from "./agents-projection.js";
+import { resolveResumedGatewayMode } from "./protocol-local.js";
 import {
   loadRegistryWithDiagnostics,
   listJobs,
@@ -107,6 +116,7 @@ export interface ProjectStatusForH2aOptions {
   readonly delegationAttestationsKnown?: boolean;
   readonly fetchImpl?: typeof fetch;
   readonly gatewayTimeoutMs?: number;
+  readonly nowMs?: number;
 }
 
 function cleanDisplay(value: string, maxScalars = 256): string {
@@ -353,6 +363,19 @@ export function projectDelegatedExecutions(
   attestationsKnown = true,
   workerPidForTmuxSession: (session: string) => number | undefined =
     localSessionAgentPanePid,
+  nativeWorkerPidForSession: (session: string) => number | undefined = (
+    workerSession,
+  ) => {
+    const workerRow = entries.find(
+      (e) =>
+        e.kind === "local-native" &&
+        e.endedAt === undefined &&
+        e.tmuxSession === workerSession &&
+        e.pid !== undefined &&
+        isPidAlive(e.pid),
+    );
+    return workerRow?.pid;
+  },
 ): { executions: H2ADelegatedExecutionV1[]; degraded: boolean } {
   if (!registryKnown || !attestationsKnown || !delegatorTmuxSession || !delegatorInstance) {
     return { executions: [], degraded: true };
@@ -373,6 +396,13 @@ export function projectDelegatedExecutions(
   for (const entry of entries) {
     if (entry.sessionClass !== "background" && entry.role !== "job") continue;
     if (entry.jobState === "done") continue;
+    if (
+      entry.sessionClass === "background" &&
+      entry.endedAt !== undefined &&
+      entry.jobState !== "failed"
+    ) {
+      continue;
+    }
     const attestation = entry.tmuxSession && !ambiguousWorkers.has(entry.tmuxSession)
       ? attestationByWorker.get(entry.tmuxSession)
       : undefined;
@@ -383,7 +413,9 @@ export function projectDelegatedExecutions(
       (entry.delegationOrigin === "cli:h2a-delegate" &&
         entry.jobState !== "pending" && entry.jobState !== "failed");
     const liveWorkerPid = requiresLivePaneProof && entry.tmuxSession
-      ? workerPidForTmuxSession(entry.tmuxSession)
+      ? entry.kind === "local-native"
+        ? nativeWorkerPidForSession?.(entry.tmuxSession)
+        : workerPidForTmuxSession(entry.tmuxSession)
       : undefined;
     const attestationMatchesWorker = attestation !== undefined &&
       liveWorkerPid !== undefined && liveWorkerPid === attestation.workerPid;
@@ -438,13 +470,22 @@ export function projectDelegatedExecutions(
       });
       continue;
     }
-    if (entry.kind !== "local-tmux" || !entry.tmuxSession || !liveTmux.has(entry.tmuxSession)) {
-      // The structured MCP launcher terminates its tmux session with the agent.
+    const isLiveTmuxWorker =
+      entry.kind === "local-tmux" &&
+      entry.tmuxSession !== undefined &&
+      liveTmux.has(entry.tmuxSession);
+    const isLiveNativeWorker =
+      entry.kind === "local-native" &&
+      entry.tmuxSession !== undefined &&
+      nativeWorkerPidForSession !== undefined &&
+      liveWorkerPid !== undefined;
+    if (!isLiveTmuxWorker && !isLiveNativeWorker) {
+      // The structured MCP launcher terminates its session with the agent.
       // A vanished row without a terminal result is unverifiable, not failed.
       degraded = true;
       continue;
     }
-    // A tmux wrapper can outlive or replace an agent. For executable work, the
+    // A session wrapper can outlive or replace an agent. For executable work, the
     // recorded launch pid must still be the exact recorded agent pane pid.
     if (entry.pid === undefined || liveWorkerPid !== entry.pid) {
       degraded = true;
@@ -528,7 +569,7 @@ async function readGatewayStatus(
         reason: "gateway has no snapshot for this exact tmux session",
       };
     }
-    const projected = gatewayFromLedger(entry);
+    const projected = gatewayFromLedger(entry, options.nowMs);
     return legacyClientSessionId
       ? {
           ...projected,
@@ -642,4 +683,896 @@ export async function projectStatusForH2a(
     gateway,
     warnings,
   };
+}
+
+export type NativeStatusBarLinkState = "attached" | "reconnecting" | "exited";
+
+export interface NativeStatusBarSnapshot {
+  readonly cli: string | "unknown";
+  readonly sessionName: string;
+  readonly linkState: NativeStatusBarLinkState;
+  readonly role: string | "unknown";
+  readonly workload: {
+    readonly j: {
+      readonly open: number;
+      readonly attention: number;
+      readonly degraded: boolean;
+    };
+    readonly i: {
+      readonly waiting: number;
+      readonly degraded: boolean;
+    };
+    readonly l: {
+      readonly active: number;
+      readonly attention: number;
+      readonly degraded: boolean;
+    };
+  };
+  readonly delegatedSessions: number | "unknown";
+  readonly gateway: H2AGatewayStatusV1;
+}
+
+export interface ReadNativeStatusBarOptions {
+  readonly sessionName: string;
+  readonly linkState?: NativeStatusBarLinkState;
+  readonly registryPath?: string;
+  readonly h2aRoot?: string;
+  readonly ownerInstance?: string;
+  readonly role?: string;
+  readonly gatewayMode?: "gateway" | "direct";
+  readonly gatewayBaseUrl?: string;
+  readonly gatewayStateDir?: string;
+  readonly fetchImpl?: typeof fetch;
+  readonly gatewayTimeoutMs?: number;
+  readonly nowMs?: number;
+  readonly nativeWorkerPidForSession?: (session: string) => number | undefined;
+}
+
+const INSTANCE_TOKEN_RE = /^[A-Za-z0-9][A-Za-z0-9._:~-]{0,255}$/;
+const H2A_LOOP_STATUS_VALUES = new Set([
+  "created",
+  "running",
+  "Incrementing",
+  "waiting-ci",
+  "waiting-review",
+  "waiting-human",
+  "paused",
+  "stopped",
+  "blocked",
+  "done",
+  "failed",
+  "cancelled",
+]);
+const TERMINAL_LOOP_STATUSES = new Set([
+  "done",
+  "failed",
+  "cancelled",
+  "stopped",
+  "blocked",
+]);
+const ATTENTION_LOOP_STATUSES = new Set([
+  "waiting-human",
+  "stalled",
+  "degraded",
+  "blocked",
+  "failed",
+  "paused",
+]);
+const H2A_ENVELOPE_TYPES = new Set([
+  "register",
+  "propose",
+  "accept",
+  "reject",
+  "counter",
+  "withdraw",
+  "event",
+  "escalate",
+]);
+const H2A_SESSION_STATES = new Set([
+  "opening",
+  "live",
+  "draining",
+  "closed",
+  "expired",
+]);
+const DEFAULT_SESSION_EXPIRY_MS = 90_000;
+const DEFAULT_LOOP_STALE_MULTIPLIER = 3;
+const DEFAULT_LOOP_TICK_INTERVAL_SEC = 60;
+
+function readBoundedUtf8(
+  filePath: string,
+  maxBytes: number,
+): { ok: true; text: string } | { ok: false } {
+  let fd: number;
+  try {
+    fd = openSync(filePath, "r");
+  } catch {
+    return { ok: false };
+  }
+  try {
+    const buf = Buffer.allocUnsafe(maxBytes + 1);
+    const bytesRead = readSync(fd, buf, 0, maxBytes + 1, 0);
+    if (bytesRead > maxBytes) {
+      return { ok: false };
+    }
+    return { ok: true, text: buf.subarray(0, bytesRead).toString("utf8") };
+  } catch {
+    return { ok: false };
+  } finally {
+    try {
+      closeSync(fd);
+    } catch {
+      // best effort
+    }
+  }
+}
+
+function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function resolveLocalGatewayBaseUrl(stateDir?: string): string | undefined {
+  const envUrl = process.env.ANTHROPIC_BASE_URL?.trim();
+  if (envUrl && localGatewayStatusUrl(envUrl, "probe")) {
+    return envUrl;
+  }
+  try {
+    const tokenPath = llmMeshTokenPath(stateDir);
+    if (existsSync(tokenPath)) {
+      const parsed = JSON.parse(readFileSync(tokenPath, "utf8")) as {
+        baseUrl?: unknown;
+        pid?: unknown;
+      };
+      if (
+        typeof parsed.baseUrl === "string" &&
+        localGatewayStatusUrl(parsed.baseUrl, "probe") &&
+        (typeof parsed.pid !== "number" || isPidAlive(parsed.pid))
+      ) {
+        return parsed.baseUrl;
+      }
+    }
+  } catch {
+    // Fall back to config below.
+  }
+  try {
+    const pidPath = llmMeshPidPath(stateDir);
+    if (existsSync(pidPath)) {
+      const pid = Number.parseInt(readFileSync(pidPath, "utf8").trim(), 10);
+      if (Number.isInteger(pid) && pid > 0 && isPidAlive(pid)) {
+        const cfg = readLlmMeshConfig(stateDir);
+        const port = cfg?.port;
+        if (typeof port === "number" && Number.isInteger(port) && port > 0) {
+          return `http://127.0.0.1:${port}`;
+        }
+      }
+    }
+  } catch {
+    // Unavailable.
+  }
+  return undefined;
+}
+
+interface PresenceFileRecord {
+  readonly sessionId: string;
+  readonly instance: string;
+  readonly pid?: number;
+  readonly mirroredAt?: string;
+  readonly startedAt: string;
+  readonly heartbeatAt: string;
+  readonly state: "opening" | "live" | "draining" | "closed" | "expired";
+  readonly launchContext?: {
+    readonly nativePty?: { readonly session?: string };
+    readonly tmux?: { readonly session?: string };
+  };
+}
+
+function readLivePresenceForRoot(
+  h2aRoot: string | undefined,
+  nowMs: number,
+): { records: PresenceFileRecord[]; degraded: boolean } {
+  if (!h2aRoot || !existsSync(h2aRoot)) {
+    return { records: [], degraded: true };
+  }
+  const presenceDir = join(h2aRoot, "presence");
+  if (!existsSync(presenceDir)) {
+    return { records: [], degraded: false };
+  }
+  const envExpiry = Number.parseInt(process.env.H2A_SESSION_EXPIRY_MS ?? "", 10);
+  const expiryMs =
+    Number.isFinite(envExpiry) && envExpiry > 0
+      ? envExpiry
+      : DEFAULT_SESSION_EXPIRY_MS;
+  try {
+    const files = readdirSync(presenceDir);
+    const records: PresenceFileRecord[] = [];
+    let degraded = false;
+    for (const file of files) {
+      if (!file.endsWith(".json")) continue;
+      try {
+        const bounded = readBoundedUtf8(join(presenceDir, file), 64 * 1024);
+        if (!bounded.ok) {
+          degraded = true;
+          continue;
+        }
+        const raw = JSON.parse(bounded.text) as Partial<PresenceFileRecord>;
+        if (
+          typeof raw.sessionId !== "string" ||
+          typeof raw.instance !== "string" ||
+          !INSTANCE_TOKEN_RE.test(raw.instance) ||
+          typeof raw.startedAt !== "string" ||
+          typeof raw.heartbeatAt !== "string" ||
+          typeof raw.state !== "string" ||
+          !H2A_SESSION_STATES.has(raw.state)
+        ) {
+          degraded = true;
+          continue;
+        }
+        const startedMs = Date.parse(raw.startedAt);
+        const heartbeatMs = Date.parse(raw.heartbeatAt);
+        if (!Number.isFinite(startedMs) || !Number.isFinite(heartbeatMs)) {
+          degraded = true;
+          continue;
+        }
+        if (raw.state === "closed" || raw.state === "expired") continue;
+        if (nowMs - heartbeatMs > expiryMs) continue;
+        if (
+          !raw.mirroredAt &&
+          typeof raw.pid === "number" &&
+          (!Number.isInteger(raw.pid) || raw.pid <= 0 || !isPidAlive(raw.pid))
+        ) {
+          continue;
+        }
+        records.push(raw as PresenceFileRecord);
+      } catch {
+        degraded = true;
+      }
+    }
+    return { records, degraded };
+  } catch {
+    return { records: [], degraded: true };
+  }
+}
+
+function resolveOwnerInstanceFromPresence(
+  records: readonly PresenceFileRecord[],
+  sessionName: string,
+): string | undefined {
+  const matched = new Set<string>();
+  for (const record of records) {
+    const nativeSession = record.launchContext?.nativePty?.session;
+    const tmuxSession = record.launchContext?.tmux?.session;
+    if (nativeSession === sessionName || tmuxSession === sessionName) {
+      matched.add(record.instance);
+    }
+  }
+  if (matched.size !== 1) return undefined;
+  return [...matched][0];
+}
+
+function resolveInstanceRoleFromStore(
+  h2aRoot: string | undefined,
+  ownerInstance: string | undefined,
+): string | undefined {
+  if (!h2aRoot || !ownerInstance) return undefined;
+  const instancesPath = join(h2aRoot, "registry", "instances.jsonl");
+  if (!existsSync(instancesPath)) return undefined;
+  try {
+    const bounded = readBoundedUtf8(instancesPath, 64 * 1024);
+    if (!bounded.ok) return undefined;
+    const lines = bounded.text.split("\n");
+    let matchedRole: string | undefined;
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      const row = JSON.parse(line) as {
+        instance?: unknown;
+        roles?: unknown;
+      };
+      if (
+        row.instance === ownerInstance &&
+        Array.isArray(row.roles) &&
+        typeof row.roles[0] === "string" &&
+        row.roles[0].trim().length > 0
+      ) {
+        matchedRole = cleanDisplay(row.roles[0], 32).toLowerCase();
+      }
+    }
+    return matchedRole;
+  } catch {
+    return undefined;
+  }
+}
+
+function readMcpAttestationsFromStore(
+  h2aRoot: string | undefined,
+): { values: H2AMcpDelegationAttestationV1[]; known: boolean } {
+  if (!h2aRoot || !existsSync(h2aRoot)) {
+    return { values: [], known: true };
+  }
+  const filePath = join(h2aRoot, "registry", "mcp-delegations.jsonl");
+  if (!existsSync(filePath)) {
+    return { values: [], known: true };
+  }
+  try {
+    const bounded = readBoundedUtf8(filePath, 32 * 1024);
+    if (!bounded.ok) return { values: [], known: false };
+    const text = bounded.text;
+    const values: H2AMcpDelegationAttestationV1[] = [];
+    for (const line of text.split("\n")) {
+      if (!line.trim()) continue;
+      const row = JSON.parse(line) as Record<string, unknown>;
+      if (
+        row.version !== 1 ||
+        row.origin !== "mcp:h2a_run" ||
+        typeof row.workerTmuxSession !== "string" ||
+        !/^(?:h2a|remote)-[A-Za-z0-9_.#-]{1,120}$/.test(row.workerTmuxSession) ||
+        typeof row.workerPid !== "number" ||
+        !Number.isInteger(row.workerPid) ||
+        row.workerPid <= 0 ||
+        typeof row.delegatorInstance !== "string" ||
+        !INSTANCE_TOKEN_RE.test(row.delegatorInstance) ||
+        typeof row.delegatorTmuxSession !== "string" ||
+        !/^(?:h2a|remote)-[A-Za-z0-9_.#-]{1,120}$/.test(row.delegatorTmuxSession) ||
+        typeof row.recordedAt !== "string" ||
+        !Number.isFinite(Date.parse(row.recordedAt))
+      ) {
+        return { values: [], known: false };
+      }
+      values.push({
+        workerTmuxSession: row.workerTmuxSession,
+        workerPid: row.workerPid,
+        origin: "mcp:h2a_run",
+        delegatorInstance: row.delegatorInstance,
+        delegatorTmuxSession: row.delegatorTmuxSession,
+      });
+    }
+    return { values, known: true };
+  } catch {
+    return { values: [], known: false };
+  }
+}
+
+function canonicalRecipientAddress(address: string): string {
+  const trimmed = address.trim();
+  const tilde = trimmed.indexOf("~");
+  if (tilde === -1) return trimmed.toLowerCase();
+  return `${trimmed.slice(0, tilde).toLowerCase()}~${trimmed.slice(tilde + 1)}`;
+}
+
+function safePathSegment(id: string): string {
+  return id.replace(/[:/\\<>"|?*]+/g, "__");
+}
+
+function inboxDirectoryName(recipient: string, lower = true): string {
+  const normalized = lower ? canonicalRecipientAddress(recipient) : recipient.trim();
+  return safePathSegment(normalized);
+}
+
+function readInboxWaitingCount(
+  h2aRoot: string | undefined,
+  ownerInstance: string | undefined,
+): { waiting: number; degraded: boolean } {
+  if (!h2aRoot || !ownerInstance || !existsSync(h2aRoot)) {
+    return { waiting: 0, degraded: true };
+  }
+  const inboxRoot = join(h2aRoot, "inbox");
+  const subagentsFile = join(h2aRoot, "registry", "subagents.jsonl");
+  const auditFile = join(h2aRoot, "registry", "subagent-audit.jsonl");
+  if (!existsSync(inboxRoot) || !existsSync(subagentsFile) || !existsSync(auditFile)) {
+    return { waiting: 0, degraded: true };
+  }
+  try {
+    const subagentsRaw = readBoundedUtf8(subagentsFile, 64 * 1024);
+    if (!subagentsRaw.ok) return { waiting: 0, degraded: true };
+    const subagentIds = new Set<string>();
+    for (const line of subagentsRaw.text.split("\n")) {
+      if (!line.trim()) continue;
+      const row = JSON.parse(line) as {
+        id?: unknown;
+        parentInstance?: unknown;
+        name?: unknown;
+        createdAt?: unknown;
+      };
+      const expectedId = `${String(row.parentInstance ?? "")}~${String(row.name ?? "")}`;
+      if (
+        typeof row.id !== "string" ||
+        typeof row.parentInstance !== "string" ||
+        row.parentInstance.length === 0 ||
+        typeof row.name !== "string" ||
+        row.name.length === 0 ||
+        row.name.includes("~") ||
+        row.id !== expectedId ||
+        typeof row.createdAt !== "string" ||
+        !Number.isFinite(Date.parse(row.createdAt))
+      ) {
+        return { waiting: 0, degraded: true };
+      }
+      if (canonicalRecipientAddress(row.parentInstance) === canonicalRecipientAddress(ownerInstance)) {
+        subagentIds.add(row.id);
+      }
+    }
+    const auditRaw = readBoundedUtf8(auditFile, 64 * 1024);
+    if (!auditRaw.ok) return { waiting: 0, degraded: true };
+    const revoked = new Set<string>();
+    for (const line of auditRaw.text.split("\n")) {
+      if (!line.trim()) continue;
+      const row = JSON.parse(line) as {
+        subagent?: unknown;
+        type?: unknown;
+        at?: unknown;
+        envelopeId?: unknown;
+        mailbox?: unknown;
+      };
+      const validType =
+        row.type === "registered" || row.type === "routed" || row.type === "revoked";
+      if (
+        typeof row.subagent !== "string" ||
+        !validType ||
+        typeof row.at !== "string" ||
+        !Number.isFinite(Date.parse(row.at)) ||
+        (row.type === "routed" &&
+          (typeof row.envelopeId !== "string" ||
+            (row.mailbox !== "inbox" && row.mailbox !== "outbox")))
+      ) {
+        return { waiting: 0, degraded: true };
+      }
+      if (row.type === "revoked") revoked.add(row.subagent);
+    }
+    const recipients = [
+      ownerInstance,
+      ...[...subagentIds].filter((id) => !revoked.has(id)),
+    ];
+    const dirs = new Map<string, string>();
+    for (const r of recipients) {
+      const canon = canonicalRecipientAddress(r);
+      dirs.set(join(inboxRoot, inboxDirectoryName(r, true)), canon);
+      dirs.set(join(inboxRoot, inboxDirectoryName(r, false)), canon);
+    }
+    const waitingKeys = new Set<string>();
+    for (const [dirPath, recipientCanon] of dirs) {
+      if (!existsSync(dirPath)) continue;
+      for (const file of readdirSync(dirPath)) {
+        if (!file.endsWith(".json")) continue;
+        const envRaw = readBoundedUtf8(join(dirPath, file), 64 * 1024);
+        if (!envRaw.ok) return { waiting: 0, degraded: true };
+        const env = JSON.parse(envRaw.text) as {
+          protocol?: unknown;
+          version?: unknown;
+          id?: unknown;
+          type?: unknown;
+          actor?: { instance?: unknown; role?: unknown; scope?: unknown };
+          body?: unknown;
+          createdAt?: unknown;
+        };
+        if (
+          env.protocol !== "sentropic.h2a" ||
+          typeof env.version !== "string" ||
+          env.version.length === 0 ||
+          typeof env.id !== "string" ||
+          env.id.length === 0 ||
+          typeof env.type !== "string" ||
+          !H2A_ENVELOPE_TYPES.has(env.type) ||
+          !env.actor ||
+          typeof env.actor.instance !== "string" ||
+          env.actor.instance.length === 0 ||
+          typeof env.actor.role !== "string" ||
+          env.actor.role.length === 0 ||
+          typeof env.actor.scope !== "string" ||
+          env.actor.scope.length === 0 ||
+          !env.body ||
+          typeof env.body !== "object" ||
+          Array.isArray(env.body) ||
+          typeof env.createdAt !== "string" ||
+          !Number.isFinite(Date.parse(env.createdAt))
+        ) {
+          return { waiting: 0, degraded: true };
+        }
+        waitingKeys.add(`${recipientCanon}\u0000${env.id}`);
+      }
+    }
+    return { waiting: waitingKeys.size, degraded: false };
+  } catch {
+    return { waiting: 0, degraded: true };
+  }
+}
+
+function readLoopsStatusCount(
+  h2aRoot: string | undefined,
+  livePresenceInstances: ReadonlySet<string>,
+  presenceDegraded: boolean,
+  nowMs: number,
+): { active: number; attention: number; degraded: boolean } {
+  if (!h2aRoot || !existsSync(h2aRoot)) {
+    return { active: 0, attention: 0, degraded: true };
+  }
+  const loopsRoot = join(h2aRoot, "loops");
+  if (!existsSync(loopsRoot)) {
+    return { active: 0, attention: 0, degraded: true };
+  }
+  try {
+    const entries = readdirSync(loopsRoot, { withFileTypes: true });
+    let active = 0;
+    const attentionIds = new Set<string>();
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      if (entry.name.startsWith(".")) continue;
+      const stateFile = join(loopsRoot, entry.name, "state.json");
+      if (!existsSync(stateFile)) {
+        return { active: 0, attention: 0, degraded: true };
+      }
+      const bounded = readBoundedUtf8(stateFile, 64 * 1024);
+      if (!bounded.ok) {
+        return { active: 0, attention: 0, degraded: true };
+      }
+      const raw = JSON.parse(bounded.text) as {
+        id?: unknown;
+        ownerSystem?: unknown;
+        name?: unknown;
+        goal?: unknown;
+        status?: unknown;
+        repos?: unknown;
+        refs?: unknown;
+        agents?: unknown;
+        policy?: {
+          autoTick?: unknown;
+          tickIntervalSec?: unknown;
+        } | null;
+        executor?: {
+          pid?: unknown;
+          heartbeat?: unknown;
+        } | null;
+        createdAt?: unknown;
+        updatedAt?: unknown;
+      };
+      if (
+        typeof raw.id !== "string" ||
+        raw.id !== entry.name ||
+        raw.ownerSystem !== "h2a" ||
+        typeof raw.name !== "string" ||
+        typeof raw.goal !== "string" ||
+        typeof raw.status !== "string" ||
+        !H2A_LOOP_STATUS_VALUES.has(raw.status) ||
+        !Array.isArray(raw.repos) ||
+        !Array.isArray(raw.refs) ||
+        !Array.isArray(raw.agents) ||
+        !raw.policy ||
+        typeof raw.policy !== "object" ||
+        Array.isArray(raw.policy) ||
+        typeof raw.createdAt !== "string" ||
+        !Number.isFinite(Date.parse(raw.createdAt)) ||
+        typeof raw.updatedAt !== "string" ||
+        !Number.isFinite(Date.parse(raw.updatedAt))
+      ) {
+        return { active: 0, attention: 0, degraded: true };
+      }
+      const isTerminal = TERMINAL_LOOP_STATUSES.has(raw.status);
+      if (!isTerminal) {
+        active += 1;
+        if (ATTENTION_LOOP_STATUSES.has(raw.status)) {
+          attentionIds.add(raw.id);
+        }
+        if (raw.policy.autoTick === true) {
+          const tickSec =
+            typeof raw.policy.tickIntervalSec === "number" &&
+            Number.isFinite(raw.policy.tickIntervalSec) &&
+            raw.policy.tickIntervalSec > 0
+              ? raw.policy.tickIntervalSec
+              : DEFAULT_LOOP_TICK_INTERVAL_SEC;
+          const hbMs =
+            typeof raw.executor?.heartbeat === "string"
+              ? Date.parse(raw.executor.heartbeat)
+              : Number.NaN;
+          const pidAlive =
+            typeof raw.executor?.pid === "number" &&
+            Number.isInteger(raw.executor.pid) &&
+            raw.executor.pid > 0 &&
+            isPidAlive(raw.executor.pid);
+          if (
+            !Number.isFinite(hbMs) ||
+            nowMs - hbMs > tickSec * 1000 * DEFAULT_LOOP_STALE_MULTIPLIER ||
+            !pidAlive
+          ) {
+            attentionIds.add(raw.id);
+          }
+        }
+        if (raw.agents.length > 0) {
+          if (presenceDegraded) {
+            return { active: 0, attention: 0, degraded: true };
+          }
+          const configuredInstances = raw.agents
+            .map((a) => {
+              if (typeof a === "string") return a;
+              if (a && typeof a === "object") {
+                const rec = a as { h2aInstance?: unknown; instance?: unknown };
+                if (typeof rec.h2aInstance === "string") return rec.h2aInstance;
+                if (typeof rec.instance === "string") return rec.instance;
+              }
+              return undefined;
+            })
+            .filter((inst): inst is string => inst !== undefined && inst.length > 0);
+          if (
+            configuredInstances.length > 0 &&
+            !configuredInstances.some((inst) => livePresenceInstances.has(inst))
+          ) {
+            attentionIds.add(raw.id);
+          }
+        }
+      }
+    }
+    return { active, attention: attentionIds.size, degraded: false };
+  } catch {
+    return { active: 0, attention: 0, degraded: true };
+  }
+}
+
+export async function readNativeStatusBarSnapshot(
+  options: ReadNativeStatusBarOptions,
+): Promise<NativeStatusBarSnapshot> {
+  const nowMs = options.nowMs ?? Date.now();
+  const sessionName = cleanDisplay(options.sessionName, 64) || "unknown";
+  const linkState: NativeStatusBarLinkState = options.linkState ?? "attached";
+
+  const registry = loadRegistryWithDiagnostics(options.registryPath);
+  const entry = registry.entries.find(
+    (e) =>
+      e.endedAt === undefined &&
+      (e.tmuxSession === sessionName || e.id === sessionName || e.label === sessionName),
+  );
+
+  const cli = entry?.tool ? cleanDisplay(entry.tool, 24) : "unknown";
+  const h2aRoot =
+    options.h2aRoot ??
+    process.env.H2A_ROOT ??
+    (entry?.cwd && existsSync(join(entry.cwd, ".h2a"))
+      ? join(entry.cwd, ".h2a")
+      : !process.env.H2A_TEST_OWNED_PROC_ROOT
+        ? join(homedir(), "h2a-workspace", ".h2a")
+        : undefined);
+
+  const presence = readLivePresenceForRoot(h2aRoot, nowMs);
+  const ownerInstance =
+    options.ownerInstance && INSTANCE_TOKEN_RE.test(options.ownerInstance)
+      ? options.ownerInstance
+      : resolveOwnerInstanceFromPresence(presence.records, sessionName);
+
+  const storeRole = resolveInstanceRoleFromStore(h2aRoot, ownerInstance);
+  const role =
+    options.role
+      ? cleanDisplay(options.role, 24)
+      : storeRole ??
+        (entry?.role
+          ? cleanDisplay(entry.role, 24)
+          : "unknown");
+
+  const mcpAttestations = readMcpAttestationsFromStore(h2aRoot);
+  const defaultNativeWorkerPid = (workerSession: string): number | undefined => {
+    const workerRow = registry.entries.find(
+      (e) =>
+        e.kind === "local-native" &&
+        e.endedAt === undefined &&
+        e.tmuxSession === workerSession &&
+        e.pid !== undefined &&
+        isPidAlive(e.pid),
+    );
+    return workerRow?.pid;
+  };
+  const needsTmuxInventory = registry.entries.some(
+    (e) =>
+      e.kind === "local-tmux" &&
+      e.endedAt === undefined &&
+      (e.sessionClass === "background" || e.role === "job") &&
+      e.jobState !== "done" &&
+      e.jobState !== "failed" &&
+      e.jobState !== "pending",
+  );
+  const tmuxSessions = needsTmuxInventory
+    ? listLocalSessionsWithDiagnostics().sessions
+    : [];
+  const delegations = projectDelegatedExecutions(
+    registry.entries,
+    registry.known,
+    tmuxSessions,
+    sessionName,
+    ownerInstance,
+    mcpAttestations.values,
+    mcpAttestations.known,
+    localSessionAgentPanePid,
+    options.nativeWorkerPidForSession ?? defaultNativeWorkerPid,
+  );
+  const jOpen = delegations.executions.filter((item) => item.state !== "failed").length;
+  const jAttention = delegations.executions.filter(
+    (item) =>
+      item.state === "pending" ||
+      item.state === "throttled" ||
+      item.state === "failed",
+  ).length;
+
+  const inbox = readInboxWaitingCount(h2aRoot, ownerInstance);
+  const livePresenceInstances = new Set(presence.records.map((r) => r.instance));
+  const loops = readLoopsStatusCount(h2aRoot, livePresenceInstances, presence.degraded, nowMs);
+
+  const gatewayMode =
+    options.gatewayMode ??
+    (entry
+      ? resolveResumedGatewayMode(
+          entry.tool,
+          "auto",
+          entry.gatewayMode,
+          entry.gatewayProvenance,
+        )
+      : undefined);
+  let gateway: H2AGatewayStatusV1;
+  if (gatewayMode === "direct") {
+    gateway = { state: "off", clientSessionId: sessionName };
+  } else if (gatewayMode === "gateway") {
+    const baseUrl =
+      options.gatewayBaseUrl ?? resolveLocalGatewayBaseUrl(options.gatewayStateDir);
+    const fakeSession: LocalSession = {
+      tmuxId: "",
+      tmuxCreatedAt: "",
+      tmuxServerPid: "",
+      tmuxSocketPath: "",
+      name: sessionName,
+      slug: entry?.label ?? entry?.id ?? sessionName,
+      profile: entry?.tool ?? "claude",
+      path: entry?.cwd ?? "",
+      attached: true,
+    };
+    const launchCtx: LaunchContext = {
+      profile: entry?.tool ?? "claude",
+      cwd: entry?.cwd ?? "",
+      gateway: "on",
+      modelMap: "",
+      ...(baseUrl ? { gatewayBaseUrl: baseUrl } : {}),
+    };
+    gateway = await readGatewayStatus(fakeSession, launchCtx, {
+      ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
+      ...(options.gatewayTimeoutMs !== undefined
+        ? { gatewayTimeoutMs: options.gatewayTimeoutMs }
+        : {}),
+      nowMs,
+    });
+  } else {
+    gateway = {
+      state: "unknown",
+      clientSessionId: sessionName,
+      reason: "session has no recorded gateway mode",
+    };
+  }
+
+  return {
+    cli,
+    sessionName,
+    linkState,
+    role,
+    workload: {
+      j: { open: jOpen, attention: jAttention, degraded: delegations.degraded },
+      i: inbox,
+      l: loops,
+    },
+    delegatedSessions: delegations.degraded ? "unknown" : jOpen,
+    gateway,
+  };
+}
+
+export function terminalDisplayColumns(value: string): number {
+  let columns = 0;
+  for (const scalar of value) {
+    if (/\p{Mark}/u.test(scalar)) continue;
+    const code = scalar.codePointAt(0)!;
+    const wide =
+      code >= 0x1100 &&
+      (code <= 0x115f ||
+        code === 0x2329 ||
+        code === 0x232a ||
+        (code >= 0x2e80 && code <= 0xa4cf && code !== 0x303f) ||
+        (code >= 0xac00 && code <= 0xd7a3) ||
+        (code >= 0xf900 && code <= 0xfaff) ||
+        (code >= 0xfe10 && code <= 0xfe19) ||
+        (code >= 0xfe30 && code <= 0xfe6f) ||
+        (code >= 0xff00 && code <= 0xff60) ||
+        (code >= 0xffe0 && code <= 0xffe6) ||
+        (code >= 0x1f300 && code <= 0x1faff) ||
+        (code >= 0x20000 && code <= 0x3fffd));
+    columns += wide ? 2 : 1;
+  }
+  return columns;
+}
+
+function formatCounter(
+  prefix: string,
+  count: number,
+  attention: number | undefined,
+  degraded: boolean,
+): string {
+  if (degraded) return `${prefix}?`;
+  if (attention !== undefined && attention > 0) return `${prefix}${count}!${attention}`;
+  return `${prefix}${count}`;
+}
+
+export function renderNativeStatusBarLine(
+  snapshot: NativeStatusBarSnapshot,
+  cols: number,
+): string {
+  const safeCols = Math.max(1, Math.trunc(cols));
+  const cliToken = snapshot.cli === "unknown" ? "?" : cleanDisplay(snapshot.cli, 24);
+  const sessionToken = cleanDisplay(snapshot.sessionName, 48) || "?";
+  const left = ` ${cliToken} · ${sessionToken} · ${snapshot.linkState}`;
+
+  const workloadToken = [
+    formatCounter(
+      "J",
+      snapshot.workload.j.open,
+      snapshot.workload.j.attention,
+      snapshot.workload.j.degraded,
+    ),
+    formatCounter(
+      "I",
+      snapshot.workload.i.waiting,
+      undefined,
+      snapshot.workload.i.degraded,
+    ),
+    formatCounter(
+      "L",
+      snapshot.workload.l.active,
+      snapshot.workload.l.attention,
+      snapshot.workload.l.degraded,
+    ),
+  ].join(" ");
+
+  const roleToken = `role ${snapshot.role === "unknown" ? "?" : cleanDisplay(snapshot.role, 24)}`;
+  const gwState =
+    snapshot.gateway.state === "unknown"
+      ? "gw ?"
+      : snapshot.gateway.state === "rate-limited"
+        ? "gw 429"
+        : `gw ${snapshot.gateway.state}`;
+
+  let routeToken: string | undefined;
+  if (
+    snapshot.gateway.state === "active" ||
+    snapshot.gateway.state === "rate-limited" ||
+    snapshot.gateway.state === "idle"
+  ) {
+    if (snapshot.gateway.requestedModelTruncated || snapshot.gateway.upstreamModelTruncated) {
+      routeToken = "route [cut]";
+    } else if (snapshot.gateway.requestedModel && snapshot.gateway.upstreamModel) {
+      routeToken = `${cleanDisplay(snapshot.gateway.requestedModel, 96)}→${cleanDisplay(snapshot.gateway.upstreamModel, 96)}`;
+    }
+  }
+
+  const delegToken = `deleg ${snapshot.delegatedSessions === "unknown" ? "?" : snapshot.delegatedSessions}`;
+
+  const candidates = [
+    `${workloadToken} · ${roleToken} · ${gwState}${routeToken ? ` · ${routeToken}` : ""} · ${delegToken} `,
+    ...(routeToken
+      ? [`${workloadToken} · ${roleToken} · ${gwState} · ${delegToken} `]
+      : []),
+    `${workloadToken} · ${gwState} · ${delegToken} `,
+    `${workloadToken} · ${gwState} `,
+  ];
+
+  const leftCols = terminalDisplayColumns(left);
+  for (const right of candidates) {
+    const rightCols = terminalDisplayColumns(right);
+    if (leftCols + 2 + rightCols <= safeCols) {
+      const pad = " ".repeat(safeCols - leftCols - rightCols);
+      return `${left}${pad}${right}`;
+    }
+  }
+
+  const fallback = `${left}  ${candidates[0]!.trimEnd()}`;
+  let out = "";
+  let used = 0;
+  for (const scalar of fallback) {
+    const w = terminalDisplayColumns(scalar);
+    if (used + w > safeCols) break;
+    out += scalar;
+    used += w;
+  }
+  return used < safeCols ? `${out}${" ".repeat(safeCols - used)}` : out;
 }

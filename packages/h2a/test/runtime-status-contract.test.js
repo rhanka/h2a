@@ -9,6 +9,8 @@ import {
 } from "../../h2a-runtime/dist/tmux.js";
 import {
   projectDelegatedExecutions,
+  readNativeStatusBarSnapshot,
+  renderNativeStatusBarLine,
   uniqueManagedWork
 } from "../../h2a-runtime/dist/status-projection.js";
 import {
@@ -488,4 +490,383 @@ test("journalled rename correlation survives rename but refuses server identity 
     ),
     undefined
   );
+});
+
+test("native status bar projection counts local-native delegated workers and formats left/right segments", () => {
+  const nativeWorker = {
+    id: "native-worker-1",
+    tool: "codex",
+    kind: "local-native",
+    cwd: "/workspace",
+    enrolledAt: "2026-11-11T12:00:00.000Z",
+    lastSeenAt: "2026-11-11T12:00:00.000Z",
+    source: "run",
+    role: "job",
+    jobState: "running",
+    sessionClass: "background",
+    tmuxSession: "h2a-native-worker-1",
+    pid: 5151,
+    delegationOrigin: "cli:h2a-delegate",
+    delegatorInstance: "claude:conductor:01",
+    delegatorTmuxSession: "h2a-alpha"
+  };
+
+  const projected = projectDelegatedExecutions(
+    [nativeWorker],
+    true,
+    [],
+    "h2a-alpha",
+    "claude:conductor:01",
+    [],
+    true,
+    () => undefined,
+    (sessionName) => (sessionName === "h2a-native-worker-1" ? 5151 : undefined)
+  );
+  assert.equal(projected.degraded, false);
+  assert.deepEqual(projected.executions.map((item) => item.id), ["native-worker-1"]);
+
+  const line = renderNativeStatusBarLine(
+    {
+      cli: "claude",
+      sessionName: "h2a-alpha",
+      linkState: "attached",
+      role: "conductor",
+      workload: {
+        j: { open: 1, attention: 0, degraded: false },
+        i: { waiting: 2, degraded: false },
+        l: { active: 1, attention: 1, degraded: false }
+      },
+      delegatedSessions: 1,
+      gateway: {
+        state: "active",
+        clientSessionId: "h2a-alpha",
+        requestedModel: "claude-opus-4-6",
+        upstreamModel: "claude-sonnet-4-6"
+      }
+    },
+    120
+  );
+  assert.equal(line.length, 120);
+  assert.match(line, /^ claude · h2a-alpha · attached/);
+  assert.match(line, /J1 I2 L1!1 · role conductor · gw active · claude-opus-4-6→claude-sonnet-4-6 · deleg 1 $/);
+});
+
+test("Angle B 1-7: readNativeStatusBarSnapshot enforces real H2ASession schema, no sessionClass role fallback, auto gateway posture, loop/inbox contracts, and delegated liveness", async () => {
+  const { mkdirSync, mkdtempSync, rmSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+
+  const root = mkdtempSync(join(tmpdir(), "h2a-status-truth-"));
+  try {
+    const now = 1_760_000_000_000;
+    const registryPath = join(root, "registry.json");
+    const h2aRoot = join(root, ".h2a");
+    mkdirSync(join(h2aRoot, "presence"), { recursive: true });
+    mkdirSync(join(h2aRoot, "registry"), { recursive: true });
+    mkdirSync(join(h2aRoot, "inbox", "claude__conductor__01~Researcher"), { recursive: true });
+    mkdirSync(join(h2aRoot, "loops", "loop-active"), { recursive: true });
+    mkdirSync(join(h2aRoot, "loops", "loop-stopped"), { recursive: true });
+    mkdirSync(join(h2aRoot, "loops", "loop-blocked"), { recursive: true });
+
+    // Entry has sessionClass: "human", no role, and NO explicit gatewayMode (should default to "auto", not "disabled")
+    // Also has 1 live background worker (process.pid), 1 dead-PID worker (99999999), and 1 finished worker (endedAt set, jobState: "done")
+    writeFileSync(
+      registryPath,
+      JSON.stringify({
+        version: 1,
+        entries: [
+          {
+            id: "alpha",
+            label: "alpha",
+            tmuxSession: "h2a-alpha",
+            tool: "claude",
+            kind: "local-native",
+            cwd: root,
+            source: "run",
+            sessionClass: "human",
+            enrolledAt: new Date(now - 60_000).toISOString(),
+            lastSeenAt: new Date(now).toISOString(),
+          },
+          {
+            id: "worker-live",
+            label: "worker-live",
+            tmuxSession: "h2a-worker-live",
+            tool: "codex",
+            kind: "local-native",
+            cwd: root,
+            source: "run",
+            role: "job",
+            jobState: "running",
+            sessionClass: "background",
+            pid: process.pid,
+            delegationOrigin: "cli:h2a-delegate",
+            delegatorInstance: "claude:conductor:01",
+            delegatorTmuxSession: "h2a-alpha",
+            enrolledAt: new Date(now - 30_000).toISOString(),
+            lastSeenAt: new Date(now).toISOString(),
+          },
+          {
+            id: "worker-stopped-bg",
+            label: "worker-stopped-bg",
+            tmuxSession: "h2a-worker-live",
+            tool: "codex",
+            kind: "local-native",
+            cwd: root,
+            source: "run",
+            sessionClass: "background",
+            endedAt: new Date(now - 10_000).toISOString(),
+            pid: 999_999_999,
+            delegationOrigin: "cli:h2a-delegate",
+            delegatorInstance: "claude:conductor:01",
+            delegatorTmuxSession: "h2a-alpha",
+            enrolledAt: new Date(now - 50_000).toISOString(),
+            lastSeenAt: new Date(now - 10_000).toISOString(),
+          },
+          {
+            id: "worker-finished",
+            label: "worker-finished",
+            tmuxSession: "h2a-worker-finished",
+            tool: "codex",
+            kind: "local-native",
+            cwd: root,
+            source: "run",
+            role: "job",
+            jobState: "done",
+            endedAt: new Date(now - 5_000).toISOString(),
+            sessionClass: "background",
+            pid: process.pid,
+            delegationOrigin: "cli:h2a-delegate",
+            delegatorInstance: "claude:conductor:01",
+            delegatorTmuxSession: "h2a-alpha",
+            enrolledAt: new Date(now - 30_000).toISOString(),
+            lastSeenAt: new Date(now).toISOString(),
+          },
+        ],
+      }),
+    );
+
+    // 1) Write a CLOSED presence file -> must be ignored!
+    writeFileSync(
+      join(h2aRoot, "presence", "sess-closed.json"),
+      JSON.stringify({
+        sessionId: "sess-closed",
+        instance: "closed:instance:01",
+        pid: process.pid,
+        startedAt: new Date(now - 60_000).toISOString(),
+        heartbeatAt: new Date(now).toISOString(),
+        state: "closed",
+        interests: { scopes: [], negotiations: [] },
+        subscribedTopics: [],
+        launchContext: { cwd: root, command: "h2a mcp-serve", nativePty: { session: "h2a-alpha" } },
+      }),
+    );
+    // 2) Write a STALE presence file (> 90s old heartbeatAt) -> must be ignored!
+    writeFileSync(
+      join(h2aRoot, "presence", "sess-stale.json"),
+      JSON.stringify({
+        sessionId: "sess-stale",
+        instance: "stale:instance:01",
+        pid: process.pid,
+        startedAt: new Date(now - 200_000).toISOString(),
+        heartbeatAt: new Date(now - 120_000).toISOString(),
+        state: "live",
+        interests: { scopes: [], negotiations: [] },
+        subscribedTopics: [],
+        launchContext: { cwd: root, command: "h2a mcp-serve", nativePty: { session: "h2a-alpha" } },
+      }),
+    );
+    // 3) Write a DEAD-PID local presence file -> must be ignored!
+    writeFileSync(
+      join(h2aRoot, "presence", "sess-dead-pid.json"),
+      JSON.stringify({
+        sessionId: "sess-dead-pid",
+        instance: "dead:instance:01",
+        pid: 999_999_999,
+        startedAt: new Date(now - 60_000).toISOString(),
+        heartbeatAt: new Date(now).toISOString(),
+        state: "live",
+        interests: { scopes: [], negotiations: [] },
+        subscribedTopics: [],
+        launchContext: { cwd: root, command: "h2a mcp-serve", nativePty: { session: "h2a-alpha" } },
+      }),
+    );
+    // 4) Write a REAL live H2ASession presence file (with no role anywhere when loop has no role)
+    writeFileSync(
+      join(h2aRoot, "presence", "sess-live.json"),
+      JSON.stringify({
+        sessionId: "sess-live",
+        instance: "claude:conductor:01",
+        host: "claude",
+        pid: process.pid,
+        startedAt: new Date(now - 60_000).toISOString(),
+        heartbeatAt: new Date(now).toISOString(),
+        state: "live",
+        interests: { scopes: [], negotiations: [] },
+        subscribedTopics: [],
+        launchContext: { cwd: root, command: "h2a mcp-serve", nativePty: { session: "h2a-alpha" } },
+      }),
+    );
+
+    // Subagent with `~` and uppercase name: claude:conductor:01~Researcher
+    writeFileSync(
+      join(h2aRoot, "registry", "subagents.jsonl"),
+      `${JSON.stringify({
+        id: "claude:conductor:01~Researcher",
+        parentInstance: "claude:conductor:01",
+        name: "Researcher",
+        createdAt: new Date(now - 30_000).toISOString(),
+      })}\n`,
+    );
+    writeFileSync(join(h2aRoot, "registry", "subagent-audit.jsonl"), "");
+    writeFileSync(join(h2aRoot, "registry", "instances.jsonl"), "");
+
+    // Valid envelope in subagent inbox (preserving `~` and uppercase in directory name)
+    writeFileSync(
+      join(h2aRoot, "inbox", "claude__conductor__01~Researcher", "valid.json"),
+      JSON.stringify({
+        protocol: "sentropic.h2a",
+        version: "0.1",
+        id: "env:sub:1",
+        type: "propose",
+        actor: { instance: "codex:worker:01", role: "AGENTS", scope: "scope:default" },
+        body: { topic: "plan" },
+        createdAt: new Date(now - 1_000).toISOString(),
+      }),
+    );
+
+    // Active loop with autoTick: true and stale executor heartbeat -> active = 1, attention = 1!
+    // Stopped and blocked loops -> terminal, must NOT be counted as active!
+    writeFileSync(
+      join(h2aRoot, "loops", "loop-active", "state.json"),
+      JSON.stringify({
+        id: "loop-active",
+        ownerSystem: "h2a",
+        name: "Active loop",
+        goal: "test",
+        status: "running",
+        repos: [],
+        refs: [],
+        agents: [],
+        policy: { autoTick: true },
+        executor: {
+          pid: process.pid,
+          heartbeat: new Date(now - 600_000).toISOString(),
+        },
+        createdAt: new Date(now - 60_000).toISOString(),
+        updatedAt: new Date(now - 1_000).toISOString(),
+      }),
+    );
+    writeFileSync(
+      join(h2aRoot, "loops", "loop-stopped", "state.json"),
+      JSON.stringify({
+        id: "loop-stopped",
+        ownerSystem: "h2a",
+        name: "Stopped loop",
+        goal: "test",
+        status: "stopped",
+        repos: [],
+        refs: [],
+        agents: [],
+        policy: {},
+        createdAt: new Date(now - 60_000).toISOString(),
+        updatedAt: new Date(now - 1_000).toISOString(),
+      }),
+    );
+    writeFileSync(
+      join(h2aRoot, "loops", "loop-blocked", "state.json"),
+      JSON.stringify({
+        id: "loop-blocked",
+        ownerSystem: "h2a",
+        name: "Blocked loop",
+        goal: "test",
+        status: "blocked",
+        repos: [],
+        refs: [],
+        agents: [],
+        policy: {},
+        createdAt: new Date(now - 60_000).toISOString(),
+        updatedAt: new Date(now - 1_000).toISOString(),
+      }),
+    );
+
+    const snapshot = await readNativeStatusBarSnapshot({
+      sessionName: "h2a-alpha",
+      linkState: "attached",
+      registryPath,
+      h2aRoot,
+      gatewayBaseUrl: "http://127.0.0.1:43199",
+      nowMs: now,
+      fetchImpl: async () => new Response("not found", { status: 404 }),
+    });
+
+    // Role must NOT fall back to sessionClass ("human")!
+    assert.equal(snapshot.role, "unknown");
+    const rendered = renderNativeStatusBarLine(snapshot, 120);
+    assert.doesNotMatch(rendered, /role human/);
+    assert.match(rendered, /role \?/);
+
+    // Gateway posture defaulted to "auto" -> resolved via resolveResumedGatewayMode to "direct" -> state "off" (gw off, NOT gw ?)
+    assert.equal(snapshot.gateway?.state, "off");
+
+    // Subagent ~ inbox counted 1 valid message
+    assert.equal(snapshot.workload?.i.waiting, 1);
+    assert.equal(snapshot.workload?.i.degraded, false);
+
+    // Loops: only loop-active is counted (1 active, 1 attention due to stale executor heartbeat); stopped & blocked are terminal
+    assert.equal(snapshot.workload?.l.active, 1);
+    assert.equal(snapshot.workload?.l.attention, 1);
+    assert.equal(snapshot.workload?.l.degraded, false);
+
+    // Delegated sessions: only worker-live is counted (worker-stopped-bg has endedAt set, worker-finished has endedAt & jobState=done)
+    assert.equal(snapshot.delegatedSessions, 1);
+    assert.equal(snapshot.workload?.j.open, 1);
+    assert.equal(snapshot.workload?.j.degraded, false);
+
+    // Now add an invalid-type envelope in inbox, a legacy fake-schema presence file, and a loop directory missing state.json -> fail-closed degradation
+    writeFileSync(
+      join(h2aRoot, "inbox", "claude__conductor__01~Researcher", "bad-type.json"),
+      JSON.stringify({
+        protocol: "sentropic.h2a",
+        version: "0.1",
+        id: "env:sub:bad",
+        type: "not-an-envelope-type",
+        actor: { instance: "codex:worker:01", role: "AGENTS", scope: "scope:default" },
+        body: {},
+        createdAt: new Date(now - 1_000).toISOString(),
+      }),
+    );
+    writeFileSync(
+      join(h2aRoot, "presence", "sess-fake-schema.json"),
+      JSON.stringify({
+        sessionId: "sess-fake-schema",
+        instance: "fake:instance:01",
+        expiresAt: new Date(now + 60_000).toISOString(),
+        launchContext: { nativePty: { session: "h2a-alpha" } },
+      }),
+    );
+    mkdirSync(join(h2aRoot, "loops", "loop-corrupt-empty"), { recursive: true });
+    const degradedSnap = await readNativeStatusBarSnapshot({
+      sessionName: "h2a-alpha",
+      linkState: "attached",
+      registryPath,
+      h2aRoot,
+      nowMs: now,
+      fetchImpl: async () => new Response("not found", { status: 404 }),
+    });
+    assert.equal(degradedSnap.workload?.i.degraded, true);
+    assert.equal(degradedSnap.workload?.l.degraded, true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Angle B 3: H2A_NATIVE_PTY_SESSION is injected for native sessions and takes precedence over inherited TMUX_PANE", async () => {
+  const { currentTmuxSessionForSidecar } = await import("../dist/runtime/mcp/stdio.js");
+  // Even when TMUX_PANE is set in the inherited environment, H2A_NATIVE_PTY_SESSION must win
+  const resolved = currentTmuxSessionForSidecar({
+    TMUX: "/tmp/tmux-1000/default,1234,0",
+    TMUX_PANE: "%0",
+    H2A_NATIVE_PTY_SESSION: "h2a-native-child",
+  });
+  assert.equal(resolved, "h2a-native-child");
 });
