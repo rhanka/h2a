@@ -1,6 +1,6 @@
 {
   "name": "@sentropic/h2a",
-  "version": "0.98.9",
+  "version": "0.98.10",
   "description": "h2a — the unified CLI + core for human-to-agent coordination.",
   "license": "MIT",
   "type": "module",
@@ -84,13 +84,13 @@
     "@sentropic/llm-gateway": "0.20.0",
     "@sentropic/llm-mesh": "0.26.0",
     "@sentropic/mcp-platform": "0.4.1",
-    "@sentropic/track": "0.98.9",
+    "@sentropic/track": "0.98.10",
     "ajv": "^8.20.0",
     "hono": "^4.13.16",
     "toml-eslint-parser": "0.10.1"
   },
   "peerDependencies": {
-    "@sentropic/h2a-runtime": "0.98.9",
+    "@sentropic/h2a-runtime": "0.98.10",
     "@sentropic/artifacts": "0.2.6"
   },
   "peerDependenciesMeta": {
