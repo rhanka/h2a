@@ -38,3 +38,10 @@ test("launch and review skills keep the vibe surface documented at runtime parit
   assert.match(matrix, /^\| Vibe \| shipped\/rendered/m);
   assert.match(matrix, /post_agent/);
 });
+
+test("launch skill aligns claude-fable-5-2 and gemini-4-carbon effort documentation with h2a run / h2a_run", () => {
+  const skill = source("../skills/h2a-run/SKILL.md");
+  assert.match(skill, /\| `fable`, `fable-5\.2`, `fable-5-2`, `claude-fable-5-2` \| `claude-fable-5-2` \| `claude` \| `low \\\| medium \\\| high \\\| xhigh`/);
+  assert.match(skill, /\| `fable-5\.1`, `fable-5-1`, `claude-fable-5-1` \| `claude-fable-5-1` \| `claude` \| `low \\\| medium \\\| high \\\| xhigh`/);
+  assert.doesNotMatch(skill, /claude-fable-5-[12]` \| `claude` \| `low \\\| medium \\\| high \\\| xhigh \\\| max`/);
+});
