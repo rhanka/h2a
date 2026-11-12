@@ -22,6 +22,7 @@ describe("gateway model catalog (H0 #662)", () => {
     expect(GATEWAY_MODEL_IDS).toContain("claude-fable-5-2");
     expect(GATEWAY_MODEL_IDS).toContain("muse-spark-1.3");
     expect(GATEWAY_MODEL_IDS).toContain("muse-wonder-1.0");
+    expect(GATEWAY_MODEL_IDS).toContain("muse-ember-1.0");
     expect(GATEWAY_MODEL_IDS).toContain("muse-wonder-full-1.0");
   });
 
@@ -40,6 +41,8 @@ describe("gateway model catalog (H0 #662)", () => {
     expect(resolveGatewayModelAlias("fable-5-2")).toBe("claude-fable-5-2");
     expect(resolveGatewayModelAlias("fable")).toBe("claude-fable-5-2");
     expect(resolveGatewayModelAlias("muse-spark")).toBe("muse-spark-1.3");
+    expect(resolveGatewayModelAlias("muse-ember")).toBe("muse-ember-1.0");
+    expect(resolveGatewayModelAlias("muse-ember-1.0")).toBe("muse-ember-1.0");
     expect(resolveGatewayModelAlias("spark")).toBe("muse-spark-1.3");
     expect(resolveGatewayModelAlias("muse-wonder")).toBe("muse-wonder-1.0");
     expect(resolveGatewayModelAlias("wonder")).toBe("muse-wonder-1.0");
@@ -79,6 +82,8 @@ describe("gateway model catalog (H0 #662)", () => {
 // the mesh canonical route.
 const PREPROVISIONED_PR997_IDS: ReadonlySet<string> = new Set([
   "gemini-4-carbon",
+  // Ember is pre-provisioned while the pinned llm-mesh dependency remains 0.26.0.
+  "muse-ember-1.0",
   "claude-fable-5-2",
 ]);
 

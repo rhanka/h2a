@@ -150,6 +150,13 @@ describe("buildAgentLaunchArgs", () => {
     ).toEqual(["--model", "muse-spark", "--reasoning-effort", "xhigh"]);
   });
 
+  it.each(["xhigh", "max"] as const)("should pass Ember and %s to the Muse CLI", (effort) => {
+    expect(buildAgentLaunchArgs({ profile: "muse", prompt: "Review the change",
+      model: "muse-ember-1.0", effort })).toEqual([
+      "--model", "muse-ember-1.0", "--reasoning-effort", effort,
+    ]);
+  });
+
   it("builds Muse resume argv with the resume subcommand leading", () => {
     expect(
       buildAgentLaunchArgs({
