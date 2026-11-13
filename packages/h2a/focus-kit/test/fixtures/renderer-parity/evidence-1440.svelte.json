@@ -1,0 +1,168 @@
+{
+  "title": "Décision dossiers — format de présentation",
+  "text": "Focus 1 question(s) · 4 minutes Votre demande Chaque dossier de décision doit utiliser Focus et montrer notre écosystème. Le propriétaire doit comprendre les choix et leurs effets sans dépendre d'un service en ligne. En mots simples (1 terme) En bref : Exemple à remplacer avant présentation. Cette demande illustrative provient de ce modèle. Les dossiers doivent rester lisibles sur téléphone et transmissibles en un fichier. Preuve distante Quel format adopter pour les prochains dossiers ? En bref : Un fichier portable garde les schémas et les options disponibles hors connexion. Une page hébergée simplifie les mises à jour mais demande une connexion. Recommandation Fichier portable — Le fichier portable répond à la demande de partage et de lecture hors connexion. 1 minute(s) · Question ouverte Formats possibles Fichier portable Recommandée Lecture hors connexion, mais chaque révision demande un nouveau fichier. En bref : Coût d'une compilation par version. Retour : régénérer le fichier précédent. Page hébergée Une adresse toujours à jour, mais la lecture dépend du service et du réseau. En bref : Coût du maintien d'un hébergement. Retour : exporter une copie locale. Sélectionnez une option pour préparer votre réponse. Fichier portable : Capture La rédaction transmet le dossier à la lecture. Déplacez le schéma et pincez pour zoomer, ou utilisez les boutons + et −. transmet NODE Rédaction NODE Lecture Svelte Flow Lire les relations du schéma En bref : JUDGMENT — le fichier portable respecte mieux la demande. Objection : les copies vieillissent si la mise à jour instantanée devient prioritaire. Risque : des copies obsolètes circulent avec le temps. Intérêt commun : compiler reste simple et la lecture fonctionne partout. Critère attendu : ouvrir le dossier hors connexion sur téléphone. Pièces justificatives 3 sources · 404 octets · consultation estimée : 1 minute(s), à six octets par mot, hors budget de décision. Preuve distante — long Capture — capture Catalogue des sources Consulter Source long · 321 octets Consulter Source capture · 68 octets Consulter Source other-0 · 15 octets Les pièces étayent la proposition. Preuve distanteCapture Source : Source long Détail des pièces — Démonstration consultable séparément. Vos sélections restent dans cette page jusqu’à sa fermeture. Elles ne valent pas décision enregistrée. Source et version",
+  "sections": [
+    {
+      "id": "context",
+      "text": "En bref : Exemple à remplacer avant présentation. Cette demande illustrative provient de ce modèle. Les dossiers doivent rester lisibles sur téléphone et transmissibles en un fichier. Preuve distante",
+      "headings": []
+    },
+    {
+      "id": "format",
+      "text": "Quel format adopter pour les prochains dossiers ? En bref : Un fichier portable garde les schémas et les options disponibles hors connexion. Une page hébergée simplifie les mises à jour mais demande une connexion. Recommandation Fichier portable — Le fichier portable répond à la demande de partage et de lecture hors connexion. 1 minute(s) · Question ouverte",
+      "headings": [
+        "Quel format adopter pour les prochains dossiers ?"
+      ]
+    },
+    {
+      "id": "formats",
+      "text": "Formats possibles Fichier portable Recommandée Lecture hors connexion, mais chaque révision demande un nouveau fichier. En bref : Coût d'une compilation par version. Retour : régénérer le fichier précédent. Page hébergée Une adresse toujours à jour, mais la lecture dépend du service et du réseau. En bref : Coût du maintien d'un hébergement. Retour : exporter une copie locale. Sélectionnez une option pour préparer votre réponse. Fichier portable : Capture",
+      "headings": [
+        "Formats possibles"
+      ]
+    },
+    {
+      "id": "ecosystem",
+      "text": "La rédaction transmet le dossier à la lecture. Déplacez le schéma et pincez pour zoomer, ou utilisez les boutons + et −. transmet NODE Rédaction NODE Lecture Svelte Flow Lire les relations du schéma",
+      "headings": []
+    },
+    {
+      "id": "rationale",
+      "text": "En bref : JUDGMENT — le fichier portable respecte mieux la demande. Objection : les copies vieillissent si la mise à jour instantanée devient prioritaire. Risque : des copies obsolètes circulent avec le temps. Intérêt commun : compiler reste simple et la lecture fonctionne partout. Critère attendu : ouvrir le dossier hors connexion sur téléphone.",
+      "headings": []
+    }
+  ],
+  "headings": [
+    {
+      "tag": "H1",
+      "text": "Décision dossiers — format de présentation"
+    },
+    {
+      "tag": "H2",
+      "text": "Votre demande"
+    },
+    {
+      "tag": "H2",
+      "text": "Quel format adopter pour les prochains dossiers ?"
+    },
+    {
+      "tag": "H3",
+      "text": "Formats possibles"
+    },
+    {
+      "tag": "H2",
+      "text": "Pièces justificatives"
+    }
+  ],
+  "details": [
+    {
+      "summary": "En mots simples (1 terme)",
+      "open": false
+    },
+    {
+      "summary": "Lire les relations du schéma",
+      "open": false
+    },
+    {
+      "summary": "Catalogue des sources",
+      "open": true
+    },
+    {
+      "summary": "Détail des pièces — Démonstration consultable séparément.",
+      "open": false
+    },
+    {
+      "summary": "Source et version",
+      "open": false
+    }
+  ],
+  "buttons": [
+    {
+      "text": "Thème sombre",
+      "label": null,
+      "pressed": "false"
+    },
+    {
+      "text": "Preuve distante",
+      "label": null,
+      "pressed": null
+    },
+    {
+      "text": "Fichier portable Recommandée Lecture hors connexion, mais chaque révision demande un nouveau fichier. En bref : Coût d'une compilation par version. Retour : régénérer le fichier précédent.",
+      "label": null,
+      "pressed": "false"
+    },
+    {
+      "text": "Page hébergée Une adresse toujours à jour, mais la lecture dépend du service et du réseau. En bref : Coût du maintien d'un hébergement. Retour : exporter une copie locale.",
+      "label": null,
+      "pressed": "false"
+    },
+    {
+      "text": "Capture",
+      "label": null,
+      "pressed": null
+    },
+    {
+      "text": "",
+      "label": "Zoom In",
+      "pressed": null
+    },
+    {
+      "text": "",
+      "label": "Zoom Out",
+      "pressed": null
+    },
+    {
+      "text": "",
+      "label": "Fit View",
+      "pressed": null
+    },
+    {
+      "text": "",
+      "label": "Toggle Interactivity",
+      "pressed": null
+    },
+    {
+      "text": "Preuve distante",
+      "label": null,
+      "pressed": null
+    },
+    {
+      "text": "Capture",
+      "label": null,
+      "pressed": null
+    },
+    {
+      "text": "Consulter Source long",
+      "label": null,
+      "pressed": null
+    },
+    {
+      "text": "Consulter Source capture",
+      "label": null,
+      "pressed": null
+    },
+    {
+      "text": "Consulter Source other-0",
+      "label": null,
+      "pressed": null
+    },
+    {
+      "text": "Preuve distante",
+      "label": null,
+      "pressed": null
+    },
+    {
+      "text": "Capture",
+      "label": null,
+      "pressed": null
+    },
+    {
+      "text": "Source : Source long",
+      "label": null,
+      "pressed": null
+    }
+  ],
+  "glossaryFolded": true,
+  "overflow": false
+}
