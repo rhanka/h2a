@@ -1,4 +1,4 @@
-import { isEvidenceDossier } from '../model.js';
+import { isEvidenceDossier, isReportDocument } from '../model.js';
 /** Disclosed estimate at six UTF-8 bytes per word; raw consultation is not decision time. */
 export function evidenceVolume(doc) {
     if (!isEvidenceDossier(doc))
@@ -33,4 +33,30 @@ export function evidenceIndex(doc) {
         lines.push(`Annex ${a.id}: ${a.title} — ${a.summary} · ${a.blocks.length} support blocks · back: ${a.backRefs.join(', ')}`);
     lines.push('Full embedded evidence consultation/download requires the portable HTML renderer.');
     return lines.join('\n');
+}
+/** Reports retain appendix contents in every export; the evidence index keeps provenance. */
+export function reportAnnexes(doc, format) {
+    if (!isReportDocument(doc))
+        return '';
+    const escape = (s) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+    const cell = (s) => s.replace(/\|/g, '\\|').replace(/[\r\n]+/g, ' ');
+    const fence = (s) => '`'.repeat(Math.max(3, ...Array.from(s.matchAll(/`+/g), m => m[0].length + 1)));
+    return doc.annexes.map(a => {
+        const blocks = a.blocks.map(b => {
+            if (b.kind === 'table') {
+                if (format === 'html')
+                    return `<table><thead><tr>${b.columns.map(c => `<th>${escape(c)}</th>`).join('')}</tr></thead><tbody>${b.rows.map(row => `<tr>${row.map(c => `<td>${escape(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+                return [b.columns, b.columns.map(() => '---'), ...b.rows].map(row => `| ${row.map(cell).join(' | ')} |`).join('\n');
+            }
+            if (b.kind === 'references')
+                return b.citationRefs.map(id => {
+                    const label = doc.citations.find(c => c.id === id).label;
+                    return format === 'html' ? `<p>${escape(label)}</p>` : label;
+                }).join('\n');
+            if (format === 'html')
+                return b.kind === 'code' ? `<pre><code>${escape(b.text)}</code></pre>` : `<p>${escape(b.text)}</p>`;
+            return b.kind === 'code' && format === 'markdown' ? `${fence(b.text)}\n${b.text}\n${fence(b.text)}` : b.text;
+        }).join('\n');
+        return format === 'html' ? `<section class="focus-annex"><h2>${escape(a.title)}</h2><p>${escape(a.summary)}</p>${blocks}</section>` : `## ${a.title}\n\n${a.summary}\n\n${blocks}`;
+    }).join('\n\n');
 }

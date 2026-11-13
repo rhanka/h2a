@@ -40,7 +40,7 @@
 </script>
 <section aria-label="Pièces justificatives" class="evidence-index">
   <h2>Pièces justificatives</h2>
-  <p>{volume.sources} sources · {volume.bytes} octets · consultation estimée : {volume.consultationMinutes} minute(s), à six octets par mot, hors budget de décision.</p>
+  <p>{volume.sources} sources · {volume.bytes} octets · consultation estimée : {volume.consultationMinutes} minute(s), à six octets par mot, hors budget {dossier.kind === 'report' ? 'de lecture principal' : 'de décision'}.</p>
   {#if active}{#key active.id}<SourceViewer source={active} {locator} {visit} onback={back} />{/key}{/if}
   <ul>{#each dossier.citations as citation}<li><button onclick={() => openCitation(citation.id)}>{citation.label}</button> — {citation.sourceId}</li>{/each}</ul>
   <details open><summary>Catalogue des sources</summary><ul>{#each dossier.sources as source}<li><button onclick={() => openSource(source.id)}>Consulter {source.title}</button> · {source.size} octets</li>{/each}</ul></details>

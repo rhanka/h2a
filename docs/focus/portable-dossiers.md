@@ -228,3 +228,8 @@ cycles, doubled-line DOM checks and Linux memory for owned Chromium descendants.
 The real corpus is a frozen, hashed inventory of repository sources grouped
 without repeated synthetic padding; original/path/reference hashes remain in
 its manifest. Browser functional tasks also cover 320/390/1440px widths.
+
+## Informational reports
+
+For documents without a decision, use the explicit [report contract](report-mode.md).
+The build command is unchanged; the document declares `kind: "report"`.

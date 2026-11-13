@@ -10,7 +10,7 @@ const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 const inputs = ['package.json', 'package-lock.json', 'dossier.template.json', 'ecosystem.json',
   'dossier.evidence.template.json', '../../focus/schemas/decision-dossier-document.v2.schema.json',
   ...readdirSync(join(kit, '../../focus/src/validation')).filter(n => n.startsWith('evidence')).sort().map(n => `../../focus/src/validation/${n}`),
-  '../../focus/src/render/evidence.ts',
+  '../../focus/src/render/evidence.ts', '../../focus/schemas/report-document.v1.schema.json',
   '../../../scripts/build-focus-dossier.mjs', '../../focus/schemas/decision-dossier-document.v1.schema.json',
   '../../focus/src/validation/index.ts', '../../focus/src/validation/readability.ts', '../../focus/src/model.ts',
   '../../focus/src/render/presentation.ts',
@@ -39,7 +39,8 @@ const noticesOf = (moduleIds) => {
 };
 if (process.argv.includes('--check')) {
   const manifest = JSON.parse(readFileSync(join(kit, 'renderer-manifest.json'), 'utf8'));
-  if (JSON.stringify(manifest.sources) !== JSON.stringify(sources()) || manifest.html !== digest(readFileSync(join(kit, 'renderer.html'))) ||
+  if (digest(readFileSync(join(kit, 'report.schema.json'))) !== digest(readFileSync(join(kit, '../../focus/schemas/report-document.v1.schema.json'))) ||
+    JSON.stringify(manifest.sources) !== JSON.stringify(sources()) || manifest.html !== digest(readFileSync(join(kit, 'renderer.html'))) ||
     manifest.validator !== digest(readFileSync(join(kit, 'validator.mjs'))) ||
     manifest.diagramViews !== digest(readFileSync(join(kit, 'diagram-views.mjs'))) ||
     digest(readFileSync(join(kit, 'dossier.schema.json'))) !== digest(readFileSync(join(kit, '../../focus/schemas/decision-dossier-document.v1.schema.json'))) ||
@@ -86,8 +87,9 @@ if (process.argv.includes('--check')) {
     writeFileSync(join(kit, 'diagram-views.mjs'), `/*!\n${viewsBanner}*/\n${views.outputFiles[0].text}`);
     writeFileSync(join(kit, 'dossier.schema.json'), readFileSync(join(kit, '../../focus/schemas/decision-dossier-document.v1.schema.json')));
     writeFileSync(join(kit, 'dossier.v2.schema.json'), readFileSync(join(kit, '../../focus/schemas/decision-dossier-document.v2.schema.json')));
+    writeFileSync(join(kit, 'report.schema.json'), readFileSync(join(kit, '../../focus/schemas/report-document.v1.schema.json')));
     writeFileSync(join(kit, 'renderer-manifest.json'), JSON.stringify({ increment: 'H1', formats: [1, 2],
-      capabilities: ['embedded-offline', 'evidence-citations', 'evidence-search', 'evidence-download', 'evidence-annexes'],
+      capabilities: ['report', 'embedded-offline', 'evidence-citations', 'evidence-search', 'evidence-download', 'evidence-annexes'],
       rendererVersion: JSON.parse(readFileSync(join(kit, '../package.json'))).version,
       validatorVersion: JSON.parse(readFileSync(join(kit, '../../focus/package.json'))).version,
       sources: sources(), html: digest(html), validator: digest(readFileSync(join(kit, 'validator.mjs'))),

@@ -3,12 +3,12 @@
  */
 import type {
   AmendmentStep,
-  DecisionDossierDocument,
+  FocusDocument,
   OptionNode,
   ProseNode,
   QuestionNode,
 } from "../model.js";
-import { isEvidenceDossier } from "../model.js";
+import { isEvidenceDossier, isReportDocument } from "../model.js";
 import type { ValidationIssue } from "./index.js";
 
 export type ReadabilityProfile = "strict" | "legacy";
@@ -77,10 +77,11 @@ const stripHtmlAndLinks = (text: string): string =>
 
 /** Check a structurally valid document; use ForPresentation for untrusted input. */
 export const validateDecisionDossierReadability = (
-  doc: DecisionDossierDocument,
+  doc: FocusDocument,
   options?: ReadabilityOptions,
 ): ValidationIssue[] => {
-  const strict =
+  const report = isReportDocument(doc);
+  const strict = report ||
     (options?.profile ??
       (doc.ref === "decision:s1-hello" && doc.hash.startsWith("draft:s1-hello-")
         ? "legacy"
@@ -202,8 +203,11 @@ export const validateDecisionDossierReadability = (
   doc.interactions.forEach((action, i) => visible(action.label, `$.interactions[${i}].label`));
 
   const questions = doc.sections.filter((s) => s.kind === "question");
+  if (report && (doc.sections[0]?.kind !== 'prose' || !TAKEAWAY_RE.test(doc.sections[0].markdown.trim()))) {
+    refuse('$.sections[0]', 'report_summary_first', 'Start the report with an En bref : or In short: summary.');
+  }
   const questionIds = new Set(questions.map((q) => q.id));
-  if (!questions.length) refuse("$.sections", "missing_question", "A decision dossier needs an explicit question with context, options and a recommendation.");
+  if (!report && !questions.length) refuse("$.sections", "missing_question", "A decision dossier needs an explicit question with context, options and a recommendation.");
   const checkQuestionRef = (questionId: string | undefined, path: string, required: boolean): void => {
     if (blank(questionId)) {
       if (required) refuse(path, "hidden_decision", "This content implies a choice without an explicit question: set questionId to the question the owner must answer.");

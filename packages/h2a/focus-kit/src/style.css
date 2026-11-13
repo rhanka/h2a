@@ -48,3 +48,6 @@ footer { border-top: 1px solid var(--st-semantic-border-subtle); padding-top: 1r
 .line-number { display: inline-block; min-width: 5em; color: var(--st-semantic-text-secondary); }
 .evidence-table, .evidence-index pre { overflow: auto; max-width: 100%; }
 @media (max-width: 600px) { .canvas { height: 430px; } .title-band { align-items: flex-start; } main { padding-top: .75rem; } }
+
+.evidence-table table { border-collapse: collapse; width: 100%; }
+.evidence-table th, .evidence-table td { text-align: left; vertical-align: top; padding: .4rem .6rem; border-bottom: 1px solid var(--st-semantic-border-subtle); }
