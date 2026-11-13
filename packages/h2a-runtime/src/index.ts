@@ -6151,7 +6151,7 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
     .option("--output-file <path>", "expected AGY Claude headless artifact; report missing or unchanged output at exit")
     .option(
       "--effort <level>",
-      "reasoning effort: low|medium|high|xhigh (AGY: low|medium|high; gemini-4-carbon refuses max, claude-*-5-5 maps max to high)",
+      "reasoning effort: low|medium|high|xhigh (Muse also accepts max; AGY: low|medium|high; gemini-4-carbon refuses max, claude-*-5-5 maps max to high)",
     )
     .option(
       "--headless",
@@ -6245,9 +6245,9 @@ export async function main(argv: ReadonlyArray<string>): Promise<number> {
           process.exitCode = 2;
           return;
         }
-        if (opts.effort !== undefined && !isAgentLaunchEffort(opts.effort)) {
+        if (opts.effort !== undefined && !isAgentLaunchEffort(opts.effort, profile)) {
           process.stderr.write(
-            `[h2a] --effort must be low|medium|high|xhigh\n`,
+            `[h2a] --effort must be low|medium|high|xhigh (Muse also accepts max)\n`,
           );
           process.exitCode = 2;
           return;

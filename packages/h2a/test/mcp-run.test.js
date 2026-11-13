@@ -159,6 +159,25 @@ test("h2a_run validates every structured profile and returns the real launcher r
   });
 });
 
+test("h2a_run should admit Ember xhigh and max through Muse validation", () => {
+  withWorkspace(({ workspaceRoot, workspace, storeRoot }) => {
+    for (const effort of ["xhigh", "max"]) {
+      let captured;
+      const server = createMcpServer({ root: storeRoot, workspaceRoot,
+        runExecutor: (req) => { captured = req; return runtimeResult(req); } });
+      const args = request(workspace, { profile: "muse", model: "muse-ember-1.0", effort, headless: false });
+      assert.equal(server.callTool("h2a_run", args).error, undefined);
+      assert.equal(captured.effort, effort);
+      const invocation = buildH2aRunInvocation(captured, "/opt/h2a/bin.js");
+      assert.equal(invocation.args[invocation.args.indexOf("--model") + 1], "muse-ember-1.0");
+      assert.equal(invocation.args[invocation.args.indexOf("--effort") + 1], effort);
+    }
+    for (const profile of ["claude", "codex", "vibe"]) {
+      assert.throws(() => validateH2aRunRequest(request(workspace, { profile, effort: "max", headless: false }), workspaceRoot), /effort/);
+    }
+  });
+});
+
 test("MCP launch records post-launch delegation evidence outside the CLI argv/env", () => {
   withWorkspace(({ workspace, storeRoot }) => {
     const delegation = {

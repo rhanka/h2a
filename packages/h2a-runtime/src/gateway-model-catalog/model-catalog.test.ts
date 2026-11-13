@@ -8,6 +8,7 @@ import {
   claudeGatewaySlot,
   GATEWAY_MODEL_ALIASES,
   GATEWAY_MODEL_IDS,
+  MODEL_LAUNCH_AVAILABILITY,
   resolveGatewayModelAlias,
 } from "./model-catalog.js";
 
@@ -22,6 +23,7 @@ describe("gateway model catalog (H0 #662)", () => {
     expect(GATEWAY_MODEL_IDS).toContain("claude-fable-5-2");
     expect(GATEWAY_MODEL_IDS).toContain("muse-spark-1.3");
     expect(GATEWAY_MODEL_IDS).toContain("muse-wonder-1.0");
+    expect(GATEWAY_MODEL_IDS).toContain("muse-ember-1.0");
     expect(GATEWAY_MODEL_IDS).toContain("muse-wonder-full-1.0");
   });
 
@@ -40,6 +42,8 @@ describe("gateway model catalog (H0 #662)", () => {
     expect(resolveGatewayModelAlias("fable-5-2")).toBe("claude-fable-5-2");
     expect(resolveGatewayModelAlias("fable")).toBe("claude-fable-5-2");
     expect(resolveGatewayModelAlias("muse-spark")).toBe("muse-spark-1.3");
+    expect(resolveGatewayModelAlias("muse-ember")).toBe("muse-ember-1.0");
+    expect(resolveGatewayModelAlias("muse-ember-1.0")).toBe("muse-ember-1.0");
     expect(resolveGatewayModelAlias("spark")).toBe("muse-spark-1.3");
     expect(resolveGatewayModelAlias("muse-wonder")).toBe("muse-wonder-1.0");
     expect(resolveGatewayModelAlias("wonder")).toBe("muse-wonder-1.0");
@@ -93,9 +97,23 @@ describe("gateway model catalog parity with llm-mesh 0.26.0", () => {
 
   it("exposes only model ids carried by the installed mesh catalog (plus PR #997 pre-provisioned ids)", () => {
     for (const id of GATEWAY_MODEL_IDS) {
+      if (!MODEL_LAUNCH_AVAILABILITY[id].gatewayRoute) continue;
       if (PREPROVISIONED_PR997_IDS.has(id)) continue;
       expect(meshIds.has(id)).toBe(true);
     }
+  });
+
+  it("declares Ember direct-only on Muse until a published mesh carries its gateway route", () => {
+    expect(MODEL_LAUNCH_AVAILABILITY["muse-ember-1.0"]).toEqual({
+      gatewayRoute: false,
+      directProfile: "muse",
+      reason: "Awaiting a published llm-mesh release carrying muse-ember-1.0 (sentropic #1013).",
+    });
+    expect(PREPROVISIONED_PR997_IDS.has("muse-ember-1.0")).toBe(false);
+    expect(meshIds.has("muse-ember-1.0")).toBe(false);
+    expect(Object.entries(MODEL_LAUNCH_AVAILABILITY)
+      .filter(([, availability]) => !availability.gatewayRoute)
+      .map(([id]) => id)).toEqual(["muse-ember-1.0"]);
   });
 
   it("round-trips every catalog id through alias resolution", () => {

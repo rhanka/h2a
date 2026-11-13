@@ -150,6 +150,13 @@ describe("buildAgentLaunchArgs", () => {
     ).toEqual(["--model", "muse-spark", "--reasoning-effort", "xhigh"]);
   });
 
+  it.each(["xhigh", "max"] as const)("should pass Ember and %s to the Muse CLI", (effort) => {
+    expect(buildAgentLaunchArgs({ profile: "muse", prompt: "Review the change",
+      model: "muse-ember-1.0", effort })).toEqual([
+      "--model", "muse-ember-1.0", "--reasoning-effort", effort,
+    ]);
+  });
+
   it("builds Muse resume argv with the resume subcommand leading", () => {
     expect(
       buildAgentLaunchArgs({
@@ -296,6 +303,10 @@ describe("agent launch allowlists", () => {
     expect(isAgentLaunchProfile("bash")).toBe(false);
     expect(isAgentLaunchEffort("xhigh")).toBe(true);
     expect(isAgentLaunchEffort("max")).toBe(false);
+    expect(isAgentLaunchEffort("max", "muse")).toBe(true);
+    expect(isAgentLaunchEffort("max", "codex")).toBe(false);
+    expect(isAgentLaunchEffort("max", "claude")).toBe(false);
+    expect(isAgentLaunchEffort("max", "unknown")).toBe(false);
   });
 
   it("rejects unsafe model tokens and unbounded prompts", () => {

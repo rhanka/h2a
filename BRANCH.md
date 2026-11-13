@@ -3067,3 +3067,67 @@ scope stays pre-SG-R15.
   and two marker values are reserved in the EVOL.
 - [x] The existing loop decision-raised result proves a Track card only; native call evidence is separate.
 - [x] Runtime L2 is explicitly deferred under the owner's one-reviewable-PR clause, not declared shipped.
+# Feature: Muse Ember launch integration
+
+## Objective
+- [x] Add canonical muse-ember-1.0 and readable muse-ember alias without changing routing defaults.
+
+## Branch Scope Boundaries (MANDATORY)
+- **Allowed Paths (implementation scope)**:
+  - `packages/h2a-runtime/src/gateway-model-catalog/**`
+  - `packages/h2a-runtime/src/agent-launch-args.test.ts`
+  - `packages/h2a-runtime/src/agent-launch-args.ts`
+  - `packages/h2a-runtime/src/index.ts`
+  - `packages/h2a/src/runtime/mcp/agent-launch.ts`
+  - `packages/h2a/src/runtime/mcp/tools.ts`
+  - `packages/h2a/src/runtime/mcp-central-descriptor.js`
+  - `packages/h2a/test/mcp-run.test.js`
+  - `BRANCH.md`
+- **Forbidden Paths (must not change in this branch)**:
+  - `.github/**`
+  - `package-lock.json`
+- **Conditional Paths (allowed only with explicit exception when not already listed in Allowed Paths)**:
+  - `packages/h2a-runtime/src/agent-launch-args.ts`
+
+## Scope / Guardrails
+- [x] Worktree tmp/worktrees/muse-ember; branch feat/muse-ember.
+- [x] No AGENTS.md, MASTER.md or Makefile exists in this repository at origin/main 44934e05c.
+- [x] Version stays on the repository's synchronized release version; no standalone package release.
+- [x] Tests use Docker through the lane make helper, ENV=test-h2a-ember last.
+- [x] No services or ports needed; reserved API 9701, UI 5901, Maildev 1801.
+
+## Feedback Loop
+- [x] Local Muse catalog confirms muse-ember-1.0.
+- [x] Native argv builder preserves model and xhigh/max flags, but CLI/MCP admission rejected Muse max before invocation.
+- [x] BREMH-EX1: extend only Muse max admission in CLI/MCP and regenerate its tool descriptor. Required by the explicit h2a run/h2a_run max acceptance; other profiles retain their existing effort restrictions. Rollback restores validators, descriptor and matching tests together.
+- [x] Ember parity is pre-provisioned while the repository pins mesh 0.26.0, matching the existing Carbon pattern.
+- [x] Track import belongs to the designated conductor.
+
+## Plan / Todo (lot-based)
+- [x] Lot 0: inspect rules, baseline and branch gate.
+- [x] Lot 1: canonical ID and alias; catalog and agent-launch-args tests.
+- [ ] Lot 2: targeted catalog/launch tests and independent code review.
+  - [x] Docker targeted Vitest run: 41 tests passed (catalog 10; launch arguments 31).
+  - [x] Mechanical harness scope check: PASS C2.
+  - [x] After the Muse-only max admission fix: strict npm ci in an isolated container, MCP run tests 18/18 and native launch tests 31/31 passed.
+  - [x] MCP descriptor regenerated from the source tool definitions.
+  - [x] Full npm run build, descriptor freshness check, MCP 18/18 and native launch 31/31 passed after preserving the CLI's string profile type in the effort guard.
+  - [x] CI 43306471975: 27/28 checks passed; Node 22 Focus packaging prepack exceeded 5000 ms (5325 ms). Node 24 and the production test entrypoint passed on the same head.
+  - [x] Exact-head isolated Node 22.23.4 reproduction: Focus packaging 10/10 passed; prepack case 970 ms. Evidence establishes a transient duration failure; fresh pull_request CI requested by this diagnostic commit, without changing test thresholds or assertions.
+  - [ ] Muse independent code review dispatched; Argon unavailable (account disabled).
+- [ ] Lot 3: open PR and resolve CI to green on exact head.
+
+## PR #445 conductor fixes (round 2)
+
+- [x] BREMH-EX2: owner-authorized review fixes additionally allow
+  `packages/h2a/skills/h2a-run/SKILL.md`, `packages/h2a/src/runtime/agy-claude.ts`,
+  `packages/h2a-runtime/src/agy-claude.ts` and `packages/h2a-runtime/src/agy-launch.test.ts`.
+  Normalize Ember receipts like Fable, preserve Muse max and document direct-only availability.
+  Rollback restores the alias copies, receipt tests and skill together; no dependency change.
+- [x] Receipt RED: four native/tmux xhigh/max cases returned muse-ember; GREEN: canonical receipt and exact argv.
+- [x] Replace the Ember mesh parity exemption with typed catalog launch availability:
+  profile muse, gatewayRoute false until a published llm-mesh carries Ember (sentropic #1013).
+  This supersedes the earlier Ember pre-provisioning claim.
+- [x] Targeted Docker Vitest: 66/66 passed across catalog, receipt, launch argv and vendor-sync suites.
+- [x] Skill converts max to xhigh for Claude/Codex only; Muse keeps max unchanged.
+- [ ] Rebase onto current origin/main, build, push and follow exact-head CI; never merge.
