@@ -15,6 +15,96 @@ Start with `h2a focus template -o dossier.json`; see [portable dossiers](docs/fo
 
 ---
 
+<!-- Source: governance-unification/readme-sections/h2a.md; sha256: e20e14f2aca140f486ed0b52828151b2d2edf3b0eb20c7b3de49396e78c41234; governance assets: rhanka/sentropic@4219362ec13c7c850455ea9e639313106fb140bf (PR #711). -->
+
+## Global governance contract
+
+Sentropic, h2a, Engram and Design System share a federated governance contract. Each consequential act has one accountable owner under an explicit mandate; each repository retains its code, release and data authorities.
+
+h2a owns the organisation and decision-making frame: human/agent roles and mandates, workspaces, sessions, Track work and acceptance records, and the Focus decision schema and skill. It exposes its harness and collaboration tools through the shared catalogue; the `@sentropic/harness` kernel remains in Sentropic. Its accountable capabilities are **C01** organisation, **C02** governed delivery, **C03** owner decisions and **C04** end-to-end demand-to-production traceability. Principal clauses: **C-01, C-02, C-03, C-08, C-09, C-11, C-17 and C-18**.
+
+**Owner decisions — 2026-10-19:** **G1**, a federated contract per act; **G2**, profiles/schemas/fixtures/migrations at Engram and the generic executor/layout/rendering at Design System; **G3**, annotate presentation at Design System and the single annotation model at Sentropic. Design System receives opaque anchors and emits proposals; Sentropic resolves and persists them. Diagram anchors reference Engram profiles. **H1** requires both subdomain and separate-domain artifact hosting for each Sentropic app.
+
+The capability map C01–C14 remains provisional pending the owner's map. Accepted governance decisions and source, publication, installation and runtime qualification are separate evidence states.
+
+[Read the contract and rebuild instructions](https://github.com/rhanka/sentropic/blob/4219362ec13c7c850455ea9e639313106fb140bf/docs/governance/README.md) · [Decision register and owner evidence](https://github.com/rhanka/sentropic/blob/4219362ec13c7c850455ea9e639313106fb140bf/docs/governance/decisions.md) · [Study: clauses, capabilities and migration](https://github.com/rhanka/sentropic/blob/4219362ec13c7c850455ea9e639313106fb140bf/docs/governance/study.md) · [Interactive dossier — download and open locally](https://raw.githubusercontent.com/rhanka/sentropic/4219362ec13c7c850455ea9e639313106fb140bf/docs/governance/governance-r10-portable.html)
+
+The overview is collapsed. Expand any frame below for its static detail; the interactive dossier also supports French/English and individual frame controls. The images use the same precomputed geometry and support light/dark themes.
+
+![Global governance — collapsed overview](docs/assets/governance/overview-en.svg)
+
+<details>
+<summary>h2a — Organisation and decision-making</summary>
+
+![h2a — Organisation and decision-making](docs/assets/governance/frame-h2a-en.svg)
+
+</details>
+
+<details>
+<summary>Access surfaces — CLI, Cowork, cloud and AI providers</summary>
+
+![Access surfaces — CLI, Cowork, cloud and AI providers](docs/assets/governance/frame-surfaces-en.svg)
+
+</details>
+
+<details>
+<summary>Sentropic — Shared services</summary>
+
+![Sentropic — Shared services](docs/assets/governance/frame-cluster-mesh-en.svg)
+
+</details>
+
+<details>
+<summary>Sentropic — Catalogues</summary>
+
+![Sentropic — Catalogues](docs/assets/governance/frame-cm-catalog-en.svg)
+
+</details>
+
+<details>
+<summary>Sentropic — MCP providers and tools</summary>
+
+![Sentropic — MCP providers and tools](docs/assets/governance/frame-cat-mcp-en.svg)
+
+</details>
+
+<details>
+<summary>Sentropic — Security and observability</summary>
+
+![Sentropic — Security and observability](docs/assets/governance/frame-cm-security-en.svg)
+
+</details>
+
+<details>
+<summary>Sentropic — Model and artifact storage</summary>
+
+![Sentropic — Model and artifact storage](docs/assets/governance/frame-cm-storage-en.svg)
+
+</details>
+
+<details>
+<summary>Sentropic — Integration</summary>
+
+![Sentropic — Integration](docs/assets/governance/frame-cm-cluster-en.svg)
+
+</details>
+
+<details>
+<summary>Engram — Knowledge and ontologies</summary>
+
+![Engram — Knowledge and ontologies](docs/assets/governance/frame-engram-en.svg)
+
+</details>
+
+<details>
+<summary>Design System — Rendering and interaction</summary>
+
+![Design System — Rendering and interaction](docs/assets/governance/frame-design-system-en.svg)
+
+</details>
+
+---
+
 ## Why h2a exists
 
 When several agentic CLIs (Claude Code, Codex, Gemini, …) are used together to push the same project forward, **none of them knows the others exist**. Each talks to its own human; no shared memory; no negotiation between agents; no contractual trace of what was agreed.
