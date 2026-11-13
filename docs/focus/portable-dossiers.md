@@ -30,7 +30,8 @@ and findable. Its native `details`/`summary` shows the title and term count; use
 or click to open it, then in-page search can find the terms and definitions. Each term has
 an ID of `glossary-` followed by `encodeURIComponent(term)` (encode the full ID when building
 a URL fragment). Following a term anchor opens the glossary, including on initial load.
-Print CSS exposes all definitions without changing the screen's folded state. HTML hosts
+Print CSS exposes all definitions in black on white, including with a dark screen theme,
+without changing the screen's folded state. HTML hosts
 must preserve `details`, `summary`, term IDs and the scoped `@media print` rule through
 sanitization; printing uses the native `::details-content` pseudo-element in current browsers.
 Markdown and terminal exports keep their glossary expanded: plain text has no portable
