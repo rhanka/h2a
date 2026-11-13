@@ -10,9 +10,9 @@
     "ramBytes": 61736112128
   },
   "corpusSha256": "7889dc63dbf8cf304ea88ac79a1cbe9c8d86c59a8427ae8cb5e20882e5c1957e",
-  "generatorSha256": "a78a7851d85ee75658f177e4f91c247f8c3d491301170d2bd20f43529e44b86f",
+  "generatorSha256": "c35eac9b57026a9b391bdc9a91d55b46e38bb7c498677d65ce98db54e2558cab",
   "fixtureSha256": "0f3fc61f2c2fb0b46ef68d404ae251ad56ed5faac92fbe4d7c07c5605510d350",
-  "measurementSha256": "0ad56bd76d31782ca2228b2f3812dd34be5e226d852fec14c270cb9204dbdac1",
+  "measurementSha256": "a61322eab74765fdfe05472a9074c7f71760d1e4574e0df3ac7b16b0503f90a2",
   "libraries": {
     "playwright": "1.63.0",
     "svelte": "5.56.4",

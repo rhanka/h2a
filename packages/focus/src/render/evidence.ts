@@ -1,6 +1,19 @@
 import { isEvidenceDossier, isReportDocument } from '../model.js';
 import type { FocusDocument } from '../model.js';
 
+/** Shared bibliography order and literal origin; never turn an untrusted URI into a link. */
+export function bibliography(doc: Parameters<typeof evidenceVolume>[0]) {
+  if (!isEvidenceDossier(doc)) return [];
+  return doc.citations.map((citation, index) => {
+    const source = doc.sources.find(s => s.id === citation.sourceId)!;
+    const origin = 'path' in source.origin
+      ? `${source.origin.repo}@${source.origin.revision}:${source.origin.path}` : source.origin.uri;
+    const location = citation.locator.kind === 'lines'
+      ? `${origin}:${citation.locator.start}–${citation.locator.end}` : `${origin} · ${citation.locator.caption}`;
+    return { number: index + 1, citation, source, location };
+  });
+}
+
 /** Disclosed estimate at six UTF-8 bytes per word; raw consultation is not decision time. */
 export function evidenceVolume(doc: FocusDocument): { sources: number; bytes: number; consultationMinutes: number } {
   if (!isEvidenceDossier(doc)) return { sources: 0, bytes: 0, consultationMinutes: 0 };
@@ -17,7 +30,8 @@ export function evidenceIndex(doc: FocusDocument): string {
   const lines = [`Evidence: ${v.sources} sources · ${v.bytes} bytes · estimated consultation ${v.consultationMinutes} min (6 bytes/word)`,
     'Raw supporting detail is separate from the primary reading budget.'];
   for (const s of doc.sources) lines.push(`Source ${s.id}: ${s.title} · ${s.mediaType} · ${s.size} bytes · SHA-256 ${s.sha256} · ${JSON.stringify(s.origin)}`);
-  for (const c of doc.citations) lines.push(`Citation ${c.id}: ${c.label} → ${c.sourceId}:${c.locator.kind === 'lines' ? `${c.locator.start}–${c.locator.end}` : c.locator.caption}`);
+  lines.push('Sources');
+  for (const { number, citation, source, location } of bibliography(doc)) lines.push(`${number} · ${citation.label} · ${source.title} · ${location}`);
   for (const s of doc.sections) {
     if (s.citationRefs?.length) lines.push(`${s.id} → ${s.citationRefs.join(', ')}`);
     if (s.kind === 'optionSet') for (const o of s.options) if (o.citationRefs?.length) lines.push(`${o.id} → ${o.citationRefs.join(', ')}`);

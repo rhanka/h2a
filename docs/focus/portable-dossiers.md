@@ -48,6 +48,12 @@ metadata; diagram expansion creates a rendered view, not a new attested source s
 
 Cards prepare a local answer in memory. Closing/reloading clears it. No network, storage, Track
 write or signature occurs. The owner communicates their choice for explicit recording through Track.
+Every decision dossier includes a final “Votre réponse” recap. Question and option codes match
+the visible cards: `D1 A · D2 B · D3 A`. An unanswered question shows `—`; recommendations
+never count as answers. “Copier” writes the current line to the clipboard. If access is unavailable
+or denied, it selects the line and explains Ctrl+C / ⌘C. All dossier text allows mouse selection.
+Authored question IDs such as `D2` and `D11` keep their numbers and gaps. Other IDs receive
+unused sequential codes. A question title that already starts with its code keeps a single prefix.
 Disabled `interactions` remain source metadata. Markdown fields display as safe plain text, preserving
 line breaks; arbitrary markup, images and remote resources never execute.
 
@@ -191,6 +197,11 @@ explicitly. Groups summarize a claim with citationRefs/sourceRefs. Annexes have
 title, summary, typed text/code/table/reference blocks and backRefs; they start
 collapsed and cannot contain questions/options or executable author content.
 Graph/plan bindings await H3 rather than being invented in the H1 envelope.
+
+Citation calls are small numbered anchors `[1]`. They lead to a final “Sources” bibliography:
+number, citation title, source title, literal origin and line range (or image caption), and an
+original-byte download link. They open no viewer or modal. The separate source catalogue keeps
+full-source consultation and search available. Both themes use DS semantic tokens.
 
 Summaries remain in the primary reading budget. Supporting source bytes and
 annex details have a separately disclosed consultation estimate (six UTF-8
