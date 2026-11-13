@@ -1,0 +1,71 @@
+{
+  "defaultGuardHooks": [
+    {
+      "type": "command",
+      "command": "node \"${CLAUDE_PLUGIN_ROOT:-${CODEX_PLUGIN_ROOT}}/hooks/workspace-scope-guard.mjs\" --initialize-session true",
+      "timeout": 15
+    },
+    {
+      "type": "command",
+      "command": "node \"${CLAUDE_PLUGIN_ROOT:-${CODEX_PLUGIN_ROOT}}/hooks/workspace-scope-guard.mjs\"",
+      "timeout": 15
+    }
+  ],
+  "defaultInstalled": {
+    "hooks": {
+      "PreToolUse": [
+        {
+          "matcher": ".*",
+          "hooks": [
+            {
+              "type": "command",
+              "command": "'/usr/bin/node' '/home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/prefix/lib/node_modules/@sentropic/h2a/hooks/workspace-scope-guard.mjs' '--host' 'claude' '--workspace' '/home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/s4/own/tmp/worktrees/lot' '--session' 'default-s4'",
+              "timeout": 15
+            }
+          ]
+        }
+      ],
+      "Stop": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "h2a drumbeat record --instance default-s4 --status paused --command \"claude -c\" --resume-command \"claude -c\" --tmux-session \"$(tmux display-message -p '#{session_name}' 2>/dev/null)\" --tmux-pane \"$TMUX_PANE\""
+            }
+          ]
+        }
+      ],
+      "UserPromptSubmit": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "h2a drive receive --to default-s4 --stdin --ignore-non-drive"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "counts": {
+    "tests": 294,
+    "pass": 294,
+    "fail": 0,
+    "cancelled": 0,
+    "skipped": 0,
+    "todo": 0
+  },
+  "selfProtection": {
+    "command": [
+      "/bin/sh",
+      "-c",
+      "'/usr/bin/node' '/home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/prefix/lib/node_modules/@sentropic/h2a/hooks/workspace-scope-guard.mjs' '--host' 'claude' '--workspace' '/home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/s4/own/tmp/worktrees/lot' '--session' 's4'"
+    ],
+    "cwd": "/home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/s4/own/tmp/worktrees/lot",
+    "status": 2,
+    "signal": null,
+    "stdout": "{\"decision\":\"block\",\"code\":\"OWNER_ONLY\",\"reason\":\"[H2A_SCOPE:OWNER_ONLY] file.write refused. {\\\"repo\\\":\\\"/home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/prefix/lib/node_modules/@sentropic/h2a/hooks\\\",\\\"action\\\":\\\"file.write\\\",\\\"ref\\\":\\\"/home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/prefix/lib/node_modules/@sentropic/h2a/hooks/workspace-scope-guard.mjs\\\",\\\"session\\\":\\\"s4\\\"} Hand this action to the owning conductor; use the plain explicit form or request an exact recorded owner grant.\",\"repo\":\"/home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/prefix/lib/node_modules/@sentropic/h2a/hooks\",\"action\":\"file.write\",\"ref\":\"/home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/prefix/lib/node_modules/@sentropic/h2a/hooks/workspace-scope-guard.mjs\",\"session\":\"s4\",\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"[H2A_SCOPE:OWNER_ONLY] file.write refused. {\\\"repo\\\":\\\"/home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/prefix/lib/node_modules/@sentropic/h2a/hooks\\\",\\\"action\\\":\\\"file.write\\\",\\\"ref\\\":\\\"/home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/prefix/lib/node_modules/@sentropic/h2a/hooks/workspace-scope-guard.mjs\\\",\\\"session\\\":\\\"s4\\\"} Hand this action to the owning conductor; use the plain explicit form or request an exact recorded owner grant.\"}}",
+    "stderr": "[H2A_SCOPE:OWNER_ONLY] file.write refused. {\"repo\":\"/home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/prefix/lib/node_modules/@sentropic/h2a/hooks\",\"action\":\"file.write\",\"ref\":\"/home/antoinefa/.cache-tmp/h2a-test/run-WxKJ4h/prefix/lib/node_modules/@sentropic/h2a/hooks/workspace-scope-guard.mjs\",\"session\":\"s4\"} Hand this action to the owning conductor; use the plain explicit form or request an exact recorded owner grant.\n",
+    "expired": false
+  }
+}
