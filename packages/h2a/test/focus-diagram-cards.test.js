@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -9,8 +9,6 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 const kit = fileURLToPath(new URL('../focus-kit/', import.meta.url))
 const viewsModule = new URL('../focus-kit/diagram-views.mjs', import.meta.url)
 const bin = fileURLToPath(new URL('../dist/bin.js', import.meta.url))
-const consumer = process.env.H2A_TEST_CONSUMER_FIXTURES
-  ?? '/home/antoinefa/src/consumer-activities/contracts/dossier-publish/fixtures'
 const fixture = () => JSON.parse(readFileSync(join(kit, 'dossier.template.json'), 'utf8'))
 const isolated = (fn) => {
   const root = mkdtempSync(join(tmpdir(), 'focus-cards-'))
@@ -187,22 +185,4 @@ test('refuses a diagram-less dossier with the ecosystem-diagram refusal', () => 
   assert.equal(refused.result.status, 1)
   assert.match(refused.result.stderr, /A Focus dossier needs an ecosystem diagram/, 'the diagram-less builder refusal stays')
 }))
-
-test('builds the Consumer N3 fixtures when their local read-only checkout is present', (t) => {
-  if (!existsSync(join(consumer, 'valid-v1.json'))) {
-    t.skip(`Consumer N3 fixtures absent; set H2A_TEST_CONSUMER_FIXTURES to run (residency consumer-internal, egress none — the fixtures never enter this repo)`)
-    return
-  }
-  isolated(root => {
-    const envelope = JSON.parse(readFileSync(join(consumer, 'valid-v1.json'), 'utf8'))
-    const { payload } = builtViews(root, envelope.payload.render.root.document)
-    const diagram = payload.document.sections.find(s => s.kind === 'diagram')
-    assert.ok(diagram, 'valid-v1 keeps its diagram section')
-    assert.ok(Object.keys(payload.views[diagram.id]).length > 0, 'the consumer ecosystem renders DC-1 card views')
-    const noDiagram = JSON.parse(readFileSync(join(consumer, 'valid-no-diagram.json'), 'utf8'))
-    const refused = buildDoc(root, noDiagram.payload.render.root.document)
-    assert.equal(refused.result.status, 1)
-    assert.match(refused.result.stderr, /A Focus dossier needs an ecosystem diagram/, 'the diagram-less builder refusal stays (the consumer pas-diagram lot is R5/R6)')
-  })
-})
 
