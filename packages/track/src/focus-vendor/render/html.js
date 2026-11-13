@@ -101,7 +101,9 @@ export const renderHtml = (doc, hooks) => {
     const r = doc.readability;
     const readability = `<section class="focus-readability"><h2>Owner request</h2><blockquote>${escapeHtml(r.ownerRequestQuote)}</blockquote>` +
         `<h2>Stakes</h2><p>${escapeHtml(r.stakes)}</p><p>Reading budget: ${r.readingBudgetMinutes} min (${escapeHtml(r.stakesLevel)} stakes)</p>` +
-        (r.glossary?.length ? `<h2>Glossary</h2><dl>${r.glossary.map((entry) => `<dt>${escapeHtml(entry.term)}</dt><dd>${escapeHtml(entry.definition)}</dd>`).join("")}</dl>` : "") + "</section>";
+        (r.glossary?.length ?
+            `<style>@media print { .focus-glossary { color: #000; background: #fff; } .focus-glossary::details-content { display: block; content-visibility: visible; } }</style>` +
+                `<details class="focus-glossary"><summary>Glossary (${r.glossary.length} ${r.glossary.length === 1 ? 'term' : 'terms'})</summary><dl>${r.glossary.map((entry) => `<dt id="glossary-${escapeHtml(encodeURIComponent(entry.term))}">${escapeHtml(entry.term)}</dt><dd>${escapeHtml(entry.definition)}</dd>`).join("")}</dl></details>` : "") + "</section>";
     const header = `<header class="focus-header"><h1>${escapeHtml(doc.title)}</h1>` +
         `<p class="focus-meta">subject: ${escapeHtml(doc.subject)} · ref: <code>${escapeHtml(doc.ref)}</code> · cursor: <code>${escapeHtml(doc.cursor)}</code></p></header>`;
     const sections = doc.sections.map((node) => renderNode(node, hooks)).join("");
