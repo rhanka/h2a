@@ -25,7 +25,17 @@ validation implementation. The builder calls `assertDecisionDossierDocument`, re
 `assertDecisionDossierForPresentation` before rendering. It uses the #358 readability rules unchanged:
 literal owner quote, plain stakes, proportional total time, explicit self-contained questions,
 2–4 short options with consequences, recommendation, no opaque undefined codes or nested choices.
-The glossary is visible. Diagram labels and explanations also go through the readability gate.
+The glossary is folded by default in both HTML renderers, but remains present in the DOM
+and findable. Its native `details`/`summary` shows the title and term count; use the keyboard
+or click to open it, then in-page search can find the terms and definitions. Each term has
+an ID of `glossary-` followed by `encodeURIComponent(term)` (encode the full ID when building
+a URL fragment). Following a term anchor opens the glossary, including on initial load.
+Print CSS exposes all definitions without changing the screen's folded state. HTML hosts
+must preserve `details`, `summary`, term IDs and the scoped `@media print` rule through
+sanitization; printing uses the native `::details-content` pseudo-element in current browsers.
+Markdown and terminal exports keep their glossary expanded: plain text has no portable
+interactive folding mechanism. Definitions still count toward the reading budget, and
+diagram labels and explanations also go through the readability gate.
 Visible diagram-core names and link labels use the same gate, including when they differ from the
 text fallback. Documents without the optional structured diagram field remain valid.
 The template is illustrative, never evidence of a real owner request or review.
