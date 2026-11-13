@@ -302,6 +302,7 @@ const RUNTIME_VERBS: readonly {
   { group: "SET_UP", verb: "workspace", summary: "Map this project to a persistent remote workspace." },
   { group: "SET_UP", verb: "plugin", summary: "Install npm plugin packages into the agent CLIs." },
   { group: "SET_UP", verb: "check", summary: "End-to-end probe: create a session, await it, stop it (alias: smoke)." },
+  { group: "SET_UP", verb: "sentropic", summary: "Sign in to sentropic (preprod) and bind this workspace for publishing." },
   { group: "SET_UP", verb: "tmux", summary: "Manage h2a's local tmux naming and status surface." },
 
   { group: "SPECIALIST", verb: "identity", summary: "Inspect identity bindings or unlock identity/.lock by expected token." },
