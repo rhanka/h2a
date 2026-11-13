@@ -343,6 +343,59 @@ function museHome() {
   });
 }
 
+test('R35: Muse receives its repository boundary after the custodian writes workspace trust', async () => {
+  const reuseRoot = /^\/home\/[^/]+\/\.cache-tmp\/h2a-test\/run-[A-Za-z0-9]+$/.test(tmpdir());
+  const root = reuseRoot ? tmpdir() : compliantQualificationRoot();
+  const dir = fs.mkdtempSync(join(root, 'xcli-muse-stage2-'));
+  const homeDir = museHome();
+  let staged;
+  try {
+    const { buildSeatEnvelope } = await provision();
+    const built = await buildSeatEnvelope({ seatId: 'muse', slot: { slot: '00' }, homeDir,
+      ownerScope: SYNTH_SCOPE, meshFacade: stubAccounts(['muse', 'acct-r35-muse']),
+      meshScope: SYNTH_SCOPE, cliVersions: { muse: '1.4.18' } });
+    staged = await stageOne('muse', 'muse', built.envelope);
+    const build = sourceBuild(dir);
+    const marker = join(dir, 'observed.json'), inspector = join(dir, 'inspect.mjs');
+    fs.writeFileSync(inspector, `import fs from 'node:fs';
+import { join } from 'node:path';
+const trust = JSON.parse(fs.readFileSync(join(process.env.XDG_CONFIG_HOME, 'muse/trust.json')));
+const config = JSON.parse(fs.readFileSync(join(process.env.XDG_CONFIG_HOME, 'muse/settings.json')));
+fs.writeFileSync(${JSON.stringify(marker)}, JSON.stringify({
+  trusted: trust.projects[process.cwd()]?.decision === 'trusted',
+  boundary: fs.statSync(join(process.cwd(), '.git')).isDirectory(),
+  configured: !!config.mcpServers?.h2a?.command
+}), { mode: 0o600 });
+setTimeout(() => process.exit(0), 500);
+`);
+    const install = join(dir, 'install'); fs.mkdirSync(install);
+    const executable = join(install, 'muse');
+    fs.writeFileSync(executable, `#!/bin/sh\nexec '${process.execPath}' '${inspector}' "$@"\n`, { mode: 0o700 });
+    // Program-layout fixture only: the launcher runs the inspector, never
+    // this header or a model. Real native startup has its own mandatory test.
+    fs.writeFileSync(join(install, '.muse-version'), '1.4.18-R8587.1\n');
+    fs.writeFileSync(join(install, 'muse-bin-1.4.18-R8587.1'), Buffer.from([0x7f, 0x45, 0x4c, 0x46]));
+    const cell = join(dir, 'cell'); fs.mkdirSync(cell, { mode: 0o700 });
+    const worker = spawnSync(process.execPath, [new URL('./qualify-cross-cli.mjs', import.meta.url).pathname, '--worker'], {
+      cwd: dir, env: { ...environment(join(dir, 'worker')), H2A_TEST_QUALIFICATION_ROOT: root },
+      input: JSON.stringify({ sender: 'muse', receiver: 'muse', root, cell, build: build.path,
+        executables: { muse: executable }, timeoutMs: 3000, simulated: false,
+        authHomes: { receiver: staged.seatDir }, seatOnboarding: { receiver: {
+          ...staged.result.manifest.seats[0].onboarding, expectedNativeCliVersion: '1.4.18', ownerScope: SYNTH_SCOPE } } }),
+      encoding: 'utf8', timeout: 20000, maxBuffer: 1024 * 1024,
+    });
+    assert.equal(worker.status, 0, 'production worker must complete');
+    assert.ok(fs.existsSync(marker), 'custodian must accept the empty workspace before the Muse launcher runs');
+    assert.deepEqual(JSON.parse(fs.readFileSync(marker)), { trusted: true, boundary: true, configured: true });
+    assert.equal(JSON.parse(worker.stdout).status, 'blocked', 'inspector exits before a model; no measured success');
+  } finally {
+    if (staged) fs.rmSync(staged.dir, { recursive: true, force: true });
+    fs.rmSync(homeDir, { recursive: true, force: true });
+    fs.rmSync(dir, { recursive: true, force: true });
+    if (!reuseRoot) fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 async function provision() {
   return (await import('./xcli-seat-provision.mjs'));
 }
