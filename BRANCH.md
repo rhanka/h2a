@@ -3562,3 +3562,16 @@ red/green receipts, qualification limits and cleanup evidence.
   [R13 report](docs/reviews/2026-10-29-cross-cli-r13.md).
   Real qualification and the exact-SHA trusted receipt remain conductor-owned;
   no merge-readiness or new independent review consensus is claimed.
+
+# Cross-CLI bench R35 — Muse startup isolation
+
+- Owner decision (13/11): « Relancer R35 + corriger muse ».
+- Scope: scripts/qualify-cross-cli.mjs, scripts/xcli-muse-config.test.mjs,
+  this note and docs/reviews/2026-11-13-cross-cli-r35.md.
+- Synthetic ancestor .git reproduces native Muse TMPDIR refusal (exit 1);
+  a per-cell workspace boundary removes it (exit 0), without model or auth.
+- Native regression RED 0/1 then GREEN 1/1; targeted files 6/6, zero skips.
+- Keep the R34 harness and seat mapping, except that bounded isolation fix.
+  One full R35 matrix with the existing signed wake and wipe verification.
+- Review selection unavailable: no h2a_run MCP tool under owner confinement;
+  no peer consensus. R35 evidence: tmp/h-cond/xcli-r35-*.
