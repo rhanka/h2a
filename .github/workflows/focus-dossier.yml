@@ -37,6 +37,10 @@ jobs:
       - run: npm --prefix packages/h2a/focus-kit exec -- playwright install --with-deps chromium
       - name: Offline desktop and phone, themes, selection and touch pinch
         run: node --test packages/h2a/focus-kit/test/browser.test.mjs
+      - name: Frozen Svelte baseline at desktop and phone widths
+        run: node --test packages/h2a/focus-kit/test/renderer-parity.test.mjs
+      - name: Renderer opt-in and unavailable candidate refusal
+        run: node --test packages/h2a/test/focus-vue.test.js
       - name: H1 evidence tasks and fresh installed-package opening
         run: node --test packages/h2a/focus-kit/test/evidence-browser.test.mjs
       - name: Strict memory observation including exiting owned processes

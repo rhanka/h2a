@@ -1,0 +1,21 @@
+{
+  "name": "h2a-focus-vue-renderer",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "dependencies": {
+    "@sentropic/design-system-vue": "0.41.0-next.1",
+    "@sentropic/design-system-themes": "0.14.0",
+    "vue": "3.6.0-rc.15",
+    "@sentropic/diagram-canvas": "0.2.0",
+    "@sentropic/diagram-core": "0.1.0"
+  },
+  "devDependencies": {
+    "@vue/compiler-sfc": "3.6.0-rc.15",
+    "vite": "7.3.7",
+    "@vitejs/plugin-vue": "6.0.7"
+  },
+  "scripts": {
+    "build": "node ../../../../scripts/build-focus-vue.mjs"
+  }
+}

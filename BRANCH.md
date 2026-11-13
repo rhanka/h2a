@@ -3131,3 +3131,15 @@ scope stays pre-SG-R15.
 - [x] Targeted Docker Vitest: 66/66 passed across catalog, receipt, launch argv and vendor-sync suites.
 - [x] Skill converts max to xhigh for Claude/Codex only; Muse keeps max unchanged.
 - [ ] Rebase onto current origin/main, build, push and follow exact-head CI; never merge.
+
+# Portable Vue candidate — L0 and L1 preparation
+
+- Scope: focus-kit parity fixtures/Vue sources, focus-build selection, candidate build script, package asset list, scoped tests and Focus CI.
+- User-authorized dependency and CI edits apply to this branch. No Track state changes, merge or release.
+- L0: six frozen desktop/phone captures with prepared-data bytes and DOM observations.
+- L1: explicit opt-in, Vapor SFC sources, bounded generic diagram projection and frozen-export builder.
+- BLOCKED: DS Vue next declares unpublished themes 0.14.0 and diagram-canvas 0.2.0; older overrides are incompatible and not committed.
+- No ReportDocument exists on this baseline. Report is a read-only view of the same validated decision dossier.
+- Vue parity, offline candidate assets and L1 acceptance remain pending. L2 belongs to sentropic.
+- Validation and reproduction: packages/h2a/focus-kit/vue/README.md.
+- Independent peer review unavailable: required h2a_run MCP tool is absent.
