@@ -3144,3 +3144,15 @@ scope stays pre-SG-R15.
 - The same prose-only privacy cleanup includes apps/focus/src/lib/server/h2a-target.js, whose comments are embedded in the generated source map.
 - Round 2 extends the authorized prose cleanup to the agent-memory page and decision-injection route. A narrowly scoped Vite source loader rewords the upstream Svelte renderer comment before bundling, including source maps; executable code is unchanged.
 - Round 2 restricts both deepmerge overrides to @sveltejs/vite-plugin-svelte. Clean installations preserve the lockfiles and resolve only the patched fork under that parent.
+
+# Portable Vue candidate — L0 and L1 preparation
+
+- Scope: focus-kit parity fixtures/Vue sources, focus-build selection, candidate build script, package asset list, scoped tests and Focus CI.
+- User-authorized dependency and CI edits apply to this branch. No Track state changes, merge or release.
+- L0: six frozen desktop/phone captures with prepared-data bytes and DOM observations.
+- L1: explicit opt-in, Vapor SFC sources, bounded generic diagram projection and frozen-export builder.
+- BLOCKED: DS Vue next declares unpublished themes 0.14.0 and diagram-canvas 0.2.0; older overrides are incompatible and not committed.
+- No ReportDocument exists on this baseline. Report is a read-only view of the same validated decision dossier.
+- Vue parity, offline candidate assets and L1 acceptance remain pending. L2 belongs to sentropic.
+- Validation and reproduction: packages/h2a/focus-kit/vue/README.md.
+- Independent peer review unavailable: required h2a_run MCP tool is absent.
