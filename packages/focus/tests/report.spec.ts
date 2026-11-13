@@ -81,6 +81,27 @@ describe('explicit benchmark reports', () => {
     d.sections[1].markdown = `| Mesure | Observation |\n| --- | --- |\n| ${cell} | ${cell} |`;
     expect(validate(d)).toEqual({ ok: true, value: d });
   });
+  it.each([60, 61])('should count all %i literal words in HTML-like table cells', words => {
+    const cells = [
+      `<${Array(words).fill('stable.').join(' ')}>`,
+      `<span title=" ${Array(words - 3).fill('stable.').join(' ')} ">`,
+    ];
+    for (const cell of cells) for (const header of [false, true]) {
+      const d = fixture();
+      d.sections[1].markdown = header
+        ? `| ${cell} | Observation |\n| --- | --- |\n| Mesure | Stable |`
+        : `| Mesure | Observation |\n| --- | --- |\n| ${cell} | Stable |`;
+      const result = validate(d);
+      if (words === 60) expect(result).toEqual({ ok: true, value: d });
+      else {
+        expect(result.ok).toBe(false);
+        if (!result.ok) expect(result.issues).toContainEqual(expect.objectContaining({
+          code: 'cell_max_60_words', path: '$.sections[1].markdown',
+          message: expect.stringContaining(`found ${words} words`),
+        }));
+      }
+    }
+  });
   it('should retain the implicit-choice guard in reports', () => {
     const d = fixture(); d.sections[0].markdown = 'En bref : le tableau décrit la détection versus le contrôle.';
     expect(codes(d)).toContain('hidden_decision');

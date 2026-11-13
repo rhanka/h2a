@@ -429,7 +429,7 @@ var validateDecisionDossierReadability = (doc, options) => {
   }
   function checkMarkdownProse(markdown, path) {
     if (!strict || !markdown) return;
-    const cleanedDoc = stripHtmlAndLinks(markdown);
+    const cleanedDoc = report ? markdown : stripHtmlAndLinks(markdown);
     const rawLines = cleanedDoc.split(/\r?\n/);
     const blocks = [];
     let currentParagraph = [];

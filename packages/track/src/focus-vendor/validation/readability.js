@@ -369,7 +369,8 @@ export const validateDecisionDossierReadability = (doc, options) => {
     function checkMarkdownProse(markdown, path) {
         if (!strict || !markdown)
             return;
-        const cleanedDoc = stripHtmlAndLinks(markdown);
+        // ReportProse renders the shared table-cell text literally, including HTML and links.
+        const cleanedDoc = report ? markdown : stripHtmlAndLinks(markdown);
         const rawLines = cleanedDoc.split(/\r?\n/);
         const blocks = [];
         let currentParagraph = [];

@@ -12,7 +12,7 @@ test('benchmark report retains tables, charts, glossary, citations and appendix 
   let browser;
   try {
     const doc = JSON.parse(readFileSync(new URL('../../../focus/tests/fixtures/benchmark-report.json', import.meta.url), 'utf8'));
-    doc.sections[1].markdown += '\n| Texte | <img src=x onerror=alert(1)> |';
+    doc.sections[1].markdown += '\n| Texte | <img src=x onerror=alert> |';
     const boundedCell = `${'Mesure stable. '.repeat(15)}\\| ${'Mesure stable. '.repeat(14)}Fin.`;
     doc.sections[1].markdown += `\n| Pipe \\| littéral | ${boundedCell} |`;
     const output = join(root, 'report.html');
@@ -35,6 +35,13 @@ test('benchmark report retains tables, charts, glossary, citations and appendix 
       assert.equal(await escapedRow.locator('td').count(), 2);
       assert.deepEqual(await escapedRow.locator('td').allTextContents(), ['Pipe | littéral', boundedCell.replace('\\|', '|')]);
       assert.equal((await escapedRow.locator('td').last().innerText()).split(/\s+/).length, 60);
+      for (const word of ['Mesure', 'Détection']) {
+        const lineCount = await page.locator('#table th, #table td').filter({ hasText: new RegExp(`^${word}$`) }).evaluate(cell => {
+          const range = document.createRange(); range.selectNodeContents(cell);
+          return new Set([...range.getClientRects()].map(rect => rect.top)).size;
+        });
+        assert.equal(lineCount, 1, `${word} must remain on one line at 390px`);
+      }
       assert.ok(await page.getByText(doc.readability.glossary[0].definition, { exact: true }).count());
       await page.getByRole('button', { name: 'Résultats mesurés', exact: true }).first().click();
       await page.getByText(/Détection,Stable/).first().waitFor();
@@ -48,7 +55,53 @@ test('benchmark report retains tables, charts, glossary, citations and appendix 
       assert.deepEqual(errors, []); assert.deepEqual(network, []);
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
       await page.screenshot({ path: join(process.cwd(), `.tmp/report-${colorScheme}.png`), fullPage: true });
+      // An indivisible value may overflow the table, but must never widen the page.
+      await escapedRow.locator('td').last().evaluate(cell => { cell.textContent = 'observation'.repeat(60); });
+      const scroll = await page.locator('#table .evidence-table').evaluate(container => {
+        container.scrollLeft = container.scrollWidth;
+        return { needed: container.scrollWidth > container.clientWidth, moved: container.scrollLeft > 0,
+          pageFits: document.documentElement.scrollWidth <= innerWidth };
+      });
+      assert.deepEqual(scroll, { needed: true, moved: true, pageFits: true });
       await context.close();
+    }
+  } finally { await browser?.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test('HTML-like table text is displayed at 60 words and refused at 61 by both renderer and build', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'focus-report-literal-'));
+  let browser;
+  try {
+    browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+    page.setDefaultTimeout(2000);
+    const renderer = readFileSync(new URL('../renderer.html', import.meta.url), 'utf8');
+    for (const words of [60, 61]) for (const cell of [
+      `<${Array(words).fill('stable.').join(' ')}>`,
+      `<span title=" ${Array(words - 3).fill('stable.').join(' ')} ">`,
+    ]) {
+      const doc = JSON.parse(readFileSync(new URL('../../../focus/tests/fixtures/benchmark-report.json', import.meta.url), 'utf8'));
+      doc.sections[1].markdown = `| ${cell} | Observation |\n| --- | --- |\n| ${cell} | Stable |`;
+      // Exercise browser-side validation independently of the build-time gate.
+      const payload = JSON.stringify({ document: doc, views: {}, build: {} }).replace(/</g, '\\u003c');
+      const output = join(root, 'literal.html');
+      writeFileSync(output, renderer.replace('<!--FOCUS_PAYLOAD-->', () => `<script type="application/json" data-focus-document>${payload}</script>`));
+      const refusal = words === 61 ? page.waitForEvent('pageerror') : null;
+      await page.goto(pathToFileURL(output).href);
+      if (refusal) {
+        assert.match((await refusal).message, /cell_max_60_words.*found 61 words/);
+        assert.equal(await page.locator('#table table').count(), 0);
+        assert.throws(() => buildFocusDossier(doc), /cell_max_60_words.*found 61 words/);
+        continue;
+      }
+      await page.getByRole('heading', { name: doc.title }).waitFor();
+      for (const selector of ['#table th:first-child', '#table td:first-child']) {
+        const rendered = await page.locator(selector).innerText();
+        assert.equal(rendered, cell);
+        assert.equal(rendered.trim().split(/\s+/).length, words);
+        assert.equal(await page.locator(`${selector} *`).count(), 0);
+      }
+      assert.doesNotThrow(() => buildFocusDossier(doc));
     }
   } finally { await browser?.close(); rmSync(root, { recursive: true, force: true }); }
 });
