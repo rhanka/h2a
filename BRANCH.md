@@ -3116,3 +3116,18 @@ scope stays pre-SG-R15.
   - [x] Exact-head isolated Node 22.23.4 reproduction: Focus packaging 10/10 passed; prepack case 970 ms. Evidence establishes a transient duration failure; fresh pull_request CI requested by this diagnostic commit, without changing test thresholds or assertions.
   - [ ] Muse independent code review dispatched; Argon unavailable (account disabled).
 - [ ] Lot 3: open PR and resolve CI to green on exact head.
+
+## PR #445 conductor fixes (round 2)
+
+- [x] BREMH-EX2: owner-authorized review fixes additionally allow
+  `packages/h2a/skills/h2a-run/SKILL.md`, `packages/h2a/src/runtime/agy-claude.ts`,
+  `packages/h2a-runtime/src/agy-claude.ts` and `packages/h2a-runtime/src/agy-launch.test.ts`.
+  Normalize Ember receipts like Fable, preserve Muse max and document direct-only availability.
+  Rollback restores the alias copies, receipt tests and skill together; no dependency change.
+- [x] Receipt RED: four native/tmux xhigh/max cases returned muse-ember; GREEN: canonical receipt and exact argv.
+- [x] Replace the Ember mesh parity exemption with typed catalog launch availability:
+  profile muse, gatewayRoute false until a published llm-mesh carries Ember (sentropic #1013).
+  This supersedes the earlier Ember pre-provisioning claim.
+- [x] Targeted Docker Vitest: 66/66 passed across catalog, receipt, launch argv and vendor-sync suites.
+- [x] Skill converts max to xhigh for Claude/Codex only; Muse keeps max unchanged.
+- [ ] Rebase onto current origin/main, build, push and follow exact-head CI; never merge.
