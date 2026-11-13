@@ -6,13 +6,30 @@
   import Canvas from './Canvas.svelte';
   import Evidence from './Evidence.svelte';
   import ReportProse from './ReportProse.svelte';
+  import Citation from './Citation.svelte';
+  import { decisionCodes, optionCode, responseLine } from '../../../focus-interactive/src/response-line.ts';
   import { preparePresentation } from '../../../focus/src/render/presentation.ts';
   let { document: dossier, views = {} } = $props();
   let dark = $state(matchMedia('(prefers-color-scheme: dark)').matches);
   const selections = new SvelteMap();
-  let evidencePanel = $state(null);
   let report = $derived(dossier.kind === 'report');
+  let response = $derived(responseLine(questions, optionSets, selections));
+  let responseText = $state(null), copyStatus = $state('');
+  async function copyResponse() {
+    try {
+      await navigator.clipboard.writeText(response);
+      copyStatus = 'Copié.';
+    } catch {
+      const range = document.createRange();
+      range.selectNodeContents(responseText);
+      const selection = window.getSelection();
+      selection.removeAllRanges(); selection.addRange(range);
+      responseText.focus();
+      copyStatus = 'Texte sélectionné. Appuyez sur Ctrl+C ou ⌘C pour copier.';
+    }
+  }
   let questions = $derived(dossier.sections.filter(s => s.kind === 'question'));
+  let codes = $derived(decisionCodes(questions));
   let sections = $derived(preparePresentation(dossier).sections);
   let optionSets = $derived(sections.filter(s => s.kind === 'optionSet'));
   const optionLabel = (questionId, optionId) => optionSets.filter(s => s.questionId === questionId)
@@ -56,7 +73,8 @@
             {#if section.kind === 'prose'}
               {#if report}<ReportProse markdown={section.markdown} />{:else}<p class="prose">{section.markdown}</p>{/if}
             {:else if section.kind === 'question'}
-              <h2>{section.question}</h2><p>{section.context}</p>
+              {@const code = codes[questions.findIndex(q => q.id === section.id)]}
+              <h2>{#if !section.question.startsWith(`${code} · `)}{code} · {/if}{section.question}</h2><p>{section.context}</p>
               <p class="recommendation"><Badge tone="success">Recommandation</Badge> {section.recommendedAnswer}</p>
               <p class="muted">{section.readingTimeMinutes} minute(s) · {section.state === 'open' ? 'Question ouverte' : section.state === 'answered' ? 'Réponse reçue' : 'Décision validée'}</p>
               {#if section.answer}<p>Réponse enregistrée : {section.answer}</p>{/if}
@@ -66,7 +84,7 @@
                 {#each section.options as option}
                   <button id={option.id} class="option-card" class:selected={selections.get(section.questionId) === option.id}
                     aria-pressed={selections.get(section.questionId) === option.id} onclick={() => selections.set(section.questionId, option.id)}>
-                    <Card><strong>{option.label}</strong>
+                    <Card><strong>{optionCode(optionSets.filter(s => s.questionId === section.questionId).flatMap(s => s.options).findIndex(o => o.id === option.id))} · {option.label}</strong>
                       {#if recommended(section, option)}<Badge tone="success">Recommandée</Badge>{/if}
                       <p>{option.consequence}</p>{#if option.body}<p>{option.body}</p>{/if}
                       {#if option.annotation !== 'none'}<p>Annotation source : {option.annotation}</p>{/if}
@@ -81,14 +99,23 @@
             {:else if section.kind === 'outcome'}
               <Card><h3>Conclusion proposée</h3><p>{section.statement}</p></Card>
             {/if}
-            {#each section.citationRefs ?? [] as id}<button class="citation-link" onclick={() => evidencePanel.openCitation(id)}>{dossier.citations.find(c => c.id === id).label}</button>{/each}
+            {#each section.citationRefs ?? [] as id}<Citation {dossier} {id} />{/each}
             {#if section.kind === 'optionSet'}{#each section.options as option}
-              {#each option.citationRefs ?? [] as id}<p>{option.label} : <button class="citation-link" onclick={() => evidencePanel.openCitation(id)}>{dossier.citations.find(c => c.id === id).label}</button></p>{/each}
+              {#each option.citationRefs ?? [] as id}<p>{option.label} : <Citation {dossier} {id} /></p>{/each}
             {/each}{/if}
           </section>
         {/each}
-        {#if dossier.schemaVersion === 2}<Evidence {dossier} bind:this={evidencePanel} />{/if}
+        {#if dossier.schemaVersion === 2}<Evidence {dossier} />{/if}
         {#if steps.length}<details><summary>Historique</summary><ul>{#each steps as step}<li>{step.at} · {step.author} : {step.summary}</li>{/each}</ul></details>{/if}
+        {#if questions.length}
+          <section class="response-summary" aria-label="Récapitulatif des décisions">
+            <h2>Votre réponse</h2>
+            <p>Les choix sans réponse sont indiqués par —.</p>
+            <p class="response-line" tabindex="-1" bind:this={responseText} aria-label="Ligne de réponse">{response}</p>
+            <Button variant="secondary" size="sm" onclick={copyResponse}>Copier</Button>
+            <p role="status">{copyStatus}</p>
+          </section>
+        {/if}
         <footer>{#if !report}<p>Vos sélections restent dans cette page jusqu’à sa fermeture. Elles ne valent pas décision enregistrée.</p>{/if}
           <details><summary>Source et version</summary><p>{dossier.provenance.source} · {dossier.provenance.readAt}</p><p>{dossier.ref} · {dossier.cursor} · {dossier.hash}</p></details>
         </footer>

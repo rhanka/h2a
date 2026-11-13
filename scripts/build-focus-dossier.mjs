@@ -15,6 +15,7 @@ const inputs = ['package.json', 'package-lock.json', 'dossier.template.json', 'e
   '../../focus/src/validation/index.ts', '../../focus/src/validation/readability.ts', '../../focus/src/model.ts',
   '../../focus/src/render/presentation.ts',
   '../../focus/src/render/markdown-table.ts',
+  '../../focus-interactive/src/response-line.ts',
   '../../focus/LICENSE',
   ...readdirSync(join(kit, 'src')).sort().map(n => `src/${n}`)];
 const sources = () => Object.fromEntries(inputs.map(n => [n, digest(readFileSync(join(kit, n)))]));
