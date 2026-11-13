@@ -140,6 +140,13 @@ test('shim should retain its live notification transport after a lease timeout d
   const observation = new Promise(resolve => { observed = resolve; });
   const timeout = AbortSignal.timeout;
   let armed = false, leases = 0, resumes = 0;
+  let streamOpened;
+  const streamReady = new Promise(resolve => { streamOpened = resolve; });
+  const interval = globalThis.setInterval;
+  // fixture starts supervision before initialization completes. Gate every
+  // tick until the live stream and its fault injection are both ready.
+  const timerMock = t.mock.method(globalThis, 'setInterval', (fn, ms, ...args) =>
+    ms === 1000 ? interval(() => { if (armed) fn(...args); }, ms) : interval(fn, ms, ...args));
   t.mock.method(AbortSignal, 'timeout', ms => {
     if (armed && ms === 2000) {
       leaseBudget = new AbortController();
@@ -160,16 +167,18 @@ test('shim should retain its live notification transport after a lease timeout d
       // The real central closes admissions at the transfer barrier.
       return new Response(JSON.stringify({ error: 'admission_closed' }), { status: 409 });
     }
-    if (request.method === 'GET') return new Response(new ReadableStream({ start(controller) { notifications = controller; } }),
+    if (request.method === 'GET') return new Response(new ReadableStream({ start(controller) { notifications = controller; streamOpened(); } }),
       { headers: { 'content-type': 'text/event-stream' } });
     const m = await request.json();
     if (m.method === 'initialize') return json({ jsonrpc: '2.0', id: m.id, result: { protocolVersion: '2025-06-18' } }, 'original-session');
     if (m.method === 'notifications/initialized') return new Response(null, { status: 202 });
     return json({ jsonrpc: '2.0', id: m.id, result: {} });
   });
+  timerMock.mock.restore();
   try {
     f.send({ id: 'init', method: 'initialize', params: { protocolVersion: '2025-06-18' } }); await f.wait(m => m.id === 'init');
     f.send({ id: 'ready', method: 'ping' }); await f.wait(m => m.id === 'ready');
+    await streamReady;
     armed = true;
     timer = setTimeout(() => observed('timeout'), 5000);
     assert.equal(await observation, 'lease', 'a failed control request must not resume a still-live frozen transport');
