@@ -178,7 +178,12 @@ test('shim should retain its live notification transport after a lease timeout d
   try {
     f.send({ id: 'init', method: 'initialize', params: { protocolVersion: '2025-06-18' } }); await f.wait(m => m.id === 'init');
     f.send({ id: 'ready', method: 'ping' }); await f.wait(m => m.id === 'ready');
-    await streamReady;
+    let streamGuard;
+    try {
+      await Promise.race([streamReady, new Promise((_, reject) => {
+        streamGuard = setTimeout(() => reject(new Error('fixture SSE stream never opened')), 5000);
+      })]);
+    } finally { clearTimeout(streamGuard); }
     armed = true;
     timer = setTimeout(() => observed('timeout'), 5000);
     assert.equal(await observation, 'lease', 'a failed control request must not resume a still-live frozen transport');
