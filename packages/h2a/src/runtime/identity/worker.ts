@@ -236,8 +236,9 @@ process.on("message", (raw: unknown) => {
     .catch((err) => {
       const { cause, message } = classify(err);
       const diagnostic=(err as {diagnostic?:unknown})?.diagnostic;
+      const retryable=typeof (err as {retryable?:unknown})?.retryable === "boolean" ? (err as {retryable:boolean}).retryable : undefined;
       const safeMessage=message.replaceAll(req.request.root,'<store-root>').replace(/\/(?:[^\s,;:]+\/)+[^\s,;:]+/g,'<path>');
-      send({ kind: "identity_error", v: 1, cause, message:safeMessage, ...(diagnostic ? {diagnostic} : {}) });
+      send({ kind: "identity_error", v: 1, cause, message:safeMessage, ...(diagnostic ? {diagnostic} : {}), ...(retryable !== undefined ? {retryable} : {}) });
     })
     .finally(() => {
       // The worker's whole job is one resolution; exit so no orphan lingers to
