@@ -73,6 +73,19 @@ for (const [name, mutate] of [
   assert.throws(() => observeNodeTrackEntry(mutant, repo))
 })
 
+test('A16: the node-suite liveness backstop keeps headroom over the evidenced duration', () => {
+  // Main now gives Node execution its own backstop, distinct from Vitest.
+  // Preserve the evidenced floor in both the local and sharded entrypoints.
+  const shard = fs.readFileSync(join(repo, 'scripts/run-node-shard.mjs'), 'utf8')
+  for (const [entry, source] of [['local', nodeTrack], ['shard', shard]]) {
+    const match = source.match(/const NODE_TIMEOUT_MS = Number\(process\.env\.H2A_TEST_TIMEOUT_MS\) \|\| (\d+);/)
+    assert.ok(match, `${entry}: node-suite backstop must stay an overridable numeric default`)
+    assert.ok(Number(match[1]) >= 900000, `${entry}: backstop ${match[1]}ms is below the evidenced 900s floor`)
+  }
+  assert.match(nodeTrack, /trackFixtureEnv, NODE_TIMEOUT_MS\)/)
+  assert.match(shard, /timeout: NODE_TIMEOUT_MS/)
+})
+
 const verifyStep = (w, run) => w.jobs.verify.steps.find((step) => step.run === run)
 const workflowMutants = {
   A05: [

@@ -17,6 +17,43 @@ import { fixture, eventually, usable } from './helpers/restart-lab.js';
 const repo = resolve(import.meta.dirname, '../../..');
 const hostEntry = join(repo, 'packages/h2a-runtime/dist/native-terminal/process.js');
 
+for (const code of ['ESRCH', 'EPERM']) {
+  test(`cleanup: recorded-process signal ${code} ${code === 'ESRCH' ? 'allows' : 'refuses'} fixture removal`, async t => {
+    const f = fixture(t);
+    const run = f.start([], join(f.root, 'agent.mjs'));
+    const row = await eventually(() => f.recorded().find(entry => entry.pid === run.child.pid), Boolean);
+    const kill = process.kill.bind(process);
+    let injected = false;
+    const mock = t.mock.method(process, 'kill', (pid, signal) => {
+      if (pid === row.pid && signal === 'SIGKILL') {
+        injected = true;
+        // Model exit after the generation check but before signal delivery.
+        if (code === 'ESRCH') kill(pid, signal);
+        throw Object.assign(new Error(`kill ${code}`), { code });
+      }
+      return kill(pid, signal);
+    });
+    try {
+      if (code === 'ESRCH') {
+        await f.dispose();
+        assert.equal(existsSync(f.root), false);
+        assert.equal(existsSync(f.env.LAB_PIDS), false);
+      } else {
+        await assert.rejects(f.dispose(), { code });
+        assert.equal(existsSync(f.root), true, 'other signal errors must remain visible');
+      }
+      assert.equal(injected, true, 'the signal must race a recorded live process');
+    } finally {
+      mock.mock.restore();
+      run.child.kill('SIGKILL');
+      await run.done;
+      rmSync(f.root, { recursive: true, force: true });
+      rmSync(f.env.LAB_PIDS, { force: true });
+      rmSync(f.root + '.track.mjs', { force: true });
+    }
+  });
+}
+
 test('incident lab waits for its recorded descendants to exit before deleting their HOME', async t => {
   const f = fixture(t);
   const descendant = join(f.root, 'descendant.mjs'), launcher = join(f.root, 'launcher.mjs');

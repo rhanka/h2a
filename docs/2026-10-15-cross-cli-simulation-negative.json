@@ -1,0 +1,1058 @@
+{
+  "version": 1,
+  "mode": "simulated-model",
+  "sha": "575dd129deb50f6c668ea8b0242ca11aa564eb6a",
+  "node": "v22.22.1",
+  "command": "node scripts/qualify-cross-cli.mjs --simulated --pair codex:codex --drop-simulated-wake --timeout-ms 10000 --output docs/2026-10-15-cross-cli-simulation-negative.json",
+  "root": "/tmp/h2a-qual-apOUzJ",
+  "build": {
+    "path": "/tmp/h2a-qual-apOUzJ/build",
+    "nativeBuild": {
+      "command": [
+        "/usr/bin/g++",
+        "-std=c++17",
+        "-shared",
+        "-fPIC",
+        "-O2",
+        "-pthread",
+        "-DNAPI_CPP_EXCEPTIONS",
+        "-I/usr/include/node",
+        "-I/home/antoinefa/src/h2a/tmp/worktrees/xcli/node_modules/node-addon-api",
+        "/tmp/h2a-qual-apOUzJ/build/node_modules/node-pty/src/unix/pty.cc",
+        "-o",
+        "/tmp/h2a-qual-apOUzJ/build/node_modules/node-pty/build/Release/pty.node",
+        "-lutil"
+      ],
+      "exitCode": 0
+    }
+  },
+  "cells": [
+    {
+      "sender": "codex",
+      "receiver": "codex",
+      "status": "simulated-KO",
+      "senderMcp": true,
+      "receiverMcp": true,
+      "sent": true,
+      "delivered": true,
+      "received": false,
+      "woke": false,
+      "replied": false,
+      "replyDelivered": false,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 2
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 8247,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "receiver-idle-barrier",
+          "at": 1792121886331,
+          "instance": "codex:workspace:28a4378faee4"
+        },
+        {
+          "event": "host-setup",
+          "role": "sender",
+          "exitCode": 2
+        },
+        {
+          "event": "session-created",
+          "role": "sender",
+          "pid": 8295,
+          "id": "h2a-sender"
+        },
+        {
+          "role": "receiver",
+          "at": 1792121880519,
+          "event": "proxy-start",
+          "pid": 8256,
+          "childPid": 8263
+        },
+        {
+          "role": "receiver",
+          "at": 1792121880791,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792121880997,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792121880999,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "receiver",
+          "at": 1792121881051,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "receiver",
+          "at": 1792121881107,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "receiver",
+          "at": 1792121881159,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "receiver",
+          "at": 1792121881311,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "receiver",
+          "at": 1792121881378,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "receiver",
+          "at": 1792121881430,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "receiver",
+          "at": 1792121881481,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "receiver",
+          "at": 1792121881533,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "receiver",
+          "at": 1792121881584,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "receiver",
+          "at": 1792121881637,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "receiver",
+          "at": 1792121881688,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "receiver",
+          "at": 1792121881891,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "receiver",
+          "at": 1792121881968,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "receiver",
+          "at": 1792121882019,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "receiver",
+          "at": 1792121882070,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "receiver",
+          "at": 1792121882101,
+          "event": "wake-armed"
+        },
+        {
+          "role": "receiver",
+          "at": 1792121882121,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "codex:workspace:28a4378faee4"
+        },
+        {
+          "role": "sender",
+          "at": 1792121886982,
+          "event": "proxy-start",
+          "pid": 8304,
+          "childPid": 8314
+        },
+        {
+          "role": "sender",
+          "at": 1792121888637,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "sender",
+          "at": 1792121888639,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "sender",
+          "at": 1792121888640,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121888692,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121888744,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121888796,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121888848,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121888901,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121888953,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121889004,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121889056,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121889108,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121889159,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121889210,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121889261,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121889312,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121889364,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121889415,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121889466,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121889518,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121889569,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121889620,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121889671,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121889723,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121889774,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121889825,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121889876,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121889927,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121889979,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121890030,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121890081,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121890132,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121890184,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121890235,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121890286,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121890337,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121890389,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121890440,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121890491,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121890543,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121890594,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121890645,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121890696,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121890748,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121890799,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121890850,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121890901,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121890952,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121891003,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121891055,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121891107,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121891158,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121891209,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121891261,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121891312,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121891363,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121891414,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121891465,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121891517,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121891569,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121891620,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121891672,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121891723,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121891774,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121891825,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121891876,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121891927,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121891978,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121892029,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121892080,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121892131,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121892183,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121892234,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121892287,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121893427,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121893478,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121893530,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121893582,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121893633,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121893685,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121893737,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121893788,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121893840,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121893892,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121893944,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121893996,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121894047,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121894098,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121894309,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121894361,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121894413,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121894465,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121894516,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121894567,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121894618,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121894670,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121895137,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121895326,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121895377,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121895430,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121895481,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121895533,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121895584,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121895658,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121895709,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121895822,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121895874,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121895925,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121896031,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121896082,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121896134,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121896185,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121896237,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121896288,
+          "event": "identity",
+          "ok": true,
+          "ready": false
+        },
+        {
+          "role": "sender",
+          "at": 1792121896300,
+          "event": "wake-armed"
+        },
+        {
+          "role": "sender",
+          "at": 1792121896339,
+          "event": "identity",
+          "ok": true,
+          "ready": true,
+          "instance": "codex:workspace:f972ba94f315"
+        },
+        {
+          "role": "sender",
+          "at": 1792121896353,
+          "event": "send",
+          "ok": true,
+          "kind": "probe",
+          "envelopeId": "env:send:efa86038-cb4d-461b-a50d-bd06d8001f11",
+          "from": "codex:workspace:f972ba94f315",
+          "to": "codex:workspace:28a4378faee4"
+        }
+      ],
+      "startedAt": "2026-10-16T03:37:54.247Z",
+      "credentialsCopied": {
+        "receiver": [],
+        "sender": []
+      },
+      "noPostSendHarnessInput": true,
+      "failure": "live-receive-not-observed",
+      "elapsedMs": 25796
+    }
+  ],
+  "counts": {
+    "simulated-OK": 0,
+    "simulated-KO": 1,
+    "blocked": 0
+  }
+}

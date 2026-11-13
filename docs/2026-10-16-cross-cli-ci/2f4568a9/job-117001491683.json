@@ -1,0 +1,104 @@
+{
+  "run": 38909510272,
+  "sha": "2f4568a93922942c24dfc59d8b62de6725f0147c",
+  "job": 117001491683,
+  "name": "native-configuration-oracles (22)",
+  "conclusion": "success",
+  "url": "https://github.com/rhanka/h2a/actions/runs/38909510272/job/117001491683",
+  "commands": [
+    {
+      "command": "node scripts/xcli-node-headers.mjs",
+      "outputCounts": {},
+      "outcomes": []
+    },
+    {
+      "command": "node scripts/xcli-install-oracles.mjs",
+      "outputCounts": {},
+      "outcomes": []
+    },
+    {
+      "command": "node --test scripts/xcli-native-config.test.mjs",
+      "outputCounts": {
+        "tests": 2,
+        "pass": 2,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0,
+        "todo": 0
+      },
+      "outcomes": []
+    },
+    {
+      "command": "node scripts/xcli-in-pid-namespace.mjs scripts/xcli-runtime-tests.mjs",
+      "outputCounts": {},
+      "outcomes": [
+        {
+          "files": [
+            "packages/h2a-runtime/src/agents-projection.test.ts",
+            "packages/h2a-runtime/src/claude-bare.test.ts",
+            "packages/h2a-runtime/src/conv-guard-wiring.test.ts",
+            "packages/h2a-runtime/src/conv-guard.test.ts",
+            "packages/h2a-runtime/src/delegate.test.ts",
+            "packages/h2a-runtime/src/destructive-act-unknown-failclosed.test.ts",
+            "packages/h2a-runtime/src/enroll.test.ts",
+            "packages/h2a-runtime/src/h2a-jobs.test.ts",
+            "packages/h2a-runtime/src/host-decision-symmetry.test.ts",
+            "packages/h2a-runtime/src/host-selection-invariants.test.ts",
+            "packages/h2a-runtime/src/index.test.ts",
+            "packages/h2a-runtime/src/native-host-reuse.test.ts",
+            "packages/h2a-runtime/src/native-host.test.ts",
+            "packages/h2a-runtime/src/native-terminal/crash-safety.functional.test.ts",
+            "packages/h2a-runtime/src/native-terminal/drive.functional.test.ts",
+            "packages/h2a-runtime/src/native-terminal/host.test.ts",
+            "packages/h2a-runtime/src/native-terminal/op.test.ts",
+            "packages/h2a-runtime/src/native-terminal/process.functional.test.ts",
+            "packages/h2a-runtime/src/native-terminal/publication-proof.test.ts",
+            "packages/h2a-runtime/src/native-terminal/server.test.ts",
+            "packages/h2a-runtime/src/native-terminal/supervisor.test.ts",
+            "packages/h2a-runtime/src/native-terminal/terminal-modes.functional.test.ts",
+            "packages/h2a-runtime/src/native-terminal/upgrade.functional.test.ts",
+            "packages/h2a-runtime/src/proc-identity.test.ts",
+            "packages/h2a-runtime/src/registry.test.ts",
+            "packages/h2a-runtime/src/restore-convid-reconcile.test.ts",
+            "packages/h2a-runtime/src/restore-human-sessions.test.ts",
+            "packages/h2a-runtime/src/restore-launch.test.ts",
+            "packages/h2a-runtime/src/restore-live-recovery.test.ts",
+            "packages/h2a-runtime/src/restore-wiring.test.ts",
+            "packages/h2a-runtime/src/restore.test.ts",
+            "packages/h2a-runtime/src/session-lease-launch.test.ts",
+            "packages/h2a-runtime/src/session-lease-wiring.test.ts",
+            "packages/h2a-runtime/src/stop-reread-toctou.test.ts",
+            "packages/h2a-runtime/src/structured-gateway.test.ts",
+            "packages/h2a-runtime/src/wake-request.test.ts"
+          ],
+          "tests": 706,
+          "passed": 702,
+          "failed": 0,
+          "pending": 2,
+          "evidence": "/tmp/h2a-qual-zbhhkr",
+          "exitCode": 0
+        },
+        {
+          "suite": "/tmp/h2a-qual-zbhhkr/build/packages/h2a-runtime/src/delegate.test.ts",
+          "name": "delegate on a tmux-less machine — NAMED DEBT, not covered DELEGATE_REGISTERS_LOCAL_NATIVE_WHILE_REQUIRING_TMUX — tracked debt: #199 creates the POPULATION that can hit this (a tmux-less machine becomes a legitimate config when pty is the default), not the defect; pending delegate native-without-tmux",
+          "status": "skipped"
+        },
+        {
+          "suite": "/tmp/h2a-qual-zbhhkr/build/packages/h2a-runtime/src/destructive-act-unknown-failclosed.test.ts",
+          "name": "attach missing->remote fallthrough — NAMED DEBT, not covered ATTACH_MISSING_IDENTITY_MUST_NOT_FALL_THROUGH_TO_REMOTE_HOMONYM — pending attach fail-closed symmetry (tracked debt 2026-08-08)",
+          "status": "todo"
+        },
+        {
+          "suite": "/tmp/h2a-qual-zbhhkr/build/packages/h2a-runtime/src/host-selection-invariants.test.ts",
+          "name": "dead legacy tmux row relaunch policy — NAMED DEBT, not covered DEAD_LEGACY_TMUX_ROW_RELAUNCHES_NATIVE_NOT_TMUX — pending dead-tmux-relaunch host policy decision (reopened by owner tmux-permanent ratification 2026-08-08)",
+          "status": "todo"
+        },
+        {
+          "suite": "/tmp/h2a-qual-zbhhkr/build/packages/h2a-runtime/src/native-terminal/supervisor.test.ts",
+          "name": "NativeTerminalHostSupervisor takeover reconcile reap treats unknown per identity, never as a global state",
+          "status": "skipped"
+        }
+      ]
+    }
+  ]
+}

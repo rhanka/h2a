@@ -2010,9 +2010,16 @@ export async function runNativeTerminalOp(
           return 0;
         }
         try {
-          // One validated text line plus one submit CR: no bracketed-paste or
-          // embedded controls can turn this into multiple terminal actions.
-          await client.write(lease, `${text}\r`);
+          // Keep the submit out of the bulk-input burst: real TUIs treat
+          // text + CR in one read as pasted content and leave it unsent.
+          // Retain this fenced lease and the one-line/control-byte validator.
+          // Muse's bulk-input heuristic consumes the first Enter as paste
+          // confirmation. Explicit paste framing finishes that input state
+          // before the single submit; the validated signed text is unchanged.
+          await client.write(lease, parsed.flags.get("host") === "muse"
+            ? `\x1b[200~${text}\x1b[201~` : text);
+          await delay(100);
+          await client.write(lease, "\r");
         } finally {
           await client.releaseController(lease).catch(() => {});
         }

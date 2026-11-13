@@ -1,0 +1,11 @@
+{
+  "files": [
+    "packages/h2a-runtime/src/native-terminal/op.test.ts"
+  ],
+  "tests": 4,
+  "passed": 4,
+  "failed": 0,
+  "pending": 0,
+  "evidence": "/tmp/h2a-qual-fSKdYS",
+  "exitCode": 0
+}

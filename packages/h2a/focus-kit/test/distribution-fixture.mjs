@@ -51,6 +51,18 @@ export function installedEvidence(root) {
     delete entry.devDependencies;
     lock.packages[`node_modules/${p.name}`] = { ...entry, resolved: `file:${archives[i]}`, integrity: p.integrity };
   });
+  // The bench-only root mesh copy (0.32.4, consumed by scripts/ outside any
+  // workspace) has no consumer in the installed closure: the dossier build
+  // never touches bench scripts. Collapse the consumer closure to the
+  // gateway-serving line so every edge resolves to the visible root node
+  // with zero metadata (a nested-only satisfying node forces a registry
+  // manifest fetch even when its tarball is cached).
+  const gatewayMeshPath = 'node_modules/@sentropic/h2a-runtime/node_modules/@sentropic/llm-mesh';
+  const gatewayMesh = lock.packages[gatewayMeshPath];
+  if (gatewayMesh?.resolved?.startsWith('https:')) {
+    lock.packages['node_modules/@sentropic/llm-mesh'] = { ...gatewayMesh };
+    delete lock.packages[gatewayMeshPath];
+  }
   writeFileSync(join(install,'package.json'), JSON.stringify(metadata));
   writeFileSync(join(install,'package-lock.json'), JSON.stringify(lock));
   // Deliberately omit every registry metadata/index entry: a warm developer

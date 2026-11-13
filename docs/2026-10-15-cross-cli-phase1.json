@@ -1,0 +1,1335 @@
+{
+  "version": 1,
+  "mode": "real-cli",
+  "sha": "54e7ffd7859f84fdaa04db94975e292e1af63330",
+  "node": "v22.22.1",
+  "command": "node scripts/qualify-cross-cli.mjs --timeout-ms 30000 --auth-home /home/antoinefa --output docs/2026-10-15-cross-cli-phase1.json --markdown docs/2026-10-15-cross-cli-phase1.md",
+  "root": "/tmp/h2a-qual-BDf1Ke",
+  "build": {
+    "path": "/tmp/h2a-qual-BDf1Ke/build",
+    "nativeBuild": {
+      "command": [
+        "/usr/bin/g++",
+        "-std=c++17",
+        "-shared",
+        "-fPIC",
+        "-O2",
+        "-pthread",
+        "-DNAPI_CPP_EXCEPTIONS",
+        "-I/usr/include/node",
+        "-I/home/antoinefa/src/h2a/tmp/worktrees/xcli/node_modules/node-addon-api",
+        "/tmp/h2a-qual-BDf1Ke/build/node_modules/node-pty/src/unix/pty.cc",
+        "-o",
+        "/tmp/h2a-qual-BDf1Ke/build/node_modules/node-pty/build/Release/pty.node",
+        "-lutil"
+      ],
+      "exitCode": 0
+    }
+  },
+  "cells": [
+    {
+      "sender": "claude",
+      "receiver": "claude",
+      "status": "blocked",
+      "senderMcp": null,
+      "receiverMcp": false,
+      "sent": null,
+      "delivered": null,
+      "received": null,
+      "woke": null,
+      "replied": null,
+      "replyDelivered": null,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 2
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 2099,
+          "id": "h2a-receiver"
+        }
+      ],
+      "startedAt": "2026-10-16T03:19:46.928Z",
+      "credentialsCopied": {
+        "receiver": [
+          ".claude/.credentials.json"
+        ]
+      },
+      "noPostSendHarnessInput": true,
+      "blocker": "onboarding-or-trust",
+      "elapsedMs": 4641
+    },
+    {
+      "sender": "claude",
+      "receiver": "codex",
+      "status": "measured-KO",
+      "senderMcp": null,
+      "receiverMcp": false,
+      "sent": null,
+      "delivered": null,
+      "received": null,
+      "woke": null,
+      "replied": null,
+      "replyDelivered": null,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 2
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 2155,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "readiness-deadline",
+          "role": "receiver",
+          "modelToolCallObserved": false,
+          "composerReady": true,
+          "mcpLoaded": false,
+          "wakeArmed": false
+        }
+      ],
+      "startedAt": "2026-10-16T03:19:54.837Z",
+      "credentialsCopied": {
+        "receiver": [
+          ".codex/auth.json"
+        ]
+      },
+      "noPostSendHarnessInput": true,
+      "failure": "mcp-not-loaded-before-deadline",
+      "elapsedMs": 31513
+    },
+    {
+      "sender": "claude",
+      "receiver": "agy",
+      "status": "blocked",
+      "senderMcp": null,
+      "receiverMcp": true,
+      "sent": null,
+      "delivered": null,
+      "received": null,
+      "woke": null,
+      "replied": null,
+      "replyDelivered": null,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 2474,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "readiness-deadline",
+          "role": "receiver",
+          "modelToolCallObserved": false,
+          "composerReady": true,
+          "mcpLoaded": true,
+          "wakeArmed": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792120831479,
+          "event": "proxy-start",
+          "pid": 2502,
+          "childPid": 2540
+        },
+        {
+          "role": "receiver",
+          "at": 1792120831735,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792120831736,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792120832094,
+          "event": "wake-armed"
+        }
+      ],
+      "startedAt": "2026-10-16T03:20:29.562Z",
+      "credentialsCopied": {
+        "receiver": [
+          ".gemini/oauth_creds.json",
+          ".gemini/google_accounts.json"
+        ]
+      },
+      "noPostSendHarnessInput": true,
+      "blocker": "initial-model-tool-turn-not-observed",
+      "elapsedMs": 31530
+    },
+    {
+      "sender": "claude",
+      "receiver": "gemini",
+      "status": "blocked",
+      "senderMcp": null,
+      "receiverMcp": false,
+      "sent": null,
+      "delivered": null,
+      "received": null,
+      "woke": null,
+      "replied": null,
+      "replyDelivered": null,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 2630,
+          "id": "h2a-receiver"
+        }
+      ],
+      "startedAt": "2026-10-16T03:21:04.398Z",
+      "credentialsCopied": {
+        "receiver": [
+          ".gemini/oauth_creds.json",
+          ".gemini/google_accounts.json"
+        ]
+      },
+      "noPostSendHarnessInput": true,
+      "blocker": "authentication-required",
+      "elapsedMs": 6418
+    },
+    {
+      "sender": "claude",
+      "receiver": "muse",
+      "status": "blocked",
+      "senderMcp": null,
+      "receiverMcp": false,
+      "sent": null,
+      "delivered": null,
+      "received": null,
+      "woke": null,
+      "replied": null,
+      "replyDelivered": null,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 2716,
+          "id": "h2a-receiver"
+        }
+      ],
+      "startedAt": "2026-10-16T03:21:14.231Z",
+      "credentialsCopied": {
+        "receiver": [
+          ".config/muse/auth.json"
+        ]
+      },
+      "noPostSendHarnessInput": true,
+      "blocker": "onboarding-or-trust",
+      "elapsedMs": 1906
+    },
+    {
+      "sender": "claude",
+      "receiver": "vibe",
+      "status": "blocked",
+      "senderMcp": null,
+      "receiverMcp": null,
+      "sent": null,
+      "delivered": null,
+      "received": null,
+      "woke": null,
+      "replied": null,
+      "replyDelivered": null,
+      "evidence": [],
+      "startedAt": "2026-10-16T03:21:19.381Z",
+      "credentialsCopied": {},
+      "noPostSendHarnessInput": true,
+      "blocker": "python-entrypoint-forbidden:vibe",
+      "elapsedMs": 1
+    },
+    {
+      "sender": "codex",
+      "receiver": "claude",
+      "status": "blocked",
+      "senderMcp": null,
+      "receiverMcp": false,
+      "sent": null,
+      "delivered": null,
+      "received": null,
+      "woke": null,
+      "replied": null,
+      "replyDelivered": null,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 2
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 2780,
+          "id": "h2a-receiver"
+        }
+      ],
+      "startedAt": "2026-10-16T03:21:19.775Z",
+      "credentialsCopied": {
+        "receiver": [
+          ".claude/.credentials.json"
+        ]
+      },
+      "noPostSendHarnessInput": true,
+      "blocker": "onboarding-or-trust",
+      "elapsedMs": 5460
+    },
+    {
+      "sender": "codex",
+      "receiver": "codex",
+      "status": "measured-KO",
+      "senderMcp": null,
+      "receiverMcp": false,
+      "sent": null,
+      "delivered": null,
+      "received": null,
+      "woke": null,
+      "replied": null,
+      "replyDelivered": null,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 2
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 2836,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "readiness-deadline",
+          "role": "receiver",
+          "modelToolCallObserved": false,
+          "composerReady": true,
+          "mcpLoaded": false,
+          "wakeArmed": false
+        }
+      ],
+      "startedAt": "2026-10-16T03:21:28.331Z",
+      "credentialsCopied": {
+        "receiver": [
+          ".codex/auth.json"
+        ]
+      },
+      "noPostSendHarnessInput": true,
+      "failure": "mcp-not-loaded-before-deadline",
+      "elapsedMs": 33441
+    },
+    {
+      "sender": "codex",
+      "receiver": "agy",
+      "status": "blocked",
+      "senderMcp": null,
+      "receiverMcp": true,
+      "sent": null,
+      "delivered": null,
+      "received": null,
+      "woke": null,
+      "replied": null,
+      "replyDelivered": null,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 3141,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "readiness-deadline",
+          "role": "receiver",
+          "modelToolCallObserved": false,
+          "composerReady": true,
+          "mcpLoaded": true,
+          "wakeArmed": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792120930397,
+          "event": "proxy-start",
+          "pid": 3171,
+          "childPid": 3209
+        },
+        {
+          "role": "receiver",
+          "at": 1792120930663,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792120930900,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792120932088,
+          "event": "wake-armed"
+        }
+      ],
+      "startedAt": "2026-10-16T03:22:04.839Z",
+      "credentialsCopied": {
+        "receiver": [
+          ".gemini/oauth_creds.json",
+          ".gemini/google_accounts.json"
+        ]
+      },
+      "noPostSendHarnessInput": true,
+      "blocker": "initial-model-tool-turn-not-observed",
+      "elapsedMs": 31781
+    },
+    {
+      "sender": "codex",
+      "receiver": "gemini",
+      "status": "blocked",
+      "senderMcp": null,
+      "receiverMcp": false,
+      "sent": null,
+      "delivered": null,
+      "received": null,
+      "woke": null,
+      "replied": null,
+      "replyDelivered": null,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 3340,
+          "id": "h2a-receiver"
+        }
+      ],
+      "startedAt": "2026-10-16T03:22:39.967Z",
+      "credentialsCopied": {
+        "receiver": [
+          ".gemini/oauth_creds.json",
+          ".gemini/google_accounts.json"
+        ]
+      },
+      "noPostSendHarnessInput": true,
+      "blocker": "authentication-required",
+      "elapsedMs": 5425
+    },
+    {
+      "sender": "codex",
+      "receiver": "muse",
+      "status": "blocked",
+      "senderMcp": null,
+      "receiverMcp": false,
+      "sent": null,
+      "delivered": null,
+      "received": null,
+      "woke": null,
+      "replied": null,
+      "replyDelivered": null,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 3434,
+          "id": "h2a-receiver"
+        }
+      ],
+      "startedAt": "2026-10-16T03:22:48.648Z",
+      "credentialsCopied": {
+        "receiver": [
+          ".config/muse/auth.json"
+        ]
+      },
+      "noPostSendHarnessInput": true,
+      "blocker": "onboarding-or-trust",
+      "elapsedMs": 1913
+    },
+    {
+      "sender": "codex",
+      "receiver": "vibe",
+      "status": "blocked",
+      "senderMcp": null,
+      "receiverMcp": null,
+      "sent": null,
+      "delivered": null,
+      "received": null,
+      "woke": null,
+      "replied": null,
+      "replyDelivered": null,
+      "evidence": [],
+      "startedAt": "2026-10-16T03:22:53.870Z",
+      "credentialsCopied": {},
+      "noPostSendHarnessInput": true,
+      "blocker": "python-entrypoint-forbidden:vibe",
+      "elapsedMs": 1
+    },
+    {
+      "sender": "agy",
+      "receiver": "claude",
+      "status": "blocked",
+      "senderMcp": null,
+      "receiverMcp": false,
+      "sent": null,
+      "delivered": null,
+      "received": null,
+      "woke": null,
+      "replied": null,
+      "replyDelivered": null,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 2
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 3498,
+          "id": "h2a-receiver"
+        }
+      ],
+      "startedAt": "2026-10-16T03:22:54.250Z",
+      "credentialsCopied": {
+        "receiver": [
+          ".claude/.credentials.json"
+        ]
+      },
+      "noPostSendHarnessInput": true,
+      "blocker": "onboarding-or-trust",
+      "elapsedMs": 2092
+    },
+    {
+      "sender": "agy",
+      "receiver": "codex",
+      "status": "measured-KO",
+      "senderMcp": null,
+      "receiverMcp": false,
+      "sent": null,
+      "delivered": null,
+      "received": null,
+      "woke": null,
+      "replied": null,
+      "replyDelivered": null,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 2
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 3548,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "readiness-deadline",
+          "role": "receiver",
+          "modelToolCallObserved": false,
+          "composerReady": true,
+          "mcpLoaded": false,
+          "wakeArmed": false
+        }
+      ],
+      "startedAt": "2026-10-16T03:22:59.797Z",
+      "credentialsCopied": {
+        "receiver": [
+          ".codex/auth.json"
+        ]
+      },
+      "noPostSendHarnessInput": true,
+      "failure": "mcp-not-loaded-before-deadline",
+      "elapsedMs": 31764
+    },
+    {
+      "sender": "agy",
+      "receiver": "agy",
+      "status": "blocked",
+      "senderMcp": null,
+      "receiverMcp": true,
+      "sent": null,
+      "delivered": null,
+      "received": null,
+      "woke": null,
+      "replied": null,
+      "replyDelivered": null,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 3868,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "readiness-deadline",
+          "role": "receiver",
+          "modelToolCallObserved": false,
+          "composerReady": true,
+          "mcpLoaded": true,
+          "wakeArmed": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792121016670,
+          "event": "proxy-start",
+          "pid": 3895,
+          "childPid": 3934
+        },
+        {
+          "role": "receiver",
+          "at": 1792121016958,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792121016960,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792121017187,
+          "event": "wake-armed"
+        }
+      ],
+      "startedAt": "2026-10-16T03:23:34.808Z",
+      "credentialsCopied": {
+        "receiver": [
+          ".gemini/oauth_creds.json",
+          ".gemini/google_accounts.json"
+        ]
+      },
+      "noPostSendHarnessInput": true,
+      "blocker": "initial-model-tool-turn-not-observed",
+      "elapsedMs": 31610
+    },
+    {
+      "sender": "agy",
+      "receiver": "gemini",
+      "status": "blocked",
+      "senderMcp": null,
+      "receiverMcp": false,
+      "sent": null,
+      "delivered": null,
+      "received": null,
+      "woke": null,
+      "replied": null,
+      "replyDelivered": null,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 4048,
+          "id": "h2a-receiver"
+        }
+      ],
+      "startedAt": "2026-10-16T03:24:09.690Z",
+      "credentialsCopied": {
+        "receiver": [
+          ".gemini/oauth_creds.json",
+          ".gemini/google_accounts.json"
+        ]
+      },
+      "noPostSendHarnessInput": true,
+      "blocker": "authentication-required",
+      "elapsedMs": 7609
+    },
+    {
+      "sender": "agy",
+      "receiver": "muse",
+      "status": "blocked",
+      "senderMcp": null,
+      "receiverMcp": false,
+      "sent": null,
+      "delivered": null,
+      "received": null,
+      "woke": null,
+      "replied": null,
+      "replyDelivered": null,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 4142,
+          "id": "h2a-receiver"
+        }
+      ],
+      "startedAt": "2026-10-16T03:24:21.142Z",
+      "credentialsCopied": {
+        "receiver": [
+          ".config/muse/auth.json"
+        ]
+      },
+      "noPostSendHarnessInput": true,
+      "blocker": "onboarding-or-trust",
+      "elapsedMs": 2512
+    },
+    {
+      "sender": "agy",
+      "receiver": "vibe",
+      "status": "blocked",
+      "senderMcp": null,
+      "receiverMcp": null,
+      "sent": null,
+      "delivered": null,
+      "received": null,
+      "woke": null,
+      "replied": null,
+      "replyDelivered": null,
+      "evidence": [],
+      "startedAt": "2026-10-16T03:24:26.929Z",
+      "credentialsCopied": {},
+      "noPostSendHarnessInput": true,
+      "blocker": "python-entrypoint-forbidden:vibe",
+      "elapsedMs": 1
+    },
+    {
+      "sender": "gemini",
+      "receiver": "claude",
+      "status": "blocked",
+      "senderMcp": null,
+      "receiverMcp": false,
+      "sent": null,
+      "delivered": null,
+      "received": null,
+      "woke": null,
+      "replied": null,
+      "replyDelivered": null,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 2
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 4206,
+          "id": "h2a-receiver"
+        }
+      ],
+      "startedAt": "2026-10-16T03:24:27.260Z",
+      "credentialsCopied": {
+        "receiver": [
+          ".claude/.credentials.json"
+        ]
+      },
+      "noPostSendHarnessInput": true,
+      "blocker": "onboarding-or-trust",
+      "elapsedMs": 2110
+    },
+    {
+      "sender": "gemini",
+      "receiver": "codex",
+      "status": "measured-KO",
+      "senderMcp": null,
+      "receiverMcp": false,
+      "sent": null,
+      "delivered": null,
+      "received": null,
+      "woke": null,
+      "replied": null,
+      "replyDelivered": null,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 2
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 4264,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "readiness-deadline",
+          "role": "receiver",
+          "modelToolCallObserved": false,
+          "composerReady": true,
+          "mcpLoaded": false,
+          "wakeArmed": false
+        }
+      ],
+      "startedAt": "2026-10-16T03:24:32.657Z",
+      "credentialsCopied": {
+        "receiver": [
+          ".codex/auth.json"
+        ]
+      },
+      "noPostSendHarnessInput": true,
+      "failure": "mcp-not-loaded-before-deadline",
+      "elapsedMs": 31578
+    },
+    {
+      "sender": "gemini",
+      "receiver": "agy",
+      "status": "blocked",
+      "senderMcp": null,
+      "receiverMcp": true,
+      "sent": null,
+      "delivered": null,
+      "received": null,
+      "woke": null,
+      "replied": null,
+      "replyDelivered": null,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 4544,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "readiness-deadline",
+          "role": "receiver",
+          "modelToolCallObserved": false,
+          "composerReady": true,
+          "mcpLoaded": true,
+          "wakeArmed": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792121109234,
+          "event": "proxy-start",
+          "pid": 4570,
+          "childPid": 4616
+        },
+        {
+          "role": "receiver",
+          "at": 1792121109491,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792121109492,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792121109676,
+          "event": "wake-armed"
+        }
+      ],
+      "startedAt": "2026-10-16T03:25:07.485Z",
+      "credentialsCopied": {
+        "receiver": [
+          ".gemini/oauth_creds.json",
+          ".gemini/google_accounts.json"
+        ]
+      },
+      "noPostSendHarnessInput": true,
+      "blocker": "initial-model-tool-turn-not-observed",
+      "elapsedMs": 31505
+    },
+    {
+      "sender": "gemini",
+      "receiver": "gemini",
+      "status": "blocked",
+      "senderMcp": null,
+      "receiverMcp": false,
+      "sent": null,
+      "delivered": null,
+      "received": null,
+      "woke": null,
+      "replied": null,
+      "replyDelivered": null,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 4827,
+          "id": "h2a-receiver"
+        }
+      ],
+      "startedAt": "2026-10-16T03:25:42.337Z",
+      "credentialsCopied": {
+        "receiver": [
+          ".gemini/oauth_creds.json",
+          ".gemini/google_accounts.json"
+        ]
+      },
+      "noPostSendHarnessInput": true,
+      "blocker": "authentication-required",
+      "elapsedMs": 6227
+    },
+    {
+      "sender": "gemini",
+      "receiver": "muse",
+      "status": "blocked",
+      "senderMcp": null,
+      "receiverMcp": false,
+      "sent": null,
+      "delivered": null,
+      "received": null,
+      "woke": null,
+      "replied": null,
+      "replyDelivered": null,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 4922,
+          "id": "h2a-receiver"
+        }
+      ],
+      "startedAt": "2026-10-16T03:25:52.033Z",
+      "credentialsCopied": {
+        "receiver": [
+          ".config/muse/auth.json"
+        ]
+      },
+      "noPostSendHarnessInput": true,
+      "blocker": "onboarding-or-trust",
+      "elapsedMs": 1699
+    },
+    {
+      "sender": "gemini",
+      "receiver": "vibe",
+      "status": "blocked",
+      "senderMcp": null,
+      "receiverMcp": null,
+      "sent": null,
+      "delivered": null,
+      "received": null,
+      "woke": null,
+      "replied": null,
+      "replyDelivered": null,
+      "evidence": [],
+      "startedAt": "2026-10-16T03:25:57.335Z",
+      "credentialsCopied": {},
+      "noPostSendHarnessInput": true,
+      "blocker": "python-entrypoint-forbidden:vibe",
+      "elapsedMs": 1
+    },
+    {
+      "sender": "muse",
+      "receiver": "claude",
+      "status": "blocked",
+      "senderMcp": null,
+      "receiverMcp": false,
+      "sent": null,
+      "delivered": null,
+      "received": null,
+      "woke": null,
+      "replied": null,
+      "replyDelivered": null,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 2
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 4987,
+          "id": "h2a-receiver"
+        }
+      ],
+      "startedAt": "2026-10-16T03:25:57.690Z",
+      "credentialsCopied": {
+        "receiver": [
+          ".claude/.credentials.json"
+        ]
+      },
+      "noPostSendHarnessInput": true,
+      "blocker": "onboarding-or-trust",
+      "elapsedMs": 1726
+    },
+    {
+      "sender": "muse",
+      "receiver": "codex",
+      "status": "measured-KO",
+      "senderMcp": null,
+      "receiverMcp": false,
+      "sent": null,
+      "delivered": null,
+      "received": null,
+      "woke": null,
+      "replied": null,
+      "replyDelivered": null,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 2
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 5037,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "readiness-deadline",
+          "role": "receiver",
+          "modelToolCallObserved": false,
+          "composerReady": true,
+          "mcpLoaded": false,
+          "wakeArmed": false
+        }
+      ],
+      "startedAt": "2026-10-16T03:26:02.679Z",
+      "credentialsCopied": {
+        "receiver": [
+          ".codex/auth.json"
+        ]
+      },
+      "noPostSendHarnessInput": true,
+      "failure": "mcp-not-loaded-before-deadline",
+      "elapsedMs": 31592
+    },
+    {
+      "sender": "muse",
+      "receiver": "agy",
+      "status": "blocked",
+      "senderMcp": null,
+      "receiverMcp": true,
+      "sent": null,
+      "delivered": null,
+      "received": null,
+      "woke": null,
+      "replied": null,
+      "replyDelivered": null,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 5334,
+          "id": "h2a-receiver"
+        },
+        {
+          "event": "readiness-deadline",
+          "role": "receiver",
+          "modelToolCallObserved": false,
+          "composerReady": true,
+          "mcpLoaded": true,
+          "wakeArmed": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792121199616,
+          "event": "proxy-start",
+          "pid": 5358,
+          "childPid": 5388
+        },
+        {
+          "role": "receiver",
+          "at": 1792121199941,
+          "event": "initialize",
+          "ok": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792121199943,
+          "event": "tools",
+          "ok": true,
+          "messaging": true
+        },
+        {
+          "role": "receiver",
+          "at": 1792121200426,
+          "event": "wake-armed"
+        }
+      ],
+      "startedAt": "2026-10-16T03:26:37.568Z",
+      "credentialsCopied": {
+        "receiver": [
+          ".gemini/oauth_creds.json",
+          ".gemini/google_accounts.json"
+        ]
+      },
+      "noPostSendHarnessInput": true,
+      "blocker": "initial-model-tool-turn-not-observed",
+      "elapsedMs": 31687
+    },
+    {
+      "sender": "muse",
+      "receiver": "gemini",
+      "status": "blocked",
+      "senderMcp": null,
+      "receiverMcp": false,
+      "sent": null,
+      "delivered": null,
+      "received": null,
+      "woke": null,
+      "replied": null,
+      "replyDelivered": null,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 5497,
+          "id": "h2a-receiver"
+        }
+      ],
+      "startedAt": "2026-10-16T03:27:12.873Z",
+      "credentialsCopied": {
+        "receiver": [
+          ".gemini/oauth_creds.json",
+          ".gemini/google_accounts.json"
+        ]
+      },
+      "noPostSendHarnessInput": true,
+      "blocker": "authentication-required",
+      "elapsedMs": 5041
+    },
+    {
+      "sender": "muse",
+      "receiver": "muse",
+      "status": "blocked",
+      "senderMcp": null,
+      "receiverMcp": false,
+      "sent": null,
+      "delivered": null,
+      "received": null,
+      "woke": null,
+      "replied": null,
+      "replyDelivered": null,
+      "evidence": [
+        {
+          "event": "host-setup",
+          "role": "receiver",
+          "exitCode": 0
+        },
+        {
+          "event": "session-created",
+          "role": "receiver",
+          "pid": 5577,
+          "id": "h2a-receiver"
+        }
+      ],
+      "startedAt": "2026-10-16T03:27:21.291Z",
+      "credentialsCopied": {
+        "receiver": [
+          ".config/muse/auth.json"
+        ]
+      },
+      "noPostSendHarnessInput": true,
+      "blocker": "onboarding-or-trust",
+      "elapsedMs": 2077
+    },
+    {
+      "sender": "muse",
+      "receiver": "vibe",
+      "status": "blocked",
+      "senderMcp": null,
+      "receiverMcp": null,
+      "sent": null,
+      "delivered": null,
+      "received": null,
+      "woke": null,
+      "replied": null,
+      "replyDelivered": null,
+      "evidence": [],
+      "startedAt": "2026-10-16T03:27:26.921Z",
+      "credentialsCopied": {},
+      "noPostSendHarnessInput": true,
+      "blocker": "python-entrypoint-forbidden:vibe",
+      "elapsedMs": 0
+    },
+    {
+      "sender": "vibe",
+      "receiver": "claude",
+      "status": "blocked",
+      "senderMcp": null,
+      "receiverMcp": null,
+      "sent": null,
+      "delivered": null,
+      "received": null,
+      "woke": null,
+      "replied": null,
+      "replyDelivered": null,
+      "evidence": [],
+      "startedAt": "2026-10-16T03:27:27.530Z",
+      "credentialsCopied": {},
+      "noPostSendHarnessInput": true,
+      "blocker": "python-entrypoint-forbidden:vibe",
+      "elapsedMs": 1
+    },
+    {
+      "sender": "vibe",
+      "receiver": "codex",
+      "status": "blocked",
+      "senderMcp": null,
+      "receiverMcp": null,
+      "sent": null,
+      "delivered": null,
+      "received": null,
+      "woke": null,
+      "replied": null,
+      "replyDelivered": null,
+      "evidence": [],
+      "startedAt": "2026-10-16T03:27:27.896Z",
+      "credentialsCopied": {},
+      "noPostSendHarnessInput": true,
+      "blocker": "python-entrypoint-forbidden:vibe",
+      "elapsedMs": 0
+    },
+    {
+      "sender": "vibe",
+      "receiver": "agy",
+      "status": "blocked",
+      "senderMcp": null,
+      "receiverMcp": null,
+      "sent": null,
+      "delivered": null,
+      "received": null,
+      "woke": null,
+      "replied": null,
+      "replyDelivered": null,
+      "evidence": [],
+      "startedAt": "2026-10-16T03:27:28.304Z",
+      "credentialsCopied": {},
+      "noPostSendHarnessInput": true,
+      "blocker": "python-entrypoint-forbidden:vibe",
+      "elapsedMs": 1
+    },
+    {
+      "sender": "vibe",
+      "receiver": "gemini",
+      "status": "blocked",
+      "senderMcp": null,
+      "receiverMcp": null,
+      "sent": null,
+      "delivered": null,
+      "received": null,
+      "woke": null,
+      "replied": null,
+      "replyDelivered": null,
+      "evidence": [],
+      "startedAt": "2026-10-16T03:27:28.616Z",
+      "credentialsCopied": {},
+      "noPostSendHarnessInput": true,
+      "blocker": "python-entrypoint-forbidden:vibe",
+      "elapsedMs": 0
+    },
+    {
+      "sender": "vibe",
+      "receiver": "muse",
+      "status": "blocked",
+      "senderMcp": null,
+      "receiverMcp": null,
+      "sent": null,
+      "delivered": null,
+      "received": null,
+      "woke": null,
+      "replied": null,
+      "replyDelivered": null,
+      "evidence": [],
+      "startedAt": "2026-10-16T03:27:28.996Z",
+      "credentialsCopied": {},
+      "noPostSendHarnessInput": true,
+      "blocker": "python-entrypoint-forbidden:vibe",
+      "elapsedMs": 1
+    },
+    {
+      "sender": "vibe",
+      "receiver": "vibe",
+      "status": "blocked",
+      "senderMcp": null,
+      "receiverMcp": null,
+      "sent": null,
+      "delivered": null,
+      "received": null,
+      "woke": null,
+      "replied": null,
+      "replyDelivered": null,
+      "evidence": [],
+      "startedAt": "2026-10-16T03:27:29.299Z",
+      "credentialsCopied": {},
+      "noPostSendHarnessInput": true,
+      "blocker": "python-entrypoint-forbidden:vibe",
+      "elapsedMs": 1
+    }
+  ],
+  "counts": {
+    "measured-OK": 0,
+    "measured-KO": 5,
+    "blocked": 31
+  }
+}
