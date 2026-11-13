@@ -107,7 +107,18 @@ function parseFlowchart(source: string, id: string): Record<string, unknown> {
   return document;
 }
 
-export function buildFocusDossier(input: unknown): string {
+export interface FocusBuildOptions {
+  /** Host-owned opt-in. Dossier fields cannot select executable code. */
+  readonly renderer?: 'svelte' | 'vue';
+  /** Report is a read-only presentation of the same validated dossier. */
+  readonly mode?: 'decision' | 'report';
+}
+
+export function buildFocusDossier(input: unknown, options: FocusBuildOptions = {}): string {
+  const backend = options.renderer ?? 'svelte';
+  if (!['svelte', 'vue'].includes(backend)) throw new Error('Unknown Focus renderer');
+  if (options.mode !== undefined && !['decision', 'report'].includes(options.mode)) throw new Error('Unknown Focus presentation mode');
+  if (backend !== 'vue' && options.mode === 'report') throw new Error('Report presentation requires the opt-in Vue renderer');
   // Refuse closed-schema violations before interpreting diagram references.
   const inputDocument = assertDecisionDossierDocument(input);
   const catalog = JSON.parse(readAsset('ecosystem.json'));
@@ -137,20 +148,30 @@ export function buildFocusDossier(input: unknown): string {
   // DC-1 views are rendered here and embedded: no network fetch and no card fallback at view time.
   const views: Record<string, Record<string, DiagramView>> = {};
   for (const section of validated.sections) {
+    if (backend === 'vue') break;
     if (section.kind !== 'diagram' || section.scene === undefined) continue;
     const outcome = renderDiagramViews(section.scene as Record<string, unknown>);
     if (outcome.kind !== 'rendered') throw new Error(`Diagram view refused (${section.id}): ${outcome.diagnostics.map(d =>
       `${d.code} ${d.slot} ${d.entityId} needed ${d.neededPx}px > ${d.allocatedPx}px${d.text === undefined ? '' : ` « ${d.text} »`}`).join('; ')}`);
     views[section.id] = outcome.views;
   }
-  const renderer = readAsset('renderer.html');
+  let renderer: string, manifest: Record<string, any>;
+  if (backend === 'vue') {
+    try { renderer = readAsset('renderer-vue.html'); manifest = JSON.parse(readAsset('renderer-vue-manifest.json')); }
+    catch { throw new Error('Vue renderer unavailable: the qualified DS dependency closure and portable assets must be supplied before activation'); }
+    if (manifest.backend !== 'vue' || manifest.html !== digest(renderer) || manifest.validator !== digest(readAsset('validator.mjs'))) {
+      throw new Error('Vue renderer integrity mismatch');
+    }
+  } else {
+    renderer = readAsset('renderer.html'); manifest = JSON.parse(readAsset('renderer-manifest.json'));
+  }
   if (!renderer.includes('<!--FOCUS_PAYLOAD-->') || !renderer.includes('<!--FOCUS_TITLE-->')) throw new Error('Invalid Focus renderer asset; rebuild the kit');
-  const manifest = JSON.parse(readAsset('renderer-manifest.json'));
   const build = { increment: manifest.increment, formats: manifest.formats, capabilities: manifest.capabilities,
     rendererVersion: manifest.rendererVersion, validatorVersion: manifest.validatorVersion,
     envelopeSha256: digest(JSON.stringify(validated)), rendererSha256: digest(renderer), validatorSha256: digest(readAsset('validator.mjs')) };
   return renderer.replace('<!--FOCUS_TITLE-->', () => escapeHtml(validated.title))
-    .replace('<!--FOCUS_PAYLOAD-->', () => `<script type="application/json" data-focus-document>${jsonForHtml({ document: validated, views, build })}</script>`);
+    .replace('<!--FOCUS_PAYLOAD-->', () => `<script type="application/json" data-focus-document>${jsonForHtml({ document: validated, views, build,
+      ...(backend === 'vue' ? { mode: options.mode ?? 'decision' } : {}) })}</script>`);
 }
 
 /** Same-directory rename is the only publication point; failures preserve the old artifact. */
@@ -164,9 +185,24 @@ function publishArtifact(output: string, content: string): void {
 }
 
 export function runFocusBuildCli(args: readonly string[], streams = { stdout: process.stdout, stderr: process.stderr }): number {
-  const usage = 'Usage: h2a focus build <dossier.json> -o <file.html>\n       h2a focus template [--evidence] -o <dossier.json>\n';
+  const usage = 'Usage: h2a focus build <dossier.json> -o <file.html> [--renderer svelte|vue] [--mode decision|report]\n       h2a focus template [--evidence] -o <dossier.json>\n';
   if (args.includes('--help') || args.includes('-h')) { streams.stdout.write(usage); return 0; }
   const template = args[0] === 'template';
+  const buildOptions: FocusBuildOptions = {};
+  if (!template) {
+    const parsed: { renderer?: 'svelte' | 'vue'; mode?: 'decision' | 'report' } = {};
+    const remaining: string[] = [];
+    for (let i = 0; i < args.length; i++) {
+      const flag = args[i];
+      if (flag === '--renderer' || flag === '--mode') {
+        const key = flag === '--renderer' ? 'renderer' : 'mode', value = args[++i];
+        const allowed = key === 'renderer' ? ['svelte', 'vue'] : ['decision', 'report'];
+        if (parsed[key] !== undefined || !allowed.includes(value)) { streams.stderr.write(usage); return 2; }
+        Object.assign(parsed, { [key]: value });
+      } else remaining.push(flag);
+    }
+    Object.assign(buildOptions, parsed); args = remaining;
+  }
   const evidenceTemplate = template && args[1] === '--evidence';
   if (evidenceTemplate) args = [args[0], ...args.slice(2)];
   const offset = template ? 1 : 2;
@@ -180,7 +216,7 @@ export function runFocusBuildCli(args: readonly string[], streams = { stdout: pr
       try { existingOutput = realpathSync(output); } catch { /* New output file. */ }
       if (realpathSync(args[1]) === existingOutput) throw new Error('Output must differ from the input dossier');
     }
-    const html = template ? readAsset(evidenceTemplate ? 'dossier.evidence.template.json' : 'dossier.template.json') : buildFocusDossier(JSON.parse(readFileSync(args[1], 'utf8')));
+    const html = template ? readAsset(evidenceTemplate ? 'dossier.evidence.template.json' : 'dossier.template.json') : buildFocusDossier(JSON.parse(readFileSync(args[1], 'utf8')), buildOptions);
     publishArtifact(output, html);
     streams.stdout.write(template ? `Focus template: ${output}\n` : `Focus dossier validated; portable HTML: ${output}\n`);
     return 0;
