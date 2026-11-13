@@ -358,11 +358,11 @@ async function main() {
   // drive-consent file) is skipped, not failed: its suite identity arrives
   // via the imported proof and the report math counts executed buckets only.
   //
-  // CI aggregate mode (H2A_TEST_NODE_SHARD_DIR set by the build-and-test job):
+  // CI aggregate mode (H2A_TEST_NODE_SHARD_DIR set by the CI consumers):
   // every local file arrives as a verified shard envelope from the node-shard
   // matrix jobs instead of executing here. Nothing runs locally; a missing,
   // stale or partial shard envelope throws above and fails the run. Unset:
-  // every local file runs here (trust-root job, maintainer boxes).
+  // every local file runs here (maintainer boxes).
   const shardPartition = loadNodeShardReports(bulkPartition.local, REPO_ROOT);
   if (shardPartition.reports.length) {
     if (shardPartition.local.length) {

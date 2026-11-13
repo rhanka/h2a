@@ -505,6 +505,7 @@ function assertM17CiGraph(source) {
       'node --test packages/h2a/test/run-test-gates.test.js',
       'test "$M17_RESULT" = success',
       'test "$BULK_RESULT" = success',
+      'test "$SHARDS_RESULT" = success',
       'node scripts/run-test-gates.mjs',
       'if [ -n "${TMPDIR:-}" ]; then rm -rf "$TMPDIR"; fi',
     ],
@@ -512,19 +513,14 @@ function assertM17CiGraph(source) {
   )
   for (const id of ['build-and-test', 'npm-test-trust-root']) {
     const block = workflowJobBlock(source, id)
-    // build-and-test aggregates the node-shard matrix on top of the M17/bulk
-    // companion proofs; the trust root proves the complete entrypoint
-    // standalone and must never depend on shards.
-    assert.deepEqual(jobs[id].needs, id === 'build-and-test'
-      ? ['m17-qualification', 'bulk-qualification', 'node-shard']
-      : ['m17-qualification', 'bulk-qualification'])
+    // Both consumers verify same-run shard evidence; the trust root also
+    // checks the runner independently before executing every production gate.
+    assert.deepEqual(jobs[id].needs, ['m17-qualification', 'bulk-qualification', 'node-shard'])
     assert.equal(jobs[id].if, '${{ always() }}')
     const gates = jobs[id].steps.filter(step => step.name === 'Require both complete M17 qualifications')
     assert.deepEqual(gates, [{ name: 'Require both complete M17 qualifications',
       env: { M17_RESULT: '${{ needs.m17-qualification.result }}' }, run: 'test "$M17_RESULT" = success' }])
-    assert.match(block, id === 'build-and-test'
-      ? /^    needs: \[m17-qualification, bulk-qualification, node-shard\]$/m
-      : /^    needs: \[m17-qualification, bulk-qualification\]$/m)
+    assert.match(block, /^    needs: \[m17-qualification, bulk-qualification, node-shard\]$/m)
     assert.match(block, /^    if: \$\{\{ always\(\) \}\}$/m,
       'failed producers must yield FAILED required consumers, never skipped-green')
     assert.match(block, /M17_RESULT: \$\{\{ needs\.m17-qualification\.result \}\}\n\s+run: test "\$M17_RESULT" = success/)
@@ -535,15 +531,32 @@ function assertM17CiGraph(source) {
     assert.match(block, /path: tmp\/m17-import/)
     assert.match(block, /H2A_TEST_CI_M17_REPORT: \$\{\{ github.workspace \}\}\/tmp\/m17-import\/proof.json/)
   }
-  {
+  for (const id of ['build-and-test', 'npm-test-trust-root']) {
     // The aggregate fails when any shard fails or is missing: ordering comes
     // from needs, the verdict from the require gate, the presence from the
     // per-shard downloads (a missing artifact fails the download step).
-    const block = workflowJobBlock(source, 'build-and-test')
-    const gates = jobs['build-and-test'].steps.filter(step => step.name === 'Require all node shards complete')
+    const block = workflowJobBlock(source, id)
+    const gates = jobs[id].steps.filter(step => step.name === 'Require all node shards complete')
     assert.deepEqual(gates, [{ name: 'Require all node shards complete',
       env: { SHARDS_RESULT: '${{ needs.node-shard.result }}' }, run: 'test "$SHARDS_RESULT" = success' }])
     assert.match(block, /SHARDS_RESULT: \$\{\{ needs\.node-shard\.result \}\}\n\s+run: test "\$SHARDS_RESULT" = success/)
+    const node = id === 'build-and-test' ? '${{ matrix.node }}' : '22'
+    assert.deepEqual(jobs[id].steps.filter(step => step.with?.path === 'tmp/node-shards'),
+      [0, 1, 2, 3].map(index => ({ uses: 'actions/download-artifact@v4', with: {
+        name: 'node-shard-${{ github.run_id }}-node' + node + '-shard' + index,
+        path: 'tmp/node-shards',
+      } })), 'every exact same-run shard is mandatory, with no conditional download')
+    const command = id === 'build-and-test' ? 'npm test' : 'node scripts/run-test-gates.mjs'
+    const entrypoints = jobs[id].steps.filter(step => step.run === command)
+    assert.equal(entrypoints.length, 1)
+    assert.equal(entrypoints[0].env.H2A_TEST_NODE_SHARD_DIR, '${{ github.workspace }}/tmp/node-shards')
+    assert.equal(entrypoints[0].if, undefined)
+    assert.equal(entrypoints[0]['continue-on-error'], undefined)
+  }
+  for (const step of jobs['npm-test-trust-root'].steps) {
+    if (step.name === 'Clean the disposable TMPDIR') continue
+    assert.equal(step.if, undefined, 'the independent guard and every trust-root prerequisite are mandatory')
+    assert.equal(step['continue-on-error'], undefined)
   }
   const producer = workflowJobBlock(source, 'm17-qualification')
   for (const step of jobs['m17-qualification'].steps) {
@@ -575,7 +588,7 @@ test('CI companion negative controls reject skipped-green dependencies and stale
     ['    if: ${{ always() }}\n    runs-on: ${{ matrix.os == \'ubuntu-latest\' && \'ubuntu-24.04\' || matrix.os }}', '    if: ${{ success() }}\n    runs-on: ${{ matrix.os == \'ubuntu-latest\' && \'ubuntu-24.04\' || matrix.os }}'],
     ['needs: [m17-qualification, bulk-qualification, node-shard]', 'needs: [m17-qualification, bulk-qualification]'],
     ['run: test "$SHARDS_RESULT" = success', 'run: true'],
-    ['needs: [m17-qualification, bulk-qualification]\n    if: ${{ always() }}', 'needs: []\n    if: ${{ always() }}'],
+    ['needs: [m17-qualification, bulk-qualification, node-shard]\n    if: ${{ always() }}', 'needs: []\n    if: ${{ always() }}'],
     ['run: node --test packages/h2a/test/run-test-gates.test.js\n      - name: Require both complete M17 qualifications\n        env:\n          M17_RESULT: ${{ needs.m17-qualification.result }}\n        run: test "$M17_RESULT" = success',
       'run: node --test packages/h2a/test/run-test-gates.test.js\n      - name: Require both complete M17 qualifications\n        env:\n          M17_RESULT: ${{ needs.m17-qualification.result }}\n        run: true'],
     ['name: m17-${{ github.run_id }}-node22', 'name: m17-last-success-node22'],
@@ -587,6 +600,34 @@ test('CI companion negative controls reject skipped-green dependencies and stale
   ]) {
     assert.ok(CI_WORKFLOW.includes(before))
     assert.throws(() => assertM17CiGraph(CI_WORKFLOW.replace(before, after)), before)
+  }
+})
+
+test('trust-root rejects a missing, optional or foreign shard and cannot bypass its independent guard', () => {
+  const job = workflowJobBlock(CI_WORKFLOW, 'npm-test-trust-root')
+  for (const [before, after] of [
+    ['needs: [m17-qualification, bulk-qualification, node-shard]', 'needs: [m17-qualification, bulk-qualification]'],
+    ['if: ${{ always() }}', 'if: ${{ success() }}'],
+    ['run: node --test packages/h2a/test/run-test-gates.test.js', 'run: true'],
+    ['run: test "$SHARDS_RESULT" = success', 'run: true'],
+    ['name: node-shard-${{ github.run_id }}-node22-shard0', 'name: node-shard-last-success-node22-shard0'],
+    ['name: node-shard-${{ github.run_id }}-node22-shard1', 'name: node-shard-${{ github.run_id }}-node24-shard1'],
+    ['name: node-shard-${{ github.run_id }}-node22-shard2', 'name: node-shard-${{ github.run_id }}-node22-shard1'],
+    ['path: tmp/node-shards', 'path: tmp/unused-shards'],
+    ['H2A_TEST_NODE_SHARD_DIR:', 'OPTIONAL_SHARD_DIR:'],
+    ['run: node scripts/run-test-gates.mjs', 'run: npm test'],
+    ['- name: Verify npm test wiring independently', '- name: Verify npm test wiring independently\n        if: false'],
+    ['- name: Execute the production test entrypoint directly', '- name: Execute the production test entrypoint directly\n        continue-on-error: true'],
+  ]) {
+    assert.ok(job.includes(before), before)
+    assert.throws(() => assertM17CiGraph(CI_WORKFLOW.replace(job, job.replace(before, after))), before)
+  }
+  for (const index of [0, 1, 2, 3]) {
+    const download = '      - uses: actions/download-artifact@v4\n        with:\n' +
+      '          name: node-shard-${{ github.run_id }}-node22-shard' + index + '\n' +
+      '          path: tmp/node-shards\n'
+    assert.ok(job.includes(download))
+    assert.throws(() => assertM17CiGraph(CI_WORKFLOW.replace(job, job.replace(download, ''))))
   }
 })
 
