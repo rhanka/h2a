@@ -35,6 +35,28 @@ export const GATEWAY_MODEL_IDS = [
 
 export type GatewayModelId = (typeof GATEWAY_MODEL_IDS)[number];
 
+export type ModelLaunchAvailability =
+  | { readonly gatewayRoute: true }
+  | { readonly gatewayRoute: false; readonly directProfile: "muse"; readonly reason: string };
+
+/** Admission here does not create a gateway route in the published mesh. */
+export const MODEL_LAUNCH_AVAILABILITY: Readonly<Record<GatewayModelId, ModelLaunchAvailability>> = {
+  [GEMINI_4_ARGON]: { gatewayRoute: true },
+  [GEMINI_4_CARBON]: { gatewayRoute: true },
+  [GEMINI_3_8_FLASH]: { gatewayRoute: true },
+  [CLAUDE_FABLE_5_1]: { gatewayRoute: true },
+  [CLAUDE_FABLE_5_2]: { gatewayRoute: true },
+  [MUSE_SPARK_1_3]: { gatewayRoute: true },
+  [MUSE_SPARK_1_3_CONTRIBUTOR]: { gatewayRoute: true },
+  [MUSE_WONDER_1_0]: { gatewayRoute: true },
+  [MUSE_EMBER_1_0]: {
+    gatewayRoute: false,
+    directProfile: "muse",
+    reason: "Awaiting a published llm-mesh release carrying muse-ember-1.0 (sentropic #1013).",
+  },
+  [MUSE_WONDER_FULL_1_0]: { gatewayRoute: true },
+};
+
 /** Readable aliases accepted by `h2a run --model` (spec §6.6). */
 export const GATEWAY_MODEL_ALIASES: Readonly<Record<string, GatewayModelId>> =
   {
