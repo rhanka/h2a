@@ -1,4 +1,5 @@
 <script>
+  import { onMount } from 'svelte';
   import { ThemeProvider, Button, Badge, Card, Container } from '@sentropic/design-system-svelte';
   import { SvelteMap } from 'svelte/reactivity';
   import { lightTheme, darkTheme } from './themes.js';
@@ -16,6 +17,21 @@
     .flatMap(s => s.options).find(o => o.id === optionId)?.label;
   const recommended = (set, option) => questions.find(q => q.id === set.questionId)?.recommendedOptionId === option.id;
   let steps = $derived([...dossier.amendmentTrace, ...dossier.sections.filter(s => s.kind === 'amendmentTrace').flatMap(s => s.steps)]);
+  let glossary = $state(null);
+  onMount(() => {
+    const revealTerm = () => {
+      let id;
+      try { id = decodeURIComponent(location.hash.slice(1)); } catch { return; }
+      const term = document.getElementById(id);
+      if (term && glossary?.contains(term)) {
+        glossary.open = true;
+        term.scrollIntoView();
+      }
+    };
+    revealTerm();
+    window.addEventListener('hashchange', revealTerm);
+    return () => window.removeEventListener('hashchange', revealTerm);
+  });
 </script>
 
 <ThemeProvider theme={dark ? darkTheme : lightTheme}>
@@ -28,7 +44,10 @@
         <div class="reading-meta"><Badge tone="info">Focus</Badge> {questions.length} question(s) · {dossier.readability.readingBudgetMinutes} minutes</div>
         <Card><h2>Votre demande</h2><blockquote>{dossier.readability.ownerRequestQuote}</blockquote><p>{dossier.readability.stakes}</p></Card>
         {#if dossier.readability.glossary?.length}
-          <aside aria-label="Glossaire"><h2>En mots simples</h2><dl>{#each dossier.readability.glossary as entry}<dt>{entry.term}</dt><dd>{entry.definition}</dd>{/each}</dl></aside>
+          <aside aria-label="Glossaire"><details class="focus-glossary" bind:this={glossary}>
+            <summary>En mots simples ({dossier.readability.glossary.length} {dossier.readability.glossary.length === 1 ? 'terme' : 'termes'})</summary>
+            <dl>{#each dossier.readability.glossary as entry}<dt id={`glossary-${encodeURIComponent(entry.term)}`}>{entry.term}</dt><dd>{entry.definition}</dd>{/each}</dl>
+          </details></aside>
         {/if}
         {#each sections as section}
           <section id={section.id} class="dossier-section">

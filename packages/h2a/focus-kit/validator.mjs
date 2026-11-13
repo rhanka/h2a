@@ -107,7 +107,7 @@ var validateDecisionDossierReadability = (doc, options) => {
   const glossary = /* @__PURE__ */ new Map();
   r?.glossary?.forEach((entry, i) => {
     if (blank(entry.term) || blank(entry.definition)) {
-      refuse(`$.readability.glossary[${i}]`, "empty_glossary_entry", "Give every glossary term a definition in plain words visible to the reader.");
+      refuse(`$.readability.glossary[${i}]`, "empty_glossary_entry", "Give every glossary term a definition in plain words, present and findable when the glossary is opened.");
     } else {
       const term = entry.term.trim();
       if (glossary.has(term) || entry.definition.trim() === term) {
@@ -126,7 +126,7 @@ var validateDecisionDossierReadability = (doc, options) => {
   const checkCodes = (text2, path) => {
     for (const code of new Set(text2?.match(CODE_PATTERN) ?? [])) {
       if (!PLAIN_TOKENS.has(code) && !glossary.has(code)) {
-        refuse(path, "undefined_code", `Unexpanded code or acronym "${code}": define it in the visible glossary in plain words, or rewrite it.`);
+        refuse(path, "undefined_code", `Unexpanded code or acronym "${code}": define it in the glossary in plain words (folded but present and findable), or rewrite it.`);
       }
     }
   };
