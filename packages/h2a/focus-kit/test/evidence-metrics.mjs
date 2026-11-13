@@ -60,9 +60,11 @@ export async function measure(root, documents, { coldRuns, taskRuns, onSample = 
           for (let j = 0; j < taskRuns; j++) {
             const id = name === 'large' && j % 2 ? 'real' : 'late', c = doc.citations.find(c => c.id === id);
             const number = doc.citations.findIndex(citation => citation.id === id) + 1;
-            const call = page.locator(`.citation-link[href="#focus-source-${number}"]`).first();
+            const call = page.getByRole('link', { name: `Source ${number}`, exact: true }).first();
+            const anchor = await call.getAttribute('href');
             const t = performance.now(); await call.click(); await afterPaint(page);
-            assert.equal(new URL(page.url()).hash, `#focus-source-${number}`);
+            assert.equal(new URL(page.url()).hash, anchor);
+            assert.equal(await page.locator(anchor).count(), 1);
             assert.equal(await page.locator('.source-viewer').count(), 0);
             stats.citation.push(performance.now() - t);
             const source = doc.sources.find(source => source.id === c.sourceId);

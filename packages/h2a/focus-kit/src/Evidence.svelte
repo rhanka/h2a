@@ -47,9 +47,9 @@
   <p>{volume.sources} sources · {volume.bytes} octets · consultation estimée : {volume.consultationMinutes} minute(s), à six octets par mot, hors budget {dossier.kind === 'report' ? 'de lecture principal' : 'de décision'}.</p>
   <section aria-label="Sources" class="bibliography">
     <h2>Sources</h2>
-    <ol>{#each bibliography(dossier) as entry}<li id={`focus-source-${entry.number}`} tabindex="-1">
+    <ol>{#each bibliography(dossier) as entry}<li id={entry.anchorId} tabindex="-1">
       {entry.citation.label} · {entry.source.title} · <span class="source-location">{entry.location}</span> ·
-      <a href={`#focus-source-${entry.number}`} onclick={event => download(event, entry.source)}>Télécharger</a>
+      <a href={`#${entry.anchorId}`} onclick={event => download(event, entry.source)}>Télécharger</a>
     </li>{/each}</ol>
   </section>
   <details open><summary>Catalogue des sources</summary><ul>{#each dossier.sources as source}<li><button onclick={() => openSource(source.id)}>Consulter {source.title}</button> · {source.size} octets</li>{/each}</ul></details>

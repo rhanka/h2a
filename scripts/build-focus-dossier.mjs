@@ -56,7 +56,7 @@ if (process.argv.includes('--check')) {
   const { build: bundleWithEsbuild } = await import(pathToFileURL(join(kit, 'node_modules/esbuild/lib/main.js')).href);
   const staging = mkdtempSync(join(tmpdir(), 'focus-renderer-'));
   try {
-    const result = await build({ configFile: false, root: kit, plugins: [svelte()],
+    const result = await build({ configFile: false, envDir: false, root: kit, plugins: [svelte()],
       define: { 'process.env.NODE_ENV': JSON.stringify('production') },
       resolve: { dedupe: ['svelte'] },
       build: { outDir: staging, emptyOutDir: true, target: 'es2022', minify: true, cssCodeSplit: false,
