@@ -9,6 +9,7 @@ import type {
   QuestionNode,
 } from "../model.js";
 import { isEvidenceDossier, isReportDocument } from "../model.js";
+import { splitMarkdownTableCells } from "../render/markdown-table.js";
 import type { ValidationIssue } from "./index.js";
 
 export type ReadabilityProfile = "strict" | "legacy";
@@ -503,7 +504,7 @@ export const validateDecisionDossierReadability = (
         checkProseCell(block.lines[0], path, { requireTakeaway: false, isCleaned: true });
       } else if (block.kind === "table") {
         const line = block.lines[0]!;
-        const cells = line.slice(1, -1).split("|").map((c) => c.trim());
+        const cells = splitMarkdownTableCells(line);
         if (cells.every((c) => /^[-:]+$/.test(c))) continue;
         for (const cell of cells) {
           checkProseCell(cell, path, { requireTakeaway: false, isCleaned: true });

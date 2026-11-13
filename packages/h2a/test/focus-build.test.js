@@ -39,6 +39,16 @@ test('builds an explicit benchmark report and preserves output on report gate fa
     assert.equal(run(root, 'build', input, '-o', output).status, 1)
     assert.equal(readFileSync(output, 'utf8'), html)
   }
+  const oversized = structuredClone(doc)
+  oversized.sections[1].markdown += `\n| Mesure | ${'Mesure stable. '.repeat(15)}\\| ${'Mesure stable. '.repeat(20)} |`
+  const refused = portableValidator.validateFocusForPresentation(oversized)
+  assert.equal(refused.ok, false)
+  assert.ok(refused.issues.some(issue => issue.code === 'cell_max_60_words' && issue.message.includes('found 71 words')))
+  writeFileSync(input, JSON.stringify(oversized))
+  const rejected = run(root, 'build', input, '-o', output)
+  assert.equal(rejected.status, 1)
+  assert.match(rejected.stderr, /cell_max_60_words/)
+  assert.equal(readFileSync(output, 'utf8'), html)
 }))
 
 test('builds complete v2 evidence with distinct envelope and renderer fingerprints', () => isolated(root => {

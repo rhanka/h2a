@@ -55,6 +55,32 @@ describe('explicit benchmark reports', () => {
     d.annexes[0].backRefs = ['s0']; d.readability.readingBudgetMinutes = 1;
     expect(codes(d)).toContain('reading_budget_exceeded');
   });
+  it.each([60, 61, 71])('should count an escaped pipe inside a %i-word rendered cell', words => {
+    const text = (count: number) => Array.from({ length: count }, (_, i) => i % 10 === 9 ? 'stable.' : 'stable').join(' ');
+    const cell = `${text(30)} \\| ${text(words - 31)}`;
+    for (const header of [false, true]) {
+      const d = fixture();
+      d.sections[1].markdown = header
+        ? `| ${cell} | Observation |\n| --- | --- |\n| Mesure | Stable |`
+        : `| Mesure | Observation |\n| --- | --- |\n| ${cell} | Stable |`;
+      const result = validate(d);
+      if (words <= 60) expect(result).toEqual({ ok: true, value: d });
+      else {
+        expect(result.ok).toBe(false);
+        if (!result.ok) expect(result.issues).toContainEqual(expect.objectContaining({
+          code: 'cell_max_60_words',
+          path: '$.sections[1].markdown',
+          message: expect.stringContaining(`found ${words} words`),
+        }));
+      }
+    }
+  });
+  it('should keep unescaped pipes as boundaries between individually bounded cells', () => {
+    const d = fixture();
+    const cell = 'Mesure stable. '.repeat(20).trim();
+    d.sections[1].markdown = `| Mesure | Observation |\n| --- | --- |\n| ${cell} | ${cell} |`;
+    expect(validate(d)).toEqual({ ok: true, value: d });
+  });
   it('should retain the implicit-choice guard in reports', () => {
     const d = fixture(); d.sections[0].markdown = 'En bref : le tableau décrit la détection versus le contrôle.';
     expect(codes(d)).toContain('hidden_decision');

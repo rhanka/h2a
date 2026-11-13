@@ -1,4 +1,5 @@
 import { isEvidenceDossier, isReportDocument } from "../model.js";
+import { splitMarkdownTableCells } from "../render/markdown-table.js";
 export const READABILITY_BUDGETS = { low: 2, medium: 8, high: 30 };
 export const READABILITY_LIMITS = {
     minOwnerRequestQuoteLength: 8,
@@ -422,7 +423,7 @@ export const validateDecisionDossierReadability = (doc, options) => {
             }
             else if (block.kind === "table") {
                 const line = block.lines[0];
-                const cells = line.slice(1, -1).split("|").map((c) => c.trim());
+                const cells = splitMarkdownTableCells(line);
                 if (cells.every((c) => /^[-:]+$/.test(c)))
                     continue;
                 for (const cell of cells) {

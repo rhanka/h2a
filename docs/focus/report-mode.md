@@ -45,14 +45,12 @@ fixture with a table, two labelled chart placeholders, glossary, citations and
 an appendix. It does not reproduce or attest the benchmark PDF's measurements.
 Converting that PDF requires its actual contents; no benchmark data is invented.
 
-## Consumer N3 boundary
+## Decision-only boundary
 
-The N3 consumer profile admits only `DecisionDossierDocument` schema IDs and
-calls `assertDecisionDossierForPresentation`, never the new generic dispatcher.
-That API rejects `kind: "report"` as an unknown field. Keep the existing schema
-allowlist and asset pins until separately qualified. A changed validator or
-renderer digest does not qualify report consumption. The PR records old/new
-SHA-256 values for both assets; no external consumer configuration is changed.
+Consumers that admit only decision dossiers keep their existing schema allowlist
+and `assertDecisionDossierForPresentation` gate. That API rejects `kind: "report"`
+as an unknown field. Report acceptance requires an explicit choice of the generic
+dispatcher and report schema; updating the validator or renderer does not enable it.
 
 Generated schemas, validator and renderer are refreshed by
 `node scripts/build-focus-dossier.mjs`; the Track vendor is refreshed by
