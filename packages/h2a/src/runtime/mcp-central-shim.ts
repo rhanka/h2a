@@ -22,6 +22,15 @@ export async function runCentralShim(flags: Record<string, string>, root: string
     // their routed host tag until H6 measures real native session signals.
     const qualified = isSupportedCentralHost(flags.host) &&
       (flags.host !== "claude" || Boolean(process.env.CLAUDE_CODE_SESSION_ID?.trim()));
+    if (qualified) {
+      setImmediate(() => {
+        void import("../hosts/auto-repair.js")
+          .then(({ autoRepairHostInstallations }) =>
+            autoRepairHostInstallations({ root, cwd: process.cwd(), env: process.env })
+          )
+          .catch(() => {});
+      });
+    }
     const registryDigest = registry?.lock
       ? (await import("../registry/bridge-lock.js")).bridgeLockDigest(registry.lock) : undefined;
     await bridgeCentralMcpStdio({
