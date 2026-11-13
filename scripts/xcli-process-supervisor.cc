@@ -61,7 +61,14 @@ int main(int argc, char** argv) {
     execv(argv[3], argv + 3); _exit(127);
   }
   std::map<pid_t, bool> owned{{root, false}};
-  bool recovering = false, failed = false, observed = false;
+  bool recovering = false, failed = false, recoveryFailed = false, observed = false;
+  const char* failure = nullptr;
+  int failureErrno = 0;
+  auto fail = [&](const char* reason, bool recovery, int error = 0) {
+    failed = true;
+    recoveryFailed = recoveryFailed || recovery;
+    if (!failure) { failure = reason; failureErrno = error; }
+  };
   int result = 125;
   auto deadline = std::chrono::steady_clock::now();
   while (!owned.empty()) {
@@ -72,10 +79,10 @@ int main(int argc, char** argv) {
     int status = 0;
     pid_t pid = waitpid(-1, &status, __WALL | WNOHANG);
     if (pid == 0) {
-      if (recovering && std::chrono::steady_clock::now() - deadline > std::chrono::seconds(3)) { failed = true; break; }
+      if (recovering && std::chrono::steady_clock::now() - deadline > std::chrono::seconds(3)) { fail("recovery-deadline", true); break; }
       usleep(1000); continue;
     }
-    if (pid < 0) { if (errno == EINTR) continue; failed = true; break; }
+    if (pid < 0) { if (errno == EINTR) continue; fail("waitpid", true, errno); break; }
     if (WIFEXITED(status) || WIFSIGNALED(status)) {
       owned.erase(pid);
       if (pid == root) {
@@ -86,15 +93,20 @@ int main(int argc, char** argv) {
     }
     if (!WIFSTOPPED(status)) continue;
     const unsigned event = static_cast<unsigned>(status) >> 16;
-    if (ptrace(PTRACE_SETOPTIONS, pid, nullptr,
-      PTRACE_O_TRACEEXEC | PTRACE_O_TRACEFORK | PTRACE_O_TRACEVFORK | PTRACE_O_TRACECLONE | PTRACE_O_EXITKILL)) {
-      failed = true; recovering = true; deadline = std::chrono::steady_clock::now();
-      kill(pid, SIGKILL); continue;
-    }
+    // Record a newly traced child before any later ptrace operation can
+    // lose the stopped parent. Otherwise its disappearance could hide a
+    // descendant from the recovery proof.
     if (event == PTRACE_EVENT_FORK || event == PTRACE_EVENT_VFORK || event == PTRACE_EVENT_CLONE) {
       unsigned long child = 0;
       if (ptrace(PTRACE_GETEVENTMSG, pid, nullptr, &child) == 0) owned[child] = owned[pid];
-      else failed = true;
+      else { fail("ptrace-child-event", true, errno); recovering = true; deadline = std::chrono::steady_clock::now(); }
+    }
+    if (ptrace(PTRACE_SETOPTIONS, pid, nullptr,
+      PTRACE_O_TRACEEXEC | PTRACE_O_TRACEFORK | PTRACE_O_TRACEVFORK | PTRACE_O_TRACECLONE | PTRACE_O_EXITKILL)) {
+      // A tracee can exit after its wait stop. Losing observation does not
+      // undo the subsequent waitpid exit proof for this known descendant.
+      fail("ptrace-setoptions", false, errno); recovering = true; deadline = std::chrono::steady_clock::now();
+      kill(pid, SIGKILL); continue;
     }
     if (event == PTRACE_EVENT_EXEC) {
       // A non-leader thread may exec and take the leader PID.
@@ -103,7 +115,7 @@ int main(int argc, char** argv) {
       char buffer[8192];
       std::string base = "/proc/" + std::to_string(pid);
       ssize_t size = readlink((base + "/exe").c_str(), buffer, sizeof buffer);
-      if (size <= 0) failed = true;
+      if (size <= 0) fail("exec-readlink", false, errno);
       else {
         observed = true;
         std::string exe(buffer, size), args = std::string("\0", 1) + read(base + "/cmdline");
@@ -116,13 +128,15 @@ int main(int argc, char** argv) {
     }
     int signal = WSTOPSIG(status);
     if (signal == SIGSTOP || signal == SIGTRAP) signal = 0;
-    if (ptrace(PTRACE_CONT, pid, nullptr, signal) && errno != ESRCH) failed = true;
+    if (ptrace(PTRACE_CONT, pid, nullptr, signal) && errno != ESRCH) fail("ptrace-continue", false, errno);
   }
   fclose(log);
   FILE* summary = fopen(argv[2], "wx");
   if (!summary) return 125;
   chmod(argv[2], 0600);
-  fprintf(summary, "{\"processRecovery\":%s,\"observed\":%s}\n", !failed && owned.empty() ? "true" : "false", observed ? "true" : "false");
+  fprintf(summary, "{\"processRecovery\":%s,\"observed\":%s,\"observationComplete\":%s,\"failure\":%s,\"failureErrno\":%d,\"remainingOwned\":%zu}\n",
+    !recoveryFailed && owned.empty() ? "true" : "false", observed ? "true" : "false",
+    failed ? "false" : "true", failure ? quoted(failure).c_str() : "null", failureErrno, owned.size());
   fclose(summary);
   return result;
 }

@@ -1393,6 +1393,7 @@ async function main() {
   const preflightSeats = !simulated && manifest ? manifest.seats : null;
   const quotaSeats = new Set(ledger.quotaSeats ?? []);
   const preflighted = new Map();
+  const recoveryBlockedPairs = new Map();
   const runAuthPrecheck = async (seat, { executable }) => {
     // XCLI_AUTH_PRECHECK_MODEL_CALLS is a test seam: it lets a campaign test
     // drive a model-reaching precheck (§6.4) without a real vendor call,
@@ -1403,6 +1404,7 @@ async function main() {
     return runMuseAuthPrecheck({ seat, executable, root, modelCalls: spent });
   };
   const seatKey = (run, role) => run[role === 'sender' ? 'senderSeat' : 'receiverSeat'] ?? (role === 'sender' ? run.sender : run.receiver);
+  const recoveryPairKey = run => JSON.stringify([seatKey(run, 'sender'), seatKey(run, 'receiver')]);
   const blockedRow = (run, releaseOffsetMs, blocker, evidence = []) => ({ sender: run.sender, receiver: run.receiver,
     scenario: scenarioSpec, seats: { sender: run.senderSeat, receiver: run.receiverSeat }, sharedSeat: run.sharedSeat, seatMode,
     status: 'blocked', blocker, evidence, elapsedMs: 0, cleanupFailed: false, parentSecretWipe: true,
@@ -1412,6 +1414,11 @@ async function main() {
     const { sender, receiver, releaseOffsetMs } = run;
     if (stopping) {
       cells.push(blockedRow(run, releaseOffsetMs, 'qualification-cancelled'));
+      continue;
+    }
+    const recoveryBlock = recoveryBlockedPairs.get(recoveryPairKey(run));
+    if (recoveryBlock) {
+      cells.push(blockedRow(run, releaseOffsetMs, 'owned-process-recovery-unproven', recoveryBlock));
       continue;
     }
     // R33 (owner decision 07/11): a riding seat resolves its per-seat quota
@@ -1591,11 +1598,16 @@ async function main() {
       ledger.quotaSeats = [...quotaSeats];
       persistLedger(ledger);
     }
+    let recoveryEvidence;
     try {
       const observed = supervisorResult(observation);
       row.parentProcessRecovery = observed.processRecovery === true;
       row.execJournal = { ...classifyExecJournal(observed.records), scope: 'ptrace-exec-owned-subtree; vendor-subtree-allowance' };
-      if (!observed.observed || !row.parentProcessRecovery) {
+      recoveryEvidence = { event: 'owned-process-recovery', processRecovery: row.parentProcessRecovery,
+        observationComplete: observed.observationComplete === true, observed: observed.observed === true,
+        failure: observed.failure ?? null, failureErrno: observed.failureErrno ?? null,
+        remainingOwned: observed.remainingOwned ?? null, supervisorExitCode: child.exitCode, supervisorSignal: child.signalCode };
+      if (!observed.observed || observed.observationComplete === false || !row.parentProcessRecovery) {
         row.cleanupFailed = true; row.status = 'blocked'; row.blocker = 'owned-process-recovery-unproven';
       }
       if (row.execJournal.pythonDescendants.length) {
@@ -1604,7 +1616,14 @@ async function main() {
     } catch {
       row.parentProcessRecovery = false; row.cleanupFailed = true;
       row.status = 'blocked'; row.blocker = 'owned-process-recovery-unproven';
+      recoveryEvidence = { event: 'owned-process-recovery', processRecovery: false,
+        failure: 'supervisor-proof-unreadable', supervisorExitCode: child.exitCode, supervisorSignal: child.signalCode };
     } finally { fs.rmSync(observation, { recursive: true, force: true }); }
+    row.evidence ??= [];
+    row.evidence.push(recoveryEvidence);
+    if (row.cleanupFailed && (!row.parentProcessRecovery || !recoveryEvidence.observed || !recoveryEvidence.observationComplete)) {
+      recoveryBlockedPairs.set(recoveryPairKey(run), [recoveryEvidence]);
+    }
     // Lot L8: seat attribution is parent-authoritative — a worker (or stub)
     // can never forge which seats served the cell.
     row.seats = { sender: run.senderSeat, receiver: run.receiverSeat };
@@ -1635,10 +1654,10 @@ async function main() {
     // manifest so seat pairs sharing a family never overwrite each other.
     row.parentElapsedMs = Math.ceil(performance.now() - cellStarted);
     noteWallClock(ledger, row.parentElapsedMs, { reservedMs: cellBoundMs });
-    // A worker failure remains red, but successful supervisor recovery and
-    // the parent's witnessed wipe restore isolation for the next cell.
-    // Never continue with live descendants or surviving private state.
-    if (row.cleanupFailed && (!row.parentProcessRecovery || !row.parentSecretWipe)) stopping = true;
+    // Recovery failures retain their evidence and block this ordered pair.
+    // Each later pair owns a fresh cell; no global cancellation is inferred
+    // from a missing process proof. A failed secret wipe still stops all work.
+    if (!row.parentSecretWipe) stopping = true;
     // Lot L8 (§6.4): the per-session MCP brake is campaign-wide. The first
     // breached cell keeps its measured mcp-call-cap-exceeded failure; the
     // persisted flag refuses every later launch, in this run and on resume.
