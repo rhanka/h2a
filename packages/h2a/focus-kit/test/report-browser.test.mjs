@@ -26,8 +26,8 @@ test('benchmark report retains tables, charts, glossary, citations and appendix 
       await page.goto(pathToFileURL(output).href);
       await page.getByRole('heading', { name: doc.title }).waitFor();
       assert.match(await page.locator('.reading-meta').innerText(), /Rapport/);
-      assert.doesNotMatch(await page.locator('main').innerText(), /question\(s\)|Recommandation|Sélectionnez|Vos sélections/);
-      assert.equal(await page.locator('.option-card').count(), 0);
+      assert.doesNotMatch(await page.locator('main').innerText(), /question\(s\)|Recommandation|Sélectionnez|Vos sélections|Votre réponse/);
+      assert.equal(await page.locator('.option-card, .response-summary').count(), 0);
       assert.equal(await page.locator('#table table').count(), 1);
       assert.equal(await page.locator('#table img').count(), 0, 'table content is escaped');
       assert.match(await page.locator('#table').innerText(), /<img src=x/);
@@ -43,10 +43,15 @@ test('benchmark report retains tables, charts, glossary, citations and appendix 
         assert.equal(lineCount, 1, `${word} must remain on one line at 390px`);
       }
       assert.ok(await page.getByText(doc.readability.glossary[0].definition, { exact: true }).count());
-      await page.getByRole('button', { name: 'Résultats mesurés', exact: true }).first().click();
+      const call = page.getByRole('link', { name: 'Source 1', exact: true }).first();
+      const anchor = await call.getAttribute('href');
+      await call.click();
+      assert.equal(new URL(page.url()).hash, anchor);
+      assert.match(await page.locator(anchor).innerText(), /Résultats mesurés · Mesures du corpus/);
+      await page.getByRole('button', { name: 'Consulter Mesures du corpus', exact: true }).click();
       await page.getByText(/Détection,Stable/).first().waitFor();
       for (const theme of ['clair', 'sombre']) {
-        await page.getByRole('button', { name: `Graphique ${theme}`, exact: true }).first().click();
+        await page.getByRole('button', { name: `Consulter Emplacement du graphique ${theme}`, exact: true }).click();
         await page.getByRole('img', { name: `Emplacement du graphique ${theme}`, exact: true }).waitFor();
       }
       await page.locator('summary').filter({ hasText: 'Annexe de méthode' }).click();

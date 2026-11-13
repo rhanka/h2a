@@ -4,13 +4,19 @@ import type { FocusDocument } from '../model.js';
 /** Shared bibliography order and literal origin; never turn an untrusted URI into a link. */
 export function bibliography(doc: Parameters<typeof evidenceVolume>[0]) {
   if (!isEvidenceDossier(doc)) return [];
+  // Hex is injective and safe in both fragment URLs and CSS selectors.
+  const docId = Array.from(new TextEncoder().encode(doc.ref), b => b.toString(16).padStart(2, '0')).join('');
+  const occupied = new Set(doc.sections.flatMap(s => [s.id, ...(s.kind === 'optionSet' ? s.options.map(o => o.id) : [])]));
   return doc.citations.map((citation, index) => {
+    let anchorId = `src-${docId}-${index + 1}`;
+    while (occupied.has(anchorId)) anchorId += '-';
+    occupied.add(anchorId);
     const source = doc.sources.find(s => s.id === citation.sourceId)!;
     const origin = 'path' in source.origin
       ? `${source.origin.repo}@${source.origin.revision}:${source.origin.path}` : source.origin.uri;
     const location = citation.locator.kind === 'lines'
       ? `${origin}:${citation.locator.start}–${citation.locator.end}` : `${origin} · ${citation.locator.caption}`;
-    return { number: index + 1, citation, source, location };
+    return { number: index + 1, anchorId, citation, source, location };
   });
 }
 
@@ -31,13 +37,18 @@ export function evidenceIndex(doc: FocusDocument): string {
     'Raw supporting detail is separate from the primary reading budget.'];
   for (const s of doc.sources) lines.push(`Source ${s.id}: ${s.title} · ${s.mediaType} · ${s.size} bytes · SHA-256 ${s.sha256} · ${JSON.stringify(s.origin)}`);
   lines.push('Sources');
-  for (const { number, citation, source, location } of bibliography(doc)) lines.push(`${number} · ${citation.label} · ${source.title} · ${location}`);
+  const entries = bibliography(doc);
+  const calls = (refs: readonly string[]) => refs.map(id => `[${entries.find(e => e.citation.id === id)!.number}]`).join(', ');
+  for (const { number, citation, source, location } of entries) lines.push(`[${number}] ${citation.label} · ${source.title} · ${location}`);
   for (const s of doc.sections) {
-    if (s.citationRefs?.length) lines.push(`${s.id} → ${s.citationRefs.join(', ')}`);
-    if (s.kind === 'optionSet') for (const o of s.options) if (o.citationRefs?.length) lines.push(`${o.id} → ${o.citationRefs.join(', ')}`);
+    if (s.citationRefs?.length) lines.push(`${s.id} → ${calls(s.citationRefs)}`);
+    if (s.kind === 'optionSet') for (const o of s.options) if (o.citationRefs?.length) lines.push(`${o.id} → ${calls(o.citationRefs)}`);
   }
-  for (const g of doc.evidenceGroups) lines.push(`${g.id}: ${g.summary} → ${[...g.citationRefs,...g.sourceRefs].join(', ')}`);
-  for (const a of doc.annexes) lines.push(`Annex ${a.id}: ${a.title} — ${a.summary} · ${a.blocks.length} support blocks · back: ${a.backRefs.join(', ')}`);
+  for (const g of doc.evidenceGroups) lines.push(`${g.id}: ${g.summary} → ${[calls(g.citationRefs), ...g.sourceRefs.map(id => `Source ${id}`)].filter(Boolean).join(', ')}`);
+  for (const a of doc.annexes) {
+    lines.push(`Annex ${a.id}: ${a.title} — ${a.summary} · ${a.blocks.length} support blocks · back: ${a.backRefs.join(', ')}`);
+    for (const block of a.blocks) if (block.kind === 'references') lines.push(`${a.id} → ${calls(block.citationRefs)}`);
+  }
   lines.push('Full embedded evidence consultation/download requires the portable HTML renderer.');
   return lines.join('\n');
 }

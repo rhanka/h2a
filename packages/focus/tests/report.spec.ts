@@ -15,7 +15,7 @@ describe('explicit benchmark reports', () => {
     const doc = fixture();
     expect(validate(doc)).toEqual({ ok: true, value: doc });
     for (const output of [renderMd(doc), renderTerminal(doc), renderHtml(doc, { renderMarkdown: s => s, sanitizeHtml: s => s })]) {
-      for (const text of ['Rapport', 'Reproductible', 'Graphique clair', 'Graphique sombre', 'Annexe de méthode', 'chaque mesure provient']) expect(output).toContain(text);
+      for (const text of ['Rapport', 'Reproductible', 'Sources', '[1]', 'Graphique clair', 'Graphique sombre', 'Annexe de méthode', 'chaque mesure provient']) expect(output).toContain(text);
       expect(output).not.toMatch(/préco:|focus-question|Recommandation|0 question/);
     }
   });

@@ -26,6 +26,9 @@ test('bibliography anchors and decision response work through CDP 9333, clipboar
       return [q, o, r];
     }).flat()];
     doc.sources[0].origin = { repo: 'fixture', revision: 'main', path: 'spec.md' };
+    doc.sections[0].id = 'focus-source-1';
+    doc.sections[1].id = `src-${Buffer.from(doc.ref).toString('hex')}-1`;
+    doc.annexes[0].backRefs = [doc.sections[0].id];
     const artifact = portable(root, doc);
     owner = await chromium.launchPersistentContext(join(root, 'profile'), { headless: true,
       args: ['--remote-debugging-address=127.0.0.1', '--remote-debugging-port=9333'],
@@ -46,8 +49,13 @@ test('bibliography anchors and decision response work through CDP 9333, clipboar
       const call = page.locator('.dossier-section .citation-link').first();
       assert.equal(await call.innerText(), '[1]');
       await call.focus(); await page.keyboard.press('Enter');
-      assert.equal(new URL(page.url()).hash, '#focus-source-1');
-      assert.match(await page.locator('#focus-source-1').innerText(), /Preuve distante · Source long · fixture@main:spec.md:12–13/);
+      const anchor = await call.getAttribute('href');
+      assert.match(anchor, /^#src-[a-f0-9]+-1-$/);
+      assert.equal(new URL(page.url()).hash, anchor);
+      assert.equal(await page.locator(anchor).count(), 1);
+      assert.equal(await page.locator(anchor).evaluate(el => el.tagName === 'LI' && el === document.activeElement), true);
+      assert.equal(await page.locator('#focus-source-1').getAttribute('class'), 'dossier-section');
+      assert.match(await page.locator(anchor).innerText(), /Preuve distante · Source long · fixture@main:spec.md:12–13/);
       assert.equal(await page.locator('.source-viewer').count(), 0, 'citation navigation opens no panel');
       for (const link of await page.locator('.citation-link').all()) {
         const target = await link.getAttribute('href');
@@ -77,7 +85,7 @@ test('bibliography anchors and decision response work through CDP 9333, clipboar
         .filter(node => node.textContent.trim() && getComputedStyle(node).userSelect === 'none').map(node => node.tagName));
       assert.deepEqual(blocked, [], 'all dossier text must allow mouse selection');
       const download = page.waitForEvent('download');
-      await page.locator('#focus-source-1').getByRole('link', { name: 'Télécharger', exact: true }).click();
+      await page.locator(anchor).getByRole('link', { name: 'Télécharger', exact: true }).click();
       assert.equal(digest(readFileSync(await (await download).path())), doc.sources[0].sha256);
     }
     // Clipboard unavailable or denied: selection remains visible and native copy still works.

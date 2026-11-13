@@ -10,6 +10,27 @@ import { join } from 'node:path';
 import { chromium } from 'playwright';
 import { isolatedEnvironment } from './evidence-harness.mjs';
 
+test('should keep the cited line fully visible with fractional mobile layout offsets', async () => {
+  await withBrowser(evidenceFixture(20_000, 31), async ({ browser, url }) => {
+    for (const offset of [0, 0.25, 0.5, 0.75]) {
+      const page = await browser.newPage({ viewport: { width: 320, height: 900 }, isMobile: true, hasTouch: true });
+      await page.goto(url);
+      // Fonts and wrapping vary across platforms. Exercise the subpixel positions
+      // that nearest-edge scrolling rounds to integer document scroll offsets.
+      await page.addStyleTag({ content: `.source-viewer { margin-top: ${offset}px; }` });
+      await page.getByRole('button', { name: 'Consulter Source long', exact: true }).click();
+      const line = page.locator('[data-line="20000"]');
+      await line.waitFor();
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      const range = await line.boundingBox();
+      const viewport = await page.locator('.source-scroll').boundingBox();
+      assert.ok(range.y >= Math.max(0, viewport.y) && range.y + range.height <= Math.min(900, viewport.y + viewport.height),
+        `${offset}px offset: ${JSON.stringify(range)}`);
+      await page.close();
+    }
+  });
+});
+
 test('opens evidence from a fresh built-package install with no checkout imports or network', async () => {
   const root = mkdtempSync(join(tmpdir(), 'focus-package-browser-')); let browser;
   try {

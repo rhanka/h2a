@@ -1,5 +1,6 @@
 <script>
+  import { bibliography } from '../../../focus/src/render/evidence.ts';
   let { dossier, id } = $props();
-  let number = $derived(dossier.citations.findIndex(c => c.id === id) + 1);
+  let entry = $derived(bibliography(dossier).find(e => e.citation.id === id));
 </script>
-<a class="citation-link" href={`#focus-source-${number}`} aria-label={`Source ${number}`}>[{number}]</a>
+<a class="citation-link" href={`#${entry.anchorId}`} aria-label={`Source ${entry.number}`}>[{entry.number}]</a>
