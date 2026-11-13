@@ -152,7 +152,12 @@ export function identityKeyPaths(root: string, instance: string): { privateKeyPa
   };
 }
 
-function readMachineId(): string {
+/**
+ * Stable per-machine id for workspace derivation (H2A-DISP-354: the central
+ * admission identity resolution derives the same fallback stability unit as
+ * a live session).
+ */
+export function readMachineId(): string {
   for (const path of ["/etc/machine-id", "/var/lib/dbus/machine-id"]) {
     try {
       const id = readFileSync(path, "utf8").trim();

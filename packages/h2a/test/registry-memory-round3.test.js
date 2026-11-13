@@ -10,7 +10,7 @@
 //   fabricates storage, host bindings or invocation context (the rejected
 //   pilot shortcuts); refusals stay atomic and fencing stays central.
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -28,7 +28,7 @@ import * as central from "../dist/runtime/mcp-central.js";
 import { createLocalStore } from "../dist/runtime/local-files/index.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { MEMORY_NAMES, entry, configuration, fixture } from "./helpers/engram-memory-contract.js";
+import { MEMORY_NAMES, admissionEvidence, entry, configuration, fixture } from "./helpers/engram-memory-contract.js";
 
 function lockFor(memory = true) {
   // M0-L0: select the providers under test by id. The catalog may carry
@@ -36,11 +36,20 @@ function lockFor(memory = true) {
   const h2aEntry = registryPackageManifest.entries.find(e => e.id === "sentropic.h2a");
   const trackEntry = trackRegistryPackageManifest.entries.find(e => e.id === "sentropic.track");
   const entries = [h2aEntry, trackEntry, ...(memory ? [entry] : [])];
-  const configs = [{ mode: "shared-central", serviceBindingRef: "h2a-local-central" }, { access: "read-only", repositoryBindingRef: "h2a-attachment-workspace" }, { ...configuration }];
+  // Per-entry configs keyed by registry id, not manifest position: the shipped
+  // manifest may grow entries (r3 added sentropic.ui-render) and a positional
+  // configs[i] would silently mis-map every entry after the insertion. An entry
+  // with no explicit config takes its schema defaults, never an undefined one.
+  const configs = {
+    "sentropic.h2a": { mode: "shared-central", serviceBindingRef: "h2a-local-central" },
+    "sentropic.track": { access: "read-only", repositoryBindingRef: "h2a-attachment-workspace" },
+    "sentropic.engram.memory": { ...configuration }
+  };
+  const configFor = (e) => configs[e.id] ?? { ...(e.parameters?.defaults ?? {}) };
   return { format: "h2a.registry-bridge-lock/v1", lockVersion: 1, revision: 1, host: "claude", profile: "default",
     bridge: { command: "h2a", args: [] },
     selection: entries.map(e => ({ kind: "mcp", id: e.id, entryVersion: e.entryVersion })),
-    entries: Object.fromEntries(entries.map((e, i) => [e.id, { digest: validateRegistryEntry(e).digest, config: configs[i], configDigest: sha256Hex(canonicalJson(configs[i])) }])),
+    entries: Object.fromEntries(entries.map(e => [e.id, { digest: validateRegistryEntry(e).digest, config: configFor(e), configDigest: sha256Hex(canonicalJson(configFor(e))) }])),
     compatibility: { hostFeatures: ["stdio", "streamable-http", ...entry.compatibility.requiredHostFeatures], protocolVersions: ["2025-06-18"] } };
 }
 async function scratch(fn) {
@@ -79,12 +88,11 @@ test("L2R3: producer MCP envelope survives the real attachment protocol with str
     structuredContent: { ok: true, output: { schema_version: 1, value: { status: "committed_pending" } }, auditId: "audit-r3-envelope", redactionClass: "high" },
     isError: false
   };
-  f.definition.adapter.invokeTool = async request => {
-    f.calls.push(request);
-    return { ok: true, output: envelope, auditId: "audit-r3-envelope", redactionClass: "high" };
-  };
+  // Post-DISP-354 the daemon dispatches through the producer's runtime
+  // server seam, never the adapter; the served result crosses untouched.
+  f.serve(envelope);
   const store = createLocalStore({ root });
-  const handle = openCentralAttachment(root, root, store, undefined, async () => {}, undefined, undefined, { lock: lockFor(), memory: f.memory });
+  const handle = openCentralAttachment(root, root, store, undefined, async () => {}, undefined, undefined, { lock: lockFor(), memory: f.memory, admission: admissionEvidence });
   let fenceCalls = 0;
   const protocol = central.createCentralProtocolServer(handle.mcp, { call: async fn => { fenceCalls++; return fn(); } });
   const client = new Client({ name: "l2r3-envelope-fixture", version: "1" });
@@ -103,6 +111,17 @@ test("L2R3: producer MCP envelope survives the real attachment protocol with str
 
 async function shimRefusal(root, { lock, f, configured }) {
   const memory = f.memory;
+  if (configured) {
+    // A configured central composes per-call H3 admission from a REAL
+    // identity binding: plant the binding for the captured stability unit
+    // (host + provider session id) the same way a live session would, so
+    // dispatch reaches the producer seam instead of short-circuiting on
+    // admission_required before the refusal under test.
+    mkdirSync(join(root, "identity"), { recursive: true });
+    writeFileSync(join(root, "identity", "bindings.jsonl"),
+      JSON.stringify({ host: "codex", providerSessionId: "conv-r3-refusal-1", workspaceId: "unused-by-lookup",
+        instance: "codex:r3-refusal:0123456789ab", agentUuid: "01234567-89ab-4cde-8f01-234567890123", at: "2026-10-30T00:00:00.000Z" }) + "\n");
+  }
   const runtimeBase = join(root, "runtime"), physicalPrefix = join(root, "prefix");
   mkdirSync(runtimeBase, { mode: 0o700 }); mkdirSync(physicalPrefix, { mode: 0o700 });
   const server = await central.startCentralMcpServer({ root, runtimeBase, physicalPrefix, env: {}, ...(configured ? { registry: { lock, memory } } : {}) });
@@ -118,7 +137,11 @@ async function shimRefusal(root, { lock, f, configured }) {
     }
   });
   const tools = (await composeDaemonRegistry({ view: "combined", root, lock, memory })).tools();
-  const attachment = captureCentralAttachment(root, root, { host: "codex", "registry-lock-digest": configured ? bridgeLockDigest(lock) : "f".repeat(64) }, {});
+  const attachment = captureCentralAttachment(root, root,
+    configured
+      ? { host: "codex", name: "r3-refusal", "registry-lock-digest": bridgeLockDigest(lock) }
+      : { host: "codex", "registry-lock-digest": "f".repeat(64) },
+    configured ? { CLAUDE_CODE_SESSION_ID: "conv-r3-refusal-1" } : {});
   const serving = bridgeCentralMcpStdio({ runtimeBase, stdin: input, stdout: output, signal: controller.signal, workspaceRoot: root, attachment, registryTools: tools });
   const request = (id, method, params) => new Promise(resolve => {
     const timer = setInterval(() => {
@@ -157,7 +180,14 @@ test("L2R3: refusal receipts carry request, response and driver for a refused de
     const list = await session.request(2, "tools/list", {});
     assert.equal(list.result.tools.filter(t => t.name.startsWith("engram_memory_")).length, 6);
     const call = await session.request(3, "tools/call", { name: "engram_memory_forget", arguments: { record_id: "mem_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", idempotency_key: "r3-forget-1", reason_ref: "pilot" } });
+    // The refusal must be the BUILTIN's authorization refusal (the driver the
+    // receipt names), not an admission_required short-circuit: admission
+    // composes from the planted binding, dispatch reaches the producer
+    // seam, and the armed refusal fires there.
+    const surfaced = JSON.stringify(call.error ?? call.result).toLowerCase();
     assert.ok(call.error ?? call.result?.isError, `destructive refusal surfaced: ${JSON.stringify(call).slice(0, 300)}`);
+    assert.match(surfaced, /builtin authorization refused/, "the builtin's typed refusal must be the surfaced driver");
+    assert.doesNotMatch(surfaced, /admission_required|admission_invalid/, "the refusal must not be an admission short-circuit");
     assert.equal(f.calls.length, 0, "refused before any engine call");
   } finally { await session.done(); }
 }));
@@ -170,9 +200,29 @@ test("L2R3: refusal receipts carry request, response and driver for a foreign pu
     const init = await session.request(1, "initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "l2r3-foreign", version: "1" } });
     assert.ok(init.result, "selected central admits initialize");
     const call = await session.request(2, "tools/call", { name: "engram_memory_capture", arguments: { tenant_id: "forged", idempotency_key: "r3-foreign-1" } });
+    const surfaced = JSON.stringify(call.error ?? call.result).toLowerCase();
     assert.ok(call.error ?? call.result?.isError, `foreign-purpose refusal surfaced: ${JSON.stringify(call).slice(0, 300)}`);
+    assert.match(surfaced, /builtin authorization refused/, "the builtin's typed refusal must be the surfaced driver");
+    assert.doesNotMatch(surfaced, /admission_required|admission_invalid/, "the refusal must not be an admission short-circuit");
     assert.equal(f.calls.length, 0, "refused before any engine call");
   } finally { await session.done(); }
+}));
+
+test("L2R3: the attachment registry wrapper forwards lock, memory and admission", async () => scratch(async root => {
+  const f = fixture(), lock = lockFor();
+  const seen = [];
+  f.memory.resolver = { resolveContext: async input => { seen.push(input);
+    return { ok: true, context: { wrapper: true }, allowedTools: [...MEMORY_NAMES], policyRevision: "wrapper-1" }; } };
+  const { wrapMcpServerWithDaemonRegistry } = await import("../dist/registry/sentropic-daemon.js");
+  const raw = { callTool: async () => ({ content: [{ type: "text", text: "raw" }] }) };
+  const wrapped = wrapMcpServerWithDaemonRegistry(raw, { root, lock, memory: f.memory, admission: admissionEvidence });
+  const result = await wrapped.callTool(MEMORY_NAMES[0], {});
+  assert.equal(f.calls.length, 1, "the wrapper must forward memory so the locked plan dispatches through the runtime seam");
+  assert.equal(seen.length, 1, "the host resolver must be consulted");
+  assert.equal(seen[0].evidence.launchName, "pilot-h3", "the wrapper must forward the admission thunk");
+  assert.equal(seen[0].transport.sessionId, "session-contract-l2", "the lateral transport material must reach the resolver");
+  assert.ok(result && !(result instanceof Object && "error" in result), `the producer result must cross: ${JSON.stringify(result).slice(0, 200)}`);
+  assert.equal(f.calls[0].ctx.wrapper, true, "the resolver's context reaches the producer");
 }));
 
 test("L2R3: close then reopen serves memory again with an isolated driver", async () => scratch(async root => {
@@ -181,7 +231,7 @@ test("L2R3: close then reopen serves memory again with an isolated driver", asyn
     const f = fixture();
     mkdirSync(dir, { recursive: true });
     const store = createLocalStore({ root: dir });
-    const handle = openCentralAttachment(dir, dir, store, undefined, async () => {}, undefined, undefined, { lock, memory: f.memory });
+    const handle = openCentralAttachment(dir, dir, store, undefined, async () => {}, undefined, undefined, { lock, memory: f.memory, admission: admissionEvidence });
     const protocol = central.createCentralProtocolServer(handle.mcp, { call: async fn => fn() });
     const client = new Client({ name, version: "1" });
     const [a, b] = InMemoryTransport.createLinkedPair();

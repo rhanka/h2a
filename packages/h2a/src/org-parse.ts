@@ -14,7 +14,14 @@
  * {@link validateOrgManifest}. Live provisioning is a later CLI slice.
  */
 
-import type { H2AOrgCommEdge, H2AOrgInstance, H2AOrgManifest } from "./org.js";
+import type {
+  H2AOrgCommEdge,
+  H2AOrgGeneralCliPolicy,
+  H2AOrgInstance,
+  H2AOrgManifest,
+  H2AOrgMemorialAgentDeclaration,
+  H2AOrgPurposeGrantRequest
+} from "./org.js";
 
 /** Canonical filename of the committed org manifest. */
 export const H2A_ORG_MANIFEST_FILENAME = "org.h2a.yaml";
@@ -214,6 +221,168 @@ function isRecord(v: YamlValue): v is Record<string, YamlValue> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
+/**
+ * Coerce an optional non-empty scalar: present means it must be a non-empty
+ * string (an empty value is a shape error, not a silent absence).
+ */
+function coerceNonEmptyScalar(
+  v: YamlValue | undefined,
+  path: string,
+  errors: string[]
+): string | undefined {
+  if (v === undefined) return undefined;
+  if (typeof v !== "string" || v === "") {
+    errors.push(`${path}: a non-empty string is required`);
+    return undefined;
+  }
+  return v;
+}
+
+/**
+ * Coerce a boolean field: the block-YAML subset yields only strings, so the
+ * canonical `true`/`false` scalars are coerced; a JSON document may carry a
+ * real boolean. Anything else is a shape error.
+ */
+function coerceBoolean(
+  v: YamlValue | undefined,
+  path: string,
+  errors: string[]
+): boolean | undefined {
+  if (v === undefined) return undefined;
+  if (typeof v === "boolean") return v;
+  if (v === "true") return true;
+  if (v === "false") return false;
+  errors.push(`${path}: expected a boolean`);
+  return undefined;
+}
+
+/**
+ * Coerce a memorial-agent declaration block (H2A-ORG-H1, co-signed spec §2.1):
+ * launch name, agentUuid enrolment reference, H1 policy references, requested
+ * memory scopes, purpose grants with the explicit sub-agent opt-in, the L1
+ * CLI/model/effort ceiling and the declaring owner. Type checks only; the org
+ * invariants stay in {@link validateOrgManifest}.
+ */
+function coerceMemorialAgent(
+  v: YamlValue | undefined,
+  path: string,
+  errors: string[]
+): H2AOrgMemorialAgentDeclaration | undefined {
+  if (v === undefined) return undefined;
+  if (!isRecord(v)) {
+    errors.push(`${path}: expected a mapping`);
+    return undefined;
+  }
+  let bad = false;
+  const fail = (message: string): void => {
+    errors.push(`${path}.${message}`);
+    bad = true;
+  };
+  // launchName is the one field whose absence is a shape error here (the
+  // remaining required fields of spec §2.1 surface through it too)
+  if (v.launchName === undefined) {
+    errors.push(`${path}.launchName: a non-empty string is required`);
+    bad = true;
+  }
+  const launchName = coerceNonEmptyScalar(v.launchName, `${path}.launchName`, errors);
+  const agentUuidRef = coerceNonEmptyScalar(v.agentUuidRef, `${path}.agentUuidRef`, errors);
+  if (agentUuidRef === undefined) bad = true;
+  const declaringOwner = coerceNonEmptyScalar(v.declaringOwner, `${path}.declaringOwner`, errors);
+  if (declaringOwner === undefined) bad = true;
+  const effortCeiling = coerceNonEmptyScalar(v.effortCeiling, `${path}.effortCeiling`, errors);
+  const policyRefs = coerceStringList(v.policyRefs, `${path}.policyRefs`, errors);
+  if (policyRefs === undefined || policyRefs.length === 0) bad = true;
+  const memoryScopes = coerceStringList(v.memoryScopes, `${path}.memoryScopes`, errors) ?? [];
+  const allowedCliKinds = coerceStringList(v.allowedCliKinds, `${path}.allowedCliKinds`, errors);
+  if (allowedCliKinds === undefined || allowedCliKinds.length === 0) bad = true;
+  const allowedModels = coerceStringList(v.allowedModels, `${path}.allowedModels`, errors);
+  if (allowedModels === undefined || allowedModels.length === 0) bad = true;
+  const purposeGrants: H2AOrgPurposeGrantRequest[] = [];
+  if (v.purposeGrants !== undefined) {
+    if (!Array.isArray(v.purposeGrants)) {
+      fail(`purposeGrants: expected a sequence`);
+    } else {
+      v.purposeGrants.forEach((raw, i) => {
+        if (!isRecord(raw)) {
+          errors.push(`${path}.purposeGrants[${i}]: expected a mapping`);
+          bad = true;
+          return;
+        }
+        const grantPath = `${path}.purposeGrants[${i}]`;
+        const scopeKind = coerceNonEmptyScalar(raw.scopeKind, `${grantPath}.scopeKind`, errors);
+        const purposeRef = coerceNonEmptyScalar(raw.purposeRef, `${grantPath}.purposeRef`, errors);
+        const allowSubagentExec = coerceBoolean(
+          raw.allowSubagentExec,
+          `${grantPath}.allowSubagentExec`,
+          errors
+        );
+        if (scopeKind === undefined || purposeRef === undefined) {
+          bad = true;
+          return;
+        }
+        purposeGrants.push({
+          scopeKind: scopeKind as H2AOrgPurposeGrantRequest["scopeKind"],
+          purposeRef,
+          ...(allowSubagentExec !== undefined ? { allowSubagentExec } : {})
+        });
+      });
+    }
+  } else {
+    bad = true;
+  }
+  if (bad || launchName === undefined) return undefined;
+  return {
+    launchName,
+    agentUuidRef: agentUuidRef!,
+    policyRefs: policyRefs!,
+    memoryScopes: memoryScopes as H2AOrgMemorialAgentDeclaration["memoryScopes"],
+    purposeGrants,
+    allowedCliKinds: allowedCliKinds!,
+    allowedModels: allowedModels!,
+    ...(effortCeiling !== undefined ? { effortCeiling } : {}),
+    declaringOwner: declaringOwner!
+  };
+}
+
+/**
+ * Coerce the manifest-level general CLI pass-through policy (Q-D, spec §2.1).
+ * `allowMemory` is required — the frozen `false` posture is the point of the
+ * block; a memory grant is refused by {@link validateOrgManifest}, never
+ * parsed away.
+ */
+function coerceGeneralCliPolicy(
+  v: YamlValue | undefined,
+  path: string,
+  errors: string[]
+): H2AOrgGeneralCliPolicy | undefined {
+  if (v === undefined) return undefined;
+  if (!isRecord(v)) {
+    errors.push(`${path}: expected a mapping`);
+    return undefined;
+  }
+  let bad = false;
+  const generalPolicyRef = coerceNonEmptyScalar(v.generalPolicyRef, `${path}.generalPolicyRef`, errors);
+  if (generalPolicyRef === undefined) bad = true;
+  const allowedCliKinds = coerceStringList(v.allowedCliKinds, `${path}.allowedCliKinds`, errors);
+  if (allowedCliKinds === undefined || allowedCliKinds.length === 0) bad = true;
+  const allowedModels = coerceStringList(v.allowedModels, `${path}.allowedModels`, errors);
+  if (allowedModels === undefined) bad = true;
+  const allowedTools = coerceStringList(v.allowedTools, `${path}.allowedTools`, errors);
+  if (allowedTools === undefined) bad = true;
+  const effortCeiling = coerceNonEmptyScalar(v.effortCeiling, `${path}.effortCeiling`, errors);
+  const allowMemory = coerceBoolean(v.allowMemory, `${path}.allowMemory`, errors);
+  if (allowMemory === undefined) bad = true;
+  if (bad || generalPolicyRef === undefined) return undefined;
+  return {
+    generalPolicyRef,
+    allowedCliKinds: allowedCliKinds!,
+    allowedModels: allowedModels!,
+    ...(effortCeiling !== undefined ? { effortCeiling } : {}),
+    allowedTools: allowedTools!,
+    allowMemory: allowMemory as boolean
+  };
+}
+
 /** Coerce a `scopes`/`mandateRights`-style field into a string list (a bare scalar → one-element). */
 function coerceStringList(
   v: YamlValue | undefined,
@@ -266,12 +435,18 @@ function coerceManifest(value: YamlValue): H2AOrgParseResult {
       if (typeof role !== "string") errors.push(`instances[${i}].role: expected a string`);
       const scopes = coerceStringList(raw.scopes, `instances[${i}].scopes`, errors) ?? [];
       const rights = coerceStringList(raw.mandateRights, `instances[${i}].mandateRights`, errors);
+      const memorialAgent = coerceMemorialAgent(
+        raw.memorialAgent,
+        `instances[${i}].memorialAgent`,
+        errors
+      );
       if (typeof id === "string" && typeof role === "string") {
         instances.push({
           instance: id,
           role: role as H2AOrgInstance["role"],
           scopes,
-          ...(rights ? { mandateRights: rights } : {})
+          ...(rights ? { mandateRights: rights } : {}),
+          ...(memorialAgent !== undefined ? { memorialAgent } : {})
         });
       }
     });
@@ -297,13 +472,20 @@ function coerceManifest(value: YamlValue): H2AOrgParseResult {
     }
   }
 
+  const generalCliPolicy = coerceGeneralCliPolicy(
+    value.generalCliPolicy,
+    "generalCliPolicy",
+    errors
+  );
+
   if (errors.length > 0) return { errors };
 
   const manifest: H2AOrgManifest = {
     scope: scope as string,
     ...(version !== undefined ? { version } : {}),
     instances,
-    ...(commEdges !== undefined ? { commEdges } : {})
+    ...(commEdges !== undefined ? { commEdges } : {}),
+    ...(generalCliPolicy !== undefined ? { generalCliPolicy } : {})
   };
   return { manifest, errors: [] };
 }

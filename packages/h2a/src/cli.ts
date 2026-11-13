@@ -39,7 +39,7 @@
 
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { readAgyClaudeQuotaStatus } from "./runtime/agy-claude.js";
-import { generateKeyPairSync } from "node:crypto";
+import { generateKeyPairSync, createPrivateKey, createPublicKey } from "node:crypto";
 import { once } from "node:events";
 import {
   chmodSync,
@@ -107,6 +107,7 @@ import {
   H2A_WORK_STATUSES,
   auditNhiPosture,
   buildComprehensionAttestation,
+  buildRoleScopePolicyV1,
   canAttestComprehension,
   checkEnvelopeFreshness,
   computeHash,
@@ -123,18 +124,22 @@ import {
   parseOrgManifest,
   signCanonical,
   signEnvelope,
+  signRoleScopePolicyV1,
   subagentAddress,
   validateOrgManifest,
-  verifyComprehensionAttestation
+  verifyComprehensionAttestation,
+  verifyOrgRatification
 } from "@sentropic/h2a";
 import type {
   H2AActorRef,
   H2AActorRegistration,
   H2ALaunchContext,
   H2AEnvelope,
+  H2APolicySigningClass,
   H2AReplayGuard,
   H2ARole,
-  H2AWorkspaceRef
+  H2AWorkspaceRef,
+  RoleScopePolicyV1
 } from "@sentropic/h2a";
 
 import { H2A_CLAUDE_HOST } from "./hosts/claude.js";
@@ -3714,8 +3719,11 @@ function deliverOrgEnvelope(
 /**
  * `h2a org` (EVO-7 slice 2, DEC-109): read-only tooling over the committed org
  * manifest (`org.h2a.yaml`). `validate` parses + checks the h2a invariants;
- * `show` prints the normalized manifest with its validation result. The coach's
- * propose/ratify lifecycle is `h2a coach`; live provisioning is a later slice.
+ * `show` prints the normalized manifest with its validation result; `diff`
+ * reconciles the manifest against the live registry. `provision` fails closed
+ * (H2A-ORG-H1): grants happen only behind a verified PRINCIPAL `org-ratified`
+ * envelope (`--ratified`), and each declared memorial agent gets a signed
+ * RoleScopePolicyV1 emitted by the ratifying PRINCIPAL (`--private-key`).
  */
 export function cmdOrg(argv: readonly string[], streams: H2ACliStreams): number {
   const { command: sub, flags } = parseFlags(argv);
@@ -3783,11 +3791,173 @@ export function cmdOrg(argv: readonly string[], streams: H2ACliStreams): number 
       );
       return 1;
     }
+    // H2A-ORG-H1 r2: the emission parameters are validated up front — an
+    // unknown signing class refuses before any grant is applied (fail closed).
+    const signingClassStr = flags["signing-class"] ?? "D2";
+    if (signingClassStr !== "D0" && signingClassStr !== "D1" && signingClassStr !== "D2") {
+      streams.stderr.write(
+        `h2a org provision: --signing-class must be one of D0, D1, D2 (got "${signingClassStr}")\n`
+      );
+      return 1;
+    }
+    const csvList = (value: string | undefined): string[] =>
+      value === undefined
+        ? []
+        : value
+            .split(",")
+            .map((entry) => entry.trim())
+            .filter((entry) => entry !== "");
+    // H2A-ORG-H1: fail closed. A validated manifest alone creates no rights —
+    // provisioning requires the owning PRINCIPAL's verified `org-ratified`
+    // envelope over exactly this manifest (no second approval step behind the
+    // check, r2 §2.4/Q10).
+    if (!flags.ratified) {
+      streams.stderr.write(
+        "h2a org provision: refusing to provision an unratified org — pass the PRINCIPAL's signed envelope with --ratified <envelope.json>\n"
+      );
+      return 1;
+    }
+    let envelopeText: string;
+    try {
+      envelopeText = readFileSync(flags.ratified, "utf8");
+    } catch (error) {
+      streams.stderr.write(`h2a org provision: cannot read --ratified (${(error as Error).message})\n`);
+      return 3;
+    }
+    let envelope: unknown;
+    try {
+      envelope = JSON.parse(envelopeText);
+    } catch (error) {
+      streams.stderr.write(`h2a org provision: --ratified is not valid JSON (${(error as Error).message})\n`);
+      return 1;
+    }
     const store = createLocalStore({ root: resolveRoot(flags, cwd) });
+    // H2A-ORG-H1 r2: the active key set of an instance is the DEC-078 keyring
+    // union (registration-baked + rotated-in, minus rotated-out), resolved by
+    // instance name AND registration id — and an offboard tombstone (DEC-089)
+    // empties it fail-closed: an offboarded ratifier ratifies nothing.
+    const activeKeysFor = (instance: string): string[] => {
+      const registration = store
+        .listInstances()
+        .find((row) => row.instance === instance);
+      const keys = new Set<string>(store.listInstanceKeys(instance));
+      if (registration && registration.id !== instance) {
+        for (const pem of store.listInstanceKeys(registration.id)) keys.add(pem);
+      }
+      const offboarded = store.listOffboards().some(
+        (tombstone) =>
+          tombstone.instance === instance ||
+          (registration !== undefined && tombstone.instance === registration.id)
+      );
+      return offboarded ? [] : [...keys];
+    };
+    const ratification = verifyOrgRatification({
+      envelope,
+      committedManifest: parsed.manifest,
+      publicKeysFor: activeKeysFor
+    });
+    if (!ratification.ok) {
+      streams.stderr.write(
+        `h2a org provision: refusing to provision an unratified org (${ratification.refusal})\n`
+      );
+      return 1;
+    }
     const at = new Date().toISOString();
     const applied: Array<{ instance: string; role: string; grantedScopes: string[] }> = [];
     const unchanged: string[] = [];
     const pending: Array<{ instance: string; reason: string }> = [];
+
+    // H2A-ORG-H1 r2: each declared memorial agent gets one signed
+    // RoleScopePolicyV1 per (actorLaunchName, scope) key — r2 §2.6: "Key: (org
+    // actor launch name, scope). Exactly one policy document per (actor,
+    // scope)" — carrying the agent's OWN declared L1 ceiling (never the
+    // manifest-level general pass-through policy, never silent hardcoded
+    // defaults). The emission is prepared before any grant is applied, so a
+    // builder or signer failure leaves no partial state. Emission requires
+    // the ratifying PRINCIPAL's own key (custody check against the active
+    // keyring union).
+    const memorialInstances = parsed.manifest.instances.filter(
+      (inst) => inst.memorialAgent !== undefined
+    );
+    let policies: RoleScopePolicyV1[] = [];
+    if (memorialInstances.length > 0) {
+      if (!flags["private-key"]) {
+        streams.stderr.write(
+          "h2a org provision: refusing to emit memorial-agent policies without --private-key <pem-file> (the ratifying PRINCIPAL's key)\n"
+        );
+        return 1;
+      }
+      let privateKeyPem: string;
+      try {
+        privateKeyPem = readFileSync(flags["private-key"], "utf8");
+      } catch (error) {
+        streams.stderr.write(
+          `h2a org provision: cannot read --private-key (${(error as Error).message})\n`
+        );
+        return 1;
+      }
+      let derivedSpki: Buffer;
+      let signerKeyId: string;
+      try {
+        const derivedPublic = createPublicKey(createPrivateKey(privateKeyPem));
+        derivedSpki = derivedPublic.export({ type: "spki", format: "der" });
+        signerKeyId = computeHash(derivedPublic.export({ type: "spki", format: "pem" }).toString());
+      } catch (error) {
+        streams.stderr.write(
+          `h2a org provision: --private-key is not a usable key (${(error as Error).message})\n`
+        );
+        return 1;
+      }
+      const custody = activeKeysFor(ratification.actor).some((pem) => {
+        try {
+          return createPublicKey(pem).export({ type: "spki", format: "der" }).equals(derivedSpki);
+        } catch {
+          return false;
+        }
+      });
+      if (!custody) {
+        streams.stderr.write(
+          `h2a org provision: --private-key does not match a registered public key of the ratifying PRINCIPAL ${ratification.actor} (refusing to emit policies)\n`
+        );
+        return 1;
+      }
+      const mcpTools = csvList(flags["mcp-tools"]);
+      const mcpConnectorClasses = csvList(flags["mcp-connector-classes"]);
+      const driveConsentClass = flags["drive-consent-class"] ?? "pair-time-scoped";
+      try {
+        policies = memorialInstances.flatMap((inst) => {
+          const declaration = inst.memorialAgent!;
+          return inst.scopes.map((scope) =>
+            signRoleScopePolicyV1(
+              buildRoleScopePolicyV1({
+                actorLaunchName: declaration.launchName,
+                scope,
+                governanceRoles: [inst.role],
+                allowedCliKinds: declaration.allowedCliKinds,
+                allowedModels: declaration.allowedModels,
+                ...(declaration.effortCeiling !== undefined
+                  ? { effortCeiling: declaration.effortCeiling }
+                  : {}),
+                mcpRights: { tools: mcpTools, connectorClasses: mcpConnectorClasses },
+                memoryScopes: declaration.memoryScopes,
+                driveConsentClass,
+                signingClass: signingClassStr as H2APolicySigningClass,
+                validFrom: at,
+                revision: 1,
+                signerInstance: ratification.actor,
+                signerKeyId
+              }),
+              { by: ratification.actor, privateKeyPem }
+            )
+          );
+        });
+      } catch (error) {
+        streams.stderr.write(
+          `h2a org provision: refusing to emit memorial-agent policies (${(error as Error).message})\n`
+        );
+        return 1;
+      }
+    }
 
     for (const inst of parsed.manifest.instances) {
       // Re-derive the effective view each iteration so repeated declared
@@ -3819,7 +3989,7 @@ export function cmdOrg(argv: readonly string[], streams: H2ACliStreams): number 
 
     streams.stdout.write(
       `${JSON.stringify(
-        { ok: true, scope: parsed.manifest.scope, applied, unchanged, pending },
+        { ok: true, scope: parsed.manifest.scope, applied, unchanged, pending, policies },
         null,
         2
       )}\n`

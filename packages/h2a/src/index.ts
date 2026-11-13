@@ -326,10 +326,20 @@ export type { H2ABlockage, H2ABlockageBody } from "./blockage.js";
 export {
   H2A_ORG_PROPOSAL_BODY_KIND,
   H2A_ORG_RATIFIED_BODY_KIND,
+  H2A_ROLE_SCOPE_POLICY_FORMAT,
+  H2A_ROLE_SCOPE_POLICY_REVOCATION_FORMAT,
+  buildRoleScopePolicyRevocationV1,
+  buildRoleScopePolicyV1,
   diffOrgManifest,
   effectiveOrgInstances,
+  isRoleScopePolicyRevoked,
   orgAssignmentEnvelope,
-  validateOrgManifest
+  signRoleScopePolicyRevocationV1,
+  signRoleScopePolicyV1,
+  validateOrgManifest,
+  verifyOrgRatification,
+  verifyRoleScopePolicyRevocationV1,
+  verifyRoleScopePolicyV1
 } from "./org.js";
 export type {
   H2AOrgAssignmentActor,
@@ -338,12 +348,31 @@ export type {
   H2AOrgCommEdge,
   H2AOrgDiff,
   H2AOrgDiffEntry,
+  H2AOrgGeneralCliPolicy,
   H2AOrgInstance,
   H2AOrgManifest,
+  H2AOrgMemorialAgentDeclaration,
   H2AOrgMembershipGrant,
+  H2AOrgPurposeGrantRequest,
+  H2AOrgRatificationRefusal,
+  H2AOrgRatificationResult,
   H2AOrgRegisteredInstance,
   H2AOrgValidationError,
-  H2AOrgValidationResult
+  H2AOrgValidationResult,
+  H2APolicyMemoryScope,
+  H2APolicyRefusalReason,
+  H2APolicyRevocationCheck,
+  H2APolicyRevocationReason,
+  H2APolicySignOptions,
+  H2APolicySigningClass,
+  H2APolicyVerification,
+  H2APolicyVerifyOptions,
+  RoleScopePolicyInput,
+  RoleScopePolicyRevocationInput,
+  RoleScopePolicyRevocationV1,
+  RoleScopePolicyV1,
+  UnsignedRoleScopePolicyRevocationV1,
+  UnsignedRoleScopePolicyV1
 } from "./org.js";
 export { H2A_ORG_MANIFEST_FILENAME, parseOrgManifest } from "./org-parse.js";
 export type { H2AOrgParseResult, YamlValue } from "./org-parse.js";
@@ -378,12 +407,16 @@ export {
   isH2AWorkspaceRef,
   mintAgentUuid,
   slugify,
-  uuid12
+  uuid12,
+  H2A_WORKSPACE_ID_MAPPING_HINT_FORMAT,
+  buildWorkspaceIdMappingHint,
+  isWorkspaceIdMappingHint
 } from "./identity.js";
 export type {
   DeriveInstanceIdInput,
   DeriveWorkspaceIdInput,
-  H2AWorkspaceRef
+  H2AWorkspaceRef,
+  WorkspaceIdMappingHintV1
 } from "./identity.js";
 export { assertValidNegotiationState } from "./negotiation.js";
 export { canonicalize, computeHash } from "./canonical.js";
@@ -460,12 +493,17 @@ export {
   parseSubagentAddress,
   subagentActorRef,
   subagentAddress,
-  validateSubagentBinding
+  validateSubagentBinding,
+  authorizeSessionMemoryPurpose
 } from "./subagents.js";
 export type {
   H2ASubagentBinding,
   H2ASubagentValidation,
-  H2ASubagentValidationError
+  H2ASubagentValidationError,
+  AgentSessionMemoryScopeKind,
+  SessionPurposeGrantV1,
+  SessionMemoryPurposeCall,
+  SessionMemoryPurposeDecision
 } from "./subagents.js";
 export {
   H2A_ARTIFACT_KINDS,
@@ -619,6 +657,7 @@ export {
   assertHostQualifiedAddress,
   canonicalAddress,
   createLocalStore,
+  HostedRegistryRefusalError,
   isHostQualifiedAddress,
   deletePresence,
   inboxDir,
@@ -931,6 +970,14 @@ export {
 
 export { createInboxWakeHandler, type InboxWakeHandlerDeps } from "./runtime/drive/inbox-wake.js";
 export type { H2aClusterMeshOuterDeps } from "./runtime/drive/cluster-mesh-outer.js";
+export {
+  authorizeDriveWakeActuation,
+  type DriveWakeDecisionV1,
+  type DriveWakeActuationInput,
+  type DriveWakeReceiptV1,
+  type DriveWakeRefusalReason,
+  type DriveWakeActuationResult
+} from "./runtime/drive/consent.js";
 
 export async function createH2aClusterMeshOuter(
   input: import("./runtime/drive/cluster-mesh-outer.js").H2aClusterMeshOuterDeps
@@ -1031,7 +1078,27 @@ export {
   type IdentityBindingKey,
   type ReclaimOrMintDeps,
   type ReclaimOrMintResult,
-  type HostNameReaders
+  type HostNameReaders,
+  H2A_REGISTRY_INSTANCE_V1_FORMAT,
+  createRegistryReader,
+  RegistryRevisionError,
+  type RegistryInstanceViewV1,
+  type RegistryKeyViewV1,
+  type RegistryReaderV1,
+  type RegistryRevisionErrorCode,
+  H2A_ROLE_AGENT_ATTESTATION_V1_FORMAT,
+  buildRoleAgentAttestationV1,
+  verifyRoleAgentAttestationV1,
+  computeKeySetRevision,
+  inventoryEstate,
+  type RoleAgentAttestationV1,
+  type RoleAgentAttestationInput,
+  type RoleAgentAttestationVerdict,
+  type EstateInventoryInput,
+  type EstateInventoryReportV1,
+  type EstateMemorialAgentEntry,
+  type EstateResolutionItem,
+  type EstateResolutionKind
 } from "./runtime/identity/index.js";
 
 export {
@@ -1097,7 +1164,14 @@ export {
   type RecommendConductorLaunchOpts,
   type StalledItem,
   type SpawnRequestEvent,
-  type SpawnAllowedOpts
+  type SpawnAllowedOpts,
+  H2A_CONDUCTOR_LOOP_REF_FORMAT,
+  buildConductorLoopRef,
+  conductorClaimRef,
+  objectiveLoopRef,
+  isConductorLoopRef,
+  type ConductorLoopRefKind,
+  type ConductorLoopRefV1
 } from "./runtime/governance/index.js";
 
 export {
@@ -1166,3 +1240,35 @@ export const H2A_CLI_ADAPTER = {
 } as const;
 
 export { ensureCentralForRoot } from "./runtime/mcp-central-start.js";
+
+// H2A-DISP-354: the frozen H3 session-admission contract (r2.md §8.1;
+// spec-r4-h2a-cosign.md §3.4) and the memory host resolver port, re-exported
+// for cross-repo consumers (cluster-mesh at cutover W5).
+export {
+  buildSessionAdmissionEvidence,
+  verifySessionAdmissionEvidence,
+  sessionAdmissionEvidenceDigest,
+  SESSION_ADMISSION_CHANNEL_BINDINGS,
+  SESSION_ADMISSION_EVIDENCE_KEYS,
+  type SessionAdmissionEvidenceV1,
+  type SessionAdmissionIdentity,
+  type SessionAdmissionEvidenceParts
+} from "./runtime/mcp-central-context.js";
+export {
+  sessionAdmissionEvidence,
+  type CentralAdmission,
+  type CentralAdmissionMaterial,
+  type CentralAdmissionTransport
+} from "./runtime/mcp-central-attachment.js";
+export {
+  memoryResolverRefusal,
+  isMemoryResolverRefusal,
+  memoryRuntimeServer,
+  type MemoryHostResolverPort,
+  type MemoryHostResolveInput,
+  type MemoryHostResolution,
+  type MemoryHostResolvedContext,
+  type MemoryHostTransportMaterial,
+  type MemoryRuntimeServer
+} from "./registry/memory-resolver.js";
+export type { MemoryProviderRegistration } from "./registry/memory-provider.js";

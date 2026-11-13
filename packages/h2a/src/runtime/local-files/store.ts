@@ -118,6 +118,41 @@ export interface CreateLocalStoreOptions {
    * Read paths are unaffected. Default `false`.
    */
   readOnly?: boolean;
+  /**
+   * Registry placement (§2.8 one writer per placement, posture frozen with the
+   * cluster-mesh lane): `"local"` (default) keeps this store the sole writer of
+   * instance/key lifecycle records and `h2a_register_instance` the local
+   * registration writer. `"hosted"` marks a HOSTED-placement root: the
+   * cluster-mesh identity store is the writer there, so EVERY registry
+   * lifecycle writer (`h2a_register_instance`, key lifecycle, org grants,
+   * offboard) refuses with a NAMED error (`HostedRegistryRefusalError`,
+   * `registry_hosted_refusal`) — never a silent absence, and never a second
+   * writable copy of one record. A hosted open also bootstraps no local
+   * registry files on a fresh root. Hosted registration goes through
+   * cluster-mesh `/agents` enrolment; h2a surfaces consume the same H2 read
+   * contract (`RegistryReaderV1`) against the hosted root.
+   */
+  placement?: "local" | "hosted";
+}
+
+/**
+ * A mutator refused because the store is a hosted-placement registry root
+ * (§2.8): the local registry writers are not registration paths there — the
+ * hosted writer is the cluster-mesh identity store, and dual writing is
+ * forbidden. The refusal is named, never a silent absence.
+ */
+export class HostedRegistryRefusalError extends Error {
+  readonly code = "registry_hosted_refusal";
+  constructor(operation: string) {
+    super(
+      `registry_hosted_refusal: ${operation} refused on a hosted registry root — ` +
+        "the cluster-mesh identity store is the sole writer there " +
+        "(one writer per placement; h2a_register_instance is not a registration " +
+        "path for a hosted placement); hosted agent registration goes through " +
+        "cluster-mesh /agents enrolment"
+    );
+    this.name = "HostedRegistryRefusalError";
+  }
 }
 
 /** L2: a mutator refused because the store was opened read-only. */
@@ -400,7 +435,13 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
   const paths = localStorePaths(options.root);
   const initialize = options.initialize !== false;
   const readOnly = options.readOnly === true;
-  if (initialize && !readOnly) {
+  const placement = options.placement ?? "local";
+  // §2.8 one writer per placement: a hosted-placement open bootstraps NOTHING
+  // on a fresh root — the cluster-mesh identity store owns the registry there,
+  // and reads answer empty over absent files. An EXISTING root is still laid
+  // out and validated as before.
+  const hostedFreshRoot = placement === "hosted" && !existsSync(paths.root);
+  if (initialize && !readOnly && !hostedFreshRoot) {
     withWriterMutation(paths.root, "registry", () => {
     ensureLayout(paths);
     ensureSchemaSentinel(paths.root, {
@@ -410,6 +451,15 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
       writeFileSync(paths.instances, "", { encoding: "utf8" });
     }
     });
+  } else if (initialize) {
+    // Read-only open, or hosted placement on a fresh root: create no files;
+    // only VALIDATE a sentinel that already exists (an incompatible one still
+    // fails closed; an absent one is left absent).
+    if (existsSync(join(paths.root, H2A_STORE_SCHEMA_FILE))) {
+      ensureSchemaSentinel(paths.root, {
+        allowVersionMismatch: options.allowVersionMismatch === true
+      });
+    }
   } else {
     // Non-initializing open (L2): create nothing. Only VALIDATE a sentinel that
     // already exists — an incompatible one still fails closed (an unsupported
@@ -424,6 +474,14 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
   // error rather than surfacing a raw EROFS from deep in an append.
   function assertWritable(operation: string): void {
     if (readOnly) throw new StorageReadonlyError(operation);
+  }
+
+  // §2.8 one writer per placement: on a hosted-placement root the cluster-mesh
+  // identity store is the sole registry writer, so EVERY local registry
+  // lifecycle writer refuses by name — never a silent absence, never a second
+  // writable copy of one record.
+  function assertLocalRegistryWriter(operation: string): void {
+    if (placement === "hosted") throw new HostedRegistryRefusalError(operation);
   }
 
   const lockTimeoutMs = options.lockTimeoutMs ?? 5000;
@@ -521,6 +579,7 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
   }
 
   function registerInstance(reg: H2AActorRegistration): void {
+    assertLocalRegistryWriter("registerInstance");
     assertWritable("registerInstance");
     lock(
       registryLock,
@@ -561,6 +620,7 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
   }
 
   function addInstanceKey(instanceId: string, publicKeyPem: string): void {
+    assertLocalRegistryWriter("addInstanceKey");
     assertWritable("addInstanceKey");
     lock(
       registryLock,
@@ -586,6 +646,7 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
   // `listInstanceKeys` union already subtracts it, so the verifier stops
   // accepting it. Rejects revoking a key that is not currently active.
   function revokeInstanceKey(instanceId: string, publicKeyPem: string): void {
+    assertLocalRegistryWriter("revokeInstanceKey");
     lock(
       registryLock,
       () => {
@@ -611,6 +672,7 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
   }
 
   function grantOrgMembership(grant: H2AOrgMembershipGrant): void {
+    assertLocalRegistryWriter("grantOrgMembership");
     lock(
       registryLock,
       () => {
@@ -692,6 +754,7 @@ export function createLocalStore(options: CreateLocalStoreOptions): LocalStore {
   // primitives — no nested lock), then appends a tombstone. Re-running is safe:
   // it revokes only what is still active, so a second call records 0/empty.
   function offboardInstance(instanceId: string, reason?: string): H2AOffboardTombstone {
+    assertLocalRegistryWriter("offboardInstance");
     if (!findInstance(instanceId)) {
       throw new Error(`Instance not registered: ${instanceId}`);
     }

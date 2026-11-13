@@ -37,7 +37,7 @@ import {
 } from "node:fs";
 import { once } from "node:events";
 import { monitorEventLoopDelay } from "node:perf_hooks";
-import { dirname, isAbsolute, join, resolve, relative } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve, relative } from "node:path";
 import { realpathSync, statSync } from "node:fs";
 
 import { StreamableHTTPTransport } from "./mcp/transport/streamable-http.js";
@@ -66,14 +66,23 @@ import {
   negotiateUiExtension,
   serverUiExtensionCapability
 } from "./mcp/ui-render/negotiation.js";
+import { UI_RENDER_TOOL_NAMES } from "./mcp/ui-render/tools.js";
 import { UnknownResourceError, type UiExtensionCapability } from "./mcp/ui-render/types.js";
 import { boundCallToolResult } from "./mcp/frame-budget.js";
 import { createLocalStore } from "./local-files/index.js";
-import { openCentralAttachment, type CentralAttachmentHandle } from "./mcp-central-attachment.js";
+import { openCentralAttachment, sessionAdmissionEvidence, type CentralAdmissionMaterial, type CentralAttachmentHandle } from "./mcp-central-attachment.js";
+import type { CentralMcpAttachment, SessionAdmissionIdentity } from "./mcp-central-context.js";
+import { findBinding } from "./identity/bindings.js";
+import { resolveProviderSession } from "./identity/resolver.js";
+import { defaultProviderSessionReaders } from "./identity/readers.js";
+import { durableWorkspaceId } from "./identity/workspace-id.js";
+import { readMachineId } from "./identity/live.js";
+import { deriveWorkspaceId } from "../identity.js";
 import type { ComposeDaemonOptions } from "../registry/sentropic-daemon.js";
 import { parseCentralAttachment } from "./mcp-central-context.js";
 import { executeH2aRun, type H2aRunExecutor } from "./mcp/agent-launch.js";
 import { centralPausePath } from "./mcp-central-operator.js";
+import { AsyncLocalStorage } from "node:async_hooks";
 
 import { H2A_MCP_CENTRAL_ENDPOINT_ENV, centralMcpMarkerPath, expectedMode, isLoopbackHostname, markerDirectory, parseCentralMcpEndpoint, runtimeBase, uid, type CentralMcpMarker, type CentralMcpPathsOptions } from "./mcp-central-discovery.js";
 export { H2A_MCP_CENTRAL_ENV, H2A_MCP_CENTRAL_ENDPOINT_ENV, centralMcpEnabled, centralMcpClientEndpoint, centralMcpMarkerPath, parseCentralMcpEndpoint, readCentralMcpMarker } from "./mcp-central-discovery.js";
@@ -134,6 +143,105 @@ async function centralToolResult(
   }) as CallToolResult;
 }
 
+/**
+ * H2A-DISP-354: the admitted HTTP request (`{ mac, requestUid }` verified by
+ * the authenticated server) threaded PER CALL through an AsyncLocalStorage —
+ * never through shared mutable attachment state, so two concurrent calls on
+ * the same attachment can never read each other's transport proof.
+ */
+const admittedRequestScope = new AsyncLocalStorage<{ mac: string; requestUid: string } | undefined>();
+
+function admittedRequestOf(env: unknown): { mac: string; requestUid: string } | undefined {
+  if (typeof env !== "object" || env === null) return undefined;
+  const value = env as { mac?: unknown; requestUid?: unknown };
+  if (typeof value.mac !== "string" || !/^[0-9a-f]{64}$/.test(value.mac)) return undefined;
+  if (typeof value.requestUid !== "string" || !value.requestUid) return undefined;
+  return { mac: value.mac, requestUid: value.requestUid };
+}
+
+/**
+ * Derive the attachment's binding stability unit exactly the way a live
+ * session does (`resolveLiveIdentity`): the captured provider session id
+ * (Claude binds CLAUDE_CODE_SESSION_ID; other hosts read their native
+ * transcripts through the default readers with the captured env overlaid),
+ * else the per-workspace fallback id keyed on the DERIVED workspace id —
+ * never the raw disk path.
+ */
+function attachmentBindingKey(captured: CentralMcpAttachment): { providerSessionId: string; workspaceId: string } {
+  const readers = { ...defaultProviderSessionReaders, env: (name: string) => captured.env[name] ?? defaultProviderSessionReaders.env(name) };
+  const provider = resolveProviderSession({ host: captured.host, cwd: captured.workspace, readers });
+  let realPath = captured.workspace;
+  try { realPath = realpathSync(captured.workspace); } catch { /* keep the captured path */ }
+  const workspaceId =
+    durableWorkspaceId(realPath) ??
+    provider.workspaceHint ??
+    deriveWorkspaceId({ machineId: readMachineId(), path: realPath });
+  const providerSessionId =
+    captured.env.CLAUDE_CODE_SESSION_ID?.trim() ||
+    provider.providerSessionId ||
+    `fallback:${captured.host}:${workspaceId}`;
+  return { providerSessionId, workspaceId };
+}
+
+/**
+ * H2A-DISP-354: resolve the identity correlation for admission evidence
+ * from the attachment's captured stability unit (host + provider session id
+ * captured by the stdio shim). The binding key mirrors the live session's
+ * derivation, so a REAL session (no --name flag, derived fallback id)
+ * resolves its perennial identity; the launch name falls back to the
+ * registration's display name, then the workspace basename. A binding
+ * mismatch with the expected resume instance, or an unreadable store all
+ * yield NO identity — hence no evidence, hence no memory dispatch
+ * (fail-closed).
+ */
+function centralAdmissionIdentity(root: string, store: ReturnType<typeof createLocalStore> | undefined, captured: CentralMcpAttachment, expectedInstance: string | undefined): SessionAdmissionIdentity | undefined {
+  try {
+    const { providerSessionId, workspaceId } = attachmentBindingKey(captured);
+    let binding = findBinding(root, { host: captured.host, providerSessionId, workspaceId });
+    if (!binding && providerSessionId.startsWith("fallback:")) {
+      // Synthetic fixtures may have planted the legacy raw-path fallback key;
+      // a derived-key miss gets exactly one legacy probe before refusing.
+      binding = findBinding(root, { host: captured.host, providerSessionId: `fallback:${captured.host}:${captured.workspace}`, workspaceId });
+    }
+    if (!binding || typeof binding.agentUuid !== "string" || typeof binding.instance !== "string") return undefined;
+    // The resume lease stamps the expected instance once identity is ready;
+    // the "identity_disabled" sentinel means no expectation is set.
+    if (expectedInstance && expectedInstance !== "identity_disabled" && binding.instance !== expectedInstance) return undefined;
+    const launchName = captured.flags.name?.trim() || store?.findInstance(binding.instance)?.name?.trim() || basename(captured.workspace);
+    return { agentUuid: binding.agentUuid, instanceId: binding.instance, launchName };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * H2A-DISP-354: assemble the per-call admission material from the verified
+ * route state — the admitted request (transport MAC + signed request id,
+ * threaded per call through the request scope), the fenced logical transport
+ * epoch, the transport session id, and the identity correlation. Anything
+ * missing or partial refuses closed (undefined).
+ */
+function routeAdmissionMaterial(root: string, store: ReturnType<typeof createLocalStore> | undefined, captured: CentralMcpAttachment | undefined,
+  record: { participant: import('./handover/participants.js').AttachmentParticipant; transport: StreamableHTTPTransport; logical?: any } | undefined): CentralAdmissionMaterial | undefined {
+  if (!record || !captured) return undefined;
+  const admitted = admittedRequestScope.getStore();
+  if (!admitted) return undefined;
+  const sessionId = record.transport.sessionId;
+  if (typeof sessionId !== "string" || !sessionId) return undefined;
+  const epoch = record.logical?.transportEpoch;
+  if (typeof epoch !== "number" || !Number.isInteger(epoch) || epoch < 1) return undefined;
+  return {
+    attachmentId: record.participant.token.attachmentId,
+    transportMac: admitted.mac,
+    transportEpoch: epoch,
+    sessionId,
+    centralHost: captured.host,
+    channelBinding: "stdio_host_managed_verified",
+    signedRequestId: admitted.requestUid,
+    identity: centralAdmissionIdentity(root, store, captured, record.logical?.expectedInstance)
+  };
+}
+
 export function createCentralProtocolServer(mcp: McpServer, participant: import('./handover/participants.js').AttachmentParticipant): Server {
   const server = new Server(
     { name: "@sentropic/h2a", version: currentCliVersion() },
@@ -170,9 +278,18 @@ export function createCentralProtocolServer(mcp: McpServer, participant: import(
   });
   server.setRequestHandler(
     CallToolRequestSchema,
-    async (request): Promise<CallToolResult> => participant.call(async () => {
+    // H2A-DISP-354: the SDK handler extra carries the caller's AbortSignal;
+    // it rides the per-call dispatch context down to the producer seam.
+    async (request, extra): Promise<CallToolResult> => participant.call(async () => {
       for (const session of mcp.sessions.list()) mcp.sessions.markActivity(session.sessionId);
-      return centralToolResult(mcp, request.params.name, request.params.arguments ?? {}, connection);
+      // H2A-DISP-354: the SDK handler extra carries the caller's AbortSignal;
+      // it rides the per-call dispatch context down to the producer seam.
+      // SEP-1865 session state keys on the context object's identity, so
+      // ui:// tools keep the stable per-transport `connection` while every
+      // other tool gets a per-call context with the caller's signal.
+      const uiBound = (UI_RENDER_TOOL_NAMES as readonly string[]).includes(request.params.name);
+      return centralToolResult(mcp, request.params.name, request.params.arguments ?? {},
+        uiBound ? connection : { signal: extra?.signal });
     })
   );
   return server;
@@ -485,13 +602,21 @@ function createCentralApp(
         onsessioninitialized: id => { if (created) { sessions.set(id, created); inventoryRevision++; } },
         onsessionclosed: id => { const current = sessions.get(id); if (current) void closeAttachment(id, current); }
       });
-      let registry: Pick<ComposeDaemonOptions, "lock" | "memory"> | undefined;
+      let registry: Pick<ComposeDaemonOptions, "lock" | "memory" | "admission"> | undefined;
       const requestedLock = captured?.flags["registry-lock-digest"];
       if (requestedLock) {
         const { bridgeLockDigest } = await import("../registry/bridge-lock.js");
         if (!options.registry?.lock) return context.json({ error: "missing_binding: memory registry is not configured on the central service" }, 409);
         if (requestedLock !== bridgeLockDigest(options.registry.lock)) return context.json({ error: "integrity_mismatch: bridge and central registry locks differ" }, 409);
         registry = options.registry;
+      }
+      // H2A-DISP-354: per-attachment admission thunk — builds H3 admission
+      // per call from the verified route state (the per-call admitted
+      // request in the request scope + the attachment's logical transport +
+      // the binding-store identity). The thunk stays lazy: memory dispatch
+      // without verifiable material refuses closed inside the daemon.
+      if (registry) {
+        registry = { ...registry, admission: () => sessionAdmissionEvidence(routeAdmissionMaterial(root, sharedStore, captured, created)) };
       }
       const participant = participants()!.attach(logicalId, { workspace, ...(captured ? { attachment: captured } : {}) });
       participant.initialized = false;
@@ -532,8 +657,16 @@ function createCentralApp(
       if (!pending) await closeAttachment(requestedSessionId!, attachment);
       return context.body(null, 200);
     }
+    // H2A-DISP-354: the authenticated server passes the verified request
+    // (MAC, requestUid, attachmentId, transportEpoch) as the route env.
+    // Thread it PER CALL through the request scope wrapping the transport
+    // handling, so the admission thunk always reads THIS call's transport
+    // proof — never a previous call's (there is no shared stash to keep or
+    // reuse; a request without a valid admitted proof composes no material
+    // and refuses fail-closed).
+    const admitted = admittedRequestOf(context.env);
     let response;
-    try { response = await attachment.transport.handleRequest(context); }
+    try { response = await admittedRequestScope.run(admitted, () => attachment.transport.handleRequest(context)); }
     catch (error) {
       if (!requestedSessionId) { await attachment.participant.close(() => attachment.handle.close()); await attachment.transport.close(); }
       throw error;

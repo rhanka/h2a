@@ -54,3 +54,27 @@ export type {
   ResolveLiveIdentityAsyncOptions,
   ResolvedLiveIdentity
 } from "./live.js";
+export {
+  H2A_REGISTRY_INSTANCE_V1_FORMAT,
+  createRegistryReader,
+  RegistryRevisionError,
+  type RegistryInstanceViewV1,
+  type RegistryKeyViewV1,
+  type RegistryReaderV1,
+  type RegistryRevisionErrorCode
+} from "./registry-reader.js";
+export {
+  H2A_ROLE_AGENT_ATTESTATION_V1_FORMAT,
+  buildRoleAgentAttestationV1,
+  verifyRoleAgentAttestationV1,
+  computeKeySetRevision,
+  inventoryEstate,
+  type RoleAgentAttestationV1,
+  type RoleAgentAttestationInput,
+  type RoleAgentAttestationVerdict,
+  type EstateInventoryInput,
+  type EstateInventoryReportV1,
+  type EstateMemorialAgentEntry,
+  type EstateResolutionItem,
+  type EstateResolutionKind
+} from "./bindings.js";

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { PassThrough } from "node:stream";
 import { bridgeCentralMcpStdio } from "../dist/runtime/mcp-central-client.js";
-import { captureCentralAttachment } from "../dist/runtime/mcp-central-context.js";
+import { captureCentralAttachment, verifySessionAdmissionEvidence } from "../dist/runtime/mcp-central-context.js";
 import { bridgeLockDigest } from "../dist/registry/bridge-lock.js";
 import { registryPackageManifest } from "../dist/registry/manifest.js";
 import { trackRegistryPackageManifest } from "@sentropic/track/registry/manifest";
@@ -18,7 +18,7 @@ import * as central from "../dist/runtime/mcp-central.js";
 import { createLocalStore } from "../dist/runtime/local-files/index.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { MEMORY_ID, MEMORY_NAMES, entry, configuration, fixture } from "./helpers/engram-memory-contract.js";
+import { MEMORY_ID, MEMORY_NAMES, admissionEvidence, entry, configuration, fixture } from "./helpers/engram-memory-contract.js";
 
 function lockFor(memory = true) {
   // M0-L0: select the providers under test by id. The catalog may carry
@@ -26,11 +26,20 @@ function lockFor(memory = true) {
   const h2aEntry = registryPackageManifest.entries.find(e => e.id === "sentropic.h2a");
   const trackEntry = trackRegistryPackageManifest.entries.find(e => e.id === "sentropic.track");
   const entries = [h2aEntry, trackEntry, ...(memory ? [entry] : [])];
-  const configs = [{ mode: "shared-central", serviceBindingRef: "h2a-local-central" }, { access: "read-only", repositoryBindingRef: "h2a-attachment-workspace" }, { ...configuration }];
+  // Per-entry configs keyed by registry id, not manifest position: the shipped
+  // manifest may grow entries (r3 added sentropic.ui-render) and a positional
+  // configs[i] would silently mis-map every entry after the insertion. An entry
+  // with no explicit config takes its schema defaults, never an undefined one.
+  const configs = {
+    "sentropic.h2a": { mode: "shared-central", serviceBindingRef: "h2a-local-central" },
+    "sentropic.track": { access: "read-only", repositoryBindingRef: "h2a-attachment-workspace" },
+    "sentropic.engram.memory": { ...configuration }
+  };
+  const configFor = (e) => configs[e.id] ?? { ...(e.parameters?.defaults ?? {}) };
   return { format: "h2a.registry-bridge-lock/v1", lockVersion: 1, revision: 1, host: "claude", profile: "default",
     bridge: { command: "h2a", args: [] },
     selection: entries.map(e => ({ kind: "mcp", id: e.id, entryVersion: e.entryVersion })),
-    entries: Object.fromEntries(entries.map((e, i) => [e.id, { digest: validateRegistryEntry(e).digest, config: configs[i], configDigest: sha256Hex(canonicalJson(configs[i])) }])),
+    entries: Object.fromEntries(entries.map(e => [e.id, { digest: validateRegistryEntry(e).digest, config: configFor(e), configDigest: sha256Hex(canonicalJson(configFor(e))) }])),
     compatibility: { hostFeatures: ["stdio", "streamable-http", ...entry.compatibility.requiredHostFeatures], protocolVersions: ["2025-06-18"] } };
 }
 async function scratch(fn) {
@@ -67,7 +76,7 @@ test("L2: lock pins memory entry, version and normalized configuration before ac
 }));
 test("L2: selected memory discovers and calls all six tools through the Sentropic plan", async () => scratch(async root => {
   const f = fixture();
-  const plan = await composeDaemonRegistry({ view: "combined", root, lock: lockFor(), memory: f.memory });
+  const plan = await composeDaemonRegistry({ view: "combined", root, lock: lockFor(), memory: f.memory, admission: admissionEvidence });
   assert.equal(plan.catalog().length, 3);
   assert.deepEqual(plan.toolNames().filter(n => n.startsWith("engram_memory_")).sort(), [...MEMORY_NAMES].sort());
   for (const name of MEMORY_NAMES) {
@@ -77,8 +86,10 @@ test("L2: selected memory discovers and calls all six tools through the Sentropi
   }
   assert.equal(f.calls.length, 6);
   for (const call of f.calls) {
-    assert.equal(call.ctx, undefined, "no synthetic principal is supplied by h2a");
-    assert.equal(call.idempotencyKey, "operation-" + call.capabilityRef);
+    // Post-DISP-354 the producer receives the host resolver's context object,
+    // never an h2a-synthesized principal, and the key rides the envelope.
+    assert.deepEqual(call.ctx, { fixture: "engram-memory-contract" });
+    assert.equal(call.envelope.idempotencyKey, "operation-" + call.capabilityRef);
   }
   await assert.rejects(plan.dispatch("engram_memory_unknown", {}), /unknown_tool/);
   assert.equal(f.calls.length, 6);
@@ -102,7 +113,7 @@ test("L2: absent cluster-mesh builtin refuses before memory is advertised", asyn
 }));
 test("L2: builtin authorization refuses without any fallback to h2a handlers", async () => scratch(async root => {
   const f = fixture(); f.refuse();
-  const plan = await composeDaemonRegistry({ view: "combined", root, lock: lockFor(), memory: f.memory });
+  const plan = await composeDaemonRegistry({ view: "combined", root, lock: lockFor(), memory: f.memory, admission: admissionEvidence });
   await assert.rejects(plan.dispatch(MEMORY_NAMES[0], { tenant_id: "forged" }), /builtin authorization refused/);
   assert.equal(f.calls.length, 0);
 }));
@@ -123,7 +134,7 @@ test("L2: bridge selects the third provider, forwards the verified selection, an
 }));
 test("L2: actual attachment MCP protocol discovers metadata and dispatches selected memory under its fence", async () => scratch(async root => {
   const f = fixture(), lock = lockFor(), store = createLocalStore({ root });
-  const handle = openCentralAttachment(root, root, store, undefined, async () => {}, undefined, undefined, { lock, memory: f.memory });
+  const handle = openCentralAttachment(root, root, store, undefined, async () => {}, undefined, undefined, { lock, memory: f.memory, admission: admissionEvidence });
   let fenceCalls = 0;
   const protocol = central.createCentralProtocolServer(handle.mcp, { call: async fn => { fenceCalls++; return fn(); } });
   const client = new Client({ name: "l2-contract-test", version: "1" });
@@ -145,6 +156,15 @@ test("L2: actual attachment MCP protocol discovers metadata and dispatches selec
 
 test("L2: selected stdio shim reaches the real central memory dispatch with the same pinned lock", { timeout: 10000 }, async () => scratch(async root => {
   const f = fixture(), lock = lockFor(), registry = { lock, memory: f.memory };
+  // H2A-DISP-354: the central route composes the per-call H3 admission
+  // evidence from the verified route state plus the perennial identity
+  // binding; without the binding memory dispatch refuses fail-closed.
+  mkdirSync(join(root, "identity"), { recursive: true });
+  writeFileSync(join(root, "identity", "bindings.jsonl"), JSON.stringify({ host: "codex", providerSessionId: "conv-l2-shim-1", workspaceId: "unused-by-lookup",
+    instance: "codex:l2-shim:0123456789ab", agentUuid: "01234567-89ab-4cde-8f01-234567890123", at: "2026-10-30T00:00:00.000Z" }) + "\n");
+  const seen = [];
+  f.memory.resolver = { resolveContext: async input => { seen.push(input);
+    return { ok: true, context: { via: "l2-shim-route" }, allowedTools: [...MEMORY_NAMES], policyRevision: "l2-shim-1" }; } };
   const runtimeBase = join(root, "runtime"), physicalPrefix = join(root, "prefix");
   mkdirSync(runtimeBase, { mode: 0o700 }); mkdirSync(physicalPrefix, { mode: 0o700 });
   const server = await central.startCentralMcpServer({ root, runtimeBase, physicalPrefix, env: {}, registry });
@@ -165,7 +185,7 @@ test("L2: selected stdio shim reaches the real central memory dispatch with the 
     if (received.has(id)) return resolve(received.get(id));
     pending.set(id, resolve); input.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
   });
-  const attachment = captureCentralAttachment(root, root, { host: "codex", "registry-lock-digest": bridgeLockDigest(lock) }, {});
+  const attachment = captureCentralAttachment(root, root, { host: "codex", name: "l2-shim", "registry-lock-digest": bridgeLockDigest(lock) }, { CLAUDE_CODE_SESSION_ID: "conv-l2-shim-1" });
   const tools = (await composeDaemonRegistry({ view: "combined", root, ...registry })).tools();
   const serving = bridgeCentralMcpStdio({ runtimeBase, stdin: input, stdout: output, signal: controller.signal, workspaceRoot: root, attachment, registryTools: tools });
   try {
@@ -175,8 +195,10 @@ test("L2: selected stdio shim reaches the real central memory dispatch with the 
     const result = await request(3, "tools/call", { name: MEMORY_NAMES[0], arguments: {} });
     assert.equal(result.result?.isError, false, JSON.stringify(result));
     assert.equal(f.calls.length, 1);
-    assert.equal(f.calls.at(-1).ctx.context.id, attachment.id);
-    assert.ok(f.calls.at(-1).ctx.participant, "real attachment participant reaches the cluster-mesh adapter");
+    assert.equal(seen.length, 1, "the route must consult the host resolver exactly once");
+    assert.equal(verifySessionAdmissionEvidence(seen[0].evidence), true, "the route-composed H3 evidence must verify");
+    assert.equal(f.calls.at(-1).ctx.via, "l2-shim-route", "the host resolver's context reaches the producer unchanged");
+    assert.equal(seen[0].evidence.agentUuid, "01234567-89ab-4cde-8f01-234567890123");
   } finally {
     controller.abort(); input.end(); await serving; output.destroy(); await server.stop();
   }

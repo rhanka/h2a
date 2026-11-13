@@ -1001,7 +1001,47 @@ function buildHappyArgv(verb, ctx) {
       if (verb === "org validate") return ["org", "validate", "--file", file];
       if (verb === "org show") return ["org", "show", "--file", file];
       if (verb === "org diff") return ["org", "diff", "--root", root, "--file", file];
-      if (verb === "org provision") return ["org", "provision", "--root", root, "--file", file];
+      if (verb === "org provision") {
+        // H2A-ORG-H1: provision fails closed — the happy path provisions
+        // behind the owning PRINCIPAL's registered key and signed
+        // `org-ratified` envelope over exactly this manifest.
+        createLocalStore({ root }).registerInstance({
+          id: "org-principal",
+          instance: "org-principal",
+          roles: ["PRINCIPAL"],
+          scopes: ["scope:contract"],
+          capabilities: [],
+          endpoints: [],
+          publicKeys: [readFileSync(publicKeyPath, "utf8")],
+          acceptedPolicies: [],
+          createdAt: "2026-05-20T00:00:00.000Z"
+        });
+        writeFileSync(
+          file,
+          "scope: org:acme\ninstances:\n  - instance: org-principal\n    role: PRINCIPAL\n    scopes: [org:acme]\n    mandateRights: [ratify-org]\n",
+          "utf8"
+        );
+        const sink = captureStreams(join(root, ".."));
+        const ratify = runCli(
+          [
+            "coach",
+            "ratify",
+            "--root",
+            root,
+            "--file",
+            file,
+            "--as",
+            "org-principal",
+            "--private-key",
+            privateKeyPath
+          ],
+          sink
+        );
+        if (ratify !== 0) throw new Error(`coach ratify failed: ${sink.stderrText}`);
+        const envFile = join(root, "..", "org-provision.ratified.json");
+        writeFileSync(envFile, sink.stdoutText, "utf8");
+        return ["org", "provision", "--root", root, "--file", file, "--ratified", envFile];
+      }
       if (verb === "coach propose") return ["coach", "propose", "--file", file, "--as", "agent-001"];
       return ["coach", "ratify", "--file", file, "--as", "agent-001", "--private-key", privateKeyPath];
     }
