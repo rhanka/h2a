@@ -47,8 +47,14 @@ for (const renderer of ['portable', 'generic']) {
       assert.equal(await glossary.evaluate(el => el.open), false);
 
       // Printing must expose the existing definitions without changing screen state.
+      if (renderer === 'portable') await page.getByRole('button', { name: 'Thème sombre', exact: true }).click();
+      else await page.addStyleTag({ content: '.focus-document { color: #aaa; background: #111; }' });
       await page.emulateMedia({ media: 'print' });
       assert.equal(await glossary.locator('dd').last().isVisible(), true);
+      assert.deepEqual(await glossary.evaluate(el => {
+        const style = getComputedStyle(el);
+        return [style.color, style.backgroundColor];
+      }), ['rgb(0, 0, 0)', 'rgb(255, 255, 255)'], 'print remains legible with a dark screen theme');
       await page.emulateMedia({ media: 'screen' });
       assert.equal(await glossary.evaluate(el => el.open), false);
       assert.equal(await glossary.locator('dd').last().isVisible(), false);
