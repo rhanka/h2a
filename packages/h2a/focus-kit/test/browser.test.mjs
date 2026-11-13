@@ -6,6 +6,79 @@ import { join } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { chromium } from 'playwright';
+import { renderHtml } from '../../../track/src/focus-vendor/render/html.js';
+
+for (const renderer of ['portable', 'generic']) {
+  test(`${renderer} glossary stays folded with 47 terms, supports keyboard, search, anchors and print`, async () => {
+    const root = mkdtempSync(join(tmpdir(), 'focus-glossary-browser-'));
+    let browser;
+    try {
+      const doc = JSON.parse(readFileSync(new URL('../dossier.template.json', import.meta.url), 'utf8'));
+      doc.sections = doc.sections.filter(s => s.kind !== 'diagram');
+      doc.readability.glossary.push(...Array.from({ length: 46 }, (_, i) => ({
+        term: `Repère ${String.fromCharCode(97 + Math.floor(i / 26))}${String.fromCharCode(97 + i % 26)}`,
+        definition: 'Une explication pour la lecture.',
+      })));
+      const output = join(root, 'glossary.html');
+      const html = renderer === 'portable'
+        ? readFileSync(new URL('../renderer.html', import.meta.url), 'utf8')
+          .replace('<!--FOCUS_TITLE-->', 'Glossaire')
+          .replace('<!--FOCUS_PAYLOAD-->', `<script type="application/json" data-focus-document>${JSON.stringify({ document: doc }).replace(/</g, '\\u003c')}</script>`)
+        : renderHtml(doc, { renderMarkdown: text => text, sanitizeHtml: html => html });
+      writeFileSync(output, html);
+      browser = await chromium.launch({ headless: true });
+      const page = await browser.newPage({ viewport: { width: 390, height: 844 }, offline: true });
+      const errors = [];
+      page.on('pageerror', error => errors.push(error.message));
+      await page.goto(pathToFileURL(output).href);
+      const glossary = page.locator('details').filter({ has: page.locator('summary', { hasText: /(?:En mots simples|Glossary)/ }) });
+      assert.equal(await glossary.count(), 1);
+      assert.equal(await glossary.evaluate(el => el.open), false);
+      const summary = glossary.locator('summary');
+      assert.equal(await summary.innerText(), renderer === 'portable' ? 'En mots simples (47 termes)' : 'Glossary (47 terms)');
+      assert.equal(await glossary.locator('dt').count(), 47, 'terms remain in the DOM');
+      assert.equal(await glossary.locator('dd').first().isVisible(), false);
+      await summary.focus();
+      await page.keyboard.press('Enter');
+      assert.equal(await glossary.evaluate(el => el.open), true);
+      assert.equal(await page.evaluate(() => window.find('Une explication pour la lecture.')), true);
+      await summary.focus();
+      await page.keyboard.press('Space');
+      assert.equal(await glossary.evaluate(el => el.open), false);
+
+      // Printing must expose the existing definitions without changing screen state.
+      if (renderer === 'portable') await page.getByRole('button', { name: 'Thème sombre', exact: true }).click();
+      else await page.addStyleTag({ content: '.focus-document { color: #aaa; background: #111; }' });
+      await page.emulateMedia({ media: 'print' });
+      assert.equal(await glossary.locator('dd').last().isVisible(), true);
+      assert.deepEqual(await glossary.evaluate(el => {
+        const style = getComputedStyle(el);
+        return [style.color, style.backgroundColor];
+      }), ['rgb(0, 0, 0)', 'rgb(255, 255, 255)'], 'print remains legible with a dark screen theme');
+      await page.emulateMedia({ media: 'screen' });
+      assert.equal(await glossary.evaluate(el => el.open), false);
+      assert.equal(await glossary.locator('dd').last().isVisible(), false);
+
+      const term = doc.readability.glossary.at(-1).term;
+      const anchor = `glossary-${encodeURIComponent(term)}`;
+      assert.equal(await glossary.locator('dt').last().getAttribute('id'), anchor);
+      // Test an actual link, then a cold load (Svelte mounts after fragment navigation).
+      await page.evaluate(id => {
+        const link = document.createElement('a');
+        link.href = `#${encodeURIComponent(id)}`;
+        link.textContent = 'Définition';
+        document.body.prepend(link);
+      }, anchor);
+      await page.getByRole('link', { name: 'Définition', exact: true }).click();
+      await page.waitForFunction(() => document.querySelector('.focus-glossary').open);
+      assert.equal(await glossary.locator('dt').last().isVisible(), true);
+      await page.reload();
+      await page.waitForFunction(() => document.querySelector('.focus-glossary')?.open);
+      assert.equal(await glossary.locator('dt').last().isVisible(), true);
+      assert.deepEqual(errors, []);
+    } finally { await browser?.close(); rmSync(root, { recursive: true, force: true }); }
+  });
+}
 
 test('xyflow consumes diagram-core entities, links and nested containers without a Focus graph', async () => {
   const root = mkdtempSync(join(tmpdir(), 'focus-semantic-browser-'));
@@ -73,6 +146,8 @@ test('portable Focus works offline on desktop and phone, including touch pinch a
       await page.goto(pathToFileURL(output).href);
       await page.locator('.svelte-flow__node').first().waitFor();
       assert.equal(await page.title(), await page.locator('h1').innerText());
+      assert.equal(await page.locator('.focus-glossary summary').innerText(), 'En mots simples (1 terme)');
+      assert.equal(await page.locator('.focus-glossary').evaluate(el => el.open), false);
       assert.equal(await page.locator('img').count(), 0);
       assert.match(await page.locator('main').innerText(), /<img src=x onerror=alert\(1\)>/);
       assert.ok(await page.locator('h1').evaluate(el => parseFloat(getComputedStyle(el).fontSize) <= 20));

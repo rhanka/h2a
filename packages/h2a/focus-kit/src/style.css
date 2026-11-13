@@ -27,6 +27,12 @@ figcaption { font-weight: 600; }
 .svelte-flow__edge-path { stroke-width: 1px !important; }
 .svelte-flow__controls-button { min-width: 40px; min-height: 40px; border-width: 0 0 1px; }
 details { margin-top: .75rem; } summary { cursor: pointer; } dt { font-weight: 600; } dd { margin-left: 1rem; }
+.focus-glossary summary { font-weight: 600; }
+/* Expose the existing content for print without changing the screen's open state. */
+@media print {
+  .focus-glossary { color: #000; background: #fff; }
+  .focus-glossary::details-content { display: block; content-visibility: visible; }
+}
 footer { border-top: 1px solid var(--st-semantic-border-subtle); padding-top: 1rem; }
 .evidence-index { border-top: 1px solid var(--st-semantic-border-subtle); margin-top: 1rem; overflow-wrap: anywhere; }
 .evidence-index button, .citation-link { font: inherit; color: inherit; background: var(--st-semantic-surface-subtle); border: 1px solid var(--st-semantic-border-subtle); border-radius: .25rem; padding: .4rem .6rem; min-height: 44px; cursor: pointer; }

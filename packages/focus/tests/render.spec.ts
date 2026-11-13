@@ -141,6 +141,25 @@ describe("renderMd", () => {
 describe("renderHtml", () => {
   const out = renderHtml(doc, hooks);
 
+  it("should fold the glossary while preserving every term and its anchor", () => {
+    expect(out).toContain('<details class="focus-glossary"><summary>Glossary (3 terms)</summary>');
+    expect(out).not.toMatch(/<details[^>]*\bopen\b/);
+    for (const entry of doc.readability.glossary) {
+      expect(out).toContain(`<dt id="glossary-${encodeURIComponent(entry.term)}">${entry.term}</dt>`);
+      expect(out).toContain(`<dd>${entry.definition}</dd>`);
+    }
+  });
+
+  it("should omit an empty glossary and use the singular for one term", () => {
+    const plain = JSON.parse(JSON.stringify(doc).replace(/\b(?:M1|L1|L4)\b/g, 'stage'));
+    plain.readability.glossary = [{ term: 'stage', definition: 'A delivery step.' }];
+    const single = renderHtml(plain, hooks);
+    expect(single).toContain('Glossary (1 term)');
+    plain.readability.glossary = [];
+    const empty = renderHtml(plain, hooks);
+    expect(empty).not.toContain('<details class="focus-glossary"');
+  });
+
   it("runs the whole document through the host sanitize hook", () => {
     expect(out.startsWith("<!--sanitized-->")).toBe(true);
   });
