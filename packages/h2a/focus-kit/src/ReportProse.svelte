@@ -1,8 +1,8 @@
 <script>
+  import { splitMarkdownTableCells as cells } from '../../../focus/src/render/markdown-table.ts';
   // Bounded Markdown tables/headings; every cell remains Svelte-escaped text.
   // Other prose is retained verbatim, including unsupported Markdown syntax.
   let { markdown } = $props();
-  const cells = line => line.trim().replace(/^\|/, '').replace(/\|$/, '').split(/(?<!\\)\|/).map(c => c.trim().replace(/\\\|/g, '|'));
   const blocks = $derived.by(() => {
     const lines = markdown.split(/\r?\n/), result = [];
     for (let i = 0; i < lines.length; i++) {

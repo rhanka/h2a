@@ -27,6 +27,11 @@ SOFTWARE.
 var isReportDocument = (doc) => "kind" in doc && doc.kind === "report";
 var isEvidenceDossier = (doc) => "schemaVersion" in doc && doc.schemaVersion === 2;
 
+// packages/focus/src/render/markdown-table.ts
+function splitMarkdownTableCells(line) {
+  return line.trim().replace(/^\|/, "").replace(/\|$/, "").split(/(?<!\\)\|/).map((cell) => cell.trim().replace(/\\\|/g, "|"));
+}
+
 // packages/focus/src/validation/readability.ts
 var READABILITY_BUDGETS = { low: 2, medium: 8, high: 30 };
 var READABILITY_LIMITS = {
@@ -477,7 +482,7 @@ var validateDecisionDossierReadability = (doc, options) => {
         checkProseCell(block.lines[0], path, { requireTakeaway: false, isCleaned: true });
       } else if (block.kind === "table") {
         const line = block.lines[0];
-        const cells = line.slice(1, -1).split("|").map((c) => c.trim());
+        const cells = splitMarkdownTableCells(line);
         if (cells.every((c) => /^[-:]+$/.test(c))) continue;
         for (const cell of cells) {
           checkProseCell(cell, path, { requireTakeaway: false, isCleaned: true });

@@ -13,6 +13,8 @@ test('benchmark report retains tables, charts, glossary, citations and appendix 
   try {
     const doc = JSON.parse(readFileSync(new URL('../../../focus/tests/fixtures/benchmark-report.json', import.meta.url), 'utf8'));
     doc.sections[1].markdown += '\n| Texte | <img src=x onerror=alert(1)> |';
+    const boundedCell = `${'Mesure stable. '.repeat(15)}\\| ${'Mesure stable. '.repeat(14)}Fin.`;
+    doc.sections[1].markdown += `\n| Pipe \\| littéral | ${boundedCell} |`;
     const output = join(root, 'report.html');
     writeFileSync(output, buildFocusDossier(doc));
     browser = await chromium.launch({ headless: true });
@@ -29,6 +31,10 @@ test('benchmark report retains tables, charts, glossary, citations and appendix 
       assert.equal(await page.locator('#table table').count(), 1);
       assert.equal(await page.locator('#table img').count(), 0, 'table content is escaped');
       assert.match(await page.locator('#table').innerText(), /<img src=x/);
+      const escapedRow = page.locator('#table tbody tr').last();
+      assert.equal(await escapedRow.locator('td').count(), 2);
+      assert.deepEqual(await escapedRow.locator('td').allTextContents(), ['Pipe | littéral', boundedCell.replace('\\|', '|')]);
+      assert.equal((await escapedRow.locator('td').last().innerText()).split(/\s+/).length, 60);
       assert.ok(await page.getByText(doc.readability.glossary[0].definition, { exact: true }).count());
       await page.getByRole('button', { name: 'Résultats mesurés', exact: true }).first().click();
       await page.getByText(/Détection,Stable/).first().waitFor();
