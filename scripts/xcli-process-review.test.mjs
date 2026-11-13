@@ -8,6 +8,42 @@ import { environment, classifyExecJournal } from './xcli-lab.mjs';
 import { pathToFileURL } from 'node:url';
 const baseline = process.env.XCLI_PROCESS_REVIEW_BASELINE;
 
+test('R36: a tracee exiting at SETOPTIONS retains its witnessed recovery', async () => {
+  const { supervisedCommand, supervisorResult } = await import('./xcli-process-supervisor.mjs');
+  const root = fs.mkdtempSync(join(tmpdir(), 'xcli-recovery-race-'));
+  try {
+    const source = join(root, 'race.cc'), binary = join(root, 'supervisor');
+    // Deterministically exercise the kernel race: an owned, stopped tracee
+    // dies between waitpid and SETOPTIONS. No foreign PID is inspected.
+    fs.writeFileSync(source, `#include <sys/ptrace.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+#include <signal.h>
+#include <cerrno>
+template <typename T> long racing_ptrace(enum __ptrace_request op, pid_t pid, void* address, T data) {
+  static int options = 0;
+  if (op == PTRACE_SETOPTIONS && ++options == 2) {
+    kill(pid, SIGKILL); errno = ESRCH; return -1;
+  }
+  return syscall(SYS_ptrace, op, pid, address, data);
+}
+#define ptrace racing_ptrace
+` + fs.readFileSync(join(import.meta.dirname, 'xcli-process-supervisor.cc'), 'utf8'));
+    assert.equal(spawnSync('/usr/bin/g++', ['-std=c++17', source, '-o', binary], {
+      env: environment(join(root, 'compiler')), encoding: 'utf8',
+    }).status, 0);
+    const command = supervisedCommand(binary, root, ['/bin/true']);
+    const result = spawnSync(command[0], command.slice(1), {
+      env: environment(join(root, 'env')), encoding: 'utf8', timeout: 10000,
+    });
+    assert.equal(result.status, 128 + 9);
+    const observed = supervisorResult(root);
+    assert.equal(observed.processRecovery, true, 'reaped tracees prove recovery despite the lost exec observation');
+    assert.equal(observed.observationComplete, false, 'lost observation must remain visible');
+    assert.equal(observed.failure, 'ptrace-setoptions');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 test('L6 review: native descendant execs are observed without self-reporting at 1/10/100ms', async () => {
   const { buildSupervisor, supervisedCommand, supervisorResult } = await import('./xcli-process-supervisor.mjs');
   const root = fs.mkdtempSync(join(tmpdir(), 'xcli-process-'));

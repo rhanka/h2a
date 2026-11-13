@@ -129,5 +129,21 @@ test('L3 journals successful host writes and rejects uncorrelated or additional 
       records.map((r, i) => i === 0 ? { ...r, at: context.releaseAt - 1 } : r),
     ]) assert.equal(correlateWakeInput(broken, context).correlated, false);
     assert.equal(correlateWakeInput(records, { ...context, probe: { ...probe, body: { topic: 'other' } } }).correlated, false);
+
+    const muse = 'muse:receiver';
+    const museProbe = { ...probe, target: { instance: muse } };
+    const museLine = product.formatSignedDriveInstruction({ from: muse, to: muse,
+      instruction: product.formatWakeLine([museProbe], new Date(at).toISOString()),
+      privateKeyPem: privateKey.export({ type: 'pkcs8', format: 'pem' }), now: () => at });
+    const bracketed = records.map((r, i) => i === 0 ? { ...r, data: `\x1b[200~${museLine}\x1b[201~` } : r);
+    const museContext = { ...context, receiver: muse, probe: museProbe };
+    assert.equal(correlateWakeInput(bracketed, museContext).correlated, true,
+      'R36: exact Muse paste framing preserves the signed payload and the two-write proof');
+    for (const malformed of [
+      `${museLine}\x1b[201~`, `\x1b[200~${museLine}`, `\x1b[200~${museLine}\x1b[201~extra`,
+      `\x1b[200~${museLine.replace('sig=', 'sig=bad')}\x1b[201~`,
+      `\x1b[200~${museLine}\r\x1b[201~`,
+    ]) assert.equal(correlateWakeInput(bracketed.map((r, i) => i === 0 ? { ...r, data: malformed } : r), museContext).correlated, false);
+    assert.equal(correlateWakeInput(bracketed, context).correlated, false, 'framing cannot forge a different receiver');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

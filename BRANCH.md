@@ -1,3 +1,24 @@
+# Cross-CLI R36 — recovery accounting and Muse submit
+
+- Recovery-proof failure blocks the affected ordered seat pair and retains
+  its typed evidence; later pairs continue. Cancellation and failed secret
+  wipe still stop the campaign. No failed recovery becomes a green claim.
+- Separate exec-observation completeness from witnessed descendant reaping.
+  A deterministic SETOPTIONS/exit race is RED then GREEN. R35 did not retain
+  its supervisor failure detail, so that historical failure is not attributed
+  to this reproduced race; future rows retain the reason and supervisor exit.
+- Muse's bulk-input heuristic leaves the signed wake as an unsent paste.
+  The product now frames Muse paste explicitly before its single submit.
+  The real native echo-provider regression crosses product CLI, native op
+  and private PTY, RED then GREEN without credentials or model calls.
+- Signature/framing counterexamples remain rejecting; bounds, custody and
+  the two-write witness are retained. Five targeted files: 29 distinct tests
+  pass, zero skips. Details: docs/reviews/2026-11-13-cross-cli-r36.md.
+- Real R36 refused before provisioning: free space below the owner's 40 GiB
+  floor. No 6x6 measurement or improved green count is claimed.
+- Independent review selection unavailable: no installed h2a MCP launch
+  tool; exact author routing metadata unavailable. No peer consensus.
+
 # Identity self-heal — current boot and stale MCP failures
 
 - Branch: `fix/identity-same-boot-dead-chain`, based on `origin/main` db4857950.

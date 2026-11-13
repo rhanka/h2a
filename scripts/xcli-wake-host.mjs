@@ -25,12 +25,16 @@ export function correlateWakeInput(records, { target, barrierAt, releaseAt, send
   const inputs = records.filter(e => e.event === 'input' && e.id === target.id &&
     e.incarnation === target.incarnation && e.at >= barrierAt);
   const [line, submit] = inputs;
+  // Strip only the product's exact Muse transport frame. The enclosed
+  // signed line still passes all signature, target and envelope checks.
+  const signedLine = receiver.startsWith('muse:') && line?.data?.startsWith('\x1b[200~') && line.data.endsWith('\x1b[201~')
+    ? line.data.slice(6, -6) : line?.data;
   let correlated = false;
   if (inputs.length === 2 && line.at >= releaseAt && line.data && submit.data === '\r' &&
       line.controllerId.startsWith('h2a-drive-') && line.controllerId === submit.controllerId &&
       line.epoch === submit.epoch && submit.at > line.at) {
-    const parsed = product.parseSignedDriveInstruction(line.data);
-    const verified = product.verifySignedDriveInstruction(line.data, {
+    const parsed = product.parseSignedDriveInstruction(signedLine);
+    const verified = product.verifySignedDriveInstruction(signedLine, {
       resolvePublicKeys: instance => store.listInstanceKeys(instance), guard: product.createReplayGuard(), now: submit.at,
     });
     // The product wakes itself: outer signer/target = receiver. The inner
