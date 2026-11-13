@@ -19,6 +19,7 @@ export class AgyEffortError extends Error {
 }
 const GEMINI_4_CARBON_RE = /^(?:gemini-(?:4-)?)?carbon(?:-(.*))?$/i;
 const LAUNCH_MODEL_ALIASES: Readonly<Record<string, string>> = {
+  "muse-ember": "muse-ember-1.0",
   "gemini-4-argon": "gemini-4-argon",
   "gemini-4-argon-high": "gemini-4-argon",
   "gemini-4-argon-medium": "gemini-4-argon",

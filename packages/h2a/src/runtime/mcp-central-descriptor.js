@@ -1254,7 +1254,7 @@ export const embeddedTools = [
             "xhigh",
             "max"
           ],
-          "description": "AGY accepts low, medium or high, maps max to high (except gemini-4-carbon, which refuses max), and rejects xhigh with a typed error. Other profiles accept low|medium|high|xhigh. Muse maps effort to its native --reasoning-effort."
+          "description": "AGY accepts low, medium or high, maps max to high (except gemini-4-carbon, which refuses max), and rejects xhigh with a typed error. Other profiles accept low|medium|high|xhigh. Muse additionally accepts max and maps effort to its native --reasoning-effort."
         },
         "role": {
           "type": "string",

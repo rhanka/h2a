@@ -4,14 +4,14 @@ export const AGENT_LAUNCH_PROFILES = ["claude", "codex", "agy", "muse", "vibe"] 
 export type AgentLaunchProfile = (typeof AGENT_LAUNCH_PROFILES)[number];
 
 export const AGENT_LAUNCH_EFFORTS = ["low", "medium", "high", "xhigh"] as const;
-export type AgentLaunchEffort = (typeof AGENT_LAUNCH_EFFORTS)[number];
+export type AgentLaunchEffort = (typeof AGENT_LAUNCH_EFFORTS)[number] | "max";
 
 export function isAgentLaunchProfile(value: string): value is AgentLaunchProfile {
   return (AGENT_LAUNCH_PROFILES as readonly string[]).includes(value);
 }
 
-export function isAgentLaunchEffort(value: string): value is AgentLaunchEffort {
-  return (AGENT_LAUNCH_EFFORTS as readonly string[]).includes(value);
+export function isAgentLaunchEffort(value: string, profile?: string): value is AgentLaunchEffort {
+  return (AGENT_LAUNCH_EFFORTS as readonly string[]).includes(value) || (profile === "muse" && value === "max");
 }
 
 export type AgentLaunchArgsOptions = {

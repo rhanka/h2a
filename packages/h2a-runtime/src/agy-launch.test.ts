@@ -168,6 +168,21 @@ describe.each(["native","tmux"])("AGY launch on a fake %s host", host => {
     expect(out.code).toBe("agy-effort-unsupported");
     expect(out.error).toMatch(/gemini-4-carbon.*low\|medium\|high.*max/i);
   });
+  it.each(["xhigh", "max"])("keeps the Muse Ember alias receipt and argv canonical at %s effort", async effort => {
+    vi.stubEnv("H2A_SESSION_HOST", host);
+    fake.delivery.mockReturnValue({state:"working",waitedMs:1,cpuDeltaMs:50});
+    await main([
+      process.execPath, "h2a", "run", "muse", dir,
+      "--name", "ember-review", "--model", "muse-ember", "--effort", effort,
+      "--prompt-stdin", "--background", "--no-attach", "--no-h2a", "--no-gw", "--json",
+    ]);
+    const out = JSON.parse(stdout.mock.calls.map(call => String(call[0])).join(""));
+    expect(out.ok).toBe(true);
+    expect(out.session.model).toBe("muse-ember-1.0");
+    expect(out.session.gateway).toBe("direct");
+    expect(fake.start).toHaveBeenCalledTimes(1);
+    expect(fake.start.mock.calls[0]?.[3]).toEqual(["--model", "muse-ember-1.0", "--reasoning-effort", effort]);
+  });
   it("normalizes session.model in the CLI JSON receipt for claude fable aliases", async () => {
     vi.stubEnv("H2A_SESSION_HOST", host);
     fake.delivery.mockReturnValue({state:"working",waitedMs:1,cpuDeltaMs:50});
