@@ -3575,3 +3575,9 @@ red/green receipts, qualification limits and cleanup evidence.
   One full R35 matrix with the existing signed wake and wipe verification.
 - Review selection unavailable: no h2a_run MCP tool under owner confinement;
   no peer consensus. R35 evidence: tmp/h-cond/xcli-r35-*.
+
+- R35 follow-up: add the Muse boundary AFTER stage-2 trust synthesis; its Q2
+  empty-workspace requirement stays enforced. Add the production-worker test
+  in scripts/xcli-seat-onboarding.test.mjs: RED then GREEN (trust/MCP/boundary).
+  Abort and retain the invalid initial prepass; only the final complete pass
+  contributes to the R35 matrix.

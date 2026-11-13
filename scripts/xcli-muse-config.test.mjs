@@ -5,7 +5,7 @@ import { join, dirname } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { sourceBuild, environment, cliPath, privateExecutable } from './xcli-lab.mjs';
-import { createCellWorkspace } from './qualify-cross-cli.mjs';
+import { boundCellRepository } from './qualify-cross-cli.mjs';
 
 test('R35: Muse starts when an ancestor repository contains the private TMPDIR', () => {
   const installed = cliPath('muse', process.env.PATH ?? '/usr/bin:/bin');
@@ -18,12 +18,13 @@ test('R35: Muse starts when an ancestor repository contains the private TMPDIR',
     for (const isolated of [false, true]) {
       const dir = join(root, isolated ? 'cell' : 'control');
       const env = environment(dir);
-      const workspace = isolated ? createCellWorkspace(dir, 'muse') : join(dir, 'workspace');
-      if (!isolated) fs.mkdirSync(workspace);
+      const workspace = join(dir, 'workspace');
+      fs.mkdirSync(workspace);
       const trust = join(env.XDG_CONFIG_HOME, 'muse/trust.json');
       fs.mkdirSync(dirname(trust), { recursive: true });
       fs.writeFileSync(trust, JSON.stringify({ schema_version: 1,
         projects: { [workspace]: { decision: 'trusted' } } }), { mode: 0o600 });
+      if (isolated) boundCellRepository(workspace, 'muse');
       // No credentials, prompt or model call: EOF after runtime startup.
       const result = spawnSync(program.path, ['--no-session-log'], {
         cwd: workspace, env, input: '', encoding: 'utf8', timeout: 15000,

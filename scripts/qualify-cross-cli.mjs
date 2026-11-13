@@ -34,14 +34,11 @@ import { parseScenario, expectedScenarioBlocker, UNKNOWN_INSTANCE, validateScrip
 const self = fileURLToPath(import.meta.url);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const quote = text => "'" + text.replaceAll("'", "'\\''") + "'";
-export function createCellWorkspace(dir, cli) {
-  const workspace = join(dir, 'workspace');
-  fs.mkdirSync(workspace, { mode: 0o700 });
+export function boundCellRepository(workspace, cli) {
   // Muse discovers repositories independently of GIT_CEILING_DIRECTORIES.
   // Bound that walk to this empty workspace: an ambient ancestor .git must
   // not turn the sibling TMPDIR into repository content and abort startup.
   if (cli === 'muse') fs.mkdirSync(join(workspace, '.git'), { mode: 0o700 });
-  return workspace;
 }
 const option = (name, fallback) => {
   const index = process.argv.indexOf(name);
@@ -403,7 +400,8 @@ async function worker() {
     let report;
     let cellMcpComposed = false;
     if (useLibraryCell) {
-      const workspace = createCellWorkspace(dir, cli);
+      const workspace = join(dir, 'workspace');
+      fs.mkdirSync(workspace);
       const setup = spawnSync(process.execPath, [bin, 'host', 'setup', '--host', cli, '--print', '--root', env.H2A_ROOT],
         { env, cwd: workspace, encoding: 'utf8', timeout: 20000, maxBuffer: 1024 * 1024 });
       if (Number.isSafeInteger(setup.pid)) recordExec(execJournal, { pid: setup.pid, path: bin, tag: 'harness' });
@@ -455,7 +453,7 @@ async function worker() {
     // MCP file on top of the single writer.
     const workspace = join(dir, 'workspace');
     if (!cellMcpComposed) {
-      if (!useLibraryCell) createCellWorkspace(dir, cli);
+      if (!useLibraryCell) fs.mkdirSync(workspace);
       const rendered = spawnSync(process.execPath, [bin, 'host', 'setup', '--host', cli, '--print', '--root', env.H2A_ROOT],
         { env, cwd: workspace, encoding: 'utf8', timeout: 20000, maxBuffer: 1024 * 1024 });
       if (Number.isSafeInteger(rendered.pid)) recordExec(execJournal, { pid: rendered.pid, path: bin, tag: 'harness' });
@@ -499,6 +497,9 @@ async function worker() {
         if (cli === 'opencode') fs.chmodSync(dirname(path), 0o500);
       }
     }
+    // The published custodian must first write trust into an empty workspace.
+    // Add the repository boundary only after that single-writer step succeeds.
+    boundCellRepository(workspace, cli);
     const executable = simulated ? { path: executables[cli] } : privateExecutable(cli, executables[cli], dir);
     if (executable.version) row.evidence.push({ event: executable.linkedProgram ? 'private-program-link' : 'private-program-copy', role, cli,
       version: executable.version, hashes: executable.hashes });
