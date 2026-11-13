@@ -16,6 +16,7 @@
     "@vitejs/plugin-vue": "6.0.7"
   },
   "scripts": {
-    "build": "node ../../../../scripts/build-focus-vue.mjs"
+    "build": "node ../../../../scripts/build-focus-vue.mjs",
+    "test": "node --test test/*.test.mjs"
   }
 }
