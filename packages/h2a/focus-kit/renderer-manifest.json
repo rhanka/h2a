@@ -30,10 +30,10 @@
     "../../../scripts/build-focus-dossier.mjs": "766568bad22132a3b08a223c496f7021b4f7fb5cf44315f5f57811695fa18385",
     "../../focus/schemas/decision-dossier-document.v1.schema.json": "f4b5247f025e99081c20fd9a8b0ed98b32a061c4a98597010be0264e5e564c6c",
     "../../focus/src/validation/index.ts": "3123a5390bf6d0b4b8279323460355abd9f65e079e320ae110626e84317c07d1",
-    "../../focus/src/validation/readability.ts": "09dd8a5cae89be73434686e737b67babe22941de2d329b5a0ba3338a3a85b22e",
+    "../../focus/src/validation/readability.ts": "361f683c081a19ac3ca87f6fd5f24f95b33a1bbd4bbf4c75e8911e3fc4b5ddba",
     "../../focus/src/model.ts": "f6ca6bfb3d9576b3db316fbdb98bcc4966dcdcf9c4e8af25993b801d67c56c01",
     "../../focus/src/render/presentation.ts": "9810b533fdb5a480ad25380b6a32cbd99b37413694f51c9b375011799b611dc5",
-    "../../focus/src/render/markdown-table.ts": "b56cfe07d10a4040c8016539f97a11be2fe01cd89a5fca15364ac95108dca8d4",
+    "../../focus/src/render/markdown-table.ts": "e3b9f4a297b3218279710ce2f85ec347b39bf8be40a13e6fa6f90e19d06e8286",
     "../../focus/LICENSE": "cbed2af93b9617fadad7651b98326b96a789a6059126966459230d89742f6c0d",
     "src/App.svelte": "ceb54275c5fbb1a6f13812ee51aa9f74375f7b06a5d00a03ddfdf4cebc30e2ec",
     "src/Canvas.svelte": "e2302e6beb082bb30cb53c9a88307e85c7a11f7e1f8d775621d55c817714e152",
@@ -44,10 +44,10 @@
     "src/diagram-model.js": "198a8427f9bab54e240ce8c412781caf133a48feeaec595347715f3c8a34a0df",
     "src/evidence-search.js": "ba531b0680e85c2fcac108de34ccce8d1638bf3a89650804fd716cda9e31f2ff",
     "src/main.js": "063a974c2976843388d221e6a539f229a16426f34dc298ab1f2a9e6f2cb2542a",
-    "src/style.css": "a1e0f19c75ff4ff30d34e9e9922e0d499cc7bc446f5e1f62a6dda9740d60b17e",
+    "src/style.css": "f3d7dd1cd5c80bf0dfa870895c826ed7020521158bff41ae950661cb9b990069",
     "src/themes.js": "d11b2016ea27678bfa2a35986389c189147cc86a1bb99de41d3f454e79d50caf"
   },
-  "html": "50587cd5fc5014b6580525f7feaa43865662e8813463f96518477d6551d0f8b1",
-  "validator": "975bb81f33d0d2652c365c9aaf73ccd90f1598ba06a51c51e346b85b3f8b4ce4",
+  "html": "02ab5f172bda7ab9c6582062181758d7cdf3452bb96e2fce5c4c7f6a7b834ef6",
+  "validator": "ec938998791f626d86529aaeb983c94a2aed97ca870254274a185319d68e2d66",
   "diagramViews": "7fa19d02e614ecfd86786af0d379917c2386123bcf4930c0b1d6175093123108"
 }
