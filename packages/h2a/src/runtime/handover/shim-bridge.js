@@ -16,7 +16,7 @@ import { join } from 'node:path';
 import { readState } from './state.js';
 import { digest } from './wire.js';
 import { shimBuildInfo } from './shim-build.js';
-import { requestWithRetry } from './request-retry.js';
+import { requestWithRetry, transientFetchError } from './request-retry.js';
 
 const PROTOCOLS = ['2025-06-18', '2024-11-05'];
 const rpc = value => value && value.jsonrpc === '2.0' && !Array.isArray(value);
@@ -440,7 +440,16 @@ export async function bridgeCentralMcpStdio(options) {
       await pollOffer(current);
       if (observed.generation !== current.marker.generation) { recover(observed); return; }
       if (Date.now() - (current.lastLease ?? 0) >= 5000) {
-        const response = await request(current, `/_h2a-central/lease/${current.sessionId}`, { headers: headers(current) });
+        let response;
+        try { response = await request(current, `/_h2a-central/lease/${current.sessionId}`, { headers: headers(current) }); }
+        catch (error) {
+          // A lost lease response does not close the notification transport.
+          // Resuming it changes the inventory, and a frozen source refuses
+          // resume altogether, stranding its transfer ACK. Stream loss still
+          // drives recovery through the notification reader.
+          if (transientFetchError(error) && transportState === 'READY' && eventOwner === current) return;
+          throw error;
+        }
         if (!response.ok) throw new Error('lease_unavailable');
         const status = await response.json();
         if (options.attachment && status.state === 'identity_ready' && status.instance) options.attachment.expectedInstance = status.instance;
