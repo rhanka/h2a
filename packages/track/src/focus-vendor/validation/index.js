@@ -652,3 +652,46 @@ export const assertDecisionDossierForPresentation = (value, options) => {
         throw new DecisionDossierValidationError(result.issues);
     return result.value;
 };
+/** A separate schema identity: the four published decision schemas remain frozen. */
+export const REPORT_SCHEMA_ID = 'urn:sentropic:focus:ReportDocument:1.0.0';
+/** Explicit dispatch; legacy decision APIs deliberately remain decision-only (including N3). */
+export const validateFocusDocument = (value) => {
+    if (!isRecord(value) || value.kind !== 'report')
+        return validateDecisionDossierDocument(value);
+    if (value.schemaVersion !== 2)
+        return { ok: false, issues: [issue('$.schemaVersion', 'unsupported_version', 'Reports require the evidence envelope schemaVersion: 2.')] };
+    const { kind: _kind, ...base } = value;
+    const result = validateDecisionDossierDocument(base);
+    if (!result.ok)
+        return result;
+    const issues = [];
+    result.value.sections.forEach((section, i) => {
+        if (!['prose', 'diagram', 'amendmentTrace'].includes(section.kind) || 'questionId' in section) {
+            issues.push(issue('$.sections[' + i + ']', 'report_decision_content', 'Reports cannot contain questions, choices, outcomes or question references.'));
+        }
+    });
+    if (result.value.interactions.length)
+        issues.push(issue('$.interactions', 'report_interactions', 'Reports have no decision interactions.'));
+    if (issues.length)
+        return { ok: false, issues };
+    return { ok: true, value: { ...result.value, kind: 'report' } };
+};
+export const assertFocusDocument = (value) => {
+    const result = validateFocusDocument(value);
+    if (!result.ok)
+        throw new DecisionDossierValidationError(result.issues);
+    return result.value;
+};
+export const validateFocusForPresentation = (value) => {
+    const result = validateFocusDocument(value);
+    if (!result.ok)
+        return result;
+    const issues = validateDecisionDossierReadability(result.value);
+    return issues.length ? { ok: false, issues } : result;
+};
+export const assertFocusForPresentation = (value) => {
+    const result = validateFocusForPresentation(value);
+    if (!result.ok)
+        throw new DecisionDossierValidationError(result.issues);
+    return result.value;
+};

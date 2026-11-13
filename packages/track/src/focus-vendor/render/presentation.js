@@ -1,7 +1,7 @@
-import { assertDecisionDossierForPresentation } from "../validation/index.js";
+import { assertFocusForPresentation } from "../validation/index.js";
 /** Validate before hooks, then keep each question and its choices together. */
 export const preparePresentation = (value) => {
-    const doc = assertDecisionDossierForPresentation(value);
+    const doc = assertFocusForPresentation(value);
     const optionSets = doc.sections.filter((section) => section.kind === "optionSet");
     const sections = doc.sections.flatMap((section) => {
         if (section.kind === "optionSet")

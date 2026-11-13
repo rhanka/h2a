@@ -36,7 +36,7 @@ jobs:
       - run: npm --prefix packages/h2a/focus-kit ci --no-audit --no-fund
       - run: npm --prefix packages/h2a/focus-kit exec -- playwright install --with-deps chromium
       - name: Offline desktop and phone, themes, selection and touch pinch
-        run: node --test packages/h2a/focus-kit/test/browser.test.mjs
+        run: node --test packages/h2a/focus-kit/test/browser.test.mjs packages/h2a/focus-kit/test/report-browser.test.mjs
       - name: H1 evidence tasks and fresh installed-package opening
         run: node --test packages/h2a/focus-kit/test/evidence-browser.test.mjs
       - name: Strict memory observation including exiting owned processes

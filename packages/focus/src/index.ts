@@ -27,6 +27,8 @@ export type {
   DiagramSyntax,
   DossierReadability,
   FocusNode,
+  FocusDocument,
+  ReportDocument,
   FocusProvenance,
   FocusRef,
   GlossaryEntry,
@@ -41,7 +43,7 @@ export type {
   SectionInput,
   TargetRef,
 } from "./model.js";
-export { isEvidenceDossier } from './model.js';
+export { isEvidenceDossier, isReportDocument } from './model.js';
 
 export type {
   HtmlRenderHooks,

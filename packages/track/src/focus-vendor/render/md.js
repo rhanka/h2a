@@ -1,13 +1,13 @@
 /**
  * Markdown renderer (Focus-M1 L1).
  *
- * Renders a `DecisionDossierDocument` to a Markdown string. Read-only FocusSnapshot:
+ * Renders a `FocusDocument` to a Markdown string. Read-only FocusSnapshot:
  * affordances appear as disabled metadata; diagrams fall back to a FENCED code block
  * (```mermaid / ```plantuml — no diagram adapter). Prose markdown is emitted verbatim
  * (or passed through an optional host `renderMarkdown` hook for normalization).
  */
 import { preparePresentation } from "./presentation.js";
-import { evidenceIndex } from './evidence.js';
+import { evidenceIndex, reportAnnexes } from './evidence.js';
 const collapseLines = (value) => value.replace(/[\r\n\u2028\u2029]+/g, " ");
 const fenceFor = (value) => "`".repeat(Math.max(3, ...Array.from(value.matchAll(/`+/g), (match) => match[0].length + 1)));
 const renderInputsAndCriterion = (inputs, completionCriterion) => {
@@ -108,6 +108,8 @@ export const renderMd = (doc, hooks = {}) => {
     blocks.push(renderAmendmentTrace(doc.amendmentTrace));
     if (evidenceIndex(doc))
         blocks.push(evidenceIndex(doc));
+    if (reportAnnexes(doc, 'markdown'))
+        blocks.push(reportAnnexes(doc, 'markdown'));
     const affordances = renderAffordances(doc.interactions);
     if (affordances !== "")
         blocks.push(affordances);

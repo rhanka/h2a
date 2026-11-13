@@ -44,8 +44,10 @@ import { evidenceFixture } from '../../h2a/focus-kit/test/evidence-fixtures.mjs'
 
 it('should advertise and export the actual v2 evidence schema without dropping legacy support', () => {
   const manifest = JSON.parse(readFileSync(new URL('../registry/entries.v1.json', import.meta.url), 'utf8'));
-  expect(manifest.entries[0].skill.documentSchemas.map((s: any) => s.version)).toEqual(['1.0.0', '1.1.0', '2.0.0', '2.1.0']);
+  expect(manifest.entries[0].skill.documentSchemas.map((s: any) => s.version)).toEqual(['1.0.0', '1.1.0', '2.0.0', '2.1.0', '1.0.0']);
   expect(packageJson.exports['./schemas/decision-dossier-document.v2']).toBeDefined();
+  expect(packageJson.exports['./schemas/report-document.v1']).toBe('./schemas/report-document.v1.schema.json');
+  expect(manifest.entries[0].skill.documentSchemas.at(-1).schemaId).toBe('urn:sentropic:focus:ReportDocument:1.0.0');
   expect(validateDecisionDossierDocument(evidenceFixture()).ok).toBe(true);
 });
 
@@ -328,6 +330,8 @@ describe("publish builds dist first (rev352-F6, rev352r2-F5)", SUBPROCESS_SUITE,
       const copy = spawnSync("cp", ["-a", `${pkgRoot}/.`, root], { encoding: "utf8" });
       expect(copy.status).toBe(0);
       rmSync(join(root, "dist"), { recursive: true, force: true });
+      // A clean source tree has no incremental record of the removed output.
+      rmSync(join(root, "tsconfig.tsbuildinfo"), { force: true });
       rmSync(join(root, "node_modules"), { recursive: true, force: true });
       expect(existsSync(join(root, "dist", "registry", "definitions.js"))).toBe(false);
       symlinkSync(join(pkgRoot, "..", "..", "node_modules"), join(root, "node_modules"), "dir");

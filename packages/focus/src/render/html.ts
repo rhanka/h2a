@@ -1,7 +1,7 @@
 /**
  * HTML renderer (Focus-M1 L1) — MANDATORY surface.
  *
- * Renders a `DecisionDossierDocument` to an HTML string. Read-only FocusSnapshot:
+ * Renders a `FocusDocument` to an HTML string. Read-only FocusSnapshot:
  * affordances appear as DISABLED metadata; diagrams fall back to a `<pre>` block (no diagram
  * adapter). Markdown prose is converted via the host-supplied `renderMarkdown` hook (NO `marked`
  * dep, NO mdast core); the full document HTML is run through the host `sanitizeHtml` hook before
@@ -9,12 +9,12 @@
  */
 
 import { preparePresentation } from "./presentation.js";
-import { evidenceIndex } from './evidence.js';
+import { evidenceIndex, reportAnnexes } from './evidence.js';
 
 import type {
   Affordance,
   AmendmentStep,
-  DecisionDossierDocument,
+  FocusDocument,
   FocusNode,
   SectionInput,
 } from "../model.js";
@@ -139,7 +139,7 @@ const renderAffordances = (affordances: readonly Affordance[]): string => {
 
 /** Render a decision-dossier document to a sanitized HTML string. */
 export const renderHtml = (
-  doc: DecisionDossierDocument,
+  doc: FocusDocument,
   hooks: HtmlRenderHooks,
 ): string => {
   doc = preparePresentation(doc);
@@ -165,6 +165,7 @@ export const renderHtml = (
     amendment +
     affordances +
     (evidenceIndex(doc) ? `<section class="focus-evidence"><pre>${escapeHtml(evidenceIndex(doc))}</pre></section>` : '') +
+    reportAnnexes(doc, 'html') +
     "</article>";
 
   return hooks.sanitizeHtml(html);
