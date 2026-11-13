@@ -53,12 +53,14 @@ fs.writeFileSync(join(cell, 'sender', 'home', '.codex', 'auth.json'), JSON.strin
 fs.writeFileSync(join(request.root, 'stub-ready'), cell);
 `;
 
-function runParentWithStub(stubBody, extraArgs = []) {
+function runParentWithStub(stubBody, extraArgs = [], preload = '') {
   const dir = fs.mkdtempSync(join(tmpdir(), 'xcli-l5-'));
   const stub = join(dir, 'stub.mjs');
   fs.writeFileSync(stub, stubBody);
+  const preloadFile = join(dir, 'preload.mjs');
+  if (preload) fs.writeFileSync(preloadFile, preload);
   const output = join(dir, 'receipt.json');
-  const result = spawnSync(process.execPath, [join(repo, 'scripts/qualify-cross-cli.mjs'),
+  const result = spawnSync(process.execPath, [...(preload ? ['--import', preloadFile] : []), join(repo, 'scripts/qualify-cross-cli.mjs'),
     '--simulated', ...(extraArgs.includes('--sender') ? [] : ['--pair', 'codex:codex']), '--wake-release-offsets-ms', '0,100',
     '--timeout-ms', '10000', '--output', output, ...extraArgs],
   { env: { ...process.env, XCLI_WORKER_STUB: stub }, encoding: 'utf8', timeout: 120000, maxBuffer: 4 * 1024 * 1024 });
@@ -89,6 +91,55 @@ test('L5: a worker emitting invalid JSON is isolated with secrets wiped', () => 
   try {
     assert.equal(run.result.status, 2);
     assertRecoveredAndWiped(run, 'qualification-worker-failed-cleanup-unproven');
+  } finally { removeCampaignRoot(run.root); fs.rmSync(run.dir, { recursive: true, force: true }); }
+});
+
+test('R36: an unproven recovery blocks that ordered pair without cancelling other pairs', () => {
+  const preload = `import fs from 'node:fs'; import {syncBuiltinESMExports} from 'node:module';
+const read = fs.readFileSync; let injected = false;
+fs.readFileSync = function(file, ...args) {
+  const result = read.call(this, file, ...args);
+  if (!injected && String(file).endsWith('/recovery.json')) {
+    injected = true;
+    return JSON.stringify({...JSON.parse(result), processRecovery:false, failure:'recovery-deadline'});
+  }
+  return result;
+}; syncBuiltinESMExports();`;
+  const run = runParentWithStub(`${stubHead}
+process.stdout.write(JSON.stringify({sender:request.sender, receiver:request.receiver,
+  status:'blocked', blocker:'independent-cell-observed', evidence:[], elapsedMs:1}));`,
+  ['--sender', 'codex'], preload);
+  try {
+    assert.equal(run.result.status, 2);
+    assert.equal(run.receipt.cells.length, 12);
+    const affected = run.receipt.cells.filter(c => c.sender === 'codex' && c.receiver === 'codex');
+    assert.ok(affected.every(c => c.blocker === 'owned-process-recovery-unproven'));
+    assert.ok(affected.every(c => c.evidence.some(e => e.event === 'owned-process-recovery' && e.failure === 'recovery-deadline')));
+    assert.equal(affected[0].parentProcessRecovery, false, 'no recovered-process claim is invented');
+    assert.equal(run.invocations, 11, 'only the later repetition of the affected pair is refused');
+    assert.ok(run.receipt.cells.filter(c => c.receiver !== 'codex').every(c => c.blocker === 'independent-cell-observed'));
+    assert.ok(run.receipt.cells.every(c => c.parentSecretWipe === true));
+    assert.equal(fs.existsSync(run.planted), false);
+  } finally { removeCampaignRoot(run.root); fs.rmSync(run.dir, { recursive: true, force: true }); }
+});
+
+test('R36: an unproven secret wipe still stops every later pair', () => {
+  const preload = `import fs from 'node:fs'; import {basename} from 'node:path';
+import {syncBuiltinESMExports} from 'node:module';
+const remove=fs.rmSync;
+fs.rmSync=function(file,...args) {
+  if (basename(String(file)).startsWith('c-')) throw Object.assign(new Error('fixture-wipe-refused'), {code:'EACCES'});
+  return remove.call(this,file,...args);
+}; syncBuiltinESMExports();`;
+  const run = runParentWithStub(`${stubHead}
+process.stdout.write(JSON.stringify({sender:request.sender, receiver:request.receiver,
+  status:'blocked', blocker:'independent-cell-observed', evidence:[], elapsedMs:1}));`,
+  ['--sender', 'codex'], preload);
+  try {
+    assert.equal(run.invocations, 1);
+    assert.equal(run.receipt.cells[0].blocker, 'secret-wipe-unproven');
+    assert.equal(run.receipt.cells[0].parentSecretWipe, false);
+    assert.ok(run.receipt.cells.slice(1).every(c => c.blocker === 'qualification-cancelled'));
   } finally { removeCampaignRoot(run.root); fs.rmSync(run.dir, { recursive: true, force: true }); }
 });
 
