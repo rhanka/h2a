@@ -135,6 +135,52 @@ test('lost tools/list and identity replies should never be automatically replaye
   } finally { await f.close(); }
 });
 
+test('shim should retain its live notification transport after a lease timeout during a frozen transfer', async t => {
+  let leaseBudget, observed, notifications, timer;
+  const observation = new Promise(resolve => { observed = resolve; });
+  const timeout = AbortSignal.timeout;
+  let armed = false, leases = 0, resumes = 0;
+  t.mock.method(AbortSignal, 'timeout', ms => {
+    if (armed && ms === 2000) {
+      leaseBudget = new AbortController();
+      return leaseBudget.signal;
+    }
+    return timeout(ms);
+  });
+  const f = await fixture(async request => {
+    const path = new URL(request.url).pathname;
+    if (request.method === 'DELETE') return new Response(null, { status: 204 });
+    if (path.startsWith('/_h2a-central/lease/')) {
+      if (++leases === 1) leaseBudget.abort(new DOMException('fixture lease timeout', 'TimeoutError'));
+      else observed('lease');
+      return json({ state: 'identity_disabled' });
+    }
+    if (path === '/_h2a-central/resume') {
+      resumes++; observed('resume');
+      // The real central closes admissions at the transfer barrier.
+      return new Response(JSON.stringify({ error: 'admission_closed' }), { status: 409 });
+    }
+    if (request.method === 'GET') return new Response(new ReadableStream({ start(controller) { notifications = controller; } }),
+      { headers: { 'content-type': 'text/event-stream' } });
+    const m = await request.json();
+    if (m.method === 'initialize') return json({ jsonrpc: '2.0', id: m.id, result: { protocolVersion: '2025-06-18' } }, 'original-session');
+    if (m.method === 'notifications/initialized') return new Response(null, { status: 202 });
+    return json({ jsonrpc: '2.0', id: m.id, result: {} });
+  });
+  try {
+    f.send({ id: 'init', method: 'initialize', params: { protocolVersion: '2025-06-18' } }); await f.wait(m => m.id === 'init');
+    f.send({ id: 'ready', method: 'ping' }); await f.wait(m => m.id === 'ready');
+    armed = true;
+    timer = setTimeout(() => observed('timeout'), 5000);
+    assert.equal(await observation, 'lease', 'a failed control request must not resume a still-live frozen transport');
+    assert.equal(resumes, 0);
+    notifications.enqueue(new TextEncoder().encode('data: ' + JSON.stringify({ jsonrpc: '2.0', method: 'notifications/message',
+      params: { data: 'retained G0 stream' } }) + '\n\n'));
+    assert.equal((await f.wait(m => m.method === 'notifications/message')).params.data, 'retained G0 stream');
+    f.send({ id: 'after', method: 'ping' }); assert.ok((await f.wait(m => m.id === 'after')).result);
+  } finally { clearTimeout(timer); await f.close(); }
+});
+
 test('control should cancel local requests at the 32-call limit without any application dispatch', async () => {
   let release, entered;
   const ready = new Promise(r => { entered = r; }); let applicationCalls = 0;
