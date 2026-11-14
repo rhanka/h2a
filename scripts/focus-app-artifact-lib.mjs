@@ -21,7 +21,6 @@ export const FOCUS_ARTIFACT_SCHEMA_VERSION = 1
 const SOURCE_INPUTS = [
   'package.json',
   'package-lock.json',
-  'svelte.config.js',
   'tsconfig.json',
   'vite.config.ts',
   'src',
