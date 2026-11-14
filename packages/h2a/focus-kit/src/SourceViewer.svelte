@@ -16,7 +16,9 @@
     await tick(); if (token !== navigation) return;
     scroller.scrollTop = (n - 1) * lineHeight;
     await tick(); if (focus && token === navigation) {
-      scroller.querySelector(`[data-line="${n}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      // Keep clearance from viewport edges: document scroll positions are rounded,
+      // while font layout can put the cited line on a fractional pixel.
+      scroller.querySelector(`[data-line="${n}"]`)?.scrollIntoView({ block: 'center', inline: 'nearest' });
       target?.focus({ preventScroll: true });
     }
   }

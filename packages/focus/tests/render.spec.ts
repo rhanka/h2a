@@ -22,7 +22,8 @@ it('should preserve source, citation, annex and section bindings in every export
     expect(text).toContain('long:12–13');
     expect(text).toContain('Détail des pièces');
     expect(text).toContain('3 sources');
-    expect(text).toContain('late');
+    expect(text).toContain('context → [1]');
+    expect(text).toContain('[1] Preuve distante');
   }
   expect(renderHtml(evidence, hooks)).not.toContain('<img onerror=bad()>');
 });
