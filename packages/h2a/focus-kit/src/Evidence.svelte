@@ -2,18 +2,22 @@
   import { tick } from 'svelte';
   import { SvelteSet } from 'svelte/reactivity';
   import SourceViewer from './SourceViewer.svelte';
-  import { evidenceVolume } from '../../../focus/src/render/evidence.ts';
+  import Citation from './Citation.svelte';
+  import { evidenceVolume, bibliography } from '../../../focus/src/render/evidence.ts';
+  import { decodeEvidence } from '../../../focus/src/validation/evidence-bytes.ts';
   let { dossier } = $props();
   let active = $state(null), locator = $state(null), visit = $state(0), opener, scroll;
   const expanded = new SvelteSet();
   const volume = $derived(evidenceVolume(dossier));
-  export function openCitation(id) {
-    const citation = dossier.citations.find(c => c.id === id);
-    openSource(citation.sourceId, citation.locator);
+  function download(event, source) {
+    event.preventDefault();
+    const url = URL.createObjectURL(new Blob([decodeEvidence(source.data)], { type: 'application/octet-stream' }));
+    const link = document.createElement('a'); link.href = url; link.download = `evidence-${source.id.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+    link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   function openSource(id, range = null) {
     opener = document.activeElement; scroll = window.scrollY;
-    locator = range;
+    locator = range ?? dossier.citations.find(c => c.sourceId === id)?.locator ?? null;
     if (active?.id !== id) active = dossier.sources.find(s => s.id === id);
     visit++;
   }
@@ -41,11 +45,16 @@
 <section aria-label="Pièces justificatives" class="evidence-index">
   <h2>Pièces justificatives</h2>
   <p>{volume.sources} sources · {volume.bytes} octets · consultation estimée : {volume.consultationMinutes} minute(s), à six octets par mot, hors budget {dossier.kind === 'report' ? 'de lecture principal' : 'de décision'}.</p>
-  {#if active}{#key active.id}<SourceViewer source={active} {locator} {visit} onback={back} />{/key}{/if}
-  <ul>{#each dossier.citations as citation}<li><button onclick={() => openCitation(citation.id)}>{citation.label}</button> — {citation.sourceId}</li>{/each}</ul>
+  <section aria-label="Sources" class="bibliography">
+    <h2>Sources</h2>
+    <ol>{#each bibliography(dossier) as entry}<li id={entry.anchorId} tabindex="-1">
+      {entry.citation.label} · {entry.source.title} · <span class="source-location">{entry.location}</span> ·
+      <a href={`#${entry.anchorId}`} onclick={event => download(event, entry.source)}>Télécharger</a>
+    </li>{/each}</ol>
+  </section>
   <details open><summary>Catalogue des sources</summary><ul>{#each dossier.sources as source}<li><button onclick={() => openSource(source.id)}>Consulter {source.title}</button> · {source.size} octets</li>{/each}</ul></details>
   {#each dossier.evidenceGroups as group}<article><p>{group.summary}</p>
-    {#each group.citationRefs as id}<button onclick={() => openCitation(id)}>{dossier.citations.find(c => c.id === id).label}</button>{/each}
+    {#each group.citationRefs as id}<Citation {dossier} {id} />{/each}
     {#each group.sourceRefs as id}<button onclick={() => openSource(id)}>Source : {dossier.sources.find(s => s.id === id).title}</button>{/each}
   </article>{/each}
   {#each dossier.annexes as annex}<details ontoggle={e => { if (e.currentTarget.open) expanded.add(annex.id); else expanded.delete(annex.id); }}><summary><span>{annex.title}</span> — {annex.summary}</summary>
@@ -54,9 +63,10 @@
       {#if block.kind === 'text'}<p>{block.text}</p>
       {:else if block.kind === 'code'}<pre><code>{block.text}</code></pre>
       {:else if block.kind === 'table'}<div class="evidence-table"><table><thead><tr>{#each block.columns as column}<th>{column}</th>{/each}</tr></thead><tbody>{#each block.rows as row}<tr>{#each row as cell}<td>{cell}</td>{/each}</tr>{/each}</tbody></table></div>
-      {:else if block.kind === 'references'}{#each block.citationRefs as id}<button onclick={() => openCitation(id)}>{dossier.citations.find(c => c.id === id).label}</button>{/each}{/if}
+      {:else if block.kind === 'references'}{#each block.citationRefs as id}<Citation {dossier} {id} />{/each}{/if}
     {/each}
     {#each annex.backRefs as id}<button onclick={() => returnTo(id)}>Retour : {referenceTarget(id).label}</button>{/each}
     {/if}
   </details>{/each}
+  {#if active}{#key active.id}<SourceViewer source={active} {locator} {visit} onback={back} />{/key}{/if}
 </section>

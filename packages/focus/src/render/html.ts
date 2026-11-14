@@ -9,7 +9,7 @@
  */
 
 import { preparePresentation } from "./presentation.js";
-import { evidenceIndex, reportAnnexes } from './evidence.js';
+import { evidenceIndex, bibliography, reportAnnexes } from './evidence.js';
 
 import type {
   Affordance,
@@ -153,7 +153,17 @@ export const renderHtml = (
     `<header class="focus-header"><h1>${escapeHtml(doc.title)}</h1>` +
     `<p class="focus-meta">subject: ${escapeHtml(doc.subject)} · ref: <code>${escapeHtml(doc.ref)}</code> · cursor: <code>${escapeHtml(doc.cursor)}</code></p></header>`;
 
-  const sections = doc.sections.map((node) => renderNode(node, hooks)).join("");
+  const entries = bibliography(doc);
+  const calls = (refs: readonly string[] = []) => refs.map(id => {
+    const entry = entries.find(e => e.citation.id === id);
+    return entry ? `<sup><a class="focus-citation" href="#${entry.anchorId}" aria-label="Source ${entry.number}">[${entry.number}]</a></sup>` : '';
+  }).join('');
+  const sections = doc.sections.map((node) => renderNode(node, hooks) + calls(node.citationRefs) +
+    (node.kind === 'optionSet' ? node.options.map(o => o.citationRefs?.length
+      ? `<p>${escapeHtml(o.label)} ${calls(o.citationRefs)}</p>` : '').join('') : '')).join("");
+  const sources = entries.length ? `<section class="focus-sources" aria-label="Sources"><h2>Sources</h2><ol>${entries.map(e =>
+    `<li id="${e.anchorId}">${escapeHtml(e.citation.label)} · ${escapeHtml(e.source.title)} · ${escapeHtml(e.location)} · ` +
+    `<a href="data:application/octet-stream;base64,${escapeHtml(e.source.data)}" download="evidence-${escapeHtml(e.source.id.replace(/[^a-zA-Z0-9._-]/g, '_'))}">Télécharger</a></li>`).join('')}</ol></section>` : '';
   const amendment = renderAmendmentTrace(doc.amendmentTrace);
   const affordances = renderAffordances(doc.interactions);
 
@@ -164,6 +174,7 @@ export const renderHtml = (
     sections +
     amendment +
     affordances +
+    sources +
     (evidenceIndex(doc) ? `<section class="focus-evidence"><pre>${escapeHtml(evidenceIndex(doc))}</pre></section>` : '') +
     reportAnnexes(doc, 'html') +
     "</article>";

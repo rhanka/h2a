@@ -10,6 +10,27 @@ import { join } from 'node:path';
 import { chromium } from 'playwright';
 import { isolatedEnvironment } from './evidence-harness.mjs';
 
+test('should keep the cited line fully visible with fractional mobile layout offsets', async () => {
+  await withBrowser(evidenceFixture(20_000, 31), async ({ browser, url }) => {
+    for (const offset of [0, 0.25, 0.5, 0.75]) {
+      const page = await browser.newPage({ viewport: { width: 320, height: 900 }, isMobile: true, hasTouch: true });
+      await page.goto(url);
+      // Fonts and wrapping vary across platforms. Exercise the subpixel positions
+      // that nearest-edge scrolling rounds to integer document scroll offsets.
+      await page.addStyleTag({ content: `.source-viewer { margin-top: ${offset}px; }` });
+      await page.getByRole('button', { name: 'Consulter Source long', exact: true }).click();
+      const line = page.locator('[data-line="20000"]');
+      await line.waitFor();
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      const range = await line.boundingBox();
+      const viewport = await page.locator('.source-scroll').boundingBox();
+      assert.ok(range.y >= Math.max(0, viewport.y) && range.y + range.height <= Math.min(900, viewport.y + viewport.height),
+        `${offset}px offset: ${JSON.stringify(range)}`);
+      await page.close();
+    }
+  });
+});
+
 test('opens evidence from a fresh built-package install with no checkout imports or network', async () => {
   const root = mkdtempSync(join(tmpdir(), 'focus-package-browser-')); let browser;
   try {
@@ -18,7 +39,7 @@ test('opens evidence from a fresh built-package install with no checkout imports
     const context = await browser.newContext({ offline: true }), page = await context.newPage(), requests = [];
     page.on('request', r => { if (/^https?:/.test(r.url())) requests.push(r.url()); });
     await page.goto(installed.url);
-    await page.locator('.dossier-section').first().getByRole('button', { name: 'Preuve distante', exact: true }).click();
+    await page.getByRole('button', { name: 'Consulter Source long', exact: true }).click();
     const target = page.getByRole('region', { name: 'Source consultée', exact: true }).locator('[data-line="12"]');
     assert.match(await target.innerText(), /fin distante/);
     assert.deepEqual(requests, []);
@@ -45,7 +66,7 @@ test('consults complete evidence offline with bounded lines, inert text and focu
       await page.getByRole('button', { name: /Fichier portable/ }).click();
       await page.locator('.svelte-flow__controls-zoomin').click();
       const camera = await page.locator('.svelte-flow__viewport').getAttribute('style');
-      const opener = page.locator('.dossier-section').first().getByRole('button', { name: 'Preuve distante', exact: true });
+      const opener = page.getByRole('button', { name: 'Consulter Source long', exact: true });
       await opener.focus(); await page.keyboard.press('Enter');
       const panel = page.getByRole('region', { name: 'Source consultée', exact: true });
       await panel.locator('[data-line="20000"]').waitFor({ timeout: 1500 });
@@ -76,7 +97,7 @@ test('consults complete evidence offline with bounded lines, inert text and focu
       assert.equal(await page.evaluate(() => globalThis.bad), undefined);
       assert.equal(await panel.locator('img').count(), 0);
       await activate(panel.getByRole('button', { name: 'Retour au contexte' }));
-      await activate(evidence.getByRole('button', { name: 'Capture', exact: true }).first());
+      await activate(evidence.getByRole('button', { name: 'Consulter Source capture', exact: true }));
       assert.equal(await panel.getByAltText('Capture de référence').count(), 1);
       await panel.getByRole('button', { name: 'Retour au contexte' }).click();
       await evidence.getByText('Détail des pièces', { exact: true }).click();
@@ -97,11 +118,11 @@ test('consults complete evidence offline with bounded lines, inert text and focu
   });
 });
 
-test('should preserve a newer citation when an earlier complete-source search finishes', async () => {
+test('should preserve a newer catalogue navigation when an earlier complete-source search finishes', async () => {
   await withBrowser(evidenceFixture(200_000), async ({ browser, url }) => {
     const page = await browser.newPage({ offline: true });
     await page.goto(url);
-    const opener = page.locator('.dossier-section').first().getByRole('button', { name: 'Preuve distante', exact: true });
+    const opener = page.getByRole('button', { name: 'Consulter Source long', exact: true });
     await opener.click();
     const panel = page.getByRole('region', { name: 'Source consultée', exact: true });
     await page.waitForFunction(() => document.querySelector('[data-search-status]')?.textContent === '0 résultat(s)');
@@ -133,13 +154,13 @@ test('should preserve a newer citation when an earlier complete-source search fi
   });
 });
 
-test('should return focus and scroll to the latest dossier citation on keyboard and touch', async () => {
+test('should return focus and scroll to the latest catalogue opener on keyboard and touch', async () => {
   await withBrowser(evidenceFixture(), async ({ browser, url }) => {
     for (const width of [390, 1440]) {
       const context = await browser.newContext({ offline: true, viewport: { width, height: 900 }, isMobile: width < 600, hasTouch: width < 600 });
       const page = await context.newPage(); await page.goto(url);
-      await page.locator('.dossier-section').first().getByRole('button', { name: 'Preuve distante', exact: true }).click();
-      const latest = page.locator('.dossier-section').getByRole('button', { name: 'Capture', exact: true });
+      await page.getByRole('button', { name: 'Consulter Source long', exact: true }).click();
+      const latest = page.getByRole('button', { name: 'Consulter Source capture', exact: true });
       await latest.evaluate(el => { el.scrollIntoView({ block: 'center' }); el.focus(); });
       const scroll = await page.evaluate(() => window.scrollY);
       if (width < 600) await latest.tap(); else await page.keyboard.press('Enter');

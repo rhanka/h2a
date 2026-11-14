@@ -1,4 +1,12 @@
 import type { FocusDocument } from '../model.js';
+/** Shared bibliography order and literal origin; never turn an untrusted URI into a link. */
+export declare function bibliography(doc: Parameters<typeof evidenceVolume>[0]): {
+    number: number;
+    anchorId: string;
+    citation: import("../model.js").EvidenceCitation;
+    source: import("../model.js").EvidenceSource;
+    location: string;
+}[];
 /** Disclosed estimate at six UTF-8 bytes per word; raw consultation is not decision time. */
 export declare function evidenceVolume(doc: FocusDocument): {
     sources: number;
