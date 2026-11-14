@@ -58,3 +58,24 @@ Validation (Node 22):
 The dependency updates supersede Dependabot #392, which proposed Kit 3.1.0
 and adapter-node 6.0.0; those versions precede the required security patches.
 The conductor owns Track updates and the merge decision.
+
+## Round 2
+
+- P2: replaced the flagged wording in the agent-memory page and injection route
+  comments. The generated server comment originates in Svelte's renderer, so
+  Vite rewords that one source comment at load time, before code and source-map
+  generation. Installed dependencies remain unchanged. Comparing emitted code
+  with comments removed confirms the server runtime is identical.
+- P3: both npm overrides are nested under `@sveltejs/vite-plugin-svelte`.
+  Lockfile regeneration and clean installs succeed with unchanged lockfile bytes;
+  `npm ls deepmerge --all` resolves only the patched alias under that parent.
+- Before correction, both lexical artifact checks and both override-scope checks
+  fail. Afterwards all four pass; the repository-wide lexical scan retains 77
+  matching lines outside PR-touched files. The conductor report lists each one.
+- Security audits: zero vulnerabilities in both builds. Deepmerge: 10 passes.
+  Six targeted audit/Focus files: 94 passes. Three browser files: 16 passes.
+  No skips. Build, typecheck, Svelte check (zero errors, nine warnings), import
+  lint and both artifact freshness checks pass.
+- Independent review selection remains unavailable: no h2a MCP launch tool is
+  exposed. No new peer consensus is claimed. CI and pushed head are recorded
+  in the conductor report.
