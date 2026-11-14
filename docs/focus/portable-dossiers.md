@@ -49,7 +49,7 @@ metadata; diagram expansion creates a rendered view, not a new attested source s
 Cards prepare a local answer in memory. Closing/reloading clears it. No network, storage, Track
 write or signature occurs. The owner communicates their choice for explicit recording through Track.
 Every decision dossier includes a final “Votre réponse” recap. Question and option codes match
-the visible cards: `D1 A · D2 B · D3 A`. An unanswered question shows `—`; recommendations
+the visible cards and include each chosen option label: `D1 A — Fichier portable · D2 B — Page hébergée · D3 A — Fichier portable`. An unanswered question shows `—`; recommendations
 never count as answers. “Copier” writes the current line to the clipboard. If access is unavailable
 or denied, it selects the line and explains Ctrl+C / ⌘C. All dossier text allows mouse selection.
 Authored question IDs such as `D2` and `D11` keep their numbers and gaps. Other IDs receive

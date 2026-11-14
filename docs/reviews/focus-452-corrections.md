@@ -1,8 +1,8 @@
 # PR #452 — corrections pour i-cond
 
 Revue traitée : https://github.com/rhanka/h2a/pull/452#issuecomment-6866488999.
-Base vérifiée : `origin/main`, `21a9e2396c2864278a5c6da8b5a3f0540eb9a24a`.
-Elle est déjà ancêtre de cette branche. Aucun rebase nécessaire.
+Base vérifiée : `origin/main` (après fusion des PR #450, #453, #449 et #454).
+La branche est rebasée sur `origin/main` et les conflits ont été résolus.
 
 ## Ancres
 
@@ -71,26 +71,25 @@ Un test ajouté dans la simulation vérifie `[1]` et « Sources » dans les expo
 
 Résultat : construction réussie, 336 tests Focus réussis,
 deux tests navigateur rapport réussis et parcours CDP bibliographie/copie réussi.
-Ces résultats qualifient la résolution simulée. Les conflits textuels restent
-à résoudre lors de l'intégration effective des deux PR.
+Ces résolutions ont été appliquées lors du rebase sur `origin/main`.
 
 ## Contrôles locaux
 
 - `npm run build` : réussi.
-- `npm run test -w @sentropic/focus` : 321 tests réussis.
+- `npm run test -w @sentropic/focus` : 335 tests réussis.
 - `npm run lint:focus-imports` : réussi.
 - `npm run typecheck` et le typecheck Focus : réussis.
 - Contrôle du renderer et parité du vendor Focus : réussis.
 - Construction des dossiers : 36 tests réussis.
 - Installation fraîche, navigateur des pièces et CDP : huit tests réussis.
-  Le cache isolé `/home/antoinefa/.cache/focus-452-npm` fournit les 272 tarballs.
+  Un cache npm isolé fournit les 272 tarballs hors ligne.
   Le premier essai avec le cache habituel échouait sur un tarball absent.
 - Parcours navigateur généraux et mémoire : 15 tests réussis.
   Corpus depuis un checkout superficiel : un test réussi.
 - Performance : réussi, 30 mesures par parcours. Aucun seuil modifié.
   Grand corpus : ouverture p95 948 ms, citation p95 69 ms, recherche p95 61 ms.
-  Pic mémoire : 731 Mo. Mesures brutes conservées localement dans
-  `/home/antoinefa/.cache-tmp/focus-evidence-performance-Zjct8N/metrics.json`.
+  Pic mémoire : 731 Mo. Mesures brutes conservées dans le répertoire temporaire
+  isolé du test (`metrics.json`).
 
 Des essais lancés pendant une reconstruction de Track ont rencontré un `dist`
 temporairement absent. Les parcours concernés ont été relancés après reconstruction.

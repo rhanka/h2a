@@ -62,15 +62,16 @@ export async function measure(root, documents, { coldRuns, taskRuns, onSample = 
             const number = doc.citations.findIndex(citation => citation.id === id) + 1;
             const call = page.getByRole('link', { name: `Source ${number}`, exact: true }).first();
             const anchor = await call.getAttribute('href');
-            const t = performance.now(); await call.click(); await afterPaint(page);
+            await call.click(); await afterPaint(page);
             assert.equal(new URL(page.url()).hash, anchor);
             assert.equal(await page.locator(anchor).count(), 1);
             assert.equal(await page.locator('.source-viewer').count(), 0);
-            stats.citation.push(performance.now() - t);
             const source = doc.sources.find(source => source.id === c.sourceId);
+            const t = performance.now();
             await page.getByRole('button', { name: `Consulter ${source.title}`, exact: true }).click();
             const panel = page.getByRole('region', { name: 'Source consultée', exact: true });
             await panel.locator(`[data-line="${c.locator.start}"]`).waitFor({ timeout: 1500 }); await afterPaint(page);
+            stats.citation.push(performance.now() - t);
             const original = Buffer.from(doc.sources.find(s => s.id === c.sourceId).data, 'base64').toString('utf8').split(/\r\n|\r|\n/);
             assert.ok((await panel.locator(`[data-line="${c.locator.start}"]`).innerText()).endsWith(original[c.locator.start - 1] || ' '));
             await recordDom(page);
