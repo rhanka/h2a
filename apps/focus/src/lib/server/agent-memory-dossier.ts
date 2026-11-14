@@ -1022,7 +1022,7 @@ export const agentMemoryDossier: AgentMemoryDossier = {
       question:
         'Ce dossier SUPERSÈDE-t-il, ou ÉTEND-il, la conception locale antérieure qui traite déjà exactement cette question ?',
       whyNow:
-        'Personne n’a soulevé cette carte, et c’est peut-être la plus importante. Il existe une conception locale substantielle sur ce sujet précis, datée du 23/06/2026, dans /home/antoinefa/src/graphify/.graphify/scratch/ — répertoire IGNORÉ PAR GIT, donc invisible, ce qui explique que la révision 1 ne l’ait jamais citée. Elle contient un germe d’étude consensuelle avec six forks F1 à F6, une conception de recodage natif, trois investigations Hermes à trois bras, et un INVARIANT DE CONFIANCE À TROIS NIVEAUX. Or vos réponses D1, D4 et D5 sont proches de RE-DÉCIDER F1, F5 et F4 — sans les parties qui possédaient ces appels. Trancher ce statut avant d’aller plus loin évite de reprendre à zéro un consensus déjà obtenu, ou au contraire de rester lié par un document que personne ne peut lire.',
+        'Personne n’a soulevé cette carte, et c’est peut-être la plus importante. Il existe une conception locale substantielle sur ce sujet précis, datée du 23/06/2026, dans référence locale non publiée — répertoire IGNORÉ PAR GIT, donc invisible, ce qui explique que la révision 1 ne l’ait jamais citée. Elle contient un germe d’étude consensuelle avec six forks F1 à F6, une conception de recodage natif, trois investigations Hermes à trois bras, et un INVARIANT DE CONFIANCE À TROIS NIVEAUX. Or vos réponses D1, D4 et D5 sont proches de RE-DÉCIDER F1, F5 et F4 — sans les parties qui possédaient ces appels. Trancher ce statut avant d’aller plus loin évite de reprendre à zéro un consensus déjà obtenu, ou au contraire de rester lié par un document que personne ne peut lire.',
       options: [
         {
           key: 'superseder',
@@ -1054,7 +1054,7 @@ export const agentMemoryDossier: AgentMemoryDossier = {
           system: 'Le germe — les forks',
           fact:
             'H2A_MEMORY_STUDY_SEED.md (23/06/2026, statut « germe DRAFT, le principal a validé le lancement de l’étude ») pose six forks avec, pour chacun, une inclinaison et un PROPRIÉTAIRE DE L’APPEL. F1 schéma de mémoire : étendre project-graph/v1 en place, en ajoutant des types de nœuds MemoryNote, UserModel, Persona et Skill, contre un schéma frère agent-memory/v1 — inclinaison : étendre en place, appel à graphify, signé par l’architecte. F2 placement de la persona : liée au BINDING instance × rôle × slot, contre l’instance pérenne, contre un artefact Persona autonome — inclinaison : le BINDING, appel au pair h2a. F3 rôles de code comme rôles h2a de premier ordre (ce qui étendrait le vocabulaire FIGÉ, risque load-bearing) contre des rôles locaux au harnais liés sur AGENTS — inclinaison : locaux au harnais, appel conjoint pair h2a et harnais. F4 port de mémoire externe : le port de backend GraphStore EST le port, sans nouvelle abstraction, plus le choix d’un fournisseur d’embeddings FR (fork E5 ouvert : Cohere, Ollama ou pgvector natif) — appel à graphify. F5 porte de mémoire autorisée : graphify remember en écriture automatique contre approbation humaine ou par rôle — inclinaison : GATÉE pour UserModel, automatique avec supersession pour MemoryNote, appel conjoint graphify et principal. F6 : le « stp » listé par le principal est-il un 5e composant sentropic ou « s’il te plaît » ? OUVERT, bloque le périmètre final.',
-          source: 'lu à la source — /home/antoinefa/src/graphify/.graphify/scratch/H2A_MEMORY_STUDY_SEED.md §2',
+          source: 'lu à la source — référence locale non publiée §2',
         },
         {
           system: 'Le germe — l’invariant de confiance',
@@ -1072,13 +1072,13 @@ export const agentMemoryDossier: AgentMemoryDossier = {
           system: 'La frontière de périmètre que D1 franchirait',
           fact:
             'Vérifié mot pour mot dans la spécification de graphify, dont l’état est « IMPLÉMENTATION PARTIELLE » : « T7 projette dans le graphe agent-stats des preuves de coordination h2a strictement locales ; la mémoire autorisée et la sémantique de persona/connaissance h2a restent NON APPROUVÉES ET HORS PÉRIMÈTRE. » Or D1 et D8 portent précisément sur de la mémoire autorisée. Le statut de cette borne n’est pas une formalité : soit elle est levée explicitement, soit la composition demandée est hors périmètre du document qui la régit.',
-          source: 'lu à la source — /home/antoinefa/src/graphify/spec/SPEC_AGENTSTATS_TIMEORIENTED.md:12-14',
+          source: 'lu à la source — référence locale non publiée',
         },
         {
           system: 'La conception compagnon',
           fact:
             'NATIVE_AGENT_MEMORY_DESIGN.md détaille six capacités avec un effort chiffré : mémoire autorisée persistante (effort M — « graphify a la mémoire en LECTURE (transcripts) mais aucun chemin d’écriture autorisée par l’agent »), rappel inter-sessions (S, largement déjà bâti), lignée de session avec un discriminant reason valant compaction, subagent ou resume (S–M), persona/SOUL (L, la plus grosse surface neuve et le fork bloquant), mémoire procédurale et skills (M), port de mémoire externe (S, « le port existe déjà »). Elle fixe aussi le schéma du substrat : graphify.agent-stats.project-graph/v1.',
-          source: 'lu à la source — /home/antoinefa/src/graphify/.graphify/scratch/NATIVE_AGENT_MEMORY_DESIGN.md §1',
+          source: 'lu à la source — référence locale non publiée §1',
         },
       ],
       unknowns: [

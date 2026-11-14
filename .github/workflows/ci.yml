@@ -50,6 +50,12 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - run: npm run audit:security
+      - run: npm --prefix packages/h2a/focus-kit audit --audit-level=moderate
+      - name: Verify the deepmerge security override in both build trees
+        run: |
+          npm --prefix apps/focus ci --ignore-scripts
+          npm --prefix packages/h2a/focus-kit ci --ignore-scripts
+          node --test scripts/deepmerge-security.test.mjs
 
   zero-python:
     # Owner standing rule: 0 Python in repos and jobs (supply-chain: a Python

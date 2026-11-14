@@ -707,7 +707,7 @@
                       {/if}
 
                       <!-- La ligne la plus utile d'une carte de décision est un « nous n'avons pas pu
-                           l'établir » honnête. Ces éléments ne sont donc pas fondus dans la prose des options,
+                           l'établir » explicite. Ces éléments ne sont donc pas fondus dans la prose des options,
                            où ils prendraient la couleur d'un fait. -->
                       {#if decision.unknowns?.length}
                         <section class="unknowns" aria-labelledby={`unknowns-${decision.key}`}>
@@ -1035,7 +1035,7 @@
                       message={`Ces options n'existent plus pour leur décision : ${committedReport.staleOptions.join(', ')}. La note a été chargée, la sélection est restée vide — à vous de la reprendre.`}
                     />
                   {/if}
-                  <!-- L'autre moitié de l'honnêteté : les cartes que ce jeu ne couvre pas. -->
+                  <!-- Limites de couverture : les cartes que ce jeu ne couvre pas. -->
                   {#if committedReport.unanswered.length}
                     <Alert
                       tone="info"
