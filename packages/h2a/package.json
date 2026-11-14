@@ -80,7 +80,7 @@
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@sentropic/cluster-mesh": "0.25.0",
     "@sentropic/contracts": "^0.3.0",
-    "@sentropic/engram": "0.23.1",
+    "@sentropic/engram": "0.28.0",
     "@sentropic/events": "^0.2.0",
     "@sentropic/llm-gateway": "0.20.0",
     "@sentropic/llm-mesh": "0.26.0",
