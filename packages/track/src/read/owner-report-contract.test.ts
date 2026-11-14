@@ -122,6 +122,9 @@ describe('rendering cutover — --status-table selects the validated report (D1,
     const wp2 = t.createItem({ kind: 'chore', title: 'WP2', workspace: 'ws', role: 'workpackage' })
     const open = t.createItem({ kind: 'chore', title: 'open work', workspace: 'ws', parentId: wp1 })
     t.setRealization(open, 'in-progress')
+    const onTrackMember = t.createItem({ kind: 'chore', title: 'on-track work', workspace: 'ws', parentId: wp1 })
+    t.setRealization(onTrackMember, 'in-progress')
+    t.setReportStatus(onTrackMember, { status: 'on-track', facts: 'On-track work verified.' })
     const blockedMember = t.createItem({ kind: 'chore', title: 'blocked work', workspace: 'ws', parentId: wp1 })
     t.setRealization(blockedMember, 'in-progress')
     const dep = t.createItem({ kind: 'chore', title: 'external prerequisite', workspace: 'ws' })
@@ -279,7 +282,7 @@ describe('rendering cutover — --status-table selects the validated report (D1,
 
   it('a WP with red and blue members keeps both visible; one deployed member does not make the WP deployed', () => {
     const t = cutoverTrack()
-    const ids = seedCutover(t)
+    seedCutover(t)
     const { code, parsed } = statusJson([])
     expect(code).toBe(0)
     const todoRows = parsed.view.tables.find((table: { id: string }) => table.id === 'todo')!.rows as Array<{
@@ -292,7 +295,7 @@ describe('rendering cutover — --status-table selects the validated report (D1,
     expect(wp1Row.status).toContain('🔴')
     expect(wp1Row.status).toContain('🔵')
     const wp2Row = todoRows.find((row) => row.todo.includes('open deployed work'))!
-    expect(wp2Row.stage).toContain('deployed')
+    expect(wp2Row.stage).toContain('preprod')
     // Per-item annotation only: FAIT carries no stage/status columns and no
     // WP-level stage exists anywhere in the served tables.
     const fait = parsed.view.tables.find((table: { id: string }) => table.id === 'done')! as {
@@ -300,7 +303,24 @@ describe('rendering cutover — --status-table selects the validated report (D1,
       rows: Array<Record<string, string>>
     }
     expect(fait.columns.map((column) => column.id)).toEqual(['scope', 'progress', 'lastActions'])
-    expect(JSON.stringify(fait.rows)).not.toContain('[1.1] deployed')
+    expect(JSON.stringify(fait.rows)).not.toContain('[1.1] preprod')
+  })
+
+  it('bare track report and --require-accepted preserve the legacy conductor behaviour; --owner-table rejects --require-accepted', () => {
+    const t = cutoverTrack()
+    seedCutover(t)
+    const bareText = cli(['report', '--commit', 'c1', '--now', NOW])
+    expect(bareText.code, bareText.err).toBe(0)
+    expect(bareText.out).toContain('FAIT')
+    expect(bareText.out).toContain('À-FAIRE')
+
+    const reqAccepted = cli(['report', '--commit', 'c1', '--now', NOW, '--require-accepted'])
+    expect(reqAccepted.code, reqAccepted.err).toBe(0)
+    expect(reqAccepted.out).toContain('FAIT')
+
+    const rejected = cli(['report', '--owner-table', '--require-accepted', '--commit', 'c1'])
+    expect(rejected.code).toBe(1)
+    expect(rejected.err).toMatch(/--owner-table rejects legacy conductor\/filter flags/)
   })
 
   it('D12 — a deferred dossier stays answerable instead of vanishing as settled', () => {

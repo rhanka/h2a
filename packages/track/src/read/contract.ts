@@ -7,6 +7,9 @@
 // sidecar can never become de-facto master over BRANCH.md (the source of truth — SPEC §5,
 // INTENTION §9 pin).
 
+import { existsSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+
 import { acceptanceStatus, criterionStatus, evidenceForCriterion } from '../accept/status.js'
 import type { AcceptanceStatus, CriterionStatus } from '../model/acceptance.js'
 import { branchId } from '../branch/parse.js'
@@ -50,6 +53,15 @@ import {
 } from './scope-validate.js'
 import { graphExportFromState, type TrackGraphFragment } from '../graph-export.js'
 import { buildSnapshot, type SnapshotOptions, type SnapshotV1 } from '../report/snapshot.js'
+import {
+  projectOwnerTable,
+  type OwnerTableAudit,
+  type OwnerTableDecision,
+  type OwnerTableRow,
+  type OwnerTableRowKind,
+  type OwnerTableView,
+  type ProjectOwnerTableOptions,
+} from '../report/owner-table.js'
 
 /**
  * Semver of the skill-facing READ contract.
@@ -1238,6 +1250,27 @@ export class TrackReader {
     return this.provenanceFrom(this.events(), locator)
   }
 
+  /**
+   * Project the owner-validated status table (`# · Statut · Étape · ETA (étape cible) · Ta demande ·
+   * Fait · À faire (qui) · Décision` + `Décisions qui t'attendent`) from the folded event log without
+   * mutating or rewriting any stored events.
+   */
+  ownerTable(options: ProjectOwnerTableOptions = {}): OwnerTableView {
+    const events = this.events()
+    const defaultPolicyPath = join(dirname(this.eventsPath), 'owner-report-policy.json')
+    const explicitPolicyPath =
+      options.policyPath ??
+      process.env['TRACK_OWNER_POLICY_FILE'] ??
+      process.env['TRACK_OWNER_REPORT_POLICY']
+    const policyPath =
+      explicitPolicyPath ?? (existsSync(defaultPolicyPath) ? defaultPolicyPath : undefined)
+    return projectOwnerTable(fold(events), events, {
+      ...options,
+      defaultPolicyPath,
+      ...(policyPath !== undefined ? { policyPath } : {}),
+    })
+  }
+
   /** Compare current BRANCH.md `content` against the last imported structure for `locator`. */
   freshness(content: string, locator: string): Freshness {
     return this.freshnessFrom(this.events(), content, locator)
@@ -1305,4 +1338,13 @@ export class TrackReader {
     }
     return { status: 'fresh', structureHash: actual }
   }
+}
+
+export type {
+  OwnerTableAudit,
+  OwnerTableDecision,
+  OwnerTableRow,
+  OwnerTableRowKind,
+  OwnerTableView,
+  ProjectOwnerTableOptions,
 }

@@ -1,4 +1,5 @@
 import { existsSync, statSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 
 /**
@@ -53,9 +54,12 @@ export function resolveTrackDir(opts: ResolveOptions): string {
   }
 
   let cur = resolve(opts.cwd)
+  const tmpRoot = resolve(tmpdir())
+  const insideTmp = cur === tmpRoot || cur.startsWith(`${tmpRoot}/`)
   for (;;) {
     const candidate = join(cur, '.track')
     if (existsSync(candidate) && isDir(candidate)) return candidate
+    if (insideTmp && cur === tmpRoot) break
     const parent = dirname(cur)
     if (parent === cur) break // reached the filesystem root
     cur = parent
@@ -78,9 +82,12 @@ export function resolveTrackDirOrNull(opts: ResolveOptions): string | null {
   }
 
   let cur = resolve(opts.cwd)
+  const tmpRoot = resolve(tmpdir())
+  const insideTmp = cur === tmpRoot || cur.startsWith(`${tmpRoot}/`)
   for (;;) {
     const candidate = join(cur, '.track')
     if (existsSync(candidate) && isDir(candidate)) return candidate
+    if (insideTmp && cur === tmpRoot) return null
     const parent = dirname(cur)
     if (parent === cur) return null // reached the filesystem root — unadopted repo
     cur = parent

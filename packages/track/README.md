@@ -6,7 +6,7 @@ Typed product-backlog and **spec / realization / acceptance tracking** for the s
 
 ## Model (one line)
 
-An **Item** carries three orthogonal axes — **specification** (`to-specify → specified`), **realization** (`to-do → in-progress → done | cancelled | rejected`), **acceptance** (computed `pass/fail/unknown/stale/waived`) — plus **blockers** (relations), **prioritization** (versioned, WSJF), and first-class linked **Decisions** (orientation/commitment, with a typed dossier + go/no-go `outcome`). `report` projects done / to-do / awaited / dropped. See [`docs/spec/SPEC.md`](./docs/spec/SPEC.md).
+An **Item** carries three orthogonal axes — **specification** (`to-specify → specified`), **realization** (`to-do → in-progress → done | cancelled | rejected`), **acceptance** (computed `pass/fail/unknown/stale/waived`) — plus **blockers** (relations), **prioritization** (versioned, WSJF), and first-class linked **Decisions** (orientation/commitment, with a typed dossier + go/no-go `outcome`). `report --owner-table` projects the owner-validated 8-column status table (`# · Statut · Étape · ETA (étape cible) · Ta demande · Fait · À faire (qui) · Décision` + `Décisions qui t'attendent`), while bare `report` projects the conductor / done / to-do / awaited / dropped buckets. See [`docs/spec/SPEC.md`](./docs/spec/SPEC.md).
 
 ## Install & build
 
@@ -51,7 +51,7 @@ track accept waive     <criterionId> --reason "<why>"
 track priority assess <itemId> --ubv 8 --tc 4 --rr 2 --js 2
 
 # views
-track report [--decisions] [--require-accepted] [--format json|text|md] [--commit <sha>]
+track report [--owner-table] [--decisions] [--require-accepted] [--format json|text|md] [--commit <sha>]
 track query  [--kind <k>] [--workspace <w>] [--bucket AWAITED|DROPPED|DONE|TO-DO] [--realization <r>] [--acceptance <a>] [--format <f>]
 
 # integrity + prose↔log desync (§4); never repairs, only reports
@@ -61,7 +61,7 @@ track validate [--commit <sha>]
 track branch import <plan/NN-BRANCH_*.md> [--commit <sha>]
 ```
 
-`report` buckets (first match wins): **AWAITED** (any open blocker) › **DROPPED** (cancelled/rejected) › **DONE** (done, and `pass` if `--require-accepted`) › **TO-DO**. `--commit` defaults to the repo git HEAD.
+`report --owner-table` serves the owner-validated 8-column status table (12 link-proven stages `brainstorm..done`, 8 statuses, target-stage ETAs, `Décisions qui t'attendent` `D1…Dn` + `Réponse :`, and blocking gates). Bare `report` / `--flat` buckets (first match wins): **AWAITED** (any open blocker) › **DROPPED** (cancelled/rejected) › **DONE** (done, and `pass` if `--require-accepted`) › **TO-DO**. `--commit` defaults to the repo git HEAD.
 
 ## Integrity
 
@@ -90,12 +90,23 @@ See [`INTENTION.md`](./INTENTION.md) for the full model, boundaries, and rationa
 MIT — see [`LICENSE`](./LICENSE).
 # Owner status table
 
-`track report --status-table --format md` selects the validated four-section report: À-FAIRE carries
+`track report --owner-table [--format md|text|json] [--commit <sha>] [--now <iso>] [--policy <path>]`
+selects the owner-validated 8-column status table (`# · Statut · Étape · ETA (étape cible) · Ta demande · Fait · À faire (qui) · Décision`) followed by `Décisions qui t'attendent` (`D1…Dn` with options `A..Z, AA..`, consequences, recommendation, dossier link, and a single `Réponse :` line). It derives the 12 workflow stages (`brainstorm | spec | plan | dev | test | pr | review | merged | published | preprod | prod | done`) from recorded delivery links (`merged` is never `✅ fait`) and the 8 statuses (`🔵 sur la voie`, `🟡 en attente`, `🟠 dérive`, `🔴 bloqué`, `⚪ pas commencé` / `⚪ en pause`, `✅ fait`, `⚫ retiré`, `— sans témoin`), enforcing blocking gates fail-closed at render time.
+
+A demand with a single lot renders as one row (`kind: 'single'`). A demand with several lots renders as a title row (`kind: 'demand-title'`, verbatim `Ta demande` and demand-level decision cell, with `—` for status/stage/ETA unless a demand-level ETA is set) followed by one row per lot (`kind: 'lot'`, `parentDemandId`, `↳ lot N — <title>`), each carrying its own status, stage, ETA, `Fait`, `À faire (qui)`, and lot-targeted decisions:
+
+| # | Statut | Étape | ETA (étape cible) | Ta demande | Fait | À faire (qui) | Décision |
+| ---: | --- | --- | --- | --- | --- | --- | --- |
+| 1 | — | — | — | Migration en deux lots | — | — | — |
+| 1 | 🔵 sur la voie | merged | published → — (inconnu) | ↳ lot 1 — Socle API | Lot 1 fusionné (PR #10). | — | — |
+| 1 | 🔴 bloqué | dev | pr → — (inconnu) | ↳ lot 2 — Connecteur | Preuve : branch/lot-2 | Attente accès API tiers (équipe infra) | — |
+
+`track report --status-table --format md` selects the four-section WP conductor report: À-FAIRE carries
 `WP · av. · étape · statut · à faire · bloqué · prochaine action`, most urgent first, and DÉCISIONS keeps
 its decision expectations. Over an identical period it renders byte-identical sections to the validated
 route; without a selector it covers a rolling `last-week` window (`--period last-day` for one day).
-Scope it with `--scope <container-id|code|label>`; text and JSON are also supported. The default report
-is unchanged. Stage/status labels follow `--lang <bcp47>` (exact, then primary subtag, else neutral codes).
+Scope it with `--scope <container-id|code|label>`; text and JSON are also supported. Bare `track report`
+is unchanged for CLI callers. Stage/status labels follow `--lang <bcp47>` (exact, then primary subtag, else neutral codes).
 
 `track item report-set <item-id> --json '<object>'` records stage, status, proposal and decision
 expectations in an additive event. It replaces all prior report metadata; `{}` clears only metadata.

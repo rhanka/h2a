@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { realpathSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { basename, resolve } from 'node:path'
 
 /**
@@ -41,10 +42,14 @@ function canonical(cwd: string, dir: string): string {
 
 /** Run git inside `cwd`, capture stdout, silence git's own stderr; throws on a non-zero exit. */
 function git(cwd: string, args: string[]): string {
+  const absCwd = resolve(cwd)
+  const tmpRoot = resolve(tmpdir())
+  const insideTmp = absCwd === tmpRoot || absCwd.startsWith(`${tmpRoot}/`)
   return execFileSync('git', args, {
     cwd,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'ignore'],
+    ...(insideTmp ? { env: { ...process.env, GIT_CEILING_DIRECTORIES: tmpRoot } } : {}),
   }).trim()
 }
 

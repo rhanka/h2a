@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdirSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 
 import { readHead } from '../events/head.js'
@@ -38,7 +38,8 @@ import {
 import { ingest, type IngestContext } from '../ingest/ingest.js'
 import { applyRestructurePlan, type RestructurePlan } from './restructure-apply.js'
 import { TrackReader } from '../read/contract.js'
-import { queryText, reportInline, reportText, resolveHandle, statusText, type ReportPeriodSelection } from '../read/commands.js'
+import { ownerTableText, queryText, reportInline, reportText, resolveHandle, statusText, type ReportPeriodSelection } from '../read/commands.js'
+import { auditOwnerTable } from '../report/owner-table.js'
 import { STATUS_LEVELS } from '../report/status-by-level.js'
 import { renderSnapshot } from '../report/snapshot.js'
 import { VERSION } from '../version.js'
@@ -485,7 +486,9 @@ function extractRepeatableFlag(args: string[], key: string): { values: string[];
   return { values, rest }
 }
 
-const REPORT_USAGE = `usage: track report [--status-table] [--scope <container-id|code|label>] [--since <sha|YYYY-MM-DD> [--until <sha|YYYY-MM-DD>] | --period <today|week|month|all|last-week|last-day>] [--raw] [--wp] [--flat] [--inline|--width <40..240>] [--decisions] [--active-roster] [--require-accepted] [--resolve <handle>] [--commit <sha>] [--now <iso>] [--sub-wp] [--lang <bcp47>] [--format json|text|md] [--track-dir <directory-containing-events.jsonl>]
+const REPORT_USAGE = `usage: track report [--owner-table] [--status-table] [--scope <container-id|code|label>] [--since <sha|YYYY-MM-DD> [--until <sha|YYYY-MM-DD>] | --period <today|week|month|all|last-week|last-day>] [--raw] [--wp] [--flat] [--inline|--width <40..240>] [--decisions] [--active-roster] [--require-accepted] [--resolve <handle>] [--commit <sha>] [--now <iso>] [--sub-wp] [--lang <bcp47>] [--format json|text|md] [--track-dir <directory-containing-events.jsonl>]
+
+--owner-table is the default owner report: it renders the 8-column owner status table (# · Statut · Étape · ETA (étape cible) · Ta demande · Fait · À faire (qui) · Décision) followed by Décisions qui t'attendent and the single reply line, and enforces all blocking gates fail-closed.
 
 --status-table selects the validated four-section report: À-FAIRE carries WP · av. · étape · statut · à faire · bloqué · prochaine action over a rolling last-week window by default (an explicit period always wins). Stage/status are neutral codes over recorded evidence; missing information is flagged, never colored. It preserves DÉCISIONS and supports scoped Markdown.
 
@@ -623,6 +626,7 @@ export function runCli(rawArgv: string[], io: CliIO): number | Promise<number> {
       // USAGE/rc=2 branch for an UNKNOWN command is reached BEFORE resolution (a typo must not be masked
       // by a "no .track" error), so `resolveTrackDir` runs only for a recognized command.
       case 'item':
+      case 'demand':
       case 'decision':
       case 'blocker':
       case 'accept':
@@ -636,6 +640,8 @@ export function runCli(rawArgv: string[], io: CliIO): number | Promise<number> {
         switch (cmd) {
           case 'item':
             return cmdItem(rest, ctx)
+          case 'demand':
+            return cmdDemand(rest, ctx)
           case 'restructure':
             return cmdRestructure(rest, ctx)
           case 'decision':
@@ -1234,15 +1240,67 @@ function cmdPriority(args: string[], ctx: Ctx): number {
   return 2
 }
 
+function cmdDemand(args: string[], ctx: Ctx): number {
+  const { io } = ctx
+  const sub = args[0]
+  const { positional, flags } = parseFlags(args.slice(1))
+  const track = writeTrack(ctx)
+  if (sub === 'number') {
+    const demandId = positional[0]
+    if (demandId === undefined) throw new DomainError('demand number requires <demandId>')
+    assertOnlyFlags(flags, ['number', 'summary', 'requested-stage'])
+    track.numberDemand(demandId, num(flags, 'number'))
+    if (opt(flags, 'summary') !== undefined) {
+      track.updateDemandOwnerSummary(demandId, {
+        summary: req(flags, 'summary'),
+        ...(opt(flags, 'requested-stage') !== undefined ? { requestedStage: req(flags, 'requested-stage') as never } : {}),
+      })
+    }
+    io.out('ok\n')
+    return 0
+  }
+  if (sub === 'summary') {
+    const demandId = positional[0]
+    if (demandId === undefined) throw new DomainError('demand summary requires <demandId>')
+    assertOnlyFlags(flags, ['summary', 'requested-stage'])
+    track.updateDemandOwnerSummary(demandId, {
+      summary: req(flags, 'summary'),
+      ...(opt(flags, 'requested-stage') !== undefined ? { requestedStage: req(flags, 'requested-stage') as never } : {}),
+    })
+    io.out('ok\n')
+    return 0
+  }
+  if (sub === 'archive') {
+    const demandId = positional[0]
+    if (demandId === undefined) throw new DomainError('demand archive requires <demandId>')
+    assertOnlyFlags(flags, ['decision-id', 'reason'])
+    track.archiveDemand(demandId, {
+      decisionId: req(flags, 'decision-id'),
+      reason: req(flags, 'reason'),
+    })
+    io.out('ok\n')
+    return 0
+  }
+  io.err('usage: track demand <number|summary|archive> <demandId> ...\n')
+  return 2
+}
+
 function cmdReport(args: string[], ctx: Ctx): number {
   const { io } = ctx
   const { positional, flags } = parseFlags(args)
   if (positional.length > 0) throw new DomainError(`unexpected report argument(s): ${positional.join(' ')}`)
-  for (const name of ['commit', 'format', 'level', 'width', 'resolve', 'now', 'scope', 'since', 'until', 'period', 'lang']) assertValueFlag(flags, name)
+  for (const name of ['commit', 'format', 'level', 'width', 'resolve', 'now', 'scope', 'since', 'until', 'period', 'lang', 'policy']) assertValueFlag(flags, name)
   const scope = opt(flags, 'scope')
+  const ownerTable = assertBooleanFlag(flags, 'owner-table')
   const statusTable = assertBooleanFlag(flags, 'status-table')
+  if (ownerTable && statusTable) {
+    throw new DomainError('--owner-table and --status-table are mutually exclusive')
+  }
   if (statusTable && ['flat', 'inline', 'width', 'raw', 'level', 'active-roster'].some(k => flags[k] !== undefined)) {
     throw new DomainError('--status-table rejects --flat/--inline/--width/--raw/--level/--active-roster')
+  }
+  if (ownerTable && ['flat', 'inline', 'width', 'raw', 'level', 'active-roster', 'wp', 'scope', 'since', 'until', 'period', 'sub-wp', 'lang', 'resolve', 'require-accepted'].some(k => flags[k] !== undefined)) {
+    throw new DomainError('--owner-table rejects legacy conductor/filter flags')
   }
   // Criterion 10b — the one documented command that turns a short report handle back into an item.
   if (opt(flags, 'resolve') !== undefined) {
@@ -1311,7 +1369,7 @@ function cmdReport(args: string[], ctx: Ctx): number {
   }
   assertOnlyFlags(flags, [
     'commit', 'require-accepted', 'decisions', 'active-roster', 'wp', 'flat', 'inline', 'width', 'format', 'now',
-    'sub-wp', 'scope', 'since', 'until', 'period', 'status-table', 'lang',
+    'sub-wp', 'scope', 'since', 'until', 'period', 'status-table', 'owner-table', 'lang', 'policy',
   ])
   const rawFormat = opt(flags, 'format')
   if (rawFormat !== undefined && !['json', 'text', 'md'].includes(rawFormat)) {
@@ -1378,6 +1436,28 @@ function cmdReport(args: string[], ctx: Ctx): number {
     throw new DomainError('--lang must be a BCP47 tag (e.g. fr, es-MX, ja, ar)')
   }
   const reader = new TrackReader(ctx.eventsPath)
+  if (ownerTable) {
+    const defaultPolicyPath = join(dirname(ctx.eventsPath), 'owner-report-policy.json')
+    const explicitPolicyPath =
+      opt(flags, 'policy') ??
+      process.env['TRACK_OWNER_POLICY_FILE'] ??
+      process.env['TRACK_OWNER_REPORT_POLICY']
+    const policyPath =
+      explicitPolicyPath ?? (existsSync(defaultPolicyPath) ? defaultPolicyPath : undefined)
+    const ownerOpts = {
+      baselineCommit: options.baselineCommit,
+      ...(nowArg !== undefined ? { now: nowArg } : {}),
+      defaultPolicyPath,
+      ...(policyPath !== undefined ? { policyPath } : {}),
+    }
+    const view = reader.ownerTable(ownerOpts)
+    const audit = auditOwnerTable(view, ownerOpts)
+    for (const notice of audit.notices ?? []) {
+      io.err(`Notice: ${notice}\n`)
+    }
+    io.out(ownerTableText(reader, ownerOpts, format))
+    return 0
+  }
   if (inline) {
     io.out(reportInline(reader, options, width === undefined ? {} : { width }, nowArg, period))
   } else {

@@ -35,6 +35,12 @@ export {
   type LifecycleStep,
   type LifecycleSubject,
   type WorkspaceDemandCounts,
+  type OwnerTableAudit,
+  type OwnerTableDecision,
+  type OwnerTableRow,
+  type OwnerTableRowKind,
+  type OwnerTableView,
+  type ProjectOwnerTableOptions,
 } from './contract.js'
 // Demand lifecycle (Mode A, Build 2) — the ephemeral lease side-store shape (READ surface: a consumer may
 // inject leases into demands()/workspaceActivity, or read the side-store directly).
