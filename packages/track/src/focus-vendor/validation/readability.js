@@ -1,4 +1,5 @@
-import { isEvidenceDossier } from "../model.js";
+import { isEvidenceDossier, isReportDocument } from "../model.js";
+import { splitMarkdownTableCells } from "../render/markdown-table.js";
 export const READABILITY_BUDGETS = { low: 2, medium: 8, high: 30 };
 export const READABILITY_LIMITS = {
     minOwnerRequestQuoteLength: 8,
@@ -51,10 +52,12 @@ const stripHtmlAndLinks = (text) => text
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
 /** Check a structurally valid document; use ForPresentation for untrusted input. */
 export const validateDecisionDossierReadability = (doc, options) => {
-    const strict = (options?.profile ??
-        (doc.ref === "decision:s1-hello" && doc.hash.startsWith("draft:s1-hello-")
-            ? "legacy"
-            : "strict")) === "strict";
+    const report = isReportDocument(doc);
+    const strict = report ||
+        (options?.profile ??
+            (doc.ref === "decision:s1-hello" && doc.hash.startsWith("draft:s1-hello-")
+                ? "legacy"
+                : "strict")) === "strict";
     const issues = [];
     const refuse = (path, code, message) => { issues.push({ path, code, message }); };
     const r = doc.readability;
@@ -173,8 +176,11 @@ export const validateDecisionDossierReadability = (doc, options) => {
     checkSteps(doc.amendmentTrace, "$.amendmentTrace");
     doc.interactions.forEach((action, i) => visible(action.label, `$.interactions[${i}].label`));
     const questions = doc.sections.filter((s) => s.kind === "question");
+    if (report && (doc.sections[0]?.kind !== 'prose' || !TAKEAWAY_RE.test(doc.sections[0].markdown.trim()))) {
+        refuse('$.sections[0]', 'report_summary_first', 'Start the report with an En bref : or In short: summary.');
+    }
     const questionIds = new Set(questions.map((q) => q.id));
-    if (!questions.length)
+    if (!report && !questions.length)
         refuse("$.sections", "missing_question", "A decision dossier needs an explicit question with context, options and a recommendation.");
     const checkQuestionRef = (questionId, path, required) => {
         if (blank(questionId)) {
@@ -363,7 +369,8 @@ export const validateDecisionDossierReadability = (doc, options) => {
     function checkMarkdownProse(markdown, path) {
         if (!strict || !markdown)
             return;
-        const cleanedDoc = stripHtmlAndLinks(markdown);
+        // ReportProse renders the shared table-cell text literally, including HTML and links.
+        const cleanedDoc = report ? markdown : stripHtmlAndLinks(markdown);
         const rawLines = cleanedDoc.split(/\r?\n/);
         const blocks = [];
         let currentParagraph = [];
@@ -417,7 +424,7 @@ export const validateDecisionDossierReadability = (doc, options) => {
             }
             else if (block.kind === "table") {
                 const line = block.lines[0];
-                const cells = line.slice(1, -1).split("|").map((c) => c.trim());
+                const cells = splitMarkdownTableCells(line);
                 if (cells.every((c) => /^[-:]+$/.test(c)))
                     continue;
                 for (const cell of cells) {

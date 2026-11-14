@@ -620,6 +620,7 @@ describe("multi-version schema registry & targeted sync (A23)", () => {
       "1.1.0",
       "2.0.0",
       "2.1.0",
+      "1.0.0",
     ]);
     expect(focusEntry.skill.documentSchemas[0]!.sha256).toBe(
       "725bc07e7c6b6ad51a1f720cc9fb02649d8f31bc54e71c61c350fd20058c8852",

@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { validateDecisionDossierForPresentation } from '@sentropic/focus/validate'
 import { evidenceFixture } from '../focus-kit/test/evidence-fixtures.mjs'
+import * as portableValidator from '../focus-kit/validator.mjs'
 
 const kit = fileURLToPath(new URL('../focus-kit/', import.meta.url))
 const bin = fileURLToPath(new URL('../dist/bin.js', import.meta.url))
@@ -19,6 +20,36 @@ const run = (root, ...args) => spawnSync(process.execPath, [bin, 'focus', ...arg
   cwd: root, encoding: 'utf8', env: { ...process.env, HOME: root, XDG_RUNTIME_DIR: root,
     XDG_CONFIG_HOME: root, XDG_STATE_HOME: root, H2A_ROOT: join(root, 'store') },
 })
+
+test('builds an explicit benchmark report and preserves output on report gate failures', () => isolated(root => {
+  const doc = JSON.parse(readFileSync(new URL('../../focus/tests/fixtures/benchmark-report.json', import.meta.url), 'utf8'))
+  const input = join(root, 'report.json'), output = join(root, 'report.html')
+  writeFileSync(input, JSON.stringify(doc))
+  const built = run(root, 'build', input, '-o', output)
+  assert.equal(built.status, 0, built.stderr)
+  const html = readFileSync(output, 'utf8')
+  const payload = JSON.parse(html.match(/<script type="application\/json" data-focus-document>([\s\S]*?)<\/script>/)[1])
+  assert.deepEqual(payload.document, doc)
+  assert.ok(payload.build.capabilities.includes('report'))
+  assert.equal(portableValidator.validateFocusForPresentation(doc).ok, true)
+  assert.equal(portableValidator.validateDecisionDossierForPresentation(doc).ok, false, 'N3 decision-only profile still refuses reports')
+  assert.equal(Buffer.compare(readFileSync(join(kit, 'report.schema.json')), readFileSync(join(kit, '../../focus/schemas/report-document.v1.schema.json'))), 0)
+  for (const change of [d => { delete d.kind }, d => { d.sources[0].sha256 = '0'.repeat(64) }, d => { d.kind = 'unknown' }]) {
+    const bad = structuredClone(doc); change(bad); writeFileSync(input, JSON.stringify(bad))
+    assert.equal(run(root, 'build', input, '-o', output).status, 1)
+    assert.equal(readFileSync(output, 'utf8'), html)
+  }
+  const oversized = structuredClone(doc)
+  oversized.sections[1].markdown += `\n| Mesure | ${'Mesure stable. '.repeat(15)}\\| ${'Mesure stable. '.repeat(20)} |`
+  const refused = portableValidator.validateFocusForPresentation(oversized)
+  assert.equal(refused.ok, false)
+  assert.ok(refused.issues.some(issue => issue.code === 'cell_max_60_words' && issue.message.includes('found 71 words')))
+  writeFileSync(input, JSON.stringify(oversized))
+  const rejected = run(root, 'build', input, '-o', output)
+  assert.equal(rejected.status, 1)
+  assert.match(rejected.stderr, /cell_max_60_words/)
+  assert.equal(readFileSync(output, 'utf8'), html)
+}))
 
 test('builds complete v2 evidence with distinct envelope and renderer fingerprints', () => isolated(root => {
   const doc = evidenceFixture(20_000, 31), input = join(root, 'evidence.json'), output = join(root, 'evidence.html')

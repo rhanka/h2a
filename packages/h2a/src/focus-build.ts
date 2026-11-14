@@ -2,10 +2,10 @@
 import { readFileSync, writeFileSync, realpathSync, mkdtempSync, openSync, closeSync, fsyncSync, renameSync, rmSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
-import type { DecisionDossierDocument } from '@sentropic/focus';
+import type { FocusDocument } from '@sentropic/focus';
 
 // Generated directly from @sentropic/focus/validate; no second validation implementation.
-const { assertDecisionDossierForPresentation, assertDecisionDossierDocument } =
+const { assertFocusForPresentation, assertFocusDocument } =
   await import(new URL('../focus-kit/validator.mjs', import.meta.url).href) as typeof import('@sentropic/focus/validate');
 
 // Generated from the shared focus-kit module; the build and the renderer place DC-1 cards the same way.
@@ -109,7 +109,7 @@ function parseFlowchart(source: string, id: string): Record<string, unknown> {
 
 export function buildFocusDossier(input: unknown): string {
   // Refuse closed-schema violations before interpreting diagram references.
-  const inputDocument = assertDecisionDossierDocument(input);
+  const inputDocument = assertFocusDocument(input);
   const catalog = JSON.parse(readAsset('ecosystem.json'));
   let diagramCount = 0;
   const sections = inputDocument.sections.map(section => {
@@ -132,8 +132,8 @@ export function buildFocusDossier(input: unknown): string {
     }
     return { ...section, scene: parseFlowchart(section.source, section.id) };
   });
-  const validated: DecisionDossierDocument = assertDecisionDossierForPresentation({ ...inputDocument, sections });
-  if (!diagramCount) throw new Error('A Focus dossier needs an ecosystem diagram; add a diagram section with source ecosystem:overview');
+  const validated: FocusDocument = assertFocusForPresentation({ ...inputDocument, sections });
+  if (!diagramCount && !('kind' in validated && validated.kind === 'report')) throw new Error('A Focus dossier needs an ecosystem diagram; add a diagram section with source ecosystem:overview');
   // DC-1 views are rendered here and embedded: no network fetch and no card fallback at view time.
   const views: Record<string, Record<string, DiagramView>> = {};
   for (const section of validated.sections) {

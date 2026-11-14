@@ -58,6 +58,7 @@
     "focus-kit/dossier.template.json",
     "focus-kit/dossier.schema.json",
     "focus-kit/dossier.v2.schema.json",
+    "focus-kit/report.schema.json",
     "focus-kit/dossier.evidence.template.json",
     "focus-kit/ecosystem.json",
     "vendor"

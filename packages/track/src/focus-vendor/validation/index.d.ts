@@ -20,7 +20,7 @@
 import type { ReadabilityOptions } from "./readability.js";
 export { READABILITY_LIMITS, READABILITY_BUDGETS, validateDecisionDossierReadability } from "./readability.js";
 export type { ReadabilityOptions, ReadabilityProfile } from "./readability.js";
-import type { DecisionDossierDocument } from "../model.js";
+import type { DecisionDossierDocument, FocusDocument } from "../model.js";
 /** Stable schema ID of the published DecisionDossierDocument asset. */
 export declare const DOSSIER_SCHEMA_ID = "urn:sentropic:focus:DecisionDossierDocument:1.0.0";
 /** Version of the dossier schema, independent of the package version. */
@@ -64,3 +64,10 @@ export declare const assertDecisionDossierDocument: (value: unknown) => Decision
 export declare const validateDecisionDossierForPresentation: (value: unknown, options?: ReadabilityOptions) => ValidationResult<DecisionDossierDocument>;
 /** Refuse before any presentation or host rendering hook runs. */
 export declare const assertDecisionDossierForPresentation: (value: unknown, options?: ReadabilityOptions) => DecisionDossierDocument;
+/** A separate schema identity: the four published decision schemas remain frozen. */
+export declare const REPORT_SCHEMA_ID = "urn:sentropic:focus:ReportDocument:1.0.0";
+/** Explicit dispatch; legacy decision APIs deliberately remain decision-only (including N3). */
+export declare const validateFocusDocument: (value: unknown) => ValidationResult<FocusDocument>;
+export declare const assertFocusDocument: (value: unknown) => FocusDocument;
+export declare const validateFocusForPresentation: (value: unknown) => ValidationResult<FocusDocument>;
+export declare const assertFocusForPresentation: (value: unknown) => FocusDocument;

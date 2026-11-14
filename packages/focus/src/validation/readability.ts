@@ -3,12 +3,13 @@
  */
 import type {
   AmendmentStep,
-  DecisionDossierDocument,
+  FocusDocument,
   OptionNode,
   ProseNode,
   QuestionNode,
 } from "../model.js";
-import { isEvidenceDossier } from "../model.js";
+import { isEvidenceDossier, isReportDocument } from "../model.js";
+import { splitMarkdownTableCells } from "../render/markdown-table.js";
 import type { ValidationIssue } from "./index.js";
 
 export type ReadabilityProfile = "strict" | "legacy";
@@ -77,10 +78,11 @@ const stripHtmlAndLinks = (text: string): string =>
 
 /** Check a structurally valid document; use ForPresentation for untrusted input. */
 export const validateDecisionDossierReadability = (
-  doc: DecisionDossierDocument,
+  doc: FocusDocument,
   options?: ReadabilityOptions,
 ): ValidationIssue[] => {
-  const strict =
+  const report = isReportDocument(doc);
+  const strict = report ||
     (options?.profile ??
       (doc.ref === "decision:s1-hello" && doc.hash.startsWith("draft:s1-hello-")
         ? "legacy"
@@ -202,8 +204,11 @@ export const validateDecisionDossierReadability = (
   doc.interactions.forEach((action, i) => visible(action.label, `$.interactions[${i}].label`));
 
   const questions = doc.sections.filter((s) => s.kind === "question");
+  if (report && (doc.sections[0]?.kind !== 'prose' || !TAKEAWAY_RE.test(doc.sections[0].markdown.trim()))) {
+    refuse('$.sections[0]', 'report_summary_first', 'Start the report with an En bref : or In short: summary.');
+  }
   const questionIds = new Set(questions.map((q) => q.id));
-  if (!questions.length) refuse("$.sections", "missing_question", "A decision dossier needs an explicit question with context, options and a recommendation.");
+  if (!report && !questions.length) refuse("$.sections", "missing_question", "A decision dossier needs an explicit question with context, options and a recommendation.");
   const checkQuestionRef = (questionId: string | undefined, path: string, required: boolean): void => {
     if (blank(questionId)) {
       if (required) refuse(path, "hidden_decision", "This content implies a choice without an explicit question: set questionId to the question the owner must answer.");
@@ -445,7 +450,8 @@ export const validateDecisionDossierReadability = (
 
   function checkMarkdownProse(markdown: string | undefined, path: string): void {
     if (!strict || !markdown) return;
-    const cleanedDoc = stripHtmlAndLinks(markdown);
+    // ReportProse renders the shared table-cell text literally, including HTML and links.
+    const cleanedDoc = report ? markdown : stripHtmlAndLinks(markdown);
     const rawLines = cleanedDoc.split(/\r?\n/);
     const blocks: Array<{ kind: "heading" | "paragraph" | "bullets" | "table"; lines: string[] }> = [];
     let currentParagraph: string[] = [];
@@ -499,7 +505,7 @@ export const validateDecisionDossierReadability = (
         checkProseCell(block.lines[0], path, { requireTakeaway: false, isCleaned: true });
       } else if (block.kind === "table") {
         const line = block.lines[0]!;
-        const cells = line.slice(1, -1).split("|").map((c) => c.trim());
+        const cells = splitMarkdownTableCells(line);
         if (cells.every((c) => /^[-:]+$/.test(c))) continue;
         for (const cell of cells) {
           checkProseCell(cell, path, { requireTakeaway: false, isCleaned: true });

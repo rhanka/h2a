@@ -101,6 +101,12 @@
           "path": "schemas/decision-dossier-document.v2.schema.json",
           "mediaType": "application/schema+json",
           "sha256": "058894550812b4a06eec57b9350e054e775ed657a05e8d451b16effcd3ba3702"
+        },
+        {
+          "role": "document-schema",
+          "path": "schemas/report-document.v1.schema.json",
+          "mediaType": "application/schema+json",
+          "sha256": "32546e7d14b6f39b25993f1706198193007caf2ac87df7ad28706dd5c02b4557"
         }
       ],
       "skill": {
@@ -157,6 +163,13 @@
             "version": "2.1.0",
             "assetPath": "schemas/decision-dossier-document.v2.schema.json",
             "sha256": "058894550812b4a06eec57b9350e054e775ed657a05e8d451b16effcd3ba3702"
+          },
+          {
+            "name": "ReportDocument",
+            "schemaId": "urn:sentropic:focus:ReportDocument:1.0.0",
+            "version": "1.0.0",
+            "assetPath": "schemas/report-document.v1.schema.json",
+            "sha256": "32546e7d14b6f39b25993f1706198193007caf2ac87df7ad28706dd5c02b4557"
           }
         ],
         "dependencies": []
