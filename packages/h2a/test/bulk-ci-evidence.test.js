@@ -25,9 +25,7 @@ function assertGraph(workflow) {
   assert.deepEqual(producer.steps.find(s => s.uses === 'actions/upload-artifact@v4').with,
     {name:'bulk-${{ github.run_id }}-node${{ matrix.node }}',path:'tmp/bulk-export/proof.json','if-no-files-found':'error',overwrite:true,'retention-days':7});
   for (const name of ['build-and-test', 'npm-test-trust-root']) {
-    assert.deepEqual(jobs[name].needs, name === 'build-and-test'
-      ? ['m17-qualification', 'bulk-qualification', 'node-shard']
-      : ['m17-qualification', 'bulk-qualification']);
+    assert.deepEqual(jobs[name].needs, ['m17-qualification', 'bulk-qualification', 'node-shard']);
     assert.equal(jobs[name].if, '${{ always() }}');
     assert.deepEqual(jobs[name].steps.filter(s => s.name === 'Require both complete bulk qualifications'),
       [{name:'Require both complete bulk qualifications',env:{BULK_RESULT:'${{ needs.bulk-qualification.result }}'},run:'test "$BULK_RESULT" = success'}]);
@@ -42,7 +40,7 @@ test('both consumers require the complete same-run bulk producer and download th
 test('bulk CI negative controls reject skipped-green, optional and foreign-profile proofs', () => {
   const source = fs.readFileSync('.github/workflows/ci.yml', 'utf8');
   for (const [before, after] of [
-    ['needs: [m17-qualification, bulk-qualification]', 'needs: [m17-qualification]'],
+    ['needs: [m17-qualification, bulk-qualification, node-shard]', 'needs: [m17-qualification, node-shard]'],
     ['needs: [m17-qualification, bulk-qualification, node-shard]', 'needs: [m17-qualification, bulk-qualification]'],
     ['run: test "$BULK_RESULT" = success', 'run: true'],
     ['needs.bulk-qualification.result','needs.bulk-qualification.outputs.optional'],

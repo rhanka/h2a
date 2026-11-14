@@ -20,6 +20,8 @@ import { fileURLToPath } from 'node:url'
 import { execFileSync } from 'node:child_process'
 import { parse as parseYaml } from 'yaml'
 import { discoverTestFiles } from '../../../scripts/run-tests.mjs'
+import { M17_FILE } from '../../../scripts/m17-ci-evidence.mjs'
+import { BULK_FILES } from '../../../scripts/bulk-ci-evidence.mjs'
 import { SHARD_COUNT, SHARD_DIR_ENV, loadShardDurations, partitionNodeFilesByDuration, verifyShardEnvelope, loadNodeShardReports, shardContext } from '../../../scripts/ci-node-shards.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -107,8 +109,8 @@ function assertShardGraph(source) {
   assert.ok(consumer.steps.some((step) => step.env?.[SHARD_DIR_ENV] === '${{ github.workspace }}/tmp/node-shards'),
     'the aggregate must observe the shard evidence directory')
   const trust = jobs['npm-test-trust-root']
-  assert.deepEqual(trust.needs, ['m17-qualification', 'bulk-qualification'],
-    'the trust root proves the complete entrypoint standalone, never through shards')
+  assert.deepEqual(trust.needs, ['m17-qualification', 'bulk-qualification', 'node-shard'],
+    'the trust root requires the same verified shards as the aggregate')
 }
 
 test('CI shards the Node suite across a duration-balanced matrix with a fail-closed aggregate', () => {
@@ -170,8 +172,12 @@ test('shard envelope admits the exact partition and rejects stale, foreign or pa
   }
 })
 
-test('shard loader passes through locally and verifies same-run envelopes in aggregate mode', () => {
-  const files = discoverTestFiles().slice(0, 12)
+test('shard loader dry-run aggregates the entire discovered Node inventory exactly once', (t) => {
+  // Synthetic envelopes exercise aggregation, not test execution. Real CI
+  // additionally verifies every assertion and the M17/bulk execution proofs.
+  const discovered = discoverTestFiles()
+  const companionFiles = [M17_FILE, ...BULK_FILES]
+  const files = discovered.filter(file => !companionFiles.includes(file))
   assert.deepEqual(loadNodeShardReports(files, REPO_ROOT, {}), { local: files, reports: [] })
   const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: REPO_ROOT, encoding: 'utf8' }).trim()
   const env = { GITHUB_ACTIONS: 'true', GITHUB_REPOSITORY: 'rhanka/h2a', GITHUB_WORKFLOW: 'ci',
@@ -190,6 +196,12 @@ test('shard loader passes through locally and verifies same-run envelopes in agg
     assert.equal(loaded.reports.length, SHARD_COUNT)
     assert.deepEqual(loaded.reports.flatMap((report) => report.testResults.map((row) => row.name)).sort(),
       files.map((file) => resolve(REPO_ROOT, file)).sort())
+    const combined = [...loaded.reports.flatMap(report => report.testResults.map(row => row.name)),
+      ...companionFiles.map(file => resolve(REPO_ROOT, file))]
+    assert.deepEqual(combined.sort(), discovered.map(file => resolve(REPO_ROOT, file)).sort())
+    assert.equal(new Set(combined).size, discovered.length)
+    t.diagnostic(`dry-run: ${expected.map(shard => shard.files.length).join(' + ')} shard files + ` +
+      `${companionFiles.length} M17/bulk files = ${discovered.length} discovered Node files, exactly once`)
     rmSync(join(dir, 'node-shard-0.json'))
     assert.throws(() => loadNodeShardReports(files, REPO_ROOT, { ...env, [SHARD_DIR_ENV]: dir }), /node-shard-0\.json/)
   } finally {
