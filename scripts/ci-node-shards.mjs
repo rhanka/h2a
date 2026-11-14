@@ -112,8 +112,8 @@ export function verifyShardEnvelope(envelope, expected) {
 }
 
 /**
- * Aggregate side. Without SHARD_DIR_ENV every file runs locally (trust-root,
- * maintainer boxes). With it, all local files must arrive as verified shard
+ * Aggregate side. Without SHARD_DIR_ENV every file runs locally (maintainer
+ * boxes). With it, all local files must arrive as verified shard
  * envelopes; nothing runs locally. Missing, malformed, stale or partial shard
  * evidence throws: the consumer fails instead of passing over a hole.
  */

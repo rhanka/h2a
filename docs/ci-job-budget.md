@@ -165,6 +165,32 @@ walls in `scripts/ci-node-shard-durations.json`) on their own runners and seal
 same-run evidence envelopes. `build-and-test` requires all shards (fails when
 any shard fails or its artifact is missing), imports the envelopes, and proves
 exactly-once coverage over the merged reports with the unchanged inventory
-verifier. `npm-test-trust-root` still executes the complete entrypoint
-standalone. Required check names are unchanged; no branch-protection change is
+verifier. `npm-test-trust-root` also imports these envelopes as described below.
+Required check names are unchanged; no branch-protection change is
 required. Shard jobs carry a 20-minute budget against ~5-minute expected wall.
+
+## Trust-root shard consumption (2026-11-12)
+
+The trust root's sequential Node repeat reached the unchanged 1260-second
+`tests` cap after 444 completed files (494 discovered); the other five gates
+passed. It now requires the existing Node shard matrix and downloads all four
+Node 22 envelopes from this workflow run, just as `build-and-test` does.
+Failed/cancelled producers, missing artifacts and invalid proof provenance
+remain fatal. No gate, file, assertion or timeout is removed or relaxed.
+
+Its distinct guarantee remains the direct `node --test` wiring/runner guard,
+excluded from production discovery, followed by `node scripts/run-test-gates.mjs`
+without package.json indirection. All six production gates still execute on
+the trust root's checkout. The build, readiness checks, Track, AgentStats,
+Focus, four identity-lane files and runtime suites remain local; only Node
+execution evidence is shared. The importer requires a clean tracked checkout
+and binds the actual SHA, workflow/run, Node version and source hashes.
+The merged report must prove the complete discovered Node/Track inventory
+exactly once, including the unchanged M17/bulk companion proofs and cleanse
+contract checks. The scope summary still counts the current filesystem;
+no count is hard-coded or obtained by blindly summing shard totals.
+
+This proves execution across same-run pristine checkouts, not a second Node
+campaign on the trust-root machine. Local `npm test`, with no shard directory
+configured, continues executing the complete suite. The tests step retains
+its 21-minute backstop and the job its 35-minute budget.

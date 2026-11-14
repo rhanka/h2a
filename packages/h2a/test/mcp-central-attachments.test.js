@@ -624,7 +624,7 @@ test("a lost mutation reply is outcome_unknown and is never replayed during reco
 test("SIGTERM of the real central leaves host stdio open and resumes the same binding", { timeout: 30_000 }, async () => {
   const f = fixture();
   const children = [];
-  let channel;
+  let channel, restartedIdentity;
   let stderr = "";
   try {
     const url = await endpoint();
@@ -650,8 +650,18 @@ test("SIGTERM of the real central leaves host stdio open and resumes the same bi
     first.kill("SIGTERM");
     await once(first, "exit");
     assert.equal(shim.exitCode, null, "host stdio remains live after central SIGTERM");
-    await start();
+    // The live shim owns recovery. A second explicit serve races its startup
+    // reservation once the first recovery backoff expires under load.
     const after = await ready(channel);
+    const publication = JSON.parse(readFileSync(join(f.runtimeBase, "h2a-mcp-central", "marker.json"), "utf8"));
+    restartedIdentity = publication.processIdentity;
+    assert.notEqual(publication.pid, first.pid);
+    const reservationPath = join(publication.stateDirectory, "startup-reservation.json");
+    assert.ok(existsSync(reservationPath), "the shim must own the only restart through a startup reservation");
+    const reservation = JSON.parse(readFileSync(reservationPath, "utf8"));
+    assert.equal(reservation.starterIdentity.pid, shim.pid);
+    assert.equal(reservation.candidateIdentity.pid, publication.pid);
+    assert.equal(reservation.state, "READY");
     assert.equal(after.instance, before.instance);
     assert.equal(bindings(f.root).length, 1);
     const configDir = join(f.env.REMOTE_CLI_CONFIG_HOME, ".config", "sentropic", "h2a");
@@ -668,7 +678,8 @@ test("SIGTERM of the real central leaves host stdio open and resumes the same bi
   } finally {
     channel?.close();
     await Promise.all(children.map(async child => { if (child.exitCode === null && child.signalCode === null) { child.kill("SIGTERM"); await once(child, "exit"); } }));
-    f.cleanup();
+    await centralOperator("stop", { runtimeBase: f.runtimeBase });
+    await cleanupOwnedDaemon(f, restartedIdentity);
   }
 });
 
@@ -904,14 +915,14 @@ test("v1 residual configurations without --host route to stdio on missing marker
     }
 
     // 3. Renewed endpoint: live central running on real URL (R3)
-    const livePort = 47000 + (process.getuid() % 1000) + 50;
-    const liveUrl = `http://127.0.0.1:${livePort}/mcp`;
     const liveServer = await startCentralMcpServer({
       root: f.root,
       runtimeBase: f.runtimeBase,
-      env: { ...f.env, H2A_MCP_CENTRAL_ENDPOINT: liveUrl }
+      env: f.env
     });
     try {
+      assert.equal(JSON.parse(readFileSync(liveServer.markerPath, "utf8")).endpointMode, "discovered",
+        "the fixture must bind an OS-assigned port, independent of other test processes");
       // 3a. v1 connector WITHOUT --host with inherited Claude ID and live central must stay in stdio (R3)
       const v1WithoutHost = startConnect(
         ["--endpoint", "http://127.0.0.1:49999/mcp", "--runtime-base", f.runtimeBase],
