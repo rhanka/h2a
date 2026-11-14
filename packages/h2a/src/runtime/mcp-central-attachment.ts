@@ -103,7 +103,8 @@ export function openCentralAttachment(
       void Promise.all(deliveries).then(() => done(), done);
     } catch (error) { done(error as Error); }
   } });
-  const daemonEnvironment = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
+  const baseEnv = attachmentOptions?.env ?? process.env;
+  const daemonEnvironment = Object.fromEntries(Object.entries(baseEnv).filter(([key]) =>
     !(CENTRAL_ATTACHMENT_ENV as readonly string[]).includes(key) &&
     !key.startsWith("H2A_NATIVE_") && !key.startsWith("H2A_MCP_READY_")
   ));

@@ -31,7 +31,10 @@ test("default packaged hooks omit the workspace scope guard and retain the manua
   }]);
 });
 
+const SHIM_ARG = "${CLAUDE_PLUGIN_ROOT}/scripts/h2a-bridge-shim.mjs";
+
 const CLAUDE_ARGS = [
+  SHIM_ARG,
   "registry-bridge",
   "serve",
   "--host",
@@ -71,7 +74,7 @@ test("the published h2a package declares the registry bridge in its shipped plug
   assert.equal(manifest.mcpServers, "./.codex-plugin/registry.mcp.json");
   assert.equal(claudeManifest.mcpServers, "./.claude-plugin/registry.mcp.json");
 
-  assert.deepEqual(claudeAsset.mcpServers.h2a, { command: "h2a", args: CLAUDE_ARGS });
+  assert.deepEqual(claudeAsset.mcpServers.h2a, { command: "node", args: CLAUDE_ARGS });
   assert.deepEqual(Object.keys(claudeAsset.mcpServers), ["h2a"]);
   assert.deepEqual(codexAsset.mcpServers.h2a, { command: "h2a", args: CODEX_ARGS });
   assert.deepEqual(Object.keys(codexAsset.mcpServers), ["h2a"]);
