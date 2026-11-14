@@ -2,9 +2,22 @@ import { sveltekit } from '@sveltejs/kit/vite';
 import adapter from '@sveltejs/adapter-node';
 import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 import { defineConfig } from 'vite';
+import { readFileSync } from 'node:fs';
 
 export default defineConfig({
-  plugins: [sveltekit({
+  plugins: [{
+    name: 'focus-svelte-renderer-comment',
+    enforce: 'pre',
+    load(id) {
+      // Reword the upstream comment at source load so generated code and source maps
+      // carry the same factual wording, without changing the installed dependency.
+      if (!id.replaceAll('\\', '/').endsWith('/node_modules/svelte/src/internal/server/renderer.js')) return;
+      return readFileSync(id, 'utf8').replace(
+        /^(\s*\* )This is not type-safe,[^\r\n]*$/m,
+        '$1This callback implementation does not provide type safety.'
+      );
+    }
+  }, sveltekit({
     // A real server is required for the /api/actions/launch POST endpoint.
     adapter: adapter(),
     alias: { '$lib': 'src/lib' },

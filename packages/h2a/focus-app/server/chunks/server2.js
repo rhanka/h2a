@@ -558,7 +558,7 @@ var RenderResult = class {
 		return this.#hashes;
 	}
 	/**
-	* This is not type-safe, but honestly it's the best I can do right now, and it's a straightforward function.
+	* This callback implementation does not provide type safety.
 	*
 	* @template TResult1
 	* @template [TResult2=never]

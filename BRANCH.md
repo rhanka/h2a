@@ -3142,3 +3142,5 @@ scope stays pre-SG-R15.
 - No Track writes, installed-host access, full local suite, attribution trailer, or merge.
 - Privacy requirement additionally covers the existing local-path prose in apps/focus/src/lib/server/agent-memory-dossier.ts and example comments in apps/focus/src/lib/server/h2a-bus.ts, so rebuilt bundles do not republish those paths. No runtime lookup changes.
 - The same prose-only privacy cleanup includes apps/focus/src/lib/server/h2a-target.js, whose comments are embedded in the generated source map.
+- Round 2 extends the authorized prose cleanup to the agent-memory page and decision-injection route. A narrowly scoped Vite source loader rewords the upstream Svelte renderer comment before bundling, including source maps; executable code is unchanged.
+- Round 2 restricts both deepmerge overrides to @sveltejs/vite-plugin-svelte. Clean installations preserve the lockfiles and resolve only the patched fork under that parent.
