@@ -577,13 +577,13 @@ test("memory skill is read from the published @sentropic/engram package source p
   const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
   const fixture = memorySkillConsumer(t);
   // Swap the fabricated producer for the real dependency installed from the
-  // published 0.23.1 tarball: install-skills must resolve and read the skill
+  // published 0.28.0 tarball: install-skills must resolve and read the skill
   // from the package source, never from a copy vendored into this repo.
   rmSync(fixture.producer, { recursive: true, force: true });
   symlinkSync(join(repoRoot, "node_modules/@sentropic/engram"), fixture.producer);
   const pinned = JSON.parse(readFileSync(join(repoRoot, "packages/h2a/package.json"), "utf8")).dependencies["@sentropic/engram"];
   const producer = JSON.parse(readFileSync(join(fixture.producer, "package.json"), "utf8"));
-  assert.equal(pinned, "0.23.1");
+  assert.equal(pinned, "0.28.0");
   assert.equal(producer.name, "@sentropic/engram");
   assert.equal(producer.version, pinned);
   const raw = readFileSync(join(fixture.producer, "skills/engram-memory/SKILL.md"));
