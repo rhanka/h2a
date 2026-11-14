@@ -15,8 +15,8 @@
   "rendererVersion": "0.98.10",
   "validatorVersion": "0.6.0",
   "sources": {
-    "package.json": "693ef6ba9a5e58910f15bdbe4e3bd9799acc38977e5eaf75b90d3a8504867cfe",
-    "package-lock.json": "da7e968bcd0f6c611f84b43f785e3f4d8e52c0d43403f8f6084eaa12ac66acc1",
+    "package.json": "be9baccc4a1f0690a829db0a26c94c5fe315f048de92b21597ae0fd040b6d2ee",
+    "package-lock.json": "2c28b66d37400953562007a946c5ce8bdbf17ce576c34159d9caa65f6a32899d",
     "dossier.template.json": "adeaf8f84a5491d63a245afd5a5197aba6c188461d96c9029764b2c11c87a12c",
     "ecosystem.json": "f28ebf603131cbb0388dfb04f09db4991110af5e40c18873056aad9bd974f2df",
     "dossier.evidence.template.json": "d0871621e2f805d6ace328732ec2c701058fba3341657b3ca45508d8da368652",

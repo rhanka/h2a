@@ -32,7 +32,7 @@ export function projectName(root = repoRoot()): string {
 /**
  * The MAIN checkout behind this directory. A git worktree's `--git-common-dir` points at the primary
  * repository, so a Focus served from `…/scratchpad/dossier-fix-wt` still knows it belongs to
- * `/home/antoinefa/src/a2a-cli` — which is exactly the `workspace.path` an h2a session registers.
+ * `/workspace/repo` — which is exactly the `workspace.path` an h2a session registers.
  * This is the link that makes delivery independent of what the served directory is called.
  */
 export function mainWorktreePath(root: string): string | undefined {
@@ -111,7 +111,7 @@ export function h2aBinCandidates(root: string): string {
  *
  * There is not one bus on a machine, there are as many as there are `--root` choices, and they do not see
  * each other. This host runs two at once: the default `~/h2a-workspace/.h2a`, and the repo directory
- * itself, used as a root by a session launched with `--root /home/antoinefa/src/a2a-cli`. A live
+ * itself, used as a root by a session launched with `--root /workspace/repo`. A live
  * `claude:a2a-cli:…` exists in EACH, both working in the same checkout.
  *
  * Querying only one of them is how an injection reports success while landing in a store the recipient

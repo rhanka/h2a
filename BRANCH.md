@@ -3131,3 +3131,14 @@ scope stays pre-SG-R15.
 - [x] Targeted Docker Vitest: 66/66 passed across catalog, receipt, launch argv and vendor-sync suites.
 - [x] Skill converts max to xhigh for Claude/Codex only; Muse keeps max unchanged.
 - [ ] Rebase onto current origin/main, build, push and follow exact-head CI; never merge.
+
+# Security debt — SvelteKit and deepmerge
+
+- Branch: fix/security-debt-sveltekit-deepmerge. Owner-authorized security repair.
+- Allowed paths: apps/focus manifests and configuration; packages/h2a/focus-kit manifests and generated renderer manifest; packages/h2a/focus-app/**; scripts/focus-app-artifact-lib.mjs; scripts/deepmerge-security.test.mjs; .github/workflows/ci.yml; this note and docs/reviews/security-debt-sveltekit-deepmerge.md.
+- Fix the five requested advisories; use a pinned patched deepmerge fork only because no upstream fixed release or direct parent bump exists. Remove the obsolete cookie override.
+- Kit 3 peer/configuration migration and artifact regeneration are required by the security fix. Audit the second build tree and retain the override exploit regressions in CI.
+- RED/GREEN, package versions and review availability: docs/reviews/security-debt-sveltekit-deepmerge.md.
+- No Track writes, installed-host access, full local suite, attribution trailer, or merge.
+- Privacy requirement additionally covers the existing local-path prose in apps/focus/src/lib/server/agent-memory-dossier.ts and example comments in apps/focus/src/lib/server/h2a-bus.ts, so rebuilt bundles do not republish those paths. No runtime lookup changes.
+- The same prose-only privacy cleanup includes apps/focus/src/lib/server/h2a-target.js, whose comments are embedded in the generated source map.
