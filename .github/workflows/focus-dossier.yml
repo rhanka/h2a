@@ -39,6 +39,8 @@ jobs:
         run: node --test packages/h2a/focus-kit/test/browser.test.mjs packages/h2a/focus-kit/test/report-browser.test.mjs
       - name: H1 evidence tasks and fresh installed-package opening
         run: node --test packages/h2a/focus-kit/test/evidence-browser.test.mjs
+      - name: Bibliography and response copy through CDP 9333
+        run: node --test packages/h2a/focus-kit/test/bibliography-response-browser.test.mjs
       - name: Strict memory observation including exiting owned processes
         run: node --test packages/h2a/focus-kit/test/evidence-memory.test.mjs
       - name: Frozen H1 evidence reactivity and memory policy

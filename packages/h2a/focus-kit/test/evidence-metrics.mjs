@@ -59,8 +59,16 @@ export async function measure(root, documents, { coldRuns, taskRuns, onSample = 
           stats.memory.initialRss = ownedRss(pid); stats.memory.initialHeap = (await session.send('Runtime.getHeapUsage')).usedSize;
           for (let j = 0; j < taskRuns; j++) {
             const id = name === 'large' && j % 2 ? 'real' : 'late', c = doc.citations.find(c => c.id === id);
-            const opener = page.getByRole('region', { name: 'Pièces justificatives', exact: true }).getByRole('button', { name: c.label, exact: true }).first();
-            const t = performance.now(); await opener.click();
+            const number = doc.citations.findIndex(citation => citation.id === id) + 1;
+            const call = page.getByRole('link', { name: `Source ${number}`, exact: true }).first();
+            const anchor = await call.getAttribute('href');
+            await call.click(); await afterPaint(page);
+            assert.equal(new URL(page.url()).hash, anchor);
+            assert.equal(await page.locator(anchor).count(), 1);
+            assert.equal(await page.locator('.source-viewer').count(), 0);
+            const source = doc.sources.find(source => source.id === c.sourceId);
+            const t = performance.now();
+            await page.getByRole('button', { name: `Consulter ${source.title}`, exact: true }).click();
             const panel = page.getByRole('region', { name: 'Source consultée', exact: true });
             await panel.locator(`[data-line="${c.locator.start}"]`).waitFor({ timeout: 1500 }); await afterPaint(page);
             stats.citation.push(performance.now() - t);

@@ -36,6 +36,7 @@ export function corpus(root) {
       origin: { uri: `urn:h2a:git-corpus:${manifest.reference}:${id}:${digest(bytes)}` } });
   });
   large.citations.push({ id: 'real', sourceId: 'repository-0', label: 'Pièces du dépôt', locator: { kind: 'lines', start: 1, end: 2 } });
+  large.sections[0].citationRefs.push('real');
   const small = evidenceFixture(), doubled = evidenceFixture(40_000, 31);
   const legacy = JSON.parse(readFileSync(new URL('../dossier.template.json', import.meta.url), 'utf8'));
   return { legacy, small, large, doubled };
