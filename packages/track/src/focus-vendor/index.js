@@ -7,7 +7,7 @@
  * `@sentropic/track/read` `DecisionDossierView` + `amendmentTrace` (L2 replaced L1's local
  * `DecisionDossierViewFixture` type + mapper).
  */
-export { isEvidenceDossier } from './model.js';
+export { isEvidenceDossier, isReportDocument } from './model.js';
 export { renderTerminal } from "./render/terminal.js";
 export { renderMd } from "./render/md.js";
 export { renderHtml } from "./render/html.js";

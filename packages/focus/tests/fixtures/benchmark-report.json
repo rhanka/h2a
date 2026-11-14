@@ -1,0 +1,174 @@
+{
+  "kind": "report",
+  "schemaVersion": 2,
+  "ref": "report:benchmark",
+  "subject": "Mesures de détection",
+  "title": "Rapport du benchmark de détection",
+  "hash": "fixture:benchmark",
+  "cursor": "fixture",
+  "sections": [
+    {
+      "kind": "prose",
+      "id": "summary",
+      "targetRef": "summary",
+      "markdown": "En bref : les mesures décrivent la détection observée sur le corpus.",
+      "citationRefs": [
+        "results"
+      ]
+    },
+    {
+      "kind": "prose",
+      "id": "table",
+      "targetRef": "table",
+      "markdown": "## Mesures\n\n| Mesure | Observation |\n| --- | --- |\n| Détection | Stable |\n| Contrôle | Reproductible |",
+      "citationRefs": [
+        "results"
+      ]
+    }
+  ],
+  "interactions": [],
+  "provenance": {
+    "source": "urn:fixture:benchmark",
+    "readAt": "2026-11-13T00:00:00Z"
+  },
+  "amendmentTrace": [],
+  "readability": {
+    "ownerRequestQuote": "Présenter le benchmark de détection sans question ni recommandation.",
+    "stakes": "Comprendre les observations et retrouver les pièces qui permettent de vérifier les mesures.",
+    "stakesLevel": "low",
+    "readingBudgetMinutes": 2,
+    "glossary": [
+      {
+        "term": "Corpus",
+        "definition": "Ensemble des exemples utilisés pour mesurer la détection."
+      }
+    ]
+  },
+  "sources": [
+    {
+      "id": "measurements",
+      "title": "Mesures du corpus",
+      "origin": {
+        "uri": "urn:fixture:benchmark:measurements"
+      },
+      "mediaType": "text/plain",
+      "encoding": "base64",
+      "data": "TWVzdXJlLE9ic2VydmF0aW9uCkTDqXRlY3Rpb24sU3RhYmxlCkNvbnRyw7RsZSxSZXByb2R1Y3RpYmxlCg==",
+      "sha256": "7da0e126fe36586ea9e6259030830d30f5b8b92888c4a7de5c60183bdccdf44b",
+      "size": 61
+    },
+    {
+      "id": "chart-clair",
+      "title": "Emplacement du graphique clair",
+      "origin": {
+        "uri": "urn:fixture:benchmark:clair"
+      },
+      "mediaType": "image/png",
+      "encoding": "base64",
+      "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aPioAAAAASUVORK5CYII=",
+      "sha256": "f4b555ad4009f54a1a37dc29e7ccf9f8f4cfe22410ba7769061c0328cdb6db67",
+      "size": 68,
+      "width": 1,
+      "height": 1,
+      "alt": "Emplacement du graphique clair"
+    },
+    {
+      "id": "chart-sombre",
+      "title": "Emplacement du graphique sombre",
+      "origin": {
+        "uri": "urn:fixture:benchmark:sombre"
+      },
+      "mediaType": "image/png",
+      "encoding": "base64",
+      "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aPioAAAAASUVORK5CYII=",
+      "sha256": "f4b555ad4009f54a1a37dc29e7ccf9f8f4cfe22410ba7769061c0328cdb6db67",
+      "size": 68,
+      "width": 1,
+      "height": 1,
+      "alt": "Emplacement du graphique sombre"
+    }
+  ],
+  "citations": [
+    {
+      "id": "results",
+      "sourceId": "measurements",
+      "label": "Résultats mesurés",
+      "locator": {
+        "kind": "lines",
+        "start": 1,
+        "end": 3
+      }
+    },
+    {
+      "id": "cite-clair",
+      "sourceId": "chart-clair",
+      "label": "Graphique clair",
+      "locator": {
+        "kind": "image",
+        "caption": "Emplacement du graphique clair"
+      }
+    },
+    {
+      "id": "cite-sombre",
+      "sourceId": "chart-sombre",
+      "label": "Graphique sombre",
+      "locator": {
+        "kind": "image",
+        "caption": "Emplacement du graphique sombre"
+      }
+    }
+  ],
+  "evidenceGroups": [
+    {
+      "id": "charts",
+      "summary": "En bref : les graphiques illustrent les observations du corpus.",
+      "sourceRefs": [
+        "chart-clair",
+        "chart-sombre"
+      ],
+      "citationRefs": [
+        "cite-clair",
+        "cite-sombre"
+      ]
+    }
+  ],
+  "annexes": [
+    {
+      "id": "method",
+      "title": "Annexe de méthode",
+      "summary": "En bref : le protocole conserve les observations pour permettre leur vérification.",
+      "blocks": [
+        {
+          "kind": "text",
+          "text": "En bref : chaque mesure provient du même corpus de référence."
+        },
+        {
+          "kind": "table",
+          "columns": [
+            "Mesure",
+            "Observation"
+          ],
+          "rows": [
+            [
+              "Détection",
+              "Stable"
+            ],
+            [
+              "Contrôle",
+              "Reproductible"
+            ]
+          ]
+        },
+        {
+          "kind": "references",
+          "citationRefs": [
+            "results"
+          ]
+        }
+      ],
+      "backRefs": [
+        "summary"
+      ]
+    }
+  ]
+}

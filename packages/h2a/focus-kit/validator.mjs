@@ -24,7 +24,13 @@ SOFTWARE.
 */
 
 // packages/focus/src/model.ts
+var isReportDocument = (doc) => "kind" in doc && doc.kind === "report";
 var isEvidenceDossier = (doc) => "schemaVersion" in doc && doc.schemaVersion === 2;
+
+// packages/focus/src/render/markdown-table.ts
+function splitMarkdownTableCells(line) {
+  return line.trim().replace(/^\|/, "").replace(/\|$/, "").split(/(?<!\\)\|/).map((cell) => cell.trim().replace(/\\\|/g, "|"));
+}
 
 // packages/focus/src/validation/readability.ts
 var READABILITY_BUDGETS = { low: 2, medium: 8, high: 30 };
@@ -68,7 +74,8 @@ var wordsOf = (text2) => String(text2 ?? "").trim().split(/\s+/).filter(Boolean)
 var sentencesOf = (text2) => String(text2 ?? "").trim().split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter(Boolean);
 var stripHtmlAndLinks = (text2) => text2.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ").replace(/<[^>]+>/g, " ").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
 var validateDecisionDossierReadability = (doc, options) => {
-  const strict = (options?.profile ?? (doc.ref === "decision:s1-hello" && doc.hash.startsWith("draft:s1-hello-") ? "legacy" : "strict")) === "strict";
+  const report = isReportDocument(doc);
+  const strict = report || (options?.profile ?? (doc.ref === "decision:s1-hello" && doc.hash.startsWith("draft:s1-hello-") ? "legacy" : "strict")) === "strict";
   const issues = [];
   const refuse = (path, code, message) => {
     issues.push({ path, code, message });
@@ -194,8 +201,11 @@ var validateDecisionDossierReadability = (doc, options) => {
   checkSteps(doc.amendmentTrace, "$.amendmentTrace");
   doc.interactions.forEach((action, i) => visible(action.label, `$.interactions[${i}].label`));
   const questions = doc.sections.filter((s) => s.kind === "question");
+  if (report && (doc.sections[0]?.kind !== "prose" || !TAKEAWAY_RE.test(doc.sections[0].markdown.trim()))) {
+    refuse("$.sections[0]", "report_summary_first", "Start the report with an En bref : or In short: summary.");
+  }
   const questionIds = new Set(questions.map((q) => q.id));
-  if (!questions.length) refuse("$.sections", "missing_question", "A decision dossier needs an explicit question with context, options and a recommendation.");
+  if (!report && !questions.length) refuse("$.sections", "missing_question", "A decision dossier needs an explicit question with context, options and a recommendation.");
   const checkQuestionRef = (questionId, path, required) => {
     if (blank(questionId)) {
       if (required) refuse(path, "hidden_decision", "This content implies a choice without an explicit question: set questionId to the question the owner must answer.");
@@ -419,7 +429,7 @@ var validateDecisionDossierReadability = (doc, options) => {
   }
   function checkMarkdownProse(markdown, path) {
     if (!strict || !markdown) return;
-    const cleanedDoc = stripHtmlAndLinks(markdown);
+    const cleanedDoc = report ? markdown : stripHtmlAndLinks(markdown);
     const rawLines = cleanedDoc.split(/\r?\n/);
     const blocks = [];
     let currentParagraph = [];
@@ -472,7 +482,7 @@ var validateDecisionDossierReadability = (doc, options) => {
         checkProseCell(block.lines[0], path, { requireTakeaway: false, isCleaned: true });
       } else if (block.kind === "table") {
         const line = block.lines[0];
-        const cells = line.slice(1, -1).split("|").map((c) => c.trim());
+        const cells = splitMarkdownTableCells(line);
         if (cells.every((c) => /^[-:]+$/.test(c))) continue;
         for (const cell of cells) {
           checkProseCell(cell, path, { requireTakeaway: false, isCleaned: true });
@@ -1514,6 +1524,39 @@ var assertDecisionDossierForPresentation = (value, options) => {
   if (!result.ok) throw new DecisionDossierValidationError(result.issues);
   return result.value;
 };
+var REPORT_SCHEMA_ID = "urn:sentropic:focus:ReportDocument:1.0.0";
+var validateFocusDocument = (value) => {
+  if (!isRecord(value) || value.kind !== "report") return validateDecisionDossierDocument(value);
+  if (value.schemaVersion !== 2) return { ok: false, issues: [issue("$.schemaVersion", "unsupported_version", "Reports require the evidence envelope schemaVersion: 2.")] };
+  const { kind: _kind, ...base } = value;
+  const result = validateDecisionDossierDocument(base);
+  if (!result.ok) return result;
+  const issues = [];
+  result.value.sections.forEach((section, i) => {
+    if (!["prose", "diagram", "amendmentTrace"].includes(section.kind) || "questionId" in section) {
+      issues.push(issue("$.sections[" + i + "]", "report_decision_content", "Reports cannot contain questions, choices, outcomes or question references."));
+    }
+  });
+  if (result.value.interactions.length) issues.push(issue("$.interactions", "report_interactions", "Reports have no decision interactions."));
+  if (issues.length) return { ok: false, issues };
+  return { ok: true, value: { ...result.value, kind: "report" } };
+};
+var assertFocusDocument = (value) => {
+  const result = validateFocusDocument(value);
+  if (!result.ok) throw new DecisionDossierValidationError(result.issues);
+  return result.value;
+};
+var validateFocusForPresentation = (value) => {
+  const result = validateFocusDocument(value);
+  if (!result.ok) return result;
+  const issues = validateDecisionDossierReadability(result.value);
+  return issues.length ? { ok: false, issues } : result;
+};
+var assertFocusForPresentation = (value) => {
+  const result = validateFocusForPresentation(value);
+  if (!result.ok) throw new DecisionDossierValidationError(result.issues);
+  return result.value;
+};
 export {
   DOSSIER_SCHEMA_ID,
   DOSSIER_SCHEMA_VERSION,
@@ -1523,11 +1566,16 @@ export {
   DecisionDossierValidationError,
   READABILITY_BUDGETS,
   READABILITY_LIMITS,
+  REPORT_SCHEMA_ID,
   assertDecisionDossierDocument,
   assertDecisionDossierForPresentation,
+  assertFocusDocument,
+  assertFocusForPresentation,
   validateDecisionDossierDocument,
   validateDecisionDossierForPresentation,
   validateDecisionDossierReadability,
   validateDecisionDossierSemantics,
-  validateDecisionDossierStructure
+  validateDecisionDossierStructure,
+  validateFocusDocument,
+  validateFocusForPresentation
 };

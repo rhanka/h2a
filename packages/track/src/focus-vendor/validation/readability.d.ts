@@ -1,7 +1,7 @@
 /** Pure presentation gate. Schema validity alone does not make a dossier readable.
  * Semantic intent, quotation authenticity and proportional stakes still need review.
  */
-import type { DecisionDossierDocument } from "../model.js";
+import type { FocusDocument } from "../model.js";
 import type { ValidationIssue } from "./index.js";
 export type ReadabilityProfile = "strict" | "legacy";
 export interface ReadabilityOptions {
@@ -36,4 +36,4 @@ export declare const READABILITY_LIMITS: {
     readonly maxCompletionCriterionLength: 160;
 };
 /** Check a structurally valid document; use ForPresentation for untrusted input. */
-export declare const validateDecisionDossierReadability: (doc: DecisionDossierDocument, options?: ReadabilityOptions) => ValidationIssue[];
+export declare const validateDecisionDossierReadability: (doc: FocusDocument, options?: ReadabilityOptions) => ValidationIssue[];

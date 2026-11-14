@@ -42,7 +42,8 @@
       "import": "./dist/registry/definitions.js"
     },
     "./schemas/decision-dossier-document.v1": "./schemas/decision-dossier-document.v1.schema.json",
-    "./schemas/decision-dossier-document.v2": "./schemas/decision-dossier-document.v2.schema.json"
+    "./schemas/decision-dossier-document.v2": "./schemas/decision-dossier-document.v2.schema.json",
+    "./schemas/report-document.v1": "./schemas/report-document.v1.schema.json"
   },
   "files": [
     "dist",

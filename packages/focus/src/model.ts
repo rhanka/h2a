@@ -3,8 +3,8 @@
  *
  * Per SPEC_VOL_FOCUS §3: a Focus is a renderable + interactive document over track data.
  * This file models the `DecisionDossierDocument` — the FIRST focus TYPE (a FocusDocument
- * whose primary outcome modality is a decision). It is intentionally CONCRETE, not a generic
- * "Focus platform": the model stays decision-dossier-shaped until a 2nd modality is real.
+ * whose primary outcome modality is a decision). ReportDocument reuses the evidence envelope
+ * for explicitly informational reports, without decision nodes or interactions.
  *
  * This is the read-only FocusSnapshot split: affordances render as DISABLED metadata only
  * (no live commands). Live drivers (FocusLiveSession) are deferred (L3+).
@@ -320,5 +320,12 @@ export interface DecisionDossierDocumentV2 extends DecisionDossierDocumentV1 {
   readonly annexes: readonly EvidenceAnnex[];
 }
 export type DecisionDossierDocument = DecisionDossierDocumentV1 | DecisionDossierDocumentV2;
-export const isEvidenceDossier = (doc: DecisionDossierDocument): doc is DecisionDossierDocumentV2 =>
+/** Explicit informational document; decision nodes and interactions are refused at validation. */
+export interface ReportDocument extends DecisionDossierDocumentV2 {
+  readonly kind: 'report';
+}
+export type FocusDocument = DecisionDossierDocument | ReportDocument;
+export const isReportDocument = (doc: FocusDocument): doc is ReportDocument =>
+  'kind' in doc && doc.kind === 'report';
+export const isEvidenceDossier = (doc: FocusDocument): doc is DecisionDossierDocumentV2 | ReportDocument =>
   'schemaVersion' in doc && doc.schemaVersion === 2;

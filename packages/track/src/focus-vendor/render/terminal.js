@@ -1,7 +1,7 @@
 /**
  * Terminal renderer (Focus-M1 L1).
  *
- * Renders a `DecisionDossierDocument` to a plain-text terminal string. Read-only FocusSnapshot:
+ * Renders a `FocusDocument` to a plain-text terminal string. Read-only FocusSnapshot:
  * affordances appear as disabled metadata; diagrams fall back to text (no diagram adapter);
  * markdown prose is emitted as-is (terminal has no markdown engine).
  *
@@ -9,7 +9,7 @@
  * this stays a pure string builder with no ANSI/color side effects.
  */
 import { preparePresentation } from "./presentation.js";
-import { evidenceIndex } from './evidence.js';
+import { evidenceIndex, reportAnnexes } from './evidence.js';
 const collapseLines = (value) => value.replace(/[\r\n\u2028\u2029]+/g, " ");
 const renderInputsAndCriterion = (inputs, completionCriterion) => {
     const lines = [];
@@ -107,6 +107,8 @@ export const renderTerminal = (doc, opts = {}) => {
     blocks.push(renderAmendmentTrace(doc.amendmentTrace));
     if (evidenceIndex(doc))
         blocks.push(evidenceIndex(doc));
+    if (reportAnnexes(doc, 'terminal'))
+        blocks.push(reportAnnexes(doc, 'terminal'));
     const affordances = renderAffordances(doc.interactions);
     if (affordances !== "")
         blocks.push(affordances);
